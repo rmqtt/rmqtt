@@ -122,7 +122,7 @@ listener.tcp.internal.max_subscriptions = 0
 ##--------------------------------------------------------------------
 ## MQTT/TLS - External TLS Listener for MQTT Protocol
 listener.tls.external.addr = "0.0.0.0:8883"
-listener.tls.external.cert = "./rmqtt.pem"
-listener.tls.external.key = "./rmqtt.key"
+listener.tls.external.cert = "./rmqtt-bin/rmqtt.pem"
+listener.tls.external.key = "./rmqtt-bin/rmqtt.key"
 
 
