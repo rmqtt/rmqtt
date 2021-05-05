@@ -3,6 +3,8 @@ Cargo.lock
 */.idea/
 */Cargo.lock
 */target/
+*/*.iml
 */*/.idea/
 */*/target/
 */*/Cargo.lock
+*/*/*.iml
