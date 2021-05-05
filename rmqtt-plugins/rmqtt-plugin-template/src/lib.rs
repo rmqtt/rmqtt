@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use rmqtt::{
-    broker::hook::{Handler, Parameter, Results, ReturnType, Type},
+    broker::hook::{Handler, Parameter, Results, ReturnType},
     plugin::Plugin,
     Result, Runtime,
 };
@@ -39,10 +39,9 @@ impl Plugin for Template {
     async fn init(&mut self) -> Result<()> {
         log::info!("{} init", self.name);
 
-        let mut register = Runtime::instance().extends.hook_mgr().await.register();
-        register.add(Type::SessionCreated, Box::new(HookHandler{}));
-        register.add(Type::ClientConnect, Box::new(HookHandler{}));
-
+        let mut _register = Runtime::instance().extends.hook_mgr().await.register();
+        //register.add(hook::Type::SessionCreated, Box::new(HookHandler{}));
+        //register.add(hook::Type::ClientConnect, Box::new(HookHandler{}));
 
         Ok(())
     }
