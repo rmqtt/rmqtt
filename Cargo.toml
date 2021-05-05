@@ -6,4 +6,5 @@ members = [
   "rmqtt-bin",
 ]
 
-
+[patch.crates-io]
+rmqtt = { path = "rmqtt" }
