@@ -1,0 +1,43 @@
+[package]
+name = "rmqttd"
+version = "0.1.0"
+authors = ["rmqtt <rmqttd@126.com>"]
+edition = "2018"
+build = "build.rs"
+
+[[bin]]
+name = "rmqttd"
+path = "src/server.rs"
+
+[profile.dev]
+opt-level = 0
+
+[profile.release]
+opt-level = 3
+
+[dependencies]
+futures = "0.3.13"
+ntex = { version = "0.3", features = ["rustls"] }
+ntex-mqtt = { git = "https://github.com/rmqtt-rs/ntex-mqtt", version = "0.6.8"}
+rustls = "0.19"
+tokio = { version = "1.4" , default-features=false}
+anyhow = "1"
+log = "0.4"
+serde = { version = "1.0.104", features = ["derive"] }
+serde_json = "1.0.48"
+warp = "0.3"
+
+#rmqtt = { path = "../rmqtt" }
+rmqtt = { git = "https://github.com/rmqtt-rs/rmqtt.git", tag = "v0.1.0"}
+#plugins
+rmqtt-plugin-template = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.1"}
+rmqtt-plugin-helloworld = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.1"}
+
+[package.metadata.plugins]
+rmqtt-plugin-template = { default_startup = true }
+rmqtt-plugin-helloworld = {}
+
+[build-dependencies]
+toml = "0.5"
+chrono = "0.4.15"
+
