@@ -431,6 +431,9 @@ impl SessionState {
         //send message
         self.sink.publish(publish.clone())?;
 
+        //hook, message_deliver
+        self.hook.message_deliver(from.clone(), &publish).await;
+
         //cache messages to inflight window
         let moment_status = match publish.qos() {
             QoS::AtLeastOnce => Some(MomentStatus::UnAck),
@@ -438,15 +441,10 @@ impl SessionState {
             _ => None,
         };
         if let Some(moment_status) = moment_status {
-            self.inflight_win.write().push_back(InflightMessage::new(
-                moment_status,
-                from.clone(),
-                publish.clone(),
-            ));
+            self.inflight_win
+                .write()
+                .push_back(InflightMessage::new(moment_status, from, publish));
         }
-
-        //hook, message_deliver
-        self.hook.message_deliver(from, publish).await;
 
         Ok(())
     }
@@ -967,10 +965,10 @@ impl Connection {
         self.disconnected_reason.read().clone()
     }
 
-    #[inline]
-    pub fn take_disconnected_reason(&self) -> Option<Reason> {
-        self.disconnected_reason.write().take()
-    }
+    // #[inline]
+    // pub fn take_disconnected_reason(&self) -> Option<Reason> {
+    //     self.disconnected_reason.write().take()
+    // }
 
     #[inline]
     pub fn has_disconnected_reason(&self) -> bool {
