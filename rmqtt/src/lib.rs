@@ -9,7 +9,7 @@ pub use crate::broker::error::MqttError;
 pub use crate::broker::session::{Connection, Session, SessionState};
 pub use crate::broker::types::*;
 pub use crate::runtime::Runtime;
-pub type Result<T> = anyhow::Result<T, MqttError>;
+pub type Result<T, E = MqttError> = anyhow::Result<T, E>;
 
 pub mod broker;
 pub mod extend;
