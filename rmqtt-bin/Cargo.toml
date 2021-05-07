@@ -1,6 +1,6 @@
 [package]
 name = "rmqttd"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["rmqtt <rmqttd@126.com>"]
 edition = "2018"
 build = "build.rs"
@@ -28,10 +28,13 @@ serde_json = "1.0.48"
 warp = "0.3"
 
 #rmqtt = { path = "../rmqtt" }
-rmqtt = { git = "https://github.com/rmqtt-rs/rmqtt.git", tag = "v0.1.0"}
+rmqtt = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.1"}
 #plugins
+#rmqtt-plugin-template = { path = "../rmqtt-plugins/rmqtt-plugin-template"}
 rmqtt-plugin-template = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.1"}
+#rmqtt-plugin-helloworld = { path = "../rmqtt-plugins/rmqtt-plugin-helloworld"}
 rmqtt-plugin-helloworld = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.1"}
+
 
 [package.metadata.plugins]
 rmqtt-plugin-template = { default_startup = true }
