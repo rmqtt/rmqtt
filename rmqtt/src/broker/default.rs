@@ -10,7 +10,10 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::{Mutex, OwnedMutexGuard};
 use tokio::time::Duration;
+use uuid::Uuid;
+type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
 type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
+type LinkedMap<K, V> = linked_hash_map::LinkedHashMap<K, V, ahash::RandomState>;
 
 use ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 use ntex_mqtt::v3::codec::SubscribeReturnCode as SubscribeReturnCodeV3;
@@ -21,7 +24,8 @@ use super::{
 };
 use crate::broker::fitter::{Fitter, FitterManager};
 use crate::broker::hook::{
-    Deny, Disconnect, Exit, Handler, Hook, HookManager, MessageExpiry, Register, Type,
+    BadUsernameOrPassword, Deny, Disconnect, Exit, Handler, Hook, HookManager, HookResult,
+    MessageExpiry, NotAuthorized, Parameter, Register, Results, Type,
 };
 use crate::broker::session::{Connection, Session};
 use crate::broker::types::*;
@@ -650,13 +654,141 @@ impl Fitter for DefaultFitter {
     }
 }
 
-pub struct DefaultHookManager {}
+struct HookEntry {
+    handler: Box<dyn Handler>,
+    enabled: bool,
+}
+
+impl HookEntry {
+    fn new(handler: Box<dyn Handler>) -> Self {
+        Self {
+            handler,
+            enabled: false,
+        }
+    }
+}
+
+type HandlerId = String;
+
+//#[derive(Clone)]
+pub struct DefaultHookManager {
+    handlers: Arc<DashMap<Type, LinkedMap<HandlerId, HookEntry>>>,
+}
 
 impl DefaultHookManager {
     #[inline]
     pub fn instance() -> Box<dyn HookManager> {
         static INSTANCE: OnceCell<DefaultHookManager> = OnceCell::new();
-        Box::new(INSTANCE.get_or_init(|| Self {}))
+        Box::new(INSTANCE.get_or_init(|| Self {
+            handlers: Arc::new(DashMap::default()),
+        }))
+        //.clone()
+    }
+
+    #[inline]
+    fn add(&self, typ: Type, handler: Box<dyn Handler>) -> Result<HandlerId> {
+        let id = Uuid::new_v4()
+            .to_simple()
+            .encode_lower(&mut Uuid::encode_buffer())
+            .to_string();
+        let mut type_handlers = self.handlers.entry(typ).or_insert(LinkedMap::default());
+        if type_handlers.contains_key(&id) {
+            Err(Error::msg(format!(
+                "handler id is repetition, id is {}, type is {:?}",
+                id, typ
+            )))
+        } else {
+            type_handlers.insert(id.clone(), HookEntry::new(handler));
+            Ok(id)
+        }
+    }
+
+    #[inline]
+    async fn exec<'a>(&'a self, t: Type, p: Parameter<'a>) -> Results {
+        let mut results = Results::new();
+        if let Some(mut type_handlers) = self.handlers.get_mut(&t) {
+            for (_, entry) in type_handlers.iter_mut() {
+                if entry.enabled {
+                    let (proceed, results_) = entry.handler.hook(&p, results).await;
+                    if !proceed {
+                        return results_;
+                    }
+                    results = results_;
+                }
+            }
+            results
+        } else {
+            results
+        }
+    }
+
+    #[inline]
+    fn result_is_exit(&self, results: &Results) -> Exit {
+        for r in results.iter() {
+            if r == &HookResult::Exit {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[inline]
+    fn result_is_disconnect(&self, results: &Results) -> Disconnect {
+        for r in results.iter() {
+            if r == &HookResult::Disconnect {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[inline]
+    fn result_is_disconnect_or_deny(&self, results: &Results) -> (Disconnect, Deny) {
+        let mut deny = false;
+        for r in results.iter() {
+            match r {
+                HookResult::Disconnect => return (true, deny),
+                HookResult::Deny => deny = true,
+                _ => {}
+            }
+        }
+        (false, deny)
+    }
+
+    #[inline]
+    fn result_is_auth_failed(&self, results: &Results) -> (BadUsernameOrPassword, NotAuthorized) {
+        for r in results.iter() {
+            match r {
+                HookResult::BadUsernameOrPassword => return (true, false),
+                HookResult::NotAuthorized => return (false, true),
+                _ => {}
+            }
+        }
+        (false, false)
+    }
+
+    #[inline]
+    fn is_message_expiry(&self, results: &Results) -> MessageExpiry {
+        for r in results.iter() {
+            if r == &HookResult::MessageExpiry {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[inline]
+    fn result_merge_subscribe_acks(
+        &self,
+        mut results: Results,
+        mut sub_ack: SubscribeAck,
+    ) -> SubscribeAck {
+        for r in results.drain(..) {
+            if let HookResult::SubscribeAck(ack) = r {
+                sub_ack.merge_from(ack);
+            }
+        }
+        sub_ack
     }
 }
 
@@ -664,39 +796,89 @@ impl DefaultHookManager {
 impl HookManager for &'static DefaultHookManager {
     #[inline]
     fn hook(&self, s: &Session, c: &Connection) -> std::rc::Rc<dyn Hook> {
-        std::rc::Rc::new(DefaultHook::new(s, c))
+        std::rc::Rc::new(DefaultHook::new(self, s, c))
     }
 
     #[inline]
     fn register(&self) -> Box<dyn Register> {
-        Box::new(DefaultHookRegister {})
+        Box::new(DefaultHookRegister::new(self))
     }
 
     #[inline]
     async fn before_startup(&self) -> Exit {
-        log::debug!("hook::before_startup, Not implemented");
-        false
+        self.result_is_exit(
+            &self
+                .exec(Type::BeforeStartup, Parameter::BeforeStartup)
+                .await,
+        )
     }
 }
 
-pub struct DefaultHookRegister {}
+pub struct DefaultHookRegister {
+    manager: &'static DefaultHookManager,
+    type_ids: Arc<DashSet<(Type, HandlerId)>>,
+}
+
+impl DefaultHookRegister {
+    #[inline]
+    fn new(manager: &'static DefaultHookManager) -> Self {
+        DefaultHookRegister {
+            manager,
+            type_ids: Arc::new(DashSet::default()),
+        }
+    }
+
+    #[inline]
+    fn adjust_status(&self, b: bool) {
+        for type_id in self.type_ids.iter() {
+            let (typ, id) = type_id.key();
+            if let Some(mut type_handlers) = self.manager.handlers.get_mut(typ) {
+                if let Some(entry) = type_handlers.get_mut(id) {
+                    if entry.enabled != b {
+                        entry.enabled = b;
+                    }
+                }
+            }
+        }
+    }
+}
 
 impl Register for DefaultHookRegister {
-    fn add(&mut self, typ: Type, _handler: Box<dyn Handler>) {
-        log::warn!("register, unimplemented! type: {:?}", typ);
+    #[inline]
+    fn add(&self, typ: Type, handler: Box<dyn Handler>) {
+        match self.manager.add(typ, handler) {
+            Ok(id) => {
+                self.type_ids.insert((typ, id));
+            }
+            Err(e) => {
+                log::error!("Hook add handler fail, {:?}", e);
+            }
+        }
+    }
+
+    #[inline]
+    fn suspend(&self) {
+        self.adjust_status(false);
+    }
+
+    #[inline]
+    fn resume(&self) {
+        self.adjust_status(true);
     }
 }
 
 #[derive(Clone)]
 pub struct DefaultHook {
+    manager: &'static DefaultHookManager,
     s: Session,
     c: Connection,
 }
 
 impl DefaultHook {
     #[inline]
-    pub fn new(s: &Session, c: &Connection) -> Self {
+    pub fn new(manager: &'static DefaultHookManager, s: &Session, c: &Connection) -> Self {
         Self {
+            manager,
             s: s.clone(),
             c: c.clone(),
         }
@@ -707,73 +889,137 @@ impl DefaultHook {
 impl Hook for DefaultHook {
     #[inline]
     async fn session_created(&self) -> Disconnect {
-        log::debug!("{:?} hook::session_created, Not implemented", self.c.id);
-        false
+        self.manager.result_is_disconnect(
+            &self
+                .manager
+                .exec(
+                    Type::SessionCreated,
+                    Parameter::SessionCreated(&self.s, &self.c),
+                )
+                .await,
+        )
     }
 
     #[inline]
     async fn client_connack(&self, return_code: ConnectAckReason) {
-        log::debug!(
-            "{:?} hook::client_connack, Not implemented, return_code: {:?}",
-            self.c.id,
-            return_code
-        );
+        let _ = self
+            .manager
+            .exec(
+                Type::ClientConnack,
+                Parameter::ClientConnack(&self.s, &self.c, return_code),
+            )
+            .await;
     }
 
     #[inline]
     async fn client_connect(&self) -> Disconnect {
-        log::debug!("{:?} hook::client_connect, Not implemented", self.c.id);
-        false
+        self.manager.result_is_disconnect(
+            &self
+                .manager
+                .exec(
+                    Type::ClientConnect,
+                    Parameter::ClientConnect(&self.s, &self.c),
+                )
+                .await,
+        )
     }
 
     #[inline]
-    async fn client_authenticate(&self, _password: Option<Password>) -> ConnectAckReason {
-        if !self.s.listen_cfg.allow_anonymous {
-            log::debug!("{:?} hook::client_authenticate, Not implemented", self.c.id);
-        }
-        match self.c.protocol.level() {
+    async fn client_authenticate(&self, password: Option<Password>) -> ConnectAckReason {
+        let ok = || match self.c.protocol.level() {
             MQTT_LEVEL_31 => ConnectAckReason::V3(ConnectAckReasonV3::ConnectionAccepted),
             MQTT_LEVEL_311 => ConnectAckReason::V3(ConnectAckReasonV3::ConnectionAccepted),
             MQTT_LEVEL_5 => ConnectAckReason::V5(ConnectAckReasonV5::Success),
             _ => ConnectAckReason::V3(ConnectAckReasonV3::ConnectionAccepted),
+        };
+
+        if self.s.listen_cfg.allow_anonymous {
+            return ok();
         }
+        let results = self
+            .manager
+            .exec(
+                Type::ClientAuthenticate,
+                Parameter::ClientAuthenticate(&self.s, &self.c, password),
+            )
+            .await;
+
+        let (bad_user_or_pass, not_auth) = self.manager.result_is_auth_failed(&results);
+
+        if bad_user_or_pass {
+            return match self.c.protocol.level() {
+                MQTT_LEVEL_31 => ConnectAckReason::V3(ConnectAckReasonV3::BadUserNameOrPassword),
+                MQTT_LEVEL_311 => ConnectAckReason::V3(ConnectAckReasonV3::BadUserNameOrPassword),
+                MQTT_LEVEL_5 => ConnectAckReason::V5(ConnectAckReasonV5::BadUserNameOrPassword),
+                _ => ConnectAckReason::V3(ConnectAckReasonV3::BadUserNameOrPassword),
+            };
+        }
+
+        if not_auth {
+            return match self.c.protocol.level() {
+                MQTT_LEVEL_31 => ConnectAckReason::V3(ConnectAckReasonV3::NotAuthorized),
+                MQTT_LEVEL_311 => ConnectAckReason::V3(ConnectAckReasonV3::NotAuthorized),
+                MQTT_LEVEL_5 => ConnectAckReason::V5(ConnectAckReasonV5::NotAuthorized),
+                _ => ConnectAckReason::V3(ConnectAckReasonV3::NotAuthorized),
+            };
+        }
+
+        ok()
     }
 
     #[inline]
     async fn client_connected(&self) {
-        log::debug!("{:?} hook::client_connected, Not implemented", self.c.id);
+        let _ = self
+            .manager
+            .exec(
+                Type::ClientConnected,
+                Parameter::ClientConnected(&self.s, &self.c),
+            )
+            .await;
     }
 
     #[inline]
     async fn client_disconnected(&self, r: Reason) {
-        log::debug!(
-            "{:?} hook::client_disconnected, Not implemented, reason: {:?}",
-            self.c.id,
-            r
-        );
+        let _ = self
+            .manager
+            .exec(
+                Type::ClientDisconnected,
+                Parameter::ClientDisconnected(&self.s, &self.c, r),
+            )
+            .await;
     }
 
     #[inline]
     async fn session_terminated(&self, r: Reason) {
-        log::debug!(
-            "{:?} hook::session_terminated, Not implemented, reason: {:?}",
-            self.c.id,
-            r
-        );
+        let _ = self
+            .manager
+            .exec(
+                Type::SessionTerminated,
+                Parameter::SessionTerminated(&self.s, &self.c, r),
+            )
+            .await;
     }
 
     #[inline]
     async fn client_subscribe(&self, subscribe: &Subscribe) -> (Disconnect, Option<SubscribeAck>) {
-        log::debug!("{:?} hook::client_subscribe, Not implemented", self.c.id);
-        // (false, None)
+        let results = self
+            .manager
+            .exec(
+                Type::ClientSubscribe,
+                Parameter::ClientSubscribe(&self.s, &self.c, subscribe),
+            )
+            .await;
+
+        if self.manager.result_is_disconnect(&results) {
+            return (true, None);
+        }
+
         let max_topic_levels = self.s.listen_cfg.max_topic_levels;
         let ack = match subscribe {
             Subscribe::V3(subs) => {
                 let mut subs_ack = Vec::new();
                 for (topic_filter, qos) in subs.iter() {
-                    // ...
                     if max_topic_levels > 0 && topic_filter.levels().len() > max_topic_levels {
-                        //if max_topic_levels > 0 && topic_filter.split('/').count() > max_topic_levels {
                         log::warn!(
                             "{:?} hook::client_subscribe, violation of max_topic_levels constraint",
                             self.c.id
@@ -786,7 +1032,16 @@ impl Hook for DefaultHook {
                 SubscribeAck::V3(subs_ack)
             }
             Subscribe::V5(subs) => {
-                let reasons = Vec::new();
+                let mut reasons = Vec::new();
+                for (_, opts) in &subs.topic_filters {
+                    let r = match opts.qos {
+                        QoS::AtMostOnce => SubscribeAckReason::GrantedQos0,
+                        QoS::AtLeastOnce => SubscribeAckReason::GrantedQos1,
+                        QoS::ExactlyOnce => SubscribeAckReason::GrantedQos2,
+                    };
+                    reasons.push(r);
+                }
+
                 let subs_ack = SubscribeAckV5 {
                     packet_id: subs.packet_id,
                     properties: subs.user_properties.clone(),
@@ -796,88 +1051,122 @@ impl Hook for DefaultHook {
                 SubscribeAck::V5(subs_ack)
             }
         };
+
+        let ack = self.manager.result_merge_subscribe_acks(results, ack);
+
         (false, Some(ack))
     }
 
     #[inline]
     async fn session_subscribed(&self, subscribed: Subscribed) {
-        log::debug!(
-            "{:?} hook::session_subscribed, Not implemented, subscribed: {:?}",
-            self.c.id,
-            subscribed
-        );
+        let _ = self
+            .manager
+            .exec(
+                Type::SessionSubscribed,
+                Parameter::SessionSubscribed(&self.s, &self.c, subscribed),
+            )
+            .await;
     }
 
     #[inline]
     async fn client_unsubscribe(&self, unsubscribe: &Unsubscribe) -> Disconnect {
-        log::debug!(
-            "{:?} hook::client_unsubscribe, Not implemented, unsubscribe: {:?}",
-            self.c.id,
-            unsubscribe
-        );
-        false
+        self.manager.result_is_disconnect(
+            &self
+                .manager
+                .exec(
+                    Type::ClientUnsubscribe,
+                    Parameter::ClientUnsubscribe(&self.s, &self.c, unsubscribe),
+                )
+                .await,
+        )
     }
 
     #[inline]
     async fn session_unsubscribed(&self, unsubscribed: Unsubscribed) {
-        log::debug!(
-            "{:?} hook::session_unsubscribed, Not implemented, unsubscribed: {:?}",
-            self.c.id,
-            unsubscribed
-        );
+        let _ = self
+            .manager
+            .exec(
+                Type::SessionUnsubscribed,
+                Parameter::SessionUnsubscribed(&self.s, &self.c, unsubscribed),
+            )
+            .await;
     }
 
     #[inline]
     async fn message_publish(&self, publish: &Publish) -> (Disconnect, Deny) {
-        log::debug!(
-            "{:?} hook::message_publish, Not implemented, publish: {:?}",
-            self.c.id,
-            publish
-        );
-        let max_qos_allowed = self.s.listen_cfg.max_qos_allowed.value();
-        if publish.qos().value() > max_qos_allowed {
-            (false, true)
-        } else {
-            (false, false)
+        let results = self
+            .manager
+            .exec(
+                Type::MessagePublish,
+                Parameter::MessagePublish(&self.s, &self.c, publish),
+            )
+            .await;
+
+        match self.manager.result_is_disconnect_or_deny(&results) {
+            (true, deny) => return (true, deny),
+            (false, true) => return (false, true),
+            (false, false) => {
+                let max_qos_allowed = self.s.listen_cfg.max_qos_allowed.value();
+                if publish.qos().value() > max_qos_allowed {
+                    log::warn!(
+                        "{:?} hook::message_publish, violation of max_qos_allowed constraint",
+                        self.c.id
+                    );
+                    (false, true)
+                } else {
+                    (false, false)
+                }
+            }
         }
     }
 
     #[inline]
     async fn message_dropped(&self, to: Option<To>, from: From, publish: Publish, reason: Reason) {
-        log::info!(
-            "{:?} hook::message_dropped, Not implemented, to: {:?}, from: {:?}, publish: {:?}, reason: {:?}",
-            self.c.id, to, from, publish, reason
-        );
+        let _ = self
+            .manager
+            .exec(
+                Type::MessageDropped,
+                Parameter::MessageDropped(&self.s, &self.c, to, from, publish, reason),
+            )
+            .await;
     }
 
     #[inline]
-    async fn message_deliver(&self, from: From, publish: Publish) {
-        log::debug!(
-            "{:?} hook::message_deliver, Not implemented, from: {:?}, publish: {:?}",
-            self.c.id,
-            from,
-            publish
-        );
+    async fn message_deliver(&self, from: From, publish: &Publish) {
+        let _ = self
+            .manager
+            .exec(
+                Type::MessageDeliver,
+                Parameter::MessageDeliver(&self.s, &self.c, from, publish),
+            )
+            .await;
     }
 
     #[inline]
-    async fn message_acked(&self, from: From, publish: Publish) {
-        log::debug!(
-            "{:?} hook::message_acked, Not implemented, from: {:?}, publish: {:?}",
-            self.c.id,
-            from,
-            publish
-        );
+    async fn message_acked(&self, from: From, publish: &Publish) {
+        let _ = self
+            .manager
+            .exec(
+                Type::MessageAcked,
+                Parameter::MessageAcked(&self.s, &self.c, from, publish),
+            )
+            .await;
     }
 
     #[inline]
     async fn message_expiry_check(&self, from: From, publish: &Publish) -> MessageExpiry {
-        log::debug!(
-            "{:?} hook::message_expiry_check, Not implemented, from: {:?}, publish: {:?}",
-            self.c.id,
-            from,
-            publish
-        );
+        let results = self
+            .manager
+            .exec(
+                Type::MessageExpiryCheck,
+                Parameter::MessageExpiryCheck(&self.s, &self.c, from, publish),
+            )
+            .await;
+
+        if self.manager.is_message_expiry(&results) {
+            return true;
+        }
+
         let expiry_interval = self.s.listen_cfg.message_expiry_interval.as_millis() as i64;
         if expiry_interval == 0 {
             return false;
