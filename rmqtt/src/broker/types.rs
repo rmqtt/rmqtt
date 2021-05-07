@@ -21,10 +21,11 @@ pub use ntex_mqtt::v3::{
 pub use ntex_mqtt::v5::{
     self, codec::ConnectAckReason as ConnectAckReasonV5, codec::LastWill as LastWillV5,
     codec::Packet as PacketV5, codec::Subscribe as SubscribeV5,
-    codec::SubscribeAck as SubscribeAckV5, codec::SubscriptionOptions,
+    codec::SubscribeAck as SubscribeAckV5, codec::SubscribeAckReason, codec::SubscriptionOptions,
     codec::Unsubscribe as UnsubscribeV5, codec::UnsubscribeAck as UnsubscribeAckV5,
     codec::UserProperties, HandshakeAck as HandshakeAckV5, MqttSink as MqttSinkV5,
 };
+// use crate::v3::codec::SubscribeReturnCode;
 
 pub type NodeId = u64;
 pub type ClientId = bytestring::ByteString;
@@ -240,13 +241,103 @@ impl Subscribe {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum SubscribeAck {
     V3(Vec<SubscribeReturnCodeV3>),
     V5(SubscribeAckV5),
 }
 
-#[derive(Clone, Debug)]
+impl SubscribeAck {
+    pub fn merge_from(&mut self, merged_ack: SubscribeAck) {
+        match (self, merged_ack) {
+            (SubscribeAck::V3(codes), SubscribeAck::V3(mut merged_codes)) => {
+                if codes.len() != merged_codes.len() {
+                    log::error!("SubscribeAck merge failed, SubscribeReturnCode inconsistent length  {:?} != {:?}", codes.len(), merged_codes.len());
+                    return;
+                }
+                for (i, code) in codes.iter_mut().enumerate() {
+                    *code = Self::v3_merge(code, merged_codes.remove(i));
+                }
+            }
+            (SubscribeAck::V5(acks), SubscribeAck::V5(mut merged_acks)) => {
+                if acks.status.len() != merged_acks.status.len() {
+                    log::error!("SubscribeAck merge failed, SubscribeAckReason inconsistent length  {:?} != {:?}", acks.status.len(), merged_acks.status.len());
+                    return;
+                }
+                //reason_string
+                match (&mut acks.reason_string, merged_acks.reason_string) {
+                    (Some(reason1), Some(reason2)) => {
+                        acks.reason_string =
+                            Some(ByteString::from(format!("{}, {}", reason1, reason2)))
+                    }
+                    (None, Some(reason)) => acks.reason_string = Some(reason),
+                    (Some(_), None) => {}
+                    (None, None) => {}
+                };
+                //properties
+                for (prop_key, prop_val) in merged_acks.properties.drain(..) {
+                    acks.properties.push((prop_key, prop_val))
+                }
+                //status
+                for (i, status) in acks.status.iter_mut().enumerate() {
+                    *status = Self::v5_merge(status, merged_acks.status.remove(i));
+                }
+            }
+            _ => {
+                log::error!("SubscribeAck merge failed, the type does not match");
+                //unreachable!()
+            }
+        }
+    }
+
+    fn v3_merge(
+        code: &SubscribeReturnCodeV3,
+        merged: SubscribeReturnCodeV3,
+    ) -> SubscribeReturnCodeV3 {
+        match (code, merged) {
+            (_, SubscribeReturnCodeV3::Failure) => SubscribeReturnCodeV3::Failure,
+            (SubscribeReturnCodeV3::Failure, _) => SubscribeReturnCodeV3::Failure,
+            (SubscribeReturnCodeV3::Success(qos1), SubscribeReturnCodeV3::Success(qos2)) => {
+                SubscribeReturnCodeV3::Success(qos1.less_value(qos2))
+            }
+        }
+    }
+
+    fn v5_merge(status: &SubscribeAckReason, merged: SubscribeAckReason) -> SubscribeAckReason {
+        log::warn!("[MQTT 5] Not implemented");
+
+        if !matches!(
+            status,
+            SubscribeAckReason::GrantedQos0
+                | SubscribeAckReason::GrantedQos1
+                | SubscribeAckReason::GrantedQos2
+        ) {
+            return merged;
+        }
+
+        if !matches!(
+            merged,
+            SubscribeAckReason::GrantedQos0
+                | SubscribeAckReason::GrantedQos1
+                | SubscribeAckReason::GrantedQos2
+        ) {
+            return merged;
+        }
+
+        match (status, merged) {
+            (_, SubscribeAckReason::GrantedQos0) => SubscribeAckReason::GrantedQos0,
+            (&SubscribeAckReason::GrantedQos0, _) => SubscribeAckReason::GrantedQos0,
+            (_, SubscribeAckReason::GrantedQos1) => SubscribeAckReason::GrantedQos1,
+            (&SubscribeAckReason::GrantedQos1, _) => SubscribeAckReason::GrantedQos1,
+            (&SubscribeAckReason::GrantedQos2, SubscribeAckReason::GrantedQos2) => {
+                SubscribeAckReason::GrantedQos2
+            }
+            (_, _) => *status,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum Subscribed {
     V3((Topic, QoS)),
     V5(SubscribedV5),
