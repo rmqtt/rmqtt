@@ -23,7 +23,7 @@ pub trait HookManager: Sync + Send {
 }
 
 pub trait Register: Sync + Send {
-    fn add(&mut self, typ: Type, handler: Box<dyn Handler>);
+    fn add(&self, typ: Type, handler: Box<dyn Handler>);
 
     fn suspend(&self) {}
 
@@ -79,10 +79,10 @@ pub trait Hook: Sync + Send {
     async fn message_dropped(&self, to: Option<To>, from: From, p: Publish, reason: Reason);
 
     ///
-    async fn message_deliver(&self, from: From, publish: Publish);
+    async fn message_deliver(&self, from: From, publish: &Publish);
 
     ///
-    async fn message_acked(&self, from: From, publish: Publish);
+    async fn message_acked(&self, from: From, publish: &Publish);
 
     ///
     async fn message_expiry_check(&self, from: From, publish: &Publish) -> MessageExpiry;
@@ -90,6 +90,8 @@ pub trait Hook: Sync + Send {
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum Type {
+    BeforeStartup,
+
     SessionCreated,
     SessionTerminated,
     SessionSubscribed,
@@ -111,28 +113,37 @@ pub enum Type {
 }
 
 #[derive(Debug, Clone)]
-pub enum Parameter {
-    ClientAuthenticate(Session, Connection, Option<Password>),
-    ClientConnect(Session, Connection),
-    ClientConnack(Session, Connection, ConnectAckReason),
-    ClientConnected(Session, Connection),
-    ClientDisconnected(Session, Connection, Reason),
-    ClientSubscribe(Session, Connection, Subscribe),
-    ClientUnsubscribe(Session, Connection, Unsubscribe),
+pub enum Parameter<'a> {
+    BeforeStartup,
 
-    SessionCreated(Session, Connection),
-    SessionTerminated(Session, Connection, Reason),
-    SessionSubscribed(Session, Connection, Subscribed),
-    SessionUnsubscribed(Session, Connection, Unsubscribe),
+    ClientAuthenticate(&'a Session, &'a Connection, Option<Password>),
+    ClientConnect(&'a Session, &'a Connection),
+    ClientConnack(&'a Session, &'a Connection, ConnectAckReason),
+    ClientConnected(&'a Session, &'a Connection),
+    ClientDisconnected(&'a Session, &'a Connection, Reason),
+    ClientSubscribe(&'a Session, &'a Connection, &'a Subscribe),
+    ClientUnsubscribe(&'a Session, &'a Connection, &'a Unsubscribe),
 
-    MessagePublish(Session, Connection, Publish),
-    MessageDeliver(Session, Connection, From, Publish),
-    MessageAcked(Session, Connection, From, Publish),
-    MessageDropped(Session, Connection, Option<To>, From, Publish, Reason),
-    MessageExpiryCheck(Session, Connection, From, Publish),
+    SessionCreated(&'a Session, &'a Connection),
+    SessionTerminated(&'a Session, &'a Connection, Reason),
+    SessionSubscribed(&'a Session, &'a Connection, Subscribed),
+    SessionUnsubscribed(&'a Session, &'a Connection, Unsubscribed),
+
+    MessagePublish(&'a Session, &'a Connection, &'a Publish),
+    MessageDeliver(&'a Session, &'a Connection, From, &'a Publish),
+    MessageAcked(&'a Session, &'a Connection, From, &'a Publish),
+    MessageDropped(
+        &'a Session,
+        &'a Connection,
+        Option<To>,
+        From,
+        Publish,
+        Reason,
+    ),
+    MessageExpiryCheck(&'a Session, &'a Connection, From, &'a Publish),
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum HookResult {
     ///Exit the program
     Exit,
@@ -144,10 +155,12 @@ pub enum HookResult {
     BadUsernameOrPassword,
     ///Authentication failed
     NotAuthorized,
-    ///CheckACL, Disconnect - Indicates whether to disconnect
-    Deny(Disconnect),
-    ///CheckACL(Subscribe), QoS - Is the currently allowed quality
-    Allow(QoS),
+    ///CheckACL(Publish)
+    Deny,
+    // ///CheckACL(Subscribe), QoS - Is the currently allowed quality
+    // Allow(QoS),
     ///Message Expiry
     MessageExpiry,
+    ///Subscribe Ack
+    SubscribeAck(SubscribeAck),
 }
