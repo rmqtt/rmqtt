@@ -104,28 +104,28 @@ impl Handler for HookHandler {
     async fn hook(&mut self, param: &Parameter, results: Results) -> ReturnType {
         match param {
             Parameter::BeforeStartup => {
-                log::info!("before startup");
+                log::debug!("before startup");
             }
             Parameter::SessionCreated(_session, c) => {
-                log::info!("{:?} session created", c.id);
+                log::debug!("{:?} session created", c.id);
             }
             Parameter::ClientConnect(_session, c) => {
-                log::info!("{:?} client connect", c.id);
+                log::debug!("{:?} client connect", c.id);
             }
             Parameter::ClientConnack(_session, c, r) => {
-                log::info!("{:?} client connack, {:?}", c.id, r);
+                log::debug!("{:?} client connack, {:?}", c.id, r);
             }
             Parameter::ClientConnected(_session, c) => {
-                log::info!("{:?} client connected", c.id);
+                log::debug!("{:?} client connected", c.id);
             }
             Parameter::ClientDisconnected(_session, c, reason) => {
-                log::info!("{:?} client disconnected, reason: {}", c.id, reason);
+                log::debug!("{:?} client disconnected, reason: {}", c.id, reason);
             }
             Parameter::ClientSubscribe(_session, c, subscribe) => {
-                log::info!("{:?} client subscribe, {:?}", c.id, subscribe);
+                log::debug!("{:?} client subscribe, {:?}", c.id, subscribe);
             }
             Parameter::MessagePublish(_session, c, publish) => {
-                log::info!("{:?} message publish, {:?}", c.id, publish);
+                log::debug!("{:?} message publish, {:?}", c.id, publish);
             }
             _ => {
                 log::error!("unimplemented, {:?}", param)
