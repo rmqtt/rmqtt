@@ -76,10 +76,10 @@ impl Manager {
         self.hook_mgr.read().await
     }
 
-    #[inline]
-    pub async fn hook_mgr_mut(&self) -> RwLockWriteGuard<'_, Box<dyn HookManager>> {
-        self.hook_mgr.write().await
-    }
+    // #[inline]
+    // pub async fn hook_mgr_mut(&self) -> RwLockWriteGuard<'_, Box<dyn HookManager>> {
+    //     self.hook_mgr.write().await
+    // }
 
     #[inline]
     pub async fn limiter_mgr(&self) -> RwLockReadGuard<'_, Box<dyn LimiterManager>> {
