@@ -27,7 +27,11 @@ struct Helloworld {
 impl Helloworld {
     #[inline]
     fn new(runtime: &'static Runtime, name: String, descr: String) -> Self {
-        Self {_runtime: runtime, name, descr }
+        Self {
+            _runtime: runtime,
+            name,
+            descr,
+        }
     }
 }
 
