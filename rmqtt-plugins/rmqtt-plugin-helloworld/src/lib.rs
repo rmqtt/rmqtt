@@ -3,14 +3,15 @@ use rmqtt::{plugin::Plugin, Result, Runtime};
 
 #[inline]
 pub async fn init<N: Into<String>, D: Into<String>>(
+    runtime: &'static Runtime,
     name: N,
     descr: D,
     default_startup: bool,
 ) -> Result<()> {
-    Runtime::instance()
+    runtime
         .plugins
         .register(
-            Box::new(Helloworld::new(name.into(), descr.into())),
+            Box::new(Helloworld::new(runtime, name.into(), descr.into())),
             default_startup,
         )
         .await?;
@@ -18,14 +19,15 @@ pub async fn init<N: Into<String>, D: Into<String>>(
 }
 
 struct Helloworld {
+    _runtime: &'static Runtime,
     name: String,
     descr: String,
 }
 
 impl Helloworld {
     #[inline]
-    fn new(name: String, descr: String) -> Self {
-        Self { name, descr }
+    fn new(runtime: &'static Runtime, name: String, descr: String) -> Self {
+        Self {_runtime: runtime, name, descr }
     }
 }
 
