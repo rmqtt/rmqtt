@@ -255,7 +255,7 @@ pub async fn control_message(
             //hook, client_disconnected
             let reason = state
                 .conn
-                .take_disconnected_reason()
+                .get_disconnected_reason()
                 .unwrap_or_else(|| Reason::from_static("unknown error"));
             state.hook.client_disconnected(reason).await;
             if let Err(e) = state.send(Message::Closed) {
@@ -296,7 +296,7 @@ pub async fn publish(
                 //hook, message_ack
                 state
                     .hook
-                    .message_acked(iflt_msg.from, iflt_msg.publish)
+                    .message_acked(iflt_msg.from, &iflt_msg.publish)
                     .await;
             }
         }
@@ -311,7 +311,7 @@ pub async fn publish(
                 //hook, message_ack
                 state
                     .hook
-                    .message_acked(iflt_msg.from, iflt_msg.publish)
+                    .message_acked(iflt_msg.from, &iflt_msg.publish)
                     .await;
             }
         }
