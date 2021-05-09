@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use rmqtt::{
-    broker::hook::{self, Handler, Parameter, Register, Results, ReturnType},
+    broker::hook::{self, Handler, HookResult, Parameter, Register, ReturnType},
     plugin::Plugin,
     Result, Runtime,
 };
@@ -75,14 +75,14 @@ impl Plugin for Template {
     #[inline]
     async fn start(&mut self) -> Result<()> {
         log::info!("{} start", self.name);
-        self.register.resume();
+        self.register.start();
         Ok(())
     }
 
     #[inline]
     async fn stop(&mut self) -> Result<bool> {
         log::info!("{} stop", self.name);
-        self.register.suspend();
+        self.register.stop();
         Ok(true)
     }
 
@@ -101,7 +101,7 @@ struct HookHandler {}
 
 #[async_trait]
 impl Handler for HookHandler {
-    async fn hook(&mut self, param: &Parameter, results: Results) -> ReturnType {
+    async fn hook(&mut self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
         match param {
             Parameter::BeforeStartup => {
                 log::debug!("before startup");
@@ -109,11 +109,11 @@ impl Handler for HookHandler {
             Parameter::SessionCreated(_session, c) => {
                 log::debug!("{:?} session created", c.id);
             }
-            Parameter::ClientConnect(_session, c) => {
-                log::debug!("{:?} client connect", c.id);
+            Parameter::ClientConnect(connect_info) => {
+                log::debug!("client connect, {:?}", connect_info);
             }
-            Parameter::ClientConnack(_session, c, r) => {
-                log::debug!("{:?} client connack, {:?}", c.id, r);
+            Parameter::ClientConnack(connect_info, r) => {
+                log::debug!("client connack, {:?}, {:?}", connect_info, r);
             }
             Parameter::ClientConnected(_session, c) => {
                 log::debug!("{:?} client connected", c.id);
@@ -131,6 +131,6 @@ impl Handler for HookHandler {
                 log::error!("unimplemented, {:?}", param)
             }
         }
-        (true, results)
+        (true, acc)
     }
 }

@@ -54,16 +54,13 @@ async fn main() {
         .await
         .expect("Failed to startups plug-in");
 
-    if Runtime::instance()
+    //hook, before startup
+    Runtime::instance()
         .extends
         .hook_mgr()
         .await
         .before_startup()
-        .await
-    {
-        log::warn!("Failed to start the mqtt server");
-        return;
-    }
+        .await;
 
     //tcp
     let mut tcp_listens = Vec::new();

@@ -28,6 +28,8 @@ pub enum MqttError {
     TopicError(String),
     #[error("utf8 error, {0}")]
     Utf8Error(Utf8Error),
+    #[error("too many subscriptions")]
+    TooManySubscriptions,
 }
 
 unsafe impl std::marker::Send for MqttError {}

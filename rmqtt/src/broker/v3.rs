@@ -1,6 +1,5 @@
 use anyhow::Result;
 use ntex_mqtt::v3::{self, codec::SubscribeReturnCode};
-use std::convert::From as _;
 use std::net::SocketAddr;
 use tokio::time::Duration;
 
@@ -16,7 +15,7 @@ pub async fn handshake<Io>(
     remote_addr: SocketAddr,
     local_addr: SocketAddr,
 ) -> Result<v3::HandshakeAck<Io, SessionState>, MqttError> {
-    log::debug!(
+    log::trace!(
         "new connection: local_addr: {:?}, remote: {:?}, {:?}, listen_cfg: {:?}",
         local_addr,
         remote_addr,
@@ -31,18 +30,52 @@ pub async fn handshake<Io>(
         .get(format!("{}", local_addr.port()), listen_cfg.clone())?;
     limiter.acquire_one().await?;
 
-    let packet = handshake.packet_mut();
+    //hook, client connect
+    let _ = Runtime::instance()
+        .extends
+        .hook_mgr()
+        .await
+        .client_connect(Connect::V3(handshake.packet()))
+        .await;
 
-    if listen_cfg.max_clientid_len > 0 && packet.client_id.len() > listen_cfg.max_clientid_len {
-        log::error!(
-            "{:?} Connection Refused, handshake, identifier_rejected, client_id.len: {}",
-            packet.client_id,
-            packet.client_id.len()
+    let refused_ack = |id: String,
+                       mut handshake: v3::Handshake<Io>,
+                       ack_reason: ConnectAckReasonV3,
+                       reason: String| async move {
+        let new_ack_reason = Runtime::instance()
+            .extends
+            .hook_mgr()
+            .await
+            .client_connack(
+                Connect::V3(handshake.packet_mut()),
+                ConnectAckReason::V3(ack_reason),
+            )
+            .await;
+        log::warn!(
+            "{:?} Connection Refused, handshake, ack_reason: {:?}, new_ack_reason: {:?}, reason: {}",
+            id,
+            ack_reason,
+            new_ack_reason,
+            reason,
         );
-        return Ok(handshake.identifier_rejected());
+        new_ack_reason.v3_error_ack(handshake)
+    };
+
+    let client_id = handshake.packet().client_id.clone();
+
+    if listen_cfg.max_clientid_len > 0 && client_id.len() > listen_cfg.max_clientid_len {
+        return Ok(refused_ack(
+            client_id.to_string(),
+            handshake,
+            ConnectAckReasonV3::IdentifierRejected,
+            "client_id is too long".into(),
+        )
+        .await);
     }
 
-    let client_id = packet.client_id.clone();
+    let sink = handshake.sink();
+    let packet = handshake.packet_mut();
+
     let node_id = Runtime::instance()
         .extends
         .router()
@@ -61,8 +94,13 @@ pub async fn handshake<Io>(
     let mut entry =
         match { Runtime::instance().extends.shared().await.entry(id.clone()) }.try_lock() {
             Err(e) => {
-                log::error!("{:?} Connection Refused, handshake, {}", id, e);
-                return Ok(handshake.service_unavailable());
+                return Ok(refused_ack(
+                    id.to_string(),
+                    handshake,
+                    ConnectAckReasonV3::ServiceUnavailable,
+                    format!("{:?}", e),
+                )
+                .await);
             }
             Ok(entry) => entry,
         };
@@ -70,8 +108,13 @@ pub async fn handshake<Io>(
     // Kick out the current session, if it exists
     let (session_present, old_session) = match entry.kick(packet.clean_session).await {
         Err(e) => {
-            log::error!("{:?} Connection Refused, handshake, {}", id, e);
-            return Ok(handshake.service_unavailable());
+            return Ok(refused_ack(
+                id.to_string(),
+                handshake,
+                ConnectAckReasonV3::ServiceUnavailable,
+                format!("{:?}", e),
+            )
+            .await);
         }
         Ok(Some((s, _))) => (!packet.clean_session, Some(s)),
         Ok(None) => (false, None),
@@ -92,8 +135,13 @@ pub async fn handshake<Io>(
     let keep_alive = match session.fitter.keep_alive(packet.keep_alive) {
         Ok(keep_alive) => keep_alive,
         Err(e) => {
-            log::error!("{:?} Connection Refused, {}", id, e);
-            return Err(MqttError::from(e));
+            return Ok(refused_ack(
+                id.to_string(),
+                handshake,
+                ConnectAckReasonV3::ServiceUnavailable,
+                format!("{:?}", e),
+            )
+            .await);
         }
     };
 
@@ -116,75 +164,51 @@ pub async fn handshake<Io>(
 
     if session_created {
         //hook, session created
-        if hook.session_created().await {
-            log::info!(
-                "{:?} Connection Refused, reason: Failed to create session",
-                conn.id
-            );
-            hook.client_connack(ConnectAckReason::V3(
-                v3::codec::ConnectAckReason::ServiceUnavailable,
-            ))
-            .await;
-            return Ok(handshake.service_unavailable());
-        }
-    }
-
-    //hook, client connect
-    if hook.client_connect().await {
-        log::info!(
-            "{:?} Connection Refused, reason: Failed to create connection",
-            conn.id
-        );
-        hook.client_connack(ConnectAckReason::V3(
-            v3::codec::ConnectAckReason::ServiceUnavailable,
-        ))
-        .await;
-        return Ok(handshake.service_unavailable());
+        hook.session_created().await;
     }
 
     //hook, client authenticate
     let ack = hook.client_authenticate(packet.password.take()).await;
     if !ack.success() {
-        log::info!(
-            "{:?} Connection Refused, reason: Authentication failed, {:?}",
-            conn.id,
-            ack.reason()
-        );
-        let h_ack = ack.v3_error_ack(handshake);
-        hook.client_connack(ack).await;
-        return Ok(h_ack);
+        if let ConnectAckReason::V3(ack) = ack {
+            return Ok(refused_ack(
+                conn.id.to_string(),
+                handshake,
+                ack,
+                "Authentication failed".into(),
+            )
+            .await);
+        } else {
+            unreachable!()
+        }
     }
 
-    let (state, tx) = SessionState::new(
-        conn.id.clone(),
-        session,
-        conn,
-        Sink::V3(handshake.sink()),
-        hook,
-    )
-    .start()
-    .await;
+    let (state, tx) = SessionState::new(conn.id.clone(), session, conn, Sink::V3(sink), hook)
+        .start()
+        .await;
 
     if let Err(e) = entry
         .set(state.session.clone(), tx, state.conn.clone())
         .await
     {
-        log::error!("{:?} Connection Refused, handshake, {}", state.id, e);
-        state
-            .hook
-            .client_connack(ConnectAckReason::V3(
-                v3::codec::ConnectAckReason::ServiceUnavailable,
-            ))
-            .await;
-        return Ok(handshake.service_unavailable());
+        return Ok(refused_ack(
+            state.conn.id.to_string(),
+            handshake,
+            ConnectAckReasonV3::ServiceUnavailable,
+            format!("{:?}", e),
+        )
+        .await);
     }
 
     //hook, client connack
-    state
-        .hook
-        .client_connack(ConnectAckReason::V3(
-            v3::codec::ConnectAckReason::ConnectionAccepted,
-        ))
+    let _ = Runtime::instance()
+        .extends
+        .hook_mgr()
+        .await
+        .client_connack(
+            Connect::V3(packet),
+            ConnectAckReason::V3(ConnectAckReasonV3::ConnectionAccepted),
+        )
         .await;
 
     //hook, client connected

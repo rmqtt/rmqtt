@@ -23,10 +23,7 @@ use super::{
     Shared,
 };
 use crate::broker::fitter::{Fitter, FitterManager};
-use crate::broker::hook::{
-    BadUsernameOrPassword, Deny, Disconnect, Exit, Handler, Hook, HookManager, HookResult,
-    MessageExpiry, NotAuthorized, Parameter, Register, Results, Type,
-};
+use crate::broker::hook::{Handler, Hook, HookManager, HookResult, Parameter, Register, Type};
 use crate::broker::session::{Connection, Session};
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
@@ -704,92 +701,92 @@ impl DefaultHookManager {
     }
 
     #[inline]
-    async fn exec<'a>(&'a self, t: Type, p: Parameter<'a>) -> Results {
-        let mut results = Results::new();
+    async fn exec<'a>(&'a self, t: Type, p: Parameter<'a>) -> Option<HookResult> {
+        let mut acc = None;
         if let Some(mut type_handlers) = self.handlers.get_mut(&t) {
             for (_, entry) in type_handlers.iter_mut() {
                 if entry.enabled {
-                    let (proceed, results_) = entry.handler.hook(&p, results).await;
+                    let (proceed, new_acc) = entry.handler.hook(&p, acc).await;
                     if !proceed {
-                        return results_;
+                        return new_acc;
                     }
-                    results = results_;
+                    acc = new_acc;
                 }
             }
-            results
+            None
         } else {
-            results
+            None
         }
     }
 
-    #[inline]
-    fn result_is_exit(&self, results: &Results) -> Exit {
-        for r in results.iter() {
-            if r == &HookResult::Exit {
-                return true;
-            }
-        }
-        false
-    }
+    // #[inline]
+    // fn result_is_exit(&self, results: &Results) -> Exit {
+    //     for r in results.iter() {
+    //         if r == &HookResult::Exit {
+    //             return true;
+    //         }
+    //     }
+    //     false
+    // }
+    //
+    // #[inline]
+    // fn result_is_disconnect(&self, results: &Results) -> Disconnect {
+    //     for r in results.iter() {
+    //         if r == &HookResult::Disconnect {
+    //             return true;
+    //         }
+    //     }
+    //     false
+    // }
+    //
+    // #[inline]
+    // fn result_is_disconnect_or_deny(&self, results: &Results) -> (Disconnect, Deny) {
+    //     let mut deny = false;
+    //     for r in results.iter() {
+    //         match r {
+    //             HookResult::Disconnect => return (true, deny),
+    //             HookResult::Deny => deny = true,
+    //             _ => {}
+    //         }
+    //     }
+    //     (false, deny)
+    // }
+    //
+    // #[inline]
+    // fn result_is_auth_failed(&self, results: &Results) -> (BadUsernameOrPassword, NotAuthorized) {
+    //     for r in results.iter() {
+    //         match r {
+    //             HookResult::BadUsernameOrPassword => return (true, false),
+    //             HookResult::NotAuthorized => return (false, true),
+    //             _ => {}
+    //         }
+    //     }
+    //     (false, false)
+    // }
 
-    #[inline]
-    fn result_is_disconnect(&self, results: &Results) -> Disconnect {
-        for r in results.iter() {
-            if r == &HookResult::Disconnect {
-                return true;
-            }
-        }
-        false
-    }
-
-    #[inline]
-    fn result_is_disconnect_or_deny(&self, results: &Results) -> (Disconnect, Deny) {
-        let mut deny = false;
-        for r in results.iter() {
-            match r {
-                HookResult::Disconnect => return (true, deny),
-                HookResult::Deny => deny = true,
-                _ => {}
-            }
-        }
-        (false, deny)
-    }
-
-    #[inline]
-    fn result_is_auth_failed(&self, results: &Results) -> (BadUsernameOrPassword, NotAuthorized) {
-        for r in results.iter() {
-            match r {
-                HookResult::BadUsernameOrPassword => return (true, false),
-                HookResult::NotAuthorized => return (false, true),
-                _ => {}
-            }
-        }
-        (false, false)
-    }
-
-    #[inline]
-    fn is_message_expiry(&self, results: &Results) -> MessageExpiry {
-        for r in results.iter() {
-            if r == &HookResult::MessageExpiry {
-                return true;
-            }
-        }
-        false
-    }
-
-    #[inline]
-    fn result_merge_subscribe_acks(
-        &self,
-        mut results: Results,
-        mut sub_ack: SubscribeAck,
-    ) -> SubscribeAck {
-        for r in results.drain(..) {
-            if let HookResult::SubscribeAck(ack) = r {
-                sub_ack.merge_from(ack);
-            }
-        }
-        sub_ack
-    }
+    // #[inline]
+    // fn is_message_expiry(&self, results: &Results) -> MessageExpiry {
+    //     for r in results.iter() {
+    //         if r == &HookResult::MessageExpiry {
+    //             return true;
+    //         }
+    //     }
+    //     false
+    // }
+    //
+    // #[inline]
+    // fn result_merge_subscribe_acks(
+    //     &self,
+    //     mut results: Results,
+    //     mut sub_ack: SubscribeAck,
+    // ) -> SubscribeAck {
+    //     for r in results.drain(..) {
+    //         if let HookResult::SubscribeAck(ack) = r {
+    //             sub_ack.merge_from(ack);
+    //         }
+    //     }
+    //     sub_ack
+    // }
 }
 
 #[async_trait]
@@ -805,12 +802,40 @@ impl HookManager for &'static DefaultHookManager {
     }
 
     #[inline]
-    async fn before_startup(&self) -> Exit {
-        self.result_is_exit(
-            &self
-                .exec(Type::BeforeStartup, Parameter::BeforeStartup)
-                .await,
-        )
+    async fn before_startup(&self) {
+        self.exec(Type::BeforeStartup, Parameter::BeforeStartup)
+            .await;
+    }
+
+    #[inline]
+    async fn client_connect<'a>(&'a self, connect_info: Connect<'a>) -> Option<UserProperties> {
+        let result = self
+            .exec(Type::ClientConnect, Parameter::ClientConnect(connect_info))
+            .await;
+        if let Some(HookResult::UserProperties(props)) = result {
+            Some(props)
+        } else {
+            None
+        }
+    }
+
+    ///When sending mqtt:: connectack message
+    async fn client_connack<'a>(
+        &'a self,
+        connect_info: Connect<'a>,
+        return_code: ConnectAckReason,
+    ) -> ConnectAckReason {
+        let result = self
+            .exec(
+                Type::ClientConnack,
+                Parameter::ClientConnack(connect_info, &return_code),
+            )
+            .await;
+        if let Some(HookResult::ConnectAckReason(new_return_code)) = result {
+            new_return_code
+        } else {
+            return_code
+        }
     }
 }
 
@@ -857,14 +882,15 @@ impl Register for DefaultHookRegister {
     }
 
     #[inline]
-    fn suspend(&self) {
-        self.adjust_status(false);
+    fn start(&self) {
+        self.adjust_status(true);
     }
 
     #[inline]
-    fn resume(&self) {
-        self.adjust_status(true);
+    fn stop(&self) {
+        self.adjust_status(false);
     }
+
 }
 
 #[derive(Clone)]
@@ -888,40 +914,13 @@ impl DefaultHook {
 #[async_trait]
 impl Hook for DefaultHook {
     #[inline]
-    async fn session_created(&self) -> Disconnect {
-        self.manager.result_is_disconnect(
-            &self
-                .manager
-                .exec(
-                    Type::SessionCreated,
-                    Parameter::SessionCreated(&self.s, &self.c),
-                )
-                .await,
-        )
-    }
-
-    #[inline]
-    async fn client_connack(&self, return_code: ConnectAckReason) {
-        let _ = self
-            .manager
+    async fn session_created(&self) {
+        self.manager
             .exec(
-                Type::ClientConnack,
-                Parameter::ClientConnack(&self.s, &self.c, return_code),
+                Type::SessionCreated,
+                Parameter::SessionCreated(&self.s, &self.c),
             )
             .await;
-    }
-
-    #[inline]
-    async fn client_connect(&self) -> Disconnect {
-        self.manager.result_is_disconnect(
-            &self
-                .manager
-                .exec(
-                    Type::ClientConnect,
-                    Parameter::ClientConnect(&self.s, &self.c),
-                )
-                .await,
-        )
     }
 
     #[inline]
@@ -936,7 +935,7 @@ impl Hook for DefaultHook {
         if self.s.listen_cfg.allow_anonymous {
             return ok();
         }
-        let results = self
+        let result = self
             .manager
             .exec(
                 Type::ClientAuthenticate,
@@ -944,7 +943,11 @@ impl Hook for DefaultHook {
             )
             .await;
 
-        let (bad_user_or_pass, not_auth) = self.manager.result_is_auth_failed(&results);
+        let (bad_user_or_pass, not_auth) = match result {
+            Some(HookResult::AuthResult(AuthResult::BadUsernameOrPassword)) => (true, false),
+            Some(HookResult::AuthResult(AuthResult::NotAuthorized)) => (false, true),
+            _ => (false, false),
+        };
 
         if bad_user_or_pass {
             return match self.c.protocol.level() {
@@ -1001,61 +1004,113 @@ impl Hook for DefaultHook {
     }
 
     #[inline]
-    async fn client_subscribe(&self, subscribe: &Subscribe) -> (Disconnect, Option<SubscribeAck>) {
-        let results = self
+    async fn client_subscribe_check_acl(
+        &self,
+        subscribe: &Subscribe,
+    ) -> Option<SubscribeACLResult> {
+        let result = self
+            .manager
+            .exec(
+                Type::ClientSubscribeCheckACL,
+                Parameter::ClientSubscribeCheckACL(&self.s, &self.c, subscribe),
+            )
+            .await;
+
+        if let Some(HookResult::SubscribeACLResult(acl_result)) = result {
+            Some(acl_result)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    async fn message_publish_check_acl(&self, publish: &Publish) -> PublishACLResult {
+        let result = self
+            .manager
+            .exec(
+                Type::MessagePublishCheckACL,
+                Parameter::MessagePublishCheckACL(&self.s, &self.c, publish),
+            )
+            .await;
+        if let Some(HookResult::PublishACLResult(acl_result)) = result {
+            acl_result
+        } else {
+            PublishACLResult::Allow
+        }
+    }
+
+    #[inline]
+    async fn client_subscribe(&self, subscribe: &Subscribe) -> Option<TopicFilters> {
+        let result = self
             .manager
             .exec(
                 Type::ClientSubscribe,
                 Parameter::ClientSubscribe(&self.s, &self.c, subscribe),
             )
             .await;
-
-        if self.manager.result_is_disconnect(&results) {
-            return (true, None);
+        if let Some(HookResult::TopicFilters(topic_filters)) = result {
+            Some(topic_filters)
+        } else {
+            None
         }
-
-        let max_topic_levels = self.s.listen_cfg.max_topic_levels;
-        let ack = match subscribe {
-            Subscribe::V3(subs) => {
-                let mut subs_ack = Vec::new();
-                for (topic_filter, qos) in subs.iter() {
-                    if max_topic_levels > 0 && topic_filter.levels().len() > max_topic_levels {
-                        log::warn!(
-                            "{:?} hook::client_subscribe, violation of max_topic_levels constraint",
-                            self.c.id
-                        );
-                        subs_ack.push(SubscribeReturnCodeV3::Failure);
-                    } else {
-                        subs_ack.push(SubscribeReturnCodeV3::Success(*qos));
-                    }
-                }
-                SubscribeAck::V3(subs_ack)
-            }
-            Subscribe::V5(subs) => {
-                let mut reasons = Vec::new();
-                for (_, opts) in &subs.topic_filters {
-                    let r = match opts.qos {
-                        QoS::AtMostOnce => SubscribeAckReason::GrantedQos0,
-                        QoS::AtLeastOnce => SubscribeAckReason::GrantedQos1,
-                        QoS::ExactlyOnce => SubscribeAckReason::GrantedQos2,
-                    };
-                    reasons.push(r);
-                }
-
-                let subs_ack = SubscribeAckV5 {
-                    packet_id: subs.packet_id,
-                    properties: subs.user_properties.clone(),
-                    reason_string: None,
-                    status: reasons,
-                };
-                SubscribeAck::V5(subs_ack)
-            }
-        };
-
-        let ack = self.manager.result_merge_subscribe_acks(results, ack);
-
-        (false, Some(ack))
     }
+
+    // #[inline]
+    // async fn client_subscribe(&self, subscribe: &Subscribe) -> (Disconnect, Option<SubscribeAck>) {
+    //     let results = self
+    //         .manager
+    //         .exec(
+    //             Type::ClientSubscribe,
+    //             Parameter::ClientSubscribe(&self.s, &self.c, subscribe),
+    //         )
+    //         .await;
+    //
+    //     if self.manager.result_is_disconnect(&results) {
+    //         return (true, None);
+    //     }
+    //
+    //     let max_topic_levels = self.s.listen_cfg.max_topic_levels;
+    //     let ack = match subscribe {
+    //         Subscribe::V3(subs) => {
+    //             let mut subs_ack = Vec::new();
+    //             for (topic_filter, qos) in subs.iter() {
+    //                 if max_topic_levels > 0 && topic_filter.levels().len() > max_topic_levels {
+    //                     log::warn!(
+    //                         "{:?} hook::client_subscribe, violation of max_topic_levels constraint",
+    //                         self.c.id
+    //                     );
+    //                     subs_ack.push(SubscribeReturnCodeV3::Failure);
+    //                 } else {
+    //                     subs_ack.push(SubscribeReturnCodeV3::Success(*qos));
+    //                 }
+    //             }
+    //             SubscribeAck::V3(subs_ack)
+    //         }
+    //         Subscribe::V5(subs) => {
+    //             let mut reasons = Vec::new();
+    //             for (_, opts) in &subs.topic_filters {
+    //                 let r = match opts.qos {
+    //                     QoS::AtMostOnce => SubscribeAckReason::GrantedQos0,
+    //                     QoS::AtLeastOnce => SubscribeAckReason::GrantedQos1,
+    //                     QoS::ExactlyOnce => SubscribeAckReason::GrantedQos2,
+    //                 };
+    //                 reasons.push(r);
+    //             }
+    //
+    //             let subs_ack = SubscribeAckV5 {
+    //                 packet_id: subs.packet_id,
+    //                 properties: subs.user_properties.clone(),
+    //                 reason_string: None,
+    //                 status: reasons,
+    //             };
+    //             SubscribeAck::V5(subs_ack)
+    //         }
+    //     };
+    //
+    //     let ack = self.manager.result_merge_subscribe_acks(results, ack);
+    //
+    //     (false, Some(ack))
+    // }
 
     #[inline]
     async fn session_subscribed(&self, subscribed: Subscribed) {
@@ -1069,16 +1124,20 @@ impl Hook for DefaultHook {
     }
 
     #[inline]
-    async fn client_unsubscribe(&self, unsubscribe: &Unsubscribe) -> Disconnect {
-        self.manager.result_is_disconnect(
-            &self
-                .manager
-                .exec(
-                    Type::ClientUnsubscribe,
-                    Parameter::ClientUnsubscribe(&self.s, &self.c, unsubscribe),
-                )
-                .await,
-        )
+    async fn client_unsubscribe(&self, unsubscribe: &Unsubscribe) -> Option<TopicFilters> {
+        let result = self
+            .manager
+            .exec(
+                Type::ClientUnsubscribe,
+                Parameter::ClientUnsubscribe(&self.s, &self.c, unsubscribe),
+            )
+            .await;
+
+        if let Some(HookResult::TopicFilters(topic_filters)) = result {
+            Some(topic_filters)
+        } else {
+            None
+        }
     }
 
     #[inline]
@@ -1093,8 +1152,8 @@ impl Hook for DefaultHook {
     }
 
     #[inline]
-    async fn message_publish(&self, publish: &Publish) -> (Disconnect, Deny) {
-        let results = self
+    async fn message_publish(&self, publish: &Publish) -> Option<Publish> {
+        let result = self
             .manager
             .exec(
                 Type::MessagePublish,
@@ -1102,44 +1161,45 @@ impl Hook for DefaultHook {
             )
             .await;
 
-        match self.manager.result_is_disconnect_or_deny(&results) {
-            (true, deny) => return (true, deny),
-            (false, true) => return (false, true),
-            (false, false) => {
-                let max_qos_allowed = self.s.listen_cfg.max_qos_allowed.value();
-                if publish.qos().value() > max_qos_allowed {
-                    log::warn!(
-                        "{:?} hook::message_publish, violation of max_qos_allowed constraint",
-                        self.c.id
-                    );
-                    (false, true)
-                } else {
-                    (false, false)
-                }
-            }
+        if let Some(HookResult::Publish(publish)) = result {
+            Some(publish)
+        } else {
+            None
         }
+
+        // match self.manager.result_is_disconnect_or_deny(&results) {
+        //     (true, deny) => return (true, deny),
+        //     (false, true) => return (false, true),
+        //     (false, false) => {
+        //         let max_qos_allowed = self.s.listen_cfg.max_qos_allowed.value();
+        //         if publish.qos().value() > max_qos_allowed {
+        //             log::warn!(
+        //                 "{:?} hook::message_publish, violation of max_qos_allowed constraint",
+        //                 self.c.id
+        //             );
+        //             (false, true)
+        //         } else {
+        //             (false, false)
+        //         }
+        //     }
+        // }
     }
 
     #[inline]
-    async fn message_dropped(&self, to: Option<To>, from: From, publish: Publish, reason: Reason) {
-        let _ = self
+    async fn message_delivered(&self, from: From, publish: &Publish) -> Option<Publish> {
+        let result = self
             .manager
             .exec(
-                Type::MessageDropped,
-                Parameter::MessageDropped(&self.s, &self.c, to, from, publish, reason),
+                Type::MessageDelivered,
+                Parameter::MessageDelivered(&self.s, &self.c, from, publish),
             )
             .await;
-    }
 
-    #[inline]
-    async fn message_deliver(&self, from: From, publish: &Publish) {
-        let _ = self
-            .manager
-            .exec(
-                Type::MessageDeliver,
-                Parameter::MessageDeliver(&self.s, &self.c, from, publish),
-            )
-            .await;
+        if let Some(HookResult::Publish(publish)) = result {
+            Some(publish)
+        } else {
+            None
+        }
     }
 
     #[inline]
@@ -1154,8 +1214,19 @@ impl Hook for DefaultHook {
     }
 
     #[inline]
+    async fn message_dropped(&self, to: Option<To>, from: From, publish: Publish, reason: Reason) {
+        let _ = self
+            .manager
+            .exec(
+                Type::MessageDropped,
+                Parameter::MessageDropped(&self.s, &self.c, to, from, publish, reason),
+            )
+            .await;
+    }
+
+    #[inline]
     async fn message_expiry_check(&self, from: From, publish: &Publish) -> MessageExpiry {
-        let results = self
+        let result = self
             .manager
             .exec(
                 Type::MessageExpiryCheck,
@@ -1163,7 +1234,7 @@ impl Hook for DefaultHook {
             )
             .await;
 
-        if self.manager.is_message_expiry(&results) {
+        if let Some(HookResult::MessageExpiry) = result {
             return true;
         }
 

@@ -1,16 +1,7 @@
 use crate::broker::types::*;
 use crate::{Connection, Password, Session};
 
-pub type Exit = bool;
-pub type Failure = bool;
-pub type BadUsernameOrPassword = bool;
-pub type NotAuthorized = bool;
-pub type Disconnect = bool;
-pub type Deny = bool; //Reject current operation
-pub type MessageExpiry = bool;
-
-pub type Results = Vec<HookResult>;
-pub type ReturnType = (bool, Results);
+pub type ReturnType = (bool, Option<HookResult>);
 
 #[async_trait]
 pub trait HookManager: Sync + Send {
@@ -19,32 +10,36 @@ pub trait HookManager: Sync + Send {
     fn register(&self) -> Box<dyn Register>;
 
     ///Before the server startup
-    async fn before_startup(&self) -> Exit;
+    async fn before_startup(&self);
+
+    ///When a connect message is received
+    async fn client_connect<'a>(&'a self, connect_info: Connect<'a>) -> Option<UserProperties>;
+
+    ///When sending mqtt:: connectack message
+    async fn client_connack<'a>(
+        &'a self,
+        connect_info: Connect<'a>,
+        return_code: ConnectAckReason,
+    ) -> ConnectAckReason;
 }
 
 pub trait Register: Sync + Send {
     fn add(&self, typ: Type, handler: Box<dyn Handler>);
 
-    fn suspend(&self) {}
+    fn start(&self) {}
 
-    fn resume(&self) {}
+    fn stop(&self) {}
 }
 
 #[async_trait]
 pub trait Handler: Sync + Send {
-    async fn hook(&mut self, param: &Parameter, results: Results) -> ReturnType;
+    async fn hook(&mut self, param: &Parameter, acc: Option<HookResult>) -> ReturnType;
 }
 
 #[async_trait]
 pub trait Hook: Sync + Send {
-    ///If true is returned, the connection will be disconnected
-    async fn session_created(&self) -> Disconnect;
-
-    ///When sending mqtt:: connectack message
-    async fn client_connack(&self, return_code: ConnectAckReason);
-
-    ///If true is returned, the connection will be disconnected
-    async fn client_connect(&self) -> Disconnect;
+    ///session created
+    async fn session_created(&self);
 
     ///authenticate
     async fn client_authenticate(&self, password: Option<Password>) -> ConnectAckReason;
@@ -58,33 +53,38 @@ pub trait Hook: Sync + Send {
     ///Session terminated
     async fn session_terminated(&self, r: Reason);
 
+    ///subscribe check acl
+    async fn client_subscribe_check_acl(&self, subscribe: &Subscribe)
+        -> Option<SubscribeACLResult>;
+
+    ///publish check acl
+    async fn message_publish_check_acl(&self, publish: &Publish) -> PublishACLResult;
+
     ///Subscribe message received
-    ///client_subscribe_check_acl: is implemented based this hook
-    async fn client_subscribe(&self, subscribe: &Subscribe) -> (Disconnect, Option<SubscribeAck>);
+    async fn client_subscribe(&self, subscribe: &Subscribe) -> Option<TopicFilters>;
 
     ///Subscription succeeded
     async fn session_subscribed(&self, subscribed: Subscribed);
 
     ///Unsubscribe message received
-    async fn client_unsubscribe(&self, unsubscribe: &Unsubscribe) -> Disconnect;
+    async fn client_unsubscribe(&self, unsubscribe: &Unsubscribe) -> Option<TopicFilters>;
 
     ///Unsubscribe succeeded
     async fn session_unsubscribed(&self, unsubscribed: Unsubscribed);
 
     ///Publish message received
-    /// client_publish_check_acl: is implemented based this hook
-    async fn message_publish(&self, p: &Publish) -> (Disconnect, Deny);
+    async fn message_publish(&self, p: &Publish) -> Option<Publish>;
 
     ///Publish message Dropped
     async fn message_dropped(&self, to: Option<To>, from: From, p: Publish, reason: Reason);
 
-    ///
-    async fn message_deliver(&self, from: From, publish: &Publish);
+    ///message delivered
+    async fn message_delivered(&self, from: From, publish: &Publish) -> Option<Publish>;
 
-    ///
+    ///message acked
     async fn message_acked(&self, from: From, publish: &Publish);
 
-    ///
+    ///message expiry check
     async fn message_expiry_check(&self, from: From, publish: &Publish) -> MessageExpiry;
 }
 
@@ -104,9 +104,11 @@ pub enum Type {
     ClientDisconnected,
     ClientSubscribe,
     ClientUnsubscribe,
+    ClientSubscribeCheckACL,
 
+    MessagePublishCheckACL,
     MessagePublish,
-    MessageDeliver,
+    MessageDelivered,
     MessageAcked,
     MessageDropped,
     MessageExpiryCheck,
@@ -116,21 +118,23 @@ pub enum Type {
 pub enum Parameter<'a> {
     BeforeStartup,
 
-    ClientAuthenticate(&'a Session, &'a Connection, Option<Password>),
-    ClientConnect(&'a Session, &'a Connection),
-    ClientConnack(&'a Session, &'a Connection, ConnectAckReason),
-    ClientConnected(&'a Session, &'a Connection),
-    ClientDisconnected(&'a Session, &'a Connection, Reason),
-    ClientSubscribe(&'a Session, &'a Connection, &'a Subscribe),
-    ClientUnsubscribe(&'a Session, &'a Connection, &'a Unsubscribe),
-
     SessionCreated(&'a Session, &'a Connection),
     SessionTerminated(&'a Session, &'a Connection, Reason),
     SessionSubscribed(&'a Session, &'a Connection, Subscribed),
     SessionUnsubscribed(&'a Session, &'a Connection, Unsubscribed),
 
+    ClientConnect(Connect<'a>),
+    ClientConnack(Connect<'a>, &'a ConnectAckReason),
+    ClientAuthenticate(&'a Session, &'a Connection, Option<Password>),
+    ClientConnected(&'a Session, &'a Connection),
+    ClientDisconnected(&'a Session, &'a Connection, Reason),
+    ClientSubscribe(&'a Session, &'a Connection, &'a Subscribe),
+    ClientUnsubscribe(&'a Session, &'a Connection, &'a Unsubscribe),
+    ClientSubscribeCheckACL(&'a Session, &'a Connection, &'a Subscribe),
+
+    MessagePublishCheckACL(&'a Session, &'a Connection, &'a Publish),
     MessagePublish(&'a Session, &'a Connection, &'a Publish),
-    MessageDeliver(&'a Session, &'a Connection, From, &'a Publish),
+    MessageDelivered(&'a Session, &'a Connection, From, &'a Publish),
     MessageAcked(&'a Session, &'a Connection, From, &'a Publish),
     MessageDropped(
         &'a Session,
@@ -143,24 +147,22 @@ pub enum Parameter<'a> {
     MessageExpiryCheck(&'a Session, &'a Connection, From, &'a Publish),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum HookResult {
-    ///Exit the program
-    Exit,
-    ///Disconnect
-    Disconnect,
-    ///Indicates that the current operation failed，Does not exit the program or close the connection
-    Failure,
-    ///Authentication failed
-    BadUsernameOrPassword,
-    ///Authentication failed
-    NotAuthorized,
-    ///CheckACL(Publish)
-    Deny,
-    // ///CheckACL(Subscribe), QoS - Is the currently allowed quality
-    // Allow(QoS),
+    ///User Properties, for ClientConnect
+    UserProperties(UserProperties),
+    ///Authentication failed, for ClientAuthenticate
+    AuthResult(AuthResult),
+    ///ConnectAckReason, for ClientConnack
+    ConnectAckReason(ConnectAckReason),
+    ///TopicFilters, for ClientSubscribe/ClientUnsubscribe
+    TopicFilters(TopicFilters),
+    ///Subscribe ACLResult, for ClientSubscribeCheckACL
+    SubscribeACLResult(SubscribeACLResult),
+    ///Publish ACLResult, for MessagePublishCheckACL
+    PublishACLResult(PublishACLResult),
+    ///Publish, for MessagePublish/MessageDelivered
+    Publish(Publish),
     ///Message Expiry
     MessageExpiry,
-    ///Subscribe Ack
-    SubscribeAck(SubscribeAck),
 }

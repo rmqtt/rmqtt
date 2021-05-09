@@ -10,7 +10,7 @@
 # Value: off | file | console | both
 log.to = "console"
 # Value: trace, debug, info, warn, error
-log.level = "info"
+log.level = "debug"
 log.dir = "/var/log/rmqtt"
 log.file = "rmqtt.log"
 
@@ -19,7 +19,7 @@ log.file = "rmqtt.log"
 ## Plugins
 ##--------------------------------------------------------------------
 #Plug in configuration file directory
-plugins.dir = "../plugins/"
+plugins.dir = "rmqtt-plugins/"
 #Plug in started by default, when the mqtt server is started
 plugins.default_startups = [
 #    "rmqtt-plugin-template",
@@ -38,7 +38,7 @@ listener.tcp.external.workers = 8
 #The maximum number of concurrent connections allowed by the listener.
 listener.tcp.external.max_connections = 1024000
 #Maximum access rate allowed by the listener, unit: quantity / second
-listener.tcp.external.max_conn_rate = 1000
+listener.tcp.external.max_conn_rate = 3000
 #When the token cannot be obtained, Indicates whether to wait or disconnect, True (wait) / false (disconnect)
 listener.tcp.external.conn_await_acquire = false
 #Maximum allowed mqtt message length. 0 means unlimited, default: 1m
@@ -96,15 +96,15 @@ listener.tcp.external.max_subscriptions = 0
 ## Internal TCP Listener for MQTT Protocol
 listener.tcp.internal.addr = "0.0.0.0:11883"
 listener.tcp.internal.workers = 4
-listener.tcp.internal.max_connections = 1024000
-listener.tcp.internal.max_conn_rate = 500
+listener.tcp.internal.max_connections = 102400
+listener.tcp.internal.max_conn_rate = 5000
 listener.tcp.internal.max_packet_size = "1M"
 listener.tcp.internal.backlog = 512
 listener.tcp.internal.idle_timeout = "15s"
 listener.tcp.internal.allow_anonymous = true
 listener.tcp.internal.min_keepalive = 0
 listener.tcp.internal.keepalive_backoff = 0.75
-listener.tcp.internal.max_inflight = 32
+listener.tcp.internal.max_inflight = 16
 listener.tcp.internal.handshake_timeout = "15s"
 listener.tcp.internal.max_mqueue_len = 1000
 #listener.tcp.internal.mqueue_rate_limit = "100,10s"
