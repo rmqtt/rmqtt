@@ -10,22 +10,23 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use crate::Result;
+use crate::{MqttError, Result};
 
 pub use ntex_mqtt::v3::{
-    self, codec::ConnectAckReason as ConnectAckReasonV3, codec::LastWill as LastWillV3,
-    codec::Packet as PacketV3, codec::SubscribeReturnCode as SubscribeReturnCodeV3,
-    HandshakeAck as HandshakeAckV3, MqttSink as MqttSinkV3,
+    self, codec::Connect as ConnectV3, codec::ConnectAckReason as ConnectAckReasonV3,
+    codec::LastWill as LastWillV3, codec::Packet as PacketV3,
+    codec::SubscribeReturnCode as SubscribeReturnCodeV3, HandshakeAck as HandshakeAckV3,
+    MqttSink as MqttSinkV3,
 };
 
 pub use ntex_mqtt::v5::{
-    self, codec::ConnectAckReason as ConnectAckReasonV5, codec::LastWill as LastWillV5,
-    codec::Packet as PacketV5, codec::Subscribe as SubscribeV5,
+    self, codec::Connect as ConnectV5, codec::ConnectAckReason as ConnectAckReasonV5,
+    codec::LastWill as LastWillV5, codec::Packet as PacketV5, codec::Subscribe as SubscribeV5,
     codec::SubscribeAck as SubscribeAckV5, codec::SubscribeAckReason, codec::SubscriptionOptions,
     codec::Unsubscribe as UnsubscribeV5, codec::UnsubscribeAck as UnsubscribeAckV5,
-    codec::UserProperties, HandshakeAck as HandshakeAckV5, MqttSink as MqttSinkV5,
+    codec::UserProperties, codec::UserProperty, HandshakeAck as HandshakeAckV5,
+    MqttSink as MqttSinkV5,
 };
-// use crate::v3::codec::SubscribeReturnCode;
 
 pub type NodeId = u64;
 pub type ClientId = bytestring::ByteString;
@@ -38,7 +39,8 @@ pub type TopicName = bytestring::ByteString;
 pub type Topic = ntex_mqtt::Topic;
 ///topic filter
 pub type TopicFilter = Topic;
-
+pub type Disconnect = bool;
+pub type MessageExpiry = bool;
 pub type TimestampMillis = i64;
 
 pub type Tx = mpsc::UnboundedSender<Message>;
@@ -47,7 +49,14 @@ pub type Rx = mpsc::UnboundedReceiver<Message>;
 pub type StdHashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 pub type QoS = ntex_mqtt::types::QoS;
 pub type PublishReceiveTime = TimestampMillis;
-pub type TopicFilters = StdHashMap<TopicFilter, QoS>;
+pub type TopicFilterMap = StdHashMap<TopicFilter, QoS>;
+pub type TopicFilters = Vec<TopicFilter>;
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum Connect<'a> {
+    V3(&'a ConnectV3),
+    V5(&'a ConnectV5),
+}
 
 #[derive(Debug, Clone)]
 pub struct PublishV3 {
@@ -160,7 +169,19 @@ impl PublishV3 {
 #[derive(Debug, Clone)]
 pub struct PublishV5 {
     pub publish: v5::codec::Publish,
+    pub topic: Topic,
     pub create_time: TimestampMillis,
+}
+
+impl PublishV5 {
+    pub fn from(publish: v5::codec::Publish) -> Result<PublishV5> {
+        let topic = Topic::from_str(&publish.topic)?;
+        Ok(Self {
+            publish,
+            topic,
+            create_time: chrono::Local::now().timestamp_millis(),
+        })
+    }
 }
 
 pub trait QoSEx {
@@ -188,11 +209,23 @@ impl QoSEx for QoS {
     }
 }
 
-// #[derive(Clone, Debug)]
-// pub enum Subscribe<'a> {
-//     V3(Vec<(&'a TopicFilter, QoS)>),
-//     V5(SubscribeV5),
-// }
+#[derive(Debug, Clone, PartialEq)]
+pub enum SubscribeACLResult {
+    V3(Vec<SubscribeReturnCodeV3>),
+    V5(Vec<SubscribeAckReason>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PublishACLResult {
+    Allow,
+    Rejected(Disconnect),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AuthResult {
+    BadUsernameOrPassword,
+    NotAuthorized,
+}
 
 #[derive(Clone, Debug)]
 pub enum Subscribe {
@@ -201,6 +234,39 @@ pub enum Subscribe {
 }
 
 impl Subscribe {
+    pub fn adjust_topic_filters(&mut self, mut topic_filters: TopicFilters) -> Result<()> {
+        if self.len() != topic_filters.len() {
+            log::error!(
+                "topic_filters quantity mismatch, {:?} <=> {:?}",
+                self,
+                topic_filters
+            );
+            return Err(MqttError::ServiceUnavailable);
+        }
+
+        match self {
+            Subscribe::V3(subs) => {
+                for (tf, _) in subs.iter_mut() {
+                    *tf = topic_filters.remove(0);
+                }
+            }
+            Subscribe::V5(subs) => {
+                for (tf, _) in subs.topic_filters.iter_mut() {
+                    *tf = ByteString::from(topic_filters.remove(0).to_string());
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            Subscribe::V3(subs) => subs.len(),
+            Subscribe::V5(subs) => subs.topic_filters.len(),
+        }
+    }
+
     pub fn topic_filter(&self, idx: usize) -> Option<&TopicFilter> {
         match self {
             Subscribe::V3(subs) => subs.get(idx).map(|(tf, _)| tf),
@@ -354,7 +420,7 @@ pub struct SubscribedV5 {
     pub topic_filter: (ByteString, SubscriptionOptions),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ConnectAckReason {
     V3(ConnectAckReasonV3),
     V5(ConnectAckReasonV5),
@@ -401,6 +467,40 @@ impl ConnectAckReason {
 pub enum Unsubscribe {
     V3(Vec<TopicFilter>),
     V5(UnsubscribeV5),
+}
+
+impl Unsubscribe {
+    pub fn adjust_topic_filters(&mut self, mut topic_filters: TopicFilters) -> Result<()> {
+        if self.len() != topic_filters.len() {
+            log::error!(
+                "topic_filters quantity mismatch, {:?} <=> {:?}",
+                self,
+                topic_filters
+            );
+            return Err(MqttError::ServiceUnavailable);
+        }
+
+        match self {
+            Unsubscribe::V3(unsubs) => {
+                for tf in unsubs.iter_mut() {
+                    *tf = topic_filters.remove(0);
+                }
+            }
+            Unsubscribe::V5(unsubs) => {
+                for tf in unsubs.topic_filters.iter_mut() {
+                    *tf = ByteString::from(topic_filters.remove(0).to_string());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            Unsubscribe::V3(unsubs) => unsubs.len(),
+            Unsubscribe::V5(unsubs) => unsubs.topic_filters.len(),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -590,6 +690,22 @@ pub enum Publish {
 }
 
 impl Publish {
+    #[inline]
+    pub fn retain(&self) -> bool {
+        match self {
+            Publish::V3(p) => p.packet.retain,
+            Publish::V5(p) => p.publish.retain,
+        }
+    }
+
+    #[inline]
+    pub fn topic(&self) -> &Topic {
+        match self {
+            Publish::V3(p) => &p.topic,
+            Publish::V5(p) => &p.topic,
+        }
+    }
+
     #[inline]
     pub fn dup(&self) -> bool {
         match self {
