@@ -221,13 +221,14 @@ mod test {
     async fn channel() {
         use super::Policy;
         use super::Queue;
+        use chrono::Local;
         use futures::StreamExt;
         use std::num::NonZeroU32;
         use std::sync::Arc;
         use std::time::Duration;
 
-        let limiter = super::Limiter::new(NonZeroU32::new(1).unwrap(), Duration::from_millis(30));
-        let (tx, mut rx) = limiter.channel::<u64>(Arc::new(Queue::new(10)));
+        let limiter = super::Limiter::new(NonZeroU32::new(1).unwrap(), Duration::from_millis(100));
+        let (tx, mut rx) = limiter.channel::<u64>(Arc::new(Queue::new(100)));
 
         let tx = tx.policy(|_v: &u64| -> Policy { Policy::Early });
 
@@ -243,7 +244,11 @@ mod test {
         });
 
         while let Some(v) = rx.next().await {
-            println!("queue recv: {:?}", v);
+            println!(
+                "{} queue recv: {:?}",
+                Local::now().format("%Y-%m-%d %H:%M:%S%.3f %z").to_string(),
+                v
+            );
         }
     }
 }
