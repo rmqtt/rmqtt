@@ -405,7 +405,7 @@ impl SessionState {
     }
 
     #[inline]
-    async fn deliver(&self, from: From, mut publish: Publish) -> Result<()> {
+    async fn deliver(&self, from: From, publish: Publish) -> Result<()> {
         //hook, message_expiry_check
         let expiry = self.hook.message_expiry_check(from.clone(), &publish).await;
 
@@ -421,6 +421,13 @@ impl SessionState {
             return Ok(());
         }
 
+        //hook, message_delivered
+        let mut publish = self
+            .hook
+            .message_delivered(from.clone(), &publish)
+            .await
+            .unwrap_or(publish);
+
         //generate packet_id
         if matches!(publish.qos(), QoS::AtLeastOnce | QoS::ExactlyOnce)
             && (!publish.dup() || publish.packet_id_is_none())
@@ -429,10 +436,7 @@ impl SessionState {
         }
 
         //send message
-        self.sink.publish(publish.clone())?;
-
-        //hook, message_deliver
-        self.hook.message_deliver(from.clone(), &publish).await;
+        self.sink.publish(publish.clone())?; //@TODO ... at exception, send hook and or store message
 
         //cache messages to inflight window
         let moment_status = match publish.qos() {
@@ -512,51 +516,59 @@ impl SessionState {
                 "{:?} Subscribe Refused, reason: too many subscriptions, max subscriptions limit: {:?}",
                 self.conn.id, self.listen_cfg.max_subscriptions
             );
-
-            let ret_codes = [0..subs_v3.len()]
-                .iter()
-                .map(|_| SubscribeReturnCodeV3::Failure)
-                .collect();
-            return Ok(ret_codes);
+            return Err(MqttError::TooManySubscriptions);
         }
 
         let mut subs_v3 = Subscribe::V3(subs_v3);
 
         //hook, client_subscribe
-        let (disconnect, hook_subs_ack) = self.hook.client_subscribe(&subs_v3).await;
+        let topic_filters = self.hook.client_subscribe(&subs_v3).await;
 
-        if disconnect {
-            log::info!(
-                "{:?} Subscribe Refused, reason: Subscription failed",
-                self.conn.id
-            );
-            return Err(MqttError::from("Subscribe Refused"));
-        }
-
-        log::debug!("{:?} hook_subs_ack: {:?}", self.id, hook_subs_ack);
-
-        let topic_filters = if let Subscribe::V3(subs_v3) = &subs_v3 {
-            subs_v3.iter().map(|(tf, _)| tf.clone()).collect::<Vec<_>>()
+        log::debug!("{:?} topic_filters: {:?}", self.id, topic_filters);
+        let topic_filters = if let Some(topic_filters) = topic_filters {
+            subs_v3.adjust_topic_filters(topic_filters.clone())?;
+            topic_filters
         } else {
-            Vec::new()
+            if let Subscribe::V3(subs_v3) = &subs_v3 {
+                subs_v3
+                    .iter()
+                    .map(|(tf, _)| tf.clone())
+                    .collect::<TopicFilters>()
+            } else {
+                unreachable!()
+            }
         };
 
-        if let Some(SubscribeAck::V3(subs_ack)) = hook_subs_ack {
-            for (i, sub_ack) in subs_ack.iter().enumerate() {
-                if let Some(tf) = topic_filters.get(i) {
-                    match sub_ack {
-                        SubscribeReturnCodeV3::Failure => {
-                            subs_v3.remove(tf);
-                        }
-                        SubscribeReturnCodeV3::Success(qos) => {
-                            subs_v3.set_qos_if_less(tf, *qos);
+        log::debug!("{:?} topic_filters: {:?}", self.id, topic_filters);
+
+        //hook, client_subscribe
+        let acl_result = self.hook.client_subscribe_check_acl(&subs_v3).await;
+        match acl_result{
+            Some(SubscribeACLResult::V3(return_codes)) => {
+                if subs_v3.len() != return_codes.len() {
+                    log::error!("{:?} SubscribeACLResult return codes quantity mismatch from hook.client_subscribe_check_acl", self.id);
+                    return Err(MqttError::ServiceUnavailable);
+                }
+
+                for (i, return_code) in return_codes.iter().enumerate() {
+                    if let Some(tf) = topic_filters.get(i) {
+                        match return_code {
+                            SubscribeReturnCodeV3::Failure => {
+                                subs_v3.remove(tf);
+                            }
+                            SubscribeReturnCodeV3::Success(qos) => {
+                                subs_v3.set_qos_if_less(tf, *qos);
+                            }
                         }
                     }
                 }
+            },
+            None => {},
+            Some(SubscribeACLResult::V5(_)) => {
+                unreachable!()
             }
         }
 
-        //let mut tmp: StdHashMap<&[u8], usize> = StdHashMap::default();
         let mut tmp: StdHashMap<Topic, usize> = StdHashMap::default();
         if let Subscribe::V3(subs_v3) = &subs_v3 {
             for (idx, (tf, _)) in subs_v3.iter().enumerate() {
@@ -565,7 +577,6 @@ impl SessionState {
             }
         }
 
-        log::debug!("{:?} topic_filters: {:?}", self.id, topic_filters);
         log::debug!("{:?} tmp: {:?}", self.id, tmp);
         log::debug!("{:?} subs_v3: {:?}", self.id, subs_v3);
 
@@ -630,16 +641,19 @@ impl SessionState {
             })
             .collect::<Result<Vec<Topic>>>()?;
 
-        let unsubs_v3 = Unsubscribe::V3(unsubs_v3);
+        let mut unsubs_v3 = Unsubscribe::V3(unsubs_v3);
+
+        log::debug!("{:?} unsubs_v3: {:?}", self.id, unsubs_v3);
 
         //hook, client_unsubscribe
-        let disconnect = self.hook.client_unsubscribe(&unsubs_v3).await;
-        if disconnect {
-            log::info!(
-                "{:?} Unsubscribe Refused, reason: Unsubscribe failed",
-                self.conn.id
+        let topic_filters = self.hook.client_unsubscribe(&unsubs_v3).await;
+        if let Some(topic_filters) = topic_filters {
+            unsubs_v3.adjust_topic_filters(topic_filters)?;
+            log::debug!(
+                "{:?} unsubs_v3(adjust_topic_filters): {:?}",
+                self.id,
+                unsubs_v3
             );
-            return Err(MqttError::from("Unsubscribe failed"));
         }
 
         let _ = Runtime::instance()
@@ -663,39 +677,35 @@ impl SessionState {
 
     #[inline]
     pub async fn publish_v3(&self, publish: v3::Publish) -> Result<()> {
-        let p = Publish::V3(PublishV3::from(&publish)?);
+        let publish = Publish::V3(PublishV3::from(&publish)?);
+        //hook, message_publish
+        let publish = self.hook.message_publish(&publish).await.unwrap_or(publish);
 
-        let (disconnect, deny) = self.hook.message_publish(&p).await;
+        //hook, message_publish_check_acl
+        let acl_result = self.hook.message_publish_check_acl(&publish).await;
+        log::debug!("{:?} acl_result: {:?}", self.id, acl_result);
 
-        if disconnect || deny {
+        if let PublishACLResult::Rejected(disconnect) = acl_result {
             //Message dropped
             self.hook
                 .message_dropped(
                     None,
                     self.id.clone(),
-                    p.clone(),
+                    publish,
                     Reason::from(format!(
-                        "hook::message_publish, disconnect:{}, deny:{}",
-                        disconnect, deny
+                        "hook::message_publish_check_acl, publish rejected, disconnect:{}",
+                        disconnect
                     )),
                 )
                 .await;
+            return if disconnect {
+                Err(MqttError::from(
+                        "Publish Refused, reason: hook::message_publish_check_acl() -> Rejected(Disconnect)",
+                    ))
+            } else {
+                Ok(())
+            };
         }
-        if disconnect {
-            return Err(MqttError::from(
-                "Publish Refused, reason: hook::message_publish(disconnect)",
-            ));
-        }
-
-        if deny {
-            log::info!(
-                "{:?} Publish Refused, reason: hook::message_publish(deny)",
-                self.id
-            );
-            return Ok(());
-        }
-
-        let topic = Topic::from_str(publish.topic().get_ref())?;
 
         if self.listen_cfg.retain_available && publish.retain() {
             Runtime::instance()
@@ -703,10 +713,10 @@ impl SessionState {
                 .retain()
                 .await
                 .set(
-                    &topic,
+                    publish.topic(),
                     Retain {
                         from: self.id.clone(),
-                        publish: p.clone(),
+                        publish: publish.clone(),
                     },
                 )
                 .await?;
@@ -716,7 +726,7 @@ impl SessionState {
             .extends
             .shared()
             .await
-            .forwards(self.id.clone(), p)
+            .forwards(self.id.clone(), publish)
             .await
         {
             for (to, from, p, reason) in errs {
@@ -813,7 +823,7 @@ impl Session {
         Self(Arc::new(_SessionInner {
             listen_cfg,
             fitter,
-            subscriptions: Arc::new(RwLock::new(TopicFilters::default())),
+            subscriptions: Arc::new(RwLock::new(TopicFilterMap::default())),
             deliver_queue: Arc::new(MessageQueue::new(max_mqueue_len)),
             inflight_win: Arc::new(RwLock::new(Inflight::new(
                 max_inflight,
@@ -843,7 +853,7 @@ impl std::fmt::Debug for Session {
 pub struct _SessionInner {
     pub listen_cfg: Listener,
     pub fitter: Box<dyn Fitter>,
-    pub subscriptions: Arc<RwLock<TopicFilters>>, //Current subscription for this session
+    pub subscriptions: Arc<RwLock<TopicFilterMap>>, //Current subscription for this session
     pub deliver_queue: Arc<MessageQueue>,
     pub inflight_win: Arc<RwLock<Inflight>>,
     pub created_at: TimestampMillis,
