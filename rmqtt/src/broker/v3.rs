@@ -1,12 +1,34 @@
 use anyhow::Result;
 use ntex_mqtt::v3::{self, codec::SubscribeReturnCode};
 use std::net::SocketAddr;
-use tokio::time::Duration;
 
 use crate::broker::{inflight::MomentStatus, types::*};
 use crate::runtime::Runtime;
 use crate::settings::listener::Listener;
-use crate::{Connection, MqttError, Session, SessionState};
+use crate::{ClientInfo, MqttError, Session, SessionState};
+
+#[inline]
+async fn refused_ack<Io>(
+    handshake: v3::Handshake<Io>,
+    connect_info: &ConnectInfo,
+    ack_code: ConnectAckReasonV3,
+    reason: String,
+) -> v3::HandshakeAck<Io, SessionState> {
+    let new_ack_code = Runtime::instance()
+        .extends
+        .hook_mgr()
+        .await
+        .client_connack(connect_info, ConnectAckReason::V3(ack_code))
+        .await;
+    log::warn!(
+        "{:?} Connection Refused, handshake, ack_code: {:?}, new_ack_code: {:?}, reason: {}",
+        connect_info.id(),
+        ack_code,
+        new_ack_code,
+        reason,
+    );
+    new_ack_code.v3_error_ack(handshake)
+}
 
 #[inline]
 pub async fn handshake<Io>(
@@ -16,7 +38,7 @@ pub async fn handshake<Io>(
     local_addr: SocketAddr,
 ) -> Result<v3::HandshakeAck<Io, SessionState>, MqttError> {
     log::trace!(
-        "new connection: local_addr: {:?}, remote: {:?}, {:?}, listen_cfg: {:?}",
+        "new Connection: local_addr: {:?}, remote: {:?}, {:?}, listen_cfg: {:?}",
         local_addr,
         remote_addr,
         handshake,
@@ -30,43 +52,37 @@ pub async fn handshake<Io>(
         .get(format!("{}", local_addr.port()), listen_cfg.clone())?;
     limiter.acquire_one().await?;
 
+    let node_id = Runtime::instance()
+        .extends
+        .router()
+        .await
+        .get_node_id()
+        .await;
+
+    let packet = handshake.packet().clone();
+
+    let id = Id::new(
+        node_id,
+        local_addr.to_string(),
+        remote_addr.to_string(),
+        packet.client_id.clone(),
+        handshake.packet_mut().username.take(),
+    );
+
+    let connect_info = ConnectInfo::V3(id.clone(), packet);
+
     //hook, client connect
     let _ = Runtime::instance()
         .extends
         .hook_mgr()
         .await
-        .client_connect(Connect::V3(handshake.packet()))
+        .client_connect(&connect_info)
         .await;
 
-    let refused_ack = |id: String,
-                       mut handshake: v3::Handshake<Io>,
-                       ack_reason: ConnectAckReasonV3,
-                       reason: String| async move {
-        let new_ack_reason = Runtime::instance()
-            .extends
-            .hook_mgr()
-            .await
-            .client_connack(
-                Connect::V3(handshake.packet_mut()),
-                ConnectAckReason::V3(ack_reason),
-            )
-            .await;
-        log::warn!(
-            "{:?} Connection Refused, handshake, ack_reason: {:?}, new_ack_reason: {:?}, reason: {}",
-            id,
-            ack_reason,
-            new_ack_reason,
-            reason,
-        );
-        new_ack_reason.v3_error_ack(handshake)
-    };
-
-    let client_id = handshake.packet().client_id.clone();
-
-    if listen_cfg.max_clientid_len > 0 && client_id.len() > listen_cfg.max_clientid_len {
+    if listen_cfg.max_clientid_len > 0 && id.client_id.len() > listen_cfg.max_clientid_len {
         return Ok(refused_ack(
-            client_id.to_string(),
             handshake,
+            &connect_info,
             ConnectAckReasonV3::IdentifierRejected,
             "client_id is too long".into(),
         )
@@ -76,27 +92,12 @@ pub async fn handshake<Io>(
     let sink = handshake.sink();
     let packet = handshake.packet_mut();
 
-    let node_id = Runtime::instance()
-        .extends
-        .router()
-        .await
-        .get_node_id()
-        .await;
-
-    let connected_at = chrono::Local::now().timestamp_millis();
-    let id = Id::new(
-        node_id,
-        local_addr.to_string(),
-        remote_addr.to_string(),
-        client_id,
-    );
-
     let mut entry =
         match { Runtime::instance().extends.shared().await.entry(id.clone()) }.try_lock() {
             Err(e) => {
                 return Ok(refused_ack(
-                    id.to_string(),
                     handshake,
+                    &connect_info,
                     ConnectAckReasonV3::ServiceUnavailable,
                     format!("{:?}", e),
                 )
@@ -109,8 +110,8 @@ pub async fn handshake<Io>(
     let (session_present, old_session) = match entry.kick(packet.clean_session).await {
         Err(e) => {
             return Ok(refused_ack(
-                id.to_string(),
                 handshake,
+                &connect_info,
                 ConnectAckReasonV3::ServiceUnavailable,
                 format!("{:?}", e),
             )
@@ -119,6 +120,9 @@ pub async fn handshake<Io>(
         Ok(Some((s, _))) => (!packet.clean_session, Some(s)),
         Ok(None) => (false, None),
     };
+
+    let connected_at = chrono::Local::now().timestamp_millis();
+    let client = ClientInfo::new(connect_info, session_present, connected_at);
 
     log::debug!("{:?} old session: {:?}", id, old_session);
     let (session, session_created) = if let Some(s) = old_session {
@@ -136,8 +140,8 @@ pub async fn handshake<Io>(
         Ok(keep_alive) => keep_alive,
         Err(e) => {
             return Ok(refused_ack(
-                id.to_string(),
                 handshake,
+                &client.connect_info,
                 ConnectAckReasonV3::ServiceUnavailable,
                 format!("{:?}", e),
             )
@@ -145,22 +149,11 @@ pub async fn handshake<Io>(
         }
     };
 
-    let conn = Connection::new(
-        id,
-        packet.protocol,
-        packet.username.take(),
-        Duration::from_secs(keep_alive as u64),
-        packet.clean_session,
-        packet.last_will.take().map(LastWill::V3),
-        session_present,
-        connected_at,
-    );
-
     let hook = Runtime::instance()
         .extends
         .hook_mgr()
         .await
-        .hook(&session, &conn);
+        .hook(&session, &client);
 
     if session_created {
         //hook, session created
@@ -172,8 +165,8 @@ pub async fn handshake<Io>(
     if !ack.success() {
         if let ConnectAckReason::V3(ack) = ack {
             return Ok(refused_ack(
-                conn.id.to_string(),
                 handshake,
+                &client.connect_info,
                 ack,
                 "Authentication failed".into(),
             )
@@ -183,17 +176,17 @@ pub async fn handshake<Io>(
         }
     }
 
-    let (state, tx) = SessionState::new(conn.id.clone(), session, conn, Sink::V3(sink), hook)
-        .start()
+    let (state, tx) = SessionState::new(id.clone(), session, client, Sink::V3(sink), hook)
+        .start(keep_alive)
         .await;
 
     if let Err(e) = entry
-        .set(state.session.clone(), tx, state.conn.clone())
+        .set(state.session.clone(), tx, state.client.clone())
         .await
     {
         return Ok(refused_ack(
-            state.conn.id.to_string(),
             handshake,
+            &state.client.connect_info,
             ConnectAckReasonV3::ServiceUnavailable,
             format!("{:?}", e),
         )
@@ -206,7 +199,7 @@ pub async fn handshake<Io>(
         .hook_mgr()
         .await
         .client_connack(
-            Connect::V3(packet),
+            &state.client.connect_info,
             ConnectAckReason::V3(ConnectAckReasonV3::ConnectionAccepted),
         )
         .await;
@@ -232,7 +225,7 @@ pub async fn control_message(
             let subs_ack = match state.subscribe_v3(&mut subs).await {
                 Err(e) => {
                     state
-                        .conn
+                        .client
                         .set_disconnected_reason(format!("Subscribe failed, {:?}", e));
                     log::error!("{:?} Subscribe failed, reason: {:?}", state.id, e);
                     return Err(e);
@@ -263,7 +256,7 @@ pub async fn control_message(
         v3::ControlMessage::Unsubscribe(mut unsubs) => {
             if let Err(e) = state.unsubscribe_v3(&mut unsubs).await {
                 state
-                    .conn
+                    .client
                     .set_disconnected_reason(format!("Unsubscribe failed, {:?}", e));
                 log::error!("{:?} Unsubscribe failed, reason: {:?}", state.id, e);
                 return Err(e);
@@ -278,7 +271,7 @@ pub async fn control_message(
         v3::ControlMessage::Closed(m) => {
             //hook, client_disconnected
             let reason = state
-                .conn
+                .client
                 .get_disconnected_reason()
                 .unwrap_or_else(|| Reason::from_static("unknown error"));
             state.hook.client_disconnected(reason).await;
@@ -305,12 +298,12 @@ pub async fn publish(
         v3::PublishMessage::Publish(publish) => {
             if let Err(e) = state.publish_v3(publish).await {
                 state
-                    .conn
+                    .client
                     .set_disconnected_reason(format!("Publish failed, {:?}", e));
                 log::error!(
                     "{:?} Publish failed, reason: {:?}",
                     state.id,
-                    state.conn.get_disconnected_reason()
+                    state.client.get_disconnected_reason()
                 );
                 return Err(e);
             }
