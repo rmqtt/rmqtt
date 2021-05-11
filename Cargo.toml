@@ -2,7 +2,7 @@
 members = [
   "rmqtt",
   "rmqtt-plugins/rmqtt-plugin-template",
-  "rmqtt-plugins/rmqtt-plugin-helloworld",
+  "rmqtt-plugins/rmqtt-web-hook",
   "rmqtt-bin",
 ]
 
