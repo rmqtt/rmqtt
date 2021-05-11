@@ -1,13 +1,11 @@
 use std::net::SocketAddr;
-use tokio::time::Duration;
 
-use ntex_mqtt::types::{Protocol, MQTT_LEVEL_5};
 use ntex_mqtt::v5;
 use ntex_mqtt::v5::codec::{Auth, DisconnectReasonCode};
 
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
-use crate::{Connection, MqttError, Runtime, Session, SessionState};
+use crate::{ClientInfo, MqttError, Runtime, Session, SessionState};
 
 #[inline]
 pub async fn handshake<Io>(
@@ -19,19 +17,20 @@ pub async fn handshake<Io>(
     log::debug!("new connection: {:?}", handshake);
 
     let packet = handshake.packet_mut();
-    let keep_alive = (if packet.keep_alive == 0 {
-        60
-    } else {
-        packet.keep_alive
-    } as f32
-        * 1.5)
-        .round() as u16;
+    // let keep_alive = (if packet.keep_alive == 0 {
+    //     60
+    // } else {
+    //     packet.keep_alive
+    // } as f32
+    //     * 1.5)
+    //     .round() as u16;
 
     let id = Id::new(
         1,
         local_addr.to_string(),
         remote_addr.to_string(),
         packet.client_id.clone(),
+        packet.username.clone(),
     );
     let fitter = Runtime::instance()
         .extends
@@ -43,13 +42,8 @@ pub async fn handshake<Io>(
     let session_present = false;
     let connected_at = chrono::Local::now().timestamp_millis();
 
-    let conn = Connection::new(
-        id,
-        Protocol::MQTT(MQTT_LEVEL_5),
-        packet.username.take(),
-        Duration::from_secs(keep_alive as u64),
-        packet.clean_start,
-        packet.last_will.clone().map(LastWill::V5),
+    let conn = ClientInfo::new(
+        ConnectInfo::V5(id, Box::new(handshake.packet().clone())),
         session_present,
         connected_at,
     );
@@ -78,7 +72,7 @@ pub async fn publish(
 ) -> Result<v5::PublishAck, MqttError> {
     log::info!(
         "incoming publish ({:?}) : {:?} -> {:?}",
-        session.state().conn.id,
+        session.state().client.id,
         publish.id(),
         publish.topic()
     );
