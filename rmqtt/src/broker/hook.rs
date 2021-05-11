@@ -55,10 +55,10 @@ pub trait Hook: Sync + Send {
 
     ///subscribe check acl
     async fn client_subscribe_check_acl(&self, subscribe: &Subscribe)
-        -> Option<SubscribeACLResult>;
+        -> Option<SubscribeAclResult>;
 
     ///publish check acl
-    async fn message_publish_check_acl(&self, publish: &Publish) -> PublishACLResult;
+    async fn message_publish_check_acl(&self, publish: &Publish) -> PublishAclResult;
 
     ///Subscribe message received
     async fn client_subscribe(&self, subscribe: &Subscribe) -> Option<TopicFilters>;
@@ -104,9 +104,9 @@ pub enum Type {
     ClientDisconnected,
     ClientSubscribe,
     ClientUnsubscribe,
-    ClientSubscribeCheckACL,
+    ClientSubscribeCheckAcl,
 
-    MessagePublishCheckACL,
+    MessagePublishCheckAcl,
     MessagePublish,
     MessageDelivered,
     MessageAcked,
@@ -131,9 +131,9 @@ impl std::convert::From<&str> for Type {
             "client_disconnected" => Type::ClientDisconnected,
             "client_subscribe" => Type::ClientSubscribe,
             "client_unsubscribe" => Type::ClientUnsubscribe,
-            "client_subscribe_check_acl" => Type::ClientSubscribeCheckACL,
+            "client_subscribe_check_acl" => Type::ClientSubscribeCheckAcl,
 
-            "message_publish_check_acl" => Type::MessagePublishCheckACL,
+            "message_publish_check_acl" => Type::MessagePublishCheckAcl,
             "message_publish" => Type::MessagePublish,
             "message_delivered" => Type::MessageDelivered,
             "message_acked" => Type::MessageAcked,
@@ -160,9 +160,9 @@ pub enum Parameter<'a> {
     ClientDisconnected(&'a Session, &'a ClientInfo, Reason),
     ClientSubscribe(&'a Session, &'a ClientInfo, &'a Subscribe),
     ClientUnsubscribe(&'a Session, &'a ClientInfo, &'a Unsubscribe),
-    ClientSubscribeCheckACL(&'a Session, &'a ClientInfo, &'a Subscribe),
+    ClientSubscribeCheckAcl(&'a Session, &'a ClientInfo, &'a Subscribe),
 
-    MessagePublishCheckACL(&'a Session, &'a ClientInfo, &'a Publish),
+    MessagePublishCheckAcl(&'a Session, &'a ClientInfo, &'a Publish),
     MessagePublish(&'a Session, &'a ClientInfo, &'a Publish),
     MessageDelivered(&'a Session, &'a ClientInfo, From, &'a Publish),
     MessageAcked(&'a Session, &'a ClientInfo, From, &'a Publish),
@@ -194,9 +194,9 @@ impl<'a> Parameter<'a> {
             Parameter::ClientDisconnected(_, _, _) => Type::ClientDisconnected,
             Parameter::ClientSubscribe(_, _, _) => Type::ClientSubscribe,
             Parameter::ClientUnsubscribe(_, _, _) => Type::ClientUnsubscribe,
-            Parameter::ClientSubscribeCheckACL(_, _, _) => Type::ClientSubscribeCheckACL,
+            Parameter::ClientSubscribeCheckAcl(_, _, _) => Type::ClientSubscribeCheckAcl,
 
-            Parameter::MessagePublishCheckACL(_, _, _) => Type::MessagePublishCheckACL,
+            Parameter::MessagePublishCheckAcl(_, _, _) => Type::MessagePublishCheckAcl,
             Parameter::MessagePublish(_, _, _) => Type::MessagePublish,
             Parameter::MessageDelivered(_, _, _, _) => Type::MessageDelivered,
             Parameter::MessageAcked(_, _, _, _) => Type::MessageAcked,
@@ -216,10 +216,10 @@ pub enum HookResult {
     ConnectAckReason(ConnectAckReason),
     ///TopicFilters, for ClientSubscribe/ClientUnsubscribe
     TopicFilters(TopicFilters),
-    ///Subscribe ACLResult, for ClientSubscribeCheckACL
-    SubscribeACLResult(SubscribeACLResult),
-    ///Publish ACLResult, for MessagePublishCheckACL
-    PublishACLResult(PublishACLResult),
+    ///Subscribe AclResult, for ClientSubscribeCheckAcl
+    SubscribeAclResult(SubscribeAclResult),
+    ///Publish AclResult, for MessagePublishCheckAcl
+    PublishAclResult(PublishAclResult),
     ///Publish, for MessagePublish/MessageDelivered
     Publish(Publish),
     ///Message Expiry
