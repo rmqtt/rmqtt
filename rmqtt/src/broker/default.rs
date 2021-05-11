@@ -24,7 +24,7 @@ use super::{
 };
 use crate::broker::fitter::{Fitter, FitterManager};
 use crate::broker::hook::{Handler, Hook, HookManager, HookResult, Parameter, Register, Type};
-use crate::broker::session::{Connection, Session};
+use crate::broker::session::{ClientInfo, Session};
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
 use crate::Runtime;
@@ -74,7 +74,7 @@ impl LockEntry {
     }
 
     #[inline]
-    async fn _remove(&mut self, clear_subscriptions: bool) -> Option<(Session, Tx, Connection)> {
+    async fn _remove(&mut self, clear_subscriptions: bool) -> Option<(Session, Tx, ClientInfo)> {
         if let Some((_, peer)) = self.shared.peers.remove(&self.id.client_id) {
             if clear_subscriptions {
                 for topic_filter in peer.s.drain_subscriptions() {
@@ -119,7 +119,7 @@ impl super::Entry for LockEntry {
     }
 
     #[inline]
-    async fn set(&mut self, s: Session, tx: Tx, c: Connection) -> Result<()> {
+    async fn set(&mut self, s: Session, tx: Tx, c: ClientInfo) -> Result<()> {
         self.shared
             .peers
             .insert(self.id.client_id.clone(), EntryItem { s, tx, c });
@@ -127,12 +127,12 @@ impl super::Entry for LockEntry {
     }
 
     #[inline]
-    async fn remove(&mut self) -> Result<Option<(Session, Tx, Connection)>> {
+    async fn remove(&mut self) -> Result<Option<(Session, Tx, ClientInfo)>> {
         Ok(self._remove(true).await)
     }
 
     #[inline]
-    async fn kick(&mut self, clear_subscriptions: bool) -> Result<Option<(Session, Connection)>> {
+    async fn kick(&mut self, clear_subscriptions: bool) -> Result<Option<(Session, ClientInfo)>> {
         if let Some((s, peer_tx, c)) = self._remove(clear_subscriptions).await {
             let (tx, mut rx) = mpsc::unbounded_channel();
             if let Err(e) = peer_tx.send(Message::Kick(tx, self.id.clone())) {
@@ -175,7 +175,7 @@ impl super::Entry for LockEntry {
     }
 
     #[inline]
-    async fn connection(&self) -> Option<Connection> {
+    async fn client(&self) -> Option<ClientInfo> {
         self.shared
             .peers
             .get(&self.id.client_id)
@@ -288,7 +288,7 @@ impl super::Entry for LockEntry {
 struct EntryItem {
     s: Session,
     tx: Tx,
-    c: Connection,
+    c: ClientInfo,
 }
 
 pub struct DefaultShared {
@@ -377,7 +377,7 @@ impl Shared for &'static DefaultShared {
     }
 
     #[inline]
-    async fn connections(&self) -> usize {
+    async fn clients(&self) -> usize {
         self.peers
             .iter()
             .filter(|entry| entry.value().c.is_connected())
@@ -398,12 +398,12 @@ impl Shared for &'static DefaultShared {
     }
 
     #[inline]
-    fn random_session(&self) -> Option<(Session, Connection)> {
+    fn random_session(&self) -> Option<(Session, ClientInfo)> {
         let mut sessions = self
             .peers
             .iter()
             .map(|p| (p.s.clone(), p.c.clone()))
-            .collect::<Vec<(Session, Connection)>>();
+            .collect::<Vec<(Session, ClientInfo)>>();
         let len = self.peers.len();
         if len > 0 {
             let idx = rand::prelude::random::<usize>() % len;
@@ -718,81 +718,12 @@ impl DefaultHookManager {
             None
         }
     }
-
-    // #[inline]
-    // fn result_is_exit(&self, results: &Results) -> Exit {
-    //     for r in results.iter() {
-    //         if r == &HookResult::Exit {
-    //             return true;
-    //         }
-    //     }
-    //     false
-    // }
-    //
-    // #[inline]
-    // fn result_is_disconnect(&self, results: &Results) -> Disconnect {
-    //     for r in results.iter() {
-    //         if r == &HookResult::Disconnect {
-    //             return true;
-    //         }
-    //     }
-    //     false
-    // }
-    //
-    // #[inline]
-    // fn result_is_disconnect_or_deny(&self, results: &Results) -> (Disconnect, Deny) {
-    //     let mut deny = false;
-    //     for r in results.iter() {
-    //         match r {
-    //             HookResult::Disconnect => return (true, deny),
-    //             HookResult::Deny => deny = true,
-    //             _ => {}
-    //         }
-    //     }
-    //     (false, deny)
-    // }
-    //
-    // #[inline]
-    // fn result_is_auth_failed(&self, results: &Results) -> (BadUsernameOrPassword, NotAuthorized) {
-    //     for r in results.iter() {
-    //         match r {
-    //             HookResult::BadUsernameOrPassword => return (true, false),
-    //             HookResult::NotAuthorized => return (false, true),
-    //             _ => {}
-    //         }
-    //     }
-    //     (false, false)
-    // }
-
-    // #[inline]
-    // fn is_message_expiry(&self, results: &Results) -> MessageExpiry {
-    //     for r in results.iter() {
-    //         if r == &HookResult::MessageExpiry {
-    //             return true;
-    //         }
-    //     }
-    //     false
-    // }
-    //
-    // #[inline]
-    // fn result_merge_subscribe_acks(
-    //     &self,
-    //     mut results: Results,
-    //     mut sub_ack: SubscribeAck,
-    // ) -> SubscribeAck {
-    //     for r in results.drain(..) {
-    //         if let HookResult::SubscribeAck(ack) = r {
-    //             sub_ack.merge_from(ack);
-    //         }
-    //     }
-    //     sub_ack
-    // }
 }
 
 #[async_trait]
 impl HookManager for &'static DefaultHookManager {
     #[inline]
-    fn hook(&self, s: &Session, c: &Connection) -> std::rc::Rc<dyn Hook> {
+    fn hook(&self, s: &Session, c: &ClientInfo) -> std::rc::Rc<dyn Hook> {
         std::rc::Rc::new(DefaultHook::new(self, s, c))
     }
 
@@ -808,7 +739,7 @@ impl HookManager for &'static DefaultHookManager {
     }
 
     #[inline]
-    async fn client_connect<'a>(&'a self, connect_info: Connect<'a>) -> Option<UserProperties> {
+    async fn client_connect(&self, connect_info: &ConnectInfo) -> Option<UserProperties> {
         let result = self
             .exec(Type::ClientConnect, Parameter::ClientConnect(connect_info))
             .await;
@@ -820,9 +751,9 @@ impl HookManager for &'static DefaultHookManager {
     }
 
     ///When sending mqtt:: connectack message
-    async fn client_connack<'a>(
-        &'a self,
-        connect_info: Connect<'a>,
+    async fn client_connack(
+        &self,
+        connect_info: &ConnectInfo,
         return_code: ConnectAckReason,
     ) -> ConnectAckReason {
         let result = self
@@ -890,19 +821,18 @@ impl Register for DefaultHookRegister {
     fn stop(&self) {
         self.adjust_status(false);
     }
-
 }
 
 #[derive(Clone)]
 pub struct DefaultHook {
     manager: &'static DefaultHookManager,
     s: Session,
-    c: Connection,
+    c: ClientInfo,
 }
 
 impl DefaultHook {
     #[inline]
-    pub fn new(manager: &'static DefaultHookManager, s: &Session, c: &Connection) -> Self {
+    pub fn new(manager: &'static DefaultHookManager, s: &Session, c: &ClientInfo) -> Self {
         Self {
             manager,
             s: s.clone(),
@@ -925,7 +855,7 @@ impl Hook for DefaultHook {
 
     #[inline]
     async fn client_authenticate(&self, password: Option<Password>) -> ConnectAckReason {
-        let ok = || match self.c.protocol.level() {
+        let ok = || match self.c.protocol() {
             MQTT_LEVEL_31 => ConnectAckReason::V3(ConnectAckReasonV3::ConnectionAccepted),
             MQTT_LEVEL_311 => ConnectAckReason::V3(ConnectAckReasonV3::ConnectionAccepted),
             MQTT_LEVEL_5 => ConnectAckReason::V5(ConnectAckReasonV5::Success),
@@ -950,7 +880,7 @@ impl Hook for DefaultHook {
         };
 
         if bad_user_or_pass {
-            return match self.c.protocol.level() {
+            return match self.c.protocol() {
                 MQTT_LEVEL_31 => ConnectAckReason::V3(ConnectAckReasonV3::BadUserNameOrPassword),
                 MQTT_LEVEL_311 => ConnectAckReason::V3(ConnectAckReasonV3::BadUserNameOrPassword),
                 MQTT_LEVEL_5 => ConnectAckReason::V5(ConnectAckReasonV5::BadUserNameOrPassword),
@@ -959,7 +889,7 @@ impl Hook for DefaultHook {
         }
 
         if not_auth {
-            return match self.c.protocol.level() {
+            return match self.c.protocol() {
                 MQTT_LEVEL_31 => ConnectAckReason::V3(ConnectAckReasonV3::NotAuthorized),
                 MQTT_LEVEL_311 => ConnectAckReason::V3(ConnectAckReasonV3::NotAuthorized),
                 MQTT_LEVEL_5 => ConnectAckReason::V5(ConnectAckReasonV5::NotAuthorized),
@@ -1055,63 +985,6 @@ impl Hook for DefaultHook {
         }
     }
 
-    // #[inline]
-    // async fn client_subscribe(&self, subscribe: &Subscribe) -> (Disconnect, Option<SubscribeAck>) {
-    //     let results = self
-    //         .manager
-    //         .exec(
-    //             Type::ClientSubscribe,
-    //             Parameter::ClientSubscribe(&self.s, &self.c, subscribe),
-    //         )
-    //         .await;
-    //
-    //     if self.manager.result_is_disconnect(&results) {
-    //         return (true, None);
-    //     }
-    //
-    //     let max_topic_levels = self.s.listen_cfg.max_topic_levels;
-    //     let ack = match subscribe {
-    //         Subscribe::V3(subs) => {
-    //             let mut subs_ack = Vec::new();
-    //             for (topic_filter, qos) in subs.iter() {
-    //                 if max_topic_levels > 0 && topic_filter.levels().len() > max_topic_levels {
-    //                     log::warn!(
-    //                         "{:?} hook::client_subscribe, violation of max_topic_levels constraint",
-    //                         self.c.id
-    //                     );
-    //                     subs_ack.push(SubscribeReturnCodeV3::Failure);
-    //                 } else {
-    //                     subs_ack.push(SubscribeReturnCodeV3::Success(*qos));
-    //                 }
-    //             }
-    //             SubscribeAck::V3(subs_ack)
-    //         }
-    //         Subscribe::V5(subs) => {
-    //             let mut reasons = Vec::new();
-    //             for (_, opts) in &subs.topic_filters {
-    //                 let r = match opts.qos {
-    //                     QoS::AtMostOnce => SubscribeAckReason::GrantedQos0,
-    //                     QoS::AtLeastOnce => SubscribeAckReason::GrantedQos1,
-    //                     QoS::ExactlyOnce => SubscribeAckReason::GrantedQos2,
-    //                 };
-    //                 reasons.push(r);
-    //             }
-    //
-    //             let subs_ack = SubscribeAckV5 {
-    //                 packet_id: subs.packet_id,
-    //                 properties: subs.user_properties.clone(),
-    //                 reason_string: None,
-    //                 status: reasons,
-    //             };
-    //             SubscribeAck::V5(subs_ack)
-    //         }
-    //     };
-    //
-    //     let ack = self.manager.result_merge_subscribe_acks(results, ack);
-    //
-    //     (false, Some(ack))
-    // }
-
     #[inline]
     async fn session_subscribed(&self, subscribed: Subscribed) {
         let _ = self
@@ -1166,23 +1039,6 @@ impl Hook for DefaultHook {
         } else {
             None
         }
-
-        // match self.manager.result_is_disconnect_or_deny(&results) {
-        //     (true, deny) => return (true, deny),
-        //     (false, true) => return (false, true),
-        //     (false, false) => {
-        //         let max_qos_allowed = self.s.listen_cfg.max_qos_allowed.value();
-        //         if publish.qos().value() > max_qos_allowed {
-        //             log::warn!(
-        //                 "{:?} hook::message_publish, violation of max_qos_allowed constraint",
-        //                 self.c.id
-        //             );
-        //             (false, true)
-        //         } else {
-        //             (false, false)
-        //         }
-        //     }
-        // }
     }
 
     #[inline]
