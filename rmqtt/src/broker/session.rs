@@ -345,7 +345,7 @@ impl SessionState {
     async fn process_last_will(&self) -> Result<()> {
         match self.client.last_will() {
             Some(LastWill::V3(lw)) => {
-                let p = Publish::V3(PublishV3::from_last_will(lw)?);
+                let p = Publish::V3(Box::new(PublishV3::from_last_will(lw)?));
                 if let Err(e) = Runtime::instance()
                     .extends
                     .shared()
@@ -528,15 +528,13 @@ impl SessionState {
         let topic_filters = if let Some(topic_filters) = topic_filters {
             subs_v3.adjust_topic_filters(topic_filters.clone())?;
             topic_filters
+        } else if let Subscribe::V3(subs_v3) = &subs_v3 {
+            subs_v3
+                .iter()
+                .map(|(tf, _)| tf.clone())
+                .collect::<TopicFilters>()
         } else {
-            if let Subscribe::V3(subs_v3) = &subs_v3 {
-                subs_v3
-                    .iter()
-                    .map(|(tf, _)| tf.clone())
-                    .collect::<TopicFilters>()
-            } else {
                 unreachable!()
-            }
         };
 
         log::debug!("{:?} topic_filters: {:?}", self.id, topic_filters);
@@ -544,9 +542,9 @@ impl SessionState {
         //hook, client_subscribe
         let acl_result = self.hook.client_subscribe_check_acl(&subs_v3).await;
         match acl_result {
-            Some(SubscribeACLResult::V3(return_codes)) => {
+            Some(SubscribeAclResult::V3(return_codes)) => {
                 if subs_v3.len() != return_codes.len() {
-                    log::error!("{:?} SubscribeACLResult return codes quantity mismatch from hook.client_subscribe_check_acl", self.id);
+                    log::error!("{:?} SubscribeAclResult return codes quantity mismatch from hook.client_subscribe_check_acl", self.id);
                     return Err(MqttError::ServiceUnavailable);
                 }
 
@@ -564,7 +562,7 @@ impl SessionState {
                 }
             }
             None => {}
-            Some(SubscribeACLResult::V5(_)) => {
+            Some(SubscribeAclResult::V5(_)) => {
                 unreachable!()
             }
         }
@@ -677,7 +675,7 @@ impl SessionState {
 
     #[inline]
     pub async fn publish_v3(&self, publish: v3::Publish) -> Result<()> {
-        let publish = Publish::V3(PublishV3::from(&publish)?);
+        let publish = Publish::V3(Box::new(PublishV3::from(&publish)?));
         //hook, message_publish
         let publish = self.hook.message_publish(&publish).await.unwrap_or(publish);
 
@@ -685,7 +683,7 @@ impl SessionState {
         let acl_result = self.hook.message_publish_check_acl(&publish).await;
         log::debug!("{:?} acl_result: {:?}", self.id, acl_result);
 
-        if let PublishACLResult::Rejected(disconnect) = acl_result {
+        if let PublishAclResult::Rejected(disconnect) = acl_result {
             //Message dropped
             self.hook
                 .message_dropped(
@@ -917,7 +915,7 @@ impl ClientInfo {
     #[inline]
     pub fn to_json(&self) -> serde_json::Value {
         let mut json = self.connect_info.to_json();
-        json.as_object_mut().map(|json| {
+        if let Some(json) = json.as_object_mut(){
             json.insert(
                 "session_present".into(),
                 serde_json::Value::Bool(self.session_present),
@@ -944,7 +942,7 @@ impl ClientInfo {
             } else {
                 json.insert("disconnected_reason".into(), serde_json::Value::Null);
             }
-        });
+        }
         json
     }
 
