@@ -11,7 +11,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant};
 
-use ntex_mqtt::types::Protocol;
+use ntex_mqtt::types::MQTT_LEVEL_5;
 
 use crate::broker::inflight::{Inflight, InflightMessage, MomentStatus};
 use crate::broker::queue::{Limiter, Policy, Queue, Sender};
@@ -28,7 +28,7 @@ pub struct SessionState {
     pub id: Id,
     pub tx: Option<Tx>,
     pub session: Session,
-    pub conn: Connection,
+    pub client: ClientInfo,
     pub sink: Sink,
     pub hook: Rc<dyn Hook>,
     pub deliver_queue_tx: Option<MessageSender>,
@@ -44,7 +44,7 @@ impl fmt::Debug for SessionState {
             "SessionState {{ {:?}, {:?}, {:?}, {} }}",
             self.id,
             self.session,
-            self.conn,
+            self.client,
             self.deliver_queue_tx
                 .as_ref()
                 .map(|tx| tx.len())
@@ -58,7 +58,7 @@ impl SessionState {
     pub(crate) fn new(
         id: Id,
         session: Session,
-        conn: Connection,
+        client: ClientInfo,
         sink: Sink,
         hook: Rc<dyn Hook>,
     ) -> Self {
@@ -66,7 +66,7 @@ impl SessionState {
             id,
             tx: None,
             session,
-            conn,
+            client,
             sink,
             hook,
             deliver_queue_tx: None,
@@ -74,7 +74,7 @@ impl SessionState {
     }
 
     #[inline]
-    pub(crate) async fn start(mut self) -> (Self, Tx) {
+    pub(crate) async fn start(mut self, keep_alive: u16) -> (Self, Tx) {
         let (msg_tx, mut msg_rx) = mpsc::unbounded_channel();
         self.tx.replace(msg_tx.clone());
         let mut state = self.clone();
@@ -105,10 +105,10 @@ impl SessionState {
             let mut _is_disconnect_received = false;
             log::debug!("{:?} start online event loop", id);
 
-            let keep_alive_interval = if state.conn.keep_alive.as_secs() < 10 {
+            let keep_alive_interval = if keep_alive < 10 {
                 Duration::from_secs(10)
             } else {
-                state.conn.keep_alive + Duration::from_secs(10)
+                Duration::from_secs((keep_alive + 10) as u64)
             };
             log::debug!("{:?} keep_alive_interval is {:?}", id, keep_alive_interval);
             let keep_alive_delay = tokio::time::sleep(keep_alive_interval);
@@ -132,7 +132,7 @@ impl SessionState {
                 tokio::select! {
                     _ = &mut keep_alive_delay => {  //, if !keep_alive_delay.is_elapsed()
                         log::debug!("{:?} session is timeout, {:?}", id, keep_alive_delay);
-                        state.conn.set_disconnected_reason("Timeout(Read/Write)".to_owned());
+                        state.client.set_disconnected_reason("Timeout(Read/Write)".to_owned());
                         break
                     },
                     msg = msg_rx.recv() => {
@@ -152,12 +152,12 @@ impl SessionState {
                                         log::warn!("{:?} Kicked response error, {:?}", id, e);
                                     }
                                     _kicked = true;
-                                    state.conn.set_disconnected_reason(format!("Kicked by {:?}", by_id));
+                                    state.client.set_disconnected_reason(format!("Kicked by {:?}", by_id));
                                     break
                                 },
                                 Message::Disconnect => {
                                     _is_disconnect_received = true;
-                                    state.conn.set_disconnected_reason(format!("Disconnect({}) message is received", _is_disconnect_received));
+                                    state.client.set_disconnected_reason(format!("Disconnect({}) message is received", _is_disconnect_received));
                                 },
                                 Message::Closed => {
                                     log::debug!("{:?} Disconnect({}) message received", id, _is_disconnect_received);
@@ -170,7 +170,7 @@ impl SessionState {
                             }
                         }else{
                             log::warn!("{:?} None is received from the Rx", id);
-                            state.conn.set_disconnected_reason("None is received from the Rx".to_owned());
+                            state.client.set_disconnected_reason("None is received from the Rx".to_owned());
                             break;
                         }
                     },
@@ -197,7 +197,7 @@ impl SessionState {
                             },
                             None => {
                                 log::warn!("{:?} Deliver Queue is closed", id);
-                                state.conn.set_disconnected_reason("Deliver Queue is closed".into());
+                                state.client.set_disconnected_reason("Deliver Queue is closed".into());
                                 break;
                             }
                         }
@@ -213,13 +213,13 @@ impl SessionState {
                 "{:?} exit online worker, kicked: {}, clean_session: {}",
                 id,
                 _kicked,
-                state.conn.clean_session
+                state.client.clean_session()
             );
 
             //Setting the disconnected state
-            state.conn.connected.store(false, Ordering::SeqCst);
+            state.client.connected.store(false, Ordering::SeqCst);
             state
-                .conn
+                .client
                 .disconnected_at
                 .store(chrono::Local::now().timestamp_millis(), Ordering::SeqCst);
             if !_is_disconnect_received {
@@ -230,9 +230,9 @@ impl SessionState {
             state.sink.close();
 
             if !_kicked {
-                if state.conn.clean_session {
+                if state.client.clean_session() {
                     state
-                        .clean(state.conn.get_disconnected_reason().unwrap_or_default())
+                        .clean(state.client.get_disconnected_reason().unwrap_or_default())
                         .await;
                 } else {
                     //Start offline event loop
@@ -343,7 +343,7 @@ impl SessionState {
 
     #[inline]
     async fn process_last_will(&self) -> Result<()> {
-        match &self.conn.last_will {
+        match self.client.last_will() {
             Some(LastWill::V3(lw)) => {
                 let p = Publish::V3(PublishV3::from_last_will(lw)?);
                 if let Err(e) = Runtime::instance()
@@ -514,7 +514,7 @@ impl SessionState {
         {
             log::warn!(
                 "{:?} Subscribe Refused, reason: too many subscriptions, max subscriptions limit: {:?}",
-                self.conn.id, self.listen_cfg.max_subscriptions
+                self.client.id, self.listen_cfg.max_subscriptions
             );
             return Err(MqttError::TooManySubscriptions);
         }
@@ -543,7 +543,7 @@ impl SessionState {
 
         //hook, client_subscribe
         let acl_result = self.hook.client_subscribe_check_acl(&subs_v3).await;
-        match acl_result{
+        match acl_result {
             Some(SubscribeACLResult::V3(return_codes)) => {
                 if subs_v3.len() != return_codes.len() {
                     log::error!("{:?} SubscribeACLResult return codes quantity mismatch from hook.client_subscribe_check_acl", self.id);
@@ -562,8 +562,8 @@ impl SessionState {
                         }
                     }
                 }
-            },
-            None => {},
+            }
+            None => {}
             Some(SubscribeACLResult::V5(_)) => {
                 unreachable!()
             }
@@ -892,28 +892,20 @@ impl _SessionInner {
 }
 
 #[derive(Clone)]
-pub struct Connection(Arc<_ConnectionInner>);
+pub struct ClientInfo(Arc<_ClientInfo>);
 
-impl Connection {
+impl ClientInfo {
     #[allow(clippy::too_many_arguments)]
     #[inline]
     pub(crate) fn new(
-        id: Id,
-        protocol: Protocol,
-        username: Option<UserName>,
-        keep_alive: Duration,
-        clean_session: bool,
-        last_will: Option<LastWill>,
+        connect_info: ConnectInfo,
         session_present: bool,
         connected_at: TimestampMillis,
-    ) -> Connection {
-        Self(Arc::new(_ConnectionInner {
+    ) -> ClientInfo {
+        let id = connect_info.id().clone();
+        Self(Arc::new(_ClientInfo {
             id,
-            protocol,
-            username,
-            keep_alive,
-            clean_session,
-            last_will,
+            connect_info,
             session_present,
             connected: AtomicBool::new(true),
             connected_at,
@@ -923,32 +915,68 @@ impl Connection {
     }
 
     #[inline]
-    pub fn to_json(&self) -> Result<serde_json::Value> {
-        let data = json!({
-            "node_id": self.id.node_id,
-            "local_addr": self.id.local_addr,
-            "remote_addr": self.id.remote_addr,
-            "client_id": self.id.client_id,
-            "username": self.username,
-            "protocol": self.protocol.level(),
-            "keep_alive": self.keep_alive.as_secs(),
-            "clean_session": self.clean_session,
-            "last_will": self.last_will.as_ref().map(|lw|lw.to_json()),
-            "session_present": self.session_present,
-            "connected": self.connected.load(Ordering::SeqCst),
-            "connected_at": self.connected_at,
-            "disconnected_at": self.disconnected_at.load(Ordering::SeqCst),
-            "disconnected_reason": self.disconnected_reason.read().as_ref(),
+    pub fn to_json(&self) -> serde_json::Value {
+        let mut json = self.connect_info.to_json();
+        json.as_object_mut().map(|json| {
+            json.insert(
+                "session_present".into(),
+                serde_json::Value::Bool(self.session_present),
+            );
+            json.insert(
+                "connected".into(),
+                serde_json::Value::Bool(self.connected.load(Ordering::SeqCst)),
+            );
+            json.insert(
+                "connected_at".into(),
+                serde_json::Value::Number(serde_json::Number::from(self.connected_at)),
+            );
+            json.insert(
+                "disconnected_at".into(),
+                serde_json::Value::Number(serde_json::Number::from(
+                    self.disconnected_at.load(Ordering::SeqCst),
+                )),
+            );
+            if let Some(reason) = self.disconnected_reason.read().as_ref() {
+                json.insert(
+                    "disconnected_reason".into(),
+                    serde_json::Value::String(reason.to_string()),
+                );
+            } else {
+                json.insert("disconnected_reason".into(), serde_json::Value::Null);
+            }
         });
-        Ok(data)
+        json
     }
 
     #[inline]
-    pub fn username(&self) -> UserName {
-        self.username
-            .as_ref()
-            .cloned()
-            .unwrap_or_else(|| "undefined".into())
+    pub fn protocol(&self) -> u8 {
+        match &self.connect_info {
+            ConnectInfo::V3(_, conn_info) => conn_info.protocol.level(),
+            ConnectInfo::V5(_, _conn_info) => MQTT_LEVEL_5,
+        }
+    }
+
+    #[inline]
+    pub fn clean_session(&self) -> bool {
+        match &self.connect_info {
+            ConnectInfo::V3(_, conn_info) => conn_info.clean_session,
+            ConnectInfo::V5(_, conn_info) => conn_info.clean_start,
+        }
+    }
+
+    #[inline]
+    pub fn last_will(&self) -> Option<LastWill> {
+        self.connect_info.last_will()
+    }
+
+    #[inline]
+    pub fn username(&self) -> &UserName {
+        &self.id.username
+    }
+
+    #[inline]
+    pub fn disconnected_at(&self) -> TimestampMillis {
+        self.disconnected_at.load(Ordering::SeqCst)
     }
 
     #[inline]
@@ -975,43 +1003,34 @@ impl Connection {
         self.disconnected_reason.read().clone()
     }
 
-    // #[inline]
-    // pub fn take_disconnected_reason(&self) -> Option<Reason> {
-    //     self.disconnected_reason.write().take()
-    // }
-
     #[inline]
     pub fn has_disconnected_reason(&self) -> bool {
         self.disconnected_reason.read().is_some()
     }
 }
 
-impl std::fmt::Debug for Connection {
+impl std::fmt::Debug for ClientInfo {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Connection {:?}",
-            serde_json::to_string(&self.to_json().unwrap_or_default())
+            "ClientInfo: {}",
+            serde_json::to_string(&self.to_json()).unwrap_or_default()
         )
     }
 }
 
-impl Deref for Connection {
-    type Target = _ConnectionInner;
+impl Deref for ClientInfo {
+    type Target = _ClientInfo;
     #[inline]
     fn deref(&self) -> &Self::Target {
         self.0.as_ref()
     }
 }
 
-pub struct _ConnectionInner {
+pub struct _ClientInfo {
     pub id: Id,
-    pub protocol: Protocol,
-    pub username: Option<UserName>,
-    pub keep_alive: Duration,
-    pub clean_session: bool,
-    pub last_will: Option<LastWill>,
+    pub connect_info: ConnectInfo,
     pub session_present: bool,
     pub connected: AtomicBool,
     pub connected_at: TimestampMillis,
