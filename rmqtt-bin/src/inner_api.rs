@@ -120,7 +120,7 @@ async fn status() -> serde_json::Value {
     let shared = Runtime::instance().extends.shared().await;
     serde_json::json!({
         "sessions": shared.sessions().await,
-        "connections": shared.connections().await,
+        "clients": shared.clients().await,
     })
 }
 
@@ -133,7 +133,7 @@ async fn session(id: String) -> serde_json::Value {
 
     serde_json::json!({
         "session": entry.session().await.map(|s|s.to_json()),
-        "connection": entry.connection().await.and_then(|c|c.to_json().ok())
+        "client": entry.client().await.map(|c|c.to_json())
     })
 }
 
@@ -141,7 +141,7 @@ async fn random_session() -> Result<Option<serde_json::Value>> {
     let data = match Runtime::instance().extends.shared().await.random_session() {
         Some((s, c)) => Some(serde_json::json!({
             "session": s.to_json(),
-            "connection": c.to_json()?
+            "client": c.to_json()
         })),
         None => None,
     };
@@ -170,5 +170,5 @@ fn plugin_list() -> Vec<serde_json::Value> {
 }
 
 async fn plugin_config(name: &str) -> Result<serde_json::Value> {
-    Runtime::instance().plugins.get_config(name).await
+    Runtime::instance().plugins.get_config(name)
 }
