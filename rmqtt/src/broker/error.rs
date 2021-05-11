@@ -1,3 +1,4 @@
+use config::ConfigError;
 use ntex_mqtt::error::SendPacketError;
 use ntex_mqtt::v5;
 use ntex_mqtt::TopicError;
@@ -30,6 +31,8 @@ pub enum MqttError {
     Utf8Error(Utf8Error),
     #[error("too many subscriptions")]
     TooManySubscriptions,
+    #[error("{0}")]
+    ConfigError(ConfigError),
 }
 
 unsafe impl std::marker::Send for MqttError {}
@@ -124,5 +127,12 @@ impl std::convert::TryFrom<MqttError> for v5::PublishAck {
     #[inline]
     fn try_from(err: MqttError) -> Result<Self, Self::Error> {
         Err(err)
+    }
+}
+
+impl From<ConfigError> for MqttError {
+    #[inline]
+    fn from(e: ConfigError) -> Self {
+        MqttError::ConfigError(e)
     }
 }
