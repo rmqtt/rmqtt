@@ -4,6 +4,7 @@ use serde::ser::{Serialize, SerializeStruct, Serializer};
 use std::convert::From as _;
 use std::convert::TryFrom;
 use std::fmt;
+use std::net::SocketAddr;
 use std::num::{NonZeroU16, NonZeroU32};
 use std::ops::Deref;
 use std::str::FromStr;
@@ -28,7 +29,11 @@ pub use ntex_mqtt::v5::{
     MqttSink as MqttSinkV5,
 };
 
+pub use ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
+
 pub type NodeId = u64;
+pub type RemoteSocketAddr = SocketAddr;
+pub type LocalSocketAddr = SocketAddr;
 pub type ClientId = bytestring::ByteString;
 pub type UserName = bytestring::ByteString;
 pub type Password = bytes::Bytes;
@@ -53,9 +58,81 @@ pub type TopicFilterMap = StdHashMap<TopicFilter, QoS>;
 pub type TopicFilters = Vec<TopicFilter>;
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum Connect<'a> {
-    V3(&'a ConnectV3),
-    V5(&'a ConnectV5),
+pub enum ConnectInfo {
+    V3(Id, ConnectV3),
+    V5(Id, Box<ConnectV5>),
+}
+
+impl ConnectInfo {
+
+    #[inline]
+    pub fn id(&self) -> &Id {
+        match self {
+            ConnectInfo::V3(id, _) => &id,
+            ConnectInfo::V5(id, _) => &id,
+        }
+    }
+
+    #[inline]
+    pub fn to_json(&self) -> serde_json::Value {
+        let json = match self {
+            ConnectInfo::V3(id, conn_info) => {
+                json!({
+                    "node": id.node(),
+                    "ipaddress": id.remote_addr,
+                    "clientid": id.client_id,
+                    "username": id.username,
+                    "keepalive": conn_info.keep_alive,
+                    "proto_ver": conn_info.protocol.level(),
+                    "clean_session": conn_info.clean_session,
+                    "last_will": self.last_will().map(|lw|lw.to_json())
+                })
+            }
+            ConnectInfo::V5(id, conn_info) => {
+                json!({
+                    "node": id.node(),
+                    "ipaddress": id.remote_addr,
+                    "clientid": id.client_id,
+                    "username": id.username,
+                    "keepalive": conn_info.keep_alive,
+                    "proto_ver": ntex_mqtt::types::MQTT_LEVEL_5,
+                    "clean_start": conn_info.clean_start,
+                    "last_will": self.last_will().map(|lw|lw.to_json()),
+
+                    "session_expiry_interval_secs": conn_info.session_expiry_interval_secs,
+                    "auth_method": conn_info.auth_method,
+                    "auth_data": conn_info.auth_data,
+                    "request_problem_info": conn_info.request_problem_info,
+                    "request_response_info": conn_info.request_response_info,
+                    "receive_max": conn_info.receive_max,
+                    "topic_alias_max": conn_info.topic_alias_max,
+                    "user_properties": conn_info.user_properties,
+                    "max_packet_size": conn_info.max_packet_size,
+                })
+            }
+        };
+        json
+    }
+
+    #[inline]
+    pub fn last_will(&self) -> Option<LastWill> {
+        match self {
+            ConnectInfo::V3(_, conn_info) => {
+                conn_info.last_will.as_ref().map(|lw| LastWill::V3(lw))
+            }
+            ConnectInfo::V5(_, conn_info) => {
+                conn_info.last_will.as_ref().map(|lw| LastWill::V5(lw))
+            }
+        }
+    }
+
+    #[inline]
+    pub fn keep_alive(&self) -> u16 {
+        match self {
+            ConnectInfo::V3(_, conn_info) => conn_info.keep_alive,
+            ConnectInfo::V5(_, conn_info) => conn_info.keep_alive,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +144,8 @@ pub struct PublishV3 {
 }
 
 impl PublishV3 {
+
+    #[inline]
     pub fn from(p: &v3::Publish) -> Result<PublishV3> {
         Ok(Self {
             packet: p.packet().clone(),
@@ -83,6 +162,7 @@ impl PublishV3 {
         })
     }
 
+    #[inline]
     pub fn from_last_will(lw: &v3::codec::LastWill) -> Result<PublishV3> {
         let p = v3::codec::Publish {
             dup: false,
@@ -114,58 +194,6 @@ impl PublishV3 {
     }
 }
 
-// impl std::convert::From<&v3::Publish> for PublishV3 {
-//     #[inline]
-//     fn from(p: &v3::Publish) -> Result<PublishV3> {
-//         Ok(Self {
-//             packet: p.packet().clone(),
-//             topic: Topic::from_str(p.topic().get_ref())?,
-//             query: {
-//                 let q = p.query();
-//                 if q.is_empty() {
-//                     None
-//                 } else {
-//                     Some(ByteString::from(q))
-//                 }
-//             },
-//             create_time: chrono::Local::now().timestamp_millis(),
-//         })
-//     }
-// }
-
-// impl std::convert::From<&v3::codec::LastWill> for PublishV3 {
-//     #[inline]
-//     fn from(lw: &v3::codec::LastWill) -> Self {
-//         let p = v3::codec::Publish {
-//             dup: false,
-//             retain: lw.retain,
-//             qos: lw.qos,
-//             topic: lw.topic.clone(),
-//             packet_id: None,
-//             payload: lw.message.clone(),
-//         };
-//
-//         let (topic, query) = if let Some(pos) = lw.topic.find('?') {
-//             (
-//                 ByteString::try_from(lw.topic.as_bytes().slice(0..pos)).unwrap_or_default(),
-//                 Some(
-//                     ByteString::try_from(lw.topic.as_bytes().slice(pos + 1..lw.topic.len()))
-//                         .unwrap_or_default(),
-//                 ),
-//             )
-//         } else {
-//             (lw.topic.clone(), None)
-//         };
-//
-//         Self {
-//             packet: p,
-//             topic,
-//             query,
-//             create_time: chrono::Local::now().timestamp_millis(),
-//         }
-//     }
-// }
-
 #[derive(Debug, Clone)]
 pub struct PublishV5 {
     pub publish: v5::codec::Publish,
@@ -174,6 +202,7 @@ pub struct PublishV5 {
 }
 
 impl PublishV5 {
+    #[inline]
     pub fn from(publish: v5::codec::Publish) -> Result<PublishV5> {
         let topic = Topic::from_str(&publish.topic)?;
         Ok(Self {
@@ -210,13 +239,13 @@ impl QoSEx for QoS {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum SubscribeACLResult {
+pub enum SubscribeAclResult {
     V3(Vec<SubscribeReturnCodeV3>),
     V5(Vec<SubscribeAckReason>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum PublishACLResult {
+pub enum PublishAclResult {
     Allow,
     Rejected(Disconnect),
 }
@@ -234,6 +263,8 @@ pub enum Subscribe {
 }
 
 impl Subscribe {
+
+    #[inline]
     pub fn adjust_topic_filters(&mut self, mut topic_filters: TopicFilters) -> Result<()> {
         if self.len() != topic_filters.len() {
             log::error!(
@@ -260,6 +291,7 @@ impl Subscribe {
         Ok(())
     }
 
+    #[inline]
     pub fn len(&self) -> usize {
         match self {
             Subscribe::V3(subs) => subs.len(),
@@ -267,6 +299,12 @@ impl Subscribe {
         }
     }
 
+    #[inline]
+    pub fn is_empty(&self) -> bool{
+        self.len() == 0
+    }
+
+    #[inline]
     pub fn topic_filter(&self, idx: usize) -> Option<&TopicFilter> {
         match self {
             Subscribe::V3(subs) => subs.get(idx).map(|(tf, _)| tf),
@@ -277,6 +315,24 @@ impl Subscribe {
         }
     }
 
+    #[inline]
+    pub fn topic_filters(&self) -> Vec<(TopicFilter, QoS)> {
+        match self {
+            Subscribe::V3(subs) => subs
+                .iter()
+                .map(|(tf, qos)| (tf.clone(), *qos))
+                .collect::<Vec<(TopicFilter, QoS)>>(),
+            Subscribe::V5(subs) => {
+                //@TODO ... TopicFilter
+                subs.topic_filters
+                    .iter()
+                    .map(|(tf, opts)| (TopicFilter::from_str(tf).unwrap(), opts.qos))
+                    .collect::<Vec<(TopicFilter, QoS)>>()
+            }
+        }
+    }
+
+    #[inline]
     pub fn remove(&mut self, topic_filter: &TopicFilter) {
         match self {
             Subscribe::V3(subs) => {
@@ -291,6 +347,7 @@ impl Subscribe {
         }
     }
 
+    #[inline]
     pub fn set_qos_if_less(&mut self, topic_filter: &TopicFilter, qos: QoS) {
         match self {
             Subscribe::V3(subs) => {
@@ -314,6 +371,8 @@ pub enum SubscribeAck {
 }
 
 impl SubscribeAck {
+
+    #[inline]
     pub fn merge_from(&mut self, merged_ack: SubscribeAck) {
         match (self, merged_ack) {
             (SubscribeAck::V3(codes), SubscribeAck::V3(mut merged_codes)) => {
@@ -356,6 +415,7 @@ impl SubscribeAck {
         }
     }
 
+    #[inline]
     fn v3_merge(
         code: &SubscribeReturnCodeV3,
         merged: SubscribeReturnCodeV3,
@@ -369,6 +429,7 @@ impl SubscribeAck {
         }
     }
 
+    #[inline]
     fn v5_merge(status: &SubscribeAckReason, merged: SubscribeAckReason) -> SubscribeAckReason {
         log::warn!("[MQTT 5] Not implemented");
 
@@ -409,6 +470,21 @@ pub enum Subscribed {
     V5(SubscribedV5),
 }
 
+impl Subscribed {
+
+    #[inline]
+    pub fn topic_filter(&self) -> (TopicFilter, QoS) {
+        match self {
+            Subscribed::V3((t, qos)) => (t.clone(), *qos),
+            Subscribed::V5(sub) => {
+                //@TODO ... TopicFilter
+                let (t, opts) = &sub.topic_filter;
+                (TopicFilter::from_str(t).unwrap(), opts.qos)
+            }
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct SubscribedV5 {
     /// Packet Identifier
@@ -427,6 +503,8 @@ pub enum ConnectAckReason {
 }
 
 impl ConnectAckReason {
+
+    #[inline]
     pub fn success(&self) -> bool {
         matches!(
             *self,
@@ -435,6 +513,7 @@ impl ConnectAckReason {
         )
     }
 
+    #[inline]
     pub fn v3_error_ack<Io, St>(&self, handshake: v3::Handshake<Io>) -> HandshakeAckV3<Io, St> {
         match *self {
             ConnectAckReason::V3(ConnectAckReasonV3::UnacceptableProtocolVersion) => {
@@ -455,6 +534,7 @@ impl ConnectAckReason {
         }
     }
 
+    #[inline]
     pub fn reason(&self) -> &'static str {
         match *self {
             ConnectAckReason::V3(r) => r.reason(),
@@ -470,6 +550,23 @@ pub enum Unsubscribe {
 }
 
 impl Unsubscribe {
+
+    #[inline]
+    pub fn topic_filters(&self) -> Vec<TopicFilter> {
+        match self {
+            Unsubscribe::V3(unsubs) => unsubs.clone(),
+            Unsubscribe::V5(unsubs) => {
+                //@TODO ... TopicFilter
+                unsubs
+                    .topic_filters
+                    .iter()
+                    .map(|tf| TopicFilter::from_str(tf).unwrap())
+                    .collect::<Vec<TopicFilter>>()
+            }
+        }
+    }
+
+    #[inline]
     pub fn adjust_topic_filters(&mut self, mut topic_filters: TopicFilters) -> Result<()> {
         if self.len() != topic_filters.len() {
             log::error!(
@@ -495,11 +592,17 @@ impl Unsubscribe {
         Ok(())
     }
 
+    #[inline]
     pub fn len(&self) -> usize {
         match self {
             Unsubscribe::V3(unsubs) => unsubs.len(),
             Unsubscribe::V5(unsubs) => unsubs.topic_filters.len(),
         }
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 
@@ -515,6 +618,19 @@ pub enum Unsubscribed {
     V5(UnsubscribedV5),
 }
 
+impl Unsubscribed {
+    #[inline]
+    pub fn topic_filter(&self) -> TopicFilter {
+        match self {
+            Unsubscribed::V3(t) => t.clone(),
+            Unsubscribed::V5(unsub) => {
+                //@TODO ... TopicFilter
+                TopicFilter::from_str(&unsub.topic_filter).unwrap()
+            }
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct UnsubscribedV5 {
     /// Packet Identifier
@@ -525,12 +641,13 @@ pub struct UnsubscribedV5 {
 }
 
 #[derive(Clone)]
-pub enum LastWill {
-    V3(LastWillV3),
-    V5(LastWillV5),
+pub enum LastWill<'a> {
+    V3(&'a LastWillV3),
+    V5(&'a LastWillV5),
 }
 
-impl fmt::Debug for LastWill {
+impl<'a> fmt::Debug for LastWill<'a> {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             LastWill::V3(lw) => f
@@ -558,7 +675,9 @@ impl fmt::Debug for LastWill {
     }
 }
 
-impl LastWill {
+impl<'a> LastWill<'a> {
+
+    #[inline]
     pub fn to_json(&self) -> serde_json::Value {
         match self {
             LastWill::V3(lw) => {
@@ -589,7 +708,7 @@ impl LastWill {
     }
 }
 
-impl Serialize for LastWill {
+impl<'a> Serialize for LastWill<'a> {
     #[inline]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -685,11 +804,19 @@ pub enum Packet {
 
 #[derive(Debug, Clone)]
 pub enum Publish {
-    V3(PublishV3),
-    V5(PublishV5),
+    V3(Box<PublishV3>),
+    V5(Box<PublishV5>),
 }
 
 impl Publish {
+    #[inline]
+    pub fn payload(&self) -> &bytes::Bytes {
+        match self {
+            Publish::V3(p) => &p.packet.payload,
+            Publish::V5(p) => &p.publish.payload,
+        }
+    }
+
     #[inline]
     pub fn retain(&self) -> bool {
         match self {
@@ -775,41 +902,59 @@ pub type From = Id;
 pub type To = Id;
 
 #[derive(Clone)]
-pub struct Id {
-    inner: Arc<IdInner>,
-}
+pub struct Id(Arc<_Id>);
 
 impl Id {
+
+    #[inline]
     pub fn new(
         node_id: NodeId,
         local_addr: String,
         remote_addr: String,
         client_id: ClientId,
+        username: Option<UserName>,
     ) -> Self {
-        Self {
-            inner: Arc::new(IdInner {
-                id: ByteString::from(format!(
-                    "{}@{}/{}/{}",
-                    node_id, local_addr, remote_addr, client_id
-                )),
-                node_id,
-                local_addr,
-                remote_addr,
-                client_id,
-            }),
-        }
+        Self(Arc::new(_Id {
+            id: ByteString::from(format!(
+                "{}@{}/{}/{}",
+                node_id, local_addr, remote_addr, client_id
+            )),
+            node_id,
+            local_addr,
+            remote_addr,
+            client_id,
+            username: username.unwrap_or_else(|| "undefined".into()),
+        }))
     }
 
+    #[inline]
+    pub fn to_json(&self) -> serde_json::Value {
+        json!({
+            "node": self.node(),
+            "ipaddress": self.remote_addr,
+            "clientid": self.client_id,
+            "username": self.username,
+        })
+    }
+
+    #[inline]
     pub fn from(client_id: ClientId) -> Self {
-        Self::new(0, String::new(), String::new(), client_id)
+        Self::new(0, String::new(), String::new(), client_id, None)
     }
 
+    #[inline]
     pub fn as_str(&self) -> &str {
         &self.id
+    }
+
+    #[inline]
+    pub fn node(&self) -> String {
+        format!("{}/{}", self.node_id, self.local_addr)
     }
 }
 
 impl AsRef<str> for Id {
+    #[inline]
     fn as_ref(&self) -> &str {
         &self.id
     }
@@ -845,10 +990,10 @@ impl std::hash::Hash for Id {
 }
 
 impl Deref for Id {
-    type Target = IdInner;
+    type Target = _Id;
     #[inline]
     fn deref(&self) -> &Self::Target {
-        &self.inner
+        &self.0
     }
 }
 
@@ -858,7 +1003,7 @@ impl Serialize for Id {
     where
         S: Serializer,
     {
-        IdInner::serialize(self.inner.as_ref(), serializer)
+        _Id::serialize(self.0.as_ref(), serializer)
     }
 }
 
@@ -868,19 +1013,18 @@ impl<'de> Deserialize<'de> for Id {
     where
         D: Deserializer<'de>,
     {
-        Ok(Id {
-            inner: Arc::new(IdInner::deserialize(deserializer)?),
-        })
+        Ok(Id(Arc::new(_Id::deserialize(deserializer)?)))
     }
 }
 
 #[derive(Default, Debug, PartialEq, Eq, Hash, Clone, Deserialize, Serialize)]
-pub struct IdInner {
+pub struct _Id {
     id: ByteString,
     pub node_id: NodeId,
     pub local_addr: String,
     pub remote_addr: String,
     pub client_id: ClientId,
+    pub username: UserName,
 }
 
 #[derive(Debug, Clone)]
