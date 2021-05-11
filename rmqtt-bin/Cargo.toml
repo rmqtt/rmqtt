@@ -28,21 +28,20 @@ serde_json = "1.0.48"
 warp = "0.3"
 
 ##plugins-release
-rmqtt = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.1"}
+rmqtt = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.2"}
 rmqtt-plugin-template = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.1"}
-rmqtt-plugin-helloworld = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.1"}
+rmqtt-web-hook = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.1"}
 
 ##plugins-dev
 #rmqtt = { path = "../rmqtt" }
 #rmqtt-plugin-template = { path = "../rmqtt-plugins/rmqtt-plugin-template"}
-#rmqtt-plugin-helloworld = { path = "../rmqtt-plugins/rmqtt-plugin-helloworld"}
 #rmqtt-web-hook = { path = "../rmqtt-plugins/rmqtt-web-hook"}
 
 
 [package.metadata.plugins]
-rmqtt-plugin-template = {}
-rmqtt-plugin-helloworld = {}
-#rmqtt-web-hook = {default_startup = true}
+#rmqtt-plugin-template = {}
+#rmqtt-plugin-helloworld = {}
+rmqtt-web-hook = {default_startup = true}
 
 [build-dependencies]
 toml = "0.5"
