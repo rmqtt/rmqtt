@@ -3,9 +3,7 @@ use dashmap::mapref::one::{Ref, RefMut};
 
 use crate::{MqttError, Result};
 
-type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
-
 pub type EntryRef<'a> = Ref<'a, String, Entry, ahash::RandomState>;
 pub type EntryRefMut<'a> = RefMut<'a, String, Entry, ahash::RandomState>;
 pub type EntryIter<'a> = Iter<'a, String, Entry, ahash::RandomState, DashMap<String, Entry>>;
@@ -23,7 +21,7 @@ pub trait Plugin: Send + Sync {
     }
 
     #[inline]
-    async fn get_config(&self) -> Result<serde_json::Value> {
+    fn get_config(&self) -> Result<serde_json::Value> {
         Ok(json!({}))
     }
 
@@ -53,8 +51,8 @@ pub trait Plugin: Send + Sync {
     }
 
     #[inline]
-    fn attrs(&self) -> HashMap<&str, &str> {
-        HashMap::default()
+    fn attrs(&self) -> serde_json::Value {
+        serde_json::Value::Null
     }
 }
 
@@ -115,9 +113,9 @@ impl Manager {
     }
 
     ///Return Config
-    pub async fn get_config(&self, name: &str) -> Result<serde_json::Value> {
+    pub fn get_config(&self, name: &str) -> Result<serde_json::Value> {
         if let Some(entry) = self.get(name) {
-            entry.plugin.get_config().await
+            entry.plugin.get_config()
         } else {
             Err(MqttError::from(format!(
                 "{} the plug-in does not exist",
