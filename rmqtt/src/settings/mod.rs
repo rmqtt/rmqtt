@@ -163,7 +163,7 @@ impl<'de> Deserialize<'de> for Bytesize {
 }
 
 #[inline]
-pub(crate) fn to_bytesize(text: &str) -> usize {
+pub fn to_bytesize(text: &str) -> usize {
     let text = text
         .to_uppercase()
         .replace("GB", "G")
@@ -192,7 +192,7 @@ pub(crate) fn to_bytesize(text: &str) -> usize {
 }
 
 #[inline]
-pub(crate) fn deserialize_duration<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+pub fn deserialize_duration<'de, D>(deserializer: D) -> Result<Duration, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -201,7 +201,7 @@ where
 }
 
 #[inline]
-pub(crate) fn to_duration(text: &str) -> Duration {
+pub fn to_duration(text: &str) -> Duration {
     let text = text.to_lowercase().replace("ms", "Y");
     let ms: u64 = text
         .split_inclusive(|x| {
