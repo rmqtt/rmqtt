@@ -1,11 +1,11 @@
 use crate::broker::types::*;
-use crate::{Connection, Password, Session};
+use crate::{ClientInfo, Password, Session};
 
 pub type ReturnType = (bool, Option<HookResult>);
 
 #[async_trait]
 pub trait HookManager: Sync + Send {
-    fn hook(&self, s: &Session, c: &Connection) -> std::rc::Rc<dyn Hook>;
+    fn hook(&self, s: &Session, c: &ClientInfo) -> std::rc::Rc<dyn Hook>;
 
     fn register(&self) -> Box<dyn Register>;
 
@@ -13,12 +13,12 @@ pub trait HookManager: Sync + Send {
     async fn before_startup(&self);
 
     ///When a connect message is received
-    async fn client_connect<'a>(&'a self, connect_info: Connect<'a>) -> Option<UserProperties>;
+    async fn client_connect(&self, connect_info: &ConnectInfo) -> Option<UserProperties>;
 
     ///When sending mqtt:: connectack message
-    async fn client_connack<'a>(
-        &'a self,
-        connect_info: Connect<'a>,
+    async fn client_connack(
+        &self,
+        connect_info: &ConnectInfo,
         return_code: ConnectAckReason,
     ) -> ConnectAckReason;
 }
@@ -88,7 +88,7 @@ pub trait Hook: Sync + Send {
     async fn message_expiry_check(&self, from: From, publish: &Publish) -> MessageExpiry;
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Deserialize, Serialize)]
 pub enum Type {
     BeforeStartup,
 
@@ -114,37 +114,96 @@ pub enum Type {
     MessageExpiryCheck,
 }
 
+impl std::convert::From<&str> for Type {
+    fn from(t: &str) -> Type {
+        match t {
+            "before_startup" => Type::BeforeStartup,
+
+            "session_created" => Type::SessionCreated,
+            "session_terminated" => Type::SessionTerminated,
+            "session_subscribed" => Type::SessionSubscribed,
+            "session_unsubscribed" => Type::SessionUnsubscribed,
+
+            "client_authenticate" => Type::ClientAuthenticate,
+            "client_connect" => Type::ClientConnect,
+            "client_connack" => Type::ClientConnack,
+            "client_connected" => Type::ClientConnected,
+            "client_disconnected" => Type::ClientDisconnected,
+            "client_subscribe" => Type::ClientSubscribe,
+            "client_unsubscribe" => Type::ClientUnsubscribe,
+            "client_subscribe_check_acl" => Type::ClientSubscribeCheckACL,
+
+            "message_publish_check_acl" => Type::MessagePublishCheckACL,
+            "message_publish" => Type::MessagePublish,
+            "message_delivered" => Type::MessageDelivered,
+            "message_acked" => Type::MessageAcked,
+            "message_dropped" => Type::MessageDropped,
+            "message_expiry_check" => Type::MessageExpiryCheck,
+            _ => unreachable!(format!("{:?} is not defined", t)),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Parameter<'a> {
     BeforeStartup,
 
-    SessionCreated(&'a Session, &'a Connection),
-    SessionTerminated(&'a Session, &'a Connection, Reason),
-    SessionSubscribed(&'a Session, &'a Connection, Subscribed),
-    SessionUnsubscribed(&'a Session, &'a Connection, Unsubscribed),
+    SessionCreated(&'a Session, &'a ClientInfo),
+    SessionTerminated(&'a Session, &'a ClientInfo, Reason),
+    SessionSubscribed(&'a Session, &'a ClientInfo, Subscribed),
+    SessionUnsubscribed(&'a Session, &'a ClientInfo, Unsubscribed),
 
-    ClientConnect(Connect<'a>),
-    ClientConnack(Connect<'a>, &'a ConnectAckReason),
-    ClientAuthenticate(&'a Session, &'a Connection, Option<Password>),
-    ClientConnected(&'a Session, &'a Connection),
-    ClientDisconnected(&'a Session, &'a Connection, Reason),
-    ClientSubscribe(&'a Session, &'a Connection, &'a Subscribe),
-    ClientUnsubscribe(&'a Session, &'a Connection, &'a Unsubscribe),
-    ClientSubscribeCheckACL(&'a Session, &'a Connection, &'a Subscribe),
+    ClientConnect(&'a ConnectInfo),
+    ClientConnack(&'a ConnectInfo, &'a ConnectAckReason),
+    ClientAuthenticate(&'a Session, &'a ClientInfo, Option<Password>),
+    ClientConnected(&'a Session, &'a ClientInfo),
+    ClientDisconnected(&'a Session, &'a ClientInfo, Reason),
+    ClientSubscribe(&'a Session, &'a ClientInfo, &'a Subscribe),
+    ClientUnsubscribe(&'a Session, &'a ClientInfo, &'a Unsubscribe),
+    ClientSubscribeCheckACL(&'a Session, &'a ClientInfo, &'a Subscribe),
 
-    MessagePublishCheckACL(&'a Session, &'a Connection, &'a Publish),
-    MessagePublish(&'a Session, &'a Connection, &'a Publish),
-    MessageDelivered(&'a Session, &'a Connection, From, &'a Publish),
-    MessageAcked(&'a Session, &'a Connection, From, &'a Publish),
+    MessagePublishCheckACL(&'a Session, &'a ClientInfo, &'a Publish),
+    MessagePublish(&'a Session, &'a ClientInfo, &'a Publish),
+    MessageDelivered(&'a Session, &'a ClientInfo, From, &'a Publish),
+    MessageAcked(&'a Session, &'a ClientInfo, From, &'a Publish),
     MessageDropped(
         &'a Session,
-        &'a Connection,
+        &'a ClientInfo,
         Option<To>,
         From,
         Publish,
         Reason,
     ),
-    MessageExpiryCheck(&'a Session, &'a Connection, From, &'a Publish),
+    MessageExpiryCheck(&'a Session, &'a ClientInfo, From, &'a Publish),
+}
+
+impl<'a> Parameter<'a> {
+    pub fn get_type(&self) -> Type {
+        match self {
+            Parameter::BeforeStartup => Type::BeforeStartup,
+
+            Parameter::SessionCreated(_, _) => Type::SessionCreated,
+            Parameter::SessionTerminated(_, _, _) => Type::SessionTerminated,
+            Parameter::SessionSubscribed(_, _, _) => Type::SessionSubscribed,
+            Parameter::SessionUnsubscribed(_, _, _) => Type::SessionUnsubscribed,
+
+            Parameter::ClientAuthenticate(_, _, _) => Type::ClientAuthenticate,
+            Parameter::ClientConnect(_) => Type::ClientConnect,
+            Parameter::ClientConnack(_, _) => Type::ClientConnack,
+            Parameter::ClientConnected(_, _) => Type::ClientConnected,
+            Parameter::ClientDisconnected(_, _, _) => Type::ClientDisconnected,
+            Parameter::ClientSubscribe(_, _, _) => Type::ClientSubscribe,
+            Parameter::ClientUnsubscribe(_, _, _) => Type::ClientUnsubscribe,
+            Parameter::ClientSubscribeCheckACL(_, _, _) => Type::ClientSubscribeCheckACL,
+
+            Parameter::MessagePublishCheckACL(_, _, _) => Type::MessagePublishCheckACL,
+            Parameter::MessagePublish(_, _, _) => Type::MessagePublish,
+            Parameter::MessageDelivered(_, _, _, _) => Type::MessageDelivered,
+            Parameter::MessageAcked(_, _, _, _) => Type::MessageAcked,
+            Parameter::MessageDropped(_, _, _, _, _, _) => Type::MessageDropped,
+            Parameter::MessageExpiryCheck(_, _, _, _) => Type::MessageExpiryCheck,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
