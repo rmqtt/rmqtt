@@ -39,8 +39,7 @@ rmqtt-web-hook = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.1
 
 
 [package.metadata.plugins]
-#rmqtt-plugin-template = {}
-#rmqtt-plugin-helloworld = {}
+rmqtt-plugin-template = {}
 rmqtt-web-hook = {default_startup = true}
 
 [build-dependencies]
