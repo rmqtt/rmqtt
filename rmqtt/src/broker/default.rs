@@ -937,16 +937,16 @@ impl Hook for DefaultHook {
     async fn client_subscribe_check_acl(
         &self,
         subscribe: &Subscribe,
-    ) -> Option<SubscribeACLResult> {
+    ) -> Option<SubscribeAclResult> {
         let result = self
             .manager
             .exec(
-                Type::ClientSubscribeCheckACL,
-                Parameter::ClientSubscribeCheckACL(&self.s, &self.c, subscribe),
+                Type::ClientSubscribeCheckAcl,
+                Parameter::ClientSubscribeCheckAcl(&self.s, &self.c, subscribe),
             )
             .await;
 
-        if let Some(HookResult::SubscribeACLResult(acl_result)) = result {
+        if let Some(HookResult::SubscribeAclResult(acl_result)) = result {
             Some(acl_result)
         } else {
             None
@@ -954,18 +954,18 @@ impl Hook for DefaultHook {
     }
 
     #[inline]
-    async fn message_publish_check_acl(&self, publish: &Publish) -> PublishACLResult {
+    async fn message_publish_check_acl(&self, publish: &Publish) -> PublishAclResult {
         let result = self
             .manager
             .exec(
-                Type::MessagePublishCheckACL,
-                Parameter::MessagePublishCheckACL(&self.s, &self.c, publish),
+                Type::MessagePublishCheckAcl,
+                Parameter::MessagePublishCheckAcl(&self.s, &self.c, publish),
             )
             .await;
-        if let Some(HookResult::PublishACLResult(acl_result)) = result {
+        if let Some(HookResult::PublishAclResult(acl_result)) = result {
             acl_result
         } else {
-            PublishACLResult::Allow
+            PublishAclResult::Allow
         }
     }
 
