@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::iter::Iterator;
 
-use crate::broker::session::{Connection, Session};
+use crate::broker::session::{ClientInfo, Session};
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
 use crate::{ClientId, Id, NodeId, QoS, Topic, TopicFilter};
@@ -22,12 +22,12 @@ pub mod v5;
 #[async_trait]
 pub trait Entry: Sync + Send {
     fn try_lock(&self) -> Result<Box<dyn Entry>>;
-    async fn set(&mut self, session: Session, tx: Tx, conn: Connection) -> Result<()>;
-    async fn remove(&mut self) -> Result<Option<(Session, Tx, Connection)>>;
-    async fn kick(&mut self, clear_subscriptions: bool) -> Result<Option<(Session, Connection)>>;
+    async fn set(&mut self, session: Session, tx: Tx, conn: ClientInfo) -> Result<()>;
+    async fn remove(&mut self) -> Result<Option<(Session, Tx, ClientInfo)>>;
+    async fn kick(&mut self, clear_subscriptions: bool) -> Result<Option<(Session, ClientInfo)>>;
     async fn is_connected(&self) -> bool;
     async fn session(&self) -> Option<Session>;
-    async fn connection(&self) -> Option<Connection>;
+    async fn client(&self) -> Option<ClientInfo>;
     fn tx(&self) -> Option<Tx>;
     async fn subscribe(&self, subscribe: Subscribe) -> Result<SubscribeAck>;
     async fn unsubscribe(&self, unsubscribe: &Unsubscribe) -> Result<UnsubscribeAck>;
@@ -47,7 +47,7 @@ pub trait Shared: Sync + Send {
     ) -> Result<(), Vec<(To, From, Publish, Reason)>>;
 
     ///Returns the number of current node connections
-    async fn connections(&self) -> usize;
+    async fn clients(&self) -> usize;
 
     ///Returns the number of current node sessions
     async fn sessions(&self) -> usize;
@@ -56,7 +56,7 @@ pub trait Shared: Sync + Send {
     fn iter(&self) -> Box<dyn Iterator<Item = Box<dyn Entry>> + Sync + Send>;
 
     ///
-    fn random_session(&self) -> Option<(Session, Connection)>;
+    fn random_session(&self) -> Option<(Session, ClientInfo)>;
 }
 
 #[async_trait]
