@@ -72,6 +72,12 @@ where
         }
     }
 
+    //@TODO ...
+    #[inline]
+    pub fn is_matches(&self, topic: &Topic) -> bool {
+        !self.matches(topic).is_empty()
+    }
+
     #[inline]
     pub fn matches(&self, topic: &Topic) -> HashMap<Topic, Vec<V>> {
         let mut out = HashMap::default();
