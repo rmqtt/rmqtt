@@ -54,8 +54,7 @@ pub trait Hook: Sync + Send {
     async fn session_terminated(&self, r: Reason);
 
     ///subscribe check acl
-    async fn client_subscribe_check_acl(&self, subscribe: &Subscribe)
-        -> Option<SubscribeAclResult>;
+    async fn client_subscribe_check_acl(&self, subscribe: &Subscribe) -> Option<SubscribeAclResult>;
 
     ///publish check acl
     async fn message_publish_check_acl(&self, publish: &Publish) -> PublishAclResult;
@@ -166,14 +165,7 @@ pub enum Parameter<'a> {
     MessagePublish(&'a Session, &'a ClientInfo, &'a Publish),
     MessageDelivered(&'a Session, &'a ClientInfo, From, &'a Publish),
     MessageAcked(&'a Session, &'a ClientInfo, From, &'a Publish),
-    MessageDropped(
-        &'a Session,
-        &'a ClientInfo,
-        Option<To>,
-        From,
-        Publish,
-        Reason,
-    ),
+    MessageDropped(&'a Session, &'a ClientInfo, Option<To>, From, Publish, Reason),
     MessageExpiryCheck(&'a Session, &'a ClientInfo, From, &'a Publish),
 }
 
@@ -225,3 +217,6 @@ pub enum HookResult {
     ///Message Expiry
     MessageExpiry,
 }
+
+unsafe impl std::marker::Send for HookResult {}
+unsafe impl std::marker::Sync for HookResult {}

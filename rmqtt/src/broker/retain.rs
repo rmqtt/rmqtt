@@ -12,10 +12,7 @@ pub struct Node<V> {
 impl<V> Default for Node<V> {
     #[inline]
     fn default() -> Node<V> {
-        Self {
-            value: None,
-            branches: HashMap::default(),
-        }
+        Self { value: None, branches: HashMap::default() }
     }
 }
 
@@ -166,13 +163,7 @@ mod tests {
         let mut matcheds = 0;
         let t = Topic::from_str(topic_filter).unwrap();
         for (topic, v) in tree.matches(&t).iter() {
-            println!(
-                "[retain] {}({}) => {:?}, {:?}",
-                topic_filter,
-                topic.to_string(),
-                v,
-                vs
-            );
+            println!("[retain] {}({}) => {:?}, {:?}", topic_filter, topic.to_string(), v, vs);
             if !vs.contains(v) {
                 return false;
             }

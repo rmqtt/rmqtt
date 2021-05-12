@@ -19,8 +19,7 @@ use ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 use ntex_mqtt::v3::codec::SubscribeReturnCode as SubscribeReturnCodeV3;
 
 use super::{
-    retain::RetainTree, topic::TopicTree, Entry, Limiter, LimiterManager, RetainStorage, Router,
-    Shared,
+    retain::RetainTree, topic::TopicTree, Entry, Limiter, LimiterManager, RetainStorage, Router, Shared,
 };
 use crate::broker::fitter::{Fitter, FitterManager};
 use crate::broker::hook::{Handler, Hook, HookManager, HookResult, Parameter, Register, Type};
@@ -49,25 +48,14 @@ impl Drop for LockEntry {
 impl LockEntry {
     #[inline]
     fn new(id: Id, shared: &'static DefaultShared, _locker: Option<OwnedMutexGuard<()>>) -> Self {
-        Self {
-            id,
-            shared,
-            _locker,
-        }
+        Self { id, shared, _locker }
     }
 
     #[inline]
-    async fn _unsubscribe(
-        &self,
-        id: Id,
-        session: &Session,
-        topic_filter: &TopicFilter,
-    ) -> Result<()> {
+    async fn _unsubscribe(&self, id: Id, session: &Session, topic_filter: &TopicFilter) -> Result<()> {
         {
             let router = Runtime::instance().extends.router().await;
-            router
-                .remove(topic_filter, router.get_node_id().await, &id.client_id)
-                .await?;
+            router.remove(topic_filter, router.get_node_id().await, &id.client_id).await?;
         }
         session.subscriptions_remove(topic_filter);
         Ok(())
@@ -78,10 +66,7 @@ impl LockEntry {
         if let Some((_, peer)) = self.shared.peers.remove(&self.id.client_id) {
             if clear_subscriptions {
                 for topic_filter in peer.s.drain_subscriptions() {
-                    if let Err(e) = self
-                        ._unsubscribe(peer.c.id.clone(), &peer.s, &topic_filter)
-                        .await
-                    {
+                    if let Err(e) = self._unsubscribe(peer.c.id.clone(), &peer.s, &topic_filter).await {
                         log::warn!(
                             "{:?} remove._unsubscribe, topic_filter: {}, {:?}",
                             self.id,
@@ -111,18 +96,12 @@ impl super::Entry for LockEntry {
             .or_insert(Arc::new(Mutex::new(())))
             .clone()
             .try_lock_owned()?;
-        Ok(Box::new(LockEntry::new(
-            self.id.clone(),
-            self.shared,
-            Some(locker),
-        )))
+        Ok(Box::new(LockEntry::new(self.id.clone(), self.shared, Some(locker))))
     }
 
     #[inline]
     async fn set(&mut self, s: Session, tx: Tx, c: ClientInfo) -> Result<()> {
-        self.shared
-            .peers
-            .insert(self.id.client_id.clone(), EntryItem { s, tx, c });
+        self.shared.peers.insert(self.id.client_id.clone(), EntryItem { s, tx, c });
         Ok(())
     }
 
@@ -143,11 +122,7 @@ impl super::Entry for LockEntry {
                         log::debug!("{:?} kicked, from {:?}", self.id, c.id);
                     }
                     Err(_) => {
-                        log::warn!(
-                            "{:?} kick, recv result is Timeout, from {:?}",
-                            self.id,
-                            c.id
-                        );
+                        log::warn!("{:?} kick, recv result is Timeout, from {:?}", self.id, c.id);
                     }
                 }
             }
@@ -168,26 +143,17 @@ impl super::Entry for LockEntry {
 
     #[inline]
     async fn session(&self) -> Option<Session> {
-        self.shared
-            .peers
-            .get(&self.id.client_id)
-            .map(|peer| peer.s.clone())
+        self.shared.peers.get(&self.id.client_id).map(|peer| peer.s.clone())
     }
 
     #[inline]
     async fn client(&self) -> Option<ClientInfo> {
-        self.shared
-            .peers
-            .get(&self.id.client_id)
-            .map(|peer| peer.c.clone())
+        self.shared.peers.get(&self.id.client_id).map(|peer| peer.c.clone())
     }
 
     #[inline]
     fn tx(&self) -> Option<Tx> {
-        self.shared
-            .peers
-            .get(&self.id.client_id)
-            .map(|peer| peer.tx.clone())
+        self.shared.peers.get(&self.id.client_id).map(|peer| peer.tx.clone())
     }
 
     #[inline]
@@ -212,10 +178,7 @@ impl super::Entry for LockEntry {
             Subscribe::V3(mut topic_filters) => {
                 let mut acks = Vec::new();
                 for (topic_filter, qos) in topic_filters.drain(..) {
-                    if let Err(e) = router
-                        .add(&topic_filter, node_id, &self.id.client_id, qos)
-                        .await
-                    {
+                    if let Err(e) = router.add(&topic_filter, node_id, &self.id.client_id, qos).await {
                         log::warn!(
                             "{:?} subscribes fail, node_id: {}, topic_filter:{}, {:?}",
                             self.id,
@@ -250,10 +213,7 @@ impl super::Entry for LockEntry {
         let ack = match unsubscribe {
             Unsubscribe::V3(topic_filters) => {
                 for topic_filter in topic_filters.iter() {
-                    if let Err(e) = self
-                        ._unsubscribe(peer.c.id.clone(), &peer.s, topic_filter)
-                        .await
-                    {
+                    if let Err(e) = self._unsubscribe(peer.c.id.clone(), &peer.s, topic_filter).await {
                         log::warn!("{:?} unsubscribe, error:{:?}", self.id, e);
                     }
                 }
@@ -300,17 +260,12 @@ impl DefaultShared {
     #[inline]
     pub fn instance() -> Box<dyn Shared> {
         static INSTANCE: OnceCell<DefaultShared> = OnceCell::new();
-        Box::new(INSTANCE.get_or_init(|| Self {
-            lockers: DashMap::default(),
-            peers: DashMap::default(),
-        }))
+        Box::new(INSTANCE.get_or_init(|| Self { lockers: DashMap::default(), peers: DashMap::default() }))
     }
 
     #[inline]
     fn tx(&self, client_id: &str) -> Option<(Tx, To)> {
-        self.peers
-            .get(client_id)
-            .map(|peer| (peer.tx.clone(), peer.c.id.clone()))
+        self.peers.get(client_id).map(|peer| (peer.tx.clone(), peer.c.id.clone()))
     }
 }
 
@@ -322,11 +277,7 @@ impl Shared for &'static DefaultShared {
     }
 
     #[inline]
-    async fn forwards(
-        &self,
-        from: From,
-        publish: Publish,
-    ) -> Result<(), Vec<(To, From, Publish, Reason)>> {
+    async fn forwards(&self, from: From, publish: Publish) -> Result<(), Vec<(To, From, Publish, Reason)>> {
         let mut errs = Vec::new();
         match publish {
             Publish::V3(publish) => {
@@ -342,7 +293,13 @@ impl Shared for &'static DefaultShared {
                     let (tx, to) = if let Some((tx, to)) = self.tx(&client_id) {
                         (tx, to)
                     } else {
-                        log::warn!("forwards, from:{:?}, to:{:?}, topic_filter:{:?}, topic:{:?}, error: Tx is None", from, client_id, topic_filter, publish.topic);
+                        log::warn!(
+                            "forwards, from:{:?}, to:{:?}, topic_filter:{:?}, topic:{:?}, error: Tx is None",
+                            from,
+                            client_id,
+                            topic_filter,
+                            publish.topic
+                        );
                         errs.push((
                             To::from(client_id),
                             from.clone(),
@@ -353,7 +310,14 @@ impl Shared for &'static DefaultShared {
                     };
 
                     if let Err(e) = tx.send(Message::Forward(from.clone(), Publish::V3(p))) {
-                        log::warn!("forwards,  from:{:?}, to:{:?}, topic_filter:{:?}, topic:{:?}, error:{:?}", from, client_id, topic_filter, publish.topic, e);
+                        log::warn!(
+                            "forwards,  from:{:?}, to:{:?}, topic_filter:{:?}, topic:{:?}, error:{:?}",
+                            from,
+                            client_id,
+                            topic_filter,
+                            publish.topic,
+                            e
+                        );
                         if let Message::Forward(from, p) = e.0 {
                             errs.push((to, from, p, Reason::from_static("Tx is closed")));
                         }
@@ -378,10 +342,7 @@ impl Shared for &'static DefaultShared {
 
     #[inline]
     async fn clients(&self) -> usize {
-        self.peers
-            .iter()
-            .filter(|entry| entry.value().c.is_connected())
-            .count()
+        self.peers.iter().filter(|entry| entry.value().c.is_connected()).count()
     }
 
     #[inline]
@@ -391,19 +352,13 @@ impl Shared for &'static DefaultShared {
 
     #[inline]
     fn iter(&self) -> Box<dyn Iterator<Item = Box<dyn Entry>> + Sync + Send> {
-        Box::new(DefaultIter {
-            shared: self,
-            ptr: self.peers.iter(),
-        })
+        Box::new(DefaultIter { shared: self, ptr: self.peers.iter() })
     }
 
     #[inline]
     fn random_session(&self) -> Option<(Session, ClientInfo)> {
-        let mut sessions = self
-            .peers
-            .iter()
-            .map(|p| (p.s.clone(), p.c.clone()))
-            .collect::<Vec<(Session, ClientInfo)>>();
+        let mut sessions =
+            self.peers.iter().map(|p| (p.s.clone(), p.c.clone())).collect::<Vec<(Session, ClientInfo)>>();
         let len = self.peers.len();
         if len > 0 {
             let idx = rand::prelude::random::<usize>() % len;
@@ -425,11 +380,7 @@ impl Iterator for DefaultIter<'_> {
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(item) = self.ptr.next() {
-            Some(Box::new(LockEntry::new(
-                item.c.id.clone(),
-                self.shared,
-                None,
-            )))
+            Some(Box::new(LockEntry::new(item.c.id.clone(), self.shared, None)))
         } else {
             None
         }
@@ -447,10 +398,12 @@ impl DefaultRouter {
     #[inline]
     pub fn instance() -> Box<dyn Router> {
         static INSTANCE: OnceCell<DefaultRouter> = OnceCell::new();
-        Box::new(INSTANCE.get_or_init(|| Self {
-            tree: RwLock::new(TopicTree::default()),
-            relations: DashMap::default(),
-        }))
+        Box::new(
+            INSTANCE.get_or_init(|| Self {
+                tree: RwLock::new(TopicTree::default()),
+                relations: DashMap::default(),
+            }),
+        )
     }
 
     #[inline]
@@ -458,10 +411,7 @@ impl DefaultRouter {
         &self,
         topic: &Topic,
         this_node_id: NodeId,
-    ) -> (
-        Vec<Relation>,
-        std::collections::HashMap<NodeId, Vec<TopicFilter>>,
-    ) {
+    ) -> (Vec<Relation>, std::collections::HashMap<NodeId, Vec<TopicFilter>>) {
         let mut this_subs: Vec<(TopicFilter, ClientId, QoS)> = Vec::new();
         let mut other_subs: std::collections::HashMap<NodeId, Vec<TopicFilter>> =
             std::collections::HashMap::new();
@@ -476,10 +426,7 @@ impl DefaultRouter {
                         }
                     }
                 } else {
-                    other_subs
-                        .entry(node_id)
-                        .or_default()
-                        .push(topic_filter.clone());
+                    other_subs.entry(node_id).or_default().push(topic_filter.clone());
                 }
             }
         }
@@ -501,21 +448,13 @@ impl Router for &'static DefaultRouter {
         self.tree.write().insert(topic_filter, node_id); //@TODO Or send the routing relationship to the cluster ...
 
         //Storage subscription to local
-        self.relations
-            .entry(topic_filter.to_owned())
-            .or_default()
-            .insert(ClientId::from(client_id), qos);
+        self.relations.entry(topic_filter.to_owned()).or_default().insert(ClientId::from(client_id), qos);
 
         Ok(())
     }
 
     #[inline]
-    async fn remove(
-        &self,
-        topic_filter: &TopicFilter,
-        node_id: NodeId,
-        client_id: &str,
-    ) -> Result<()> {
+    async fn remove(&self, topic_filter: &TopicFilter, node_id: NodeId, client_id: &str) -> Result<()> {
         //Remove subscription relationship from local
         let relations_len = self
             .relations
@@ -539,10 +478,7 @@ impl Router for &'static DefaultRouter {
     async fn matches(
         &self,
         topic: &Topic,
-    ) -> (
-        Vec<(TopicFilter, ClientId, QoS)>,
-        std::collections::HashMap<NodeId, Vec<TopicFilter>>,
-    ) {
+    ) -> (Vec<(TopicFilter, ClientId, QoS)>, std::collections::HashMap<NodeId, Vec<TopicFilter>>) {
         self._matches(topic, self.get_node_id().await)
     }
 
@@ -565,9 +501,7 @@ impl DefaultRetainStorage {
     #[inline]
     pub fn instance() -> Box<dyn RetainStorage> {
         static INSTANCE: OnceCell<DefaultRetainStorage> = OnceCell::new();
-        Box::new(INSTANCE.get_or_init(|| Self {
-            messages: RwLock::new(RetainTree::default()),
-        }))
+        Box::new(INSTANCE.get_or_init(|| Self { messages: RwLock::new(RetainTree::default()) }))
     }
 
     #[inline]
@@ -658,10 +592,7 @@ struct HookEntry {
 
 impl HookEntry {
     fn new(handler: Box<dyn Handler>) -> Self {
-        Self {
-            handler,
-            enabled: false,
-        }
+        Self { handler, enabled: false }
     }
 }
 
@@ -676,24 +607,16 @@ impl DefaultHookManager {
     #[inline]
     pub fn instance() -> Box<dyn HookManager> {
         static INSTANCE: OnceCell<DefaultHookManager> = OnceCell::new();
-        Box::new(INSTANCE.get_or_init(|| Self {
-            handlers: Arc::new(DashMap::default()),
-        }))
+        Box::new(INSTANCE.get_or_init(|| Self { handlers: Arc::new(DashMap::default()) }))
         //.clone()
     }
 
     #[inline]
     fn add(&self, typ: Type, handler: Box<dyn Handler>) -> Result<HandlerId> {
-        let id = Uuid::new_v4()
-            .to_simple()
-            .encode_lower(&mut Uuid::encode_buffer())
-            .to_string();
+        let id = Uuid::new_v4().to_simple().encode_lower(&mut Uuid::encode_buffer()).to_string();
         let mut type_handlers = self.handlers.entry(typ).or_insert(LinkedMap::default());
         if type_handlers.contains_key(&id) {
-            Err(Error::msg(format!(
-                "handler id is repetition, id is {}, type is {:?}",
-                id, typ
-            )))
+            Err(Error::msg(format!("handler id is repetition, id is {}, type is {:?}", id, typ)))
         } else {
             type_handlers.insert(id.clone(), HookEntry::new(handler));
             Ok(id)
@@ -734,15 +657,12 @@ impl HookManager for &'static DefaultHookManager {
 
     #[inline]
     async fn before_startup(&self) {
-        self.exec(Type::BeforeStartup, Parameter::BeforeStartup)
-            .await;
+        self.exec(Type::BeforeStartup, Parameter::BeforeStartup).await;
     }
 
     #[inline]
     async fn client_connect(&self, connect_info: &ConnectInfo) -> Option<UserProperties> {
-        let result = self
-            .exec(Type::ClientConnect, Parameter::ClientConnect(connect_info))
-            .await;
+        let result = self.exec(Type::ClientConnect, Parameter::ClientConnect(connect_info)).await;
         if let Some(HookResult::UserProperties(props)) = result {
             Some(props)
         } else {
@@ -756,12 +676,8 @@ impl HookManager for &'static DefaultHookManager {
         connect_info: &ConnectInfo,
         return_code: ConnectAckReason,
     ) -> ConnectAckReason {
-        let result = self
-            .exec(
-                Type::ClientConnack,
-                Parameter::ClientConnack(connect_info, &return_code),
-            )
-            .await;
+        let result =
+            self.exec(Type::ClientConnack, Parameter::ClientConnack(connect_info, &return_code)).await;
         if let Some(HookResult::ConnectAckReason(new_return_code)) = result {
             new_return_code
         } else {
@@ -778,10 +694,7 @@ pub struct DefaultHookRegister {
 impl DefaultHookRegister {
     #[inline]
     fn new(manager: &'static DefaultHookManager) -> Self {
-        DefaultHookRegister {
-            manager,
-            type_ids: Arc::new(DashSet::default()),
-        }
+        DefaultHookRegister { manager, type_ids: Arc::new(DashSet::default()) }
     }
 
     #[inline]
@@ -833,11 +746,7 @@ pub struct DefaultHook {
 impl DefaultHook {
     #[inline]
     pub fn new(manager: &'static DefaultHookManager, s: &Session, c: &ClientInfo) -> Self {
-        Self {
-            manager,
-            s: s.clone(),
-            c: c.clone(),
-        }
+        Self { manager, s: s.clone(), c: c.clone() }
     }
 }
 
@@ -845,12 +754,7 @@ impl DefaultHook {
 impl Hook for DefaultHook {
     #[inline]
     async fn session_created(&self) {
-        self.manager
-            .exec(
-                Type::SessionCreated,
-                Parameter::SessionCreated(&self.s, &self.c),
-            )
-            .await;
+        self.manager.exec(Type::SessionCreated, Parameter::SessionCreated(&self.s, &self.c)).await;
     }
 
     #[inline]
@@ -867,10 +771,7 @@ impl Hook for DefaultHook {
         }
         let result = self
             .manager
-            .exec(
-                Type::ClientAuthenticate,
-                Parameter::ClientAuthenticate(&self.s, &self.c, password),
-            )
+            .exec(Type::ClientAuthenticate, Parameter::ClientAuthenticate(&self.s, &self.c, password))
             .await;
 
         let (bad_user_or_pass, not_auth) = match result {
@@ -902,23 +803,14 @@ impl Hook for DefaultHook {
 
     #[inline]
     async fn client_connected(&self) {
-        let _ = self
-            .manager
-            .exec(
-                Type::ClientConnected,
-                Parameter::ClientConnected(&self.s, &self.c),
-            )
-            .await;
+        let _ = self.manager.exec(Type::ClientConnected, Parameter::ClientConnected(&self.s, &self.c)).await;
     }
 
     #[inline]
     async fn client_disconnected(&self, r: Reason) {
         let _ = self
             .manager
-            .exec(
-                Type::ClientDisconnected,
-                Parameter::ClientDisconnected(&self.s, &self.c, r),
-            )
+            .exec(Type::ClientDisconnected, Parameter::ClientDisconnected(&self.s, &self.c, r))
             .await;
     }
 
@@ -926,18 +818,12 @@ impl Hook for DefaultHook {
     async fn session_terminated(&self, r: Reason) {
         let _ = self
             .manager
-            .exec(
-                Type::SessionTerminated,
-                Parameter::SessionTerminated(&self.s, &self.c, r),
-            )
+            .exec(Type::SessionTerminated, Parameter::SessionTerminated(&self.s, &self.c, r))
             .await;
     }
 
     #[inline]
-    async fn client_subscribe_check_acl(
-        &self,
-        subscribe: &Subscribe,
-    ) -> Option<SubscribeAclResult> {
+    async fn client_subscribe_check_acl(&self, subscribe: &Subscribe) -> Option<SubscribeAclResult> {
         let result = self
             .manager
             .exec(
@@ -957,10 +843,7 @@ impl Hook for DefaultHook {
     async fn message_publish_check_acl(&self, publish: &Publish) -> PublishAclResult {
         let result = self
             .manager
-            .exec(
-                Type::MessagePublishCheckAcl,
-                Parameter::MessagePublishCheckAcl(&self.s, &self.c, publish),
-            )
+            .exec(Type::MessagePublishCheckAcl, Parameter::MessagePublishCheckAcl(&self.s, &self.c, publish))
             .await;
         if let Some(HookResult::PublishAclResult(acl_result)) = result {
             acl_result
@@ -973,10 +856,7 @@ impl Hook for DefaultHook {
     async fn client_subscribe(&self, subscribe: &Subscribe) -> Option<TopicFilters> {
         let result = self
             .manager
-            .exec(
-                Type::ClientSubscribe,
-                Parameter::ClientSubscribe(&self.s, &self.c, subscribe),
-            )
+            .exec(Type::ClientSubscribe, Parameter::ClientSubscribe(&self.s, &self.c, subscribe))
             .await;
         if let Some(HookResult::TopicFilters(topic_filters)) = result {
             Some(topic_filters)
@@ -989,10 +869,7 @@ impl Hook for DefaultHook {
     async fn session_subscribed(&self, subscribed: Subscribed) {
         let _ = self
             .manager
-            .exec(
-                Type::SessionSubscribed,
-                Parameter::SessionSubscribed(&self.s, &self.c, subscribed),
-            )
+            .exec(Type::SessionSubscribed, Parameter::SessionSubscribed(&self.s, &self.c, subscribed))
             .await;
     }
 
@@ -1000,10 +877,7 @@ impl Hook for DefaultHook {
     async fn client_unsubscribe(&self, unsubscribe: &Unsubscribe) -> Option<TopicFilters> {
         let result = self
             .manager
-            .exec(
-                Type::ClientUnsubscribe,
-                Parameter::ClientUnsubscribe(&self.s, &self.c, unsubscribe),
-            )
+            .exec(Type::ClientUnsubscribe, Parameter::ClientUnsubscribe(&self.s, &self.c, unsubscribe))
             .await;
 
         if let Some(HookResult::TopicFilters(topic_filters)) = result {
@@ -1017,10 +891,7 @@ impl Hook for DefaultHook {
     async fn session_unsubscribed(&self, unsubscribed: Unsubscribed) {
         let _ = self
             .manager
-            .exec(
-                Type::SessionUnsubscribed,
-                Parameter::SessionUnsubscribed(&self.s, &self.c, unsubscribed),
-            )
+            .exec(Type::SessionUnsubscribed, Parameter::SessionUnsubscribed(&self.s, &self.c, unsubscribed))
             .await;
     }
 
@@ -1028,10 +899,7 @@ impl Hook for DefaultHook {
     async fn message_publish(&self, publish: &Publish) -> Option<Publish> {
         let result = self
             .manager
-            .exec(
-                Type::MessagePublish,
-                Parameter::MessagePublish(&self.s, &self.c, publish),
-            )
+            .exec(Type::MessagePublish, Parameter::MessagePublish(&self.s, &self.c, publish))
             .await;
 
         if let Some(HookResult::Publish(publish)) = result {
@@ -1045,10 +913,7 @@ impl Hook for DefaultHook {
     async fn message_delivered(&self, from: From, publish: &Publish) -> Option<Publish> {
         let result = self
             .manager
-            .exec(
-                Type::MessageDelivered,
-                Parameter::MessageDelivered(&self.s, &self.c, from, publish),
-            )
+            .exec(Type::MessageDelivered, Parameter::MessageDelivered(&self.s, &self.c, from, publish))
             .await;
 
         if let Some(HookResult::Publish(publish)) = result {
@@ -1062,10 +927,7 @@ impl Hook for DefaultHook {
     async fn message_acked(&self, from: From, publish: &Publish) {
         let _ = self
             .manager
-            .exec(
-                Type::MessageAcked,
-                Parameter::MessageAcked(&self.s, &self.c, from, publish),
-            )
+            .exec(Type::MessageAcked, Parameter::MessageAcked(&self.s, &self.c, from, publish))
             .await;
     }
 
@@ -1084,10 +946,7 @@ impl Hook for DefaultHook {
     async fn message_expiry_check(&self, from: From, publish: &Publish) -> MessageExpiry {
         let result = self
             .manager
-            .exec(
-                Type::MessageExpiryCheck,
-                Parameter::MessageExpiryCheck(&self.s, &self.c, from, publish),
-            )
+            .exec(Type::MessageExpiryCheck, Parameter::MessageExpiryCheck(&self.s, &self.c, from, publish))
             .await;
 
         if let Some(HookResult::MessageExpiry) = result {
@@ -1113,9 +972,7 @@ impl DefaultLimiterManager {
     #[inline]
     pub fn instance() -> Box<dyn LimiterManager> {
         static INSTANCE: OnceCell<DefaultLimiterManager> = OnceCell::new();
-        Box::new(INSTANCE.get_or_init(|| Self {
-            limiters: DashMap::default(),
-        }))
+        Box::new(INSTANCE.get_or_init(|| Self { limiters: DashMap::default() }))
     }
 }
 
@@ -1125,11 +982,7 @@ impl LimiterManager for &'static DefaultLimiterManager {
         let l = self
             .limiters
             .entry(name.clone())
-            .or_insert(DefaultLimiter::new(
-                name,
-                listen_cfg.conn_await_acquire,
-                listen_cfg.max_conn_rate,
-            )?)
+            .or_insert(DefaultLimiter::new(name, listen_cfg.conn_await_acquire, listen_cfg.max_conn_rate)?)
             .value()
             .clone();
         Ok(Box::new(l))

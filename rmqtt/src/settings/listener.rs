@@ -61,9 +61,7 @@ pub struct Listener {
 impl Listener {
     #[inline]
     fn new(inner: ListenerInner) -> Self {
-        Self {
-            inner: Arc::new(inner),
-        }
+        Self { inner: Arc::new(inner) }
     }
 }
 
@@ -78,10 +76,7 @@ impl Deref for Listener {
 pub struct ListenerInner {
     #[serde(default)]
     pub name: String,
-    #[serde(
-        default = "ListenerInner::addr_default",
-        deserialize_with = "ListenerInner::deserialize_addr"
-    )]
+    #[serde(default = "ListenerInner::addr_default", deserialize_with = "ListenerInner::deserialize_addr")]
     pub addr: SocketAddr,
     #[serde(default = "ListenerInner::workers_default")]
     pub workers: usize,
@@ -95,10 +90,7 @@ pub struct ListenerInner {
     pub max_packet_size: Bytesize,
     #[serde(default = "ListenerInner::backlog_default")]
     pub backlog: i32,
-    #[serde(
-        default = "ListenerInner::idle_timeout_default",
-        deserialize_with = "deserialize_duration"
-    )]
+    #[serde(default = "ListenerInner::idle_timeout_default", deserialize_with = "deserialize_duration")]
     pub idle_timeout: Duration,
     #[serde(default = "ListenerInner::allow_anonymous_default")]
     pub allow_anonymous: bool,
@@ -111,10 +103,7 @@ pub struct ListenerInner {
     pub keepalive_backoff: f32,
     #[serde(default = "ListenerInner::max_inflight_default")]
     pub max_inflight: usize,
-    #[serde(
-        default = "ListenerInner::handshake_timeout_default",
-        deserialize_with = "deserialize_duration"
-    )]
+    #[serde(default = "ListenerInner::handshake_timeout_default", deserialize_with = "deserialize_duration")]
     pub handshake_timeout: Duration,
     #[serde(default = "ListenerInner::max_mqueue_len_default")]
     pub max_mqueue_len: usize,
@@ -158,10 +147,7 @@ pub struct ListenerInner {
 
     #[serde(default = "ListenerInner::max_awaiting_rel_default")]
     pub max_awaiting_rel: usize,
-    #[serde(
-        default = "ListenerInner::await_rel_timeout_default",
-        deserialize_with = "deserialize_duration"
-    )]
+    #[serde(default = "ListenerInner::await_rel_timeout_default", deserialize_with = "deserialize_duration")]
     pub await_rel_timeout: Duration,
 
     #[serde(default = "ListenerInner::max_subscriptions_default")]
@@ -230,10 +216,7 @@ impl ListenerInner {
     }
     #[inline]
     fn mqueue_rate_limit_default() -> (NonZeroU32, Duration) {
-        (
-            NonZeroU32::new(u32::max_value()).unwrap(),
-            Duration::from_secs(1),
-        )
+        (NonZeroU32::new(u32::max_value()).unwrap(), Duration::from_secs(1))
     }
     #[inline]
     fn max_clientid_len_default() -> usize {
@@ -281,24 +264,20 @@ impl ListenerInner {
     where
         D: Deserializer<'de>,
     {
-        let addr = String::deserialize(deserializer)?
-            .parse::<std::net::SocketAddr>()
-            .map_err(de::Error::custom)?;
+        let addr =
+            String::deserialize(deserializer)?.parse::<std::net::SocketAddr>().map_err(de::Error::custom)?;
         Ok(addr)
     }
     #[inline]
-    fn deserialize_mqueue_rate_limit<'de, D>(
-        deserializer: D,
-    ) -> Result<(NonZeroU32, Duration), D::Error>
+    fn deserialize_mqueue_rate_limit<'de, D>(deserializer: D) -> Result<(NonZeroU32, Duration), D::Error>
     where
         D: Deserializer<'de>,
     {
         let v = String::deserialize(deserializer)?;
         let pair: Vec<&str> = v.split(',').collect();
         if pair.len() == 2 {
-            let burst = NonZeroU32::from_str(pair[0]).map_err(|e| {
-                de::Error::custom(format!("mqueue_rate_limit, burst format error, {:?}", e))
-            })?;
+            let burst = NonZeroU32::from_str(pair[0])
+                .map_err(|e| de::Error::custom(format!("mqueue_rate_limit, burst format error, {:?}", e)))?;
             let replenish_n_per = to_duration(pair[1]);
             if replenish_n_per.as_millis() == 0 {
                 return Err(de::Error::custom(format!(
@@ -308,10 +287,7 @@ impl ListenerInner {
             }
             Ok((burst, replenish_n_per))
         } else {
-            Err(de::Error::custom(format!(
-                "mqueue_rate_limit, value format error, {}",
-                pair.join(",")
-            )))
+            Err(de::Error::custom(format!("mqueue_rate_limit, value format error, {}", pair.join(","))))
         }
     }
     #[inline]
@@ -323,11 +299,7 @@ impl ListenerInner {
             0 => QoS::AtMostOnce,
             1 => QoS::AtLeastOnce,
             2 => QoS::ExactlyOnce,
-            _ => {
-                return Err(de::Error::custom(
-                    "QoS configuration error, only values (0,1,2) are supported",
-                ))
-            }
+            _ => return Err(de::Error::custom("QoS configuration error, only values (0,1,2) are supported")),
         };
         Ok(qos)
     }

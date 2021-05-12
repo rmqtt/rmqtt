@@ -1,7 +1,7 @@
 use crate::broker::{
     default::{
-        DefaultFitterManager, DefaultHookManager, DefaultLimiterManager, DefaultRetainStorage,
-        DefaultRouter, DefaultShared,
+        DefaultFitterManager, DefaultHookManager, DefaultLimiterManager, DefaultRetainStorage, DefaultRouter,
+        DefaultShared,
     },
     fitter::FitterManager,
     hook::HookManager,
