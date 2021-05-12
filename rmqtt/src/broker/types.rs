@@ -24,9 +24,8 @@ pub use ntex_mqtt::v5::{
     self, codec::Connect as ConnectV5, codec::ConnectAckReason as ConnectAckReasonV5,
     codec::LastWill as LastWillV5, codec::Packet as PacketV5, codec::Subscribe as SubscribeV5,
     codec::SubscribeAck as SubscribeAckV5, codec::SubscribeAckReason, codec::SubscriptionOptions,
-    codec::Unsubscribe as UnsubscribeV5, codec::UnsubscribeAck as UnsubscribeAckV5,
-    codec::UserProperties, codec::UserProperty, HandshakeAck as HandshakeAckV5,
-    MqttSink as MqttSinkV5,
+    codec::Unsubscribe as UnsubscribeV5, codec::UnsubscribeAck as UnsubscribeAckV5, codec::UserProperties,
+    codec::UserProperty, HandshakeAck as HandshakeAckV5, MqttSink as MqttSinkV5,
 };
 
 pub use ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
@@ -64,7 +63,6 @@ pub enum ConnectInfo {
 }
 
 impl ConnectInfo {
-
     #[inline]
     pub fn id(&self) -> &Id {
         match self {
@@ -117,12 +115,8 @@ impl ConnectInfo {
     #[inline]
     pub fn last_will(&self) -> Option<LastWill> {
         match self {
-            ConnectInfo::V3(_, conn_info) => {
-                conn_info.last_will.as_ref().map(|lw| LastWill::V3(lw))
-            }
-            ConnectInfo::V5(_, conn_info) => {
-                conn_info.last_will.as_ref().map(|lw| LastWill::V5(lw))
-            }
+            ConnectInfo::V3(_, conn_info) => conn_info.last_will.as_ref().map(|lw| LastWill::V3(lw)),
+            ConnectInfo::V5(_, conn_info) => conn_info.last_will.as_ref().map(|lw| LastWill::V5(lw)),
         }
     }
 
@@ -144,7 +138,6 @@ pub struct PublishV3 {
 }
 
 impl PublishV3 {
-
     #[inline]
     pub fn from(p: &v3::Publish) -> Result<PublishV3> {
         Ok(Self {
@@ -177,9 +170,7 @@ impl PublishV3 {
             (
                 //Topic::from_str(lw.topic.as_bytes().slice(0..pos))?,
                 ByteString::try_from(lw.topic.as_bytes().slice(0..pos))?,
-                Some(ByteString::try_from(
-                    lw.topic.as_bytes().slice(pos + 1..lw.topic.len()),
-                )?),
+                Some(ByteString::try_from(lw.topic.as_bytes().slice(pos + 1..lw.topic.len()))?),
             )
         } else {
             (lw.topic.clone(), None)
@@ -205,11 +196,7 @@ impl PublishV5 {
     #[inline]
     pub fn from(publish: v5::codec::Publish) -> Result<PublishV5> {
         let topic = Topic::from_str(&publish.topic)?;
-        Ok(Self {
-            publish,
-            topic,
-            create_time: chrono::Local::now().timestamp_millis(),
-        })
+        Ok(Self { publish, topic, create_time: chrono::Local::now().timestamp_millis() })
     }
 }
 
@@ -244,6 +231,127 @@ pub enum SubscribeAclResult {
     V5(Vec<SubscribeAckReason>),
 }
 
+impl SubscribeAclResult {
+    ///inherit if failure
+    pub fn inherit_failure(&mut self, from: &SubscribeAclResult, idx: usize) -> bool {
+        match from {
+            SubscribeAclResult::V3(from_codes) => {
+                if let Some(from_code) = from_codes.get(idx) {
+                    if !matches!(from_code, SubscribeReturnCodeV3::Success(_)) {
+                        if let SubscribeAclResult::V3(codes) = self {
+                            codes.push(from_code.clone());
+                            return true;
+                        }
+                    }
+                }
+            }
+            SubscribeAclResult::V5(from_reasons) => {
+                if let Some(from_reason) = from_reasons.get(idx) {
+                    if !matches!(
+                        from_reason,
+                        SubscribeAckReason::GrantedQos0
+                            | SubscribeAckReason::GrantedQos1
+                            | SubscribeAckReason::GrantedQos2
+                    ) {
+                        if let SubscribeAclResult::V5(reasons) = self {
+                            reasons.push(from_reason.clone());
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    // pub fn is_success(&self, idx: usize) -> bool{
+    //     match self{
+    //         SubscribeAclResult::V3(codes) => {
+    //             codes.get(idx).map(|code| matches!(code, SubscribeReturnCodeV3::Success(_))).unwrap_or(true)
+    //         }
+    //         SubscribeAclResult::V5(acks) => {
+    //             acks.get(idx).map(|reason| matches!(reason, SubscribeAckReason::GrantedQos0 | SubscribeAckReason::GrantedQos1 | SubscribeAckReason::GrantedQos2)).unwrap_or(true)
+    //         }
+    //     }
+    // }
+
+    pub fn has_successes(&self) -> bool {
+        match self {
+            SubscribeAclResult::V3(codes) => {
+                codes.iter().find(|code| matches!(code, SubscribeReturnCodeV3::Success(_))).is_some()
+            }
+            SubscribeAclResult::V5(acks) => acks
+                .iter()
+                .find(|reason| {
+                    matches!(
+                        reason,
+                        SubscribeAckReason::GrantedQos0
+                            | SubscribeAckReason::GrantedQos1
+                            | SubscribeAckReason::GrantedQos2
+                    )
+                })
+                .is_some(),
+        }
+    }
+
+    pub fn has_failures(&self) -> bool {
+        match self {
+            SubscribeAclResult::V3(codes) => {
+                codes.iter().find(|code| matches!(code, SubscribeReturnCodeV3::Failure)).is_some()
+            }
+            SubscribeAclResult::V5(acks) => acks
+                .iter()
+                .find(|reason| {
+                    !matches!(
+                        reason,
+                        SubscribeAckReason::GrantedQos0
+                            | SubscribeAckReason::GrantedQos1
+                            | SubscribeAckReason::GrantedQos2
+                    )
+                })
+                .is_some(),
+        }
+    }
+
+    pub fn add_success(&mut self, qos: QoS) {
+        match self {
+            SubscribeAclResult::V3(codes) => {
+                codes.push(SubscribeReturnCodeV3::Success(qos));
+            }
+            SubscribeAclResult::V5(acks) => {
+                let reason = match qos {
+                    QoS::AtMostOnce => SubscribeAckReason::GrantedQos0,
+                    QoS::AtLeastOnce => SubscribeAckReason::GrantedQos1,
+                    QoS::ExactlyOnce => SubscribeAckReason::GrantedQos2,
+                };
+                acks.push(reason)
+            }
+        }
+    }
+
+    pub fn add_not_authorized(&mut self) {
+        match self {
+            SubscribeAclResult::V3(codes) => {
+                codes.push(SubscribeReturnCodeV3::Failure);
+            }
+            SubscribeAclResult::V5(acks) => {
+                acks.push(SubscribeAckReason::NotAuthorized);
+            }
+        }
+    }
+
+    pub fn add_topic_filter_invalid(&mut self) {
+        match self {
+            SubscribeAclResult::V3(codes) => {
+                codes.push(SubscribeReturnCodeV3::Failure);
+            }
+            SubscribeAclResult::V5(acks) => {
+                acks.push(SubscribeAckReason::TopicFilterInvalid);
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum PublishAclResult {
     Allow,
@@ -263,15 +371,10 @@ pub enum Subscribe {
 }
 
 impl Subscribe {
-
     #[inline]
     pub fn adjust_topic_filters(&mut self, mut topic_filters: TopicFilters) -> Result<()> {
         if self.len() != topic_filters.len() {
-            log::error!(
-                "topic_filters quantity mismatch, {:?} <=> {:?}",
-                self,
-                topic_filters
-            );
+            log::error!("topic_filters quantity mismatch, {:?} <=> {:?}", self, topic_filters);
             return Err(MqttError::ServiceUnavailable);
         }
 
@@ -300,7 +403,7 @@ impl Subscribe {
     }
 
     #[inline]
-    pub fn is_empty(&self) -> bool{
+    pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
@@ -318,10 +421,9 @@ impl Subscribe {
     #[inline]
     pub fn topic_filters(&self) -> Vec<(TopicFilter, QoS)> {
         match self {
-            Subscribe::V3(subs) => subs
-                .iter()
-                .map(|(tf, qos)| (tf.clone(), *qos))
-                .collect::<Vec<(TopicFilter, QoS)>>(),
+            Subscribe::V3(subs) => {
+                subs.iter().map(|(tf, qos)| (tf.clone(), *qos)).collect::<Vec<(TopicFilter, QoS)>>()
+            }
             Subscribe::V5(subs) => {
                 //@TODO ... TopicFilter
                 subs.topic_filters
@@ -336,10 +438,7 @@ impl Subscribe {
     pub fn remove(&mut self, topic_filter: &TopicFilter) {
         match self {
             Subscribe::V3(subs) => {
-                *subs = subs
-                    .drain(..)
-                    .filter(|(tf, _)| tf != topic_filter)
-                    .collect::<Vec<_>>();
+                *subs = subs.drain(..).filter(|(tf, _)| tf != topic_filter).collect::<Vec<_>>();
             }
             Subscribe::V5(_subs) => {
                 log::warn!("[MQTT 5] Not implemented");
@@ -371,13 +470,16 @@ pub enum SubscribeAck {
 }
 
 impl SubscribeAck {
-
     #[inline]
     pub fn merge_from(&mut self, merged_ack: SubscribeAck) {
         match (self, merged_ack) {
             (SubscribeAck::V3(codes), SubscribeAck::V3(mut merged_codes)) => {
                 if codes.len() != merged_codes.len() {
-                    log::error!("SubscribeAck merge failed, SubscribeReturnCode inconsistent length  {:?} != {:?}", codes.len(), merged_codes.len());
+                    log::error!(
+                        "SubscribeAck merge failed, SubscribeReturnCode inconsistent length  {:?} != {:?}",
+                        codes.len(),
+                        merged_codes.len()
+                    );
                     return;
                 }
                 for (i, code) in codes.iter_mut().enumerate() {
@@ -386,14 +488,17 @@ impl SubscribeAck {
             }
             (SubscribeAck::V5(acks), SubscribeAck::V5(mut merged_acks)) => {
                 if acks.status.len() != merged_acks.status.len() {
-                    log::error!("SubscribeAck merge failed, SubscribeAckReason inconsistent length  {:?} != {:?}", acks.status.len(), merged_acks.status.len());
+                    log::error!(
+                        "SubscribeAck merge failed, SubscribeAckReason inconsistent length  {:?} != {:?}",
+                        acks.status.len(),
+                        merged_acks.status.len()
+                    );
                     return;
                 }
                 //reason_string
                 match (&mut acks.reason_string, merged_acks.reason_string) {
                     (Some(reason1), Some(reason2)) => {
-                        acks.reason_string =
-                            Some(ByteString::from(format!("{}, {}", reason1, reason2)))
+                        acks.reason_string = Some(ByteString::from(format!("{}, {}", reason1, reason2)))
                     }
                     (None, Some(reason)) => acks.reason_string = Some(reason),
                     (Some(_), None) => {}
@@ -416,10 +521,7 @@ impl SubscribeAck {
     }
 
     #[inline]
-    fn v3_merge(
-        code: &SubscribeReturnCodeV3,
-        merged: SubscribeReturnCodeV3,
-    ) -> SubscribeReturnCodeV3 {
+    fn v3_merge(code: &SubscribeReturnCodeV3, merged: SubscribeReturnCodeV3) -> SubscribeReturnCodeV3 {
         match (code, merged) {
             (_, SubscribeReturnCodeV3::Failure) => SubscribeReturnCodeV3::Failure,
             (SubscribeReturnCodeV3::Failure, _) => SubscribeReturnCodeV3::Failure,
@@ -471,7 +573,6 @@ pub enum Subscribed {
 }
 
 impl Subscribed {
-
     #[inline]
     pub fn topic_filter(&self) -> (TopicFilter, QoS) {
         match self {
@@ -503,7 +604,6 @@ pub enum ConnectAckReason {
 }
 
 impl ConnectAckReason {
-
     #[inline]
     pub fn success(&self) -> bool {
         matches!(
@@ -519,12 +619,8 @@ impl ConnectAckReason {
             ConnectAckReason::V3(ConnectAckReasonV3::UnacceptableProtocolVersion) => {
                 handshake.service_unavailable()
             }
-            ConnectAckReason::V3(ConnectAckReasonV3::IdentifierRejected) => {
-                handshake.identifier_rejected()
-            }
-            ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable) => {
-                handshake.service_unavailable()
-            }
+            ConnectAckReason::V3(ConnectAckReasonV3::IdentifierRejected) => handshake.identifier_rejected(),
+            ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable) => handshake.service_unavailable(),
             ConnectAckReason::V3(ConnectAckReasonV3::BadUserNameOrPassword) => {
                 handshake.bad_username_or_pwd()
             }
@@ -550,7 +646,6 @@ pub enum Unsubscribe {
 }
 
 impl Unsubscribe {
-
     #[inline]
     pub fn topic_filters(&self) -> Vec<TopicFilter> {
         match self {
@@ -569,11 +664,7 @@ impl Unsubscribe {
     #[inline]
     pub fn adjust_topic_filters(&mut self, mut topic_filters: TopicFilters) -> Result<()> {
         if self.len() != topic_filters.len() {
-            log::error!(
-                "topic_filters quantity mismatch, {:?} <=> {:?}",
-                self,
-                topic_filters
-            );
+            log::error!("topic_filters quantity mismatch, {:?} <=> {:?}", self, topic_filters);
             return Err(MqttError::ServiceUnavailable);
         }
 
@@ -676,7 +767,6 @@ impl<'a> fmt::Debug for LastWill<'a> {
 }
 
 impl<'a> LastWill<'a> {
-
     #[inline]
     pub fn to_json(&self) -> serde_json::Value {
         match self {
@@ -905,19 +995,21 @@ pub type To = Id;
 pub struct Id(Arc<_Id>);
 
 impl Id {
-
     #[inline]
     pub fn new(
         node_id: NodeId,
-        local_addr: String,
-        remote_addr: String,
+        local_addr: Option<SocketAddr>,
+        remote_addr: Option<SocketAddr>,
         client_id: ClientId,
         username: Option<UserName>,
     ) -> Self {
         Self(Arc::new(_Id {
             id: ByteString::from(format!(
                 "{}@{}/{}/{}",
-                node_id, local_addr, remote_addr, client_id
+                node_id,
+                local_addr.map(|addr| addr.to_string()).unwrap_or_default(),
+                remote_addr.map(|addr| addr.to_string()).unwrap_or_default(),
+                client_id
             )),
             node_id,
             local_addr,
@@ -939,7 +1031,7 @@ impl Id {
 
     #[inline]
     pub fn from(client_id: ClientId) -> Self {
-        Self::new(0, String::new(), String::new(), client_id, None)
+        Self::new(0, None, None, client_id, None)
     }
 
     #[inline]
@@ -949,7 +1041,7 @@ impl Id {
 
     #[inline]
     pub fn node(&self) -> String {
-        format!("{}/{}", self.node_id, self.local_addr)
+        format!("{}/{}", self.node_id, self.local_addr.map(|addr| addr.to_string()).unwrap_or_default())
     }
 }
 
@@ -1017,12 +1109,12 @@ impl<'de> Deserialize<'de> for Id {
     }
 }
 
-#[derive(Default, Debug, PartialEq, Eq, Hash, Clone, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Deserialize, Serialize)]
 pub struct _Id {
     id: ByteString,
     pub node_id: NodeId,
-    pub local_addr: String,
-    pub remote_addr: String,
+    pub local_addr: Option<SocketAddr>,
+    pub remote_addr: Option<SocketAddr>,
     pub client_id: ClientId,
     pub username: UserName,
 }
