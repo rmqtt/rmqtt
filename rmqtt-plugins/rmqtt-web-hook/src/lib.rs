@@ -30,10 +30,7 @@ pub async fn init<N: Into<String>, D: Into<String>>(
 ) -> Result<()> {
     runtime
         .plugins
-        .register(
-            Box::new(WebHookPlugin::new(runtime, name.into(), descr.into()).await?),
-            default_startup,
-        )
+        .register(Box::new(WebHookPlugin::new(runtime, name.into(), descr.into()).await?), default_startup)
         .await?;
     Ok(())
 }
@@ -61,21 +58,9 @@ impl WebHookPlugin {
         ));
         log::debug!("{} WebHookPlugin cfg: {:?}", name, cfg.read());
         let processings = Arc::new(AtomicIsize::new(0));
-        let tx = Arc::new(RwLock::new(Self::start(
-            runtime,
-            cfg.clone(),
-            processings.clone(),
-        )));
+        let tx = Arc::new(RwLock::new(Self::start(runtime, cfg.clone(), processings.clone())));
         let register = runtime.extends.hook_mgr().await.register();
-        Ok(Self {
-            runtime,
-            name,
-            descr,
-            register,
-            cfg,
-            tx,
-            processings,
-        })
+        Ok(Self { runtime, name, descr, register, cfg, tx, processings })
     }
 
     fn start(
@@ -83,59 +68,51 @@ impl WebHookPlugin {
         cfg: Arc<RwLock<PluginConfig>>,
         processings: Arc<AtomicIsize>,
     ) -> Sender<Message> {
-        let (tx, rx): (Sender<Message>, Receiver<Message>) =
-            bounded(cfg.read().async_queue_capacity);
-        let _child = std::thread::Builder::new()
-            .name("web-hook".to_string())
-            .spawn(move || {
-                log::info!("start web-hook async worker.");
-                let rt = tokio::runtime::Builder::new_multi_thread()
-                    .enable_all()
-                    .worker_threads(cfg.read().worker_threads)
-                    .thread_name("web-hook-worker")
-                    .thread_stack_size(4 * 1024 * 1024)
-                    .build()
-                    .unwrap();
+        let (tx, rx): (Sender<Message>, Receiver<Message>) = bounded(cfg.read().async_queue_capacity);
+        let _child = std::thread::Builder::new().name("web-hook".to_string()).spawn(move || {
+            log::info!("start web-hook async worker.");
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .worker_threads(cfg.read().worker_threads)
+                .thread_name("web-hook-worker")
+                .thread_stack_size(4 * 1024 * 1024)
+                .build()
+                .unwrap();
 
-                let runner = async {
-                    loop {
-                        let cfg = cfg.clone();
-                        let processings = processings.clone();
-                        match rx.recv() {
-                            Ok(msg) => {
-                                log::trace!("received web-hook Message: {:?}", msg);
-                                match msg {
-                                    Message::Body(typ, topic, data) => {
-                                        processings.fetch_add(1, Ordering::SeqCst);
-                                        tokio::task::spawn(async move {
-                                            if let Err(e) = WebHookHandler::handle(
-                                                cfg.clone(),
-                                                typ,
-                                                topic,
-                                                data,
-                                            )
-                                            .await
-                                            {
-                                                log::error!("send web hook message error, {:?}", e);
-                                            }
-                                            processings.fetch_sub(1, Ordering::SeqCst);
-                                        });
-                                    }
-                                    Message::Exit => {
-                                        log::debug!("Is Message::Exit message ...");
-                                        break;
-                                    }
+            let runner = async {
+                loop {
+                    let cfg = cfg.clone();
+                    let processings = processings.clone();
+                    match rx.recv() {
+                        Ok(msg) => {
+                            log::trace!("received web-hook Message: {:?}", msg);
+                            match msg {
+                                Message::Body(typ, topic, data) => {
+                                    processings.fetch_add(1, Ordering::SeqCst);
+                                    tokio::task::spawn(async move {
+                                        if let Err(e) =
+                                            WebHookHandler::handle(cfg.clone(), typ, topic, data).await
+                                        {
+                                            log::error!("send web hook message error, {:?}", e);
+                                        }
+                                        processings.fetch_sub(1, Ordering::SeqCst);
+                                    });
+                                }
+                                Message::Exit => {
+                                    log::debug!("Is Message::Exit message ...");
+                                    break;
                                 }
                             }
-                            Err(e) => {
-                                log::error!("web hook message channel abnormal, {:?}", e);
-                            }
+                        }
+                        Err(e) => {
+                            log::error!("web hook message channel abnormal, {:?}", e);
                         }
                     }
-                };
-                rt.block_on(runner);
-                log::info!("exit web-hook async worker.");
-            });
+                }
+            };
+            rt.block_on(runner);
+            log::info!("exit web-hook async worker.");
+        });
         tx
     }
 }
@@ -215,11 +192,7 @@ impl Plugin for WebHookPlugin {
 
     #[inline]
     async fn load_config(&mut self) -> Result<()> {
-        let new_cfg = self
-            .runtime
-            .settings
-            .plugins
-            .load_config::<PluginConfig>(&self.name)?;
+        let new_cfg = self.runtime.settings.plugins.load_config::<PluginConfig>(&self.name)?;
         let cfg = { self.cfg.read().clone() };
         if cfg.worker_threads != new_cfg.worker_threads
             || cfg.async_queue_capacity != new_cfg.async_queue_capacity
@@ -227,11 +200,7 @@ impl Plugin for WebHookPlugin {
             let new_cfg = Arc::new(RwLock::new(new_cfg));
             //restart
             let new_tx = Self::start(self.runtime, new_cfg.clone(), self.processings.clone());
-            if let Err(e) = self
-                .tx
-                .read()
-                .send_timeout(Message::Exit, std::time::Duration::from_secs(3))
-            {
+            if let Err(e) = self.tx.read().send_timeout(Message::Exit, std::time::Duration::from_secs(3)) {
                 log::error!("restart web-hook failed, {:?}", e);
                 return Err(MqttError::Error(Box::new(e)));
             }
@@ -297,11 +266,7 @@ impl WebHookHandler {
                 };
 
                 if is_allowed {
-                    let urls = if r.urls.is_empty() {
-                        &default_urls
-                    } else {
-                        &r.urls
-                    };
+                    let urls = if r.urls.is_empty() { &default_urls } else { &r.urls };
                     if urls.is_empty() {
                         None
                     } else {
@@ -325,11 +290,7 @@ impl WebHookHandler {
                 } else {
                     for url in urls {
                         log::debug!("action: {}, url: {}", action, url);
-                        http_requests.push(Self::http_request(
-                            url.clone(),
-                            new_body.clone(),
-                            timeout,
-                        ));
+                        http_requests.push(Self::http_request(url.clone(), new_body.clone(), timeout));
                     }
                 }
             }
@@ -349,12 +310,7 @@ impl WebHookHandler {
     }
 
     async fn http_request(url: String, body: serde_json::Value, timeout: Duration) {
-        log::debug!(
-            "http_request, timeout: {:?}, url: {}, body: {}",
-            timeout,
-            url,
-            body
-        );
+        log::debug!("http_request, timeout: {:?}, url: {}, body: {}", timeout, url, body);
         match HTTP_CLIENT
             .clone()
             .request(reqwest::Method::POST, &url)
@@ -368,11 +324,7 @@ impl WebHookHandler {
             }
             Ok(resp) => {
                 if !resp.status().is_success() {
-                    log::warn!(
-                        "response status is not OK, url:{:?}, response:{:?}",
-                        url,
-                        resp
-                    );
+                    log::warn!("response status is not OK, url:{:?}, response:{:?}", url, resp);
                 }
             }
         }
@@ -418,14 +370,13 @@ impl Handler for WebHookHandler {
         let typ = param.get_type();
 
         let bodys = match param {
-            Parameter::ClientConnect(conn_info) => vec![(None, conn_info.to_body())],
+            Parameter::ClientConnect(conn_info) => {
+                vec![(None, conn_info.to_body())]
+            }
             Parameter::ClientConnack(conn_info, conn_ack) => {
                 let mut body = conn_info.to_body();
                 if let Some(obj) = body.as_object_mut() {
-                    obj.insert(
-                        "conn_ack".into(),
-                        serde_json::Value::String(conn_ack.reason().to_string()),
-                    );
+                    obj.insert("conn_ack".into(), serde_json::Value::String(conn_ack.reason().to_string()));
                 }
                 vec![(None, body)]
             }
@@ -437,10 +388,7 @@ impl Handler for WebHookHandler {
                         "connected_at".into(),
                         serde_json::Value::Number(serde_json::Number::from(client.connected_at)),
                     );
-                    obj.insert(
-                        "session_present".into(),
-                        serde_json::Value::Bool(client.session_present),
-                    );
+                    obj.insert("session_present".into(), serde_json::Value::Bool(client.session_present));
                 }
                 vec![(None, body)]
             }
