@@ -14,9 +14,8 @@ use rustls::{NoClientAuth, ServerConfig};
 use std::{fs::File, io::BufReader};
 
 use rmqtt::broker::{
-    v3::control_message as control_message_v3, v3::handshake as handshake_v3,
-    v3::publish as publish_v3, v5::control_message as control_message_v5,
-    v5::handshake as handshake_v5, v5::publish as publish_v5,
+    v3::control_message as control_message_v3, v3::handshake as handshake_v3, v3::publish as publish_v3,
+    v5::control_message as control_message_v5, v5::handshake as handshake_v5, v5::publish as publish_v5,
 };
 use rmqtt::settings::listener::Listener;
 use rmqtt::{logger::logger_init, MqttError, Runtime, SessionState};
@@ -26,16 +25,8 @@ mod plugin {
     include!(concat!(env!("OUT_DIR"), "/plugin.rs"));
 
     pub(crate) async fn default_startups() -> rmqtt::Result<()> {
-        for name in rmqtt::Runtime::instance()
-            .settings
-            .plugins
-            .default_startups
-            .iter()
-        {
-            rmqtt::Runtime::instance()
-                .plugins
-                .start(name.as_str())
-                .await?;
+        for name in rmqtt::Runtime::instance().settings.plugins.default_startups.iter() {
+            rmqtt::Runtime::instance().plugins.start(name.as_str()).await?;
         }
         Ok(())
     }
@@ -50,17 +41,10 @@ async fn main() {
     logger_init();
     inner_api_serve_and_listen();
     plugin::init().await.expect("Failed to initialize plug-in");
-    plugin::default_startups()
-        .await
-        .expect("Failed to startups plug-in");
+    plugin::default_startups().await.expect("Failed to startups plug-in");
 
     //hook, before startup
-    Runtime::instance()
-        .extends
-        .hook_mgr()
-        .await
-        .before_startup()
-        .await;
+    Runtime::instance().extends.hook_mgr().await.before_startup().await;
 
     //tcp
     let mut tcp_listens = Vec::new();
@@ -76,11 +60,9 @@ async fn main() {
         tls_listens.push(listen_tls(name, listen_cfg));
     }
 
-    let _ = futures::future::join(
-        futures::future::join_all(tcp_listens),
-        futures::future::join_all(tls_listens),
-    )
-    .await;
+    let _ =
+        futures::future::join(futures::future::join_all(tcp_listens), futures::future::join_all(tls_listens))
+            .await;
 }
 
 async fn listen(name: String, listen_cfg: &Listener) -> Result<()> {
@@ -94,94 +76,79 @@ async fn listen(name: String, listen_cfg: &Listener) -> Result<()> {
         ntex::server::Server::build()
             .bind(name, listen_cfg.addr, move || {
                 MqttServer::new()
-                    .v3(
-                        v3::MqttServer::new(move |mut handshake: HandshakeV3<TcpStream>| async {
-                            let remote_addr = handshake.io().peer_addr()?;
-                            let local_addr = handshake.io().local_addr()?;
-                            let listen_cfg = Runtime::instance()
-                                .settings
-                                .listeners
-                                .tcp(local_addr.port())
-                                .ok_or_else(|| {
+                    .v3(v3::MqttServer::new(move |mut handshake: HandshakeV3<TcpStream>| async {
+                        let remote_addr = handshake.io().peer_addr()?;
+                        let local_addr = handshake.io().local_addr()?;
+                        let listen_cfg =
+                            Runtime::instance().settings.listeners.tcp(local_addr.port()).ok_or_else(
+                                || {
                                     anyhow::Error::msg(format!(
                                         "tcp listener config is not found, local addr is {:?}",
                                         local_addr
                                     ))
-                                })?;
-                            let client_id = handshake.packet().client_id.clone();
-                            match handshake_v3(listen_cfg, handshake, remote_addr, local_addr).await
-                            {
-                                Err(e) => {
-                                    log::error!(
-                                        "{:?}/{:?}/{} Connection Refused, handshake, {:?}",
-                                        local_addr,
-                                        remote_addr,
-                                        client_id,
-                                        e
-                                    );
-                                    Err(e)
-                                }
-                                Ok(ack) => Ok(ack),
+                                },
+                            )?;
+                        let client_id = handshake.packet().client_id.clone();
+                        match handshake_v3(listen_cfg, handshake, remote_addr, local_addr).await {
+                            Err(e) => {
+                                log::error!(
+                                    "{:?}/{:?}/{} Connection Refused, handshake, {:?}",
+                                    local_addr,
+                                    remote_addr,
+                                    client_id,
+                                    e
+                                );
+                                Err(e)
                             }
-                        })
-                        // .v3(v3::MqttServer::new(handshake_v3)
-                        .inflight(max_inflight)
-                        .handshake_timeout(handshake_timeout)
-                        .max_size(max_size)
-                        .max_awaiting_rel(max_awaiting_rel)
-                        .await_rel_timeout(await_rel_timeout)
-                        .publish(fn_factory_with_config(
-                            |session: v3::Session<SessionState>| {
-                                ok::<_, MqttError>(fn_service(move |req| {
-                                    publish_v3(session.clone(), req)
-                                }))
-                            },
-                        ))
-                        .control(fn_factory_with_config(
-                            |session: v3::Session<SessionState>| {
-                                ok::<_, MqttError>(fn_service(move |req| {
-                                    control_message_v3(session.clone(), req)
-                                }))
-                            },
-                        )),
-                    )
-                    .v5(
-                        v5::MqttServer::new(move |mut handshake: HandshakeV5<TcpStream>| async {
-                            let peer_addr = handshake.io().peer_addr()?;
-                            let local_addr = handshake.io().local_addr()?;
-                            let listen_cfg = Runtime::instance()
-                                .settings
-                                .listeners
-                                .tcp(local_addr.port())
-                                .ok_or_else(|| {
+                            Ok(ack) => Ok(ack),
+                        }
+                    })
+                    // .v3(v3::MqttServer::new(handshake_v3)
+                    .inflight(max_inflight)
+                    .handshake_timeout(handshake_timeout)
+                    .max_size(max_size)
+                    .max_awaiting_rel(max_awaiting_rel)
+                    .await_rel_timeout(await_rel_timeout)
+                    .publish(fn_factory_with_config(|session: v3::Session<SessionState>| {
+                        ok::<_, MqttError>(fn_service(move |req| publish_v3(session.clone(), req)))
+                    }))
+                    .control(fn_factory_with_config(
+                        |session: v3::Session<SessionState>| {
+                            ok::<_, MqttError>(fn_service(move |req| {
+                                control_message_v3(session.clone(), req)
+                            }))
+                        },
+                    )))
+                    .v5(v5::MqttServer::new(move |mut handshake: HandshakeV5<TcpStream>| async {
+                        let peer_addr = handshake.io().peer_addr()?;
+                        let local_addr = handshake.io().local_addr()?;
+                        let listen_cfg =
+                            Runtime::instance().settings.listeners.tcp(local_addr.port()).ok_or_else(
+                                || {
                                     anyhow::Error::msg(format!(
                                         "tcp listener config is not found, local addr is {:?}",
                                         local_addr
                                     ))
-                                })?;
-                            handshake_v5(listen_cfg, handshake, peer_addr, local_addr).await
-                        })
-                        //v5::MqttServer::new(handshake_v5)
-                        //.receive_max()
-                        .handshake_timeout(handshake_timeout)
-                        .max_size(max_size)
-                        .max_qos(max_qos)
-                        //.max_topic_alias(max_topic_alias),
-                        .publish(fn_factory_with_config(
-                            |session: v5::Session<SessionState>| {
-                                ok::<_, MqttError>(fn_service(move |req| {
-                                    publish_v5(session.clone(), req)
-                                }))
-                            },
-                        ))
-                        .control(fn_factory_with_config(
-                            |session: v5::Session<SessionState>| {
-                                ok::<_, MqttError>(fn_service(move |req| {
-                                    control_message_v5(session.clone(), req)
-                                }))
-                            },
-                        )),
-                    )
+                                },
+                            )?;
+                        handshake_v5(listen_cfg, handshake, peer_addr, local_addr).await
+                    })
+                    //v5::MqttServer::new(handshake_v5)
+                    //.receive_max()
+                    .handshake_timeout(handshake_timeout)
+                    .max_size(max_size)
+                    .max_qos(max_qos)
+                    //.max_topic_alias(max_topic_alias),
+                    .publish(fn_factory_with_config(|session: v5::Session<SessionState>| {
+                        ok::<_, MqttError>(fn_service(move |req| publish_v5(session.clone(), req)))
+                    }))
+                    .control(fn_factory_with_config(
+                        |session: v5::Session<SessionState>| {
+                            ok::<_, MqttError>(fn_service(move |req| {
+                                control_message_v5(session.clone(), req)
+                            }))
+                        },
+                    )))
             })?
             .workers(listen_cfg.workers)
             .maxconn(listen_cfg.max_connections / listen_cfg.workers)
@@ -191,12 +158,10 @@ async fn listen(name: String, listen_cfg: &Listener) -> Result<()> {
         Ok(())
     }
 
-    _listen(&format!("tcp: {}", name), listen_cfg)
-        .await
-        .map_err(|e| {
-            log::error!("Listen {:?} failed on {}, {:?}", name, listen_cfg.addr, e);
-            e
-        })
+    _listen(&format!("tcp: {}", name), listen_cfg).await.map_err(|e| {
+        log::error!("Listen {:?} failed on {}, {:?}", name, listen_cfg.addr, e);
+        e
+    })
 }
 
 async fn listen_tls(name: String, listen_cfg: &Listener) -> Result<()> {
@@ -233,10 +198,12 @@ async fn listen_tls(name: String, listen_cfg: &Listener) -> Result<()> {
                                         .settings
                                         .listeners
                                         .tls(local_addr.port())
-                                        .ok_or_else(|| anyhow::Error::msg(format!(
-                                            "tls listener config is not found, local addr is {:?}",
-                                            local_addr
-                                        )))?;
+                                        .ok_or_else(|| {
+                                            anyhow::Error::msg(format!(
+                                                "tls listener config is not found, local addr is {:?}",
+                                                local_addr
+                                            ))
+                                        })?;
 
                                     handshake_v3(listen_cfg, handshake, peer_addr, local_addr).await
                                 },
@@ -247,24 +214,20 @@ async fn listen_tls(name: String, listen_cfg: &Listener) -> Result<()> {
                             .max_size(max_size)
                             .max_awaiting_rel(max_awaiting_rel)
                             .await_rel_timeout(await_rel_timeout)
-                            .publish(fn_factory_with_config(
-                                |session: v3::Session<SessionState>| {
-                                    ok::<_, MqttError>(fn_service(move |req| {
-                                        publish_v3(session.clone(), req)
-                                    }))
-                                },
-                            ))
+                            .publish(fn_factory_with_config(|session: v3::Session<SessionState>| {
+                                ok::<_, MqttError>(fn_service(move |req| publish_v3(session.clone(), req)))
+                            }))
                             .control(fn_factory_with_config(
                                 |session: v3::Session<SessionState>| {
                                     ok::<_, MqttError>(fn_service(move |req| {
                                         control_message_v3(session.clone(), req)
                                     }))
                                 },
-                            ))
-                            )
+                            )))
                             .v5(
-                                    //v5::MqttServer::new(handshake_v5)
-                                    v5::MqttServer::new(move |mut handshake: HandshakeV5<TlsStream<TcpStream>>| async {
+                                //v5::MqttServer::new(handshake_v5)
+                                v5::MqttServer::new(
+                                    move |mut handshake: HandshakeV5<TlsStream<TcpStream>>| async {
                                         let (io, _) = handshake.io().get_ref();
                                         let peer_addr = io.peer_addr()?;
                                         let local_addr = io.local_addr()?;
@@ -272,31 +235,32 @@ async fn listen_tls(name: String, listen_cfg: &Listener) -> Result<()> {
                                             .settings
                                             .listeners
                                             .tcp(local_addr.port())
-                                            .ok_or_else(|| anyhow::Error::msg(format!(
-                                                "tls listener config is not found, local addr is {:?}",
-                                                local_addr
-                                            )))?;
+                                            .ok_or_else(|| {
+                                                anyhow::Error::msg(format!(
+                                                    "tls listener config is not found, local addr is {:?}",
+                                                    local_addr
+                                                ))
+                                            })?;
                                         handshake_v5(listen_cfg, handshake, peer_addr, local_addr).await
-                                    })
-                                    //.receive_max()
-                                    .handshake_timeout(handshake_timeout)
-                                    .max_size(max_size)
-                                    .max_qos(max_qos)
-                                    //.max_topic_alias(max_topic_alias)
-                                    .publish(fn_factory_with_config(
-                                        |session: v5::Session<SessionState>| {
-                                            ok::<_, MqttError>(fn_service(move |req| {
-                                                publish_v5(session.clone(), req)
-                                            }))
-                                        },
-                                    ))
-                                    .control(fn_factory_with_config(
-                                        |session: v5::Session<SessionState>| {
-                                            ok::<_, MqttError>(fn_service(move |req| {
-                                                control_message_v5(session.clone(), req)
-                                            }))
-                                        },
-                                    )),
+                                    },
+                                )
+                                //.receive_max()
+                                .handshake_timeout(handshake_timeout)
+                                .max_size(max_size)
+                                .max_qos(max_qos)
+                                //.max_topic_alias(max_topic_alias)
+                                .publish(fn_factory_with_config(|session: v5::Session<SessionState>| {
+                                    ok::<_, MqttError>(fn_service(move |req| {
+                                        publish_v5(session.clone(), req)
+                                    }))
+                                }))
+                                .control(fn_factory_with_config(
+                                    |session: v5::Session<SessionState>| {
+                                        ok::<_, MqttError>(fn_service(move |req| {
+                                            control_message_v5(session.clone(), req)
+                                        }))
+                                    },
+                                )),
                             ),
                     )
             })?
@@ -308,19 +272,17 @@ async fn listen_tls(name: String, listen_cfg: &Listener) -> Result<()> {
         Ok(())
     }
 
-    _listen_tls(&format!("tls: {}", name), listen_cfg)
-        .await
-        .map_err(|e| {
-            log::error!(
-                "Listen_tls {:?} failed on {}, cert: {:?}, key: {:?}, {:?}",
-                name,
-                listen_cfg.addr,
-                listen_cfg.cert,
-                listen_cfg.key,
-                e
-            );
+    _listen_tls(&format!("tls: {}", name), listen_cfg).await.map_err(|e| {
+        log::error!(
+            "Listen_tls {:?} failed on {}, cert: {:?}, key: {:?}, {:?}",
+            name,
+            listen_cfg.addr,
+            listen_cfg.cert,
+            listen_cfg.key,
             e
-        })
+        );
+        e
+    })
 }
 
 fn inner_api_serve_and_listen() {
