@@ -2,6 +2,7 @@ use config::ConfigError;
 use ntex_mqtt::error::SendPacketError;
 use ntex_mqtt::v5;
 use ntex_mqtt::TopicError;
+use std::net::AddrParseError;
 use std::str::Utf8Error;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
@@ -33,6 +34,8 @@ pub enum MqttError {
     TooManySubscriptions,
     #[error("{0}")]
     ConfigError(ConfigError),
+    #[error("{0}")]
+    AddrParseError(AddrParseError),
 }
 
 unsafe impl std::marker::Send for MqttError {}
@@ -134,5 +137,12 @@ impl From<ConfigError> for MqttError {
     #[inline]
     fn from(e: ConfigError) -> Self {
         MqttError::ConfigError(e)
+    }
+}
+
+impl From<AddrParseError> for MqttError {
+    #[inline]
+    fn from(e: AddrParseError) -> Self {
+        MqttError::AddrParseError(e)
     }
 }

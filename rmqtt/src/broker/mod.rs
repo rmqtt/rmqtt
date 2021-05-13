@@ -40,11 +40,7 @@ pub trait Shared: Sync + Send {
     fn entry(&self, id: Id) -> Box<dyn Entry>;
 
     ///
-    async fn forwards(
-        &self,
-        from: From,
-        publish: Publish,
-    ) -> Result<(), Vec<(To, From, Publish, Reason)>>;
+    async fn forwards(&self, from: From, publish: Publish) -> Result<(), Vec<(To, From, Publish, Reason)>>;
 
     ///Returns the number of current node connections
     async fn clients(&self) -> usize;
@@ -61,28 +57,15 @@ pub trait Shared: Sync + Send {
 
 #[async_trait]
 pub trait Router: Sync + Send {
-    async fn add(
-        &self,
-        topic_filter: &TopicFilter,
-        node_id: NodeId,
-        client_id: &str,
-        qos: QoS,
-    ) -> Result<()>;
+    async fn add(&self, topic_filter: &TopicFilter, node_id: NodeId, client_id: &str, qos: QoS)
+        -> Result<()>;
 
-    async fn remove(
-        &self,
-        topic_filter: &TopicFilter,
-        node_id: NodeId,
-        client_id: &str,
-    ) -> Result<()>;
+    async fn remove(&self, topic_filter: &TopicFilter, node_id: NodeId, client_id: &str) -> Result<()>;
 
     async fn matches(
         &self,
         topic: &Topic,
-    ) -> (
-        Vec<(TopicFilter, ClientId, QoS)>,
-        std::collections::HashMap<NodeId, Vec<TopicFilter>>,
-    );
+    ) -> (Vec<(TopicFilter, ClientId, QoS)>, std::collections::HashMap<NodeId, Vec<TopicFilter>>);
 
     ///get current node id
     async fn get_node_id(&self) -> NodeId;

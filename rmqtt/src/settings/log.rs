@@ -37,9 +37,7 @@ impl Log {
     }
     #[inline]
     fn level_default() -> ValueMut<Level> {
-        ValueMut::new(Level {
-            inner: slog::Level::Debug,
-        })
+        ValueMut::new(Level { inner: slog::Level::Debug })
     }
     #[inline]
     fn dir_default() -> String {
@@ -92,10 +90,7 @@ impl<'de> Deserialize<'de> for To {
     where
         D: Deserializer<'de>,
     {
-        let to = match (String::deserialize(deserializer)?)
-            .to_ascii_lowercase()
-            .as_str()
-        {
+        let to = match (String::deserialize(deserializer)?).to_ascii_lowercase().as_str() {
             "off" => To::Off,
             "file" => To::File,
             "console" => To::Console,
@@ -141,8 +136,7 @@ impl<'de> Deserialize<'de> for Level {
         D: Deserializer<'de>,
     {
         let level = String::deserialize(deserializer)?;
-        let level =
-            slog::Level::from_str(&level).map_err(|_e| de::Error::missing_field("level"))?;
+        let level = slog::Level::from_str(&level).map_err(|_e| de::Error::missing_field("level"))?;
         Ok(Level { inner: level })
     }
 }
@@ -171,10 +165,7 @@ impl<'de> Deserialize<'de> for LevelMut {
         D: Deserializer<'de>,
     {
         let level = String::deserialize(deserializer)?;
-        let level =
-            slog::Level::from_str(&level).map_err(|_e| de::Error::missing_field("level"))?;
-        Ok(LevelMut {
-            inner: Arc::new(RwLock::new(level)),
-        })
+        let level = slog::Level::from_str(&level).map_err(|_e| de::Error::missing_field("level"))?;
+        Ok(LevelMut { inner: Arc::new(RwLock::new(level)) })
     }
 }

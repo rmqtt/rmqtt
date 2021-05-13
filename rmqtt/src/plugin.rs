@@ -21,7 +21,7 @@ pub trait Plugin: Send + Sync {
     }
 
     #[inline]
-    fn get_config(&self) -> Result<serde_json::Value> {
+    async fn get_config(&self) -> Result<serde_json::Value> {
         Ok(json!({}))
     }
 
@@ -85,9 +85,7 @@ pub struct Manager {
 
 impl Manager {
     pub(crate) fn new() -> Self {
-        Self {
-            plugins: DashMap::default(),
-        }
+        Self { plugins: DashMap::default() }
     }
 
     ///Register a Plugin
@@ -102,25 +100,16 @@ impl Manager {
             plugin.start().await?;
         }
         let name = plugin.name().into();
-        self.plugins.insert(
-            name,
-            Entry {
-                active: default_startup,
-                plugin,
-            },
-        );
+        self.plugins.insert(name, Entry { active: default_startup, plugin });
         Ok(())
     }
 
     ///Return Config
-    pub fn get_config(&self, name: &str) -> Result<serde_json::Value> {
+    pub async fn get_config(&self, name: &str) -> Result<serde_json::Value> {
         if let Some(entry) = self.get(name) {
-            entry.plugin.get_config()
+            entry.plugin.get_config().await
         } else {
-            Err(MqttError::from(format!(
-                "{} the plug-in does not exist",
-                name
-            )))
+            Err(MqttError::from(format!("{} the plug-in does not exist", name)))
         }
     }
 
@@ -130,10 +119,7 @@ impl Manager {
             entry.plugin.load_config().await?;
             Ok(())
         } else {
-            Err(MqttError::from(format!(
-                "{} the plug-in does not exist",
-                name
-            )))
+            Err(MqttError::from(format!("{} the plug-in does not exist", name)))
         }
     }
 
@@ -146,10 +132,7 @@ impl Manager {
             }
             Ok(())
         } else {
-            Err(MqttError::from(format!(
-                "{} the plug-in does not exist",
-                name
-            )))
+            Err(MqttError::from(format!("{} the plug-in does not exist", name)))
         }
     }
 
@@ -161,16 +144,10 @@ impl Manager {
                 entry.active = !stopped;
                 Ok(stopped)
             } else {
-                Err(MqttError::from(format!(
-                    "{} the plug-in is not started",
-                    name
-                )))
+                Err(MqttError::from(format!("{} the plug-in is not started", name)))
             }
         } else {
-            Err(MqttError::from(format!(
-                "{} the plug-in does not exist",
-                name
-            )))
+            Err(MqttError::from(format!("{} the plug-in does not exist", name)))
         }
     }
 

@@ -5,12 +5,40 @@
 
 
 ##--------------------------------------------------------------------
+## Node
+##--------------------------------------------------------------------
+#node id
+node.id = 1
+#node cookie
+node.cookie = "rmqttsecretcookie"
+#crash_dump
+node.crash_dump = "/var/log/rmqtt/crash.dump"
+
+
+##--------------------------------------------------------------------
+## RPC
+##--------------------------------------------------------------------
+#Currently only async is supported
+rpc.mode = "async"
+#Maximum number of messages sent in batch
+rpc.batch_size = 256
+rpc.server_addr = "0.0.0.0:5363"
+rpc.client_num = 2
+rpc.timeout = "5s"
+#rpc.connect_timeout = "5s"
+#rpc.send_timeout = "5s"
+#rpc.authentication_timeout = "5s"
+#rpc.socket_keepalive_interval = "75s"
+#rpc.socket_keepalive_count = 9
+
+
+##--------------------------------------------------------------------
 ## Log
 ##--------------------------------------------------------------------
 # Value: off | file | console | both
 log.to = "console"
 # Value: trace, debug, info, warn, error
-log.level = "info"
+log.level = "debug"
 log.dir = "/var/log/rmqtt"
 log.file = "rmqtt.log"
 
@@ -50,7 +78,7 @@ listener.tcp.external.backlog = 1024
 #the connection will be closed. (temporarily not used)
 listener.tcp.external.idle_timeout = "20s"
 #Whether anonymous login is allowed. Default: true
-listener.tcp.external.allow_anonymous = true
+listener.tcp.external.allow_anonymous = false
 #Minimum allowable keepalive value for mqtt connection,
 #less than this value will reject the connection, default: 0, unit: seconds
 listener.tcp.external.min_keepalive = 0

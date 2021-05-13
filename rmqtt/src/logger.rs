@@ -30,11 +30,7 @@ impl log::Log for LoggerEx {
         let args = r.args();
         let target = r.target();
         let location = &record_as_location(r);
-        let s = slog::RecordStatic {
-            location,
-            level,
-            tag: target,
-        };
+        let s = slog::RecordStatic { location, level, tag: target };
 
         self.0.log(&slog::Record::new(&s, args, b!()))
     }
@@ -68,37 +64,25 @@ fn record_as_location(r: &log::Record) -> slog::RecordLocation {
     let file = r.file_static().unwrap_or("<unknown>");
     let line = r.line().unwrap_or_default();
 
-    slog::RecordLocation {
-        file,
-        line,
-        column: 0,
-        function: "",
-        module,
-    }
+    slog::RecordLocation { file, line, column: 0, function: "", module }
 }
 
 pub fn config_logger(filename: String, to: ValueMut<To>, level: ValueMut<Level>) -> slog::Logger {
     let drain = Logfmt::new(WriteFilter::new(filename, to))
-        .set_prefix(
-            move |io: &mut dyn io::Write, rec: &Record| -> slog::Result {
-                write!(
-                    io,
-                    "{date} {level_str} {module}{func}.{line} | {msg}\t",
-                    date = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
-                    level_str = rec.level().as_short_str(),
-                    msg = rec.msg(),
-                    line = rec.line(),
-                    module = rec.module(),
-                    func = if rec.function() != "" {
-                        format!("::{}", rec.function())
-                    } else {
-                        "".into()
-                    },
-                )?;
+        .set_prefix(move |io: &mut dyn io::Write, rec: &Record| -> slog::Result {
+            write!(
+                io,
+                "{date} {level_str} {module}{func}.{line} | {msg}\t",
+                date = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
+                level_str = rec.level().as_short_str(),
+                msg = rec.msg(),
+                line = rec.line(),
+                module = rec.module(),
+                func = if rec.function() != "" { format!("::{}", rec.function()) } else { "".into() },
+            )?;
 
-                Ok(())
-            },
-        )
+            Ok(())
+        })
         .build()
         .fuse();
 
@@ -148,12 +132,7 @@ struct WriteFilter {
 
 impl WriteFilter {
     fn new(filename: String, to: ValueMut<To>) -> Self {
-        Self {
-            filename,
-            to,
-            file: None,
-            console: std::io::stdout(),
-        }
+        Self { filename, to, file: None, console: std::io::stdout() }
     }
 
     fn file(&mut self) -> &File {
@@ -198,10 +177,5 @@ fn open_file(filename: &str) -> Result<File> {
         .write(true)
         .append(true)
         .open(filename)
-        .map_err(|e| {
-            anyhow::Error::msg(format!(
-                "logger file config error, filename: {}, {:?}",
-                filename, e
-            ))
-        })
+        .map_err(|e| anyhow::Error::msg(format!("logger file config error, filename: {}, {:?}", filename, e)))
 }

@@ -18,10 +18,7 @@ pub struct PluginConfig {
     pub async_queue_capacity: usize,
     #[serde(default)]
     pub http_urls: Vec<String>,
-    #[serde(
-        default = "PluginConfig::http_timeout_default",
-        deserialize_with = "deserialize_duration"
-    )]
+    #[serde(default = "PluginConfig::http_timeout_default", deserialize_with = "deserialize_duration")]
     pub http_timeout: Duration,
     #[serde(rename = "rule")]
     #[serde(default, deserialize_with = "PluginConfig::deserialize_rules")]
@@ -39,9 +36,7 @@ impl PluginConfig {
         Duration::from_secs(5)
     }
 
-    fn deserialize_rules<'de, D>(
-        deserializer: D,
-    ) -> std::result::Result<HashMap<Type, Vec<Rule>>, D::Error>
+    fn deserialize_rules<'de, D>(deserializer: D) -> std::result::Result<HashMap<Type, Vec<Rule>>, D::Error>
     where
         D: de::Deserializer<'de>,
     {
@@ -98,10 +93,8 @@ impl Rule {
         } else {
             let mut topics = TopicTree::default();
             for topic in topics_cfg.iter() {
-                topics.insert(
-                    &Topic::from_str(topic).map_err(|e| de::Error::custom(format!("{:?}", e)))?,
-                    (),
-                );
+                topics
+                    .insert(&Topic::from_str(topic).map_err(|e| de::Error::custom(format!("{:?}", e)))?, ());
             }
             Ok(Some((Arc::new(topics), topics_cfg)))
         }

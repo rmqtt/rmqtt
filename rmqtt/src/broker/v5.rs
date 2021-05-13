@@ -25,18 +25,9 @@ pub async fn handshake<Io>(
     //     * 1.5)
     //     .round() as u16;
 
-    let id = Id::new(
-        1,
-        local_addr.to_string(),
-        remote_addr.to_string(),
-        packet.client_id.clone(),
-        packet.username.clone(),
-    );
-    let fitter = Runtime::instance()
-        .extends
-        .fitter_mgr()
-        .await
-        .get(id.clone(), listen_cfg.clone());
+    let id =
+        Id::new(1, Some(local_addr), Some(remote_addr), packet.client_id.clone(), packet.username.clone());
+    let fitter = Runtime::instance().extends.fitter_mgr().await.get(id.clone(), listen_cfg.clone());
 
     let session = Session::new(listen_cfg, fitter, 0);
     let session_present = false;
@@ -48,19 +39,9 @@ pub async fn handshake<Io>(
         connected_at,
     );
 
-    let hook = Runtime::instance()
-        .extends
-        .hook_mgr()
-        .await
-        .hook(&session, &conn);
+    let hook = Runtime::instance().extends.hook_mgr().await.hook(&session, &conn);
 
-    let state = SessionState::new(
-        conn.id.clone(),
-        session,
-        conn,
-        Sink::V5(handshake.sink()),
-        hook,
-    );
+    let state = SessionState::new(conn.id.clone(), session, conn, Sink::V5(handshake.sink()), hook);
 
     Ok(handshake.ack(state))
 }

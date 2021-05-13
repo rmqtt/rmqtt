@@ -14,10 +14,7 @@ pub async fn init<N: Into<String>, D: Into<String>>(
 ) -> Result<()> {
     runtime
         .plugins
-        .register(
-            Box::new(Template::new(runtime, name.into(), descr.into()).await),
-            default_startup,
-        )
+        .register(Box::new(Template::new(runtime, name.into(), descr.into()).await), default_startup)
         .await?;
     Ok(())
 }
@@ -33,12 +30,7 @@ impl Template {
     #[inline]
     async fn new(runtime: &'static Runtime, name: String, descr: String) -> Self {
         let register = runtime.extends.hook_mgr().await.register();
-        Self {
-            _runtime: runtime,
-            name,
-            descr,
-            register,
-        }
+        Self { _runtime: runtime, name, descr, register }
     }
 }
 
@@ -48,22 +40,14 @@ impl Plugin for Template {
     async fn init(&mut self) -> Result<()> {
         log::info!("{} init", self.name);
 
-        self.register
-            .add(hook::Type::BeforeStartup, Box::new(HookHandler {}));
-        self.register
-            .add(hook::Type::SessionCreated, Box::new(HookHandler {}));
-        self.register
-            .add(hook::Type::ClientConnect, Box::new(HookHandler {}));
-        self.register
-            .add(hook::Type::ClientConnack, Box::new(HookHandler {}));
-        self.register
-            .add(hook::Type::ClientConnected, Box::new(HookHandler {}));
-        self.register
-            .add(hook::Type::ClientDisconnected, Box::new(HookHandler {}));
-        self.register
-            .add(hook::Type::ClientSubscribe, Box::new(HookHandler {}));
-        self.register
-            .add(hook::Type::MessagePublish, Box::new(HookHandler {}));
+        self.register.add(hook::Type::BeforeStartup, Box::new(HookHandler {}));
+        self.register.add(hook::Type::SessionCreated, Box::new(HookHandler {}));
+        self.register.add(hook::Type::ClientConnect, Box::new(HookHandler {}));
+        self.register.add(hook::Type::ClientConnack, Box::new(HookHandler {}));
+        self.register.add(hook::Type::ClientConnected, Box::new(HookHandler {}));
+        self.register.add(hook::Type::ClientDisconnected, Box::new(HookHandler {}));
+        self.register.add(hook::Type::ClientSubscribe, Box::new(HookHandler {}));
+        self.register.add(hook::Type::MessagePublish, Box::new(HookHandler {}));
         Ok(())
     }
 

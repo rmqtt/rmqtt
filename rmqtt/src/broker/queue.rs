@@ -127,11 +127,7 @@ impl Limiter {
         );
 
         let period = replenish_n_per.as_nanos() as u64 / burst.get() as u64;
-        let period = if period > 0 {
-            Duration::from_nanos(period)
-        } else {
-            Duration::from_nanos(1)
-        };
+        let period = if period > 0 { Duration::from_nanos(period) } else { Duration::from_nanos(1) };
         log::debug!("burst: {:?}, {:?}, {:?}", burst, replenish_n_per, period);
         let q = Quota::with_period(period).unwrap().allow_burst(burst);
         let l = RateLimiter::direct(q);
@@ -141,25 +137,14 @@ impl Limiter {
     #[inline]
     pub fn channel<T>(&self, queue: Arc<Queue<T>>) -> (Sender<T>, Receiver<'_, T>) {
         let (tx, rx) = mpsc::channel::<()>((queue.capacity() as f64 * 1.5) as usize);
-        let s = ReceiverStream {
-            rx,
-            queue: queue.clone(),
-        }
-        .ratelimit_stream(&self.l);
+        let s = ReceiverStream { rx, queue: queue.clone() }.ratelimit_stream(&self.l);
         (0..queue.len()).for_each(|_| {
             if let Err(e) = tx.clone().try_send(()) {
                 //send offline message
                 log::warn!("channel is full, {:?}", e);
             }
         });
-        (
-            Sender {
-                tx,
-                queue,
-                policy_fn: Rc::new(|_v: &T| -> Policy { Policy::Current }),
-            },
-            s,
-        )
+        (Sender { tx, queue, policy_fn: Rc::new(|_v: &T| -> Policy { Policy::Current }) }, s)
     }
 }
 
@@ -178,10 +163,7 @@ impl<T> Drop for Queue<T> {
 impl<T> Queue<T> {
     #[inline]
     pub fn new(cap: usize) -> Self {
-        Self {
-            cap,
-            inner: SegQueue::new(),
-        }
+        Self { cap, inner: SegQueue::new() }
     }
 
     #[inline]
@@ -244,11 +226,7 @@ mod test {
         });
 
         while let Some(v) = rx.next().await {
-            println!(
-                "{} queue recv: {:?}",
-                Local::now().format("%Y-%m-%d %H:%M:%S%.3f %z").to_string(),
-                v
-            );
+            println!("{} queue recv: {:?}", Local::now().format("%Y-%m-%d %H:%M:%S%.3f %z").to_string(), v);
         }
     }
 }

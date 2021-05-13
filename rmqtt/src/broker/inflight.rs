@@ -24,12 +24,7 @@ pub struct InflightMessage {
 impl InflightMessage {
     #[inline]
     pub fn new(status: MomentStatus, from: From, publish: Publish) -> Self {
-        Self {
-            publish,
-            from,
-            status,
-            update_time: chrono::Local::now().timestamp_millis(),
-        }
+        Self { publish, from, status, update_time: chrono::Local::now().timestamp_millis() }
     }
 
     #[inline]
@@ -74,25 +69,13 @@ pub struct Inflight {
 
 impl Inflight {
     #[inline]
-    pub fn new(
-        cap: usize,
-        retry_interval: TimestampMillis,
-        expiry_interval: TimestampMillis,
-    ) -> Self {
+    pub fn new(cap: usize, retry_interval: TimestampMillis, expiry_interval: TimestampMillis) -> Self {
         let interval = Self::interval(retry_interval, expiry_interval);
-        Self {
-            cap,
-            interval,
-            next: Arc::new(AtomicU16::new(1)),
-            queues: LinkedHashMap::default(),
-        }
+        Self { cap, interval, next: Arc::new(AtomicU16::new(1)), queues: LinkedHashMap::default() }
     }
 
     #[inline]
-    fn interval(
-        retry_interval: TimestampMillis,
-        expiry_interval: TimestampMillis,
-    ) -> TimestampMillis {
+    fn interval(retry_interval: TimestampMillis, expiry_interval: TimestampMillis) -> TimestampMillis {
         match (retry_interval, expiry_interval) {
             (0, 0) => 0,
             (0, expiry_interval) => expiry_interval,
@@ -206,9 +189,7 @@ impl Inflight {
                 return Ok(packet_id);
             }
         }
-        Err(MqttError::Msg(
-            "no packet_id available, should unreachable!()".into(),
-        ))
+        Err(MqttError::Msg("no packet_id available, should unreachable!()".into()))
         //unreachable!()
     }
 }

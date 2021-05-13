@@ -22,10 +22,7 @@ pub struct Node<V> {
 impl<V> Default for Node<V> {
     #[inline]
     fn default() -> Node<V> {
-        Self {
-            values: HashSet::default(),
-            branches: HashMap::default(),
-        }
+        Self { values: HashSet::default(), branches: HashMap::default() }
     }
 }
 
@@ -89,13 +86,9 @@ where
     fn _matches(&self, path: &[Level], mut sub_path: Vec<Level>, out: &mut HashMap<Topic, Vec<V>>) {
         let mut add_to_out = |levels: Vec<Level>, v_set: &HashSet<V>| {
             if !v_set.is_empty() {
-                out.entry(Topic::from(levels)).or_default().extend(
-                    v_set
-                        .iter()
-                        .map(|v| (*v).clone())
-                        .collect::<Vec<V>>()
-                        .into_iter(),
-                );
+                out.entry(Topic::from(levels))
+                    .or_default()
+                    .extend(v_set.iter().map(|v| (*v).clone()).collect::<Vec<V>>().into_iter());
             }
         };
 
@@ -202,12 +195,7 @@ where
     V: Hash + Eq + Clone + Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Node {{ nodes_size: {}, values_size: {} }}",
-            self.nodes_size(),
-            self.values_size()
-        )
+        write!(f, "Node {{ nodes_size: {}, values_size: {} }}", self.nodes_size(), self.values_size())
     }
 }
 
@@ -220,11 +208,7 @@ impl Serialize for Node<NodeId> {
         let mut s = serializer.serialize_tuple(2)?;
         s.serialize_element(&self.values.iter().collect::<Vec<&NodeId>>())?;
         s.serialize_element(
-            &self
-                .branches
-                .iter()
-                .map(|(k, v)| (k, v))
-                .collect::<Vec<(&Level, &Node<NodeId>)>>(),
+            &self.branches.iter().map(|(k, v)| (k, v)).collect::<Vec<(&Level, &Node<NodeId>)>>(),
         )?;
         s.end()
     }
@@ -275,13 +259,7 @@ mod tests {
         let mut matcheds = 0;
         let t = Topic::from_str(topic).unwrap();
         for (topic_filter, matched) in topics.matches(&t).iter() {
-            println!(
-                "[topic] {}({}) => {:?}, {:?}",
-                topic,
-                topic_filter.to_string(),
-                matched,
-                vs
-            );
+            println!("[topic] {}({}) => {:?}, {:?}", topic, topic_filter.to_string(), matched, vs);
             let matched_len = matched
                 .iter()
                 .filter_map(|v| if vs.contains(v) { Some(v) } else { None })
@@ -331,8 +309,7 @@ mod tests {
         topics.insert(&Topic::from_str("/a/b/c").unwrap(), 1);
         topics.insert(&Topic::from_str("/a/+").unwrap(), 2);
 
-        let topics: TopicTree<NodeId> =
-            bincode::deserialize(&bincode::serialize(&topics).unwrap()).unwrap();
+        let topics: TopicTree<NodeId> = bincode::deserialize(&bincode::serialize(&topics).unwrap()).unwrap();
 
         assert!(match_one(&topics, "/a/b/c", &[1]));
         assert!(match_one(&topics, "/a/b", &[2]));

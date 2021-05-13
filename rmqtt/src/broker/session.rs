@@ -45,32 +45,15 @@ impl fmt::Debug for SessionState {
             self.id,
             self.session,
             self.client,
-            self.deliver_queue_tx
-                .as_ref()
-                .map(|tx| tx.len())
-                .unwrap_or_default()
+            self.deliver_queue_tx.as_ref().map(|tx| tx.len()).unwrap_or_default()
         )
     }
 }
 
 impl SessionState {
     #[inline]
-    pub(crate) fn new(
-        id: Id,
-        session: Session,
-        client: ClientInfo,
-        sink: Sink,
-        hook: Rc<dyn Hook>,
-    ) -> Self {
-        Self {
-            id,
-            tx: None,
-            session,
-            client,
-            sink,
-            hook,
-            deliver_queue_tx: None,
-        }
+    pub(crate) fn new(id: Id, session: Session, client: ClientInfo, sink: Sink, hook: Rc<dyn Hook>) -> Self {
+        Self { id, tx: None, session, client, sink, hook, deliver_queue_tx: None }
     }
 
     #[inline]
@@ -79,16 +62,11 @@ impl SessionState {
         self.tx.replace(msg_tx.clone());
         let mut state = self.clone();
         ntex::rt::spawn(async move {
-            log::debug!(
-                "{:?} there are {} offline messages ...",
-                state.id,
-                state.deliver_queue.len()
-            );
+            log::debug!("{:?} there are {} offline messages ...", state.id, state.deliver_queue.len());
 
             let (burst, replenish_n_per) = state.fitter.mqueue_rate_limit();
             let limiter = Limiter::new(burst, replenish_n_per);
-            let (deliver_queue_tx, mut deliver_queue_rx) =
-                limiter.channel(state.deliver_queue.clone());
+            let (deliver_queue_tx, mut deliver_queue_rx) = limiter.channel(state.deliver_queue.clone());
 
             //When the message queue is full, the message dropping policy is implemented
             let deliver_queue_tx = deliver_queue_tx.policy(|(_, p): &(From, Publish)| -> Policy {
@@ -122,11 +100,7 @@ impl SessionState {
                 let start = chrono::Local::now().timestamp_millis();
                 deliver_timeout_delay.as_mut().reset(
                     Instant::now()
-                        + state
-                            .inflight_win
-                            .read()
-                            .get_timeout()
-                            .unwrap_or_else(|| Duration::from_secs(120)),
+                        + state.inflight_win.read().get_timeout().unwrap_or_else(|| Duration::from_secs(120)),
                 );
 
                 tokio::select! {
@@ -218,10 +192,7 @@ impl SessionState {
 
             //Setting the disconnected state
             state.client.connected.store(false, Ordering::SeqCst);
-            state
-                .client
-                .disconnected_at
-                .store(chrono::Local::now().timestamp_millis(), Ordering::SeqCst);
+            state.client.disconnected_at.store(chrono::Local::now().timestamp_millis(), Ordering::SeqCst);
             if !_is_disconnect_received {
                 if let Err(e) = state.process_last_will().await {
                     log::error!("{:?} process last will error, {:?}", id, e);
@@ -231,18 +202,10 @@ impl SessionState {
 
             if !_kicked {
                 if state.client.clean_session() {
-                    state
-                        .clean(state.client.get_disconnected_reason().unwrap_or_default())
-                        .await;
+                    state.clean(state.client.get_disconnected_reason().unwrap_or_default()).await;
                 } else {
                     //Start offline event loop
-                    Self::offline_start(
-                        state.clone(),
-                        &mut msg_rx,
-                        &deliver_queue_tx,
-                        &mut _kicked,
-                    )
-                    .await;
+                    Self::offline_start(state.clone(), &mut msg_rx, &deliver_queue_tx, &mut _kicked).await;
                     log::debug!("{:?} offline _kicked: {}", id, _kicked);
                     if !_kicked {
                         state.clean(Reason::from("session expired")).await;
@@ -325,9 +288,7 @@ impl SessionState {
 
         if let Err((from, p, reason)) = res {
             //hook, message_dropped
-            self.hook
-                .message_dropped(Some(self.id.clone()), from, p, Reason::from_static(reason))
-                .await;
+            self.hook.message_dropped(Some(self.id.clone()), from, p, Reason::from_static(reason)).await;
         }
     }
 
@@ -346,12 +307,7 @@ impl SessionState {
         match self.client.last_will() {
             Some(LastWill::V3(lw)) => {
                 let p = Publish::V3(Box::new(PublishV3::from_last_will(lw)?));
-                if let Err(e) = Runtime::instance()
-                    .extends
-                    .shared()
-                    .await
-                    .forwards(self.id.clone(), p)
-                    .await
+                if let Err(e) = Runtime::instance().extends.shared().await.forwards(self.id.clone(), p).await
                 {
                     log::error!("{:?} send last will message fail, {:?}", self.id, e);
                 }
@@ -365,11 +321,7 @@ impl SessionState {
     }
 
     #[inline]
-    pub async fn send_retain_messages(
-        &self,
-        retains: Vec<(Topic, Retain)>,
-        qos: QoS,
-    ) -> Result<()> {
+    pub async fn send_retain_messages(&self, retains: Vec<(Topic, Retain)>, qos: QoS) -> Result<()> {
         for (topic, retain) in retains {
             log::debug!("{:?} topic:{:?}, retain:{:?}", self.id, topic, retain);
             let p = match retain.publish {
@@ -396,9 +348,7 @@ impl SessionState {
                 .forward(retain.from, p)
                 .await
             {
-                self.hook
-                    .message_dropped(Some(self.id.clone()), from, p, reason)
-                    .await;
+                self.hook.message_dropped(Some(self.id.clone()), from, p, reason).await;
             }
         }
         Ok(())
@@ -422,11 +372,7 @@ impl SessionState {
         }
 
         //hook, message_delivered
-        let mut publish = self
-            .hook
-            .message_delivered(from.clone(), &publish)
-            .await
-            .unwrap_or(publish);
+        let mut publish = self.hook.message_delivered(from.clone(), &publish).await.unwrap_or(publish);
 
         //generate packet_id
         if matches!(publish.qos(), QoS::AtLeastOnce | QoS::ExactlyOnce)
@@ -445,9 +391,7 @@ impl SessionState {
             _ => None,
         };
         if let Some(moment_status) = moment_status {
-            self.inflight_win
-                .write()
-                .push_back(InflightMessage::new(moment_status, from, publish));
+            self.inflight_win.write().push_back(InflightMessage::new(moment_status, from, publish));
         }
 
         Ok(())
@@ -465,10 +409,7 @@ impl SessionState {
                 self.forward(iflt_msg.from, iflt_msg.publish).await;
             }
             MomentStatus::UnComplete => {
-                let expiry = self
-                    .hook
-                    .message_expiry_check(iflt_msg.from.clone(), &iflt_msg.publish)
-                    .await;
+                let expiry = self.hook.message_expiry_check(iflt_msg.from.clone(), &iflt_msg.publish).await;
 
                 if expiry {
                     log::warn!(
@@ -514,7 +455,8 @@ impl SessionState {
         {
             log::warn!(
                 "{:?} Subscribe Refused, reason: too many subscriptions, max subscriptions limit: {:?}",
-                self.client.id, self.listen_cfg.max_subscriptions
+                self.client.id,
+                self.listen_cfg.max_subscriptions
             );
             return Err(MqttError::TooManySubscriptions);
         }
@@ -529,12 +471,9 @@ impl SessionState {
             subs_v3.adjust_topic_filters(topic_filters.clone())?;
             topic_filters
         } else if let Subscribe::V3(subs_v3) = &subs_v3 {
-            subs_v3
-                .iter()
-                .map(|(tf, _)| tf.clone())
-                .collect::<TopicFilters>()
+            subs_v3.iter().map(|(tf, _)| tf.clone()).collect::<TopicFilters>()
         } else {
-                unreachable!()
+            unreachable!()
         };
 
         log::debug!("{:?} topic_filters: {:?}", self.id, topic_filters);
@@ -544,7 +483,10 @@ impl SessionState {
         match acl_result {
             Some(SubscribeAclResult::V3(return_codes)) => {
                 if subs_v3.len() != return_codes.len() {
-                    log::error!("{:?} SubscribeAclResult return codes quantity mismatch from hook.client_subscribe_check_acl", self.id);
+                    log::error!(
+                        "{:?} SubscribeAclResult return codes quantity mismatch from hook.client_subscribe_check_acl",
+                        self.id
+                    );
                     return Err(MqttError::ServiceUnavailable);
                 }
 
@@ -578,13 +520,8 @@ impl SessionState {
         log::debug!("{:?} tmp: {:?}", self.id, tmp);
         log::debug!("{:?} subs_v3: {:?}", self.id, subs_v3);
 
-        let mut subs_ack = Runtime::instance()
-            .extends
-            .shared()
-            .await
-            .entry(self.id.clone())
-            .subscribe(subs_v3)
-            .await?;
+        let mut subs_ack =
+            Runtime::instance().extends.shared().await.entry(self.id.clone()).subscribe(subs_v3).await?;
 
         log::debug!("{:?} Subscribe ack: {:?}", self.id, subs_ack);
 
@@ -602,18 +539,12 @@ impl SessionState {
 
                             if self.listen_cfg.retain_available {
                                 //send retain messages
-                                let retain_messages = Runtime::instance()
-                                    .extends
-                                    .retain()
-                                    .await
-                                    .get(&topic_filter)
-                                    .await?;
+                                let retain_messages =
+                                    Runtime::instance().extends.retain().await.get(&topic_filter).await?;
                                 self.send_retain_messages(retain_messages, *qos).await?;
                             }
                             //hook, session_subscribed
-                            self.hook
-                                .session_subscribed(Subscribed::V3((topic_filter, *qos)))
-                                .await;
+                            self.hook.session_subscribed(Subscribed::V3((topic_filter, *qos))).await;
                         }
                         None => ret_codes.push(SubscribeReturnCodeV3::Failure),
                     }
@@ -647,27 +578,16 @@ impl SessionState {
         let topic_filters = self.hook.client_unsubscribe(&unsubs_v3).await;
         if let Some(topic_filters) = topic_filters {
             unsubs_v3.adjust_topic_filters(topic_filters)?;
-            log::debug!(
-                "{:?} unsubs_v3(adjust_topic_filters): {:?}",
-                self.id,
-                unsubs_v3
-            );
+            log::debug!("{:?} unsubs_v3(adjust_topic_filters): {:?}", self.id, unsubs_v3);
         }
 
-        let _ = Runtime::instance()
-            .extends
-            .shared()
-            .await
-            .entry(self.id.clone())
-            .unsubscribe(&unsubs_v3)
-            .await?;
+        let _ =
+            Runtime::instance().extends.shared().await.entry(self.id.clone()).unsubscribe(&unsubs_v3).await?;
 
         //hook, session_unsubscribed
         if let Unsubscribe::V3(mut unsubs) = unsubs_v3 {
             for topic_filter in unsubs.drain(..) {
-                self.hook
-                    .session_unsubscribed(Unsubscribed::V3(topic_filter))
-                    .await;
+                self.hook.session_unsubscribed(Unsubscribed::V3(topic_filter)).await;
             }
         }
         Ok(())
@@ -698,8 +618,8 @@ impl SessionState {
                 .await;
             return if disconnect {
                 Err(MqttError::from(
-                        "Publish Refused, reason: hook::message_publish_check_acl() -> Rejected(Disconnect)",
-                    ))
+                    "Publish Refused, reason: hook::message_publish_check_acl() -> Rejected(Disconnect)",
+                ))
             } else {
                 Ok(())
             };
@@ -710,22 +630,11 @@ impl SessionState {
                 .extends
                 .retain()
                 .await
-                .set(
-                    publish.topic(),
-                    Retain {
-                        from: self.id.clone(),
-                        publish: publish.clone(),
-                    },
-                )
+                .set(publish.topic(), Retain { from: self.id.clone(), publish: publish.clone() })
                 .await?;
         }
 
-        if let Err(errs) = Runtime::instance()
-            .extends
-            .shared()
-            .await
-            .forwards(self.id.clone(), publish)
-            .await
+        if let Err(errs) = Runtime::instance().extends.shared().await.forwards(self.id.clone(), publish).await
         {
             for (to, from, p, reason) in errs {
                 //Message dropped
@@ -743,17 +652,10 @@ impl SessionState {
         //Session expired, discarding messages in deliver queue
         if let Some(queue) = self.deliver_queue_tx.as_ref() {
             while let Some((from, publish)) = queue.pop() {
-                log::debug!(
-                    "{:?} clean.dropped, from: {:?}, publish: {:?}",
-                    self.id,
-                    from,
-                    publish
-                );
+                log::debug!("{:?} clean.dropped, from: {:?}, publish: {:?}", self.id, from, publish);
 
                 //hook, message dropped
-                self.hook
-                    .message_dropped(Some(self.id.clone()), from, publish, reason.clone())
-                    .await;
+                self.hook.message_dropped(Some(self.id.clone()), from, publish, reason.clone()).await;
             }
         }
 
@@ -768,12 +670,7 @@ impl SessionState {
 
             //hook, message dropped
             self.hook
-                .message_dropped(
-                    Some(self.id.clone()),
-                    iflt_msg.from,
-                    iflt_msg.publish,
-                    reason.clone(),
-                )
+                .message_dropped(Some(self.id.clone()), iflt_msg.from, iflt_msg.publish, reason.clone())
                 .await;
         }
 
@@ -781,14 +678,7 @@ impl SessionState {
         self.hook.session_terminated(reason).await;
 
         //clear session, and unsubscribe
-        if let Err(e) = Runtime::instance()
-            .extends
-            .shared()
-            .await
-            .entry(self.id.clone())
-            .remove()
-            .await
-        {
+        if let Err(e) = Runtime::instance().extends.shared().await.entry(self.id.clone()).remove().await {
             log::error!("{:?} session remove from broker fail, {:?}", self.id, e);
         }
     }
@@ -807,17 +697,11 @@ pub struct Session(Arc<_SessionInner>);
 
 impl Session {
     #[inline]
-    pub(crate) fn new(
-        listen_cfg: Listener,
-        fitter: Box<dyn Fitter>,
-        created_at: TimestampMillis,
-    ) -> Self {
+    pub(crate) fn new(listen_cfg: Listener, fitter: Box<dyn Fitter>, created_at: TimestampMillis) -> Self {
         let max_mqueue_len = fitter.max_mqueue_len();
         let max_inflight = listen_cfg.max_inflight;
-        let message_retry_interval =
-            listen_cfg.message_retry_interval.as_millis() as TimestampMillis;
-        let message_expiry_interval =
-            listen_cfg.message_expiry_interval.as_millis() as TimestampMillis;
+        let message_retry_interval = listen_cfg.message_retry_interval.as_millis() as TimestampMillis;
+        let message_expiry_interval = listen_cfg.message_expiry_interval.as_millis() as TimestampMillis;
         Self(Arc::new(_SessionInner {
             listen_cfg,
             fitter,
@@ -881,11 +765,7 @@ impl _SessionInner {
 
     #[inline]
     pub fn drain_subscriptions(&self) -> Vec<TopicFilter> {
-        self.subscriptions
-            .write()
-            .drain()
-            .map(|(topic_filter, _)| topic_filter)
-            .collect()
+        self.subscriptions.write().drain().map(|(topic_filter, _)| topic_filter).collect()
     }
 }
 
@@ -915,15 +795,9 @@ impl ClientInfo {
     #[inline]
     pub fn to_json(&self) -> serde_json::Value {
         let mut json = self.connect_info.to_json();
-        if let Some(json) = json.as_object_mut(){
-            json.insert(
-                "session_present".into(),
-                serde_json::Value::Bool(self.session_present),
-            );
-            json.insert(
-                "connected".into(),
-                serde_json::Value::Bool(self.connected.load(Ordering::SeqCst)),
-            );
+        if let Some(json) = json.as_object_mut() {
+            json.insert("session_present".into(), serde_json::Value::Bool(self.session_present));
+            json.insert("connected".into(), serde_json::Value::Bool(self.connected.load(Ordering::SeqCst)));
             json.insert(
                 "connected_at".into(),
                 serde_json::Value::Number(serde_json::Number::from(self.connected_at)),
@@ -935,10 +809,7 @@ impl ClientInfo {
                 )),
             );
             if let Some(reason) = self.disconnected_reason.read().as_ref() {
-                json.insert(
-                    "disconnected_reason".into(),
-                    serde_json::Value::String(reason.to_string()),
-                );
+                json.insert("disconnected_reason".into(), serde_json::Value::String(reason.to_string()));
             } else {
                 json.insert("disconnected_reason".into(), serde_json::Value::Null);
             }
@@ -1010,11 +881,7 @@ impl ClientInfo {
 impl std::fmt::Debug for ClientInfo {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "ClientInfo: {}",
-            serde_json::to_string(&self.to_json()).unwrap_or_default()
-        )
+        write!(f, "ClientInfo: {}", serde_json::to_string(&self.to_json()).unwrap_or_default())
     }
 }
 

@@ -26,7 +26,7 @@ http_timeout = "8s"
 #]
 #rule.client_connack = [{action = "client_connack", urls = ["http://127.0.0.1:5656/mqtt/webhook", "http://127.0.0.1:5656/mqtt/webhook"] } ]
 #rule.client_connected = [{action = "client_connected" } ]
-#rule.client_disconnected = [{action = "client_disconnected" } ]
+rule.client_disconnected = [{action = "client_disconnected" } ]
 #rule.client_subscribe = [{action = "client_subscribe", topics=["a/b/1", "foo/#"]} ]
 #rule.client_unsubscribe = [{action = "client_unsubscribe", topics=["a/b/1", "foo/#"] } ]
 #

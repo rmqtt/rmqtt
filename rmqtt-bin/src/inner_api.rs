@@ -33,16 +33,13 @@ pub async fn serve<T: AsRef<str>>(laddr: T) -> Result<()> {
         .and_then(|client_id: String| async move { with_reply_json(session(client_id).await) });
 
     //random get one session info, /random_session
-    let random_session = root()
-        .and(warp::path("random_session"))
-        .and(warp::path::end())
-        .and_then(|| async move {
+    let random_session =
+        root().and(warp::path("random_session")).and(warp::path::end()).and_then(|| async move {
             match random_session().await {
                 Ok(data) => with_reply_json(data),
-                Err(e) => with_reply_status(
-                    warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    Some(format!("{:?}", e)),
-                ),
+                Err(e) => {
+                    with_reply_status(warp::http::StatusCode::INTERNAL_SERVER_ERROR, Some(format!("{:?}", e)))
+                }
             }
         });
 
@@ -65,20 +62,12 @@ pub async fn serve<T: AsRef<str>>(laddr: T) -> Result<()> {
         .and_then(|name: String| async move {
             match plugin_config(&name).await {
                 Ok(cfg) => with_reply_json(cfg),
-                Err(e) => {
-                    with_reply_status(warp::http::StatusCode::NOT_FOUND, Some(format!("{:?}", e)))
-                }
+                Err(e) => with_reply_status(warp::http::StatusCode::NOT_FOUND, Some(format!("{:?}", e))),
             }
         });
 
     let get_apis = warp::get().and(
-        version
-            .or(status)
-            .or(session)
-            .or(random_session)
-            .or(router_list)
-            .or(plugin_list)
-            .or(plugin_config),
+        version.or(status).or(session).or(random_session).or(router_list).or(plugin_list).or(plugin_config),
     );
 
     let routes = get_apis;
@@ -89,19 +78,12 @@ pub async fn serve<T: AsRef<str>>(laddr: T) -> Result<()> {
 }
 
 #[allow(clippy::unnecessary_wraps)]
-fn with_reply_string<T: Into<String>>(
-    data: T,
-) -> std::result::Result<Box<dyn warp::Reply>, warp::Rejection> {
-    Ok(Box::new(warp::reply::with_status(
-        data.into(),
-        StatusCode::OK,
-    )))
+fn with_reply_string<T: Into<String>>(data: T) -> std::result::Result<Box<dyn warp::Reply>, warp::Rejection> {
+    Ok(Box::new(warp::reply::with_status(data.into(), StatusCode::OK)))
 }
 
 #[allow(clippy::unnecessary_wraps)]
-fn with_reply_json<T: Serialize>(
-    data: T,
-) -> std::result::Result<Box<dyn warp::Reply>, warp::Rejection> {
+fn with_reply_json<T: Serialize>(data: T) -> std::result::Result<Box<dyn warp::Reply>, warp::Rejection> {
     Ok(Box::new(warp::reply::json(&data)))
 }
 
@@ -110,10 +92,7 @@ fn with_reply_status(
     status: warp::http::StatusCode,
     reason: Option<String>,
 ) -> std::result::Result<Box<dyn warp::Reply>, warp::Rejection> {
-    Ok(Box::new(warp::reply::with_status(
-        reason.unwrap_or_else(|| status.to_string()),
-        status,
-    )))
+    Ok(Box::new(warp::reply::with_status(reason.unwrap_or_else(|| status.to_string()), status)))
 }
 
 async fn status() -> serde_json::Value {
@@ -125,11 +104,7 @@ async fn status() -> serde_json::Value {
 }
 
 async fn session(id: String) -> serde_json::Value {
-    let entry = Runtime::instance()
-        .extends
-        .shared()
-        .await
-        .entry(Id::from(ClientId::from(id)));
+    let entry = Runtime::instance().extends.shared().await.entry(Id::from(ClientId::from(id)));
 
     serde_json::json!({
         "session": entry.session().await.map(|s|s.to_json()),
@@ -152,23 +127,15 @@ async fn list_routers(mut top: usize) -> String {
     if top > 10000 {
         top = 10000
     }
-    Runtime::instance()
-        .extends
-        .router()
-        .await
-        .list(top)
-        .join("\n")
+    Runtime::instance().extends.router().await.list(top).join("\n")
 }
 
 fn plugin_list() -> Vec<serde_json::Value> {
-    let plugins: Vec<serde_json::Value> = Runtime::instance()
-        .plugins
-        .iter()
-        .map(|entry| entry.to_json())
-        .collect();
+    let plugins: Vec<serde_json::Value> =
+        Runtime::instance().plugins.iter().map(|entry| entry.to_json()).collect();
     plugins
 }
 
 async fn plugin_config(name: &str) -> Result<serde_json::Value> {
-    Runtime::instance().plugins.get_config(name)
+    Runtime::instance().plugins.get_config(name).await
 }
