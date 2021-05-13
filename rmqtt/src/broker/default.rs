@@ -55,7 +55,7 @@ impl LockEntry {
     async fn _unsubscribe(&self, id: Id, session: &Session, topic_filter: &TopicFilter) -> Result<()> {
         {
             let router = Runtime::instance().extends.router().await;
-            router.remove(topic_filter, router.get_node_id().await, &id.client_id).await?;
+            router.remove(topic_filter, Runtime::instance().node.id(), &id.client_id).await?;
         }
         session.subscriptions_remove(topic_filter);
         Ok(())
@@ -166,7 +166,7 @@ impl super::Entry for LockEntry {
             .ok_or_else(|| anyhow::Error::msg("session is not exist"))?;
 
         let router = Runtime::instance().extends.router().await;
-        let this_node_id = router.get_node_id().await;
+        let this_node_id = Runtime::instance().node.id();
         let node_id = peer.c.id.node_id;
         assert_eq!(
             node_id, this_node_id,
@@ -479,12 +479,7 @@ impl Router for &'static DefaultRouter {
         &self,
         topic: &Topic,
     ) -> (Vec<(TopicFilter, ClientId, QoS)>, std::collections::HashMap<NodeId, Vec<TopicFilter>>) {
-        self._matches(topic, self.get_node_id().await)
-    }
-
-    #[inline]
-    async fn get_node_id(&self) -> NodeId {
-        0
+        self._matches(topic, Runtime::instance().node.id())
     }
 
     #[inline]
