@@ -67,9 +67,6 @@ pub trait Router: Sync + Send {
         topic: &Topic,
     ) -> (Vec<(TopicFilter, ClientId, QoS)>, std::collections::HashMap<NodeId, Vec<TopicFilter>>);
 
-    ///get current node id
-    async fn get_node_id(&self) -> NodeId;
-
     ///get router infos, by top n
     fn list(&self, top: usize) -> Vec<String>;
 }
