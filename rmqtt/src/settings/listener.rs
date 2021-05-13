@@ -7,7 +7,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::{deserialize_duration, to_duration, Bytesize};
+use super::{deserialize_duration, deserialize_addr, to_duration, Bytesize};
 use crate::broker::types::QoS;
 
 type Port = u16;
@@ -80,7 +80,7 @@ pub struct ListenerInner {
     pub name: String,
     #[serde(
         default = "ListenerInner::addr_default",
-        deserialize_with = "ListenerInner::deserialize_addr"
+        deserialize_with = "deserialize_addr"
     )]
     pub addr: SocketAddr,
     #[serde(default = "ListenerInner::workers_default")]
@@ -276,16 +276,7 @@ impl ListenerInner {
     fn max_subscriptions_default() -> usize {
         0
     }
-    #[inline]
-    fn deserialize_addr<'de, D>(deserializer: D) -> Result<SocketAddr, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let addr = String::deserialize(deserializer)?
-            .parse::<std::net::SocketAddr>()
-            .map_err(de::Error::custom)?;
-        Ok(addr)
-    }
+
     #[inline]
     fn deserialize_mqueue_rate_limit<'de, D>(
         deserializer: D,
