@@ -52,12 +52,10 @@ pub async fn handshake<Io>(
         .get(format!("{}", local_addr.port()), listen_cfg.clone())?;
     limiter.acquire_one().await?;
 
-    let node_id = Runtime::instance().extends.router().await.get_node_id().await;
-
     let packet = handshake.packet().clone();
 
     let id = Id::new(
-        node_id,
+        Runtime::instance().node.id(),
         Some(local_addr),
         Some(remote_addr),
         packet.client_id.clone(),
