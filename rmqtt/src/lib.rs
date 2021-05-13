@@ -17,3 +17,4 @@ pub mod logger;
 pub mod plugin;
 pub mod runtime;
 pub mod settings;
+pub mod grpc;
