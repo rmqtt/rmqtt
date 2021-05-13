@@ -20,7 +20,9 @@ pub struct Settings(Arc<Inner>);
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Inner {
+    #[serde(default)]
     pub node: Node,
+    #[serde(default)]
     pub rpc: Rpc,
     #[serde(default)]
     pub log: Log,
@@ -74,12 +76,23 @@ impl fmt::Debug for Settings {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Default, Debug, Clone, Deserialize)]
 pub struct Node {
-    id: NodeId,
-    cookie: String,
     #[serde(default)]
+    id: NodeId,
+    #[serde(default = "Node::cookie_default")]
+    cookie: String,
+    #[serde(default = "Node::crash_dump_default")]
     crash_dump: String,
+}
+
+impl Node {
+    fn cookie_default() -> String {
+        "rmqttsecretcookie".into()
+    }
+    fn crash_dump_default() -> String {
+        "/var/log/rmqtt/crash.dump".into()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -103,6 +116,19 @@ pub struct Rpc {
         deserialize_with = "deserialize_duration"
     )]
     pub timeout: Duration, //= "5s"
+}
+
+impl Default for Rpc {
+    #[inline]
+    fn default() -> Self {
+        Self {
+            mode: Self::mode_default(),
+            batch_size: Self::batch_size_default(),
+            server_addr: Self::server_addr_default(),
+            client_num: Self::client_num_default(),
+            timeout: Self::timeout_default(),
+        }
+    }
 }
 
 impl Rpc{
