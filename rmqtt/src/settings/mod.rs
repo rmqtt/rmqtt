@@ -9,15 +9,19 @@ use std::fmt;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::time::Duration;
+use std::net::SocketAddr;
 
 use self::listener::Listeners;
 use self::log::Log;
+use crate::NodeId;
 
 #[derive(Clone)]
 pub struct Settings(Arc<Inner>);
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Inner {
+    pub node: Node,
+    pub rpc: Rpc,
     #[serde(default)]
     pub log: Log,
     #[serde(rename = "listener")]
@@ -67,6 +71,55 @@ impl fmt::Debug for Settings {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Settings ...")?;
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Node {
+    id: NodeId,
+    cookie: String,
+    #[serde(default)]
+    crash_dump: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Rpc {
+
+    #[serde(default = "Rpc::mode_default")]
+    pub mode: String, // = "async"
+
+    //#Maximum number of messages sent in batch
+    #[serde(default = "Rpc::batch_size_default")]
+    pub batch_size: usize, // = 256
+
+    #[serde(default = "Rpc::server_addr_default", deserialize_with = "deserialize_addr" )]
+    pub server_addr: SocketAddr, // = "0.0.0.0:5363"
+
+    #[serde(default = "Rpc::client_num_default")]
+    pub client_num: usize, // = 2
+
+    #[serde(
+        default = "Rpc::timeout_default",
+        deserialize_with = "deserialize_duration"
+    )]
+    pub timeout: Duration, //= "5s"
+}
+
+impl Rpc{
+    fn mode_default() -> String {
+        "async".into()
+    }
+    fn batch_size_default() -> usize {
+        256
+    }
+    fn server_addr_default() -> SocketAddr {
+        ([0, 0, 0, 0], 5363).into()
+    }
+    fn client_num_default() -> usize {
+        2
+    }
+    fn timeout_default() -> Duration {
+        Duration::from_secs(5)
     }
 }
 
@@ -230,4 +283,15 @@ pub fn to_duration(text: &str) -> Duration {
         })
         .sum();
     Duration::from_millis(ms)
+}
+
+#[inline]
+pub fn deserialize_addr<'de, D>(deserializer: D) -> Result<SocketAddr, D::Error>
+    where
+        D: Deserializer<'de>,
+{
+    let addr = String::deserialize(deserializer)?
+        .parse::<std::net::SocketAddr>()
+        .map_err(serde::de::Error::custom)?;
+    Ok(addr)
 }
