@@ -1,6 +1,6 @@
 [package]
 name = "rmqtt"
-version = "0.1.2"
+version = "0.1.3"
 authors = ["rmqtt <rmqttd@126.com>"]
 description = "MQTT Server for v3.1 and v3.1.1 protocols"
 repository = "https://github.com/rmqtt-rs/rmqtt.git"
