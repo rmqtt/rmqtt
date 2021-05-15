@@ -13,13 +13,13 @@ pub struct NodeGrpcClient {
 impl NodeGrpcClient {
     pub fn new(server_addr: std::net::SocketAddr) -> Result<Self> {
         let endpoint = Channel::from_shared(format!("http://{}", server_addr.to_string()))
-            .map_err(|e| anyhow::Error::new(e))?;
+            .map_err(anyhow::Error::new)?;
 
         Ok(Self { grpc_client: None, endpoint })
     }
 
     async fn _connect(&self) -> Result<NodeServiceClient<Timeout<Channel>>> {
-        let channel = self.endpoint.connect().await.map_err(|e| anyhow::Error::new(e))?;
+        let channel = self.endpoint.connect().await.map_err(anyhow::Error::new)?;
         let timeout_channel = Timeout::new(channel, Runtime::instance().settings.rpc.timeout);
         let client = NodeServiceClient::new(timeout_channel);
         Ok(client)
@@ -37,7 +37,7 @@ impl NodeGrpcClient {
         let response = grpc_client
             .send_message(tonic::Request::new(pb::Message { data: msg.encode()? }))
             .await
-            .map_err(|e| anyhow::Error::new(e))?;
+            .map_err(anyhow::Error::new)?;
         log::trace!("response: {:?}", response);
         let message_reply = response.into_inner();
         Ok(MessageReply::decode(&message_reply.data)?)

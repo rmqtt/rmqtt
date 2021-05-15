@@ -16,7 +16,7 @@ impl Server {
 
     pub(crate) async fn listen_and_serve(&self) -> Result<()> {
         //start grpc server
-        let addr = Runtime::instance().settings.rpc.server_addr.clone();
+        let addr = Runtime::instance().settings.rpc.server_addr;
 
         //NodeServiceServer::with_interceptor(RmqttNodeService::default(), Self::check_auth)
 
@@ -25,7 +25,7 @@ impl Server {
             .add_service(NodeServiceServer::new(NodeGrpcService::default()))
             .serve(addr)
             .await
-            .map_err(|e| anyhow::Error::new(e))?;
+            .map_err(anyhow::Error::new)?;
         Ok(())
     }
 
