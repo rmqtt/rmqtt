@@ -1,14 +1,14 @@
 use async_trait::async_trait;
 
-use rmqtt::broker::topic::Level;
 use rmqtt::{
     broker::{
         hook::{self, Handler, HookResult, Parameter, Register, ReturnType},
-        types::{From, Publish, Subscribe, SubscribeAclResult},
+        types::{From, Publish},
     },
-    grpc::{client::NodeGrpcClient, Message},
+    grpc::client::NodeGrpcClient, //, Message},
     plugin::Plugin,
-    Result, Runtime,
+    Result,
+    Runtime,
 };
 
 #[inline]
@@ -86,13 +86,13 @@ impl Plugin for Template {
 }
 
 struct HookHandler {
-    client: NodeGrpcClient,
+    _client: NodeGrpcClient,
 }
 
 impl HookHandler {
     fn new() -> Result<Self> {
-        let client = NodeGrpcClient::new(([127, 0, 0, 1], 5363).into())?;
-        Ok(Self { client })
+        let _client = NodeGrpcClient::new(([127, 0, 0, 1], 5363).into())?;
+        Ok(Self { _client })
     }
 }
 
@@ -105,45 +105,12 @@ impl Handler for HookHandler {
             }
             Parameter::MessagePublish(_session, c, publish) => {
                 log::debug!("{:?} message publish, {:?}", c.id, publish);
-
-                if publish.topic().to_string().contains("x/y/z") {
-                    let p = match *publish {
-                        Publish::V3(p) => {
-                            let mut p = p.clone();
-                            p.packet.topic =
-                                bytestring::ByteString::from(format!("{}/{}", "test", p.packet.topic));
-                            p.topic.insert(0, Level::Normal("test".into()));
-                            Publish::V3(p)
-                        }
-                        Publish::V5(p) => Publish::V5(p.clone()),
-                    };
-                    log::debug!("{:?} MessageDelivered, {:?}", c.id, p.topic().to_string());
-                    return (true, Some(HookResult::Publish(p)));
-                }
-
-                let response =
-                    self.client.send_message(Message::Forward(c.id.clone(), (*publish).clone())).await;
-
-                log::debug!("{:?} response: {:?}", c.id, response);
             }
             Parameter::MessageDelivered(_session, c, from, _publish) => {
                 log::debug!("{:?} MessageDelivered, {:?}", c.id, from);
             }
             Parameter::ClientSubscribeCheckAcl(_s, _c, subscribe) => {
                 log::debug!("{:?} ClientSubscribeCheckAcl, {:?}", _c.id, subscribe);
-                let mut acl_result = match subscribe {
-                    Subscribe::V3(_) => SubscribeAclResult::V3(Vec::new()),
-                    Subscribe::V5(_) => SubscribeAclResult::V5(Vec::new()),
-                };
-                for (tf, qos) in subscribe.topic_filters() {
-                    if tf.to_string() == "/x/y/z" {
-                        acl_result.add_not_authorized();
-                    } else {
-                        acl_result.add_success(qos)
-                    }
-                }
-                log::debug!("{:?} acl_result, {:?}", _c.id, acl_result);
-                return (true, Some(HookResult::SubscribeAclResult(acl_result)));
             }
 
             Parameter::GrpcMessageReceived(msg) => {
