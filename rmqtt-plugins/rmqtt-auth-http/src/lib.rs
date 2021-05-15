@@ -301,6 +301,8 @@ impl AuthHandler {
             Self::http_form_request(req_cfg.url, req_cfg.method, body, headers, timeout).await?
         };
 
+        log::debug!("allow: {:?}", allow);
+
         //IGNORE
         if allow && ignore == IGNORE {
             let mut c_map = self.cache_map.entry(client.id.client_id.clone()).or_default();
@@ -319,7 +321,7 @@ impl AuthHandler {
             match self.request(client, req.clone(), password, None, false).await {
                 Ok(resp) => resp,
                 Err(e) => {
-                    log::error!("{:?} auth error, {:?}", client.id, e);
+                    log::warn!("{:?} auth error, {:?}", client.id, e);
                     false
                 }
             }
@@ -333,7 +335,7 @@ impl AuthHandler {
             match self.request(client, req.clone(), None, None, true).await {
                 Ok(resp) => resp,
                 Err(e) => {
-                    log::error!("{:?} check super error, {:?}", client.id, e);
+                    log::warn!("{:?} check super error, {:?}", client.id, e);
                     false
                 }
             }
@@ -345,9 +347,12 @@ impl AuthHandler {
     async fn acl(&self, client: &ClientInfo, sub_or_pub: Option<(&str, &Topic)>) -> bool {
         if let Some(req) = { self.cfg.read().await.http_acl_req.clone() } {
             match self.request(client, req.clone(), None, sub_or_pub, false).await {
-                Ok(resp) => resp,
+                Ok(allow) => {
+                    log::debug!("acl.allow: {:?}", allow);
+                    allow
+                }
                 Err(e) => {
-                    log::error!("{:?} acl error, {:?}", client.id, e);
+                    log::warn!("{:?} acl error, {:?}", client.id, e);
                     false
                 }
             }
@@ -407,6 +412,8 @@ impl Handler for AuthHandler {
                         }
                     }
                 }
+
+                log::debug!("acl_result: {:?}", acl_result);
                 if acl_result.has_failures() {
                     return (true, Some(HookResult::SubscribeAclResult(acl_result)));
                 } else {
@@ -419,13 +426,12 @@ impl Handler for AuthHandler {
                     return (false, acc);
                 }
 
-                let new_acc = if self.acl(*client_info, Some((PUB, publish.topic()))).await {
-                    Some(HookResult::PublishAclResult(PublishAclResult::Allow))
+                return if self.acl(*client_info, Some((PUB, publish.topic()))).await {
+                    (true, Some(HookResult::PublishAclResult(PublishAclResult::Allow)))
                 } else {
-                    Some(HookResult::PublishAclResult(PublishAclResult::Rejected(true)))
+                    (false, Some(HookResult::PublishAclResult(PublishAclResult::Rejected(true))))
                     //@TODO ... Do you want to disconnect?
                 };
-                return (true, new_acc);
             }
             Parameter::ClientDisconnected(_session, client_info, _reason) => {
                 log::debug!("ClientDisconnected");
