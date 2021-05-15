@@ -128,8 +128,8 @@ impl From<Box<dyn std::error::Error>> for MqttError {
 impl std::convert::TryFrom<MqttError> for v5::PublishAck {
     type Error = MqttError;
     #[inline]
-    fn try_from(err: MqttError) -> Result<Self, Self::Error> {
-        Err(err)
+    fn try_from(e: MqttError) -> Result<Self, Self::Error> {
+        Err(e)
     }
 }
 
@@ -144,5 +144,12 @@ impl From<AddrParseError> for MqttError {
     #[inline]
     fn from(e: AddrParseError) -> Self {
         MqttError::AddrParseError(e)
+    }
+}
+
+impl From<MqttError> for tonic::Status {
+    #[inline]
+    fn from(e: MqttError) -> Self {
+        tonic::Status::new(tonic::Code::Unavailable, format!("{:?}", e))
     }
 }
