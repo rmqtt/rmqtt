@@ -46,6 +46,9 @@ async fn main() {
     //hook, before startup
     Runtime::instance().extends.hook_mgr().await.before_startup().await;
 
+    //start grcp server
+    Runtime::instance().node.start_grpc_server();
+
     //tcp
     let mut tcp_listens = Vec::new();
     for (_, listen_cfg) in Runtime::instance().settings.listeners.tcps.iter() {
