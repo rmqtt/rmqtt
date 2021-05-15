@@ -1,5 +1,5 @@
 use bytestring::ByteString;
-use serde::de::{Deserialize, Deserializer};
+use serde::de::{self, Deserialize, Deserializer, SeqAccess, Visitor};
 use serde::ser::{Serialize, SerializeStruct, Serializer};
 use std::convert::From as _;
 use std::convert::TryFrom;
@@ -22,10 +22,11 @@ pub use ntex_mqtt::v3::{
 
 pub use ntex_mqtt::v5::{
     self, codec::Connect as ConnectV5, codec::ConnectAckReason as ConnectAckReasonV5,
-    codec::LastWill as LastWillV5, codec::Packet as PacketV5, codec::Subscribe as SubscribeV5,
-    codec::SubscribeAck as SubscribeAckV5, codec::SubscribeAckReason, codec::SubscriptionOptions,
-    codec::Unsubscribe as UnsubscribeV5, codec::UnsubscribeAck as UnsubscribeAckV5, codec::UserProperties,
-    codec::UserProperty, HandshakeAck as HandshakeAckV5, MqttSink as MqttSinkV5,
+    codec::LastWill as LastWillV5, codec::Packet as PacketV5, codec::PublishProperties,
+    codec::Subscribe as SubscribeV5, codec::SubscribeAck as SubscribeAckV5, codec::SubscribeAckReason,
+    codec::SubscriptionOptions, codec::Unsubscribe as UnsubscribeV5,
+    codec::UnsubscribeAck as UnsubscribeAckV5, codec::UserProperties, codec::UserProperty,
+    HandshakeAck as HandshakeAckV5, MqttSink as MqttSinkV5,
 };
 
 pub use ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
@@ -129,15 +130,99 @@ impl ConnectInfo {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PublishV3 {
+    #[serde(
+        serialize_with = "PublishV3::serialize_packet",
+        deserialize_with = "PublishV3::deserialize_packet"
+    )]
     pub packet: v3::codec::Publish,
     pub topic: Topic,
     pub query: Option<ByteString>,
     pub create_time: TimestampMillis,
 }
 
+impl std::convert::TryFrom<v3::codec::Publish> for PublishV3 {
+    type Error = MqttError;
+
+    #[inline]
+    fn try_from(publish: v3::codec::Publish) -> std::result::Result<Self, Self::Error> {
+        let (topic, query) = if let Some(pos) = publish.topic.find('?') {
+            (
+                ByteString::try_from(publish.topic.as_bytes().slice(0..pos)).unwrap(),
+                Some(
+                    ByteString::try_from(publish.topic.as_bytes().slice(pos + 1..publish.topic.len()))
+                        .unwrap(),
+                ),
+            )
+        } else {
+            (publish.topic.clone(), None)
+        };
+
+        let topic = Topic::from_str(&topic)?;
+        Ok(Self { packet: publish, topic, query, create_time: chrono::Local::now().timestamp_millis() })
+    }
+}
+
 impl PublishV3 {
+    #[inline]
+    fn serialize_packet<S>(packet: &v3::codec::Publish, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut s = serializer.serialize_struct("Publish", 6)?;
+        s.serialize_field("dup", &packet.dup)?;
+        s.serialize_field("retain", &packet.retain)?;
+        s.serialize_field("qos", &packet.qos.value())?;
+        s.serialize_field("topic", &packet.topic)?;
+        s.serialize_field("packet_id", &packet.packet_id)?;
+        s.serialize_field("payload", &packet.payload)?;
+        s.end()
+    }
+
+    #[inline]
+    pub fn deserialize_packet<'de, D>(deserializer: D) -> std::result::Result<v3::codec::Publish, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct PublishVisitor;
+        impl<'de> Visitor<'de> for PublishVisitor {
+            type Value = v3::codec::Publish;
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct Publish")
+            }
+            //with serialize_tuple
+            fn visit_seq<A>(self, seq: A) -> std::result::Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                if seq.size_hint() != Some(6) {
+                    return Err(de::Error::invalid_type(serde::de::Unexpected::Seq, &self));
+                }
+                let mut seq = seq;
+                let p = v3::codec::Publish {
+                    dup: seq.next_element::<bool>()?.ok_or_else(|| de::Error::missing_field("dup"))?,
+                    retain: seq.next_element::<bool>()?.ok_or_else(|| de::Error::missing_field("retain"))?,
+                    qos: QoS::try_from(
+                        seq.next_element::<u8>()?.ok_or_else(|| de::Error::missing_field("qos"))?,
+                    )
+                    .map_err(|e| de::Error::custom(e.to_string()))?,
+                    topic: seq
+                        .next_element::<ByteString>()?
+                        .ok_or_else(|| de::Error::missing_field("topic"))?,
+                    packet_id: seq
+                        .next_element::<Option<NonZeroU16>>()?
+                        .ok_or_else(|| de::Error::missing_field("packet_id"))?,
+                    payload: ntex::util::Bytes::from(
+                        seq.next_element::<Vec<u8>>()?.ok_or_else(|| de::Error::missing_field("payload"))?,
+                    ),
+                };
+                Ok(p)
+            }
+        }
+        deserializer.deserialize_tuple(6, PublishVisitor)
+    }
+
     #[inline]
     pub fn from(p: &v3::Publish) -> Result<PublishV3> {
         Ok(Self {
@@ -185,14 +270,77 @@ impl PublishV3 {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PublishV5 {
+    #[serde(
+        serialize_with = "PublishV5::serialize_packet",
+        deserialize_with = "PublishV5::deserialize_packet"
+    )]
     pub publish: v5::codec::Publish,
     pub topic: Topic,
     pub create_time: TimestampMillis,
 }
 
 impl PublishV5 {
+    #[inline]
+    fn serialize_packet<S>(packet: &v5::codec::Publish, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut s = serializer.serialize_struct("Publish", 6)?;
+        s.serialize_field("dup", &packet.dup)?;
+        s.serialize_field("retain", &packet.retain)?;
+        s.serialize_field("qos", &packet.qos.value())?;
+        s.serialize_field("topic", &packet.topic)?;
+        s.serialize_field("packet_id", &packet.packet_id)?;
+        s.serialize_field("payload", &packet.payload)?;
+        s.end()
+    }
+
+    #[inline]
+    pub fn deserialize_packet<'de, D>(deserializer: D) -> std::result::Result<v5::codec::Publish, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct PublishVisitor;
+        impl<'de> Visitor<'de> for PublishVisitor {
+            type Value = v5::codec::Publish;
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct Publish")
+            }
+            //with serialize_tuple
+            fn visit_seq<A>(self, seq: A) -> std::result::Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                if seq.size_hint() != Some(6) {
+                    return Err(de::Error::invalid_type(serde::de::Unexpected::Seq, &self));
+                }
+                let mut seq = seq;
+                let p = v5::codec::Publish {
+                    dup: seq.next_element::<bool>()?.ok_or_else(|| de::Error::missing_field("dup"))?,
+                    retain: seq.next_element::<bool>()?.ok_or_else(|| de::Error::missing_field("retain"))?,
+                    qos: QoS::try_from(
+                        seq.next_element::<u8>()?.ok_or_else(|| de::Error::missing_field("qos"))?,
+                    )
+                    .map_err(|e| de::Error::custom(e.to_string()))?,
+                    topic: seq
+                        .next_element::<ByteString>()?
+                        .ok_or_else(|| de::Error::missing_field("topic"))?,
+                    packet_id: seq
+                        .next_element::<Option<NonZeroU16>>()?
+                        .ok_or_else(|| de::Error::missing_field("packet_id"))?,
+                    payload: ntex::util::Bytes::from(
+                        seq.next_element::<Vec<u8>>()?.ok_or_else(|| de::Error::missing_field("payload"))?,
+                    ),
+                    properties: PublishProperties::default(), //&TODO ...
+                };
+                Ok(p)
+            }
+        }
+        deserializer.deserialize_tuple(6, PublishVisitor)
+    }
+
     #[inline]
     pub fn from(publish: v5::codec::Publish) -> Result<PublishV5> {
         let topic = Topic::from_str(&publish.topic)?;
@@ -892,7 +1040,7 @@ pub enum Packet {
     V5(PacketV5),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Publish {
     V3(Box<PublishV3>),
     V5(Box<PublishV5>),
@@ -920,6 +1068,14 @@ impl Publish {
         match self {
             Publish::V3(p) => &p.topic,
             Publish::V5(p) => &p.topic,
+        }
+    }
+
+    #[inline]
+    pub fn topic_mut(&mut self) -> &mut Topic {
+        match self {
+            Publish::V3(p) => &mut p.topic,
+            Publish::V5(p) => &mut p.topic,
         }
     }
 
@@ -968,6 +1124,14 @@ impl Publish {
         match self {
             Publish::V3(p) => p.packet.packet_id.map(|id| id.get()),
             Publish::V5(p) => p.publish.packet_id.map(|id| id.get()),
+        }
+    }
+
+    #[inline]
+    pub fn packet_id_mut(&mut self) -> &mut Option<NonZeroU16> {
+        match self {
+            Publish::V3(p) => &mut p.packet.packet_id,
+            Publish::V5(p) => &mut p.publish.packet_id,
         }
     }
 
