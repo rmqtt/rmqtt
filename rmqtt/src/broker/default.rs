@@ -26,8 +26,7 @@ use crate::broker::hook::{Handler, Hook, HookManager, HookResult, Parameter, Reg
 use crate::broker::session::{ClientInfo, Session};
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
-use crate::Runtime;
-use crate::{ClientId, Id, NodeId, QoS, Topic, TopicFilter};
+use crate::{grpc, ClientId, Id, NodeId, QoS, Runtime, Topic, TopicFilter};
 
 struct LockEntry {
     id: Id,
@@ -319,7 +318,7 @@ impl Shared for &'static DefaultShared {
                             e
                         );
                         if let Message::Forward(from, p) = e.0 {
-                            errs.push((to, from, p, Reason::from_static("Tx is closed")));
+                            errs.push((to, from, p, Reason::from_static("Connection Tx is closed")));
                         }
                     }
                 }
@@ -631,10 +630,8 @@ impl DefaultHookManager {
                     acc = new_acc;
                 }
             }
-            None
-        } else {
-            None
         }
+        acc
     }
 }
 
@@ -677,6 +674,21 @@ impl HookManager for &'static DefaultHookManager {
             new_return_code
         } else {
             return_code
+        }
+    }
+
+    ///Publish message Dropped
+    async fn message_dropped(&self, to: Option<To>, from: From, publish: Publish, reason: Reason) {
+        let _ = self.exec(Type::MessageDropped, Parameter::MessageDropped(to, from, publish, reason)).await;
+    }
+
+    ///grpc message received
+    async fn grpc_message_received(&self, msg: grpc::Message) -> crate::Result<grpc::MessageReply> {
+        let result = self.exec(Type::GrpcMessageReceived, Parameter::GrpcMessageReceived(msg)).await;
+        if let Some(HookResult::GrpcMessageReply(reply)) = result {
+            reply
+        } else {
+            Ok(grpc::MessageReply::Success)
         }
     }
 }
@@ -926,16 +938,16 @@ impl Hook for DefaultHook {
             .await;
     }
 
-    #[inline]
-    async fn message_dropped(&self, to: Option<To>, from: From, publish: Publish, reason: Reason) {
-        let _ = self
-            .manager
-            .exec(
-                Type::MessageDropped,
-                Parameter::MessageDropped(&self.s, &self.c, to, from, publish, reason),
-            )
-            .await;
-    }
+    // #[inline]
+    // async fn message_dropped(&self, to: Option<To>, from: From, publish: Publish, reason: Reason) {
+    //     let _ = self
+    //         .manager
+    //         .exec(
+    //             Type::MessageDropped,
+    //             Parameter::MessageDropped(&self.s, &self.c, to, from, publish, reason),
+    //         )
+    //         .await;
+    // }
 
     #[inline]
     async fn message_expiry_check(&self, from: From, publish: &Publish) -> MessageExpiry {
