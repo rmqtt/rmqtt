@@ -387,7 +387,7 @@ impl SubscribeAclResult {
                 if let Some(from_code) = from_codes.get(idx) {
                     if !matches!(from_code, SubscribeReturnCodeV3::Success(_)) {
                         if let SubscribeAclResult::V3(codes) = self {
-                            codes.push(from_code.clone());
+                            codes.push(*from_code);
                             return true;
                         }
                     }
@@ -402,7 +402,7 @@ impl SubscribeAclResult {
                             | SubscribeAckReason::GrantedQos2
                     ) {
                         if let SubscribeAclResult::V5(reasons) = self {
-                            reasons.push(from_reason.clone());
+                            reasons.push(*from_reason);
                             return true;
                         }
                     }
@@ -426,38 +426,32 @@ impl SubscribeAclResult {
     pub fn has_successes(&self) -> bool {
         match self {
             SubscribeAclResult::V3(codes) => {
-                codes.iter().find(|code| matches!(code, SubscribeReturnCodeV3::Success(_))).is_some()
+                codes.iter().any(|code| matches!(code, SubscribeReturnCodeV3::Success(_)))
             }
-            SubscribeAclResult::V5(acks) => acks
-                .iter()
-                .find(|reason| {
-                    matches!(
-                        reason,
-                        SubscribeAckReason::GrantedQos0
-                            | SubscribeAckReason::GrantedQos1
-                            | SubscribeAckReason::GrantedQos2
-                    )
-                })
-                .is_some(),
+            SubscribeAclResult::V5(acks) => acks.iter().any(|reason| {
+                matches!(
+                    reason,
+                    SubscribeAckReason::GrantedQos0
+                        | SubscribeAckReason::GrantedQos1
+                        | SubscribeAckReason::GrantedQos2
+                )
+            }),
         }
     }
 
     pub fn has_failures(&self) -> bool {
         match self {
             SubscribeAclResult::V3(codes) => {
-                codes.iter().find(|code| matches!(code, SubscribeReturnCodeV3::Failure)).is_some()
+                codes.iter().any(|code| matches!(code, SubscribeReturnCodeV3::Failure))
             }
-            SubscribeAclResult::V5(acks) => acks
-                .iter()
-                .find(|reason| {
-                    !matches!(
-                        reason,
-                        SubscribeAckReason::GrantedQos0
-                            | SubscribeAckReason::GrantedQos1
-                            | SubscribeAckReason::GrantedQos2
-                    )
-                })
-                .is_some(),
+            SubscribeAclResult::V5(acks) => acks.iter().any(|reason| {
+                !matches!(
+                    reason,
+                    SubscribeAckReason::GrantedQos0
+                        | SubscribeAckReason::GrantedQos1
+                        | SubscribeAckReason::GrantedQos2
+                )
+            }),
         }
     }
 
@@ -1167,13 +1161,15 @@ impl Id {
         client_id: ClientId,
         username: Option<UserName>,
     ) -> Self {
+        //let username =
         Self(Arc::new(_Id {
             id: ByteString::from(format!(
-                "{}@{}/{}/{}",
+                "{}@{}/{}/{}/{}",
                 node_id,
                 local_addr.map(|addr| addr.to_string()).unwrap_or_default(),
                 remote_addr.map(|addr| addr.to_string()).unwrap_or_default(),
-                client_id
+                client_id,
+                username.as_ref().map(|un| un.as_str()).unwrap_or_default()
             )),
             node_id,
             local_addr,
@@ -1296,4 +1292,38 @@ pub enum Message {
     Disconnect,
     Closed,
     Keepalive,
+}
+
+pub trait AsStr {
+    fn as_str(&self) -> &str;
+}
+
+impl AsStr for bytestring::ByteString {
+    fn as_str(&self) -> &str {
+        #[inline(always)]
+        fn slice_as_str(slice: &[u8]) -> &str {
+            union Slices<'a> {
+                str: &'a str,
+                slice: &'a [u8],
+            }
+            unsafe { Slices { slice }.str }
+        }
+
+        slice_as_str(self.as_ref())
+    }
+}
+
+impl AsStr for bytes::Bytes {
+    fn as_str(&self) -> &str {
+        #[inline(always)]
+        fn slice_as_str(slice: &[u8]) -> &str {
+            union Slices<'a> {
+                str: &'a str,
+                slice: &'a [u8],
+            }
+            unsafe { Slices { slice }.str }
+        }
+
+        slice_as_str(self.as_ref())
+    }
 }
