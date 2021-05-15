@@ -1,5 +1,5 @@
 use crate::broker::types::*;
-use crate::{ClientInfo, Password, Session};
+use crate::{grpc, ClientInfo, Password, Result, Session};
 
 pub type ReturnType = (bool, Option<HookResult>);
 
@@ -21,6 +21,12 @@ pub trait HookManager: Sync + Send {
         connect_info: &ConnectInfo,
         return_code: ConnectAckReason,
     ) -> ConnectAckReason;
+
+    ///Publish message Dropped
+    async fn message_dropped(&self, to: Option<To>, from: From, p: Publish, reason: Reason);
+
+    ///grpc message received
+    async fn grpc_message_received(&self, msg: grpc::Message) -> Result<grpc::MessageReply>;
 }
 
 pub trait Register: Sync + Send {
@@ -74,8 +80,8 @@ pub trait Hook: Sync + Send {
     ///Publish message received
     async fn message_publish(&self, p: &Publish) -> Option<Publish>;
 
-    ///Publish message Dropped
-    async fn message_dropped(&self, to: Option<To>, from: From, p: Publish, reason: Reason);
+    // ///Publish message Dropped
+    // async fn message_dropped(&self, to: Option<To>, from: From, p: Publish, reason: Reason);
 
     ///message delivered
     async fn message_delivered(&self, from: From, publish: &Publish) -> Option<Publish>;
@@ -111,6 +117,8 @@ pub enum Type {
     MessageAcked,
     MessageDropped,
     MessageExpiryCheck,
+
+    GrpcMessageReceived,
 }
 
 impl std::convert::From<&str> for Type {
@@ -138,6 +146,9 @@ impl std::convert::From<&str> for Type {
             "message_acked" => Type::MessageAcked,
             "message_dropped" => Type::MessageDropped,
             "message_expiry_check" => Type::MessageExpiryCheck,
+
+            "grpc_message_received" => Type::GrpcMessageReceived,
+
             _ => unreachable!(format!("{:?} is not defined", t)),
         }
     }
@@ -165,8 +176,10 @@ pub enum Parameter<'a> {
     MessagePublish(&'a Session, &'a ClientInfo, &'a Publish),
     MessageDelivered(&'a Session, &'a ClientInfo, From, &'a Publish),
     MessageAcked(&'a Session, &'a ClientInfo, From, &'a Publish),
-    MessageDropped(&'a Session, &'a ClientInfo, Option<To>, From, Publish, Reason),
+    MessageDropped(Option<To>, From, Publish, Reason),
     MessageExpiryCheck(&'a Session, &'a ClientInfo, From, &'a Publish),
+
+    GrpcMessageReceived(grpc::Message),
 }
 
 impl<'a> Parameter<'a> {
@@ -192,13 +205,15 @@ impl<'a> Parameter<'a> {
             Parameter::MessagePublish(_, _, _) => Type::MessagePublish,
             Parameter::MessageDelivered(_, _, _, _) => Type::MessageDelivered,
             Parameter::MessageAcked(_, _, _, _) => Type::MessageAcked,
-            Parameter::MessageDropped(_, _, _, _, _, _) => Type::MessageDropped,
+            Parameter::MessageDropped(_, _, _, _) => Type::MessageDropped,
             Parameter::MessageExpiryCheck(_, _, _, _) => Type::MessageExpiryCheck,
+
+            Parameter::GrpcMessageReceived(_) => Type::GrpcMessageReceived,
         }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum HookResult {
     ///User Properties, for ClientConnect
     UserProperties(UserProperties),
@@ -216,7 +231,6 @@ pub enum HookResult {
     Publish(Publish),
     ///Message Expiry
     MessageExpiry,
+    ///for GrpcMessageReceived
+    GrpcMessageReply(Result<grpc::MessageReply>),
 }
-
-unsafe impl std::marker::Send for HookResult {}
-unsafe impl std::marker::Sync for HookResult {}
