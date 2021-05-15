@@ -302,7 +302,7 @@ impl AuthHandler {
         };
 
         //IGNORE
-        if !ignore.is_empty() && ignore == IGNORE {
+        if allow && ignore == IGNORE {
             let mut c_map = self.cache_map.entry(client.id.client_id.clone()).or_default();
             if check_super {
                 c_map.is_super = true;
