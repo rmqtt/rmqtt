@@ -13,8 +13,9 @@ pub type Result<T, E = MqttError> = anyhow::Result<T, E>;
 
 pub mod broker;
 pub mod extend;
+pub mod grpc;
 pub mod logger;
+pub mod node;
 pub mod plugin;
 pub mod runtime;
 pub mod settings;
-pub mod grpc;
