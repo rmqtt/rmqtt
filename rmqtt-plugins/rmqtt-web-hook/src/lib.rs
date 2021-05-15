@@ -214,7 +214,7 @@ impl Plugin for WebHookPlugin {
     }
 
     #[inline]
-    fn get_config(&self) -> Result<serde_json::Value> {
+    async fn get_config(&self) -> Result<serde_json::Value> {
         self.cfg.read().to_json()
     }
 }
@@ -534,7 +534,7 @@ impl Handler for WebHookHandler {
                 vec![(Some(topic), body)]
             }
 
-            Parameter::MessageDropped(_session, _client, to, from, publish, reason) => {
+            Parameter::MessageDropped(to, from, publish, reason) => {
                 let body = json!({
                     "to": to.as_ref().map(|to|to.to_json()),
                     "from": from.to_json(),
