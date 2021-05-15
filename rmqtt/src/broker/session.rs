@@ -117,7 +117,7 @@ impl SessionState {
                                     if let Err((from, p)) = deliver_queue_tx.send((from, p)).await{
                                         log::warn!("{:?} deliver_dropped, from: {:?}, {:?}", id, from, p);
                                         //hook, message_dropped
-                                        state.hook.message_dropped(Some(state.id.clone()), from, p, Reason::from_static("deliver queue is full")).await;
+                                        Runtime::instance().extends.hook_mgr().await.message_dropped(Some(state.id.clone()), from, p, Reason::from_static("deliver queue is full")).await;
                                     }
                                 },
                                 Message::Kick(sender, by_id) => {
@@ -240,7 +240,7 @@ impl SessionState {
                                 if let Err((from, p)) = deliver_queue_tx.send((from, p)).await{
                                     log::warn!("{:?} offline deliver_dropped, from: {:?}, {:?}", id, from, p);
                                     //hook, message_dropped
-                                    state.hook.message_dropped(Some(state.id.clone()), from, p, Reason::from_static("deliver queue is full")).await;
+                                    Runtime::instance().extends.hook_mgr().await.message_dropped(Some(state.id.clone()), from, p, Reason::from_static("deliver queue is full")).await;
                                 }
                             },
                             Message::Kick(sender, by_id) => {
@@ -288,7 +288,12 @@ impl SessionState {
 
         if let Err((from, p, reason)) = res {
             //hook, message_dropped
-            self.hook.message_dropped(Some(self.id.clone()), from, p, Reason::from_static(reason)).await;
+            Runtime::instance()
+                .extends
+                .hook_mgr()
+                .await
+                .message_dropped(Some(self.id.clone()), from, p, Reason::from_static(reason))
+                .await;
         }
     }
 
@@ -348,7 +353,12 @@ impl SessionState {
                 .forward(retain.from, p)
                 .await
             {
-                self.hook.message_dropped(Some(self.id.clone()), from, p, reason).await;
+                Runtime::instance()
+                    .extends
+                    .hook_mgr()
+                    .await
+                    .message_dropped(Some(self.id.clone()), from, p, reason)
+                    .await;
             }
         }
         Ok(())
@@ -360,7 +370,10 @@ impl SessionState {
         let expiry = self.hook.message_expiry_check(from.clone(), &publish).await;
 
         if expiry {
-            self.hook
+            Runtime::instance()
+                .extends
+                .hook_mgr()
+                .await
                 .message_dropped(
                     Some(self.id.clone()),
                     from,
@@ -605,7 +618,10 @@ impl SessionState {
 
         if let PublishAclResult::Rejected(disconnect) = acl_result {
             //Message dropped
-            self.hook
+            Runtime::instance()
+                .extends
+                .hook_mgr()
+                .await
                 .message_dropped(
                     None,
                     self.id.clone(),
@@ -638,7 +654,7 @@ impl SessionState {
         {
             for (to, from, p, reason) in errs {
                 //Message dropped
-                self.hook.message_dropped(Some(to), from, p, reason).await;
+                Runtime::instance().extends.hook_mgr().await.message_dropped(Some(to), from, p, reason).await;
             }
         }
 
@@ -655,7 +671,12 @@ impl SessionState {
                 log::debug!("{:?} clean.dropped, from: {:?}, publish: {:?}", self.id, from, publish);
 
                 //hook, message dropped
-                self.hook.message_dropped(Some(self.id.clone()), from, publish, reason.clone()).await;
+                Runtime::instance()
+                    .extends
+                    .hook_mgr()
+                    .await
+                    .message_dropped(Some(self.id.clone()), from, publish, reason.clone())
+                    .await;
             }
         }
 
@@ -669,7 +690,10 @@ impl SessionState {
             );
 
             //hook, message dropped
-            self.hook
+            Runtime::instance()
+                .extends
+                .hook_mgr()
+                .await
                 .message_dropped(Some(self.id.clone()), iflt_msg.from, iflt_msg.publish, reason.clone())
                 .await;
         }
