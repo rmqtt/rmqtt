@@ -1,0 +1,72 @@
+##--------------------------------------------------------------------
+## rmqtt-auth-http
+##--------------------------------------------------------------------
+
+http_timeout = "5s"
+http_headers.accept = "*/*"
+http_headers.Cache-Control = "no-cache"
+http_headers.User-Agent = "RMQTT/0.1.1"
+http_headers.Connection = "keep-alive"
+
+#http_retry.times = 3
+#http_retry.interval = "1s"
+#http_retry.backoff = 2.0
+
+##--------------------------------------------------------------------
+## Authentication request.
+##
+## Variables:
+##  - %u: username
+##  - %c: clientid
+##  - %a: ipaddress
+##  - %r: protocol
+##  - %P: password
+##
+## Value: URL
+http_auth_req.url = "http://127.0.0.1:8080/mqtt/auth"
+## Value: post | get | put
+http_auth_req.method = "post"
+## HTTP request header of authentication request
+## Content-Type Currently supported values: application/x-www-form-urlencoded, application/json
+http_auth_req.headers = {content-type="application/x-www-form-urlencoded"}
+#http_auth_req.headers.content-type="application/json"
+## Value: Params
+http_auth_req.params = {clientid="%c", username="%u", password="%P"}
+
+
+##--------------------------------------------------------------------
+## Superuser request.
+##
+## Variables:
+##  - %u: username
+##  - %c: clientid
+##  - %a: ipaddress
+##  - %r: protocol
+##  - %P: password
+##
+## Value: URL
+http_super_req.url = "http://127.0.0.1:8080/mqtt/superuser"
+## Value: post | get | put
+http_super_req.method = "post"
+## Value: Params
+http_super_req.params = {clientid="%c", username="%u"}
+
+
+##--------------------------------------------------------------------
+## ACL request.
+##
+## Variables:
+##  - %A: 1 | 2, 1 = sub, 2 = pub
+##  - %u: username
+##  - %c: clientid
+##  - %a: ipaddress
+##  - %r: protocol
+##  - %m: mountpoint - Not for the time being
+##  - %t: topic
+##
+## Value: URL
+http_acl_req.url = "http://127.0.0.1:8080/mqtt/acl"
+## Value: post | get | put
+http_acl_req.method = "post"
+## Value: Params
+http_acl_req.params = {access="%A",username="%u",clientid="%c",ipaddr="%a",topic="%t"}
