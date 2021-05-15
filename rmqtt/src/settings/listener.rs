@@ -7,7 +7,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::{deserialize_duration, deserialize_addr, to_duration, Bytesize};
+use super::{deserialize_addr, deserialize_duration, to_duration, Bytesize};
 use crate::broker::types::QoS;
 
 type Port = u16;
@@ -76,10 +76,7 @@ impl Deref for Listener {
 pub struct ListenerInner {
     #[serde(default)]
     pub name: String,
-    #[serde(
-        default = "ListenerInner::addr_default",
-        deserialize_with = "deserialize_addr"
-    )]
+    #[serde(default = "ListenerInner::addr_default", deserialize_with = "deserialize_addr")]
     pub addr: SocketAddr,
     #[serde(default = "ListenerInner::workers_default")]
     pub workers: usize,
