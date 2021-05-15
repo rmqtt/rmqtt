@@ -1,6 +1,12 @@
 use async_trait::async_trait;
+
+use rmqtt::broker::topic::Level;
 use rmqtt::{
-    broker::hook::{self, Handler, HookResult, Parameter, Register, ReturnType},
+    broker::{
+        hook::{self, Handler, HookResult, Parameter, Register, ReturnType},
+        types::{From, Publish, Subscribe, SubscribeAclResult},
+    },
+    grpc::{client::NodeGrpcClient, Message},
     plugin::Plugin,
     Result, Runtime,
 };
@@ -38,16 +44,14 @@ impl Template {
 impl Plugin for Template {
     #[inline]
     async fn init(&mut self) -> Result<()> {
-        log::info!("{} init", self.name);
+        log::debug!("{} init", self.name);
+        self.register.add(hook::Type::ClientConnack, Box::new(HookHandler::new()?));
+        self.register.add(hook::Type::MessageDelivered, Box::new(HookHandler::new()?));
+        self.register.add(hook::Type::MessagePublish, Box::new(HookHandler::new()?));
+        self.register.add(hook::Type::ClientSubscribeCheckAcl, Box::new(HookHandler::new()?));
 
-        self.register.add(hook::Type::BeforeStartup, Box::new(HookHandler {}));
-        self.register.add(hook::Type::SessionCreated, Box::new(HookHandler {}));
-        self.register.add(hook::Type::ClientConnect, Box::new(HookHandler {}));
-        self.register.add(hook::Type::ClientConnack, Box::new(HookHandler {}));
-        self.register.add(hook::Type::ClientConnected, Box::new(HookHandler {}));
-        self.register.add(hook::Type::ClientDisconnected, Box::new(HookHandler {}));
-        self.register.add(hook::Type::ClientSubscribe, Box::new(HookHandler {}));
-        self.register.add(hook::Type::MessagePublish, Box::new(HookHandler {}));
+        self.register.add(hook::Type::GrpcMessageReceived, Box::new(HookHandler::new()?));
+
         Ok(())
     }
 
@@ -81,40 +85,100 @@ impl Plugin for Template {
     }
 }
 
-struct HookHandler {}
+struct HookHandler {
+    client: NodeGrpcClient,
+}
+
+impl HookHandler {
+    fn new() -> Result<Self> {
+        let client = NodeGrpcClient::new(([127, 0, 0, 1], 5363).into())?;
+        Ok(Self { client })
+    }
+}
 
 #[async_trait]
 impl Handler for HookHandler {
     async fn hook(&mut self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
         match param {
-            Parameter::BeforeStartup => {
-                log::debug!("before startup");
-            }
-            Parameter::SessionCreated(_session, c) => {
-                log::debug!("{:?} session created", c.id);
-            }
-            Parameter::ClientConnect(connect_info) => {
-                log::debug!("client connect, {:?}", connect_info);
-            }
             Parameter::ClientConnack(connect_info, r) => {
                 log::debug!("client connack, {:?}, {:?}", connect_info, r);
             }
-            Parameter::ClientConnected(_session, c) => {
-                log::debug!("{:?} client connected", c.id);
-            }
-            Parameter::ClientDisconnected(_session, c, reason) => {
-                log::debug!("{:?} client disconnected, reason: {}", c.id, reason);
-            }
-            Parameter::ClientSubscribe(_session, c, subscribe) => {
-                log::debug!("{:?} client subscribe, {:?}", c.id, subscribe);
-            }
             Parameter::MessagePublish(_session, c, publish) => {
                 log::debug!("{:?} message publish, {:?}", c.id, publish);
+
+                if publish.topic().to_string().contains("x/y/z") {
+                    let p = match *publish {
+                        Publish::V3(p) => {
+                            let mut p = p.clone();
+                            p.packet.topic =
+                                bytestring::ByteString::from(format!("{}/{}", "test", p.packet.topic));
+                            p.topic.insert(0, Level::Normal("test".into()));
+                            Publish::V3(p)
+                        }
+                        Publish::V5(p) => Publish::V5(p.clone()),
+                    };
+                    log::debug!("{:?} MessageDelivered, {:?}", c.id, p.topic().to_string());
+                    return (true, Some(HookResult::Publish(p)));
+                }
+
+                let response =
+                    self.client.send_message(Message::Forward(c.id.clone(), (*publish).clone())).await;
+
+                log::debug!("{:?} response: {:?}", c.id, response);
             }
+            Parameter::MessageDelivered(_session, c, from, _publish) => {
+                log::debug!("{:?} MessageDelivered, {:?}", c.id, from);
+            }
+            Parameter::ClientSubscribeCheckAcl(_s, _c, subscribe) => {
+                log::debug!("{:?} ClientSubscribeCheckAcl, {:?}", _c.id, subscribe);
+                let mut acl_result = match subscribe {
+                    Subscribe::V3(_) => SubscribeAclResult::V3(Vec::new()),
+                    Subscribe::V5(_) => SubscribeAclResult::V5(Vec::new()),
+                };
+                for (tf, qos) in subscribe.topic_filters() {
+                    if tf.to_string() == "/x/y/z" {
+                        acl_result.add_not_authorized();
+                    } else {
+                        acl_result.add_success(qos)
+                    }
+                }
+                log::debug!("{:?} acl_result, {:?}", _c.id, acl_result);
+                return (true, Some(HookResult::SubscribeAclResult(acl_result)));
+            }
+
+            Parameter::GrpcMessageReceived(msg) => {
+                log::debug!("GrpcMessageReceived, {:?}", msg);
+                // match msg {
+                //     Message::Forward(from, publish) => {
+                //         tokio::spawn(forwards(vec![(from.clone(), publish.clone())]));
+                //     }
+                //     Message::Forwards(publishs) => {
+                //         tokio::spawn(forwards(publishs.clone()));
+                //     }
+                //     _ => {}
+                // }
+            }
+
             _ => {
                 log::error!("unimplemented, {:?}", param)
             }
         }
         (true, acc)
+    }
+}
+
+async fn _forwards(publishs: Vec<(From, Publish)>) {
+    for (from, publish) in publishs {
+        if let Err(droppeds) = { Runtime::instance().extends.shared().await.forwards(from, publish).await } {
+            for (to, from, publish, reason) in droppeds {
+                //hook, message_dropped
+                Runtime::instance()
+                    .extends
+                    .hook_mgr()
+                    .await
+                    .message_dropped(Some(to), from, publish, reason)
+                    .await;
+            }
+        }
     }
 }
