@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use rmqtt::broker::error::MqttError;
 use rmqtt::{
-    broker::hook::{self, Handler, HookResult, Parameter, Register, ReturnType},
+    broker::hook::{self, Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::types::{ConnectInfo, QoSEx, MQTT_LEVEL_5},
     plugin::Plugin,
     Result, Runtime, Topic,
@@ -122,33 +122,23 @@ impl Plugin for WebHookPlugin {
     #[inline]
     async fn init(&mut self) -> Result<()> {
         log::info!("{} init", self.name);
+        let tx = self.tx.clone();
+        self.register.add(Type::SessionCreated, Box::new(WebHookHandler { tx: tx.clone() })).await;
+        self.register.add(Type::SessionTerminated, Box::new(WebHookHandler { tx: tx.clone() })).await;
+        self.register.add(Type::SessionSubscribed, Box::new(WebHookHandler { tx: tx.clone() })).await;
+        self.register.add(Type::SessionUnsubscribed, Box::new(WebHookHandler { tx: tx.clone() })).await;
 
-        let register = |typ: hook::Type| {
-            self.register.add(
-                typ,
-                Box::new(WebHookHandler {
-                    //cfg: self.cfg.clone(),
-                    tx: self.tx.clone(),
-                }),
-            );
-        };
+        self.register.add(Type::ClientConnect, Box::new(WebHookHandler { tx: tx.clone() })).await;
+        self.register.add(Type::ClientConnack, Box::new(WebHookHandler { tx: tx.clone() })).await;
+        self.register.add(Type::ClientConnected, Box::new(WebHookHandler { tx: tx.clone() })).await;
+        self.register.add(Type::ClientDisconnected, Box::new(WebHookHandler { tx: tx.clone() })).await;
+        self.register.add(Type::ClientSubscribe, Box::new(WebHookHandler { tx: tx.clone() })).await;
+        self.register.add(Type::ClientUnsubscribe, Box::new(WebHookHandler { tx: tx.clone() })).await;
 
-        register(hook::Type::SessionCreated);
-        register(hook::Type::SessionTerminated);
-        register(hook::Type::SessionSubscribed);
-        register(hook::Type::SessionUnsubscribed);
-
-        register(hook::Type::ClientConnect);
-        register(hook::Type::ClientConnack);
-        register(hook::Type::ClientConnected);
-        register(hook::Type::ClientDisconnected);
-        register(hook::Type::ClientSubscribe);
-        register(hook::Type::ClientUnsubscribe);
-
-        register(hook::Type::MessagePublish);
-        register(hook::Type::MessageDelivered);
-        register(hook::Type::MessageAcked);
-        register(hook::Type::MessageDropped);
+        self.register.add(Type::MessagePublish, Box::new(WebHookHandler { tx: tx.clone() })).await;
+        self.register.add(Type::MessageDelivered, Box::new(WebHookHandler { tx: tx.clone() })).await;
+        self.register.add(Type::MessageAcked, Box::new(WebHookHandler { tx: tx.clone() })).await;
+        self.register.add(Type::MessageDropped, Box::new(WebHookHandler { tx: tx.clone() })).await;
 
         Ok(())
     }
@@ -161,14 +151,14 @@ impl Plugin for WebHookPlugin {
     #[inline]
     async fn start(&mut self) -> Result<()> {
         log::info!("{} start", self.name);
-        self.register.start();
+        self.register.start().await;
         Ok(())
     }
 
     #[inline]
     async fn stop(&mut self) -> Result<bool> {
         log::info!("{} stop", self.name);
-        self.register.stop();
+        self.register.stop().await;
         Ok(true)
     }
 
@@ -366,7 +356,7 @@ impl ToBody for ConnectInfo {
 
 #[async_trait]
 impl Handler for WebHookHandler {
-    async fn hook(&mut self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
+    async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
         let typ = param.get_type();
 
         let bodys = match param {

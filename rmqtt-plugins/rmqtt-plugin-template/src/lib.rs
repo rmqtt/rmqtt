@@ -2,7 +2,7 @@ use async_trait::async_trait;
 
 use rmqtt::{
     broker::{
-        hook::{self, Handler, HookResult, Parameter, Register, ReturnType},
+        hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
         types::{From, Publish},
     },
     grpc::client::NodeGrpcClient, //, Message},
@@ -45,12 +45,12 @@ impl Plugin for Template {
     #[inline]
     async fn init(&mut self) -> Result<()> {
         log::debug!("{} init", self.name);
-        self.register.add(hook::Type::ClientConnack, Box::new(HookHandler::new()?));
-        self.register.add(hook::Type::MessageDelivered, Box::new(HookHandler::new()?));
-        self.register.add(hook::Type::MessagePublish, Box::new(HookHandler::new()?));
-        self.register.add(hook::Type::ClientSubscribeCheckAcl, Box::new(HookHandler::new()?));
+        self.register.add(Type::ClientConnack, Box::new(HookHandler::new()?)).await;
+        self.register.add(Type::MessageDelivered, Box::new(HookHandler::new()?)).await;
+        self.register.add(Type::MessagePublish, Box::new(HookHandler::new()?)).await;
+        self.register.add(Type::ClientSubscribeCheckAcl, Box::new(HookHandler::new()?)).await;
 
-        self.register.add(hook::Type::GrpcMessageReceived, Box::new(HookHandler::new()?));
+        self.register.add(Type::GrpcMessageReceived, Box::new(HookHandler::new()?)).await;
 
         Ok(())
     }
@@ -63,14 +63,14 @@ impl Plugin for Template {
     #[inline]
     async fn start(&mut self) -> Result<()> {
         log::info!("{} start", self.name);
-        self.register.start();
+        self.register.start().await;
         Ok(())
     }
 
     #[inline]
     async fn stop(&mut self) -> Result<bool> {
         log::info!("{} stop", self.name);
-        self.register.stop();
+        self.register.stop().await;
         Ok(true)
     }
 
@@ -98,7 +98,7 @@ impl HookHandler {
 
 #[async_trait]
 impl Handler for HookHandler {
-    async fn hook(&mut self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
+    async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
         match param {
             Parameter::ClientConnack(connect_info, r) => {
                 log::debug!("client connack, {:?}, {:?}", connect_info, r);

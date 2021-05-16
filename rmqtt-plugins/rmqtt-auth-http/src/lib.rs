@@ -11,10 +11,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
-
 use async_trait::async_trait;
+
 use rmqtt::{
-    broker::hook::{self, Handler, HookResult, Parameter, Register, ReturnType},
+    broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::session::ClientInfo,
     broker::types::{AsStr, AuthResult, Password, PublishAclResult, Subscribe, SubscribeAclResult},
     plugin::Plugin,
@@ -27,8 +27,6 @@ const IGNORE: &str = "ignore";
 const SUB: &str = "1";
 const PUB: &str = "2";
 
-// type IgnoreCache = Arc<RwLock<MemoryCache<CacheKey, bool>>>;
-// type SuperMap = Arc<DashMap<ClientId, bool>>;
 type CacheMap = Arc<DashMap<ClientId, CacheValue>>;
 
 #[inline]
@@ -51,7 +49,6 @@ struct AuthHttpPlugin {
     descr: String,
     register: Box<dyn Register>,
     cfg: Arc<RwLock<PluginConfig>>,
-    // ignore_cache: IgnoreCache,
     cache_map: CacheMap,
 }
 
@@ -61,7 +58,6 @@ impl AuthHttpPlugin {
         let cfg = Arc::new(RwLock::new(runtime.settings.plugins.load_config::<PluginConfig>(&name)?));
         log::debug!("{} AuthHttpPlugin cfg: {:?}", name, cfg.read().await);
         let register = runtime.extends.hook_mgr().await.register();
-        // let ignore_cache = Arc::new(RwLock::new(MemoryCache::with_full_scan(Duration::from_secs(60 * 60))));
         let cache_map = Arc::new(DashMap::default());
         Ok(Self { runtime, name, descr, register, cfg, cache_map })
     }
@@ -72,15 +68,12 @@ impl Plugin for AuthHttpPlugin {
     #[inline]
     async fn init(&mut self) -> Result<()> {
         log::info!("{} init", self.name);
-
-        let register = |typ: hook::Type| {
-            self.register
-                .add(typ, Box::new(AuthHandler { cfg: self.cfg.clone(), cache_map: self.cache_map.clone() }));
-        };
-        register(hook::Type::ClientAuthenticate);
-        register(hook::Type::ClientSubscribeCheckAcl);
-        register(hook::Type::MessagePublishCheckAcl);
-        register(hook::Type::ClientDisconnected);
+        let cfg = &self.cfg;
+        let cache_map = &self.cache_map;
+        self.register.add(Type::ClientAuthenticate, Box::new(AuthHandler::new(cfg, cache_map))).await;
+        self.register.add(Type::ClientSubscribeCheckAcl, Box::new(AuthHandler::new(cfg, cache_map))).await;
+        self.register.add(Type::MessagePublishCheckAcl, Box::new(AuthHandler::new(cfg, cache_map))).await;
+        self.register.add(Type::ClientDisconnected, Box::new(AuthHandler::new(cfg, cache_map))).await;
 
         Ok(())
     }
@@ -93,14 +86,14 @@ impl Plugin for AuthHttpPlugin {
     #[inline]
     async fn start(&mut self) -> Result<()> {
         log::info!("{} start", self.name);
-        self.register.start();
+        self.register.start().await;
         Ok(())
     }
 
     #[inline]
     async fn stop(&mut self) -> Result<bool> {
         log::info!("{} stop", self.name);
-        self.register.stop();
+        self.register.stop().await;
         Ok(true)
     }
 
@@ -134,6 +127,10 @@ struct AuthHandler {
 }
 
 impl AuthHandler {
+    fn new(cfg: &Arc<RwLock<PluginConfig>>, cache_map: &CacheMap) -> Self {
+        Self { cfg: cfg.clone(), cache_map: cache_map.clone() }
+    }
+
     async fn http_get_request<T: Serialize + ?Sized>(
         url: Url,
         body: &T,
@@ -364,7 +361,7 @@ impl AuthHandler {
 
 #[async_trait]
 impl Handler for AuthHandler {
-    async fn hook(&mut self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
+    async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
         match param {
             Parameter::ClientAuthenticate(_session, client_info, password) => {
                 log::debug!("ClientAuthenticate");
