@@ -50,7 +50,19 @@ pub async fn handshake<Io>(
         .limiter_mgr()
         .await
         .get(format!("{}", local_addr.port()), listen_cfg.clone())?;
-    limiter.acquire_one().await?;
+
+    if let Err(e) = limiter.acquire_one().await {
+        log::warn!(
+            "{}@{}/{}/{}/{} Connection Refused, handshake failed, reason: {:?}",
+            Runtime::instance().node.id(),
+            local_addr,
+            remote_addr,
+            handshake.packet().client_id,
+            handshake.packet().username.as_ref().map(|u| u.as_str()).unwrap_or_default(),
+            e
+        );
+        return Ok(handshake.service_unavailable());
+    }
 
     let packet = handshake.packet().clone();
 
@@ -82,13 +94,8 @@ pub async fn handshake<Io>(
 
     let mut entry = match { Runtime::instance().extends.shared().await.entry(id.clone()) }.try_lock() {
         Err(e) => {
-            return Ok(refused_ack(
-                handshake,
-                &connect_info,
-                ConnectAckReasonV3::ServiceUnavailable,
-                format!("{:?}", e),
-            )
-            .await);
+            log::warn!("{:?} Connection Refused, handshake, reason: {}", connect_info.id(), e,);
+            return Ok(handshake.service_unavailable());
         }
         Ok(entry) => entry,
     };
