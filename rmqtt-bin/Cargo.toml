@@ -1,6 +1,6 @@
 [package]
 name = "rmqttd"
-version = "0.1.3"
+version = "0.1.4"
 authors = ["rmqtt <rmqttd@126.com>"]
 edition = "2018"
 build = "build.rs"
@@ -28,7 +28,7 @@ serde_json = "1.0.48"
 warp = "0.3"
 
 ##plugins-release
-rmqtt = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.3"}
+rmqtt = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.4"}
 rmqtt-plugin-template = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.1"}
 rmqtt-web-hook = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.1"}
 rmqtt-auth-http = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.1"}
