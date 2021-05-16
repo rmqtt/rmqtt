@@ -5,7 +5,7 @@ authors = ["rmqtt <rmqttd@126.com>"]
 edition = "2018"
 
 [dependencies]
-rmqtt = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.3"}
+rmqtt = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.4"}
 #rmqtt = { path = "../../rmqtt" }
 futures = "0.3.13"
 log = "0.4"
