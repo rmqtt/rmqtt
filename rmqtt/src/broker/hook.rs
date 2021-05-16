@@ -29,17 +29,18 @@ pub trait HookManager: Sync + Send {
     async fn grpc_message_received(&self, msg: grpc::Message) -> Result<grpc::MessageReply>;
 }
 
+#[async_trait]
 pub trait Register: Sync + Send {
-    fn add(&self, typ: Type, handler: Box<dyn Handler>);
+    async fn add(&self, typ: Type, handler: Box<dyn Handler>);
 
-    fn start(&self) {}
+    async fn start(&self) {}
 
-    fn stop(&self) {}
+    async fn stop(&self) {}
 }
 
 #[async_trait]
 pub trait Handler: Sync + Send {
-    async fn hook(&mut self, param: &Parameter, acc: Option<HookResult>) -> ReturnType;
+    async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType;
 }
 
 #[async_trait]

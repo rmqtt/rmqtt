@@ -8,7 +8,7 @@ use std::num::NonZeroU32;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tokio::sync::{Mutex, OwnedMutexGuard};
+use tokio::sync::{self, Mutex, OwnedMutexGuard};
 use tokio::time::Duration;
 use uuid::Uuid;
 type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
@@ -594,7 +594,8 @@ type HandlerId = String;
 
 //#[derive(Clone)]
 pub struct DefaultHookManager {
-    handlers: Arc<DashMap<Type, LinkedMap<HandlerId, HookEntry>>>,
+    #[allow(clippy::type_complexity)]
+    handlers: Arc<DashMap<Type, Arc<sync::RwLock<LinkedMap<HandlerId, HookEntry>>>>>,
 }
 
 impl DefaultHookManager {
@@ -606,9 +607,11 @@ impl DefaultHookManager {
     }
 
     #[inline]
-    fn add(&self, typ: Type, handler: Box<dyn Handler>) -> Result<HandlerId> {
+    async fn add(&self, typ: Type, handler: Box<dyn Handler>) -> Result<HandlerId> {
         let id = Uuid::new_v4().to_simple().encode_lower(&mut Uuid::encode_buffer()).to_string();
-        let mut type_handlers = self.handlers.entry(typ).or_insert(LinkedMap::default());
+        let type_handlers =
+            self.handlers.entry(typ).or_insert(Arc::new(sync::RwLock::new(LinkedMap::default())));
+        let mut type_handlers = type_handlers.write().await;
         if type_handlers.contains_key(&id) {
             Err(Error::msg(format!("handler id is repetition, id is {}, type is {:?}", id, typ)))
         } else {
@@ -620,8 +623,10 @@ impl DefaultHookManager {
     #[inline]
     async fn exec<'a>(&'a self, t: Type, p: Parameter<'a>) -> Option<HookResult> {
         let mut acc = None;
-        if let Some(mut type_handlers) = self.handlers.get_mut(&t) {
-            for (_, entry) in type_handlers.iter_mut() {
+        let type_handlers = { self.handlers.get(&t).map(|h| (*h.value()).clone()) };
+        if let Some(type_handlers) = type_handlers {
+            let type_handlers = type_handlers.read().await;
+            for (_, entry) in type_handlers.iter() {
                 if entry.enabled {
                     let (proceed, new_acc) = entry.handler.hook(&p, acc).await;
                     if !proceed {
@@ -705,11 +710,11 @@ impl DefaultHookRegister {
     }
 
     #[inline]
-    fn adjust_status(&self, b: bool) {
+    async fn adjust_status(&self, b: bool) {
         for type_id in self.type_ids.iter() {
             let (typ, id) = type_id.key();
-            if let Some(mut type_handlers) = self.manager.handlers.get_mut(typ) {
-                if let Some(entry) = type_handlers.get_mut(id) {
+            if let Some(type_handlers) = self.manager.handlers.get(typ) {
+                if let Some(entry) = type_handlers.write().await.get_mut(id) {
                     if entry.enabled != b {
                         entry.enabled = b;
                     }
@@ -719,10 +724,11 @@ impl DefaultHookRegister {
     }
 }
 
+#[async_trait]
 impl Register for DefaultHookRegister {
     #[inline]
-    fn add(&self, typ: Type, handler: Box<dyn Handler>) {
-        match self.manager.add(typ, handler) {
+    async fn add(&self, typ: Type, handler: Box<dyn Handler>) {
+        match self.manager.add(typ, handler).await {
             Ok(id) => {
                 self.type_ids.insert((typ, id));
             }
@@ -733,13 +739,13 @@ impl Register for DefaultHookRegister {
     }
 
     #[inline]
-    fn start(&self) {
-        self.adjust_status(true);
+    async fn start(&self) {
+        self.adjust_status(true).await;
     }
 
     #[inline]
-    fn stop(&self) {
-        self.adjust_status(false);
+    async fn stop(&self) {
+        self.adjust_status(false).await;
     }
 }
 
