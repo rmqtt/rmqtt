@@ -91,20 +91,7 @@ async fn listen(name: String, listen_cfg: &Listener) -> Result<()> {
                                     ))
                                 },
                             )?;
-                        let client_id = handshake.packet().client_id.clone();
-                        match handshake_v3(listen_cfg, handshake, remote_addr, local_addr).await {
-                            Err(e) => {
-                                log::error!(
-                                    "{:?}/{:?}/{} Connection Refused, handshake, {:?}",
-                                    local_addr,
-                                    remote_addr,
-                                    client_id,
-                                    e
-                                );
-                                Err(e)
-                            }
-                            Ok(ack) => Ok(ack),
-                        }
+                        handshake_v3(listen_cfg, handshake, remote_addr, local_addr).await
                     })
                     // .v3(v3::MqttServer::new(handshake_v3)
                     .inflight(max_inflight)
