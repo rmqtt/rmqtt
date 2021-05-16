@@ -107,6 +107,9 @@ pub struct Rpc {
     #[serde(default = "Rpc::server_addr_default", deserialize_with = "deserialize_addr")]
     pub server_addr: SocketAddr, // = "0.0.0.0:5363"
 
+    #[serde(default = "Rpc::server_workers_default")]
+    pub server_workers: usize, //4
+
     #[serde(default = "Rpc::client_num_default")]
     pub client_num: usize, // = 2
 
@@ -121,6 +124,7 @@ impl Default for Rpc {
             mode: Self::mode_default(),
             batch_size: Self::batch_size_default(),
             server_addr: Self::server_addr_default(),
+            server_workers: Self::server_workers_default(),
             client_num: Self::client_num_default(),
             timeout: Self::timeout_default(),
         }
@@ -136,6 +140,9 @@ impl Rpc {
     }
     fn server_addr_default() -> SocketAddr {
         ([0, 0, 0, 0], 5363).into()
+    }
+    fn server_workers_default() -> usize {
+        4
     }
     fn client_num_default() -> usize {
         2
