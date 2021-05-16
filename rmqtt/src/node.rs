@@ -3,16 +3,15 @@ use std::net::SocketAddr;
 use crate::grpc::client::NodeGrpcClient;
 use crate::grpc::server::Server;
 use crate::settings::Settings;
-use crate::{NodeId, Result};
+use crate::{Runtime, NodeId, Result};
 
 pub struct Node {
     id: NodeId,
-    server_workers: usize,
 }
 
 impl Node {
     pub(crate) fn new(settings: Settings) -> Self {
-        Self { id: settings.node.id, server_workers: settings.rpc.server_workers }
+        Self { id: settings.node.id }
     }
 
     #[inline]
@@ -29,7 +28,7 @@ impl Node {
         std::thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
-                .worker_threads(self.server_workers)
+                .worker_threads(Runtime::instance().settings.rpc.server_workers)
                 .thread_name("grpc-server-worker")
                 .thread_stack_size(4 * 1024 * 1024)
                 .build()
