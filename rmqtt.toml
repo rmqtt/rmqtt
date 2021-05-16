@@ -14,6 +14,7 @@ node.id = 1
 ## RPC
 ##--------------------------------------------------------------------
 rpc.server_addr = "0.0.0.0:5363"
+rpc.server_workers = 4
 #Maximum number of messages sent in batch
 #rpc.batch_size = 256
 #rpc.client_num = 2
@@ -39,8 +40,8 @@ log.file = "rmqtt.log"
 plugins.dir = "rmqtt-plugins/"
 #Plug in started by default, when the mqtt server is started
 plugins.default_startups = [
-#    "rmqtt-plugin-template",
-#    "rmqtt-plugin-helloworld"
+#    "rmqtt-auth-http",
+#    "rmqtt-web-hook"
 ]
 
 ##--------------------------------------------------------------------
