@@ -2,10 +2,8 @@ use async_trait::async_trait;
 
 use rmqtt::{
     broker::{
-        hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
-        types::{From, Publish},
+        hook::{Handler, HookResult, Parameter, Register, ReturnType, Type}
     },
-    grpc::client::NodeGrpcClient, //, Message},
     plugin::Plugin,
     Result,
     Runtime,
@@ -86,13 +84,11 @@ impl Plugin for Template {
 }
 
 struct HookHandler {
-    _client: NodeGrpcClient,
 }
 
 impl HookHandler {
     fn new() -> Result<Self> {
-        let _client = NodeGrpcClient::new(([127, 0, 0, 1], 5363).into())?;
-        Ok(Self { _client })
+        Ok(Self {})
     }
 }
 
@@ -112,20 +108,6 @@ impl Handler for HookHandler {
             Parameter::ClientSubscribeCheckAcl(_s, _c, subscribe) => {
                 log::debug!("{:?} ClientSubscribeCheckAcl, {:?}", _c.id, subscribe);
             }
-
-            Parameter::GrpcMessageReceived(msg) => {
-                log::debug!("GrpcMessageReceived, {:?}", msg);
-                // match msg {
-                //     Message::Forward(from, publish) => {
-                //         tokio::spawn(forwards(vec![(from.clone(), publish.clone())]));
-                //     }
-                //     Message::Forwards(publishs) => {
-                //         tokio::spawn(forwards(publishs.clone()));
-                //     }
-                //     _ => {}
-                // }
-            }
-
             _ => {
                 log::error!("unimplemented, {:?}", param)
             }
@@ -134,18 +116,3 @@ impl Handler for HookHandler {
     }
 }
 
-async fn _forwards(publishs: Vec<(From, Publish)>) {
-    for (from, publish) in publishs {
-        if let Err(droppeds) = { Runtime::instance().extends.shared().await.forwards(from, publish).await } {
-            for (to, from, publish, reason) in droppeds {
-                //hook, message_dropped
-                Runtime::instance()
-                    .extends
-                    .hook_mgr()
-                    .await
-                    .message_dropped(Some(to), from, publish, reason)
-                    .await;
-            }
-        }
-    }
-}
