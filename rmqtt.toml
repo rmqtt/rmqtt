@@ -3,11 +3,13 @@
 ## General
 ##--------------------------------------------------------------------
 
+#Internal API listening address
+inner_api_addr = "0.0.0.0:6063"
 
 ##--------------------------------------------------------------------
 ## Node
 ##--------------------------------------------------------------------
-#node id
+#Node id
 node.id = 1
 
 ##--------------------------------------------------------------------
@@ -16,10 +18,11 @@ node.id = 1
 rpc.server_addr = "0.0.0.0:5363"
 rpc.server_workers = 4
 #Maximum number of messages sent in batch
-#rpc.batch_size = 256
-#rpc.client_num = 2
+rpc.batch_size = 128
+#Client concurrent request limit
+rpc.client_concurrency_limit = 128
 #Connect and send to server timeout
-rpc.timeout = "5s"
+rpc.client_timeout = "5s"
 
 
 ##--------------------------------------------------------------------
@@ -40,6 +43,7 @@ log.file = "rmqtt.log"
 plugins.dir = "rmqtt-plugins/"
 #Plug in started by default, when the mqtt server is started
 plugins.default_startups = [
+#    "rmqtt-cluster-broadcast"
 #    "rmqtt-auth-http",
 #    "rmqtt-web-hook"
 ]
