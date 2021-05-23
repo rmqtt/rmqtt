@@ -2,13 +2,23 @@ syntax = "proto3";
 package pb;
 
 message Message{
-    bytes data = 1;
+    uint64 typ = 1;
+    bytes data = 2;
 }
 
 message MessageReply{
     bytes data = 1;
 }
 
+message BatchMessages{
+   bytes data = 1;
+}
+
+message BatchMessagesReply{
+    bytes data = 1;
+}
+
 service NodeService {
     rpc SendMessage(Message) returns (MessageReply);
+    rpc BatchSendMessages(BatchMessages) returns (BatchMessagesReply);
 }
