@@ -2,16 +2,24 @@ mod inner_api;
 
 use anyhow::Result;
 use futures::future::ok;
-use ntex::rt::net::TcpStream;
-use ntex::server::rustls::Acceptor;
-use ntex::server::rustls::TlsStream;
-use ntex::{fn_factory_with_config, fn_service, pipeline_factory};
-use ntex_mqtt::v3::Handshake as HandshakeV3;
-use ntex_mqtt::v5::Handshake as HandshakeV5;
-use ntex_mqtt::{v3, v5, MqttServer};
+
 use rustls::internal::pemfile::{certs, rsa_private_keys};
 use rustls::{NoClientAuth, ServerConfig};
 use std::{fs::File, io::BufReader};
+
+use rmqtt::ntex::{
+    self,
+    rt::net::TcpStream,
+    server::rustls::Acceptor,
+    server::rustls::TlsStream,
+    {fn_factory_with_config, fn_service, pipeline_factory},
+};
+use rmqtt::ntex_mqtt::{
+    self,
+    v3::Handshake as HandshakeV3,
+    v5::Handshake as HandshakeV5,
+    {v3, v5, MqttServer},
+};
 
 use rmqtt::broker::{
     v3::control_message as control_message_v3, v3::handshake as handshake_v3, v3::publish as publish_v3,
@@ -43,11 +51,11 @@ async fn main() {
     plugin::init().await.expect("Failed to initialize plug-in");
     plugin::default_startups().await.expect("Failed to startups plug-in");
 
-    //hook, before startup
-    Runtime::instance().extends.hook_mgr().await.before_startup().await;
-
     //start grcp server
     Runtime::instance().node.start_grpc_server();
+
+    //hook, before startup
+    Runtime::instance().extends.hook_mgr().await.before_startup().await;
 
     //tcp
     let mut tcp_listens = Vec::new();
@@ -286,8 +294,9 @@ fn inner_api_serve_and_listen() {
             .unwrap();
 
         let inner_api = async {
-            if let Err(e) = inner_api::serve("0.0.0.0:6767").await {
-                log::error!("error: inner api listen on {}, {:?}", "0.0.0.0:6767", e);
+            let laddr = Runtime::instance().settings.inner_api_addr;
+            if let Err(e) = inner_api::serve(laddr).await {
+                log::error!("error: inner api listen on {}, {:?}", laddr, e);
             }
         };
         rt.block_on(inner_api);
