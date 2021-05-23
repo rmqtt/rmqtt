@@ -51,6 +51,14 @@ impl Listeners {
     pub fn tls(&self, port: u16) -> Option<Listener> {
         self.tlss.get(&port).cloned()
     }
+
+    #[inline]
+    pub fn get(&self, port: u16) -> Option<Listener> {
+        if let Some(tcp) = self.tcp(port) {
+            return Some(tcp);
+        }
+        self.tls(port)
+    }
 }
 
 #[derive(Debug, Clone)]
