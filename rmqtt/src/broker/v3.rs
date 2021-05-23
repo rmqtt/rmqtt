@@ -101,7 +101,7 @@ pub async fn handshake<Io>(
     };
 
     // Kick out the current session, if it exists
-    let (session_present, old_session) = match entry.kick(packet.clean_session).await {
+    let (session_present, offline_info) = match entry.kick(packet.clean_session).await {
         Err(e) => {
             return Ok(refused_ack(
                 handshake,
@@ -111,22 +111,21 @@ pub async fn handshake<Io>(
             )
             .await);
         }
-        Ok(Some((s, _))) => (!packet.clean_session, Some(s)),
+        Ok(Some(offline_info)) => (!packet.clean_session, Some(offline_info)),
         Ok(None) => (false, None),
     };
 
     let connected_at = chrono::Local::now().timestamp_millis();
     let client = ClientInfo::new(connect_info, session_present, connected_at);
+    let fitter = Runtime::instance().extends.fitter_mgr().await.get(id.clone(), listen_cfg.clone());
 
-    log::debug!("{:?} old session: {:?}", id, old_session);
-    let (session, session_created) = if let Some(s) = old_session {
-        (s, false)
-    } else {
-        let fitter = Runtime::instance().extends.fitter_mgr().await.get(id.clone(), listen_cfg.clone());
-        (Session::new(listen_cfg, fitter, connected_at), true)
-    };
+    log::debug!("{:?} offline_info: {:?}", id, offline_info);
+    let created_at =
+        if let Some(ref offline_info) = offline_info { offline_info.created_at } else { connected_at };
 
-    let keep_alive = match session.fitter.keep_alive(packet.keep_alive) {
+    let session = Session::new(id, listen_cfg, fitter.max_mqueue_len(), created_at);
+
+    let keep_alive = match fitter.keep_alive(packet.keep_alive) {
         Ok(keep_alive) => keep_alive,
         Err(e) => {
             return Ok(refused_ack(
@@ -141,7 +140,7 @@ pub async fn handshake<Io>(
 
     let hook = Runtime::instance().extends.hook_mgr().await.hook(&session, &client);
 
-    if session_created {
+    if offline_info.is_none() {
         //hook, session created
         hook.session_created().await;
     }
@@ -159,7 +158,7 @@ pub async fn handshake<Io>(
     }
 
     let (state, tx) =
-        SessionState::new(id.clone(), session, client, Sink::V3(sink), hook).start(keep_alive).await;
+        SessionState::new(session, client, Sink::V3(sink), hook, fitter).start(keep_alive).await;
 
     if let Err(e) = entry.set(state.session.clone(), tx, state.client.clone()).await {
         return Ok(refused_ack(
@@ -184,6 +183,27 @@ pub async fn handshake<Io>(
 
     //hook, client connected
     state.hook.client_connected().await;
+
+    if let Some(mut o) = offline_info {
+        log::debug!("o.subscriptions: {}", o.subscriptions.len());
+        //Subscription transfer from previous session
+        for (tf, qos) in o.subscriptions.drain() {
+            state.subscriptions_add(tf, qos).await;
+        }
+
+        //Send previous session unacked messages
+        while let Some(msg) = o.inflight_messages.pop() {
+            if !matches!(msg.status, MomentStatus::UnComplete) {
+                state.reforward(msg).await?;
+            }
+        }
+
+        //Send offline messages
+        while let Some((from, p)) = o.offline_messages.pop() {
+            state.forward(from, p).await;
+        }
+    }
+
     Ok(handshake.ack(state, session_present).idle_timeout(keep_alive))
 }
 
@@ -200,7 +220,7 @@ pub async fn control_message(
         v3::ControlMessage::Subscribe(mut subs) => {
             let subs_ack = match state.subscribe_v3(&mut subs).await {
                 Err(e) => {
-                    state.client.set_disconnected_reason(format!("Subscribe failed, {:?}", e));
+                    state.client.set_disconnected_reason(format!("Subscribe failed, {:?}", e)).await;
                     log::error!("{:?} Subscribe failed, reason: {:?}", state.id, e);
                     return Err(e);
                 }
@@ -229,7 +249,7 @@ pub async fn control_message(
         }
         v3::ControlMessage::Unsubscribe(mut unsubs) => {
             if let Err(e) = state.unsubscribe_v3(&mut unsubs).await {
-                state.client.set_disconnected_reason(format!("Unsubscribe failed, {:?}", e));
+                state.client.set_disconnected_reason(format!("Unsubscribe failed, {:?}", e)).await;
                 log::error!("{:?} Unsubscribe failed, reason: {:?}", state.id, e);
                 return Err(e);
             }
@@ -245,10 +265,11 @@ pub async fn control_message(
             let reason = state
                 .client
                 .get_disconnected_reason()
+                .await
                 .unwrap_or_else(|| Reason::from_static("unknown error"));
             state.hook.client_disconnected(reason).await;
             if let Err(e) = state.send(Message::Closed) {
-                log::error!("{:?} Closed error, reason: {:?}", state.id, e);
+                log::debug!("{:?} Closed error, reason: {:?}", state.id, e);
             }
             m.ack()
         }
@@ -266,26 +287,26 @@ pub async fn publish(state: v3::Session<SessionState>, pub_msg: v3::PublishMessa
     match pub_msg {
         v3::PublishMessage::Publish(publish) => {
             if let Err(e) = state.publish_v3(publish).await {
-                state.client.set_disconnected_reason(format!("Publish failed, {:?}", e));
+                state.client.set_disconnected_reason(format!("Publish failed, {:?}", e)).await;
                 log::error!(
                     "{:?} Publish failed, reason: {:?}",
                     state.id,
-                    state.client.get_disconnected_reason()
+                    state.client.get_disconnected_reason().await
                 );
                 return Err(e);
             }
         }
         v3::PublishMessage::PublishAck(packet_id) => {
-            if let Some(iflt_msg) = state.inflight_win.write().remove(&packet_id.get()) {
+            if let Some(iflt_msg) = state.inflight_win.write().await.remove(&packet_id.get()) {
                 //hook, message_ack
                 state.hook.message_acked(iflt_msg.from, &iflt_msg.publish).await;
             }
         }
         v3::PublishMessage::PublishReceived(packet_id) => {
-            state.inflight_win.write().update_status(&packet_id.get(), MomentStatus::UnComplete);
+            state.inflight_win.write().await.update_status(&packet_id.get(), MomentStatus::UnComplete);
         }
         v3::PublishMessage::PublishComplete(packet_id) => {
-            if let Some(iflt_msg) = state.inflight_win.write().remove(&packet_id.get()) {
+            if let Some(iflt_msg) = state.inflight_win.write().await.remove(&packet_id.get()) {
                 //hook, message_ack
                 state.hook.message_acked(iflt_msg.from, &iflt_msg.publish).await;
             }
