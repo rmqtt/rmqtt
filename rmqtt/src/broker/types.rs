@@ -1190,8 +1190,8 @@ impl Id {
     }
 
     #[inline]
-    pub fn from(client_id: ClientId) -> Self {
-        Self::new(0, None, None, client_id, None)
+    pub fn from(node_id: NodeId, client_id: ClientId) -> Self {
+        Self::new(node_id, None, None, client_id, None)
     }
 
     #[inline]
@@ -1279,7 +1279,7 @@ pub struct _Id {
     pub username: UserName,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Retain {
     pub from: From,
     pub publish: Publish,
