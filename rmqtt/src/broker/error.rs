@@ -36,6 +36,8 @@ pub enum MqttError {
     ConfigError(ConfigError),
     #[error("{0}")]
     AddrParseError(AddrParseError),
+    #[error("None")]
+    None,
 }
 
 unsafe impl std::marker::Send for MqttError {}
