@@ -1,5 +1,4 @@
 use futures::StreamExt;
-use parking_lot::RwLock;
 use std::convert::AsRef;
 use std::convert::From as _;
 use std::fmt;
@@ -9,6 +8,7 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use tokio::sync::{RwLock, RwLockReadGuard};
 use tokio::time::{Duration, Instant};
 
 use ntex_mqtt::types::MQTT_LEVEL_5;
@@ -25,13 +25,13 @@ type MessageQueue = Queue<(From, Publish)>;
 
 #[derive(Clone)]
 pub struct SessionState {
-    pub id: Id,
     pub tx: Option<Tx>,
     pub session: Session,
     pub client: ClientInfo,
     pub sink: Sink,
     pub hook: Rc<dyn Hook>,
     pub deliver_queue_tx: Option<MessageSender>,
+    pub fitter: Rc<dyn Fitter>,
 }
 
 unsafe impl std::marker::Send for SessionState {}
@@ -52,8 +52,14 @@ impl fmt::Debug for SessionState {
 
 impl SessionState {
     #[inline]
-    pub(crate) fn new(id: Id, session: Session, client: ClientInfo, sink: Sink, hook: Rc<dyn Hook>) -> Self {
-        Self { id, tx: None, session, client, sink, hook, deliver_queue_tx: None }
+    pub(crate) fn new(
+        session: Session,
+        client: ClientInfo,
+        sink: Sink,
+        hook: Rc<dyn Hook>,
+        fitter: Rc<dyn Fitter>,
+    ) -> Self {
+        Self { tx: None, session, client, sink, hook, deliver_queue_tx: None, fitter }
     }
 
     #[inline]
@@ -100,13 +106,18 @@ impl SessionState {
                 let start = chrono::Local::now().timestamp_millis();
                 deliver_timeout_delay.as_mut().reset(
                     Instant::now()
-                        + state.inflight_win.read().get_timeout().unwrap_or_else(|| Duration::from_secs(120)),
+                        + state
+                            .inflight_win
+                            .read()
+                            .await
+                            .get_timeout()
+                            .unwrap_or_else(|| Duration::from_secs(120)),
                 );
 
                 tokio::select! {
                     _ = &mut keep_alive_delay => {  //, if !keep_alive_delay.is_elapsed()
                         log::debug!("{:?} session is timeout, {:?}", id, keep_alive_delay);
-                        state.client.set_disconnected_reason("Timeout(Read/Write)".to_owned());
+                        state.client.set_disconnected_reason("Timeout(Read/Write)".to_owned()).await;
                         break
                     },
                     msg = msg_rx.recv() => {
@@ -126,12 +137,12 @@ impl SessionState {
                                         log::warn!("{:?} Kicked response error, {:?}", id, e);
                                     }
                                     _kicked = true;
-                                    state.client.set_disconnected_reason(format!("Kicked by {:?}", by_id));
+                                    state.client.set_disconnected_reason(format!("Kicked by {:?}", by_id)).await;
                                     break
                                 },
                                 Message::Disconnect => {
                                     _is_disconnect_received = true;
-                                    state.client.set_disconnected_reason(format!("Disconnect({}) message is received", _is_disconnect_received));
+                                    state.client.set_disconnected_reason(format!("Disconnect({}) message is received", _is_disconnect_received)).await;
                                 },
                                 Message::Closed => {
                                     log::debug!("{:?} Disconnect({}) message received", id, _is_disconnect_received);
@@ -144,13 +155,13 @@ impl SessionState {
                             }
                         }else{
                             log::warn!("{:?} None is received from the Rx", id);
-                            state.client.set_disconnected_reason("None is received from the Rx".to_owned());
+                            state.client.set_disconnected_reason("None is received from the Rx".to_owned()).await;
                             break;
                         }
                     },
 
                     _ = &mut deliver_timeout_delay => {  //, if state.inflight_win.read().has_timeout() => {
-                        while let Some(iflt_msg) = state.inflight_win.write().pop_front_timeout(){
+                        while let Some(iflt_msg) = state.inflight_win.write().await.pop_front_timeout(){
                             log::debug!("{:?} has timeout message in inflight: {:?}", id, iflt_msg);
                             if let Err(e) = state.reforward(iflt_msg).await{
                                 log::error!("{:?} redeliver message error, {:?}", id, e);
@@ -158,7 +169,7 @@ impl SessionState {
                         }
                     },
 
-                    deliver_packet = deliver_queue_rx.next(), if state.inflight_win.read().has_credit() => {
+                    deliver_packet = deliver_queue_rx.next(), if state.inflight_win.read().await.has_credit() => {
                         log::debug!("{:?} deliver_packet: {:?}", id, deliver_packet);
                         match deliver_packet{
                             Some(Some((from, p))) => {
@@ -171,7 +182,7 @@ impl SessionState {
                             },
                             None => {
                                 log::warn!("{:?} Deliver Queue is closed", id);
-                                state.client.set_disconnected_reason("Deliver Queue is closed".into());
+                                state.client.set_disconnected_reason("Deliver Queue is closed".into()).await;
                                 break;
                             }
                         }
@@ -202,7 +213,7 @@ impl SessionState {
 
             if !_kicked {
                 if state.client.clean_session() {
-                    state.clean(state.client.get_disconnected_reason().unwrap_or_default()).await;
+                    state.clean(state.client.get_disconnected_reason().await.unwrap_or_default()).await;
                 } else {
                     //Start offline event loop
                     Self::offline_start(state.clone(), &mut msg_rx, &deliver_queue_tx, &mut _kicked).await;
@@ -350,7 +361,7 @@ impl SessionState {
                 .shared()
                 .await
                 .entry(self.id.clone())
-                .forward(retain.from, p)
+                .publish(retain.from, p)
                 .await
             {
                 Runtime::instance()
@@ -365,7 +376,7 @@ impl SessionState {
     }
 
     #[inline]
-    async fn deliver(&self, from: From, publish: Publish) -> Result<()> {
+    pub async fn deliver(&self, from: From, mut publish: Publish) -> Result<()> {
         //hook, message_expiry_check
         let expiry = self.hook.message_expiry_check(from.clone(), &publish).await;
 
@@ -384,15 +395,15 @@ impl SessionState {
             return Ok(());
         }
 
-        //hook, message_delivered
-        let mut publish = self.hook.message_delivered(from.clone(), &publish).await.unwrap_or(publish);
-
         //generate packet_id
         if matches!(publish.qos(), QoS::AtLeastOnce | QoS::ExactlyOnce)
             && (!publish.dup() || publish.packet_id_is_none())
         {
-            publish.set_packet_id(self.inflight_win.read().next_id()?);
+            publish.set_packet_id(self.inflight_win.read().await.next_id()?);
         }
+
+        //hook, message_delivered
+        let publish = self.hook.message_delivered(from.clone(), &publish).await.unwrap_or(publish);
 
         //send message
         self.sink.publish(publish.clone())?; //@TODO ... at exception, send hook and or store message
@@ -404,14 +415,14 @@ impl SessionState {
             _ => None,
         };
         if let Some(moment_status) = moment_status {
-            self.inflight_win.write().push_back(InflightMessage::new(moment_status, from, publish));
+            self.inflight_win.write().await.push_back(InflightMessage::new(moment_status, from, publish));
         }
 
         Ok(())
     }
 
     #[inline]
-    async fn reforward(&self, mut iflt_msg: InflightMessage) -> Result<()> {
+    pub async fn reforward(&self, mut iflt_msg: InflightMessage) -> Result<()> {
         match iflt_msg.status {
             MomentStatus::UnAck => {
                 iflt_msg.publish.set_dup(true);
@@ -437,7 +448,7 @@ impl SessionState {
                 //rerelease
                 if let Some(release_packet) = iflt_msg.release_packet() {
                     self.sink.send(release_packet)?;
-                    self.inflight_win.write().push_back(InflightMessage::new(
+                    self.inflight_win.write().await.push_back(InflightMessage::new(
                         MomentStatus::UnComplete,
                         iflt_msg.from,
                         iflt_msg.publish,
@@ -464,7 +475,7 @@ impl SessionState {
             .collect::<Result<Vec<(Topic, QoS)>>>()?;
 
         if self.listen_cfg.max_subscriptions > 0
-            && self.subscriptions.read().len() + subs_v3.len() > self.listen_cfg.max_subscriptions
+            && self.subscriptions.read().await.len() + subs_v3.len() > self.listen_cfg.max_subscriptions
         {
             log::warn!(
                 "{:?} Subscribe Refused, reason: too many subscriptions, max subscriptions limit: {:?}",
@@ -681,7 +692,7 @@ impl SessionState {
         }
 
         //Session expired, discarding messages in the flight window
-        while let Some(iflt_msg) = self.inflight_win.write().pop_front() {
+        while let Some(iflt_msg) = self.inflight_win.write().await.pop_front() {
             log::debug!(
                 "{:?} clean.dropped, from: {:?}, publish: {:?}",
                 self.id,
@@ -716,19 +727,48 @@ impl Deref for SessionState {
     }
 }
 
+// type SessionSerde =
+//     (u16, Vec<(TopicFilter, u8)>, Vec<(From, Publish)>, Vec<InflightMessage>, TimestampMillis);
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct SessionOfflineInfo {
+    pub id: Id,
+    pub subscriptions: TopicFilterMap,
+    pub offline_messages: Vec<(From, Publish)>,
+    pub inflight_messages: Vec<InflightMessage>,
+    pub created_at: TimestampMillis,
+}
+
+impl std::fmt::Debug for SessionOfflineInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "subscriptions: {}, offline_messages: {}, inflight_messages: {}, created_at: {}",
+            self.subscriptions.len(),
+            self.offline_messages.len(),
+            self.inflight_messages.len(),
+            self.created_at
+        )
+    }
+}
+
 #[derive(Clone)]
 pub struct Session(Arc<_SessionInner>);
 
 impl Session {
     #[inline]
-    pub(crate) fn new(listen_cfg: Listener, fitter: Box<dyn Fitter>, created_at: TimestampMillis) -> Self {
-        let max_mqueue_len = fitter.max_mqueue_len();
+    pub(crate) fn new(
+        id: Id,
+        listen_cfg: Listener,
+        max_mqueue_len: usize,
+        created_at: TimestampMillis,
+    ) -> Self {
         let max_inflight = listen_cfg.max_inflight;
         let message_retry_interval = listen_cfg.message_retry_interval.as_millis() as TimestampMillis;
         let message_expiry_interval = listen_cfg.message_expiry_interval.as_millis() as TimestampMillis;
         Self(Arc::new(_SessionInner {
+            id,
             listen_cfg,
-            fitter,
             subscriptions: Arc::new(RwLock::new(TopicFilterMap::default())),
             deliver_queue: Arc::new(MessageQueue::new(max_mqueue_len)),
             inflight_win: Arc::new(RwLock::new(Inflight::new(
@@ -738,6 +778,30 @@ impl Session {
             ))),
             created_at,
         }))
+    }
+
+    #[inline]
+    pub async fn to_offline_info(&self) -> SessionOfflineInfo {
+        let id = self.id.clone();
+        let subscriptions = self.drain_subscriptions().await;
+        let mut offline_messages = Vec::new();
+        while let Some(item) = self.deliver_queue.pop() {
+            //@TODO ..., check message expired
+            offline_messages.push(item);
+        }
+        let mut inflight_win = self.inflight_win.write().await;
+        let mut inflight_messages = Vec::new();
+        while let Some(msg) = inflight_win.pop_front() {
+            //@TODO ..., check message expired
+            inflight_messages.push(msg);
+        }
+        SessionOfflineInfo {
+            id,
+            subscriptions,
+            offline_messages,
+            inflight_messages,
+            created_at: self.created_at,
+        }
     }
 }
 
@@ -752,13 +816,13 @@ impl Deref for Session {
 impl std::fmt::Debug for Session {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Session {:?}", serde_json::to_string(&self.to_json()))
+        write!(f, "Session {:?}", self.id)
     }
 }
 
 pub struct _SessionInner {
+    pub id: Id,
     pub listen_cfg: Listener,
-    pub fitter: Box<dyn Fitter>,
     pub subscriptions: Arc<RwLock<TopicFilterMap>>, //Current subscription for this session
     pub deliver_queue: Arc<MessageQueue>,
     pub inflight_win: Arc<RwLock<Inflight>>,
@@ -767,29 +831,34 @@ pub struct _SessionInner {
 
 impl _SessionInner {
     #[inline]
-    pub fn to_json(&self) -> serde_json::Value {
+    pub async fn to_json(&self) -> serde_json::Value {
         let data = json!({
-            "subscriptions": self.subscriptions.read().len(),
+            "subscriptions": self.subscriptions.read().await.len(),
             "queues": self.deliver_queue.len(),
-            "inflights": self.inflight_win.read().len(),
+            "inflights": self.inflight_win.read().await.len(),
             "created_at": self.created_at,
         });
         data
     }
 
     #[inline]
-    pub fn subscriptions_add(&self, topic_filter: TopicFilter, qos: QoS) {
-        self.subscriptions.write().insert(topic_filter, qos);
+    pub async fn subscriptions_add(&self, topic_filter: TopicFilter, qos: QoS) {
+        self.subscriptions.write().await.insert(topic_filter, qos);
     }
 
     #[inline]
-    pub fn subscriptions_remove(&self, topic_filter: &TopicFilter) -> Option<QoS> {
-        self.subscriptions.write().remove(topic_filter)
+    pub async fn subscriptions_remove(&self, topic_filter: &TopicFilter) -> Option<QoS> {
+        self.subscriptions.write().await.remove(topic_filter)
     }
 
     #[inline]
-    pub fn drain_subscriptions(&self) -> Vec<TopicFilter> {
-        self.subscriptions.write().drain().map(|(topic_filter, _)| topic_filter).collect()
+    pub async fn drain_subscriptions(&self) -> TopicFilterMap {
+        self.subscriptions.write().await.drain().collect()
+    }
+
+    #[inline]
+    pub async fn subscriptions(&self) -> RwLockReadGuard<'_, TopicFilterMap> {
+        self.subscriptions.read().await
     }
 }
 
@@ -817,7 +886,7 @@ impl ClientInfo {
     }
 
     #[inline]
-    pub fn to_json(&self) -> serde_json::Value {
+    pub async fn to_json(&self) -> serde_json::Value {
         let mut json = self.connect_info.to_json();
         if let Some(json) = json.as_object_mut() {
             json.insert("session_present".into(), serde_json::Value::Bool(self.session_present));
@@ -832,7 +901,7 @@ impl ClientInfo {
                     self.disconnected_at.load(Ordering::SeqCst),
                 )),
             );
-            if let Some(reason) = self.disconnected_reason.read().as_ref() {
+            if let Some(reason) = self.disconnected_reason.read().await.as_ref() {
                 json.insert("disconnected_reason".into(), serde_json::Value::String(reason.to_string()));
             } else {
                 json.insert("disconnected_reason".into(), serde_json::Value::Null);
@@ -873,9 +942,9 @@ impl ClientInfo {
     }
 
     #[inline]
-    pub fn set_disconnected(&self, reason: String) {
+    pub async fn set_disconnected(&self, reason: String) {
         self.connected.store(false, Ordering::SeqCst);
-        self.set_disconnected_reason(reason);
+        self.set_disconnected_reason(reason).await;
     }
 
     #[inline]
@@ -884,28 +953,28 @@ impl ClientInfo {
     }
 
     #[inline]
-    pub fn set_disconnected_reason(&self, r: String) {
-        let mut disconnected_reason = self.disconnected_reason.write();
+    pub async fn set_disconnected_reason(&self, r: String) {
+        let mut disconnected_reason = self.disconnected_reason.write().await;
         if disconnected_reason.is_none() {
             disconnected_reason.replace(Reason::from(r));
         }
     }
 
     #[inline]
-    pub fn get_disconnected_reason(&self) -> Option<Reason> {
-        self.disconnected_reason.read().clone()
+    pub async fn get_disconnected_reason(&self) -> Option<Reason> {
+        self.disconnected_reason.read().await.clone()
     }
 
     #[inline]
-    pub fn has_disconnected_reason(&self) -> bool {
-        self.disconnected_reason.read().is_some()
+    pub async fn has_disconnected_reason(&self) -> bool {
+        self.disconnected_reason.read().await.is_some()
     }
 }
 
 impl std::fmt::Debug for ClientInfo {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ClientInfo: {}", serde_json::to_string(&self.to_json()).unwrap_or_default())
+        write!(f, "ClientInfo: {:?}", self.id)
     }
 }
 
