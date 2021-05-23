@@ -23,12 +23,12 @@ use super::{
 };
 use crate::broker::fitter::{Fitter, FitterManager};
 use crate::broker::hook::{Handler, Hook, HookManager, HookResult, Parameter, Register, Type};
-use crate::broker::session::{ClientInfo, Session};
+use crate::broker::session::{ClientInfo, Session, SessionOfflineInfo};
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
 use crate::{grpc, ClientId, Id, NodeId, QoS, Runtime, Topic, TopicFilter};
 
-struct LockEntry {
+pub struct LockEntry {
     id: Id,
     shared: &'static DefaultShared,
     _locker: Option<OwnedMutexGuard<()>>,
@@ -46,26 +46,25 @@ impl Drop for LockEntry {
 
 impl LockEntry {
     #[inline]
-    fn new(id: Id, shared: &'static DefaultShared, _locker: Option<OwnedMutexGuard<()>>) -> Self {
+    pub fn new(id: Id, shared: &'static DefaultShared, _locker: Option<OwnedMutexGuard<()>>) -> Self {
         Self { id, shared, _locker }
     }
 
     #[inline]
-    async fn _unsubscribe(&self, id: Id, session: &Session, topic_filter: &TopicFilter) -> Result<()> {
+    pub async fn _unsubscribe(&self, id: Id, topic_filter: &TopicFilter) -> Result<()> {
         {
             let router = Runtime::instance().extends.router().await;
             router.remove(topic_filter, Runtime::instance().node.id(), &id.client_id).await?;
         }
-        session.subscriptions_remove(topic_filter);
         Ok(())
     }
 
     #[inline]
-    async fn _remove(&mut self, clear_subscriptions: bool) -> Option<(Session, Tx, ClientInfo)> {
+    pub async fn _remove(&mut self, clear_subscriptions: bool) -> Option<(Session, Tx, ClientInfo)> {
         if let Some((_, peer)) = self.shared.peers.remove(&self.id.client_id) {
             if clear_subscriptions {
-                for topic_filter in peer.s.drain_subscriptions() {
-                    if let Err(e) = self._unsubscribe(peer.c.id.clone(), &peer.s, &topic_filter).await {
+                for (topic_filter, _) in peer.s.subscriptions().await.iter() {
+                    if let Err(e) = self._unsubscribe(peer.c.id.clone(), topic_filter).await {
                         log::warn!(
                             "{:?} remove._unsubscribe, topic_filter: {}, {:?}",
                             self.id,
@@ -99,6 +98,11 @@ impl super::Entry for LockEntry {
     }
 
     #[inline]
+    fn id(&self) -> Id {
+        self.id.clone()
+    }
+
+    #[inline]
     async fn set(&mut self, s: Session, tx: Tx, c: ClientInfo) -> Result<()> {
         self.shared.peers.insert(self.id.client_id.clone(), EntryItem { s, tx, c });
         Ok(())
@@ -110,7 +114,7 @@ impl super::Entry for LockEntry {
     }
 
     #[inline]
-    async fn kick(&mut self, clear_subscriptions: bool) -> Result<Option<(Session, ClientInfo)>> {
+    async fn kick(&mut self, clear_subscriptions: bool) -> Result<Option<SessionOfflineInfo>> {
         if let Some((s, peer_tx, c)) = self._remove(clear_subscriptions).await {
             let (tx, mut rx) = mpsc::unbounded_channel();
             if let Err(e) = peer_tx.send(Message::Kick(tx, self.id.clone())) {
@@ -125,7 +129,7 @@ impl super::Entry for LockEntry {
                     }
                 }
             }
-            Ok(Some((s, c)))
+            Ok(Some(s.to_offline_info().await))
         } else {
             Ok(None)
         }
@@ -187,7 +191,7 @@ impl super::Entry for LockEntry {
                         );
                         acks.push(SubscribeReturnCodeV3::Failure);
                     } else {
-                        peer.s.subscriptions_add(topic_filter, qos);
+                        peer.s.subscriptions_add(topic_filter, qos).await;
                         acks.push(SubscribeReturnCodeV3::Success(qos));
                     }
                 }
@@ -212,9 +216,10 @@ impl super::Entry for LockEntry {
         let ack = match unsubscribe {
             Unsubscribe::V3(topic_filters) => {
                 for topic_filter in topic_filters.iter() {
-                    if let Err(e) = self._unsubscribe(peer.c.id.clone(), &peer.s, topic_filter).await {
+                    if let Err(e) = self._unsubscribe(peer.c.id.clone(), topic_filter).await {
                         log::warn!("{:?} unsubscribe, error:{:?}", self.id, e);
                     }
+                    peer.s.subscriptions_remove(topic_filter).await;
                 }
                 UnsubscribeAck::V3
             }
@@ -226,7 +231,7 @@ impl super::Entry for LockEntry {
     }
 
     #[inline]
-    async fn forward(&self, from: From, p: Publish) -> Result<(), (From, Publish, Reason)> {
+    async fn publish(&self, from: From, p: Publish) -> Result<(), (From, Publish, Reason)> {
         let tx = if let Some(tx) = self.tx() {
             tx
         } else {
@@ -257,13 +262,13 @@ pub struct DefaultShared {
 
 impl DefaultShared {
     #[inline]
-    pub fn instance() -> Box<dyn Shared> {
+    pub fn instance() -> &'static DefaultShared {
         static INSTANCE: OnceCell<DefaultShared> = OnceCell::new();
-        Box::new(INSTANCE.get_or_init(|| Self { lockers: DashMap::default(), peers: DashMap::default() }))
+        INSTANCE.get_or_init(|| Self { lockers: DashMap::default(), peers: DashMap::default() })
     }
 
     #[inline]
-    fn tx(&self, client_id: &str) -> Option<(Tx, To)> {
+    pub fn tx(&self, client_id: &str) -> Option<(Tx, To)> {
         self.peers.get(client_id).map(|peer| (peer.tx.clone(), peer.c.id.clone()))
     }
 }
@@ -300,7 +305,7 @@ impl Shared for &'static DefaultShared {
                             publish.topic
                         );
                         errs.push((
-                            To::from(client_id),
+                            To::from(0, client_id),
                             from.clone(),
                             Publish::V3(p),
                             Reason::from_static("Tx is None"),
@@ -395,18 +400,14 @@ type Relation = (TopicFilter, ClientId, QoS);
 
 impl DefaultRouter {
     #[inline]
-    pub fn instance() -> Box<dyn Router> {
+    pub fn instance() -> &'static DefaultRouter {
         static INSTANCE: OnceCell<DefaultRouter> = OnceCell::new();
-        Box::new(
-            INSTANCE.get_or_init(|| Self {
-                tree: RwLock::new(TopicTree::default()),
-                relations: DashMap::default(),
-            }),
-        )
+        INSTANCE
+            .get_or_init(|| Self { tree: RwLock::new(TopicTree::default()), relations: DashMap::default() })
     }
 
     #[inline]
-    fn _matches(
+    pub fn _matches(
         &self,
         topic: &Topic,
         this_node_id: NodeId,
@@ -493,18 +494,18 @@ pub struct DefaultRetainStorage {
 
 impl DefaultRetainStorage {
     #[inline]
-    pub fn instance() -> Box<dyn RetainStorage> {
+    pub fn instance() -> &'static DefaultRetainStorage {
         static INSTANCE: OnceCell<DefaultRetainStorage> = OnceCell::new();
-        Box::new(INSTANCE.get_or_init(|| Self { messages: RwLock::new(RetainTree::default()) }))
+        INSTANCE.get_or_init(|| Self { messages: RwLock::new(RetainTree::default()) })
     }
 
     #[inline]
-    fn add(&self, topic: &Topic, retain: Retain) {
+    pub fn add(&self, topic: &Topic, retain: Retain) {
         self.messages.write().insert(topic, retain);
     }
 
     #[inline]
-    fn remove(&self, topic: &Topic) {
+    pub fn remove(&self, topic: &Topic) {
         self.messages.write().remove(topic);
     }
 }
@@ -530,16 +531,16 @@ pub struct DefaultFitterManager {}
 
 impl DefaultFitterManager {
     #[inline]
-    pub fn instance() -> Box<dyn FitterManager> {
+    pub fn instance() -> &'static DefaultFitterManager {
         static INSTANCE: OnceCell<DefaultFitterManager> = OnceCell::new();
-        Box::new(INSTANCE.get_or_init(|| Self {}))
+        INSTANCE.get_or_init(|| Self {})
     }
 }
 
 impl FitterManager for &'static DefaultFitterManager {
     #[inline]
-    fn get(&self, id: Id, listen_cfg: Listener) -> Box<dyn Fitter> {
-        Box::new(DefaultFitter::new(id, listen_cfg))
+    fn get(&self, id: Id, listen_cfg: Listener) -> std::rc::Rc<dyn Fitter> {
+        std::rc::Rc::new(DefaultFitter::new(id, listen_cfg))
     }
 }
 
@@ -600,10 +601,9 @@ pub struct DefaultHookManager {
 
 impl DefaultHookManager {
     #[inline]
-    pub fn instance() -> Box<dyn HookManager> {
+    pub fn instance() -> &'static DefaultHookManager {
         static INSTANCE: OnceCell<DefaultHookManager> = OnceCell::new();
-        Box::new(INSTANCE.get_or_init(|| Self { handlers: Arc::new(DashMap::default()) }))
-        //.clone()
+        INSTANCE.get_or_init(|| Self { handlers: Arc::new(DashMap::default()) })
     }
 
     #[inline]
@@ -688,8 +688,12 @@ impl HookManager for &'static DefaultHookManager {
     }
 
     ///grpc message received
-    async fn grpc_message_received(&self, msg: grpc::Message) -> crate::Result<grpc::MessageReply> {
-        let result = self.exec(Type::GrpcMessageReceived, Parameter::GrpcMessageReceived(msg)).await;
+    async fn grpc_message_received(
+        &self,
+        typ: grpc::MessageType,
+        msg: grpc::Message,
+    ) -> crate::Result<grpc::MessageReply> {
+        let result = self.exec(Type::GrpcMessageReceived, Parameter::GrpcMessageReceived(typ, msg)).await;
         if let Some(HookResult::GrpcMessageReply(reply)) = result {
             reply
         } else {
@@ -983,9 +987,9 @@ pub struct DefaultLimiterManager {
 
 impl DefaultLimiterManager {
     #[inline]
-    pub fn instance() -> Box<dyn LimiterManager> {
+    pub fn instance() -> &'static DefaultLimiterManager {
         static INSTANCE: OnceCell<DefaultLimiterManager> = OnceCell::new();
-        Box::new(INSTANCE.get_or_init(|| Self { limiters: DashMap::default() }))
+        INSTANCE.get_or_init(|| Self { limiters: DashMap::default() })
     }
 }
 
