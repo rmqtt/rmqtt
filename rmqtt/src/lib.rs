@@ -5,6 +5,9 @@ extern crate serde_json;
 #[macro_use]
 extern crate async_trait;
 
+pub use ntex;
+pub use ntex_mqtt;
+
 pub use crate::broker::error::MqttError;
 pub use crate::broker::session::{ClientInfo, Session, SessionState};
 pub use crate::broker::types::*;
