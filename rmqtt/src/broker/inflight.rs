@@ -6,14 +6,14 @@ use std::time::Duration;
 use crate::broker::types::{From, Packet, PacketId, PacketV3, Publish, TimestampMillis};
 use crate::{MqttError, Result};
 
-#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+#[derive(Debug, Eq, PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub enum MomentStatus {
     UnAck,
     UnReceived,
     UnComplete,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InflightMessage {
     pub publish: Publish,
     pub from: From,
@@ -60,12 +60,15 @@ impl InflightMessage {
     }
 }
 
+#[derive(Clone)]
 pub struct Inflight {
     cap: usize,
     interval: TimestampMillis,
     next: Arc<AtomicU16>,
-    queues: LinkedHashMap<PacketId, InflightMessage, ahash::RandomState>,
+    queues: Queues,
 }
+
+type Queues = LinkedHashMap<PacketId, InflightMessage, ahash::RandomState>;
 
 impl Inflight {
     #[inline]
