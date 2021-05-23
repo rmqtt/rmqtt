@@ -2,26 +2,23 @@ use std::net::SocketAddr;
 
 use crate::grpc::client::NodeGrpcClient;
 use crate::grpc::server::Server;
-use crate::settings::Settings;
-use crate::{Runtime, NodeId, Result};
+use crate::{NodeId, Result, Runtime};
 
-pub struct Node {
-    id: NodeId,
-}
+pub struct Node {}
 
 impl Node {
-    pub(crate) fn new(settings: Settings) -> Self {
-        Self { id: settings.node.id }
+    pub(crate) fn new() -> Self {
+        Self {}
     }
 
     #[inline]
     pub fn id(&self) -> NodeId {
-        self.id
+        Runtime::instance().settings.node.id
     }
 
     #[inline]
-    pub fn new_grpc_client(&self, remote_addr: SocketAddr) -> Result<NodeGrpcClient> {
-        NodeGrpcClient::new(remote_addr)
+    pub async fn new_grpc_client(&self, remote_addr: &SocketAddr) -> Result<NodeGrpcClient> {
+        NodeGrpcClient::new(remote_addr).await
     }
 
     pub fn start_grpc_server(&self) {
