@@ -51,7 +51,7 @@ pub trait Plugin: Send + Sync {
     }
 
     #[inline]
-    fn attrs(&self) -> serde_json::Value {
+    async fn attrs(&self) -> serde_json::Value {
         serde_json::Value::Null
     }
 }
@@ -68,13 +68,13 @@ impl Entry {
     }
 
     #[inline]
-    pub fn to_json(&self) -> serde_json::Value {
+    pub async fn to_json(&self) -> serde_json::Value {
         json!({
             "name": self.plugin.name(),
             "version": self.plugin.version(),
             "descr": self.plugin.descr(),
             "active": self.active,
-            "attrs": self.plugin.attrs(),
+            "attrs": self.plugin.attrs().await,
         })
     }
 }
