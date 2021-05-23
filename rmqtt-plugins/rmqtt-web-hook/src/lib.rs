@@ -173,7 +173,7 @@ impl Plugin for WebHookPlugin {
     }
 
     #[inline]
-    fn attrs(&self) -> serde_json::Value {
+    async fn attrs(&self) -> serde_json::Value {
         json!({
             "queue_len": self.tx.read().len(),
             "active_tasks": self.processings.load(Ordering::SeqCst)
