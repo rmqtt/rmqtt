@@ -4,6 +4,7 @@ use warp::http::StatusCode;
 use warp::Filter;
 
 use rmqtt::broker::types::{ClientId, Id};
+use rmqtt::grpc::server::active_grpc_requests;
 use rmqtt::{Result, Runtime};
 
 #[allow(dead_code)]
@@ -11,7 +12,7 @@ mod version {
     include!(concat!(env!("OUT_DIR"), "/version.rs"));
 }
 
-pub async fn serve<T: AsRef<str>>(laddr: T) -> Result<()> {
+pub async fn serve<T: Into<SocketAddr>>(laddr: T) -> Result<()> {
     let root = || warp::any();
 
     //version, /version
@@ -47,13 +48,17 @@ pub async fn serve<T: AsRef<str>>(laddr: T) -> Result<()> {
     let router_list = root()
         .and(warp::path!("router" / "list" / usize))
         .and(warp::path::end())
-        .and_then(|top: usize| async move { with_reply_string(list_routers(top).await) });
+        .and_then(|top: usize| async move { with_reply_string(list_routers(top).await) })
+        .or(root()
+            .and(warp::path!("router" / "list"))
+            .and(warp::path::end())
+            .and_then(|| async move { with_reply_string(list_routers(1000).await) }));
 
     //plugin list, /plugin/list
     let plugin_list = root()
         .and(warp::path!("plugin" / "list"))
         .and(warp::path::end())
-        .map(|| warp::reply::json(&plugin_list()));
+        .and_then(|| async move { with_reply_json(plugin_list().await) });
 
     //plugin config, /plugin/config
     let plugin_config = root()
@@ -71,8 +76,6 @@ pub async fn serve<T: AsRef<str>>(laddr: T) -> Result<()> {
     );
 
     let routes = get_apis;
-
-    let laddr: SocketAddr = laddr.as_ref().parse().map_err(anyhow::Error::from)?;
     warp::serve(routes).try_bind(laddr).await;
     Ok(())
 }
@@ -100,23 +103,32 @@ async fn status() -> serde_json::Value {
     serde_json::json!({
         "sessions": shared.sessions().await,
         "clients": shared.clients().await,
+        "active_grpc_requestss": active_grpc_requests()
     })
 }
 
 async fn session(id: String) -> serde_json::Value {
-    let entry = Runtime::instance().extends.shared().await.entry(Id::from(ClientId::from(id)));
+    let entry = Runtime::instance()
+        .extends
+        .shared()
+        .await
+        .entry(Id::from(Runtime::instance().node.id(), ClientId::from(id)));
+
+    let session_info = if let Some(s) = entry.session().await { Some(s.to_json().await) } else { None };
+
+    let client_info = if let Some(c) = entry.client().await { Some(c.to_json().await) } else { None };
 
     serde_json::json!({
-        "session": entry.session().await.map(|s|s.to_json()),
-        "client": entry.client().await.map(|c|c.to_json())
+        "session": session_info,
+        "client": client_info,
     })
 }
 
 async fn random_session() -> Result<Option<serde_json::Value>> {
     let data = match Runtime::instance().extends.shared().await.random_session() {
         Some((s, c)) => Some(serde_json::json!({
-            "session": s.to_json(),
-            "client": c.to_json()
+            "session": s.to_json().await,
+            "client": c.to_json().await
         })),
         None => None,
     };
@@ -130,9 +142,11 @@ async fn list_routers(mut top: usize) -> String {
     Runtime::instance().extends.router().await.list(top).join("\n")
 }
 
-fn plugin_list() -> Vec<serde_json::Value> {
-    let plugins: Vec<serde_json::Value> =
-        Runtime::instance().plugins.iter().map(|entry| entry.to_json()).collect();
+async fn plugin_list() -> Vec<serde_json::Value> {
+    let mut plugins = Vec::new();
+    for entry in Runtime::instance().plugins.iter() {
+        plugins.push(entry.to_json().await);
+    }
     plugins
 }
 
