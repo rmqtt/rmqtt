@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::iter::Iterator;
 
-use crate::broker::session::{ClientInfo, Session};
+use crate::broker::session::{ClientInfo, Session, SessionOfflineInfo};
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
 use crate::{ClientId, Id, NodeId, QoS, Topic, TopicFilter};
@@ -22,16 +22,17 @@ pub mod v5;
 #[async_trait]
 pub trait Entry: Sync + Send {
     fn try_lock(&self) -> Result<Box<dyn Entry>>;
+    fn id(&self) -> Id;
     async fn set(&mut self, session: Session, tx: Tx, conn: ClientInfo) -> Result<()>;
     async fn remove(&mut self) -> Result<Option<(Session, Tx, ClientInfo)>>;
-    async fn kick(&mut self, clear_subscriptions: bool) -> Result<Option<(Session, ClientInfo)>>;
+    async fn kick(&mut self, clear_subscriptions: bool) -> Result<Option<SessionOfflineInfo>>;
     async fn is_connected(&self) -> bool;
     async fn session(&self) -> Option<Session>;
     async fn client(&self) -> Option<ClientInfo>;
     fn tx(&self) -> Option<Tx>;
     async fn subscribe(&self, subscribe: Subscribe) -> Result<SubscribeAck>;
     async fn unsubscribe(&self, unsubscribe: &Unsubscribe) -> Result<UnsubscribeAck>;
-    async fn forward(&self, from: From, publish: Publish) -> Result<(), (From, Publish, Reason)>;
+    async fn publish(&self, from: From, p: Publish) -> Result<(), (From, Publish, Reason)>;
 }
 
 #[async_trait]
@@ -39,7 +40,7 @@ pub trait Shared: Sync + Send {
     ///
     fn entry(&self, id: Id) -> Box<dyn Entry>;
 
-    ///
+    ///Route and dispense publish message
     async fn forwards(&self, from: From, publish: Publish) -> Result<(), Vec<(To, From, Publish, Reason)>>;
 
     ///Returns the number of current node connections
