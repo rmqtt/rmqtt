@@ -29,7 +29,7 @@ pub async fn handshake<Io>(
         Id::new(1, Some(local_addr), Some(remote_addr), packet.client_id.clone(), packet.username.clone());
     let fitter = Runtime::instance().extends.fitter_mgr().await.get(id.clone(), listen_cfg.clone());
 
-    let session = Session::new(listen_cfg, fitter, 0);
+    let session = Session::new(id.clone(), listen_cfg, fitter.max_mqueue_len(), 0);
     let session_present = false;
     let connected_at = chrono::Local::now().timestamp_millis();
 
@@ -41,7 +41,7 @@ pub async fn handshake<Io>(
 
     let hook = Runtime::instance().extends.hook_mgr().await.hook(&session, &conn);
 
-    let state = SessionState::new(conn.id.clone(), session, conn, Sink::V5(handshake.sink()), hook);
+    let state = SessionState::new(session, conn, Sink::V5(handshake.sink()), hook, fitter);
 
     Ok(handshake.ack(state))
 }
