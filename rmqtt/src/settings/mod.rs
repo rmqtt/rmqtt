@@ -20,6 +20,8 @@ pub struct Settings(Arc<Inner>);
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Inner {
+    #[serde(default = "inner_api_addr_default", deserialize_with = "deserialize_addr")]
+    pub inner_api_addr: SocketAddr,
     #[serde(default)]
     pub node: Node,
     #[serde(default)]
@@ -31,6 +33,10 @@ pub struct Inner {
     pub listeners: Listeners,
     #[serde(default)]
     pub plugins: Plugins,
+}
+
+fn inner_api_addr_default() -> SocketAddr {
+    ([0, 0, 0, 0], 6063).into()
 }
 
 impl Deref for Settings {
@@ -100,21 +106,20 @@ pub struct Rpc {
     #[serde(default = "Rpc::mode_default")]
     pub mode: String, // = "async"
 
-    //#Maximum number of messages sent in batch
-    #[serde(default = "Rpc::batch_size_default")]
-    pub batch_size: usize, // = 256
-
     #[serde(default = "Rpc::server_addr_default", deserialize_with = "deserialize_addr")]
     pub server_addr: SocketAddr, // = "0.0.0.0:5363"
 
     #[serde(default = "Rpc::server_workers_default")]
     pub server_workers: usize, //4
 
-    #[serde(default = "Rpc::client_num_default")]
-    pub client_num: usize, // = 2
+    #[serde(default = "Rpc::client_concurrency_limit_default")]
+    pub client_concurrency_limit: usize, // = 128
 
-    #[serde(default = "Rpc::timeout_default", deserialize_with = "deserialize_duration")]
-    pub timeout: Duration, //= "5s"
+    #[serde(default = "Rpc::client_timeout_default", deserialize_with = "deserialize_duration")]
+    pub client_timeout: Duration, //= "5s"
+    //#Maximum number of messages sent in batch
+    #[serde(default = "Rpc::batch_size_default")]
+    pub batch_size: usize, // = 128
 }
 
 impl Default for Rpc {
@@ -125,8 +130,8 @@ impl Default for Rpc {
             batch_size: Self::batch_size_default(),
             server_addr: Self::server_addr_default(),
             server_workers: Self::server_workers_default(),
-            client_num: Self::client_num_default(),
-            timeout: Self::timeout_default(),
+            client_concurrency_limit: Self::client_concurrency_limit_default(),
+            client_timeout: Self::client_timeout_default(),
         }
     }
 }
@@ -136,7 +141,7 @@ impl Rpc {
         "async".into()
     }
     fn batch_size_default() -> usize {
-        256
+        128
     }
     fn server_addr_default() -> SocketAddr {
         ([0, 0, 0, 0], 5363).into()
@@ -144,10 +149,10 @@ impl Rpc {
     fn server_workers_default() -> usize {
         4
     }
-    fn client_num_default() -> usize {
-        2
+    fn client_concurrency_limit_default() -> usize {
+        128
     }
-    fn timeout_default() -> Duration {
+    fn client_timeout_default() -> Duration {
         Duration::from_secs(5)
     }
 }
