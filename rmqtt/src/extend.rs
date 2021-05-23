@@ -22,12 +22,12 @@ impl Manager {
     #[inline]
     pub(crate) fn new() -> Self {
         Self {
-            shared: RwLock::new(DefaultShared::instance()),
-            router: RwLock::new(DefaultRouter::instance()),
-            retain: RwLock::new(DefaultRetainStorage::instance()),
-            fitter_mgr: RwLock::new(DefaultFitterManager::instance()),
-            hook_mgr: RwLock::new(DefaultHookManager::instance()),
-            limiter_mgr: RwLock::new(DefaultLimiterManager::instance()),
+            shared: RwLock::new(Box::new(DefaultShared::instance())),
+            router: RwLock::new(Box::new(DefaultRouter::instance())),
+            retain: RwLock::new(Box::new(DefaultRetainStorage::instance())),
+            fitter_mgr: RwLock::new(Box::new(DefaultFitterManager::instance())),
+            hook_mgr: RwLock::new(Box::new(DefaultHookManager::instance())),
+            limiter_mgr: RwLock::new(Box::new(DefaultLimiterManager::instance())),
         }
     }
 
