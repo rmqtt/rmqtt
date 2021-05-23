@@ -4,6 +4,7 @@ members = [
   "rmqtt-plugins/rmqtt-plugin-template",
   "rmqtt-plugins/rmqtt-web-hook",
   "rmqtt-plugins/rmqtt-auth-http",
+  "rmqtt-plugins/rmqtt-cluster-broadcast",
   "rmqtt-bin",
 ]
 
