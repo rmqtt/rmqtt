@@ -7,7 +7,7 @@ use crate::settings::listener::Listener;
 
 #[async_trait]
 pub trait FitterManager: Sync + Send {
-    fn get(&self, id: Id, listen_cfg: Listener) -> Box<dyn Fitter>;
+    fn get(&self, id: Id, listen_cfg: Listener) -> std::rc::Rc<dyn Fitter>;
 }
 
 #[async_trait]
