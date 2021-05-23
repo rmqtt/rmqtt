@@ -4,8 +4,6 @@ version = "0.1.1"
 authors = ["rmqtt-rs <rmqttd@126.com>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 rmqtt = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.5"}
 #rmqtt = { path = "../../rmqtt" }
