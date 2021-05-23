@@ -26,7 +26,7 @@ impl Runtime {
                 settings: settings.clone(),
                 extends: extend::Manager::new(),
                 plugins: plugin::Manager::new(),
-                node: Node::new(settings),
+                node: Node::new(),
             }
         })
     }
