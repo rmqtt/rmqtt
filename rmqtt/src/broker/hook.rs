@@ -26,7 +26,11 @@ pub trait HookManager: Sync + Send {
     async fn message_dropped(&self, to: Option<To>, from: From, p: Publish, reason: Reason);
 
     ///grpc message received
-    async fn grpc_message_received(&self, msg: grpc::Message) -> Result<grpc::MessageReply>;
+    async fn grpc_message_received(
+        &self,
+        typ: grpc::MessageType,
+        msg: grpc::Message,
+    ) -> Result<grpc::MessageReply>;
 }
 
 #[async_trait]
@@ -180,7 +184,7 @@ pub enum Parameter<'a> {
     MessageDropped(Option<To>, From, Publish, Reason),
     MessageExpiryCheck(&'a Session, &'a ClientInfo, From, &'a Publish),
 
-    GrpcMessageReceived(grpc::Message),
+    GrpcMessageReceived(grpc::MessageType, grpc::Message),
 }
 
 impl<'a> Parameter<'a> {
@@ -209,7 +213,7 @@ impl<'a> Parameter<'a> {
             Parameter::MessageDropped(_, _, _, _) => Type::MessageDropped,
             Parameter::MessageExpiryCheck(_, _, _, _) => Type::MessageExpiryCheck,
 
-            Parameter::GrpcMessageReceived(_) => Type::GrpcMessageReceived,
+            Parameter::GrpcMessageReceived(_, _) => Type::GrpcMessageReceived,
         }
     }
 }
