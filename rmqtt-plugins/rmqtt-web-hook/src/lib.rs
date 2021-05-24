@@ -16,7 +16,7 @@ use std::time::Duration;
 use rmqtt::broker::error::MqttError;
 use rmqtt::{
     broker::hook::{self, Handler, HookResult, Parameter, Register, ReturnType, Type},
-    broker::types::{ConnectInfo, QoSEx, MQTT_LEVEL_5},
+    broker::types::{Id, ConnectInfo, QoSEx, MQTT_LEVEL_5},
     plugin::Plugin,
     Result, Runtime, Topic,
 };
@@ -354,6 +354,39 @@ impl ToBody for ConnectInfo {
     }
 }
 
+trait JsonTo {
+    fn to(&self, json: serde_json::Value) -> serde_json::Value;
+}
+
+impl JsonTo for Id {
+    fn to(&self, mut json: serde_json::Value) -> serde_json::Value{
+        if let Some(obj) = json.as_object_mut() {
+            obj.insert("node".into(),  serde_json::Value::String(self.node()));
+            obj.insert("ipaddress".into(), self.remote_addr.map(|a|serde_json::Value::String(a.to_string())).unwrap_or(serde_json::Value::Null));
+            obj.insert("clientid".into(),  serde_json::Value::String(self.client_id.to_string()));
+            obj.insert("username".into(),  serde_json::Value::String(self.username.to_string()));
+        }
+        json
+    }
+}
+
+trait JsonFrom {
+    fn from(&self, json: serde_json::Value) -> serde_json::Value;
+}
+
+impl JsonFrom for Id {
+    fn from(&self, mut json: serde_json::Value) -> serde_json::Value{
+        if let Some(obj) = json.as_object_mut() {
+            obj.insert("from_node".into(),  serde_json::Value::String(self.node()));
+            obj.insert("from_ipaddress".into(), self.remote_addr.map(|a|serde_json::Value::String(a.to_string())).unwrap_or(serde_json::Value::Null));
+            obj.insert("from_clientid".into(),  serde_json::Value::String(self.client_id.to_string()));
+            obj.insert("from_username".into(),  serde_json::Value::String(self.username.to_string()));
+        }
+        json
+    }
+}
+
+
 #[async_trait]
 impl Handler for WebHookHandler {
     async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
@@ -480,7 +513,6 @@ impl Handler for WebHookHandler {
             Parameter::MessagePublish(_session, client, publish) => {
                 let topic = publish.topic().clone();
                 let body = json!({
-                    "from": client.id.to_json(),
                     "dup": publish.dup(),
                     "retain": publish.retain(),
                     "qos": publish.qos().value(),
@@ -489,14 +521,13 @@ impl Handler for WebHookHandler {
                     "payload": base64::encode(publish.payload()),
                     "ts": publish.create_time(),
                 });
+                let body = client.id.from(body);
                 vec![(Some(topic), body)]
             }
 
             Parameter::MessageDelivered(_session, client, from, publish) => {
                 let topic = publish.topic().clone();
                 let body = json!({
-                    "to": client.id.to_json(),
-                    "from": from.to_json(),
                     "dup": publish.dup(),
                     "retain": publish.retain(),
                     "qos": publish.qos().value(),
@@ -505,14 +536,14 @@ impl Handler for WebHookHandler {
                     "payload": base64::encode(publish.payload()),
                     "ts": chrono::Local::now().timestamp_millis(),
                 });
+                let body = client.id.to(body);
+                let body = from.from(body);
                 vec![(Some(topic), body)]
             }
 
             Parameter::MessageAcked(_session, client, from, publish) => {
                 let topic = publish.topic().clone();
                 let body = json!({
-                    "to": client.id.to_json(),
-                    "from": from.to_json(),
                     "dup": publish.dup(),
                     "retain": publish.retain(),
                     "qos": publish.qos().value(),
@@ -521,13 +552,13 @@ impl Handler for WebHookHandler {
                     "payload": base64::encode(publish.payload()),
                     "ts": chrono::Local::now().timestamp_millis(),
                 });
+                let body = client.id.to(body);
+                let body = from.from(body);
                 vec![(Some(topic), body)]
             }
 
             Parameter::MessageDropped(to, from, publish, reason) => {
                 let body = json!({
-                    "to": to.as_ref().map(|to|to.to_json()),
-                    "from": from.to_json(),
                     "dup": publish.dup(),
                     "retain": publish.retain(),
                     "qos": publish.qos().value(),
@@ -537,6 +568,11 @@ impl Handler for WebHookHandler {
                     "reason": reason,
                     "ts": chrono::Local::now().timestamp_millis(),
                 });
+                let mut body = from.from(body);
+                if let Some(to) = to{
+                    body = to.to(body);
+                }
+
                 vec![(None, body)]
             }
             _ => {
