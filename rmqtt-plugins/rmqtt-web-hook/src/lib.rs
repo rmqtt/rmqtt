@@ -68,7 +68,7 @@ impl WebHookPlugin {
         cfg: Arc<RwLock<PluginConfig>>,
         processings: Arc<AtomicIsize>,
     ) -> Sender<Message> {
-        let (tx, rx): (Sender<Message>, Receiver<Message>) = bounded(cfg.read().async_queue_capacity);
+        let (tx, rx): (Sender<Message>, Receiver<Message>) = bounded(cfg.read().queue_capacity);
         let _child = std::thread::Builder::new().name("web-hook".to_string()).spawn(move || {
             log::info!("start web-hook async worker.");
             let rt = tokio::runtime::Builder::new_multi_thread()
@@ -78,7 +78,7 @@ impl WebHookPlugin {
                 .thread_stack_size(4 * 1024 * 1024)
                 .build()
                 .unwrap();
-
+            let concurrency_limit = cfg.read().concurrency_limit as isize;
             let runner = async {
                 loop {
                     let cfg = cfg.clone();
@@ -88,15 +88,18 @@ impl WebHookPlugin {
                             log::trace!("received web-hook Message: {:?}", msg);
                             match msg {
                                 Message::Body(typ, topic, data) => {
-                                    processings.fetch_add(1, Ordering::SeqCst);
-                                    tokio::task::spawn(async move {
-                                        if let Err(e) =
-                                            WebHookHandler::handle(cfg.clone(), typ, topic, data).await
-                                        {
+                                    let processings1 = processings.clone();
+                                    let handle = async move {
+                                        if let Err(e) = WebHookHandler::handle(cfg.clone(), typ, topic, data).await {
                                             log::error!("send web hook message error, {:?}", e);
                                         }
-                                        processings.fetch_sub(1, Ordering::SeqCst);
-                                    });
+                                        processings1.fetch_sub(1, Ordering::SeqCst);
+                                    };
+                                    if processings.fetch_add(1, Ordering::SeqCst) < concurrency_limit {
+                                        tokio::task::spawn(handle);
+                                    }else{
+                                        handle.await;
+                                    }
                                 }
                                 Message::Exit => {
                                     log::debug!("Is Message::Exit message ...");
@@ -185,7 +188,8 @@ impl Plugin for WebHookPlugin {
         let new_cfg = self.runtime.settings.plugins.load_config::<PluginConfig>(&self.name)?;
         let cfg = { self.cfg.read().clone() };
         if cfg.worker_threads != new_cfg.worker_threads
-            || cfg.async_queue_capacity != new_cfg.async_queue_capacity
+            || cfg.queue_capacity != new_cfg.queue_capacity
+            || cfg.concurrency_limit != new_cfg.concurrency_limit
         {
             let new_cfg = Arc::new(RwLock::new(new_cfg));
             //restart
