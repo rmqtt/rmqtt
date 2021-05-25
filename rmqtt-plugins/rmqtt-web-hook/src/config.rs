@@ -14,8 +14,10 @@ use rmqtt::{Result, Topic};
 pub struct PluginConfig {
     #[serde(default = "PluginConfig::worker_threads_default")]
     pub worker_threads: usize,
-    #[serde(default = "PluginConfig::async_queue_capacity_default")]
-    pub async_queue_capacity: usize,
+    #[serde(default = "PluginConfig::queue_capacity_default")]
+    pub queue_capacity: usize,
+    #[serde(default = "PluginConfig::concurrency_limit_default")]
+    pub concurrency_limit: usize,
     #[serde(default)]
     pub http_urls: Vec<String>,
     #[serde(default = "PluginConfig::http_timeout_default", deserialize_with = "deserialize_duration")]
@@ -27,10 +29,13 @@ pub struct PluginConfig {
 
 impl PluginConfig {
     fn worker_threads_default() -> usize {
-        2
+        3
     }
-    fn async_queue_capacity_default() -> usize {
-        10_000
+    fn queue_capacity_default() -> usize {
+        1_000_000
+    }
+    fn concurrency_limit_default() -> usize {
+        128
     }
     fn http_timeout_default() -> Duration {
         Duration::from_secs(5)
