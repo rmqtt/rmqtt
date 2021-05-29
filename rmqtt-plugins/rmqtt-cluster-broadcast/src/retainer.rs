@@ -1,4 +1,3 @@
-use anyhow::Result;
 use once_cell::sync::OnceCell;
 
 use rmqtt::{
@@ -8,6 +7,7 @@ use rmqtt::{
         RetainStorage,
     },
     grpc::{Message, MessageReply, MessageType},
+    Result,
 };
 
 use super::{GrpcClients, MessageBroadcaster};

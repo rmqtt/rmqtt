@@ -8,7 +8,7 @@ use rmqtt::{
         Entry, Shared,
     },
     grpc::{Message, MessageReply, MessageType},
-    Runtime,
+    Result, Runtime,
 };
 
 use super::{GrpcClients, MessageBroadcaster};
@@ -28,7 +28,7 @@ impl ClusterLockEntry {
 #[async_trait]
 impl Entry for ClusterLockEntry {
     #[inline]
-    fn try_lock(&self) -> anyhow::Result<Box<dyn Entry>> {
+    fn try_lock(&self) -> Result<Box<dyn Entry>> {
         Ok(Box::new(ClusterLockEntry::new(self.inner.try_lock()?, self.cluster_shared)))
     }
 
@@ -38,17 +38,17 @@ impl Entry for ClusterLockEntry {
     }
 
     #[inline]
-    async fn set(&mut self, session: Session, tx: Tx, conn: ClientInfo) -> anyhow::Result<()> {
+    async fn set(&mut self, session: Session, tx: Tx, conn: ClientInfo) -> Result<()> {
         self.inner.set(session, tx, conn).await
     }
 
     #[inline]
-    async fn remove(&mut self) -> anyhow::Result<Option<(Session, Tx, ClientInfo)>> {
+    async fn remove(&mut self) -> Result<Option<(Session, Tx, ClientInfo)>> {
         self.inner.remove().await
     }
 
     #[inline]
-    async fn kick(&mut self, clear_subscriptions: bool) -> anyhow::Result<Option<SessionOfflineInfo>> {
+    async fn kick(&mut self, clear_subscriptions: bool) -> Result<Option<SessionOfflineInfo>> {
         log::debug!("{:?} ClusterLockEntry kick 1 ...", self.client().await.map(|c| c.id.clone()));
         if let Some(kicked) = self.inner.kick(clear_subscriptions).await? {
             log::debug!("{:?} broadcast kick reply kicked: {:?}", self.id(), kicked);
@@ -110,17 +110,17 @@ impl Entry for ClusterLockEntry {
     }
 
     #[inline]
-    async fn subscribe(&self, subscribe: Subscribe) -> anyhow::Result<SubscribeAck> {
+    async fn subscribe(&self, subscribe: Subscribe) -> Result<SubscribeAck> {
         self.inner.subscribe(subscribe).await
     }
 
     #[inline]
-    async fn unsubscribe(&self, unsubscribe: &Unsubscribe) -> anyhow::Result<UnsubscribeAck> {
+    async fn unsubscribe(&self, unsubscribe: &Unsubscribe) -> Result<UnsubscribeAck> {
         self.inner.unsubscribe(unsubscribe).await
     }
 
     #[inline]
-    async fn publish(&self, from: From, p: Publish) -> anyhow::Result<(), (From, Publish, Reason)> {
+    async fn publish(&self, from: From, p: Publish) -> Result<(), (From, Publish, Reason)> {
         self.inner.publish(from, p).await
     }
 }
@@ -155,11 +155,7 @@ impl Shared for &'static ClusterShared {
     }
 
     #[inline]
-    async fn forwards(
-        &self,
-        from: From,
-        publish: Publish,
-    ) -> anyhow::Result<(), Vec<(To, From, Publish, Reason)>> {
+    async fn forwards(&self, from: From, publish: Publish) -> Result<(), Vec<(To, From, Publish, Reason)>> {
         self.inner.forwards(from, publish).await
     }
 

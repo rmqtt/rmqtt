@@ -5,7 +5,7 @@ use rmqtt::{
         types::{From, Publish},
     },
     grpc::{Message, MessageReply},
-    MqttError, Runtime,
+    Runtime,
 };
 
 pub(crate) struct HookHandler {
@@ -73,11 +73,11 @@ impl Handler for HookHandler {
                                     log::debug!("{:?} offline info: {:?}", id, o);
                                     HookResult::GrpcMessageReply(Ok(MessageReply::Kick(o)))
                                 }
-                                Err(e) => HookResult::GrpcMessageReply(Err(MqttError::Anyhow(e))),
+                                Err(e) => HookResult::GrpcMessageReply(Err(e)),
                             },
                             Err(e) => {
                                 log::warn!("{:?}, try_lock error, {:?}", id, e);
-                                HookResult::GrpcMessageReply(Err(MqttError::Anyhow(e)))
+                                HookResult::GrpcMessageReply(Err(e))
                             }
                         };
                         return (false, Some(new_acc));
@@ -99,7 +99,7 @@ impl Handler for HookHandler {
                             Ok(retains) => {
                                 HookResult::GrpcMessageReply(Ok(MessageReply::GetRetains(retains)))
                             }
-                            Err(e) => HookResult::GrpcMessageReply(Err(MqttError::Anyhow(e))),
+                            Err(e) => HookResult::GrpcMessageReply(Err(e)),
                         };
                         return (false, Some(new_acc));
                     }
