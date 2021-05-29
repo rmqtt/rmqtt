@@ -24,9 +24,10 @@ use super::{
 use crate::broker::fitter::{Fitter, FitterManager};
 use crate::broker::hook::{Handler, Hook, HookManager, HookResult, Parameter, Register, Type};
 use crate::broker::session::{ClientInfo, Session, SessionOfflineInfo};
+use crate::broker::topic::{Topic, VecToTopic};
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
-use crate::{grpc, ClientId, Id, NodeId, QoS, Runtime, Topic, TopicFilter};
+use crate::{grpc, ClientId, Id, NodeId, QoS, Runtime, TopicFilter};
 
 pub struct LockEntry {
     id: Id,
@@ -416,9 +417,10 @@ impl DefaultRouter {
         let mut other_subs: std::collections::HashMap<NodeId, Vec<TopicFilter>> =
             std::collections::HashMap::new();
 
-        for (topic_filter, node_ids) in self.tree.read().matches(topic) {
+        for (topic_filter, node_ids) in self.tree.read().matches(topic).iter() {
+            let topic_filter = topic_filter.to_topic();
             for node_id in node_ids {
-                if this_node_id == node_id {
+                if this_node_id == *node_id {
                     //Get subscription relationship from local
                     if let Some(entry) = self.relations.get(&topic_filter) {
                         for e in entry.iter() {
@@ -426,7 +428,7 @@ impl DefaultRouter {
                         }
                     }
                 } else {
-                    other_subs.entry(node_id).or_default().push(topic_filter.clone());
+                    other_subs.entry(*node_id).or_default().push(topic_filter.clone());
                 }
             }
         }
