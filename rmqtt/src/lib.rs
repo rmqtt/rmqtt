@@ -1,12 +1,15 @@
 #[macro_use]
-extern crate serde;
+pub extern crate serde;
 #[macro_use]
-extern crate serde_json;
+pub extern crate serde_json;
 #[macro_use]
-extern crate async_trait;
+pub extern crate async_trait;
 
+pub use futures;
+pub use log;
 pub use ntex;
 pub use ntex_mqtt;
+pub use tokio;
 
 pub use crate::broker::error::MqttError;
 pub use crate::broker::session::{ClientInfo, Session, SessionState};
