@@ -1,12 +1,9 @@
 use async_trait::async_trait;
 
 use rmqtt::{
-    broker::{
-        hook::{Handler, HookResult, Parameter, Register, ReturnType, Type}
-    },
+    broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     plugin::Plugin,
-    Result,
-    Runtime,
+    Result, Runtime,
 };
 
 #[inline]
@@ -83,8 +80,7 @@ impl Plugin for Template {
     }
 }
 
-struct HookHandler {
-}
+struct HookHandler {}
 
 impl HookHandler {
     fn new() -> Result<Self> {
@@ -115,4 +111,3 @@ impl Handler for HookHandler {
         (true, acc)
     }
 }
-
