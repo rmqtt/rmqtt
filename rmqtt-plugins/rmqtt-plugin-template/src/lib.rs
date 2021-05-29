@@ -40,12 +40,12 @@ impl Plugin for Template {
     #[inline]
     async fn init(&mut self) -> Result<()> {
         log::debug!("{} init", self.name);
-        self.register.add(Type::ClientConnack, Box::new(HookHandler::new()?)).await;
-        self.register.add(Type::MessageDelivered, Box::new(HookHandler::new()?)).await;
-        self.register.add(Type::MessagePublish, Box::new(HookHandler::new()?)).await;
-        self.register.add(Type::ClientSubscribeCheckAcl, Box::new(HookHandler::new()?)).await;
+        self.register.add(Type::ClientConnack, Box::new(HookHandler::new())).await;
+        self.register.add(Type::MessageDelivered, Box::new(HookHandler::new())).await;
+        self.register.add(Type::MessagePublish, Box::new(HookHandler::new())).await;
+        self.register.add(Type::ClientSubscribeCheckAcl, Box::new(HookHandler::new())).await;
 
-        self.register.add(Type::GrpcMessageReceived, Box::new(HookHandler::new()?)).await;
+        self.register.add(Type::GrpcMessageReceived, Box::new(HookHandler::new())).await;
 
         Ok(())
     }
@@ -83,8 +83,8 @@ impl Plugin for Template {
 struct HookHandler {}
 
 impl HookHandler {
-    fn new() -> Result<Self> {
-        Ok(Self {})
+    fn new() -> Self {
+        Self {}
     }
 }
 
