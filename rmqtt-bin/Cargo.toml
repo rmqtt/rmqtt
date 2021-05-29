@@ -19,14 +19,9 @@ codegen-units = 1
 
 
 [dependencies]
-futures = "0.3.13"
 rustls = "0.19"
-tokio = { version = "1.4" , default-features=false}
-anyhow = "1"
-log = "0.4"
-serde = { version = "1.0.104", features = ["derive"] }
-serde_json = "1.0.48"
-warp = "0.3"
+anyhow = "1.0.40"
+warp = "0.3.1"
 
 ##plugins-release
 rmqtt = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.6"}
