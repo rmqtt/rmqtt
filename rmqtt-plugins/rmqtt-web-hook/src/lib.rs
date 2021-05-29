@@ -16,7 +16,7 @@ use std::time::Duration;
 use rmqtt::broker::error::MqttError;
 use rmqtt::{
     broker::hook::{self, Handler, HookResult, Parameter, Register, ReturnType, Type},
-    broker::types::{Id, ConnectInfo, QoSEx, MQTT_LEVEL_5},
+    broker::types::{ConnectInfo, Id, QoSEx, MQTT_LEVEL_5},
     plugin::Plugin,
     Result, Runtime, Topic,
 };
@@ -90,14 +90,16 @@ impl WebHookPlugin {
                                 Message::Body(typ, topic, data) => {
                                     let processings1 = processings.clone();
                                     let handle = async move {
-                                        if let Err(e) = WebHookHandler::handle(cfg.clone(), typ, topic, data).await {
+                                        if let Err(e) =
+                                            WebHookHandler::handle(cfg.clone(), typ, topic, data).await
+                                        {
                                             log::error!("send web hook message error, {:?}", e);
                                         }
                                         processings1.fetch_sub(1, Ordering::SeqCst);
                                     };
                                     if processings.fetch_add(1, Ordering::SeqCst) < concurrency_limit {
                                         tokio::task::spawn(handle);
-                                    }else{
+                                    } else {
                                         handle.await;
                                     }
                                 }
@@ -109,6 +111,7 @@ impl WebHookPlugin {
                         }
                         Err(e) => {
                             log::error!("web hook message channel abnormal, {:?}", e);
+                            break;
                         }
                     }
                 }
@@ -363,12 +366,17 @@ trait JsonTo {
 }
 
 impl JsonTo for Id {
-    fn to(&self, mut json: serde_json::Value) -> serde_json::Value{
+    fn to(&self, mut json: serde_json::Value) -> serde_json::Value {
         if let Some(obj) = json.as_object_mut() {
-            obj.insert("node".into(),  serde_json::Value::String(self.node()));
-            obj.insert("ipaddress".into(), self.remote_addr.map(|a|serde_json::Value::String(a.to_string())).unwrap_or(serde_json::Value::Null));
-            obj.insert("clientid".into(),  serde_json::Value::String(self.client_id.to_string()));
-            obj.insert("username".into(),  serde_json::Value::String(self.username.to_string()));
+            obj.insert("node".into(), serde_json::Value::String(self.node()));
+            obj.insert(
+                "ipaddress".into(),
+                self.remote_addr
+                    .map(|a| serde_json::Value::String(a.to_string()))
+                    .unwrap_or(serde_json::Value::Null),
+            );
+            obj.insert("clientid".into(), serde_json::Value::String(self.client_id.to_string()));
+            obj.insert("username".into(), serde_json::Value::String(self.username.to_string()));
         }
         json
     }
@@ -379,17 +387,21 @@ trait JsonFrom {
 }
 
 impl JsonFrom for Id {
-    fn from(&self, mut json: serde_json::Value) -> serde_json::Value{
+    fn from(&self, mut json: serde_json::Value) -> serde_json::Value {
         if let Some(obj) = json.as_object_mut() {
-            obj.insert("from_node".into(),  serde_json::Value::String(self.node()));
-            obj.insert("from_ipaddress".into(), self.remote_addr.map(|a|serde_json::Value::String(a.to_string())).unwrap_or(serde_json::Value::Null));
-            obj.insert("from_clientid".into(),  serde_json::Value::String(self.client_id.to_string()));
-            obj.insert("from_username".into(),  serde_json::Value::String(self.username.to_string()));
+            obj.insert("from_node".into(), serde_json::Value::String(self.node()));
+            obj.insert(
+                "from_ipaddress".into(),
+                self.remote_addr
+                    .map(|a| serde_json::Value::String(a.to_string()))
+                    .unwrap_or(serde_json::Value::Null),
+            );
+            obj.insert("from_clientid".into(), serde_json::Value::String(self.client_id.to_string()));
+            obj.insert("from_username".into(), serde_json::Value::String(self.username.to_string()));
         }
         json
     }
 }
-
 
 #[async_trait]
 impl Handler for WebHookHandler {
@@ -573,7 +585,7 @@ impl Handler for WebHookHandler {
                     "ts": chrono::Local::now().timestamp_millis(),
                 });
                 let mut body = from.from(body);
-                if let Some(to) = to{
+                if let Some(to) = to {
                     body = to.to(body);
                 }
 
