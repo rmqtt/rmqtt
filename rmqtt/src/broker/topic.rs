@@ -80,6 +80,7 @@ where
         self.matches(topic).first().is_some()
     }
 
+    #[inline]
     pub fn matches<'a>(&'a self, topic: &'a Topic) -> Matcher<'a, V> {
         Matcher { node: self, path: topic.levels() }
     }
@@ -355,6 +356,7 @@ where
         None
     }
 
+    #[inline]
     fn prepare(&mut self) {
         if self.path.is_empty() {
             //Match parent #
