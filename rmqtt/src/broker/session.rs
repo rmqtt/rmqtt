@@ -1,6 +1,6 @@
 use futures::StreamExt;
 use std::convert::AsRef;
-use std::convert::From as _;
+use std::convert::From as _f;
 use std::fmt;
 use std::ops::Deref;
 use std::rc::Rc;

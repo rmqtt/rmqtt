@@ -1,7 +1,7 @@
 use bytestring::ByteString;
 use serde::de::{self, Deserialize, Deserializer, SeqAccess, Visitor};
 use serde::ser::{Serialize, SerializeStruct, Serializer};
-use std::convert::From as _;
+use std::convert::From as _f;
 use std::convert::TryFrom;
 use std::fmt;
 use std::net::SocketAddr;
