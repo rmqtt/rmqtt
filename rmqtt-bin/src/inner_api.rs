@@ -1,10 +1,10 @@
-use serde::ser::Serialize;
 use std::net::SocketAddr;
 use warp::http::StatusCode;
 use warp::Filter;
 
 use rmqtt::broker::types::{ClientId, Id};
 use rmqtt::grpc::server::active_grpc_requests;
+use rmqtt::{serde::ser::Serialize, serde_json};
 use rmqtt::{Result, Runtime};
 
 #[allow(dead_code)]
