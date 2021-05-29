@@ -9,7 +9,6 @@ use std::hash::Hash;
 use std::iter::FromIterator;
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
-//type HashSet<K> = std::collections::HashSet<K, ahash::RandomState>;
 type HashSet<K> = linked_hash_map::LinkedHashMap<K, (), ahash::RandomState>;
 type LinkedHashMap<K, V> = linked_hash_map::LinkedHashMap<K, V, ahash::RandomState>;
 
