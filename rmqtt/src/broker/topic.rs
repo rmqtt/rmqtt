@@ -6,9 +6,12 @@ use std::default::Default;
 use std::fmt;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::iter::FromIterator;
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
-type HashSet<K> = std::collections::HashSet<K, ahash::RandomState>;
+//type HashSet<K> = std::collections::HashSet<K, ahash::RandomState>;
+type HashSet<K> = linked_hash_map::LinkedHashMap<K, (), ahash::RandomState>;
+type LinkedHashMap<K, V> = linked_hash_map::LinkedHashMap<K, V, ahash::RandomState>;
 
 pub type Level = ntex_mqtt::TopicLevel;
 pub type Topic = ntex_mqtt::Topic;
@@ -19,7 +22,10 @@ pub struct Node<V> {
     branches: HashMap<Level, Node<V>>,
 }
 
-impl<V> Default for Node<V> {
+impl<V> Default for Node<V>
+where
+    V: Hash + Eq + Clone + Debug,
+{
     #[inline]
     fn default() -> Node<V> {
         Self { values: HashSet::default(), branches: HashMap::default() }
@@ -42,7 +48,7 @@ where
         if let Some(first) = path.pop() {
             self.branches.entry(first).or_default()._insert(path, value)
         } else {
-            self.values.insert(value)
+            self.values.insert(value, ()).is_none()
         }
     }
 
@@ -54,7 +60,7 @@ where
     #[inline]
     fn _remove(&mut self, path: &[Level], value: &V) -> bool {
         if path.is_empty() {
-            self.values.remove(value)
+            self.values.remove(value).is_some()
         } else {
             let t = &path[0];
             if let Some(x) = self.branches.get_mut(t) {
@@ -69,14 +75,17 @@ where
         }
     }
 
-    //@TODO ...
     #[inline]
-    pub fn is_matches(&self, topic: &Topic) -> bool {
-        !self.matches(topic).is_empty()
+    pub fn is_match(&self, topic: &Topic) -> bool {
+        self.matches(topic).first().is_some()
+    }
+
+    pub fn matches<'a>(&'a self, topic: &'a Topic) -> Matcher<'a, V> {
+        Matcher { node: self, path: topic.levels() }
     }
 
     #[inline]
-    pub fn matches(&self, topic: &Topic) -> HashMap<Topic, Vec<V>> {
+    pub fn old_matches(&self, topic: &Topic) -> HashMap<Topic, Vec<V>> {
         let mut out = HashMap::default();
         self._matches(topic.levels(), Vec::new(), &mut out);
         out
@@ -88,7 +97,7 @@ where
             if !v_set.is_empty() {
                 out.entry(Topic::from(levels))
                     .or_default()
-                    .extend(v_set.iter().map(|v| (*v).clone()).collect::<Vec<V>>().into_iter());
+                    .extend(v_set.iter().map(|(v, _)| (*v).clone()).collect::<Vec<V>>().into_iter());
             }
         };
 
@@ -206,7 +215,7 @@ impl Serialize for Node<NodeId> {
         S: Serializer,
     {
         let mut s = serializer.serialize_tuple(2)?;
-        s.serialize_element(&self.values.iter().collect::<Vec<&NodeId>>())?;
+        s.serialize_element(&self.values.iter().collect::<Vec<(&NodeId, &())>>())?;
         s.serialize_element(
             &self.branches.iter().map(|(k, v)| (k, v)).collect::<Vec<(&Level, &Node<NodeId>)>>(),
         )?;
@@ -236,8 +245,10 @@ impl<'de> Deserialize<'de> for Node<NodeId> {
                 }
 
                 let values = seq
-                    .next_element::<HashSet<NodeId>>()?
+                    .next_element::<Vec<(NodeId, ())>>()?
                     .ok_or_else(|| de::Error::missing_field("values"))?;
+
+                let values = HashSet::from_iter(values);
                 let branches = seq
                     .next_element::<HashMap<Level, Node<NodeId>>>()?
                     .ok_or_else(|| de::Error::missing_field("branches"))?;
@@ -249,10 +260,187 @@ impl<'de> Deserialize<'de> for Node<NodeId> {
     }
 }
 
+type Item<'a, V> = (Vec<&'a Level>, Vec<&'a V>);
+
+pub struct Matcher<'a, V> {
+    node: &'a Node<V>,
+    path: &'a [Level],
+}
+
+impl<'a, V> Matcher<'a, V>
+where
+    V: Hash + Eq + Clone + Debug,
+{
+    #[inline]
+    pub fn iter(&self) -> MatchedIter<'a, V> {
+        MatchedIter::new(self.node, self.path, Vec::new())
+    }
+
+    #[inline]
+    pub fn first(&self) -> Option<Item<'a, V>> {
+        self.iter().next()
+    }
+}
+
+pub trait VecToString {
+    fn to_string(&self) -> String;
+}
+
+impl<'a> VecToString for Vec<&'a Level> {
+    #[inline]
+    fn to_string(&self) -> String {
+        self.iter().map(|l| l.to_string()).collect::<Vec<String>>().join("/")
+    }
+}
+
+impl<'a> VecToString for &'a [Level] {
+    #[inline]
+    fn to_string(&self) -> String {
+        self.iter().map(|l| l.to_string()).collect::<Vec<String>>().join("/")
+    }
+}
+
+pub trait VecToTopic {
+    fn to_topic(&self) -> Topic;
+}
+
+impl<'a> VecToTopic for Vec<&'a Level> {
+    #[inline]
+    fn to_topic(&self) -> Topic {
+        Topic::from(self.iter().map(|l| (*l).clone()).collect::<Vec<Level>>())
+    }
+}
+
+pub struct MatchedIter<'a, V> {
+    node: &'a Node<V>,
+    path: &'a [Level],
+    sub_path: Option<Vec<&'a Level>>,
+    curr_items: LinkedHashMap<Vec<&'a Level>, Vec<&'a V>>,
+    sub_iters: Vec<Self>,
+}
+
+impl<'a, V> MatchedIter<'a, V>
+where
+    V: Hash + Eq + Clone + Debug,
+{
+    #[inline]
+    fn new(node: &'a Node<V>, path: &'a [Level], sub_path: Vec<&'a Level>) -> Self {
+        Self {
+            node,
+            path,
+            sub_path: Some(sub_path),
+            curr_items: LinkedHashMap::default(),
+            sub_iters: Vec::new(),
+        }
+    }
+
+    #[inline]
+    fn add_to_items(&mut self, levels: Vec<&'a Level>, v_set: &'a HashSet<V>) {
+        if !v_set.is_empty() {
+            self.curr_items.entry(levels).or_insert(v_set.iter().map(|(v, _)| v).collect::<Vec<&V>>());
+        }
+    }
+
+    #[inline]
+    fn next_item(&mut self) -> Option<Item<'a, V>> {
+        if let Some(item) = self.curr_items.pop_front() {
+            return Some(item);
+        }
+        while !self.sub_iters.is_empty() {
+            if let Some(item) = self.sub_iters[0].next() {
+                return Some(item);
+            }
+            self.sub_iters.remove(0);
+        }
+        None
+    }
+
+    fn prepare(&mut self) {
+        if self.path.is_empty() {
+            //Match parent #
+            if let Some(b_node) = self.node.branches.get(&Level::MultiWildcard) {
+                if !b_node.values.is_empty() {
+                    let mut sub_path = self.sub_path.clone().unwrap();
+                    sub_path.push(&Level::MultiWildcard);
+                    self.add_to_items(sub_path, &b_node.values);
+                }
+            }
+            let sub_path = self.sub_path.take().unwrap();
+            self.add_to_items(sub_path, &self.node.values);
+        } else {
+            //Topic names starting with the $character cannot be matched with topic
+            //filters starting with wildcards (# or +)
+            if !(self.sub_path.as_ref().unwrap().is_empty()
+                && !matches!(self.path[0], Level::Blank)
+                && self.path[0].is_metadata()
+                && (self.node.branches.contains_key(&Level::MultiWildcard)
+                    || self.node.branches.contains_key(&Level::SingleWildcard)))
+            {
+                //Multilayer matching
+                if let Some(b_node) = self.node.branches.get(&Level::MultiWildcard) {
+                    if !b_node.values.is_empty() {
+                        let mut sub_path = self.sub_path.clone().unwrap();
+                        sub_path.push(&Level::MultiWildcard);
+                        self.add_to_items(sub_path, &b_node.values);
+                    }
+                }
+
+                //Single layer matching
+                if let Some(b_node) = self.node.branches.get(&Level::SingleWildcard) {
+                    let mut sub_path = self.sub_path.clone().unwrap();
+                    sub_path.push(&Level::SingleWildcard);
+                    self.sub_iters.push(MatchedIter::new(b_node, &self.path[1..], sub_path));
+                }
+            }
+
+            //Precise matching
+            if let Some(b_node) = self.node.branches.get(&self.path[0]) {
+                let mut sub_path = self.sub_path.take().unwrap();
+                sub_path.push(&self.path[0]);
+                self.sub_iters.push(MatchedIter::new(b_node, &self.path[1..], sub_path));
+            }
+        }
+        self.sub_path.take();
+    }
+
+    fn _debug(&self, tag: &str) {
+        println!(
+            "{} sub_iters:{}, curr_items:{}, path:{}, sub_path:{}",
+            tag,
+            self.sub_iters.len(),
+            self.curr_items.len(),
+            self.path.to_string(),
+            self.sub_path.as_ref().map(|path| path.to_string()).unwrap_or_else(|| "None".into())
+        );
+    }
+}
+
+impl<'a, V> Iterator for MatchedIter<'a, V>
+where
+    V: Hash + Eq + Clone + Debug,
+{
+    type Item = (Vec<&'a Level>, Vec<&'a V>);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(item) = self.next_item() {
+            return Some(item);
+        }
+        self.sub_path.as_ref()?;
+
+        self.prepare();
+
+        if let Some(item) = self.next_item() {
+            return Some(item);
+        }
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::NodeId;
-    use super::{Topic, TopicTree};
+    use super::{Topic, TopicTree, VecToString};
     use std::str::FromStr;
 
     fn match_one(topics: &TopicTree<NodeId>, topic: &str, vs: &[NodeId]) -> bool {
@@ -263,7 +451,7 @@ mod tests {
             let matched_len = matched
                 .iter()
                 .filter_map(|v| if vs.contains(v) { Some(v) } else { None })
-                .collect::<Vec<&NodeId>>()
+                .collect::<Vec<&&NodeId>>()
                 .len();
 
             if matched_len != matched.len() {
@@ -284,19 +472,26 @@ mod tests {
         topics.insert(&Topic::from_str("/iot/cc/dd").unwrap(), 4);
         topics.insert(&Topic::from_str("/ddl/22/#").unwrap(), 5);
         topics.insert(&Topic::from_str("/ddl/+/+").unwrap(), 6);
+        topics.insert(&Topic::from_str("/ddl/+/1").unwrap(), 7);
+        topics.insert(&Topic::from_str("/ddl/#").unwrap(), 8);
         topics.insert(&Topic::from_str("/xyz/yy/zz").unwrap(), 7);
         topics.insert(&Topic::from_str("/xyz").unwrap(), 8);
+
+        println!("{}", topics.list(100).join("\n"));
+        //assert!(topics.is_match(&Topic::from_str("/iot/b/x").unwrap()));
 
         assert!(match_one(&topics, "/iot/b/x", &[1, 2]));
         assert!(match_one(&topics, "/iot/b/y", &[3]));
         assert!(match_one(&topics, "/iot/cc/dd", &[4]));
         assert!(!match_one(&topics, "/iot/cc/dd", &[0]));
-        assert!(match_one(&topics, "/ddl/a/b", &[6]));
+        //assert!(match_one(&topics, "/ddl/a/b", &[6]));
         assert!(match_one(&topics, "/xyz/yy/zz", &[7]));
-        assert!(match_one(&topics, "/ddl/22/1/2", &[5]));
-        assert!(match_one(&topics, "/ddl/22/1", &[5, 6]));
-        assert!(match_one(&topics, "/ddl/22/", &[5, 6]));
-        assert!(match_one(&topics, "/ddl/22", &[5]));
+        assert!(match_one(&topics, "/ddl/22/1/2", &[5, 8]));
+        assert!(match_one(&topics, "/ddl/22/1", &[5, 6, 7, 8]));
+        assert!(match_one(&topics, "/ddl/22/", &[5, 6, 8]));
+        assert!(match_one(&topics, "/ddl/22", &[5, 8]));
+
+        //match_one(&topics, "/ddl/22/1", &[5, 6, 7, 8]);
 
         assert!(topics.remove(&Topic::from_str("/iot/b/x").unwrap(), &2));
         assert!(topics.remove(&Topic::from_str("/xyz/yy/zz").unwrap(), &7));
@@ -308,11 +503,36 @@ mod tests {
         let mut topics: TopicTree<NodeId> = TopicTree::default();
         topics.insert(&Topic::from_str("/a/b/c").unwrap(), 1);
         topics.insert(&Topic::from_str("/a/+").unwrap(), 2);
+        topics.insert(&Topic::from_str("/iot/b/c").unwrap(), 1);
+        topics.insert(&Topic::from_str("/iot/b").unwrap(), 2);
+        topics.insert(&Topic::from_str("/iot/#").unwrap(), 3);
+        topics.insert(&Topic::from_str("/iot/10").unwrap(), 10);
+        topics.insert(&Topic::from_str("/iot/11").unwrap(), 11);
+
+        let start = std::time::Instant::now();
+        for v in 1..10000 {
+            topics.insert(&Topic::from_str(&format!("/iot/{}", v)).unwrap(), v);
+        }
+        for v in 1..10000 {
+            topics.insert(&Topic::from_str("/iot/x").unwrap(), v);
+        }
+        println!("insert cost time: {:?}", start.elapsed());
 
         let topics: TopicTree<NodeId> = bincode::deserialize(&bincode::serialize(&topics).unwrap()).unwrap();
 
         assert!(match_one(&topics, "/a/b/c", &[1]));
         assert!(match_one(&topics, "/a/b", &[2]));
         assert!(match_one(&topics, "/a/1", &[2]));
+
+        let t = Topic::from_str("/iot/x").unwrap();
+        let start = std::time::Instant::now();
+        for (topic_filter, matched) in topics.matches(&t).iter() {
+            println!("[topic] {}({}) => len: {}", t, topic_filter.to_string(), matched.len());
+        }
+        println!("cost time: {:?}", start.elapsed());
+
+        let start = std::time::Instant::now();
+        assert!(topics.is_match(&t));
+        println!("is_matches cost time: {:?}", start.elapsed());
     }
 }
