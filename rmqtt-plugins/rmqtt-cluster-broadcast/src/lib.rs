@@ -88,7 +88,7 @@ impl ClusterPlugin {
 impl Plugin for ClusterPlugin {
     #[inline]
     async fn init(&mut self) -> Result<()> {
-        log::debug!("{} init", self.name);
+        log::info!("{} init", self.name);
         self.register
             .add(
                 Type::MessagePublish,
