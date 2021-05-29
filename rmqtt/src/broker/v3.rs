@@ -1,11 +1,10 @@
-use anyhow::Result;
 use ntex_mqtt::v3::{self, codec::SubscribeReturnCode};
 use std::net::SocketAddr;
 
 use crate::broker::{inflight::MomentStatus, types::*};
 use crate::runtime::Runtime;
 use crate::settings::listener::Listener;
-use crate::{ClientInfo, MqttError, Session, SessionState};
+use crate::{ClientInfo, MqttError, Result, Session, SessionState};
 
 #[inline]
 async fn refused_ack<Io>(
@@ -94,7 +93,7 @@ pub async fn handshake<Io>(
 
     let mut entry = match { Runtime::instance().extends.shared().await.entry(id.clone()) }.try_lock() {
         Err(e) => {
-            log::warn!("{:?} Connection Refused, handshake, reason: {}", connect_info.id(), e,);
+            log::warn!("{:?} Connection Refused, handshake, reason: {:?}", connect_info.id(), e);
             return Ok(handshake.service_unavailable());
         }
         Ok(entry) => entry,

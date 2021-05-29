@@ -1,4 +1,4 @@
-use anyhow::Result;
+// use anyhow::Result;
 use slog::*;
 use slog_logfmt::Logfmt;
 use std::fs::{File, OpenOptions};
@@ -9,7 +9,7 @@ use super::settings::{
     ValueMut,
 };
 
-use crate::Runtime;
+use crate::{MqttError, Result, Runtime};
 pub use slog::Logger;
 
 pub fn logger_init() {
@@ -177,5 +177,5 @@ fn open_file(filename: &str) -> Result<File> {
         .write(true)
         .append(true)
         .open(filename)
-        .map_err(|e| anyhow::Error::msg(format!("logger file config error, filename: {}, {:?}", filename, e)))
+        .map_err(|e| MqttError::from(format!("logger file config error, filename: {}, {:?}", filename, e)))
 }

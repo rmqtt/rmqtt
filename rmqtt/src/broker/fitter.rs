@@ -1,9 +1,9 @@
-use anyhow::Result;
 use std::num::NonZeroU32;
 use std::time::Duration;
 
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
+use crate::Result;
 
 #[async_trait]
 pub trait FitterManager: Sync + Send {

@@ -1,7 +1,7 @@
 pub mod listener;
 pub mod log;
 
-use anyhow::Result;
+// use anyhow::Result;
 use config::{Config, ConfigError, File};
 use parking_lot::RwLock;
 use serde::de::{Deserialize, Deserializer};
@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use self::listener::Listeners;
 use self::log::Log;
-use crate::NodeId;
+use crate::{NodeId, Result};
 
 #[derive(Clone)]
 pub struct Settings(Arc<Inner>);

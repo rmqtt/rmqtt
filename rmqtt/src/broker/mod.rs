@@ -1,10 +1,9 @@
-use anyhow::Result;
 use std::iter::Iterator;
 
 use crate::broker::session::{ClientInfo, Session, SessionOfflineInfo};
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
-use crate::{ClientId, Id, NodeId, QoS, Topic, TopicFilter};
+use crate::{ClientId, Id, NodeId, QoS, Result, Topic, TopicFilter};
 
 pub mod default;
 pub mod error;

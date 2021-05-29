@@ -1,8 +1,7 @@
-use anyhow::{Error, Result};
 use leaky_bucket::LeakyBucket;
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
-use std::convert::From as _;
+use std::convert::From as _f;
 use std::iter::Iterator;
 use std::num::NonZeroU32;
 use std::sync::atomic::Ordering;
@@ -27,7 +26,7 @@ use crate::broker::session::{ClientInfo, Session, SessionOfflineInfo};
 use crate::broker::topic::{Topic, VecToTopic};
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
-use crate::{grpc, ClientId, Id, NodeId, QoS, Runtime, TopicFilter};
+use crate::{grpc, ClientId, Id, MqttError, NodeId, QoS, Result, Runtime, TopicFilter};
 
 pub struct LockEntry {
     id: Id,
@@ -167,7 +166,7 @@ impl super::Entry for LockEntry {
             .peers
             .get(&self.id.client_id)
             .map(|peer| peer.value().clone())
-            .ok_or_else(|| anyhow::Error::msg("session is not exist"))?;
+            .ok_or_else(|| MqttError::from("session is not exist"))?;
 
         let router = Runtime::instance().extends.router().await;
         let this_node_id = Runtime::instance().node.id();
@@ -199,7 +198,7 @@ impl super::Entry for LockEntry {
                 SubscribeAck::V3(acks)
             }
             Subscribe::V5(_subs) => {
-                return Err(anyhow::Error::msg("Not implemented"));
+                return Err(MqttError::from("Not implemented"));
             }
         };
         Ok(ack)
@@ -212,7 +211,7 @@ impl super::Entry for LockEntry {
             .peers
             .get(&self.id.client_id)
             .map(|peer| peer.value().clone())
-            .ok_or_else(|| anyhow::Error::msg("session is not exist"))?;
+            .ok_or_else(|| MqttError::from("session is not exist"))?;
 
         let ack = match unsubscribe {
             Unsubscribe::V3(topic_filters) => {
@@ -225,7 +224,7 @@ impl super::Entry for LockEntry {
                 UnsubscribeAck::V3
             }
             Unsubscribe::V5(_subs) => {
-                return Err(anyhow::Error::msg("Not implemented"));
+                return Err(MqttError::from("Not implemented"));
             }
         };
         Ok(ack)
@@ -563,7 +562,7 @@ impl Fitter for DefaultFitter {
     #[inline]
     fn keep_alive(&self, keep_alive: u16) -> Result<u16> {
         if keep_alive < self.listen_cfg.min_keepalive {
-            return Err(Error::msg(format!(
+            return Err(MqttError::from(format!(
                 "Keepalive is too small, cannot be less than {}",
                 self.listen_cfg.min_keepalive
             )));
@@ -615,7 +614,7 @@ impl DefaultHookManager {
             self.handlers.entry(typ).or_insert(Arc::new(sync::RwLock::new(LinkedMap::default())));
         let mut type_handlers = type_handlers.write().await;
         if type_handlers.contains_key(&id) {
-            Err(Error::msg(format!("handler id is repetition, id is {}, type is {:?}", id, typ)))
+            Err(MqttError::from(format!("handler id is repetition, id is {}, type is {:?}", id, typ)))
         } else {
             type_handlers.insert(id.clone(), HookEntry::new(handler));
             Ok(id)
@@ -1044,7 +1043,7 @@ impl Limiter for DefaultLimiter {
     #[inline]
     async fn acquire(&self, amount: usize) -> Result<()> {
         if !self.await_acquire && self.limiter.tokens() < amount {
-            return Err(Error::msg("not enough tokens"));
+            return Err(MqttError::from("not enough tokens"));
         }
         self.limiter.acquire(amount).await?;
         Ok(())
