@@ -54,15 +54,16 @@ pub async fn serve<T: Into<SocketAddr>>(laddr: T) -> Result<()> {
             .and(warp::path::end())
             .and_then(|| async move { with_reply_string(list_routers(1000).await) }));
 
+    //--plugin--------------------------------------------------------------------------
     //plugin list, /plugin/list
     let plugin_list = root()
         .and(warp::path!("plugin" / "list"))
         .and(warp::path::end())
         .and_then(|| async move { with_reply_json(plugin_list().await) });
 
-    //plugin config, /plugin/config
+    //plugin config, /plugin/:plugin/config
     let plugin_config = root()
-        .and(warp::path!("plugin" / "config" / String))
+        .and(warp::path!("plugin" / String / "config"))
         .and(warp::path::end())
         .and_then(|name: String| async move {
             match plugin_config(&name).await {
@@ -71,11 +72,65 @@ pub async fn serve<T: Into<SocketAddr>>(laddr: T) -> Result<()> {
             }
         });
 
-    let get_apis = warp::get().and(
-        version.or(status).or(session).or(random_session).or(router_list).or(plugin_list).or(plugin_config),
+    //start_plugin, "/plugin/:plugin/start", PUT
+    let start_plugin = root().and(warp::path!("plugin" / String / "start")).and(warp::path::end()).and_then(
+        |name: String| async move {
+            match start_plugin(&name).await {
+                Ok(_) => with_reply_string("ok"),
+                Err(e) => with_reply_status(warp::http::StatusCode::NOT_FOUND, Some(format!("{:?}", e))),
+            }
+        },
     );
 
-    let routes = get_apis;
+    //stop_plugin, "/plugin/:plugin/stop", PUT
+    let stop_plugin = root().and(warp::path!("plugin" / String / "stop")).and(warp::path::end()).and_then(
+        |name: String| async move {
+            match stop_plugin(&name).await {
+                Ok(cfg) => with_reply_json(cfg),
+                Err(e) => with_reply_status(warp::http::StatusCode::NOT_FOUND, Some(format!("{:?}", e))),
+            }
+        },
+    );
+
+    //stop_plugin, "/plugin/:plugin/send", POST/GET
+    let plugin_send = root()
+        .and(warp::path!("plugin" / String / "send"))
+        .and(warp::query::<serde_json::Value>())
+        .and(warp::path::end())
+        .and_then(|name: String, msg: serde_json::Value| async move {
+            match plugin_send(&name, msg).await {
+                Ok(cfg) => with_reply_json(cfg),
+                Err(e) => with_reply_status(warp::http::StatusCode::NOT_FOUND, Some(format!("{:?}", e))),
+            }
+        });
+
+    //plugin_reload_config, "/plugin/:plugin/config/reload", PUT
+    let plugin_reload_config = root()
+        .and(warp::path!("plugin" / String / "config" / "reload"))
+        .and(warp::path::end())
+        .and_then(|name: String| async move {
+            match plugin_reload_config(&name).await {
+                Ok(()) => with_reply_string("ok"),
+                Err(e) => with_reply_status(warp::http::StatusCode::NOT_FOUND, Some(format!("{:?}", e))),
+            }
+        });
+
+    //---------------------------------------------------------------------------------
+
+    let get_apis = warp::get().and(
+        version
+            .or(status)
+            .or(session)
+            .or(random_session)
+            .or(router_list)
+            .or(plugin_list)
+            .or(plugin_config)
+            .or(plugin_send),
+    );
+    let put_apis = warp::put().and(start_plugin.or(stop_plugin).or(plugin_reload_config));
+    let post_apis = warp::post().and(plugin_send);
+
+    let routes = get_apis.or(put_apis).or(post_apis);
     warp::serve(routes).try_bind(laddr).await;
     Ok(())
 }
@@ -152,4 +207,20 @@ async fn plugin_list() -> Vec<serde_json::Value> {
 
 async fn plugin_config(name: &str) -> Result<serde_json::Value> {
     Runtime::instance().plugins.get_config(name).await
+}
+
+async fn start_plugin(name: &str) -> Result<()> {
+    Runtime::instance().plugins.start(name).await
+}
+
+async fn stop_plugin(name: &str) -> Result<bool> {
+    Runtime::instance().plugins.stop(name).await
+}
+
+async fn plugin_send(name: &str, msg: serde_json::Value) -> Result<serde_json::Value> {
+    Runtime::instance().plugins.send(name, msg).await
+}
+
+async fn plugin_reload_config(name: &str) -> Result<()> {
+    Runtime::instance().plugins.load_config(name).await
 }
