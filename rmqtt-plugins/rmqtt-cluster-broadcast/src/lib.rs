@@ -123,7 +123,7 @@ impl Plugin for ClusterPlugin {
         log::warn!("{} stop, once the cluster is started, it cannot be stopped", self.name);
         //self.register.stop().await;
         //*self.runtime.extends.shared_mut().await = Box::new(DefaultShared::instance());
-        Ok(true)
+        Ok(false)
     }
 
     #[inline]
