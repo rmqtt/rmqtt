@@ -54,6 +54,11 @@ pub trait Plugin: Send + Sync {
     async fn attrs(&self) -> serde_json::Value {
         serde_json::Value::Null
     }
+
+    #[inline]
+    async fn send(&self, _msg: serde_json::Value) -> Result<serde_json::Value> {
+        Ok(serde_json::Value::Null)
+    }
 }
 
 pub struct Entry {
@@ -168,6 +173,15 @@ impl Manager {
     ///Get a mut Plugin
     pub fn get_mut(&self, name: &str) -> Option<EntryRefMut> {
         self.plugins.get_mut(name)
+    }
+
+    ///Sending messages to plug-in
+    pub async fn send(&self, name: &str, msg: serde_json::Value) -> Result<serde_json::Value> {
+        if let Some(entry) = self.plugins.get(name) {
+            entry.plugin.send(msg).await
+        } else {
+            Err(MqttError::from(format!("{} the plug-in does not exist", name)))
+        }
     }
 
     ///List Plugins
