@@ -445,36 +445,28 @@ impl Handler for WebHookHandler {
             }
 
             Parameter::ClientSubscribe(_session, client, subscribe) => {
-                let mut bodys = Vec::new();
-                for (topic, qos) in subscribe.topic_filters().drain(..) {
-                    let body = json!({
-                        "node": client.id.node(),
-                        "ipaddress": client.id.remote_addr,
-                        "clientid": client.id.client_id,
-                        "username": client.id.username,
-                        "topic": topic.to_string(),
-                        "opts": json!({
-                            "qos": qos.value()
-                        }),
-                    });
-                    bodys.push((Some(topic), body));
-                }
-                bodys
+                let body = json!({
+                    "node": client.id.node(),
+                    "ipaddress": client.id.remote_addr,
+                    "clientid": client.id.client_id,
+                    "username": client.id.username,
+                    "topic": subscribe.topic_filter.to_string(),
+                    "opts": json!({
+                        "qos": subscribe.qos.value()
+                    }),
+                });
+                vec![(Some(subscribe.topic_filter.clone()), body)]
             }
 
-            Parameter::ClientUnsubscribe(_session, client, unsubscribe) => {
-                let mut bodys = Vec::new();
-                for topic in unsubscribe.topic_filters().drain(..) {
-                    let body = json!({
-                        "node": client.id.node(),
-                        "ipaddress": client.id.remote_addr,
-                        "clientid": client.id.client_id,
-                        "username": client.id.username,
-                        "topic": topic.to_string(),
-                    });
-                    bodys.push((Some(topic), body));
-                }
-                bodys
+            Parameter::ClientUnsubscribe(_session, client, topic_tilter) => {
+                let body = json!({
+                    "node": client.id.node(),
+                    "ipaddress": client.id.remote_addr,
+                    "clientid": client.id.client_id,
+                    "username": client.id.username,
+                    "topic": topic_tilter.to_string(),
+                });
+                vec![(Some((*topic_tilter).clone()), body)]
             }
 
             Parameter::SessionSubscribed(_session, client, subscribed) => {
