@@ -4,7 +4,7 @@ use rmqtt::{
     broker::{
         default::DefaultShared,
         session::{ClientInfo, Session, SessionOfflineInfo},
-        types::{From, Id, Publish, Reason, Subscribe, SubscribeAck, To, Tx, Unsubscribe, UnsubscribeAck},
+        types::{From, Id, Publish, Reason, Subscribes, SubscribeAck, To, Tx, Unsubscribes, UnsubscribeAck},
         Entry, Shared,
     },
     grpc::{Message, MessageReply, MessageType},
@@ -110,13 +110,13 @@ impl Entry for ClusterLockEntry {
     }
 
     #[inline]
-    async fn subscribe(&self, subscribe: Subscribe) -> Result<SubscribeAck> {
-        self.inner.subscribe(subscribe).await
+    async fn subscribe(&self, subscribes: Subscribes) -> Result<SubscribeAck> {
+        self.inner.subscribe(subscribes).await
     }
 
     #[inline]
-    async fn unsubscribe(&self, unsubscribe: &Unsubscribe) -> Result<UnsubscribeAck> {
-        self.inner.unsubscribe(unsubscribe).await
+    async fn unsubscribe(&self, unsubscribes: &Unsubscribes) -> Result<UnsubscribeAck> {
+        self.inner.unsubscribe(unsubscribes).await
     }
 
     #[inline]
