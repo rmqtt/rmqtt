@@ -29,8 +29,8 @@ pub trait Entry: Sync + Send {
     async fn session(&self) -> Option<Session>;
     async fn client(&self) -> Option<ClientInfo>;
     fn tx(&self) -> Option<Tx>;
-    async fn subscribe(&self, subscribe: Subscribe) -> Result<SubscribeAck>;
-    async fn unsubscribe(&self, unsubscribe: &Unsubscribe) -> Result<UnsubscribeAck>;
+    async fn subscribe(&self, subscribes: Subscribes) -> Result<SubscribeAck>;
+    async fn unsubscribe(&self, unsubscribe: &Unsubscribes) -> Result<UnsubscribeAck>;
     async fn publish(&self, from: From, p: Publish) -> Result<(), (From, Publish, Reason)>;
 }
 
