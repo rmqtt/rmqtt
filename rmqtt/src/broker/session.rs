@@ -485,30 +485,26 @@ impl SessionState {
             return Err(MqttError::TooManySubscriptions);
         }
 
-        let mut subs_v3 = Subscribe::V3(subs_v3);
+        let mut subs_v3 = Subscribes::V3(subs_v3);
 
         //hook, client_subscribe
         let topic_filters = self.hook.client_subscribe(&subs_v3).await;
 
         log::debug!("{:?} topic_filters: {:?}", self.id, topic_filters);
-        let topic_filters = if let Some(topic_filters) = topic_filters {
-            subs_v3.adjust_topic_filters(topic_filters.clone())?;
-            topic_filters
-        } else if let Subscribe::V3(subs_v3) = &subs_v3 {
+        subs_v3.adjust_topic_filters(topic_filters)?;
+        let topic_filters = if let Subscribes::V3(subs_v3) = &subs_v3 {
             subs_v3.iter().map(|(tf, _)| tf.clone()).collect::<TopicFilters>()
         } else {
-            unreachable!()
+            unreachable!() //@TODO ...
         };
-
         log::debug!("{:?} topic_filters: {:?}", self.id, topic_filters);
-
         //hook, client_subscribe
         let acl_result = self.hook.client_subscribe_check_acl(&subs_v3).await;
         match acl_result {
-            Some(SubscribeAclResult::V3(return_codes)) => {
+            Some(SubscribesAclResult::V3(return_codes)) => {
                 if subs_v3.len() != return_codes.len() {
                     log::error!(
-                        "{:?} SubscribeAclResult return codes quantity mismatch from hook.client_subscribe_check_acl",
+                        "{:?} SubscribesAclResult return codes quantity mismatch from hook.client_subscribe_check_acl",
                         self.id
                     );
                     return Err(MqttError::ServiceUnavailable);
@@ -528,13 +524,13 @@ impl SessionState {
                 }
             }
             None => {}
-            Some(SubscribeAclResult::V5(_)) => {
+            Some(SubscribesAclResult::V5(_)) => {
                 unreachable!()
             }
         }
 
         let mut tmp: StdHashMap<Topic, usize> = StdHashMap::default();
-        if let Subscribe::V3(subs_v3) = &subs_v3 {
+        if let Subscribes::V3(subs_v3) = &subs_v3 {
             for (idx, (tf, _)) in subs_v3.iter().enumerate() {
                 //tmp.insert(tf.as_bytes().as_ref(), idx);
                 tmp.insert(tf.clone(), idx);
@@ -594,13 +590,13 @@ impl SessionState {
             })
             .collect::<Result<Vec<Topic>>>()?;
 
-        let mut unsubs_v3 = Unsubscribe::V3(unsubs_v3);
+        let mut unsubs_v3 = Unsubscribes::V3(unsubs_v3);
 
         log::debug!("{:?} unsubs_v3: {:?}", self.id, unsubs_v3);
 
         //hook, client_unsubscribe
         let topic_filters = self.hook.client_unsubscribe(&unsubs_v3).await;
-        if let Some(topic_filters) = topic_filters {
+        if !topic_filters.is_empty() {
             unsubs_v3.adjust_topic_filters(topic_filters)?;
             log::debug!("{:?} unsubs_v3(adjust_topic_filters): {:?}", self.id, unsubs_v3);
         }
@@ -609,7 +605,7 @@ impl SessionState {
             Runtime::instance().extends.shared().await.entry(self.id.clone()).unsubscribe(&unsubs_v3).await?;
 
         //hook, session_unsubscribed
-        if let Unsubscribe::V3(mut unsubs) = unsubs_v3 {
+        if let Unsubscribes::V3(mut unsubs) = unsubs_v3 {
             for topic_filter in unsubs.drain(..) {
                 self.hook.session_unsubscribed(Unsubscribed::V3(topic_filter)).await;
             }
