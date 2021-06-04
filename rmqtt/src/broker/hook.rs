@@ -65,19 +65,19 @@ pub trait Hook: Sync + Send {
     async fn session_terminated(&self, r: Reason);
 
     ///subscribe check acl
-    async fn client_subscribe_check_acl(&self, subscribe: &Subscribe) -> Option<SubscribeAclResult>;
+    async fn client_subscribe_check_acl(&self, subscribe: &Subscribes) -> Option<SubscribesAclResult>;
 
     ///publish check acl
     async fn message_publish_check_acl(&self, publish: &Publish) -> PublishAclResult;
 
     ///Subscribe message received
-    async fn client_subscribe(&self, subscribe: &Subscribe) -> Option<TopicFilters>;
+    async fn client_subscribe(&self, subscribe: &Subscribes) -> HookSubscribeResult;
 
     ///Subscription succeeded
     async fn session_subscribed(&self, subscribed: Subscribed);
 
     ///Unsubscribe message received
-    async fn client_unsubscribe(&self, unsubscribe: &Unsubscribe) -> Option<TopicFilters>;
+    async fn client_unsubscribe(&self, unsubscribe: &Unsubscribes) -> HookUnsubscribeResult;
 
     ///Unsubscribe succeeded
     async fn session_unsubscribed(&self, unsubscribed: Unsubscribed);
@@ -173,9 +173,10 @@ pub enum Parameter<'a> {
     ClientAuthenticate(&'a Session, &'a ClientInfo, Option<Password>),
     ClientConnected(&'a Session, &'a ClientInfo),
     ClientDisconnected(&'a Session, &'a ClientInfo, Reason),
-    ClientSubscribe(&'a Session, &'a ClientInfo, &'a Subscribe),
-    ClientUnsubscribe(&'a Session, &'a ClientInfo, &'a Unsubscribe),
-    ClientSubscribeCheckAcl(&'a Session, &'a ClientInfo, &'a Subscribe),
+    //ClientSubscribe(&'a Session, &'a ClientInfo, &'a Subscribes),
+    ClientSubscribe(&'a Session, &'a ClientInfo, Subscribe<'a>),
+    ClientUnsubscribe(&'a Session, &'a ClientInfo, &'a TopicFilter),
+    ClientSubscribeCheckAcl(&'a Session, &'a ClientInfo, Subscribe<'a>),
 
     MessagePublishCheckAcl(&'a Session, &'a ClientInfo, &'a Publish),
     MessagePublish(&'a Session, &'a ClientInfo, &'a Publish),
@@ -227,7 +228,7 @@ pub enum HookResult {
     ///ConnectAckReason, for ClientConnack
     ConnectAckReason(ConnectAckReason),
     ///TopicFilters, for ClientSubscribe/ClientUnsubscribe
-    TopicFilters(TopicFilters),
+    TopicFilter(Option<TopicFilter>),
     ///Subscribe AclResult, for ClientSubscribeCheckAcl
     SubscribeAclResult(SubscribeAclResult),
     ///Publish AclResult, for MessagePublishCheckAcl
