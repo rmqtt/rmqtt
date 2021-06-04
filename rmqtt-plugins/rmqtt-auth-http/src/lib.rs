@@ -16,7 +16,7 @@ use async_trait::async_trait;
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::session::ClientInfo,
-    broker::types::{AsStr, AuthResult, Password, PublishAclResult, Subscribe, SubscribeAclResult},
+    broker::types::{AsStr, AuthResult, Password, PublishAclResult, SubscribeAclResult},
     plugin::Plugin,
     ClientId, MqttError, Result, Runtime, Topic,
 };
@@ -216,7 +216,7 @@ impl AuthHandler {
         sub_or_pub: Option<(&str, &Topic)>,
     ) {
         for v in params.values_mut() {
-            *v = v.replace("%u", &client.id.username);
+            *v = v.replace("%u", client.connect_info.username().map(|n| n.as_str()).unwrap_or(""));
             *v = v.replace("%c", &client.id.client_id);
             *v =
                 v.replace("%a", &client.id.remote_addr.map(|addr| addr.ip().to_string()).unwrap_or_default());
@@ -379,44 +379,19 @@ impl Handler for AuthHandler {
                     (true, acc)
                 };
             }
+
             Parameter::ClientSubscribeCheckAcl(_session, client_info, subscribe) => {
-                log::debug!("ClientSubscribeCheckAcl");
-                if let Some(HookResult::SubscribeAclResult(acl_result)) = &acc {
-                    if !acl_result.has_successes() {
-                        return (false, acc);
-                    }
+                if let Some(HookResult::SubscribeAclResult(SubscribeAclResult::Failure)) = &acc {
+                    return (false, acc);
                 }
 
-                let mut acl_result = match subscribe {
-                    Subscribe::V3(_) => SubscribeAclResult::V3(Vec::new()),
-                    Subscribe::V5(_) => SubscribeAclResult::V5(Vec::new()),
-                };
-
-                let inherit_failure = |acl_result: &mut SubscribeAclResult, idx: usize| {
-                    if let Some(HookResult::SubscribeAclResult(acc)) = &acc {
-                        acl_result.inherit_failure(acc, idx)
-                    } else {
-                        false
-                    }
-                };
-
-                for (idx, (tf, qos)) in subscribe.topic_filters().drain(..).enumerate() {
-                    if !inherit_failure(&mut acl_result, idx) {
-                        if self.acl(*client_info, Some((SUB, &tf))).await {
-                            acl_result.add_success(qos);
-                        } else {
-                            acl_result.add_topic_filter_invalid();
-                        }
-                    }
-                }
-
-                log::debug!("acl_result: {:?}", acl_result);
-                if acl_result.has_failures() {
-                    return (true, Some(HookResult::SubscribeAclResult(acl_result)));
+                return if self.acl(*client_info, Some((SUB, subscribe.topic_filter))).await {
+                    (true, Some(HookResult::SubscribeAclResult(SubscribeAclResult::Success(subscribe.qos))))
                 } else {
-                    return (true, acc);
-                }
+                    (true, Some(HookResult::SubscribeAclResult(SubscribeAclResult::Failure)))
+                };
             }
+
             Parameter::MessagePublishCheckAcl(_session, client_info, publish) => {
                 log::debug!("MessagePublishCheckAcl");
                 if let Some(HookResult::PublishAclResult(PublishAclResult::Rejected(_))) = &acc {
