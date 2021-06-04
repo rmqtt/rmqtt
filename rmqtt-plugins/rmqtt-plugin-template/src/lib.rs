@@ -41,6 +41,8 @@ impl Plugin for Template {
     async fn init(&mut self) -> Result<()> {
         log::debug!("{} init", self.name);
         self.register.add(Type::ClientConnack, Box::new(HookHandler::new())).await;
+        self.register.add(Type::ClientSubscribe, Box::new(HookHandler::new())).await;
+        self.register.add(Type::ClientUnsubscribe, Box::new(HookHandler::new())).await;
         self.register.add(Type::MessageDelivered, Box::new(HookHandler::new())).await;
         self.register.add(Type::MessagePublish, Box::new(HookHandler::new())).await;
         self.register.add(Type::ClientSubscribeCheckAcl, Box::new(HookHandler::new())).await;
@@ -94,6 +96,18 @@ impl Handler for HookHandler {
         match param {
             Parameter::ClientConnack(connect_info, r) => {
                 log::debug!("client connack, {:?}, {:?}", connect_info, r);
+            }
+            Parameter::ClientSubscribe(_session, c, subscribe) => {
+                log::debug!("{:?} client subscribe, {:?}", c.id, subscribe);
+                //let mut topic_filter = subscribe.topic_filter.clone();
+                //topic_filter.insert(0, Level::Normal("PPP".into()));
+                //return (true, Some(HookResult::TopicFilter(Some(topic_filter))))
+            }
+            Parameter::ClientUnsubscribe(_session, c, unsubscribe) => {
+                log::debug!("{:?} client unsubscribe, {:?}", c.id, unsubscribe);
+                //let mut topic_filter = (*unsubscribe).clone();
+                //topic_filter.insert(0, Level::Normal("PPP".into()));
+                //return (true, Some(HookResult::TopicFilter(Some(topic_filter))))
             }
             Parameter::MessagePublish(_session, c, publish) => {
                 log::debug!("{:?} message publish, {:?}", c.id, publish);
