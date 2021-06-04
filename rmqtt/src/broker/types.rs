@@ -57,6 +57,9 @@ pub type PublishReceiveTime = TimestampMillis;
 pub type TopicFilterMap = StdHashMap<TopicFilter, QoS>;
 pub type TopicFilters = Vec<TopicFilter>;
 
+pub type HookSubscribeResult = Vec<Option<TopicFilter>>;
+pub type HookUnsubscribeResult = Vec<Option<TopicFilter>>;
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum ConnectInfo {
     V3(Id, ConnectV3),
@@ -126,6 +129,14 @@ impl ConnectInfo {
         match self {
             ConnectInfo::V3(_, conn_info) => conn_info.keep_alive,
             ConnectInfo::V5(_, conn_info) => conn_info.keep_alive,
+        }
+    }
+
+    #[inline]
+    pub fn username(&self) -> Option<&UserName> {
+        match self {
+            ConnectInfo::V3(_, conn_info) => conn_info.username.as_ref(),
+            ConnectInfo::V5(_, conn_info) => conn_info.username.as_ref(),
         }
     }
 }
@@ -375,25 +386,31 @@ impl QoSEx for QoS {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SubscribeAclResult {
+    Success(QoS),
+    Failure,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SubscribesAclResult {
     V3(Vec<SubscribeReturnCodeV3>),
     V5(Vec<SubscribeAckReason>),
 }
 
-impl SubscribeAclResult {
+impl SubscribesAclResult {
     ///inherit if failure
-    pub fn inherit_failure(&mut self, from: &SubscribeAclResult, idx: usize) -> bool {
+    pub fn inherit_failure(&mut self, from: &SubscribesAclResult, idx: usize) -> bool {
         match from {
-            SubscribeAclResult::V3(from_codes) => {
+            SubscribesAclResult::V3(from_codes) => {
                 if let Some(from_code) = from_codes.get(idx) {
                     if !matches!(from_code, SubscribeReturnCodeV3::Success(_)) {
-                        if let SubscribeAclResult::V3(codes) = self {
+                        if let SubscribesAclResult::V3(codes) = self {
                             codes.push(*from_code);
                             return true;
                         }
                     }
                 }
             }
-            SubscribeAclResult::V5(from_reasons) => {
+            SubscribesAclResult::V5(from_reasons) => {
                 if let Some(from_reason) = from_reasons.get(idx) {
                     if !matches!(
                         from_reason,
@@ -401,7 +418,7 @@ impl SubscribeAclResult {
                             | SubscribeAckReason::GrantedQos1
                             | SubscribeAckReason::GrantedQos2
                     ) {
-                        if let SubscribeAclResult::V5(reasons) = self {
+                        if let SubscribesAclResult::V5(reasons) = self {
                             reasons.push(*from_reason);
                             return true;
                         }
@@ -414,10 +431,10 @@ impl SubscribeAclResult {
 
     // pub fn is_success(&self, idx: usize) -> bool{
     //     match self{
-    //         SubscribeAclResult::V3(codes) => {
+    //         SubscribesAclResult::V3(codes) => {
     //             codes.get(idx).map(|code| matches!(code, SubscribeReturnCodeV3::Success(_))).unwrap_or(true)
     //         }
-    //         SubscribeAclResult::V5(acks) => {
+    //         SubscribesAclResult::V5(acks) => {
     //             acks.get(idx).map(|reason| matches!(reason, SubscribeAckReason::GrantedQos0 | SubscribeAckReason::GrantedQos1 | SubscribeAckReason::GrantedQos2)).unwrap_or(true)
     //         }
     //     }
@@ -425,10 +442,10 @@ impl SubscribeAclResult {
 
     pub fn has_successes(&self) -> bool {
         match self {
-            SubscribeAclResult::V3(codes) => {
+            SubscribesAclResult::V3(codes) => {
                 codes.iter().any(|code| matches!(code, SubscribeReturnCodeV3::Success(_)))
             }
-            SubscribeAclResult::V5(acks) => acks.iter().any(|reason| {
+            SubscribesAclResult::V5(acks) => acks.iter().any(|reason| {
                 matches!(
                     reason,
                     SubscribeAckReason::GrantedQos0
@@ -441,10 +458,10 @@ impl SubscribeAclResult {
 
     pub fn has_failures(&self) -> bool {
         match self {
-            SubscribeAclResult::V3(codes) => {
+            SubscribesAclResult::V3(codes) => {
                 codes.iter().any(|code| matches!(code, SubscribeReturnCodeV3::Failure))
             }
-            SubscribeAclResult::V5(acks) => acks.iter().any(|reason| {
+            SubscribesAclResult::V5(acks) => acks.iter().any(|reason| {
                 !matches!(
                     reason,
                     SubscribeAckReason::GrantedQos0
@@ -457,10 +474,10 @@ impl SubscribeAclResult {
 
     pub fn add_success(&mut self, qos: QoS) {
         match self {
-            SubscribeAclResult::V3(codes) => {
+            SubscribesAclResult::V3(codes) => {
                 codes.push(SubscribeReturnCodeV3::Success(qos));
             }
-            SubscribeAclResult::V5(acks) => {
+            SubscribesAclResult::V5(acks) => {
                 let reason = match qos {
                     QoS::AtMostOnce => SubscribeAckReason::GrantedQos0,
                     QoS::AtLeastOnce => SubscribeAckReason::GrantedQos1,
@@ -473,10 +490,10 @@ impl SubscribeAclResult {
 
     pub fn add_not_authorized(&mut self) {
         match self {
-            SubscribeAclResult::V3(codes) => {
+            SubscribesAclResult::V3(codes) => {
                 codes.push(SubscribeReturnCodeV3::Failure);
             }
-            SubscribeAclResult::V5(acks) => {
+            SubscribesAclResult::V5(acks) => {
                 acks.push(SubscribeAckReason::NotAuthorized);
             }
         }
@@ -484,10 +501,10 @@ impl SubscribeAclResult {
 
     pub fn add_topic_filter_invalid(&mut self) {
         match self {
-            SubscribeAclResult::V3(codes) => {
+            SubscribesAclResult::V3(codes) => {
                 codes.push(SubscribeReturnCodeV3::Failure);
             }
-            SubscribeAclResult::V5(acks) => {
+            SubscribesAclResult::V5(acks) => {
                 acks.push(SubscribeAckReason::TopicFilterInvalid);
             }
         }
@@ -507,28 +524,38 @@ pub enum AuthResult {
 }
 
 #[derive(Clone, Debug)]
-pub enum Subscribe {
+pub struct Subscribe<'a> {
+    pub topic_filter: &'a TopicFilter,
+    pub qos: QoS,
+}
+
+#[derive(Clone, Debug)]
+pub enum Subscribes {
     V3(Vec<(TopicFilter, QoS)>),
     V5(SubscribeV5),
 }
 
-impl Subscribe {
+impl Subscribes {
     #[inline]
-    pub fn adjust_topic_filters(&mut self, mut topic_filters: TopicFilters) -> Result<()> {
+    pub fn adjust_topic_filters(&mut self, mut topic_filters: HookSubscribeResult) -> Result<()> {
         if self.len() != topic_filters.len() {
             log::error!("topic_filters quantity mismatch, {:?} <=> {:?}", self, topic_filters);
             return Err(MqttError::ServiceUnavailable);
         }
 
         match self {
-            Subscribe::V3(subs) => {
+            Subscribes::V3(subs) => {
                 for (tf, _) in subs.iter_mut() {
-                    *tf = topic_filters.remove(0);
+                    if let Some(new_tf) = topic_filters.remove(0) {
+                        *tf = new_tf;
+                    }
                 }
             }
-            Subscribe::V5(subs) => {
+            Subscribes::V5(subs) => {
                 for (tf, _) in subs.topic_filters.iter_mut() {
-                    *tf = ByteString::from(topic_filters.remove(0).to_string());
+                    if let Some(new_tf) = topic_filters.remove(0) {
+                        *tf = ByteString::from(new_tf.to_string()); //@TODO ... TopicFilter
+                    }
                 }
             }
         }
@@ -539,8 +566,8 @@ impl Subscribe {
     #[inline]
     pub fn len(&self) -> usize {
         match self {
-            Subscribe::V3(subs) => subs.len(),
-            Subscribe::V5(subs) => subs.topic_filters.len(),
+            Subscribes::V3(subs) => subs.len(),
+            Subscribes::V5(subs) => subs.topic_filters.len(),
         }
     }
 
@@ -552,8 +579,8 @@ impl Subscribe {
     #[inline]
     pub fn topic_filter(&self, idx: usize) -> Option<&TopicFilter> {
         match self {
-            Subscribe::V3(subs) => subs.get(idx).map(|(tf, _)| tf),
-            Subscribe::V5(_subs) => {
+            Subscribes::V3(subs) => subs.get(idx).map(|(tf, _)| tf),
+            Subscribes::V5(_subs) => {
                 log::warn!("[MQTT 5] Not implemented");
                 None
             }
@@ -563,10 +590,10 @@ impl Subscribe {
     #[inline]
     pub fn topic_filters(&self) -> Vec<(TopicFilter, QoS)> {
         match self {
-            Subscribe::V3(subs) => {
+            Subscribes::V3(subs) => {
                 subs.iter().map(|(tf, qos)| (tf.clone(), *qos)).collect::<Vec<(TopicFilter, QoS)>>()
             }
-            Subscribe::V5(subs) => {
+            Subscribes::V5(subs) => {
                 //@TODO ... TopicFilter
                 subs.topic_filters
                     .iter()
@@ -579,10 +606,10 @@ impl Subscribe {
     #[inline]
     pub fn remove(&mut self, topic_filter: &TopicFilter) {
         match self {
-            Subscribe::V3(subs) => {
+            Subscribes::V3(subs) => {
                 *subs = subs.drain(..).filter(|(tf, _)| tf != topic_filter).collect::<Vec<_>>();
             }
-            Subscribe::V5(_subs) => {
+            Subscribes::V5(_subs) => {
                 log::warn!("[MQTT 5] Not implemented");
             }
         }
@@ -591,14 +618,14 @@ impl Subscribe {
     #[inline]
     pub fn set_qos_if_less(&mut self, topic_filter: &TopicFilter, qos: QoS) {
         match self {
-            Subscribe::V3(subs) => {
+            Subscribes::V3(subs) => {
                 for (tf, s_qos) in subs.iter_mut() {
                     if tf == topic_filter {
                         *s_qos = s_qos.less_value(qos);
                     }
                 }
             }
-            Subscribe::V5(_subs) => {
+            Subscribes::V5(_subs) => {
                 log::warn!("[MQTT 5] Not implemented");
             }
         }
@@ -782,17 +809,17 @@ impl ConnectAckReason {
 }
 
 #[derive(Clone, Debug)]
-pub enum Unsubscribe {
+pub enum Unsubscribes {
     V3(Vec<TopicFilter>),
     V5(UnsubscribeV5),
 }
 
-impl Unsubscribe {
+impl Unsubscribes {
     #[inline]
     pub fn topic_filters(&self) -> Vec<TopicFilter> {
         match self {
-            Unsubscribe::V3(unsubs) => unsubs.clone(),
-            Unsubscribe::V5(unsubs) => {
+            Unsubscribes::V3(unsubs) => unsubs.clone(),
+            Unsubscribes::V5(unsubs) => {
                 //@TODO ... TopicFilter
                 unsubs
                     .topic_filters
@@ -804,21 +831,25 @@ impl Unsubscribe {
     }
 
     #[inline]
-    pub fn adjust_topic_filters(&mut self, mut topic_filters: TopicFilters) -> Result<()> {
+    pub fn adjust_topic_filters(&mut self, mut topic_filters: HookUnsubscribeResult) -> Result<()> {
         if self.len() != topic_filters.len() {
             log::error!("topic_filters quantity mismatch, {:?} <=> {:?}", self, topic_filters);
             return Err(MqttError::ServiceUnavailable);
         }
 
         match self {
-            Unsubscribe::V3(unsubs) => {
+            Unsubscribes::V3(unsubs) => {
                 for tf in unsubs.iter_mut() {
-                    *tf = topic_filters.remove(0);
+                    if let Some(new_tf) = topic_filters.remove(0) {
+                        *tf = new_tf;
+                    }
                 }
             }
-            Unsubscribe::V5(unsubs) => {
+            Unsubscribes::V5(unsubs) => {
                 for tf in unsubs.topic_filters.iter_mut() {
-                    *tf = ByteString::from(topic_filters.remove(0).to_string());
+                    if let Some(new_tf) = topic_filters.remove(0) {
+                        *tf = ByteString::from(new_tf.to_string()); //@TODO ... TopicFilter
+                    }
                 }
             }
         }
@@ -828,8 +859,8 @@ impl Unsubscribe {
     #[inline]
     pub fn len(&self) -> usize {
         match self {
-            Unsubscribe::V3(unsubs) => unsubs.len(),
-            Unsubscribe::V5(unsubs) => unsubs.topic_filters.len(),
+            Unsubscribes::V3(unsubs) => unsubs.len(),
+            Unsubscribes::V5(unsubs) => unsubs.topic_filters.len(),
         }
     }
 
