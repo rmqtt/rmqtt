@@ -173,7 +173,6 @@ pub enum Parameter<'a> {
     ClientAuthenticate(&'a Session, &'a ClientInfo, Option<Password>),
     ClientConnected(&'a Session, &'a ClientInfo),
     ClientDisconnected(&'a Session, &'a ClientInfo, Reason),
-    //ClientSubscribe(&'a Session, &'a ClientInfo, &'a Subscribes),
     ClientSubscribe(&'a Session, &'a ClientInfo, Subscribe<'a>),
     ClientUnsubscribe(&'a Session, &'a ClientInfo, &'a TopicFilter),
     ClientSubscribeCheckAcl(&'a Session, &'a ClientInfo, Subscribe<'a>),
