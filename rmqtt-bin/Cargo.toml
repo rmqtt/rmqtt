@@ -25,24 +25,26 @@ warp = "0.3.1"
 
 ##plugins-release
 rmqtt = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.6"}
-rmqtt-plugin-template = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.1"}
+rmqtt-acl = { path = "../rmqtt-plugins/rmqtt-acl" }
 rmqtt-web-hook = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.1"}
 rmqtt-auth-http = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.1"}
 rmqtt-cluster-broadcast = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.1"}
+#rmqtt-plugin-template = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.1"}
 
 ##plugins-dev
 #rmqtt = { path = "../rmqtt" }
-#rmqtt-plugin-template = { path = "../rmqtt-plugins/rmqtt-plugin-template" }
+#rmqtt-acl = { path = "../rmqtt-plugins/rmqtt-acl" }
 #rmqtt-web-hook = { path = "../rmqtt-plugins/rmqtt-web-hook" }
 #rmqtt-auth-http = { path = "../rmqtt-plugins/rmqtt-auth-http" }
 #rmqtt-cluster-broadcast = { path = "../rmqtt-plugins/rmqtt-cluster-broadcast" }
+#rmqtt-plugin-template = { path = "../rmqtt-plugins/rmqtt-plugin-template" }
 
 [package.metadata.plugins]
-rmqtt-plugin-template = {}
+rmqtt-acl = {default_startup = true}
 rmqtt-web-hook = {}
 rmqtt-auth-http = {}
 rmqtt-cluster-broadcast = {}
-#rmqtt-xxx-xxx = {default_startup = true}
+#rmqtt-plugin-template = {}
 
 [build-dependencies]
 toml = "0.5"
