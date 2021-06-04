@@ -160,7 +160,7 @@ impl super::Entry for LockEntry {
     }
 
     #[inline]
-    async fn subscribe(&self, subscribe: Subscribe) -> Result<SubscribeAck> {
+    async fn subscribe(&self, subscribes: Subscribes) -> Result<SubscribeAck> {
         let peer = self
             .shared
             .peers
@@ -177,8 +177,8 @@ impl super::Entry for LockEntry {
             node_id, this_node_id
         );
 
-        let ack = match subscribe {
-            Subscribe::V3(mut topic_filters) => {
+        let ack = match subscribes {
+            Subscribes::V3(mut topic_filters) => {
                 let mut acks = Vec::new();
                 for (topic_filter, qos) in topic_filters.drain(..) {
                     if let Err(e) = router.add(&topic_filter, node_id, &self.id.client_id, qos).await {
@@ -197,7 +197,7 @@ impl super::Entry for LockEntry {
                 }
                 SubscribeAck::V3(acks)
             }
-            Subscribe::V5(_subs) => {
+            Subscribes::V5(_subs) => {
                 return Err(MqttError::from("Not implemented"));
             }
         };
@@ -205,7 +205,7 @@ impl super::Entry for LockEntry {
     }
 
     #[inline]
-    async fn unsubscribe(&self, unsubscribe: &Unsubscribe) -> Result<UnsubscribeAck> {
+    async fn unsubscribe(&self, unsubscribe: &Unsubscribes) -> Result<UnsubscribeAck> {
         let peer = self
             .shared
             .peers
@@ -214,7 +214,7 @@ impl super::Entry for LockEntry {
             .ok_or_else(|| MqttError::from("session is not exist"))?;
 
         let ack = match unsubscribe {
-            Unsubscribe::V3(topic_filters) => {
+            Unsubscribes::V3(topic_filters) => {
                 for topic_filter in topic_filters.iter() {
                     if let Err(e) = self._unsubscribe(peer.c.id.clone(), topic_filter).await {
                         log::warn!("{:?} unsubscribe, error:{:?}", self.id, e);
@@ -223,7 +223,7 @@ impl super::Entry for LockEntry {
                 }
                 UnsubscribeAck::V3
             }
-            Unsubscribe::V5(_subs) => {
+            Unsubscribes::V5(_subs) => {
                 return Err(MqttError::from("Not implemented"));
             }
         };
@@ -446,16 +446,16 @@ impl Router for &'static DefaultRouter {
         client_id: &str,
         qos: QoS,
     ) -> Result<()> {
+        log::debug!("add, topic_filter: {:?}", topic_filter);
         self.tree.write().insert(topic_filter, node_id); //@TODO Or send the routing relationship to the cluster ...
-
-        //Storage subscription to local
+                                                         //Storage subscription to local
         self.relations.entry(topic_filter.to_owned()).or_default().insert(ClientId::from(client_id), qos);
-
         Ok(())
     }
 
     #[inline]
     async fn remove(&self, topic_filter: &TopicFilter, node_id: NodeId, client_id: &str) -> Result<()> {
+        log::debug!("remove, topic_filter: {:?}", topic_filter);
         //Remove subscription relationship from local
         let relations_len = self
             .relations
@@ -465,13 +465,11 @@ impl Router for &'static DefaultRouter {
                 entry.len()
             })
             .unwrap_or_default();
-
         if relations_len == 0 {
             //Remove routing information from the routing table when there is no subscription relationship
             self.tree.write().remove(topic_filter, &node_id);
             //@TODO Remove routing relationship from cluster ...
         }
-
         Ok(())
     }
 
@@ -841,18 +839,47 @@ impl Hook for DefaultHook {
     }
 
     #[inline]
-    async fn client_subscribe_check_acl(&self, subscribe: &Subscribe) -> Option<SubscribeAclResult> {
-        let result = self
-            .manager
-            .exec(
-                Type::ClientSubscribeCheckAcl,
-                Parameter::ClientSubscribeCheckAcl(&self.s, &self.c, subscribe),
-            )
-            .await;
+    async fn client_subscribe_check_acl(&self, subscribes: &Subscribes) -> Option<SubscribesAclResult> {
+        let (mut subs, v3) = match subscribes {
+            Subscribes::V3(tfs) => (
+                tfs.iter()
+                    .map(|(topic_filter, qos)| Subscribe { topic_filter, qos: *qos })
+                    .collect::<Vec<Subscribe>>(),
+                true,
+            ),
+            Subscribes::V5(_subs) => {
+                log::warn!("Not implemented"); //@TODO ...
+                return None;
+            }
+        };
 
-        if let Some(HookResult::SubscribeAclResult(acl_result)) = result {
-            Some(acl_result)
+        if v3 {
+            let mut results = Vec::new();
+            for sub in subs.drain(..) {
+                let qos = sub.qos;
+                let reply = self
+                    .manager
+                    .exec(
+                        Type::ClientSubscribeCheckAcl,
+                        Parameter::ClientSubscribeCheckAcl(&self.s, &self.c, sub),
+                    )
+                    .await;
+                if let Some(HookResult::SubscribeAclResult(r)) = reply {
+                    match r {
+                        SubscribeAclResult::Success(qos) => {
+                            results.push(SubscribeReturnCodeV3::Success(qos));
+                        }
+                        SubscribeAclResult::Failure => {
+                            results.push(SubscribeReturnCodeV3::Failure);
+                        }
+                    }
+                } else {
+                    results.push(SubscribeReturnCodeV3::Success(qos));
+                }
+            }
+            Some(SubscribesAclResult::V3(results))
         } else {
+            log::warn!("Not implemented"); //@TODO ...
             None
         }
     }
@@ -871,16 +898,30 @@ impl Hook for DefaultHook {
     }
 
     #[inline]
-    async fn client_subscribe(&self, subscribe: &Subscribe) -> Option<TopicFilters> {
-        let result = self
-            .manager
-            .exec(Type::ClientSubscribe, Parameter::ClientSubscribe(&self.s, &self.c, subscribe))
-            .await;
-        if let Some(HookResult::TopicFilters(topic_filters)) = result {
-            Some(topic_filters)
-        } else {
-            None
+    async fn client_subscribe(&self, subscribes: &Subscribes) -> HookSubscribeResult {
+        let mut subs = match subscribes {
+            Subscribes::V3(tfs) => tfs
+                .iter()
+                .map(|(topic_filter, qos)| Subscribe { topic_filter, qos: *qos })
+                .collect::<Vec<Subscribe>>(),
+            Subscribes::V5(_subs) => {
+                log::warn!("Not implemented"); //@TODO ...
+                return HookSubscribeResult::new();
+            }
+        };
+        let mut results = HookSubscribeResult::new();
+        for sub in subs.drain(..) {
+            let reply = self
+                .manager
+                .exec(Type::ClientSubscribe, Parameter::ClientSubscribe(&self.s, &self.c, sub))
+                .await;
+            if let Some(HookResult::TopicFilter(tf)) = reply {
+                results.push(tf);
+            } else {
+                results.push(None);
+            }
         }
+        results
     }
 
     #[inline]
@@ -892,17 +933,28 @@ impl Hook for DefaultHook {
     }
 
     #[inline]
-    async fn client_unsubscribe(&self, unsubscribe: &Unsubscribe) -> Option<TopicFilters> {
-        let result = self
-            .manager
-            .exec(Type::ClientUnsubscribe, Parameter::ClientUnsubscribe(&self.s, &self.c, unsubscribe))
-            .await;
+    async fn client_unsubscribe(&self, unsubscribes: &Unsubscribes) -> HookUnsubscribeResult {
+        let mut unsubs = match unsubscribes {
+            Unsubscribes::V3(tfs) => tfs.iter().collect::<Vec<&TopicFilter>>(),
+            Unsubscribes::V5(_subs) => {
+                log::warn!("Not implemented"); //@TODO ...
+                return HookUnsubscribeResult::new();
+            }
+        };
 
-        if let Some(HookResult::TopicFilters(topic_filters)) = result {
-            Some(topic_filters)
-        } else {
-            None
+        let mut results = HookUnsubscribeResult::new();
+        for unsub in unsubs.drain(..) {
+            let reply = self
+                .manager
+                .exec(Type::ClientUnsubscribe, Parameter::ClientUnsubscribe(&self.s, &self.c, unsub))
+                .await;
+            if let Some(HookResult::TopicFilter(tf)) = reply {
+                results.push(tf);
+            } else {
+                results.push(None);
+            }
         }
+        results
     }
 
     #[inline]
