@@ -158,7 +158,7 @@ async fn status() -> serde_json::Value {
     serde_json::json!({
         "sessions": shared.sessions().await,
         "clients": shared.clients().await,
-        "active_grpc_requestss": active_grpc_requests()
+        "active_grpc_requests": active_grpc_requests()
     })
 }
 
