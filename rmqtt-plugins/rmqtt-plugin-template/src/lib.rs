@@ -45,9 +45,8 @@ impl Plugin for Template {
         self.register.add(Type::ClientUnsubscribe, Box::new(HookHandler::new())).await;
         self.register.add(Type::MessageDelivered, Box::new(HookHandler::new())).await;
         self.register.add(Type::MessagePublish, Box::new(HookHandler::new())).await;
-        self.register.add(Type::ClientSubscribeCheckAcl, Box::new(HookHandler::new())).await;
-
-        self.register.add(Type::GrpcMessageReceived, Box::new(HookHandler::new())).await;
+        self.register.add_priority(Type::ClientSubscribeCheckAcl, 10, Box::new(HookHandler::new())).await;
+        self.register.add_priority(Type::GrpcMessageReceived, 10, Box::new(HookHandler::new())).await;
 
         Ok(())
     }
