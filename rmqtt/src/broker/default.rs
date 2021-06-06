@@ -787,7 +787,7 @@ impl Hook for DefaultHook {
             .manager
             .exec(Type::ClientAuthenticate, Parameter::ClientAuthenticate(&self.s, &self.c, password))
             .await;
-
+        log::debug!("{:?} result: {:?}", self.s.id, result);
         let (bad_user_or_pass, not_auth) = match result {
             Some(HookResult::AuthResult(AuthResult::BadUsernameOrPassword)) => (true, false),
             Some(HookResult::AuthResult(AuthResult::NotAuthorized)) => (false, true),
