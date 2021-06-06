@@ -76,9 +76,9 @@ impl Plugin for AclPlugin {
 
     #[inline]
     async fn stop(&mut self) -> Result<bool> {
-        log::info!("{} stop", self.name);
-        self.register.stop().await;
-        Ok(true)
+        log::warn!("{} stop, the default ACL plug-in, it cannot be stopped", self.name);
+        //self.register.stop().await;
+        Ok(false)
     }
 
     #[inline]
@@ -162,7 +162,12 @@ impl Handler for AclHandler {
             }
 
             Parameter::ClientAuthenticate(_session, client_info, _password) => {
-                if let Some(HookResult::AuthResult(_)) = acc {
+                log::debug!("ClientAuthenticate acl");
+                if matches!(
+                    acc,
+                    Some(HookResult::AuthResult(AuthResult::BadUsernameOrPassword))
+                        | Some(HookResult::AuthResult(AuthResult::NotAuthorized))
+                ) {
                     return (false, acc);
                 }
 
@@ -173,7 +178,7 @@ impl Handler for AclHandler {
                     if rule.user.hit(client_info) {
                         log::debug!("{:?} ClientAuthenticate, rule: {:?}", client_info.id, rule);
                         return if matches!(rule.access, Access::Allow) {
-                            (true, acc)
+                            (true, Some(HookResult::AuthResult(AuthResult::Allow)))
                         } else {
                             (false, Some(HookResult::AuthResult(AuthResult::NotAuthorized)))
                         };
