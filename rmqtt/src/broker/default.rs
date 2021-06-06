@@ -660,6 +660,7 @@ impl HookManager for &'static DefaultHookManager {
     #[inline]
     async fn client_connect(&self, connect_info: &ConnectInfo) -> Option<UserProperties> {
         let result = self.exec(Type::ClientConnect, Parameter::ClientConnect(connect_info)).await;
+        log::debug!("{:?} result: {:?}", connect_info.id(), result);
         if let Some(HookResult::UserProperties(props)) = result {
             Some(props)
         } else {
@@ -675,6 +676,7 @@ impl HookManager for &'static DefaultHookManager {
     ) -> ConnectAckReason {
         let result =
             self.exec(Type::ClientConnack, Parameter::ClientConnack(connect_info, &return_code)).await;
+        log::debug!("{:?} result: {:?}", connect_info.id(), result);
         if let Some(HookResult::ConnectAckReason(new_return_code)) = result {
             new_return_code
         } else {
@@ -792,7 +794,8 @@ impl Hook for DefaultHook {
             Some(HookResult::AuthResult(AuthResult::BadUsernameOrPassword)) => (true, false),
             Some(HookResult::AuthResult(AuthResult::NotAuthorized)) => (false, true),
             Some(HookResult::AuthResult(AuthResult::Allow)) => return ok(),
-            _ => {  //or AuthResult::NotFound
+            _ => {
+                //or AuthResult::NotFound
                 if self.s.listen_cfg.allow_anonymous {
                     return ok();
                 } else {
@@ -869,6 +872,7 @@ impl Hook for DefaultHook {
                         Parameter::ClientSubscribeCheckAcl(&self.s, &self.c, sub),
                     )
                     .await;
+                log::debug!("{:?} result: {:?}", self.s.id, reply);
                 if let Some(HookResult::SubscribeAclResult(r)) = reply {
                     match r {
                         SubscribeAclResult::Success(qos) => {
@@ -895,6 +899,7 @@ impl Hook for DefaultHook {
             .manager
             .exec(Type::MessagePublishCheckAcl, Parameter::MessagePublishCheckAcl(&self.s, &self.c, publish))
             .await;
+        log::debug!("{:?} result: {:?}", self.s.id, result);
         if let Some(HookResult::PublishAclResult(acl_result)) = result {
             acl_result
         } else {
@@ -920,6 +925,7 @@ impl Hook for DefaultHook {
                 .manager
                 .exec(Type::ClientSubscribe, Parameter::ClientSubscribe(&self.s, &self.c, sub))
                 .await;
+            log::debug!("{:?} result: {:?}", self.s.id, reply);
             if let Some(HookResult::TopicFilter(tf)) = reply {
                 results.push(tf);
             } else {
@@ -953,6 +959,7 @@ impl Hook for DefaultHook {
                 .manager
                 .exec(Type::ClientUnsubscribe, Parameter::ClientUnsubscribe(&self.s, &self.c, unsub))
                 .await;
+            log::debug!("{:?} result: {:?}", self.s.id, reply);
             if let Some(HookResult::TopicFilter(tf)) = reply {
                 results.push(tf);
             } else {
@@ -976,7 +983,7 @@ impl Hook for DefaultHook {
             .manager
             .exec(Type::MessagePublish, Parameter::MessagePublish(&self.s, &self.c, publish))
             .await;
-
+        log::debug!("{:?} result: {:?}", self.s.id, result);
         if let Some(HookResult::Publish(publish)) = result {
             Some(publish)
         } else {
@@ -990,7 +997,7 @@ impl Hook for DefaultHook {
             .manager
             .exec(Type::MessageDelivered, Parameter::MessageDelivered(&self.s, &self.c, from, publish))
             .await;
-
+        log::debug!("{:?} result: {:?}", self.s.id, result);
         if let Some(HookResult::Publish(publish)) = result {
             Some(publish)
         } else {
@@ -1006,24 +1013,13 @@ impl Hook for DefaultHook {
             .await;
     }
 
-    // #[inline]
-    // async fn message_dropped(&self, to: Option<To>, from: From, publish: Publish, reason: Reason) {
-    //     let _ = self
-    //         .manager
-    //         .exec(
-    //             Type::MessageDropped,
-    //             Parameter::MessageDropped(&self.s, &self.c, to, from, publish, reason),
-    //         )
-    //         .await;
-    // }
-
     #[inline]
     async fn message_expiry_check(&self, from: From, publish: &Publish) -> MessageExpiry {
         let result = self
             .manager
             .exec(Type::MessageExpiryCheck, Parameter::MessageExpiryCheck(&self.s, &self.c, from, publish))
             .await;
-
+        log::debug!("{:?} result: {:?}", self.s.id, result);
         if let Some(HookResult::MessageExpiry) = result {
             return true;
         }
