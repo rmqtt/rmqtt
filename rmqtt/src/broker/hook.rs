@@ -1,6 +1,7 @@
 use crate::broker::types::*;
 use crate::{grpc, ClientInfo, Password, Result, Session};
 
+pub type Priority = u32;
 pub type ReturnType = (bool, Option<HookResult>);
 
 #[async_trait]
@@ -35,7 +36,11 @@ pub trait HookManager: Sync + Send {
 
 #[async_trait]
 pub trait Register: Sync + Send {
-    async fn add(&self, typ: Type, handler: Box<dyn Handler>);
+    async fn add(&self, typ: Type, handler: Box<dyn Handler>) {
+        self.add_priority(typ, 0, handler).await;
+    }
+
+    async fn add_priority(&self, typ: Type, priority: Priority, handler: Box<dyn Handler>);
 
     async fn start(&self) {}
 
