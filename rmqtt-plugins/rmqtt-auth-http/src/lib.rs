@@ -70,10 +70,20 @@ impl Plugin for AuthHttpPlugin {
         log::info!("{} init", self.name);
         let cfg = &self.cfg;
         let cache_map = &self.cache_map;
-        self.register.add(Type::ClientAuthenticate, Box::new(AuthHandler::new(cfg, cache_map))).await;
-        self.register.add(Type::ClientSubscribeCheckAcl, Box::new(AuthHandler::new(cfg, cache_map))).await;
-        self.register.add(Type::MessagePublishCheckAcl, Box::new(AuthHandler::new(cfg, cache_map))).await;
-        self.register.add(Type::ClientDisconnected, Box::new(AuthHandler::new(cfg, cache_map))).await;
+
+        let priority = cfg.read().await.priority;
+        self.register
+            .add_priority(Type::ClientAuthenticate, priority, Box::new(AuthHandler::new(cfg, cache_map)))
+            .await;
+        self.register
+            .add_priority(Type::ClientSubscribeCheckAcl, priority, Box::new(AuthHandler::new(cfg, cache_map)))
+            .await;
+        self.register
+            .add_priority(Type::MessagePublishCheckAcl, priority, Box::new(AuthHandler::new(cfg, cache_map)))
+            .await;
+        self.register
+            .add_priority(Type::ClientDisconnected, priority, Box::new(AuthHandler::new(cfg, cache_map)))
+            .await;
 
         Ok(())
     }
@@ -364,19 +374,25 @@ impl Handler for AuthHandler {
     async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
         match param {
             Parameter::ClientAuthenticate(_session, client_info, password) => {
-                log::debug!("ClientAuthenticate");
-                if let Some(HookResult::AuthResult(_)) = acc {
+                log::debug!("ClientAuthenticate auth-http");
+                if matches!(
+                    acc,
+                    Some(HookResult::AuthResult(AuthResult::BadUsernameOrPassword))
+                        | Some(HookResult::AuthResult(AuthResult::NotAuthorized))
+                ) {
                     return (false, acc);
                 }
 
+                let stop = !self.cfg.read().await.break_if_allow;
+
                 if self.is_super(*client_info).await {
-                    return (true, acc);
+                    return (stop, Some(HookResult::AuthResult(AuthResult::Allow)));
                 }
 
                 return if !self.auth(*client_info, password.as_ref()).await {
                     (false, Some(HookResult::AuthResult(AuthResult::NotAuthorized)))
                 } else {
-                    (true, acc)
+                    (stop, Some(HookResult::AuthResult(AuthResult::Allow)))
                 };
             }
 
@@ -386,9 +402,12 @@ impl Handler for AuthHandler {
                 }
 
                 return if self.acl(*client_info, Some((SUB, subscribe.topic_filter))).await {
-                    (true, Some(HookResult::SubscribeAclResult(SubscribeAclResult::Success(subscribe.qos))))
+                    (
+                        !self.cfg.read().await.break_if_allow,
+                        Some(HookResult::SubscribeAclResult(SubscribeAclResult::Success(subscribe.qos))),
+                    )
                 } else {
-                    (true, Some(HookResult::SubscribeAclResult(SubscribeAclResult::Failure)))
+                    (false, Some(HookResult::SubscribeAclResult(SubscribeAclResult::Failure)))
                 };
             }
 
@@ -399,7 +418,10 @@ impl Handler for AuthHandler {
                 }
 
                 return if self.acl(*client_info, Some((PUB, publish.topic()))).await {
-                    (true, Some(HookResult::PublishAclResult(PublishAclResult::Allow)))
+                    (
+                        !self.cfg.read().await.break_if_allow,
+                        Some(HookResult::PublishAclResult(PublishAclResult::Allow)),
+                    )
                 } else {
                     (false, Some(HookResult::PublishAclResult(PublishAclResult::Rejected(true))))
                     //@TODO ... Do you want to disconnect?
