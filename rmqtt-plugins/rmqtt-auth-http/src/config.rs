@@ -6,11 +6,20 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
 
+use rmqtt::broker::hook::Priority;
 use rmqtt::settings::deserialize_duration;
 use rmqtt::Result;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
+    ///Whether to stop the hook chain after successful authentication
+    #[serde(default = "PluginConfig::break_if_allow_default")]
+    pub break_if_allow: bool,
+
+    ///Hook priority
+    #[serde(default = "PluginConfig::priority_default")]
+    pub priority: Priority,
+
     #[serde(default = "PluginConfig::http_timeout_default", deserialize_with = "deserialize_duration")]
     pub http_timeout: Duration,
     #[serde(
@@ -37,6 +46,12 @@ impl PluginConfig {
         }
     }
 
+    fn break_if_allow_default() -> bool {
+        true
+    }
+    fn priority_default() -> Priority {
+        100
+    }
     fn http_timeout_default() -> Duration {
         Duration::from_secs(5)
     }
