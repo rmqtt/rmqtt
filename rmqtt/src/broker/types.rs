@@ -519,6 +519,9 @@ pub enum PublishAclResult {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AuthResult {
+    Allow,
+    ///User is not found
+    NotFound,
     BadUsernameOrPassword,
     NotAuthorized,
 }
