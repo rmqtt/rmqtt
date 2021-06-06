@@ -1,6 +1,7 @@
 use leaky_bucket::LeakyBucket;
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
+use std::collections::BTreeMap;
 use std::convert::From as _f;
 use std::iter::Iterator;
 use std::num::NonZeroU32;
@@ -12,7 +13,6 @@ use tokio::time::Duration;
 use uuid::Uuid;
 type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
 type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
-type LinkedMap<K, V> = linked_hash_map::LinkedHashMap<K, V, ahash::RandomState>;
 
 use ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 use ntex_mqtt::v3::codec::SubscribeReturnCode as SubscribeReturnCodeV3;
@@ -21,7 +21,7 @@ use super::{
     retain::RetainTree, topic::TopicTree, Entry, Limiter, LimiterManager, RetainStorage, Router, Shared,
 };
 use crate::broker::fitter::{Fitter, FitterManager};
-use crate::broker::hook::{Handler, Hook, HookManager, HookResult, Parameter, Register, Type};
+use crate::broker::hook::{Handler, Hook, HookManager, HookResult, Parameter, Priority, Register, Type};
 use crate::broker::session::{ClientInfo, Session, SessionOfflineInfo};
 use crate::broker::topic::{Topic, VecToTopic};
 use crate::broker::types::*;
@@ -595,7 +595,7 @@ type HandlerId = String;
 //#[derive(Clone)]
 pub struct DefaultHookManager {
     #[allow(clippy::type_complexity)]
-    handlers: Arc<DashMap<Type, Arc<sync::RwLock<LinkedMap<HandlerId, HookEntry>>>>>,
+    handlers: Arc<DashMap<Type, Arc<sync::RwLock<BTreeMap<(Priority, HandlerId), HookEntry>>>>>,
 }
 
 impl DefaultHookManager {
@@ -606,15 +606,16 @@ impl DefaultHookManager {
     }
 
     #[inline]
-    async fn add(&self, typ: Type, handler: Box<dyn Handler>) -> Result<HandlerId> {
+    async fn add(&self, typ: Type, priority: Priority, handler: Box<dyn Handler>) -> Result<HandlerId> {
         let id = Uuid::new_v4().to_simple().encode_lower(&mut Uuid::encode_buffer()).to_string();
         let type_handlers =
-            self.handlers.entry(typ).or_insert(Arc::new(sync::RwLock::new(LinkedMap::default())));
+            self.handlers.entry(typ).or_insert(Arc::new(sync::RwLock::new(BTreeMap::default())));
         let mut type_handlers = type_handlers.write().await;
-        if type_handlers.contains_key(&id) {
-            Err(MqttError::from(format!("handler id is repetition, id is {}, type is {:?}", id, typ)))
+        let key = (priority, id.clone());
+        if type_handlers.contains_key(&key) {
+            Err(MqttError::from(format!("handler id is repetition, key is {:?}, type is {:?}", key, typ)))
         } else {
-            type_handlers.insert(id.clone(), HookEntry::new(handler));
+            type_handlers.insert(key, HookEntry::new(handler));
             Ok(id)
         }
     }
@@ -625,7 +626,7 @@ impl DefaultHookManager {
         let type_handlers = { self.handlers.get(&t).map(|h| (*h.value()).clone()) };
         if let Some(type_handlers) = type_handlers {
             let type_handlers = type_handlers.read().await;
-            for (_, entry) in type_handlers.iter() {
+            for (_, entry) in type_handlers.iter().rev() {
                 if entry.enabled {
                     let (proceed, new_acc) = entry.handler.hook(&p, acc).await;
                     if !proceed {
@@ -703,7 +704,7 @@ impl HookManager for &'static DefaultHookManager {
 
 pub struct DefaultHookRegister {
     manager: &'static DefaultHookManager,
-    type_ids: Arc<DashSet<(Type, HandlerId)>>,
+    type_ids: Arc<DashSet<(Type, (Priority, HandlerId))>>,
 }
 
 impl DefaultHookRegister {
@@ -715,9 +716,9 @@ impl DefaultHookRegister {
     #[inline]
     async fn adjust_status(&self, b: bool) {
         for type_id in self.type_ids.iter() {
-            let (typ, id) = type_id.key();
+            let (typ, key) = type_id.key();
             if let Some(type_handlers) = self.manager.handlers.get(typ) {
-                if let Some(entry) = type_handlers.write().await.get_mut(id) {
+                if let Some(entry) = type_handlers.write().await.get_mut(key) {
                     if entry.enabled != b {
                         entry.enabled = b;
                     }
@@ -730,10 +731,10 @@ impl DefaultHookRegister {
 #[async_trait]
 impl Register for DefaultHookRegister {
     #[inline]
-    async fn add(&self, typ: Type, handler: Box<dyn Handler>) {
-        match self.manager.add(typ, handler).await {
+    async fn add_priority(&self, typ: Type, priority: Priority, handler: Box<dyn Handler>) {
+        match self.manager.add(typ, priority, handler).await {
             Ok(id) => {
-                self.type_ids.insert((typ, id));
+                self.type_ids.insert((typ, (priority, id)));
             }
             Err(e) => {
                 log::error!("Hook add handler fail, {:?}", e);
@@ -782,9 +783,6 @@ impl Hook for DefaultHook {
             _ => ConnectAckReason::V3(ConnectAckReasonV3::ConnectionAccepted),
         };
 
-        if self.s.listen_cfg.allow_anonymous {
-            return ok();
-        }
         let result = self
             .manager
             .exec(Type::ClientAuthenticate, Parameter::ClientAuthenticate(&self.s, &self.c, password))
@@ -793,7 +791,14 @@ impl Hook for DefaultHook {
         let (bad_user_or_pass, not_auth) = match result {
             Some(HookResult::AuthResult(AuthResult::BadUsernameOrPassword)) => (true, false),
             Some(HookResult::AuthResult(AuthResult::NotAuthorized)) => (false, true),
-            _ => (false, false),
+            Some(HookResult::AuthResult(AuthResult::Allow)) => return ok(),
+            _ => {  //or AuthResult::NotFound
+                if self.s.listen_cfg.allow_anonymous {
+                    return ok();
+                } else {
+                    (false, true)
+                }
+            }
         };
 
         if bad_user_or_pass {
