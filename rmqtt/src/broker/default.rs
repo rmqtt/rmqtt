@@ -785,6 +785,11 @@ impl Hook for DefaultHook {
             _ => ConnectAckReason::V3(ConnectAckReasonV3::ConnectionAccepted),
         };
 
+        log::debug!("{:?} username: {:?}", self.s.id, self.c.connect_info.username());
+        if self.c.connect_info.username().is_none() && self.s.listen_cfg.allow_anonymous {
+            return ok();
+        }
+
         let result = self
             .manager
             .exec(Type::ClientAuthenticate, Parameter::ClientAuthenticate(&self.s, &self.c, password))
