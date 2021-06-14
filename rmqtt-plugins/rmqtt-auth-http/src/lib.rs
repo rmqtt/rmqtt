@@ -401,7 +401,7 @@ impl Handler for AuthHandler {
                     return (false, acc);
                 }
 
-                return if self.acl(*client_info, Some((SUB, subscribe.topic_filter))).await {
+                return if self.acl(*client_info, Some((SUB, &subscribe.topic_filter))).await {
                     (
                         !self.cfg.read().await.break_if_allow,
                         Some(HookResult::SubscribeAclResult(SubscribeAclResult::Success(subscribe.qos))),
