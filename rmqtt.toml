@@ -44,9 +44,16 @@ plugins.dir = "rmqtt-plugins/"
 #Plug in started by default, when the mqtt server is started
 plugins.default_startups = [
 #    "rmqtt-cluster-broadcast"
-#    "rmqtt-auth-http",
-#    "rmqtt-web-hook"
+    "rmqtt-auth-http",
+    "rmqtt-web-hook"
 ]
+
+
+##--------------------------------------------------------------------
+## MQTT
+##--------------------------------------------------------------------
+#Shared subscription switch, default value: true
+mqtt.shared_subscription = true
 
 ##--------------------------------------------------------------------
 ## Listeners
