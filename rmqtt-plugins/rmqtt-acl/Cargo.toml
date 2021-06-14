@@ -5,7 +5,7 @@ authors = ["rmqtt-rs <rmqttd@126.com>"]
 edition = "2018"
 
 [dependencies]
-rmqtt = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.7"}
+rmqtt = { git = "https://github.com/rmqtt-rs/rmqtt.git", version="0.1.8"}
 #rmqtt = { path = "../../rmqtt" }
 log = "0.4.14"
 serde = { version = "1.0.126", features = ["derive"] }
