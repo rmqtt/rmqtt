@@ -199,7 +199,7 @@ impl Handler for AclHandler {
                     if !rule.user.hit(client_info) {
                         continue;
                     }
-                    if !rule.topics.is_match(subscribe.topic_filter, &topic_filter_str).await {
+                    if !rule.topics.is_match(&subscribe.topic_filter, &topic_filter_str).await {
                         continue;
                     }
                     log::debug!(
