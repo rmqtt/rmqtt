@@ -1,26 +1,22 @@
-use super::{retainer::ClusterRetainer, shared::ClusterShared, GrpcClients, MessageBroadcaster};
+use super::{hook_message_dropped, retainer::ClusterRetainer, shared::ClusterShared};
 use rmqtt::{
     broker::{
         hook::{Handler, HookResult, Parameter, ReturnType},
         types::{From, Publish},
+        SharedSubRelations,
     },
     grpc::{Message, MessageReply},
     Runtime,
 };
 
 pub(crate) struct HookHandler {
-    grpc_clients: GrpcClients,
     shared: &'static ClusterShared,
     retainer: &'static ClusterRetainer,
 }
 
 impl HookHandler {
-    pub(crate) fn new(
-        grpc_clients: GrpcClients,
-        shared: &'static ClusterShared,
-        retainer: &'static ClusterRetainer,
-    ) -> Self {
-        Self { grpc_clients, shared, retainer }
+    pub(crate) fn new(shared: &'static ClusterShared, retainer: &'static ClusterRetainer) -> Self {
+        Self { shared, retainer }
     }
 }
 
@@ -28,41 +24,24 @@ impl HookHandler {
 impl Handler for HookHandler {
     async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
         match param {
-            Parameter::MessagePublish(_session, client_info, publish) => {
-                log::debug!("{:?} message publish, {:?}", client_info.id, publish);
-
-                let grpc_clients = self.grpc_clients.clone();
-                let message_type = self.shared.message_type;
-                let msg = Message::Forward(client_info.id.clone(), (*publish).clone());
-                let message_replys =
-                    async move { MessageBroadcaster::new(grpc_clients, message_type, msg).join_all().await };
-
-                let id = client_info.id.clone();
-                let grpc_clients = self.grpc_clients.clone();
-                tokio::spawn(async move {
-                    for (i, res) in message_replys.await.iter().enumerate() {
-                        if let Err(e) = res {
-                            log::error!(
-                                "{:?} send_message error, {:?}, {:?}",
-                                id,
-                                grpc_clients.get(i).map(|(a, _)| a),
-                                e
-                            );
-                        }
-                    }
-                });
-            }
             Parameter::GrpcMessageReceived(typ, msg) => {
                 log::debug!("GrpcMessageReceived, type: {}, msg: {:?}", typ, msg);
                 if self.shared.message_type != *typ {
                     return (true, acc);
                 }
                 match msg {
-                    Message::Forward(from, publish) => {
-                        tokio::spawn(forwards(vec![(from.clone(), publish.clone())]));
+                    Message::Forwards(from, publish) => {
+                        let shared_subs = forwards(from.clone(), publish.clone()).await;
+                        let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::Forwards(shared_subs)));
+                        return (false, Some(new_acc));
                     }
-                    Message::Forwards(publishs) => {
-                        tokio::spawn(forwards(publishs.clone()));
+                    Message::ForwardsTo(from, publish, sub_rels) => {
+                        if let Err(droppeds) =
+                            self.shared.inner().forwards_to(from.clone(), &publish, sub_rels.clone()).await
+                        {
+                            hook_message_dropped(droppeds).await;
+                        }
+                        return (false, acc);
                     }
                     Message::Kick(id) => {
                         let entry = self.shared.inner().entry(id.clone());
@@ -116,18 +95,12 @@ impl Handler for HookHandler {
     }
 }
 
-async fn forwards(publishs: Vec<(From, Publish)>) {
-    for (from, publish) in publishs {
-        if let Err(droppeds) = { Runtime::instance().extends.shared().await.forwards(from, publish).await } {
-            for (to, from, publish, reason) in droppeds {
-                //hook, message_dropped
-                Runtime::instance()
-                    .extends
-                    .hook_mgr()
-                    .await
-                    .message_dropped(Some(to), from, publish, reason)
-                    .await;
-            }
+async fn forwards(from: From, publish: Publish) -> SharedSubRelations {
+    match Runtime::instance().extends.shared().await.forwards_and_get_shareds(from, publish).await {
+        Err(droppeds) => {
+            hook_message_dropped(droppeds).await;
+            SharedSubRelations::default()
         }
+        Ok(shared_subs) => shared_subs,
     }
 }

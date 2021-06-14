@@ -19,6 +19,7 @@ use rmqtt::{
         error::MqttError,
         hook::{Register, Type},
         session::SessionOfflineInfo,
+        types::{From, Publish, Reason, To},
     },
     grpc::{client::NodeGrpcClient, Message, MessageReply, MessageType},
     plugin::Plugin,
@@ -55,6 +56,7 @@ struct ClusterPlugin {
     grpc_clients: GrpcClients,
     shared: &'static ClusterShared,
     retainer: &'static ClusterRetainer,
+    // shared_subscriber: &'static ClusterSharedSubscriber,
 }
 
 impl ClusterPlugin {
@@ -80,6 +82,8 @@ impl ClusterPlugin {
         let message_type = cfg.read().message_type;
         let shared = ClusterShared::get_or_init(grpc_clients.clone(), message_type);
         let retainer = ClusterRetainer::get_or_init(grpc_clients.clone(), message_type);
+        // let shared_subscriber =
+        //     ClusterSharedSubscriber::get_or_init(grpc_clients.clone(), runtime.node.id(), message_type);
         Ok(Self { runtime, name, descr, register, cfg, grpc_clients, shared, retainer })
     }
 }
@@ -90,16 +94,7 @@ impl Plugin for ClusterPlugin {
     async fn init(&mut self) -> Result<()> {
         log::info!("{} init", self.name);
         self.register
-            .add(
-                Type::MessagePublish,
-                Box::new(HookHandler::new(self.grpc_clients.clone(), self.shared, self.retainer)),
-            )
-            .await;
-        self.register
-            .add(
-                Type::GrpcMessageReceived,
-                Box::new(HookHandler::new(self.grpc_clients.clone(), self.shared, self.retainer)),
-            )
+            .add(Type::GrpcMessageReceived, Box::new(HookHandler::new(self.shared, self.retainer)))
             .await;
         Ok(())
     }
@@ -115,14 +110,13 @@ impl Plugin for ClusterPlugin {
         self.register.start().await;
         *self.runtime.extends.shared_mut().await = Box::new(self.shared);
         *self.runtime.extends.retain_mut().await = Box::new(self.retainer);
+        // *self.runtime.extends.shared_subscriber_mut().await = Box::new(self.shared_subscriber);
         Ok(())
     }
 
     #[inline]
     async fn stop(&mut self) -> Result<bool> {
         log::warn!("{} stop, once the cluster is started, it cannot be stopped", self.name);
-        //self.register.stop().await;
-        //*self.runtime.extends.shared_mut().await = Box::new(DefaultShared::instance());
         Ok(false)
     }
 
@@ -239,5 +233,12 @@ impl MessageBroadcaster {
                 Err(e)
             }
         }
+    }
+}
+
+pub(crate) async fn hook_message_dropped(droppeds: Vec<(To, From, Publish, Reason)>) {
+    for (to, from, publish, reason) in droppeds {
+        //hook, message_dropped
+        Runtime::instance().extends.hook_mgr().await.message_dropped(Some(to), from, publish, reason).await;
     }
 }
