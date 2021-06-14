@@ -44,15 +44,35 @@ pub async fn serve<T: Into<SocketAddr>>(laddr: T) -> Result<()> {
             }
         });
 
-    //router list, /router/list/:top
-    let router_list = root()
-        .and(warp::path!("router" / "list" / usize))
+    //router topic list, /router/topics/:top
+    let router_topics = root()
+        .and(warp::path!("router" / "topics" / usize))
         .and(warp::path::end())
-        .and_then(|top: usize| async move { with_reply_string(list_routers(top).await) })
+        .and_then(|top: usize| async move { with_reply_string(list_router_topics(top).await) })
         .or(root()
-            .and(warp::path!("router" / "list"))
+            .and(warp::path!("router" / "topics"))
             .and(warp::path::end())
-            .and_then(|| async move { with_reply_string(list_routers(1000).await) }));
+            .and_then(|| async move { with_reply_string(list_router_topics(10000).await) }));
+
+    //router subscription relation list, /router/relations/:top
+    let router_relations = root()
+        .and(warp::path!("router" / "relations" / usize))
+        .and(warp::path::end())
+        .and_then(|top: usize| async move { with_reply_json(list_router_relations(top).await) })
+        .or(root()
+            .and(warp::path!("router" / "relations"))
+            .and(warp::path::end())
+            .and_then(|| async move { with_reply_json(list_router_relations(10000).await) }));
+
+    // //router shared subscribes list, /router/shared/:top
+    // let router_shared_subscribes = root()
+    //     .and(warp::path!("router" / "shared_subscribes" / usize))
+    //     .and(warp::path::end())
+    //     .and_then(|top: usize| async move { with_reply_json(list_router_shared_subscribes(top).await) })
+    //     .or(root()
+    //         .and(warp::path!("router" / "shared_subscribes"))
+    //         .and(warp::path::end())
+    //         .and_then(|| async move { with_reply_json(list_router_shared_subscribes(10000).await) }));
 
     //--plugin--------------------------------------------------------------------------
     //plugin list, /plugin/list
@@ -122,7 +142,9 @@ pub async fn serve<T: Into<SocketAddr>>(laddr: T) -> Result<()> {
             .or(status)
             .or(session)
             .or(random_session)
-            .or(router_list)
+            .or(router_topics)
+            .or(router_relations)
+            // .or(router_shared_subscribes)
             .or(plugin_list)
             .or(plugin_config)
             .or(plugin_send),
@@ -155,10 +177,14 @@ fn with_reply_status(
 
 async fn status() -> serde_json::Value {
     let shared = Runtime::instance().extends.shared().await;
+
     serde_json::json!({
+        "all_sessions": shared.all_sessions().await,
+        "all_clients": shared.all_clients().await,
         "sessions": shared.sessions().await,
         "clients": shared.clients().await,
-        "active_grpc_requests": active_grpc_requests()
+        "active_grpc_requests": active_grpc_requests(),
+        "shared_subscription_supported": Runtime::instance().extends.shared_subscription().await.is_supported()
     })
 }
 
@@ -190,11 +216,18 @@ async fn random_session() -> Result<Option<serde_json::Value>> {
     Ok(data)
 }
 
-async fn list_routers(mut top: usize) -> String {
+async fn list_router_topics(mut top: usize) -> String {
     if top > 10000 {
         top = 10000
     }
-    Runtime::instance().extends.router().await.list(top).join("\n")
+    Runtime::instance().extends.router().await.list_topics(top).await.join("\n")
+}
+
+async fn list_router_relations(mut top: usize) -> Vec<serde_json::Value> {
+    if top > 10000 {
+        top = 10000
+    }
+    Runtime::instance().extends.router().await.list_relations(top).await
 }
 
 async fn plugin_list() -> Vec<serde_json::Value> {
