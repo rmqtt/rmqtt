@@ -4,7 +4,6 @@ use std::convert::From as _f;
 use std::fmt;
 use std::ops::Deref;
 use std::rc::Rc;
-use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -462,131 +461,64 @@ impl SessionState {
     }
 
     #[inline]
-    pub(crate) async fn subscribe_v3(
-        &self,
-        subs: &mut v3::control::Subscribe,
-    ) -> Result<Vec<SubscribeReturnCodeV3>> {
-        let subs_v3 = subs
-            .iter_mut()
-            .map(|ref sub| match Topic::from_str(sub.topic()) {
-                Ok(t) => Ok((t, sub.qos())),
-                Err(_e) => Err(MqttError::TopicError(sub.topic().to_string())),
-            })
-            .collect::<Result<Vec<(Topic, QoS)>>>()?;
-
+    pub(crate) async fn subscribe(&self, mut sub: Subscribe) -> Result<SubscribeReturn> {
         if self.listen_cfg.max_subscriptions > 0
-            && self.subscriptions.read().await.len() + subs_v3.len() > self.listen_cfg.max_subscriptions
+            && (self.subscriptions.read().await.len() + 1 > self.listen_cfg.max_subscriptions)
         {
             log::warn!(
                 "{:?} Subscribe Refused, reason: too many subscriptions, max subscriptions limit: {:?}",
-                self.client.id,
+                self.id,
                 self.listen_cfg.max_subscriptions
             );
             return Err(MqttError::TooManySubscriptions);
         }
 
-        let mut subs_v3 = Subscribes::V3(subs_v3);
-
         //hook, client_subscribe
-        let topic_filters = self.hook.client_subscribe(&subs_v3).await;
+        let topic_filter = self.hook.client_subscribe(&sub).await;
+        log::debug!("{:?} topic_filter: {:?}", self.id, topic_filter);
 
-        log::debug!("{:?} topic_filters: {:?}", self.id, topic_filters);
-        subs_v3.adjust_topic_filters(topic_filters)?;
-        let topic_filters = if let Subscribes::V3(subs_v3) = &subs_v3 {
-            subs_v3.iter().map(|(tf, _)| tf.clone()).collect::<TopicFilters>()
-        } else {
-            unreachable!() //@TODO ...
-        };
-        log::debug!("{:?} topic_filters: {:?}", self.id, topic_filters);
-        //hook, client_subscribe
-        let acl_result = self.hook.client_subscribe_check_acl(&subs_v3).await;
-        match acl_result {
-            Some(SubscribesAclResult::V3(return_codes)) => {
-                if subs_v3.len() != return_codes.len() {
-                    log::error!(
-                        "{:?} SubscribesAclResult return codes quantity mismatch from hook.client_subscribe_check_acl",
-                        self.id
-                    );
-                    return Err(MqttError::ServiceUnavailable);
-                }
+        //adjust topic filter
+        if let Some(topic_filter) = topic_filter {
+            sub.topic_filter = topic_filter;
+        }
 
-                for (i, return_code) in return_codes.iter().enumerate() {
-                    if let Some(tf) = topic_filters.get(i) {
-                        match return_code {
-                            SubscribeReturnCodeV3::Failure => {
-                                subs_v3.remove(tf);
-                            }
-                            SubscribeReturnCodeV3::Success(qos) => {
-                                subs_v3.set_qos_if_less(tf, *qos);
-                            }
-                        }
-                    }
-                }
-            }
-            None => {}
-            Some(SubscribesAclResult::V5(_)) => {
-                unreachable!()
+        //hook, client_subscribe_check_acl
+        let acl_result = self.hook.client_subscribe_check_acl(&sub).await;
+        if let Some(acl_result) = acl_result {
+            match acl_result {
+                SubscribeReturn::Success(qos) => sub.qos = sub.qos.less_value(qos),
+                SubscribeReturn::Failure => return Ok(acl_result),
             }
         }
 
-        let mut tmp: StdHashMap<Topic, usize> = StdHashMap::default();
-        if let Subscribes::V3(subs_v3) = &subs_v3 {
-            for (idx, (tf, _)) in subs_v3.iter().enumerate() {
-                //tmp.insert(tf.as_bytes().as_ref(), idx);
-                tmp.insert(tf.clone(), idx);
-            }
+        let topic_filter = sub.topic_filter.clone();
+
+        //subscribe
+        let sub_ret =
+            Runtime::instance().extends.shared().await.entry(self.id.clone()).subscribe(sub).await?;
+
+        if let SubscribeReturn::Success(qos) = sub_ret {
+            //send retain messages
+            if self.listen_cfg.retain_available {
+                let retain_messages = Runtime::instance().extends.retain().await.get(&topic_filter).await?;
+                self.send_retain_messages(retain_messages, qos).await?;
+            };
+            //hook, session_subscribed
+            self.hook.session_subscribed(Subscribed::V3((topic_filter, qos))).await;
         }
 
-        log::debug!("{:?} tmp: {:?}", self.id, tmp);
-        log::debug!("{:?} subs_v3: {:?}", self.id, subs_v3);
-
-        let mut subs_ack =
-            Runtime::instance().extends.shared().await.entry(self.id.clone()).subscribe(subs_v3).await?;
-
-        log::debug!("{:?} Subscribe ack: {:?}", self.id, subs_ack);
-
-        let mut ret_codes = Vec::new();
-        for topic_filter in topic_filters {
-            //if let Some(idx) = tmp.remove(topic_filter.as_bytes().as_ref()) {
-            if let Some(idx) = tmp.remove(&topic_filter) {
-                if let SubscribeAck::V3(codes) = &mut subs_ack {
-                    match codes.get(idx) {
-                        Some(SubscribeReturnCodeV3::Failure) => {
-                            ret_codes.push(SubscribeReturnCodeV3::Failure)
-                        }
-                        Some(SubscribeReturnCodeV3::Success(qos)) => {
-                            ret_codes.push(SubscribeReturnCodeV3::Success(*qos));
-
-                            if self.listen_cfg.retain_available {
-                                //send retain messages
-                                let retain_messages =
-                                    Runtime::instance().extends.retain().await.get(&topic_filter).await?;
-                                self.send_retain_messages(retain_messages, *qos).await?;
-                            }
-                            //hook, session_subscribed
-                            self.hook.session_subscribed(Subscribed::V3((topic_filter, *qos))).await;
-                        }
-                        None => ret_codes.push(SubscribeReturnCodeV3::Failure),
-                    }
-                } else {
-                    log::warn!("[MQTT 5] Not implemented");
-                    ret_codes.push(SubscribeReturnCodeV3::Failure)
-                }
-            } else {
-                ret_codes.push(SubscribeReturnCodeV3::Failure)
-            }
-        }
-
-        Ok(ret_codes)
+        Ok(sub_ret)
     }
 
     #[inline]
     pub(crate) async fn unsubscribe_v3(&self, unsubs: &mut v3::control::Unsubscribe) -> Result<()> {
+        let shared_subscription_supported =
+            Runtime::instance().extends.shared_subscription().await.is_supported();
         let unsubs_v3 = unsubs
             .iter()
-            .map(|ref tf| match Topic::from_str(*tf) {
-                Ok(t) => Ok(t),
-                Err(_e) => Err(MqttError::TopicError(tf.to_string())),
+            .map(|ref topic_filter| match parse_topic_filter(*topic_filter, shared_subscription_supported) {
+                Ok((t, _)) => Ok(t),
+                Err(_e) => Err(MqttError::TopicError(topic_filter.to_string())),
             })
             .collect::<Result<Vec<Topic>>>()?;
 
@@ -828,8 +760,30 @@ pub struct _SessionInner {
 impl _SessionInner {
     #[inline]
     pub async fn to_json(&self) -> serde_json::Value {
+        let subscriptions = self.subscriptions.read().await;
+        let count = subscriptions.len();
+
+        let subs = subscriptions
+            .iter()
+            .enumerate()
+            .filter_map(|(i, (tf, (qos, shared_sub)))| {
+                if i < 100 {
+                    Some(json!({
+                        "topic_filter": tf.to_string(),
+                        "qos": qos.value(),
+                        "shared_group": shared_sub
+                    }))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
         let data = json!({
-            "subscriptions": self.subscriptions.read().await.len(),
+            "subscriptions": {
+                "count": count,
+                "topic_filters": subs,
+            },
             "queues": self.deliver_queue.len(),
             "inflights": self.inflight_win.read().await.len(),
             "created_at": self.created_at,
@@ -838,12 +792,20 @@ impl _SessionInner {
     }
 
     #[inline]
-    pub async fn subscriptions_add(&self, topic_filter: TopicFilter, qos: QoS) {
-        self.subscriptions.write().await.insert(topic_filter, qos);
+    pub async fn subscriptions_add(
+        &self,
+        topic_filter: TopicFilter,
+        qos: QoS,
+        shared_group: Option<SharedGroup>,
+    ) {
+        self.subscriptions.write().await.insert(topic_filter, (qos, shared_group));
     }
 
     #[inline]
-    pub async fn subscriptions_remove(&self, topic_filter: &TopicFilter) -> Option<QoS> {
+    pub async fn subscriptions_remove(
+        &self,
+        topic_filter: &TopicFilter,
+    ) -> Option<(QoS, Option<SharedGroup>)> {
         self.subscriptions.write().await.remove(topic_filter)
     }
 

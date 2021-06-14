@@ -1,6 +1,5 @@
 use leaky_bucket::LeakyBucket;
 use once_cell::sync::OnceCell;
-use parking_lot::RwLock;
 use std::collections::BTreeMap;
 use std::convert::From as _f;
 use std::iter::Iterator;
@@ -8,17 +7,19 @@ use std::num::NonZeroU32;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use tokio::sync::RwLock;
 use tokio::sync::{self, Mutex, OwnedMutexGuard};
 use tokio::time::Duration;
 use uuid::Uuid;
 type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
 type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
+type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
 use ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
-use ntex_mqtt::v3::codec::SubscribeReturnCode as SubscribeReturnCodeV3;
 
 use super::{
-    retain::RetainTree, topic::TopicTree, Entry, Limiter, LimiterManager, RetainStorage, Router, Shared,
+    retain::RetainTree, topic::TopicTree, Entry, IsOnline, Limiter, LimiterManager, OtherSubRelations,
+    RetainStorage, Router, Shared, SharedSubRelations, SharedSubscription, SubRelations,
 };
 use crate::broker::fitter::{Fitter, FitterManager};
 use crate::broker::hook::{Handler, Hook, HookManager, HookResult, Parameter, Priority, Register, Type};
@@ -160,7 +161,7 @@ impl super::Entry for LockEntry {
     }
 
     #[inline]
-    async fn subscribe(&self, subscribes: Subscribes) -> Result<SubscribeAck> {
+    async fn subscribe(&self, sub: Subscribe) -> Result<SubscribeReturn> {
         let peer = self
             .shared
             .peers
@@ -177,29 +178,21 @@ impl super::Entry for LockEntry {
             node_id, this_node_id
         );
 
-        let ack = match subscribes {
-            Subscribes::V3(mut topic_filters) => {
-                let mut acks = Vec::new();
-                for (topic_filter, qos) in topic_filters.drain(..) {
-                    if let Err(e) = router.add(&topic_filter, node_id, &self.id.client_id, qos).await {
-                        log::warn!(
-                            "{:?} subscribes fail, node_id: {}, topic_filter:{}, {:?}",
-                            self.id,
-                            node_id,
-                            topic_filter,
-                            e
-                        );
-                        acks.push(SubscribeReturnCodeV3::Failure);
-                    } else {
-                        peer.s.subscriptions_add(topic_filter, qos).await;
-                        acks.push(SubscribeReturnCodeV3::Success(qos));
-                    }
-                }
-                SubscribeAck::V3(acks)
-            }
-            Subscribes::V5(_subs) => {
-                return Err(MqttError::from("Not implemented"));
-            }
+        let qos = sub.qos;
+        let ack = if let Err(e) =
+            router.add(&sub.topic_filter, node_id, &self.id.client_id, qos, sub.shared_group.clone()).await
+        {
+            log::warn!(
+                "{:?} subscribes fail, node_id: {}, topic_filter:{}, {:?}",
+                self.id,
+                node_id,
+                sub.topic_filter,
+                e
+            );
+            SubscribeReturn::Failure
+        } else {
+            peer.s.subscriptions_add(sub.topic_filter, qos, sub.shared_group).await;
+            SubscribeReturn::Success(qos)
         };
         Ok(ack)
     }
@@ -282,12 +275,66 @@ impl Shared for &'static DefaultShared {
 
     #[inline]
     async fn forwards(&self, from: From, publish: Publish) -> Result<(), Vec<(To, From, Publish, Reason)>> {
+        let topic = publish.topic();
+        let router = Runtime::instance().extends.router().await;
+        let (mut relations, mut shared_relations, _other_relations) =
+            match router.matches(publish.topic()).await {
+                Ok((relations, shared_relations, _other_relations)) => {
+                    (relations, shared_relations, _other_relations)
+                }
+                Err(e) => {
+                    log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
+                    (Vec::new(), HashMap::default(), HashMap::default())
+                }
+            };
+
+        for (topic_filter, mut subs) in shared_relations.drain() {
+            if subs.len() == 1 {
+                let (_, _, client_id, qos, _) = subs.remove(0);
+                relations.push((topic_filter, client_id, qos))
+            } else {
+                for (_, _, client_id, qos, _) in subs {
+                    relations.push((topic_filter.clone(), client_id, qos));
+                }
+            }
+        }
+
+        self.forwards_to(from, &publish, relations).await?;
+        Ok(())
+    }
+
+    async fn forwards_and_get_shareds(
+        &self,
+        from: From,
+        publish: Publish,
+    ) -> Result<SharedSubRelations, Vec<(To, From, Publish, Reason)>> {
+        let topic = publish.topic();
+        log::debug!("forwards_and_get_shareds, from: {:?}, topic: {:?}", from, topic.to_string());
+        let (relations, shared_relations, _other_relations) =
+            match Runtime::instance().extends.router().await.matches(topic).await {
+                Ok((relations, shared_relations, _other_relations)) => {
+                    (relations, shared_relations, _other_relations)
+                }
+                Err(e) => {
+                    log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
+                    (Vec::new(), HashMap::default(), HashMap::default())
+                }
+            };
+
+        self.forwards_to(from, &publish, relations).await?;
+        Ok(shared_relations)
+    }
+
+    #[inline]
+    async fn forwards_to(
+        &self,
+        from: From,
+        publish: &Publish,
+        mut relations: SubRelations,
+    ) -> Result<(), Vec<(To, From, Publish, Reason)>> {
         let mut errs = Vec::new();
         match publish {
             Publish::V3(publish) => {
-                let router = Runtime::instance().extends.router().await;
-                let (mut relations, _other_relations) = router.matches(&publish.topic).await;
-
                 for (topic_filter, client_id, qos) in relations.drain(..) {
                     let mut p = publish.clone();
                     p.packet.dup = false;
@@ -326,10 +373,6 @@ impl Shared for &'static DefaultShared {
                             errs.push((to, from, p, Reason::from_static("Connection Tx is closed")));
                         }
                     }
-                }
-
-                for (_node_id, _topic_filters) in _other_relations {
-                    //@TODO send topic_filters to other node(node_id), In cluster mode
                 }
             }
             Publish::V5(_publish) => {
@@ -391,12 +434,11 @@ impl Iterator for DefaultIter<'_> {
     }
 }
 
+//type SharedGroupMap = DashMap<TopicFilter, HashMap<ClientId, (QoS, NodeId, SharedGroup)>>;
 pub struct DefaultRouter {
     tree: RwLock<TopicTree<NodeId>>,
-    relations: DashMap<TopicFilter, DashMap<ClientId, QoS>>,
+    relations: DashMap<TopicFilter, DashMap<ClientId, (QoS, Option<SharedGroup>)>>,
 }
-
-type Relation = (TopicFilter, ClientId, QoS);
 
 impl DefaultRouter {
     #[inline]
@@ -406,33 +448,70 @@ impl DefaultRouter {
             .get_or_init(|| Self { tree: RwLock::new(TopicTree::default()), relations: DashMap::default() })
     }
 
+    #[allow(clippy::type_complexity)]
     #[inline]
-    pub fn _matches(
+    pub async fn _matches(
         &self,
         topic: &Topic,
         this_node_id: NodeId,
-    ) -> (Vec<Relation>, std::collections::HashMap<NodeId, Vec<TopicFilter>>) {
-        let mut this_subs: Vec<(TopicFilter, ClientId, QoS)> = Vec::new();
-        let mut other_subs: std::collections::HashMap<NodeId, Vec<TopicFilter>> =
-            std::collections::HashMap::new();
+    ) -> Result<(SubRelations, SharedSubRelations, OtherSubRelations)> {
+        let mut this_subs: SubRelations = Vec::new();
+        let mut other_subs: OtherSubRelations = HashMap::default();
+        let mut shared_subs: SharedSubRelations = HashMap::default();
 
-        for (topic_filter, node_ids) in self.tree.read().matches(topic).iter() {
+        for (topic_filter, node_ids) in self.tree.read().await.matches(topic).iter() {
             let topic_filter = topic_filter.to_topic();
+
+            let mut groups: HashMap<SharedGroup, Vec<(NodeId, ClientId, QoS, Option<IsOnline>)>> =
+                HashMap::default();
+
             for node_id in node_ids {
                 if this_node_id == *node_id {
                     //Get subscription relationship from local
                     if let Some(entry) = self.relations.get(&topic_filter) {
                         for e in entry.iter() {
-                            this_subs.push((topic_filter.clone(), e.key().to_owned(), *e.value()));
+                            let client_id = e.key();
+                            let (qos, group) = e.value();
+                            if let Some(group) = group {
+                                if let Some(group_subs) = groups.get_mut(group) {
+                                    group_subs.push((*node_id, client_id.clone(), *qos, None));
+                                } else {
+                                    groups.insert(
+                                        group.clone(),
+                                        vec![(*node_id, client_id.clone(), *qos, None)],
+                                    );
+                                }
+                            } else {
+                                this_subs.push((topic_filter.clone(), client_id.clone(), *qos));
+                            }
                         }
                     }
                 } else {
                     other_subs.entry(*node_id).or_default().push(topic_filter.clone());
                 }
             }
+
+            //select a subscriber from shared subscribe groups
+            for (group, mut s_subs) in groups.drain() {
+                if let Some((idx, is_online)) =
+                    Runtime::instance().extends.shared_subscription().await.choice(&s_subs).await
+                {
+                    let (node_id, client_id, qos, _) = s_subs.remove(idx);
+                    if this_node_id == node_id {
+                        shared_subs
+                            .entry(topic_filter.clone())
+                            .or_default()
+                            .push((group, node_id, client_id, qos, is_online))
+                    } else {
+                        other_subs.entry(node_id).or_default().push(topic_filter.clone());
+                    }
+                }
+            }
         }
 
-        (this_subs, other_subs)
+        log::debug!("{:?} this_subs: {:?}", topic.to_string(), this_subs);
+        log::debug!("{:?} shared_subs: {:?}", topic.to_string(), shared_subs);
+        Ok((this_subs, shared_subs, other_subs))
     }
 }
 
@@ -445,47 +524,99 @@ impl Router for &'static DefaultRouter {
         node_id: NodeId,
         client_id: &str,
         qos: QoS,
+        shared_group: Option<SharedGroup>,
     ) -> Result<()> {
         log::debug!("add, topic_filter: {:?}", topic_filter);
-        self.tree.write().insert(topic_filter, node_id); //@TODO Or send the routing relationship to the cluster ...
-                                                         //Storage subscription to local
-        self.relations.entry(topic_filter.to_owned()).or_default().insert(ClientId::from(client_id), qos);
+
+        //add to topic tree
+        self.tree.write().await.insert(topic_filter, node_id); //@TODO Or send the routing relationship to the cluster ...
+
+        //add to subscribe relations
+        let _ = self
+            .relations
+            .entry(topic_filter.to_owned())
+            .or_default()
+            .insert(ClientId::from(client_id), (qos, shared_group));
+
         Ok(())
     }
 
     #[inline]
     async fn remove(&self, topic_filter: &TopicFilter, node_id: NodeId, client_id: &str) -> Result<()> {
-        log::debug!("remove, topic_filter: {:?}", topic_filter);
+        log::debug!("remove, topic_filter: {:?}", topic_filter.to_string());
+
         //Remove subscription relationship from local
-        let relations_len = self
-            .relations
-            .get(topic_filter)
-            .map(|entry| {
-                entry.remove(client_id);
-                entry.len()
-            })
-            .unwrap_or_default();
-        if relations_len == 0 {
+        let relations_len = if let Some(entry) = self.relations.get(topic_filter) {
+            entry.remove(client_id);
+            Some(entry.len())
+        } else {
+            None
+        };
+
+        log::debug!(
+            "remove, topic_filter: {:?}, relations_len: {:?}",
+            topic_filter.to_string(),
+            relations_len
+        );
+
+        if let Some(relations_len) = relations_len {
             //Remove routing information from the routing table when there is no subscription relationship
-            self.tree.write().remove(topic_filter, &node_id);
-            //@TODO Remove routing relationship from cluster ...
+            if relations_len == 0 {
+                self.tree.write().await.remove(topic_filter, &node_id);
+                self.relations.remove(topic_filter);
+            }
         }
+
         Ok(())
     }
 
     #[inline]
-    async fn matches(
-        &self,
-        topic: &Topic,
-    ) -> (Vec<(TopicFilter, ClientId, QoS)>, std::collections::HashMap<NodeId, Vec<TopicFilter>>) {
-        self._matches(topic, Runtime::instance().node.id())
+    async fn matches(&self, topic: &Topic) -> Result<(SubRelations, SharedSubRelations, OtherSubRelations)> {
+        Ok(self._matches(topic, Runtime::instance().node.id()).await?)
     }
 
     #[inline]
-    fn list(&self, top: usize) -> Vec<String> {
-        self.tree.read().list(top)
+    async fn list_topics(&self, top: usize) -> Vec<String> {
+        self.tree.read().await.list(top)
+    }
+
+    #[inline]
+    async fn list_relations(&self, top: usize) -> Vec<serde_json::Value> {
+        let mut count = 0;
+        let mut rels = Vec::new();
+        for entry in self.relations.iter() {
+            let topic_filter = entry.key().to_string();
+            for r in entry.value().iter() {
+                let (qos, group) = r.value();
+                let item = json!({
+                    "topic_filter": topic_filter.as_str(),
+                    "client_id": r.key(),
+                    "qos": qos,
+                    "group": group,
+                });
+                rels.push(item);
+                count += 1;
+                if count >= top {
+                    return rels;
+                }
+            }
+        }
+        rels
     }
 }
+
+pub struct DefaultSharedSubscription {}
+
+impl DefaultSharedSubscription {
+    #[inline]
+    pub fn instance() -> &'static DefaultSharedSubscription {
+        static INSTANCE: OnceCell<DefaultSharedSubscription> = OnceCell::new();
+        INSTANCE.get_or_init(|| Self {})
+    }
+}
+
+#[async_trait]
+impl SharedSubscription for &'static DefaultSharedSubscription {}
 
 pub struct DefaultRetainStorage {
     messages: RwLock<RetainTree<Retain>>,
@@ -499,13 +630,13 @@ impl DefaultRetainStorage {
     }
 
     #[inline]
-    pub fn add(&self, topic: &Topic, retain: Retain) {
-        self.messages.write().insert(topic, retain);
+    pub async fn add(&self, topic: &Topic, retain: Retain) {
+        self.messages.write().await.insert(topic, retain);
     }
 
     #[inline]
-    pub fn remove(&self, topic: &Topic) {
-        self.messages.write().remove(topic);
+    pub async fn remove(&self, topic: &Topic) {
+        self.messages.write().await.remove(topic);
     }
 }
 
@@ -513,16 +644,16 @@ impl DefaultRetainStorage {
 impl RetainStorage for &'static DefaultRetainStorage {
     #[inline]
     async fn set(&self, topic: &Topic, retain: Retain) -> Result<()> {
-        self.remove(topic);
+        self.remove(topic).await;
         if !retain.publish.is_empty() {
-            self.add(topic, retain);
+            self.add(topic, retain).await;
         }
         Ok(())
     }
 
     #[inline]
     async fn get(&self, topic_filter: &Topic) -> Result<Vec<(Topic, Retain)>> {
-        Ok(self.messages.write().matches(topic_filter))
+        Ok(self.messages.write().await.matches(topic_filter))
     }
 }
 
@@ -852,48 +983,15 @@ impl Hook for DefaultHook {
     }
 
     #[inline]
-    async fn client_subscribe_check_acl(&self, subscribes: &Subscribes) -> Option<SubscribesAclResult> {
-        let (mut subs, v3) = match subscribes {
-            Subscribes::V3(tfs) => (
-                tfs.iter()
-                    .map(|(topic_filter, qos)| Subscribe { topic_filter, qos: *qos })
-                    .collect::<Vec<Subscribe>>(),
-                true,
-            ),
-            Subscribes::V5(_subs) => {
-                log::warn!("Not implemented"); //@TODO ...
-                return None;
-            }
-        };
-
-        if v3 {
-            let mut results = Vec::new();
-            for sub in subs.drain(..) {
-                let qos = sub.qos;
-                let reply = self
-                    .manager
-                    .exec(
-                        Type::ClientSubscribeCheckAcl,
-                        Parameter::ClientSubscribeCheckAcl(&self.s, &self.c, sub),
-                    )
-                    .await;
-                log::debug!("{:?} result: {:?}", self.s.id, reply);
-                if let Some(HookResult::SubscribeAclResult(r)) = reply {
-                    match r {
-                        SubscribeAclResult::Success(qos) => {
-                            results.push(SubscribeReturnCodeV3::Success(qos));
-                        }
-                        SubscribeAclResult::Failure => {
-                            results.push(SubscribeReturnCodeV3::Failure);
-                        }
-                    }
-                } else {
-                    results.push(SubscribeReturnCodeV3::Success(qos));
-                }
-            }
-            Some(SubscribesAclResult::V3(results))
+    async fn client_subscribe_check_acl(&self, sub: &Subscribe) -> Option<SubscribeAclResult> {
+        let reply = self
+            .manager
+            .exec(Type::ClientSubscribeCheckAcl, Parameter::ClientSubscribeCheckAcl(&self.s, &self.c, sub))
+            .await;
+        log::debug!("{:?} result: {:?}", self.s.id, reply);
+        if let Some(HookResult::SubscribeAclResult(r)) = reply {
+            Some(r)
         } else {
-            log::warn!("Not implemented"); //@TODO ...
             None
         }
     }
@@ -913,31 +1011,15 @@ impl Hook for DefaultHook {
     }
 
     #[inline]
-    async fn client_subscribe(&self, subscribes: &Subscribes) -> HookSubscribeResult {
-        let mut subs = match subscribes {
-            Subscribes::V3(tfs) => tfs
-                .iter()
-                .map(|(topic_filter, qos)| Subscribe { topic_filter, qos: *qos })
-                .collect::<Vec<Subscribe>>(),
-            Subscribes::V5(_subs) => {
-                log::warn!("Not implemented"); //@TODO ...
-                return HookSubscribeResult::new();
-            }
-        };
-        let mut results = HookSubscribeResult::new();
-        for sub in subs.drain(..) {
-            let reply = self
-                .manager
-                .exec(Type::ClientSubscribe, Parameter::ClientSubscribe(&self.s, &self.c, sub))
-                .await;
-            log::debug!("{:?} result: {:?}", self.s.id, reply);
-            if let Some(HookResult::TopicFilter(tf)) = reply {
-                results.push(tf);
-            } else {
-                results.push(None);
-            }
+    async fn client_subscribe(&self, sub: &Subscribe) -> Option<TopicFilter> {
+        let reply =
+            self.manager.exec(Type::ClientSubscribe, Parameter::ClientSubscribe(&self.s, &self.c, sub)).await;
+        log::debug!("{:?} result: {:?}", self.s.id, reply);
+        if let Some(HookResult::TopicFilter(tf)) = reply {
+            tf
+        } else {
+            None
         }
-        results
     }
 
     #[inline]

@@ -8,6 +8,7 @@ pub(crate) mod pb {
 
 use crate::broker::session::SessionOfflineInfo;
 use crate::broker::types::{From, Id, Publish, Retain, Topic};
+use crate::broker::{SharedSubRelations, SubRelations};
 use crate::Result;
 use bytes::Bytes;
 
@@ -16,8 +17,8 @@ pub type MessageType = u64;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Message {
-    Forward(From, Publish),
-    Forwards(Vec<(From, Publish)>),
+    Forwards(From, Publish),
+    ForwardsTo(From, Publish, SubRelations),
     Kick(Id),
     GetRetains(Topic),
     NumberOfClients,
@@ -39,6 +40,7 @@ impl Message {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum MessageReply {
     Success,
+    Forwards(SharedSubRelations),
     Error(String),
     Kick(Option<SessionOfflineInfo>),
     GetRetains(Vec<(Topic, Retain)>),

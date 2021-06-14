@@ -1,4 +1,4 @@
-use ntex_mqtt::v3::{self, codec::SubscribeReturnCode};
+use ntex_mqtt::v3::{self};
 use std::net::SocketAddr;
 
 use crate::broker::{inflight::MomentStatus, types::*};
@@ -186,8 +186,8 @@ pub async fn handshake<Io>(
     if let Some(mut o) = offline_info {
         log::debug!("o.subscriptions: {}", o.subscriptions.len());
         //Subscription transfer from previous session
-        for (tf, qos) in o.subscriptions.drain() {
-            state.subscriptions_add(tf, qos).await;
+        for (tf, (qos, shared_sub)) in o.subscriptions.drain() {
+            state.subscriptions_add(tf, qos, shared_sub).await;
         }
 
         //Send previous session unacked messages
@@ -206,6 +206,23 @@ pub async fn handshake<Io>(
     Ok(handshake.ack(state, session_present).idle_timeout(keep_alive))
 }
 
+async fn subscribes(
+    state: &v3::Session<SessionState>,
+    mut subs: v3::control::Subscribe,
+) -> Result<v3::ControlResult> {
+    let shared_subscription_supported =
+        Runtime::instance().extends.shared_subscription().await.is_supported();
+    for mut sub in subs.iter_mut() {
+        let s = Subscribe::from_v3(sub.topic(), sub.qos(), shared_subscription_supported)?;
+        let sub_ret = state.subscribe(s).await?;
+        match sub_ret {
+            SubscribeReturn::Success(qos) => sub.confirm(qos),
+            SubscribeReturn::Failure => sub.fail(),
+        }
+    }
+    Ok(subs.ack())
+}
+
 #[inline]
 pub async fn control_message(
     state: v3::Session<SessionState>,
@@ -216,36 +233,13 @@ pub async fn control_message(
     let _ = state.send(Message::Keepalive);
 
     let crs = match ctrl_msg {
-        v3::ControlMessage::Subscribe(mut subs) => {
-            let subs_ack = match state.subscribe_v3(&mut subs).await {
-                Err(e) => {
-                    state.client.set_disconnected_reason(format!("Subscribe failed, {:?}", e)).await;
-                    log::error!("{:?} Subscribe failed, reason: {:?}", state.id, e);
-                    return Err(e);
-                }
-                Ok(subs_ack) => subs_ack,
-            };
-
-            log::debug!("{:?} Subscribe subs_ack: {:?}", state.id, subs_ack);
-            let subs_len = subs.iter_mut().count();
-            if subs.iter_mut().count() != subs_ack.len() {
-                log::error!(
-                    "{:?} Subscribe ack is abnormal, subs len is {}, subs_ack len is {}",
-                    state.id,
-                    subs_len,
-                    subs_ack.len()
-                );
+        v3::ControlMessage::Subscribe(subs) => match subscribes(&state, subs).await {
+            Err(e) => {
+                log::error!("{:?} Subscribe failed, reason: {:?}", state.id, e);
+                return Err(e);
             }
-
-            for (idx, mut sub) in subs.iter_mut().enumerate() {
-                match subs_ack.get(idx) {
-                    Some(SubscribeReturnCode::Failure) => sub.fail(),
-                    Some(SubscribeReturnCode::Success(qos)) => sub.confirm(*qos),
-                    None => sub.fail(),
-                }
-            }
-            subs.ack()
-        }
+            Ok(r) => r,
+        },
         v3::ControlMessage::Unsubscribe(mut unsubs) => {
             if let Err(e) = state.unsubscribe_v3(&mut unsubs).await {
                 state.client.set_disconnected_reason(format!("Unsubscribe failed, {:?}", e)).await;

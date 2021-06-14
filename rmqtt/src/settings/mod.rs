@@ -33,6 +33,8 @@ pub struct Inner {
     pub listeners: Listeners,
     #[serde(default)]
     pub plugins: Plugins,
+    #[serde(default)]
+    pub mqtt: Mqtt,
 }
 
 fn inner_api_addr_default() -> SocketAddr {
@@ -175,6 +177,17 @@ impl Plugins {
         let mut s = Config::new();
         s.merge(File::with_name(&format!("{}/{}", dir, name)).required(false))?;
         s.try_into::<T>()
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Mqtt {
+    pub shared_subscription: bool,
+}
+
+impl Default for Mqtt {
+    fn default() -> Self {
+        Self { shared_subscription: true }
     }
 }
 

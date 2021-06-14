@@ -1,11 +1,11 @@
 use crate::broker::{
     default::{
         DefaultFitterManager, DefaultHookManager, DefaultLimiterManager, DefaultRetainStorage, DefaultRouter,
-        DefaultShared,
+        DefaultShared, DefaultSharedSubscription,
     },
     fitter::FitterManager,
     hook::HookManager,
-    LimiterManager, RetainStorage, Router, Shared,
+    LimiterManager, RetainStorage, Router, Shared, SharedSubscription,
 };
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -16,6 +16,7 @@ pub struct Manager {
     fitter_mgr: RwLock<Box<dyn FitterManager>>,
     hook_mgr: RwLock<Box<dyn HookManager>>,
     limiter_mgr: RwLock<Box<dyn LimiterManager>>,
+    shared_subscription: RwLock<Box<dyn SharedSubscription>>,
 }
 
 impl Manager {
@@ -28,6 +29,7 @@ impl Manager {
             fitter_mgr: RwLock::new(Box::new(DefaultFitterManager::instance())),
             hook_mgr: RwLock::new(Box::new(DefaultHookManager::instance())),
             limiter_mgr: RwLock::new(Box::new(DefaultLimiterManager::instance())),
+            shared_subscription: RwLock::new(Box::new(DefaultSharedSubscription::instance())),
         }
     }
 
@@ -89,5 +91,15 @@ impl Manager {
     #[inline]
     pub async fn limiter_mgr_mut(&self) -> RwLockWriteGuard<'_, Box<dyn LimiterManager>> {
         self.limiter_mgr.write().await
+    }
+
+    #[inline]
+    pub async fn shared_subscription(&self) -> RwLockReadGuard<'_, Box<dyn SharedSubscription>> {
+        self.shared_subscription.read().await
+    }
+
+    #[inline]
+    pub async fn shared_subscription_mut(&self) -> RwLockWriteGuard<'_, Box<dyn SharedSubscription>> {
+        self.shared_subscription.write().await
     }
 }

@@ -44,6 +44,7 @@ pub type TopicName = bytestring::ByteString;
 pub type Topic = ntex_mqtt::Topic;
 ///topic filter
 pub type TopicFilter = Topic;
+pub type SharedGroup = String;
 pub type Disconnect = bool;
 pub type MessageExpiry = bool;
 pub type TimestampMillis = i64;
@@ -54,7 +55,7 @@ pub type Rx = mpsc::UnboundedReceiver<Message>;
 pub type StdHashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 pub type QoS = ntex_mqtt::types::QoS;
 pub type PublishReceiveTime = TimestampMillis;
-pub type TopicFilterMap = StdHashMap<TopicFilter, QoS>;
+pub type TopicFilterMap = StdHashMap<TopicFilter, (QoS, Option<SharedGroup>)>;
 pub type TopicFilters = Vec<TopicFilter>;
 
 pub type HookSubscribeResult = Vec<Option<TopicFilter>>;
@@ -384,11 +385,7 @@ impl QoSEx for QoS {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum SubscribeAclResult {
-    Success(QoS),
-    Failure,
-}
+pub type SubscribeAclResult = SubscribeReturn;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SubscribesAclResult {
@@ -526,10 +523,60 @@ pub enum AuthResult {
     NotAuthorized,
 }
 
+pub fn parse_topic_filter(
+    topic_filter: &ByteString,
+    shared_subscription_supported: bool,
+) -> Result<(TopicFilter, Option<SharedGroup>)> {
+    let mut topic = Topic::from_str(topic_filter)?;
+    //$share/abc/
+    let is_share = shared_subscription_supported
+        && topic.get(0).map(|f| f.value().map(|v| v == "$share").unwrap_or(false)).unwrap_or(false);
+    log::debug!("{:?} is_share: {}", topic_filter, is_share);
+
+    let mut shared_group = None;
+    let err = MqttError::TopicError("Illegal topic filter".into());
+    if is_share {
+        if topic.len() < 3 {
+            return Err(err);
+        }
+        topic.remove(0);
+        shared_group = Some(topic.remove(0).value().map(SharedGroup::from).ok_or(err)?);
+        log::debug!("{:?} shared_sub: {:?}", topic_filter, shared_group);
+    } else if topic.is_empty() {
+        return Err(err);
+    }
+
+    Ok((topic, shared_group))
+}
+
 #[derive(Clone, Debug)]
-pub struct Subscribe<'a> {
-    pub topic_filter: &'a TopicFilter,
+pub struct Subscribe {
+    pub topic_filter: TopicFilter,
     pub qos: QoS,
+    pub shared_group: Option<SharedGroup>,
+}
+
+impl Subscribe {
+    pub fn from_v3(topic_filter: &ByteString, qos: QoS, shared_subscription_supported: bool) -> Result<Self> {
+        let (topic, shared_group) = parse_topic_filter(topic_filter, shared_subscription_supported)?;
+        Ok(Subscribe { topic_filter: topic, qos, shared_group })
+    }
+
+    pub fn from_v5(
+        topic_filter: &ByteString,
+        opt: &SubscriptionOptions,
+        shared_subscription_supported: bool,
+    ) -> Result<Self> {
+        Subscribe::from_v3(topic_filter, opt.qos, shared_subscription_supported)
+    }
+}
+
+// pub type SubscribeReturn = SubscribeAckReason;
+#[derive(Clone, Debug)]
+pub enum SubscribeReturn {
+    Success(QoS),
+    Failure,
+    //...
 }
 
 #[derive(Clone, Debug)]

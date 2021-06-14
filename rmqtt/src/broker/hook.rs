@@ -70,13 +70,13 @@ pub trait Hook: Sync + Send {
     async fn session_terminated(&self, r: Reason);
 
     ///subscribe check acl
-    async fn client_subscribe_check_acl(&self, subscribe: &Subscribes) -> Option<SubscribesAclResult>;
+    async fn client_subscribe_check_acl(&self, subscribe: &Subscribe) -> Option<SubscribeAclResult>;
 
     ///publish check acl
     async fn message_publish_check_acl(&self, publish: &Publish) -> PublishAclResult;
 
     ///Subscribe message received
-    async fn client_subscribe(&self, subscribe: &Subscribes) -> HookSubscribeResult;
+    async fn client_subscribe(&self, subscribe: &Subscribe) -> Option<TopicFilter>;
 
     ///Subscription succeeded
     async fn session_subscribed(&self, subscribed: Subscribed);
@@ -178,9 +178,9 @@ pub enum Parameter<'a> {
     ClientAuthenticate(&'a Session, &'a ClientInfo, Option<Password>),
     ClientConnected(&'a Session, &'a ClientInfo),
     ClientDisconnected(&'a Session, &'a ClientInfo, Reason),
-    ClientSubscribe(&'a Session, &'a ClientInfo, Subscribe<'a>),
+    ClientSubscribe(&'a Session, &'a ClientInfo, &'a Subscribe),
     ClientUnsubscribe(&'a Session, &'a ClientInfo, &'a TopicFilter),
-    ClientSubscribeCheckAcl(&'a Session, &'a ClientInfo, Subscribe<'a>),
+    ClientSubscribeCheckAcl(&'a Session, &'a ClientInfo, &'a Subscribe),
 
     MessagePublishCheckAcl(&'a Session, &'a ClientInfo, &'a Publish),
     MessagePublish(&'a Session, &'a ClientInfo, &'a Publish),
