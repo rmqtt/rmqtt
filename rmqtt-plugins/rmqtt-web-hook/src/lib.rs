@@ -16,7 +16,7 @@ use std::time::Duration;
 use rmqtt::broker::error::MqttError;
 use rmqtt::{
     broker::hook::{self, Handler, HookResult, Parameter, Register, ReturnType, Type},
-    broker::types::{ConnectInfo, Id, QoSEx, MQTT_LEVEL_5},
+    broker::types::{ConnectInfo, Id, QoS, QoSEx, MQTT_LEVEL_5},
     plugin::Plugin,
     Result, Runtime, Topic,
 };
@@ -470,7 +470,8 @@ impl Handler for WebHookHandler {
             }
 
             Parameter::SessionSubscribed(_session, client, subscribed) => {
-                let (topic, qos) = subscribed.topic_filter();
+                let (topic, qos) =
+                    subscribed.topic_filter().unwrap_or((Topic::from(Vec::new()), QoS::AtMostOnce));
                 let body = json!({
                     "node": client.id.node(),
                     "ipaddress": client.id.remote_addr,
@@ -485,7 +486,7 @@ impl Handler for WebHookHandler {
             }
 
             Parameter::SessionUnsubscribed(_session, client, unsubscribed) => {
-                let topic = unsubscribed.topic_filter();
+                let topic = unsubscribed.topic_filter.clone();
                 let body = json!({
                     "node": client.id.node(),
                     "ipaddress": client.id.remote_addr,
