@@ -7,7 +7,7 @@ use rmqtt::{
         session::{ClientInfo, Session, SessionOfflineInfo},
         types::{
             ClientId, From, Id, NodeId, Publish, QoS, Reason, SharedGroup, Subscribe, SubscribeReturn, To,
-            TopicFilter, Tx, UnsubscribeAck, Unsubscribes,
+            TopicFilter, Tx, Unsubscribe,
         },
         Entry, IsOnline, Shared, SharedSubRelations, SubRelations,
     },
@@ -119,8 +119,8 @@ impl Entry for ClusterLockEntry {
     }
 
     #[inline]
-    async fn unsubscribe(&self, unsubscribes: &Unsubscribes) -> Result<UnsubscribeAck> {
-        self.inner.unsubscribe(unsubscribes).await
+    async fn unsubscribe(&self, unsubscribe: &Unsubscribe) -> Result<()> {
+        self.inner.unsubscribe(unsubscribe).await
     }
 
     #[inline]
