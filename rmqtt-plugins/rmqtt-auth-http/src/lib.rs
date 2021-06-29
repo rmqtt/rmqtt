@@ -16,7 +16,7 @@ use async_trait::async_trait;
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::session::ClientInfo,
-    broker::types::{AsStr, AuthResult, Password, PublishAclResult, SubscribeAclResult},
+    broker::types::{AsStr, AuthResult, Password, PublishAclResult, SubscribeAckReason, SubscribeAclResult},
     plugin::Plugin,
     ClientId, MqttError, Result, Runtime, Topic,
 };
@@ -397,17 +397,24 @@ impl Handler for AuthHandler {
             }
 
             Parameter::ClientSubscribeCheckAcl(_session, client_info, subscribe) => {
-                if let Some(HookResult::SubscribeAclResult(SubscribeAclResult::Failure)) = &acc {
-                    return (false, acc);
+                if let Some(HookResult::SubscribeAclResult(acl_result)) = &acc {
+                    if acl_result.failure() {
+                        return (false, acc);
+                    }
                 }
 
                 return if self.acl(*client_info, Some((SUB, &subscribe.topic_filter))).await {
                     (
                         !self.cfg.read().await.break_if_allow,
-                        Some(HookResult::SubscribeAclResult(SubscribeAclResult::Success(subscribe.qos))),
+                        Some(HookResult::SubscribeAclResult(SubscribeAclResult::new_success(subscribe.qos))),
                     )
                 } else {
-                    (false, Some(HookResult::SubscribeAclResult(SubscribeAclResult::Failure)))
+                    (
+                        false,
+                        Some(HookResult::SubscribeAclResult(SubscribeAclResult::new_failure(
+                            SubscribeAckReason::NotAuthorized,
+                        ))),
+                    )
                 };
             }
 
