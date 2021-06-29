@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
-    broker::types::{AuthResult, PublishAclResult, SubscribeAclResult},
+    broker::types::{AuthResult, PublishAclResult, SubscribeAckReason, SubscribeAclResult},
     plugin::Plugin,
     Result, Runtime,
 };
@@ -188,8 +188,10 @@ impl Handler for AclHandler {
             }
 
             Parameter::ClientSubscribeCheckAcl(_session, client_info, subscribe) => {
-                if let Some(HookResult::SubscribeAclResult(SubscribeAclResult::Failure)) = &acc {
-                    return (false, acc);
+                if let Some(HookResult::SubscribeAclResult(acl_result)) = &acc {
+                    if acl_result.failure() {
+                        return (false, acc);
+                    }
                 }
                 let topic_filter_str = subscribe.topic_filter.to_string();
                 for (idx, rule) in self.cfg.read().await.rules().iter().enumerate() {
@@ -211,13 +213,25 @@ impl Handler for AclHandler {
                     return if matches!(rule.access, Access::Allow) {
                         (
                             true,
-                            Some(HookResult::SubscribeAclResult(SubscribeAclResult::Success(subscribe.qos))),
+                            Some(HookResult::SubscribeAclResult(SubscribeAclResult::new_success(
+                                subscribe.qos,
+                            ))),
                         )
                     } else {
-                        (false, Some(HookResult::SubscribeAclResult(SubscribeAclResult::Failure)))
+                        (
+                            false,
+                            Some(HookResult::SubscribeAclResult(SubscribeAclResult::new_failure(
+                                SubscribeAckReason::NotAuthorized,
+                            ))),
+                        )
                     };
                 }
-                return (false, Some(HookResult::SubscribeAclResult(SubscribeAclResult::Failure)));
+                return (
+                    false,
+                    Some(HookResult::SubscribeAclResult(SubscribeAclResult::new_failure(
+                        SubscribeAckReason::NotAuthorized,
+                    ))),
+                );
             }
 
             Parameter::MessagePublishCheckAcl(_session, client_info, publish) => {
