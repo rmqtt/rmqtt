@@ -133,11 +133,13 @@ async fn listen(name: String, listen_cfg: &Listener) -> Result<()> {
                         handshake_v5(listen_cfg, handshake, peer_addr, local_addr).await
                     })
                     //v5::MqttServer::new(handshake_v5)
-                    //.receive_max()
+                    .receive_max(max_inflight as u16)
                     .handshake_timeout(handshake_timeout)
                     .max_size(max_size)
                     .max_qos(max_qos)
                     //.max_topic_alias(max_topic_alias),
+                    .max_awaiting_rel(max_awaiting_rel)
+                    .await_rel_timeout(await_rel_timeout)
                     .publish(fn_factory_with_config(|session: v5::Session<SessionState>| {
                         ok::<_, MqttError>(fn_service(move |req| publish_v5(session.clone(), req)))
                     }))
@@ -243,11 +245,13 @@ async fn listen_tls(name: String, listen_cfg: &Listener) -> Result<()> {
                                         handshake_v5(listen_cfg, handshake, peer_addr, local_addr).await
                                     },
                                 )
-                                //.receive_max()
+                                .receive_max(max_inflight as u16)
                                 .handshake_timeout(handshake_timeout)
                                 .max_size(max_size)
                                 .max_qos(max_qos)
                                 //.max_topic_alias(max_topic_alias)
+                                .max_awaiting_rel(max_awaiting_rel)
+                                .await_rel_timeout(await_rel_timeout)
                                 .publish(fn_factory_with_config(|session: v5::Session<SessionState>| {
                                     ok::<_, MqttError>(fn_service(move |req| {
                                         publish_v5(session.clone(), req)
