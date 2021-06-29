@@ -16,7 +16,7 @@ path = "src/lib.rs"
 
 [dependencies]
 ntex = { version = "0.3.16", features = ["rustls"] }
-ntex-mqtt = { git = "https://github.com/rmqtt-rs/ntex-mqtt", version = "0.6.8"}
+ntex-mqtt = { git = "https://github.com/rmqtt-rs/ntex-mqtt", version = "0.6.9"}
 #ntex-mqtt = { path = "../../ntex-mqtt" }
 futures = "0.3.15"
 tokio = { version = "1.6.0", features = ["full"] }
@@ -49,6 +49,7 @@ slog-logfmt = "0.1.0"
 env_logger = "0.8.3"
 base64 = "0.13.0"
 bincode = "1.3.3"
+url = { version = "2.2.2", default-features = false }
 
 [build-dependencies]
 tonic-build = "0.4.2"
