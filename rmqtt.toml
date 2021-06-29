@@ -43,7 +43,7 @@ log.file = "rmqtt.log"
 plugins.dir = "rmqtt-plugins/"
 #Plug in started by default, when the mqtt server is started
 plugins.default_startups = [
-#    "rmqtt-cluster-broadcast"
+    "rmqtt-cluster-broadcast",
     "rmqtt-auth-http",
     "rmqtt-web-hook"
 ]
@@ -52,8 +52,7 @@ plugins.default_startups = [
 ##--------------------------------------------------------------------
 ## MQTT
 ##--------------------------------------------------------------------
-#Shared subscription switch, default value: true
-mqtt.shared_subscription = true
+
 
 ##--------------------------------------------------------------------
 ## Listeners
@@ -82,7 +81,7 @@ listener.tcp.external.idle_timeout = "20s"
 listener.tcp.external.allow_anonymous = false
 #Minimum allowable keepalive value for mqtt connection,
 #less than this value will reject the connection, default: 0, unit: seconds
-listener.tcp.external.min_keepalive = 0
+listener.tcp.external.min_keepalive = 30
 # > 0.5, Keepalive * backoff * 2
 listener.tcp.external.keepalive_backoff = 0.75
 #Flight window size. The flight window is used to store the unanswered QoS 1 and QoS 2 messages
@@ -120,6 +119,8 @@ listener.tcp.external.await_rel_timeout = "5m"
 #The maximum number of topics that a single client is allowed to subscribe to
 #0 means unlimited, default value: 0
 listener.tcp.external.max_subscriptions = 0
+#Shared subscription switch, default value: true
+listener.tcp.external.shared_subscription = true
 
 ##--------------------------------------------------------------------
 ## Internal TCP Listener for MQTT Protocol
@@ -136,17 +137,18 @@ listener.tcp.internal.keepalive_backoff = 0.75
 listener.tcp.internal.max_inflight = 16
 listener.tcp.internal.handshake_timeout = "15s"
 listener.tcp.internal.max_mqueue_len = 1000
-#listener.tcp.internal.mqueue_rate_limit = "100,10s"
-#listener.tcp.internal.max_clientid_len = 65535
-#listener.tcp.internal.max_qos_allowed = 2
-#listener.tcp.internal.max_topic_levels = 0
-#listener.tcp.internal.retain_available = true
+listener.tcp.internal.mqueue_rate_limit = "1000,1s"
+listener.tcp.internal.max_clientid_len = 65535
+listener.tcp.internal.max_qos_allowed = 2
+listener.tcp.internal.max_topic_levels = 0
+listener.tcp.internal.retain_available = true
 listener.tcp.internal.session_expiry_interval = "2h"
 listener.tcp.internal.message_retry_interval = "30s"
 listener.tcp.internal.message_expiry_interval = "5m"
 listener.tcp.internal.max_awaiting_rel = 1000
 listener.tcp.internal.await_rel_timeout = "600s"
 listener.tcp.internal.max_subscriptions = 0
+listener.tcp.internal.shared_subscription = true
 
 ##--------------------------------------------------------------------
 ## MQTT/TLS - External TLS Listener for MQTT Protocol
