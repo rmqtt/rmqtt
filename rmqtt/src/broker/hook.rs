@@ -82,7 +82,7 @@ pub trait Hook: Sync + Send {
     async fn session_subscribed(&self, subscribed: Subscribed);
 
     ///Unsubscribe message received
-    async fn client_unsubscribe(&self, unsubscribe: &Unsubscribes) -> HookUnsubscribeResult;
+    async fn client_unsubscribe(&self, unsubscribe: &Unsubscribe) -> Option<TopicFilter>;
 
     ///Unsubscribe succeeded
     async fn session_unsubscribed(&self, unsubscribed: Unsubscribed);

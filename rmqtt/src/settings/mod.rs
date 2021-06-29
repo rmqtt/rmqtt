@@ -181,13 +181,11 @@ impl Plugins {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct Mqtt {
-    pub shared_subscription: bool,
-}
+pub struct Mqtt {}
 
 impl Default for Mqtt {
     fn default() -> Self {
-        Self { shared_subscription: true }
+        Self {}
     }
 }
 

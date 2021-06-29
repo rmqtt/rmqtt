@@ -161,6 +161,9 @@ pub struct ListenerInner {
     #[serde(default = "ListenerInner::max_subscriptions_default")]
     pub max_subscriptions: usize,
 
+    #[serde(default = "ListenerInner::shared_subscription_default")]
+    pub shared_subscription: bool,
+
     pub cert: Option<String>,
     pub key: Option<String>,
 }
@@ -212,7 +215,7 @@ impl ListenerInner {
     }
     #[inline]
     fn max_inflight_default() -> usize {
-        32
+        16
     }
     #[inline]
     fn handshake_timeout_default() -> Duration {
@@ -266,6 +269,10 @@ impl ListenerInner {
     #[inline]
     fn max_subscriptions_default() -> usize {
         0
+    }
+    #[inline]
+    fn shared_subscription_default() -> bool {
+        true
     }
 
     #[inline]

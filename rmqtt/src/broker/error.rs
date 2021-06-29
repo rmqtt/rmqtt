@@ -135,6 +135,14 @@ impl std::convert::TryFrom<MqttError> for v5::PublishAck {
     }
 }
 
+impl std::convert::TryFrom<MqttError> for v5::PublishResult {
+    type Error = MqttError;
+    #[inline]
+    fn try_from(e: MqttError) -> Result<Self, Self::Error> {
+        Err(e)
+    }
+}
+
 impl From<ConfigError> for MqttError {
     #[inline]
     fn from(e: ConfigError) -> Self {

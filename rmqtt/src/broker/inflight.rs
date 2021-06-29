@@ -3,7 +3,10 @@ use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::broker::types::{From, Packet, PacketId, PacketV3, Publish, TimestampMillis};
+use crate::broker::types::{
+    From, Packet, PacketId, PacketV3, PacketV5, Publish, PublishAck2, PublishAck2Reason, TimestampMillis,
+    UserProperties,
+};
 use crate::{MqttError, Result};
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy, Serialize, Deserialize)]
@@ -45,18 +48,29 @@ impl InflightMessage {
     }
 
     #[inline]
-    pub fn release_packet(&self) -> Option<Packet> {
-        match &self.publish {
-            Publish::V3(p) => {
-                if let Some(packet_id) = p.packet.packet_id {
-                    return Some(Packet::V3(PacketV3::PublishRelease { packet_id }));
-                }
-            }
-            Publish::V5(_p) => {
-                log::warn!("[MQTT 5] Not implemented");
-            }
+    pub fn release_packet_v3(&self) -> Option<Packet> {
+        if let Some(packet_id) = self.publish.packet_id {
+            Some(Packet::V3(PacketV3::PublishRelease { packet_id }))
+        } else {
+            None
         }
-        None
+    }
+
+    #[inline]
+    pub fn release_packet_v5(&self) -> Option<Packet> {
+        log::info!("release_packet Publish V5 {:?}: ", self.publish);
+        if let Some(packet_id) = self.publish.packet_id {
+            //@TODO ...
+            let pack2 = PublishAck2 {
+                packet_id,
+                reason_code: PublishAck2Reason::Success,
+                properties: UserProperties::new(),
+                reason_string: None,
+            };
+            Some(Packet::V5(PacketV5::PublishRelease(pack2)))
+        } else {
+            None
+        }
     }
 }
 

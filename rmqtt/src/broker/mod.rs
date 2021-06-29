@@ -32,7 +32,7 @@ pub trait Entry: Sync + Send {
     async fn client(&self) -> Option<ClientInfo>;
     fn tx(&self) -> Option<Tx>;
     async fn subscribe(&self, subscribe: Subscribe) -> Result<SubscribeReturn>;
-    async fn unsubscribe(&self, unsubscribe: &Unsubscribes) -> Result<UnsubscribeAck>;
+    async fn unsubscribe(&self, unsubscribe: &Unsubscribe) -> Result<()>;
     async fn publish(&self, from: From, p: Publish) -> Result<(), (From, Publish, Reason)>;
 }
 
@@ -115,8 +115,8 @@ pub trait Router: Sync + Send {
 pub trait SharedSubscription: Sync + Send {
     ///Whether shared subscriptions are supported
     #[inline]
-    fn is_supported(&self) -> bool {
-        Runtime::instance().settings.mqtt.shared_subscription
+    fn is_supported(&self, listen_cfg: &Listener) -> bool {
+        listen_cfg.shared_subscription
     }
 
     ///Shared subscription strategy, select a subscriber, default is "random"
@@ -169,6 +169,12 @@ pub trait SharedSubscription: Sync + Send {
 
 #[async_trait]
 pub trait RetainStorage: Sync + Send {
+    ///Whether retain is supported
+    #[inline]
+    fn is_supported(&self, listen_cfg: &Listener) -> bool {
+        listen_cfg.retain_available
+    }
+
     ///topic - concrete topic
     async fn set(&self, topic: &Topic, retain: Retain) -> Result<()>;
 

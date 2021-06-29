@@ -1,6 +1,7 @@
 use futures::StreamExt;
 use std::convert::AsRef;
 use std::convert::From as _f;
+use std::convert::TryFrom;
 use std::fmt;
 use std::ops::Deref;
 use std::rc::Rc;
@@ -85,7 +86,7 @@ impl SessionState {
 
             let id = state.id.clone();
             let mut _kicked = false;
-            let mut _is_disconnect_received = false;
+            let mut _disconnect_received = false;
             log::debug!("{:?} start online event loop", id);
 
             let keep_alive_interval = if keep_alive < 10 {
@@ -116,7 +117,7 @@ impl SessionState {
                 tokio::select! {
                     _ = &mut keep_alive_delay => {  //, if !keep_alive_delay.is_elapsed()
                         log::debug!("{:?} session is timeout, {:?}", id, keep_alive_delay);
-                        state.client.set_disconnected_reason("Timeout(Read/Write)".to_owned()).await;
+                        state.client.add_disconnected_reason("Timeout(Read/Write)".to_owned()).await;
                         break
                     },
                     msg = msg_rx.recv() => {
@@ -127,7 +128,7 @@ impl SessionState {
                                     if let Err((from, p)) = deliver_queue_tx.send((from, p)).await{
                                         log::warn!("{:?} deliver_dropped, from: {:?}, {:?}", id, from, p);
                                         //hook, message_dropped
-                                        Runtime::instance().extends.hook_mgr().await.message_dropped(Some(state.id.clone()), from, p, Reason::from_static("deliver queue is full")).await;
+                                        Runtime::instance().extends.hook_mgr().await.message_dropped(Some(state.id.clone()), from, p, Reason::from("deliver queue is full")).await;
                                     }
                                 },
                                 Message::Kick(sender, by_id) => {
@@ -136,15 +137,17 @@ impl SessionState {
                                         log::warn!("{:?} Kicked response error, {:?}", id, e);
                                     }
                                     _kicked = true;
-                                    state.client.set_disconnected_reason(format!("Kicked by {:?}", by_id)).await;
+                                    state.client.add_disconnected_reason(format!("Kicked by {:?}", by_id)).await;
                                     break
                                 },
-                                Message::Disconnect => {
-                                    _is_disconnect_received = true;
-                                    state.client.set_disconnected_reason(format!("Disconnect({}) message is received", _is_disconnect_received)).await;
+                                Message::Disconnect(d) => {
+                                    _disconnect_received = true;
+                                    state.client.set_disconnect(d).await;
+                                    state.client.add_disconnected_reason(format!("Disconnect(true) message is received")).await;
+
                                 },
                                 Message::Closed => {
-                                    log::debug!("{:?} Disconnect({}) message received", id, _is_disconnect_received);
+                                    log::debug!("{:?} Disconnect({}) message received", id, _disconnect_received);
                                     //Disconnect
                                     break
                                 },
@@ -154,7 +157,7 @@ impl SessionState {
                             }
                         }else{
                             log::warn!("{:?} None is received from the Rx", id);
-                            state.client.set_disconnected_reason("None is received from the Rx".to_owned()).await;
+                            state.client.add_disconnected_reason("None is received from the Rx".to_owned()).await;
                             break;
                         }
                     },
@@ -181,7 +184,7 @@ impl SessionState {
                             },
                             None => {
                                 log::warn!("{:?} Deliver Queue is closed", id);
-                                state.client.set_disconnected_reason("Deliver Queue is closed".into()).await;
+                                state.client.add_disconnected_reason("Deliver Queue is closed".into()).await;
                                 break;
                             }
                         }
@@ -197,13 +200,13 @@ impl SessionState {
                 "{:?} exit online worker, kicked: {}, clean_session: {}",
                 id,
                 _kicked,
-                state.client.clean_session()
+                state.clean_session().await
             );
 
             //Setting the disconnected state
             state.client.connected.store(false, Ordering::SeqCst);
             state.client.disconnected_at.store(chrono::Local::now().timestamp_millis(), Ordering::SeqCst);
-            if !_is_disconnect_received {
+            if !_disconnect_received {
                 if let Err(e) = state.process_last_will().await {
                     log::error!("{:?} process last will error, {:?}", id, e);
                 }
@@ -211,7 +214,7 @@ impl SessionState {
             state.sink.close();
 
             if !_kicked {
-                if state.client.clean_session() {
+                if state.clean_session().await {
                     state.clean(state.client.get_disconnected_reason().await.unwrap_or_default()).await;
                 } else {
                     //Start offline event loop
@@ -236,7 +239,8 @@ impl SessionState {
         log::debug!("{:?} start offline event loop", state.id);
         let id = state.id.clone();
 
-        let session_expiry_interval = state.listen_cfg.session_expiry_interval;
+        //state.client.disconnect
+        let session_expiry_interval = state.fitter.session_expiry_interval(); //state.listen_cfg.session_expiry_interval;
         let session_expiry_delay = tokio::time::sleep(session_expiry_interval);
         tokio::pin!(session_expiry_delay);
 
@@ -319,48 +323,36 @@ impl SessionState {
 
     #[inline]
     async fn process_last_will(&self) -> Result<()> {
-        match self.client.last_will() {
-            Some(LastWill::V3(lw)) => {
-                let p = Publish::V3(Box::new(PublishV3::from_last_will(lw)?));
-                if let Err(e) = Runtime::instance().extends.shared().await.forwards(self.id.clone(), p).await
-                {
-                    log::error!("{:?} send last will message fail, {:?}", self.id, e);
-                }
+        if let Some(lw) = self.client.last_will() {
+            //@TODO ...
+            let p = Publish::try_from(lw)?;
+            if let Err(e) = Runtime::instance().extends.shared().await.forwards(self.id.clone(), p).await {
+                log::error!("{:?} send last will message fail, {:?}", self.id, e);
             }
-            Some(LastWill::V5(_lw)) => {
-                log::warn!("{:?} [MQTT V5] Not implemented", self.id);
-            }
-            None => {}
         }
         Ok(())
     }
 
     #[inline]
     pub async fn send_retain_messages(&self, retains: Vec<(Topic, Retain)>, qos: QoS) -> Result<()> {
-        for (topic, retain) in retains {
+        for (topic, mut retain) in retains {
             log::debug!("{:?} topic:{:?}, retain:{:?}", self.id, topic, retain);
-            let p = match retain.publish {
-                Publish::V3(mut p) => {
-                    p.packet.dup = false;
-                    p.packet.retain = true;
-                    p.packet.qos = p.packet.qos.less_value(qos);
-                    p.packet.topic = TopicName::from(topic.to_string());
-                    p.packet.packet_id = None;
-                    p.create_time = chrono::Local::now().timestamp_millis();
-                    Publish::V3(p)
-                }
-                Publish::V5(p) => {
-                    log::warn!("{:?} [MQTT 5] Not implemented", self.id);
-                    Publish::V5(p)
-                }
-            };
+
+            retain.publish.dup = false;
+            retain.publish.retain = true;
+            retain.publish.qos = retain.publish.qos.less_value(qos);
+            retain.publish.topic = topic;
+            retain.publish.packet_id = None;
+            retain.publish.create_time = chrono::Local::now().timestamp_millis();
+
+            log::debug!("{:?} retain.publish: {:?}", self.id, retain.publish);
 
             if let Err((from, p, reason)) = Runtime::instance()
                 .extends
                 .shared()
                 .await
                 .entry(self.id.clone())
-                .publish(retain.from, p)
+                .publish(retain.from, retain.publish)
                 .await
             {
                 Runtime::instance()
@@ -445,7 +437,11 @@ impl SessionState {
                 }
 
                 //rerelease
-                if let Some(release_packet) = iflt_msg.release_packet() {
+                let release_packet = match &self.sink {
+                    Sink::V3(_) => iflt_msg.release_packet_v3(),
+                    Sink::V5(_) => iflt_msg.release_packet_v5(),
+                };
+                if let Some(release_packet) = release_packet {
                     self.sink.send(release_packet)?;
                     self.inflight_win.write().await.push_back(InflightMessage::new(
                         MomentStatus::UnComplete,
@@ -465,13 +461,10 @@ impl SessionState {
         if self.listen_cfg.max_subscriptions > 0
             && (self.subscriptions.read().await.len() + 1 > self.listen_cfg.max_subscriptions)
         {
-            log::warn!(
-                "{:?} Subscribe Refused, reason: too many subscriptions, max subscriptions limit: {:?}",
-                self.id,
-                self.listen_cfg.max_subscriptions
-            );
             return Err(MqttError::TooManySubscriptions);
         }
+
+        sub.qos = sub.qos.less_value(self.listen_cfg.max_qos_allowed);
 
         //hook, client_subscribe
         let topic_filter = self.hook.client_subscribe(&sub).await;
@@ -485,9 +478,10 @@ impl SessionState {
         //hook, client_subscribe_check_acl
         let acl_result = self.hook.client_subscribe_check_acl(&sub).await;
         if let Some(acl_result) = acl_result {
-            match acl_result {
-                SubscribeReturn::Success(qos) => sub.qos = sub.qos.less_value(qos),
-                SubscribeReturn::Failure => return Ok(acl_result),
+            if let Some(qos) = acl_result.success() {
+                sub.qos = sub.qos.less_value(qos)
+            } else {
+                return Ok(acl_result);
             }
         }
 
@@ -497,7 +491,7 @@ impl SessionState {
         let sub_ret =
             Runtime::instance().extends.shared().await.entry(self.id.clone()).subscribe(sub).await?;
 
-        if let SubscribeReturn::Success(qos) = sub_ret {
+        if let Some(qos) = sub_ret.success() {
             //send retain messages
             if self.listen_cfg.retain_available {
                 let retain_messages = Runtime::instance().extends.retain().await.get(&topic_filter).await?;
@@ -511,50 +505,50 @@ impl SessionState {
     }
 
     #[inline]
-    pub(crate) async fn unsubscribe_v3(&self, unsubs: &mut v3::control::Unsubscribe) -> Result<()> {
-        let shared_subscription_supported =
-            Runtime::instance().extends.shared_subscription().await.is_supported();
-        let unsubs_v3 = unsubs
-            .iter()
-            .map(|ref topic_filter| match parse_topic_filter(*topic_filter, shared_subscription_supported) {
-                Ok((t, _)) => Ok(t),
-                Err(_e) => Err(MqttError::TopicError(topic_filter.to_string())),
-            })
-            .collect::<Result<Vec<Topic>>>()?;
-
-        let mut unsubs_v3 = Unsubscribes::V3(unsubs_v3);
-
-        log::debug!("{:?} unsubs_v3: {:?}", self.id, unsubs_v3);
+    pub(crate) async fn unsubscribe(&self, mut unsub: Unsubscribe) -> Result<()> {
+        log::debug!("{:?} unsubscribe: {:?}", self.id, unsub);
 
         //hook, client_unsubscribe
-        let topic_filters = self.hook.client_unsubscribe(&unsubs_v3).await;
-        if !topic_filters.is_empty() {
-            unsubs_v3.adjust_topic_filters(topic_filters)?;
-            log::debug!("{:?} unsubs_v3(adjust_topic_filters): {:?}", self.id, unsubs_v3);
+        let topic_filter = self.hook.client_unsubscribe(&unsub).await;
+        if let Some(topic_filter) = topic_filter {
+            unsub.topic_filter = topic_filter;
+            log::debug!("{:?} adjust topic_filter: {:?}", self.id, unsub.topic_filter);
         }
 
-        let _ =
-            Runtime::instance().extends.shared().await.entry(self.id.clone()).unsubscribe(&unsubs_v3).await?;
+        Runtime::instance().extends.shared().await.entry(self.id.clone()).unsubscribe(&unsub).await?;
 
         //hook, session_unsubscribed
-        if let Unsubscribes::V3(mut unsubs) = unsubs_v3 {
-            for topic_filter in unsubs.drain(..) {
-                self.hook.session_unsubscribed(Unsubscribed::V3(topic_filter)).await;
-            }
+        self.hook.session_unsubscribed(Unsubscribed::new(unsub.topic_filter)).await;
+
+        Ok(())
+    }
+
+    #[inline]
+    pub async fn publish_v3(&self, publish: &v3::Publish) -> Result<()> {
+        if let Err(e) = self.publish(Publish::try_from(publish)?).await {
+            self.client.add_disconnected_reason(format!("Publish failed, {:?}", e)).await;
+            return Err(e);
         }
         Ok(())
     }
 
     #[inline]
-    pub async fn publish_v3(&self, publish: v3::Publish) -> Result<()> {
-        let publish = Publish::V3(Box::new(PublishV3::from(&publish)?));
+    pub async fn publish_v5(&self, publish: &v5::Publish) -> Result<()> {
+        if let Err(e) = self.publish(Publish::try_from(publish)?).await {
+            self.client.add_disconnected_reason(format!("Publish failed, {:?}", e)).await;
+            return Err(e);
+        }
+        Ok(())
+    }
+
+    #[inline]
+    async fn publish(&self, publish: Publish) -> Result<()> {
         //hook, message_publish
         let publish = self.hook.message_publish(&publish).await.unwrap_or(publish);
 
         //hook, message_publish_check_acl
         let acl_result = self.hook.message_publish_check_acl(&publish).await;
         log::debug!("{:?} acl_result: {:?}", self.id, acl_result);
-
         if let PublishAclResult::Rejected(disconnect) = acl_result {
             //Message dropped
             Runtime::instance()
@@ -599,6 +593,61 @@ impl SessionState {
 
         Ok(())
     }
+
+    // #[inline]
+    // pub async fn publish_v3_old(&self, publish: v3::Publish) -> Result<()> {
+    //     let publish = Publish::V3(Box::new(PublishV3::from(&publish)?));
+    //     //hook, message_publish
+    //     let publish = self.hook.message_publish(&publish).await.unwrap_or(publish);
+    //
+    //     //hook, message_publish_check_acl
+    //     let acl_result = self.hook.message_publish_check_acl(&publish).await;
+    //     log::debug!("{:?} acl_result: {:?}", self.id, acl_result);
+    //
+    //     if let PublishAclResult::Rejected(disconnect) = acl_result {
+    //         //Message dropped
+    //         Runtime::instance()
+    //             .extends
+    //             .hook_mgr()
+    //             .await
+    //             .message_dropped(
+    //                 None,
+    //                 self.id.clone(),
+    //                 publish,
+    //                 Reason::from(format!(
+    //                     "hook::message_publish_check_acl, publish rejected, disconnect:{}",
+    //                     disconnect
+    //                 )),
+    //             )
+    //             .await;
+    //         return if disconnect {
+    //             Err(MqttError::from(
+    //                 "Publish Refused, reason: hook::message_publish_check_acl() -> Rejected(Disconnect)",
+    //             ))
+    //         } else {
+    //             Ok(())
+    //         };
+    //     }
+    //
+    //     if self.listen_cfg.retain_available && publish.retain() {
+    //         Runtime::instance()
+    //             .extends
+    //             .retain()
+    //             .await
+    //             .set(publish.topic(), Retain { from: self.id.clone(), publish: publish.clone() })
+    //             .await?;
+    //     }
+    //
+    //     if let Err(errs) = Runtime::instance().extends.shared().await.forwards(self.id.clone(), publish).await
+    //     {
+    //         for (to, from, p, reason) in errs {
+    //             //Message dropped
+    //             Runtime::instance().extends.hook_mgr().await.message_dropped(Some(to), from, p, reason).await;
+    //         }
+    //     }
+    //
+    //     Ok(())
+    // }
 
     #[inline]
     pub(crate) async fn clean(&self, reason: Reason) {
@@ -645,6 +694,56 @@ impl SessionState {
             log::error!("{:?} session remove from broker fail, {:?}", self.id, e);
         }
     }
+
+    #[inline]
+    pub async fn transfer_session_state(&self, mut offline_info: SessionOfflineInfo) -> Result<()> {
+        log::debug!(
+            "transfer session state, subscriptions: {}, inflight_messages: {}, offline_messages: {}",
+            offline_info.subscriptions.len(),
+            offline_info.inflight_messages.len(),
+            offline_info.offline_messages.len()
+        );
+        //Subscription transfer from previous session
+        for (tf, (qos, shared_sub)) in offline_info.subscriptions.drain() {
+            self.subscriptions_add(tf, qos, shared_sub).await;
+        }
+
+        //Send previous session unacked messages
+        while let Some(msg) = offline_info.inflight_messages.pop() {
+            if !matches!(msg.status, MomentStatus::UnComplete) {
+                self.reforward(msg).await?;
+            }
+        }
+
+        //Send offline messages
+        while let Some((from, p)) = offline_info.offline_messages.pop() {
+            self.forward(from, p).await;
+        }
+
+        Ok(())
+    }
+
+    #[inline]
+    async fn session_expiry_interval(&self) -> Duration {
+        if let Some(Disconnect::V5(d)) = self.client.disconnect.read().await.as_ref() {
+            if let Some(interval_secs) = d.session_expiry_interval_secs {
+                Duration::from_secs(interval_secs as u64)
+            } else {
+                self.fitter.session_expiry_interval()
+            }
+        } else {
+            self.fitter.session_expiry_interval()
+        }
+    }
+
+    #[inline]
+    async fn clean_session(&self) -> bool {
+        if let ConnectInfo::V3(_, conn_info) = &self.client.connect_info {
+            conn_info.clean_session
+        } else {
+            self.session_expiry_interval().await.as_secs() == 0
+        }
+    }
 }
 
 impl Deref for SessionState {
@@ -689,9 +788,10 @@ impl Session {
         id: Id,
         listen_cfg: Listener,
         max_mqueue_len: usize,
+        max_inflight: usize,
         created_at: TimestampMillis,
     ) -> Self {
-        let max_inflight = listen_cfg.max_inflight;
+        //let max_inflight = listen_cfg.max_inflight;
         let message_retry_interval = listen_cfg.message_retry_interval.as_millis() as TimestampMillis;
         let message_expiry_interval = listen_cfg.message_expiry_interval.as_millis() as TimestampMillis;
         Self(Arc::new(_SessionInner {
@@ -839,7 +939,8 @@ impl ClientInfo {
             connected: AtomicBool::new(true),
             connected_at,
             disconnected_at: AtomicI64::new(0),
-            disconnected_reason: RwLock::new(None),
+            disconnected_reason: RwLock::new(Vec::new()),
+            disconnect: RwLock::new(None),
         }))
     }
 
@@ -859,7 +960,8 @@ impl ClientInfo {
                     self.disconnected_at.load(Ordering::SeqCst),
                 )),
             );
-            if let Some(reason) = self.disconnected_reason.read().await.as_ref() {
+
+            if let Some(reason) = self.get_disconnected_reason().await {
                 json.insert("disconnected_reason".into(), serde_json::Value::String(reason.to_string()));
             } else {
                 json.insert("disconnected_reason".into(), serde_json::Value::Null);
@@ -873,14 +975,6 @@ impl ClientInfo {
         match &self.connect_info {
             ConnectInfo::V3(_, conn_info) => conn_info.protocol.level(),
             ConnectInfo::V5(_, _conn_info) => MQTT_LEVEL_5,
-        }
-    }
-
-    #[inline]
-    pub fn clean_session(&self) -> bool {
-        match &self.connect_info {
-            ConnectInfo::V3(_, conn_info) => conn_info.clean_session,
-            ConnectInfo::V5(_, conn_info) => conn_info.clean_start,
         }
     }
 
@@ -902,7 +996,7 @@ impl ClientInfo {
     #[inline]
     pub async fn set_disconnected(&self, reason: String) {
         self.connected.store(false, Ordering::SeqCst);
-        self.set_disconnected_reason(reason).await;
+        self.add_disconnected_reason(reason).await;
     }
 
     #[inline]
@@ -911,21 +1005,30 @@ impl ClientInfo {
     }
 
     #[inline]
-    pub async fn set_disconnected_reason(&self, r: String) {
-        let mut disconnected_reason = self.disconnected_reason.write().await;
-        if disconnected_reason.is_none() {
-            disconnected_reason.replace(Reason::from(r));
+    pub async fn add_disconnected_reason(&self, r: String) {
+        self.disconnected_reason.write().await.push(Reason::from(r));
+    }
+
+    pub async fn set_disconnect(&self, d: Disconnect) {
+        if let Some(r) = d.reason() {
+            self.add_disconnected_reason(r.to_string()).await;
         }
+        self.disconnect.write().await.replace(d);
     }
 
     #[inline]
     pub async fn get_disconnected_reason(&self) -> Option<Reason> {
-        self.disconnected_reason.read().await.clone()
+        let reason = self.disconnected_reason.read().await;
+        if reason.is_empty() {
+            None
+        } else {
+            Some(Reason::from(reason.join(",")))
+        }
     }
 
     #[inline]
     pub async fn has_disconnected_reason(&self) -> bool {
-        self.disconnected_reason.read().await.is_some()
+        !self.disconnected_reason.read().await.is_empty()
     }
 }
 
@@ -951,5 +1054,6 @@ pub struct _ClientInfo {
     pub connected: AtomicBool,
     pub connected_at: TimestampMillis,
     pub disconnected_at: AtomicI64,
-    pub disconnected_reason: RwLock<Option<Reason>>,
+    pub disconnected_reason: RwLock<Vec<Reason>>,
+    pub disconnect: RwLock<Option<Disconnect>>,
 }

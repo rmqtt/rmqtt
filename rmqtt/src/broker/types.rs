@@ -1,8 +1,7 @@
 use bytestring::ByteString;
-use serde::de::{self, Deserialize, Deserializer, SeqAccess, Visitor};
+use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, SerializeStruct, Serializer};
 use std::convert::From as _f;
-use std::convert::TryFrom;
 use std::fmt;
 use std::net::SocketAddr;
 use std::num::{NonZeroU16, NonZeroU32};
@@ -20,16 +19,19 @@ pub use ntex_mqtt::v3::{
     MqttSink as MqttSinkV3,
 };
 
+use ntex::util::Bytes;
+use ntex_mqtt::error::SendPacketError;
 pub use ntex_mqtt::v5::{
     self, codec::Connect as ConnectV5, codec::ConnectAckReason as ConnectAckReasonV5,
-    codec::LastWill as LastWillV5, codec::Packet as PacketV5, codec::PublishProperties,
-    codec::Subscribe as SubscribeV5, codec::SubscribeAck as SubscribeAckV5, codec::SubscribeAckReason,
-    codec::SubscriptionOptions, codec::Unsubscribe as UnsubscribeV5,
-    codec::UnsubscribeAck as UnsubscribeAckV5, codec::UserProperties, codec::UserProperty,
-    HandshakeAck as HandshakeAckV5, MqttSink as MqttSinkV5,
+    codec::Disconnect as DisconnectV5, codec::DisconnectReasonCode, codec::LastWill as LastWillV5,
+    codec::Packet as PacketV5, codec::PublishAck2, codec::PublishAck2Reason,
+    codec::PublishProperties as PublishPropertiesV5, codec::Subscribe as SubscribeV5,
+    codec::SubscribeAck as SubscribeAckV5, codec::SubscribeAckReason, codec::SubscriptionOptions,
+    codec::Unsubscribe as UnsubscribeV5, codec::UnsubscribeAck as UnsubscribeAckV5, codec::UserProperties,
+    codec::UserProperty, HandshakeAck as HandshakeAckV5, MqttSink as MqttSinkV5,
 };
 
-pub use ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
+pub use ntex_mqtt::types::{Protocol, MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 
 pub type NodeId = u64;
 pub type RemoteSocketAddr = SocketAddr;
@@ -45,7 +47,7 @@ pub type Topic = ntex_mqtt::Topic;
 ///topic filter
 pub type TopicFilter = Topic;
 pub type SharedGroup = String;
-pub type Disconnect = bool;
+pub type IsDisconnect = bool;
 pub type MessageExpiry = bool;
 pub type TimestampMillis = i64;
 
@@ -142,221 +144,27 @@ impl ConnectInfo {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct PublishV3 {
-    #[serde(
-        serialize_with = "PublishV3::serialize_packet",
-        deserialize_with = "PublishV3::deserialize_packet"
-    )]
-    pub packet: v3::codec::Publish,
-    pub topic: Topic,
-    pub query: Option<ByteString>,
-    pub create_time: TimestampMillis,
+#[derive(Debug, Clone, PartialEq)]
+pub enum Disconnect {
+    V3,
+    V5(DisconnectV5),
 }
 
-impl std::convert::TryFrom<v3::codec::Publish> for PublishV3 {
-    type Error = MqttError;
-
+impl Disconnect {
     #[inline]
-    fn try_from(publish: v3::codec::Publish) -> std::result::Result<Self, Self::Error> {
-        let (topic, query) = if let Some(pos) = publish.topic.find('?') {
-            (
-                ByteString::try_from(publish.topic.as_bytes().slice(0..pos)).unwrap(),
-                Some(
-                    ByteString::try_from(publish.topic.as_bytes().slice(pos + 1..publish.topic.len()))
-                        .unwrap(),
-                ),
-            )
-        } else {
-            (publish.topic.clone(), None)
-        };
-
-        let topic = Topic::from_str(&topic)?;
-        Ok(Self { packet: publish, topic, query, create_time: chrono::Local::now().timestamp_millis() })
-    }
-}
-
-impl PublishV3 {
-    #[inline]
-    fn serialize_packet<S>(packet: &v3::codec::Publish, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut s = serializer.serialize_struct("Publish", 6)?;
-        s.serialize_field("dup", &packet.dup)?;
-        s.serialize_field("retain", &packet.retain)?;
-        s.serialize_field("qos", &packet.qos.value())?;
-        s.serialize_field("topic", &packet.topic)?;
-        s.serialize_field("packet_id", &packet.packet_id)?;
-        s.serialize_field("payload", &packet.payload)?;
-        s.end()
-    }
-
-    #[inline]
-    pub fn deserialize_packet<'de, D>(deserializer: D) -> std::result::Result<v3::codec::Publish, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct PublishVisitor;
-        impl<'de> Visitor<'de> for PublishVisitor {
-            type Value = v3::codec::Publish;
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("struct Publish")
-            }
-            //with serialize_tuple
-            fn visit_seq<A>(self, seq: A) -> std::result::Result<Self::Value, A::Error>
-            where
-                A: SeqAccess<'de>,
-            {
-                if seq.size_hint() != Some(6) {
-                    return Err(de::Error::invalid_type(serde::de::Unexpected::Seq, &self));
-                }
-                let mut seq = seq;
-                let p = v3::codec::Publish {
-                    dup: seq.next_element::<bool>()?.ok_or_else(|| de::Error::missing_field("dup"))?,
-                    retain: seq.next_element::<bool>()?.ok_or_else(|| de::Error::missing_field("retain"))?,
-                    qos: QoS::try_from(
-                        seq.next_element::<u8>()?.ok_or_else(|| de::Error::missing_field("qos"))?,
-                    )
-                    .map_err(|e| de::Error::custom(e.to_string()))?,
-                    topic: seq
-                        .next_element::<ByteString>()?
-                        .ok_or_else(|| de::Error::missing_field("topic"))?,
-                    packet_id: seq
-                        .next_element::<Option<NonZeroU16>>()?
-                        .ok_or_else(|| de::Error::missing_field("packet_id"))?,
-                    payload: ntex::util::Bytes::from(
-                        seq.next_element::<Vec<u8>>()?.ok_or_else(|| de::Error::missing_field("payload"))?,
-                    ),
-                };
-                Ok(p)
-            }
+    pub fn reason_code(&self) -> Option<DisconnectReasonCode> {
+        match self {
+            Disconnect::V3 => None,
+            Disconnect::V5(d) => Some(d.reason_code),
         }
-        deserializer.deserialize_tuple(6, PublishVisitor)
     }
 
     #[inline]
-    pub fn from(p: &v3::Publish) -> Result<PublishV3> {
-        Ok(Self {
-            packet: p.packet().clone(),
-            topic: Topic::from_str(p.topic().get_ref())?,
-            query: {
-                let q = p.query();
-                if q.is_empty() {
-                    None
-                } else {
-                    Some(ByteString::from(q))
-                }
-            },
-            create_time: chrono::Local::now().timestamp_millis(),
-        })
-    }
-
-    #[inline]
-    pub fn from_last_will(lw: &v3::codec::LastWill) -> Result<PublishV3> {
-        let p = v3::codec::Publish {
-            dup: false,
-            retain: lw.retain,
-            qos: lw.qos,
-            topic: lw.topic.clone(),
-            packet_id: None,
-            payload: lw.message.clone(),
-        };
-
-        let (topic, query) = if let Some(pos) = lw.topic.find('?') {
-            (
-                //Topic::from_str(lw.topic.as_bytes().slice(0..pos))?,
-                ByteString::try_from(lw.topic.as_bytes().slice(0..pos))?,
-                Some(ByteString::try_from(lw.topic.as_bytes().slice(pos + 1..lw.topic.len()))?),
-            )
-        } else {
-            (lw.topic.clone(), None)
-        };
-
-        Ok(Self {
-            packet: p,
-            topic: Topic::from_str(&topic)?,
-            query,
-            create_time: chrono::Local::now().timestamp_millis(),
-        })
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct PublishV5 {
-    #[serde(
-        serialize_with = "PublishV5::serialize_packet",
-        deserialize_with = "PublishV5::deserialize_packet"
-    )]
-    pub publish: v5::codec::Publish,
-    pub topic: Topic,
-    pub create_time: TimestampMillis,
-}
-
-impl PublishV5 {
-    #[inline]
-    fn serialize_packet<S>(packet: &v5::codec::Publish, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut s = serializer.serialize_struct("Publish", 6)?;
-        s.serialize_field("dup", &packet.dup)?;
-        s.serialize_field("retain", &packet.retain)?;
-        s.serialize_field("qos", &packet.qos.value())?;
-        s.serialize_field("topic", &packet.topic)?;
-        s.serialize_field("packet_id", &packet.packet_id)?;
-        s.serialize_field("payload", &packet.payload)?;
-        s.end()
-    }
-
-    #[inline]
-    pub fn deserialize_packet<'de, D>(deserializer: D) -> std::result::Result<v5::codec::Publish, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct PublishVisitor;
-        impl<'de> Visitor<'de> for PublishVisitor {
-            type Value = v5::codec::Publish;
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("struct Publish")
-            }
-            //with serialize_tuple
-            fn visit_seq<A>(self, seq: A) -> std::result::Result<Self::Value, A::Error>
-            where
-                A: SeqAccess<'de>,
-            {
-                if seq.size_hint() != Some(6) {
-                    return Err(de::Error::invalid_type(serde::de::Unexpected::Seq, &self));
-                }
-                let mut seq = seq;
-                let p = v5::codec::Publish {
-                    dup: seq.next_element::<bool>()?.ok_or_else(|| de::Error::missing_field("dup"))?,
-                    retain: seq.next_element::<bool>()?.ok_or_else(|| de::Error::missing_field("retain"))?,
-                    qos: QoS::try_from(
-                        seq.next_element::<u8>()?.ok_or_else(|| de::Error::missing_field("qos"))?,
-                    )
-                    .map_err(|e| de::Error::custom(e.to_string()))?,
-                    topic: seq
-                        .next_element::<ByteString>()?
-                        .ok_or_else(|| de::Error::missing_field("topic"))?,
-                    packet_id: seq
-                        .next_element::<Option<NonZeroU16>>()?
-                        .ok_or_else(|| de::Error::missing_field("packet_id"))?,
-                    payload: ntex::util::Bytes::from(
-                        seq.next_element::<Vec<u8>>()?.ok_or_else(|| de::Error::missing_field("payload"))?,
-                    ),
-                    properties: PublishProperties::default(), //&TODO ...
-                };
-                Ok(p)
-            }
+    pub fn reason(&self) -> Option<&Reason> {
+        match self {
+            Disconnect::V3 => None,
+            Disconnect::V5(d) => d.reason_string.as_ref(),
         }
-        deserializer.deserialize_tuple(6, PublishVisitor)
-    }
-
-    #[inline]
-    pub fn from(publish: v5::codec::Publish) -> Result<PublishV5> {
-        let topic = Topic::from_str(&publish.topic)?;
-        Ok(Self { publish, topic, create_time: chrono::Local::now().timestamp_millis() })
     }
 }
 
@@ -388,130 +196,9 @@ impl QoSEx for QoS {
 pub type SubscribeAclResult = SubscribeReturn;
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum SubscribesAclResult {
-    V3(Vec<SubscribeReturnCodeV3>),
-    V5(Vec<SubscribeAckReason>),
-}
-
-impl SubscribesAclResult {
-    ///inherit if failure
-    pub fn inherit_failure(&mut self, from: &SubscribesAclResult, idx: usize) -> bool {
-        match from {
-            SubscribesAclResult::V3(from_codes) => {
-                if let Some(from_code) = from_codes.get(idx) {
-                    if !matches!(from_code, SubscribeReturnCodeV3::Success(_)) {
-                        if let SubscribesAclResult::V3(codes) = self {
-                            codes.push(*from_code);
-                            return true;
-                        }
-                    }
-                }
-            }
-            SubscribesAclResult::V5(from_reasons) => {
-                if let Some(from_reason) = from_reasons.get(idx) {
-                    if !matches!(
-                        from_reason,
-                        SubscribeAckReason::GrantedQos0
-                            | SubscribeAckReason::GrantedQos1
-                            | SubscribeAckReason::GrantedQos2
-                    ) {
-                        if let SubscribesAclResult::V5(reasons) = self {
-                            reasons.push(*from_reason);
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-        false
-    }
-
-    // pub fn is_success(&self, idx: usize) -> bool{
-    //     match self{
-    //         SubscribesAclResult::V3(codes) => {
-    //             codes.get(idx).map(|code| matches!(code, SubscribeReturnCodeV3::Success(_))).unwrap_or(true)
-    //         }
-    //         SubscribesAclResult::V5(acks) => {
-    //             acks.get(idx).map(|reason| matches!(reason, SubscribeAckReason::GrantedQos0 | SubscribeAckReason::GrantedQos1 | SubscribeAckReason::GrantedQos2)).unwrap_or(true)
-    //         }
-    //     }
-    // }
-
-    pub fn has_successes(&self) -> bool {
-        match self {
-            SubscribesAclResult::V3(codes) => {
-                codes.iter().any(|code| matches!(code, SubscribeReturnCodeV3::Success(_)))
-            }
-            SubscribesAclResult::V5(acks) => acks.iter().any(|reason| {
-                matches!(
-                    reason,
-                    SubscribeAckReason::GrantedQos0
-                        | SubscribeAckReason::GrantedQos1
-                        | SubscribeAckReason::GrantedQos2
-                )
-            }),
-        }
-    }
-
-    pub fn has_failures(&self) -> bool {
-        match self {
-            SubscribesAclResult::V3(codes) => {
-                codes.iter().any(|code| matches!(code, SubscribeReturnCodeV3::Failure))
-            }
-            SubscribesAclResult::V5(acks) => acks.iter().any(|reason| {
-                !matches!(
-                    reason,
-                    SubscribeAckReason::GrantedQos0
-                        | SubscribeAckReason::GrantedQos1
-                        | SubscribeAckReason::GrantedQos2
-                )
-            }),
-        }
-    }
-
-    pub fn add_success(&mut self, qos: QoS) {
-        match self {
-            SubscribesAclResult::V3(codes) => {
-                codes.push(SubscribeReturnCodeV3::Success(qos));
-            }
-            SubscribesAclResult::V5(acks) => {
-                let reason = match qos {
-                    QoS::AtMostOnce => SubscribeAckReason::GrantedQos0,
-                    QoS::AtLeastOnce => SubscribeAckReason::GrantedQos1,
-                    QoS::ExactlyOnce => SubscribeAckReason::GrantedQos2,
-                };
-                acks.push(reason)
-            }
-        }
-    }
-
-    pub fn add_not_authorized(&mut self) {
-        match self {
-            SubscribesAclResult::V3(codes) => {
-                codes.push(SubscribeReturnCodeV3::Failure);
-            }
-            SubscribesAclResult::V5(acks) => {
-                acks.push(SubscribeAckReason::NotAuthorized);
-            }
-        }
-    }
-
-    pub fn add_topic_filter_invalid(&mut self) {
-        match self {
-            SubscribesAclResult::V3(codes) => {
-                codes.push(SubscribeReturnCodeV3::Failure);
-            }
-            SubscribesAclResult::V5(acks) => {
-                acks.push(SubscribeAckReason::TopicFilterInvalid);
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub enum PublishAclResult {
     Allow,
-    Rejected(Disconnect),
+    Rejected(IsDisconnect),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -558,8 +245,8 @@ pub struct Subscribe {
 
 impl Subscribe {
     pub fn from_v3(topic_filter: &ByteString, qos: QoS, shared_subscription_supported: bool) -> Result<Self> {
-        let (topic, shared_group) = parse_topic_filter(topic_filter, shared_subscription_supported)?;
-        Ok(Subscribe { topic_filter: topic, qos, shared_group })
+        let (topic_filter, shared_group) = parse_topic_filter(topic_filter, shared_subscription_supported)?;
+        Ok(Subscribe { topic_filter, qos, shared_group })
     }
 
     pub fn from_v5(
@@ -571,217 +258,48 @@ impl Subscribe {
     }
 }
 
-// pub type SubscribeReturn = SubscribeAckReason;
 #[derive(Clone, Debug)]
-pub enum SubscribeReturn {
-    Success(QoS),
-    Failure,
-    //...
-}
+pub struct SubscribeReturn(SubscribeAckReason);
 
-#[derive(Clone, Debug)]
-pub enum Subscribes {
-    V3(Vec<(TopicFilter, QoS)>),
-    V5(SubscribeV5),
-}
-
-impl Subscribes {
+impl SubscribeReturn {
     #[inline]
-    pub fn adjust_topic_filters(&mut self, mut topic_filters: HookSubscribeResult) -> Result<()> {
-        if self.len() != topic_filters.len() {
-            log::error!("topic_filters quantity mismatch, {:?} <=> {:?}", self, topic_filters);
-            return Err(MqttError::ServiceUnavailable);
-        }
-
-        match self {
-            Subscribes::V3(subs) => {
-                for (tf, _) in subs.iter_mut() {
-                    if let Some(new_tf) = topic_filters.remove(0) {
-                        *tf = new_tf;
-                    }
-                }
-            }
-            Subscribes::V5(subs) => {
-                for (tf, _) in subs.topic_filters.iter_mut() {
-                    if let Some(new_tf) = topic_filters.remove(0) {
-                        *tf = ByteString::from(new_tf.to_string()); //@TODO ... TopicFilter
-                    }
-                }
-            }
-        }
-
-        Ok(())
+    pub fn new_success(qos: QoS) -> Self {
+        let status = match qos {
+            QoS::AtMostOnce => SubscribeAckReason::GrantedQos0,
+            QoS::AtLeastOnce => SubscribeAckReason::GrantedQos1,
+            QoS::ExactlyOnce => SubscribeAckReason::GrantedQos2,
+        };
+        Self(status)
     }
 
     #[inline]
-    pub fn len(&self) -> usize {
-        match self {
-            Subscribes::V3(subs) => subs.len(),
-            Subscribes::V5(subs) => subs.topic_filters.len(),
+    pub fn new_failure(status: SubscribeAckReason) -> Self {
+        Self(status)
+    }
+
+    #[inline]
+    pub fn success(&self) -> Option<QoS> {
+        match self.0 {
+            SubscribeAckReason::GrantedQos0 => Some(QoS::AtMostOnce),
+            SubscribeAckReason::GrantedQos1 => Some(QoS::AtLeastOnce),
+            SubscribeAckReason::GrantedQos2 => Some(QoS::ExactlyOnce),
+            _ => None,
         }
     }
 
     #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    #[inline]
-    pub fn topic_filter(&self, idx: usize) -> Option<&TopicFilter> {
-        match self {
-            Subscribes::V3(subs) => subs.get(idx).map(|(tf, _)| tf),
-            Subscribes::V5(_subs) => {
-                log::warn!("[MQTT 5] Not implemented");
-                None
-            }
-        }
-    }
-
-    #[inline]
-    pub fn topic_filters(&self) -> Vec<(TopicFilter, QoS)> {
-        match self {
-            Subscribes::V3(subs) => {
-                subs.iter().map(|(tf, qos)| (tf.clone(), *qos)).collect::<Vec<(TopicFilter, QoS)>>()
-            }
-            Subscribes::V5(subs) => {
-                //@TODO ... TopicFilter
-                subs.topic_filters
-                    .iter()
-                    .map(|(tf, opts)| (TopicFilter::from_str(tf).unwrap(), opts.qos))
-                    .collect::<Vec<(TopicFilter, QoS)>>()
-            }
-        }
-    }
-
-    #[inline]
-    pub fn remove(&mut self, topic_filter: &TopicFilter) {
-        match self {
-            Subscribes::V3(subs) => {
-                *subs = subs.drain(..).filter(|(tf, _)| tf != topic_filter).collect::<Vec<_>>();
-            }
-            Subscribes::V5(_subs) => {
-                log::warn!("[MQTT 5] Not implemented");
-            }
-        }
-    }
-
-    #[inline]
-    pub fn set_qos_if_less(&mut self, topic_filter: &TopicFilter, qos: QoS) {
-        match self {
-            Subscribes::V3(subs) => {
-                for (tf, s_qos) in subs.iter_mut() {
-                    if tf == topic_filter {
-                        *s_qos = s_qos.less_value(qos);
-                    }
-                }
-            }
-            Subscribes::V5(_subs) => {
-                log::warn!("[MQTT 5] Not implemented");
-            }
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum SubscribeAck {
-    V3(Vec<SubscribeReturnCodeV3>),
-    V5(SubscribeAckV5),
-}
-
-impl SubscribeAck {
-    #[inline]
-    pub fn merge_from(&mut self, merged_ack: SubscribeAck) {
-        match (self, merged_ack) {
-            (SubscribeAck::V3(codes), SubscribeAck::V3(mut merged_codes)) => {
-                if codes.len() != merged_codes.len() {
-                    log::error!(
-                        "SubscribeAck merge failed, SubscribeReturnCode inconsistent length  {:?} != {:?}",
-                        codes.len(),
-                        merged_codes.len()
-                    );
-                    return;
-                }
-                for (i, code) in codes.iter_mut().enumerate() {
-                    *code = Self::v3_merge(code, merged_codes.remove(i));
-                }
-            }
-            (SubscribeAck::V5(acks), SubscribeAck::V5(mut merged_acks)) => {
-                if acks.status.len() != merged_acks.status.len() {
-                    log::error!(
-                        "SubscribeAck merge failed, SubscribeAckReason inconsistent length  {:?} != {:?}",
-                        acks.status.len(),
-                        merged_acks.status.len()
-                    );
-                    return;
-                }
-                //reason_string
-                match (&mut acks.reason_string, merged_acks.reason_string) {
-                    (Some(reason1), Some(reason2)) => {
-                        acks.reason_string = Some(ByteString::from(format!("{}, {}", reason1, reason2)))
-                    }
-                    (None, Some(reason)) => acks.reason_string = Some(reason),
-                    (Some(_), None) => {}
-                    (None, None) => {}
-                };
-                //properties
-                for (prop_key, prop_val) in merged_acks.properties.drain(..) {
-                    acks.properties.push((prop_key, prop_val))
-                }
-                //status
-                for (i, status) in acks.status.iter_mut().enumerate() {
-                    *status = Self::v5_merge(status, merged_acks.status.remove(i));
-                }
-            }
-            _ => {
-                log::error!("SubscribeAck merge failed, the type does not match");
-                //unreachable!()
-            }
-        }
-    }
-
-    #[inline]
-    fn v3_merge(code: &SubscribeReturnCodeV3, merged: SubscribeReturnCodeV3) -> SubscribeReturnCodeV3 {
-        match (code, merged) {
-            (_, SubscribeReturnCodeV3::Failure) => SubscribeReturnCodeV3::Failure,
-            (SubscribeReturnCodeV3::Failure, _) => SubscribeReturnCodeV3::Failure,
-            (SubscribeReturnCodeV3::Success(qos1), SubscribeReturnCodeV3::Success(qos2)) => {
-                SubscribeReturnCodeV3::Success(qos1.less_value(qos2))
-            }
-        }
-    }
-
-    #[inline]
-    fn v5_merge(status: &SubscribeAckReason, merged: SubscribeAckReason) -> SubscribeAckReason {
-        log::warn!("[MQTT 5] Not implemented");
-
-        if !matches!(
-            status,
+    pub fn failure(&self) -> bool {
+        matches!(
+            self.0,
             SubscribeAckReason::GrantedQos0
                 | SubscribeAckReason::GrantedQos1
                 | SubscribeAckReason::GrantedQos2
-        ) {
-            return merged;
-        }
+        )
+    }
 
-        if !matches!(
-            merged,
-            SubscribeAckReason::GrantedQos0
-                | SubscribeAckReason::GrantedQos1
-                | SubscribeAckReason::GrantedQos2
-        ) {
-            return merged;
-        }
-
-        match (status, merged) {
-            (_, SubscribeAckReason::GrantedQos0) => SubscribeAckReason::GrantedQos0,
-            (&SubscribeAckReason::GrantedQos0, _) => SubscribeAckReason::GrantedQos0,
-            (_, SubscribeAckReason::GrantedQos1) => SubscribeAckReason::GrantedQos1,
-            (&SubscribeAckReason::GrantedQos1, _) => SubscribeAckReason::GrantedQos1,
-            (&SubscribeAckReason::GrantedQos2, SubscribeAckReason::GrantedQos2) => {
-                SubscribeAckReason::GrantedQos2
-            }
-            (_, _) => *status,
-        }
+    #[inline]
+    pub fn into_inner(self) -> SubscribeAckReason {
+        self.0
     }
 }
 
@@ -793,13 +311,12 @@ pub enum Subscribed {
 
 impl Subscribed {
     #[inline]
-    pub fn topic_filter(&self) -> (TopicFilter, QoS) {
+    pub fn topic_filter(&self) -> Result<(TopicFilter, QoS)> {
         match self {
-            Subscribed::V3((t, qos)) => (t.clone(), *qos),
+            Subscribed::V3((t, qos)) => Ok((t.clone(), *qos)),
             Subscribed::V5(sub) => {
-                //@TODO ... TopicFilter
                 let (t, opts) = &sub.topic_filter;
-                (TopicFilter::from_str(t).unwrap(), opts.qos)
+                Ok((TopicFilter::from_str(t)?, opts.qos))
             }
         }
     }
@@ -850,6 +367,14 @@ impl ConnectAckReason {
     }
 
     #[inline]
+    pub fn v5_error_ack<Io, St>(&self, handshake: v5::Handshake<Io>) -> HandshakeAckV5<Io, St> {
+        match *self {
+            ConnectAckReason::V5(ack_reason) => handshake.failed(ack_reason),
+            _ => panic!("invalid value"),
+        }
+    }
+
+    #[inline]
     pub fn reason(&self) -> &'static str {
         match *self {
             ConnectAckReason::V3(r) => r.reason(),
@@ -859,64 +384,15 @@ impl ConnectAckReason {
 }
 
 #[derive(Clone, Debug)]
-pub enum Unsubscribes {
-    V3(Vec<TopicFilter>),
-    V5(UnsubscribeV5),
+pub struct Unsubscribe {
+    pub topic_filter: TopicFilter,
+    pub shared_group: Option<SharedGroup>,
 }
 
-impl Unsubscribes {
-    #[inline]
-    pub fn topic_filters(&self) -> Vec<TopicFilter> {
-        match self {
-            Unsubscribes::V3(unsubs) => unsubs.clone(),
-            Unsubscribes::V5(unsubs) => {
-                //@TODO ... TopicFilter
-                unsubs
-                    .topic_filters
-                    .iter()
-                    .map(|tf| TopicFilter::from_str(tf).unwrap())
-                    .collect::<Vec<TopicFilter>>()
-            }
-        }
-    }
-
-    #[inline]
-    pub fn adjust_topic_filters(&mut self, mut topic_filters: HookUnsubscribeResult) -> Result<()> {
-        if self.len() != topic_filters.len() {
-            log::error!("topic_filters quantity mismatch, {:?} <=> {:?}", self, topic_filters);
-            return Err(MqttError::ServiceUnavailable);
-        }
-
-        match self {
-            Unsubscribes::V3(unsubs) => {
-                for tf in unsubs.iter_mut() {
-                    if let Some(new_tf) = topic_filters.remove(0) {
-                        *tf = new_tf;
-                    }
-                }
-            }
-            Unsubscribes::V5(unsubs) => {
-                for tf in unsubs.topic_filters.iter_mut() {
-                    if let Some(new_tf) = topic_filters.remove(0) {
-                        *tf = ByteString::from(new_tf.to_string()); //@TODO ... TopicFilter
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
-    #[inline]
-    pub fn len(&self) -> usize {
-        match self {
-            Unsubscribes::V3(unsubs) => unsubs.len(),
-            Unsubscribes::V5(unsubs) => unsubs.topic_filters.len(),
-        }
-    }
-
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
+impl Unsubscribe {
+    pub fn from(topic_filter: &ByteString, shared_subscription_supported: bool) -> Result<Self> {
+        let (topic_filter, shared_group) = parse_topic_filter(topic_filter, shared_subscription_supported)?;
+        Ok(Unsubscribe { topic_filter, shared_group })
     }
 }
 
@@ -927,31 +403,15 @@ pub enum UnsubscribeAck {
 }
 
 #[derive(Clone, Debug)]
-pub enum Unsubscribed {
-    V3(TopicFilter),
-    V5(UnsubscribedV5),
+pub struct Unsubscribed {
+    pub topic_filter: TopicFilter,
 }
 
 impl Unsubscribed {
     #[inline]
-    pub fn topic_filter(&self) -> TopicFilter {
-        match self {
-            Unsubscribed::V3(t) => t.clone(),
-            Unsubscribed::V5(unsub) => {
-                //@TODO ... TopicFilter
-                TopicFilter::from_str(&unsub.topic_filter).unwrap()
-            }
-        }
+    pub fn new(topic_filter: TopicFilter) -> Self {
+        Self { topic_filter }
     }
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct UnsubscribedV5 {
-    /// Packet Identifier
-    pub packet_id: NonZeroU16,
-    pub user_properties: UserProperties,
-    /// the list of Topic Filters that the Client wishes to unsubscribe from.
-    pub topic_filter: ByteString,
 }
 
 #[derive(Clone)]
@@ -1076,17 +536,11 @@ impl Sink {
 
     #[inline]
     pub(crate) fn publish(&self, p: Publish) -> Result<()> {
-        match self {
-            Sink::V3(s) => {
-                if let Publish::V3(p) = p {
-                    s.send(v3::codec::Packet::Publish(p.packet))?;
-                }
-            }
-            Sink::V5(_s) => {
-                log::warn!("[MQTT 5] Not implemented");
-            }
-        }
-        Ok(())
+        let pkt = match self {
+            Sink::V3(_) => p.to_v3(),
+            Sink::V5(_) => p.to_v5(),
+        };
+        self.send(pkt)
     }
 
     #[inline]
@@ -1097,10 +551,13 @@ impl Sink {
                     s.send(p)?;
                 }
             }
-            Sink::V5(_s) => {
-                if let Packet::V5(_p) = p {
-                    //s.send(p)?;
-                    log::warn!("[MQTT 5] Not implemented");
+            Sink::V5(s) => {
+                if s.is_open() {
+                    if let Packet::V5(p) = p {
+                        s.send(p)?;
+                    }
+                } else {
+                    return Err(MqttError::from(SendPacketError::Disconnected));
                 }
             }
         }
@@ -1115,115 +572,263 @@ pub enum Packet {
     V5(PacketV5),
 }
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
+pub struct PublishProperties {
+    pub topic_alias: Option<NonZeroU16>,
+    pub correlation_data: Option<Bytes>,
+    pub message_expiry_interval: Option<NonZeroU32>,
+    pub content_type: Option<ByteString>,
+    pub user_properties: UserProperties,
+    pub is_utf8_payload: Option<bool>,
+    pub response_topic: Option<ByteString>,
+    pub subscription_ids: Option<Vec<NonZeroU32>>,
+}
+
+impl std::convert::From<UserProperties> for PublishProperties {
+    fn from(props: UserProperties) -> Self {
+        PublishProperties {
+            topic_alias: None,
+            correlation_data: None,
+            message_expiry_interval: None,
+            content_type: None,
+            user_properties: props,
+            is_utf8_payload: None,
+            response_topic: None,
+            subscription_ids: None,
+        }
+    }
+}
+
+impl std::convert::From<&PublishPropertiesV5> for PublishProperties {
+    fn from(props: &PublishPropertiesV5) -> Self {
+        PublishProperties {
+            topic_alias: props.topic_alias,
+            correlation_data: props.correlation_data.clone(),
+            message_expiry_interval: props.message_expiry_interval,
+            content_type: props.content_type.clone(),
+            user_properties: props.user_properties.clone(),
+            is_utf8_payload: props.is_utf8_payload,
+            response_topic: props.response_topic.clone(),
+            subscription_ids: props.subscription_ids.clone(),
+        }
+    }
+}
+
+impl std::convert::Into<PublishPropertiesV5> for PublishProperties {
+    fn into(self) -> PublishPropertiesV5 {
+        PublishPropertiesV5 {
+            topic_alias: self.topic_alias,
+            correlation_data: self.correlation_data,
+            message_expiry_interval: self.message_expiry_interval,
+            content_type: self.content_type,
+            user_properties: self.user_properties,
+            is_utf8_payload: self.is_utf8_payload,
+            response_topic: self.response_topic,
+            subscription_ids: self.subscription_ids,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum Publish {
-    V3(Box<PublishV3>),
-    V5(Box<PublishV5>),
+pub struct Publish {
+    /// this might be re-delivery of an earlier attempt to send the Packet.
+    pub dup: bool,
+    pub retain: bool,
+    /// the level of assurance for delivery of an Application Message.
+    pub qos: QoS,
+    /// the information channel to which payload data is published.
+    pub topic: Topic,
+    /// only present in PUBLISH Packets where the QoS level is 1 or 2.
+    pub packet_id: Option<NonZeroU16>,
+    /// the Application Message that is being published.
+    pub payload: Bytes,
+
+    pub properties: PublishProperties,
+    pub create_time: TimestampMillis,
+}
+
+impl<'a> std::convert::TryFrom<LastWill<'a>> for Publish {
+    type Error = MqttError;
+
+    #[inline]
+    fn try_from(lw: LastWill<'a>) -> std::result::Result<Self, Self::Error> {
+        let (retain, qos, topic, payload, user_props) = match lw {
+            LastWill::V3(lw) => {
+                let (topic, user_props) = if let Some(pos) = lw.topic.find('?') {
+                    let topic = Topic::from_str(lw.topic.as_bytes().slice(0..pos).as_str())?;
+                    let query = lw.topic.as_bytes().slice(pos + 1..lw.topic.len());
+                    let user_props = url::form_urlencoded::parse(query.as_ref())
+                        .into_owned()
+                        .map(|(key, val)| (ByteString::from(key), ByteString::from(val)))
+                        .collect::<UserProperties>();
+                    (topic, user_props)
+                } else {
+                    let topic = Topic::from_str(lw.topic.as_str())?;
+                    (topic, UserProperties::default())
+                };
+
+                (lw.retain, lw.qos, topic, lw.message.clone(), user_props)
+            }
+            LastWill::V5(lw) => {
+                let topic = Topic::from_str(lw.topic.as_str())?;
+                (lw.retain, lw.qos, topic, lw.message.clone(), lw.user_properties.clone())
+            }
+        };
+
+        Ok(Self {
+            dup: false,
+            retain,
+            qos,
+            topic,
+            packet_id: None,
+            payload,
+
+            properties: PublishProperties::from(user_props),
+            create_time: chrono::Local::now().timestamp_millis(),
+        })
+    }
+}
+
+impl std::convert::TryFrom<&v3::Publish> for Publish {
+    type Error = MqttError;
+
+    #[inline]
+    fn try_from(p: &v3::Publish) -> std::result::Result<Self, Self::Error> {
+        let query = p.query();
+        let p_props = if !query.is_empty() {
+            let user_props = url::form_urlencoded::parse(query.as_bytes())
+                .into_owned()
+                .map(|(key, val)| (ByteString::from(key), ByteString::from(val)))
+                .collect::<UserProperties>();
+            PublishProperties::from(user_props)
+        } else {
+            PublishProperties::default()
+        };
+
+        Ok(Self {
+            dup: p.dup(),
+            retain: p.retain(),
+            qos: p.qos(),
+            topic: Topic::from_str(p.topic().path())?,
+            packet_id: p.id(),
+            payload: p.take_payload(),
+
+            properties: p_props,
+            create_time: chrono::Local::now().timestamp_millis(),
+        })
+    }
+}
+
+impl std::convert::TryFrom<&v5::Publish> for Publish {
+    type Error = MqttError;
+
+    #[inline]
+    fn try_from(p: &v5::Publish) -> std::result::Result<Self, Self::Error> {
+        Ok(Self {
+            dup: p.dup(),
+            retain: p.retain(),
+            qos: p.qos(),
+            topic: Topic::from_str(p.topic().path())?,
+            packet_id: p.id(),
+            payload: p.take_payload(),
+
+            properties: PublishProperties::from(&p.packet().properties),
+            create_time: chrono::Local::now().timestamp_millis(),
+        })
+    }
 }
 
 impl Publish {
     #[inline]
-    pub fn payload(&self) -> &bytes::Bytes {
-        match self {
-            Publish::V3(p) => &p.packet.payload,
-            Publish::V5(p) => &p.publish.payload,
-        }
+    pub fn to_v3(self) -> Packet {
+        let p = v3::codec::Publish {
+            dup: self.dup,
+            retain: self.retain,
+            qos: self.qos,
+            topic: TopicName::from(self.topic.to_string()),
+            packet_id: self.packet_id,
+            payload: self.payload,
+        };
+        Packet::V3(v3::codec::Packet::Publish(p))
+    }
+
+    #[inline]
+    pub fn to_v5(self) -> Packet {
+        let p = v5::codec::Publish {
+            dup: self.dup,
+            retain: self.retain,
+            qos: self.qos,
+            topic: TopicName::from(self.topic.to_string()),
+            packet_id: self.packet_id,
+            payload: self.payload,
+            properties: self.properties.into(),
+        };
+        Packet::V5(v5::codec::Packet::Publish(p))
+    }
+
+    #[inline]
+    pub fn payload(&self) -> &Bytes {
+        &self.payload
     }
 
     #[inline]
     pub fn retain(&self) -> bool {
-        match self {
-            Publish::V3(p) => p.packet.retain,
-            Publish::V5(p) => p.publish.retain,
-        }
+        self.retain
     }
 
     #[inline]
     pub fn topic(&self) -> &Topic {
-        match self {
-            Publish::V3(p) => &p.topic,
-            Publish::V5(p) => &p.topic,
-        }
+        &self.topic
     }
 
     #[inline]
     pub fn topic_mut(&mut self) -> &mut Topic {
-        match self {
-            Publish::V3(p) => &mut p.topic,
-            Publish::V5(p) => &mut p.topic,
-        }
+        &mut self.topic
     }
 
     #[inline]
     pub fn dup(&self) -> bool {
-        match self {
-            Publish::V3(p) => p.packet.dup,
-            Publish::V5(p) => p.publish.dup,
-        }
+        self.dup
     }
 
     #[inline]
     pub fn set_dup(&mut self, b: bool) {
-        match self {
-            Publish::V3(p) => p.packet.dup = b,
-            Publish::V5(p) => p.publish.dup = b,
-        }
+        self.dup = b
     }
 
     #[inline]
     pub fn is_empty(&self) -> bool {
-        match self {
-            Publish::V3(p) => p.packet.payload.is_empty(),
-            Publish::V5(p) => p.publish.payload.is_empty(),
-        }
+        self.payload.is_empty()
     }
 
     #[inline]
     pub fn qos(&self) -> QoS {
-        match self {
-            Publish::V3(p) => p.packet.qos,
-            Publish::V5(p) => p.publish.qos,
-        }
+        self.qos
     }
 
     #[inline]
     pub fn create_time(&self) -> TimestampMillis {
-        match self {
-            Publish::V3(p) => p.create_time,
-            Publish::V5(p) => p.create_time,
-        }
+        self.create_time
     }
 
     #[inline]
     pub fn packet_id(&self) -> Option<PacketId> {
-        match self {
-            Publish::V3(p) => p.packet.packet_id.map(|id| id.get()),
-            Publish::V5(p) => p.publish.packet_id.map(|id| id.get()),
-        }
+        self.packet_id.map(|id| id.get())
     }
 
     #[inline]
     pub fn packet_id_mut(&mut self) -> &mut Option<NonZeroU16> {
-        match self {
-            Publish::V3(p) => &mut p.packet.packet_id,
-            Publish::V5(p) => &mut p.publish.packet_id,
-        }
+        &mut self.packet_id
     }
 
     #[inline]
     pub fn packet_id_is_none(&self) -> bool {
-        match self {
-            Publish::V3(p) => p.packet.packet_id.is_none(),
-            Publish::V5(p) => p.publish.packet_id.is_none(),
-        }
+        self.packet_id.is_none()
     }
 
     #[inline]
     pub fn set_packet_id(&mut self, packet_id: PacketId) {
-        match self {
-            Publish::V3(p) => p.packet.packet_id = NonZeroU16::new(packet_id),
-            Publish::V5(p) => p.publish.packet_id = NonZeroU16::new(packet_id),
-        }
+        self.packet_id = NonZeroU16::new(packet_id)
     }
 }
 
@@ -1370,7 +975,7 @@ pub struct Retain {
 pub enum Message {
     Forward(From, Publish),
     Kick(mpsc::UnboundedSender<()>, Id),
-    Disconnect,
+    Disconnect(Disconnect),
     Closed,
     Keepalive,
 }

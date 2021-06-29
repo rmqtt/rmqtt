@@ -36,7 +36,7 @@ pub async fn handshake<Io>(
     remote_addr: SocketAddr,
     local_addr: SocketAddr,
 ) -> Result<v3::HandshakeAck<Io, SessionState>, MqttError> {
-    log::trace!(
+    log::debug!(
         "new Connection: local_addr: {:?}, remote: {:?}, {:?}, listen_cfg: {:?}",
         local_addr,
         remote_addr,
@@ -116,15 +116,22 @@ pub async fn handshake<Io>(
 
     let connected_at = chrono::Local::now().timestamp_millis();
     let client = ClientInfo::new(connect_info, session_present, connected_at);
-    let fitter = Runtime::instance().extends.fitter_mgr().await.get(id.clone(), listen_cfg.clone());
+    let fitter =
+        Runtime::instance().extends.fitter_mgr().await.get(client.clone(), id.clone(), listen_cfg.clone());
 
     log::debug!("{:?} offline_info: {:?}", id, offline_info);
     let created_at =
         if let Some(ref offline_info) = offline_info { offline_info.created_at } else { connected_at };
 
-    let session = Session::new(id, listen_cfg, fitter.max_mqueue_len(), created_at);
+    let session = Session::new(
+        id,
+        listen_cfg,
+        fitter.max_mqueue_len(),
+        fitter.max_inflight().get() as usize,
+        created_at,
+    );
 
-    let keep_alive = match fitter.keep_alive(packet.keep_alive) {
+    let keep_alive = match fitter.keep_alive(&mut packet.keep_alive) {
         Ok(keep_alive) => keep_alive,
         Err(e) => {
             return Ok(refused_ack(
@@ -183,24 +190,8 @@ pub async fn handshake<Io>(
     //hook, client connected
     state.hook.client_connected().await;
 
-    if let Some(mut o) = offline_info {
-        log::debug!("o.subscriptions: {}", o.subscriptions.len());
-        //Subscription transfer from previous session
-        for (tf, (qos, shared_sub)) in o.subscriptions.drain() {
-            state.subscriptions_add(tf, qos, shared_sub).await;
-        }
-
-        //Send previous session unacked messages
-        while let Some(msg) = o.inflight_messages.pop() {
-            if !matches!(msg.status, MomentStatus::UnComplete) {
-                state.reforward(msg).await?;
-            }
-        }
-
-        //Send offline messages
-        while let Some((from, p)) = o.offline_messages.pop() {
-            state.forward(from, p).await;
-        }
+    if let Some(o) = offline_info {
+        state.transfer_session_state(o).await?;
     }
 
     Ok(handshake.ack(state, session_present).idle_timeout(keep_alive))
@@ -211,16 +202,30 @@ async fn subscribes(
     mut subs: v3::control::Subscribe,
 ) -> Result<v3::ControlResult> {
     let shared_subscription_supported =
-        Runtime::instance().extends.shared_subscription().await.is_supported();
+        Runtime::instance().extends.shared_subscription().await.is_supported(&state.listen_cfg);
     for mut sub in subs.iter_mut() {
         let s = Subscribe::from_v3(sub.topic(), sub.qos(), shared_subscription_supported)?;
         let sub_ret = state.subscribe(s).await?;
-        match sub_ret {
-            SubscribeReturn::Success(qos) => sub.confirm(qos),
-            SubscribeReturn::Failure => sub.fail(),
+        if let Some(qos) = sub_ret.success() {
+            sub.confirm(qos)
+        } else {
+            sub.fail()
         }
     }
     Ok(subs.ack())
+}
+
+async fn unsubscribes(
+    state: &v3::Session<SessionState>,
+    unsubs: v3::control::Unsubscribe,
+) -> Result<v3::ControlResult> {
+    let shared_subscription_supported =
+        Runtime::instance().extends.shared_subscription().await.is_supported(&state.listen_cfg);
+    for topic_filter in unsubs.iter() {
+        let unsub = Unsubscribe::from(topic_filter, shared_subscription_supported)?;
+        state.unsubscribe(unsub).await?;
+    }
+    Ok(unsubs.ack())
 }
 
 #[inline]
@@ -235,22 +240,23 @@ pub async fn control_message(
     let crs = match ctrl_msg {
         v3::ControlMessage::Subscribe(subs) => match subscribes(&state, subs).await {
             Err(e) => {
+                state.client.add_disconnected_reason(format!("Subscribe failed, {:?}", e)).await;
                 log::error!("{:?} Subscribe failed, reason: {:?}", state.id, e);
                 return Err(e);
             }
             Ok(r) => r,
         },
-        v3::ControlMessage::Unsubscribe(mut unsubs) => {
-            if let Err(e) = state.unsubscribe_v3(&mut unsubs).await {
-                state.client.set_disconnected_reason(format!("Unsubscribe failed, {:?}", e)).await;
+        v3::ControlMessage::Unsubscribe(unsubs) => match unsubscribes(&state, unsubs).await {
+            Err(e) => {
+                state.client.add_disconnected_reason(format!("Unsubscribe failed, {:?}", e)).await;
                 log::error!("{:?} Unsubscribe failed, reason: {:?}", state.id, e);
                 return Err(e);
             }
-            unsubs.ack()
-        }
+            Ok(r) => r,
+        },
         v3::ControlMessage::Ping(ping) => ping.ack(),
         v3::ControlMessage::Disconnect(disc) => {
-            state.send(Message::Disconnect)?;
+            state.send(Message::Disconnect(Disconnect::V3))?;
             disc.ack()
         }
         v3::ControlMessage::Closed(m) => {
@@ -279,8 +285,7 @@ pub async fn publish(state: v3::Session<SessionState>, pub_msg: v3::PublishMessa
 
     match pub_msg {
         v3::PublishMessage::Publish(publish) => {
-            if let Err(e) = state.publish_v3(publish).await {
-                state.client.set_disconnected_reason(format!("Publish failed, {:?}", e)).await;
+            if let Err(e) = state.publish_v3(&publish).await {
                 log::error!(
                     "{:?} Publish failed, reason: {:?}",
                     state.id,

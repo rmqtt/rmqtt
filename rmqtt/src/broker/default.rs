@@ -3,6 +3,7 @@ use once_cell::sync::OnceCell;
 use std::collections::BTreeMap;
 use std::convert::From as _f;
 use std::iter::Iterator;
+use std::num::NonZeroU16;
 use std::num::NonZeroU32;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -178,27 +179,13 @@ impl super::Entry for LockEntry {
             node_id, this_node_id
         );
 
-        let qos = sub.qos;
-        let ack = if let Err(e) =
-            router.add(&sub.topic_filter, node_id, &self.id.client_id, qos, sub.shared_group.clone()).await
-        {
-            log::warn!(
-                "{:?} subscribes fail, node_id: {}, topic_filter:{}, {:?}",
-                self.id,
-                node_id,
-                sub.topic_filter,
-                e
-            );
-            SubscribeReturn::Failure
-        } else {
-            peer.s.subscriptions_add(sub.topic_filter, qos, sub.shared_group).await;
-            SubscribeReturn::Success(qos)
-        };
-        Ok(ack)
+        router.add(&sub.topic_filter, node_id, &self.id.client_id, sub.qos, sub.shared_group.clone()).await?;
+        peer.s.subscriptions_add(sub.topic_filter, sub.qos, sub.shared_group).await;
+        Ok(SubscribeReturn::new_success(sub.qos))
     }
 
     #[inline]
-    async fn unsubscribe(&self, unsubscribe: &Unsubscribes) -> Result<UnsubscribeAck> {
+    async fn unsubscribe(&self, unsubscribe: &Unsubscribe) -> Result<()> {
         let peer = self
             .shared
             .peers
@@ -206,21 +193,12 @@ impl super::Entry for LockEntry {
             .map(|peer| peer.value().clone())
             .ok_or_else(|| MqttError::from("session is not exist"))?;
 
-        let ack = match unsubscribe {
-            Unsubscribes::V3(topic_filters) => {
-                for topic_filter in topic_filters.iter() {
-                    if let Err(e) = self._unsubscribe(peer.c.id.clone(), topic_filter).await {
-                        log::warn!("{:?} unsubscribe, error:{:?}", self.id, e);
-                    }
-                    peer.s.subscriptions_remove(topic_filter).await;
-                }
-                UnsubscribeAck::V3
-            }
-            Unsubscribes::V5(_subs) => {
-                return Err(MqttError::from("Not implemented"));
-            }
-        };
-        Ok(ack)
+        if let Err(e) = self._unsubscribe(peer.c.id.clone(), &unsubscribe.topic_filter).await {
+            log::warn!("{:?} unsubscribe, error:{:?}", self.id, e);
+        }
+        peer.s.subscriptions_remove(&unsubscribe.topic_filter).await;
+
+        Ok(())
     }
 
     #[inline]
@@ -333,50 +311,39 @@ impl Shared for &'static DefaultShared {
         mut relations: SubRelations,
     ) -> Result<(), Vec<(To, From, Publish, Reason)>> {
         let mut errs = Vec::new();
-        match publish {
-            Publish::V3(publish) => {
-                for (topic_filter, client_id, qos) in relations.drain(..) {
-                    let mut p = publish.clone();
-                    p.packet.dup = false;
-                    p.packet.retain = false;
-                    p.packet.qos = p.packet.qos.less_value(qos);
-                    p.packet.packet_id = None;
-                    let (tx, to) = if let Some((tx, to)) = self.tx(&client_id) {
-                        (tx, to)
-                    } else {
-                        log::warn!(
-                            "forwards, from:{:?}, to:{:?}, topic_filter:{:?}, topic:{:?}, error: Tx is None",
-                            from,
-                            client_id,
-                            topic_filter,
-                            publish.topic
-                        );
-                        errs.push((
-                            To::from(0, client_id),
-                            from.clone(),
-                            Publish::V3(p),
-                            Reason::from_static("Tx is None"),
-                        ));
-                        continue;
-                    };
 
-                    if let Err(e) = tx.send(Message::Forward(from.clone(), Publish::V3(p))) {
-                        log::warn!(
-                            "forwards,  from:{:?}, to:{:?}, topic_filter:{:?}, topic:{:?}, error:{:?}",
-                            from,
-                            client_id,
-                            topic_filter,
-                            publish.topic,
-                            e
-                        );
-                        if let Message::Forward(from, p) = e.0 {
-                            errs.push((to, from, p, Reason::from_static("Connection Tx is closed")));
-                        }
-                    }
+        for (topic_filter, client_id, qos) in relations.drain(..) {
+            let mut p = publish.clone();
+            p.dup = false;
+            p.retain = false;
+            p.qos = p.qos.less_value(qos);
+            p.packet_id = None;
+            let (tx, to) = if let Some((tx, to)) = self.tx(&client_id) {
+                (tx, to)
+            } else {
+                log::warn!(
+                    "forwards, from:{:?}, to:{:?}, topic_filter:{:?}, topic:{:?}, error: Tx is None",
+                    from,
+                    client_id,
+                    topic_filter,
+                    publish.topic
+                );
+                errs.push((To::from(0, client_id), from.clone(), p, Reason::from_static("Tx is None")));
+                continue;
+            };
+
+            if let Err(e) = tx.send(Message::Forward(from.clone(), p)) {
+                log::warn!(
+                    "forwards,  from:{:?}, to:{:?}, topic_filter:{:?}, topic:{:?}, error:{:?}",
+                    from,
+                    client_id,
+                    topic_filter,
+                    publish.topic,
+                    e
+                );
+                if let Message::Forward(from, p) = e.0 {
+                    errs.push((to, from, p, Reason::from_static("Connection Tx is closed")));
                 }
-            }
-            Publish::V5(_publish) => {
-                log::warn!("Not implemented");
             }
         }
 
@@ -669,34 +636,42 @@ impl DefaultFitterManager {
 
 impl FitterManager for &'static DefaultFitterManager {
     #[inline]
-    fn get(&self, id: Id, listen_cfg: Listener) -> std::rc::Rc<dyn Fitter> {
-        std::rc::Rc::new(DefaultFitter::new(id, listen_cfg))
+    fn get(&self, client: ClientInfo, id: Id, listen_cfg: Listener) -> std::rc::Rc<dyn Fitter> {
+        std::rc::Rc::new(DefaultFitter::new(client, id, listen_cfg))
     }
 }
 
 #[derive(Clone)]
 pub struct DefaultFitter {
+    client: ClientInfo,
     listen_cfg: Listener,
 }
 
 impl DefaultFitter {
     #[inline]
-    pub fn new(_id: Id, listen_cfg: Listener) -> Self {
-        Self { listen_cfg }
+    pub fn new(client: ClientInfo, _id: Id, listen_cfg: Listener) -> Self {
+        Self { client, listen_cfg }
     }
 }
 
 #[async_trait]
 impl Fitter for DefaultFitter {
     #[inline]
-    fn keep_alive(&self, keep_alive: u16) -> Result<u16> {
-        if keep_alive < self.listen_cfg.min_keepalive {
-            return Err(MqttError::from(format!(
-                "Keepalive is too small, cannot be less than {}",
-                self.listen_cfg.min_keepalive
-            )));
+    fn keep_alive(&self, keep_alive: &mut u16) -> Result<u16> {
+        if *keep_alive == 0 {
+            return Err(MqttError::from("Keepalive must be greater than 0"));
         }
-        Ok(((keep_alive as f32 * self.listen_cfg.keepalive_backoff) * 2.0) as u16)
+        if *keep_alive < self.listen_cfg.min_keepalive {
+            if self.client.protocol() == MQTT_LEVEL_5 {
+                *keep_alive = self.listen_cfg.min_keepalive;
+            } else {
+                return Err(MqttError::from(format!(
+                    "Keepalive is too small, cannot be less than {}",
+                    self.listen_cfg.min_keepalive
+                )));
+            }
+        }
+        Ok(((*keep_alive as f32 * self.listen_cfg.keepalive_backoff) * 2.0) as u16)
     }
 
     #[inline]
@@ -707,6 +682,51 @@ impl Fitter for DefaultFitter {
     #[inline]
     fn mqueue_rate_limit(&self) -> (NonZeroU32, Duration) {
         self.listen_cfg.mqueue_rate_limit
+    }
+
+    #[inline]
+    fn max_inflight(&self) -> NonZeroU16 {
+        let receive_max = if let ConnectInfo::V5(_, connect) = &self.client.connect_info {
+            connect.receive_max
+        } else {
+            None
+        };
+
+        receive_max.unwrap_or_else(|| {
+            let max_inflight =
+                if self.listen_cfg.max_inflight == 0 { 16 } else { self.listen_cfg.max_inflight };
+            NonZeroU16::new(max_inflight as u16).unwrap()
+        })
+    }
+
+    #[inline]
+    fn session_expiry_interval(&self) -> Duration {
+        if let ConnectInfo::V5(_, connect) = &self.client.connect_info {
+            Duration::from_secs(connect.session_expiry_interval_secs.unwrap_or_default() as u64)
+        } else {
+            self.listen_cfg.session_expiry_interval
+        }
+    }
+
+    #[inline]
+    fn max_packet_size(&self) -> u32 {
+        let max_packet_size = if let ConnectInfo::V5(_, connect) = &self.client.connect_info {
+            connect.max_packet_size
+        } else {
+            None
+        };
+
+        if let Some(max_packet_size) = max_packet_size {
+            let cfg_max_packet_size = self.listen_cfg.max_packet_size.as_u32();
+            let max_packet_size = max_packet_size.get();
+            if max_packet_size < cfg_max_packet_size {
+                max_packet_size
+            } else {
+                cfg_max_packet_size
+            }
+        } else {
+            self.listen_cfg.max_packet_size.as_u32()
+        }
     }
 }
 
@@ -1031,29 +1051,21 @@ impl Hook for DefaultHook {
     }
 
     #[inline]
-    async fn client_unsubscribe(&self, unsubscribes: &Unsubscribes) -> HookUnsubscribeResult {
-        let mut unsubs = match unsubscribes {
-            Unsubscribes::V3(tfs) => tfs.iter().collect::<Vec<&TopicFilter>>(),
-            Unsubscribes::V5(_subs) => {
-                log::warn!("Not implemented"); //@TODO ...
-                return HookUnsubscribeResult::new();
-            }
-        };
+    async fn client_unsubscribe(&self, unsub: &Unsubscribe) -> Option<TopicFilter> {
+        let reply = self
+            .manager
+            .exec(
+                Type::ClientUnsubscribe,
+                Parameter::ClientUnsubscribe(&self.s, &self.c, &unsub.topic_filter),
+            )
+            .await;
+        log::debug!("{:?} result: {:?}", self.s.id, reply);
 
-        let mut results = HookUnsubscribeResult::new();
-        for unsub in unsubs.drain(..) {
-            let reply = self
-                .manager
-                .exec(Type::ClientUnsubscribe, Parameter::ClientUnsubscribe(&self.s, &self.c, unsub))
-                .await;
-            log::debug!("{:?} result: {:?}", self.s.id, reply);
-            if let Some(HookResult::TopicFilter(tf)) = reply {
-                results.push(tf);
-            } else {
-                results.push(None);
-            }
+        if let Some(HookResult::TopicFilter(topic_filter)) = reply {
+            topic_filter
+        } else {
+            None
         }
-        results
     }
 
     #[inline]
