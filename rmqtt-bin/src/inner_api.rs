@@ -184,7 +184,6 @@ async fn status() -> serde_json::Value {
         "sessions": shared.sessions().await,
         "clients": shared.clients().await,
         "active_grpc_requests": active_grpc_requests(),
-        "shared_subscription_supported": Runtime::instance().extends.shared_subscription().await.is_supported()
     })
 }
 
