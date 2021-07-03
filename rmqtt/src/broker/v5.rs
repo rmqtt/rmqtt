@@ -342,8 +342,7 @@ pub async fn publish(
     state: v5::Session<SessionState>,
     pub_msg: v5::PublishMessage,
 ) -> Result<v5::PublishResult, MqttError> {
-    //v5::PublishAck
-    log::info!("{:?} incoming publish message: {:?}", state.id, pub_msg);
+    log::debug!("{:?} incoming publish message: {:?}", state.id, pub_msg);
 
     let _ = state.send(Message::Keepalive);
 
