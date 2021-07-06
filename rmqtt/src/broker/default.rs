@@ -1149,12 +1149,14 @@ impl DefaultLimiterManager {
 impl LimiterManager for &'static DefaultLimiterManager {
     #[inline]
     fn get(&self, name: String, listen_cfg: Listener) -> Result<Box<dyn Limiter>> {
-        let l = self
-            .limiters
-            .entry(name.clone())
-            .or_insert(DefaultLimiter::new(name, listen_cfg.conn_await_acquire, listen_cfg.max_conn_rate)?)
-            .value()
-            .clone();
+        let l = if let Some(limiter) = self.limiters.get(&name){
+            limiter.value().clone()
+        }else{
+            log::debug!("new DefaultLimiter, name is {}", name);
+            let limiter = DefaultLimiter::new(name.clone(), listen_cfg.conn_await_acquire, listen_cfg.max_conn_rate)?;
+            self.limiters.insert(name, limiter.clone());
+            limiter
+        };
         Ok(Box::new(l))
     }
 }
