@@ -142,7 +142,7 @@ impl SessionState {
                                 },
                                 Message::Disconnect(d) => {
                                     _disconnect_received = true;
-                                    state.client.set_disconnect(d).await;
+                                    state.client.set_mqtt_disconnect(d).await;
                                     state.client.add_disconnected_reason(format!("Disconnect(true) message is received")).await;
 
                                 },
@@ -204,8 +204,7 @@ impl SessionState {
             );
 
             //Setting the disconnected state
-            state.client.connected.store(false, Ordering::SeqCst);
-            state.client.disconnected_at.store(chrono::Local::now().timestamp_millis(), Ordering::SeqCst);
+            state.client.set_disconnected(None).await;
             if !_disconnect_received {
                 if let Err(e) = state.process_last_will().await {
                     log::error!("{:?} process last will error, {:?}", id, e);
@@ -994,9 +993,12 @@ impl ClientInfo {
     }
 
     #[inline]
-    pub async fn set_disconnected(&self, reason: String) {
+    pub async fn set_disconnected(&self, reason: Option<String>) {
         self.connected.store(false, Ordering::SeqCst);
-        self.add_disconnected_reason(reason).await;
+        self.disconnected_at.store(chrono::Local::now().timestamp_millis(), Ordering::SeqCst);
+        if let Some(reason) = reason {
+            self.add_disconnected_reason(reason).await;
+        }
     }
 
     #[inline]
@@ -1009,7 +1011,7 @@ impl ClientInfo {
         self.disconnected_reason.write().await.push(Reason::from(r));
     }
 
-    pub async fn set_disconnect(&self, d: Disconnect) {
+    pub(crate) async fn set_mqtt_disconnect(&self, d: Disconnect) {
         if let Some(r) = d.reason() {
             self.add_disconnected_reason(r.to_string()).await;
         }
