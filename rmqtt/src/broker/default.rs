@@ -63,7 +63,10 @@ impl LockEntry {
 
     #[inline]
     pub async fn _remove(&mut self, clear_subscriptions: bool) -> Option<(Session, Tx, ClientInfo)> {
-        if let Some((_, peer)) = self.shared.peers.remove(&self.id.client_id) {
+        if self.shared.peers.get(&self.id.client_id).is_none() {
+            return None;
+        }
+        if let Some((_, peer)) = { self.shared.peers.remove(&self.id.client_id) } {
             if clear_subscriptions {
                 for (topic_filter, _) in peer.s.subscriptions().await.iter() {
                     if let Err(e) = self._unsubscribe(peer.c.id.clone(), topic_filter).await {
@@ -1149,11 +1152,16 @@ impl DefaultLimiterManager {
 impl LimiterManager for &'static DefaultLimiterManager {
     #[inline]
     fn get(&self, name: String, listen_cfg: Listener) -> Result<Box<dyn Limiter>> {
-        let l = if let Some(limiter) = self.limiters.get(&name){
+        let l = if let Some(limiter) = self.limiters.get(&name) {
             limiter.value().clone()
-        }else{
+        } else {
             log::debug!("new DefaultLimiter, name is {}", name);
-            let limiter = DefaultLimiter::new(name.clone(), listen_cfg.conn_await_acquire, listen_cfg.max_conn_rate)?;
+            let limiter = DefaultLimiter::new(
+                name.clone(),
+                listen_cfg.conn_await_acquire,
+                listen_cfg.max_conn_rate,
+                listen_cfg.handshake_timeout,
+            )?;
             self.limiters.insert(name, limiter.clone());
             limiter
         };
@@ -1166,11 +1174,17 @@ pub struct DefaultLimiter {
     name: String,
     await_acquire: bool,
     limiter: Arc<LeakyBucket>,
+    handshake_timeout: TimestampMillis,
 }
 
 impl DefaultLimiter {
     #[inline]
-    pub fn new(name: String, await_acquire: bool, permits: usize) -> Result<Self> {
+    pub fn new(
+        name: String,
+        await_acquire: bool,
+        permits: usize,
+        handshake_timeout: Duration,
+    ) -> Result<Self> {
         Ok(Self {
             name,
             await_acquire,
@@ -1182,6 +1196,7 @@ impl DefaultLimiter {
                     .refill_amount(permits)
                     .build()?,
             ),
+            handshake_timeout: handshake_timeout.as_millis() as TimestampMillis,
         })
     }
 }
@@ -1199,7 +1214,11 @@ impl Limiter for DefaultLimiter {
         if !self.await_acquire && self.limiter.tokens() < amount {
             return Err(MqttError::from("not enough tokens"));
         }
+        let t = chrono::Local::now().timestamp_millis();
         self.limiter.acquire(amount).await?;
+        if (chrono::Local::now().timestamp_millis() - t) > self.handshake_timeout {
+            return Err(MqttError::from("handshake timeout"));
+        }
         Ok(())
     }
 }
