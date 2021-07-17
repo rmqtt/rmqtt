@@ -6,6 +6,7 @@ use rmqtt::broker::types::{ClientId, Id};
 use rmqtt::grpc::server::active_grpc_requests;
 use rmqtt::{serde::ser::Serialize, serde_json};
 use rmqtt::{Result, Runtime};
+use std::time::Duration;
 
 #[allow(dead_code)]
 mod version {
@@ -178,11 +179,31 @@ fn with_reply_status(
 async fn status() -> serde_json::Value {
     let shared = Runtime::instance().extends.shared().await;
 
+    let (all_sessions, all_clients, sessions, clients) = match rmqtt::tokio::time::timeout(
+        Duration::from_secs(5),
+        rmqtt::futures::future::join4(
+            shared.all_sessions(),
+            shared.all_clients(),
+            shared.sessions(),
+            shared.clients(),
+        ),
+    )
+    .await
+    {
+        Ok((all_sessions, all_clients, sessions, clients)) => {
+            (all_sessions as isize, all_clients as isize, sessions as isize, clients as isize)
+        }
+        Err(e) => {
+            rmqtt::log::warn!("{:?}", e);
+            (-1, -1, -1, -1)
+        }
+    };
+
     serde_json::json!({
-        "all_sessions": shared.all_sessions().await,
-        "all_clients": shared.all_clients().await,
-        "sessions": shared.sessions().await,
-        "clients": shared.clients().await,
+        "all_sessions": all_sessions,
+        "all_clients": all_clients,
+        "sessions": sessions,
+        "clients": clients,
         "active_grpc_requests": active_grpc_requests(),
     })
 }
