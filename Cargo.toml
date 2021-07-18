@@ -11,3 +11,8 @@ members = [
 
 [patch.crates-io]
 rmqtt = { path = "rmqtt" }
+rmqtt-acl = { path = "rmqtt-plugins/rmqtt-acl" }
+rmqtt-web-hook = { path = "rmqtt-plugins/rmqtt-web-hook" }
+rmqtt-auth-http = { path = "rmqtt-plugins/rmqtt-auth-http" }
+rmqtt-cluster-broadcast = { path = "rmqtt-plugins/rmqtt-cluster-broadcast" }
+rmqtt-plugin-template = { path = "rmqtt-plugins/rmqtt-plugin-template" }
