@@ -1,6 +1,6 @@
 [package]
 name = "rmqttd"
-version = "0.1.8"
+version = "0.1.9"
 authors = ["rmqtt <rmqttd@126.com>"]
 edition = "2018"
 build = "build.rs"
