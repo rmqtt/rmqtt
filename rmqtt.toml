@@ -43,9 +43,9 @@ log.file = "rmqtt.log"
 plugins.dir = "rmqtt-plugins/"
 #Plug in started by default, when the mqtt server is started
 plugins.default_startups = [
-    "rmqtt-cluster-broadcast",
-    "rmqtt-auth-http",
-    "rmqtt-web-hook"
+#    "rmqtt-cluster-broadcast",
+#    "rmqtt-auth-http",
+#    "rmqtt-web-hook"
 ]
 
 
@@ -78,7 +78,7 @@ listener.tcp.external.backlog = 1024
 #the connection will be closed. (temporarily not used)
 listener.tcp.external.idle_timeout = "20s"
 #Whether anonymous login is allowed. Default: true
-listener.tcp.external.allow_anonymous = false
+listener.tcp.external.allow_anonymous = true
 #Minimum allowable keepalive value for mqtt connection,
 #less than this value will reject the connection, default: 0, unit: seconds
 listener.tcp.external.min_keepalive = 30
