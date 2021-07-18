@@ -113,3 +113,5 @@ listener.tcp.external.await_rel_timeout = "5m"
 #The maximum number of topics that a single client is allowed to subscribe to
 #0 means unlimited, default value: 0
 listener.tcp.external.max_subscriptions = 0
+#Shared subscription switch, default value: true
+listener.tcp.external.shared_subscription = true
