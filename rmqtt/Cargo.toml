@@ -6,7 +6,7 @@ description = "MQTT Server for v3.1 and v3.1.1 protocols"
 repository = "https://github.com/rmqtt-rs/rmqtt.git"
 categories = ["network-programming"]
 keywords = ["MQTT", "IoT", "messaging"]
-license = "MIT"
+license = "Apache-2.0 License"
 exclude = [".gitignore", ".cargo/config"]
 edition = "2018"
 
