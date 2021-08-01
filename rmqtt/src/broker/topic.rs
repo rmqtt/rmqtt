@@ -8,6 +8,8 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::iter::FromIterator;
 
+use crate::broker::types::TopicFilter;
+
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 type HashSet<K> = linked_hash_map::LinkedHashMap<K, (), ahash::RandomState>;
 type LinkedHashMap<K, V> = linked_hash_map::LinkedHashMap<K, V, ahash::RandomState>;
@@ -302,12 +304,18 @@ impl<'a> VecToString for &'a [Level] {
 
 pub trait VecToTopic {
     fn to_topic(&self) -> Topic;
+    fn to_topic_filter(&self) -> TopicFilter;
 }
 
 impl<'a> VecToTopic for Vec<&'a Level> {
     #[inline]
     fn to_topic(&self) -> Topic {
         Topic::from(self.iter().map(|l| (*l).clone()).collect::<Vec<Level>>())
+    }
+
+    #[inline]
+    fn to_topic_filter(&self) -> TopicFilter {
+        TopicFilter::from(self.to_topic().to_string())
     }
 }
 

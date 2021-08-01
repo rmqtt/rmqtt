@@ -3,7 +3,7 @@ use once_cell::sync::OnceCell;
 use rmqtt::{
     broker::{
         default::DefaultRetainStorage,
-        types::{Retain, Topic},
+        types::{Retain, TopicFilter, TopicName},
         RetainStorage,
     },
     grpc::{Message, MessageReply, MessageType},
@@ -37,12 +37,12 @@ impl ClusterRetainer {
 #[async_trait]
 impl RetainStorage for &'static ClusterRetainer {
     ///topic - concrete topic
-    async fn set(&self, topic: &Topic, retain: Retain) -> Result<()> {
+    async fn set(&self, topic: &TopicName, retain: Retain) -> Result<()> {
         self.inner.set(topic, retain).await
     }
 
     ///topic_filter - Topic filter
-    async fn get(&self, topic_filter: &Topic) -> Result<Vec<(Topic, Retain)>> {
+    async fn get(&self, topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>> {
         let mut retains = self.inner.get(topic_filter).await?;
 
         //get retain info from other nodes

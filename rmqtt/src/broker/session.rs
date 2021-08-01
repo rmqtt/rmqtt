@@ -18,7 +18,7 @@ use crate::broker::queue::{Limiter, Policy, Queue, Sender};
 use crate::broker::types::*;
 use crate::broker::{fitter::Fitter, hook::Hook};
 use crate::settings::listener::Listener;
-use crate::{MqttError, Result, Runtime, Topic};
+use crate::{MqttError, Result, Runtime};
 
 type MessageSender = Sender<(From, Publish)>;
 type MessageQueue = Queue<(From, Publish)>;
@@ -143,7 +143,7 @@ impl SessionState {
                                 Message::Disconnect(d) => {
                                     _disconnect_received = true;
                                     state.client.set_mqtt_disconnect(d).await;
-                                    state.client.add_disconnected_reason(format!("Disconnect(true) message is received")).await;
+                                    state.client.add_disconnected_reason("Disconnect(true) message is received".into()).await;
 
                                 },
                                 Message::Closed => {
@@ -333,7 +333,7 @@ impl SessionState {
     }
 
     #[inline]
-    pub async fn send_retain_messages(&self, retains: Vec<(Topic, Retain)>, qos: QoS) -> Result<()> {
+    pub async fn send_retain_messages(&self, retains: Vec<(TopicName, Retain)>, qos: QoS) -> Result<()> {
         for (topic, mut retain) in retains {
             log::debug!("{:?} topic:{:?}, retain:{:?}", self.id, topic, retain);
 
@@ -893,7 +893,7 @@ impl _SessionInner {
     #[inline]
     pub async fn subscriptions_add(
         &self,
-        topic_filter: TopicFilter,
+        topic_filter: TopicFilterString,
         qos: QoS,
         shared_group: Option<SharedGroup>,
     ) {
@@ -901,10 +901,7 @@ impl _SessionInner {
     }
 
     #[inline]
-    pub async fn subscriptions_remove(
-        &self,
-        topic_filter: &TopicFilter,
-    ) -> Option<(QoS, Option<SharedGroup>)> {
+    pub async fn subscriptions_remove(&self, topic_filter: &str) -> Option<(QoS, Option<SharedGroup>)> {
         self.subscriptions.write().await.remove(topic_filter)
     }
 

@@ -6,7 +6,6 @@ use std::fmt;
 use std::net::SocketAddr;
 use std::num::{NonZeroU16, NonZeroU32};
 use std::ops::Deref;
-use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -41,11 +40,12 @@ pub type UserName = bytestring::ByteString;
 pub type Password = bytes::Bytes;
 pub type PacketId = u16;
 pub type Reason = bytestring::ByteString;
-pub type TopicName = bytestring::ByteString;
 ///topic name or topic filter
+pub type TopicName = bytestring::ByteString;
 pub type Topic = ntex_mqtt::Topic;
 ///topic filter
-pub type TopicFilter = Topic;
+pub type TopicFilter = bytestring::ByteString;
+pub type TopicFilterString = String;
 pub type SharedGroup = String;
 pub type IsDisconnect = bool;
 pub type MessageExpiry = bool;
@@ -54,10 +54,12 @@ pub type TimestampMillis = i64;
 pub type Tx = mpsc::UnboundedSender<Message>;
 pub type Rx = mpsc::UnboundedReceiver<Message>;
 
-pub type StdHashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
+pub type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
+pub type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
+pub type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 pub type QoS = ntex_mqtt::types::QoS;
 pub type PublishReceiveTime = TimestampMillis;
-pub type TopicFilterMap = StdHashMap<TopicFilter, (QoS, Option<SharedGroup>)>;
+pub type TopicFilterMap = HashMap<TopicFilterString, (QoS, Option<SharedGroup>)>;
 pub type TopicFilters = Vec<TopicFilter>;
 
 pub type HookSubscribeResult = Vec<Option<TopicFilter>>;
@@ -214,25 +216,28 @@ pub fn parse_topic_filter(
     topic_filter: &ByteString,
     shared_subscription_supported: bool,
 ) -> Result<(TopicFilter, Option<SharedGroup>)> {
-    let mut topic = Topic::from_str(topic_filter)?;
-    //$share/abc/
-    let is_share = shared_subscription_supported
-        && topic.get(0).map(|f| f.value().map(|v| v == "$share").unwrap_or(false)).unwrap_or(false);
-    log::debug!("{:?} is_share: {}", topic_filter, is_share);
-
     let mut shared_group = None;
     let err = MqttError::TopicError("Illegal topic filter".into());
-    if is_share {
-        if topic.len() < 3 {
-            return Err(err);
+    //$share/abc/
+    let topic = if shared_subscription_supported {
+        let mut levels = topic_filter.splitn(3, '/').collect::<Vec<_>>();
+        let is_share = levels.get(0).map(|f| *f == "$share").unwrap_or(false);
+        if is_share {
+            if levels.len() < 3 {
+                return Err(err);
+            }
+            levels.remove(0);
+            shared_group = Some(SharedGroup::from(levels.remove(0)));
+            ByteString::from(levels.remove(0))
+        } else {
+            topic_filter.clone()
         }
-        topic.remove(0);
-        shared_group = Some(topic.remove(0).value().map(SharedGroup::from).ok_or(err)?);
-        log::debug!("{:?} shared_sub: {:?}", topic_filter, shared_group);
-    } else if topic.is_empty() {
+    } else {
+        topic_filter.clone()
+    };
+    if topic.is_empty() {
         return Err(err);
     }
-
     Ok((topic, shared_group))
 }
 
@@ -305,7 +310,7 @@ impl SubscribeReturn {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Subscribed {
-    V3((Topic, QoS)),
+    V3((TopicFilter, QoS)),
     V5(SubscribedV5),
 }
 
@@ -316,7 +321,7 @@ impl Subscribed {
             Subscribed::V3((t, qos)) => Ok((t.clone(), *qos)),
             Subscribed::V5(sub) => {
                 let (t, opts) = &sub.topic_filter;
-                Ok((TopicFilter::from_str(t)?, opts.qos))
+                Ok((t.clone(), opts.qos))
             }
         }
     }
@@ -537,8 +542,8 @@ impl Sink {
     #[inline]
     pub(crate) fn publish(&self, p: Publish) -> Result<()> {
         let pkt = match self {
-            Sink::V3(_) => p.to_v3(),
-            Sink::V5(_) => p.to_v5(),
+            Sink::V3(_) => p.into_v3(),
+            Sink::V5(_) => p.into_v5(),
         };
         self.send(pkt)
     }
@@ -599,32 +604,32 @@ impl std::convert::From<UserProperties> for PublishProperties {
     }
 }
 
-impl std::convert::From<&PublishPropertiesV5> for PublishProperties {
-    fn from(props: &PublishPropertiesV5) -> Self {
+impl std::convert::From<PublishPropertiesV5> for PublishProperties {
+    fn from(props: PublishPropertiesV5) -> Self {
         PublishProperties {
             topic_alias: props.topic_alias,
-            correlation_data: props.correlation_data.clone(),
+            correlation_data: props.correlation_data,
             message_expiry_interval: props.message_expiry_interval,
-            content_type: props.content_type.clone(),
-            user_properties: props.user_properties.clone(),
+            content_type: props.content_type,
+            user_properties: props.user_properties,
             is_utf8_payload: props.is_utf8_payload,
-            response_topic: props.response_topic.clone(),
-            subscription_ids: props.subscription_ids.clone(),
+            response_topic: props.response_topic,
+            subscription_ids: props.subscription_ids,
         }
     }
 }
 
-impl std::convert::Into<PublishPropertiesV5> for PublishProperties {
-    fn into(self) -> PublishPropertiesV5 {
+impl std::convert::From<PublishProperties> for PublishPropertiesV5 {
+    fn from(props: PublishProperties) -> Self {
         PublishPropertiesV5 {
-            topic_alias: self.topic_alias,
-            correlation_data: self.correlation_data,
-            message_expiry_interval: self.message_expiry_interval,
-            content_type: self.content_type,
-            user_properties: self.user_properties,
-            is_utf8_payload: self.is_utf8_payload,
-            response_topic: self.response_topic,
-            subscription_ids: self.subscription_ids,
+            topic_alias: props.topic_alias,
+            correlation_data: props.correlation_data,
+            message_expiry_interval: props.message_expiry_interval,
+            content_type: props.content_type,
+            user_properties: props.user_properties,
+            is_utf8_payload: props.is_utf8_payload,
+            response_topic: props.response_topic,
+            subscription_ids: props.subscription_ids,
         }
     }
 }
@@ -637,7 +642,7 @@ pub struct Publish {
     /// the level of assurance for delivery of an Application Message.
     pub qos: QoS,
     /// the information channel to which payload data is published.
-    pub topic: Topic,
+    pub topic: TopicName,
     /// only present in PUBLISH Packets where the QoS level is 1 or 2.
     pub packet_id: Option<NonZeroU16>,
     /// the Application Message that is being published.
@@ -655,7 +660,7 @@ impl<'a> std::convert::TryFrom<LastWill<'a>> for Publish {
         let (retain, qos, topic, payload, user_props) = match lw {
             LastWill::V3(lw) => {
                 let (topic, user_props) = if let Some(pos) = lw.topic.find('?') {
-                    let topic = Topic::from_str(lw.topic.as_bytes().slice(0..pos).as_str())?;
+                    let topic = lw.topic.clone();
                     let query = lw.topic.as_bytes().slice(pos + 1..lw.topic.len());
                     let user_props = url::form_urlencoded::parse(query.as_ref())
                         .into_owned()
@@ -663,14 +668,14 @@ impl<'a> std::convert::TryFrom<LastWill<'a>> for Publish {
                         .collect::<UserProperties>();
                     (topic, user_props)
                 } else {
-                    let topic = Topic::from_str(lw.topic.as_str())?;
+                    let topic = lw.topic.clone();
                     (topic, UserProperties::default())
                 };
 
                 (lw.retain, lw.qos, topic, lw.message.clone(), user_props)
             }
             LastWill::V5(lw) => {
-                let topic = Topic::from_str(lw.topic.as_str())?;
+                let topic = lw.topic.clone();
                 (lw.retain, lw.qos, topic, lw.message.clone(), lw.user_properties.clone())
             }
         };
@@ -709,7 +714,7 @@ impl std::convert::TryFrom<&v3::Publish> for Publish {
             dup: p.dup(),
             retain: p.retain(),
             qos: p.qos(),
-            topic: Topic::from_str(p.topic().path())?,
+            topic: TopicName::from(p.topic().path()),
             packet_id: p.id(),
             payload: p.take_payload(),
 
@@ -728,11 +733,11 @@ impl std::convert::TryFrom<&v5::Publish> for Publish {
             dup: p.dup(),
             retain: p.retain(),
             qos: p.qos(),
-            topic: Topic::from_str(p.topic().path())?,
+            topic: TopicName::from(p.topic().path()),
             packet_id: p.id(),
             payload: p.take_payload(),
 
-            properties: PublishProperties::from(&p.packet().properties),
+            properties: PublishProperties::from(p.packet().properties.clone()),
             create_time: chrono::Local::now().timestamp_millis(),
         })
     }
@@ -740,12 +745,12 @@ impl std::convert::TryFrom<&v5::Publish> for Publish {
 
 impl Publish {
     #[inline]
-    pub fn to_v3(self) -> Packet {
+    pub fn into_v3(self) -> Packet {
         let p = v3::codec::Publish {
             dup: self.dup,
             retain: self.retain,
             qos: self.qos,
-            topic: TopicName::from(self.topic.to_string()),
+            topic: self.topic,
             packet_id: self.packet_id,
             payload: self.payload,
         };
@@ -753,12 +758,12 @@ impl Publish {
     }
 
     #[inline]
-    pub fn to_v5(self) -> Packet {
+    pub fn into_v5(self) -> Packet {
         let p = v5::codec::Publish {
             dup: self.dup,
             retain: self.retain,
             qos: self.qos,
-            topic: TopicName::from(self.topic.to_string()),
+            topic: self.topic,
             packet_id: self.packet_id,
             payload: self.payload,
             properties: self.properties.into(),
@@ -777,12 +782,12 @@ impl Publish {
     }
 
     #[inline]
-    pub fn topic(&self) -> &Topic {
+    pub fn topic(&self) -> &TopicName {
         &self.topic
     }
 
     #[inline]
-    pub fn topic_mut(&mut self) -> &mut Topic {
+    pub fn topic_mut(&mut self) -> &mut TopicName {
         &mut self.topic
     }
 

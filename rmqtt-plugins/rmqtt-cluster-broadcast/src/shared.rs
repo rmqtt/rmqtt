@@ -1,4 +1,5 @@
 use once_cell::sync::OnceCell;
+use std::convert::From as _f;
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
 use rmqtt::{
@@ -7,7 +8,7 @@ use rmqtt::{
         session::{ClientInfo, Session, SessionOfflineInfo},
         types::{
             ClientId, From, Id, NodeId, Publish, QoS, Reason, SharedGroup, Subscribe, SubscribeReturn, To,
-            TopicFilter, Tx, Unsubscribe,
+            TopicFilter, TopicFilterString, Tx, Unsubscribe,
         },
         Entry, IsOnline, Shared, SharedSubRelations, SubRelations,
     },
@@ -191,7 +192,7 @@ impl Shared for &'static ClusterShared {
             .await;
 
             let mut shared_sub_groups: HashMap<
-                TopicFilter,
+                TopicFilterString, //key is TopicFilter
                 HashMap<SharedGroup, Vec<(NodeId, ClientId, QoS, Option<IsOnline>)>>,
             > = HashMap::default();
             let mut add_to_shared_sub_groups = |mut shared_subs: SharedSubRelations| {
@@ -233,7 +234,7 @@ impl Shared for &'static ClusterShared {
                     {
                         let (node_id, client_id, qos, _) = subs.remove(idx);
                         node_shared_subs.entry(node_id).or_default().push((
-                            topic_filter.clone(),
+                            TopicFilter::from(topic_filter.clone()),
                             client_id,
                             qos,
                         ));

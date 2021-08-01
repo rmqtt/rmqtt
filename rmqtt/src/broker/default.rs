@@ -5,6 +5,7 @@ use std::convert::From as _f;
 use std::iter::Iterator;
 use std::num::NonZeroU16;
 use std::num::NonZeroU32;
+use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -53,7 +54,7 @@ impl LockEntry {
     }
 
     #[inline]
-    pub async fn _unsubscribe(&self, id: Id, topic_filter: &TopicFilter) -> Result<()> {
+    pub async fn _unsubscribe(&self, id: Id, topic_filter: &str) -> Result<()> {
         {
             let router = Runtime::instance().extends.router().await;
             router.remove(topic_filter, Runtime::instance().node.id(), &id.client_id).await?;
@@ -63,7 +64,7 @@ impl LockEntry {
 
     #[inline]
     pub async fn _remove(&mut self, clear_subscriptions: bool) -> Option<(Session, Tx, ClientInfo)> {
-        if self.shared.peers.get(&self.id.client_id).is_none() {
+        if !self.shared.peers.contains_key(&self.id.client_id) {
             return None;
         }
         if let Some((_, peer)) = { self.shared.peers.remove(&self.id.client_id) } {
@@ -183,7 +184,7 @@ impl super::Entry for LockEntry {
         );
 
         router.add(&sub.topic_filter, node_id, &self.id.client_id, sub.qos, sub.shared_group.clone()).await?;
-        peer.s.subscriptions_add(sub.topic_filter, sub.qos, sub.shared_group).await;
+        peer.s.subscriptions_add(sub.topic_filter.to_string(), sub.qos, sub.shared_group).await;
         Ok(SubscribeReturn::new_success(sub.qos))
     }
 
@@ -272,10 +273,10 @@ impl Shared for &'static DefaultShared {
         for (topic_filter, mut subs) in shared_relations.drain() {
             if subs.len() == 1 {
                 let (_, _, client_id, qos, _) = subs.remove(0);
-                relations.push((topic_filter, client_id, qos))
+                relations.push((TopicFilter::from(topic_filter), client_id, qos))
             } else {
                 for (_, _, client_id, qos, _) in subs {
-                    relations.push((topic_filter.clone(), client_id, qos));
+                    relations.push((TopicFilter::from(topic_filter.clone()), client_id, qos));
                 }
             }
         }
@@ -422,15 +423,15 @@ impl DefaultRouter {
     #[inline]
     pub async fn _matches(
         &self,
-        topic: &Topic,
+        topic_name: &TopicName,
         this_node_id: NodeId,
     ) -> Result<(SubRelations, SharedSubRelations, OtherSubRelations)> {
         let mut this_subs: SubRelations = Vec::new();
         let mut other_subs: OtherSubRelations = HashMap::default();
         let mut shared_subs: SharedSubRelations = HashMap::default();
-
-        for (topic_filter, node_ids) in self.tree.read().await.matches(topic).iter() {
-            let topic_filter = topic_filter.to_topic();
+        let topic = Topic::from_str(topic_name)?;
+        for (topic_filter, node_ids) in self.tree.read().await.matches(&topic).iter() {
+            let topic_filter = topic_filter.to_topic_filter();
 
             let mut groups: HashMap<SharedGroup, Vec<(NodeId, ClientId, QoS, Option<IsOnline>)>> =
                 HashMap::default();
@@ -469,7 +470,7 @@ impl DefaultRouter {
                     let (node_id, client_id, qos, _) = s_subs.remove(idx);
                     if this_node_id == node_id {
                         shared_subs
-                            .entry(topic_filter.clone())
+                            .entry(topic_filter.to_string())
                             .or_default()
                             .push((group, node_id, client_id, qos, is_online))
                     } else {
@@ -490,21 +491,21 @@ impl Router for &'static DefaultRouter {
     #[inline]
     async fn add(
         &self,
-        topic_filter: &TopicFilter,
+        topic_filter: &str,
         node_id: NodeId,
         client_id: &str,
         qos: QoS,
         shared_group: Option<SharedGroup>,
     ) -> Result<()> {
         log::debug!("add, topic_filter: {:?}", topic_filter);
-
+        let topic = Topic::from_str(topic_filter)?;
         //add to topic tree
-        self.tree.write().await.insert(topic_filter, node_id); //@TODO Or send the routing relationship to the cluster ...
+        self.tree.write().await.insert(&topic, node_id); //@TODO Or send the routing relationship to the cluster ...
 
         //add to subscribe relations
         let _ = self
             .relations
-            .entry(topic_filter.to_owned())
+            .entry(TopicFilter::from(topic_filter))
             .or_default()
             .insert(ClientId::from(client_id), (qos, shared_group));
 
@@ -512,7 +513,7 @@ impl Router for &'static DefaultRouter {
     }
 
     #[inline]
-    async fn remove(&self, topic_filter: &TopicFilter, node_id: NodeId, client_id: &str) -> Result<()> {
+    async fn remove(&self, topic_filter: &str, node_id: NodeId, client_id: &str) -> Result<()> {
         log::debug!("remove, topic_filter: {:?}", topic_filter.to_string());
 
         //Remove subscription relationship from local
@@ -532,7 +533,8 @@ impl Router for &'static DefaultRouter {
         if let Some(relations_len) = relations_len {
             //Remove routing information from the routing table when there is no subscription relationship
             if relations_len == 0 {
-                self.tree.write().await.remove(topic_filter, &node_id);
+                let topic = Topic::from_str(topic_filter)?;
+                self.tree.write().await.remove(&topic, &node_id);
                 self.relations.remove(topic_filter);
             }
         }
@@ -541,7 +543,10 @@ impl Router for &'static DefaultRouter {
     }
 
     #[inline]
-    async fn matches(&self, topic: &Topic) -> Result<(SubRelations, SharedSubRelations, OtherSubRelations)> {
+    async fn matches(
+        &self,
+        topic: &TopicName,
+    ) -> Result<(SubRelations, SharedSubRelations, OtherSubRelations)> {
         Ok(self._matches(topic, Runtime::instance().node.id()).await?)
     }
 
@@ -613,17 +618,26 @@ impl DefaultRetainStorage {
 #[async_trait]
 impl RetainStorage for &'static DefaultRetainStorage {
     #[inline]
-    async fn set(&self, topic: &Topic, retain: Retain) -> Result<()> {
-        self.remove(topic).await;
+    async fn set(&self, topic: &TopicName, retain: Retain) -> Result<()> {
+        let topic = Topic::from_str(topic)?;
+        self.remove(&topic).await;
         if !retain.publish.is_empty() {
-            self.add(topic, retain).await;
+            self.add(&topic, retain).await;
         }
         Ok(())
     }
 
     #[inline]
-    async fn get(&self, topic_filter: &Topic) -> Result<Vec<(Topic, Retain)>> {
-        Ok(self.messages.write().await.matches(topic_filter))
+    async fn get(&self, topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>> {
+        let topic = Topic::from_str(topic_filter)?;
+        Ok(self
+            .messages
+            .write()
+            .await
+            .matches(&topic)
+            .drain(..)
+            .map(|(t, r)| (TopicName::from(t.to_string()), r))
+            .collect())
     }
 }
 

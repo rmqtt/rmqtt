@@ -5,7 +5,7 @@ type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 use crate::broker::session::{ClientInfo, Session, SessionOfflineInfo};
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
-use crate::{ClientId, Id, NodeId, QoS, Result, Runtime, Topic, TopicFilter};
+use crate::{ClientId, Id, NodeId, QoS, Result, Runtime, TopicFilter};
 
 pub mod default;
 pub mod error;
@@ -86,23 +86,26 @@ pub trait Shared: Sync + Send {
 
 pub type IsOnline = bool;
 pub type SubRelations = Vec<(TopicFilter, ClientId, QoS)>;
-pub type SharedSubRelations = HashMap<TopicFilter, Vec<(SharedGroup, NodeId, ClientId, QoS, IsOnline)>>;
+pub type SharedSubRelations = HashMap<TopicFilterString, Vec<(SharedGroup, NodeId, ClientId, QoS, IsOnline)>>; //key is TopicFilter
 pub type OtherSubRelations = HashMap<NodeId, Vec<TopicFilter>>;
 
 #[async_trait]
 pub trait Router: Sync + Send {
     async fn add(
         &self,
-        topic_filter: &TopicFilter,
+        topic_filter: &str,
         node_id: NodeId,
         client_id: &str,
         qos: QoS,
         shared_group: Option<SharedGroup>,
     ) -> Result<()>;
 
-    async fn remove(&self, topic_filter: &TopicFilter, node_id: NodeId, client_id: &str) -> Result<()>;
+    async fn remove(&self, topic_filter: &str, node_id: NodeId, client_id: &str) -> Result<()>;
 
-    async fn matches(&self, topic: &Topic) -> Result<(SubRelations, SharedSubRelations, OtherSubRelations)>;
+    async fn matches(
+        &self,
+        topic: &TopicName,
+    ) -> Result<(SubRelations, SharedSubRelations, OtherSubRelations)>;
 
     ///get topic tree
     async fn list_topics(&self, top: usize) -> Vec<String>;
@@ -176,10 +179,10 @@ pub trait RetainStorage: Sync + Send {
     }
 
     ///topic - concrete topic
-    async fn set(&self, topic: &Topic, retain: Retain) -> Result<()>;
+    async fn set(&self, topic: &TopicName, retain: Retain) -> Result<()>;
 
     ///topic_filter - Topic filter
-    async fn get(&self, topic_filter: &Topic) -> Result<Vec<(Topic, Retain)>>;
+    async fn get(&self, topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>>;
 }
 
 #[async_trait]

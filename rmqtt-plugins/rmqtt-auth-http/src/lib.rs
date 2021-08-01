@@ -18,7 +18,7 @@ use rmqtt::{
     broker::session::ClientInfo,
     broker::types::{AsStr, AuthResult, Password, PublishAclResult, SubscribeAckReason, SubscribeAclResult},
     plugin::Plugin,
-    ClientId, MqttError, Result, Runtime, Topic,
+    ClientId, MqttError, Result, Runtime, TopicName,
 };
 
 use config::PluginConfig;
@@ -223,7 +223,7 @@ impl AuthHandler {
         params: &'a mut HashMap<String, String>,
         client: &ClientInfo,
         password: Option<&Password>,
-        sub_or_pub: Option<(&str, &Topic)>,
+        sub_or_pub: Option<(&str, &TopicName)>,
     ) {
         for v in params.values_mut() {
             *v = v.replace("%u", client.connect_info.username().map(|n| n.as_str()).unwrap_or(""));
@@ -234,7 +234,7 @@ impl AuthHandler {
             *v = v.replace("%P", password.map(|p| p.as_str()).unwrap_or_default());
             if let Some((flag, topic)) = sub_or_pub {
                 *v = v.replace("%A", flag);
-                *v = v.replace("%t", &topic.to_string());
+                *v = v.replace("%t", topic);
             } else {
                 *v = v.replace("%A", "");
                 *v = v.replace("%t", "");
@@ -247,7 +247,7 @@ impl AuthHandler {
         client: &ClientInfo,
         mut req_cfg: config::Req,
         password: Option<&Password>,
-        sub_or_pub: Option<(&str, &Topic)>,
+        sub_or_pub: Option<(&str, &TopicName)>,
         check_super: bool,
     ) -> Result<bool> {
         log::debug!("req_cfg.url.path(): {:?}", req_cfg.url.path());
@@ -351,7 +351,7 @@ impl AuthHandler {
         }
     }
 
-    async fn acl(&self, client: &ClientInfo, sub_or_pub: Option<(&str, &Topic)>) -> bool {
+    async fn acl(&self, client: &ClientInfo, sub_or_pub: Option<(&str, &TopicName)>) -> bool {
         if let Some(req) = { self.cfg.read().await.http_acl_req.clone() } {
             match self.request(client, req.clone(), None, sub_or_pub, false).await {
                 Ok(allow) => {

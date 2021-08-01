@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use config::PluginConfig;
 use crossbeam::channel::{bounded, Receiver, Sender};
 use parking_lot::RwLock;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -18,7 +19,7 @@ use rmqtt::{
     broker::hook::{self, Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::types::{ConnectInfo, Id, QoS, QoSEx, MQTT_LEVEL_5},
     plugin::Plugin,
-    Result, Runtime, Topic,
+    Result, Runtime, Topic, TopicFilter,
 };
 
 #[inline]
@@ -228,7 +229,7 @@ lazy_static::lazy_static! {
 
 #[derive(Debug)]
 pub enum Message {
-    Body(hook::Type, Option<Topic>, serde_json::Value),
+    Body(hook::Type, Option<TopicFilter>, serde_json::Value),
     Exit,
 }
 
@@ -241,7 +242,7 @@ impl WebHookHandler {
     async fn handle(
         cfg: Arc<RwLock<PluginConfig>>,
         typ: hook::Type,
-        topic: Option<Topic>,
+        topic: Option<TopicFilter>,
         body: serde_json::Value,
     ) -> Result<()> {
         let (timeout, default_urls) = {
@@ -249,12 +250,14 @@ impl WebHookHandler {
             (cfg.http_timeout, cfg.http_urls.clone())
         };
 
+        let topic = if let Some(topic) = topic { Some(Topic::from_str(&topic)?) } else { None };
+
         let http_requests = if let Some(rules) = cfg.read().rules.get(&typ) {
             //get action and urls
             let action_urls = rules.iter().filter_map(|r| {
                 let is_allowed = if let Some(topic) = &topic {
                     if let Some((rule_topics, _)) = &r.topics {
-                        rule_topics.is_match(topic)
+                        rule_topics.is_match(&topic)
                     } else {
                         true
                     }
@@ -471,7 +474,7 @@ impl Handler for WebHookHandler {
 
             Parameter::SessionSubscribed(_session, client, subscribed) => {
                 let (topic, qos) =
-                    subscribed.topic_filter().unwrap_or((Topic::from(Vec::new()), QoS::AtMostOnce));
+                    subscribed.topic_filter().unwrap_or((TopicFilter::default(), QoS::AtMostOnce));
                 let body = json!({
                     "node": client.id.node(),
                     "ipaddress": client.id.remote_addr,

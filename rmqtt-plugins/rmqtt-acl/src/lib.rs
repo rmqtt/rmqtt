@@ -5,12 +5,13 @@ mod config;
 
 use rmqtt::async_trait::async_trait;
 use rmqtt::{serde_json, tokio};
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
-    broker::types::{AuthResult, PublishAclResult, SubscribeAckReason, SubscribeAclResult},
+    broker::types::{AuthResult, PublishAclResult, SubscribeAckReason, SubscribeAclResult, Topic},
     plugin::Plugin,
     Result, Runtime,
 };
@@ -193,7 +194,9 @@ impl Handler for AclHandler {
                         return (false, acc);
                     }
                 }
-                let topic_filter_str = subscribe.topic_filter.to_string();
+                let topic =
+                    Topic::from_str(&subscribe.topic_filter).unwrap_or_else(|_| Topic::from(Vec::new()));
+                let topic_filter = &subscribe.topic_filter;
                 for (idx, rule) in self.cfg.read().await.rules().iter().enumerate() {
                     if !matches!(rule.control, Control::Subscribe | Control::Pubsub | Control::All) {
                         continue;
@@ -201,14 +204,14 @@ impl Handler for AclHandler {
                     if !rule.user.hit(client_info) {
                         continue;
                     }
-                    if !rule.topics.is_match(&subscribe.topic_filter, &topic_filter_str).await {
+                    if !rule.topics.is_match(&topic, topic_filter).await {
                         continue;
                     }
                     log::debug!(
                         "{:?} ClientSubscribeCheckAcl, {}, is_match ok: topic_filter: {}",
                         client_info.id,
                         idx,
-                        topic_filter_str
+                        topic_filter
                     );
                     return if matches!(rule.access, Access::Allow) {
                         (
@@ -238,8 +241,8 @@ impl Handler for AclHandler {
                 if let Some(HookResult::PublishAclResult(PublishAclResult::Rejected(_))) = &acc {
                     return (false, acc);
                 }
-                let topic = publish.topic();
-                let topic_str = topic.to_string();
+                let topic_str = publish.topic();
+                let topic = Topic::from_str(topic_str).unwrap_or_else(|_| Topic::from(Vec::new()));
                 for (idx, rule) in self.cfg.read().await.rules().iter().enumerate() {
                     if !matches!(rule.control, Control::Publish | Control::Pubsub | Control::All) {
                         continue;
@@ -247,7 +250,7 @@ impl Handler for AclHandler {
                     if !rule.user.hit(client_info) {
                         continue;
                     }
-                    if !rule.topics.is_match(topic, &topic_str).await {
+                    if !rule.topics.is_match(&topic, topic_str).await {
                         continue;
                     }
                     log::debug!(
