@@ -196,7 +196,7 @@ impl SessionState {
                 }
             }
 
-            log::debug!(
+            log::info!(
                 "{:?} exit online worker, kicked: {}, clean_session: {}",
                 id,
                 _kicked,
@@ -235,7 +235,7 @@ impl SessionState {
         deliver_queue_tx: &MessageSender,
         kicked: &mut bool,
     ) {
-        log::debug!("{:?} start offline event loop", state.id);
+        log::info!("{:?} start offline event loop", state.id);
         let id = state.id.clone();
 
         //state.client.disconnect
@@ -505,7 +505,7 @@ impl SessionState {
 
     #[inline]
     pub(crate) async fn unsubscribe(&self, mut unsub: Unsubscribe) -> Result<()> {
-        log::debug!("{:?} unsubscribe: {:?}", self.id, unsub);
+        log::info!("{:?} unsubscribe: {:?}", self.id, unsub);
 
         //hook, client_unsubscribe
         let topic_filter = self.hook.client_unsubscribe(&unsub).await;
@@ -695,13 +695,32 @@ impl SessionState {
     }
 
     #[inline]
-    pub async fn transfer_session_state(&self, mut offline_info: SessionOfflineInfo) -> Result<()> {
-        log::debug!(
-            "transfer session state, subscriptions: {}, inflight_messages: {}, offline_messages: {}",
+    pub async fn transfer_session_state(
+        &self,
+        clear_subscriptions: bool,
+        mut offline_info: SessionOfflineInfo,
+    ) -> Result<()> {
+        log::info!(
+            "{:?} transfer session state, form: {:?}, subscriptions: {}, inflight_messages: {}, offline_messages: {}",
+            self.id,
+            offline_info.id,
             offline_info.subscriptions.len(),
             offline_info.inflight_messages.len(),
             offline_info.offline_messages.len()
         );
+
+        if self.id.node_id != offline_info.id.node_id
+            && !clear_subscriptions
+            && !offline_info.subscriptions.is_empty()
+        {
+            let router = Runtime::instance().extends.router().await;
+            let node_id = Runtime::instance().node.id();
+            let client_id = &self.id.client_id;
+            for (tf, (qos, shared_group)) in offline_info.subscriptions.iter() {
+                router.add(tf, node_id, client_id, *qos, shared_group.clone()).await?;
+            }
+        }
+
         //Subscription transfer from previous session
         for (tf, (qos, shared_sub)) in offline_info.subscriptions.drain() {
             self.subscriptions_add(tf, qos, shared_sub).await;
