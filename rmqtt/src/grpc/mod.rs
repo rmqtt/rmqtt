@@ -19,7 +19,7 @@ pub type MessageType = u64;
 pub enum Message {
     Forwards(From, Publish),
     ForwardsTo(From, Publish, SubRelations),
-    Kick(Id),
+    Kick(Id, bool),
     GetRetains(TopicFilter),
     NumberOfClients,
     NumberOfSessions,
