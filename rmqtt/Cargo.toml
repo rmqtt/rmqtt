@@ -19,7 +19,7 @@ ntex = { version = "0.3.16", features = ["rustls"] }
 ntex-mqtt = { git = "https://github.com/rmqtt-rs/ntex-mqtt", version = "0.6.9"}
 #ntex-mqtt = { path = "../../ntex-mqtt" }
 futures = "0.3.15"
-tokio = { version = "1.6.0", features = ["full"] }
+tokio = { version = "1.10.0", features = ["full"] }
 tonic = "0.4.3"
 prost = "0.7.0"
 once_cell="1.7.2"
