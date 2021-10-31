@@ -198,7 +198,7 @@ pub async fn handshake<Io>(
     state.hook.client_connected().await;
 
     if let Some(o) = offline_info {
-        state.transfer_session_state(o).await?;
+        state.transfer_session_state(packet.clean_start, o).await?;
     }
 
     log::debug!("{:?} keep_alive: {}", state.id, keep_alive);
