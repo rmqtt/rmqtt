@@ -1,0 +1,127 @@
+use riteraft::Mailbox;
+use std::time::Duration;
+
+use rmqtt::{broker::{
+    hook::{Handler, HookResult, Parameter, ReturnType},
+    types::{From, Publish},
+    SharedSubRelations,
+}, grpc::{Message as GrpcMessage, MessageReply}, Runtime, MqttError};
+
+use super::message::Message;
+use super::{hook_message_dropped, retainer::ClusterRetainer, shared::ClusterShared};
+use rmqtt::broker::Shared;
+
+pub(crate) struct HookHandler {
+    shared: &'static ClusterShared,
+    retainer: &'static ClusterRetainer,
+    raft_mailbox: Mailbox,
+}
+
+impl HookHandler {
+    pub(crate) fn new(
+        shared: &'static ClusterShared,
+        retainer: &'static ClusterRetainer,
+        raft_mailbox: Mailbox,
+    ) -> Self {
+        Self { shared, retainer, raft_mailbox }
+    }
+}
+
+#[async_trait]
+impl Handler for HookHandler {
+    async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
+        match param {
+            Parameter::ClientConnected(_s, c) => {
+                let msg = Message::Connected { node_id: c.id.node_id, client_id: &c.id.client_id }
+                    .encode()
+                    .unwrap();
+                if let Err(e) = self.raft_mailbox.send(msg).await {
+                    log::error!("raft mailbox send error, {:?}", e);
+                }
+            }
+
+            Parameter::ClientDisconnected(_s, c, r) => {
+                log::info!("{:?} hook::ClientDisconnected reason: {:?}", c.id, r);
+                if !r.contains("Kicked") {
+                    let msg = Message::Disconnected { client_id: &c.id.client_id }.encode().unwrap();
+                    if let Err(e) = self.raft_mailbox.send(msg).await {
+                        log::error!("raft mailbox send error, {:?}", e);
+                    }
+                }
+            }
+
+            Parameter::SessionTerminated(_s, c, _r) => {
+                let msg = Message::SessionTerminated { client_id: &c.id.client_id }.encode().unwrap();
+                if let Err(e) = self.raft_mailbox.send(msg).await {
+                    log::error!("raft mailbox send error, {:?}", e);
+                }
+            }
+
+            Parameter::GrpcMessageReceived(typ, msg) => {
+                log::debug!("GrpcMessageReceived, type: {}, msg: {:?}", typ, msg);
+                if self.shared.message_type != *typ {
+                    return (true, acc);
+                }
+                match msg {
+                    GrpcMessage::ForwardsTo(from, publish, sub_rels) => {
+                        if let Err(droppeds) =
+                            self.shared.forwards_to(from.clone(), &publish, sub_rels.clone()).await
+                        {
+                            hook_message_dropped(droppeds).await;
+                        }
+                        return (false, acc);
+                    }
+                    GrpcMessage::Kick(id, clear_subscriptions) => {
+                        let entry = self.shared.inner().entry(id.clone());
+                        log::info!("[GrpcMessage::Kick] {:?}", id);
+                        for _ in 0..30u8 {
+                            let new_acc = match entry.try_lock() {
+                                Ok(mut entry) => match entry.kick(*clear_subscriptions).await {
+                                    Ok(o) => {
+                                        HookResult::GrpcMessageReply(Ok(MessageReply::Kick(o)))
+                                    }
+                                    Err(e) => HookResult::GrpcMessageReply(Err(e)),
+                                },
+                                Err(e) => {
+                                    log::warn!("{:?}, GrpcMessage::Kick, try_lock error, {:?}", id, e);
+                                    //HookResult::GrpcMessageReply(Err(e))
+                                    tokio::time::sleep(Duration::from_millis(200)).await;
+                                    continue;
+                                }
+                            };
+                            log::info!("[GrpcMessage::Kick] {:?} new_acc: {:?}", id, new_acc);
+                            return (false, Some(new_acc));
+                        }
+                        return (false, Some(HookResult::GrpcMessageReply(Err(MqttError::from("try_lock error")))));
+                    }
+                    // GrpcMessage::GetRetains(topic_filter) => {
+                    //     let new_acc = match self.retainer.inner().get(topic_filter).await {
+                    //         Ok(retains) => {
+                    //             HookResult::GrpcMessageReply(Ok(MessageReply::GetRetains(retains)))
+                    //         }
+                    //         Err(e) => HookResult::GrpcMessageReply(Err(e)),
+                    //     };
+                    //     return (false, Some(new_acc));
+                    // }
+                    _ => {
+                        log::error!("unimplemented, {:?}", param)
+                    }
+                }
+            }
+            _ => {
+                log::error!("unimplemented, {:?}", param)
+            }
+        }
+        (true, acc)
+    }
+}
+
+// async fn forwards(from: From, publish: Publish) -> SharedSubRelations {
+//     match Runtime::instance().extends.shared().await.forwards_and_get_shareds(from, publish).await {
+//         Err(droppeds) => {
+//             hook_message_dropped(droppeds).await;
+//             SharedSubRelations::default()
+//         }
+//         Ok(shared_subs) => shared_subs,
+//     }
+// }

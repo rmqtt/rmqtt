@@ -1,0 +1,117 @@
+
+##--------------------------------------------------------------------
+## General
+##--------------------------------------------------------------------
+
+#Internal API listening address
+inner_api_addr = "0.0.0.0:6064"
+
+##--------------------------------------------------------------------
+## Node
+##--------------------------------------------------------------------
+#node id
+node.id = 2
+
+##--------------------------------------------------------------------
+## RPC
+##--------------------------------------------------------------------
+rpc.server_addr = "0.0.0.0:5364"
+rpc.server_workers = 4
+#Maximum number of messages sent in batch
+rpc.batch_size = 128
+#Client concurrent request limit
+rpc.client_concurrency_limit = 128
+#Connect and send to server timeout
+rpc.client_timeout = "5s"
+
+
+##--------------------------------------------------------------------
+## Log
+##--------------------------------------------------------------------
+# Value: off | file | console | both
+log.to = "both"
+# Value: trace, debug, info, warn, error
+log.level = "info"
+log.dir = "/var/log/rmqtt"
+log.file = "rmqtt_2.log"
+
+
+##--------------------------------------------------------------------
+## Plugins
+##--------------------------------------------------------------------
+#Plug in configuration file directory
+plugins.dir = "../../../rmqtt-plugins/"
+#Plug in started by default, when the mqtt server is started
+plugins.default_startups = [
+    "rmqtt-cluster-raft",
+    "rmqtt-auth-http",
+    "rmqtt-web-hook"
+]
+
+##--------------------------------------------------------------------
+## Listeners
+##--------------------------------------------------------------------
+
+##--------------------------------------------------------------------
+## MQTT/TCP - External TCP Listener for MQTT Protocol
+listener.tcp.external.addr = "0.0.0.0:1884"
+#Number of worker threads
+listener.tcp.external.workers = 8
+#The maximum number of concurrent connections allowed by the listener.
+listener.tcp.external.max_connections = 1024000
+#Maximum access rate allowed by the listener, unit: quantity / second
+listener.tcp.external.max_conn_rate = 3000
+#When the token cannot be obtained, Indicates whether to wait or disconnect, True (wait) / false (disconnect)
+listener.tcp.external.conn_await_acquire = false
+#Maximum allowed mqtt message length. 0 means unlimited, default: 1m
+listener.tcp.external.max_packet_size = "1m"
+#The maximum length of the TCP connection queue.
+#It indicates the maximum number of TCP connection queues that are being handshaked three times in the system
+listener.tcp.external.backlog = 1024
+#The Daze time after the TCP connection is established. If no message is received during this period,
+#the connection will be closed. (temporarily not used)
+listener.tcp.external.idle_timeout = "20s"
+#Whether anonymous login is allowed. Default: true
+listener.tcp.external.allow_anonymous = false
+#Minimum allowable keepalive value for mqtt connection,
+#less than this value will reject the connection, default: 0, unit: seconds
+listener.tcp.external.min_keepalive = 0
+# > 0.5, Keepalive * backoff * 2
+listener.tcp.external.keepalive_backoff = 0.75
+#Flight window size. The flight window is used to store the unanswered QoS 1 and QoS 2 messages
+listener.tcp.external.max_inflight = 16
+#Handshake timeout.
+listener.tcp.external.handshake_timeout = "15s"
+#Maximum length of message queue
+listener.tcp.external.max_mqueue_len = 1000
+#The rate at which messages are ejected from the message queue,
+#default value: "u32::max_value(),1s"
+listener.tcp.external.mqueue_rate_limit = "1000,1s"
+#Maximum length of client ID allowed, Default: 65535
+listener.tcp.external.max_clientid_len = 65535
+#The maximum QoS level that clients are allowed to publish. default value: 2
+listener.tcp.external.max_qos_allowed = 2
+#The maximum level at which clients are allowed to subscribe to topics.
+#0 means unlimited. default value: 0
+listener.tcp.external.max_topic_levels = 0
+#Whether support retain message, true/false, default value: true
+listener.tcp.external.retain_available = true
+#Session timeout, default value: 2 hours
+listener.tcp.external.session_expiry_interval = "5m"
+#QoS 1/2 message retry interval, 0 means no resend
+listener.tcp.external.message_retry_interval = "20s"
+#Message expiration time, 0 means no expiration
+listener.tcp.external.message_expiry_interval = "5m"
+#QoS 2, Maximum flight window waiting for client to send pubrel message,
+#When the window is full, the oldest will be removed.
+#0 means unlimited
+listener.tcp.external.max_awaiting_rel = 100
+#QoS 2, The timeout of waiting for client to send pubrel message,
+#The pubrel message of this message will be ignored after timeout.
+#0 means unlimited
+listener.tcp.external.await_rel_timeout = "5m"
+#The maximum number of topics that a single client is allowed to subscribe to
+#0 means unlimited, default value: 0
+listener.tcp.external.max_subscriptions = 0
+#Shared subscription switch, default value: true
+listener.tcp.external.shared_subscription = true
