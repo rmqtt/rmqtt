@@ -1,11 +1,11 @@
-use riteraft::Mailbox;
+use rmqtt_raft::Mailbox;
 use std::time::Duration;
 
-use rmqtt::{broker::{
-    hook::{Handler, HookResult, Parameter, ReturnType},
-    types::{From, Publish},
-    SharedSubRelations,
-}, grpc::{Message as GrpcMessage, MessageReply}, Runtime, MqttError};
+use rmqtt::{
+    broker::hook::{Handler, HookResult, Parameter, ReturnType},
+    grpc::{Message as GrpcMessage, MessageReply},
+    MqttError,
+};
 
 use super::message::Message;
 use super::{hook_message_dropped, retainer::ClusterRetainer, shared::ClusterShared};
@@ -41,7 +41,7 @@ impl Handler for HookHandler {
             }
 
             Parameter::ClientDisconnected(_s, c, r) => {
-                log::info!("{:?} hook::ClientDisconnected reason: {:?}", c.id, r);
+                log::debug!("{:?} hook::ClientDisconnected reason: {:?}", c.id, r);
                 if !r.contains("Kicked") {
                     let msg = Message::Disconnected { client_id: &c.id.client_id }.encode().unwrap();
                     if let Err(e) = self.raft_mailbox.send(msg).await {
@@ -65,7 +65,7 @@ impl Handler for HookHandler {
                 match msg {
                     GrpcMessage::ForwardsTo(from, publish, sub_rels) => {
                         if let Err(droppeds) =
-                            self.shared.forwards_to(from.clone(), &publish, sub_rels.clone()).await
+                            self.shared.forwards_to(from.clone(), publish, sub_rels.clone()).await
                         {
                             hook_message_dropped(droppeds).await;
                         }
@@ -73,13 +73,11 @@ impl Handler for HookHandler {
                     }
                     GrpcMessage::Kick(id, clear_subscriptions) => {
                         let entry = self.shared.inner().entry(id.clone());
-                        log::info!("[GrpcMessage::Kick] {:?}", id);
+                        log::debug!("[GrpcMessage::Kick] {:?}", id);
                         for _ in 0..30u8 {
                             let new_acc = match entry.try_lock() {
                                 Ok(mut entry) => match entry.kick(*clear_subscriptions).await {
-                                    Ok(o) => {
-                                        HookResult::GrpcMessageReply(Ok(MessageReply::Kick(o)))
-                                    }
+                                    Ok(o) => HookResult::GrpcMessageReply(Ok(MessageReply::Kick(o))),
                                     Err(e) => HookResult::GrpcMessageReply(Err(e)),
                                 },
                                 Err(e) => {
@@ -89,20 +87,24 @@ impl Handler for HookHandler {
                                     continue;
                                 }
                             };
-                            log::info!("[GrpcMessage::Kick] {:?} new_acc: {:?}", id, new_acc);
+                            log::debug!("[GrpcMessage::Kick] {:?} new_acc: {:?}", id, new_acc);
                             return (false, Some(new_acc));
                         }
-                        return (false, Some(HookResult::GrpcMessageReply(Err(MqttError::from("try_lock error")))));
+                        return (
+                            false,
+                            Some(HookResult::GrpcMessageReply(Err(MqttError::from("try_lock error")))),
+                        );
                     }
-                    // GrpcMessage::GetRetains(topic_filter) => {
-                    //     let new_acc = match self.retainer.inner().get(topic_filter).await {
-                    //         Ok(retains) => {
-                    //             HookResult::GrpcMessageReply(Ok(MessageReply::GetRetains(retains)))
-                    //         }
-                    //         Err(e) => HookResult::GrpcMessageReply(Err(e)),
-                    //     };
-                    //     return (false, Some(new_acc));
-                    // }
+                    GrpcMessage::GetRetains(topic_filter) => {
+                        log::debug!("[GrpcMessage::GetRetains] topic_filter: {:?}", topic_filter);
+                        let new_acc = match self.retainer.inner().get(topic_filter).await {
+                            Ok(retains) => {
+                                HookResult::GrpcMessageReply(Ok(MessageReply::GetRetains(retains)))
+                            }
+                            Err(e) => HookResult::GrpcMessageReply(Err(e)),
+                        };
+                        return (false, Some(new_acc));
+                    }
                     _ => {
                         log::error!("unimplemented, {:?}", param)
                     }

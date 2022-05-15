@@ -1,6 +1,5 @@
 use futures::future::FutureExt;
 use once_cell::sync::OnceCell;
-use riteraft::{Mailbox, Raft, Result as RaftResult, Store};
 use std::convert::From as _f;
 use std::time::Duration;
 
@@ -8,18 +7,15 @@ use rmqtt::{
     broker::{
         default::DefaultShared,
         session::{ClientInfo, Session, SessionOfflineInfo},
-        types::{
-            ClientId, From, HashMap, Id, NodeId, Publish, QoS, Reason, SharedGroup, Subscribe,
-            SubscribeReturn, To, TopicFilter, TopicFilterString, Tx, Unsubscribe,
-        },
-        Entry, IsOnline, Shared, SharedSubRelations, SubRelations, SubRelationsMap,
+        types::{From, Id, NodeId, Publish, Reason, Subscribe, SubscribeReturn, To, Tx, Unsubscribe},
+        Entry, Shared, SubRelations, SubRelationsMap,
     },
     grpc::{Message, MessageReply, MessageType},
     Result, Runtime,
 };
 
 use super::message::Message as RaftMessage;
-use super::{hook_message_dropped, ClusterRouter, GrpcClients, MessageSender};
+use super::{ClusterRouter, GrpcClients, MessageSender};
 
 pub struct ClusterLockEntry {
     inner: Box<dyn Entry>,
@@ -57,7 +53,11 @@ impl Entry for ClusterLockEntry {
 
     #[inline]
     async fn kick(&mut self, clear_subscriptions: bool) -> Result<Option<SessionOfflineInfo>> {
-        log::info!("{:?} ClusterLockEntry kick ..., clear_subscriptions: {}", self.client().await.map(|c| c.id.clone()), clear_subscriptions);
+        log::debug!(
+            "{:?} ClusterLockEntry kick ..., clear_subscriptions: {}",
+            self.client().await.map(|c| c.id.clone()),
+            clear_subscriptions
+        );
         let id = self.id();
 
         let raft_mailbox = self.cluster_shared.router.raft_mailbox().await;
@@ -66,7 +66,7 @@ impl Entry for ClusterLockEntry {
             .await
             .map_err(anyhow::Error::new)?;
 
-        log::info!("{:?} kick, GetClientNodeId: reply: {:?}", id, reply);
+        log::debug!("{:?} kick, GetClientNodeId: reply: {:?}", id, reply);
 
         let prev_node_id = if reply.is_empty() {
             id.node_id
@@ -75,8 +75,7 @@ impl Entry for ClusterLockEntry {
                 bincode::deserialize(reply.as_ref()).map_err(anyhow::Error::new)?;
             prev_node_id
         };
-        log::info!("{:?} prev_node_id: {:?}", id, prev_node_id);
-        //let prev_node_id = self.cluster_shared.router._client_node_id(&id.client_id).unwrap_or(id.node_id);
+        log::debug!("{:?} prev_node_id: {:?}", id, prev_node_id);
 
         if prev_node_id == id.node_id {
             //kicked from local
@@ -125,44 +124,6 @@ impl Entry for ClusterLockEntry {
                 Ok(None)
             }
         }
-
-        // if let Some(kicked) = self.inner.kick(clear_subscriptions).await? {
-        //     log::debug!("{:?} broadcast kick reply kicked: {:?}", self.id(), kicked);
-        //     return Ok(Some(kicked));
-        // }
-        //
-        // match MessageBroadcaster::new(
-        //     self.cluster_shared.grpc_clients.clone(),
-        //     self.cluster_shared.message_type,
-        //     Message::Kick(self.id()),
-        // )
-        // .kick()
-        // .await
-        // {
-        //     Ok(kicked) => {
-        //         log::debug!("{:?} broadcast kick reply kicked: {:?}", self.id(), kicked);
-        //         log::debug!(
-        //             "{:?} clear_subscriptions: {}, {}, {}",
-        //             self.id(),
-        //             clear_subscriptions,
-        //             kicked.subscriptions.is_empty(),
-        //             !clear_subscriptions && !kicked.subscriptions.is_empty()
-        //         );
-        //         if !clear_subscriptions && !kicked.subscriptions.is_empty() {
-        //             let router = Runtime::instance().extends.router().await;
-        //             let node_id = Runtime::instance().node.id();
-        //             let client_id = &self.id().client_id;
-        //             for (tf, (qos, shared_group)) in kicked.subscriptions.iter() {
-        //                 router.add(tf, node_id, client_id, *qos, shared_group.clone()).await?;
-        //             }
-        //         }
-        //         Ok(Some(kicked))
-        //     }
-        //     Err(e) => {
-        //         log::debug!("{:?}, broadcast Message::Kick reply: {:?}", self.id(), e);
-        //         Ok(None)
-        //     }
-        // }
     }
 
     #[inline]

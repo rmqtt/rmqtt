@@ -1,17 +1,10 @@
 use serde::de::{self};
-// use serde::ser::{Serialize};
 use std::net::SocketAddr;
 use std::str::FromStr;
 
 use rmqtt::broker::types::NodeId;
 use rmqtt::grpc::MessageType;
 use rmqtt::Result;
-
-// #[derive(Debug, Clone, Deserialize, Serialize)]
-// pub struct Raft{
-//     pub server_addr: String,
-//     pub peer_addrs: Vec<String>,
-// }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
@@ -35,7 +28,7 @@ pub struct NodeAddr {
 
 impl std::fmt::Debug for NodeAddr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}/{:?}", self.id, self.addr.to_string())
+        write!(f, "{}/{:?}", self.id, self.addr)
     }
 }
 

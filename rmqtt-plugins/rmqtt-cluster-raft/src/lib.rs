@@ -12,19 +12,18 @@ mod retainer;
 mod router;
 mod shared;
 
-use futures::future::FutureExt;
+use futures::FutureExt;
 use parking_lot::RwLock;
 use std::convert::From as _f;
 use std::sync::Arc;
 use std::time::Duration;
 
-use riteraft::{Mailbox, Raft};
+use rmqtt_raft::{Mailbox, Raft};
 
 use rmqtt::{
     broker::{
         error::MqttError,
         hook::{Register, Type},
-        session::SessionOfflineInfo,
         types::{DashMap, From, NodeId, Publish, Reason, To},
     },
     grpc::{client::NodeGrpcClient, Message, MessageReply, MessageType},
@@ -32,13 +31,12 @@ use rmqtt::{
     Result, Runtime,
 };
 
-use config::{NodeAddr, PluginConfig};
+use config::PluginConfig;
 use handler::HookHandler;
 use retainer::ClusterRetainer;
 use router::ClusterRouter;
 use shared::ClusterShared;
 
-// pub(crate) type GrpcClients = Arc<Vec<(NodeAddr, NodeGrpcClient)>>;
 pub(crate) type GrpcClients = Arc<DashMap<NodeId, NodeGrpcClient>>;
 
 #[inline]
@@ -137,7 +135,6 @@ impl ClusterPlugin {
 
             let runner = async move {
                 let id = Runtime::instance().node.id();
-
                 let raft_handle = match leader_info {
                     Some((leader_id, leader_addr)) => {
                         log::info!(
@@ -145,13 +142,11 @@ impl ClusterPlugin {
                             leader_id,
                             leader_addr
                         );
-                        let handle = tokio::spawn(raft.join(id, Some(leader_id), leader_addr));
-                        handle
+                        tokio::spawn(raft.join(id, Some(leader_id), leader_addr))
                     }
                     None => {
                         log::info!("running in leader mode");
-                        let handle = tokio::spawn(raft.lead(id));
-                        handle
+                        tokio::spawn(raft.lead(id))
                     }
                 };
                 let _ = raft_handle.await.unwrap().unwrap();
@@ -197,7 +192,7 @@ impl Plugin for ClusterPlugin {
         let raft_mailbox = self.raft_mailbox.clone();
         *self.runtime.extends.router_mut().await = Box::new(self.router);
         *self.runtime.extends.shared_mut().await = Box::new(self.shared);
-        // *self.runtime.extends.retain_mut().await = Box::new(self.retainer);
+        *self.runtime.extends.retain_mut().await = Box::new(self.retainer);
         // *self.runtime.extends.shared_subscriber_mut().await = Box::new(self.shared_subscriber);
         self.register.start().await;
 
@@ -283,90 +278,95 @@ impl MessageSender {
     }
 }
 
-// pub struct MessageBroadcaster {
-//     grpc_clients: GrpcClients,
-//     msg_type: MessageType,
-//     msg: Option<Message>,
-// }
-//
-// impl MessageBroadcaster {
-//     pub fn new(grpc_clients: GrpcClients, msg_type: MessageType, msg: Message) -> Self {
-//         Self { grpc_clients, msg_type, msg: Some(msg) }
-//     }
-//
-//     #[inline]
-//     pub async fn join_all(&mut self) -> Vec<Result<MessageReply>> {
-//         let msg = self.msg.take().unwrap();
-//         let mut senders = Vec::new();
-//         let max_idx = self.grpc_clients.len() - 1;
-//         for (i, (_, grpc_client)) in self.grpc_clients.iter().enumerate() {
-//             if i == max_idx {
-//                 senders.push(grpc_client.send_message(self.msg_type, msg));
-//                 break;
-//             } else {
-//                 senders.push(grpc_client.send_message(self.msg_type, msg.clone()));
-//             }
-//         }
-//         futures::future::join_all(senders).await
-//     }
-//
-//     #[inline]
-//     pub async fn kick(&mut self) -> Result<SessionOfflineInfo> {
-//         let reply = self
-//             .select_ok(&|reply: MessageReply| -> Result<MessageReply> {
-//                 log::debug!("reply: {:?}", reply);
-//                 if let MessageReply::Kick(Some(o)) = reply {
-//                     Ok(MessageReply::Kick(Some(o)))
-//                 } else {
-//                     Err(MqttError::None)
-//                 }
-//             })
-//             .await?;
-//         if let MessageReply::Kick(Some(kicked)) = reply {
-//             Ok(kicked)
-//         } else {
-//             Err(MqttError::None)
-//         }
-//     }
-//
-//     #[inline]
-//     pub async fn select_ok<F: Fn(MessageReply) -> Result<MessageReply> + Send + Sync>(
-//         &mut self,
-//         check_fn: &F,
-//     ) -> Result<MessageReply> {
-//         let msg = self.msg.take().unwrap();
-//         let mut senders = Vec::new();
-//         let max_idx = self.grpc_clients.len() - 1;
-//         for (i, (_, grpc_client)) in self.grpc_clients.iter().enumerate() {
-//             if i == max_idx {
-//                 senders.push(Self::send(grpc_client, self.msg_type, msg, check_fn).boxed());
-//                 break;
-//             } else {
-//                 senders.push(Self::send(grpc_client, self.msg_type, msg.clone(), check_fn).boxed());
-//             }
-//         }
-//         let (reply, _) = futures::future::select_ok(senders).await?;
-//         Ok(reply)
-//     }
-//
-//     async fn send<F: Fn(MessageReply) -> Result<MessageReply> + Send + Sync>(
-//         grpc_client: &NodeGrpcClient,
-//         typ: MessageType,
-//         msg: Message,
-//         check_fn: &F,
-//     ) -> Result<MessageReply> {
-//         match grpc_client.send_message(typ, msg).await {
-//             Ok(r) => {
-//                 log::debug!("OK reply: {:?}", r);
-//                 check_fn(r)
-//             }
-//             Err(e) => {
-//                 log::debug!("ERROR reply: {:?}", e);
-//                 Err(e)
-//             }
-//         }
-//     }
-// }
+pub struct MessageBroadcaster {
+    grpc_clients: GrpcClients,
+    msg_type: MessageType,
+    msg: Option<Message>,
+}
+
+impl MessageBroadcaster {
+    pub fn new(grpc_clients: GrpcClients, msg_type: MessageType, msg: Message) -> Self {
+        Self { grpc_clients, msg_type, msg: Some(msg) }
+    }
+
+    #[inline]
+    pub async fn join_all(&mut self) -> Vec<Result<MessageReply>> {
+        let msg_type = self.msg_type;
+        let msg = self.msg.take().unwrap();
+        let mut senders = Vec::new();
+        let max_idx = self.grpc_clients.len() - 1;
+        for (i, grpc_client) in self.grpc_clients.iter().enumerate() {
+            let grpc_client = grpc_client.value().clone();
+            if i == max_idx {
+                let fut = async move { grpc_client.send_message(msg_type, msg).await };
+                senders.push(fut.boxed());
+                break;
+            } else {
+                let msg = msg.clone();
+                let fut = async move { grpc_client.send_message(msg_type, msg).await };
+                senders.push(fut.boxed());
+            }
+        }
+        futures::future::join_all(senders).await
+    }
+
+    //     #[inline]
+    //     pub async fn kick(&mut self) -> Result<SessionOfflineInfo> {
+    //         let reply = self
+    //             .select_ok(&|reply: MessageReply| -> Result<MessageReply> {
+    //                 log::debug!("reply: {:?}", reply);
+    //                 if let MessageReply::Kick(Some(o)) = reply {
+    //                     Ok(MessageReply::Kick(Some(o)))
+    //                 } else {
+    //                     Err(MqttError::None)
+    //                 }
+    //             })
+    //             .await?;
+    //         if let MessageReply::Kick(Some(kicked)) = reply {
+    //             Ok(kicked)
+    //         } else {
+    //             Err(MqttError::None)
+    //         }
+    //     }
+    //
+    //     #[inline]
+    //     pub async fn select_ok<F: Fn(MessageReply) -> Result<MessageReply> + Send + Sync>(
+    //         &mut self,
+    //         check_fn: &F,
+    //     ) -> Result<MessageReply> {
+    //         let msg = self.msg.take().unwrap();
+    //         let mut senders = Vec::new();
+    //         let max_idx = self.grpc_clients.len() - 1;
+    //         for (i, (_, grpc_client)) in self.grpc_clients.iter().enumerate() {
+    //             if i == max_idx {
+    //                 senders.push(Self::send(grpc_client, self.msg_type, msg, check_fn).boxed());
+    //                 break;
+    //             } else {
+    //                 senders.push(Self::send(grpc_client, self.msg_type, msg.clone(), check_fn).boxed());
+    //             }
+    //         }
+    //         let (reply, _) = futures::future::select_ok(senders).await?;
+    //         Ok(reply)
+    //     }
+    //
+    //     async fn send<F: Fn(MessageReply) -> Result<MessageReply> + Send + Sync>(
+    //         grpc_client: &NodeGrpcClient,
+    //         typ: MessageType,
+    //         msg: Message,
+    //         check_fn: &F,
+    //     ) -> Result<MessageReply> {
+    //         match grpc_client.send_message(typ, msg).await {
+    //             Ok(r) => {
+    //                 log::debug!("OK reply: {:?}", r);
+    //                 check_fn(r)
+    //             }
+    //             Err(e) => {
+    //                 log::debug!("ERROR reply: {:?}", e);
+    //                 Err(e)
+    //             }
+    //         }
+    //     }
+}
 
 pub(crate) async fn hook_message_dropped(droppeds: Vec<(To, From, Publish, Reason)>) {
     for (to, from, publish, reason) in droppeds {

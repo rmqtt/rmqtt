@@ -25,7 +25,6 @@ pub enum Message<'a> {
         node_id: NodeId,
         client_id: &'a str,
     },
-
     //get client node id
     GetClientNodeId {
         client_id: &'a str,
@@ -38,7 +37,7 @@ impl<'a> Message<'a> {
         Ok(bincode::serialize(self).map_err(anyhow::Error::new)?)
     }
     #[inline]
-    pub fn decode(data: &'a [u8]) -> Result<Self> {
+    pub fn _decode(data: &'a [u8]) -> Result<Self> {
         Ok(bincode::deserialize::<Self>(data).map_err(anyhow::Error::new)?)
     }
 }

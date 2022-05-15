@@ -10,9 +10,9 @@ use rmqtt::{
     Result,
 };
 
-// use super::{GrpcClients, MessageBroadcaster};
-use super::GrpcClients;
+use super::{GrpcClients, MessageBroadcaster};
 
+#[allow(dead_code)]
 pub(crate) struct ClusterRetainer {
     inner: &'static DefaultRetainStorage,
     grpc_clients: GrpcClients,
@@ -47,30 +47,30 @@ impl RetainStorage for &'static ClusterRetainer {
         let mut retains = self.inner.get(topic_filter).await?;
 
         //get retain info from other nodes
-        // let replys = MessageBroadcaster::new(
-        //     self.grpc_clients.clone(),
-        //     self.message_type,
-        //     Message::GetRetains(topic_filter.clone()),
-        // )
-        // .join_all()
-        // .await;
-        //
-        // for reply in replys {
-        //     match reply {
-        //         Ok(reply) => {
-        //             if let MessageReply::GetRetains(o_retains) = reply {
-        //                 retains.extend(o_retains);
-        //             }
-        //         }
-        //         Err(e) => {
-        //             log::error!(
-        //                 "Get Message::GetRetains from other node, topic_filter: {:?}, error: {:?}",
-        //                 topic_filter,
-        //                 e
-        //             );
-        //         }
-        //     }
-        // }
+        let replys = MessageBroadcaster::new(
+            self.grpc_clients.clone(),
+            self.message_type,
+            Message::GetRetains(topic_filter.clone()),
+        )
+        .join_all()
+        .await;
+
+        for reply in replys {
+            match reply {
+                Ok(reply) => {
+                    if let MessageReply::GetRetains(o_retains) = reply {
+                        retains.extend(o_retains);
+                    }
+                }
+                Err(e) => {
+                    log::error!(
+                        "Get Message::GetRetains from other node, topic_filter: {:?}, error: {:?}",
+                        topic_filter,
+                        e
+                    );
+                }
+            }
+        }
         Ok(retains)
     }
 }
