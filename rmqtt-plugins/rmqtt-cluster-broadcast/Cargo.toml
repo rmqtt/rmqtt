@@ -2,7 +2,7 @@
 name = "rmqtt-cluster-broadcast"
 version = "0.1.1"
 authors = ["rmqtt-rs <rmqttd@126.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 rmqtt = "0.1"

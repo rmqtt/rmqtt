@@ -1,14 +1,14 @@
 [package]
 name = "rmqtt"
 version = "0.1.9"
-authors = ["rmqtt <rmqttd@126.com>"]
-description = "MQTT Server for v3.1 and v3.1.1 protocols"
+authors = ["rmqtt-rs <rmqttd@126.com>"]
+description = "MQTT Server for v3.1, v3.1.1 and v5.0 protocols"
 repository = "https://github.com/rmqtt-rs/rmqtt.git"
 categories = ["network-programming"]
 keywords = ["MQTT", "IoT", "messaging"]
 license = "Apache-2.0 License"
 exclude = [".gitignore", ".cargo/config"]
-edition = "2018"
+edition = "2021"
 
 [lib]
 name = "rmqtt"

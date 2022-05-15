@@ -1,8 +1,8 @@
 [package]
 name = "rmqttd"
 version = "0.1.9"
-authors = ["rmqtt <rmqttd@126.com>"]
-edition = "2018"
+authors = ["rmqtt-rs <rmqttd@126.com>"]
+edition = "2021"
 build = "build.rs"
 
 [[bin]]
