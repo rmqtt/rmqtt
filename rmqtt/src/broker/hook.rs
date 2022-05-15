@@ -159,7 +159,7 @@ impl std::convert::From<&str> for Type {
 
             "grpc_message_received" => Type::GrpcMessageReceived,
 
-            _ => unreachable!(format!("{:?} is not defined", t)),
+            _ => unreachable!("{:?} is not defined", t),
         }
     }
 }

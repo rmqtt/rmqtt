@@ -28,7 +28,7 @@ impl NodeGrpcClient {
     pub async fn new(server_addr: &std::net::SocketAddr) -> Result<Self> {
         log::debug!("rpc.client_timeout: {:?}", Runtime::instance().settings.rpc.client_timeout);
         let concurrency_limit = Runtime::instance().settings.rpc.client_concurrency_limit + 1;
-        let endpoint = Channel::from_shared(format!("http://{}", server_addr.to_string()))
+        let endpoint = Channel::from_shared(format!("http://{}", server_addr))
             .map(|endpoint| {
                 endpoint
                     .concurrency_limit(concurrency_limit)
@@ -116,7 +116,7 @@ impl NodeGrpcClient {
             .map_err(anyhow::Error::new)?;
         log::trace!("response: {:?}", response);
         let message_reply = response.into_inner();
-        Ok(MessageReply::decode(&message_reply.data)?)
+        MessageReply::decode(&message_reply.data)
     }
 
     #[inline]

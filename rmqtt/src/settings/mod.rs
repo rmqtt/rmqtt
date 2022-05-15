@@ -180,14 +180,8 @@ impl Plugins {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct Mqtt {}
-
-impl Default for Mqtt {
-    fn default() -> Self {
-        Self {}
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct ValueMut<T>(Arc<RwLock<T>>);

@@ -505,8 +505,7 @@ impl SessionState {
 
     #[inline]
     pub(crate) async fn unsubscribe(&self, mut unsub: Unsubscribe) -> Result<()> {
-        log::info!("{:?} unsubscribe: {:?}", self.id, unsub);
-
+        log::debug!("{:?} unsubscribe: {:?}", self.id, unsub);
         //hook, client_unsubscribe
         let topic_filter = self.hook.client_unsubscribe(&unsub).await;
         if let Some(topic_filter) = topic_filter {
@@ -855,7 +854,7 @@ impl Deref for Session {
     type Target = _SessionInner;
     #[inline]
     fn deref(&self) -> &Self::Target {
-        &self.0.as_ref()
+        self.0.as_ref()
     }
 }
 

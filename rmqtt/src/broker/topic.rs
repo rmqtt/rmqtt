@@ -33,15 +33,16 @@ where
     }
 }
 
+impl<V> AsRef<Node<V>> for Node<V> {
+    fn as_ref(&self) -> &Node<V> {
+        self
+    }
+}
+
 impl<V> Node<V>
 where
     V: Hash + Eq + Clone + Debug,
 {
-    #[inline]
-    pub fn as_ref(&self) -> &Self {
-        self
-    }
-
     #[inline]
     pub fn insert(&mut self, topic_filter: &Topic, value: V) -> bool {
         let mut path = topic_filter.levels().clone();
@@ -193,13 +194,7 @@ where
             return;
         }
         for (l, n) in self.branches.iter() {
-            out.push(format!(
-                //"{} {:?}, values: {:?}",
-                "{} {:?}",
-                " ".repeat(depth * 3),
-                l.to_string(),
-                // n.values
-            ));
+            out.push(format!("{} {:?}", " ".repeat(depth * 3), l));
             n._list(out, l, top - 1, depth + 1);
         }
     }
@@ -214,11 +209,10 @@ where
     }
 }
 
-
 impl Serialize for Node<()> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
+    where
+        S: Serializer,
     {
         let mut s = serializer.serialize_tuple(2)?;
         s.serialize_element(
@@ -228,11 +222,10 @@ impl Serialize for Node<()> {
     }
 }
 
-
 impl<'de> Deserialize<'de> for Node<()> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         struct NodeVisitor;
 
@@ -243,8 +236,8 @@ impl<'de> Deserialize<'de> for Node<()> {
             }
 
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-                where
-                    A: SeqAccess<'de>,
+            where
+                A: SeqAccess<'de>,
             {
                 if seq.size_hint() != Some(2) {
                     return Err(Error::invalid_type(serde::de::Unexpected::Seq, &self));

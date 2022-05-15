@@ -75,8 +75,8 @@ impl ConnectInfo {
     #[inline]
     pub fn id(&self) -> &Id {
         match self {
-            ConnectInfo::V3(id, _) => &id,
-            ConnectInfo::V5(id, _) => &id,
+            ConnectInfo::V3(id, _) => id,
+            ConnectInfo::V5(id, _) => id,
         }
     }
 
@@ -124,8 +124,8 @@ impl ConnectInfo {
     #[inline]
     pub fn last_will(&self) -> Option<LastWill> {
         match self {
-            ConnectInfo::V3(_, conn_info) => conn_info.last_will.as_ref().map(|lw| LastWill::V3(lw)),
-            ConnectInfo::V5(_, conn_info) => conn_info.last_will.as_ref().map(|lw| LastWill::V5(lw)),
+            ConnectInfo::V3(_, conn_info) => conn_info.last_will.as_ref().map(LastWill::V3),
+            ConnectInfo::V5(_, conn_info) => conn_info.last_will.as_ref().map(LastWill::V5),
         }
     }
 
