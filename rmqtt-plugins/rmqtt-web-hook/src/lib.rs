@@ -257,7 +257,7 @@ impl WebHookHandler {
             let action_urls = rules.iter().filter_map(|r| {
                 let is_allowed = if let Some(topic) = &topic {
                     if let Some((rule_topics, _)) = &r.topics {
-                        rule_topics.is_match(&topic)
+                        rule_topics.is_match(topic)
                     } else {
                         true
                     }
