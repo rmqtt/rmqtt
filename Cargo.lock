@@ -1853,7 +1853,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "ahash 0.7.6",
  "anyhow",
@@ -1996,7 +1996,7 @@ dependencies = [
 
 [[package]]
 name = "rmqttd"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "anyhow",
  "chrono",
