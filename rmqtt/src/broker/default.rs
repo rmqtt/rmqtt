@@ -20,8 +20,8 @@ type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 use ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 
 use super::{
-    retain::RetainTree, topic::TopicTree, Entry, IsOnline, Limiter, LimiterManager, OtherSubRelations,
-    RetainStorage, Router, Shared, SharedSubRelations, SharedSubscription, SubRelations, SubRelationsMap,
+    retain::RetainTree, topic::TopicTree, Entry, IsOnline, Limiter, LimiterManager, RetainStorage, Router,
+    Shared, SharedSubscription, SubRelations, SubRelationsMap,
 };
 use crate::broker::fitter::{Fitter, FitterManager};
 use crate::broker::hook::{Handler, Hook, HookManager, HookResult, Parameter, Priority, Register, Type};
@@ -397,6 +397,7 @@ impl Iterator for DefaultIter<'_> {
     }
 }
 
+#[allow(clippy::type_complexity)]
 pub struct DefaultRouter {
     //pub tree: RwLock<TopicTree<NodeId>>,
     //pub relations: DashMap<TopicFilter, HashMap<ClientId, (NodeId, QoS, Option<SharedGroup>)>>,
@@ -461,7 +462,7 @@ impl DefaultRouter {
             for (group, mut s_subs) in groups.drain() {
                 log::debug!("group: {}, s_subs: {:?}", group, s_subs);
                 if let Some((idx, _is_online)) =
-                Runtime::instance().extends.shared_subscription().await.choice(&s_subs).await
+                    Runtime::instance().extends.shared_subscription().await.choice(&s_subs).await
                 {
                     let (node_id, client_id, qos, _) = s_subs.remove(idx);
                     subs.entry(node_id).or_default().push((topic_filter.clone(), client_id.clone(), qos))
@@ -533,7 +534,6 @@ impl DefaultRouter {
     //     log::debug!("{:?} this_subs: {:?}", topic_name, subs);
     //     Ok(subs)
     // }
-
 }
 
 #[async_trait]
@@ -560,8 +560,10 @@ impl Router for &'static DefaultRouter {
         //     .insert(ClientId::from(client_id), (node_id, qos, shared_group));
         let _ = self
             .relations
-            .entry(TopicFilter::from(topic_filter)).or_default()
-            .entry(node_id).or_default()
+            .entry(TopicFilter::from(topic_filter))
+            .or_default()
+            .entry(node_id)
+            .or_default()
             .insert(ClientId::from(client_id), (qos, shared_group));
 
         Ok(())
@@ -572,14 +574,14 @@ impl Router for &'static DefaultRouter {
         log::debug!("remove, topic_filter: {:?}", topic_filter.to_string());
         //Remove subscription relationship from local
         let is_empty = if let Some(mut node_map) = self.relations.get_mut(topic_filter) {
-            let is_empty = if let Some(client_map) = node_map.get_mut(&node_id){
+            let is_empty = if let Some(client_map) = node_map.get_mut(&node_id) {
                 client_map.remove(client_id);
                 Some(client_map.is_empty())
-            }else{
+            } else {
                 None
             };
-            if let Some(is_empty) = is_empty{
-                if is_empty{
+            if let Some(is_empty) = is_empty {
+                if is_empty {
                     node_map.remove(&node_id);
                     //let topic = Topic::from_str(topic_filter)?;
                     //self.topics.write().await.remove(&topic, &());
@@ -626,12 +628,12 @@ impl Router for &'static DefaultRouter {
                 for (client_id, (qos, group)) in client_map.iter() {
                     // let (node_id, qos, group) = r.value();
                     let item = json!({
-                    "topic_filter": topic_filter.as_str(),
-                    "client_id": client_id,
-                    "node_id": node_id,
-                    "qos": qos,
-                    "group": group,
-                });
+                        "topic_filter": topic_filter.as_str(),
+                        "client_id": client_id,
+                        "node_id": node_id,
+                        "qos": qos,
+                        "group": group,
+                    });
                     rels.push(item);
                     count += 1;
                     if count >= top {
@@ -844,7 +846,8 @@ impl DefaultHookManager {
             self.handlers.entry(typ).or_insert(Arc::new(sync::RwLock::new(BTreeMap::default())));
         let mut type_handlers = type_handlers.write().await;
         let key = (priority, id.clone());
-        if type_handlers.contains_key(&key) {
+        let contains_key = type_handlers.contains_key(&key);
+        if contains_key{
             Err(MqttError::from(format!("handler id is repetition, key is {:?}, type is {:?}", key, typ)))
         } else {
             type_handlers.insert(key, HookEntry::new(handler));
@@ -1249,6 +1252,7 @@ impl LimiterManager for &'static DefaultLimiterManager {
 
 #[derive(Clone)]
 pub struct DefaultLimiter {
+    #[allow(dead_code)]
     name: String,
     await_acquire: bool,
     limiter: Arc<LeakyBucket>,
