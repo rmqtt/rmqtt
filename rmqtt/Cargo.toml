@@ -15,8 +15,8 @@ name = "rmqtt"
 path = "src/lib.rs"
 
 [dependencies]
-ntex = { version = "0.3.16", features = ["rustls"] }
-ntex-mqtt = { git = "https://github.com/rmqtt-rs/ntex-mqtt", version = "0.6.9"}
+ntex = { git = "https://github.com/rmqtt-rs/ntex.git", version = "0.3.16", features = ["rustls"] }
+ntex-mqtt = { git = "https://github.com/rmqtt-rs/ntex-mqtt", version = "0.6.10"}
 #ntex-mqtt = { path = "../../ntex-mqtt" }
 futures = "0.3.15"
 tokio = { version = "1.10.0", features = ["full"] }
