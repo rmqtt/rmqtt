@@ -78,7 +78,7 @@ pub type DynPluginFn = Box<dyn PluginFn>;
 pub struct Entry {
     inited: bool,
     active: bool,
-    //immutable: bool, //will reject start, stop, and load config operations
+    immutable: bool, //will reject start, stop, and load config operations
     plugin: Option<DynPlugin>,
     plugin_f: Option<DynPluginFn>,
 }
@@ -92,6 +92,11 @@ impl Entry {
     #[inline]
     pub fn active(&self) -> bool {
         self.active
+    }
+
+    #[inline]
+    pub fn immutable(&self) -> bool{
+        self.immutable
     }
 
     #[inline]
@@ -125,6 +130,7 @@ impl Entry {
                 "descr": plugin.descr(),
                 "inited": self.inited,
                 "active": self.active,
+                "immutable": self.immutable,
                 "attrs": plugin.attrs().await,
             }))
         } else {
@@ -132,6 +138,7 @@ impl Entry {
                 "name": name,
                 "inited": self.inited,
                 "active": self.active,
+                "immutable": self.immutable,
             }))
         }
     }
@@ -151,6 +158,7 @@ impl Manager {
         &self,
         name: N,
         default_startup: bool,
+        immutable: bool,
         plugin_f: F,
     ) -> Result<()> {
         let name = name.into();
@@ -171,7 +179,7 @@ impl Manager {
             (None, Some(boxed_f))
         };
 
-        let entry = Entry { inited: default_startup, active: default_startup, plugin, plugin_f };
+        let entry = Entry { inited: default_startup, active: default_startup, immutable, plugin, plugin_f };
         self.plugins.insert(name, entry);
         Ok(())
     }
@@ -187,7 +195,7 @@ impl Manager {
 
     ///Load Config
     pub async fn load_config(&self, name: &str) -> Result<()> {
-        if let Some(mut entry) = self.get_mut(name) {
+        if let Some(mut entry) = self.get_mut(name)? {
             if entry.inited {
                 entry.plugin_mut().await?.load_config().await?;
                 Ok(())
@@ -201,7 +209,7 @@ impl Manager {
 
     ///Start a Plugin
     pub async fn start(&self, name: &str) -> Result<()> {
-        if let Some(mut entry) = self.get_mut(name) {
+        if let Some(mut entry) = self.get_mut(name)? {
             if !entry.inited {
                 entry.plugin_mut().await?.init().await?;
                 entry.inited = true;
@@ -218,7 +226,7 @@ impl Manager {
 
     ///Stop a Plugin
     pub async fn stop(&self, name: &str) -> Result<bool> {
-        if let Some(mut entry) = self.get_mut(name) {
+        if let Some(mut entry) = self.get_mut(name)? {
             if entry.active {
                 let stopped = entry.plugin_mut().await?.stop().await?;
                 entry.active = !stopped;
@@ -246,8 +254,16 @@ impl Manager {
     }
 
     ///Get a mut Plugin
-    pub fn get_mut(&self, name: &str) -> Option<EntryRefMut> {
-        self.plugins.get_mut(name)
+    pub fn get_mut(&self, name: &str) -> Result<Option<EntryRefMut>> {
+        if let Some(entry) = self.plugins.get_mut(name){
+            if entry.immutable{
+                Err(MqttError::from("the plug-in is immutable"))
+            }else{
+                Ok(Some(entry))
+            }
+        }else{
+            Ok(None)
+        }
     }
 
     ///Sending messages to plug-in

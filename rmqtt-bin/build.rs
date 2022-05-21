@@ -23,22 +23,22 @@ fn plugins(decoded: &toml::Value) {
             let name = cfg.get("name").and_then(|v| v.as_str()).unwrap_or(id);
             let descr = cfg.get("description").and_then(|v| v.as_str()).unwrap_or_default();
             let default_startup = cfg.get("default_startup").and_then(|v| v.as_bool()).unwrap_or(false);
-
+            let immutable = cfg.get("immutable").and_then(|v| v.as_bool()).unwrap_or(false);
             println!(
-                "plugin_id: {}, default_startup: {}, name: {}, descr: {}",
-                plugin_id, default_startup, name, descr
+                "plugin_id: {}, default_startup: {}, immutable: {}, name: {}, descr: {}",
+                plugin_id, default_startup, immutable, name, descr
             );
 
             inits.push(format!(
-                "    {}::register(rmqtt::Runtime::instance(), r#\"{}\"#, r#\"{}\"#, {}).await?;",
-                plugin_id, name, descr, default_startup
+                "    {}::register(rmqtt::Runtime::instance(), r#\"{}\"#, r#\"{}\"#, {} || default_startups.contains(&String::from(r#\"{}\"#)), {}).await?;",
+                plugin_id, name, descr, default_startup, name, immutable
             ));
         }
     }
 
     let out = std::env::var("OUT_DIR").unwrap();
     let mut plugin_rs = File::create(format!("{}/{}", out, "plugin.rs")).unwrap();
-    plugin_rs.write_all(b"pub(crate) async fn init() -> anyhow::Result<()>{\n").unwrap();
+    plugin_rs.write_all(b"pub(crate) async fn registers(default_startups: Vec<String>) -> anyhow::Result<()>{\n").unwrap();
     plugin_rs.write_all(inits.join("\n").as_bytes()).unwrap();
     plugin_rs.write_all(b"\n    Ok(())\n}").unwrap();
 }

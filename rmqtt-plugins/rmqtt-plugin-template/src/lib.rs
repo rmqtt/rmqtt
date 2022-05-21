@@ -12,10 +12,11 @@ pub async fn register(
     name: &'static str,
     descr: &'static str,
     default_startup: bool,
+    immutable: bool,
 ) -> Result<()> {
     runtime
         .plugins
-        .register(name, default_startup, move || -> DynPluginResult {
+        .register(name, default_startup, immutable, move || -> DynPluginResult {
             Box::pin(async move {
                 Template::new(runtime, name, descr).await.map(|p| -> DynPlugin { Box::new(p) })
             })
