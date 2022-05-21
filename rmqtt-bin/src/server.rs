@@ -4,6 +4,7 @@ use anyhow::Result;
 
 use rustls::internal::pemfile::{certs, rsa_private_keys};
 use rustls::{NoClientAuth, ServerConfig};
+use std::time::Duration;
 use std::{fs::File, io::BufReader};
 
 use rmqtt::futures::{self, future::ok};
@@ -75,6 +76,7 @@ async fn main() {
     let _ =
         futures::future::join(futures::future::join_all(tcp_listens), futures::future::join_all(tls_listens))
             .await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
 }
 
 async fn listen(name: String, listen_cfg: &Listener) -> Result<()> {
