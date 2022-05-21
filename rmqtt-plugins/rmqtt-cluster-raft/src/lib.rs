@@ -23,7 +23,7 @@ use rmqtt::{
         types::{DashMap, From, NodeId, Publish, Reason, To},
     },
     grpc::{client::NodeGrpcClient, Message, MessageReply, MessageType},
-    plugin::Plugin,
+    plugin::{DynPlugin, DynPluginResult, Plugin},
     Result, Runtime,
 };
 use router::ClusterRouter;
@@ -39,15 +39,19 @@ mod shared;
 pub(crate) type GrpcClients = Arc<DashMap<NodeId, NodeGrpcClient>>;
 
 #[inline]
-pub async fn init<N: Into<String>, D: Into<String>>(
+pub async fn register(
     runtime: &'static Runtime,
-    name: N,
-    descr: D,
+    name: &'static str,
+    descr: &'static str,
     default_startup: bool,
 ) -> Result<()> {
     runtime
         .plugins
-        .register(Box::new(ClusterPlugin::new(runtime, name.into(), descr.into()).await?), default_startup)
+        .register(name, default_startup, move || -> DynPluginResult {
+            Box::pin(async move {
+                ClusterPlugin::new(runtime, name, descr).await.map(|p| -> DynPlugin { Box::new(p) })
+            })
+        })
         .await?;
     Ok(())
 }
@@ -68,7 +72,8 @@ struct ClusterPlugin {
 
 impl ClusterPlugin {
     #[inline]
-    async fn new(runtime: &'static Runtime, name: String, descr: String) -> Result<Self> {
+    async fn new<S: Into<String>>(runtime: &'static Runtime, name: S, descr: S) -> Result<Self> {
+        let name = name.into();
         let cfg = Arc::new(RwLock::new(
             runtime
                 .settings
@@ -80,7 +85,8 @@ impl ClusterPlugin {
 
         let register = runtime.extends.hook_mgr().await.register();
         let grpc_clients = DashMap::default();
-        for node_addr in cfg.read().node_grpc_addrs.iter() {
+        let node_grpc_addrs = cfg.read().node_grpc_addrs.clone();
+        for node_addr in &node_grpc_addrs {
             if node_addr.id != runtime.node.id() {
                 grpc_clients.insert(node_addr.id, runtime.node.new_grpc_client(&node_addr.addr).await?);
             }
@@ -90,10 +96,19 @@ impl ClusterPlugin {
         let router = ClusterRouter::get_or_init();
         let shared = ClusterShared::get_or_init(router, grpc_clients.clone(), message_type);
         let retainer = ClusterRetainer::get_or_init(grpc_clients.clone(), message_type);
-        // let raft_mailbox = Self::start_raft(cfg.clone(), router).await;
-        // router.set_raft_mailbox(raft_mailbox.clone()).await;
         let raft_mailbox = None;
-        Ok(Self { runtime, name, descr, register, cfg, grpc_clients, shared, retainer, router, raft_mailbox })
+        Ok(Self {
+            runtime,
+            name,
+            descr: descr.into(),
+            register,
+            cfg,
+            grpc_clients,
+            shared,
+            retainer,
+            router,
+            raft_mailbox,
+        })
     }
 
     //raft init ...

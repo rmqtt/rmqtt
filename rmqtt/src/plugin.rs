@@ -1,3 +1,6 @@
+use core::pin::Pin;
+use std::future::Future;
+
 use dashmap::iter::Iter;
 use dashmap::mapref::one::{Ref, RefMut};
 
@@ -27,7 +30,7 @@ pub trait Plugin: Send + Sync {
 
     #[inline]
     async fn load_config(&mut self) -> Result<()> {
-        Ok(())
+        Err(MqttError::from("unimplemented!"))
     }
 
     #[inline]
@@ -61,10 +64,23 @@ pub trait Plugin: Send + Sync {
     }
 }
 
+type BoxFuture<T> = Pin<Box<dyn Future<Output=T> + Send>>;
+// type LocalBoxFuture<T> = Pin<Box<dyn Future<Output = T>>>;
+
+pub trait PluginFn: 'static + Sync + Send + Fn() -> BoxFuture<Result<DynPlugin>> {}
+
+impl<T> PluginFn for T where T: 'static + Sync + Send + ?Sized + Fn() -> BoxFuture<Result<DynPlugin>> {}
+
+pub type DynPluginResult = BoxFuture<Result<DynPlugin>>;
+pub type DynPlugin = Box<dyn Plugin>;
+pub type DynPluginFn = Box<dyn PluginFn>;
+
 pub struct Entry {
     inited: bool,
     active: bool,
-    pub plugin: Box<dyn Plugin>,
+    //immutable: bool, //will reject start, stop, and load config operations
+    plugin: Option<DynPlugin>,
+    plugin_f: Option<DynPluginFn>,
 }
 
 impl Entry {
@@ -79,15 +95,45 @@ impl Entry {
     }
 
     #[inline]
-    pub async fn to_json(&self) -> serde_json::Value {
-        json!({
-            "name": self.plugin.name(),
-            "version": self.plugin.version(),
-            "descr": self.plugin.descr(),
-            "inited": self.inited,
-            "active": self.active,
-            "attrs": self.plugin.attrs().await,
-        })
+    async fn plugin(&self) -> Result<&dyn Plugin> {
+        if let Some(plugin) = &self.plugin {
+            Ok(plugin.as_ref())
+        } else {
+            Err(MqttError::from("the plug-in is not initialized"))
+        }
+    }
+
+    #[inline]
+    async fn plugin_mut(&mut self) -> Result<&mut dyn Plugin> {
+        if let Some(plugin_f) = self.plugin_f.take() {
+            self.plugin.replace(plugin_f().await?);
+        }
+
+        if let Some(plugin) = self.plugin.as_mut() {
+            Ok(plugin.as_mut())
+        } else {
+            Err(MqttError::from("the plug-in is not initialized"))
+        }
+    }
+
+    #[inline]
+    pub async fn to_json(&self, name: &str) -> Result<serde_json::Value> {
+        if let Ok(plugin) = self.plugin().await {
+            Ok(json!({
+                "name": plugin.name(),
+                "version": plugin.version(),
+                "descr": plugin.descr(),
+                "inited": self.inited,
+                "active": self.active,
+                "attrs": plugin.attrs().await,
+            }))
+        } else {
+            Ok(json!({
+                "name": name,
+                "inited": self.inited,
+                "active": self.active,
+            }))
+        }
     }
 }
 
@@ -101,26 +147,39 @@ impl Manager {
     }
 
     ///Register a Plugin
-    pub async fn register(&self, mut plugin: Box<dyn Plugin>, default_startup: bool) -> Result<()> {
-        if let Some((_, mut entry)) = self.plugins.remove(plugin.name()) {
+    pub async fn register<N: Into<String>, F: PluginFn>(
+        &self,
+        name: N,
+        default_startup: bool,
+        plugin_f: F,
+    ) -> Result<()> {
+        let name = name.into();
+
+        if let Some((_, mut entry)) = self.plugins.remove(&name) {
             if entry.active {
-                entry.plugin.stop().await?;
+                entry.plugin_mut().await?.stop().await?;
             }
         }
-        //plugin.init().await?;
-        if default_startup {
+
+        let (plugin, plugin_f) = if default_startup {
+            let mut plugin = plugin_f().await?;
             plugin.init().await?;
             plugin.start().await?;
-        }
-        let name = plugin.name().into();
-        self.plugins.insert(name, Entry { inited: default_startup, active: default_startup, plugin });
+            (Some(plugin), None)
+        } else {
+            let boxed_f: Box<dyn PluginFn> = Box::new(plugin_f);
+            (None, Some(boxed_f))
+        };
+
+        let entry = Entry { inited: default_startup, active: default_startup, plugin, plugin_f };
+        self.plugins.insert(name, entry);
         Ok(())
     }
 
     ///Return Config
     pub async fn get_config(&self, name: &str) -> Result<serde_json::Value> {
         if let Some(entry) = self.get(name) {
-            entry.plugin.get_config().await
+            entry.plugin().await?.get_config().await
         } else {
             Err(MqttError::from(format!("{} the plug-in does not exist", name)))
         }
@@ -129,8 +188,12 @@ impl Manager {
     ///Load Config
     pub async fn load_config(&self, name: &str) -> Result<()> {
         if let Some(mut entry) = self.get_mut(name) {
-            entry.plugin.load_config().await?;
-            Ok(())
+            if entry.inited {
+                entry.plugin_mut().await?.load_config().await?;
+                Ok(())
+            } else {
+                Err(MqttError::from("the plug-in is not initialized"))
+            }
         } else {
             Err(MqttError::from(format!("{} the plug-in does not exist", name)))
         }
@@ -140,10 +203,11 @@ impl Manager {
     pub async fn start(&self, name: &str) -> Result<()> {
         if let Some(mut entry) = self.get_mut(name) {
             if !entry.inited {
-                entry.plugin.init().await?;
+                entry.plugin_mut().await?.init().await?;
+                entry.inited = true;
             }
             if !entry.active {
-                entry.plugin.start().await?;
+                entry.plugin_mut().await?.start().await?;
                 entry.active = true;
             }
             Ok(())
@@ -156,7 +220,7 @@ impl Manager {
     pub async fn stop(&self, name: &str) -> Result<bool> {
         if let Some(mut entry) = self.get_mut(name) {
             if entry.active {
-                let stopped = entry.plugin.stop().await?;
+                let stopped = entry.plugin_mut().await?.stop().await?;
                 entry.active = !stopped;
                 Ok(stopped)
             } else {
@@ -189,7 +253,7 @@ impl Manager {
     ///Sending messages to plug-in
     pub async fn send(&self, name: &str, msg: serde_json::Value) -> Result<serde_json::Value> {
         if let Some(entry) = self.plugins.get(name) {
-            entry.plugin.send(msg).await
+            entry.plugin().await?.send(msg).await
         } else {
             Err(MqttError::from(format!("{} the plug-in does not exist", name)))
         }

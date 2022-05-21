@@ -7,27 +7,31 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use config::{Access, Control, PH_C, PH_U, PluginConfig};
-use rmqtt::{serde_json, tokio};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::types::{AuthResult, PublishAclResult, SubscribeAckReason, SubscribeAclResult, Topic},
-    plugin::Plugin,
+    plugin::{DynPlugin, DynPluginResult, Plugin},
     Result, Runtime,
 };
+use rmqtt::{serde_json, tokio};
 use rmqtt::async_trait::async_trait;
 
 mod config;
 
 #[inline]
-pub async fn init<N: Into<String>, D: Into<String>>(
+pub async fn register(
     runtime: &'static Runtime,
-    name: N,
-    descr: D,
+    name: &'static str,
+    descr: &'static str,
     default_startup: bool,
 ) -> Result<()> {
     runtime
         .plugins
-        .register(Box::new(AclPlugin::new(runtime, name.into(), descr.into()).await?), default_startup)
+        .register(name, default_startup, move || -> DynPluginResult {
+            Box::pin(async move {
+                AclPlugin::new(runtime, name, descr).await.map(|p| -> DynPlugin { Box::new(p) })
+            })
+        })
         .await?;
     Ok(())
 }
@@ -42,11 +46,16 @@ struct AclPlugin {
 
 impl AclPlugin {
     #[inline]
-    async fn new(runtime: &'static Runtime, name: String, descr: String) -> Result<Self> {
+    async fn new<N: Into<String>, D: Into<String>>(
+        runtime: &'static Runtime,
+        name: N,
+        descr: D,
+    ) -> Result<Self> {
+        let name = name.into();
         let cfg = Arc::new(RwLock::new(runtime.settings.plugins.load_config::<PluginConfig>(&name)?));
         log::debug!("{} AclPlugin cfg: {:?}", name, cfg.read().await);
         let register = runtime.extends.hook_mgr().await.register();
-        Ok(Self { runtime, name, descr, register, cfg })
+        Ok(Self { runtime, name, descr: descr.into(), register, cfg })
     }
 }
 

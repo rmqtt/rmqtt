@@ -17,7 +17,7 @@ use rmqtt::{
     broker::session::ClientInfo,
     broker::types::{AsStr, AuthResult, Password, PublishAclResult, SubscribeAckReason, SubscribeAclResult},
     ClientId,
-    MqttError, plugin::Plugin, Result, Runtime, TopicName,
+    MqttError, plugin::{DynPlugin, DynPluginResult, Plugin}, Result, Runtime, TopicName,
 };
 
 mod config;
@@ -31,15 +31,19 @@ const PUB: &str = "2";
 type CacheMap = Arc<DashMap<ClientId, CacheValue>>;
 
 #[inline]
-pub async fn init<N: Into<String>, D: Into<String>>(
+pub async fn register(
     runtime: &'static Runtime,
-    name: N,
-    descr: D,
+    name: &'static str,
+    descr: &'static str,
     default_startup: bool,
 ) -> Result<()> {
     runtime
         .plugins
-        .register(Box::new(AuthHttpPlugin::new(runtime, name.into(), descr.into()).await?), default_startup)
+        .register(name, default_startup, move || -> DynPluginResult {
+            Box::pin(async move {
+                AuthHttpPlugin::new(runtime, name, descr).await.map(|p| -> DynPlugin { Box::new(p) })
+            })
+        })
         .await?;
     Ok(())
 }
@@ -55,12 +59,13 @@ struct AuthHttpPlugin {
 
 impl AuthHttpPlugin {
     #[inline]
-    async fn new(runtime: &'static Runtime, name: String, descr: String) -> Result<Self> {
+    async fn new<S: Into<String>>(runtime: &'static Runtime, name: S, descr: S) -> Result<Self> {
+        let name = name.into();
         let cfg = Arc::new(RwLock::new(runtime.settings.plugins.load_config::<PluginConfig>(&name)?));
         log::debug!("{} AuthHttpPlugin cfg: {:?}", name, cfg.read().await);
         let register = runtime.extends.hook_mgr().await.register();
         let cache_map = Arc::new(DashMap::default());
-        Ok(Self { runtime, name, descr, register, cfg, cache_map })
+        Ok(Self { runtime, name, descr: descr.into(), register, cfg, cache_map })
     }
 }
 

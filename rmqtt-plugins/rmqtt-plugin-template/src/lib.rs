@@ -2,20 +2,24 @@ use async_trait::async_trait;
 
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
-    plugin::Plugin,
+    plugin::{DynPlugin, DynPluginResult, Plugin},
     Result, Runtime,
 };
 
 #[inline]
-pub async fn init<N: Into<String>, D: Into<String>>(
+pub async fn register(
     runtime: &'static Runtime,
-    name: N,
-    descr: D,
+    name: &'static str,
+    descr: &'static str,
     default_startup: bool,
 ) -> Result<()> {
     runtime
         .plugins
-        .register(Box::new(Template::new(runtime, name.into(), descr.into()).await), default_startup)
+        .register(name, default_startup, move || -> DynPluginResult {
+            Box::pin(async move {
+                Template::new(runtime, name, descr).await.map(|p| -> DynPlugin { Box::new(p) })
+            })
+        })
         .await?;
     Ok(())
 }
@@ -29,9 +33,9 @@ struct Template {
 
 impl Template {
     #[inline]
-    async fn new(runtime: &'static Runtime, name: String, descr: String) -> Self {
+    async fn new<S: Into<String>>(runtime: &'static Runtime, name: S, descr: S) -> Result<Self> {
         let register = runtime.extends.hook_mgr().await.register();
-        Self { _runtime: runtime, name, descr, register }
+        Ok(Self { _runtime: runtime, name: name.into(), descr: descr.into(), register })
     }
 }
 

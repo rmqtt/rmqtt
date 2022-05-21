@@ -16,7 +16,7 @@ use config::PluginConfig;
 use rmqtt::{
     broker::hook::{self, Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::types::{ConnectInfo, Id, MQTT_LEVEL_5, QoS, QoSEx},
-    plugin::Plugin,
+    plugin::{DynPlugin, DynPluginResult, Plugin},
     Result, Runtime, Topic, TopicFilter,
 };
 use rmqtt::broker::error::MqttError;
@@ -24,15 +24,19 @@ use rmqtt::broker::error::MqttError;
 mod config;
 
 #[inline]
-pub async fn init<N: Into<String>, D: Into<String>>(
+pub async fn register(
     runtime: &'static Runtime,
-    name: N,
-    descr: D,
+    name: &'static str,
+    descr: &'static str,
     default_startup: bool,
 ) -> Result<()> {
     runtime
         .plugins
-        .register(Box::new(WebHookPlugin::new(runtime, name.into(), descr.into()).await?), default_startup)
+        .register(name, default_startup, move || -> DynPluginResult {
+            Box::pin(async move {
+                WebHookPlugin::new(runtime, name, descr).await.map(|p| -> DynPlugin { Box::new(p) })
+            })
+        })
         .await?;
     Ok(())
 }
@@ -50,7 +54,8 @@ struct WebHookPlugin {
 
 impl WebHookPlugin {
     #[inline]
-    async fn new(runtime: &'static Runtime, name: String, descr: String) -> Result<Self> {
+    async fn new<S: Into<String>>(runtime: &'static Runtime, name: S, descr: S) -> Result<Self> {
+        let name = name.into();
         let cfg = Arc::new(RwLock::new(
             runtime
                 .settings
@@ -62,7 +67,7 @@ impl WebHookPlugin {
         let processings = Arc::new(AtomicIsize::new(0));
         let tx = Arc::new(RwLock::new(Self::start(runtime, cfg.clone(), processings.clone())));
         let register = runtime.extends.hook_mgr().await.register();
-        Ok(Self { runtime, name, descr, register, cfg, tx, processings })
+        Ok(Self { runtime, name, descr: descr.into(), register, cfg, tx, processings })
     }
 
     fn start(
