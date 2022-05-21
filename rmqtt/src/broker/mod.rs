@@ -44,12 +44,12 @@ pub trait Shared: Sync + Send {
     ///Route and dispense publish message
     async fn forwards(&self, from: From, publish: Publish) -> Result<(), Vec<(To, From, Publish, Reason)>>;
 
-    // ///Route and dispense publish message and return shared subscription relations
-    // async fn forwards_and_get_shareds(
-    //     &self,
-    //     from: From,
-    //     publish: Publish,
-    // ) -> Result<SharedSubRelations, Vec<(To, From, Publish, Reason)>>;
+    ///Route and dispense publish message and return shared subscription relations
+    async fn forwards_and_get_shareds(
+        &self,
+        from: From,
+        publish: Publish,
+    ) -> Result<SubRelationsMap, Vec<(To, From, Publish, Reason)>>;
 
     ///dispense publish message
     async fn forwards_to(
@@ -88,8 +88,9 @@ pub type IsOnline = bool;
 pub type SharedSubRelations = HashMap<TopicFilterString, Vec<(SharedGroup, NodeId, ClientId, QoS, IsOnline)>>; //key is TopicFilter
 pub type OtherSubRelations = HashMap<NodeId, Vec<TopicFilter>>; //In other nodes
 
-pub type SubRelations = Vec<(TopicFilter, ClientId, QoS)>;
+pub type SubRelations = Vec<(TopicFilter, ClientId, QoS, Option<(SharedGroup, IsOnline)>)>;
 pub type SubRelationsMap = HashMap<NodeId, SubRelations>;
+pub type ClearSubscriptions = bool;
 
 #[async_trait]
 pub trait Router: Sync + Send {

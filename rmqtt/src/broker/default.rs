@@ -277,27 +277,44 @@ impl Shared for &'static DefaultShared {
         Ok(())
     }
 
-    // async fn forwards_and_get_shareds(
-    //     &self,
-    //     from: From,
-    //     publish: Publish,
-    // ) -> Result<SharedSubRelations, Vec<(To, From, Publish, Reason)>> {
-    //     let topic = publish.topic();
-    //     log::debug!("forwards_and_get_shareds, from: {:?}, topic: {:?}", from, topic.to_string());
-    //     let (relations, shared_relations, _other_relations) =
-    //         match Runtime::instance().extends.router().await.matches(topic).await {
-    //             Ok((relations, shared_relations, _other_relations)) => {
-    //                 (relations, shared_relations, _other_relations)
-    //             }
-    //             Err(e) => {
-    //                 log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
-    //                 (Vec::new(), HashMap::default(), HashMap::default())
-    //             }
-    //         };
-    //
-    //     self.forwards_to(from, &publish, relations).await?;
-    //     Ok(shared_relations)
-    // }
+    #[inline]
+    async fn forwards_and_get_shareds(
+        &self,
+        from: From,
+        publish: Publish,
+    ) -> Result<SubRelationsMap, Vec<(To, From, Publish, Reason)>> {
+        let topic = publish.topic();
+        log::debug!("forwards_and_get_shareds, from: {:?}, topic: {:?}", from, topic.to_string());
+        let relations_map = match Runtime::instance().extends.router().await.matches(topic).await {
+            Ok(relations_map) => relations_map,
+            Err(e) => {
+                log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
+                SubRelationsMap::default()
+            }
+        };
+
+        let mut relations = SubRelations::new();
+        let mut sub_relations_map = SubRelationsMap::default();
+        for (node_id, rels) in relations_map {
+            for (topic_filter, client_id, qos, group) in rels {
+                if let Some(group) = group {
+                    sub_relations_map.entry(node_id).or_default().push((
+                        topic_filter,
+                        client_id,
+                        qos,
+                        Some(group),
+                    ));
+                } else {
+                    relations.push((topic_filter, client_id, qos, None));
+                }
+            }
+        }
+
+        if !relations.is_empty() {
+            self.forwards_to(from, &publish, relations).await?;
+        }
+        Ok(sub_relations_map)
+    }
 
     #[inline]
     async fn forwards_to(
@@ -308,7 +325,7 @@ impl Shared for &'static DefaultShared {
     ) -> Result<(), Vec<(To, From, Publish, Reason)>> {
         let mut errs = Vec::new();
 
-        for (topic_filter, client_id, qos) in relations.drain(..) {
+        for (topic_filter, client_id, qos, _) in relations.drain(..) {
             let mut p = publish.clone();
             p.dup = false;
             p.retain = false;
@@ -452,6 +469,7 @@ impl DefaultRouter {
                                 topic_filter.clone(),
                                 client_id.clone(),
                                 *qos,
+                                None,
                             ))
                         }
                     }
@@ -461,11 +479,16 @@ impl DefaultRouter {
             //select a subscriber from shared subscribe groups
             for (group, mut s_subs) in groups.drain() {
                 log::debug!("group: {}, s_subs: {:?}", group, s_subs);
-                if let Some((idx, _is_online)) =
+                if let Some((idx, is_online)) =
                     Runtime::instance().extends.shared_subscription().await.choice(&s_subs).await
                 {
                     let (node_id, client_id, qos, _) = s_subs.remove(idx);
-                    subs.entry(node_id).or_default().push((topic_filter.clone(), client_id.clone(), qos))
+                    subs.entry(node_id).or_default().push((
+                        topic_filter.clone(),
+                        client_id.clone(),
+                        qos,
+                        Some((group, is_online)),
+                    ))
                 }
             }
         }
@@ -847,7 +870,7 @@ impl DefaultHookManager {
         let mut type_handlers = type_handlers.write().await;
         let key = (priority, id.clone());
         let contains_key = type_handlers.contains_key(&key);
-        if contains_key{
+        if contains_key {
             Err(MqttError::from(format!("handler id is repetition, key is {:?}, type is {:?}", key, typ)))
         } else {
             type_handlers.insert(key, HookEntry::new(handler));
