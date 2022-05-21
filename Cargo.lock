@@ -1921,6 +1921,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "rmqtt-cluster-broadcast"
+version = "0.1.1"
+dependencies = [
+ "ahash 0.7.6",
+ "anyhow",
+ "async-trait",
+ "futures",
+ "log",
+ "once_cell",
+ "parking_lot 0.10.2",
+ "rmqtt",
+ "serde 1.0.137",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "rmqtt-cluster-raft"
 version = "0.1.0"
 dependencies = [
@@ -2003,6 +2020,7 @@ dependencies = [
  "rmqtt",
  "rmqtt-acl",
  "rmqtt-auth-http",
+ "rmqtt-cluster-broadcast",
  "rmqtt-cluster-raft",
  "rmqtt-plugin-template",
  "rmqtt-web-hook",

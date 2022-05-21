@@ -3,7 +3,7 @@ use rmqtt::{
     broker::{
         hook::{Handler, HookResult, Parameter, ReturnType},
         types::{From, Publish},
-        SharedSubRelations,
+        SubRelationsMap,
     },
     grpc::{Message, MessageReply},
     Runtime,
@@ -43,11 +43,11 @@ impl Handler for HookHandler {
                         }
                         return (false, acc);
                     }
-                    Message::Kick(id) => {
+                    Message::Kick(id, clear_subscriptions) => {
                         let entry = self.shared.inner().entry(id.clone());
                         log::debug!("{:?}", id);
                         let new_acc = match entry.try_lock() {
-                            Ok(mut entry) => match entry.kick(true).await {
+                            Ok(mut entry) => match entry.kick(*clear_subscriptions).await {
                                 Ok(o) => {
                                     log::debug!("{:?} offline info: {:?}", id, o);
                                     HookResult::GrpcMessageReply(Ok(MessageReply::Kick(o)))
@@ -95,12 +95,13 @@ impl Handler for HookHandler {
     }
 }
 
-async fn forwards(from: From, publish: Publish) -> SharedSubRelations {
+async fn forwards(from: From, publish: Publish) -> SubRelationsMap {
+    log::debug!("forwards, From: {:?}, publish: {:?}", from, publish);
     match Runtime::instance().extends.shared().await.forwards_and_get_shareds(from, publish).await {
         Err(droppeds) => {
             hook_message_dropped(droppeds).await;
-            SharedSubRelations::default()
+            SubRelationsMap::default()
         }
-        Ok(shared_subs) => shared_subs,
+        Ok(relations_map) => relations_map,
     }
 }
