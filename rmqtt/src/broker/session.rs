@@ -235,7 +235,7 @@ impl SessionState {
         deliver_queue_tx: &MessageSender,
         kicked: &mut bool,
     ) {
-        log::info!("{:?} start offline event loop", state.id);
+        log::debug!("{:?} start offline event loop", state.id);
         let id = state.id.clone();
 
         //state.client.disconnect
@@ -699,7 +699,7 @@ impl SessionState {
         clear_subscriptions: bool,
         mut offline_info: SessionOfflineInfo,
     ) -> Result<()> {
-        log::info!(
+        log::debug!(
             "{:?} transfer session state, form: {:?}, subscriptions: {}, inflight_messages: {}, offline_messages: {}",
             self.id,
             offline_info.id,
