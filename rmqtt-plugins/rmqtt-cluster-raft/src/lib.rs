@@ -64,7 +64,7 @@ struct ClusterPlugin {
     retainer: &'static ClusterRetainer,
 
     router: &'static ClusterRouter,
-    raft_mailbox: Mailbox,
+    raft_mailbox: Option<Mailbox>,
 }
 
 impl ClusterPlugin {
@@ -91,9 +91,9 @@ impl ClusterPlugin {
         let router = ClusterRouter::get_or_init();
         let shared = ClusterShared::get_or_init(router, grpc_clients.clone(), message_type);
         let retainer = ClusterRetainer::get_or_init(grpc_clients.clone(), message_type);
-        let raft_mailbox = Self::start_raft(cfg.clone(), router).await;
-        router.set_raft_mailbox(raft_mailbox.clone()).await;
-
+        // let raft_mailbox = Self::start_raft(cfg.clone(), router).await;
+        // router.set_raft_mailbox(raft_mailbox.clone()).await;
+        let raft_mailbox = None;
         Ok(Self { runtime, name, descr, register, cfg, grpc_clients, shared, retainer, router, raft_mailbox })
     }
 
@@ -162,8 +162,16 @@ impl ClusterPlugin {
     #[inline]
     async fn hook_register(&self, typ: Type) {
         self.register
-            .add(typ, Box::new(HookHandler::new(self.shared, self.retainer, self.raft_mailbox.clone())))
+            .add(typ, Box::new(HookHandler::new(self.shared, self.retainer, self.raft_mailbox())))
             .await;
+    }
+
+    fn raft_mailbox(&self) -> Mailbox {
+        if let Some(raft_mailbox) = &self.raft_mailbox {
+            raft_mailbox.clone()
+        } else {
+            unreachable!()
+        }
     }
 }
 
@@ -172,6 +180,10 @@ impl Plugin for ClusterPlugin {
     #[inline]
     async fn init(&mut self) -> Result<()> {
         log::info!("{} init", self.name);
+
+        let raft_mailbox = Self::start_raft(self.cfg.clone(), self.router).await;
+        self.raft_mailbox.replace(raft_mailbox.clone());
+        self.router.set_raft_mailbox(raft_mailbox).await;
 
         self.hook_register(Type::ClientConnected).await;
         self.hook_register(Type::ClientDisconnected).await;
@@ -189,7 +201,7 @@ impl Plugin for ClusterPlugin {
     #[inline]
     async fn start(&mut self) -> Result<()> {
         log::info!("{} start", self.name);
-        let raft_mailbox = self.raft_mailbox.clone();
+        let raft_mailbox = self.raft_mailbox();
         *self.runtime.extends.router_mut().await = Box::new(self.router);
         *self.runtime.extends.shared_mut().await = Box::new(self.shared);
         *self.runtime.extends.retain_mut().await = Box::new(self.retainer);
@@ -230,7 +242,7 @@ impl Plugin for ClusterPlugin {
 
     #[inline]
     async fn attrs(&self) -> serde_json::Value {
-        let raft_status = self.raft_mailbox.status().await.ok();
+        let raft_status = self.raft_mailbox().status().await.ok();
 
         let mut nodes = std::collections::HashMap::new();
         for entry in self.grpc_clients.iter() {
@@ -309,63 +321,6 @@ impl MessageBroadcaster {
         }
         futures::future::join_all(senders).await
     }
-
-    //     #[inline]
-    //     pub async fn kick(&mut self) -> Result<SessionOfflineInfo> {
-    //         let reply = self
-    //             .select_ok(&|reply: MessageReply| -> Result<MessageReply> {
-    //                 log::debug!("reply: {:?}", reply);
-    //                 if let MessageReply::Kick(Some(o)) = reply {
-    //                     Ok(MessageReply::Kick(Some(o)))
-    //                 } else {
-    //                     Err(MqttError::None)
-    //                 }
-    //             })
-    //             .await?;
-    //         if let MessageReply::Kick(Some(kicked)) = reply {
-    //             Ok(kicked)
-    //         } else {
-    //             Err(MqttError::None)
-    //         }
-    //     }
-    //
-    //     #[inline]
-    //     pub async fn select_ok<F: Fn(MessageReply) -> Result<MessageReply> + Send + Sync>(
-    //         &mut self,
-    //         check_fn: &F,
-    //     ) -> Result<MessageReply> {
-    //         let msg = self.msg.take().unwrap();
-    //         let mut senders = Vec::new();
-    //         let max_idx = self.grpc_clients.len() - 1;
-    //         for (i, (_, grpc_client)) in self.grpc_clients.iter().enumerate() {
-    //             if i == max_idx {
-    //                 senders.push(Self::send(grpc_client, self.msg_type, msg, check_fn).boxed());
-    //                 break;
-    //             } else {
-    //                 senders.push(Self::send(grpc_client, self.msg_type, msg.clone(), check_fn).boxed());
-    //             }
-    //         }
-    //         let (reply, _) = futures::future::select_ok(senders).await?;
-    //         Ok(reply)
-    //     }
-    //
-    //     async fn send<F: Fn(MessageReply) -> Result<MessageReply> + Send + Sync>(
-    //         grpc_client: &NodeGrpcClient,
-    //         typ: MessageType,
-    //         msg: Message,
-    //         check_fn: &F,
-    //     ) -> Result<MessageReply> {
-    //         match grpc_client.send_message(typ, msg).await {
-    //             Ok(r) => {
-    //                 log::debug!("OK reply: {:?}", r);
-    //                 check_fn(r)
-    //             }
-    //             Err(e) => {
-    //                 log::debug!("ERROR reply: {:?}", e);
-    //                 Err(e)
-    //             }
-    //         }
-    //     }
 }
 
 pub(crate) async fn hook_message_dropped(droppeds: Vec<(To, From, Publish, Reason)>) {
