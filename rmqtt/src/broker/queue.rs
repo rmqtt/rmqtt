@@ -24,7 +24,7 @@ pub type Receiver<'a, T> = RatelimitedStream<'a, ReceiverStream<T>, InMemoryStat
 pub enum Policy {
     Current,
     //Discard current value
-    Early,   //Discard earliest value
+    Early, //Discard earliest value
 }
 
 pub trait PolicyFn<P>: 'static + Fn(&P) -> Policy {}

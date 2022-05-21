@@ -38,7 +38,7 @@ impl Handler for HookHandler {
                     }
                     Message::ForwardsTo(from, publish, sub_rels) => {
                         if let Err(droppeds) =
-                        self.shared.inner().forwards_to(from.clone(), &publish, sub_rels.clone()).await
+                        self.shared.inner().forwards_to(from.clone(), publish, sub_rels.clone()).await
                         {
                             hook_message_dropped(droppeds).await;
                         }
