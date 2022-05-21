@@ -13,6 +13,7 @@ mod version {
     include!(concat!(env!("OUT_DIR"), "/version.rs"));
 }
 
+#[allow(clippy::redundant_closure)]
 pub async fn serve<T: Into<SocketAddr>>(laddr: T) -> Result<()> {
     let root = || warp::any();
 

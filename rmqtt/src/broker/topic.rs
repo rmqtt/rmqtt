@@ -33,6 +33,12 @@ where
     }
 }
 
+impl<V> AsRef<Node<V>> for Node<V> {
+    fn as_ref(&self) -> &Node<V> {
+        self
+    }
+}
+
 impl<V> Node<V>
 where
     V: Hash + Eq + Clone + Debug,
@@ -188,14 +194,7 @@ where
             return;
         }
         for (l, n) in self.branches.iter() {
-            out.push(format!(
-                //"{} {:?} => {:?}, values: {:?}",
-                "{} {:?}, values: {:?}",
-                " ".repeat(depth * 3),
-                //parent.to_string(),
-                l.to_string(),
-                n.values
-            ));
+            out.push(format!("{} {:?}", " ".repeat(depth * 3), l));
             n._list(out, l, top - 1, depth + 1);
         }
     }
@@ -207,6 +206,52 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Node {{ nodes_size: {}, values_size: {} }}", self.nodes_size(), self.values_size())
+    }
+}
+
+impl Serialize for Node<()> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut s = serializer.serialize_tuple(2)?;
+        s.serialize_element(
+            &self.branches.iter().map(|(k, v)| (k, v)).collect::<Vec<(&Level, &Node<()>)>>(),
+        )?;
+        s.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for Node<()> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct NodeVisitor;
+
+        impl<'de> Visitor<'de> for NodeVisitor {
+            type Value = Node<()>;
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct Node<()>")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                if seq.size_hint() != Some(2) {
+                    return Err(Error::invalid_type(serde::de::Unexpected::Seq, &self));
+                }
+
+                let values = HashSet::default();
+                let branches = seq
+                    .next_element::<HashMap<Level, Node<()>>>()?
+                    .ok_or_else(|| de::Error::missing_field("branches"))?;
+
+                Ok(Node { values, branches })
+            }
+        }
+        deserializer.deserialize_tuple(2, NodeVisitor)
     }
 }
 

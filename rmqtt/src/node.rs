@@ -30,8 +30,12 @@ impl Node {
                 .thread_stack_size(4 * 1024 * 1024)
                 .build()
                 .unwrap();
-            let runner = async { Server::new().listen_and_serve().await };
-            rt.block_on(runner).unwrap()
+            let runner = async {
+                if let Err(e) = Server::new().listen_and_serve().await {
+                    log::error!("listen and serve failure, {:?}", e);
+                }
+            };
+            rt.block_on(runner)
         });
     }
 }

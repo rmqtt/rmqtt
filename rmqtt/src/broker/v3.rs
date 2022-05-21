@@ -191,7 +191,7 @@ pub async fn handshake<Io>(
     state.hook.client_connected().await;
 
     if let Some(o) = offline_info {
-        state.transfer_session_state(o).await?;
+        state.transfer_session_state(packet.clean_session, o).await?;
     }
 
     Ok(handshake.ack(state, session_present).idle_timeout(keep_alive))

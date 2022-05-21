@@ -1,25 +1,25 @@
 [package]
 name = "rmqtt"
-version = "0.1.9"
-authors = ["rmqtt <rmqttd@126.com>"]
-description = "MQTT Server for v3.1 and v3.1.1 protocols"
+version = "0.1.10"
+authors = ["rmqtt-rs <rmqttd@126.com>"]
+description = "MQTT Server for v3.1, v3.1.1 and v5.0 protocols"
 repository = "https://github.com/rmqtt-rs/rmqtt.git"
 categories = ["network-programming"]
 keywords = ["MQTT", "IoT", "messaging"]
 license = "Apache-2.0 License"
 exclude = [".gitignore", ".cargo/config"]
-edition = "2018"
+edition = "2021"
 
 [lib]
 name = "rmqtt"
 path = "src/lib.rs"
 
 [dependencies]
-ntex = { version = "0.3.16", features = ["rustls"] }
-ntex-mqtt = { git = "https://github.com/rmqtt-rs/ntex-mqtt", version = "0.6.9"}
+ntex = { git = "https://github.com/rmqtt-rs/ntex.git", version = "0.3.16", features = ["rustls"] }
+ntex-mqtt = { git = "https://github.com/rmqtt-rs/ntex-mqtt", version = "0.6.10"}
 #ntex-mqtt = { path = "../../ntex-mqtt" }
 futures = "0.3.15"
-tokio = { version = "1.6.0", features = ["full"] }
+tokio = { version = "1.10.0", features = ["full"] }
 tonic = "0.4.3"
 prost = "0.7.0"
 once_cell="1.7.2"

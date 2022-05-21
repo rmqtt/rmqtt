@@ -49,7 +49,7 @@ pub trait Shared: Sync + Send {
         &self,
         from: From,
         publish: Publish,
-    ) -> Result<SharedSubRelations, Vec<(To, From, Publish, Reason)>>;
+    ) -> Result<SubRelationsMap, Vec<(To, From, Publish, Reason)>>;
 
     ///dispense publish message
     async fn forwards_to(
@@ -85,9 +85,12 @@ pub trait Shared: Sync + Send {
 }
 
 pub type IsOnline = bool;
-pub type SubRelations = Vec<(TopicFilter, ClientId, QoS)>;
 pub type SharedSubRelations = HashMap<TopicFilterString, Vec<(SharedGroup, NodeId, ClientId, QoS, IsOnline)>>; //key is TopicFilter
-pub type OtherSubRelations = HashMap<NodeId, Vec<TopicFilter>>;
+pub type OtherSubRelations = HashMap<NodeId, Vec<TopicFilter>>; //In other nodes
+
+pub type SubRelations = Vec<(TopicFilter, ClientId, QoS, Option<(SharedGroup, IsOnline)>)>;
+pub type SubRelationsMap = HashMap<NodeId, SubRelations>;
+pub type ClearSubscriptions = bool;
 
 #[async_trait]
 pub trait Router: Sync + Send {
@@ -102,10 +105,23 @@ pub trait Router: Sync + Send {
 
     async fn remove(&self, topic_filter: &str, node_id: NodeId, client_id: &str) -> Result<()>;
 
-    async fn matches(
-        &self,
-        topic: &TopicName,
-    ) -> Result<(SubRelations, SharedSubRelations, OtherSubRelations)>;
+    // async fn matches(
+    //     &self,
+    //     topic: &TopicName,
+    // ) -> Result<(SubRelations, SharedSubRelations, OtherSubRelations)>;
+    async fn matches(&self, topic: &TopicName) -> Result<SubRelationsMap>;
+
+    ///Check online or offline
+    #[inline]
+    async fn is_online(&self, node_id: NodeId, client_id: &str) -> bool {
+        Runtime::instance()
+            .extends
+            .shared()
+            .await
+            .entry(Id::from(node_id, ClientId::from(client_id)))
+            .is_connected()
+            .await
+    }
 
     ///get topic tree
     async fn list_topics(&self, top: usize) -> Vec<String>;
@@ -143,7 +159,7 @@ pub trait SharedSubscription: Sync + Send {
             let is_online = if let Some(is_online) = is_online {
                 *is_online
             } else {
-                self.is_online(*node_id, client_id).await
+                Runtime::instance().extends.router().await.is_online(*node_id, client_id).await
             };
 
             if is_online {
@@ -155,18 +171,6 @@ pub trait SharedSubscription: Sync + Send {
             }
         }
         return None;
-    }
-
-    ///Check online or offline
-    #[inline]
-    async fn is_online(&self, node_id: NodeId, client_id: &str) -> bool {
-        Runtime::instance()
-            .extends
-            .shared()
-            .await
-            .entry(Id::from(node_id, ClientId::from(client_id)))
-            .is_connected()
-            .await
     }
 }
 

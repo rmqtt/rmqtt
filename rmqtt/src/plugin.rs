@@ -62,11 +62,17 @@ pub trait Plugin: Send + Sync {
 }
 
 pub struct Entry {
+    inited: bool,
     active: bool,
     pub plugin: Box<dyn Plugin>,
 }
 
 impl Entry {
+    #[inline]
+    pub fn inited(&self) -> bool {
+        self.inited
+    }
+
     #[inline]
     pub fn active(&self) -> bool {
         self.active
@@ -78,6 +84,7 @@ impl Entry {
             "name": self.plugin.name(),
             "version": self.plugin.version(),
             "descr": self.plugin.descr(),
+            "inited": self.inited,
             "active": self.active,
             "attrs": self.plugin.attrs().await,
         })
@@ -100,12 +107,13 @@ impl Manager {
                 entry.plugin.stop().await?;
             }
         }
-        plugin.init().await?;
+        //plugin.init().await?;
         if default_startup {
+            plugin.init().await?;
             plugin.start().await?;
         }
         let name = plugin.name().into();
-        self.plugins.insert(name, Entry { active: default_startup, plugin });
+        self.plugins.insert(name, Entry { inited: default_startup, active: default_startup, plugin });
         Ok(())
     }
 
@@ -131,6 +139,9 @@ impl Manager {
     ///Start a Plugin
     pub async fn start(&self, name: &str) -> Result<()> {
         if let Some(mut entry) = self.get_mut(name) {
+            if !entry.inited {
+                entry.plugin.init().await?;
+            }
             if !entry.active {
                 entry.plugin.start().await?;
                 entry.active = true;

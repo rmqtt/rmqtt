@@ -49,11 +49,7 @@ impl InflightMessage {
 
     #[inline]
     pub fn release_packet_v3(&self) -> Option<Packet> {
-        if let Some(packet_id) = self.publish.packet_id {
-            Some(Packet::V3(PacketV3::PublishRelease { packet_id }))
-        } else {
-            None
-        }
+        self.publish.packet_id.map(|packet_id| Packet::V3(PacketV3::PublishRelease { packet_id }))
     }
 
     #[inline]

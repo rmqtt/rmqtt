@@ -1,8 +1,8 @@
 [package]
 name = "rmqttd"
-version = "0.1.9"
-authors = ["rmqtt <rmqttd@126.com>"]
-edition = "2018"
+version = "0.1.10"
+authors = ["rmqtt-rs <rmqttd@126.com>"]
+edition = "2021"
 build = "build.rs"
 
 [[bin]]
@@ -30,6 +30,7 @@ rmqtt-acl = "0.1"
 rmqtt-web-hook = "0.1"
 rmqtt-auth-http = "0.1"
 rmqtt-cluster-broadcast = "0.1"
+rmqtt-cluster-raft = "0.1"
 rmqtt-plugin-template = "0.1"
 
 [package.metadata.plugins]
@@ -37,6 +38,7 @@ rmqtt-acl = {default_startup = true}
 rmqtt-web-hook = {}
 rmqtt-auth-http = {}
 rmqtt-cluster-broadcast = {}
+rmqtt-cluster-raft = {}
 rmqtt-plugin-template = {}
 
 [build-dependencies]

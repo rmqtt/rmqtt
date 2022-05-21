@@ -20,8 +20,8 @@ type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 use ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 
 use super::{
-    retain::RetainTree, topic::TopicTree, Entry, IsOnline, Limiter, LimiterManager, OtherSubRelations,
-    RetainStorage, Router, Shared, SharedSubRelations, SharedSubscription, SubRelations,
+    retain::RetainTree, topic::TopicTree, Entry, IsOnline, Limiter, LimiterManager, RetainStorage, Router,
+    Shared, SharedSubscription, SubRelations, SubRelationsMap,
 };
 use crate::broker::fitter::{Fitter, FitterManager};
 use crate::broker::hook::{Handler, Hook, HookManager, HookResult, Parameter, Priority, Register, Type};
@@ -259,52 +259,61 @@ impl Shared for &'static DefaultShared {
     async fn forwards(&self, from: From, publish: Publish) -> Result<(), Vec<(To, From, Publish, Reason)>> {
         let topic = publish.topic();
         let router = Runtime::instance().extends.router().await;
-        let (mut relations, mut shared_relations, _other_relations) =
-            match router.matches(publish.topic()).await {
-                Ok((relations, shared_relations, _other_relations)) => {
-                    (relations, shared_relations, _other_relations)
-                }
-                Err(e) => {
-                    log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
-                    (Vec::new(), HashMap::default(), HashMap::default())
-                }
-            };
-
-        for (topic_filter, mut subs) in shared_relations.drain() {
-            if subs.len() == 1 {
-                let (_, _, client_id, qos, _) = subs.remove(0);
-                relations.push((TopicFilter::from(topic_filter), client_id, qos))
-            } else {
-                for (_, _, client_id, qos, _) in subs {
-                    relations.push((TopicFilter::from(topic_filter.clone()), client_id, qos));
-                }
+        let mut relations_map = match router.matches(publish.topic()).await {
+            Ok(relations_map) => relations_map,
+            Err(e) => {
+                log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
+                SubRelationsMap::default()
             }
-        }
+        };
 
-        self.forwards_to(from, &publish, relations).await?;
+        let this_node_id = Runtime::instance().node.id();
+        if let Some(relations) = relations_map.remove(&this_node_id) {
+            self.forwards_to(from, &publish, relations).await?;
+        }
+        if !relations_map.is_empty() {
+            log::warn!("forwards, relations_map:{:?}", relations_map);
+        }
         Ok(())
     }
 
+    #[inline]
     async fn forwards_and_get_shareds(
         &self,
         from: From,
         publish: Publish,
-    ) -> Result<SharedSubRelations, Vec<(To, From, Publish, Reason)>> {
+    ) -> Result<SubRelationsMap, Vec<(To, From, Publish, Reason)>> {
         let topic = publish.topic();
         log::debug!("forwards_and_get_shareds, from: {:?}, topic: {:?}", from, topic.to_string());
-        let (relations, shared_relations, _other_relations) =
-            match Runtime::instance().extends.router().await.matches(topic).await {
-                Ok((relations, shared_relations, _other_relations)) => {
-                    (relations, shared_relations, _other_relations)
-                }
-                Err(e) => {
-                    log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
-                    (Vec::new(), HashMap::default(), HashMap::default())
-                }
-            };
+        let relations_map = match Runtime::instance().extends.router().await.matches(topic).await {
+            Ok(relations_map) => relations_map,
+            Err(e) => {
+                log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
+                SubRelationsMap::default()
+            }
+        };
 
-        self.forwards_to(from, &publish, relations).await?;
-        Ok(shared_relations)
+        let mut relations = SubRelations::new();
+        let mut sub_relations_map = SubRelationsMap::default();
+        for (node_id, rels) in relations_map {
+            for (topic_filter, client_id, qos, group) in rels {
+                if let Some(group) = group {
+                    sub_relations_map.entry(node_id).or_default().push((
+                        topic_filter,
+                        client_id,
+                        qos,
+                        Some(group),
+                    ));
+                } else {
+                    relations.push((topic_filter, client_id, qos, None));
+                }
+            }
+        }
+
+        if !relations.is_empty() {
+            self.forwards_to(from, &publish, relations).await?;
+        }
+        Ok(sub_relations_map)
     }
 
     #[inline]
@@ -316,7 +325,7 @@ impl Shared for &'static DefaultShared {
     ) -> Result<(), Vec<(To, From, Publish, Reason)>> {
         let mut errs = Vec::new();
 
-        for (topic_filter, client_id, qos) in relations.drain(..) {
+        for (topic_filter, client_id, qos, _) in relations.drain(..) {
             let mut p = publish.clone();
             p.dup = false;
             p.retain = false;
@@ -405,10 +414,12 @@ impl Iterator for DefaultIter<'_> {
     }
 }
 
-//type SharedGroupMap = DashMap<TopicFilter, HashMap<ClientId, (QoS, NodeId, SharedGroup)>>;
+#[allow(clippy::type_complexity)]
 pub struct DefaultRouter {
-    tree: RwLock<TopicTree<NodeId>>,
-    relations: DashMap<TopicFilter, DashMap<ClientId, (QoS, Option<SharedGroup>)>>,
+    //pub tree: RwLock<TopicTree<NodeId>>,
+    //pub relations: DashMap<TopicFilter, HashMap<ClientId, (NodeId, QoS, Option<SharedGroup>)>>,
+    pub topics: RwLock<TopicTree<()>>,
+    pub relations: DashMap<TopicFilter, HashMap<NodeId, HashMap<ClientId, (QoS, Option<SharedGroup>)>>>,
 }
 
 impl DefaultRouter {
@@ -416,74 +427,136 @@ impl DefaultRouter {
     pub fn instance() -> &'static DefaultRouter {
         static INSTANCE: OnceCell<DefaultRouter> = OnceCell::new();
         INSTANCE
-            .get_or_init(|| Self { tree: RwLock::new(TopicTree::default()), relations: DashMap::default() })
+            .get_or_init(|| Self { topics: RwLock::new(TopicTree::default()), relations: DashMap::default() })
     }
 
     #[allow(clippy::type_complexity)]
     #[inline]
-    pub async fn _matches(
-        &self,
-        topic_name: &TopicName,
-        this_node_id: NodeId,
-    ) -> Result<(SubRelations, SharedSubRelations, OtherSubRelations)> {
-        let mut this_subs: SubRelations = Vec::new();
-        let mut other_subs: OtherSubRelations = HashMap::default();
-        let mut shared_subs: SharedSubRelations = HashMap::default();
+    pub async fn _matches(&self, topic_name: &TopicName) -> Result<SubRelationsMap> {
+        let mut subs: SubRelationsMap = HashMap::default();
         let topic = Topic::from_str(topic_name)?;
-        for (topic_filter, node_ids) in self.tree.read().await.matches(&topic).iter() {
+        for (topic_filter, _node_ids) in self.topics.read().await.matches(&topic).iter() {
             let topic_filter = topic_filter.to_topic_filter();
 
             let mut groups: HashMap<SharedGroup, Vec<(NodeId, ClientId, QoS, Option<IsOnline>)>> =
                 HashMap::default();
 
-            for node_id in node_ids {
-                if this_node_id == *node_id {
-                    //Get subscription relationship from local
-                    if let Some(entry) = self.relations.get(&topic_filter) {
-                        for e in entry.iter() {
-                            let client_id = e.key();
-                            let (qos, group) = e.value();
-                            if let Some(group) = group {
-                                if let Some(group_subs) = groups.get_mut(group) {
-                                    group_subs.push((*node_id, client_id.clone(), *qos, None));
-                                } else {
-                                    groups.insert(
-                                        group.clone(),
-                                        vec![(*node_id, client_id.clone(), *qos, None)],
-                                    );
-                                }
+            if let Some(node_map) = self.relations.get(&topic_filter) {
+                for (node_id, client_map) in node_map.iter() {
+                    for (client_id, (qos, group)) in client_map.iter() {
+                        if let Some(group) = group {
+                            let router = Runtime::instance().extends.router().await;
+                            if let Some(group_subs) = groups.get_mut(group) {
+                                group_subs.push((
+                                    *node_id,
+                                    client_id.clone(),
+                                    *qos,
+                                    Some(router.is_online(*node_id, client_id).await),
+                                ));
                             } else {
-                                this_subs.push((topic_filter.clone(), client_id.clone(), *qos));
+                                groups.insert(
+                                    group.clone(),
+                                    vec![(
+                                        *node_id,
+                                        client_id.clone(),
+                                        *qos,
+                                        Some(router.is_online(*node_id, client_id).await),
+                                    )],
+                                );
                             }
+                        } else {
+                            subs.entry(*node_id).or_default().push((
+                                topic_filter.clone(),
+                                client_id.clone(),
+                                *qos,
+                                None,
+                            ))
                         }
                     }
-                } else {
-                    other_subs.entry(*node_id).or_default().push(topic_filter.clone());
                 }
             }
 
             //select a subscriber from shared subscribe groups
             for (group, mut s_subs) in groups.drain() {
+                log::debug!("group: {}, s_subs: {:?}", group, s_subs);
                 if let Some((idx, is_online)) =
                     Runtime::instance().extends.shared_subscription().await.choice(&s_subs).await
                 {
                     let (node_id, client_id, qos, _) = s_subs.remove(idx);
-                    if this_node_id == node_id {
-                        shared_subs
-                            .entry(topic_filter.to_string())
-                            .or_default()
-                            .push((group, node_id, client_id, qos, is_online))
-                    } else {
-                        other_subs.entry(node_id).or_default().push(topic_filter.clone());
-                    }
+                    subs.entry(node_id).or_default().push((
+                        topic_filter.clone(),
+                        client_id.clone(),
+                        qos,
+                        Some((group, is_online)),
+                    ))
                 }
             }
         }
 
-        log::debug!("{:?} this_subs: {:?}", topic.to_string(), this_subs);
-        log::debug!("{:?} shared_subs: {:?}", topic.to_string(), shared_subs);
-        Ok((this_subs, shared_subs, other_subs))
+        log::debug!("{:?} this_subs: {:?}", topic_name, subs);
+        Ok(subs)
     }
+
+    // #[allow(clippy::type_complexity)]
+    // #[inline]
+    // pub async fn _matches(&self, topic_name: &TopicName) -> Result<SubRelationsMap> {
+    //     let mut subs: SubRelationsMap = HashMap::default();
+    //     let topic = Topic::from_str(topic_name)?;
+    //     for (topic_filter, _node_ids) in self.tree.read().await.matches(&topic).iter() {
+    //         let topic_filter = topic_filter.to_topic_filter();
+    //
+    //         let mut groups: HashMap<SharedGroup, Vec<(NodeId, ClientId, QoS, Option<IsOnline>)>> =
+    //             HashMap::default();
+    //
+    //         if let Some(entry) = self.relations.get(&topic_filter) {
+    //             for (client_id, (node_id, qos, group)) in entry.iter() {
+    //                 //let client_id = e.key();
+    //                 //let (node_id, qos, group) = e.value();
+    //                 if let Some(group) = group {
+    //                     let router = Runtime::instance().extends.router().await;
+    //                     if let Some(group_subs) = groups.get_mut(group) {
+    //                         group_subs.push((
+    //                             *node_id,
+    //                             client_id.clone(),
+    //                             *qos,
+    //                             Some(router.is_online(*node_id, client_id).await),
+    //                         ));
+    //                     } else {
+    //                         groups.insert(
+    //                             group.clone(),
+    //                             vec![(
+    //                                 *node_id,
+    //                                 client_id.clone(),
+    //                                 *qos,
+    //                                 Some(router.is_online(*node_id, client_id).await),
+    //                             )],
+    //                         );
+    //                     }
+    //                 } else {
+    //                     subs.entry(*node_id).or_default().push((
+    //                         topic_filter.clone(),
+    //                         client_id.clone(),
+    //                         *qos,
+    //                     ))
+    //                 }
+    //             }
+    //         }
+    //
+    //         //select a subscriber from shared subscribe groups
+    //         for (group, mut s_subs) in groups.drain() {
+    //             log::debug!("group: {}, s_subs: {:?}", group, s_subs);
+    //             if let Some((idx, _is_online)) =
+    //                 Runtime::instance().extends.shared_subscription().await.choice(&s_subs).await
+    //             {
+    //                 let (node_id, client_id, qos, _) = s_subs.remove(idx);
+    //                 subs.entry(node_id).or_default().push((topic_filter.clone(), client_id.clone(), qos))
+    //             }
+    //         }
+    //     }
+    //
+    //     log::debug!("{:?} this_subs: {:?}", topic_name, subs);
+    //     Ok(subs)
+    // }
 }
 
 #[async_trait]
@@ -500,12 +573,19 @@ impl Router for &'static DefaultRouter {
         log::debug!("add, topic_filter: {:?}", topic_filter);
         let topic = Topic::from_str(topic_filter)?;
         //add to topic tree
-        self.tree.write().await.insert(&topic, node_id); //@TODO Or send the routing relationship to the cluster ...
+        self.topics.write().await.insert(&topic, ()); //@TODO Or send the routing relationship to the cluster ...
 
         //add to subscribe relations
+        // let _ = self
+        //     .relations
+        //     .entry(TopicFilter::from(topic_filter))
+        //     .or_default()
+        //     .insert(ClientId::from(client_id), (node_id, qos, shared_group));
         let _ = self
             .relations
             .entry(TopicFilter::from(topic_filter))
+            .or_default()
+            .entry(node_id)
             .or_default()
             .insert(ClientId::from(client_id), (qos, shared_group));
 
@@ -515,44 +595,50 @@ impl Router for &'static DefaultRouter {
     #[inline]
     async fn remove(&self, topic_filter: &str, node_id: NodeId, client_id: &str) -> Result<()> {
         log::debug!("remove, topic_filter: {:?}", topic_filter.to_string());
-
         //Remove subscription relationship from local
-        let relations_len = if let Some(entry) = self.relations.get(topic_filter) {
-            entry.remove(client_id);
-            Some(entry.len())
+        let is_empty = if let Some(mut node_map) = self.relations.get_mut(topic_filter) {
+            let is_empty = if let Some(client_map) = node_map.get_mut(&node_id) {
+                client_map.remove(client_id);
+                Some(client_map.is_empty())
+            } else {
+                None
+            };
+            if let Some(is_empty) = is_empty {
+                if is_empty {
+                    node_map.remove(&node_id);
+                    //let topic = Topic::from_str(topic_filter)?;
+                    //self.topics.write().await.remove(&topic, &());
+                }
+            }
+            Some(node_map.is_empty())
         } else {
             None
         };
-
         log::debug!(
-            "remove, topic_filter: {:?}, relations_len: {:?}",
+            "remove, node_id: {}, topic_filter: {:?}, is_empty: {:?}",
+            node_id,
             topic_filter.to_string(),
-            relations_len
+            is_empty
         );
-
-        if let Some(relations_len) = relations_len {
-            //Remove routing information from the routing table when there is no subscription relationship
-            if relations_len == 0 {
-                let topic = Topic::from_str(topic_filter)?;
-                self.tree.write().await.remove(&topic, &node_id);
+        //Remove routing information from the routing table when there is no subscription relationship
+        if let Some(is_empty) = is_empty {
+            if is_empty {
                 self.relations.remove(topic_filter);
+                let topic = Topic::from_str(topic_filter)?;
+                self.topics.write().await.remove(&topic, &());
             }
         }
-
         Ok(())
     }
 
     #[inline]
-    async fn matches(
-        &self,
-        topic: &TopicName,
-    ) -> Result<(SubRelations, SharedSubRelations, OtherSubRelations)> {
-        Ok(self._matches(topic, Runtime::instance().node.id()).await?)
+    async fn matches(&self, topic: &TopicName) -> Result<SubRelationsMap> {
+        Ok(self._matches(topic).await?)
     }
 
     #[inline]
     async fn list_topics(&self, top: usize) -> Vec<String> {
-        self.tree.read().await.list(top)
+        self.topics.read().await.list(top)
     }
 
     #[inline]
@@ -561,18 +647,21 @@ impl Router for &'static DefaultRouter {
         let mut rels = Vec::new();
         for entry in self.relations.iter() {
             let topic_filter = entry.key().to_string();
-            for r in entry.value().iter() {
-                let (qos, group) = r.value();
-                let item = json!({
-                    "topic_filter": topic_filter.as_str(),
-                    "client_id": r.key(),
-                    "qos": qos,
-                    "group": group,
-                });
-                rels.push(item);
-                count += 1;
-                if count >= top {
-                    return rels;
+            for (node_id, client_map) in entry.iter() {
+                for (client_id, (qos, group)) in client_map.iter() {
+                    // let (node_id, qos, group) = r.value();
+                    let item = json!({
+                        "topic_filter": topic_filter.as_str(),
+                        "client_id": client_id,
+                        "node_id": node_id,
+                        "qos": qos,
+                        "group": group,
+                    });
+                    rels.push(item);
+                    count += 1;
+                    if count >= top {
+                        return rels;
+                    }
                 }
             }
         }
@@ -780,7 +869,8 @@ impl DefaultHookManager {
             self.handlers.entry(typ).or_insert(Arc::new(sync::RwLock::new(BTreeMap::default())));
         let mut type_handlers = type_handlers.write().await;
         let key = (priority, id.clone());
-        if type_handlers.contains_key(&key) {
+        let contains_key = type_handlers.contains_key(&key);
+        if contains_key {
             Err(MqttError::from(format!("handler id is repetition, key is {:?}, type is {:?}", key, typ)))
         } else {
             type_handlers.insert(key, HookEntry::new(handler));
@@ -1185,6 +1275,7 @@ impl LimiterManager for &'static DefaultLimiterManager {
 
 #[derive(Clone)]
 pub struct DefaultLimiter {
+    #[allow(dead_code)]
     name: String,
     await_acquire: bool,
     limiter: Arc<LeakyBucket>,
