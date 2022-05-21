@@ -178,7 +178,7 @@ impl Plugins {
     pub fn load_config<'de, T: serde::Deserialize<'de>>(&self, name: &str) -> Result<T, ConfigError> {
         let dir = self.dir.trim_end_matches(|c| c == '/' || c == '\\');
         let mut s = Config::new();
-        s.merge(File::with_name(&format!("{}/{}", dir, name)).required(false))?;
+        s.merge(File::with_name(&format!("{}/{}", dir, name)).required(true))?;
         s.try_into::<T>()
     }
 }
