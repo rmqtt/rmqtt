@@ -7,6 +7,7 @@ use ntex_mqtt::TopicError;
 use ntex_mqtt::v5;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
+use tokio::task::JoinError;
 use tokio::time::Duration;
 
 #[derive(Error, Debug)]
@@ -118,6 +119,13 @@ impl From<std::io::Error> for MqttError {
 impl<T: Send + Sync + core::fmt::Debug> From<SendError<T>> for MqttError {
     #[inline]
     fn from(e: SendError<T>) -> Self {
+        MqttError::Msg(format!("{:?}", e))
+    }
+}
+
+impl From<JoinError> for MqttError {
+    #[inline]
+    fn from(e: JoinError) -> Self {
         MqttError::Msg(format!("{:?}", e))
     }
 }
