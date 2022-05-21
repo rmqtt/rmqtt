@@ -197,7 +197,7 @@ impl SessionState {
                 }
             }
 
-            log::info!(
+            log::debug!(
                 "{:?} exit online worker, kicked: {}, clean_session: {}",
                 id,
                 _kicked,
