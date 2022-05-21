@@ -9,6 +9,7 @@ pub use futures;
 pub use log;
 pub use ntex;
 pub use ntex_mqtt;
+pub use parking_lot::RwLock;
 pub use tokio;
 
 pub use crate::broker::error::MqttError;
