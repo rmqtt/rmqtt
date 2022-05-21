@@ -255,7 +255,11 @@ async fn list_router_relations(mut top: usize) -> Vec<serde_json::Value> {
 async fn plugin_list() -> Vec<serde_json::Value> {
     let mut plugins = Vec::new();
     for entry in Runtime::instance().plugins.iter() {
-        plugins.push(entry.to_json().await);
+        let p = match entry.to_json(entry.key()).await {
+            Ok(info) => info,
+            Err(e) => serde_json::Value::String(e.to_string()),
+        };
+        plugins.push(p);
     }
     plugins
 }
