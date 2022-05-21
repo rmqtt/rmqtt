@@ -1,6 +1,6 @@
 [package]
 name = "rmqttd"
-version = "0.1.10"
+version = "0.2.0"
 authors = ["rmqtt-rs <rmqttd@126.com>"]
 edition = "2021"
 build = "build.rs"
@@ -24,7 +24,7 @@ anyhow = "1.0.40"
 warp = "0.3.1"
 
 ##mqtt broker
-rmqtt = "0.1"
+rmqtt = "0.2"
 ##plugins
 rmqtt-acl = "0.1"
 rmqtt-web-hook = "0.1"

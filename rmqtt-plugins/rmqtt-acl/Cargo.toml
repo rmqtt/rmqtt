@@ -5,7 +5,7 @@ authors = ["rmqtt-rs <rmqttd@126.com>"]
 edition = "2021"
 
 [dependencies]
-rmqtt = "0.1"
+rmqtt = "0.2"
 log = "0.4.14"
 serde = { version = "1.0.126", features = ["derive"] }
 ahash = "0.7.2"
