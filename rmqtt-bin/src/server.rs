@@ -33,11 +33,8 @@ mod inner_api;
 mod plugin {
     include!(concat!(env!("OUT_DIR"), "/plugin.rs"));
 
-    pub(crate) async fn default_startups() -> rmqtt::Result<()> {
-        for name in rmqtt::Runtime::instance().settings.plugins.default_startups.iter() {
-            rmqtt::Runtime::instance().plugins.start(name.as_str()).await?;
-        }
-        Ok(())
+    pub(crate) fn default_startups() -> Vec<String> {
+        rmqtt::Runtime::instance().settings.plugins.default_startups.clone()
     }
 }
 
@@ -49,8 +46,8 @@ async fn main() {
     }
     logger_init();
     inner_api_serve_and_listen();
-    plugin::init().await.expect("Failed to initialize plug-in");
-    plugin::default_startups().await.expect("Failed to startups plug-in");
+    plugin::registers(plugin::default_startups())
+        .await.expect("Failed to register plug-in");
 
     //start grcp server
     Runtime::instance().node.start_grpc_server();
