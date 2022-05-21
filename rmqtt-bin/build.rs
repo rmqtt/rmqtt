@@ -30,7 +30,7 @@ fn plugins(decoded: &toml::Value) {
             );
 
             inits.push(format!(
-                "    {}::init(rmqtt::Runtime::instance(), r#\"{}\"#, r#\"{}\"#, {}).await?;",
+                "    {}::register(rmqtt::Runtime::instance(), r#\"{}\"#, r#\"{}\"#, {}).await?;",
                 plugin_id, name, descr, default_startup
             ));
         }
