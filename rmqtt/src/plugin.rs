@@ -78,7 +78,8 @@ pub type DynPluginFn = Box<dyn PluginFn>;
 pub struct Entry {
     inited: bool,
     active: bool,
-    immutable: bool, //will reject start, stop, and load config operations
+    //will reject start, stop, and load config operations
+    immutable: bool,
     plugin: Option<DynPlugin>,
     plugin_f: Option<DynPluginFn>,
 }
@@ -95,7 +96,7 @@ impl Entry {
     }
 
     #[inline]
-    pub fn immutable(&self) -> bool{
+    pub fn immutable(&self) -> bool {
         self.immutable
     }
 
@@ -255,13 +256,13 @@ impl Manager {
 
     ///Get a mut Plugin
     pub fn get_mut(&self, name: &str) -> Result<Option<EntryRefMut>> {
-        if let Some(entry) = self.plugins.get_mut(name){
-            if entry.immutable{
+        if let Some(entry) = self.plugins.get_mut(name) {
+            if entry.immutable {
                 Err(MqttError::from("the plug-in is immutable"))
-            }else{
+            } else {
                 Ok(Some(entry))
             }
-        }else{
+        } else {
             Ok(None)
         }
     }
