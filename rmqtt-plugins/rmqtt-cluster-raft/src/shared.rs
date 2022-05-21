@@ -1,6 +1,5 @@
 use futures::future::FutureExt;
 use once_cell::sync::OnceCell;
-use std::convert::From as _f;
 use std::time::Duration;
 
 use rmqtt::{
@@ -224,10 +223,11 @@ impl Shared for &'static ClusterShared {
                 if let Some(client) = self.grpc_clients.get(&node_id) {
                     let from = from.clone();
                     let publish = publish.clone();
+                    let message_type = self.message_type;
                     let fut_sender = async move {
                         let mut msg_sender = MessageSender {
                             client: client.value().clone(),
-                            msg_type: self.message_type,
+                            msg_type: message_type,
                             msg: Message::ForwardsTo(from, publish, relations),
                             max_retries: 3,
                             retry_interval: Duration::from_millis(500),
@@ -241,28 +241,22 @@ impl Shared for &'static ClusterShared {
                         node_id,
                         relations
                     );
-                    for (_topic_filter, client_id, _qos) in relations {
-                        errs.push((
-                            To::from(node_id, client_id),
-                            from.clone(),
-                            publish.clone(),
-                            Reason::from("grpc_client is not exist"),
-                        ));
-                    }
                 }
             }
 
-            let replys = futures::future::join_all(fut_senders).await;
-            for (node_id, reply) in replys {
-                if let Err(e) = reply {
-                    log::error!(
-                        "forwards Message::ForwardsTo to other node, from: {:?}, to: {:?}, error: {:?}",
-                        from,
-                        node_id,
-                        e
-                    );
+            tokio::spawn(async move {
+                let replys = futures::future::join_all(fut_senders).await;
+                for (node_id, reply) in replys {
+                    if let Err(e) = reply {
+                        log::error!(
+                            "forwards Message::ForwardsTo to other node, from: {:?}, to: {:?}, error: {:?}",
+                            from,
+                            node_id,
+                            e
+                        );
+                    }
                 }
-            }
+            });
         }
 
         if errs.is_empty() {
@@ -280,6 +274,15 @@ impl Shared for &'static ClusterShared {
         relations: SubRelations,
     ) -> Result<(), Vec<(To, From, Publish, Reason)>> {
         self.inner.forwards_to(from, publish, relations).await
+    }
+
+    #[inline]
+    async fn forwards_and_get_shareds(
+        &self,
+        from: From,
+        publish: Publish,
+    ) -> Result<SubRelationsMap, Vec<(To, From, Publish, Reason)>> {
+        self.inner.forwards_and_get_shareds(from, publish).await
     }
 
     #[inline]
