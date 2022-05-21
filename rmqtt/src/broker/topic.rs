@@ -1,5 +1,3 @@
-use serde::de::{self, Deserialize, Deserializer, Error, SeqAccess, Visitor};
-use serde::ser::{Serialize, SerializeTuple, Serializer};
 use std::clone::Clone;
 use std::cmp::Eq;
 use std::default::Default;
@@ -8,7 +6,11 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::iter::FromIterator;
 
+use serde::de::{self, Deserialize, Deserializer, Error, SeqAccess, Visitor};
+use serde::ser::{Serialize, Serializer, SerializeTuple};
+
 use crate::broker::types::TopicFilter;
+use crate::NodeId;
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 type HashSet<K> = linked_hash_map::LinkedHashMap<K, (), ahash::RandomState>;
@@ -24,8 +26,8 @@ pub struct Node<V> {
 }
 
 impl<V> Default for Node<V>
-where
-    V: Hash + Eq + Clone + Debug,
+    where
+        V: Hash + Eq + Clone + Debug,
 {
     #[inline]
     fn default() -> Node<V> {
@@ -40,8 +42,8 @@ impl<V> AsRef<Node<V>> for Node<V> {
 }
 
 impl<V> Node<V>
-where
-    V: Hash + Eq + Clone + Debug,
+    where
+        V: Hash + Eq + Clone + Debug,
 {
     #[inline]
     pub fn insert(&mut self, topic_filter: &Topic, value: V) -> bool {
@@ -126,7 +128,7 @@ where
                 && !matches!(path[0], Level::Blank)
                 && path[0].is_metadata()
                 && (self.branches.contains_key(&Level::MultiWildcard)
-                    || self.branches.contains_key(&Level::SingleWildcard)))
+                || self.branches.contains_key(&Level::SingleWildcard)))
             {
                 //Multilayer matching
                 if let Some(n) = self.branches.get(&Level::MultiWildcard) {
@@ -201,8 +203,8 @@ where
 }
 
 impl<V> Debug for Node<V>
-where
-    V: Hash + Eq + Clone + Debug,
+    where
+        V: Hash + Eq + Clone + Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Node {{ nodes_size: {}, values_size: {} }}", self.nodes_size(), self.values_size())
@@ -211,8 +213,8 @@ where
 
 impl Serialize for Node<()> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
+        where
+            S: Serializer,
     {
         let mut s = serializer.serialize_tuple(2)?;
         s.serialize_element(
@@ -224,8 +226,8 @@ impl Serialize for Node<()> {
 
 impl<'de> Deserialize<'de> for Node<()> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
+        where
+            D: Deserializer<'de>,
     {
         struct NodeVisitor;
 
@@ -236,8 +238,8 @@ impl<'de> Deserialize<'de> for Node<()> {
             }
 
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-            where
-                A: SeqAccess<'de>,
+                where
+                    A: SeqAccess<'de>,
             {
                 if seq.size_hint() != Some(2) {
                     return Err(Error::invalid_type(serde::de::Unexpected::Seq, &self));
@@ -255,11 +257,10 @@ impl<'de> Deserialize<'de> for Node<()> {
     }
 }
 
-use crate::NodeId;
 impl Serialize for Node<NodeId> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
+        where
+            S: Serializer,
     {
         let mut s = serializer.serialize_tuple(2)?;
         s.serialize_element(&self.values.iter().collect::<Vec<(&NodeId, &())>>())?;
@@ -272,8 +273,8 @@ impl Serialize for Node<NodeId> {
 
 impl<'de> Deserialize<'de> for Node<NodeId> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
+        where
+            D: Deserializer<'de>,
     {
         struct NodeVisitor;
 
@@ -284,8 +285,8 @@ impl<'de> Deserialize<'de> for Node<NodeId> {
             }
 
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-            where
-                A: SeqAccess<'de>,
+                where
+                    A: SeqAccess<'de>,
             {
                 if seq.size_hint() != Some(2) {
                     return Err(Error::invalid_type(serde::de::Unexpected::Seq, &self));
@@ -315,8 +316,8 @@ pub struct Matcher<'a, V> {
 }
 
 impl<'a, V> Matcher<'a, V>
-where
-    V: Hash + Eq + Clone + Debug,
+    where
+        V: Hash + Eq + Clone + Debug,
 {
     #[inline]
     pub fn iter(&self) -> MatchedIter<'a, V> {
@@ -373,8 +374,8 @@ pub struct MatchedIter<'a, V> {
 }
 
 impl<'a, V> MatchedIter<'a, V>
-where
-    V: Hash + Eq + Clone + Debug,
+    where
+        V: Hash + Eq + Clone + Debug,
 {
     #[inline]
     fn new(node: &'a Node<V>, path: &'a [Level], sub_path: Vec<&'a Level>) -> Self {
@@ -428,7 +429,7 @@ where
                 && !matches!(self.path[0], Level::Blank)
                 && self.path[0].is_metadata()
                 && (self.node.branches.contains_key(&Level::MultiWildcard)
-                    || self.node.branches.contains_key(&Level::SingleWildcard)))
+                || self.node.branches.contains_key(&Level::SingleWildcard)))
             {
                 //Multilayer matching
                 if let Some(b_node) = self.node.branches.get(&Level::MultiWildcard) {
@@ -470,8 +471,8 @@ where
 }
 
 impl<'a, V> Iterator for MatchedIter<'a, V>
-where
-    V: Hash + Eq + Clone + Debug,
+    where
+        V: Hash + Eq + Clone + Debug,
 {
     type Item = (Vec<&'a Level>, Vec<&'a V>);
 
@@ -493,9 +494,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::super::NodeId;
-    use super::{Topic, TopicTree, VecToString};
     use std::str::FromStr;
+
+    use super::{Topic, TopicTree, VecToString};
+    use super::super::NodeId;
 
     fn match_one(topics: &TopicTree<NodeId>, topic: &str, vs: &[NodeId]) -> bool {
         let mut matcheds = 0;

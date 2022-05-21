@@ -1,6 +1,6 @@
 # RMQTT Broker
-[![GitHub Release](https://img.shields.io/github/release/rmqtt-rs/rmqtt?color=brightgreen)](https://github.com/rmqtt-rs/rmqtt/releases)
 
+[![GitHub Release](https://img.shields.io/github/release/rmqtt-rs/rmqtt?color=brightgreen)](https://github.com/rmqtt-rs/rmqtt/releases)
 
 [English](./README.md)  | 简体中文
 
@@ -13,7 +13,6 @@
 *RMQTT* 是跨平台的，支持 Linux、Unix、macOS 以及 Windows。这意味着 *RMQTT* 可以部署在 x86_64 架构的服务器上，也可以部署在 Raspberry Pi 这样的 ARM 设备上。
 
 #### RMQTT Docker 镜像安装
-
 
 #### 二进制软件包安装
 

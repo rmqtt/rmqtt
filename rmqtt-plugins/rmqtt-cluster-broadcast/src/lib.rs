@@ -1,19 +1,18 @@
 #[macro_use]
+extern crate async_trait;
+#[macro_use]
 extern crate serde;
 #[macro_use]
 extern crate serde_json;
-#[macro_use]
-extern crate async_trait;
 
-mod config;
-mod handler;
-mod retainer;
-mod shared;
+use std::sync::Arc;
 
 use futures::future::FutureExt;
 use parking_lot::RwLock;
-use std::sync::Arc;
 
+use config::{NodeGrpcAddr, PluginConfig};
+use handler::HookHandler;
+use retainer::ClusterRetainer;
 use rmqtt::{
     broker::{
         error::MqttError,
@@ -25,11 +24,12 @@ use rmqtt::{
     plugin::Plugin,
     Result, Runtime,
 };
-
-use config::{NodeGrpcAddr, PluginConfig};
-use handler::HookHandler;
-use retainer::ClusterRetainer;
 use shared::ClusterShared;
+
+mod config;
+mod handler;
+mod retainer;
+mod shared;
 
 pub(crate) type GrpcClients = Arc<Vec<(NodeGrpcAddr, NodeGrpcClient)>>;
 

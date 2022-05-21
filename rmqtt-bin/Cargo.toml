@@ -34,12 +34,12 @@ rmqtt-cluster-raft = "0.1"
 rmqtt-plugin-template = "0.1"
 
 [package.metadata.plugins]
-rmqtt-acl = {default_startup = true}
-rmqtt-web-hook = {}
-rmqtt-auth-http = {}
-rmqtt-cluster-broadcast = {}
-rmqtt-cluster-raft = {}
-rmqtt-plugin-template = {}
+rmqtt-acl = { default_startup = true }
+rmqtt-web-hook = { }
+rmqtt-auth-http = { }
+rmqtt-cluster-broadcast = { }
+rmqtt-cluster-raft = { }
+rmqtt-plugin-template = { }
 
 [build-dependencies]
 toml = "0.5"

@@ -1,22 +1,24 @@
-use once_cell::sync::OnceCell;
 use std::convert::From as _f;
-type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
+
+use once_cell::sync::OnceCell;
 
 use rmqtt::{
+    AsStr,
     broker::{
         default::DefaultShared,
-        session::{ClientInfo, Session, SessionOfflineInfo},
-        types::{
+        Entry,
+        IsOnline,
+        session::{ClientInfo, Session, SessionOfflineInfo}, Shared, SubRelations, SubRelationsMap, types::{
             ClientId, From, Id, NodeId, Publish, QoS, Reason, SharedGroup, Subscribe, SubscribeReturn, To,
             TopicFilter, TopicFilterString, Tx, Unsubscribe,
         },
-        Entry, IsOnline, Shared, SubRelations, SubRelationsMap,
     },
-    grpc::{Message, MessageReply, MessageType},
-    AsStr, Result, Runtime,
+    grpc::{Message, MessageReply, MessageType}, Result, Runtime,
 };
 
-use super::{hook_message_dropped, GrpcClients, MessageBroadcaster};
+use super::{GrpcClients, hook_message_dropped, MessageBroadcaster};
+
+type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
 pub struct ClusterLockEntry {
     inner: Box<dyn Entry>,
@@ -65,8 +67,8 @@ impl Entry for ClusterLockEntry {
             self.cluster_shared.message_type,
             Message::Kick(self.id(), true),
         )
-        .kick()
-        .await
+            .kick()
+            .await
         {
             Ok(kicked) => {
                 log::debug!("{:?} broadcast kick reply kicked: {:?}", self.id(), kicked);
@@ -206,8 +208,8 @@ impl Shared for &'static ClusterShared {
                 message_type,
                 Message::Forwards(from.clone(), publish.clone()),
             )
-            .join_all()
-            .await;
+                .join_all()
+                .await;
 
             type SharedSubGroups = HashMap<
                 TopicFilterString, //key is TopicFilter
@@ -270,7 +272,7 @@ impl Shared for &'static ClusterShared {
             for (topic_filter, sub_groups) in shared_sub_groups.iter_mut() {
                 for (_group, subs) in sub_groups.iter_mut() {
                     if let Some((idx, _is_online)) =
-                        Runtime::instance().extends.shared_subscription().await.choice(subs).await
+                    Runtime::instance().extends.shared_subscription().await.choice(subs).await
                     {
                         let (node_id, client_id, qos, _is_online) = subs.remove(idx);
                         node_shared_subs.entry(node_id).or_default().push((
@@ -397,7 +399,7 @@ impl Shared for &'static ClusterShared {
     }
 
     #[inline]
-    fn iter(&self) -> Box<dyn Iterator<Item = Box<dyn Entry>> + Sync + Send> {
+    fn iter(&self) -> Box<dyn Iterator<Item=Box<dyn Entry>> + Sync + Send> {
         self.inner.iter()
     }
 

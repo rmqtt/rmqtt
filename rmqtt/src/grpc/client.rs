@@ -1,5 +1,7 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
+
 use tokio::sync::mpsc::{
     unbounded_channel as channel, UnboundedReceiver as Receiver, UnboundedSender as Sender,
 };
@@ -7,10 +9,10 @@ use tokio::sync::oneshot::Sender as OneshotSender;
 use tokio::sync::RwLock;
 use tonic::transport::{Channel, Endpoint};
 
-use super::pb::{self, node_service_client::NodeServiceClient};
-use super::{Message, MessageReply, MessageType};
 use crate::{MqttError, Result, Runtime};
-use std::time::Duration;
+
+use super::{Message, MessageReply, MessageType};
+use super::pb::{self, node_service_client::NodeServiceClient};
 
 type NodeServiceClientType = NodeServiceClient<Channel>;
 

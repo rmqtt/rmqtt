@@ -3,24 +3,25 @@ extern crate serde;
 #[macro_use]
 extern crate serde_json;
 
-mod config;
-
-use async_trait::async_trait;
-use config::PluginConfig;
-use crossbeam::channel::{bounded, Receiver, Sender};
-use parking_lot::RwLock;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicIsize, Ordering};
 use std::time::Duration;
 
-use rmqtt::broker::error::MqttError;
+use async_trait::async_trait;
+use crossbeam::channel::{bounded, Receiver, Sender};
+use parking_lot::RwLock;
+
+use config::PluginConfig;
 use rmqtt::{
     broker::hook::{self, Handler, HookResult, Parameter, Register, ReturnType, Type},
-    broker::types::{ConnectInfo, Id, QoS, QoSEx, MQTT_LEVEL_5},
+    broker::types::{ConnectInfo, Id, MQTT_LEVEL_5, QoS, QoSEx},
     plugin::Plugin,
     Result, Runtime, Topic, TopicFilter,
 };
+use rmqtt::broker::error::MqttError;
+
+mod config;
 
 #[inline]
 pub async fn init<N: Into<String>, D: Into<String>>(
@@ -92,7 +93,7 @@ impl WebHookPlugin {
                                     let processings1 = processings.clone();
                                     let handle = async move {
                                         if let Err(e) =
-                                            WebHookHandler::handle(cfg.clone(), typ, topic, data).await
+                                        WebHookHandler::handle(cfg.clone(), typ, topic, data).await
                                         {
                                             log::error!("send web hook message error, {:?}", e);
                                         }

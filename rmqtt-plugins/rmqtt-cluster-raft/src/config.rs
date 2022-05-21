@@ -1,6 +1,7 @@
-use serde::de::{self};
 use std::net::SocketAddr;
 use std::str::FromStr;
+
+use serde::de::{self};
 
 use rmqtt::broker::types::NodeId;
 use rmqtt::grpc::MessageType;
@@ -34,8 +35,8 @@ impl std::fmt::Debug for NodeAddr {
 
 impl<'de> de::Deserialize<'de> for NodeAddr {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: de::Deserializer<'de>,
+        where
+            D: de::Deserializer<'de>,
     {
         let node_addr = String::deserialize(deserializer)?;
         let parts: Vec<&str> = node_addr.split('@').collect();

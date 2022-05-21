@@ -1,6 +1,3 @@
-use anyhow::Result;
-use crossbeam::queue::SegQueue;
-use futures::SinkExt;
 use std::num::NonZeroU32;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -8,26 +5,30 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+use anyhow::Result;
+use crossbeam::queue::SegQueue;
+use futures::channel::mpsc;
+use futures::SinkExt;
+use futures::Stream;
 use governor::{
     clock::DefaultClock,
     prelude::StreamRateLimitExt,
-    state::{InMemoryState, NotKeyed},
-    Quota, RateLimiter, RatelimitedStream,
+    Quota,
+    RatelimitedStream, RateLimiter, state::{InMemoryState, NotKeyed},
 };
-
-use futures::channel::mpsc;
-use futures::Stream;
 
 type DirectLimiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock>;
 
 pub type Receiver<'a, T> = RatelimitedStream<'a, ReceiverStream<T>, InMemoryState, DefaultClock>;
 
 pub enum Policy {
-    Current, //Discard current value
+    Current,
+    //Discard current value
     Early,   //Discard earliest value
 }
 
 pub trait PolicyFn<P>: 'static + Fn(&P) -> Policy {}
+
 impl<T, P> PolicyFn<P> for T where T: 'static + Clone + ?Sized + Fn(&P) -> Policy {}
 
 #[derive(Clone)]
@@ -38,6 +39,7 @@ pub struct Sender<T> {
 }
 
 unsafe impl<T> std::marker::Send for Sender<T> {}
+
 unsafe impl<T> std::marker::Sync for Sender<T> {}
 
 impl<T> Sender<T> {
@@ -59,8 +61,8 @@ impl<T> Sender<T> {
 
     #[inline]
     pub fn policy<F>(mut self, f: F) -> Self
-    where
-        F: PolicyFn<T>, // + Clone,
+        where
+            F: PolicyFn<T>, // + Clone,
     {
         self.policy_fn = Rc::new(f);
         self
@@ -197,7 +199,6 @@ impl<T> Queue<T> {
 }
 
 mod test {
-
     #[ntex::main]
     #[test]
     async fn channel() {

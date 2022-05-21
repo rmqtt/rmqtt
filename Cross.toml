@@ -1,4 +1,3 @@
-
 [target.x86_64-unknown-linux-musl]
 image = "rustembedded/cross:x86_64-unknown-linux-musl-0.1.16"
 

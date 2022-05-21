@@ -1,9 +1,9 @@
 #[macro_use]
+pub extern crate async_trait;
+#[macro_use]
 pub extern crate serde;
 #[macro_use]
 pub extern crate serde_json;
-#[macro_use]
-pub extern crate async_trait;
 
 pub use futures;
 pub use log;
@@ -15,6 +15,7 @@ pub use crate::broker::error::MqttError;
 pub use crate::broker::session::{ClientInfo, Session, SessionState};
 pub use crate::broker::types::*;
 pub use crate::runtime::Runtime;
+
 pub type Result<T, E = MqttError> = anyhow::Result<T, E>;
 
 pub mod broker;

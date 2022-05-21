@@ -1,3 +1,5 @@
+use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+
 use crate::broker::{
     default::{
         DefaultFitterManager, DefaultHookManager, DefaultLimiterManager, DefaultRetainStorage, DefaultRouter,
@@ -7,7 +9,6 @@ use crate::broker::{
     hook::HookManager,
     LimiterManager, RetainStorage, Router, Shared, SharedSubscription,
 };
-use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 pub struct Manager {
     shared: RwLock<Box<dyn Shared>>,

@@ -1,4 +1,3 @@
-
 ##--------------------------------------------------------------------
 ## General
 ##--------------------------------------------------------------------
@@ -44,7 +43,7 @@ plugins.dir = "../../../rmqtt-plugins/"
 #Plug in started by default, when the mqtt server is started
 plugins.default_startups = [
     "rmqtt-cluster-raft",
-#    "rmqtt-auth-http",
+    #    "rmqtt-auth-http",
     "rmqtt-web-hook"
 ]
 

@@ -1,13 +1,14 @@
-use linked_hash_map::LinkedHashMap;
-use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::Duration;
 
+use linked_hash_map::LinkedHashMap;
+
+use crate::{MqttError, Result};
 use crate::broker::types::{
     From, Packet, PacketId, PacketV3, PacketV5, Publish, PublishAck2, PublishAck2Reason, TimestampMillis,
     UserProperties,
 };
-use crate::{MqttError, Result};
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub enum MomentStatus {

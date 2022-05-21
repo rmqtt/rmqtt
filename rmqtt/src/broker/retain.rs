@@ -17,8 +17,8 @@ impl<V> Default for Node<V> {
 }
 
 impl<V> Node<V>
-where
-    V: std::fmt::Debug + Clone,
+    where
+        V: std::fmt::Debug + Clone,
 {
     #[inline]
     pub fn insert(&mut self, topic: &Topic, value: V) {
@@ -156,8 +156,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{RetainTree, Topic};
     use std::str::FromStr;
+
+    use super::{RetainTree, Topic};
 
     fn match_one(tree: &RetainTree<i32>, topic_filter: &str, vs: &[i32]) -> bool {
         let mut matcheds = 0;

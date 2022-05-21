@@ -4,9 +4,9 @@ use std::net::SocketAddr;
 use ntex_mqtt::v5;
 use ntex_mqtt::v5::codec::{Auth, DisconnectReasonCode};
 
+use crate::{ClientInfo, MqttError, Result, Runtime, Session, SessionState};
 use crate::broker::{inflight::MomentStatus, types::*};
 use crate::settings::listener::Listener;
-use crate::{ClientInfo, MqttError, Result, Runtime, Session, SessionState};
 
 #[inline]
 async fn refused_ack<Io>(
@@ -87,7 +87,7 @@ pub async fn handshake<Io>(
             ConnectAckReasonV5::ClientIdentifierNotValid,
             "client_id is too long".into(),
         )
-        .await);
+            .await);
     }
 
     //Extended Auth is not supported
@@ -98,7 +98,7 @@ pub async fn handshake<Io>(
             ConnectAckReasonV5::BadAuthenticationMethod,
             "extended Auth is not supported".into(),
         )
-        .await);
+            .await);
     }
 
     let sink = handshake.sink();
@@ -121,7 +121,7 @@ pub async fn handshake<Io>(
                 ConnectAckReasonV5::ServerUnavailable,
                 format!("{:?}", e),
             )
-            .await);
+                .await);
         }
         Ok(Some(offline_info)) => (!packet.clean_start, Some(offline_info)),
         Ok(None) => (false, None),
@@ -150,7 +150,7 @@ pub async fn handshake<Io>(
                 ConnectAckReasonV5::ServerUnavailable,
                 format!("{:?}", e),
             )
-            .await);
+                .await);
         }
     };
 
@@ -183,7 +183,7 @@ pub async fn handshake<Io>(
             ConnectAckReasonV5::ServerUnavailable,
             format!("{:?}", e),
         )
-        .await);
+            .await);
     }
 
     //hook, client connack

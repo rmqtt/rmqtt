@@ -1,13 +1,13 @@
 [workspace]
 members = [
-  "rmqtt",
-  "rmqtt-plugins/rmqtt-acl",
-  "rmqtt-plugins/rmqtt-plugin-template",
-  "rmqtt-plugins/rmqtt-web-hook",
-  "rmqtt-plugins/rmqtt-auth-http",
-  "rmqtt-plugins/rmqtt-cluster-broadcast",
-  "rmqtt-plugins/rmqtt-cluster-raft",
-  "rmqtt-bin",
+    "rmqtt",
+    "rmqtt-plugins/rmqtt-acl",
+    "rmqtt-plugins/rmqtt-plugin-template",
+    "rmqtt-plugins/rmqtt-web-hook",
+    "rmqtt-plugins/rmqtt-auth-http",
+    "rmqtt-plugins/rmqtt-cluster-broadcast",
+    "rmqtt-plugins/rmqtt-cluster-raft",
+    "rmqtt-bin",
 ]
 
 [patch.crates-io]

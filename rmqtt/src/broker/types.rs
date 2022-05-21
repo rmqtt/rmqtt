@@ -1,25 +1,20 @@
-use bytestring::ByteString;
-use serde::de::{Deserialize, Deserializer};
-use serde::ser::{Serialize, SerializeStruct, Serializer};
 use std::convert::From as _f;
 use std::fmt;
 use std::net::SocketAddr;
 use std::num::{NonZeroU16, NonZeroU32};
 use std::ops::Deref;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 
-use crate::{MqttError, Result};
-
+use bytestring::ByteString;
+use ntex::util::Bytes;
+use ntex_mqtt::error::SendPacketError;
+pub use ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5, Protocol};
 pub use ntex_mqtt::v3::{
     self, codec::Connect as ConnectV3, codec::ConnectAckReason as ConnectAckReasonV3,
     codec::LastWill as LastWillV3, codec::Packet as PacketV3,
     codec::SubscribeReturnCode as SubscribeReturnCodeV3, HandshakeAck as HandshakeAckV3,
     MqttSink as MqttSinkV3,
 };
-
-use ntex::util::Bytes;
-use ntex_mqtt::error::SendPacketError;
 pub use ntex_mqtt::v5::{
     self, codec::Connect as ConnectV5, codec::ConnectAckReason as ConnectAckReasonV5,
     codec::Disconnect as DisconnectV5, codec::DisconnectReasonCode, codec::LastWill as LastWillV5,
@@ -29,8 +24,11 @@ pub use ntex_mqtt::v5::{
     codec::Unsubscribe as UnsubscribeV5, codec::UnsubscribeAck as UnsubscribeAckV5, codec::UserProperties,
     codec::UserProperty, HandshakeAck as HandshakeAckV5, MqttSink as MqttSinkV5,
 };
+use serde::de::{Deserialize, Deserializer};
+use serde::ser::{Serialize, Serializer, SerializeStruct};
+use tokio::sync::mpsc;
 
-pub use ntex_mqtt::types::{Protocol, MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
+use crate::{MqttError, Result};
 
 pub type NodeId = u64;
 pub type RemoteSocketAddr = SocketAddr;
@@ -489,8 +487,8 @@ impl<'a> LastWill<'a> {
 impl<'a> Serialize for LastWill<'a> {
     #[inline]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
+        where
+            S: Serializer,
     {
         match self {
             LastWill::V3(lw) => {
@@ -923,6 +921,7 @@ impl PartialEq<Id> for Id {
         self.id == other.id
     }
 }
+
 impl Eq for Id {}
 
 impl std::hash::Hash for Id {
@@ -943,8 +942,8 @@ impl Deref for Id {
 impl Serialize for Id {
     #[inline]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
+        where
+            S: Serializer,
     {
         _Id::serialize(self.0.as_ref(), serializer)
     }
@@ -953,8 +952,8 @@ impl Serialize for Id {
 impl<'de> Deserialize<'de> for Id {
     #[inline]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
+        where
+            D: Deserializer<'de>,
     {
         Ok(Id(Arc::new(_Id::deserialize(deserializer)?)))
     }

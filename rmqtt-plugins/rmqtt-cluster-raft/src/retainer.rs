@@ -3,8 +3,8 @@ use once_cell::sync::OnceCell;
 use rmqtt::{
     broker::{
         default::DefaultRetainStorage,
-        types::{Retain, TopicFilter, TopicName},
         RetainStorage,
+        types::{Retain, TopicFilter, TopicName},
     },
     grpc::{Message, MessageReply, MessageType},
     Result,
@@ -52,8 +52,8 @@ impl RetainStorage for &'static ClusterRetainer {
             self.message_type,
             Message::GetRetains(topic_filter.clone()),
         )
-        .join_all()
-        .await;
+            .join_all()
+            .await;
 
         for reply in replys {
             match reply {

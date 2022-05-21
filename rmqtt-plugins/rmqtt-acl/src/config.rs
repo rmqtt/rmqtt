@@ -1,15 +1,17 @@
-use serde::de::{self, Deserialize, Deserializer};
-use serde::ser::{self, Serialize};
-use serde_json::Value;
 use std::convert::TryFrom;
 use std::str::FromStr;
 use std::sync::Arc;
-type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
 
+use serde::de::{self, Deserialize, Deserializer};
+use serde::ser::{self, Serialize};
+use serde_json::Value;
+
+use rmqtt::{ClientId, ClientInfo, MqttError, Result, Topic, UserName};
 use rmqtt::broker::topic::TopicTree;
 use rmqtt::serde_json;
 use rmqtt::tokio::sync::RwLock;
-use rmqtt::{ClientId, ClientInfo, MqttError, Result, Topic, UserName};
+
+type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
 
 pub const PH_C: &str = "%c";
 pub const PH_U: &str = "%u";
@@ -17,9 +19,9 @@ pub const PH_U: &str = "%u";
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
     #[serde(
-        default,
-        serialize_with = "PluginConfig::serialize_rules",
-        deserialize_with = "PluginConfig::deserialize_rules"
+    default,
+    serialize_with = "PluginConfig::serialize_rules",
+    deserialize_with = "PluginConfig::deserialize_rules"
     )]
     rules: (Vec<Rule>, serde_json::Value),
 }
@@ -36,8 +38,8 @@ impl PluginConfig {
         rules: &(Vec<Rule>, serde_json::Value),
         s: S,
     ) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: ser::Serializer,
+        where
+            S: ser::Serializer,
     {
         let (_, rules) = rules;
         rules.serialize(s)
@@ -47,8 +49,8 @@ impl PluginConfig {
     pub fn deserialize_rules<'de, D>(
         deserializer: D,
     ) -> std::result::Result<(Vec<Rule>, serde_json::Value), D::Error>
-    where
-        D: Deserializer<'de>,
+        where
+            D: Deserializer<'de>,
     {
         let json_rules = serde_json::Value::deserialize(deserializer)?;
         let mut rules = Vec::new();
@@ -168,7 +170,8 @@ pub enum Control {
 pub struct Topics {
     pub allow_all: bool,
     pub eqs: Arc<DashSet<String>>,
-    pub eq_placeholders: Vec<String>, //"sensor/%u/ctrl", "sensor/%c/ctrl"
+    pub eq_placeholders: Vec<String>,
+    //"sensor/%u/ctrl", "sensor/%c/ctrl"
     pub tree: Arc<RwLock<TopicTree<()>>>,
     pub placeholders: Vec<String>, //"sensor/%u/ctrl", "sensor/%c/ctrl"
 }

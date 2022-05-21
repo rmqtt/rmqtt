@@ -1,25 +1,21 @@
 #[macro_use]
+extern crate async_trait;
+#[macro_use]
 extern crate serde;
 #[macro_use]
 extern crate serde_json;
-#[macro_use]
-extern crate async_trait;
 
-mod config;
-mod handler;
-mod message;
-mod retainer;
-mod router;
-mod shared;
-
-use futures::FutureExt;
-use parking_lot::RwLock;
 use std::convert::From as _f;
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures::FutureExt;
+use parking_lot::RwLock;
 use rmqtt_raft::{Mailbox, Raft};
 
+use config::PluginConfig;
+use handler::HookHandler;
+use retainer::ClusterRetainer;
 use rmqtt::{
     broker::{
         error::MqttError,
@@ -30,12 +26,15 @@ use rmqtt::{
     plugin::Plugin,
     Result, Runtime,
 };
-
-use config::PluginConfig;
-use handler::HookHandler;
-use retainer::ClusterRetainer;
 use router::ClusterRouter;
 use shared::ClusterShared;
+
+mod config;
+mod handler;
+mod message;
+mod retainer;
+mod router;
+mod shared;
 
 pub(crate) type GrpcClients = Arc<DashMap<NodeId, NodeGrpcClient>>;
 

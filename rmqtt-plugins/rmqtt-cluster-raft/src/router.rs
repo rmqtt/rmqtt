@@ -1,22 +1,24 @@
-use once_cell::sync::OnceCell;
 use std::convert::From as _f;
 use std::sync::Arc;
-use tokio::sync::RwLock;
-type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
-type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
+
+use once_cell::sync::OnceCell;
 use rmqtt_raft::{Error, Mailbox, Result as RaftResult, Store};
+use tokio::sync::RwLock;
 
 use rmqtt::{
     broker::{
         default::DefaultRouter,
-        topic::TopicTree,
-        types::{ClientId, NodeId, QoS, SharedGroup, TopicFilter, TopicName},
-        IsOnline, Router, SubRelationsMap,
+        IsOnline,
+        Router,
+        SubRelationsMap, topic::TopicTree, types::{ClientId, NodeId, QoS, SharedGroup, TopicFilter, TopicName},
     },
     Result,
 };
 
 use super::message::Message;
+
+type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
+type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
 
 pub struct ClusterRouter {
     inner: &'static DefaultRouter,
@@ -202,7 +204,7 @@ impl Store for &'static ClusterRouter {
             Message::GetClientNodeId { client_id } => {
                 if let Some(entry) = self.all_client_ids.get(client_id) {
                     let (node_id, _) = entry.value();
-                    let data = bincode::serialize(&(node_id,)).map_err(|e| Error::Other(e))?;
+                    let data = bincode::serialize(&(node_id, )).map_err(|e| Error::Other(e))?;
                     return Ok(data);
                 }
             }
@@ -217,7 +219,7 @@ impl Store for &'static ClusterRouter {
             Message::GetClientNodeId { client_id } => {
                 if let Some(entry) = self.all_client_ids.get(client_id) {
                     let (node_id, _) = entry.value();
-                    let data = bincode::serialize(&(node_id,)).map_err(|e| Error::Other(e))?;
+                    let data = bincode::serialize(&(node_id, )).map_err(|e| Error::Other(e))?;
                     return Ok(data);
                 }
             }

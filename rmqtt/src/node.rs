@@ -1,8 +1,8 @@
 use std::net::SocketAddr;
 
+use crate::{NodeId, Result, Runtime};
 use crate::grpc::client::NodeGrpcClient;
 use crate::grpc::server::Server;
-use crate::{NodeId, Result, Runtime};
 
 pub struct Node {}
 

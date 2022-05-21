@@ -1,27 +1,28 @@
 #[macro_use]
 extern crate serde;
 
-mod config;
-
-use reqwest::header::HeaderMap;
-use reqwest::{Method, Url};
-use serde::ser::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::RwLock;
-type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
-use async_trait::async_trait;
 
+use async_trait::async_trait;
+use reqwest::{Method, Url};
+use reqwest::header::HeaderMap;
+use serde::ser::Serialize;
+use tokio::sync::RwLock;
+
+use config::PluginConfig;
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::session::ClientInfo,
     broker::types::{AsStr, AuthResult, Password, PublishAclResult, SubscribeAckReason, SubscribeAclResult},
-    plugin::Plugin,
-    ClientId, MqttError, Result, Runtime, TopicName,
+    ClientId,
+    MqttError, plugin::Plugin, Result, Runtime, TopicName,
 };
 
-use config::PluginConfig;
+mod config;
+
+type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
 
 const IGNORE: &str = "ignore";
 const SUB: &str = "1";
@@ -457,6 +458,7 @@ lazy_static::lazy_static! {
 }
 
 type Path = String;
+
 #[derive(Clone, Debug)]
 struct CacheKey(Path, Option<std::net::IpAddr>, Option<Password>, Option<(String, String)>);
 
@@ -466,6 +468,7 @@ impl PartialEq<CacheKey> for CacheKey {
         self.0 == other.0 && self.1 == other.1 && self.2 == other.2 && self.3 == other.3
     }
 }
+
 impl Eq for CacheKey {}
 
 impl std::hash::Hash for CacheKey {

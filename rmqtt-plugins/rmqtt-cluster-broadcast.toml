@@ -5,4 +5,4 @@
 #grpc message type
 message_type = 98
 #Node GRPC service address list
-node_grpc_addrs = ["1@127.0.0.1:5363","2@127.0.0.1:5364","3@127.0.0.1:5365"]
+node_grpc_addrs = ["1@127.0.0.1:5363", "2@127.0.0.1:5364", "3@127.0.0.1:5365"]

@@ -1,24 +1,24 @@
-use futures::StreamExt;
 use std::convert::AsRef;
 use std::convert::From as _f;
 use std::convert::TryFrom;
 use std::fmt;
 use std::ops::Deref;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Arc;
-use tokio::sync::mpsc;
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+
+use futures::StreamExt;
+use ntex_mqtt::types::MQTT_LEVEL_5;
 use tokio::sync::{RwLock, RwLockReadGuard};
+use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant};
 
-use ntex_mqtt::types::MQTT_LEVEL_5;
-
+use crate::{MqttError, Result, Runtime};
+use crate::broker::{fitter::Fitter, hook::Hook};
 use crate::broker::inflight::{Inflight, InflightMessage, MomentStatus};
 use crate::broker::queue::{Limiter, Policy, Queue, Sender};
 use crate::broker::types::*;
-use crate::broker::{fitter::Fitter, hook::Hook};
 use crate::settings::listener::Listener;
-use crate::{MqttError, Result, Runtime};
 
 type MessageSender = Sender<(From, Publish)>;
 type MessageQueue = Queue<(From, Publish)>;
@@ -35,6 +35,7 @@ pub struct SessionState {
 }
 
 unsafe impl std::marker::Send for SessionState {}
+
 unsafe impl std::marker::Sync for SessionState {}
 
 impl fmt::Debug for SessionState {
@@ -107,11 +108,11 @@ impl SessionState {
                 deliver_timeout_delay.as_mut().reset(
                     Instant::now()
                         + state
-                            .inflight_win
-                            .read()
-                            .await
-                            .get_timeout()
-                            .unwrap_or_else(|| Duration::from_secs(120)),
+                        .inflight_win
+                        .read()
+                        .await
+                        .get_timeout()
+                        .unwrap_or_else(|| Duration::from_secs(120)),
                 );
 
                 tokio::select! {
@@ -868,7 +869,8 @@ impl std::fmt::Debug for Session {
 pub struct _SessionInner {
     pub id: Id,
     pub listen_cfg: Listener,
-    pub subscriptions: Arc<RwLock<TopicFilterMap>>, //Current subscription for this session
+    pub subscriptions: Arc<RwLock<TopicFilterMap>>,
+    //Current subscription for this session
     pub deliver_queue: Arc<MessageQueue>,
     pub inflight_win: Arc<RwLock<Inflight>>,
     pub created_at: TimestampMillis,

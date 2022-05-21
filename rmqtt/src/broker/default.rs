@@ -1,35 +1,37 @@
-use leaky_bucket::LeakyBucket;
-use once_cell::sync::OnceCell;
 use std::collections::BTreeMap;
 use std::convert::From as _f;
 use std::iter::Iterator;
 use std::num::NonZeroU16;
 use std::num::NonZeroU32;
 use std::str::FromStr;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
+
+use leaky_bucket::LeakyBucket;
+use ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
+use once_cell::sync::OnceCell;
+use tokio::sync::{self, Mutex, OwnedMutexGuard};
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
-use tokio::sync::{self, Mutex, OwnedMutexGuard};
 use tokio::time::Duration;
 use uuid::Uuid;
-type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
-type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
-type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
-use ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
-
-use super::{
-    retain::RetainTree, topic::TopicTree, Entry, IsOnline, Limiter, LimiterManager, RetainStorage, Router,
-    Shared, SharedSubscription, SubRelations, SubRelationsMap,
-};
+use crate::{ClientId, grpc, Id, MqttError, NodeId, QoS, Result, Runtime, TopicFilter};
 use crate::broker::fitter::{Fitter, FitterManager};
 use crate::broker::hook::{Handler, Hook, HookManager, HookResult, Parameter, Priority, Register, Type};
 use crate::broker::session::{ClientInfo, Session, SessionOfflineInfo};
 use crate::broker::topic::{Topic, VecToTopic};
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
-use crate::{grpc, ClientId, Id, MqttError, NodeId, QoS, Result, Runtime, TopicFilter};
+
+use super::{
+    Entry, IsOnline, Limiter, LimiterManager, retain::RetainTree, RetainStorage, Router, Shared,
+    SharedSubscription, SubRelations, SubRelationsMap, topic::TopicTree,
+};
+
+type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
+type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
+type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
 pub struct LockEntry {
     id: Id,
@@ -378,7 +380,7 @@ impl Shared for &'static DefaultShared {
     }
 
     #[inline]
-    fn iter(&self) -> Box<dyn Iterator<Item = Box<dyn Entry>> + Sync + Send> {
+    fn iter(&self) -> Box<dyn Iterator<Item=Box<dyn Entry>> + Sync + Send> {
         Box::new(DefaultIter { shared: self, ptr: self.peers.iter() })
     }
 
@@ -480,7 +482,7 @@ impl DefaultRouter {
             for (group, mut s_subs) in groups.drain() {
                 log::debug!("group: {}, s_subs: {:?}", group, s_subs);
                 if let Some((idx, is_online)) =
-                    Runtime::instance().extends.shared_subscription().await.choice(&s_subs).await
+                Runtime::instance().extends.shared_subscription().await.choice(&s_subs).await
                 {
                     let (node_id, client_id, qos, _) = s_subs.remove(idx);
                     subs.entry(node_id).or_default().push((

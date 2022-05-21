@@ -1,11 +1,12 @@
 use std::convert::From as _f;
 use std::iter::Iterator;
-type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
+use crate::{ClientId, Id, NodeId, QoS, Result, Runtime, TopicFilter};
 use crate::broker::session::{ClientInfo, Session, SessionOfflineInfo};
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
-use crate::{ClientId, Id, NodeId, QoS, Result, Runtime, TopicFilter};
+
+type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
 pub mod default;
 pub mod error;
@@ -78,14 +79,15 @@ pub trait Shared: Sync + Send {
     }
 
     ///
-    fn iter(&self) -> Box<dyn Iterator<Item = Box<dyn Entry>> + Sync + Send>;
+    fn iter(&self) -> Box<dyn Iterator<Item=Box<dyn Entry>> + Sync + Send>;
 
     ///
     fn random_session(&self) -> Option<(Session, ClientInfo)>;
 }
 
 pub type IsOnline = bool;
-pub type SharedSubRelations = HashMap<TopicFilterString, Vec<(SharedGroup, NodeId, ClientId, QoS, IsOnline)>>; //key is TopicFilter
+pub type SharedSubRelations = HashMap<TopicFilterString, Vec<(SharedGroup, NodeId, ClientId, QoS, IsOnline)>>;
+//key is TopicFilter
 pub type OtherSubRelations = HashMap<NodeId, Vec<TopicFilter>>; //In other nodes
 
 pub type SubRelations = Vec<(TopicFilter, ClientId, QoS, Option<(SharedGroup, IsOnline)>)>;

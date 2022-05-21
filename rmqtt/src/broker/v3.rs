@@ -1,10 +1,11 @@
-use ntex_mqtt::v3::{self};
 use std::net::SocketAddr;
 
+use ntex_mqtt::v3::{self};
+
+use crate::{ClientInfo, MqttError, Result, Session, SessionState};
 use crate::broker::{inflight::MomentStatus, types::*};
 use crate::runtime::Runtime;
 use crate::settings::listener::Listener;
-use crate::{ClientInfo, MqttError, Result, Session, SessionState};
 
 #[inline]
 async fn refused_ack<Io>(
@@ -85,7 +86,7 @@ pub async fn handshake<Io>(
             ConnectAckReasonV3::IdentifierRejected,
             "client_id is too long".into(),
         )
-        .await);
+            .await);
     }
 
     let sink = handshake.sink();
@@ -108,7 +109,7 @@ pub async fn handshake<Io>(
                 ConnectAckReasonV3::ServiceUnavailable,
                 format!("{:?}", e),
             )
-            .await);
+                .await);
         }
         Ok(Some(offline_info)) => (!packet.clean_session, Some(offline_info)),
         Ok(None) => (false, None),
@@ -140,7 +141,7 @@ pub async fn handshake<Io>(
                 ConnectAckReasonV3::ServiceUnavailable,
                 format!("{:?}", e),
             )
-            .await);
+                .await);
         }
     };
 
@@ -173,7 +174,7 @@ pub async fn handshake<Io>(
             ConnectAckReasonV3::ServiceUnavailable,
             format!("{:?}", e),
         )
-        .await);
+            .await);
     }
 
     //hook, client connack

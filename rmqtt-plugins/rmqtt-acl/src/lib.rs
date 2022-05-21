@@ -1,22 +1,22 @@
 #[macro_use]
 extern crate serde;
 
-mod config;
-
-use rmqtt::async_trait::async_trait;
-use rmqtt::{serde_json, tokio};
 use std::str::FromStr;
 use std::sync::Arc;
+
 use tokio::sync::RwLock;
 
+use config::{Access, Control, PH_C, PH_U, PluginConfig};
+use rmqtt::{serde_json, tokio};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::types::{AuthResult, PublishAclResult, SubscribeAckReason, SubscribeAclResult, Topic},
     plugin::Plugin,
     Result, Runtime,
 };
+use rmqtt::async_trait::async_trait;
 
-use config::{Access, Control, PluginConfig, PH_C, PH_U};
+mod config;
 
 #[inline]
 pub async fn init<N: Into<String>, D: Into<String>>(

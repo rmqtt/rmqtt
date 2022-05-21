@@ -1,11 +1,15 @@
-use tonic::{transport, Response};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
+use tonic::{Response, transport};
+
+use crate::{Result, Runtime};
+
+use super::{Message, MessageReply, MessageType};
 use super::pb::{
     self,
     node_service_server::{NodeService, NodeServiceServer},
 };
-use super::{Message, MessageReply, MessageType};
-use crate::{Result, Runtime};
 
 pub struct Server {}
 
@@ -92,8 +96,6 @@ impl NodeService for NodeGrpcService {
     }
 }
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
 lazy_static::lazy_static! {
     pub static ref ACTIVE_REQUEST_COUNT: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
 }

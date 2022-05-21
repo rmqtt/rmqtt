@@ -1,8 +1,9 @@
-use parking_lot::RwLock;
-use serde::de::{self, Deserialize, Deserializer};
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 use std::sync::Arc;
+
+use parking_lot::RwLock;
+use serde::de::{self, Deserialize, Deserializer};
 
 use super::ValueMut;
 
@@ -87,8 +88,8 @@ impl To {
 impl<'de> Deserialize<'de> for To {
     #[inline]
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
+        where
+            D: Deserializer<'de>,
     {
         let to = match (String::deserialize(deserializer)?).to_ascii_lowercase().as_str() {
             "off" => To::Off,
@@ -132,8 +133,8 @@ impl DerefMut for Level {
 impl<'de> Deserialize<'de> for Level {
     #[inline]
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
+        where
+            D: Deserializer<'de>,
     {
         let level = String::deserialize(deserializer)?;
         let level = slog::Level::from_str(&level).map_err(|_e| de::Error::missing_field("level"))?;
@@ -161,8 +162,8 @@ impl LevelMut {
 impl<'de> Deserialize<'de> for LevelMut {
     #[inline]
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
+        where
+            D: Deserializer<'de>,
     {
         let level = String::deserialize(deserializer)?;
         let level = slog::Level::from_str(&level).map_err(|_e| de::Error::missing_field("level"))?;

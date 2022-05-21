@@ -1,13 +1,14 @@
-use super::{hook_message_dropped, retainer::ClusterRetainer, shared::ClusterShared};
 use rmqtt::{
     broker::{
         hook::{Handler, HookResult, Parameter, ReturnType},
-        types::{From, Publish},
         SubRelationsMap,
+        types::{From, Publish},
     },
     grpc::{Message, MessageReply},
     Runtime,
 };
+
+use super::{hook_message_dropped, retainer::ClusterRetainer, shared::ClusterShared};
 
 pub(crate) struct HookHandler {
     shared: &'static ClusterShared,
@@ -37,7 +38,7 @@ impl Handler for HookHandler {
                     }
                     Message::ForwardsTo(from, publish, sub_rels) => {
                         if let Err(droppeds) =
-                            self.shared.inner().forwards_to(from.clone(), &publish, sub_rels.clone()).await
+                        self.shared.inner().forwards_to(from.clone(), &publish, sub_rels.clone()).await
                         {
                             hook_message_dropped(droppeds).await;
                         }

@@ -1,15 +1,16 @@
-use rmqtt_raft::Mailbox;
 use std::time::Duration;
+
+use rmqtt_raft::Mailbox;
 
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, ReturnType},
     grpc::{Message as GrpcMessage, MessageReply},
     MqttError,
 };
-
-use super::message::Message;
-use super::{hook_message_dropped, retainer::ClusterRetainer, shared::ClusterShared};
 use rmqtt::broker::Shared;
+
+use super::{hook_message_dropped, retainer::ClusterRetainer, shared::ClusterShared};
+use super::message::Message;
 
 pub(crate) struct HookHandler {
     shared: &'static ClusterShared,
@@ -65,7 +66,7 @@ impl Handler for HookHandler {
                 match msg {
                     GrpcMessage::ForwardsTo(from, publish, sub_rels) => {
                         if let Err(droppeds) =
-                            self.shared.forwards_to(from.clone(), publish, sub_rels.clone()).await
+                        self.shared.forwards_to(from.clone(), publish, sub_rels.clone()).await
                         {
                             hook_message_dropped(droppeds).await;
                         }

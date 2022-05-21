@@ -1,19 +1,21 @@
-pub mod listener;
-pub mod log;
-
-// use anyhow::Result;
-use config::{Config, ConfigError, File};
-use parking_lot::RwLock;
-use serde::de::{Deserialize, Deserializer};
 use std::fmt;
 use std::net::SocketAddr;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::time::Duration;
 
+// use anyhow::Result;
+use config::{Config, ConfigError, File};
+use parking_lot::RwLock;
+use serde::de::{Deserialize, Deserializer};
+
+use crate::{NodeId, Result};
+
 use self::listener::Listeners;
 use self::log::Log;
-use crate::{NodeId, Result};
+
+pub mod listener;
+pub mod log;
 
 #[derive(Clone)]
 pub struct Settings(Arc<Inner>);
@@ -118,7 +120,8 @@ pub struct Rpc {
     pub client_concurrency_limit: usize, // = 128
 
     #[serde(default = "Rpc::client_timeout_default", deserialize_with = "deserialize_duration")]
-    pub client_timeout: Duration, //= "5s"
+    pub client_timeout: Duration,
+    //= "5s"
     //#Maximum number of messages sent in batch
     #[serde(default = "Rpc::batch_size_default")]
     pub batch_size: usize, // = 128
@@ -187,8 +190,8 @@ pub struct Mqtt {}
 pub struct ValueMut<T>(Arc<RwLock<T>>);
 
 impl<T> ValueMut<T>
-where
-    T: Copy,
+    where
+        T: Copy,
 {
     #[inline]
     pub fn new(v: T) -> Self {
@@ -209,8 +212,8 @@ where
 impl<'de, T: serde::Deserialize<'de> + Copy> Deserialize<'de> for ValueMut<T> {
     #[inline]
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
+        where
+            D: Deserializer<'de>,
     {
         let v = T::deserialize(deserializer)?;
         Ok(ValueMut::new(v))
@@ -243,8 +246,8 @@ impl DerefMut for Bytesize {
 impl<'de> Deserialize<'de> for Bytesize {
     #[inline]
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
+        where
+            D: Deserializer<'de>,
     {
         let v = to_bytesize(&String::deserialize(deserializer)?);
         Ok(Bytesize(v))
@@ -278,8 +281,8 @@ pub fn to_bytesize(text: &str) -> usize {
 
 #[inline]
 pub fn deserialize_duration<'de, D>(deserializer: D) -> Result<Duration, D::Error>
-where
-    D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
 {
     let v = String::deserialize(deserializer)?;
     Ok(to_duration(&v))
@@ -317,8 +320,8 @@ pub fn to_duration(text: &str) -> Duration {
 
 #[inline]
 pub fn deserialize_addr<'de, D>(deserializer: D) -> Result<SocketAddr, D::Error>
-where
-    D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
 {
     let addr = String::deserialize(deserializer)?
         .parse::<std::net::SocketAddr>()

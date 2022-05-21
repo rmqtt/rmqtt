@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use crate::broker::session::ClientInfo;
 use crate::broker::types::*;
-use crate::settings::listener::Listener;
 use crate::Result;
+use crate::settings::listener::Listener;
 
 #[async_trait]
 pub trait FitterManager: Sync + Send {

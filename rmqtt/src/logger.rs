@@ -1,16 +1,17 @@
-// use anyhow::Result;
-use slog::*;
-use slog_logfmt::Logfmt;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Stdout};
+
+// use anyhow::Result;
+use slog::*;
+pub use slog::Logger;
+use slog_logfmt::Logfmt;
+
+use crate::{MqttError, Result, Runtime};
 
 use super::settings::{
     log::{Level, To},
     ValueMut,
 };
-
-use crate::{MqttError, Result, Runtime};
-pub use slog::Logger;
 
 pub fn logger_init() {
     log::set_boxed_logger(Box::new(LoggerEx(Runtime::instance().logger.clone()))).unwrap();
@@ -103,8 +104,8 @@ struct LevelFilter<D> {
 }
 
 impl<D> Drain for LevelFilter<D>
-where
-    D: Drain,
+    where
+        D: Drain,
 {
     type Ok = Option<D::Ok>;
     type Err = Option<D::Err>;

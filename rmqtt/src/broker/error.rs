@@ -1,9 +1,10 @@
-use config::ConfigError;
-use ntex_mqtt::error::SendPacketError;
-use ntex_mqtt::v5;
-use ntex_mqtt::TopicError;
 use std::net::AddrParseError;
 use std::str::Utf8Error;
+
+use config::ConfigError;
+use ntex_mqtt::error::SendPacketError;
+use ntex_mqtt::TopicError;
+use ntex_mqtt::v5;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 use tokio::time::Duration;
@@ -41,6 +42,7 @@ pub enum MqttError {
 }
 
 unsafe impl std::marker::Send for MqttError {}
+
 unsafe impl std::marker::Sync for MqttError {}
 
 impl Default for MqttError {

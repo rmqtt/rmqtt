@@ -1,12 +1,13 @@
 use std::net::SocketAddr;
-use warp::http::StatusCode;
-use warp::Filter;
+use std::time::Duration;
 
-use rmqtt::broker::types::{ClientId, Id};
-use rmqtt::grpc::server::active_grpc_requests;
+use warp::Filter;
+use warp::http::StatusCode;
+
 use rmqtt::{serde::ser::Serialize, serde_json};
 use rmqtt::{Result, Runtime};
-use std::time::Duration;
+use rmqtt::broker::types::{ClientId, Id};
+use rmqtt::grpc::server::active_grpc_requests;
 
 #[allow(dead_code)]
 mod version {
@@ -189,7 +190,7 @@ async fn status() -> serde_json::Value {
             shared.clients(),
         ),
     )
-    .await
+        .await
     {
         Ok((all_sessions, all_clients, sessions, clients)) => {
             (all_sessions as isize, all_clients as isize, sessions as isize, clients as isize)

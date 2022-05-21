@@ -1,7 +1,7 @@
 use once_cell::sync::OnceCell;
 
-use crate::logger::{config_logger, Logger};
 use crate::{extend, node::Node, plugin, settings::Settings};
+use crate::logger::{config_logger, Logger};
 
 pub struct Runtime {
     pub logger: Logger,

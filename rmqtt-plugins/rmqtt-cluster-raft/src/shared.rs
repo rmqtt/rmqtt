@@ -1,20 +1,21 @@
+use std::time::Duration;
+
 use futures::future::FutureExt;
 use once_cell::sync::OnceCell;
-use std::time::Duration;
 
 use rmqtt::{
     broker::{
         default::DefaultShared,
+        Entry,
         session::{ClientInfo, Session, SessionOfflineInfo},
-        types::{From, Id, NodeId, Publish, Reason, Subscribe, SubscribeReturn, To, Tx, Unsubscribe},
-        Entry, Shared, SubRelations, SubRelationsMap,
+        Shared, SubRelations, SubRelationsMap, types::{From, Id, NodeId, Publish, Reason, Subscribe, SubscribeReturn, To, Tx, Unsubscribe},
     },
     grpc::{Message, MessageReply, MessageType},
     Result, Runtime,
 };
 
-use super::message::Message as RaftMessage;
 use super::{ClusterRouter, GrpcClients, MessageSender};
+use super::message::Message as RaftMessage;
 
 pub struct ClusterLockEntry {
     inner: Box<dyn Entry>,
@@ -70,7 +71,7 @@ impl Entry for ClusterLockEntry {
         let prev_node_id = if reply.is_empty() {
             id.node_id
         } else {
-            let (prev_node_id,): (NodeId,) =
+            let (prev_node_id, ): (NodeId, ) =
                 bincode::deserialize(reply.as_ref()).map_err(anyhow::Error::new)?;
             prev_node_id
         };
@@ -306,7 +307,7 @@ impl Shared for &'static ClusterShared {
     }
 
     #[inline]
-    fn iter(&self) -> Box<dyn Iterator<Item = Box<dyn Entry>> + Sync + Send> {
+    fn iter(&self) -> Box<dyn Iterator<Item=Box<dyn Entry>> + Sync + Send> {
         self.inner.iter()
     }
 
