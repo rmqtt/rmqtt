@@ -36,6 +36,7 @@ mod retainer;
 mod router;
 mod shared;
 
+type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 pub(crate) type GrpcClients = Arc<DashMap<NodeId, NodeGrpcClient>>;
 
 #[inline]
@@ -259,7 +260,7 @@ impl Plugin for ClusterPlugin {
     async fn attrs(&self) -> serde_json::Value {
         let raft_status = self.raft_mailbox().status().await.ok();
 
-        let mut nodes = std::collections::HashMap::new();
+        let mut nodes = HashMap::default();
         for entry in self.grpc_clients.iter() {
             let (node_id, c) = entry.pair();
             let stats = json!({

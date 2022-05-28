@@ -1,7 +1,6 @@
 #[macro_use]
 extern crate serde;
 
-use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -23,6 +22,8 @@ use rmqtt::{
 mod config;
 
 type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
+type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
+type HashSet<K> = std::collections::HashSet<K, ahash::RandomState>;
 
 const IGNORE: &str = "ignore";
 const SUB: &str = "1";

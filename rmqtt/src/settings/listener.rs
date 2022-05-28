@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::num::NonZeroU32;
 use std::ops::Deref;
@@ -11,6 +10,8 @@ use serde::de::{self, Deserialize, Deserializer};
 use crate::broker::types::QoS;
 
 use super::{Bytesize, deserialize_addr, deserialize_duration, to_duration};
+
+type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
 type Port = u16;
 

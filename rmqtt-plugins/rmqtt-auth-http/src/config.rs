@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -10,6 +9,8 @@ use serde::ser::{self, Serialize};
 use rmqtt::broker::hook::Priority;
 use rmqtt::Result;
 use rmqtt::settings::deserialize_duration;
+
+type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {

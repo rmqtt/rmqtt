@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -10,6 +9,8 @@ use rmqtt::{Result, Topic};
 use rmqtt::broker::hook::Type;
 use rmqtt::broker::topic::TopicTree;
 use rmqtt::settings::deserialize_duration;
+
+type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
@@ -47,7 +48,7 @@ impl PluginConfig {
             D: de::Deserializer<'de>,
     {
         let mut rules_cfg: HashMap<String, Vec<Rule>> = HashMap::deserialize(deserializer)?;
-        let mut rules = HashMap::new();
+        let mut rules = HashMap::default();
         for (typ, r) in rules_cfg.drain() {
             rules.insert(Type::from(typ.as_str()), r);
         }

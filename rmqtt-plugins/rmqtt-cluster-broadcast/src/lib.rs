@@ -31,6 +31,7 @@ mod handler;
 mod retainer;
 mod shared;
 
+type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 pub(crate) type GrpcClients = Arc<Vec<(NodeGrpcAddr, NodeGrpcClient)>>;
 
 #[inline]
@@ -144,7 +145,7 @@ impl Plugin for ClusterPlugin {
 
     #[inline]
     async fn attrs(&self) -> serde_json::Value {
-        let mut nodes = std::collections::HashMap::new();
+        let mut nodes = HashMap::default();
         for (naddr, c) in self.grpc_clients.iter() {
             let stats = json!({
                 "channel_tasks": c.channel_tasks(),

@@ -2,8 +2,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::Duration;
 
-use linked_hash_map::LinkedHashMap;
-
 use crate::{MqttError, Result};
 use crate::broker::types::{
     From, Packet, PacketId, PacketV3, PacketV5, Publish, PublishAck2, PublishAck2Reason, TimestampMillis,
@@ -79,13 +77,13 @@ pub struct Inflight {
     queues: Queues,
 }
 
-type Queues = LinkedHashMap<PacketId, InflightMessage, ahash::RandomState>;
+type Queues = linked_hash_map::LinkedHashMap<PacketId, InflightMessage, ahash::RandomState>;
 
 impl Inflight {
     #[inline]
     pub fn new(cap: usize, retry_interval: TimestampMillis, expiry_interval: TimestampMillis) -> Self {
         let interval = Self::interval(retry_interval, expiry_interval);
-        Self { cap, interval, next: Arc::new(AtomicU16::new(1)), queues: LinkedHashMap::default() }
+        Self { cap, interval, next: Arc::new(AtomicU16::new(1)), queues: Queues::default() }
     }
 
     #[inline]
