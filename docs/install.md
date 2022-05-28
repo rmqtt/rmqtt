@@ -208,7 +208,7 @@ listener.tls.external.key = "/app/rmqtt/etc/rmqtt.key"
 
 ```
 
-3. 启动服务
+3. Start Service
 
 ```bash
 $ cd /app/rmqtt
