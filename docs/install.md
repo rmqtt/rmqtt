@@ -12,14 +12,14 @@ RMQTT Currently supported operating systems:
 
 ### Installing via ZIP Binary Package (Linux、MacOS、Windows)
 
-Get the binary package of the corresponding OS from [RMQTT Download](https://github.com/rmqtt-rs/rmqtt/releases) page.
+Get the binary package of the corresponding OS from [RMQTT Download](https://github.com/rmqtt/rmqtt/releases) page.
 
 
-1. Download the ZIP package from [GitHub Release](https://github.com/rmqtt-rs/rmqtt/releases).
+1. Download the ZIP package from [GitHub Release](https://github.com/rmqtt/rmqtt/releases).
 ```bash
-$ wget "https://github.com/rmqtt-rs/rmqtt/releases/download/v0.2.0/rmqtt-0.2.0-x86_64-unknown-linux-musl.zip"
+$ wget "https://github.com/rmqtt/rmqtt/releases/download/v0.2.0/rmqtt-0.2.0-x86_64-unknown-linux-musl.zip"
 ```
-2. Decompress the zip package you downloaded from [GitHub Release](https://github.com/rmqtt-rs/rmqtt/releases).
+2. Decompress the zip package you downloaded from [GitHub Release](https://github.com/rmqtt/rmqtt/releases).
 ```bash
 $ unzip rmqtt-0.2.0-x86_64-unknown-linux-musl.zip -d /app/
 ```
@@ -147,7 +147,7 @@ $ apt-get install libssl-dev -y
 1. Get source code
 
 ```bash
-$ git clone https://github.com/rmqtt-rs/rmqtt.git
+$ git clone https://github.com/rmqtt/rmqtt.git
 ```
 
 2. Switch to the nearest tag
