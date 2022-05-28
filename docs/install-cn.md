@@ -32,7 +32,7 @@ $ chmod +x bin/rmqttd
 $ cd /app/rmqtt
 $ sh start.sh
 ```
-4. 查看服务
+5. 查看服务
 ```bash
 $ netstat -tlnp|grep 1883
 tcp        0      0 0.0.0.0:1883            0.0.0.0:*               LISTEN      3312/./bin/rmqttd
@@ -76,7 +76,9 @@ plugins.default_startups = [
 #    "rmqtt-web-hook"
 ]
 ```
+
 3. 修改插件配置
+
 ```bash
 $ vi etc/plugins/rmqtt-cluster-raft.toml
 
@@ -94,11 +96,13 @@ raft_peer_addrs = ["1@10.0.2.11:6363", "2@10.0.2.12:6363", "3@10.0.2.13:6363"]
 ```
 
 4. 修改权限&启动服务
+
 ```bash
 $ cd /app/rmqtt
 $ chmod +x bin/rmqttd
 $ sh start.sh
 ```
+
 
 ### 源码编译安装
 
@@ -106,20 +110,25 @@ $ sh start.sh
 以Centos7为例，如果编译环境已经存在跳过此过程。注意：工具链需要1.56及之后版本，1.59及之后版本如果报连接错误需要升级系统开发环境。
 
 1. 安装 Rustup
+
    先打开 Rustup 的官网：https://rustup.rs ,然后根据提示下载或运行命令。
+
    Linux 下执行：
+
 ```bash
 $ curl https://sh.rustup.rs -sSf | sh
 ```
 
 执行source $HOME/.cargo/env 让环境变量生效
+
 ```bash
 $ source $HOME/.cargo/env
 ```
 
 2. 配置crate.io镜像
 
-   可以在$HOME/.cargo/下建立一个config文件，加入如下配置：
+可以在$HOME/.cargo/下建立一个config文件，加入如下配置：
+
 ```bash
 $ vi $HOME/.cargo/config
 
@@ -218,32 +227,32 @@ plugins.default_startups = [
 listener.tls.external.addr = "0.0.0.0:8883"
 listener.tls.external.cert = "/app/rmqtt/etc/rmqtt.pem"
 listener.tls.external.key = "/app/rmqtt/etc/rmqtt.key"
-
 ```
 
 3. 启动服务
+
 ```bash
 $ cd /app/rmqtt
 ./bin/rmqttd "./etc/rmqtt.toml"
-
 ```
 
 ##### 解决编译失败问题
+
 如果使用1.59版及之后工具链，可能会存在依赖库版本太低导致链接失败问题，解决办法：
 
 - 使用1.58版工具链
+
 ```bash
-//安装1.58版本工具链
+#安装1.58版本工具链
 $ rustup install 1.58
 
-//将当前工具链切换到1.58
+#将当前工具链切换到1.58
 $ rustup default 1.58
 
-//重新编译
+#重新编译
 $ cargo build --release
 ```
 
-- 另外一种方法是升级系统开发环境
 
 
 

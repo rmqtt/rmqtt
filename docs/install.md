@@ -33,7 +33,7 @@ $ chmod +x bin/rmqttd
 $ cd /app/rmqtt
 $ sh start.sh
 ```
-4. Check the service
+5. Check the service
 ```bash
 $ netstat -tlnp|grep 1883
 tcp        0      0 0.0.0.0:1883            0.0.0.0:*               LISTEN      3312/./bin/rmqttd
@@ -77,7 +77,9 @@ plugins.default_startups = [
 #    "rmqtt-web-hook"
 ]
 ```
+
 3. Modify the RAFT cluster plug-in configuration
+
 ```bash
 $ vi etc/plugins/rmqtt-cluster-raft.toml
 
@@ -95,6 +97,7 @@ raft_peer_addrs = ["1@10.0.2.11:6363", "2@10.0.2.12:6363", "3@10.0.2.13:6363"]
 ```
 
 4. Modify permissions and start services
+
 ```bash
 $ cd /app/rmqtt
 $ chmod +x bin/rmqttd
@@ -108,14 +111,17 @@ Operating in Centos7. Skip this process if the compilation environment already e
 attention: Toolchain requires 1.56 or later versions. If connection errors are reported in 1.59 or later versions, upgrade the system development environment.
 
 1. Install Rustup
+
    Open first: https://rustup.rs, Then download or run the command as prompted.
 
    Execute in Linux:
+
 ```bash
 $ curl https://sh.rustup.rs -sSf | sh
 ```
 
 Make environment variables effective
+
 ```bash
 $ source $HOME/.cargo/env
 ```
@@ -139,21 +145,28 @@ $ apt-get install libssl-dev -y
 ##### Compile
 
 1. Get source code
+
 ```bash
 $ git clone https://github.com/rmqtt-rs/rmqtt.git
 ```
+
 2. Switch to the nearest tag
+
 ```bash
 $ cd rmqtt
 $ git checkout $(git describe --tags $(git rev-list --tags --max-count=1))
 ```
+
 3. Build
+
 ```bash
 $ cargo build --release
 ```
 
 ##### Start RMQTT Broker
+
 1. Copy programs and config files
+
 ```bash
 $ mkdir -p /app/rmqtt/bin && mkdir -p /app/rmqtt/etc/plugins
 $ cp target/release/rmqttd /app/rmqtt/bin/
@@ -196,32 +209,33 @@ listener.tls.external.key = "/app/rmqtt/etc/rmqtt.key"
 ```
 
 3. 启动服务
+
 ```bash
 $ cd /app/rmqtt
 ./bin/rmqttd "./etc/rmqtt.toml"
-
 ```
 
 
 ##### Solve the problem of compilation failure
+
 If the tool chain of version 1.59 and later is used, the version of the dependent 
 library may be too low, resulting in link failure.
 
 solve:
 
 - Use version 1.58 tool chain
+
 ```bash
-//Install version 1.58 tool chain
+#Install version 1.58 tool chain
 $ rustup install 1.58
 
-//Switch the current tool chain to 1.58
+#Switch the current tool chain to 1.58
 $ rustup default 1.58
 
-//Rebuild
+#Rebuild
 $ cargo build --release
 ```
 
-- Another method is to upgrade the system development environment
 
 
 
