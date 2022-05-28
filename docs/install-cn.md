@@ -12,13 +12,13 @@ RMQTT 目前支持的操作系统:
 
 ### ZIP 压缩包安装(Linux、MacOS、Windows)
 
-需从 [GitHub Release](https://github.com/rmqtt-rs/rmqtt/releases) 页面获取相应操作系统的二进制软件包。
+需从 [GitHub Release](https://github.com/rmqtt/rmqtt/releases) 页面获取相应操作系统的二进制软件包。
 
-1. 从[GitHub Release](https://github.com/rmqtt-rs/rmqtt/releases) 下载zip包。
+1. 从[GitHub Release](https://github.com/rmqtt/rmqtt/releases) 下载zip包。
 ```bash
-$ wget "https://github.com/rmqtt-rs/rmqtt/releases/download/v0.2.0/rmqtt-0.2.0-x86_64-unknown-linux-musl.zip"
+$ wget "https://github.com/rmqtt/rmqtt/releases/download/v0.2.0/rmqtt-0.2.0-x86_64-unknown-linux-musl.zip"
 ```
-2. 解压从[GitHub Release](https://github.com/rmqtt-rs/rmqtt/releases) 下载的zip包。
+2. 解压从[GitHub Release](https://github.com/rmqtt/rmqtt/releases) 下载的zip包。
 ```bash
 $ unzip rmqtt-0.2.0-x86_64-unknown-linux-musl.zip -d /app/
 ```
@@ -174,7 +174,7 @@ $ apt-get install libssl-dev -y
 
 1. 获取源码
 ```bash
-$ git clone https://github.com/rmqtt-rs/rmqtt.git
+$ git clone https://github.com/rmqtt/rmqtt.git
 ```
 2. 切换到最近的 Tag
 ```bash
@@ -214,8 +214,8 @@ vi /app/rmqtt/etc/rmqtt.toml
 plugins.dir = "/app/rmqtt/etc/plugins"
 #Plug in started by default, when the mqtt server is started
 plugins.default_startups = [
-    #    "rmqtt-cluster-broadcast",
     #    "rmqtt-cluster-raft"
+    #    "rmqtt-cluster-broadcast",
     #    "rmqtt-auth-http",
     #    "rmqtt-web-hook"
 ]
