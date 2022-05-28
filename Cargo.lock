@@ -1187,6 +1187,47 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "regex",
+ "serde 1.0.137",
+ "serde_json",
+ "serde_urlencoded",
+ "sha-1 0.9.8",
+ "slab",
+ "socket2",
+ "tokio",
+]
+
+[[package]]
+name = "ntex"
+version = "0.3.16"
+source = "git+https://github.com/rmqtt/ntex.git#761847ab82c404ad40707effebabc5b9c832e08a"
+dependencies = [
+ "ahash 0.7.6",
+ "base64 0.13.0",
+ "bitflags",
+ "bytes",
+ "bytestring",
+ "derive_more",
+ "encoding_rs",
+ "futures-core",
+ "futures-sink",
+ "h2",
+ "http",
+ "httparse",
+ "httpdate",
+ "log",
+ "mime",
+ "mio 0.7.14",
+ "nanorand",
+ "ntex-codec",
+ "ntex-macros",
+ "ntex-router",
+ "ntex-rt 0.2.2",
+ "ntex-service 0.1.9",
+ "ntex-util",
+ "num_cpus",
+ "percent-encoding",
+ "pin-project-lite",
+ "regex",
  "rustls",
  "serde 1.0.137",
  "serde_json",
@@ -1229,7 +1270,7 @@ dependencies = [
 [[package]]
 name = "ntex-mqtt"
 version = "0.6.10"
-source = "git+https://github.com/rmqtt-rs/ntex-mqtt#585034d02a80f96e9025ec94612bcf8b4383d8d2"
+source = "git+https://github.com/rmqtt/ntex-mqtt#585034d02a80f96e9025ec94612bcf8b4383d8d2"
 dependencies = [
  "ahash 0.7.6",
  "bitflags",
@@ -1237,7 +1278,7 @@ dependencies = [
  "derive_more",
  "linked-hash-map",
  "log",
- "ntex",
+ "ntex 0.3.16 (git+https://github.com/rmqtt-rs/ntex.git)",
  "pin-project-lite",
  "serde 1.0.137",
  "serde_json",
@@ -1873,7 +1914,7 @@ dependencies = [
  "leaky-bucket",
  "linked-hash-map",
  "log",
- "ntex",
+ "ntex 0.3.16 (git+https://github.com/rmqtt/ntex.git)",
  "ntex-mqtt",
  "once_cell",
  "parking_lot 0.11.2",
@@ -1972,7 +2013,7 @@ dependencies = [
 [[package]]
 name = "rmqtt-raft"
 version = "0.1.0"
-source = "git+https://github.com/rmqtt-rs/rmqtt-raft?tag=0.1.0#88e2a6137a9ce44175cab5764fb5229d1024705e"
+source = "git+https://github.com/rmqtt/rmqtt-raft?tag=0.1.0#88e2a6137a9ce44175cab5764fb5229d1024705e"
 dependencies = [
  "ahash 0.7.6",
  "async-trait",
