@@ -10,7 +10,7 @@ RMQTT 目前支持的操作系统:
 - macOS
 - Windows Server
 
-###ZIP 压缩包安装(Linux、MacOS、Windows)
+### ZIP 压缩包安装(Linux、MacOS、Windows)
 
 需从 [GitHub Release](https://github.com/rmqtt-rs/rmqtt/releases) 页面获取相应操作系统的二进制软件包。
 
@@ -39,9 +39,9 @@ tcp        0      0 0.0.0.0:1883            0.0.0.0:*               LISTEN      
 tcp        0      0 0.0.0.0:11883           0.0.0.0:*               LISTEN      3312/./bin/rmqttd
 ```
 
-###创建static集群
+### 创建static集群
 
-####基于RAFT分布式一致性算法的集群
+#### 基于RAFT分布式一致性算法的集群
 
 1. 准备三个服务节点，将压缩包解压到程序目录，比如：/app/rmqtt
 2. 修改配置文件(rmqtt.toml)
@@ -100,9 +100,9 @@ $ chmod +x bin/rmqttd
 $ sh start.sh
 ```
 
-###源码编译安装
+### 源码编译安装
 
-####安装rust编译环境
+#### 安装rust编译环境
 以Centos7为例，如果编译环境已经存在跳过此过程。注意：工具链需要1.56及之后版本，1.59及之后版本如果报连接错误需要升级系统开发环境。
 
 1. 安装 Rustup
@@ -161,7 +161,7 @@ $ apt install pkg-config -y
 $ apt-get install libssl-dev -y
 ```
 
-#####编译
+##### 编译
 
 1. 获取源码
 ```bash
@@ -177,7 +177,7 @@ $ git checkout $(git describe --tags $(git rev-list --tags --max-count=1))
 $ cargo build --release
 ```
 
-#####启动RMQTT Broker
+##### 启动RMQTT Broker
 
 1. 复制程序和配置文件
 ```bash
@@ -228,7 +228,7 @@ $ cd /app/rmqtt
 
 ```
 
-#####解决编译失败问题
+##### 解决编译失败问题
 如果使用1.59版及之后工具链，可能会存在依赖库版本太低导致链接失败问题，解决办法：
 
 - 使用1.58版工具链

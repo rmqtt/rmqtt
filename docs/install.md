@@ -10,7 +10,7 @@ RMQTT Currently supported operating systems:
 - macOS
 - Windows Server
 
-###Installing via ZIP Binary Package (Linux、MacOS、Windows)
+### Installing via ZIP Binary Package (Linux、MacOS、Windows)
 
 Get the binary package of the corresponding OS from [RMQTT Download](https://github.com/rmqtt-rs/rmqtt/releases) page.
 
@@ -40,9 +40,9 @@ tcp        0      0 0.0.0.0:1883            0.0.0.0:*               LISTEN      
 tcp        0      0 0.0.0.0:11883           0.0.0.0:*               LISTEN      3312/./bin/rmqttd
 ```
 
-###Creating a Static Cluster
+### Creating a Static Cluster
 
-####Cluster based on RAFT distributed consistency algorithm
+#### Cluster based on RAFT distributed consistency algorithm
 
 1. Prepare three service nodes, and decompress the package to the program directory. for example: /app/rmqtt
 2. Modifying a Configuration File(rmqtt.toml)
@@ -101,9 +101,9 @@ $ chmod +x bin/rmqttd
 $ sh start.sh
 ```
 
-###Compile and install from source code
+### Compile and install from source code
 
-####Install the RUST compilation environment
+#### Install the RUST compilation environment
 Operating in Centos7. Skip this process if the compilation environment already exists.
 attention: Toolchain requires 1.56 or later versions. If connection errors are reported in 1.59 or later versions, upgrade the system development environment.
 
@@ -136,7 +136,7 @@ $ apt install pkg-config -y
 $ apt-get install libssl-dev -y
 ```
 
-#####Compile
+##### Compile
 
 1. Get source code
 ```bash
@@ -152,7 +152,7 @@ $ git checkout $(git describe --tags $(git rev-list --tags --max-count=1))
 $ cargo build --release
 ```
 
-#####Start RMQTT Broker
+##### Start RMQTT Broker
 1. Copy programs and config files
 ```bash
 $ mkdir -p /app/rmqtt/bin && mkdir -p /app/rmqtt/etc/plugins
@@ -203,7 +203,7 @@ $ cd /app/rmqtt
 ```
 
 
-#####Solve the problem of compilation failure
+##### Solve the problem of compilation failure
 If the tool chain of version 1.59 and later is used, the version of the dependent 
 library may be too low, resulting in link failure.
 
