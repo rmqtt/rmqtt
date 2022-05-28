@@ -19,11 +19,11 @@ x86_64 architecture servers and ARM devices like Raspberry Pi.
 ```
 ```
 
-#### Installing via Binary Package
+#### Installing via ZIP Binary Package (Linux、MacOS、Windows)
 
 Get the binary package of the corresponding OS from [RMQTT Download](https://github.com/rmqtt-rs/rmqtt/releases) page.
 
-- Single Node Install
+- [Single Node Install](./docs/install.md)
 
-- Multi Node Install
+- [Multi Node Install](./docs/install.md)
 
