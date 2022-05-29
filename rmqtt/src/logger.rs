@@ -1,8 +1,7 @@
 use std::fs::{File, OpenOptions};
 use std::io::{self, Stdout};
 
-use slog::*;
-// use anyhow::Result;
+use slog::{b, Drain, o, Record};
 pub use slog::Logger;
 use slog_logfmt::Logfmt;
 

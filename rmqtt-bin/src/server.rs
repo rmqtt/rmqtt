@@ -1,12 +1,11 @@
 use std::{fs::File, io::BufReader};
 use std::time::Duration;
 
-use anyhow::Result;
 use rustls::{NoClientAuth, ServerConfig};
 use rustls::internal::pemfile::{certs, rsa_private_keys};
 
 use rmqtt::{log, tokio};
-use rmqtt::{logger::logger_init, MqttError, Runtime, SessionState};
+use rmqtt::{logger::logger_init, MqttError, Result, Runtime, SessionState};
 use rmqtt::broker::{
     v3::control_message as control_message_v3, v3::handshake as handshake_v3, v3::publish as publish_v3,
     v5::control_message as control_message_v5, v5::handshake as handshake_v5, v5::publish as publish_v5,
@@ -49,7 +48,7 @@ async fn main() {
     plugin::registers(plugin::default_startups())
         .await.expect("Failed to register plug-in");
 
-    //start grcp server
+    //start gRPC server
     Runtime::instance().node.start_grpc_server();
 
     //hook, before startup
@@ -92,7 +91,7 @@ async fn listen(name: String, listen_cfg: &Listener) -> Result<()> {
                         let listen_cfg =
                             Runtime::instance().settings.listeners.tcp(local_addr.port()).ok_or_else(
                                 || {
-                                    anyhow::Error::msg(format!(
+                                    MqttError::Msg(format!(
                                         "tcp listener config is not found, local addr is {:?}",
                                         local_addr
                                     ))
@@ -122,7 +121,7 @@ async fn listen(name: String, listen_cfg: &Listener) -> Result<()> {
                         let listen_cfg =
                             Runtime::instance().settings.listeners.tcp(local_addr.port()).ok_or_else(
                                 || {
-                                    anyhow::Error::msg(format!(
+                                    MqttError::Msg(format!(
                                         "tcp listener config is not found, local addr is {:?}",
                                         local_addr
                                     ))
@@ -172,7 +171,7 @@ async fn listen_tls(name: String, listen_cfg: &Listener) -> Result<()> {
 
         let cert_chain = certs(cert_file).unwrap();
         let mut keys = rsa_private_keys(key_file).unwrap();
-        tls_config.set_single_cert(cert_chain, keys.remove(0))?;
+        tls_config.set_single_cert(cert_chain, keys.remove(0)).map_err(|e| MqttError::from(e.to_string()))?;
 
         let tls_acceptor = Acceptor::new(tls_config);
 
@@ -198,7 +197,7 @@ async fn listen_tls(name: String, listen_cfg: &Listener) -> Result<()> {
                                         .listeners
                                         .tls(local_addr.port())
                                         .ok_or_else(|| {
-                                            anyhow::Error::msg(format!(
+                                            MqttError::Msg(format!(
                                                 "tls listener config is not found, local addr is {:?}",
                                                 local_addr
                                             ))
@@ -235,7 +234,7 @@ async fn listen_tls(name: String, listen_cfg: &Listener) -> Result<()> {
                                             .listeners
                                             .tcp(local_addr.port())
                                             .ok_or_else(|| {
-                                                anyhow::Error::msg(format!(
+                                                MqttError::Msg(format!(
                                                     "tls listener config is not found, local addr is {:?}",
                                                     local_addr
                                                 ))
