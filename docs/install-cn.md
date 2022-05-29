@@ -15,24 +15,33 @@ RMQTT 目前支持的操作系统:
 需从 [GitHub Release](https://github.com/rmqtt/rmqtt/releases) 页面获取相应操作系统的二进制软件包。
 
 1. 从[GitHub Release](https://github.com/rmqtt/rmqtt/releases) 下载zip包。
+
 ```bash
 $ wget "https://github.com/rmqtt/rmqtt/releases/download/v0.2.0/rmqtt-0.2.0-x86_64-unknown-linux-musl.zip"
 ```
+
 2. 解压从[GitHub Release](https://github.com/rmqtt/rmqtt/releases) 下载的zip包。
+
 ```bash
 $ unzip rmqtt-0.2.0-x86_64-unknown-linux-musl.zip -d /app/
 ```
+
 3. 修改权限
+
 ```bash
 $ cd /app/rmqtt
 $ chmod +x bin/rmqttd
 ```
+
 4. 启动服务
+
 ```bash
 $ cd /app/rmqtt
 $ sh start.sh
 ```
+
 5. 查看服务
+
 ```bash
 $ netstat -tlnp|grep 1883
 tcp        0      0 0.0.0.0:1883            0.0.0.0:*               LISTEN      3312/./bin/rmqttd
@@ -45,9 +54,9 @@ tcp        0      0 0.0.0.0:11883           0.0.0.0:*               LISTEN      
 
 1. 准备三个服务节点，将压缩包解压到程序目录，比如：/app/rmqtt
 2. 修改配置文件(rmqtt.toml)
-   - 设置节点ID， node.id值设置为：1、2或3
-   - 配置RPC服务端监听端口，rpc.server_addr = "0.0.0.0:5363"
-   - 服务启动时同时启动"rmqtt-cluster-raft"插件
+    - 设置节点ID， node.id值设置为：1、2或3
+    - 配置RPC服务端监听端口，rpc.server_addr = "0.0.0.0:5363"
+    - 服务启动时同时启动"rmqtt-cluster-raft"插件
 
 ```bash
 $ cd /app/rmqtt
@@ -103,10 +112,10 @@ $ chmod +x bin/rmqttd
 $ sh start.sh
 ```
 
-
 ### 源码编译安装
 
 #### 安装rust编译环境
+
 以Centos7为例，如果编译环境已经存在跳过此过程。注意：工具链需要1.56及之后版本，1.59及之后版本如果报连接错误需要升级系统开发环境。
 
 1. 安装 Rustup
@@ -151,8 +160,8 @@ registry = "git://crates.rustcc.cn/crates.io-index"
 [net]
 git-fetch-with-cli = true
 ```
-如果tuna也太慢可以使用sjtu或ustc替换重试
 
+如果tuna也太慢可以使用sjtu或ustc替换重试
 
 3. 安装openssl开发包
 
@@ -161,10 +170,13 @@ git-fetch-with-cli = true
    For example, `libssl-dev` on Ubuntu or `openssl-devel` on Fedora.
 
 CentOS:
+
 ```bash
 $ yum install openssl-devel -y
 ```
+
 Ubuntu:
+
 ```bash
 $ apt install pkg-config -y
 $ apt-get install libssl-dev -y
@@ -173,15 +185,20 @@ $ apt-get install libssl-dev -y
 ##### 编译
 
 1. 获取源码
+
 ```bash
 $ git clone https://github.com/rmqtt/rmqtt.git
 ```
+
 2. 切换到最近的 Tag
+
 ```bash
 $ cd rmqtt
 $ git checkout $(git describe --tags $(git rev-list --tags --max-count=1))
 ```
+
 3. 构建
+
 ```bash
 $ cargo build --release
 ```
@@ -189,6 +206,7 @@ $ cargo build --release
 ##### 启动RMQTT Broker
 
 1. 复制程序和配置文件
+
 ```bash
 $ mkdir -p /app/rmqtt/bin && mkdir -p /app/rmqtt/etc/plugins
 $ cp target/release/rmqttd /app/rmqtt/bin/

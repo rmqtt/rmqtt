@@ -1,6 +1,6 @@
 # RMQTT Broker
 
-English  | [简体中文](./install-cn.md)
+English | [简体中文](./install-cn.md)
 
 ## Install
 
@@ -14,26 +14,34 @@ RMQTT Currently supported operating systems:
 
 Get the binary package of the corresponding OS from [RMQTT Download](https://github.com/rmqtt/rmqtt/releases) page.
 
-
 1. Download the ZIP package from [GitHub Release](https://github.com/rmqtt/rmqtt/releases).
+
 ```bash
 $ wget "https://github.com/rmqtt/rmqtt/releases/download/v0.2.0/rmqtt-0.2.0-x86_64-unknown-linux-musl.zip"
 ```
+
 2. Decompress the zip package you downloaded from [GitHub Release](https://github.com/rmqtt/rmqtt/releases).
+
 ```bash
 $ unzip rmqtt-0.2.0-x86_64-unknown-linux-musl.zip -d /app/
 ```
+
 3. Modify the permissions
+
 ```bash
 $ cd /app/rmqtt
 $ chmod +x bin/rmqttd
 ```
+
 4. Start the service
+
 ```bash
 $ cd /app/rmqtt
 $ sh start.sh
 ```
+
 5. Check the service
+
 ```bash
 $ netstat -tlnp|grep 1883
 tcp        0      0 0.0.0.0:1883            0.0.0.0:*               LISTEN      3312/./bin/rmqttd
@@ -107,8 +115,10 @@ $ sh start.sh
 ### Compile and install from source code
 
 #### Install the RUST compilation environment
-Operating in Centos7. Skip this process if the compilation environment already exists.
-attention: Toolchain requires 1.56 or later versions. If connection errors are reported in 1.59 or later versions, upgrade the system development environment.
+
+Operating in Centos7. Skip this process if the compilation environment already exists. attention: Toolchain requires
+1.56 or later versions. If connection errors are reported in 1.59 or later versions, upgrade the system development
+environment.
 
 1. Install Rustup
 
@@ -133,10 +143,13 @@ $ source $HOME/.cargo/env
    For example, `libssl-dev` on Ubuntu or `openssl-devel` on Fedora.
 
 CentOS:
+
 ```bash
 $ yum install openssl-devel -y
 ```
+
 Ubuntu:
+
 ```bash
 $ apt install pkg-config -y
 $ apt-get install libssl-dev -y
@@ -215,11 +228,10 @@ $ cd /app/rmqtt
 ./bin/rmqttd "./etc/rmqtt.toml"
 ```
 
-
 ##### Solve the problem of compilation failure
 
-If the tool chain of version 1.59 and later is used, the version of the dependent 
-library may be too low, resulting in link failure.
+If the tool chain of version 1.59 and later is used, the version of the dependent library may be too low, resulting in
+link failure.
 
 solve:
 
