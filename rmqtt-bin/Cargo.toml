@@ -17,10 +17,8 @@ lto = true
 opt-level = 's'
 codegen-units = 1
 
-
 [dependencies]
 rustls = "0.19"
-anyhow = "1.0.40"
 warp = "0.3.1"
 
 ##mqtt broker
