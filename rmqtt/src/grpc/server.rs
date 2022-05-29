@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicIsize, Ordering};
 
 use tonic::{Response, transport};
 
@@ -97,9 +97,9 @@ impl NodeService for NodeGrpcService {
 }
 
 lazy_static::lazy_static! {
-    pub static ref ACTIVE_REQUEST_COUNT: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
+    pub static ref ACTIVE_REQUEST_COUNT: Arc<AtomicIsize> = Arc::new(AtomicIsize::new(0));
 }
 
-pub fn active_grpc_requests() -> usize {
+pub fn active_grpc_requests() -> isize {
     ACTIVE_REQUEST_COUNT.load(Ordering::SeqCst)
 }
