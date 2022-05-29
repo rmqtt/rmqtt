@@ -41,7 +41,6 @@ crossbeam = "0.8.0"
 governor = "0.3.2"
 config = "0.11.0"
 leaky-bucket = "0.11.1"
-#leaky-bucket = "0.10.0"
 linked-hash-map = "0.5.4"
 log = { version = "0.4.17", features = ["std"] }
 slog = "2.7.0"

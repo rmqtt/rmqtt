@@ -4,29 +4,30 @@ use std::iter::Iterator;
 use std::num::NonZeroU16;
 use std::num::NonZeroU32;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 use leaky_bucket::RateLimiter;
+// use leaky_bucket::LeakyBucket as RateLimiter;
 use ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 use once_cell::sync::OnceCell;
-use tokio::sync::{self, Mutex, OwnedMutexGuard};
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
+use tokio::sync::{self, Mutex, OwnedMutexGuard};
 use tokio::time::Duration;
 use uuid::Uuid;
 
-use crate::{ClientId, grpc, Id, MqttError, NodeId, QoS, Result, Runtime, TopicFilter};
 use crate::broker::fitter::{Fitter, FitterManager};
 use crate::broker::hook::{Handler, Hook, HookManager, HookResult, Parameter, Priority, Register, Type};
 use crate::broker::session::{ClientInfo, Session, SessionOfflineInfo};
 use crate::broker::topic::{Topic, VecToTopic};
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
+use crate::{grpc, ClientId, Id, MqttError, NodeId, QoS, Result, Runtime, TopicFilter};
 
 use super::{
-    Entry, IsOnline, Limiter, LimiterManager, retain::RetainTree, RetainStorage, Router, Shared,
-    SharedSubscription, SubRelations, SubRelationsMap, topic::TopicTree,
+    retain::RetainTree, topic::TopicTree, Entry, IsOnline, Limiter, LimiterManager, RetainStorage, Router,
+    Shared, SharedSubscription, SubRelations, SubRelationsMap,
 };
 
 type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
@@ -258,6 +259,15 @@ impl Shared for &'static DefaultShared {
     }
 
     #[inline]
+    fn get_id(&self, client_id: &str) -> Option<Id>{
+        if let Some(e) = self.peers.get(client_id){
+            Some(e.c.id.clone())
+        }else{
+            None
+        }
+    }
+
+    #[inline]
     async fn forwards(&self, from: From, publish: Publish) -> Result<(), Vec<(To, From, Publish, Reason)>> {
         let topic = publish.topic();
         let router = Runtime::instance().extends.router().await;
@@ -380,7 +390,7 @@ impl Shared for &'static DefaultShared {
     }
 
     #[inline]
-    fn iter(&self) -> Box<dyn Iterator<Item=Box<dyn Entry>> + Sync + Send> {
+    fn iter(&self) -> Box<dyn Iterator<Item = Box<dyn Entry>> + Sync + Send> {
         Box::new(DefaultIter { shared: self, ptr: self.peers.iter() })
     }
 
@@ -418,8 +428,6 @@ impl Iterator for DefaultIter<'_> {
 
 #[allow(clippy::type_complexity)]
 pub struct DefaultRouter {
-    //pub tree: RwLock<TopicTree<NodeId>>,
-    //pub relations: DashMap<TopicFilter, HashMap<ClientId, (NodeId, QoS, Option<SharedGroup>)>>,
     pub topics: RwLock<TopicTree<()>>,
     pub relations: DashMap<TopicFilter, HashMap<NodeId, HashMap<ClientId, (QoS, Option<SharedGroup>)>>>,
 }
@@ -482,7 +490,7 @@ impl DefaultRouter {
             for (group, mut s_subs) in groups.drain() {
                 log::debug!("group: {}, s_subs: {:?}", group, s_subs);
                 if let Some((idx, is_online)) =
-                Runtime::instance().extends.shared_subscription().await.choice(&s_subs).await
+                    Runtime::instance().extends.shared_subscription().await.choice(&s_subs).await
                 {
                     let (node_id, client_id, qos, _) = s_subs.remove(idx);
                     subs.entry(node_id).or_default().push((
@@ -575,14 +583,9 @@ impl Router for &'static DefaultRouter {
         log::debug!("add, topic_filter: {:?}", topic_filter);
         let topic = Topic::from_str(topic_filter)?;
         //add to topic tree
-        self.topics.write().await.insert(&topic, ()); //@TODO Or send the routing relationship to the cluster ...
+        self.topics.write().await.insert(&topic, ());
 
         //add to subscribe relations
-        // let _ = self
-        //     .relations
-        //     .entry(TopicFilter::from(topic_filter))
-        //     .or_default()
-        //     .insert(ClientId::from(client_id), (node_id, qos, shared_group));
         let _ = self
             .relations
             .entry(TopicFilter::from(topic_filter))
@@ -1258,19 +1261,19 @@ impl DefaultLimiterManager {
 impl LimiterManager for &'static DefaultLimiterManager {
     #[inline]
     fn get(&self, name: String, listen_cfg: Listener) -> Result<Box<dyn Limiter>> {
-        let l = if let Some(limiter) = self.limiters.get(&name) {
-            limiter.value().clone()
-        } else {
-            log::debug!("new DefaultLimiter, name is {}", name);
-            let limiter = DefaultLimiter::new(
-                name.clone(),
-                listen_cfg.conn_await_acquire,
-                listen_cfg.max_conn_rate,
-                listen_cfg.handshake_timeout,
-            )?;
-            self.limiters.insert(name, limiter.clone());
-            limiter
-        };
+        let l = self
+            .limiters
+            .entry(name)
+            .or_insert_with(|| {
+                let limiter = DefaultLimiter::new(
+                    listen_cfg.conn_await_acquire,
+                    listen_cfg.max_conn_rate,
+                    listen_cfg.handshake_timeout,
+                );
+                limiter
+            })
+            .value()
+            .clone();
         Ok(Box::new(l))
     }
 }
@@ -1278,7 +1281,6 @@ impl LimiterManager for &'static DefaultLimiterManager {
 #[derive(Clone)]
 pub struct DefaultLimiter {
     #[allow(dead_code)]
-    name: String,
     await_acquire: bool,
     limiter: Arc<RateLimiter>,
     handshake_timeout: TimestampMillis,
@@ -1286,14 +1288,8 @@ pub struct DefaultLimiter {
 
 impl DefaultLimiter {
     #[inline]
-    pub fn new(
-        name: String,
-        await_acquire: bool,
-        permits: usize,
-        handshake_timeout: Duration,
-    ) -> Result<Self> {
-        Ok(Self {
-            name,
+    pub fn new(await_acquire: bool, permits: usize, handshake_timeout: Duration) -> Self {
+        Self {
             await_acquire,
             limiter: Arc::new(
                 RateLimiter::builder()
@@ -1304,7 +1300,7 @@ impl DefaultLimiter {
                     .build(),
             ),
             handshake_timeout: handshake_timeout.as_millis() as TimestampMillis,
-        })
+        }
     }
 }
 
@@ -1318,12 +1314,9 @@ impl Limiter for DefaultLimiter {
 
     #[inline]
     async fn acquire(&self, amount: usize) -> Result<()> {
-        if !self.await_acquire && self.limiter.balance() < amount {
-            return Err(MqttError::from("not enough tokens"));
-        }
         let t = chrono::Local::now().timestamp_millis();
         self.limiter.acquire(amount).await;
-        if (chrono::Local::now().timestamp_millis() - t) > self.handshake_timeout {
+        if chrono::Local::now().timestamp_millis() > (t + self.handshake_timeout) {
             return Err(MqttError::from("handshake timeout"));
         }
         Ok(())
