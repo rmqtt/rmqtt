@@ -174,13 +174,6 @@ impl From<MqttError> for tonic::Status {
     }
 }
 
-impl From<leaky_bucket::Error> for MqttError {
-    #[inline]
-    fn from(e: leaky_bucket::Error) -> Self {
-        MqttError::Anyhow(anyhow::Error::new(e))
-    }
-}
-
 impl From<tokio::sync::TryLockError> for MqttError {
     #[inline]
     fn from(e: tokio::sync::TryLockError) -> Self {
