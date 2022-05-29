@@ -38,7 +38,7 @@ fn plugins(decoded: &toml::Value) {
 
     let out = std::env::var("OUT_DIR").unwrap();
     let mut plugin_rs = File::create(format!("{}/{}", out, "plugin.rs")).unwrap();
-    plugin_rs.write_all(b"pub(crate) async fn registers(default_startups: Vec<String>) -> anyhow::Result<()>{\n").unwrap();
+    plugin_rs.write_all(b"pub(crate) async fn registers(default_startups: Vec<String>) -> rmqtt::Result<()>{\n").unwrap();
     plugin_rs.write_all(inits.join("\n").as_bytes()).unwrap();
     plugin_rs.write_all(b"\n    Ok(())\n}").unwrap();
 }
