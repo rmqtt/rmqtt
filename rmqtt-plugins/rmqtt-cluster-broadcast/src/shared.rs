@@ -162,6 +162,11 @@ impl Shared for &'static ClusterShared {
     }
 
     #[inline]
+    fn id(&self, client_id: &str) -> Option<Id> {
+        self.inner.id(client_id)
+    }
+
+    #[inline]
     async fn forwards(&self, from: From, publish: Publish) -> Result<(), Vec<(To, From, Publish, Reason)>> {
         let this_node_id = Runtime::instance().node.id();
         let topic = publish.topic();

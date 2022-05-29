@@ -42,6 +42,9 @@ pub trait Shared: Sync + Send {
     ///
     fn entry(&self, id: Id) -> Box<dyn Entry>;
 
+    ///
+    fn id(&self, client_id: &str) -> Option<Id>;
+
     ///Route and dispense publish message
     async fn forwards(&self, from: From, publish: Publish) -> Result<(), Vec<(To, From, Publish, Reason)>>;
 
