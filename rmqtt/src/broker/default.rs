@@ -7,7 +7,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use leaky_bucket::LeakyBucket;
+use leaky_bucket::RateLimiter;
 use ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 use once_cell::sync::OnceCell;
 use tokio::sync::{self, Mutex, OwnedMutexGuard};
@@ -1280,7 +1280,7 @@ pub struct DefaultLimiter {
     #[allow(dead_code)]
     name: String,
     await_acquire: bool,
-    limiter: Arc<LeakyBucket>,
+    limiter: Arc<RateLimiter>,
     handshake_timeout: TimestampMillis,
 }
 
@@ -1296,12 +1296,12 @@ impl DefaultLimiter {
             name,
             await_acquire,
             limiter: Arc::new(
-                LeakyBucket::builder()
+                RateLimiter::builder()
                     .max(permits)
-                    .tokens(permits)
-                    .refill_interval(Duration::from_secs(1))
-                    .refill_amount(permits)
-                    .build()?,
+                    .initial(permits)
+                    .interval(Duration::from_secs(1))
+                    .refill(permits)
+                    .build(),
             ),
             handshake_timeout: handshake_timeout.as_millis() as TimestampMillis,
         })
@@ -1318,11 +1318,11 @@ impl Limiter for DefaultLimiter {
 
     #[inline]
     async fn acquire(&self, amount: usize) -> Result<()> {
-        if !self.await_acquire && self.limiter.tokens() < amount {
+        if !self.await_acquire && self.limiter.balance() < amount {
             return Err(MqttError::from("not enough tokens"));
         }
         let t = chrono::Local::now().timestamp_millis();
-        self.limiter.acquire(amount).await?;
+        self.limiter.acquire(amount).await;
         if (chrono::Local::now().timestamp_millis() - t) > self.handshake_timeout {
             return Err(MqttError::from("handshake timeout"));
         }
