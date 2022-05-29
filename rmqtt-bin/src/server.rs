@@ -45,8 +45,7 @@ async fn main() {
     }
     logger_init();
     inner_api_serve_and_listen();
-    plugin::registers(plugin::default_startups())
-        .await.expect("Failed to register plug-in");
+    plugin::registers(plugin::default_startups()).await.expect("Failed to register plug-in");
 
     //start gRPC server
     Runtime::instance().node.start_grpc_server();
