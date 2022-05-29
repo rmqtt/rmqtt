@@ -5,6 +5,7 @@ pub extern crate serde;
 #[macro_use]
 pub extern crate serde_json;
 
+pub use anyhow;
 pub use futures;
 pub use log;
 pub use ntex;
