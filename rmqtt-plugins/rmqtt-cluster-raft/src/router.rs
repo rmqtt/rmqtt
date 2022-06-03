@@ -1,4 +1,3 @@
-use std::convert::From as _f;
 use std::sync::Arc;
 
 use once_cell::sync::OnceCell;
@@ -10,7 +9,7 @@ use rmqtt::{
         default::DefaultRouter,
         IsOnline,
         Router,
-        SubRelationsMap, topic::TopicTree, types::{ClientId, NodeId, QoS, SharedGroup, TopicFilter, TopicName},
+        SubRelationsMap, topic::TopicTree, types::{ClientId, Id, NodeId, QoS, SharedGroup, TopicFilter, TopicName},
     },
     Result,
 };
@@ -23,7 +22,7 @@ type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
 pub struct ClusterRouter {
     inner: &'static DefaultRouter,
     raft_mailbox: Arc<RwLock<Option<Mailbox>>>,
-    all_client_ids: DashMap<ClientId, (NodeId, IsOnline)>,
+    client_statuses: DashMap<ClientId, (Id, IsOnline)>,
 }
 
 impl ClusterRouter {
@@ -33,7 +32,7 @@ impl ClusterRouter {
         INSTANCE.get_or_init(|| Self {
             inner: DefaultRouter::instance(),
             raft_mailbox: Arc::new(RwLock::new(None)),
-            all_client_ids: DashMap::default(),
+            client_statuses: DashMap::default(),
         })
     }
 
@@ -54,20 +53,28 @@ impl ClusterRouter {
 
     #[inline]
     pub(crate) fn _client_node_id(&self, client_id: &str) -> Option<NodeId> {
-        self.all_client_ids.get(client_id).map(|entry| {
-            let (node_id, _) = entry.value();
-            *node_id
+        self.client_statuses.get(client_id).map(|entry| {
+            let (id, _) = entry.value();
+            id.node_id
         })
     }
 
     #[inline]
-    pub(crate) fn all_clients(&self) -> usize {
-        self.all_client_ids
+    pub(crate) fn id(&self, client_id: &str) -> Option<Id> {
+        self.client_statuses.get(client_id).map(|entry| {
+            let (id, _) = entry.value();
+            id.clone()
+        })
+    }
+
+    #[inline]
+    pub(crate) fn all_onlines(&self) -> usize {
+        self.client_statuses
             .iter()
             .filter_map(|entry| {
-                let (node_id, online) = entry.value();
+                let (_id, online) = entry.value();
                 if *online {
-                    Some(*node_id)
+                    Some(())
                 } else {
                     None
                 }
@@ -76,8 +83,8 @@ impl ClusterRouter {
     }
 
     #[inline]
-    pub(crate) fn all_sessions(&self) -> usize {
-        self.all_client_ids.len()
+    pub(crate) fn all_statuses(&self) -> usize {
+        self.client_statuses.len()
     }
 }
 
@@ -130,7 +137,7 @@ impl Router for &'static ClusterRouter {
     ///Check online or offline
     async fn is_online(&self, node_id: NodeId, client_id: &str) -> bool {
         log::debug!("[Router.is_online] node_id: {:?}, client_id: {:?}", node_id, client_id);
-        self.all_client_ids
+        self.client_statuses
             .get(client_id)
             .map(|entry| {
                 let (_, online) = entry.value();
@@ -156,24 +163,33 @@ impl Store for &'static ClusterRouter {
         log::debug!("apply, message.len: {:?}", message.len());
         let message: Message = bincode::deserialize(message).map_err(|e| Error::Other(e))?;
         match message {
-            Message::Connected { node_id, client_id } => {
-                log::debug!("[Router.Connected] node_id: {}, client_id: {:?}", node_id, client_id,);
-                self.all_client_ids.insert(ClientId::from(client_id), (node_id, true));
+            Message::Connected { id } => {
+                log::debug!("[Router.Connected] id: {:?}", id);
+                self.client_statuses.insert(id.client_id.clone(), (id, true));
             }
-            Message::Disconnected { client_id } => {
-                log::debug!("[Router.Disconnected] client_id: {:?}", client_id,);
-                if let Some(mut entry) = self.all_client_ids.get_mut(client_id) {
-                    let (_, online) = entry.value_mut();
-                    *online = false;
+            Message::Disconnected { id } => {
+                log::debug!("[Router.Disconnected] id: {:?}", id,);
+                if let Some(mut entry) = self.client_statuses.get_mut(&id.client_id) {
+                    let (c_id, online) = entry.value_mut();
+                    if *c_id != id {
+                        log::warn!("[Router.Disconnected] id not the same, input id: {:?}, current id: {:?}", id, c_id);
+                    } else {
+                        *online = false;
+                    }
                 } else {
-                    log::warn!("[Router.Disconnected] client_id: {:?}, Not found", client_id);
+                    log::warn!("[Router.Disconnected] id: {:?}, Not found", id);
                 }
             }
-            Message::SessionTerminated { client_id } => {
-                log::debug!("[Router.SessionTerminated] client_id: {:?}", client_id,);
-                if self.all_client_ids.remove(client_id).is_none() {
-                    log::warn!("[Router.SessionTerminated] client_id: {:?}, Not found", client_id);
-                }
+            Message::SessionTerminated { id } => {
+                log::debug!("[Router.SessionTerminated] id: {:?}", id,);
+                self.client_statuses.remove_if(&id.client_id, |_, (c_id, online)| {
+                    if *c_id != id {
+                        log::warn!("[Router.SessionTerminated] id not the same, input id: {:?}, current id: {:?}, online: {}", id, c_id, online);
+                        false
+                    } else {
+                        true
+                    }
+                });
             }
             Message::Add { topic_filter, node_id, client_id, qos, shared_group } => {
                 log::debug!(
@@ -202,11 +218,10 @@ impl Store for &'static ClusterRouter {
                     .map_err(|e| Error::Other(Box::new(e)))?;
             }
             Message::GetClientNodeId { client_id } => {
-                if let Some(entry) = self.all_client_ids.get(client_id) {
-                    let (node_id, _) = entry.value();
-                    let data = bincode::serialize(&(node_id, )).map_err(|e| Error::Other(e))?;
-                    return Ok(data);
-                }
+                //unimplemented!("Only query operations are supported")
+                let node_id = self._client_node_id(client_id);
+                let data = bincode::serialize(&node_id).map_err(|e| Error::Other(e))?;
+                return Ok(data);
             }
         }
         Ok(Vec::new())
@@ -217,11 +232,9 @@ impl Store for &'static ClusterRouter {
         let query: Message = bincode::deserialize(query).map_err(|e| Error::Other(e))?;
         match query {
             Message::GetClientNodeId { client_id } => {
-                if let Some(entry) = self.all_client_ids.get(client_id) {
-                    let (node_id, _) = entry.value();
-                    let data = bincode::serialize(&(node_id, )).map_err(|e| Error::Other(e))?;
-                    return Ok(data);
-                }
+                let node_id = self._client_node_id(client_id);
+                let data = bincode::serialize(&node_id).map_err(|e| Error::Other(e))?;
+                return Ok(data);
             }
             _ => {
                 log::error!("unimplemented, query: {:?}", query)
@@ -238,14 +251,14 @@ impl Store for &'static ClusterRouter {
             .iter()
             .map(|entry| (entry.key().clone(), entry.value().clone()))
             .collect::<Vec<_>>();
-        let all_client_ids = &self
-            .all_client_ids
+        let client_statuses = &self
+            .client_statuses
             .iter()
-            .map(|entry| (entry.key().clone(), *entry.value()))
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
             .collect::<Vec<_>>();
 
         let snapshot =
-            bincode::serialize(&(self.inner.topics.read().await.as_ref(), relations, all_client_ids))
+            bincode::serialize(&(self.inner.topics.read().await.as_ref(), relations, client_statuses))
                 .map_err(|e| Error::Other(e))?;
         log::debug!("snapshot len: {}", snapshot.len());
         Ok(snapshot)
@@ -254,10 +267,10 @@ impl Store for &'static ClusterRouter {
     async fn restore(&mut self, snapshot: &[u8]) -> RaftResult<()> {
         log::info!("restore, snapshot.len: {}", snapshot.len());
 
-        let (topics, relations, all_client_ids): (
+        let (topics, relations, client_statuses): (
             TopicTree<()>,
             Vec<(TopicFilter, HashMap<NodeId, HashMap<ClientId, (QoS, Option<SharedGroup>)>>)>,
-            Vec<(ClientId, (NodeId, IsOnline))>,
+            Vec<(ClientId, (Id, IsOnline))>,
         ) = bincode::deserialize(snapshot).map_err(|e| Error::Other(e))?;
 
         *self.inner.topics.write().await = topics;
@@ -267,9 +280,9 @@ impl Store for &'static ClusterRouter {
             self.inner.relations.insert(topic_filter, relation);
         }
 
-        self.all_client_ids.clear();
-        for (client_id, content) in all_client_ids {
-            self.all_client_ids.insert(client_id, content);
+        self.client_statuses.clear();
+        for (client_id, content) in client_statuses {
+            self.client_statuses.insert(client_id, content);
         }
 
         Ok(())
