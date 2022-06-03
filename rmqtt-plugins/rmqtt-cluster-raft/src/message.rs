@@ -1,17 +1,16 @@
-use rmqtt::broker::types::{NodeId, QoS, SharedGroup};
+use rmqtt::broker::types::{Id, NodeId, QoS, SharedGroup};
 use rmqtt::Result;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Message<'a> {
     Connected {
-        node_id: NodeId,
-        client_id: &'a str,
+        id: Id,
     },
     Disconnected {
-        client_id: &'a str,
+        id: Id,
     },
     SessionTerminated {
-        client_id: &'a str,
+        id: Id,
     },
     Add {
         topic_filter: &'a str,
