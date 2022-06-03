@@ -1,17 +1,20 @@
 use std::net::SocketAddr;
 use std::str::FromStr;
-
+use std::time::Duration;
 use serde::de::{self};
 
 use rmqtt::broker::types::NodeId;
 use rmqtt::grpc::MessageType;
 use rmqtt::Result;
+use rmqtt::settings::deserialize_duration;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
     pub message_type: MessageType,
     pub node_grpc_addrs: Vec<NodeAddr>,
     pub raft_peer_addrs: Vec<NodeAddr>,
+    #[serde(default = "PluginConfig::try_lock_timeout_default", deserialize_with = "deserialize_duration")]
+    pub try_lock_timeout: Duration,  //Message::HandshakeTryLock
 }
 
 impl PluginConfig {
@@ -19,6 +22,11 @@ impl PluginConfig {
     pub fn to_json(&self) -> Result<serde_json::Value> {
         Ok(serde_json::to_value(self)?)
     }
+
+    fn try_lock_timeout_default() -> Duration{
+        Duration::from_secs(15)
+    }
+
 }
 
 #[derive(Clone, Serialize)]
