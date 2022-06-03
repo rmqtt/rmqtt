@@ -201,7 +201,7 @@ impl Plugin for ClusterPlugin {
         self.raft_mailbox.replace(raft_mailbox.clone());
         self.router.set_raft_mailbox(raft_mailbox).await;
 
-        self.hook_register(Type::ClientConnected).await;
+        // self.hook_register(Type::ClientConnected).await;
         self.hook_register(Type::ClientDisconnected).await;
         self.hook_register(Type::SessionTerminated).await;
         self.hook_register(Type::GrpcMessageReceived).await;
