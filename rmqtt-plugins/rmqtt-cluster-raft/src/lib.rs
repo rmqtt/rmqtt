@@ -25,6 +25,7 @@ use rmqtt::{
     grpc::{client::NodeGrpcClient, Message, MessageReply, MessageType},
     plugin::{DynPlugin, DynPluginResult, Plugin},
     Result, Runtime,
+    tokio::time::sleep,
 };
 use router::ClusterRouter;
 use shared::ClusterShared;
@@ -95,7 +96,8 @@ impl ClusterPlugin {
         }
         let grpc_clients = Arc::new(grpc_clients);
         let message_type = cfg.read().message_type;
-        let router = ClusterRouter::get_or_init();
+        let try_lock_timeout = cfg.read().try_lock_timeout;
+        let router = ClusterRouter::get_or_init(try_lock_timeout);
         let shared = ClusterShared::get_or_init(router, grpc_clients.clone(), message_type);
         let retainer = ClusterRetainer::get_or_init(grpc_clients.clone(), message_type);
         let raft_mailbox = None;
@@ -198,10 +200,26 @@ impl Plugin for ClusterPlugin {
         log::info!("{} init", self.name);
 
         let raft_mailbox = Self::start_raft(self.cfg.clone(), self.router).await;
+
+        for _ in 0..20{
+
+            match raft_mailbox.status().await{
+                Ok(status) => {
+                    if status.is_started() {
+                        break
+                    }
+                    log::info!("{} Initializing cluster", self.name);
+                },
+                Err(e) => {
+                    log::info!("{} init error, {:?}", self.name, e);
+                }
+            }
+            sleep(Duration::from_millis(300)).await;
+        }
+
         self.raft_mailbox.replace(raft_mailbox.clone());
         self.router.set_raft_mailbox(raft_mailbox).await;
 
-        // self.hook_register(Type::ClientConnected).await;
         self.hook_register(Type::ClientDisconnected).await;
         self.hook_register(Type::SessionTerminated).await;
         self.hook_register(Type::GrpcMessageReceived).await;
