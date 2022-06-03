@@ -31,20 +31,12 @@ impl HookHandler {
 #[async_trait]
 impl Handler for HookHandler {
     async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
+        log::debug!("hook, Parameter type: {:?}", param.get_type());
         match param {
-            Parameter::ClientConnected(_s, c) => {
-                let msg = Message::Connected { node_id: c.id.node_id, client_id: &c.id.client_id }
-                    .encode()
-                    .unwrap();
-                if let Err(e) = self.raft_mailbox.send(msg).await {
-                    log::error!("raft mailbox send error, {:?}", e);
-                }
-            }
-
             Parameter::ClientDisconnected(_s, c, r) => {
                 log::debug!("{:?} hook::ClientDisconnected reason: {:?}", c.id, r);
                 if !r.contains("Kicked") {
-                    let msg = Message::Disconnected { client_id: &c.id.client_id }.encode().unwrap();
+                    let msg = Message::Disconnected { id: c.id.clone() }.encode().unwrap();
                     if let Err(e) = self.raft_mailbox.send(msg).await {
                         log::error!("raft mailbox send error, {:?}", e);
                     }
@@ -52,7 +44,7 @@ impl Handler for HookHandler {
             }
 
             Parameter::SessionTerminated(_s, c, _r) => {
-                let msg = Message::SessionTerminated { client_id: &c.id.client_id }.encode().unwrap();
+                let msg = Message::SessionTerminated { id: c.id.clone() }.encode().unwrap();
                 if let Err(e) = self.raft_mailbox.send(msg).await {
                     log::error!("raft mailbox send error, {:?}", e);
                 }
@@ -74,7 +66,6 @@ impl Handler for HookHandler {
                     }
                     GrpcMessage::Kick(id, clear_subscriptions) => {
                         let entry = self.shared.inner().entry(id.clone());
-                        log::debug!("[GrpcMessage::Kick] {:?}", id);
                         for _ in 0..30u8 {
                             let new_acc = match entry.try_lock() {
                                 Ok(mut entry) => match entry.kick(*clear_subscriptions).await {
@@ -83,7 +74,6 @@ impl Handler for HookHandler {
                                 },
                                 Err(e) => {
                                     log::warn!("{:?}, GrpcMessage::Kick, try_lock error, {:?}", id, e);
-                                    //HookResult::GrpcMessageReply(Err(e))
                                     tokio::time::sleep(Duration::from_millis(200)).await;
                                     continue;
                                 }
