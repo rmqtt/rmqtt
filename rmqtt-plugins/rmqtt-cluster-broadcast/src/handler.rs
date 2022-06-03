@@ -47,7 +47,7 @@ impl Handler for HookHandler {
                     Message::Kick(id, clear_subscriptions) => {
                         let entry = self.shared.inner().entry(id.clone());
                         log::debug!("{:?}", id);
-                        let new_acc = match entry.try_lock() {
+                        let new_acc = match entry.try_lock().await {
                             Ok(mut entry) => match entry.kick(*clear_subscriptions).await {
                                 Ok(o) => {
                                     log::debug!("{:?} offline info: {:?}", id, o);

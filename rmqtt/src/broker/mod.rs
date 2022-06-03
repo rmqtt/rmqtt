@@ -23,7 +23,7 @@ pub mod v5;
 
 #[async_trait]
 pub trait Entry: Sync + Send {
-    fn try_lock(&self) -> Result<Box<dyn Entry>>;
+    async fn try_lock(&self) -> Result<Box<dyn Entry>>;
     fn id(&self) -> Id;
     async fn set(&mut self, session: Session, tx: Tx, conn: ClientInfo) -> Result<()>;
     async fn remove(&mut self) -> Result<Option<(Session, Tx, ClientInfo)>>;

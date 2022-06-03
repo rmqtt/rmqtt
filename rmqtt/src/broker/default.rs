@@ -94,7 +94,7 @@ impl LockEntry {
 #[async_trait]
 impl super::Entry for LockEntry {
     #[inline]
-    fn try_lock(&self) -> Result<Box<dyn Entry>> {
+    async fn try_lock(&self) -> Result<Box<dyn Entry>> {
         log::debug!("{:?} try_lock", self.id);
         let locker = self
             .shared
@@ -124,6 +124,11 @@ impl super::Entry for LockEntry {
 
     #[inline]
     async fn kick(&mut self, clear_subscriptions: bool) -> Result<Option<SessionOfflineInfo>> {
+        log::debug!(
+            "{:?} LockEntry kick ..., clear_subscriptions: {}",
+            self.client().await.map(|c| c.id.clone()),
+            clear_subscriptions
+        );
         if let Some((s, peer_tx, c)) = self._remove(clear_subscriptions).await {
             let (tx, mut rx) = mpsc::unbounded_channel();
             if let Err(e) = peer_tx.send(Message::Kick(tx, self.id.clone())) {

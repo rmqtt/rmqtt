@@ -35,8 +35,8 @@ impl ClusterLockEntry {
 #[async_trait]
 impl Entry for ClusterLockEntry {
     #[inline]
-    fn try_lock(&self) -> Result<Box<dyn Entry>> {
-        Ok(Box::new(ClusterLockEntry::new(self.inner.try_lock()?, self.cluster_shared)))
+    async fn try_lock(&self) -> Result<Box<dyn Entry>> {
+        Ok(Box::new(ClusterLockEntry::new(self.inner.try_lock().await?, self.cluster_shared)))
     }
 
     #[inline]

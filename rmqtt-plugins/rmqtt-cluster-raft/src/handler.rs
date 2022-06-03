@@ -66,14 +66,14 @@ impl Handler for HookHandler {
                     }
                     GrpcMessage::Kick(id, clear_subscriptions) => {
                         let entry = self.shared.inner().entry(id.clone());
-                        for _ in 0..30u8 {
-                            let new_acc = match entry.try_lock() {
+                        for i in 0..30u8 {
+                            let new_acc = match entry.try_lock().await {
                                 Ok(mut entry) => match entry.kick(*clear_subscriptions).await {
                                     Ok(o) => HookResult::GrpcMessageReply(Ok(MessageReply::Kick(o))),
                                     Err(e) => HookResult::GrpcMessageReply(Err(e)),
                                 },
                                 Err(e) => {
-                                    log::warn!("{:?}, GrpcMessage::Kick, try_lock error, {:?}", id, e);
+                                    log::warn!("{:?}, GrpcMessage::Kick, try_lock error({}), {:?}", id, i, e);
                                     tokio::time::sleep(Duration::from_millis(200)).await;
                                     continue;
                                 }

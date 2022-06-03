@@ -104,7 +104,7 @@ pub async fn handshake<Io>(
     let sink = handshake.sink();
     let packet = handshake.packet_mut();
 
-    let mut entry = match { Runtime::instance().extends.shared().await.entry(id.clone()) }.try_lock() {
+    let mut entry = match { Runtime::instance().extends.shared().await.entry(id.clone()) }.try_lock().await {
         Err(e) => {
             log::warn!("{:?} Connection Refused, handshake, reason: {:?}", connect_info.id(), e);
             return Ok(handshake.failed(ConnectAckReasonV5::ServerUnavailable));
