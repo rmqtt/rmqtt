@@ -3,37 +3,57 @@ use std::time::Duration;
 use futures::future::FutureExt;
 use once_cell::sync::OnceCell;
 
-use rmqtt::{
-    broker::{
-        default::DefaultShared,
-        Entry,
-        session::{ClientInfo, Session, SessionOfflineInfo},
-        Shared, SubRelations, SubRelationsMap, types::{From, Id, Publish, Reason, Subscribe, SubscribeReturn, To, Tx, Unsubscribe},
-    },
-    grpc::{Message, MessageReply, MessageType},
-    Result, Runtime,
-};
+use rmqtt::{broker::{
+    default::DefaultShared,
+    Entry,
+    session::{ClientInfo, Session, SessionOfflineInfo},
+    Shared, SubRelations, SubRelationsMap, types::{From, Id, NodeId, Publish, Reason, Subscribe, SubscribeReturn, To, Tx, Unsubscribe},
+}, grpc::{Message, MessageReply, MessageType}, MqttError, Result, Runtime};
 
 use super::{ClusterRouter, GrpcClients, MessageSender};
 use super::message::Message as RaftMessage;
+use super::message::MessageReply as RaftMessageReply;
+
 
 pub struct ClusterLockEntry {
     inner: Box<dyn Entry>,
     cluster_shared: &'static ClusterShared,
+    prev_node_id: Option<NodeId>,
 }
 
 impl ClusterLockEntry {
     #[inline]
-    pub fn new(inner: Box<dyn Entry>, cluster_shared: &'static ClusterShared) -> Self {
-        Self { inner, cluster_shared }
+    pub fn new(inner: Box<dyn Entry>, cluster_shared: &'static ClusterShared, prev_node_id: Option<NodeId>) -> Self {
+        Self { inner, cluster_shared, prev_node_id}
     }
 }
+
 
 #[async_trait]
 impl Entry for ClusterLockEntry {
     #[inline]
-    fn try_lock(&self) -> Result<Box<dyn Entry>> {
-        Ok(Box::new(ClusterLockEntry::new(self.inner.try_lock()?, self.cluster_shared)))
+    async fn try_lock(&self) -> Result<Box<dyn Entry>> {
+        let inner = self.inner.try_lock().await?;
+        let msg = RaftMessage::HandshakeTryLock { id: self.id() }
+            .encode()?;
+        let raft_mailbox = self.cluster_shared.router.raft_mailbox().await;
+        let reply = raft_mailbox.send(msg).await.map_err(anyhow::Error::new)?;
+        let mut prev_node_id = None;
+        if !reply.is_empty(){
+            match RaftMessageReply::decode(&reply)? {
+                RaftMessageReply::Error(e) => {
+                    return Err(MqttError::Msg(e))
+                },
+                RaftMessageReply::HandshakeTryLock(prev_id) => {
+                    prev_node_id = prev_id.map(|id|id.node_id);
+                    log::debug!(
+                        "{:?} ClusterLockEntry try_lock prev_node_id: {:?}",
+                        self.client().await.map(|c| c.id.clone()), prev_node_id
+                    );
+                },
+            }
+        }
+        Ok(Box::new(ClusterLockEntry::new(inner, self.cluster_shared, prev_node_id)))
     }
 
     #[inline]
@@ -64,19 +84,8 @@ impl Entry for ClusterLockEntry {
         );
         let id = self.id();
 
-        let raft_mailbox = self.cluster_shared.router.raft_mailbox().await;
-        let reply = raft_mailbox
-            .query(RaftMessage::GetClientNodeId { client_id: &id.client_id }.encode()?)  //query
-            .await
-            .map_err(anyhow::Error::new)?;
-
-        log::debug!("{:?} kick, GetClientNodeId: reply: {:?}", id, reply);
-
-        let prev_node_id = match bincode::deserialize(reply.as_ref()).map_err(anyhow::Error::new)? {
-            Some(prev_node_id) => prev_node_id,
-            None => id.node_id,
-        };
-
+        log::debug!("{:?} kick, prev_node_id: {:?}", id, self.prev_node_id);
+        let prev_node_id = self.prev_node_id.unwrap_or(id.node_id);
         if prev_node_id == id.node_id {
             //kicked from local
             self.inner.kick(clear_subscriptions).await
@@ -190,7 +199,7 @@ impl ClusterShared {
 impl Shared for &'static ClusterShared {
     #[inline]
     fn entry(&self, id: Id) -> Box<dyn Entry> {
-        Box::new(ClusterLockEntry::new(self.inner.entry(id), self))
+        Box::new(ClusterLockEntry::new(self.inner.entry(id), self, None))
     }
 
     #[inline]

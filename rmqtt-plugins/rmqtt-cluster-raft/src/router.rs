@@ -1,38 +1,63 @@
 use std::sync::Arc;
-
+use std::time::Duration;
 use once_cell::sync::OnceCell;
 use rmqtt_raft::{Error, Mailbox, Result as RaftResult, Store};
 use tokio::sync::RwLock;
 
-use rmqtt::{
-    broker::{
-        default::DefaultRouter,
-        IsOnline,
-        Router,
-        SubRelationsMap, topic::TopicTree, types::{ClientId, Id, NodeId, QoS, SharedGroup, TopicFilter, TopicName},
-    },
-    Result,
-};
+use rmqtt::{broker::{
+    default::DefaultRouter,
+    IsOnline,
+    Router,
+    SubRelationsMap, topic::TopicTree, types::{ClientId, Id, NodeId, QoS, SharedGroup,
+                                               TopicFilter, TopicName, TimestampMillis},
+}, Result};
 
-use super::message::Message;
+use super::message::{Message, MessageReply};
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct ClientStatus{
+    id: Id,
+    online: IsOnline,
+    handshaking: bool,
+    handshak_duration: TimestampMillis,
+}
+
+impl ClientStatus{
+    fn new(id: Id, online: IsOnline, handshaking: bool) -> Self{
+        Self{
+            id,
+            online,
+            handshaking,
+            handshak_duration: chrono::Local::now().timestamp_millis(),
+        }
+    }
+
+    fn handshaking(&self, try_lock_timeout: Duration) -> bool{
+        let h_ing = self.handshaking && (chrono::Local::now().timestamp_millis() < (self.handshak_duration + try_lock_timeout.as_millis() as TimestampMillis));
+        //log::info!("handshaking, h_ing: {:?}, {:?}, try_lock_timeout: {:?}", h_ing, chrono::Local::now().timestamp_millis() - self.handshak_duration, try_lock_timeout);
+        h_ing
+    }
+}
+
 pub struct ClusterRouter {
     inner: &'static DefaultRouter,
     raft_mailbox: Arc<RwLock<Option<Mailbox>>>,
-    client_statuses: DashMap<ClientId, (Id, IsOnline)>,
+    client_statuses: DashMap<ClientId, ClientStatus>,
+    try_lock_timeout: Duration,
 }
 
 impl ClusterRouter {
     #[inline]
-    pub(crate) fn get_or_init() -> &'static Self {
+    pub(crate) fn get_or_init(try_lock_timeout: Duration) -> &'static Self {
         static INSTANCE: OnceCell<ClusterRouter> = OnceCell::new();
         INSTANCE.get_or_init(|| Self {
             inner: DefaultRouter::instance(),
             raft_mailbox: Arc::new(RwLock::new(None)),
             client_statuses: DashMap::default(),
+            try_lock_timeout,
         })
     }
 
@@ -54,16 +79,14 @@ impl ClusterRouter {
     #[inline]
     pub(crate) fn _client_node_id(&self, client_id: &str) -> Option<NodeId> {
         self.client_statuses.get(client_id).map(|entry| {
-            let (id, _) = entry.value();
-            id.node_id
+            entry.id.node_id
         })
     }
 
     #[inline]
     pub(crate) fn id(&self, client_id: &str) -> Option<Id> {
         self.client_statuses.get(client_id).map(|entry| {
-            let (id, _) = entry.value();
-            id.clone()
+            entry.id.clone()
         })
     }
 
@@ -72,8 +95,7 @@ impl ClusterRouter {
         self.client_statuses
             .iter()
             .filter_map(|entry| {
-                let (_id, online) = entry.value();
-                if *online {
+                if entry.online {
                     Some(())
                 } else {
                     None
@@ -140,8 +162,7 @@ impl Router for &'static ClusterRouter {
         self.client_statuses
             .get(client_id)
             .map(|entry| {
-                let (_, online) = entry.value();
-                *online
+                entry.online
             })
             .unwrap_or(false)
     }
@@ -163,18 +184,54 @@ impl Store for &'static ClusterRouter {
         log::debug!("apply, message.len: {:?}", message.len());
         let message: Message = bincode::deserialize(message).map_err(|e| Error::Other(e))?;
         match message {
+            Message::HandshakeTryLock { id } => {
+                log::debug!("[Router.HandshakeTryLock] id: {:?}", id);
+                let mut try_lock_ok = false;
+                let mut prev_id = None;
+                self.client_statuses.entry(id.client_id.clone())
+                    .and_modify(|status|{
+                        prev_id = Some(status.id.clone());
+                        if !status.handshaking(self.try_lock_timeout){
+                            *status = ClientStatus::new(id.clone(), false, true);
+                            try_lock_ok = true;
+                        }
+                    })
+                    .or_insert_with(|| {
+                        try_lock_ok = true;
+                        ClientStatus::new(id.clone(), false, true)
+                    });
+                log::debug!("[Router.HandshakeTryLock] id: {:?}, try_lock_ok: {}, prev_id: {:?}", id, try_lock_ok, prev_id);
+
+                if try_lock_ok {
+                    return Ok(MessageReply::HandshakeTryLock(prev_id).encode().map_err(|_e| Error::Unknown)?);
+                }else{
+                    return Ok(MessageReply::Error("handshake try lock error".into()).encode().map_err(|_e| Error::Unknown)?);
+                }
+            }
             Message::Connected { id } => {
                 log::debug!("[Router.Connected] id: {:?}", id);
-                self.client_statuses.insert(id.client_id.clone(), (id, true));
+                //self.client_statuses.insert(id.client_id.clone(), ClientStatus::new(id, true, false));
+                if let Some(mut entry) = self.client_statuses.get_mut(&id.client_id) {
+                    let mut status = entry.value_mut();
+                    if status.id != id {
+                        log::warn!("[Router.Connected] id not the same, input id: {:?}, current status: {:?}", id, status);
+                    } else {
+                        status.online = true;
+                        status.handshaking = false;
+                    }
+                } else {
+                    log::warn!("[Router.Connected] id: {:?}, Not found", id);
+                    self.client_statuses.insert(id.client_id.clone(), ClientStatus::new(id, true, false));
+                }
             }
             Message::Disconnected { id } => {
                 log::debug!("[Router.Disconnected] id: {:?}", id,);
                 if let Some(mut entry) = self.client_statuses.get_mut(&id.client_id) {
-                    let (c_id, online) = entry.value_mut();
-                    if *c_id != id {
-                        log::warn!("[Router.Disconnected] id not the same, input id: {:?}, current id: {:?}", id, c_id);
+                    let mut status = entry.value_mut();
+                    if status.id != id {
+                        log::warn!("[Router.Disconnected] id not the same, input id: {:?}, current status: {:?}", id, status);
                     } else {
-                        *online = false;
+                        status.online = false;
                     }
                 } else {
                     log::warn!("[Router.Disconnected] id: {:?}, Not found", id);
@@ -182,9 +239,9 @@ impl Store for &'static ClusterRouter {
             }
             Message::SessionTerminated { id } => {
                 log::debug!("[Router.SessionTerminated] id: {:?}", id,);
-                self.client_statuses.remove_if(&id.client_id, |_, (c_id, online)| {
-                    if *c_id != id {
-                        log::warn!("[Router.SessionTerminated] id not the same, input id: {:?}, current id: {:?}, online: {}", id, c_id, online);
+                self.client_statuses.remove_if(&id.client_id, |_, status| {
+                    if status.id != id {
+                        log::warn!("[Router.SessionTerminated] id not the same, input id: {:?}, current status: {:?}", id, status);
                         false
                     } else {
                         true
@@ -270,7 +327,7 @@ impl Store for &'static ClusterRouter {
         let (topics, relations, client_statuses): (
             TopicTree<()>,
             Vec<(TopicFilter, HashMap<NodeId, HashMap<ClientId, (QoS, Option<SharedGroup>)>>)>,
-            Vec<(ClientId, (Id, IsOnline))>,
+            Vec<(ClientId, ClientStatus)>,
         ) = bincode::deserialize(snapshot).map_err(|e| Error::Other(e))?;
 
         *self.inner.topics.write().await = topics;
