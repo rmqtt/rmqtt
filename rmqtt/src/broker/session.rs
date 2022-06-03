@@ -117,7 +117,7 @@ impl SessionState {
 
                 tokio::select! {
                     _ = &mut keep_alive_delay => {  //, if !keep_alive_delay.is_elapsed()
-                        log::debug!("{:?} session is timeout, {:?}", id, keep_alive_delay);
+                        log::debug!("{:?} keep alive is timeout, is_elapsed: {:?}", id, keep_alive_delay.is_elapsed());
                         state.client.add_disconnected_reason("Timeout(Read/Write)".to_owned()).await;
                         break
                     },
@@ -593,61 +593,6 @@ impl SessionState {
         Ok(())
     }
 
-    // #[inline]
-    // pub async fn publish_v3_old(&self, publish: v3::Publish) -> Result<()> {
-    //     let publish = Publish::V3(Box::new(PublishV3::from(&publish)?));
-    //     //hook, message_publish
-    //     let publish = self.hook.message_publish(&publish).await.unwrap_or(publish);
-    //
-    //     //hook, message_publish_check_acl
-    //     let acl_result = self.hook.message_publish_check_acl(&publish).await;
-    //     log::debug!("{:?} acl_result: {:?}", self.id, acl_result);
-    //
-    //     if let PublishAclResult::Rejected(disconnect) = acl_result {
-    //         //Message dropped
-    //         Runtime::instance()
-    //             .extends
-    //             .hook_mgr()
-    //             .await
-    //             .message_dropped(
-    //                 None,
-    //                 self.id.clone(),
-    //                 publish,
-    //                 Reason::from(format!(
-    //                     "hook::message_publish_check_acl, publish rejected, disconnect:{}",
-    //                     disconnect
-    //                 )),
-    //             )
-    //             .await;
-    //         return if disconnect {
-    //             Err(MqttError::from(
-    //                 "Publish Refused, reason: hook::message_publish_check_acl() -> Rejected(Disconnect)",
-    //             ))
-    //         } else {
-    //             Ok(())
-    //         };
-    //     }
-    //
-    //     if self.listen_cfg.retain_available && publish.retain() {
-    //         Runtime::instance()
-    //             .extends
-    //             .retain()
-    //             .await
-    //             .set(publish.topic(), Retain { from: self.id.clone(), publish: publish.clone() })
-    //             .await?;
-    //     }
-    //
-    //     if let Err(errs) = Runtime::instance().extends.shared().await.forwards(self.id.clone(), publish).await
-    //     {
-    //         for (to, from, p, reason) in errs {
-    //             //Message dropped
-    //             Runtime::instance().extends.hook_mgr().await.message_dropped(Some(to), from, p, reason).await;
-    //         }
-    //     }
-    //
-    //     Ok(())
-    // }
-
     #[inline]
     pub(crate) async fn clean(&self, reason: Reason) {
         log::debug!("{:?} clean, reason: {:?}", self.id, reason);
@@ -685,12 +630,25 @@ impl SessionState {
                 .await;
         }
 
-        //hook, session terminated
-        self.hook.session_terminated(reason).await;
+        let id_not_same = if let Some(id) = Runtime::instance().extends.shared().await.id(&self.id.client_id) {
+            if self.id != id {
+                log::warn!("id not the same, id: {:?}, current id: {:?}, reason: {:?}", self.id, id, reason);
+                true
+            }else{
+                false
+            }
+        }else{
+            false
+        };
 
-        //clear session, and unsubscribe
-        if let Err(e) = Runtime::instance().extends.shared().await.entry(self.id.clone()).remove().await {
-            log::error!("{:?} session remove from broker fail, {:?}", self.id, e);
+        if !id_not_same {
+            //hook, session terminated
+            self.hook.session_terminated(reason).await;
+
+            //clear session, and unsubscribe
+            if let Err(e) = Runtime::instance().extends.shared().await.entry(self.id.clone()).remove().await {
+                log::error!("{:?} session remove from broker fail, {:?}", self.id, e);
+            }
         }
     }
 
