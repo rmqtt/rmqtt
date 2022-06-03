@@ -8,7 +8,7 @@ use rmqtt::{
         default::DefaultShared,
         Entry,
         session::{ClientInfo, Session, SessionOfflineInfo},
-        Shared, SubRelations, SubRelationsMap, types::{From, Id, NodeId, Publish, Reason, Subscribe, SubscribeReturn, To, Tx, Unsubscribe},
+        Shared, SubRelations, SubRelationsMap, types::{From, Id, Publish, Reason, Subscribe, SubscribeReturn, To, Tx, Unsubscribe},
     },
     grpc::{Message, MessageReply, MessageType},
     Result, Runtime,
@@ -43,6 +43,10 @@ impl Entry for ClusterLockEntry {
 
     #[inline]
     async fn set(&mut self, session: Session, tx: Tx, conn: ClientInfo) -> Result<()> {
+        let msg = RaftMessage::Connected { id: session.id.clone() }
+            .encode()?;
+        let raft_mailbox = self.cluster_shared.router.raft_mailbox().await;
+        raft_mailbox.send(msg).await.map_err(anyhow::Error::new)?;
         self.inner.set(session, tx, conn).await
     }
 
@@ -62,20 +66,16 @@ impl Entry for ClusterLockEntry {
 
         let raft_mailbox = self.cluster_shared.router.raft_mailbox().await;
         let reply = raft_mailbox
-            .send(RaftMessage::GetClientNodeId { client_id: &id.client_id }.encode()?)
+            .query(RaftMessage::GetClientNodeId { client_id: &id.client_id }.encode()?)  //query
             .await
             .map_err(anyhow::Error::new)?;
 
         log::debug!("{:?} kick, GetClientNodeId: reply: {:?}", id, reply);
 
-        let prev_node_id = if reply.is_empty() {
-            id.node_id
-        } else {
-            let (prev_node_id, ): (NodeId, ) =
-                bincode::deserialize(reply.as_ref()).map_err(anyhow::Error::new)?;
-            prev_node_id
+        let prev_node_id = match bincode::deserialize(reply.as_ref()).map_err(anyhow::Error::new)? {
+            Some(prev_node_id) => prev_node_id,
+            None => id.node_id,
         };
-        log::debug!("{:?} prev_node_id: {:?}", id, prev_node_id);
 
         if prev_node_id == id.node_id {
             //kicked from local
@@ -93,7 +93,7 @@ impl Entry for ClusterLockEntry {
                 match msg_sender.send().await {
                     Ok(reply) => {
                         if let MessageReply::Kick(Some(kicked)) = reply {
-                            log::info!("{:?} kicked: {:?}", id, kicked);
+                            log::debug!("{:?} kicked: {:?}", id, kicked);
                             Ok(Some(kicked))
                         } else {
                             log::error!(
@@ -191,6 +191,11 @@ impl Shared for &'static ClusterShared {
     #[inline]
     fn entry(&self, id: Id) -> Box<dyn Entry> {
         Box::new(ClusterLockEntry::new(self.inner.entry(id), self))
+    }
+
+    #[inline]
+    fn id(&self, client_id: &str) -> Option<Id> {
+        self.router.id(client_id)
     }
 
     #[inline]
@@ -298,12 +303,12 @@ impl Shared for &'static ClusterShared {
 
     #[inline]
     async fn all_clients(&self) -> usize {
-        self.router.all_clients()
+        self.router.all_onlines()
     }
 
     #[inline]
     async fn all_sessions(&self) -> usize {
-        self.router.all_sessions()
+        self.router.all_statuses()
     }
 
     #[inline]
