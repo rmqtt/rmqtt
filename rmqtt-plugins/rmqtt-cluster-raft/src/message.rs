@@ -47,7 +47,6 @@ impl<'a> Message<'a> {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum MessageReply {
-    // Success,
     Error(String),
     HandshakeTryLock(Option<Id>),
 }
