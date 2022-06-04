@@ -6,7 +6,7 @@ edition = "2021"
 
 [dependencies]
 rmqtt = "0.2"
-rmqtt-raft = { git = "https://github.com/rmqtt/rmqtt-raft", tag = "0.1.0" }
+rmqtt-raft = { git = "https://github.com/rmqtt/rmqtt-raft", tag = "0.1.1" }
 log = "0.4"
 async-trait = "0.1.36"
 serde = "1.0.104"
