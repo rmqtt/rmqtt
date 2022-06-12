@@ -6,7 +6,7 @@ use warp::http::StatusCode;
 
 use rmqtt::{serde::ser::Serialize, serde_json};
 use rmqtt::{Result, Runtime};
-use rmqtt::broker::types::{ClientId, Id};
+use rmqtt::broker::types::{ClientId, Id, SessionStatus};
 use rmqtt::grpc::server::active_grpc_requests;
 
 #[allow(dead_code)]
@@ -44,6 +44,17 @@ pub async fn serve<T: Into<SocketAddr>>(laddr: T) -> Result<()> {
                 Err(e) => {
                     with_reply_status(warp::http::StatusCode::INTERNAL_SERVER_ERROR, Some(format!("{:?}", e)))
                 }
+            }
+        });
+
+    //session status, /session/:client_id/status
+    let session_status = root()
+        .and(warp::path!("session" / String / "status"))
+        .and(warp::path::end())
+        .and_then(|client_id: String| async move {
+            match session_status(client_id).await {
+                Some(s) => with_reply_json(s),
+                None => with_reply_status(warp::http::StatusCode::NOT_FOUND, Some("not found".into()))
             }
         });
 
@@ -145,6 +156,7 @@ pub async fn serve<T: Into<SocketAddr>>(laddr: T) -> Result<()> {
             .or(status)
             .or(session)
             .or(random_session)
+            .or(session_status)
             .or(router_topics)
             .or(router_relations)
             // .or(router_shared_subscribes)
@@ -201,12 +213,23 @@ async fn status() -> serde_json::Value {
         }
     };
 
+    let handshakings = Runtime::instance().extends.stats().await.handshakings();
+
+    let router = Runtime::instance().extends.router().await;
+    let topics = router.topics().await;
+    let subscriptions = router.subscriptions();
+    let relations = router.relations();
+
     serde_json::json!({
         "all_sessions": all_sessions,
         "all_clients": all_clients,
         "sessions": sessions,
         "clients": clients,
+        "topics": topics,
+        "subscriptions": subscriptions,
+        "relations": relations,
         "active_grpc_requests": active_grpc_requests(),
+        "handshakings": handshakings,
     })
 }
 
@@ -237,6 +260,14 @@ async fn random_session() -> Result<Option<serde_json::Value>> {
     };
     Ok(data)
 }
+
+async fn session_status(client_id: String) -> Option<SessionStatus> {
+    Runtime::instance()
+        .extends
+        .shared()
+        .await.session_status(&client_id).await
+}
+
 
 async fn list_router_topics(mut top: usize) -> String {
     if top > 10000 {
