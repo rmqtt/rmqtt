@@ -95,6 +95,8 @@ pub struct ListenerInner {
     pub max_connections: usize,
     #[serde(default = "ListenerInner::max_conn_rate_default")]
     pub max_conn_rate: usize,
+    #[serde(default = "ListenerInner::max_concurrency_limit_default")]
+    pub max_concurrency_limit: usize,
     #[serde(default = "ListenerInner::conn_await_acquire_default")]
     pub conn_await_acquire: bool,
     #[serde(default = "ListenerInner::max_packet_size_default")]
@@ -183,6 +185,10 @@ impl ListenerInner {
     #[inline]
     fn max_connections_default() -> usize {
         1024000
+    }
+    #[inline]
+    fn max_concurrency_limit_default() -> usize {
+        1000
     }
     #[inline]
     fn max_conn_rate_default() -> usize {
