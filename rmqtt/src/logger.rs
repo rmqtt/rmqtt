@@ -89,8 +89,8 @@ pub fn config_logger(filename: String, to: ValueMut<To>, level: ValueMut<Level>)
     let drain = LevelFilter { drain, level }.fuse();
 
     let drain = slog_async::Async::new(drain)
-        .chan_size(4096 * 4)
-        .overflow_strategy(slog_async::OverflowStrategy::DropAndReport)
+        .chan_size(4096 * 8)
+        .overflow_strategy(slog_async::OverflowStrategy::Block)
         .build()
         .fuse();
 
