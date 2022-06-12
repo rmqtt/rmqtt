@@ -7,10 +7,9 @@ use rmqtt::{
     broker::{
         default::DefaultShared,
         Entry,
-        IsOnline,
         session::{ClientInfo, Session, SessionOfflineInfo}, Shared, SubRelations, SubRelationsMap, types::{
-            ClientId, From, Id, NodeId, Publish, QoS, Reason, SharedGroup, Subscribe, SubscribeReturn, To,
-            TopicFilter, TopicFilterString, Tx, Unsubscribe,
+            ClientId, From, Id, IsOnline, NodeId, Publish, QoS, Reason, SessionStatus, SharedGroup, Subscribe,
+            SubscribeReturn, To, TopicFilter, TopicFilterString, Tx, Unsubscribe,
         },
     },
     grpc::{Message, MessageReply, MessageType}, Result, Runtime,
@@ -81,10 +80,8 @@ impl Entry for ClusterLockEntry {
                 );
                 if !clear_subscriptions && !kicked.subscriptions.is_empty() {
                     let router = Runtime::instance().extends.router().await;
-                    let node_id = Runtime::instance().node.id();
-                    let client_id = &self.id().client_id;
-                    for (tf, (qos, shared_group)) in kicked.subscriptions.iter() {
-                        router.add(tf, node_id, client_id, *qos, shared_group.clone()).await?;
+                    for (tf, (qos, group)) in kicked.subscriptions.iter() {
+                        router.add(tf, self.id(), *qos, (*group).clone()).await?;
                     }
                 }
                 Ok(Some(kicked))
@@ -411,5 +408,11 @@ impl Shared for &'static ClusterShared {
     #[inline]
     fn random_session(&self) -> Option<(Session, ClientInfo)> {
         self.inner.random_session()
+    }
+
+
+    #[inline]
+    async fn session_status(&self, client_id: &str) -> Option<SessionStatus> {
+        self.inner.session_status(client_id).await
     }
 }
