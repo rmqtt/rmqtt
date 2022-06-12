@@ -1,12 +1,22 @@
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
+
+pub(crate) use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
+pub(crate) use backoff::future::retry;
 use serde::de::{self};
 
 use rmqtt::broker::types::NodeId;
 use rmqtt::grpc::MessageType;
 use rmqtt::Result;
 use rmqtt::settings::deserialize_duration;
+
+lazy_static::lazy_static! {
+    pub static ref BACKOFF_STRATEGY: ExponentialBackoff = ExponentialBackoffBuilder::new()
+        .with_max_elapsed_time(Some(Duration::from_secs(60)))
+        .with_multiplier(2.5).build();
+}
+
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
@@ -23,10 +33,9 @@ impl PluginConfig {
         Ok(serde_json::to_value(self)?)
     }
 
-    fn try_lock_timeout_default() -> Duration{
-        Duration::from_secs(15)
+    fn try_lock_timeout_default() -> Duration {
+        Duration::from_secs(10)
     }
-
 }
 
 #[derive(Clone, Serialize)]

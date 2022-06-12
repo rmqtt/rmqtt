@@ -5,7 +5,7 @@ use std::num::NonZeroU16;
 use std::num::NonZeroU32;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicI64, Ordering};
 
 use leaky_bucket::RateLimiter;
 // use leaky_bucket::LeakyBucket as RateLimiter;
@@ -57,11 +57,8 @@ impl LockEntry {
     }
 
     #[inline]
-    pub async fn _unsubscribe(&self, id: Id, topic_filter: &str) -> Result<()> {
-        {
-            let router = Runtime::instance().extends.router().await;
-            router.remove(topic_filter, Runtime::instance().node.id(), &id.client_id).await?;
-        }
+    async fn _unsubscribe(&self, id: Id, topic_filter: &str) -> Result<()> {
+        Runtime::instance().extends.router().await.remove(topic_filter, id).await?;
         Ok(())
     }
 
@@ -70,10 +67,12 @@ impl LockEntry {
         if !self.shared.peers.contains_key(&self.id.client_id) {
             return None;
         }
+
         if let Some((_, peer)) = { self.shared.peers.remove(&self.id.client_id) } {
             if clear_subscriptions {
-                for (topic_filter, _) in peer.s.subscriptions().await.iter() {
-                    if let Err(e) = self._unsubscribe(peer.c.id.clone(), topic_filter).await {
+                let topic_filters = peer.s.subscriptions().await.iter().map(|(topic_filter, _)| topic_filter.clone()).collect::<Vec<_>>();
+                for topic_filter in topic_filters {
+                    if let Err(e) = self._unsubscribe(peer.c.id.clone(), &topic_filter).await {
                         log::warn!(
                             "{:?} remove._unsubscribe, topic_filter: {}, {:?}",
                             self.id,
@@ -95,7 +94,7 @@ impl LockEntry {
 impl super::Entry for LockEntry {
     #[inline]
     async fn try_lock(&self) -> Result<Box<dyn Entry>> {
-        log::debug!("{:?} try_lock", self.id);
+        log::debug!("{:?} LockEntry.try_lock", self.id);
         let locker = self
             .shared
             .lockers
@@ -129,10 +128,11 @@ impl super::Entry for LockEntry {
             self.client().await.map(|c| c.id.clone()),
             clear_subscriptions
         );
+        //@TODO ... check ID whether is same ...
         if let Some((s, peer_tx, c)) = self._remove(clear_subscriptions).await {
             let (tx, mut rx) = mpsc::unbounded_channel();
             if let Err(e) = peer_tx.send(Message::Kick(tx, self.id.clone())) {
-                log::warn!("{:?} kick, {:?}, {:?}", self.id, c.id, e);
+                log::warn!("{:?} kick, {:?}, {:?}", self.id, c.id, e.to_string());
             } else {
                 match tokio::time::timeout(Duration::from_secs(3), rx.recv()).await {
                     Ok(_) => {
@@ -182,7 +182,6 @@ impl super::Entry for LockEntry {
             .map(|peer| peer.value().clone())
             .ok_or_else(|| MqttError::from("session is not exist"))?;
 
-        let router = Runtime::instance().extends.router().await;
         let this_node_id = Runtime::instance().node.id();
         let node_id = peer.c.id.node_id;
         assert_eq!(
@@ -191,7 +190,8 @@ impl super::Entry for LockEntry {
             node_id, this_node_id
         );
 
-        router.add(&sub.topic_filter, node_id, &self.id.client_id, sub.qos, sub.shared_group.clone()).await?;
+        Runtime::instance().extends.router().await
+            .add(&sub.topic_filter, self.id(), sub.qos, sub.shared_group.clone()).await?;
         peer.s.subscriptions_add(sub.topic_filter.to_string(), sub.qos, sub.shared_group).await;
         Ok(SubscribeReturn::new_success(sub.qos))
     }
@@ -205,11 +205,11 @@ impl super::Entry for LockEntry {
             .map(|peer| peer.value().clone())
             .ok_or_else(|| MqttError::from("session is not exist"))?;
 
-        if let Err(e) = self._unsubscribe(peer.c.id.clone(), &unsubscribe.topic_filter).await {
+        if let Err(e) = Runtime::instance().extends.router().await
+            .remove(&unsubscribe.topic_filter, self.id()).await {
             log::warn!("{:?} unsubscribe, error:{:?}", self.id, e);
         }
         peer.s.subscriptions_remove(&unsubscribe.topic_filter).await;
-
         Ok(())
     }
 
@@ -275,8 +275,7 @@ impl Shared for &'static DefaultShared {
     #[inline]
     async fn forwards(&self, from: From, publish: Publish) -> Result<(), Vec<(To, From, Publish, Reason)>> {
         let topic = publish.topic();
-        let router = Runtime::instance().extends.router().await;
-        let mut relations_map = match router.matches(publish.topic()).await {
+        let mut relations_map = match Runtime::instance().extends.router().await.matches(publish.topic()).await {
             Ok(relations_map) => relations_map,
             Err(e) => {
                 log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
@@ -411,6 +410,17 @@ impl Shared for &'static DefaultShared {
             None
         }
     }
+
+    #[inline]
+    async fn session_status(&self, client_id: &str) -> Option<SessionStatus> {
+        self.peers.get(client_id).map(|entry| {
+            SessionStatus {
+                id: entry.c.id.clone(),
+                online: entry.c.is_connected(),
+                handshaking: false,
+            }
+        })
+    }
 }
 
 pub struct DefaultIter<'a> {
@@ -434,7 +444,7 @@ impl Iterator for DefaultIter<'_> {
 #[allow(clippy::type_complexity)]
 pub struct DefaultRouter {
     pub topics: RwLock<TopicTree<()>>,
-    pub relations: DashMap<TopicFilter, HashMap<NodeId, HashMap<ClientId, (QoS, Option<SharedGroup>)>>>,
+    pub relations: DashMap<TopicFilter, HashMap<ClientId, (Id, QoS, Option<SharedGroup>)>>,
 }
 
 impl DefaultRouter {
@@ -456,37 +466,23 @@ impl DefaultRouter {
             let mut groups: HashMap<SharedGroup, Vec<(NodeId, ClientId, QoS, Option<IsOnline>)>> =
                 HashMap::default();
 
-            if let Some(node_map) = self.relations.get(&topic_filter) {
-                for (node_id, client_map) in node_map.iter() {
-                    for (client_id, (qos, group)) in client_map.iter() {
-                        if let Some(group) = group {
-                            let router = Runtime::instance().extends.router().await;
-                            if let Some(group_subs) = groups.get_mut(group) {
-                                group_subs.push((
-                                    *node_id,
-                                    client_id.clone(),
-                                    *qos,
-                                    Some(router.is_online(*node_id, client_id).await),
-                                ));
-                            } else {
-                                groups.insert(
-                                    group.clone(),
-                                    vec![(
-                                        *node_id,
-                                        client_id.clone(),
-                                        *qos,
-                                        Some(router.is_online(*node_id, client_id).await),
-                                    )],
-                                );
-                            }
-                        } else {
-                            subs.entry(*node_id).or_default().push((
-                                topic_filter.clone(),
-                                client_id.clone(),
-                                *qos,
-                                None,
-                            ))
-                        }
+            if let Some(rels) = self.relations.get(&topic_filter) {
+                for (client_id, (id, qos, group)) in rels.iter() {
+                    if let Some(group) = group {
+                        let router = Runtime::instance().extends.router().await;
+                        groups.entry(group.clone()).or_default().push((
+                            id.node_id,
+                            client_id.clone(),
+                            *qos,
+                            Some(router.is_online(id.node_id, client_id).await),
+                        ));
+                    } else {
+                        subs.entry(id.node_id).or_default().push((
+                            topic_filter.clone(),
+                            client_id.clone(),
+                            *qos,
+                            None,
+                        ))
                     }
                 }
             }
@@ -511,67 +507,6 @@ impl DefaultRouter {
         log::debug!("{:?} this_subs: {:?}", topic_name, subs);
         Ok(subs)
     }
-
-    // #[allow(clippy::type_complexity)]
-    // #[inline]
-    // pub async fn _matches(&self, topic_name: &TopicName) -> Result<SubRelationsMap> {
-    //     let mut subs: SubRelationsMap = HashMap::default();
-    //     let topic = Topic::from_str(topic_name)?;
-    //     for (topic_filter, _node_ids) in self.tree.read().await.matches(&topic).iter() {
-    //         let topic_filter = topic_filter.to_topic_filter();
-    //
-    //         let mut groups: HashMap<SharedGroup, Vec<(NodeId, ClientId, QoS, Option<IsOnline>)>> =
-    //             HashMap::default();
-    //
-    //         if let Some(entry) = self.relations.get(&topic_filter) {
-    //             for (client_id, (node_id, qos, group)) in entry.iter() {
-    //                 //let client_id = e.key();
-    //                 //let (node_id, qos, group) = e.value();
-    //                 if let Some(group) = group {
-    //                     let router = Runtime::instance().extends.router().await;
-    //                     if let Some(group_subs) = groups.get_mut(group) {
-    //                         group_subs.push((
-    //                             *node_id,
-    //                             client_id.clone(),
-    //                             *qos,
-    //                             Some(router.is_online(*node_id, client_id).await),
-    //                         ));
-    //                     } else {
-    //                         groups.insert(
-    //                             group.clone(),
-    //                             vec![(
-    //                                 *node_id,
-    //                                 client_id.clone(),
-    //                                 *qos,
-    //                                 Some(router.is_online(*node_id, client_id).await),
-    //                             )],
-    //                         );
-    //                     }
-    //                 } else {
-    //                     subs.entry(*node_id).or_default().push((
-    //                         topic_filter.clone(),
-    //                         client_id.clone(),
-    //                         *qos,
-    //                     ))
-    //                 }
-    //             }
-    //         }
-    //
-    //         //select a subscriber from shared subscribe groups
-    //         for (group, mut s_subs) in groups.drain() {
-    //             log::debug!("group: {}, s_subs: {:?}", group, s_subs);
-    //             if let Some((idx, _is_online)) =
-    //                 Runtime::instance().extends.shared_subscription().await.choice(&s_subs).await
-    //             {
-    //                 let (node_id, client_id, qos, _) = s_subs.remove(idx);
-    //                 subs.entry(node_id).or_default().push((topic_filter.clone(), client_id.clone(), qos))
-    //             }
-    //         }
-    //     }
-    //
-    //     log::debug!("{:?} this_subs: {:?}", topic_name, subs);
-    //     Ok(subs)
-    // }
 }
 
 #[async_trait]
@@ -580,8 +515,7 @@ impl Router for &'static DefaultRouter {
     async fn add(
         &self,
         topic_filter: &str,
-        node_id: NodeId,
-        client_id: &str,
+        id: Id,
         qos: QoS,
         shared_group: Option<SharedGroup>,
     ) -> Result<()> {
@@ -595,42 +529,41 @@ impl Router for &'static DefaultRouter {
             .relations
             .entry(TopicFilter::from(topic_filter))
             .or_default()
-            .entry(node_id)
-            .or_default()
-            .insert(ClientId::from(client_id), (qos, shared_group));
+            .insert(id.client_id.clone(), (id, qos, shared_group));
 
         Ok(())
     }
 
     #[inline]
-    async fn remove(&self, topic_filter: &str, node_id: NodeId, client_id: &str) -> Result<()> {
+    async fn remove(&self, topic_filter: &str, id: Id) -> Result<()> {
         log::debug!("remove, topic_filter: {:?}", topic_filter.to_string());
         //Remove subscription relationship from local
-        let is_empty = if let Some(mut node_map) = self.relations.get_mut(topic_filter) {
-            let is_empty = if let Some(client_map) = node_map.get_mut(&node_id) {
-                client_map.remove(client_id);
-                Some(client_map.is_empty())
+        let is_empty = if let Some(mut rels) = self.relations.get_mut(topic_filter) {
+            let remove_enable = rels.value().get(&id.client_id).map(|(s_id, _, _)| {
+                if *s_id != id {
+                    log::warn!("remove, input id not the same, input id: {:?}, current id: {:?}, topic_filter: {}", id, s_id, topic_filter);
+                    false
+                } else {
+                    true
+                }
+            }).unwrap_or(false);
+            if remove_enable {
+                rels.value_mut().remove(&id.client_id);
+                Some(rels.is_empty())
             } else {
                 None
-            };
-            if let Some(is_empty) = is_empty {
-                if is_empty {
-                    node_map.remove(&node_id);
-                    //let topic = Topic::from_str(topic_filter)?;
-                    //self.topics.write().await.remove(&topic, &());
-                }
             }
-            Some(node_map.is_empty())
         } else {
             None
         };
+
         log::debug!(
-            "remove, node_id: {}, topic_filter: {:?}, is_empty: {:?}",
-            node_id,
-            topic_filter.to_string(),
+            "{:?} remove, topic_filter: {:?}, is_empty: {:?}",
+            id,
+            topic_filter,
             is_empty
         );
-        //Remove routing information from the routing table when there is no subscription relationship
+
         if let Some(is_empty) = is_empty {
             if is_empty {
                 self.relations.remove(topic_filter);
@@ -647,6 +580,21 @@ impl Router for &'static DefaultRouter {
     }
 
     #[inline]
+    async fn topics(&self) -> usize {
+        self.topics.read().await.values_size()
+    }
+
+    #[inline]
+    fn subscriptions(&self) -> usize {
+        self.relations.len()
+    }
+
+    #[inline]
+    fn relations(&self) -> usize {
+        self.relations.iter().map(|rels| rels.len()).sum::<usize>()
+    }
+
+    #[inline]
     async fn list_topics(&self, top: usize) -> Vec<String> {
         self.topics.read().await.list(top)
     }
@@ -656,22 +604,19 @@ impl Router for &'static DefaultRouter {
         let mut count = 0;
         let mut rels = Vec::new();
         for entry in self.relations.iter() {
-            let topic_filter = entry.key().to_string();
-            for (node_id, client_map) in entry.iter() {
-                for (client_id, (qos, group)) in client_map.iter() {
-                    // let (node_id, qos, group) = r.value();
-                    let item = json!({
-                        "topic_filter": topic_filter.as_str(),
-                        "client_id": client_id,
-                        "node_id": node_id,
-                        "qos": qos,
-                        "group": group,
-                    });
-                    rels.push(item);
-                    count += 1;
-                    if count >= top {
-                        return rels;
-                    }
+            let topic_filter = entry.key();
+            for (client_id, (id, qos, group)) in entry.iter() {
+                let item = json!({
+                    "topic_filter": topic_filter,
+                    "client_id": client_id,
+                    "node_id": id.node_id,
+                    "qos": qos.value(),
+                    "group": group,
+                });
+                rels.push(item);
+                count += 1;
+                if count >= top {
+                    return rels;
                 }
             }
         }
@@ -1273,6 +1218,7 @@ impl LimiterManager for &'static DefaultLimiterManager {
                 let limiter = DefaultLimiter::new(
                     listen_cfg.conn_await_acquire,
                     listen_cfg.max_conn_rate,
+                    listen_cfg.max_concurrency_limit,
                     listen_cfg.handshake_timeout,
                 );
                 limiter
@@ -1285,26 +1231,30 @@ impl LimiterManager for &'static DefaultLimiterManager {
 
 #[derive(Clone)]
 pub struct DefaultLimiter {
-    #[allow(dead_code)]
     await_acquire: bool,
+    max_concurrency_limit: isize,
     limiter: Arc<RateLimiter>,
-    handshake_timeout: TimestampMillis,
+    handshake_timeout: Duration,
+    last_time: Arc<AtomicI64>,
 }
 
 impl DefaultLimiter {
     #[inline]
-    pub fn new(await_acquire: bool, permits: usize, handshake_timeout: Duration) -> Self {
+    pub fn new(await_acquire: bool, max_conn_rate: usize, max_concurrency_limit: usize, handshake_timeout: Duration) -> Self {
         Self {
             await_acquire,
+            max_concurrency_limit: max_concurrency_limit as isize,
             limiter: Arc::new(
                 RateLimiter::builder()
-                    .max(permits)
-                    .initial(permits)
-                    .interval(Duration::from_secs(1))
-                    .refill(permits)
-                    .build(),
+                    .initial(max_conn_rate / 5)
+                    .refill(max_conn_rate / 5)
+                    .max(max_conn_rate)
+                    .interval(Duration::from_millis(1000 / 5))
+                    // .fair(false)
+                    .build()
             ),
-            handshake_timeout: handshake_timeout.as_millis() as TimestampMillis,
+            handshake_timeout,
+            last_time: Arc::new(AtomicI64::new(0)),
         }
     }
 }
@@ -1312,18 +1262,39 @@ impl DefaultLimiter {
 #[async_trait]
 impl Limiter for DefaultLimiter {
     #[inline]
-    async fn acquire_one(&self) -> Result<()> {
-        self.acquire(1).await?;
-        Ok(())
-    }
-
-    #[inline]
-    async fn acquire(&self, amount: usize) -> Result<()> {
-        let t = chrono::Local::now().timestamp_millis();
-        self.limiter.acquire(amount).await;
-        if chrono::Local::now().timestamp_millis() > (t + self.handshake_timeout) {
-            return Err(MqttError::from("handshake timeout"));
+    async fn acquire(&self, handshakings: isize) -> Result<()> {
+        const AMOUNT: isize = 1;
+        let now = std::time::Instant::now();
+        self.limiter.acquire_one().await;
+        if now.elapsed() > self.handshake_timeout {
+            return Err(MqttError::from(format!("handshake timeout, acquire cost time: {:?}", now.elapsed())));
         }
-        Ok(())
+
+        if self.max_concurrency_limit > 0 {
+            if (handshakings + AMOUNT) <= self.max_concurrency_limit {
+                self.last_time.store(chrono::Local::now().timestamp_millis(), Ordering::SeqCst);
+                return Ok(());
+            }
+            if (chrono::Local::now().timestamp_millis() - self.last_time.load(Ordering::SeqCst)) > self.handshake_timeout.as_millis() as i64 {
+                log::warn!("The handshake timeout configuration is abnormal, handshakings: {}", handshakings);
+                return Ok(());
+            }
+
+            if self.await_acquire {
+                let now = std::time::Instant::now();
+                loop {
+                    tokio::time::sleep(Duration::from_millis(1000)).await;
+                    if now.elapsed() > self.handshake_timeout {
+                        return Err(MqttError::from(format!("handshake timeout, acquire cost time: {:?}", now.elapsed())));
+                    }
+                    if Runtime::instance().extends.stats().await.handshakings() < self.max_concurrency_limit {
+                        return Ok(());
+                    }
+                }
+            }
+            Err(MqttError::from("Too many concurrent handshake connections"))
+        } else {
+            Ok(())
+        }
     }
 }

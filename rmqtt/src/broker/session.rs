@@ -631,13 +631,13 @@ impl SessionState {
         }
 
         let id_not_same = if let Some(id) = Runtime::instance().extends.shared().await.id(&self.id.client_id) {
-            if self.id != id {
+            if self.id != id && self.id.node_id == id.node_id {
                 log::warn!("id not the same, id: {:?}, current id: {:?}, reason: {:?}", self.id, id, reason);
                 true
-            }else{
+            } else {
                 false
             }
-        }else{
+        } else {
             false
         };
 
@@ -647,7 +647,7 @@ impl SessionState {
 
             //clear session, and unsubscribe
             if let Err(e) = Runtime::instance().extends.shared().await.entry(self.id.clone()).remove().await {
-                log::error!("{:?} session remove from broker fail, {:?}", self.id, e);
+                log::warn!("{:?} failed to remove the session from the broker, {:?}", self.id, e);
             }
         }
     }
@@ -666,16 +666,18 @@ impl SessionState {
             offline_info.inflight_messages.len(),
             offline_info.offline_messages.len()
         );
-
         if self.id.node_id != offline_info.id.node_id
             && !clear_subscriptions
             && !offline_info.subscriptions.is_empty()
         {
-            let router = Runtime::instance().extends.router().await;
-            let node_id = Runtime::instance().node.id();
-            let client_id = &self.id.client_id;
             for (tf, (qos, shared_group)) in offline_info.subscriptions.iter() {
-                router.add(tf, node_id, client_id, *qos, shared_group.clone()).await?;
+                let shared_group = shared_group.as_ref().map(|g| g.clone());
+                let qos = *qos;
+                let id = self.id.clone();
+                if let Err(e) = Runtime::instance().extends.router().await.add(&tf, id, qos, shared_group).await {
+                    log::warn!("transfer_session_state, router.add, {:?}", e);
+                    return Err(e);
+                }
             }
         }
 
@@ -687,7 +689,9 @@ impl SessionState {
         //Send previous session unacked messages
         while let Some(msg) = offline_info.inflight_messages.pop() {
             if !matches!(msg.status, MomentStatus::UnComplete) {
-                self.reforward(msg).await?;
+                if let Err(e) = self.reforward(msg).await {
+                    log::warn!("transfer_session_state, reforward error, {:?}", e);
+                }
             }
         }
 
@@ -695,7 +699,6 @@ impl SessionState {
         while let Some((from, p)) = offline_info.offline_messages.pop() {
             self.forward(from, p).await;
         }
-
         Ok(())
     }
 

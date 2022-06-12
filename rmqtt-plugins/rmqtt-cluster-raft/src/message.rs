@@ -1,9 +1,9 @@
-use rmqtt::broker::types::{Id, NodeId, QoS, SharedGroup};
+use rmqtt::broker::types::{Id, QoS, SharedGroup};
 use rmqtt::Result;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Message<'a> {
-    HandshakeTryLock{
+    HandshakeTryLock {
         id: Id,
     },
     Connected {
@@ -17,15 +17,13 @@ pub enum Message<'a> {
     },
     Add {
         topic_filter: &'a str,
-        node_id: NodeId,
-        client_id: &'a str,
+        id: Id,
         qos: QoS,
         shared_group: Option<SharedGroup>,
     },
     Remove {
         topic_filter: &'a str,
-        node_id: NodeId,
-        client_id: &'a str,
+        id: Id,
     },
     //get client node id
     GetClientNodeId {

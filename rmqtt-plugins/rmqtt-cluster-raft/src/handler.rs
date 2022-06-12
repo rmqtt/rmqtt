@@ -1,15 +1,13 @@
-use std::time::Duration;
-
 use rmqtt_raft::Mailbox;
 
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, ReturnType},
     grpc::{Message as GrpcMessage, MessageReply},
-    MqttError,
 };
 use rmqtt::broker::Shared;
 
 use super::{hook_message_dropped, retainer::ClusterRetainer, shared::ClusterShared};
+use super::config::{BACKOFF_STRATEGY, retry};
 use super::message::Message;
 
 pub(crate) struct HookHandler {
@@ -37,17 +35,27 @@ impl Handler for HookHandler {
                 log::debug!("{:?} hook::ClientDisconnected reason: {:?}", c.id, r);
                 if !r.contains("Kicked") {
                     let msg = Message::Disconnected { id: c.id.clone() }.encode().unwrap();
-                    if let Err(e) = self.raft_mailbox.send(msg).await {
-                        log::error!("raft mailbox send error, {:?}", e);
-                    }
+                    let raft_mailbox = self.raft_mailbox.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = retry(BACKOFF_STRATEGY.clone(), || async {
+                            Ok(raft_mailbox.send(msg.clone()).await?)
+                        }).await {
+                            log::warn!("HookHandler, Message::Disconnected, raft mailbox send error, {:?}", e);
+                        }
+                    });
                 }
             }
 
             Parameter::SessionTerminated(_s, c, _r) => {
                 let msg = Message::SessionTerminated { id: c.id.clone() }.encode().unwrap();
-                if let Err(e) = self.raft_mailbox.send(msg).await {
-                    log::error!("raft mailbox send error, {:?}", e);
-                }
+                let raft_mailbox = self.raft_mailbox.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = retry(BACKOFF_STRATEGY.clone(), || async {
+                        Ok(raft_mailbox.send(msg.clone()).await?)
+                    }).await {
+                        log::warn!("HookHandler, Message::SessionTerminated, raft mailbox send error, {:?}", e);
+                    }
+                });
             }
 
             Parameter::GrpcMessageReceived(typ, msg) => {
@@ -65,26 +73,12 @@ impl Handler for HookHandler {
                         return (false, acc);
                     }
                     GrpcMessage::Kick(id, clear_subscriptions) => {
-                        let entry = self.shared.inner().entry(id.clone());
-                        for i in 0..30u8 {
-                            let new_acc = match entry.try_lock().await {
-                                Ok(mut entry) => match entry.kick(*clear_subscriptions).await {
-                                    Ok(o) => HookResult::GrpcMessageReply(Ok(MessageReply::Kick(o))),
-                                    Err(e) => HookResult::GrpcMessageReply(Err(e)),
-                                },
-                                Err(e) => {
-                                    log::warn!("{:?}, GrpcMessage::Kick, try_lock error({}), {:?}", id, i, e);
-                                    tokio::time::sleep(Duration::from_millis(200)).await;
-                                    continue;
-                                }
-                            };
-                            log::debug!("[GrpcMessage::Kick] {:?} new_acc: {:?}", id, new_acc);
-                            return (false, Some(new_acc));
-                        }
-                        return (
-                            false,
-                            Some(HookResult::GrpcMessageReply(Err(MqttError::from("try_lock error")))),
-                        );
+                        let mut entry = self.shared.inner().entry(id.clone());
+                        let new_acc = match entry.kick(*clear_subscriptions).await {
+                            Ok(o) => HookResult::GrpcMessageReply(Ok(MessageReply::Kick(o))),
+                            Err(e) => HookResult::GrpcMessageReply(Err(e)),
+                        };
+                        return (false, Some(new_acc));
                     }
                     GrpcMessage::GetRetains(topic_filter) => {
                         log::debug!("[GrpcMessage::GetRetains] topic_filter: {:?}", topic_filter);

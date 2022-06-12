@@ -34,9 +34,31 @@ async fn refused_ack<Io>(
 #[inline]
 pub async fn handshake<Io>(
     listen_cfg: Listener,
+    handshake: v5::Handshake<Io>,
+    remote_addr: SocketAddr,
+    local_addr: SocketAddr,
+) -> Result<v5::HandshakeAck<Io, SessionState>, MqttError> {
+    let handshake_timeout = listen_cfg.handshake_timeout;
+    let stats = Runtime::instance().extends.stats().await;
+    let handshakings = stats.handshakings_add(1);
+    let reply = _handshake(listen_cfg, handshake, remote_addr, local_addr, handshakings);
+    let reply = match tokio::time::timeout(handshake_timeout, reply).await{
+        Ok(res) => res,
+        Err(_) => {
+            Err(MqttError::Timeout(handshake_timeout))
+        }
+    };
+    stats.handshakings_add(-1);
+    reply
+}
+
+#[inline]
+async fn _handshake<Io>(
+    listen_cfg: Listener,
     mut handshake: v5::Handshake<Io>,
     remote_addr: SocketAddr,
     local_addr: SocketAddr,
+    handshakings: isize,
 ) -> Result<v5::HandshakeAck<Io, SessionState>, MqttError> {
     log::debug!(
         "new Connection: local_addr: {:?}, remote: {:?}, {:?}, listen_cfg: {:?}",
@@ -52,8 +74,8 @@ pub async fn handshake<Io>(
         .await
         .get(format!("{}", local_addr.port()), listen_cfg.clone())?;
 
-    if let Err(e) = limiter.acquire_one().await {
-        log::warn!(
+    if let Err(e) = limiter.acquire(handshakings).await {
+        log::debug!(
             "{}@{}/{}/{}/{} Connection Refused, handshake failed, reason: {:?}",
             Runtime::instance().node.id(),
             local_addr,
@@ -106,8 +128,13 @@ pub async fn handshake<Io>(
 
     let mut entry = match { Runtime::instance().extends.shared().await.entry(id.clone()) }.try_lock().await {
         Err(e) => {
-            log::warn!("{:?} Connection Refused, handshake, reason: {:?}", connect_info.id(), e);
-            return Ok(handshake.failed(ConnectAckReasonV5::ServerUnavailable));
+            return Ok(refused_ack(
+                handshake,
+                &connect_info,
+                ConnectAckReasonV5::ServerUnavailable,
+                format!("{:?}", e),
+            )
+                .await);
         }
         Ok(entry) => entry,
     };
@@ -186,6 +213,12 @@ pub async fn handshake<Io>(
             .await);
     }
 
+    if let Some(o) = offline_info {
+        if let Err(e) = state.transfer_session_state(packet.clean_start, o).await {
+            log::warn!("{:?} Failed to transfer session state, {:?}", state.id, e);
+        }
+    }
+
     //hook, client connack
     let _ = Runtime::instance()
         .extends
@@ -196,10 +229,6 @@ pub async fn handshake<Io>(
 
     //hook, client connected
     state.hook.client_connected().await;
-
-    if let Some(o) = offline_info {
-        state.transfer_session_state(packet.clean_start, o).await?;
-    }
 
     log::debug!("{:?} keep_alive: {}", state.id, keep_alive);
     let id = state.id.clone();

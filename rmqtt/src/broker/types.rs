@@ -48,6 +48,7 @@ pub type SharedGroup = String;
 pub type IsDisconnect = bool;
 pub type MessageExpiry = bool;
 pub type TimestampMillis = i64;
+pub type IsOnline = bool;
 
 pub type Tx = mpsc::UnboundedSender<Message>;
 pub type Rx = mpsc::UnboundedReceiver<Message>;
@@ -850,7 +851,6 @@ impl Id {
         client_id: ClientId,
         username: Option<UserName>,
     ) -> Self {
-        //let username =
         Self(Arc::new(_Id {
             id: ByteString::from(format!(
                 "{}@{}/{}/{}/{}",
@@ -858,13 +858,14 @@ impl Id {
                 local_addr.map(|addr| addr.to_string()).unwrap_or_default(),
                 remote_addr.map(|addr| addr.to_string()).unwrap_or_default(),
                 client_id,
-                username.as_ref().map(|un| un.as_str()).unwrap_or_default()
+                username.as_ref().map(|un| un.as_str()).unwrap_or_default(),
             )),
             node_id,
             local_addr,
             remote_addr,
             client_id,
             username: username.unwrap_or_else(|| "undefined".into()),
+            create_time: chrono::Local::now().timestamp_millis(),
         }))
     }
 
@@ -875,6 +876,7 @@ impl Id {
             "ipaddress": self.remote_addr,
             "clientid": self.client_id,
             "username": self.username,
+            "create_time": self.create_time,
         })
     }
 
@@ -911,7 +913,7 @@ impl ToString for Id {
 impl std::fmt::Debug for Id {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.id)
+        write!(f, "{}-{}", self.id, self.create_time)
     }
 }
 
@@ -967,6 +969,7 @@ pub struct _Id {
     pub remote_addr: Option<SocketAddr>,
     pub client_id: ClientId,
     pub username: UserName,
+    pub create_time: TimestampMillis,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -1016,4 +1019,12 @@ impl AsStr for bytes::Bytes {
 
         slice_as_str(self.as_ref())
     }
+}
+
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SessionStatus {
+    pub id: Id,
+    pub online: IsOnline,
+    pub handshaking: bool,
 }

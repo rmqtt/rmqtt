@@ -33,9 +33,31 @@ async fn refused_ack<Io>(
 #[inline]
 pub async fn handshake<Io>(
     listen_cfg: Listener,
+    handshake: v3::Handshake<Io>,
+    remote_addr: SocketAddr,
+    local_addr: SocketAddr,
+) -> Result<v3::HandshakeAck<Io, SessionState>, MqttError> {
+    let handshake_timeout = listen_cfg.handshake_timeout;
+    let stats = Runtime::instance().extends.stats().await;
+    let handshakings = stats.handshakings_add(1);
+    let reply = _handshake(listen_cfg, handshake, remote_addr, local_addr, handshakings);
+    let reply = match tokio::time::timeout(handshake_timeout, reply).await{
+        Ok(res) => res,
+        Err(_) => {
+            Err(MqttError::Timeout(handshake_timeout))
+        }
+    };
+    stats.handshakings_add(-1);
+    reply
+}
+
+#[inline]
+async fn _handshake<Io>(
+    listen_cfg: Listener,
     mut handshake: v3::Handshake<Io>,
     remote_addr: SocketAddr,
     local_addr: SocketAddr,
+    handshakings: isize,
 ) -> Result<v3::HandshakeAck<Io, SessionState>, MqttError> {
     log::debug!(
         "new Connection: local_addr: {:?}, remote: {:?}, {:?}, listen_cfg: {:?}",
@@ -51,8 +73,8 @@ pub async fn handshake<Io>(
         .await
         .get(format!("{}", local_addr.port()), listen_cfg.clone())?;
 
-    if let Err(e) = limiter.acquire_one().await {
-        log::warn!(
+    if let Err(e) = limiter.acquire(handshakings).await {
+        log::debug!(
             "{}@{}/{}/{}/{} Connection Refused, handshake failed, reason: {:?}",
             Runtime::instance().node.id(),
             local_addr,
@@ -94,8 +116,13 @@ pub async fn handshake<Io>(
 
     let mut entry = match { Runtime::instance().extends.shared().await.entry(id.clone()) }.try_lock().await {
         Err(e) => {
-            log::warn!("{:?} Connection Refused, handshake, reason: {:?}", connect_info.id(), e);
-            return Ok(handshake.service_unavailable());
+            return Ok(refused_ack(
+                handshake,
+                &connect_info,
+                ConnectAckReasonV3::ServiceUnavailable,
+                format!("{:?}", e),
+            )
+                .await);
         }
         Ok(entry) => entry,
     };
@@ -166,7 +193,6 @@ pub async fn handshake<Io>(
 
     let (state, tx) =
         SessionState::new(session, client, Sink::V3(sink), hook, fitter).start(keep_alive).await;
-
     if let Err(e) = entry.set(state.session.clone(), tx, state.client.clone()).await {
         return Ok(refused_ack(
             handshake,
@@ -175,6 +201,12 @@ pub async fn handshake<Io>(
             format!("{:?}", e),
         )
             .await);
+    }
+
+    if let Some(o) = offline_info {
+        if let Err(e) = state.transfer_session_state(packet.clean_session, o).await {
+            log::warn!("{:?} Failed to transfer session state, {:?}", state.id, e);
+        }
     }
 
     //hook, client connack
@@ -190,10 +222,6 @@ pub async fn handshake<Io>(
 
     //hook, client connected
     state.hook.client_connected().await;
-
-    if let Some(o) = offline_info {
-        state.transfer_session_state(packet.clean_session, o).await?;
-    }
 
     Ok(handshake.ack(state, session_present).idle_timeout(keep_alive))
 }

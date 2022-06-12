@@ -145,7 +145,7 @@ impl ClusterPlugin {
         let _child = std::thread::Builder::new().name("cluster-raft".to_string()).spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
-                .worker_threads(3)
+                .worker_threads(8)
                 .thread_name("cluster-raft-worker")
                 .thread_stack_size(4 * 1024 * 1024)
                 .build()
@@ -201,15 +201,14 @@ impl Plugin for ClusterPlugin {
 
         let raft_mailbox = Self::start_raft(self.cfg.clone(), self.router).await;
 
-        for _ in 0..20{
-
-            match raft_mailbox.status().await{
+        for _ in 0..20 {
+            match raft_mailbox.status().await {
                 Ok(status) => {
                     if status.is_started() {
-                        break
+                        break;
                     }
                     log::info!("{} Initializing cluster", self.name);
-                },
+                }
                 Err(e) => {
                     log::info!("{} init error, {:?}", self.name, e);
                 }
@@ -276,7 +275,17 @@ impl Plugin for ClusterPlugin {
 
     #[inline]
     async fn attrs(&self) -> serde_json::Value {
-        let raft_status = self.raft_mailbox().status().await.ok();
+        let raft_mailbox = self.raft_mailbox();
+        let raft_status = raft_mailbox.status().await.ok();
+
+        let mut pears = HashMap::default();
+        for (id, p) in raft_mailbox.pears() {
+            let stats = json!({
+                "active_tasks": p.active_tasks(),
+                "grpc_fails": p.grpc_fails(),
+            });
+            pears.insert(id, stats);
+        }
 
         let mut nodes = HashMap::default();
         for entry in self.grpc_clients.iter() {
@@ -285,11 +294,13 @@ impl Plugin for ClusterPlugin {
                 "channel_tasks": c.channel_tasks(),
                 "active_tasks": c.active_tasks(),
             });
-            nodes.insert(format!("{}", node_id), stats);
+            nodes.insert(*node_id, stats);
         }
+
         json!({
             "grpc_clients": nodes,
             "raft_status": raft_status,
+            "raft_pears": pears,
         })
     }
 }

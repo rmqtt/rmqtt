@@ -18,6 +18,7 @@ pub mod retain;
 pub mod session;
 pub mod topic;
 pub mod types;
+pub mod stats;
 pub mod v3;
 pub mod v5;
 
@@ -86,9 +87,11 @@ pub trait Shared: Sync + Send {
 
     ///
     fn random_session(&self) -> Option<(Session, ClientInfo)>;
+
+    ///
+    async fn session_status(&self, client_id: &str) -> Option<SessionStatus>;
 }
 
-pub type IsOnline = bool;
 pub type SharedSubRelations = HashMap<TopicFilterString, Vec<(SharedGroup, NodeId, ClientId, QoS, IsOnline)>>;
 //key is TopicFilter
 pub type OtherSubRelations = HashMap<NodeId, Vec<TopicFilter>>; //In other nodes
@@ -102,13 +105,12 @@ pub trait Router: Sync + Send {
     async fn add(
         &self,
         topic_filter: &str,
-        node_id: NodeId,
-        client_id: &str,
+        id: Id,
         qos: QoS,
         shared_group: Option<SharedGroup>,
     ) -> Result<()>;
 
-    async fn remove(&self, topic_filter: &str, node_id: NodeId, client_id: &str) -> Result<()>;
+    async fn remove(&self, topic_filter: &str, id: Id) -> Result<()>;
 
     // async fn matches(
     //     &self,
@@ -127,6 +129,15 @@ pub trait Router: Sync + Send {
             .is_connected()
             .await
     }
+
+    ///Return number of topics
+    async fn topics(&self) -> usize;
+
+    ///Return number of subscriptions
+    fn subscriptions(&self) -> usize;
+
+    ///Returns the number of Subscription relationship
+    fn relations(&self) -> usize;
 
     ///get topic tree
     async fn list_topics(&self, top: usize) -> Vec<String>;
@@ -201,6 +212,5 @@ pub trait LimiterManager: Sync + Send {
 
 #[async_trait]
 pub trait Limiter: Sync + Send {
-    async fn acquire_one(&self) -> Result<()>;
-    async fn acquire(&self, amount: usize) -> Result<()>;
+    async fn acquire(&self, handshakings: isize) -> Result<()>;
 }
