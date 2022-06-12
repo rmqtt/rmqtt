@@ -13,9 +13,10 @@ pub use ntex_mqtt;
 pub use parking_lot::RwLock;
 pub use tokio;
 
-pub use crate::broker::error::MqttError;
-pub use crate::broker::session::{ClientInfo, Session, SessionState};
-pub use crate::broker::types::*;
+pub use crate::broker::{error::MqttError,
+                        session::{ClientInfo, Session, SessionState},
+                        stats,
+                        types::*};
 pub use crate::runtime::Runtime;
 
 pub type Result<T, E = MqttError> = anyhow::Result<T, E>;
