@@ -53,6 +53,11 @@ impl Plugin for StatsPlugin {
         self.register.add(Type::ClientConnect, Box::new(StatsHandler::new())).await;
         self.register.add(Type::ClientConnack, Box::new(StatsHandler::new())).await;
         self.register.add(Type::ClientConnected, Box::new(StatsHandler::new())).await;
+
+        self.register.add(Type::MessagePublish, Box::new(StatsHandler::new())).await;
+        self.register.add(Type::MessageDelivered, Box::new(StatsHandler::new())).await;
+        self.register.add(Type::MessageAcked, Box::new(StatsHandler::new())).await;
+
         Ok(())
     }
 
@@ -117,6 +122,18 @@ impl Handler for StatsHandler {
             }
 
             Parameter::ClientConnected(_session, _client) => {}
+
+            Parameter::MessagePublish(_session, _client, _p) => {
+                self.stats.publishs_inc();
+            }
+
+            Parameter::MessageDelivered(_session, _client, _f, _p) => {
+                self.stats.delivers_inc();
+            }
+
+            Parameter::MessageAcked(_session, _client, _f, _p) => {
+                self.stats.ackeds_inc();
+            }
 
             _ => {
                 log::error!("parameter is: {:?}", param);

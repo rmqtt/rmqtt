@@ -213,7 +213,7 @@ async fn status() -> serde_json::Value {
         }
     };
 
-    let handshakings = Runtime::instance().extends.stats().await.handshakings();
+    let stats = Runtime::instance().extends.stats().await;
 
     let router = Runtime::instance().extends.router().await;
     let topics = router.topics().await;
@@ -229,7 +229,10 @@ async fn status() -> serde_json::Value {
         "subscriptions": subscriptions,
         "relations": relations,
         "active_grpc_requests": active_grpc_requests(),
-        "handshakings": handshakings,
+        "handshakings": stats.handshakings(),
+        "publishs": stats.publishs(),
+        "delivers": stats.delivers(),
+        "ackeds": stats.ackeds(),
     })
 }
 
