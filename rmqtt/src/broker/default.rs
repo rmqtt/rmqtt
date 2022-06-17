@@ -1246,10 +1246,10 @@ impl DefaultLimiter {
             max_concurrency_limit: max_concurrency_limit as isize,
             limiter: Arc::new(
                 RateLimiter::builder()
-                    .initial(max_conn_rate / 5)
-                    .refill(max_conn_rate / 5)
+                    .initial(max_conn_rate)
+                    .refill(max_conn_rate)
                     .max(max_conn_rate)
-                    .interval(Duration::from_millis(1000 / 5))
+                    .interval(Duration::from_millis(1000))
                     // .fair(false)
                     .build()
             ),
@@ -1262,7 +1262,7 @@ impl DefaultLimiter {
 #[async_trait]
 impl Limiter for DefaultLimiter {
     #[inline]
-    async fn acquire(&self, handshakings: isize) -> Result<()> {
+    async fn acquire(&self) -> Result<()> {
         const AMOUNT: isize = 1;
         let now = std::time::Instant::now();
         self.limiter.acquire_one().await;
@@ -1271,12 +1271,12 @@ impl Limiter for DefaultLimiter {
         }
 
         if self.max_concurrency_limit > 0 {
+            let handshakings = Runtime::instance().extends.stats().await.handshakings();
             if (handshakings + AMOUNT) <= self.max_concurrency_limit {
                 self.last_time.store(chrono::Local::now().timestamp_millis(), Ordering::SeqCst);
                 return Ok(());
             }
             if (chrono::Local::now().timestamp_millis() - self.last_time.load(Ordering::SeqCst)) > self.handshake_timeout.as_millis() as i64 {
-                log::warn!("The handshake timeout configuration is abnormal, handshakings: {}", handshakings);
                 return Ok(());
             }
 
@@ -1292,7 +1292,7 @@ impl Limiter for DefaultLimiter {
                     }
                 }
             }
-            Err(MqttError::from("Too many concurrent handshake connections"))
+            Err(MqttError::from(format!("Too many concurrent handshake connections, handshakings: {}", handshakings)))
         } else {
             Ok(())
         }

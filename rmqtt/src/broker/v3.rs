@@ -38,16 +38,15 @@ pub async fn handshake<Io>(
     local_addr: SocketAddr,
 ) -> Result<v3::HandshakeAck<Io, SessionState>, MqttError> {
     let handshake_timeout = listen_cfg.handshake_timeout;
-    let stats = Runtime::instance().extends.stats().await;
-    let handshakings = stats.handshakings_add(1);
-    let reply = _handshake(listen_cfg, handshake, remote_addr, local_addr, handshakings);
+    Runtime::instance().extends.stats().await.handshakings_add(1);
+    let reply = _handshake(listen_cfg, handshake, remote_addr, local_addr);
     let reply = match tokio::time::timeout(handshake_timeout, reply).await{
         Ok(res) => res,
         Err(_) => {
             Err(MqttError::Timeout(handshake_timeout))
         }
     };
-    stats.handshakings_add(-1);
+    Runtime::instance().extends.stats().await.handshakings_add(-1);
     reply
 }
 
@@ -57,7 +56,6 @@ async fn _handshake<Io>(
     mut handshake: v3::Handshake<Io>,
     remote_addr: SocketAddr,
     local_addr: SocketAddr,
-    handshakings: isize,
 ) -> Result<v3::HandshakeAck<Io, SessionState>, MqttError> {
     log::debug!(
         "new Connection: local_addr: {:?}, remote: {:?}, {:?}, listen_cfg: {:?}",
@@ -73,7 +71,7 @@ async fn _handshake<Io>(
         .await
         .get(format!("{}", local_addr.port()), listen_cfg.clone())?;
 
-    if let Err(e) = limiter.acquire(handshakings).await {
+    if let Err(e) = limiter.acquire().await {
         log::debug!(
             "{}@{}/{}/{}/{} Connection Refused, handshake failed, reason: {:?}",
             Runtime::instance().node.id(),
