@@ -56,6 +56,7 @@ async fn main() {
     //tcp
     let mut tcp_listens = Vec::new();
     for (_, listen_cfg) in Runtime::instance().settings.listeners.tcps.iter() {
+        log::info!("listen_cfg: {:?}", listen_cfg);
         let name = format!("{}/{:?}", &listen_cfg.name, &listen_cfg.addr);
         tcp_listens.push(listen(name, listen_cfg));
     }
@@ -76,7 +77,7 @@ async fn main() {
 async fn listen(name: String, listen_cfg: &Listener) -> Result<()> {
     async fn _listen(name: &str, listen_cfg: &Listener) -> Result<()> {
         let max_inflight = listen_cfg.max_inflight;
-        let handshake_timeout = u16::MAX; //listen_cfg.handshake_timeout.as_millis() as u16;
+        let handshake_timeout = listen_cfg.handshake_timeout.as_millis() as u16;
         let max_size = listen_cfg.max_packet_size.as_u32();
         let max_qos = listen_cfg.max_qos_allowed;
         let max_awaiting_rel = listen_cfg.max_awaiting_rel;
@@ -175,7 +176,7 @@ async fn listen_tls(name: String, listen_cfg: &Listener) -> Result<()> {
         let tls_acceptor = Acceptor::new(tls_config);
 
         let max_inflight = listen_cfg.max_inflight;
-        let handshake_timeout = u16::MAX; //listen_cfg.handshake_timeout.as_millis() as u16;
+        let handshake_timeout = listen_cfg.handshake_timeout.as_millis() as u16;
         let max_size = listen_cfg.max_packet_size.as_u32();
         let max_qos = listen_cfg.max_qos_allowed;
         let max_awaiting_rel = listen_cfg.max_awaiting_rel;

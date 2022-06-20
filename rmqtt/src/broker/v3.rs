@@ -33,26 +33,6 @@ async fn refused_ack<Io>(
 #[inline]
 pub async fn handshake<Io>(
     listen_cfg: Listener,
-    handshake: v3::Handshake<Io>,
-    remote_addr: SocketAddr,
-    local_addr: SocketAddr,
-) -> Result<v3::HandshakeAck<Io, SessionState>, MqttError> {
-    let handshake_timeout = listen_cfg.handshake_timeout;
-    Runtime::instance().extends.stats().await.handshakings_add(1);
-    let reply = _handshake(listen_cfg, handshake, remote_addr, local_addr);
-    let reply = match tokio::time::timeout(handshake_timeout, reply).await{
-        Ok(res) => res,
-        Err(_) => {
-            Err(MqttError::Timeout(handshake_timeout))
-        }
-    };
-    Runtime::instance().extends.stats().await.handshakings_add(-1);
-    reply
-}
-
-#[inline]
-async fn _handshake<Io>(
-    listen_cfg: Listener,
     mut handshake: v3::Handshake<Io>,
     remote_addr: SocketAddr,
     local_addr: SocketAddr,
@@ -71,7 +51,7 @@ async fn _handshake<Io>(
         .await
         .get(format!("{}", local_addr.port()), listen_cfg.clone())?;
 
-    if let Err(e) = limiter.acquire().await {
+    if let Err(e) = limiter.acquire(handshake.handshakings()).await {
         log::debug!(
             "{}@{}/{}/{}/{} Connection Refused, handshake failed, reason: {:?}",
             Runtime::instance().node.id(),

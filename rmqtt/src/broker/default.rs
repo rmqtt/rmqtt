@@ -5,10 +5,9 @@ use std::num::NonZeroU16;
 use std::num::NonZeroU32;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::Ordering;
 
 use leaky_bucket::RateLimiter;
-// use leaky_bucket::LeakyBucket as RateLimiter;
 use ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 use once_cell::sync::OnceCell;
 use tokio::sync::{self, Mutex, OwnedMutexGuard};
@@ -1216,9 +1215,8 @@ impl LimiterManager for &'static DefaultLimiterManager {
             .entry(name)
             .or_insert_with(|| {
                 let limiter = DefaultLimiter::new(
-                    listen_cfg.conn_await_acquire,
-                    listen_cfg.max_conn_rate,
-                    listen_cfg.max_concurrency_limit,
+                    listen_cfg.max_handshake_rate,
+                    listen_cfg.max_handshake_limit,
                     listen_cfg.handshake_timeout,
                 );
                 limiter
@@ -1231,30 +1229,26 @@ impl LimiterManager for &'static DefaultLimiterManager {
 
 #[derive(Clone)]
 pub struct DefaultLimiter {
-    await_acquire: bool,
-    max_concurrency_limit: isize,
+    max_handshake_limit: isize,
     limiter: Arc<RateLimiter>,
     handshake_timeout: Duration,
-    last_time: Arc<AtomicI64>,
 }
 
 impl DefaultLimiter {
     #[inline]
-    pub fn new(await_acquire: bool, max_conn_rate: usize, max_concurrency_limit: usize, handshake_timeout: Duration) -> Self {
+    pub fn new(max_handshake_rate: usize, max_handshake_limit: usize, handshake_timeout: Duration) -> Self {
         Self {
-            await_acquire,
-            max_concurrency_limit: max_concurrency_limit as isize,
+            max_handshake_limit: max_handshake_limit as isize,
             limiter: Arc::new(
                 RateLimiter::builder()
-                    .initial(max_conn_rate)
-                    .refill(max_conn_rate)
-                    .max(max_conn_rate)
+                    .initial(max_handshake_rate)
+                    .refill(max_handshake_rate)
+                    .max(max_handshake_rate)
                     .interval(Duration::from_millis(1000))
                     // .fair(false)
                     .build()
             ),
             handshake_timeout,
-            last_time: Arc::new(AtomicI64::new(0)),
         }
     }
 }
@@ -1262,38 +1256,18 @@ impl DefaultLimiter {
 #[async_trait]
 impl Limiter for DefaultLimiter {
     #[inline]
-    async fn acquire(&self) -> Result<()> {
-        const AMOUNT: isize = 1;
+    async fn acquire(&self, handshakings: isize) -> Result<()> {
+        if self.max_handshake_limit > 0 {
+            if handshakings > self.max_handshake_limit {
+                return Err(MqttError::from(format!("too many concurrent handshake connections, handshakings: {}", handshakings)))
+            }
+        }
+
         let now = std::time::Instant::now();
         self.limiter.acquire_one().await;
         if now.elapsed() > self.handshake_timeout {
-            return Err(MqttError::from(format!("handshake timeout, acquire cost time: {:?}", now.elapsed())));
-        }
-
-        if self.max_concurrency_limit > 0 {
-            let handshakings = Runtime::instance().extends.stats().await.handshakings();
-            if (handshakings + AMOUNT) <= self.max_concurrency_limit {
-                self.last_time.store(chrono::Local::now().timestamp_millis(), Ordering::SeqCst);
-                return Ok(());
-            }
-            if (chrono::Local::now().timestamp_millis() - self.last_time.load(Ordering::SeqCst)) > self.handshake_timeout.as_millis() as i64 {
-                return Ok(());
-            }
-
-            if self.await_acquire {
-                let now = std::time::Instant::now();
-                loop {
-                    tokio::time::sleep(Duration::from_millis(1000)).await;
-                    if now.elapsed() > self.handshake_timeout {
-                        return Err(MqttError::from(format!("handshake timeout, acquire cost time: {:?}", now.elapsed())));
-                    }
-                    if Runtime::instance().extends.stats().await.handshakings() < self.max_concurrency_limit {
-                        return Ok(());
-                    }
-                }
-            }
-            Err(MqttError::from(format!("Too many concurrent handshake connections, handshakings: {}", handshakings)))
-        } else {
+            Err(MqttError::from(format!("handshake timeout, acquire cost time: {:?}", now.elapsed())))
+        }else{
             Ok(())
         }
     }

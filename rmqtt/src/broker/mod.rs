@@ -212,5 +212,5 @@ pub trait LimiterManager: Sync + Send {
 
 #[async_trait]
 pub trait Limiter: Sync + Send {
-    async fn acquire(&self) -> Result<()>;
+    async fn acquire(&self, handshakings: isize) -> Result<()>;
 }
