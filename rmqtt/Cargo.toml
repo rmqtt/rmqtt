@@ -1,6 +1,6 @@
 [package]
 name = "rmqtt"
-version = "0.2.1"
+version = "0.2.2"
 authors = ["rmqtt-rs <rmqttd@126.com>"]
 description = "MQTT Server for v3.1, v3.1.1 and v5.0 protocols"
 repository = "https://github.com/rmqtt/rmqtt.git"
@@ -16,7 +16,8 @@ path = "src/lib.rs"
 
 [dependencies]
 ntex = { git = "https://github.com/rmqtt/ntex.git", branch = "0.3.16", features = ["rustls"] }
-ntex-mqtt = { git = "https://github.com/rmqtt/ntex-mqtt", branch = "0.6.10" }
+ntex-mqtt = { git = "https://github.com/rmqtt/ntex-mqtt", branch = "0.6.11" }
+#ntex = { path = "../../ntex/ntex", features = ["rustls"]}
 #ntex-mqtt = { path = "../../ntex-mqtt" }
 futures = "0.3.15"
 tokio = { version = "1.10.0", features = ["full"] }
