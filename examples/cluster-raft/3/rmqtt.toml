@@ -59,11 +59,9 @@ listener.tcp.external.workers = 8
 #The maximum number of concurrent connections allowed by the listener.
 listener.tcp.external.max_connections = 1024000
 #Maximum access rate allowed by the listener, unit: quantity / second
-listener.tcp.external.max_conn_rate = 2000
-#Maximum concurrent handshake limit, Default: 1000
-listener.tcp.external.max_concurrency_limit = 300
-#When the token cannot be obtained, Indicates whether to wait or disconnect, True (wait) / false (disconnect)
-listener.tcp.external.conn_await_acquire = true
+listener.tcp.external.max_handshake_rate = 3000
+#Maximum concurrent handshake limit, Default: 1000, the 0 value is unlimited
+listener.tcp.external.max_handshake_limit = 1000
 #Maximum allowed mqtt message length. 0 means unlimited, default: 1m
 listener.tcp.external.max_packet_size = "1m"
 #The maximum length of the TCP connection queue.
