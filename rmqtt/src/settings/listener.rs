@@ -93,12 +93,10 @@ pub struct ListenerInner {
     pub workers: usize,
     #[serde(default = "ListenerInner::max_connections_default")]
     pub max_connections: usize,
-    #[serde(default = "ListenerInner::max_conn_rate_default")]
-    pub max_conn_rate: usize,
-    #[serde(default = "ListenerInner::max_concurrency_limit_default")]
-    pub max_concurrency_limit: usize,
-    #[serde(default = "ListenerInner::conn_await_acquire_default")]
-    pub conn_await_acquire: bool,
+    #[serde(default = "ListenerInner::max_handshake_rate_default")]
+    pub max_handshake_rate: usize,
+    #[serde(default = "ListenerInner::max_handshake_limit_default")]
+    pub max_handshake_limit: usize,
     #[serde(default = "ListenerInner::max_packet_size_default")]
     pub max_packet_size: Bytesize,
     #[serde(default = "ListenerInner::backlog_default")]
@@ -187,16 +185,12 @@ impl ListenerInner {
         1024000
     }
     #[inline]
-    fn max_concurrency_limit_default() -> usize {
+    fn max_handshake_limit_default() -> usize {
         1000
     }
     #[inline]
-    fn max_conn_rate_default() -> usize {
-        1000
-    }
-    #[inline]
-    fn conn_await_acquire_default() -> bool {
-        false
+    fn max_handshake_rate_default() -> usize {
+        2000
     }
     #[inline]
     fn max_packet_size_default() -> Bytesize {
