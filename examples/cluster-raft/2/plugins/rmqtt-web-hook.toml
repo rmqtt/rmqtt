@@ -1,0 +1,37 @@
+##--------------------------------------------------------------------
+## rmqtt-web-hook
+##--------------------------------------------------------------------
+##
+#    Method: POST
+#    Body: <JSON>
+#    Payload: BASE64
+#
+
+## web hook general config
+worker_threads = 3
+queue_capacity = 1_000_000
+concurrency_limit = 128
+http_urls = ["http://127.0.0.1:5656/mqtt/webhook"] #default urls
+http_timeout = "8s"
+
+## web hook rules config
+#rule.session_created = [{action = "session_created" } ]
+#rule.session_terminated = [{action = "session_terminated" } ]
+#rule.session_subscribed = [{action = "session_subscribed" , topics=["x/y/z", "foo/#"] } ]
+#rule.session_unsubscribed = [{action = "session_unsubscribed" , topics=["x/y/z", "foo/#"] } ]
+#
+#rule.client_connect = [
+#    {action = "client_connect"},
+#    {action = "client_connect", urls = ["http://127.0.0.1:5656/mqtt/webhook", "http://127.0.0.1:5656/mqtt/webhook"] },
+#    {action = "client_connect", urls = ["http://127.0.0.1:5656/mqtt/webhook"] }
+#]
+#rule.client_connack = [{action = "client_connack", urls = ["http://127.0.0.1:5656/mqtt/webhook", "http://127.0.0.1:5656/mqtt/webhook"] } ]
+#rule.client_connected = [{action = "client_connected" } ]
+#rule.client_disconnected = [{action = "client_disconnected" } ]
+#rule.client_subscribe = [{action = "client_subscribe", topics=["x/y/z", "foo/#"]} ]
+#rule.client_unsubscribe = [{action = "client_unsubscribe", topics=["x/y/z", "foo/#"] } ]
+
+#rule.message_publish = [{action = "message_publish" }]
+#rule.message_delivered = [{action = "message_delivered", topics=["x/y/z", "foo/#"] } ]
+#rule.message_acked = [{action = "message_acked", topics=["x/y/z", "foo/#"] } ]
+#rule.message_dropped = [{action = "message_dropped" } ]

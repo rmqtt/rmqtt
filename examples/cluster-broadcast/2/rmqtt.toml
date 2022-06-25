@@ -39,7 +39,7 @@ log.file = "rmqtt_2.log"
 ## Plugins
 ##--------------------------------------------------------------------
 #Plug in configuration file directory
-plugins.dir = "../../../rmqtt-plugins/"
+plugins.dir = "./plugins"
 #Plug in started by default, when the mqtt server is started
 plugins.default_startups = [
     "rmqtt-cluster-broadcast",
