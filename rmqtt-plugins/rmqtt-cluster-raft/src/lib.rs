@@ -20,9 +20,9 @@ use rmqtt::{
     broker::{
         error::MqttError,
         hook::{Register, Type},
-        types::{DashMap, From, NodeId, Publish, Reason, To},
+        types::{From, Publish, Reason, To},
     },
-    grpc::{client::NodeGrpcClient, Message, MessageReply, MessageType},
+    grpc::{client::NodeGrpcClient, Message, MessageReply, MessageType, GrpcClients},
     plugin::{DynPlugin, DynPluginResult, Plugin},
     Result, Runtime,
     tokio::time::sleep,
@@ -38,7 +38,7 @@ mod router;
 mod shared;
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
-pub(crate) type GrpcClients = Arc<DashMap<NodeId, NodeGrpcClient>>;
+// pub(crate) type GrpcClients = Arc<DashMap<NodeId, NodeGrpcClient>>;
 
 #[inline]
 pub async fn register(
@@ -87,11 +87,11 @@ impl ClusterPlugin {
         log::debug!("{} ClusterPlugin cfg: {:?}", name, cfg.read());
 
         let register = runtime.extends.hook_mgr().await.register();
-        let grpc_clients = DashMap::default();
+        let mut grpc_clients = HashMap::default();
         let node_grpc_addrs = cfg.read().node_grpc_addrs.clone();
         for node_addr in &node_grpc_addrs {
             if node_addr.id != runtime.node.id() {
-                grpc_clients.insert(node_addr.id, runtime.node.new_grpc_client(&node_addr.addr).await?);
+                grpc_clients.insert(node_addr.id, (node_addr.addr, runtime.node.new_grpc_client(&node_addr.addr).await?));
             }
         }
         let grpc_clients = Arc::new(grpc_clients);
@@ -288,8 +288,8 @@ impl Plugin for ClusterPlugin {
         }
 
         let mut nodes = HashMap::default();
-        for entry in self.grpc_clients.iter() {
-            let (node_id, c) = entry.pair();
+        for (node_id, (_, c)) in self.grpc_clients.iter() {
+            //let (node_id, c) = entry.pair();
             let stats = json!({
                 "channel_tasks": c.channel_tasks(),
                 "active_tasks": c.active_tasks(),
@@ -352,8 +352,8 @@ impl MessageBroadcaster {
         let msg = self.msg.take().unwrap();
         let mut senders = Vec::new();
         let max_idx = self.grpc_clients.len() - 1;
-        for (i, grpc_client) in self.grpc_clients.iter().enumerate() {
-            let grpc_client = grpc_client.value().clone();
+        for (i, (_, (_, grpc_client))) in self.grpc_clients.iter().enumerate() {
+            let grpc_client = grpc_client.clone();
             if i == max_idx {
                 let fut = async move { grpc_client.send_message(msg_type, msg).await };
                 senders.push(fut.boxed());

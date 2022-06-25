@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 
 use futures::StreamExt;
 use ntex_mqtt::types::MQTT_LEVEL_5;
-use tokio::sync::{RwLock, RwLockReadGuard};
+use tokio::sync::RwLock;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant};
 
@@ -459,7 +459,7 @@ impl SessionState {
     #[inline]
     pub(crate) async fn subscribe(&self, mut sub: Subscribe) -> Result<SubscribeReturn> {
         if self.listen_cfg.max_subscriptions > 0
-            && (self.subscriptions.read().await.len() + 1 > self.listen_cfg.max_subscriptions)
+            && (self.subscriptions.len() >= self.listen_cfg.max_subscriptions)
         {
             return Err(MqttError::TooManySubscriptions);
         }
@@ -682,8 +682,8 @@ impl SessionState {
         }
 
         //Subscription transfer from previous session
-        for (tf, (qos, shared_sub)) in offline_info.subscriptions.drain() {
-            self.subscriptions_add(tf, qos, shared_sub).await;
+        for (tf, (qos, shared_sub)) in offline_info.subscriptions.drain(..) {
+            self.subscriptions_add(tf, qos, shared_sub);
         }
 
         //Send previous session unacked messages
@@ -739,7 +739,7 @@ impl Deref for SessionState {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SessionOfflineInfo {
     pub id: Id,
-    pub subscriptions: TopicFilterMap,
+    pub subscriptions: Subscriptions,
     pub offline_messages: Vec<(From, Publish)>,
     pub inflight_messages: Vec<InflightMessage>,
     pub created_at: TimestampMillis,
@@ -776,7 +776,7 @@ impl Session {
         Self(Arc::new(_SessionInner {
             id,
             listen_cfg,
-            subscriptions: Arc::new(RwLock::new(TopicFilterMap::default())),
+            subscriptions: Arc::new(TopicFilterMap::default()), //Arc::new(RwLock::new(TopicFilterMap::default())),
             deliver_queue: Arc::new(MessageQueue::new(max_mqueue_len)),
             inflight_win: Arc::new(RwLock::new(Inflight::new(
                 max_inflight,
@@ -790,7 +790,7 @@ impl Session {
     #[inline]
     pub async fn to_offline_info(&self) -> SessionOfflineInfo {
         let id = self.id.clone();
-        let subscriptions = self.drain_subscriptions().await;
+        let subscriptions = self.drain_subscriptions();
         let mut offline_messages = Vec::new();
         while let Some(item) = self.deliver_queue.pop() {
             //@TODO ..., check message expired
@@ -830,7 +830,7 @@ impl std::fmt::Debug for Session {
 pub struct _SessionInner {
     pub id: Id,
     pub listen_cfg: Listener,
-    pub subscriptions: Arc<RwLock<TopicFilterMap>>,
+    pub subscriptions: Arc<TopicFilterMap>,
     //Current subscription for this session
     pub deliver_queue: Arc<MessageQueue>,
     pub inflight_win: Arc<RwLock<Inflight>>,
@@ -840,13 +840,13 @@ pub struct _SessionInner {
 impl _SessionInner {
     #[inline]
     pub async fn to_json(&self) -> serde_json::Value {
-        let subscriptions = self.subscriptions.read().await;
-        let count = subscriptions.len();
+        let count = self.subscriptions.len();
 
-        let subs = subscriptions
+        let subs = self.subscriptions
             .iter()
             .enumerate()
-            .filter_map(|(i, (tf, (qos, shared_sub)))| {
+            .filter_map(|(i, entry)| {
+                let (tf, (qos, shared_sub)) = entry.pair();
                 if i < 100 {
                     Some(json!({
                         "topic_filter": tf.to_string(),
@@ -872,29 +872,50 @@ impl _SessionInner {
     }
 
     #[inline]
-    pub async fn subscriptions_add(
+    pub fn subscriptions_add(
         &self,
         topic_filter: TopicFilterString,
         qos: QoS,
         shared_group: Option<SharedGroup>,
     ) {
-        self.subscriptions.write().await.insert(topic_filter, (qos, shared_group));
+        self.subscriptions.insert(topic_filter, (qos, shared_group));
     }
 
     #[inline]
-    pub async fn subscriptions_remove(&self, topic_filter: &str) -> Option<(QoS, Option<SharedGroup>)> {
-        self.subscriptions.write().await.remove(topic_filter)
+    pub fn subscriptions_remove(&self, topic_filter: &str) -> Option<(TopicFilterString, (QoS, Option<SharedGroup>))> {
+        self.subscriptions.remove(topic_filter)
     }
 
     #[inline]
-    pub async fn drain_subscriptions(&self) -> TopicFilterMap {
-        self.subscriptions.write().await.drain().collect()
+    pub fn drain_subscriptions(&self) -> Subscriptions {
+        let subs = self.subscriptions.iter()
+            .map(|entry|(entry.key().clone(), (*entry.value()).clone()))
+            .collect::<Vec<_>>();
+        self.subscriptions.clear();
+        subs
     }
 
     #[inline]
-    pub async fn subscriptions(&self) -> RwLockReadGuard<'_, TopicFilterMap> {
-        self.subscriptions.read().await
+    pub fn subscriptions(&self) -> &TopicFilterMap {
+        self.subscriptions.as_ref()
     }
+
+    #[inline]
+    pub fn clone_topic_filters(&self) -> TopicFilters {
+        self.subscriptions.iter().map(|entry| TopicFilter::from(entry.key().as_str())).collect()
+    }
+
+    #[inline]
+    pub fn is_shared_subscriptions(&self, topic_filter: &str) -> Option<bool> {
+        self.subscriptions.get(topic_filter).map(|entry| {
+            if let (_, Some(_)) = entry.value(){
+                true
+            }else{
+                false
+            }
+        })
+    }
+
 }
 
 #[derive(Clone)]

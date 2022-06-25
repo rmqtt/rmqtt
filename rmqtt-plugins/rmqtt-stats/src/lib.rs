@@ -5,6 +5,7 @@ use rmqtt::{
     stats::DefaultStats,
 };
 use rmqtt::async_trait::async_trait;
+// use rmqtt::stats::Stats;
 
 #[inline]
 pub async fn register(
@@ -53,6 +54,8 @@ impl Plugin for StatsPlugin {
         self.register.add(Type::ClientConnect, Box::new(StatsHandler::new())).await;
         self.register.add(Type::ClientConnack, Box::new(StatsHandler::new())).await;
         self.register.add(Type::ClientConnected, Box::new(StatsHandler::new())).await;
+        self.register.add(Type::SessionCreated, Box::new(StatsHandler::new())).await;
+        self.register.add(Type::SessionSubscribed, Box::new(StatsHandler::new())).await;
 
         self.register.add(Type::MessagePublish, Box::new(StatsHandler::new())).await;
         self.register.add(Type::MessageDelivered, Box::new(StatsHandler::new())).await;
@@ -121,18 +124,31 @@ impl Handler for StatsHandler {
 
             }
 
-            Parameter::ClientConnected(_session, _client) => {}
+            Parameter::ClientConnected(_session, _client) => {
+                self.stats.connections_max_inc();
+            }
+
+            Parameter::SessionCreated(_session, _client) => {
+                self.stats.sessions_max_inc();
+            }
+
+            Parameter::SessionSubscribed(s, _client, sub) => {
+                self.stats.subscriptions_max_inc();
+                if let Some(true) = s.is_shared_subscriptions(sub.topic_filter_ref()){
+                    self.stats.subscriptions_shared_max_inc();
+                }
+            }
 
             Parameter::MessagePublish(_session, _client, _p) => {
-                self.stats.publishs_inc();
+                // self.stats.publishs_inc();
             }
 
             Parameter::MessageDelivered(_session, _client, _f, _p) => {
-                self.stats.delivers_inc();
+                // self.stats.delivers_inc();
             }
 
             Parameter::MessageAcked(_session, _client, _f, _p) => {
-                self.stats.ackeds_inc();
+                // self.stats.ackeds_inc();
             }
 
             _ => {

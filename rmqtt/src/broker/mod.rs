@@ -1,10 +1,12 @@
 use std::convert::From as _f;
 use std::iter::Iterator;
+use std::sync::Arc;
 
 use crate::{ClientId, Id, NodeId, QoS, Result, Runtime, TopicFilter};
 use crate::broker::session::{ClientInfo, Session, SessionOfflineInfo};
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
+use crate::grpc::GrpcClients;
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
@@ -82,6 +84,12 @@ pub trait Shared: Sync + Send {
         self.sessions().await
     }
 
+    ///Return the number of subscriptions
+    fn subscriptions(&self) -> usize;
+
+    ///Return the number of shared subscriptions
+    fn subscriptions_shared(&self) -> usize;
+
     ///
     fn iter(&self) -> Box<dyn Iterator<Item=Box<dyn Entry>> + Sync + Send>;
 
@@ -90,6 +98,17 @@ pub trait Shared: Sync + Send {
 
     ///
     async fn session_status(&self, client_id: &str) -> Option<SessionStatus>;
+
+    ///This node is not included
+    #[inline]
+    fn get_grpc_clients(&self) -> GrpcClients{
+        Arc::new(HashMap::default())
+    }
+
+    #[inline]
+    fn node_name(&self, id: NodeId) -> String {
+        format!("{}@127.0.0.1", id)
+    }
 }
 
 pub type SharedSubRelations = HashMap<TopicFilterString, Vec<(SharedGroup, NodeId, ClientId, QoS, IsOnline)>>;
@@ -102,6 +121,8 @@ pub type ClearSubscriptions = bool;
 
 #[async_trait]
 pub trait Router: Sync + Send {
+
+    ///
     async fn add(
         &self,
         topic_filter: &str,
@@ -110,12 +131,10 @@ pub trait Router: Sync + Send {
         shared_group: Option<SharedGroup>,
     ) -> Result<()>;
 
+    ///
     async fn remove(&self, topic_filter: &str, id: Id) -> Result<()>;
 
-    // async fn matches(
-    //     &self,
-    //     topic: &TopicName,
-    // ) -> Result<(SubRelations, SharedSubRelations, OtherSubRelations)>;
+    ///
     async fn matches(&self, topic: &TopicName) -> Result<SubRelationsMap>;
 
     ///Check online or offline
@@ -133,8 +152,14 @@ pub trait Router: Sync + Send {
     ///Return number of topics
     async fn topics(&self) -> usize;
 
-    ///Return number of subscriptions
-    fn subscriptions(&self) -> usize;
+    ///Return number of subscribed topics max
+    fn subscribed_topics_max(&self) -> usize;
+
+    ///Return number of subscribed topics
+    fn subscribed_topics(&self) -> usize;
+
+    ///Returns the number of Subscription relationship max
+    fn relations_max(&self) -> usize;
 
     ///Returns the number of Subscription relationship
     fn relations(&self) -> usize;
@@ -203,6 +228,13 @@ pub trait RetainStorage: Sync + Send {
 
     ///topic_filter - Topic filter
     async fn get(&self, topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>>;
+
+    ///
+    fn count(&self) -> usize;
+
+    ///
+    fn count_max(&self) -> usize;
+
 }
 
 #[async_trait]

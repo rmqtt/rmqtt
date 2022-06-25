@@ -12,10 +12,10 @@ use rmqtt::{
             SubscribeReturn, To, TopicFilter, TopicFilterString, Tx, Unsubscribe,
         },
     },
-    grpc::{Message, MessageReply, MessageType}, Result, Runtime,
+    grpc::{Message, MessageReply, MessageType, GrpcClients}, Result, Runtime,
 };
 
-use super::{GrpcClients, hook_message_dropped, MessageBroadcaster};
+use super::{hook_message_dropped, MessageBroadcaster};
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
@@ -297,8 +297,8 @@ impl Shared for &'static ClusterShared {
 
             //send to other node
             let mut delivers = Vec::new();
-            for (node_addr, grpc_client) in grpc_clients.iter() {
-                if let Some(sub_rels) = node_shared_subs.remove(&node_addr.id) {
+            for (id, (_addr, grpc_client)) in grpc_clients.iter() {
+                if let Some(sub_rels) = node_shared_subs.remove(id) {
                     delivers.push(grpc_client.send_message(
                         message_type,
                         Message::ForwardsTo(from.clone(), publish.clone(), sub_rels),
@@ -401,6 +401,16 @@ impl Shared for &'static ClusterShared {
     }
 
     #[inline]
+    fn subscriptions(&self) -> usize{
+        self.inner.subscriptions()
+    }
+
+    #[inline]
+    fn subscriptions_shared(&self) -> usize{
+        self.inner.subscriptions_shared()
+    }
+
+    #[inline]
     fn iter(&self) -> Box<dyn Iterator<Item=Box<dyn Entry>> + Sync + Send> {
         self.inner.iter()
     }
@@ -414,5 +424,10 @@ impl Shared for &'static ClusterShared {
     #[inline]
     async fn session_status(&self, client_id: &str) -> Option<SessionStatus> {
         self.inner.session_status(client_id).await
+    }
+
+    #[inline]
+    fn get_grpc_clients(&self) -> GrpcClients{
+        self.grpc_clients.clone()
     }
 }

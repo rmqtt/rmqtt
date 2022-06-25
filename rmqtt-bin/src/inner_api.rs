@@ -9,20 +9,20 @@ use rmqtt::{Result, Runtime};
 use rmqtt::broker::types::{ClientId, Id, SessionStatus};
 use rmqtt::grpc::server::active_grpc_requests;
 
-#[allow(dead_code)]
-mod version {
-    include!(concat!(env!("OUT_DIR"), "/version.rs"));
-}
+// #[allow(dead_code)]
+// mod version {
+//     include!(concat!(env!("OUT_DIR"), "/version.rs"));
+// }
 
 #[allow(clippy::redundant_closure)]
 pub async fn serve<T: Into<SocketAddr>>(laddr: T) -> Result<()> {
     let root = || warp::any();
 
-    //version, /version
-    let version = root()
-        .and(warp::path("version"))
-        .and(warp::path::end())
-        .map(|| warp::reply::with_status(version::VERSION, StatusCode::OK));
+    // //version, /version
+    // let version = root()
+    //     .and(warp::path("version"))
+    //     .and(warp::path::end())
+    //     .map(|| warp::reply::with_status(version::VERSION, StatusCode::OK));
 
     //mqtt server current status, /status
     let status = root()
@@ -152,8 +152,7 @@ pub async fn serve<T: Into<SocketAddr>>(laddr: T) -> Result<()> {
     //---------------------------------------------------------------------------------
 
     let get_apis = warp::get().and(
-        version
-            .or(status)
+        status
             .or(session)
             .or(random_session)
             .or(session_status)
@@ -213,11 +212,11 @@ async fn status() -> serde_json::Value {
         }
     };
 
-    let stats = Runtime::instance().extends.stats().await;
+    // let stats = Runtime::instance().extends.stats().await;
 
     let router = Runtime::instance().extends.router().await;
     let topics = router.topics().await;
-    let subscriptions = router.subscriptions();
+    let subscriptions = router.subscribed_topics();
     let relations = router.relations();
 
     serde_json::json!({
@@ -229,10 +228,10 @@ async fn status() -> serde_json::Value {
         "subscriptions": subscriptions,
         "relations": relations,
         "active_grpc_requests": active_grpc_requests(),
-        "handshakings": stats.handshakings(),
-        "publishs": stats.publishs(),
-        "delivers": stats.delivers(),
-        "ackeds": stats.ackeds(),
+        // "handshakings": stats.handshakings(),
+        // "publishs": stats.publishs(),
+        // "delivers": stats.delivers(),
+        // "ackeds": stats.ackeds(),
     })
 }
 

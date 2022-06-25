@@ -10,7 +10,7 @@ use std::sync::Arc;
 use futures::future::FutureExt;
 use parking_lot::RwLock;
 
-use config::{NodeGrpcAddr, PluginConfig};
+use config::PluginConfig;
 use handler::HookHandler;
 use retainer::ClusterRetainer;
 use rmqtt::{
@@ -20,7 +20,7 @@ use rmqtt::{
         session::SessionOfflineInfo,
         types::{From, Publish, Reason, To},
     },
-    grpc::{client::NodeGrpcClient, Message, MessageReply, MessageType},
+    grpc::{client::NodeGrpcClient, Message, MessageReply, MessageType, GrpcClients},
     plugin::{DynPlugin, DynPluginResult, Plugin},
     Result, Runtime,
 };
@@ -32,7 +32,6 @@ mod retainer;
 mod shared;
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
-pub(crate) type GrpcClients = Arc<Vec<(NodeGrpcAddr, NodeGrpcClient)>>;
 
 #[inline]
 pub async fn register(
@@ -79,11 +78,11 @@ impl ClusterPlugin {
         log::debug!("{} ClusterPlugin cfg: {:?}", name, cfg.read());
 
         let register = runtime.extends.hook_mgr().await.register();
-        let mut grpc_clients = Vec::new();
+        let mut grpc_clients = HashMap::default();
         let node_grpc_addrs = cfg.read().node_grpc_addrs.clone();
         for node_addr in &node_grpc_addrs {
             if node_addr.id != runtime.node.id() {
-                grpc_clients.push((node_addr.clone(), runtime.node.new_grpc_client(&node_addr.addr).await?));
+                grpc_clients.insert(node_addr.id, (node_addr.addr, runtime.node.new_grpc_client(&node_addr.addr).await?));
             }
         }
         let grpc_clients = Arc::new(grpc_clients);
@@ -146,12 +145,12 @@ impl Plugin for ClusterPlugin {
     #[inline]
     async fn attrs(&self) -> serde_json::Value {
         let mut nodes = HashMap::default();
-        for (naddr, c) in self.grpc_clients.iter() {
+        for (id, (addr, c)) in self.grpc_clients.iter() {
             let stats = json!({
                 "channel_tasks": c.channel_tasks(),
                 "active_tasks": c.active_tasks(),
             });
-            nodes.insert(format!("{}/{:?}", naddr.id, naddr.addr), stats);
+            nodes.insert(format!("{}/{:?}", id, addr), stats);
         }
         json!({
             "grpc_clients": nodes,
@@ -175,7 +174,7 @@ impl MessageBroadcaster {
         let msg = self.msg.take().unwrap();
         let mut senders = Vec::new();
         let max_idx = self.grpc_clients.len() - 1;
-        for (i, (_, grpc_client)) in self.grpc_clients.iter().enumerate() {
+        for (i, (_, (_, grpc_client))) in self.grpc_clients.iter().enumerate() {
             if i == max_idx {
                 senders.push(grpc_client.send_message(self.msg_type, msg));
                 break;
@@ -213,7 +212,7 @@ impl MessageBroadcaster {
         let msg = self.msg.take().unwrap();
         let mut senders = Vec::new();
         let max_idx = self.grpc_clients.len() - 1;
-        for (i, (_, grpc_client)) in self.grpc_clients.iter().enumerate() {
+        for (i, (_, (_, grpc_client))) in self.grpc_clients.iter().enumerate() {
             if i == max_idx {
                 senders.push(Self::send(grpc_client, self.msg_type, msg, check_fn).boxed());
                 break;

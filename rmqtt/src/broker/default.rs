@@ -5,7 +5,7 @@ use std::num::NonZeroU16;
 use std::num::NonZeroU32;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use leaky_bucket::RateLimiter;
 use ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
@@ -69,8 +69,7 @@ impl LockEntry {
 
         if let Some((_, peer)) = { self.shared.peers.remove(&self.id.client_id) } {
             if clear_subscriptions {
-                let topic_filters = peer.s.subscriptions().await.iter().map(|(topic_filter, _)| topic_filter.clone()).collect::<Vec<_>>();
-                for topic_filter in topic_filters {
+                for topic_filter in peer.s.clone_topic_filters() {
                     if let Err(e) = self._unsubscribe(peer.c.id.clone(), &topic_filter).await {
                         log::warn!(
                             "{:?} remove._unsubscribe, topic_filter: {}, {:?}",
@@ -191,7 +190,7 @@ impl super::Entry for LockEntry {
 
         Runtime::instance().extends.router().await
             .add(&sub.topic_filter, self.id(), sub.qos, sub.shared_group.clone()).await?;
-        peer.s.subscriptions_add(sub.topic_filter.to_string(), sub.qos, sub.shared_group).await;
+        peer.s.subscriptions_add(sub.topic_filter.to_string(), sub.qos, sub.shared_group);
         Ok(SubscribeReturn::new_success(sub.qos))
     }
 
@@ -208,7 +207,7 @@ impl super::Entry for LockEntry {
             .remove(&unsubscribe.topic_filter, self.id()).await {
             log::warn!("{:?} unsubscribe, error:{:?}", self.id, e);
         }
-        peer.s.subscriptions_remove(&unsubscribe.topic_filter).await;
+        peer.s.subscriptions_remove(&unsubscribe.topic_filter);
         Ok(())
     }
 
@@ -393,6 +392,27 @@ impl Shared for &'static DefaultShared {
     }
 
     #[inline]
+    fn subscriptions(&self) -> usize{
+        self.peers.iter()
+            .map(|entry| (entry.s.subscriptions.len()))
+            .sum()
+    }
+
+    #[inline]
+    fn subscriptions_shared(&self) -> usize{
+        self.peers.iter()
+            .map(|entry| (
+                entry.s.subscriptions.iter()
+                    .map(|subs|{
+                        if let (_, Some(_)) = subs.value(){
+                            1
+                        }else{
+                            0
+                        }
+                    }).sum::<usize>())).sum()
+    }
+
+    #[inline]
     fn iter(&self) -> Box<dyn Iterator<Item=Box<dyn Entry>> + Sync + Send> {
         Box::new(DefaultIter { shared: self, ptr: self.peers.iter() })
     }
@@ -420,6 +440,11 @@ impl Shared for &'static DefaultShared {
             }
         })
     }
+
+
+
+
+
 }
 
 pub struct DefaultIter<'a> {
@@ -442,6 +467,8 @@ impl Iterator for DefaultIter<'_> {
 
 #[allow(clippy::type_complexity)]
 pub struct DefaultRouter {
+    pub topics_max: AtomicUsize,
+    pub relations_max: AtomicUsize,
     pub topics: RwLock<TopicTree<()>>,
     pub relations: DashMap<TopicFilter, HashMap<ClientId, (Id, QoS, Option<SharedGroup>)>>,
 }
@@ -451,7 +478,12 @@ impl DefaultRouter {
     pub fn instance() -> &'static DefaultRouter {
         static INSTANCE: OnceCell<DefaultRouter> = OnceCell::new();
         INSTANCE
-            .get_or_init(|| Self { topics: RwLock::new(TopicTree::default()), relations: DashMap::default() })
+            .get_or_init(|| Self {
+                topics_max: AtomicUsize::new(0),
+                relations_max: AtomicUsize::new(0),
+                topics: RwLock::new(TopicTree::default()),
+                relations: DashMap::default()
+            })
     }
 
     #[allow(clippy::type_complexity)]
@@ -524,11 +556,18 @@ impl Router for &'static DefaultRouter {
         self.topics.write().await.insert(&topic, ());
 
         //add to subscribe relations
-        let _ = self
+        let old = self
             .relations
             .entry(TopicFilter::from(topic_filter))
-            .or_default()
+            .or_insert_with(|| {
+                self.topics_max.fetch_add(1, Ordering::SeqCst);
+                HashMap::default()
+            })
             .insert(id.client_id.clone(), (id, qos, shared_group));
+
+        if old.is_none(){
+            self.relations_max.fetch_add(1, Ordering::SeqCst);
+        }
 
         Ok(())
     }
@@ -584,8 +623,18 @@ impl Router for &'static DefaultRouter {
     }
 
     #[inline]
-    fn subscriptions(&self) -> usize {
+    fn subscribed_topics_max(&self) -> usize {
+        self.topics_max.load(Ordering::SeqCst)
+    }
+
+    #[inline]
+    fn subscribed_topics(&self) -> usize {
         self.relations.len()
+    }
+
+    #[inline]
+    fn relations_max(&self) -> usize{
+        self.relations_max.load(Ordering::SeqCst)
     }
 
     #[inline]
@@ -637,6 +686,8 @@ impl DefaultSharedSubscription {
 impl SharedSubscription for &'static DefaultSharedSubscription {}
 
 pub struct DefaultRetainStorage {
+    count: AtomicUsize,
+    count_max: AtomicUsize,
     messages: RwLock<RetainTree<Retain>>,
 }
 
@@ -644,7 +695,11 @@ impl DefaultRetainStorage {
     #[inline]
     pub fn instance() -> &'static DefaultRetainStorage {
         static INSTANCE: OnceCell<DefaultRetainStorage> = OnceCell::new();
-        INSTANCE.get_or_init(|| Self { messages: RwLock::new(RetainTree::default()) })
+        INSTANCE.get_or_init(|| Self {
+            count: AtomicUsize::new(0),
+            count_max: AtomicUsize::new(0),
+            messages: RwLock::new(RetainTree::default())
+        })
     }
 
     #[inline]
@@ -653,9 +708,10 @@ impl DefaultRetainStorage {
     }
 
     #[inline]
-    pub async fn remove(&self, topic: &Topic) {
-        self.messages.write().await.remove(topic);
+    pub async fn remove(&self, topic: &Topic) -> Option<Retain>{
+        self.messages.write().await.remove(topic)
     }
+
 }
 
 #[async_trait]
@@ -663,9 +719,15 @@ impl RetainStorage for &'static DefaultRetainStorage {
     #[inline]
     async fn set(&self, topic: &TopicName, retain: Retain) -> Result<()> {
         let topic = Topic::from_str(topic)?;
-        self.remove(&topic).await;
+        let old = self.remove(&topic).await;
         if !retain.publish.is_empty() {
             self.add(&topic, retain).await;
+            if old.is_none(){
+                self.count.fetch_add(1, Ordering::SeqCst);
+                self.count_max.fetch_add(1, Ordering::SeqCst);
+            }
+        }else if old.is_some(){
+            self.count.fetch_sub(1, Ordering::SeqCst);
         }
         Ok(())
     }
@@ -681,6 +743,16 @@ impl RetainStorage for &'static DefaultRetainStorage {
             .drain(..)
             .map(|(t, r)| (TopicName::from(t.to_string()), r))
             .collect())
+    }
+
+    #[inline]
+    fn count(&self) -> usize {
+        self.count.load(Ordering::SeqCst)
+    }
+
+    #[inline]
+    fn count_max(&self) -> usize {
+        self.count_max.load(Ordering::SeqCst)
     }
 }
 

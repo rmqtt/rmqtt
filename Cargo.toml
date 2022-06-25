@@ -2,12 +2,12 @@
 members = [
     "rmqtt",
     "rmqtt-plugins/rmqtt-acl",
-    "rmqtt-plugins/rmqtt-plugin-template",
     "rmqtt-plugins/rmqtt-web-hook",
     "rmqtt-plugins/rmqtt-auth-http",
     "rmqtt-plugins/rmqtt-cluster-broadcast",
     "rmqtt-plugins/rmqtt-cluster-raft",
     "rmqtt-plugins/rmqtt-stats",
+    "rmqtt-plugins/rmqtt-http-api",
     "rmqtt-bin",
 ]
 
@@ -19,4 +19,4 @@ rmqtt-auth-http = { path = "rmqtt-plugins/rmqtt-auth-http" }
 rmqtt-cluster-broadcast = { path = "rmqtt-plugins/rmqtt-cluster-broadcast" }
 rmqtt-cluster-raft = { path = "rmqtt-plugins/rmqtt-cluster-raft" }
 rmqtt-stats = { path = "rmqtt-plugins/rmqtt-stats" }
-rmqtt-plugin-template = { path = "rmqtt-plugins/rmqtt-plugin-template" }
+rmqtt-http-api = { path = "rmqtt-plugins/rmqtt-http-api" }

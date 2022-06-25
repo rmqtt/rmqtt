@@ -58,7 +58,8 @@ pub type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
 pub type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 pub type QoS = ntex_mqtt::types::QoS;
 pub type PublishReceiveTime = TimestampMillis;
-pub type TopicFilterMap = HashMap<TopicFilterString, (QoS, Option<SharedGroup>)>;
+pub type TopicFilterMap = DashMap<TopicFilterString, (QoS, Option<SharedGroup>)>;
+pub type Subscriptions = Vec<(TopicFilterString, (QoS, Option<SharedGroup>))>;
 pub type TopicFilters = Vec<TopicFilter>;
 
 pub type HookSubscribeResult = Vec<Option<TopicFilter>>;
@@ -324,6 +325,18 @@ impl Subscribed {
             }
         }
     }
+
+    #[inline]
+    pub fn topic_filter_ref(&self) -> &TopicFilter {
+        match self {
+            Subscribed::V3((t, _)) => t,
+            Subscribed::V5(sub) => {
+                let (t, _) = &sub.topic_filter;
+                t
+            }
+        }
+    }
+
 }
 
 #[derive(Debug, PartialEq, Clone)]

@@ -20,6 +20,7 @@ lazy_static::lazy_static! {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
+    #[serde(default = "PluginConfig::message_type_default")]
     pub message_type: MessageType,
     pub node_grpc_addrs: Vec<NodeAddr>,
     pub raft_peer_addrs: Vec<NodeAddr>,
@@ -31,6 +32,10 @@ impl PluginConfig {
     #[inline]
     pub fn to_json(&self) -> Result<serde_json::Value> {
         Ok(serde_json::to_value(self)?)
+    }
+
+    fn message_type_default() -> MessageType{
+        198
     }
 
     fn try_lock_timeout_default() -> Duration {

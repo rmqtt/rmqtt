@@ -185,7 +185,7 @@ impl Entry for ClusterLockEntry {
 pub struct ClusterShared {
     inner: &'static DefaultShared,
     router: &'static ClusterRouter,
-    _grpc_clients: GrpcClients,
+    grpc_clients: GrpcClients,
     pub message_type: MessageType,
 }
 
@@ -197,7 +197,7 @@ impl ClusterShared {
         message_type: MessageType,
     ) -> &'static ClusterShared {
         static INSTANCE: OnceCell<ClusterShared> = OnceCell::new();
-        INSTANCE.get_or_init(|| Self { inner: DefaultShared::instance(), router, _grpc_clients: grpc_clients, message_type })
+        INSTANCE.get_or_init(|| Self { inner: DefaultShared::instance(), router, grpc_clients, message_type })
     }
 
     #[inline]
@@ -207,7 +207,7 @@ impl ClusterShared {
 
     #[inline]
     pub(crate) fn grpc_client(&self, node_id: u64) -> Option<NodeGrpcClient> {
-        self._grpc_clients.get(&node_id).map(|c| c.value().clone())
+        self.grpc_clients.get(&node_id).map(|(_, c)| c.clone())
     }
 }
 
@@ -337,6 +337,16 @@ impl Shared for &'static ClusterShared {
     }
 
     #[inline]
+    fn subscriptions(&self) -> usize{
+        self.inner.subscriptions()
+    }
+
+    #[inline]
+    fn subscriptions_shared(&self) -> usize{
+        self.inner.subscriptions_shared()
+    }
+
+    #[inline]
     fn iter(&self) -> Box<dyn Iterator<Item=Box<dyn Entry>> + Sync + Send> {
         self.inner.iter()
     }
@@ -356,5 +366,10 @@ impl Shared for &'static ClusterShared {
                 online: s.online,
             }
         })
+    }
+
+    #[inline]
+    fn get_grpc_clients(&self) -> GrpcClients{
+        self.grpc_clients.clone()
     }
 }

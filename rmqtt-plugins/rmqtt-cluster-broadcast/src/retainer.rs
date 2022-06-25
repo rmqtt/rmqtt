@@ -6,11 +6,11 @@ use rmqtt::{
         RetainStorage,
         types::{Retain, TopicFilter, TopicName},
     },
-    grpc::{Message, MessageReply, MessageType},
+    grpc::{Message, MessageReply, MessageType, GrpcClients},
     Result,
 };
 
-use super::{GrpcClients, MessageBroadcaster};
+use super::{MessageBroadcaster};
 
 pub(crate) struct ClusterRetainer {
     inner: &'static DefaultRetainStorage,
@@ -71,5 +71,15 @@ impl RetainStorage for &'static ClusterRetainer {
             }
         }
         Ok(retains)
+    }
+
+    #[inline]
+    fn count(&self) -> usize {
+        self.inner.count()
+    }
+
+    #[inline]
+    fn count_max(&self) -> usize {
+        self.inner.count_max()
     }
 }

@@ -12,6 +12,8 @@ pub use ntex;
 pub use ntex_mqtt;
 pub use parking_lot::RwLock;
 pub use tokio;
+pub use dashmap;
+pub use ahash;
 
 pub use crate::broker::{error::MqttError,
                         session::{ClientInfo, Session, SessionState},

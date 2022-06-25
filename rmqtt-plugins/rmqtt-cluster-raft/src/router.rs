@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use once_cell::sync::OnceCell;
@@ -199,13 +200,23 @@ impl Router for &'static ClusterRouter {
     }
 
     #[inline]
-    fn subscriptions(&self) -> usize {
-        self.inner.subscriptions()
+    fn subscribed_topics_max(&self) -> usize {
+        self.inner.subscribed_topics_max()
+    }
+
+    #[inline]
+    fn subscribed_topics(&self) -> usize {
+        self.inner.subscribed_topics()
     }
 
     #[inline]
     fn relations(&self) -> usize {
         self.inner.relations()
+    }
+
+    #[inline]
+    fn relations_max(&self) -> usize {
+        self.inner.relations_max()
     }
 
     #[inline]
@@ -363,8 +374,11 @@ impl Store for &'static ClusterRouter {
             .map(|entry| (entry.key().clone(), entry.value().clone()))
             .collect::<Vec<_>>();
 
+        let topics_max = self.inner.subscribed_topics_max();
+        let relations_max = self.inner.relations_max();
+
         let snapshot =
-            bincode::serialize(&(self.inner.topics.read().await.as_ref(), relations, client_statuses))
+            bincode::serialize(&(self.inner.topics.read().await.as_ref(), relations, client_statuses, topics_max, relations_max))
                 .map_err(|e| Error::Other(e))?;
         log::debug!("snapshot len: {}", snapshot.len());
         Ok(snapshot)
@@ -373,10 +387,12 @@ impl Store for &'static ClusterRouter {
     async fn restore(&mut self, snapshot: &[u8]) -> RaftResult<()> {
         log::info!("restore, snapshot.len: {}", snapshot.len());
 
-        let (topics, relations, client_statuses): (
+        let (topics, relations, client_statuses, topics_max, relations_max): (
             TopicTree<()>,
             Vec<(TopicFilter, HashMap<ClientId, (Id, QoS, Option<SharedGroup>)>)>,
             Vec<(ClientId, ClientStatus)>,
+            usize,
+            usize
         ) = bincode::deserialize(snapshot).map_err(|e| Error::Other(e))?;
 
         *self.inner.topics.write().await = topics;
@@ -390,6 +406,9 @@ impl Store for &'static ClusterRouter {
         for (client_id, content) in client_statuses {
             self.client_statuses.insert(client_id, content);
         }
+
+        self.inner.topics_max.store(topics_max, Ordering::SeqCst);
+        self.inner.relations_max.store(relations_max, Ordering::SeqCst);
 
         Ok(())
     }

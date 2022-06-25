@@ -1,0 +1,10 @@
+[package]
+name = "rmqtt-http-api"
+version = "0.1.0"
+authors = ["rmqtt <rmqttd@126.com>"]
+edition = "2021"
+
+[dependencies]
+rmqtt = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+salvo = { version = "0.25.1", features = ["affix"] }

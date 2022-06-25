@@ -56,7 +56,6 @@ async fn main() {
     //tcp
     let mut tcp_listens = Vec::new();
     for (_, listen_cfg) in Runtime::instance().settings.listeners.tcps.iter() {
-        log::info!("listen_cfg: {:?}", listen_cfg);
         let name = format!("{}/{:?}", &listen_cfg.name, &listen_cfg.addr);
         tcp_listens.push(listen(name, listen_cfg));
     }

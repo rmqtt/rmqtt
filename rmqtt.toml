@@ -42,10 +42,11 @@ log.file = "rmqtt.log"
 plugins.dir = "rmqtt-plugins/"
 #Plug in started by default, when the mqtt server is started
 plugins.default_startups = [
+    #    "rmqtt-auth-http",
+    #    "rmqtt-web-hook",
+         "rmqtt-http-api"
     #    "rmqtt-cluster-broadcast",
     #    "rmqtt-cluster-raft"
-    #    "rmqtt-auth-http",
-    #    "rmqtt-web-hook"
 ]
 
 
