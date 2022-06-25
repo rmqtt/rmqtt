@@ -6,7 +6,6 @@ fn main() {
     File::open("Cargo.toml").and_then(|mut f| f.read_to_string(&mut cargo_text)).unwrap();
     let decoded: toml::Value = toml::from_str(&cargo_text).unwrap();
 
-    version(&decoded);
     plugins(&decoded);
 }
 
@@ -43,17 +42,4 @@ fn plugins(decoded: &toml::Value) {
         .unwrap();
     plugin_rs.write_all(inits.join("\n").as_bytes()).unwrap();
     plugin_rs.write_all(b"\n    Ok(())\n}").unwrap();
-}
-
-fn version(decoded: &toml::Value) {
-    let version = decoded.get("package").unwrap().get("version").unwrap().as_str().unwrap();
-    let build_time = chrono::Local::now().format("%Y%m%d%H%M%S").to_string();
-    let server_version = format!("rmqtt/{}-{}", &version, &build_time);
-
-    let out = std::env::var("OUT_DIR").unwrap();
-    let mut version_file = File::create(format!("{}/{}", out, "version.rs")).unwrap();
-    version_file.write_all(b"\n/// rmqtt version").unwrap();
-    version_file
-        .write_all(format!("\npub const VERSION: &str = \"{}\";", server_version).as_bytes())
-        .unwrap();
 }
