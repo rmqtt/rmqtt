@@ -102,6 +102,19 @@ impl Plugin for AuthHttpPlugin {
     }
 
     #[inline]
+    async fn get_config(&self) -> Result<serde_json::Value> {
+        self.cfg.read().await.to_json()
+    }
+
+    #[inline]
+    async fn load_config(&mut self) -> Result<()> {
+        let new_cfg = self.runtime.settings.plugins.load_config::<PluginConfig>(&self.name)?;
+        *self.cfg.write().await = new_cfg;
+        log::debug!("load_config ok,  {:?}", self.cfg);
+        Ok(())
+    }
+
+    #[inline]
     async fn start(&mut self) -> Result<()> {
         log::info!("{} start", self.name);
         self.register.start().await;
@@ -123,19 +136,6 @@ impl Plugin for AuthHttpPlugin {
     #[inline]
     fn descr(&self) -> &str {
         &self.descr
-    }
-
-    #[inline]
-    async fn load_config(&mut self) -> Result<()> {
-        let new_cfg = self.runtime.settings.plugins.load_config::<PluginConfig>(&self.name)?;
-        *self.cfg.write().await = new_cfg;
-        log::debug!("load_config ok,  {:?}", self.cfg);
-        Ok(())
-    }
-
-    #[inline]
-    async fn get_config(&self) -> Result<serde_json::Value> {
-        self.cfg.read().await.to_json()
     }
 }
 

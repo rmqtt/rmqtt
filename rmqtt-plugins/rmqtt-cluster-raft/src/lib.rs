@@ -232,6 +232,11 @@ impl Plugin for ClusterPlugin {
     }
 
     #[inline]
+    async fn get_config(&self) -> Result<serde_json::Value> {
+        self.cfg.read().to_json()
+    }
+
+    #[inline]
     async fn start(&mut self) -> Result<()> {
         log::info!("{} start", self.name);
         let raft_mailbox = self.raft_mailbox();
@@ -266,11 +271,6 @@ impl Plugin for ClusterPlugin {
     #[inline]
     fn descr(&self) -> &str {
         &self.descr
-    }
-
-    #[inline]
-    async fn get_config(&self) -> Result<serde_json::Value> {
-        self.cfg.read().to_json()
     }
 
     #[inline]

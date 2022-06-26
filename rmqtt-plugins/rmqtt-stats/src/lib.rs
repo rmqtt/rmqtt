@@ -70,6 +70,11 @@ impl Plugin for StatsPlugin {
     }
 
     #[inline]
+    async fn load_config(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    #[inline]
     async fn start(&mut self) -> Result<()> {
         log::info!("{} start", self.name);
         self.register.start().await;
@@ -90,11 +95,6 @@ impl Plugin for StatsPlugin {
     #[inline]
     fn descr(&self) -> &str {
         &self.descr
-    }
-
-    #[inline]
-    async fn load_config(&mut self) -> Result<()> {
-        Ok(())
     }
 }
 

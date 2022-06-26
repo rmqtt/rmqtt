@@ -163,6 +163,35 @@ impl Plugin for WebHookPlugin {
     }
 
     #[inline]
+    async fn get_config(&self) -> Result<serde_json::Value> {
+        self.cfg.read().to_json()
+    }
+
+    #[inline]
+    async fn load_config(&mut self) -> Result<()> {
+        let new_cfg = self.runtime.settings.plugins.load_config::<PluginConfig>(&self.name)?;
+        let cfg = { self.cfg.read().clone() };
+        if cfg.worker_threads != new_cfg.worker_threads
+            || cfg.queue_capacity != new_cfg.queue_capacity
+            || cfg.concurrency_limit != new_cfg.concurrency_limit
+        {
+            let new_cfg = Arc::new(RwLock::new(new_cfg));
+            //restart
+            let new_tx = Self::start(self.runtime, new_cfg.clone(), self.processings.clone());
+            if let Err(e) = self.tx.read().send_timeout(Message::Exit, std::time::Duration::from_secs(3)) {
+                log::error!("restart web-hook failed, {:?}", e);
+                return Err(MqttError::Error(Box::new(e)));
+            }
+            self.cfg = new_cfg;
+            *self.tx.write() = new_tx;
+        } else {
+            *self.cfg.write() = new_cfg;
+        }
+        log::debug!("load_config ok,  {:?}", self.cfg);
+        Ok(())
+    }
+
+    #[inline]
     async fn start(&mut self) -> Result<()> {
         log::info!("{} start", self.name);
         self.register.start().await;
@@ -192,35 +221,6 @@ impl Plugin for WebHookPlugin {
             "queue_len": self.tx.read().len(),
             "active_tasks": self.processings.load(Ordering::SeqCst)
         })
-    }
-
-    #[inline]
-    async fn load_config(&mut self) -> Result<()> {
-        let new_cfg = self.runtime.settings.plugins.load_config::<PluginConfig>(&self.name)?;
-        let cfg = { self.cfg.read().clone() };
-        if cfg.worker_threads != new_cfg.worker_threads
-            || cfg.queue_capacity != new_cfg.queue_capacity
-            || cfg.concurrency_limit != new_cfg.concurrency_limit
-        {
-            let new_cfg = Arc::new(RwLock::new(new_cfg));
-            //restart
-            let new_tx = Self::start(self.runtime, new_cfg.clone(), self.processings.clone());
-            if let Err(e) = self.tx.read().send_timeout(Message::Exit, std::time::Duration::from_secs(3)) {
-                log::error!("restart web-hook failed, {:?}", e);
-                return Err(MqttError::Error(Box::new(e)));
-            }
-            self.cfg = new_cfg;
-            *self.tx.write() = new_tx;
-        } else {
-            *self.cfg.write() = new_cfg;
-        }
-        log::debug!("load_config ok,  {:?}", self.cfg);
-        Ok(())
-    }
-
-    #[inline]
-    async fn get_config(&self) -> Result<serde_json::Value> {
-        self.cfg.read().to_json()
     }
 }
 

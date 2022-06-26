@@ -117,27 +117,8 @@ impl Plugin for HttpApiPlugin {
     }
 
     #[inline]
-    async fn start(&mut self) -> Result<()> {
-        log::info!("{} start", self.name);
-        self.register.start().await;
-        Ok(())
-    }
-
-    #[inline]
-    async fn stop(&mut self) -> Result<bool> {
-        log::info!("{} stop", self.name);
-        //self.register.stop().await;
-        Ok(false)
-    }
-
-    #[inline]
-    fn version(&self) -> &str {
-        "0.1.1"
-    }
-
-    #[inline]
-    fn descr(&self) -> &str {
-        &self.descr
+    async fn get_config(&self) -> Result<serde_json::Value> {
+        self.cfg.read().to_json()
     }
 
     #[inline]
@@ -165,7 +146,26 @@ impl Plugin for HttpApiPlugin {
     }
 
     #[inline]
-    async fn get_config(&self) -> Result<serde_json::Value> {
-        self.cfg.read().to_json()
+    async fn start(&mut self) -> Result<()> {
+        log::info!("{} start", self.name);
+        self.register.start().await;
+        Ok(())
+    }
+
+    #[inline]
+    async fn stop(&mut self) -> Result<bool> {
+        log::info!("{} stop", self.name);
+        //self.register.stop().await;
+        Ok(false)
+    }
+
+    #[inline]
+    fn version(&self) -> &str {
+        "0.1.1"
+    }
+
+    #[inline]
+    fn descr(&self) -> &str {
+        &self.descr
     }
 }
