@@ -45,6 +45,14 @@ impl Handler for HookHandler {
                         )));
                         return (false, Some(new_acc));
                     }
+                    Message::StateInfo => {
+                        let node_status = Runtime::instance().node.status().await;
+                        let state = Runtime::instance().extends.stats().await.data().await;
+                        let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::StateInfo(
+                            node_status, state
+                        )));
+                        return (false, Some(new_acc));
+                    }
                     _ => {
                         log::error!("unimplemented, {:?}", param)
                     }

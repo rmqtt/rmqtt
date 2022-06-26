@@ -1,7 +1,6 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
-
 use once_cell::sync::OnceCell;
-use crate::Runtime;
+use crate::{HashMap, NodeId, Runtime};
 
 #[async_trait]
 pub trait Stats: Sync + Send {
@@ -24,6 +23,7 @@ pub trait Stats: Sync + Send {
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct State{
+    id: NodeId,
     connections_count: usize,
     connections_max: usize,
     sessions_count: usize,
@@ -38,9 +38,54 @@ pub struct State{
     routes_count: usize,
     retained_count: usize,
     retained_max: usize,
+
+    subscribed_topics_counts: HashMap<NodeId, usize>,
+    subscribed_topics_maxs: HashMap<NodeId, usize>,
+    routes_counts: HashMap<NodeId, usize>,
+    routes_maxs: HashMap<NodeId, usize>,
 }
 
 impl State {
+
+    #[inline]
+    pub fn add(&mut self, other: &Self){
+        self.connections_count += other.connections_count;
+        self.connections_max += other.connections_max;
+        self.sessions_count += other.sessions_count;
+        self.sessions_max += other.sessions_max;
+        self.subscriptions_count += other.subscriptions_count;
+        self.subscriptions_max += other.subscriptions_max;
+        self.subscriptions_shared_count += other.subscriptions_shared_count;
+        self.subscriptions_shared_max += other.subscriptions_shared_max;
+        self.retained_count += other.retained_count;
+        self.retained_max += other.retained_max;
+
+        self.subscribed_topics_counts.insert(other.id, other.subscribed_topics_count);
+        self.subscribed_topics_maxs.insert(other.id, other.subscribed_topics_max);
+        self.routes_counts.insert(other.id, other.routes_count);
+        self.routes_maxs.insert(other.id, other.routes_max);
+    }
+
+    #[inline]
+    pub fn to_sum_json(&self) -> serde_json::Value{
+        json!({
+            "connections.count": self.connections_count,
+            "connections.max": self.connections_max,
+            "sessions.count": self.sessions_count,
+            "sessions.max": self.sessions_max,
+            "subscriptions.count": self.subscriptions_count,
+            "subscriptions.max": self.subscriptions_max,
+            "subscriptions_shared.count": self.subscriptions_shared_count,
+            "subscriptions_shared.max": self.subscriptions_shared_max,
+            "retained.count": self.retained_count,
+            "retained.max": self.retained_max,
+
+            "subscribed_topics_counts": self.subscribed_topics_counts,
+            "subscribed_topics_maxs": self.subscribed_topics_maxs,
+            "routes_counts": self.routes_counts,
+            "routes_maxs": self.routes_maxs,
+        })
+    }
 
     #[inline]
     pub fn to_json(&self) -> serde_json::Value{
@@ -57,8 +102,8 @@ impl State {
             "subscriptions_shared.max": self.subscriptions_shared_max,
             "routes.count": self.routes_count,
             "routes.max": self.routes_max,
-            "retained_count": self.retained_count,
-            "retained_max": self.retained_max,
+            "retained.count": self.retained_count,
+            "retained.max": self.retained_max,
         })
     }
 }
@@ -196,21 +241,44 @@ impl Stats for &'static DefaultStats {
         let shared = Runtime::instance().extends.shared().await;
         let router = Runtime::instance().extends.router().await;
         let retain = Runtime::instance().extends.retain().await;
+        let id = Runtime::instance().node.id();
+
+        let subscribed_topics = router.subscribed_topics();
+        let subscribed_topics_max = router.subscribed_topics_max();
+
+        let routes_count = router.relations();
+        let routes_max = router.relations_max();
+
+        let mut subscribed_topics_counts = HashMap::default(); //[(id, subscribed_topics)].into();
+        subscribed_topics_counts.insert(id, subscribed_topics);
+        let mut subscribed_topics_maxs = HashMap::default(); //[(id, subscribed_topics_max)].into();
+        subscribed_topics_maxs.insert(id, subscribed_topics_max);
+        let mut routes_counts = HashMap::default(); //[(id, routes_count)].into();
+        routes_counts.insert(id, routes_count);
+        let mut routes_maxs = HashMap::default(); //[(id, routes_max)].into();
+        routes_maxs.insert(id, routes_max);
+
         State{
+            id,
             connections_count: shared.clients().await,
             connections_max: self.connections_max(),
             sessions_count: shared.sessions().await,
             sessions_max: self.sessions_max(),
-            subscribed_topics_count: router.subscribed_topics(),
-            subscribed_topics_max: router.subscribed_topics_max(),
+            subscribed_topics_count: subscribed_topics,
+            subscribed_topics_max,
             subscriptions_count: shared.subscriptions(),
             subscriptions_max: self.subscriptions_max(),
             subscriptions_shared_count: shared.subscriptions_shared(),
             subscriptions_shared_max: self.subscriptions_shared_max(),
-            routes_max: router.relations_max(),
-            routes_count: router.relations(),
+            routes_count,
+            routes_max,
             retained_count: retain.count(),
             retained_max: retain.count_max(),
+
+            subscribed_topics_counts,
+            subscribed_topics_maxs,
+            routes_counts,
+            routes_maxs,
         }
     }
 }

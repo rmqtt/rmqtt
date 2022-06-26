@@ -7,7 +7,8 @@ use futures::FutureExt;
 use crate::broker::{ClearSubscriptions, SubRelations, SubRelationsMap};
 use crate::broker::session::SessionOfflineInfo;
 use crate::broker::types::{NodeId, From, Id, Publish, Retain, TopicFilter, TopicName};
-use crate::node::{BrokerInfo, NodeInfo};
+use crate::node::{BrokerInfo, NodeInfo, NodeStatus};
+use crate::stats::State;
 use crate::Result;
 
 use client::NodeGrpcClient;
@@ -33,6 +34,7 @@ pub enum Message {
     NumberOfSessions,
     BrokerInfo,
     NodeInfo,
+    StateInfo,
     Bytes(Bytes),
 }
 
@@ -58,6 +60,7 @@ pub enum MessageReply {
     NumberOfSessions(usize),
     BrokerInfo(BrokerInfo),
     NodeInfo(NodeInfo),
+    StateInfo(NodeStatus, State),
     Bytes(Vec<u8>),
 }
 
@@ -105,7 +108,7 @@ pub type GrpcClients = Arc<HashMap<NodeId, (SocketAddr, NodeGrpcClient), ahash::
 pub struct MessageBroadcaster {
     grpc_clients: GrpcClients,
     msg_type: MessageType,
-    msg: Option<Message>,
+    msg: Message,
 }
 
 impl MessageBroadcaster {
@@ -113,31 +116,33 @@ impl MessageBroadcaster {
     #[inline]
     pub fn new(grpc_clients: GrpcClients, msg_type: MessageType, msg: Message) -> Self {
         assert!(!grpc_clients.is_empty(), "gRPC clients is empty!");
-        Self { grpc_clients, msg_type, msg: Some(msg) }
+        Self { grpc_clients, msg_type, msg}
     }
 
     #[inline]
-    pub async fn join_all(&mut self) -> Vec<Result<MessageReply>> {
-        let msg = self.msg.take().unwrap();
+    pub async fn join_all(self) -> Vec<(NodeId, Result<MessageReply>)> {
+        let msg = self.msg;
         let mut senders = Vec::new();
-        let max_idx = self.grpc_clients.len() - 1;
-        for (i, (_, (_, grpc_client))) in self.grpc_clients.iter().enumerate() {
-            if i == max_idx {
-                senders.push(grpc_client.send_message(self.msg_type, msg));
-                break;
-            } else {
-                senders.push(grpc_client.send_message(self.msg_type, msg.clone()));
-            }
+        for (id, (_, grpc_client)) in self.grpc_clients.iter() {
+            let msg_type = self.msg_type;
+            let msg = msg.clone();
+            let fut = async move{
+                (
+                    *id,
+                    grpc_client.send_message(msg_type, msg).await
+                )
+            };
+            senders.push(fut.boxed());
         }
         futures::future::join_all(senders).await
     }
 
     #[inline]
     pub async fn select_ok<F: Fn(MessageReply) -> Result<MessageReply> + Send + Sync>(
-        &mut self,
+        self,
         check_fn: &F,
     ) -> Result<MessageReply> {
-        let msg = self.msg.take().unwrap();
+        let msg = self.msg;
         let mut senders = Vec::new();
         let max_idx = self.grpc_clients.len() - 1;
         for (i, (_, (_, grpc_client))) in self.grpc_clients.iter().enumerate() {

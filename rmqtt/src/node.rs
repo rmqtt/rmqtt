@@ -54,8 +54,8 @@ impl Node {
     }
 
     #[inline]
-    pub async fn status(&self) -> String{
-        "Running".into()
+    pub async fn status(&self) -> NodeStatus{
+        NodeStatus::Running
     }
 
     #[inline]
@@ -128,7 +128,7 @@ pub struct BrokerInfo{
     pub version: String,
     pub uptime: String,
     pub sysdescr: String,
-    pub node_status: String,
+    pub node_status: NodeStatus,
     pub node_id: NodeId,
     pub node_name: String,
     pub datetime: String,
@@ -166,7 +166,7 @@ pub struct NodeInfo{
     pub os_release: String,
     pub os_type: String,
     pub proc_total: String,
-    pub node_status: String,
+    pub node_status: NodeStatus,
     pub node_id: NodeId,
     pub node_name: String,
     pub uptime: String,
@@ -199,6 +199,13 @@ impl NodeInfo {
             "version":  self.version
         })
     }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum NodeStatus{
+    Running,
+    Stop,
+    Error(String)
 }
 
 #[inline]
