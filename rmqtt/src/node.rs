@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use systemstat::Platform;
 
 use crate::{NodeId, Result, Runtime};
 use crate::grpc::client::NodeGrpcClient;
@@ -80,44 +81,37 @@ impl Node {
     #[inline]
     pub async fn node_info(&self) -> NodeInfo {
         let node_id = self.id();
-        #[cfg(not(windows))]
-            let boottime = sys_info::boottime()
-            .map(|boottime| to_uptime(boottime.tv_sec))
-            .unwrap_or_else(|e| format!("{}", e));
-        #[cfg(windows)]
-            let boottime = format!("{}", sys_info::Error::UnsupportedSystem);
 
-        let cpu_num = sys_info::cpu_num().map(|n| format!("{}", n)).unwrap_or_else(|e| format!("{}", e));
-        let cpu_speed = sys_info::cpu_speed().map(|n| format!("{}", n)).unwrap_or_else(|e| format!("{}", e));
-        let loadavg = sys_info::loadavg().unwrap_or_default();
-        let mem_info = sys_info::mem_info().unwrap_or_default();
-        let disk_info = sys_info::disk_info().unwrap_or_default();
-        let os_release = sys_info::os_release().map(|n| format!("{}", n)).unwrap_or_else(|e| format!("{}", e));
-        let os_type = sys_info::os_type().map(|n| format!("{}", n)).unwrap_or_else(|e| format!("{}", e));
-        let proc_total = sys_info::proc_total().map(|n| format!("{}", n)).unwrap_or_else(|e| format!("{}", e));
+        let sys = systemstat::System::new();
+        let boottime = sys.boot_time().map(|t|t.to_string()).unwrap_or_default();
+        let loadavg = sys.load_average();
+        let mem_info = sys.memory();
+
+        let (disk_total, disk_free) = if let Ok(mounts) = sys.mounts(){
+            let total = mounts.iter().map(|m| m.total.as_u64()).sum();
+            let free = mounts.iter().map(|m| m.free.as_u64()).sum();
+            (total, free)
+        }else{
+            (0, 0)
+        };
 
         NodeInfo{
             connections: Runtime::instance().extends.shared().await.clients().await,
             boottime,
-            load1: loadavg.one,
-            load5: loadavg.five,
-            load15: loadavg.fifteen,
-            max_fds: 0,
-            cpu_num,
-            cpu_speed,
-            memory_total: mem_info.total,
-            memory_used: mem_info.avail,
-            memory_free: mem_info.free,
-            disk_total: disk_info.total,
-            disk_free: disk_info.free,
-            os_release,
-            os_type,
-            proc_total,
+            load1: loadavg.as_ref().map(|l|l.one).unwrap_or_default(),
+            load5: loadavg.as_ref().map(|l|l.five).unwrap_or_default(),
+            load15: loadavg.as_ref().map(|l|l.fifteen).unwrap_or_default(),
+            memory_total: mem_info.as_ref().map(|m| m.total.as_u64()).unwrap_or_default(),
+            memory_free: mem_info.as_ref().map(|m| m.free.as_u64()).unwrap_or_default(),
+            memory_used: mem_info.as_ref().map(|m| systemstat::saturating_sub_bytes(m.total, m.free).as_u64()).unwrap_or_default(),
+            disk_total,
+            disk_free,
             node_status: self.status().await,
             node_id,
             node_name: format!("{}@{}", node_id, "127.0.0.1"),
             uptime: self.uptime(),
             version: version::VERSION.to_string(),
+            ..Default::default()
         }
     }
 
@@ -148,24 +142,24 @@ impl BrokerInfo {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct NodeInfo{
     pub connections: usize,
     pub boottime: String,
-    pub load1: f64,
-    pub load5: f64,
-    pub load15: f64,
-    pub max_fds: usize,
-    pub cpu_num: String,
-    pub cpu_speed: String,
+    pub load1: f32,
+    pub load5: f32,
+    pub load15: f32,
+    // pub max_fds: usize,
+    // pub cpu_num: String,
+    // pub cpu_speed: String,
     pub memory_total: u64,
     pub memory_used: u64,
     pub memory_free: u64,
     pub disk_total: u64,
     pub disk_free: u64,
-    pub os_release: String,
-    pub os_type: String,
-    pub proc_total: String,
+    // pub os_release: String,
+    // pub os_type: String,
+    // pub proc_total: String,
     pub node_status: NodeStatus,
     pub node_id: NodeId,
     pub node_name: String,
@@ -182,16 +176,16 @@ impl NodeInfo {
             "load5":  self.load5,
             "load15":  self.load15,
             // "max_fds":  self.max_fds,
-            "cpu_num":  self.cpu_num,
-            "cpu_speed":  self.cpu_speed,
+            // "cpu_num":  self.cpu_num,
+            // "cpu_speed":  self.cpu_speed,
             "memory_total":  self.memory_total,
             "memory_used":  self.memory_used,
             "memory_free":  self.memory_free,
             "disk_total":  self.disk_total,
             "disk_free":  self.disk_free,
-            "os_release":  self.os_release,
-            "os_type":  self.os_type,
-            "proc_total":  self.proc_total,
+            // "os_release":  self.os_release,
+            // "os_type":  self.os_type,
+            // "proc_total":  self.proc_total,
             "node_status":  self.node_status,
             "node_id":  self.node_id,
             "node_name":  self.node_name,
@@ -206,6 +200,12 @@ pub enum NodeStatus{
     Running,
     Stop,
     Error(String)
+}
+
+impl Default for NodeStatus{
+    fn default() -> Self{
+        NodeStatus::Running
+    }
 }
 
 #[inline]
