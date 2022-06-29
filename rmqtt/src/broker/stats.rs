@@ -15,10 +15,6 @@ pub trait Stats: Sync + Send {
     async fn retained_max(&self) -> usize;
 
     async fn data(&self) -> State;
-
-    // fn publishs(&self) -> usize;
-    // fn delivers(&self) -> usize;
-    // fn ackeds(&self) -> usize;
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -113,10 +109,6 @@ pub struct DefaultStats {
     sessions_max: AtomicUsize,
     subscriptions_max: AtomicUsize,
     subscriptions_shared_max: AtomicUsize,
-    // routes_max: AtomicUsize,
-    // publishs: AtomicUsize,
-    // delivers: AtomicUsize,
-    // ackeds: AtomicUsize,
 }
 
 impl DefaultStats {
@@ -128,10 +120,6 @@ impl DefaultStats {
             sessions_max: AtomicUsize::new(0),
             subscriptions_max: AtomicUsize::new(0),
             subscriptions_shared_max: AtomicUsize::new(0),
-            // routes_max: AtomicUsize::new(0),
-            // publishs: AtomicUsize::new(0),
-            // delivers: AtomicUsize::new(0),
-            // ackeds: AtomicUsize::new(0),
         })
     }
 
@@ -156,26 +144,6 @@ impl DefaultStats {
         self.subscriptions_shared_max.fetch_add(1, Ordering::SeqCst)
     }
 
-    // #[inline]
-    // pub fn routes_max_inc(&self) -> usize {
-    //     self.routes_max.fetch_add(1, Ordering::SeqCst)
-    // }
-
-
-    // #[inline]
-    // pub fn publishs_inc(&self) -> usize {
-    //     self.publishs.fetch_add(1, Ordering::SeqCst)
-    // }
-    //
-    // #[inline]
-    // pub fn delivers_inc(&self) -> usize {
-    //     self.delivers.fetch_add(1, Ordering::SeqCst)
-    // }
-    //
-    // #[inline]
-    // pub fn ackeds_inc(&self) -> usize {
-    //     self.ackeds.fetch_add(1, Ordering::SeqCst)
-    // }
 }
 
 #[async_trait]
@@ -220,21 +188,6 @@ impl Stats for &'static DefaultStats {
         Runtime::instance().extends.router().await.relations_max()
     }
 
-
-    // #[inline]
-    // fn publishs(&self) -> usize{
-    //     self.publishs.load(Ordering::SeqCst)
-    // }
-    //
-    // #[inline]
-    // fn delivers(&self) -> usize{
-    //     self.delivers.load(Ordering::SeqCst)
-    // }
-    //
-    // #[inline]
-    // fn ackeds(&self) -> usize{
-    //     self.ackeds.load(Ordering::SeqCst)
-    // }
 
     #[inline]
     async fn data(&self) -> State{

@@ -7,6 +7,7 @@ use futures::FutureExt;
 use crate::broker::{ClearSubscriptions, SubRelations, SubRelationsMap};
 use crate::broker::session::SessionOfflineInfo;
 use crate::broker::types::{NodeId, From, Id, Publish, Retain, TopicFilter, TopicName};
+use crate::broker::metrics::Metrics;
 use crate::node::{BrokerInfo, NodeInfo, NodeStatus};
 use crate::stats::State;
 use crate::Result;
@@ -35,6 +36,7 @@ pub enum Message {
     BrokerInfo,
     NodeInfo,
     StateInfo,
+    MetricsInfo,
     Bytes(Bytes),
 }
 
@@ -49,7 +51,7 @@ impl Message {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub enum MessageReply {
     Success,
     Forwards(SubRelationsMap),
@@ -61,6 +63,7 @@ pub enum MessageReply {
     BrokerInfo(BrokerInfo),
     NodeInfo(NodeInfo),
     StateInfo(NodeStatus, State),
+    MetricsInfo(Metrics),
     Bytes(Vec<u8>),
 }
 

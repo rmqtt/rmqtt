@@ -37,6 +37,12 @@ fn route(cfg: PluginConfigType) -> Router {
             .push(Router::with_path("sum").get(get_stats_sum))
             .push(Router::with_path("<id>").get(get_stats))
         )
+        .push(
+            Router::with_path("metrics")
+                .get(get_metrics)
+                .push(Router::with_path("<id>").get(get_metrics))
+        )
+
 }
 
 pub(crate) async fn listen_and_serve(laddr: SocketAddr, cfg: PluginConfigType, rx: oneshot::Receiver<()>) -> Result<()> {
@@ -70,7 +76,6 @@ async fn list_apis(res: &mut Response) {
           "path": "/stats/{node}",
           "descr": "Returns all statistics information from the cluster"
         },
-
         {
           "name": "get_stats_sum",
           "method": "GET",
@@ -78,6 +83,12 @@ async fn list_apis(res: &mut Response) {
           "descr": "Summarize all statistics information from the cluster"
         },
 
+        {
+          "name": "get_metrics",
+          "method": "GET",
+          "path": "/metrics/{node}",
+          "descr": "Returns all metrics information from the cluster"
+        },
 
     ]);
     res.render(Json(data));
@@ -278,7 +289,6 @@ async fn get_stats(req: &mut Request, depot: &mut Depot, res: &mut Response) {
 
 #[inline]
 async fn _get_stat(message_type: MessageType, id: NodeId) -> Option<serde_json::Value>{
-    //Some(Runtime::instance().node.node_info().await.to_json())
     if id == Runtime::instance().node.id(){
         let node_status = Runtime::instance().node.status().await;
         let state = Runtime::instance().extends.stats().await.data().await;
@@ -344,4 +354,71 @@ async fn _build_state(id: NodeId, node_status: NodeStatus, state: State) -> serd
         "stats": state.to_json()
     });
     data
+}
+
+#[fn_handler]
+async fn get_metrics(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+    let message_type = cfg.read().message_type;
+
+    let id = req.param::<NodeId>("id");
+    if let Some(id) = id {
+        if let Some(metrics) = _get_metrics_one(message_type, id).await {
+            res.render(Json(metrics));
+        } else {
+            res.set_status_code(StatusCode::NOT_FOUND)
+        }
+    } else {
+        let metricses = _get_metrics_all(message_type).await;
+        res.render(Json(metricses));
+    }
+}
+
+
+#[inline]
+async fn _get_metrics_one(message_type: MessageType, id: NodeId) -> Option<serde_json::Value> {
+    if id == Runtime::instance().node.id(){
+        Some(Runtime::instance().metrics.to_json())
+    }else{
+        let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
+        if let Some((_, c)) = grpc_clients.get(&id){
+            let reply = MessageSender::new(c.clone(),message_type, Message::MetricsInfo)
+                .send().await;
+            let metrics = match reply {
+                Ok(MessageReply::MetricsInfo(metrics)) => metrics.to_json(),
+                Ok(_) => unreachable!(),
+                Err(e) => {
+                    log::warn!("Get Message::MetricsInfo from other node, error: {:?}", e);
+                    serde_json::Value::String(e.to_string())
+                }
+            };
+            Some(metrics)
+        }else{
+            None
+        }
+    }
+}
+
+#[inline]
+async fn _get_metrics_all(message_type: MessageType) -> Vec<serde_json::Value> {
+    let mut metrics = vec![Runtime::instance().metrics.to_json()];
+    let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
+    if !grpc_clients.is_empty() {
+        let replys =
+            MessageBroadcaster::new(grpc_clients, message_type, Message::MetricsInfo)
+                .join_all()
+                .await
+                .drain(..)
+                .map(|reply| match reply {
+                    (_, Ok(MessageReply::MetricsInfo(metrics))) => metrics.to_json(),
+                    (_, Ok(_)) => unreachable!(),
+                    (id, Err(e)) => {
+                        log::warn!("Get Message::MetricsInfo from other node({}), error: {:?}", id, e);
+                        serde_json::Value::String(e.to_string())
+                    }
+                })
+                .collect::<Vec<_>>();
+        metrics.extend(replys);
+    }
+    metrics
 }

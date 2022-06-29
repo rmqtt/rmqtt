@@ -53,6 +53,12 @@ impl Handler for HookHandler {
                         )));
                         return (false, Some(new_acc));
                     }
+                    Message::MetricsInfo => {
+                        let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::MetricsInfo(
+                            Runtime::instance().metrics.clone()
+                        )));
+                        return (false, Some(new_acc));
+                    }
                     _ => {
                         log::error!("unimplemented, {:?}", param)
                     }

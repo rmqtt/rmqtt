@@ -3,9 +3,9 @@ use rmqtt::{
     plugin::{DynPlugin, DynPluginResult, Plugin},
     Result, Runtime,
     stats::DefaultStats,
+    broker::{metrics::Metrics}
 };
 use rmqtt::async_trait::async_trait;
-// use rmqtt::stats::Stats;
 
 #[inline]
 pub async fn register(
@@ -52,8 +52,14 @@ impl Plugin for StatsPlugin {
     async fn init(&mut self) -> Result<()> {
         log::info!("{} init", self.name);
         self.register.add(Type::ClientConnect, Box::new(StatsHandler::new())).await;
+        self.register.add(Type::ClientAuthenticate, Box::new(StatsHandler::new())).await;
         self.register.add(Type::ClientConnack, Box::new(StatsHandler::new())).await;
         self.register.add(Type::ClientConnected, Box::new(StatsHandler::new())).await;
+        self.register.add(Type::ClientDisconnected, Box::new(StatsHandler::new())).await;
+
+        self.register.add(Type::ClientSubscribeCheckAcl, Box::new(StatsHandler::new())).await;
+        self.register.add(Type::MessagePublishCheckAcl, Box::new(StatsHandler::new())).await;
+
         self.register.add(Type::SessionCreated, Box::new(StatsHandler::new())).await;
         self.register.add(Type::SessionSubscribed, Box::new(StatsHandler::new())).await;
 
@@ -102,12 +108,14 @@ impl Plugin for StatsPlugin {
 struct StatsHandler {
     #[allow(dead_code)]
     stats: &'static DefaultStats,
+    metrics: &'static Metrics
 }
 
 impl StatsHandler {
     fn new() -> Self {
         Self {
             stats: DefaultStats::instance(),
+            metrics: Metrics::instance(),
         }
     }
 }
@@ -116,41 +124,50 @@ impl StatsHandler {
 impl Handler for StatsHandler {
     async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
         match param {
-            Parameter::ClientConnect(_connect_info) => {
-
+            Parameter::ClientConnect(connect_info) => {
+                self.metrics.client_connect_inc();
+                if connect_info.username().is_none(){
+                    self.metrics.client_auth_anonymous_inc();
+                }
             }
-
+            Parameter::ClientAuthenticate(_session, _client, _p) => {
+                self.metrics.client_authenticate_inc();
+            }
             Parameter::ClientConnack(_connect_info, _reason) => {
-
+                self.metrics.client_connack_inc()
             }
-
             Parameter::ClientConnected(_session, _client) => {
                 self.stats.connections_max_inc();
+                self.metrics.client_connected_inc();
+            }
+            Parameter::ClientDisconnected(_session, _client, _r) => {
+                self.metrics.client_disconnected_inc();
+            }
+            Parameter::ClientSubscribeCheckAcl(_session, _client, _s) => {
+                self.metrics.client_subscribe_check_acl_inc();
+            }
+            Parameter::MessagePublishCheckAcl(_session, _client, _p) => {
+                self.metrics.client_publish_check_acl_inc();
             }
 
             Parameter::SessionCreated(_session, _client) => {
                 self.stats.sessions_max_inc();
             }
-
             Parameter::SessionSubscribed(s, _client, sub) => {
                 self.stats.subscriptions_max_inc();
                 if let Some(true) = s.is_shared_subscriptions(sub.topic_filter_ref()){
                     self.stats.subscriptions_shared_max_inc();
                 }
             }
-
             Parameter::MessagePublish(_session, _client, _p) => {
-                // self.stats.publishs_inc();
+                self.metrics.publishs_inc();
             }
-
             Parameter::MessageDelivered(_session, _client, _f, _p) => {
-                // self.stats.delivers_inc();
+                self.metrics.delivers_inc();
             }
-
             Parameter::MessageAcked(_session, _client, _f, _p) => {
-                // self.stats.ackeds_inc();
+                self.metrics.ackeds_inc();
             }
-
             _ => {
                 log::error!("parameter is: {:?}", param);
             }

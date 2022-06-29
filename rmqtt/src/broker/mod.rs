@@ -21,6 +21,7 @@ pub mod session;
 pub mod topic;
 pub mod types;
 pub mod stats;
+pub mod metrics;
 pub mod v3;
 pub mod v5;
 
