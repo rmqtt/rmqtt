@@ -253,11 +253,11 @@ impl Store for &'static ClusterRouter {
                         ClientStatus::new(id.clone(), false, true)
                     });
                 log::debug!("[Router.HandshakeTryLock] id: {:?}, try_lock_ok: {}, prev_id: {:?}", id, try_lock_ok, prev_id);
-                if try_lock_ok {
-                    return Ok(MessageReply::HandshakeTryLock(prev_id).encode().map_err(|_e| Error::Unknown)?);
+                return if try_lock_ok {
+                    Ok(MessageReply::HandshakeTryLock(prev_id).encode().map_err(|_e| Error::Unknown)?)
                 } else {
-                    return Ok(MessageReply::Error("handshake try lock error".into()).encode().map_err(|_e| Error::Unknown)?);
-                }
+                    Ok(MessageReply::Error("handshake try lock error".into()).encode().map_err(|_e| Error::Unknown)?)
+                };
             }
             Message::Connected { id } => {
                 log::debug!("[Router.Connected] id: {:?}", id);
@@ -279,7 +279,7 @@ impl Store for &'static ClusterRouter {
                     ClientStatus::new(id, true, false)
                 });
                 if let Some(reply) = reply {
-                    return Ok(reply.encode().map_err(|_e| Error::Unknown)?);
+                    return reply.encode().map_err(|_e| Error::Unknown);
                 }
             }
             Message::Disconnected { id } => {

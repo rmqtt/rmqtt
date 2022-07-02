@@ -63,7 +63,7 @@ pub enum MessageReply {
     NumberOfSessions(usize),
     BrokerInfo(BrokerInfo),
     NodeInfo(NodeInfo),
-    StateInfo(NodeStatus, State),
+    StateInfo(NodeStatus, Box<State>),
     MetricsInfo(Metrics),
     Bytes(Vec<u8>),
 }
@@ -96,11 +96,11 @@ impl MessageSender {
     pub async fn send(self) -> Result<MessageReply> {
         match self.client.send_message(self.msg_type, self.msg).await {
             Ok(reply) => {
-                return Ok(reply);
+                Ok(reply)
             }
             Err(e) => {
                 log::warn!("error sending message, {:?}", e);
-                return Err(e);
+                Err(e)
             }
         }
     }

@@ -1280,12 +1280,11 @@ impl LimiterManager for &'static DefaultLimiterManager {
             .limiters
             .entry(name)
             .or_insert_with(|| {
-                let limiter = DefaultLimiter::new(
+                DefaultLimiter::new(
                     listen_cfg.max_handshake_rate,
                     listen_cfg.max_handshake_limit,
                     listen_cfg.handshake_timeout,
-                );
-                limiter
+                )
             })
             .value()
             .clone();
@@ -1323,10 +1322,8 @@ impl DefaultLimiter {
 impl Limiter for DefaultLimiter {
     #[inline]
     async fn acquire(&self, handshakings: isize) -> Result<()> {
-        if self.max_handshake_limit > 0 {
-            if handshakings > self.max_handshake_limit {
-                return Err(MqttError::from(format!("too many concurrent handshake connections, handshakings: {}", handshakings)));
-            }
+        if self.max_handshake_limit > 0 && handshakings > self.max_handshake_limit {
+            return Err(MqttError::from(format!("too many concurrent handshake connections, handshakings: {}", handshakings)));
         }
 
         let now = std::time::Instant::now();

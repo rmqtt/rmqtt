@@ -299,14 +299,14 @@ async fn _get_stat(message_type: MessageType, id: NodeId) -> Option<serde_json::
     if id == Runtime::instance().node.id() {
         let node_status = Runtime::instance().node.status().await;
         let state = Runtime::instance().extends.stats().await.data().await;
-        Some(_build_state(id, node_status, state).await)
+        Some(_build_state(id, node_status, &state).await)
     } else {
         let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
         if let Some((_, c)) = grpc_clients.get(&id) {
             let reply = MessageSender::new(c.clone(), message_type, Message::StateInfo)
                 .send().await;
             let state_info = match reply {
-                Ok(MessageReply::StateInfo(node_status, state_info)) => _build_state(id, node_status, state_info).await,
+                Ok(MessageReply::StateInfo(node_status, state_info)) => _build_state(id, node_status, &state_info).await,
                 Ok(_) => unreachable!(),
                 Err(e) => {
                     log::warn!("Get Message::StateInfo from other node, error: {:?}", e);
@@ -325,7 +325,7 @@ async fn _get_stats(message_type: MessageType) -> Vec<serde_json::Value> {
     let id = Runtime::instance().node.id();
     let node_status = Runtime::instance().node.status().await;
     let state = Runtime::instance().extends.stats().await.data().await;
-    let mut stats = vec![_build_state(id, node_status, state).await];
+    let mut stats = vec![_build_state(id, node_status, &state).await];
 
     let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
@@ -334,7 +334,7 @@ async fn _get_stats(message_type: MessageType) -> Vec<serde_json::Value> {
             .await {
             let data = match reply {
                 (id, Ok(MessageReply::StateInfo(node_status, state_info))) => {
-                    _build_state(id, node_status, state_info).await
+                    _build_state(id, node_status, &state_info).await
                 }
                 (_, Ok(_)) => unreachable!(),
                 (id, Err(e)) => {
@@ -349,7 +349,7 @@ async fn _get_stats(message_type: MessageType) -> Vec<serde_json::Value> {
 }
 
 #[inline]
-async fn _build_state(id: NodeId, node_status: NodeStatus, state: State) -> serde_json::Value {
+async fn _build_state(id: NodeId, node_status: NodeStatus, state: &State) -> serde_json::Value {
     let node_name = Runtime::instance().node.name(id).await;
     let data = json!({
         "node": {

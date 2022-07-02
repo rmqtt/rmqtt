@@ -671,10 +671,10 @@ impl SessionState {
             && !offline_info.subscriptions.is_empty()
         {
             for (tf, (qos, shared_group)) in offline_info.subscriptions.iter() {
-                let shared_group = shared_group.as_ref().map(|g| g.clone());
+                let shared_group = shared_group.as_ref().cloned();
                 let qos = *qos;
                 let id = self.id.clone();
-                if let Err(e) = Runtime::instance().extends.router().await.add(&tf, id, qos, shared_group).await {
+                if let Err(e) = Runtime::instance().extends.router().await.add(tf, id, qos, shared_group).await {
                     log::warn!("transfer_session_state, router.add, {:?}", e);
                     return Err(e);
                 }
@@ -908,11 +908,7 @@ impl _SessionInner {
     #[inline]
     pub fn is_shared_subscriptions(&self, topic_filter: &str) -> Option<bool> {
         self.subscriptions.get(topic_filter).map(|entry| {
-            if let (_, Some(_)) = entry.value() {
-                true
-            } else {
-                false
-            }
+            matches!(entry.value(), (_, Some(_)))
         })
     }
 }

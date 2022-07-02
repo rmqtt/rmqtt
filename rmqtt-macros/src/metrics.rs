@@ -27,7 +27,7 @@ pub(crate) fn build(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     let inc_items = get_fields_named(&input.data).named.iter().map(|f| {
         let name = &f.ident;
-        let fn_name = name.as_ref().map(|ref i| Ident::new(&format!("{}_inc", i), i.span().clone()));
+        let fn_name = name.as_ref().map(|ref i| Ident::new(&format!("{}_inc", i), i.span()));
         quote! {
             #[inline]
             pub fn #fn_name(&self) {
@@ -40,7 +40,7 @@ pub(crate) fn build(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         let name = &f.ident;
         let attr_name = f.ident.as_ref()
             .map(|i| {
-                i.to_string().replace('_', ".").to_string()
+                i.to_string().replace('_', ".")
             });
         quote!(
             #attr_name : self.#name.load(Ordering::SeqCst),

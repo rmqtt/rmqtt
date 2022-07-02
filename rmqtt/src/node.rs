@@ -112,7 +112,6 @@ impl Node {
             node_name: format!("{}@{}", node_id, "127.0.0.1"),
             uptime: self.uptime(),
             version: version::VERSION.to_string(),
-            ..Default::default()
         }
     }
 }
