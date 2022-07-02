@@ -1,6 +1,6 @@
 use once_cell::sync::OnceCell;
 
-use crate::{extend, node::Node, plugin, settings::Settings, broker::metrics::Metrics};
+use crate::{broker::metrics::Metrics, extend, node::Node, plugin, settings::Settings};
 use crate::logger::{config_logger, Logger};
 
 pub struct Runtime {

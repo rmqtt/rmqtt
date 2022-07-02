@@ -34,7 +34,7 @@ impl PluginConfig {
         Ok(serde_json::to_value(self)?)
     }
 
-    fn message_type_default() -> MessageType{
+    fn message_type_default() -> MessageType {
         198
     }
 

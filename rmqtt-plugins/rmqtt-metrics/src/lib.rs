@@ -1,8 +1,8 @@
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
-    plugin::{DynPlugin, DynPluginResult, Plugin},
-    Result, Runtime, broker::{metrics::Metrics}};
-use rmqtt::async_trait::async_trait;
+    broker::metrics::Metrics,
+    plugin::{DynPlugin, DynPluginResult, Plugin}, Result, Runtime};
+use rmqtt::{async_trait::async_trait, log};
 
 #[inline]
 pub async fn register(
@@ -108,7 +108,7 @@ impl Plugin for MetricsPlugin {
 
 
 struct MetricsHandler {
-    metrics: &'static Metrics
+    metrics: &'static Metrics,
 }
 
 impl MetricsHandler {
@@ -125,7 +125,7 @@ impl Handler for MetricsHandler {
         match param {
             Parameter::ClientConnect(connect_info) => {
                 self.metrics.client_connect_inc();
-                if connect_info.username().is_none(){
+                if connect_info.username().is_none() {
                     self.metrics.client_auth_anonymous_inc();
                 }
             }
@@ -137,7 +137,7 @@ impl Handler for MetricsHandler {
             }
             Parameter::ClientConnected(_session, client) => {
                 self.metrics.client_connected_inc();
-                if client.session_present{
+                if client.session_present {
                     self.metrics.session_resumed_inc();
                 }
             }

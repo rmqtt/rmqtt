@@ -1,27 +1,26 @@
-
-extern crate proc_macro;
 #[macro_use]
 pub extern crate async_trait;
+extern crate proc_macro;
 #[macro_use]
 pub extern crate serde;
 #[macro_use]
 pub extern crate serde_json;
 
+pub use ahash;
 pub use anyhow;
+pub use dashmap;
 pub use futures;
 pub use log;
 pub use ntex;
 pub use ntex_mqtt;
 pub use parking_lot::RwLock;
 pub use tokio;
-pub use dashmap;
-pub use ahash;
 
 pub use crate::broker::{error::MqttError,
+                        metrics,
                         session::{ClientInfo, Session, SessionState},
                         stats,
-                        metrics,
-                        types::*
+                        types::*,
 };
 pub use crate::runtime::Runtime;
 

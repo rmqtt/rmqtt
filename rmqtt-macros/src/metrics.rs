@@ -1,34 +1,33 @@
+use quote::quote;
+use syn::{
+    Data, DeriveInput,
+    Fields, FieldsNamed, Ident, parse_macro_input,
+};
 
 use super::proc_macro;
-use syn::{
-    parse_macro_input, DeriveInput,
-    Data, FieldsNamed, Fields, Ident,
-};
-use quote::quote;
-
 
 pub(crate) fn build(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
     let name = input.ident;
 
-    let clone_items = get_fields_named(&input.data).named.iter().map(|f|{
+    let clone_items = get_fields_named(&input.data).named.iter().map(|f| {
         let name = &f.ident;
         quote!(
             #name: AtomicUsize::new(self.#name.load(Ordering::SeqCst)),
         )
     }).collect::<Vec<_>>();
 
-    let init_items = get_fields_named(&input.data).named.iter().map(|f|{
+    let init_items = get_fields_named(&input.data).named.iter().map(|f| {
         let name = &f.ident;
         quote!(
             #name: AtomicUsize::new(0),
         )
     }).collect::<Vec<_>>();
 
-    let inc_items = get_fields_named(&input.data).named.iter().map(|f|{
+    let inc_items = get_fields_named(&input.data).named.iter().map(|f| {
         let name = &f.ident;
-        let fn_name =  name.as_ref().map(|ref i| Ident::new(&format!("{}_inc", i), i.span().clone()));
+        let fn_name = name.as_ref().map(|ref i| Ident::new(&format!("{}_inc", i), i.span().clone()));
         quote! {
             #[inline]
             pub fn #fn_name(&self) {
@@ -37,10 +36,10 @@ pub(crate) fn build(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         }
     }).collect::<Vec<_>>();
 
-    let json_items = get_fields_named(&input.data).named.iter().map(|f|{
+    let json_items = get_fields_named(&input.data).named.iter().map(|f| {
         let name = &f.ident;
         let attr_name = f.ident.as_ref()
-            .map(|i|{
+            .map(|i| {
                 i.to_string().replace('_', ".").to_string()
             });
         quote!(
@@ -48,7 +47,7 @@ pub(crate) fn build(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         )
     }).collect::<Vec<_>>();
 
-    let add_items = get_fields_named(&input.data).named.iter().map(|f|{
+    let add_items = get_fields_named(&input.data).named.iter().map(|f| {
         let name = &f.ident;
         quote!(
             self.#name.fetch_add(other.#name.load(Ordering::SeqCst), Ordering::SeqCst);
@@ -67,7 +66,7 @@ pub(crate) fn build(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         impl #name {
             #[inline]
             pub fn instance() -> &'static #name {
-                static INSTANCE: OnceCell<#name> = OnceCell::new();
+                static INSTANCE: once_cell::sync::OnceCell<#name> = once_cell::sync::OnceCell::new();
                 INSTANCE.get_or_init(|| Self {
                     #(#init_items)*
                 })

@@ -22,10 +22,10 @@
 
 - [集群安装配置文档](./docs/install-cn.md)
 
-
 ## 体验
- - MQTT Borker：121.4.74.58:1883
- - Account: 无
+
+- MQTT Borker：121.4.74.58:1883
+- Account: 无
 
 
 

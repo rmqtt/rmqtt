@@ -3,21 +3,19 @@ extern crate serde;
 
 use std::sync::Arc;
 
+use config::PluginConfig;
 use rmqtt::{
-    serde_json,
     async_trait::async_trait,
-    tokio::{self, sync::oneshot},
     log,
     RwLock,
+    serde_json,
+    tokio::{self, sync::oneshot},
 };
-
 use rmqtt::{
-    plugin::{DynPlugin, DynPluginResult, Plugin},
     broker::{hook::{Register, Type}},
+    plugin::{DynPlugin, DynPluginResult, Plugin},
     Result, Runtime,
 };
-
-use config::PluginConfig;
 
 mod config;
 mod api;
@@ -62,7 +60,7 @@ impl HttpApiPlugin {
         log::debug!("{} HttpApiPlugin cfg: {:?}", name, cfg.read());
         let register = runtime.extends.hook_mgr().await.register();
         let shutdown_tx = Some(Self::start(runtime, cfg.clone()));
-        Ok(Self { runtime, name, descr: descr.into(), register, cfg, shutdown_tx})
+        Ok(Self { runtime, name, descr: descr.into(), register, cfg, shutdown_tx })
     }
 
     fn start(_runtime: &'static Runtime, cfg: PluginConfigType) -> ShutdownTX {
@@ -71,11 +69,10 @@ impl HttpApiPlugin {
         let _child = std::thread::Builder::new()
             .name("http-api".to_string())
             .spawn(move || {
-
                 let cfg1 = cfg.clone();
-                let runner = async move{
+                let runner = async move {
                     let laddr = cfg1.read().http_laddr;
-                    if let Err(e) = api::listen_and_serve(laddr, cfg1, shutdown_rx).await{
+                    if let Err(e) = api::listen_and_serve(laddr, cfg1, shutdown_rx).await {
                         log::error!("{:?}", e);
                     }
                 };
@@ -95,8 +92,6 @@ impl HttpApiPlugin {
             });
         shutdown_tx
     }
-
-
 }
 
 #[async_trait]
@@ -124,20 +119,20 @@ impl Plugin for HttpApiPlugin {
     #[inline]
     async fn load_config(&mut self) -> Result<()> {
         let new_cfg = self.runtime.settings.plugins.load_config::<PluginConfig>(&self.name)?;
-        if !self.cfg.read().changed(&new_cfg){
+        if !self.cfg.read().changed(&new_cfg) {
             return Ok(());
         }
         let restart_enable = self.cfg.read().restart_enable(&new_cfg);
-        if restart_enable{
+        if restart_enable {
             let new_cfg = Arc::new(RwLock::new(new_cfg));
-            if let Some(tx) = self.shutdown_tx.take(){
+            if let Some(tx) = self.shutdown_tx.take() {
                 if let Err(e) = tx.send(()) {
                     log::warn!("shutdown_tx send fail, {:?}", e);
                 }
             }
             self.shutdown_tx = Some(Self::start(self.runtime, new_cfg.clone()));
             self.cfg = new_cfg;
-        }else{
+        } else {
             *self.cfg.write() = new_cfg;
         }
 

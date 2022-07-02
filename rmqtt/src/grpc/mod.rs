@@ -1,18 +1,19 @@
 use std::collections::HashMap;
-use bytes::Bytes;
-use std::sync::Arc;
 use std::net::SocketAddr;
+use std::sync::Arc;
+
+use bytes::Bytes;
 use futures::FutureExt;
 
-use crate::broker::{ClearSubscriptions, SubRelations, SubRelationsMap};
-use crate::broker::session::SessionOfflineInfo;
-use crate::broker::types::{NodeId, From, Id, Publish, Retain, TopicFilter, TopicName};
-use crate::broker::metrics::Metrics;
-use crate::node::{BrokerInfo, NodeInfo, NodeStatus};
-use crate::stats::State;
-use crate::Result;
-
 use client::NodeGrpcClient;
+
+use crate::broker::{ClearSubscriptions, SubRelations, SubRelationsMap};
+use crate::broker::metrics::Metrics;
+use crate::broker::session::SessionOfflineInfo;
+use crate::broker::types::{From, Id, NodeId, Publish, Retain, TopicFilter, TopicName};
+use crate::node::{BrokerInfo, NodeInfo, NodeStatus};
+use crate::Result;
+use crate::stats::State;
 
 pub mod client;
 pub mod server;
@@ -86,7 +87,6 @@ pub struct MessageSender {
 }
 
 impl MessageSender {
-
     #[inline]
     pub fn new(client: NodeGrpcClient, msg_type: MessageType, msg: Message) -> Self {
         Self { client, msg_type, msg }
@@ -115,11 +115,10 @@ pub struct MessageBroadcaster {
 }
 
 impl MessageBroadcaster {
-
     #[inline]
     pub fn new(grpc_clients: GrpcClients, msg_type: MessageType, msg: Message) -> Self {
         assert!(!grpc_clients.is_empty(), "gRPC clients is empty!");
-        Self { grpc_clients, msg_type, msg}
+        Self { grpc_clients, msg_type, msg }
     }
 
     #[inline]
@@ -129,7 +128,7 @@ impl MessageBroadcaster {
         for (id, (_, grpc_client)) in self.grpc_clients.iter() {
             let msg_type = self.msg_type;
             let msg = msg.clone();
-            let fut = async move{
+            let fut = async move {
                 (
                     *id,
                     grpc_client.send_message(msg_type, msg).await

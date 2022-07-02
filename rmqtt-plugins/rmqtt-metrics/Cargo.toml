@@ -8,4 +8,3 @@ edition = "2021"
 
 [dependencies]
 rmqtt = "0.2"
-log = "0.4"

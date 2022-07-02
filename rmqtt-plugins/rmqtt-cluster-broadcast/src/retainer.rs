@@ -6,11 +6,11 @@ use rmqtt::{
         RetainStorage,
         types::{Retain, TopicFilter, TopicName},
     },
-    grpc::{Message, MessageReply, MessageType, GrpcClients},
+    grpc::{GrpcClients, Message, MessageReply, MessageType},
     Result,
 };
 
-use super::{MessageBroadcaster};
+use super::MessageBroadcaster;
 
 pub(crate) struct ClusterRetainer {
     inner: &'static DefaultRetainStorage,

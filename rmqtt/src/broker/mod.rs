@@ -5,8 +5,8 @@ use std::sync::Arc;
 use crate::{ClientId, Id, NodeId, QoS, Result, Runtime, TopicFilter};
 use crate::broker::session::{ClientInfo, Session, SessionOfflineInfo};
 use crate::broker::types::*;
-use crate::settings::listener::Listener;
 use crate::grpc::GrpcClients;
+use crate::settings::listener::Listener;
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
@@ -102,7 +102,7 @@ pub trait Shared: Sync + Send {
 
     ///This node is not included
     #[inline]
-    fn get_grpc_clients(&self) -> GrpcClients{
+    fn get_grpc_clients(&self) -> GrpcClients {
         Arc::new(HashMap::default())
     }
 
@@ -122,7 +122,6 @@ pub type ClearSubscriptions = bool;
 
 #[async_trait]
 pub trait Router: Sync + Send {
-
     ///
     async fn add(
         &self,
@@ -235,7 +234,6 @@ pub trait RetainStorage: Sync + Send {
 
     ///
     fn count_max(&self) -> usize;
-
 }
 
 #[async_trait]

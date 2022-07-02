@@ -1,17 +1,16 @@
 use std::net::SocketAddr;
 
-use salvo::prelude::*;
 use salvo::extra::affix;
+use salvo::prelude::*;
 
 use rmqtt::{anyhow, HashMap, log, serde_json::{self, json}, tokio::sync::oneshot};
-
 use rmqtt::{
     broker::types::NodeId,
-    grpc::{Message, MessageBroadcaster, MessageSender, MessageReply},
-    stats::State,
+    grpc::{Message, MessageBroadcaster, MessageReply, MessageSender},
     node::NodeStatus,
     Result,
     Runtime,
+    stats::State,
 };
 use rmqtt::grpc::MessageType;
 
@@ -33,9 +32,9 @@ fn route(cfg: PluginConfigType) -> Router {
         )
         .push(
             Router::with_path("stats")
-            .get(get_stats)
-            .push(Router::with_path("sum").get(get_stats_sum))
-            .push(Router::with_path("<id>").get(get_stats))
+                .get(get_stats)
+                .push(Router::with_path("sum").get(get_stats_sum))
+                .push(Router::with_path("<id>").get(get_stats))
         )
         .push(
             Router::with_path("metrics")
@@ -43,7 +42,6 @@ fn route(cfg: PluginConfigType) -> Router {
                 .push(Router::with_path("sum").get(get_metrics_sum))
                 .push(Router::with_path("<id>").get(get_metrics))
         )
-
 }
 
 pub(crate) async fn listen_and_serve(laddr: SocketAddr, cfg: PluginConfigType, rx: oneshot::Receiver<()>) -> Result<()> {
@@ -123,12 +121,12 @@ async fn get_brokers(req: &mut Request, depot: &mut Depot, res: &mut Response) {
 
 #[inline]
 async fn _get_broker(message_type: MessageType, id: NodeId) -> Option<serde_json::Value> {
-    if id == Runtime::instance().node.id(){
+    if id == Runtime::instance().node.id() {
         Some(Runtime::instance().node.broker_info().await.to_json())
-    }else{
+    } else {
         let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
-        if let Some((_, c)) = grpc_clients.get(&id){
-            let reply = MessageSender::new(c.clone(),message_type, Message::BrokerInfo)
+        if let Some((_, c)) = grpc_clients.get(&id) {
+            let reply = MessageSender::new(c.clone(), message_type, Message::BrokerInfo)
                 .send().await;
             let broker_info = match reply {
                 Ok(MessageReply::BrokerInfo(broker_info)) => broker_info.to_json(),
@@ -139,7 +137,7 @@ async fn _get_broker(message_type: MessageType, id: NodeId) -> Option<serde_json
                 }
             };
             Some(broker_info)
-        }else{
+        } else {
             None
         }
     }
@@ -189,12 +187,12 @@ async fn get_nodes(req: &mut Request, depot: &mut Depot, res: &mut Response) {
 
 #[inline]
 async fn _get_node(message_type: MessageType, id: NodeId) -> Option<serde_json::Value> {
-    if id == Runtime::instance().node.id(){
+    if id == Runtime::instance().node.id() {
         Some(Runtime::instance().node.node_info().await.to_json())
-    }else{
+    } else {
         let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
-        if let Some((_, c)) = grpc_clients.get(&id){
-            let reply = MessageSender::new(c.clone(),message_type, Message::NodeInfo)
+        if let Some((_, c)) = grpc_clients.get(&id) {
+            let reply = MessageSender::new(c.clone(), message_type, Message::NodeInfo)
                 .send().await;
             let node_info = match reply {
                 Ok(MessageReply::NodeInfo(node_info)) => node_info.to_json(),
@@ -205,7 +203,7 @@ async fn _get_node(message_type: MessageType, id: NodeId) -> Option<serde_json::
                 }
             };
             Some(node_info)
-        }else{
+        } else {
             None
         }
     }
@@ -236,7 +234,7 @@ async fn _get_nodes(message_type: MessageType) -> Vec<serde_json::Value> {
 }
 
 #[fn_handler]
-async fn get_stats_sum(depot: &mut Depot, res: &mut Response){
+async fn get_stats_sum(depot: &mut Depot, res: &mut Response) {
     let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
     let message_type = cfg.read().message_type;
 
@@ -250,9 +248,9 @@ async fn get_stats_sum(depot: &mut Depot, res: &mut Response){
     let mut state_sum = Runtime::instance().extends.stats().await.data().await;
     let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
-        for reply in  MessageBroadcaster::new(grpc_clients, message_type, Message::StateInfo)
+        for reply in MessageBroadcaster::new(grpc_clients, message_type, Message::StateInfo)
             .join_all()
-            .await{
+            .await {
             match reply {
                 (id, Ok(MessageReply::StateInfo(node_status, state_info))) => {
                     nodes.insert(id, json!({
@@ -260,7 +258,7 @@ async fn get_stats_sum(depot: &mut Depot, res: &mut Response){
                         "status": node_status,
                     }));
                     state_sum.add(&state_info);
-                },
+                }
                 (_, Ok(_)) => unreachable!(),
                 (id, Err(e)) => {
                     log::warn!("Get Message::StateInfo from other node({}), error: {:?}", id, e);
@@ -297,15 +295,15 @@ async fn get_stats(req: &mut Request, depot: &mut Depot, res: &mut Response) {
 }
 
 #[inline]
-async fn _get_stat(message_type: MessageType, id: NodeId) -> Option<serde_json::Value>{
-    if id == Runtime::instance().node.id(){
+async fn _get_stat(message_type: MessageType, id: NodeId) -> Option<serde_json::Value> {
+    if id == Runtime::instance().node.id() {
         let node_status = Runtime::instance().node.status().await;
         let state = Runtime::instance().extends.stats().await.data().await;
         Some(_build_state(id, node_status, state).await)
-    }else{
+    } else {
         let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
-        if let Some((_, c)) = grpc_clients.get(&id){
-            let reply = MessageSender::new(c.clone(),message_type, Message::StateInfo)
+        if let Some((_, c)) = grpc_clients.get(&id) {
+            let reply = MessageSender::new(c.clone(), message_type, Message::StateInfo)
                 .send().await;
             let state_info = match reply {
                 Ok(MessageReply::StateInfo(node_status, state_info)) => _build_state(id, node_status, state_info).await,
@@ -316,15 +314,14 @@ async fn _get_stat(message_type: MessageType, id: NodeId) -> Option<serde_json::
                 }
             };
             Some(state_info)
-        }else{
+        } else {
             None
         }
     }
 }
 
 #[inline]
-async fn _get_stats(message_type: MessageType) -> Vec<serde_json::Value>{
-
+async fn _get_stats(message_type: MessageType) -> Vec<serde_json::Value> {
     let id = Runtime::instance().node.id();
     let node_status = Runtime::instance().node.status().await;
     let state = Runtime::instance().extends.stats().await.data().await;
@@ -332,13 +329,13 @@ async fn _get_stats(message_type: MessageType) -> Vec<serde_json::Value>{
 
     let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
-        for reply in  MessageBroadcaster::new(grpc_clients, message_type, Message::StateInfo)
+        for reply in MessageBroadcaster::new(grpc_clients, message_type, Message::StateInfo)
             .join_all()
-            .await{
+            .await {
             let data = match reply {
                 (id, Ok(MessageReply::StateInfo(node_status, state_info))) => {
                     _build_state(id, node_status, state_info).await
-                },
+                }
                 (_, Ok(_)) => unreachable!(),
                 (id, Err(e)) => {
                     log::warn!("Get Message::StateInfo from other node({}), error: {:?}", id, e);
@@ -352,7 +349,7 @@ async fn _get_stats(message_type: MessageType) -> Vec<serde_json::Value>{
 }
 
 #[inline]
-async fn _build_state(id: NodeId, node_status: NodeStatus, state: State) -> serde_json::Value{
+async fn _build_state(id: NodeId, node_status: NodeStatus, state: State) -> serde_json::Value {
     let node_name = Runtime::instance().node.name(id).await;
     let data = json!({
         "node": {
@@ -386,13 +383,13 @@ async fn get_metrics(req: &mut Request, depot: &mut Depot, res: &mut Response) {
 
 #[inline]
 async fn _get_metrics_one(message_type: MessageType, id: NodeId) -> Option<serde_json::Value> {
-    if id == Runtime::instance().node.id(){
+    if id == Runtime::instance().node.id() {
         let metrics = Runtime::instance().metrics.to_json();
         Some(_build_metrics(id, metrics).await)
-    }else{
+    } else {
         let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
-        if let Some((_, c)) = grpc_clients.get(&id){
-            let reply = MessageSender::new(c.clone(),message_type, Message::MetricsInfo)
+        if let Some((_, c)) = grpc_clients.get(&id) {
+            let reply = MessageSender::new(c.clone(), message_type, Message::MetricsInfo)
                 .send().await;
             let metrics = match reply {
                 Ok(MessageReply::MetricsInfo(metrics)) => _build_metrics(id, metrics.to_json()).await,
@@ -403,7 +400,7 @@ async fn _get_metrics_one(message_type: MessageType, id: NodeId) -> Option<serde
                 }
             };
             Some(metrics)
-        }else{
+        } else {
             None
         }
     }
@@ -411,7 +408,6 @@ async fn _get_metrics_one(message_type: MessageType, id: NodeId) -> Option<serde
 
 #[inline]
 async fn _get_metrics_all(message_type: MessageType) -> Vec<serde_json::Value> {
-
     let id = Runtime::instance().node.id();
     let metrics = Runtime::instance().metrics.to_json();
     let mut metricses = vec![_build_metrics(id, metrics).await];
@@ -422,7 +418,7 @@ async fn _get_metrics_all(message_type: MessageType) -> Vec<serde_json::Value> {
             MessageBroadcaster::new(grpc_clients, message_type, Message::MetricsInfo)
                 .join_all()
                 .await;
-        for reply in replys{
+        for reply in replys {
             let data = match reply {
                 (id, Ok(MessageReply::MetricsInfo(metrics))) => _build_metrics(id, metrics.to_json()).await,
                 (_, Ok(_)) => unreachable!(),
@@ -438,20 +434,20 @@ async fn _get_metrics_all(message_type: MessageType) -> Vec<serde_json::Value> {
 }
 
 #[fn_handler]
-async fn get_metrics_sum(depot: &mut Depot, res: &mut Response){
+async fn get_metrics_sum(depot: &mut Depot, res: &mut Response) {
     let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
     let message_type = cfg.read().message_type;
 
     let mut metrics_sum = Runtime::instance().metrics.clone();
     let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
-        for reply in  MessageBroadcaster::new(grpc_clients, message_type, Message::MetricsInfo)
+        for reply in MessageBroadcaster::new(grpc_clients, message_type, Message::MetricsInfo)
             .join_all()
-            .await{
+            .await {
             match reply {
                 (_id, Ok(MessageReply::MetricsInfo(metrics))) => {
                     metrics_sum.add(&metrics);
-                },
+                }
                 (_, Ok(_)) => unreachable!(),
                 (id, Err(e)) => {
                     log::warn!("Get Message::MetricsInfo from other node({}), error: {:?}", id, e);
@@ -465,7 +461,7 @@ async fn get_metrics_sum(depot: &mut Depot, res: &mut Response){
 }
 
 #[inline]
-async fn _build_metrics(id: NodeId, metrics: serde_json::Value) -> serde_json::Value{
+async fn _build_metrics(id: NodeId, metrics: serde_json::Value) -> serde_json::Value {
     let node_name = Runtime::instance().node.name(id).await;
     let data = json!({
         "node": {

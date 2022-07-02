@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
-use once_cell::sync::OnceCell;
+
 use rmqtt_macros::Metrics;
 
 #[derive(Serialize, Deserialize, Debug, Default, Metrics)]

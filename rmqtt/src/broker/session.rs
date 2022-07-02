@@ -9,8 +9,8 @@ use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 
 use futures::StreamExt;
 use ntex_mqtt::types::MQTT_LEVEL_5;
-use tokio::sync::RwLock;
 use tokio::sync::mpsc;
+use tokio::sync::RwLock;
 use tokio::time::{Duration, Instant};
 
 use crate::{MqttError, Result, Runtime};
@@ -889,7 +889,7 @@ impl _SessionInner {
     #[inline]
     pub fn drain_subscriptions(&self) -> Subscriptions {
         let subs = self.subscriptions.iter()
-            .map(|entry|(entry.key().clone(), (*entry.value()).clone()))
+            .map(|entry| (entry.key().clone(), (*entry.value()).clone()))
             .collect::<Vec<_>>();
         self.subscriptions.clear();
         subs
@@ -908,14 +908,13 @@ impl _SessionInner {
     #[inline]
     pub fn is_shared_subscriptions(&self, topic_filter: &str) -> Option<bool> {
         self.subscriptions.get(topic_filter).map(|entry| {
-            if let (_, Some(_)) = entry.value(){
+            if let (_, Some(_)) = entry.value() {
                 true
-            }else{
+            } else {
                 false
             }
         })
     }
-
 }
 
 #[derive(Clone)]

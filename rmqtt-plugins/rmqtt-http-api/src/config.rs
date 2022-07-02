@@ -2,17 +2,14 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use rmqtt::{
-    serde_json,
-};
-use rmqtt::{
-    settings::{deserialize_duration, deserialize_addr},
     grpc::MessageType,
     Result,
+    settings::{deserialize_addr, deserialize_duration},
 };
+use rmqtt::serde_json;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
-
     #[serde(default = "PluginConfig::workers_default")]
     pub workers: usize,
 
@@ -20,8 +17,8 @@ pub struct PluginConfig {
     pub max_row_limit: usize,
 
     #[serde(
-        default = "PluginConfig::http_laddr_default",
-        deserialize_with = "deserialize_addr"
+    default = "PluginConfig::http_laddr_default",
+    deserialize_with = "deserialize_addr"
     )]
     pub http_laddr: SocketAddr,
 
@@ -35,7 +32,6 @@ pub struct PluginConfig {
 }
 
 impl PluginConfig {
-
     fn workers_default() -> usize {
         1
     }
@@ -52,7 +48,7 @@ impl PluginConfig {
         Duration::from_secs(5)
     }
 
-    fn message_type_default() -> MessageType{
+    fn message_type_default() -> MessageType {
         99
     }
 
@@ -62,17 +58,16 @@ impl PluginConfig {
     }
 
     #[inline]
-    pub fn changed(&self, other: &Self) -> bool{
+    pub fn changed(&self, other: &Self) -> bool {
         self.workers != other.workers ||
-        self.max_row_limit != other.max_row_limit ||
-        self.http_laddr != other.http_laddr ||
-        self.metrics_sample_interval != other.metrics_sample_interval
+            self.max_row_limit != other.max_row_limit ||
+            self.http_laddr != other.http_laddr ||
+            self.metrics_sample_interval != other.metrics_sample_interval
     }
 
     #[inline]
-    pub fn restart_enable(&self, other: &Self) -> bool{
+    pub fn restart_enable(&self, other: &Self) -> bool {
         self.workers != other.workers ||
             self.http_laddr != other.http_laddr
     }
-
 }

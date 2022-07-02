@@ -392,21 +392,21 @@ impl Shared for &'static DefaultShared {
     }
 
     #[inline]
-    fn subscriptions(&self) -> usize{
+    fn subscriptions(&self) -> usize {
         self.peers.iter()
             .map(|entry| (entry.s.subscriptions.len()))
             .sum()
     }
 
     #[inline]
-    fn subscriptions_shared(&self) -> usize{
+    fn subscriptions_shared(&self) -> usize {
         self.peers.iter()
             .map(|entry| (
                 entry.s.subscriptions.iter()
-                    .map(|subs|{
-                        if let (_, Some(_)) = subs.value(){
+                    .map(|subs| {
+                        if let (_, Some(_)) = subs.value() {
                             1
-                        }else{
+                        } else {
                             0
                         }
                     }).sum::<usize>())).sum()
@@ -440,11 +440,6 @@ impl Shared for &'static DefaultShared {
             }
         })
     }
-
-
-
-
-
 }
 
 pub struct DefaultIter<'a> {
@@ -482,7 +477,7 @@ impl DefaultRouter {
                 topics_max: AtomicUsize::new(0),
                 relations_max: AtomicUsize::new(0),
                 topics: RwLock::new(TopicTree::default()),
-                relations: DashMap::default()
+                relations: DashMap::default(),
             })
     }
 
@@ -565,7 +560,7 @@ impl Router for &'static DefaultRouter {
             })
             .insert(id.client_id.clone(), (id, qos, shared_group));
 
-        if old.is_none(){
+        if old.is_none() {
             self.relations_max.fetch_add(1, Ordering::SeqCst);
         }
 
@@ -633,7 +628,7 @@ impl Router for &'static DefaultRouter {
     }
 
     #[inline]
-    fn relations_max(&self) -> usize{
+    fn relations_max(&self) -> usize {
         self.relations_max.load(Ordering::SeqCst)
     }
 
@@ -698,7 +693,7 @@ impl DefaultRetainStorage {
         INSTANCE.get_or_init(|| Self {
             count: AtomicUsize::new(0),
             count_max: AtomicUsize::new(0),
-            messages: RwLock::new(RetainTree::default())
+            messages: RwLock::new(RetainTree::default()),
         })
     }
 
@@ -708,10 +703,9 @@ impl DefaultRetainStorage {
     }
 
     #[inline]
-    pub async fn remove(&self, topic: &Topic) -> Option<Retain>{
+    pub async fn remove(&self, topic: &Topic) -> Option<Retain> {
         self.messages.write().await.remove(topic)
     }
-
 }
 
 #[async_trait]
@@ -722,11 +716,11 @@ impl RetainStorage for &'static DefaultRetainStorage {
         let old = self.remove(&topic).await;
         if !retain.publish.is_empty() {
             self.add(&topic, retain).await;
-            if old.is_none(){
+            if old.is_none() {
                 self.count.fetch_add(1, Ordering::SeqCst);
                 self.count_max.fetch_add(1, Ordering::SeqCst);
             }
-        }else if old.is_some(){
+        } else if old.is_some() {
             self.count.fetch_sub(1, Ordering::SeqCst);
         }
         Ok(())
@@ -1331,7 +1325,7 @@ impl Limiter for DefaultLimiter {
     async fn acquire(&self, handshakings: isize) -> Result<()> {
         if self.max_handshake_limit > 0 {
             if handshakings > self.max_handshake_limit {
-                return Err(MqttError::from(format!("too many concurrent handshake connections, handshakings: {}", handshakings)))
+                return Err(MqttError::from(format!("too many concurrent handshake connections, handshakings: {}", handshakings)));
             }
         }
 
@@ -1339,7 +1333,7 @@ impl Limiter for DefaultLimiter {
         self.limiter.acquire_one().await;
         if now.elapsed() > self.handshake_timeout {
             Err(MqttError::from(format!("handshake timeout, acquire cost time: {:?}", now.elapsed())))
-        }else{
+        } else {
             Ok(())
         }
     }

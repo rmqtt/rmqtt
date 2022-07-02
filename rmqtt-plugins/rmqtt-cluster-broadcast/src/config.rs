@@ -17,8 +17,7 @@ pub struct PluginConfig {
 }
 
 impl PluginConfig {
-
-    fn message_type_default() -> MessageType{
+    fn message_type_default() -> MessageType {
         98
     }
 

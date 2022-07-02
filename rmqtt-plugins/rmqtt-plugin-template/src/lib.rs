@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     plugin::{DynPlugin, DynPluginResult, Plugin},

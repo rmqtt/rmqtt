@@ -336,7 +336,6 @@ impl Subscribed {
             }
         }
     }
-
 }
 
 #[derive(Debug, PartialEq, Clone)]

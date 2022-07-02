@@ -1,10 +1,7 @@
-
-
 use rmqtt::{
-    log,
     async_trait::async_trait,
+    log,
 };
-
 use rmqtt::{
     broker::{
         hook::{Handler, HookResult, Parameter, ReturnType},
@@ -19,7 +16,7 @@ pub(crate) struct HookHandler {
 
 impl HookHandler {
     pub(crate) fn new(message_type: MessageType) -> Self {
-        Self {message_type}
+        Self { message_type }
     }
 }
 
@@ -49,7 +46,7 @@ impl Handler for HookHandler {
                         let node_status = Runtime::instance().node.status().await;
                         let state = Runtime::instance().extends.stats().await.data().await;
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::StateInfo(
-                            node_status, state
+                            node_status, state,
                         )));
                         return (false, Some(new_acc));
                     }

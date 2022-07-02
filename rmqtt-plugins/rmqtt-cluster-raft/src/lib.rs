@@ -22,7 +22,7 @@ use rmqtt::{
         hook::{Register, Type},
         types::{From, Publish, Reason, To},
     },
-    grpc::{client::NodeGrpcClient, Message, MessageReply, MessageType, GrpcClients},
+    grpc::{client::NodeGrpcClient, GrpcClients, Message, MessageReply, MessageType},
     plugin::{DynPlugin, DynPluginResult, Plugin},
     Result, Runtime,
     tokio::time::sleep,

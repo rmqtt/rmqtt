@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+
 use systemstat::Platform;
 
 use crate::{NodeId, Result, Runtime};
@@ -55,26 +56,26 @@ impl Node {
     }
 
     #[inline]
-    pub async fn status(&self) -> NodeStatus{
+    pub async fn status(&self) -> NodeStatus {
         NodeStatus::Running
     }
 
     #[inline]
-    fn uptime(&self) -> String{
+    fn uptime(&self) -> String {
         to_uptime((chrono::Local::now() - self.start_time).num_seconds())
     }
 
     #[inline]
     pub async fn broker_info(&self) -> BrokerInfo {
         let node_id = self.id();
-        BrokerInfo{
+        BrokerInfo {
             version: version::VERSION.to_string(),
             uptime: self.uptime(),
             sysdescr: "RMQTT Broker".into(),
             node_status: self.status().await,
             node_id,
             node_name: format!("{}@{}", node_id, "127.0.0.1"),
-            datetime: self.start_time.format("%Y-%m-%d %H:%M:%S").to_string()
+            datetime: self.start_time.format("%Y-%m-%d %H:%M:%S").to_string(),
         }
     }
 
@@ -83,24 +84,24 @@ impl Node {
         let node_id = self.id();
 
         let sys = systemstat::System::new();
-        let boottime = sys.boot_time().map(|t|t.to_string()).unwrap_or_default();
+        let boottime = sys.boot_time().map(|t| t.to_string()).unwrap_or_default();
         let loadavg = sys.load_average();
         let mem_info = sys.memory();
 
-        let (disk_total, disk_free) = if let Ok(mounts) = sys.mounts(){
+        let (disk_total, disk_free) = if let Ok(mounts) = sys.mounts() {
             let total = mounts.iter().map(|m| m.total.as_u64()).sum();
             let free = mounts.iter().map(|m| m.free.as_u64()).sum();
             (total, free)
-        }else{
+        } else {
             (0, 0)
         };
 
-        NodeInfo{
+        NodeInfo {
             connections: Runtime::instance().extends.shared().await.clients().await,
             boottime,
-            load1: loadavg.as_ref().map(|l|l.one).unwrap_or_default(),
-            load5: loadavg.as_ref().map(|l|l.five).unwrap_or_default(),
-            load15: loadavg.as_ref().map(|l|l.fifteen).unwrap_or_default(),
+            load1: loadavg.as_ref().map(|l| l.one).unwrap_or_default(),
+            load5: loadavg.as_ref().map(|l| l.five).unwrap_or_default(),
+            load15: loadavg.as_ref().map(|l| l.fifteen).unwrap_or_default(),
             memory_total: mem_info.as_ref().map(|m| m.total.as_u64()).unwrap_or_default(),
             memory_free: mem_info.as_ref().map(|m| m.free.as_u64()).unwrap_or_default(),
             memory_used: mem_info.as_ref().map(|m| systemstat::saturating_sub_bytes(m.total, m.free).as_u64()).unwrap_or_default(),
@@ -114,11 +115,10 @@ impl Node {
             ..Default::default()
         }
     }
-
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct BrokerInfo{
+pub struct BrokerInfo {
     pub version: String,
     pub uptime: String,
     pub sysdescr: String,
@@ -129,7 +129,7 @@ pub struct BrokerInfo{
 }
 
 impl BrokerInfo {
-    pub fn to_json(&self) -> serde_json::Value{
+    pub fn to_json(&self) -> serde_json::Value {
         json!({
             "version": self.version,
             "uptime": self.uptime,
@@ -143,7 +143,7 @@ impl BrokerInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
-pub struct NodeInfo{
+pub struct NodeInfo {
     pub connections: usize,
     pub boottime: String,
     pub load1: f32,
@@ -168,7 +168,7 @@ pub struct NodeInfo{
 }
 
 impl NodeInfo {
-    pub fn to_json(&self) -> serde_json::Value{
+    pub fn to_json(&self) -> serde_json::Value {
         json!({
             "connections":  self.connections,
             "boottime":  self.boottime,
@@ -196,14 +196,14 @@ impl NodeInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum NodeStatus{
+pub enum NodeStatus {
     Running,
     Stop,
-    Error(String)
+    Error(String),
 }
 
-impl Default for NodeStatus{
-    fn default() -> Self{
+impl Default for NodeStatus {
+    fn default() -> Self {
         NodeStatus::Running
     }
 }

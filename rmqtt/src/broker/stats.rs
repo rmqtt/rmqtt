@@ -1,5 +1,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
+
 use once_cell::sync::OnceCell;
+
 use crate::{HashMap, NodeId, Runtime};
 
 #[async_trait]
@@ -18,7 +20,7 @@ pub trait Stats: Sync + Send {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
-pub struct State{
+pub struct State {
     id: NodeId,
     connections_count: usize,
     connections_max: usize,
@@ -42,9 +44,8 @@ pub struct State{
 }
 
 impl State {
-
     #[inline]
-    pub fn add(&mut self, other: &Self){
+    pub fn add(&mut self, other: &Self) {
         self.connections_count += other.connections_count;
         self.connections_max += other.connections_max;
         self.sessions_count += other.sessions_count;
@@ -63,7 +64,7 @@ impl State {
     }
 
     #[inline]
-    pub fn to_sum_json(&self) -> serde_json::Value{
+    pub fn to_sum_json(&self) -> serde_json::Value {
         json!({
             "connections.count": self.connections_count,
             "connections.max": self.connections_max,
@@ -84,7 +85,7 @@ impl State {
     }
 
     #[inline]
-    pub fn to_json(&self) -> serde_json::Value{
+    pub fn to_json(&self) -> serde_json::Value {
         json!({
             "connections.count": self.connections_count,
             "connections.max": self.connections_max,
@@ -143,7 +144,6 @@ impl DefaultStats {
     pub fn subscriptions_shared_max_inc(&self) -> usize {
         self.subscriptions_shared_max.fetch_add(1, Ordering::SeqCst)
     }
-
 }
 
 #[async_trait]
@@ -154,43 +154,43 @@ impl Stats for &'static DefaultStats {
     }
 
     #[inline]
-    fn connections_max(&self) -> usize{
+    fn connections_max(&self) -> usize {
         self.connections_max.load(Ordering::SeqCst)
     }
 
     #[inline]
-    fn sessions_max(&self) -> usize{
+    fn sessions_max(&self) -> usize {
         self.sessions_max.load(Ordering::SeqCst)
     }
 
     #[inline]
-    async fn subscribed_topics_max(&self) -> usize{
+    async fn subscribed_topics_max(&self) -> usize {
         Runtime::instance().extends.router().await.subscribed_topics_max()
     }
 
     #[inline]
-    fn subscriptions_max(&self) -> usize{
+    fn subscriptions_max(&self) -> usize {
         self.subscriptions_max.load(Ordering::SeqCst)
     }
 
     #[inline]
-    fn subscriptions_shared_max(&self) -> usize{
+    fn subscriptions_shared_max(&self) -> usize {
         self.subscriptions_shared_max.load(Ordering::SeqCst)
     }
 
     #[inline]
-    async fn routes_max(&self) -> usize{
+    async fn routes_max(&self) -> usize {
         Runtime::instance().extends.router().await.relations_max()
     }
 
     #[inline]
-    async fn retained_max(&self) -> usize{
+    async fn retained_max(&self) -> usize {
         Runtime::instance().extends.router().await.relations_max()
     }
 
 
     #[inline]
-    async fn data(&self) -> State{
+    async fn data(&self) -> State {
         let shared = Runtime::instance().extends.shared().await;
         let router = Runtime::instance().extends.router().await;
         let retain = Runtime::instance().extends.retain().await;
@@ -211,7 +211,7 @@ impl Stats for &'static DefaultStats {
         let mut routes_maxs = HashMap::default(); //[(id, routes_max)].into();
         routes_maxs.insert(id, routes_max);
 
-        State{
+        State {
             id,
             connections_count: shared.clients().await,
             connections_max: self.connections_max(),

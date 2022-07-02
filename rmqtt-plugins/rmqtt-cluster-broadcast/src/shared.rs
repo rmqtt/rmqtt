@@ -12,7 +12,7 @@ use rmqtt::{
             SubscribeReturn, To, TopicFilter, TopicFilterString, Tx, Unsubscribe,
         },
     },
-    grpc::{Message, MessageReply, MessageType, GrpcClients}, Result, Runtime,
+    grpc::{GrpcClients, Message, MessageReply, MessageType}, Result, Runtime,
 };
 
 use super::{hook_message_dropped, MessageBroadcaster};
@@ -401,12 +401,12 @@ impl Shared for &'static ClusterShared {
     }
 
     #[inline]
-    fn subscriptions(&self) -> usize{
+    fn subscriptions(&self) -> usize {
         self.inner.subscriptions()
     }
 
     #[inline]
-    fn subscriptions_shared(&self) -> usize{
+    fn subscriptions_shared(&self) -> usize {
         self.inner.subscriptions_shared()
     }
 
@@ -427,7 +427,7 @@ impl Shared for &'static ClusterShared {
     }
 
     #[inline]
-    fn get_grpc_clients(&self) -> GrpcClients{
+    fn get_grpc_clients(&self) -> GrpcClients {
         self.grpc_clients.clone()
     }
 }
