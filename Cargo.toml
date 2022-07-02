@@ -6,17 +6,20 @@ members = [
     "rmqtt-plugins/rmqtt-auth-http",
     "rmqtt-plugins/rmqtt-cluster-broadcast",
     "rmqtt-plugins/rmqtt-cluster-raft",
-    "rmqtt-plugins/rmqtt-stats",
+    "rmqtt-plugins/rmqtt-metrics",
     "rmqtt-plugins/rmqtt-http-api",
     "rmqtt-bin",
+    "rmqtt-macros"
 ]
 
 [patch.crates-io]
 rmqtt = { path = "rmqtt" }
+rmqtt-macros = { path = "rmqtt-macros" }
 rmqtt-acl = { path = "rmqtt-plugins/rmqtt-acl" }
 rmqtt-web-hook = { path = "rmqtt-plugins/rmqtt-web-hook" }
 rmqtt-auth-http = { path = "rmqtt-plugins/rmqtt-auth-http" }
 rmqtt-cluster-broadcast = { path = "rmqtt-plugins/rmqtt-cluster-broadcast" }
 rmqtt-cluster-raft = { path = "rmqtt-plugins/rmqtt-cluster-raft" }
-rmqtt-stats = { path = "rmqtt-plugins/rmqtt-stats" }
+rmqtt-metrics = { path = "rmqtt-plugins/rmqtt-metrics" }
 rmqtt-http-api = { path = "rmqtt-plugins/rmqtt-http-api" }
+

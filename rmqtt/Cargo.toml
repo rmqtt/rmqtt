@@ -15,6 +15,7 @@ name = "rmqtt"
 path = "src/lib.rs"
 
 [dependencies]
+rmqtt-macros = "0.1"
 ntex = { git = "https://github.com/rmqtt/ntex.git", branch = "0.3.16", features = ["rustls"] }
 ntex-mqtt = { git = "https://github.com/rmqtt/ntex-mqtt", branch = "0.6.11" }
 #ntex = { path = "../../ntex/ntex", features = ["rustls"]}

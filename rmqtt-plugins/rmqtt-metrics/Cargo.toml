@@ -1,5 +1,5 @@
 [package]
-name = "rmqtt-stats"
+name = "rmqtt-metrics"
 version = "0.1.0"
 authors = ["rmqtt <rmqttd@126.com>"]
 edition = "2021"

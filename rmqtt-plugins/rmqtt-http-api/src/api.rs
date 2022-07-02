@@ -40,6 +40,7 @@ fn route(cfg: PluginConfigType) -> Router {
         .push(
             Router::with_path("metrics")
                 .get(get_metrics)
+                .push(Router::with_path("sum").get(get_metrics_sum))
                 .push(Router::with_path("<id>").get(get_metrics))
         )
 
@@ -89,6 +90,14 @@ async fn list_apis(res: &mut Response) {
           "path": "/metrics/{node}",
           "descr": "Returns all metrics information from the cluster"
         },
+        {
+          "name": "get_metrics_sum",
+          "method": "GET",
+          "path": "/metrics/sum",
+          "descr": "Summarize all metrics information from the cluster"
+        },
+
+
 
     ]);
     res.render(Json(data));
@@ -378,14 +387,15 @@ async fn get_metrics(req: &mut Request, depot: &mut Depot, res: &mut Response) {
 #[inline]
 async fn _get_metrics_one(message_type: MessageType, id: NodeId) -> Option<serde_json::Value> {
     if id == Runtime::instance().node.id(){
-        Some(Runtime::instance().metrics.to_json())
+        let metrics = Runtime::instance().metrics.to_json();
+        Some(_build_metrics(id, metrics).await)
     }else{
         let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
         if let Some((_, c)) = grpc_clients.get(&id){
             let reply = MessageSender::new(c.clone(),message_type, Message::MetricsInfo)
                 .send().await;
             let metrics = match reply {
-                Ok(MessageReply::MetricsInfo(metrics)) => metrics.to_json(),
+                Ok(MessageReply::MetricsInfo(metrics)) => _build_metrics(id, metrics.to_json()).await,
                 Ok(_) => unreachable!(),
                 Err(e) => {
                     log::warn!("Get Message::MetricsInfo from other node, error: {:?}", e);
@@ -401,24 +411,68 @@ async fn _get_metrics_one(message_type: MessageType, id: NodeId) -> Option<serde
 
 #[inline]
 async fn _get_metrics_all(message_type: MessageType) -> Vec<serde_json::Value> {
-    let mut metrics = vec![Runtime::instance().metrics.to_json()];
+
+    let id = Runtime::instance().node.id();
+    let metrics = Runtime::instance().metrics.to_json();
+    let mut metricses = vec![_build_metrics(id, metrics).await];
+
     let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
         let replys =
             MessageBroadcaster::new(grpc_clients, message_type, Message::MetricsInfo)
                 .join_all()
-                .await
-                .drain(..)
-                .map(|reply| match reply {
-                    (_, Ok(MessageReply::MetricsInfo(metrics))) => metrics.to_json(),
-                    (_, Ok(_)) => unreachable!(),
-                    (id, Err(e)) => {
-                        log::warn!("Get Message::MetricsInfo from other node({}), error: {:?}", id, e);
-                        serde_json::Value::String(e.to_string())
-                    }
-                })
-                .collect::<Vec<_>>();
-        metrics.extend(replys);
+                .await;
+        for reply in replys{
+            let data = match reply {
+                (id, Ok(MessageReply::MetricsInfo(metrics))) => _build_metrics(id, metrics.to_json()).await,
+                (_, Ok(_)) => unreachable!(),
+                (id, Err(e)) => {
+                    log::warn!("Get Message::MetricsInfo from other node({}), error: {:?}", id, e);
+                    serde_json::Value::String(e.to_string())
+                }
+            };
+            metricses.push(data);
+        }
     }
-    metrics
+    metricses
+}
+
+#[fn_handler]
+async fn get_metrics_sum(depot: &mut Depot, res: &mut Response){
+    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+    let message_type = cfg.read().message_type;
+
+    let mut metrics_sum = Runtime::instance().metrics.clone();
+    let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
+    if !grpc_clients.is_empty() {
+        for reply in  MessageBroadcaster::new(grpc_clients, message_type, Message::MetricsInfo)
+            .join_all()
+            .await{
+            match reply {
+                (_id, Ok(MessageReply::MetricsInfo(metrics))) => {
+                    metrics_sum.add(&metrics);
+                },
+                (_, Ok(_)) => unreachable!(),
+                (id, Err(e)) => {
+                    log::warn!("Get Message::MetricsInfo from other node({}), error: {:?}", id, e);
+                    //nodes.insert(id, serde_json::Value::String(e.to_string()));
+                }
+            };
+        }
+    }
+
+    res.render(Json(metrics_sum.to_json()));
+}
+
+#[inline]
+async fn _build_metrics(id: NodeId, metrics: serde_json::Value) -> serde_json::Value{
+    let node_name = Runtime::instance().node.name(id).await;
+    let data = json!({
+        "node": {
+            "id": id,
+            "name": node_name,
+        },
+        "metrics": metrics
+    });
+    data
 }

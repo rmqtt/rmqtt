@@ -1,3 +1,5 @@
+
+extern crate proc_macro;
 #[macro_use]
 pub extern crate async_trait;
 #[macro_use]
@@ -18,7 +20,9 @@ pub use ahash;
 pub use crate::broker::{error::MqttError,
                         session::{ClientInfo, Session, SessionState},
                         stats,
-                        types::*};
+                        metrics,
+                        types::*
+};
 pub use crate::runtime::Runtime;
 
 pub type Result<T, E = MqttError> = anyhow::Result<T, E>;

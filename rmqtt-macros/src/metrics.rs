@@ -1,0 +1,112 @@
+
+use super::proc_macro;
+use syn::{
+    parse_macro_input, DeriveInput,
+    Data, FieldsNamed, Fields, Ident,
+};
+use quote::quote;
+
+
+pub(crate) fn build(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+
+    let name = input.ident;
+
+    let clone_items = get_fields_named(&input.data).named.iter().map(|f|{
+        let name = &f.ident;
+        quote!(
+            #name: AtomicUsize::new(self.#name.load(Ordering::SeqCst)),
+        )
+    }).collect::<Vec<_>>();
+
+    let init_items = get_fields_named(&input.data).named.iter().map(|f|{
+        let name = &f.ident;
+        quote!(
+            #name: AtomicUsize::new(0),
+        )
+    }).collect::<Vec<_>>();
+
+    let inc_items = get_fields_named(&input.data).named.iter().map(|f|{
+        let name = &f.ident;
+        let fn_name =  name.as_ref().map(|ref i| Ident::new(&format!("{}_inc", i), i.span().clone()));
+        quote! {
+            #[inline]
+            pub fn #fn_name(&self) {
+                self.#name.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+    }).collect::<Vec<_>>();
+
+    let json_items = get_fields_named(&input.data).named.iter().map(|f|{
+        let name = &f.ident;
+        let attr_name = f.ident.as_ref()
+            .map(|i|{
+                i.to_string().replace('_', ".").to_string()
+            });
+        quote!(
+            #attr_name : self.#name.load(Ordering::SeqCst),
+        )
+    }).collect::<Vec<_>>();
+
+    let add_items = get_fields_named(&input.data).named.iter().map(|f|{
+        let name = &f.ident;
+        quote!(
+            self.#name.fetch_add(other.#name.load(Ordering::SeqCst), Ordering::SeqCst);
+        )
+    }).collect::<Vec<_>>();
+
+    let expanded = quote! {
+        impl Clone for #name{
+            fn clone(&self) -> Self{
+                Self{
+                    #(#clone_items)*
+                }
+            }
+        }
+
+        impl #name {
+            #[inline]
+            pub fn instance() -> &'static #name {
+                static INSTANCE: OnceCell<#name> = OnceCell::new();
+                INSTANCE.get_or_init(|| Self {
+                    #(#init_items)*
+                })
+            }
+
+            #(#inc_items)*
+
+            #[inline]
+            pub fn to_json(&self) -> serde_json::Value {
+                serde_json::json!({
+                    #(#json_items)*
+                })
+            }
+
+            #[inline]
+            pub fn add(&mut self, other: &Self) {
+                #(#add_items)*
+            }
+        }
+    };
+    //eprintln!("{}", expanded);
+    proc_macro::TokenStream::from(expanded)
+}
+
+fn get_fields_named(data: &Data) -> &FieldsNamed {
+    match *data {
+        Data::Struct(ref data) => {
+            match data.fields {
+                Fields::Named(ref fields) => {
+                    fields
+                }
+                Fields::Unnamed(ref _fields) => {
+                    unreachable!()
+                }
+                Fields::Unit => {
+                    unreachable!()
+                }
+            }
+        }
+        Data::Enum(_) | Data::Union(_) => unreachable!(),
+    }
+}
