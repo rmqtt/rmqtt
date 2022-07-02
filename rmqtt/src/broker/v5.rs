@@ -279,7 +279,7 @@ pub async fn control_message<E: std::fmt::Debug>(
         v5::ControlMessage::Ping(ping) => ping.ack(),
         v5::ControlMessage::Subscribe(subs) => match subscribes(&state, subs).await {
             Err(e) => {
-                state.client.add_disconnected_reason(format!("Subscribe failed, {:?}", e)).await;
+                state.client.add_disconnected_reason(Reason::from(format!("Subscribe failed, {:?}", e))).await;
                 log::error!("{:?} Subscribe failed, reason: {:?}", state.id, e);
                 return Err(e);
             }
@@ -287,7 +287,7 @@ pub async fn control_message<E: std::fmt::Debug>(
         },
         v5::ControlMessage::Unsubscribe(unsubs) => match unsubscribes(&state, unsubs).await {
             Err(e) => {
-                state.client.add_disconnected_reason(format!("Unsubscribe failed, {:?}", e)).await;
+                state.client.add_disconnected_reason(Reason::from(format!("Unsubscribe failed, {:?}", e))).await;
                 log::error!("{:?} Unsubscribe failed, reason: {:?}", state.id, e);
                 return Err(e);
             }
@@ -299,42 +299,19 @@ pub async fn control_message<E: std::fmt::Debug>(
             disconnect.ack()
         }
         v5::ControlMessage::Closed(closed) => {
-            //hook, client_disconnected
-            let reason = state
-                .client
-                .get_disconnected_reason()
-                .await
-                .unwrap_or_else(|| Reason::from_static("unknown error"));
-            state.hook.client_disconnected(reason).await;
-            if let Err(e) = state.send(Message::Closed) {
+            if let Err(e) = state.send(Message::Closed(Reason::from_static("Remote close connect"))) {
                 log::debug!("{:?} Closed error, reason: {:?}", state.id, e);
             }
             closed.ack()
         }
-        v5::ControlMessage::Error(e) => {
-            //hook, client_disconnected
-            let reason = state
-                .client
-                .get_disconnected_reason()
-                .await
-                .unwrap_or_else(|| Reason::from(format!("{:?}", e.get_err())));
-
-            state.hook.client_disconnected(reason).await;
-            if let Err(e) = state.send(Message::Closed) {
+        v5::ControlMessage::Error(err) => {
+            if let Err(e) = state.send(Message::Closed(Reason::from(format!("{:?}", err.get_err())))) {
                 log::debug!("{:?} Closed error, reason: {:?}", state.id, e);
             }
-            e.ack(DisconnectReasonCode::ServerBusy)
+            err.ack(DisconnectReasonCode::ServerBusy)
         }
         v5::ControlMessage::ProtocolError(protocol_error) => {
-            //hook, client_disconnected
-            let reason = state
-                .client
-                .get_disconnected_reason()
-                .await
-                .unwrap_or_else(|| Reason::from(protocol_error.get_ref().to_string()));
-
-            state.hook.client_disconnected(reason).await;
-            if let Err(e) = state.send(Message::Closed) {
+            if let Err(e) = state.send(Message::Closed(Reason::from(format!("{:?}", protocol_error.get_ref())))) {
                 log::debug!("{:?} Closed error, reason: {:?}", state.id, e);
             }
             protocol_error.ack()

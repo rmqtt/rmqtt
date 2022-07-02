@@ -995,7 +995,7 @@ pub enum Message {
     Forward(From, Publish),
     Kick(mpsc::UnboundedSender<()>, Id),
     Disconnect(Disconnect),
-    Closed,
+    Closed(Reason),
     Keepalive,
 }
 

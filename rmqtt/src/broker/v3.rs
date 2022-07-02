@@ -1,3 +1,4 @@
+use std::convert::From as _f;
 use std::net::SocketAddr;
 
 use ntex_mqtt::v3::{self};
@@ -247,7 +248,7 @@ pub async fn control_message(
     let crs = match ctrl_msg {
         v3::ControlMessage::Subscribe(subs) => match subscribes(&state, subs).await {
             Err(e) => {
-                state.client.add_disconnected_reason(format!("Subscribe failed, {:?}", e)).await;
+                state.client.add_disconnected_reason(Reason::from(format!("Subscribe failed, {:?}", e))).await;
                 log::error!("{:?} Subscribe failed, reason: {:?}", state.id, e);
                 return Err(e);
             }
@@ -255,7 +256,7 @@ pub async fn control_message(
         },
         v3::ControlMessage::Unsubscribe(unsubs) => match unsubscribes(&state, unsubs).await {
             Err(e) => {
-                state.client.add_disconnected_reason(format!("Unsubscribe failed, {:?}", e)).await;
+                state.client.add_disconnected_reason(Reason::from(format!("Unsubscribe failed, {:?}", e))).await;
                 log::error!("{:?} Unsubscribe failed, reason: {:?}", state.id, e);
                 return Err(e);
             }
@@ -267,14 +268,7 @@ pub async fn control_message(
             disc.ack()
         }
         v3::ControlMessage::Closed(m) => {
-            //hook, client_disconnected
-            let reason = state
-                .client
-                .get_disconnected_reason()
-                .await
-                .unwrap_or_else(|| Reason::from_static("unknown error"));
-            state.hook.client_disconnected(reason).await;
-            if let Err(e) = state.send(Message::Closed) {
+            if let Err(e) = state.send(Message::Closed(Reason::from_static("Remote close connect"))) {
                 log::debug!("{:?} Closed error, reason: {:?}", state.id, e);
             }
             m.ack()

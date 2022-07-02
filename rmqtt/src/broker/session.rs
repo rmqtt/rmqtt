@@ -104,7 +104,6 @@ impl SessionState {
 
             loop {
                 log::debug!("{:?} tokio::select! loop", id);
-                let start = chrono::Local::now().timestamp_millis();
                 deliver_timeout_delay.as_mut().reset(
                     Instant::now()
                         + state
@@ -118,7 +117,7 @@ impl SessionState {
                 tokio::select! {
                     _ = &mut keep_alive_delay => {  //, if !keep_alive_delay.is_elapsed()
                         log::debug!("{:?} keep alive is timeout, is_elapsed: {:?}", id, keep_alive_delay.is_elapsed());
-                        state.client.add_disconnected_reason("Timeout(Read/Write)".to_owned()).await;
+                        state.client.add_disconnected_reason(Reason::from_static("Timeout(Read/Write)")).await;
                         break
                     },
                     msg = msg_rx.recv() => {
@@ -129,7 +128,7 @@ impl SessionState {
                                     if let Err((from, p)) = deliver_queue_tx.send((from, p)).await{
                                         log::warn!("{:?} deliver_dropped, from: {:?}, {:?}", id, from, p);
                                         //hook, message_dropped
-                                        Runtime::instance().extends.hook_mgr().await.message_dropped(Some(state.id.clone()), from, p, Reason::from("deliver queue is full")).await;
+                                        Runtime::instance().extends.hook_mgr().await.message_dropped(Some(state.id.clone()), from, p, Reason::from_static("deliver queue is full")).await;
                                     }
                                 },
                                 Message::Kick(sender, by_id) => {
@@ -138,7 +137,7 @@ impl SessionState {
                                         log::warn!("{:?} Kicked response error, {:?}", id, e);
                                     }
                                     _kicked = true;
-                                    state.client.add_disconnected_reason(format!("Kicked by {:?}", by_id)).await;
+                                    state.client.add_disconnected_reason(Reason::from(format!("Kicked by {:?}", by_id))).await;
                                     break
                                 },
                                 Message::Disconnect(d) => {
@@ -147,9 +146,11 @@ impl SessionState {
                                     state.client.add_disconnected_reason("Disconnect(true) message is received".into()).await;
 
                                 },
-                                Message::Closed => {
-                                    log::debug!("{:?} Disconnect({}) message received", id, _disconnect_received);
-                                    //Disconnect
+                                Message::Closed(reason) => {
+                                    log::debug!("{:?} Closed({}) message received, reason: {}", id, _disconnect_received, reason);
+                                    if !state.client.has_disconnected_reason().await{
+                                        state.client.add_disconnected_reason(reason).await;
+                                    }
                                     break
                                 },
                                 Message::Keepalive => {
@@ -158,12 +159,12 @@ impl SessionState {
                             }
                         }else{
                             log::warn!("{:?} None is received from the Rx", id);
-                            state.client.add_disconnected_reason("None is received from the Rx".to_owned()).await;
+                            state.client.add_disconnected_reason(Reason::from_static("None is received from the Rx")).await;
                             break;
                         }
                     },
 
-                    _ = &mut deliver_timeout_delay => {  //, if state.inflight_win.read().has_timeout() => {
+                    _ = &mut deliver_timeout_delay => {
                         while let Some(iflt_msg) = state.inflight_win.write().await.pop_front_timeout(){
                             log::debug!("{:?} has timeout message in inflight: {:?}", id, iflt_msg);
                             if let Err(e) = state.reforward(iflt_msg).await{
@@ -191,10 +192,6 @@ impl SessionState {
                         }
                     }
                 }
-                let cost_time = chrono::Local::now().timestamp_millis() - start;
-                if cost_time > 100 {
-                    log::debug!("tokio::select! cost time: {}MS", cost_time);
-                }
             }
 
             log::debug!(
@@ -213,6 +210,11 @@ impl SessionState {
             }
             state.sink.close();
 
+            //hook, client_disconnected
+            let reason = state.client.get_disconnected_reason().await
+                .unwrap_or(Reason::from_static("Remote close connect"));
+            state.hook.client_disconnected(reason).await;
+
             if !_kicked {
                 if state.clean_session().await {
                     state.clean(state.client.get_disconnected_reason().await.unwrap_or_default()).await;
@@ -221,7 +223,7 @@ impl SessionState {
                     Self::offline_start(state.clone(), &mut msg_rx, &deliver_queue_tx, &mut _kicked).await;
                     log::debug!("{:?} offline _kicked: {}", id, _kicked);
                     if !_kicked {
-                        state.clean(Reason::from("session expired")).await;
+                        state.clean(Reason::from_static("session expired")).await;
                     }
                 }
             }
@@ -525,7 +527,7 @@ impl SessionState {
     #[inline]
     pub async fn publish_v3(&self, publish: &v3::Publish) -> Result<()> {
         if let Err(e) = self.publish(Publish::try_from(publish)?).await {
-            self.client.add_disconnected_reason(format!("Publish failed, {:?}", e)).await;
+            self.client.add_disconnected_reason(Reason::from(format!("Publish failed, {:?}", e))).await;
             return Err(e);
         }
         Ok(())
@@ -534,7 +536,7 @@ impl SessionState {
     #[inline]
     pub async fn publish_v5(&self, publish: &v5::Publish) -> Result<()> {
         if let Err(e) = self.publish(Publish::try_from(publish)?).await {
-            self.client.add_disconnected_reason(format!("Publish failed, {:?}", e)).await;
+            self.client.add_disconnected_reason(Reason::from(format!("Publish failed, {:?}", e))).await;
             return Err(e);
         }
         Ok(())
@@ -987,7 +989,7 @@ impl ClientInfo {
     }
 
     #[inline]
-    pub async fn set_disconnected(&self, reason: Option<String>) {
+    pub async fn set_disconnected(&self, reason: Option<Reason>) {
         self.connected.store(false, Ordering::SeqCst);
         self.disconnected_at.store(chrono::Local::now().timestamp_millis(), Ordering::SeqCst);
         if let Some(reason) = reason {
@@ -1001,13 +1003,13 @@ impl ClientInfo {
     }
 
     #[inline]
-    pub async fn add_disconnected_reason(&self, r: String) {
-        self.disconnected_reason.write().await.push(Reason::from(r));
+    pub async fn add_disconnected_reason(&self, r: Reason) {
+        self.disconnected_reason.write().await.push(r);
     }
 
     pub(crate) async fn set_mqtt_disconnect(&self, d: Disconnect) {
         if let Some(r) = d.reason() {
-            self.add_disconnected_reason(r.to_string()).await;
+            self.add_disconnected_reason(r.clone()).await;
         }
         self.disconnect.write().await.replace(d);
     }
