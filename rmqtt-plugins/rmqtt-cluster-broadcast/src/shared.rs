@@ -114,7 +114,7 @@ impl Entry for ClusterLockEntry {
     }
 
     #[inline]
-    async fn subscribe(&self, subscribe: Subscribe) -> Result<SubscribeReturn> {
+    async fn subscribe(&self, subscribe: &Subscribe) -> Result<SubscribeReturn> {
         self.inner.subscribe(subscribe).await
     }
 

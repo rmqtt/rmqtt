@@ -487,20 +487,18 @@ impl SessionState {
             }
         }
 
-        let topic_filter = sub.topic_filter.clone();
-
         //subscribe
         let sub_ret =
-            Runtime::instance().extends.shared().await.entry(self.id.clone()).subscribe(sub).await?;
+            Runtime::instance().extends.shared().await.entry(self.id.clone()).subscribe(&sub).await?;
 
         if let Some(qos) = sub_ret.success() {
             //send retain messages
             if self.listen_cfg.retain_available {
-                let retain_messages = Runtime::instance().extends.retain().await.get(&topic_filter).await?;
+                let retain_messages = Runtime::instance().extends.retain().await.get(&sub.topic_filter).await?;
                 self.send_retain_messages(retain_messages, qos).await?;
             };
             //hook, session_subscribed
-            self.hook.session_subscribed(Subscribed::V3((topic_filter, qos))).await;
+            self.hook.session_subscribed(sub).await;
         }
 
         Ok(sub_ret)
@@ -519,7 +517,7 @@ impl SessionState {
         Runtime::instance().extends.shared().await.entry(self.id.clone()).unsubscribe(&unsub).await?;
 
         //hook, session_unsubscribed
-        self.hook.session_unsubscribed(Unsubscribed::new(unsub.topic_filter)).await;
+        self.hook.session_unsubscribed(unsub).await;
 
         Ok(())
     }

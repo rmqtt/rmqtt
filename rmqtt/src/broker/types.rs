@@ -261,6 +261,13 @@ impl Subscribe {
     ) -> Result<Self> {
         Subscribe::from_v3(topic_filter, opt.qos, shared_subscription_supported)
     }
+
+
+    #[inline]
+    pub fn is_shared(&self) -> bool{
+        self.shared_group.is_some()
+    }
+
 }
 
 #[derive(Clone, Debug)]
@@ -305,36 +312,6 @@ impl SubscribeReturn {
     #[inline]
     pub fn into_inner(self) -> SubscribeAckReason {
         self.0
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum Subscribed {
-    V3((TopicFilter, QoS)),
-    V5(SubscribedV5),
-}
-
-impl Subscribed {
-    #[inline]
-    pub fn topic_filter(&self) -> Result<(TopicFilter, QoS)> {
-        match self {
-            Subscribed::V3((t, qos)) => Ok((t.clone(), *qos)),
-            Subscribed::V5(sub) => {
-                let (t, opts) = &sub.topic_filter;
-                Ok((t.clone(), opts.qos))
-            }
-        }
-    }
-
-    #[inline]
-    pub fn topic_filter_ref(&self) -> &TopicFilter {
-        match self {
-            Subscribed::V3((t, _)) => t,
-            Subscribed::V5(sub) => {
-                let (t, _) = &sub.topic_filter;
-                t
-            }
-        }
     }
 }
 
@@ -406,9 +383,16 @@ pub struct Unsubscribe {
 }
 
 impl Unsubscribe {
+
+    #[inline]
     pub fn from(topic_filter: &ByteString, shared_subscription_supported: bool) -> Result<Self> {
         let (topic_filter, shared_group) = parse_topic_filter(topic_filter, shared_subscription_supported)?;
         Ok(Unsubscribe { topic_filter, shared_group })
+    }
+
+    #[inline]
+    pub fn is_shared(&self) -> bool{
+        self.shared_group.is_some()
     }
 }
 
@@ -416,18 +400,6 @@ impl Unsubscribe {
 pub enum UnsubscribeAck {
     V3,
     V5(UnsubscribeAckV5),
-}
-
-#[derive(Clone, Debug)]
-pub struct Unsubscribed {
-    pub topic_filter: TopicFilter,
-}
-
-impl Unsubscribed {
-    #[inline]
-    pub fn new(topic_filter: TopicFilter) -> Self {
-        Self { topic_filter }
-    }
 }
 
 #[derive(Clone)]
