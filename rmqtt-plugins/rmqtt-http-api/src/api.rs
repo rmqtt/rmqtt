@@ -244,7 +244,7 @@ async fn get_stats_sum(depot: &mut Depot, res: &mut Response) {
         "status": Runtime::instance().node.status().await,
     }));
 
-    let mut stats_sum = Runtime::instance().stats.clone();
+    let mut stats_sum = Runtime::instance().stats.clone().await;
     let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
         for reply in MessageBroadcaster::new(grpc_clients, message_type, Message::StateInfo)
@@ -297,7 +297,7 @@ async fn get_stats(req: &mut Request, depot: &mut Depot, res: &mut Response) {
 async fn _get_stats_one(message_type: MessageType, id: NodeId) -> Option<serde_json::Value> {
     if id == Runtime::instance().node.id() {
         let node_status = Runtime::instance().node.status().await;
-        let stats = Runtime::instance().stats;
+        let stats = Runtime::instance().stats.clone().await;
         Some(_build_stats(id, node_status, stats.to_json()).await)
     } else {
         let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
@@ -323,7 +323,7 @@ async fn _get_stats_one(message_type: MessageType, id: NodeId) -> Option<serde_j
 async fn _get_stats_all(message_type: MessageType) -> Vec<serde_json::Value> {
     let id = Runtime::instance().node.id();
     let node_status = Runtime::instance().node.status().await;
-    let state = Runtime::instance().stats;
+    let state = Runtime::instance().stats.clone().await;
     let mut stats = vec![_build_stats(id, node_status, state.to_json()).await];
 
     let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();

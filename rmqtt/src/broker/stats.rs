@@ -16,6 +16,7 @@ impl Clone for Counter{
 }
 
 use std::fmt;
+use crate::Runtime;
 
 impl fmt::Debug for Counter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -66,7 +67,7 @@ impl Counter {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Stats {
     pub connections: Counter,
     pub sessions: Counter,
@@ -74,10 +75,11 @@ pub struct Stats {
     pub subscriptions_shared: Counter,
     pub retaineds: Counter, //retained messages
 
-    pub topics: Counter,   //subscribed_topics
-    pub routes: Counter, //subscribe to the relationship
+    topics_count: isize,   //subscribed_topics
+    topics_max: isize,
+    routes_count: isize, //subscribe to the relationship
+    routes_max: isize,
 }
-
 
 impl Stats {
     #[inline]
@@ -90,9 +92,28 @@ impl Stats {
             subscriptions_shared: Counter::new(),
             retaineds: Counter::new(),
 
-            topics: Counter::new(),
-            routes: Counter::new(),
+            topics_count: 0,
+            topics_max: 0,
+            routes_count: 0,
+            routes_max: 0,
         })
+    }
+
+    #[inline]
+    pub async fn clone(&self) -> Self{
+        let router = Runtime::instance().extends.router().await;
+        Self{
+            connections: self.connections.clone(),
+            sessions: self.sessions.clone(),
+            subscriptions: self.subscriptions.clone(),
+            subscriptions_shared: self.subscriptions_shared.clone(),
+            retaineds: self.retaineds.clone(), //retained messages
+
+            topics_count: router.topics() as isize,   //subscribed_topics
+            topics_max: router.topics_max() as isize,
+            routes_count: router.relations() as isize, //subscribe to the relationship
+            routes_max: router.relations_max() as isize,
+        }
     }
 
     #[inline]
@@ -103,10 +124,10 @@ impl Stats {
         self.subscriptions_shared.add(&other.subscriptions_shared);
         self.retaineds.add(&other.retaineds);
 
-        self.topics.count_min(other.topics.count());
-        self.topics.max_max(other.topics.max());
-        self.routes.count_min(other.routes.count());
-        self.routes.max_max(other.routes.max());
+        self.topics_count += other.topics_count;
+        self.topics_max += other.topics_max;
+        self.routes_count += other.routes_count;
+        self.routes_max += other.routes_max;
     }
 
     #[inline]
@@ -123,10 +144,10 @@ impl Stats {
             "retained.count": self.retaineds.count(),
             "retained.max": self.retaineds.max(),
 
-            "topics.count": self.topics.count(),
-            "topics.max": self.topics.max(),
-            "routes.count": self.routes.count(),
-            "routes.max": self.routes.max(),
+            "topics.count": self.topics_count,
+            "topics.max": self.topics_max,
+            "routes.count": self.routes_count,
+            "routes.max": self.routes_max,
         })
     }
 

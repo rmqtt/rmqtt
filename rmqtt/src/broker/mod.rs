@@ -149,14 +149,14 @@ pub trait Router: Sync + Send {
             .await
     }
 
-    ///Return number of topics
-    async fn topics(&self) -> usize;
+    // ///Return number of topics
+    // async fn topics(&self) -> usize;
 
     ///Return number of subscribed topics max
-    fn subscribed_topics_max(&self) -> usize;
+    fn topics_max(&self) -> usize;
 
     ///Return number of subscribed topics
-    fn subscribed_topics(&self) -> usize;
+    fn topics(&self) -> usize;
 
     ///Returns the number of Subscription relationship max
     fn relations_max(&self) -> usize;
@@ -230,10 +230,10 @@ pub trait RetainStorage: Sync + Send {
     async fn get(&self, topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>>;
 
     ///
-    fn count(&self) -> usize;
+    fn count(&self) -> isize;
 
     ///
-    fn count_max(&self) -> usize;
+    fn max(&self) -> isize;
 }
 
 #[async_trait]

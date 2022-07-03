@@ -612,18 +612,18 @@ impl Router for &'static DefaultRouter {
         Ok(self._matches(topic).await?)
     }
 
-    #[inline]
-    async fn topics(&self) -> usize {
-        self.topics.read().await.values_size()
-    }
+    // #[inline]
+    // async fn topics(&self) -> usize {
+    //     self.topics.read().await.values_size()
+    // }
 
     #[inline]
-    fn subscribed_topics_max(&self) -> usize {
+    fn topics_max(&self) -> usize {
         self.topics_max.load(Ordering::SeqCst)
     }
 
     #[inline]
-    fn subscribed_topics(&self) -> usize {
+    fn topics(&self) -> usize {
         self.relations.len()
     }
 
@@ -681,8 +681,6 @@ impl DefaultSharedSubscription {
 impl SharedSubscription for &'static DefaultSharedSubscription {}
 
 pub struct DefaultRetainStorage {
-    count: AtomicUsize,
-    count_max: AtomicUsize,
     messages: RwLock<RetainTree<Retain>>,
 }
 
@@ -691,8 +689,6 @@ impl DefaultRetainStorage {
     pub fn instance() -> &'static DefaultRetainStorage {
         static INSTANCE: OnceCell<DefaultRetainStorage> = OnceCell::new();
         INSTANCE.get_or_init(|| Self {
-            count: AtomicUsize::new(0),
-            count_max: AtomicUsize::new(0),
             messages: RwLock::new(RetainTree::default()),
         })
     }
@@ -717,11 +713,10 @@ impl RetainStorage for &'static DefaultRetainStorage {
         if !retain.publish.is_empty() {
             self.add(&topic, retain).await;
             if old.is_none() {
-                self.count.fetch_add(1, Ordering::SeqCst);
-                self.count_max.fetch_add(1, Ordering::SeqCst);
+                Runtime::instance().stats.retaineds.inc();
             }
         } else if old.is_some() {
-            self.count.fetch_sub(1, Ordering::SeqCst);
+            Runtime::instance().stats.retaineds.dec();
         }
         Ok(())
     }
@@ -740,13 +735,13 @@ impl RetainStorage for &'static DefaultRetainStorage {
     }
 
     #[inline]
-    fn count(&self) -> usize {
-        self.count.load(Ordering::SeqCst)
+    fn count(&self) -> isize {
+        Runtime::instance().stats.retaineds.count()
     }
 
     #[inline]
-    fn count_max(&self) -> usize {
-        self.count_max.load(Ordering::SeqCst)
+    fn max(&self) -> isize {
+        Runtime::instance().stats.retaineds.max()
     }
 }
 

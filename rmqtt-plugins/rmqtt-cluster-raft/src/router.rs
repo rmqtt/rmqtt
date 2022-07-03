@@ -194,19 +194,19 @@ impl Router for &'static ClusterRouter {
             .unwrap_or(false)
     }
 
+    // #[inline]
+    // async fn topics(&self) -> usize {
+    //     self.inner.topics().await
+    // }
+
     #[inline]
-    async fn topics(&self) -> usize {
-        self.inner.topics().await
+    fn topics_max(&self) -> usize {
+        self.inner.topics_max()
     }
 
     #[inline]
-    fn subscribed_topics_max(&self) -> usize {
-        self.inner.subscribed_topics_max()
-    }
-
-    #[inline]
-    fn subscribed_topics(&self) -> usize {
-        self.inner.subscribed_topics()
+    fn topics(&self) -> usize {
+        self.inner.topics()
     }
 
     #[inline]
@@ -374,7 +374,7 @@ impl Store for &'static ClusterRouter {
             .map(|entry| (entry.key().clone(), entry.value().clone()))
             .collect::<Vec<_>>();
 
-        let topics_max = self.inner.subscribed_topics_max();
+        let topics_max = self.inner.topics_max();
         let relations_max = self.inner.relations_max();
 
         let snapshot =

@@ -75,12 +75,12 @@ impl RetainStorage for &'static ClusterRetainer {
     }
 
     #[inline]
-    fn count(&self) -> usize {
+    fn count(&self) -> isize {
         self.inner.count()
     }
 
     #[inline]
-    fn count_max(&self) -> usize {
-        self.inner.count_max()
+    fn max(&self) -> isize {
+        self.inner.max()
     }
 }
