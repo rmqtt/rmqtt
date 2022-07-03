@@ -44,7 +44,7 @@ impl Handler for HookHandler {
                     }
                     Message::StateInfo => {
                         let node_status = Runtime::instance().node.status().await;
-                        let state = Runtime::instance().extends.stats().await.data().await;
+                        let state = Runtime::instance().stats.clone();
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::StateInfo(
                             node_status, Box::new(state),
                         )));

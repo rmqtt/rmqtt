@@ -8,7 +8,6 @@ use crate::broker::{
     fitter::FitterManager,
     hook::HookManager,
     LimiterManager, RetainStorage, Router, Shared, SharedSubscription,
-    stats::{DefaultStats, Stats},
 };
 
 pub struct Manager {
@@ -19,7 +18,7 @@ pub struct Manager {
     hook_mgr: RwLock<Box<dyn HookManager>>,
     limiter_mgr: RwLock<Box<dyn LimiterManager>>,
     shared_subscription: RwLock<Box<dyn SharedSubscription>>,
-    stats: RwLock<Box<dyn Stats>>,
+    // stats: RwLock<Box<dyn Stats>>,
 }
 
 impl Manager {
@@ -33,7 +32,7 @@ impl Manager {
             hook_mgr: RwLock::new(Box::new(DefaultHookManager::instance())),
             limiter_mgr: RwLock::new(Box::new(DefaultLimiterManager::instance())),
             shared_subscription: RwLock::new(Box::new(DefaultSharedSubscription::instance())),
-            stats: RwLock::new(Box::new(DefaultStats::instance())),
+            // stats: RwLock::new(Box::new(DefaultStats::instance())),
         }
     }
 
@@ -107,13 +106,4 @@ impl Manager {
         self.shared_subscription.write().await
     }
 
-    #[inline]
-    pub async fn stats(&self) -> RwLockReadGuard<'_, Box<dyn Stats>> {
-        self.stats.read().await
-    }
-
-    #[inline]
-    pub async fn stats_mut(&self) -> RwLockWriteGuard<'_, Box<dyn Stats>> {
-        self.stats.write().await
-    }
 }

@@ -10,7 +10,6 @@ use rmqtt::{
     node::NodeStatus,
     Result,
     Runtime,
-    stats::State,
 };
 use rmqtt::grpc::MessageType;
 
@@ -238,26 +237,26 @@ async fn get_stats_sum(depot: &mut Depot, res: &mut Response) {
     let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
     let message_type = cfg.read().message_type;
 
-    let id = Runtime::instance().node.id();
+    let this_id = Runtime::instance().node.id();
     let mut nodes = HashMap::default();
-    nodes.insert(id, json!({
-        "name": Runtime::instance().node.name(id).await,
+    nodes.insert(this_id, json!({
+        "name": Runtime::instance().node.name(this_id).await,
         "status": Runtime::instance().node.status().await,
     }));
 
-    let mut state_sum = Runtime::instance().extends.stats().await.data().await;
+    let mut stats_sum = Runtime::instance().stats.clone();
     let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
         for reply in MessageBroadcaster::new(grpc_clients, message_type, Message::StateInfo)
             .join_all()
             .await {
             match reply {
-                (id, Ok(MessageReply::StateInfo(node_status, state_info))) => {
+                (id, Ok(MessageReply::StateInfo(node_status, stats))) => {
                     nodes.insert(id, json!({
                         "name": Runtime::instance().node.name(id).await,
                         "status": node_status,
                     }));
-                    state_sum.add(&state_info);
+                    stats_sum.add(*stats);
                 }
                 (_, Ok(_)) => unreachable!(),
                 (id, Err(e)) => {
@@ -270,7 +269,7 @@ async fn get_stats_sum(depot: &mut Depot, res: &mut Response) {
 
     let stats_sum = json!({
         "nodes": nodes,
-        "stats": state_sum.to_sum_json()
+        "stats": stats_sum.to_json()
     });
 
     res.render(Json(stats_sum));
@@ -283,37 +282,37 @@ async fn get_stats(req: &mut Request, depot: &mut Depot, res: &mut Response) {
 
     let id = req.param::<NodeId>("id");
     if let Some(id) = id {
-        if let Some(stat_info) = _get_stat(message_type, id).await {
+        if let Some(stat_info) = _get_stats_one(message_type, id).await {
             res.render(Json(stat_info));
         } else {
             res.set_status_code(StatusCode::NOT_FOUND)
         }
     } else {
-        let stat_infos = _get_stats(message_type).await;
+        let stat_infos = _get_stats_all(message_type).await;
         res.render(Json(stat_infos));
     }
 }
 
 #[inline]
-async fn _get_stat(message_type: MessageType, id: NodeId) -> Option<serde_json::Value> {
+async fn _get_stats_one(message_type: MessageType, id: NodeId) -> Option<serde_json::Value> {
     if id == Runtime::instance().node.id() {
         let node_status = Runtime::instance().node.status().await;
-        let state = Runtime::instance().extends.stats().await.data().await;
-        Some(_build_state(id, node_status, &state).await)
+        let stats = Runtime::instance().stats;
+        Some(_build_stats(id, node_status, stats.to_json()).await)
     } else {
         let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
         if let Some((_, c)) = grpc_clients.get(&id) {
             let reply = MessageSender::new(c.clone(), message_type, Message::StateInfo)
                 .send().await;
-            let state_info = match reply {
-                Ok(MessageReply::StateInfo(node_status, state_info)) => _build_state(id, node_status, &state_info).await,
+            let stats = match reply {
+                Ok(MessageReply::StateInfo(node_status, stats)) => _build_stats(id, node_status, stats.to_json()).await,
                 Ok(_) => unreachable!(),
                 Err(e) => {
                     log::warn!("Get Message::StateInfo from other node, error: {:?}", e);
                     serde_json::Value::String(e.to_string())
                 }
             };
-            Some(state_info)
+            Some(stats)
         } else {
             None
         }
@@ -321,11 +320,11 @@ async fn _get_stat(message_type: MessageType, id: NodeId) -> Option<serde_json::
 }
 
 #[inline]
-async fn _get_stats(message_type: MessageType) -> Vec<serde_json::Value> {
+async fn _get_stats_all(message_type: MessageType) -> Vec<serde_json::Value> {
     let id = Runtime::instance().node.id();
     let node_status = Runtime::instance().node.status().await;
-    let state = Runtime::instance().extends.stats().await.data().await;
-    let mut stats = vec![_build_state(id, node_status, &state).await];
+    let state = Runtime::instance().stats;
+    let mut stats = vec![_build_stats(id, node_status, state.to_json()).await];
 
     let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
@@ -333,8 +332,8 @@ async fn _get_stats(message_type: MessageType) -> Vec<serde_json::Value> {
             .join_all()
             .await {
             let data = match reply {
-                (id, Ok(MessageReply::StateInfo(node_status, state_info))) => {
-                    _build_state(id, node_status, &state_info).await
+                (id, Ok(MessageReply::StateInfo(node_status, state))) => {
+                    _build_stats(id, node_status, state.to_json()).await
                 }
                 (_, Ok(_)) => unreachable!(),
                 (id, Err(e)) => {
@@ -349,7 +348,7 @@ async fn _get_stats(message_type: MessageType) -> Vec<serde_json::Value> {
 }
 
 #[inline]
-async fn _build_state(id: NodeId, node_status: NodeStatus, state: &State) -> serde_json::Value {
+async fn _build_stats(id: NodeId, node_status: NodeStatus, stats: serde_json::Value) -> serde_json::Value {
     let node_name = Runtime::instance().node.name(id).await;
     let data = json!({
         "node": {
@@ -357,7 +356,7 @@ async fn _build_state(id: NodeId, node_status: NodeStatus, state: &State) -> ser
             "name": node_name,
             "status": node_status,
         },
-        "stats": state.to_json()
+        "stats": stats
     });
     data
 }

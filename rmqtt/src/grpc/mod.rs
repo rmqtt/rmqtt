@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -8,12 +9,11 @@ use futures::FutureExt;
 use client::NodeGrpcClient;
 
 use crate::broker::{ClearSubscriptions, SubRelations, SubRelationsMap};
-use crate::broker::metrics::Metrics;
 use crate::broker::session::SessionOfflineInfo;
 use crate::broker::types::{From, Id, NodeId, Publish, Retain, TopicFilter, TopicName};
 use crate::node::{BrokerInfo, NodeInfo, NodeStatus};
 use crate::Result;
-use crate::stats::State;
+use crate::{stats::Stats, metrics::Metrics};
 
 pub mod client;
 pub mod server;
@@ -63,10 +63,11 @@ pub enum MessageReply {
     NumberOfSessions(usize),
     BrokerInfo(BrokerInfo),
     NodeInfo(NodeInfo),
-    StateInfo(NodeStatus, Box<State>),
+    StateInfo(NodeStatus, Box<Stats>),
     MetricsInfo(Metrics),
     Bytes(Vec<u8>),
 }
+
 
 impl MessageReply {
     #[inline]

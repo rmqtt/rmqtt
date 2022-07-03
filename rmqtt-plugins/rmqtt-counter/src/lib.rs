@@ -1,6 +1,7 @@
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::metrics::Metrics,
+    broker::stats::Stats,
     plugin::{DynPlugin, DynPluginResult, Plugin}, Result, Runtime};
 use rmqtt::{async_trait::async_trait, log};
 
@@ -16,7 +17,7 @@ pub async fn register(
         .plugins
         .register(name, default_startup, immutable, move || -> DynPluginResult {
             Box::pin(async move {
-                MetricsPlugin::new(runtime, name, descr).await.map(|p| -> DynPlugin { Box::new(p) })
+                CounterPlugin::new(runtime, name, descr).await.map(|p| -> DynPlugin { Box::new(p) })
             })
         })
         .await?;
@@ -24,13 +25,13 @@ pub async fn register(
 }
 
 
-struct MetricsPlugin {
+struct CounterPlugin {
     name: String,
     descr: String,
     register: Box<dyn Register>,
 }
 
-impl MetricsPlugin {
+impl CounterPlugin {
     #[inline]
     async fn new<N: Into<String>, D: Into<String>>(
         runtime: &'static Runtime,
@@ -44,30 +45,30 @@ impl MetricsPlugin {
 }
 
 #[async_trait]
-impl Plugin for MetricsPlugin {
+impl Plugin for CounterPlugin {
     #[inline]
     async fn init(&mut self) -> Result<()> {
         log::info!("{} init", self.name);
-        self.register.add(Type::ClientConnect, Box::new(MetricsHandler::new())).await;
-        self.register.add(Type::ClientAuthenticate, Box::new(MetricsHandler::new())).await;
-        self.register.add(Type::ClientConnack, Box::new(MetricsHandler::new())).await;
-        self.register.add(Type::ClientConnected, Box::new(MetricsHandler::new())).await;
-        self.register.add(Type::ClientDisconnected, Box::new(MetricsHandler::new())).await;
-        self.register.add(Type::ClientSubscribe, Box::new(MetricsHandler::new())).await;
-        self.register.add(Type::ClientUnsubscribe, Box::new(MetricsHandler::new())).await;
+        self.register.add(Type::ClientConnect, Box::new(CounterHandler::new())).await;
+        self.register.add(Type::ClientAuthenticate, Box::new(CounterHandler::new())).await;
+        self.register.add(Type::ClientConnack, Box::new(CounterHandler::new())).await;
+        self.register.add(Type::ClientConnected, Box::new(CounterHandler::new())).await;
+        self.register.add(Type::ClientDisconnected, Box::new(CounterHandler::new())).await;
+        self.register.add(Type::ClientSubscribe, Box::new(CounterHandler::new())).await;
+        self.register.add(Type::ClientUnsubscribe, Box::new(CounterHandler::new())).await;
 
-        self.register.add(Type::ClientSubscribeCheckAcl, Box::new(MetricsHandler::new())).await;
-        self.register.add(Type::MessagePublishCheckAcl, Box::new(MetricsHandler::new())).await;
+        self.register.add(Type::ClientSubscribeCheckAcl, Box::new(CounterHandler::new())).await;
+        self.register.add(Type::MessagePublishCheckAcl, Box::new(CounterHandler::new())).await;
 
-        self.register.add(Type::SessionCreated, Box::new(MetricsHandler::new())).await;
-        self.register.add(Type::SessionTerminated, Box::new(MetricsHandler::new())).await;
-        self.register.add(Type::SessionSubscribed, Box::new(MetricsHandler::new())).await;
-        self.register.add(Type::SessionUnsubscribed, Box::new(MetricsHandler::new())).await;
+        self.register.add(Type::SessionCreated, Box::new(CounterHandler::new())).await;
+        self.register.add(Type::SessionTerminated, Box::new(CounterHandler::new())).await;
+        self.register.add(Type::SessionSubscribed, Box::new(CounterHandler::new())).await;
+        self.register.add(Type::SessionUnsubscribed, Box::new(CounterHandler::new())).await;
 
-        self.register.add(Type::MessagePublish, Box::new(MetricsHandler::new())).await;
-        self.register.add(Type::MessageDelivered, Box::new(MetricsHandler::new())).await;
-        self.register.add(Type::MessageAcked, Box::new(MetricsHandler::new())).await;
-        self.register.add(Type::MessageDropped, Box::new(MetricsHandler::new())).await;
+        self.register.add(Type::MessagePublish, Box::new(CounterHandler::new())).await;
+        self.register.add(Type::MessageDelivered, Box::new(CounterHandler::new())).await;
+        self.register.add(Type::MessageAcked, Box::new(CounterHandler::new())).await;
+        self.register.add(Type::MessageDropped, Box::new(CounterHandler::new())).await;
 
         Ok(())
     }
@@ -91,7 +92,7 @@ impl Plugin for MetricsPlugin {
 
     #[inline]
     async fn stop(&mut self) -> Result<bool> {
-        log::warn!("{} stop, the Metrics plug-in, it cannot be stopped", self.name);
+        log::warn!("{} stop, the Counter plug-in, it cannot be stopped", self.name);
         Ok(false)
     }
 
@@ -107,20 +108,22 @@ impl Plugin for MetricsPlugin {
 }
 
 
-struct MetricsHandler {
+struct CounterHandler {
     metrics: &'static Metrics,
+    stats: &'static Stats,
 }
 
-impl MetricsHandler {
+impl CounterHandler {
     fn new() -> Self {
         Self {
             metrics: Metrics::instance(),
+            stats: Stats::instance(),
         }
     }
 }
 
 #[async_trait]
-impl Handler for MetricsHandler {
+impl Handler for CounterHandler {
     async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
         match param {
             Parameter::ClientConnect(connect_info) => {
@@ -140,9 +143,11 @@ impl Handler for MetricsHandler {
                 if client.session_present {
                     self.metrics.session_resumed_inc();
                 }
+                self.stats.connections.inc();
             }
             Parameter::ClientDisconnected(_session, _client, _r) => {
                 self.metrics.client_disconnected_inc();
+                self.stats.connections.dec();
             }
             Parameter::ClientSubscribeCheckAcl(_session, _client, _s) => {
                 self.metrics.client_subscribe_check_acl_inc();
@@ -154,17 +159,27 @@ impl Handler for MetricsHandler {
                 self.metrics.client_unsubscribe_inc();
             }
 
-            Parameter::SessionTerminated(_session, _client, _r) => {
-                self.metrics.session_terminated_inc();
-            }
             Parameter::SessionCreated(_session, _client) => {
                 self.metrics.session_created_inc();
+                self.stats.sessions.inc();
             }
-            Parameter::SessionSubscribed(_s, _client, _sub) => {
+            Parameter::SessionTerminated(_session, _client, _r) => {
+                self.metrics.session_terminated_inc();
+                self.stats.sessions.dec();
+            }
+            Parameter::SessionSubscribed(_s, _client, sub) => {
                 self.metrics.session_subscribed_inc();
+                self.stats.subscriptions.inc();
+                if sub.is_shared(){
+                    self.stats.subscriptions_shared.inc();
+                }
             }
-            Parameter::SessionUnsubscribed(_s, _client, _unsub) => {
+            Parameter::SessionUnsubscribed(_s, _client, unsub) => {
                 self.metrics.session_unsubscribed_inc();
+                self.stats.subscriptions.dec();
+                if unsub.is_shared(){
+                    self.stats.subscriptions_shared.dec();
+                }
             }
 
             Parameter::MessagePublishCheckAcl(_session, _client, _p) => {

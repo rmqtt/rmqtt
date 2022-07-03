@@ -1,6 +1,6 @@
 use once_cell::sync::OnceCell;
 
-use crate::{broker::metrics::Metrics, extend, node::Node, plugin, settings::Settings};
+use crate::{broker::{metrics::Metrics, stats::Stats}, extend, node::Node, plugin, settings::Settings};
 use crate::logger::{config_logger, Logger};
 
 pub struct Runtime {
@@ -10,6 +10,7 @@ pub struct Runtime {
     pub plugins: plugin::Manager,
     pub node: Node,
     pub metrics: &'static Metrics,
+    pub stats: &'static Stats,
 }
 
 impl Runtime {
@@ -29,6 +30,7 @@ impl Runtime {
                 plugins: plugin::Manager::new(),
                 node: Node::new(),
                 metrics: Metrics::instance(),
+                stats: Stats::instance(),
             }
         })
     }

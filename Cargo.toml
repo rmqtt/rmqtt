@@ -6,7 +6,7 @@ members = [
     "rmqtt-plugins/rmqtt-auth-http",
     "rmqtt-plugins/rmqtt-cluster-broadcast",
     "rmqtt-plugins/rmqtt-cluster-raft",
-    "rmqtt-plugins/rmqtt-metrics",
+    "rmqtt-plugins/rmqtt-counter",
     "rmqtt-plugins/rmqtt-http-api",
     "rmqtt-bin",
     "rmqtt-macros"
@@ -20,6 +20,6 @@ rmqtt-web-hook = { path = "rmqtt-plugins/rmqtt-web-hook" }
 rmqtt-auth-http = { path = "rmqtt-plugins/rmqtt-auth-http" }
 rmqtt-cluster-broadcast = { path = "rmqtt-plugins/rmqtt-cluster-broadcast" }
 rmqtt-cluster-raft = { path = "rmqtt-plugins/rmqtt-cluster-raft" }
-rmqtt-metrics = { path = "rmqtt-plugins/rmqtt-metrics" }
+rmqtt-counter = { path = "rmqtt-plugins/rmqtt-counter" }
 rmqtt-http-api = { path = "rmqtt-plugins/rmqtt-http-api" }
 
