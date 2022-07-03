@@ -215,18 +215,18 @@ async fn status() -> serde_json::Value {
     // let stats = Runtime::instance().extends.stats().await;
 
     let router = Runtime::instance().extends.router().await;
-    let topics = router.topics().await;
-    let subscriptions = router.subscribed_topics();
-    let relations = router.relations();
+    // let topics = router.topics().await;
+    let topics = router.topics();
+    let routes = router.relations();
 
     serde_json::json!({
         "all_sessions": all_sessions,
         "all_clients": all_clients,
         "sessions": sessions,
         "clients": clients,
+        // "topics": topics,
         "topics": topics,
-        "subscriptions": subscriptions,
-        "relations": relations,
+        "routes": routes,
         "active_grpc_requests": active_grpc_requests(),
         // "handshakings": stats.handshakings(),
         // "publishs": stats.publishs(),
