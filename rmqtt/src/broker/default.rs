@@ -172,7 +172,7 @@ impl super::Entry for LockEntry {
     }
 
     #[inline]
-    async fn subscribe(&self, sub: Subscribe) -> Result<SubscribeReturn> {
+    async fn subscribe(&self, sub: &Subscribe) -> Result<SubscribeReturn> {
         let peer = self
             .shared
             .peers
@@ -190,7 +190,7 @@ impl super::Entry for LockEntry {
 
         Runtime::instance().extends.router().await
             .add(&sub.topic_filter, self.id(), sub.qos, sub.shared_group.clone()).await?;
-        peer.s.subscriptions_add(sub.topic_filter.to_string(), sub.qos, sub.shared_group);
+        peer.s.subscriptions_add(sub.topic_filter.to_string(), sub.qos, sub.shared_group.clone());
         Ok(SubscribeReturn::new_success(sub.qos))
     }
 
@@ -1170,10 +1170,10 @@ impl Hook for DefaultHook {
     }
 
     #[inline]
-    async fn session_subscribed(&self, subscribed: Subscribed) {
+    async fn session_subscribed(&self, subscribe: Subscribe) {
         let _ = self
             .manager
-            .exec(Type::SessionSubscribed, Parameter::SessionSubscribed(&self.s, &self.c, subscribed))
+            .exec(Type::SessionSubscribed, Parameter::SessionSubscribed(&self.s, &self.c, subscribe))
             .await;
     }
 
@@ -1183,7 +1183,7 @@ impl Hook for DefaultHook {
             .manager
             .exec(
                 Type::ClientUnsubscribe,
-                Parameter::ClientUnsubscribe(&self.s, &self.c, &unsub.topic_filter),
+                Parameter::ClientUnsubscribe(&self.s, &self.c, unsub),
             )
             .await;
         log::debug!("{:?} result: {:?}", self.s.id, reply);
@@ -1196,10 +1196,10 @@ impl Hook for DefaultHook {
     }
 
     #[inline]
-    async fn session_unsubscribed(&self, unsubscribed: Unsubscribed) {
+    async fn session_unsubscribed(&self, unsubscribe: Unsubscribe) {
         let _ = self
             .manager
-            .exec(Type::SessionUnsubscribed, Parameter::SessionUnsubscribed(&self.s, &self.c, unsubscribed))
+            .exec(Type::SessionUnsubscribed, Parameter::SessionUnsubscribed(&self.s, &self.c, unsubscribe))
             .await;
     }
 

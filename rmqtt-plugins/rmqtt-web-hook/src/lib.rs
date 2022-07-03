@@ -15,9 +15,9 @@ use parking_lot::RwLock;
 use config::PluginConfig;
 use rmqtt::{
     broker::hook::{self, Handler, HookResult, Parameter, Register, ReturnType, Type},
-    broker::types::{ConnectInfo, Id, MQTT_LEVEL_5, QoS, QoSEx},
+    broker::types::{ConnectInfo, Id, MQTT_LEVEL_5, QoSEx},
     plugin::{DynPlugin, DynPluginResult, Plugin},
-    Result, Runtime, Topic, TopicFilter,
+    Result, Runtime, Topic, TopicFilter
 };
 use rmqtt::broker::error::MqttError;
 
@@ -468,31 +468,29 @@ impl Handler for WebHookHandler {
                 vec![(Some(subscribe.topic_filter.clone()), body)]
             }
 
-            Parameter::ClientUnsubscribe(_session, client, topic_tilter) => {
+            Parameter::ClientUnsubscribe(_session, client, unsubscribe) => {
                 let body = json!({
                     "node": client.id.node(),
                     "ipaddress": client.id.remote_addr,
                     "clientid": client.id.client_id,
                     "username": client.id.username,
-                    "topic": topic_tilter.to_string(),
+                    "topic": unsubscribe.topic_filter,
                 });
-                vec![(Some((*topic_tilter).clone()), body)]
+                vec![(Some(unsubscribe.topic_filter.clone()), body)]
             }
 
-            Parameter::SessionSubscribed(_session, client, subscribed) => {
-                let (topic, qos) =
-                    subscribed.topic_filter().unwrap_or((TopicFilter::default(), QoS::AtMostOnce));
+            Parameter::SessionSubscribed(_session, client, subscribe) => {
                 let body = json!({
                     "node": client.id.node(),
                     "ipaddress": client.id.remote_addr,
                     "clientid": client.id.client_id,
                     "username": client.id.username,
-                    "topic": topic.to_string(),
+                    "topic": subscribe.topic_filter,
                     "opts": json!({
-                        "qos": qos.value()
+                        "qos": subscribe.qos.value()
                     }),
                 });
-                vec![(Some(topic), body)]
+                vec![(Some(subscribe.topic_filter.clone()), body)]
             }
 
             Parameter::SessionUnsubscribed(_session, client, unsubscribed) => {
@@ -502,7 +500,7 @@ impl Handler for WebHookHandler {
                     "ipaddress": client.id.remote_addr,
                     "clientid": client.id.client_id,
                     "username": client.id.username,
-                    "topic": topic.to_string(),
+                    "topic": topic,
                 });
                 vec![(Some(topic), body)]
             }

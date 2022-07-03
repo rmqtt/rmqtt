@@ -79,13 +79,13 @@ pub trait Hook: Sync + Send {
     async fn client_subscribe(&self, subscribe: &Subscribe) -> Option<TopicFilter>;
 
     ///Subscription succeeded
-    async fn session_subscribed(&self, subscribed: Subscribed);
+    async fn session_subscribed(&self, subscribe: Subscribe);
 
     ///Unsubscribe message received
     async fn client_unsubscribe(&self, unsubscribe: &Unsubscribe) -> Option<TopicFilter>;
 
     ///Unsubscribe succeeded
-    async fn session_unsubscribed(&self, unsubscribed: Unsubscribed);
+    async fn session_unsubscribed(&self, unsubscribe: Unsubscribe);
 
     ///Publish message received
     async fn message_publish(&self, p: &Publish) -> Option<Publish>;
@@ -170,8 +170,8 @@ pub enum Parameter<'a> {
 
     SessionCreated(&'a Session, &'a ClientInfo),
     SessionTerminated(&'a Session, &'a ClientInfo, Reason),
-    SessionSubscribed(&'a Session, &'a ClientInfo, Subscribed),
-    SessionUnsubscribed(&'a Session, &'a ClientInfo, Unsubscribed),
+    SessionSubscribed(&'a Session, &'a ClientInfo, Subscribe),
+    SessionUnsubscribed(&'a Session, &'a ClientInfo, Unsubscribe),
 
     ClientConnect(&'a ConnectInfo),
     ClientConnack(&'a ConnectInfo, &'a ConnectAckReason),
@@ -179,7 +179,7 @@ pub enum Parameter<'a> {
     ClientConnected(&'a Session, &'a ClientInfo),
     ClientDisconnected(&'a Session, &'a ClientInfo, Reason),
     ClientSubscribe(&'a Session, &'a ClientInfo, &'a Subscribe),
-    ClientUnsubscribe(&'a Session, &'a ClientInfo, &'a TopicFilter),
+    ClientUnsubscribe(&'a Session, &'a ClientInfo, &'a Unsubscribe),
     ClientSubscribeCheckAcl(&'a Session, &'a ClientInfo, &'a Subscribe),
 
     MessagePublishCheckAcl(&'a Session, &'a ClientInfo, &'a Publish),
