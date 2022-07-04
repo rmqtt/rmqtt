@@ -124,10 +124,10 @@ impl Stats {
         self.subscriptions_shared.add(&other.subscriptions_shared);
         self.retaineds.add(&other.retaineds);
 
-        self.topics_count += other.topics_count;
-        self.topics_max += other.topics_max;
-        self.routes_count += other.routes_count;
-        self.routes_max += other.routes_max;
+        self.topics_count = self.topics_count.min(other.topics_count);
+        self.topics_max = self.topics_max.max(other.topics_max);
+        self.routes_count = self.routes_count.min(other.routes_count);
+        self.routes_max = self.routes_max.max(other.routes_max);
     }
 
     #[inline]
