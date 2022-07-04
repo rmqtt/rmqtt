@@ -37,7 +37,7 @@ pub trait Entry: Sync + Send {
     async fn client(&self) -> Option<ClientInfo>;
     fn tx(&self) -> Option<Tx>;
     async fn subscribe(&self, subscribe: &Subscribe) -> Result<SubscribeReturn>;
-    async fn unsubscribe(&self, unsubscribe: &Unsubscribe) -> Result<()>;
+    async fn unsubscribe(&self, unsubscribe: &Unsubscribe) -> Result<bool>;
     async fn publish(&self, from: From, p: Publish) -> Result<(), (From, Publish, Reason)>;
 }
 
@@ -132,7 +132,7 @@ pub trait Router: Sync + Send {
     ) -> Result<()>;
 
     ///
-    async fn remove(&self, topic_filter: &str, id: Id) -> Result<()>;
+    async fn remove(&self, topic_filter: &str, id: Id) -> Result<bool>;
 
     ///
     async fn matches(&self, topic: &TopicName) -> Result<SubRelationsMap>;

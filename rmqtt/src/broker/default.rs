@@ -195,7 +195,7 @@ impl super::Entry for LockEntry {
     }
 
     #[inline]
-    async fn unsubscribe(&self, unsubscribe: &Unsubscribe) -> Result<()> {
+    async fn unsubscribe(&self, unsubscribe: &Unsubscribe) -> Result<bool> {
         let peer = self
             .shared
             .peers
@@ -207,8 +207,8 @@ impl super::Entry for LockEntry {
             .remove(&unsubscribe.topic_filter, self.id()).await {
             log::warn!("{:?} unsubscribe, error:{:?}", self.id, e);
         }
-        peer.s.subscriptions_remove(&unsubscribe.topic_filter);
-        Ok(())
+        let remove_ok = peer.s.subscriptions_remove(&unsubscribe.topic_filter).is_some();
+        Ok(remove_ok)
     }
 
     #[inline]
@@ -568,10 +568,10 @@ impl Router for &'static DefaultRouter {
     }
 
     #[inline]
-    async fn remove(&self, topic_filter: &str, id: Id) -> Result<()> {
+    async fn remove(&self, topic_filter: &str, id: Id) -> Result<bool> {
         log::debug!("remove, topic_filter: {:?}", topic_filter.to_string());
         //Remove subscription relationship from local
-        let is_empty = if let Some(mut rels) = self.relations.get_mut(topic_filter) {
+        let res = if let Some(mut rels) = self.relations.get_mut(topic_filter) {
             let remove_enable = rels.value().get(&id.client_id).map(|(s_id, _, _)| {
                 if *s_id != id {
                     log::warn!("remove, input id not the same, input id: {:?}, current id: {:?}, topic_filter: {}", id, s_id, topic_filter);
@@ -581,8 +581,8 @@ impl Router for &'static DefaultRouter {
                 }
             }).unwrap_or(false);
             if remove_enable {
-                rels.value_mut().remove(&id.client_id);
-                Some(rels.is_empty())
+                let remove_ok = rels.value_mut().remove(&id.client_id).is_some();
+                Some((rels.is_empty(), remove_ok))
             } else {
                 None
             }
@@ -591,20 +591,23 @@ impl Router for &'static DefaultRouter {
         };
 
         log::debug!(
-            "{:?} remove, topic_filter: {:?}, is_empty: {:?}",
+            "{:?} remove, topic_filter: {:?}, res: {:?}",
             id,
             topic_filter,
-            is_empty
+            res
         );
 
-        if let Some(is_empty) = is_empty {
+        let remove_ok = if let Some((is_empty, remove_ok)) = res {
             if is_empty {
                 self.relations.remove(topic_filter);
                 let topic = Topic::from_str(topic_filter)?;
                 self.topics.write().await.remove(&topic, &());
             }
-        }
-        Ok(())
+            remove_ok
+        }else{
+            false
+        };
+        Ok(remove_ok)
     }
 
     #[inline]

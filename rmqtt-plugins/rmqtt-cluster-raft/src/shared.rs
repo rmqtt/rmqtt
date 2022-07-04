@@ -172,7 +172,7 @@ impl Entry for ClusterLockEntry {
     }
 
     #[inline]
-    async fn unsubscribe(&self, unsubscribe: &Unsubscribe) -> Result<()> {
+    async fn unsubscribe(&self, unsubscribe: &Unsubscribe) -> Result<bool> {
         self.inner.unsubscribe(unsubscribe).await
     }
 

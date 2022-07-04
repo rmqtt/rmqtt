@@ -156,7 +156,7 @@ impl Router for &'static ClusterRouter {
     }
 
     #[inline]
-    async fn remove(&self, topic_filter: &str, id: Id) -> Result<()> {
+    async fn remove(&self, topic_filter: &str, id: Id) -> Result<bool> {
         log::debug!(
             "[Router.remove] topic_filter: {:?}, id: {:?}",
             topic_filter,
@@ -175,7 +175,7 @@ impl Router for &'static ClusterRouter {
                 );
             }
         });
-        Ok(())
+        Ok(true)
     }
 
     #[inline]

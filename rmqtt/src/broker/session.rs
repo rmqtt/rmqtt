@@ -513,12 +513,11 @@ impl SessionState {
             unsub.topic_filter = topic_filter;
             log::debug!("{:?} adjust topic_filter: {:?}", self.id, unsub.topic_filter);
         }
-
-        Runtime::instance().extends.shared().await.entry(self.id.clone()).unsubscribe(&unsub).await?;
-
-        //hook, session_unsubscribed
-        self.hook.session_unsubscribed(unsub).await;
-
+        let ok = Runtime::instance().extends.shared().await.entry(self.id.clone()).unsubscribe(&unsub).await?;
+        if ok {
+            //hook, session_unsubscribed
+            self.hook.session_unsubscribed(unsub).await;
+        }
         Ok(())
     }
 
