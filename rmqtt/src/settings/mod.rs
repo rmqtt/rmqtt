@@ -3,8 +3,8 @@ use std::net::SocketAddr;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::time::Duration;
+use chrono::TimeZone;
 
-// use anyhow::Result;
 use config::{Config, ConfigError, File};
 use parking_lot::RwLock;
 use serde::de::{Deserialize, Deserializer};
@@ -327,4 +327,40 @@ pub fn deserialize_addr<'de, D>(deserializer: D) -> Result<SocketAddr, D::Error>
         .parse::<std::net::SocketAddr>()
         .map_err(serde::de::Error::custom)?;
     Ok(addr)
+}
+
+#[inline]
+pub fn deserialize_addr_option<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<std::net::SocketAddr>, D::Error>
+    where
+        D: Deserializer<'de>,
+{
+    let addr = String::deserialize(deserializer).map(|mut addr|{
+        if !addr.contains(":") {
+            addr += ":0";
+        }
+        addr
+    })?;
+    let addr = addr
+        .parse::<std::net::SocketAddr>()
+        .map_err(|e| serde::de::Error::custom(e))?;
+    Ok(Some(addr))
+}
+
+#[inline]
+pub fn deserialize_time_option<'de, D>(deserializer: D) -> std::result::Result<Option<Duration>, D::Error>
+    where
+        D: Deserializer<'de>,
+{
+    let t_str = String::deserialize(deserializer)?;
+    let t = if let Ok(d) = chrono::Local.datetime_from_str(&t_str, "%Y-%m-%d %H:%M:%S") {
+        Duration::from_secs(d.timestamp() as u64)
+    } else {
+        let d = t_str
+            .parse::<u64>()
+            .map_err(|e| serde::de::Error::custom(e))?;
+        Duration::from_secs(d)
+    };
+    Ok(Some(t))
 }
