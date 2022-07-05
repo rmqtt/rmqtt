@@ -17,7 +17,7 @@ use rmqtt::{
     broker::hook::{self, Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::types::{ConnectInfo, Id, MQTT_LEVEL_5, QoSEx},
     plugin::{DynPlugin, DynPluginResult, Plugin},
-    Result, Runtime, Topic, TopicFilter
+    Result, Runtime, Topic, TopicFilter,
 };
 use rmqtt::broker::error::MqttError;
 

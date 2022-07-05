@@ -1,6 +1,9 @@
+use std::fmt;
 use std::sync::atomic::{AtomicIsize, Ordering};
 
 use once_cell::sync::OnceCell;
+
+use crate::Runtime;
 
 type Current = AtomicIsize;
 type Max = AtomicIsize;
@@ -8,15 +11,12 @@ type Max = AtomicIsize;
 #[derive(Serialize, Deserialize)]
 pub struct Counter(Current, Max);
 
-impl Clone for Counter{
-    fn clone(&self) -> Self{
+impl Clone for Counter {
+    fn clone(&self) -> Self {
         Counter(AtomicIsize::new(self.0.load(Ordering::SeqCst)),
                 AtomicIsize::new(self.1.load(Ordering::SeqCst)))
     }
 }
-
-use std::fmt;
-use crate::Runtime;
 
 impl fmt::Debug for Counter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -25,13 +25,13 @@ impl fmt::Debug for Counter {
 }
 
 impl Counter {
-    fn new() -> Self{
+    fn new() -> Self {
         Counter(AtomicIsize::new(0), AtomicIsize::new(0))
     }
 
     #[inline]
     pub fn inc(&self) {
-        let prev  = self.0.fetch_add(1, Ordering::SeqCst);
+        let prev = self.0.fetch_add(1, Ordering::SeqCst);
         self.1.fetch_max(prev + 1, Ordering::SeqCst);
     }
 
@@ -41,27 +41,27 @@ impl Counter {
     }
 
     #[inline]
-    pub fn count_min(&self, count: isize){
+    pub fn count_min(&self, count: isize) {
         self.0.fetch_min(count, Ordering::SeqCst);
     }
 
     #[inline]
-    pub fn max_max(&self, max: isize){
+    pub fn max_max(&self, max: isize) {
         self.1.fetch_max(max, Ordering::SeqCst);
     }
 
     #[inline]
-    pub fn count(&self) -> isize{
+    pub fn count(&self) -> isize {
         self.0.load(Ordering::SeqCst)
     }
 
     #[inline]
-    pub fn max(&self) -> isize{
+    pub fn max(&self) -> isize {
         self.1.load(Ordering::SeqCst)
     }
 
     #[inline]
-    fn add(&self, other: &Self){
+    fn add(&self, other: &Self) {
         self.0.fetch_add(other.0.load(Ordering::SeqCst), Ordering::SeqCst);
         self.1.fetch_add(other.1.load(Ordering::SeqCst), Ordering::SeqCst);
     }
@@ -75,9 +75,11 @@ pub struct Stats {
     pub subscriptions_shared: Counter,
     pub retaineds: Counter, //retained messages
 
-    topics_count: isize,   //subscribed_topics
+    topics_count: isize,
+    //subscribed_topics
     topics_max: isize,
-    routes_count: isize, //subscribe to the relationship
+    routes_count: isize,
+    //subscribe to the relationship
     routes_max: isize,
 }
 
@@ -100,9 +102,9 @@ impl Stats {
     }
 
     #[inline]
-    pub async fn clone(&self) -> Self{
+    pub async fn clone(&self) -> Self {
         let router = Runtime::instance().extends.router().await;
-        Self{
+        Self {
             connections: self.connections.clone(),
             sessions: self.sessions.clone(),
             subscriptions: self.subscriptions.clone(),
@@ -150,5 +152,4 @@ impl Stats {
             "routes.max": self.routes_max,
         })
     }
-
 }

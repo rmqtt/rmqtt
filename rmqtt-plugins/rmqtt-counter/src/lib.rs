@@ -170,14 +170,14 @@ impl Handler for CounterHandler {
             Parameter::SessionSubscribed(_s, _client, sub) => {
                 self.metrics.session_subscribed_inc();
                 self.stats.subscriptions.inc();
-                if sub.is_shared(){
+                if sub.is_shared() {
                     self.stats.subscriptions_shared.inc();
                 }
             }
             Parameter::SessionUnsubscribed(_s, _client, unsub) => {
                 self.metrics.session_unsubscribed_inc();
                 self.stats.subscriptions.dec();
-                if unsub.is_shared(){
+                if unsub.is_shared() {
                     self.stats.subscriptions_shared.dec();
                 }
             }

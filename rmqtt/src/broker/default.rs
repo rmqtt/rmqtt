@@ -604,7 +604,7 @@ impl Router for &'static DefaultRouter {
                 self.topics.write().await.remove(&topic, &());
             }
             remove_ok
-        }else{
+        } else {
             false
         };
         Ok(remove_ok)

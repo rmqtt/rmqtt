@@ -264,10 +264,9 @@ impl Subscribe {
 
 
     #[inline]
-    pub fn is_shared(&self) -> bool{
+    pub fn is_shared(&self) -> bool {
         self.shared_group.is_some()
     }
-
 }
 
 #[derive(Clone, Debug)]
@@ -383,7 +382,6 @@ pub struct Unsubscribe {
 }
 
 impl Unsubscribe {
-
     #[inline]
     pub fn from(topic_filter: &ByteString, shared_subscription_supported: bool) -> Result<Self> {
         let (topic_filter, shared_group) = parse_topic_filter(topic_filter, shared_subscription_supported)?;
@@ -391,7 +389,7 @@ impl Unsubscribe {
     }
 
     #[inline]
-    pub fn is_shared(&self) -> bool{
+    pub fn is_shared(&self) -> bool {
         self.shared_group.is_some()
     }
 }

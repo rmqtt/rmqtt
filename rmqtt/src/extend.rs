@@ -105,5 +105,4 @@ impl Manager {
     pub async fn shared_subscription_mut(&self) -> RwLockWriteGuard<'_, Box<dyn SharedSubscription>> {
         self.shared_subscription.write().await
     }
-
 }
