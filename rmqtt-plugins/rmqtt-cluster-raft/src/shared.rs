@@ -47,7 +47,7 @@ impl Entry for ClusterLockEntry {
                     prev_node_id = prev_id.map(|id| id.node_id);
                     log::debug!(
                         "{:?} ClusterLockEntry try_lock prev_node_id: {:?}",
-                        self.client().await.map(|c| c.id.clone()), prev_node_id
+                        self.client().map(|c| c.id.clone()), prev_node_id
                     );
                 }
             }
@@ -90,7 +90,7 @@ impl Entry for ClusterLockEntry {
     async fn kick(&mut self, clear_subscriptions: bool) -> Result<Option<SessionOfflineInfo>> {
         log::debug!(
             "{:?} ClusterLockEntry kick ..., clear_subscriptions: {}",
-            self.client().await.map(|c| c.id.clone()),
+            self.client().map(|c| c.id.clone()),
             clear_subscriptions
         );
         let id = self.id();
@@ -147,18 +147,18 @@ impl Entry for ClusterLockEntry {
     }
 
     #[inline]
-    async fn is_connected(&self) -> bool {
-        self.inner.is_connected().await
+    fn is_connected(&self) -> bool {
+        self.inner.is_connected()
     }
 
     #[inline]
-    async fn session(&self) -> Option<Session> {
-        self.inner.session().await
+    fn session(&self) -> Option<Session> {
+        self.inner.session()
     }
 
     #[inline]
-    async fn client(&self) -> Option<ClientInfo> {
-        self.inner.client().await
+    fn client(&self) -> Option<ClientInfo> {
+        self.inner.client()
     }
 
     #[inline]

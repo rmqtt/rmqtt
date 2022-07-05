@@ -32,9 +32,9 @@ pub trait Entry: Sync + Send {
     async fn set(&mut self, session: Session, tx: Tx, conn: ClientInfo) -> Result<()>;
     async fn remove(&mut self) -> Result<Option<(Session, Tx, ClientInfo)>>;
     async fn kick(&mut self, clear_subscriptions: bool) -> Result<Option<SessionOfflineInfo>>;
-    async fn is_connected(&self) -> bool;
-    async fn session(&self) -> Option<Session>;
-    async fn client(&self) -> Option<ClientInfo>;
+    fn is_connected(&self) -> bool;
+    fn session(&self) -> Option<Session>;
+    fn client(&self) -> Option<ClientInfo>;
     fn tx(&self) -> Option<Tx>;
     async fn subscribe(&self, subscribe: &Subscribe) -> Result<SubscribeReturn>;
     async fn unsubscribe(&self, unsubscribe: &Unsubscribe) -> Result<bool>;
@@ -146,7 +146,6 @@ pub trait Router: Sync + Send {
             .await
             .entry(Id::from(node_id, ClientId::from(client_id)))
             .is_connected()
-            .await
     }
 
     // ///Return number of topics
@@ -245,3 +244,6 @@ pub trait LimiterManager: Sync + Send {
 pub trait Limiter: Sync + Send {
     async fn acquire(&self, handshakings: isize) -> Result<()>;
 }
+
+
+

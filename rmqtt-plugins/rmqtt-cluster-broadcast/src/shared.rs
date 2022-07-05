@@ -55,7 +55,7 @@ impl Entry for ClusterLockEntry {
 
     #[inline]
     async fn kick(&mut self, clear_subscriptions: bool) -> Result<Option<SessionOfflineInfo>> {
-        log::debug!("{:?} ClusterLockEntry kick 1 ...", self.client().await.map(|c| c.id.clone()));
+        log::debug!("{:?} ClusterLockEntry kick 1 ...", self.client().map(|c| c.id.clone()));
         if let Some(kicked) = self.inner.kick(clear_subscriptions).await? {
             log::debug!("{:?} broadcast kick reply kicked: {:?}", self.id(), kicked);
             return Ok(Some(kicked));
@@ -94,18 +94,18 @@ impl Entry for ClusterLockEntry {
     }
 
     #[inline]
-    async fn is_connected(&self) -> bool {
-        self.inner.is_connected().await
+    fn is_connected(&self) -> bool {
+        self.inner.is_connected()
     }
 
     #[inline]
-    async fn session(&self) -> Option<Session> {
-        self.inner.session().await
+    fn session(&self) -> Option<Session> {
+        self.inner.session()
     }
 
     #[inline]
-    async fn client(&self) -> Option<ClientInfo> {
-        self.inner.client().await
+    fn client(&self) -> Option<ClientInfo> {
+        self.inner.client()
     }
 
     #[inline]

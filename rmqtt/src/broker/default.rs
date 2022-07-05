@@ -123,7 +123,7 @@ impl super::Entry for LockEntry {
     async fn kick(&mut self, clear_subscriptions: bool) -> Result<Option<SessionOfflineInfo>> {
         log::debug!(
             "{:?} LockEntry kick ..., clear_subscriptions: {}",
-            self.client().await.map(|c| c.id.clone()),
+            self.client().map(|c| c.id.clone()),
             clear_subscriptions
         );
         //@TODO ... check ID whether is same ...
@@ -148,7 +148,7 @@ impl super::Entry for LockEntry {
     }
 
     #[inline]
-    async fn is_connected(&self) -> bool {
+    fn is_connected(&self) -> bool {
         if let Some(entry) = self.shared.peers.get(&self.id.client_id) {
             entry.c.connected.load(Ordering::SeqCst)
         } else {
@@ -157,12 +157,12 @@ impl super::Entry for LockEntry {
     }
 
     #[inline]
-    async fn session(&self) -> Option<Session> {
+    fn session(&self) -> Option<Session> {
         self.shared.peers.get(&self.id.client_id).map(|peer| peer.s.clone())
     }
 
     #[inline]
-    async fn client(&self) -> Option<ClientInfo> {
+    fn client(&self) -> Option<ClientInfo> {
         self.shared.peers.get(&self.id.client_id).map(|peer| peer.c.clone())
     }
 

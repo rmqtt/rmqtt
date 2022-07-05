@@ -242,9 +242,9 @@ async fn session(id: String) -> serde_json::Value {
         .await
         .entry(Id::from(Runtime::instance().node.id(), ClientId::from(id)));
 
-    let session_info = if let Some(s) = entry.session().await { Some(s.to_json().await) } else { None };
+    let session_info = if let Some(s) = entry.session() { Some(s.to_json().await) } else { None };
 
-    let client_info = if let Some(c) = entry.client().await { Some(c.to_json().await) } else { None };
+    let client_info = if let Some(c) = entry.client() { Some(c.to_json().await) } else { None };
 
     serde_json::json!({
         "session": session_info,
