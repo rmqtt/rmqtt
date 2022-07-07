@@ -3,7 +3,6 @@ use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use bytes::Bytes;
 use futures::FutureExt;
 
 use client::NodeGrpcClient;
@@ -34,11 +33,11 @@ pub enum Message {
     GetRetains(TopicFilter),
     NumberOfClients,
     NumberOfSessions,
+    Bytes(Vec<u8>),
     BrokerInfo,
     NodeInfo,
     StateInfo,
     MetricsInfo,
-    Bytes(Bytes),
 }
 
 impl Message {
@@ -61,11 +60,11 @@ pub enum MessageReply {
     GetRetains(Vec<(TopicName, Retain)>),
     NumberOfClients(usize),
     NumberOfSessions(usize),
+    Bytes(Vec<u8>),
     BrokerInfo(BrokerInfo),
     NodeInfo(NodeInfo),
     StateInfo(NodeStatus, Box<Stats>),
     MetricsInfo(Metrics),
-    Bytes(Vec<u8>),
 }
 
 

@@ -48,6 +48,7 @@ pub type SharedGroup = String;
 pub type IsDisconnect = bool;
 pub type MessageExpiry = bool;
 pub type TimestampMillis = i64;
+pub type Timestamp = i64;
 pub type IsOnline = bool;
 
 pub type Tx = mpsc::UnboundedSender<Message>;
@@ -144,6 +145,24 @@ impl ConnectInfo {
             ConnectInfo::V5(_, conn_info) => conn_info.username.as_ref(),
         }
     }
+
+    #[inline]
+    pub fn clean_start(&self) -> bool{
+        match self {
+            ConnectInfo::V3(_, conn_info) => conn_info.clean_session,
+            ConnectInfo::V5(_, conn_info) => conn_info.clean_start,
+        }
+    }
+
+    #[inline]
+    pub fn proto_ver(&self) -> u8{
+        match self {
+            ConnectInfo::V3(_, conn_info) => conn_info.protocol.level(),
+            ConnectInfo::V5(_, _) => 5,
+        }
+    }
+
+
 }
 
 #[derive(Debug, Clone, PartialEq)]

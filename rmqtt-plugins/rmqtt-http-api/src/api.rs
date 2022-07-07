@@ -6,14 +6,19 @@ use salvo::prelude::*;
 use rmqtt::{anyhow, HashMap, log, serde_json::{self, json}, tokio::sync::oneshot};
 use rmqtt::{
     broker::types::NodeId,
-    grpc::{Message, MessageBroadcaster, MessageReply, MessageSender},
+    grpc::{Message as GrpcMessage,
+           MessageReply as GrpcMessageReply,
+           MessageBroadcaster,
+           MessageSender,
+           MessageType},
     node::NodeStatus,
     Result,
     Runtime,
 };
-use rmqtt::grpc::MessageType;
 
 use super::PluginConfigType;
+use super::clients;
+use super::types::{Message, MessageReply, ClientSearchParams};
 
 fn route(cfg: PluginConfigType) -> Router {
     Router::with_path("api/v1")
@@ -28,6 +33,10 @@ fn route(cfg: PluginConfigType) -> Router {
             Router::with_path("nodes")
                 .get(get_nodes)
                 .push(Router::with_path("<id>").get(get_nodes))
+        )
+        .push(
+            Router::with_path("clients")
+                .get(search_clients)
         )
         .push(
             Router::with_path("stats")
@@ -68,6 +77,14 @@ async fn list_apis(res: &mut Response) {
           "path": "/nodes/{node}",
           "descr": "Returns the status of the node"
         },
+
+        {
+          "name": "search_clients",
+          "method": "GET",
+          "path": "/clients/",
+          "descr": "Search clients information from the cluster"
+        },
+
         {
           "name": "get_stats",
           "method": "GET",
@@ -125,13 +142,13 @@ async fn _get_broker(message_type: MessageType, id: NodeId) -> Option<serde_json
     } else {
         let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
         if let Some((_, c)) = grpc_clients.get(&id) {
-            let reply = MessageSender::new(c.clone(), message_type, Message::BrokerInfo)
+            let reply = MessageSender::new(c.clone(), message_type, GrpcMessage::BrokerInfo)
                 .send().await;
             let broker_info = match reply {
-                Ok(MessageReply::BrokerInfo(broker_info)) => broker_info.to_json(),
+                Ok(GrpcMessageReply::BrokerInfo(broker_info)) => broker_info.to_json(),
                 Ok(_) => unreachable!(),
                 Err(e) => {
-                    log::warn!("Get Message::BrokerInfo from other node, error: {:?}", e);
+                    log::warn!("Get GrpcMessage::BrokerInfo from other node, error: {:?}", e);
                     serde_json::Value::String(e.to_string())
                 }
             };
@@ -148,15 +165,15 @@ async fn _get_brokers(message_type: MessageType) -> Vec<serde_json::Value> {
     let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
         let replys =
-            MessageBroadcaster::new(grpc_clients, message_type, Message::BrokerInfo)
+            MessageBroadcaster::new(grpc_clients, message_type, GrpcMessage::BrokerInfo)
                 .join_all()
                 .await
                 .drain(..)
                 .map(|reply| match reply {
-                    (_, Ok(MessageReply::BrokerInfo(broker_info))) => broker_info.to_json(),
+                    (_, Ok(GrpcMessageReply::BrokerInfo(broker_info))) => broker_info.to_json(),
                     (_, Ok(_)) => unreachable!(),
                     (id, Err(e)) => {
-                        log::warn!("Get Message::BrokerInfo from other node({}), error: {:?}", id, e);
+                        log::warn!("Get GrpcMessage::BrokerInfo from other node({}), error: {:?}", id, e);
                         serde_json::Value::String(e.to_string())
                     }
                 })
@@ -191,13 +208,13 @@ async fn _get_node(message_type: MessageType, id: NodeId) -> Option<serde_json::
     } else {
         let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
         if let Some((_, c)) = grpc_clients.get(&id) {
-            let reply = MessageSender::new(c.clone(), message_type, Message::NodeInfo)
+            let reply = MessageSender::new(c.clone(), message_type, GrpcMessage::NodeInfo)
                 .send().await;
             let node_info = match reply {
-                Ok(MessageReply::NodeInfo(node_info)) => node_info.to_json(),
+                Ok(GrpcMessageReply::NodeInfo(node_info)) => node_info.to_json(),
                 Ok(_) => unreachable!(),
                 Err(e) => {
-                    log::warn!("Get Message::NodeInfo from other node, error: {:?}", e);
+                    log::warn!("Get GrpcMessage::NodeInfo from other node, error: {:?}", e);
                     serde_json::Value::String(e.to_string())
                 }
             };
@@ -214,15 +231,15 @@ async fn _get_nodes(message_type: MessageType) -> Vec<serde_json::Value> {
     let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
         let replys =
-            MessageBroadcaster::new(grpc_clients, message_type, Message::NodeInfo)
+            MessageBroadcaster::new(grpc_clients, message_type, GrpcMessage::NodeInfo)
                 .join_all()
                 .await
                 .drain(..)
                 .map(|reply| match reply {
-                    (_, Ok(MessageReply::NodeInfo(node_info))) => node_info.to_json(),
+                    (_, Ok(GrpcMessageReply::NodeInfo(node_info))) => node_info.to_json(),
                     (_, Ok(_)) => unreachable!(),
                     (id, Err(e)) => {
-                        log::warn!("Get Message::NodeInfo from other node({}), error: {:?}", id, e);
+                        log::warn!("Get GrpcMessage::NodeInfo from other node({}), error: {:?}", id, e);
                         serde_json::Value::String(e.to_string())
                     }
                 })
@@ -230,6 +247,64 @@ async fn _get_nodes(message_type: MessageType) -> Vec<serde_json::Value> {
         nodes.extend(replys);
     }
     nodes
+}
+
+#[fn_handler]
+async fn search_clients(req: &mut Request, depot: &mut Depot, res: &mut Response){
+    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+    let message_type = cfg.read().message_type;
+    let max_row_limit = cfg.read().max_row_limit;
+    let mut q = match req.parse_queries::<ClientSearchParams>(){
+        Ok(q) => q,
+        Err(e) => return res.set_status_error(StatusError::bad_request().with_detail(e.to_string()))
+    };
+
+    if q._limit == 0 || q._limit > max_row_limit {
+        q._limit = max_row_limit;
+    }
+    match _search_clients(message_type, q).await{
+        Ok(replys) => {
+            res.render(Json(replys))
+        },
+        Err(e) => {
+            res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string()))
+        }
+    }
+}
+
+async fn _search_clients(message_type: MessageType, mut q: ClientSearchParams) -> Result<Vec<serde_json::Value>>{
+
+    let mut replys = clients::search(&q).await;
+    let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
+    for (_id, (_addr, c)) in grpc_clients.iter(){
+        if replys.len() < q._limit {
+            q._limit -= replys.len();
+
+            let q = Message::ClientSearch(q.clone()).encode()?;
+            let reply = MessageSender::new(c.clone(), message_type, GrpcMessage::Bytes(q))
+                .send().await;
+            match reply {
+                Ok(GrpcMessageReply::Bytes(res)) => {
+                    match MessageReply::decode(&res)? {
+                        MessageReply::ClientSearch(ress) => {
+                            replys.extend(ress);
+                        },
+                        _ => unreachable!()
+                    }
+                },
+                Err(e) => {
+                    log::warn!("_search_clients, error: {:?}", e);
+                }
+                _ => unreachable!(),
+            };
+        }else{
+            break;
+        }
+    }
+
+    let replys = replys.iter()
+        .map(|res|res.to_json()).collect::<Vec<_>>();
+    Ok(replys)
 }
 
 #[fn_handler]
@@ -247,11 +322,11 @@ async fn get_stats_sum(depot: &mut Depot, res: &mut Response) {
     let mut stats_sum = Runtime::instance().stats.clone().await;
     let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
-        for reply in MessageBroadcaster::new(grpc_clients, message_type, Message::StateInfo)
+        for reply in MessageBroadcaster::new(grpc_clients, message_type, GrpcMessage::StateInfo)
             .join_all()
             .await {
             match reply {
-                (id, Ok(MessageReply::StateInfo(node_status, stats))) => {
+                (id, Ok(GrpcMessageReply::StateInfo(node_status, stats))) => {
                     nodes.insert(id, json!({
                         "name": Runtime::instance().node.name(id).await,
                         "status": node_status,
@@ -260,7 +335,7 @@ async fn get_stats_sum(depot: &mut Depot, res: &mut Response) {
                 }
                 (_, Ok(_)) => unreachable!(),
                 (id, Err(e)) => {
-                    log::warn!("Get Message::StateInfo from other node({}), error: {:?}", id, e);
+                    log::warn!("Get GrpcMessage::StateInfo from other node({}), error: {:?}", id, e);
                     nodes.insert(id, serde_json::Value::String(e.to_string()));
                 }
             };
@@ -302,13 +377,13 @@ async fn _get_stats_one(message_type: MessageType, id: NodeId) -> Option<serde_j
     } else {
         let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
         if let Some((_, c)) = grpc_clients.get(&id) {
-            let reply = MessageSender::new(c.clone(), message_type, Message::StateInfo)
+            let reply = MessageSender::new(c.clone(), message_type, GrpcMessage::StateInfo)
                 .send().await;
             let stats = match reply {
-                Ok(MessageReply::StateInfo(node_status, stats)) => _build_stats(id, node_status, stats.to_json()).await,
+                Ok(GrpcMessageReply::StateInfo(node_status, stats)) => _build_stats(id, node_status, stats.to_json()).await,
                 Ok(_) => unreachable!(),
                 Err(e) => {
-                    log::warn!("Get Message::StateInfo from other node, error: {:?}", e);
+                    log::warn!("Get GrpcMessage::StateInfo from other node, error: {:?}", e);
                     serde_json::Value::String(e.to_string())
                 }
             };
@@ -328,16 +403,16 @@ async fn _get_stats_all(message_type: MessageType) -> Vec<serde_json::Value> {
 
     let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
-        for reply in MessageBroadcaster::new(grpc_clients, message_type, Message::StateInfo)
+        for reply in MessageBroadcaster::new(grpc_clients, message_type, GrpcMessage::StateInfo)
             .join_all()
             .await {
             let data = match reply {
-                (id, Ok(MessageReply::StateInfo(node_status, state))) => {
+                (id, Ok(GrpcMessageReply::StateInfo(node_status, state))) => {
                     _build_stats(id, node_status, state.to_json()).await
                 }
                 (_, Ok(_)) => unreachable!(),
                 (id, Err(e)) => {
-                    log::warn!("Get Message::StateInfo from other node({}), error: {:?}", id, e);
+                    log::warn!("Get GrpcMessage::StateInfo from other node({}), error: {:?}", id, e);
                     serde_json::Value::String(e.to_string())
                 }
             };
@@ -388,13 +463,13 @@ async fn _get_metrics_one(message_type: MessageType, id: NodeId) -> Option<serde
     } else {
         let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
         if let Some((_, c)) = grpc_clients.get(&id) {
-            let reply = MessageSender::new(c.clone(), message_type, Message::MetricsInfo)
+            let reply = MessageSender::new(c.clone(), message_type, GrpcMessage::MetricsInfo)
                 .send().await;
             let metrics = match reply {
-                Ok(MessageReply::MetricsInfo(metrics)) => _build_metrics(id, metrics.to_json()).await,
+                Ok(GrpcMessageReply::MetricsInfo(metrics)) => _build_metrics(id, metrics.to_json()).await,
                 Ok(_) => unreachable!(),
                 Err(e) => {
-                    log::warn!("Get Message::MetricsInfo from other node, error: {:?}", e);
+                    log::warn!("Get GrpcMessage::MetricsInfo from other node, error: {:?}", e);
                     serde_json::Value::String(e.to_string())
                 }
             };
@@ -414,15 +489,15 @@ async fn _get_metrics_all(message_type: MessageType) -> Vec<serde_json::Value> {
     let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
         let replys =
-            MessageBroadcaster::new(grpc_clients, message_type, Message::MetricsInfo)
+            MessageBroadcaster::new(grpc_clients, message_type, GrpcMessage::MetricsInfo)
                 .join_all()
                 .await;
         for reply in replys {
             let data = match reply {
-                (id, Ok(MessageReply::MetricsInfo(metrics))) => _build_metrics(id, metrics.to_json()).await,
+                (id, Ok(GrpcMessageReply::MetricsInfo(metrics))) => _build_metrics(id, metrics.to_json()).await,
                 (_, Ok(_)) => unreachable!(),
                 (id, Err(e)) => {
-                    log::warn!("Get Message::MetricsInfo from other node({}), error: {:?}", id, e);
+                    log::warn!("Get GrpcMessage::MetricsInfo from other node({}), error: {:?}", id, e);
                     serde_json::Value::String(e.to_string())
                 }
             };
@@ -440,16 +515,16 @@ async fn get_metrics_sum(depot: &mut Depot, res: &mut Response) {
     let mut metrics_sum = Runtime::instance().metrics.clone();
     let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
-        for reply in MessageBroadcaster::new(grpc_clients, message_type, Message::MetricsInfo)
+        for reply in MessageBroadcaster::new(grpc_clients, message_type, GrpcMessage::MetricsInfo)
             .join_all()
             .await {
             match reply {
-                (_id, Ok(MessageReply::MetricsInfo(metrics))) => {
+                (_id, Ok(GrpcMessageReply::MetricsInfo(metrics))) => {
                     metrics_sum.add(&metrics);
                 }
                 (_, Ok(_)) => unreachable!(),
                 (id, Err(e)) => {
-                    log::warn!("Get Message::MetricsInfo from other node({}), error: {:?}", id, e);
+                    log::warn!("Get GrpcMessage::MetricsInfo from other node({}), error: {:?}", id, e);
                     //nodes.insert(id, serde_json::Value::String(e.to_string()));
                 }
             };
@@ -471,3 +546,5 @@ async fn _build_metrics(id: NodeId, metrics: serde_json::Value) -> serde_json::V
     });
     data
 }
+
+

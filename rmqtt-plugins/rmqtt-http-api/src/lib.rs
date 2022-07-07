@@ -19,7 +19,9 @@ use rmqtt::{
 
 mod config;
 mod api;
+mod clients;
 mod handler;
+mod types;
 
 type ShutdownTX = oneshot::Sender<()>;
 type PluginConfigType = Arc<RwLock<PluginConfig>>;
