@@ -8,6 +8,8 @@ use chrono::TimeZone;
 use config::{Config, ConfigError, File};
 use parking_lot::RwLock;
 use serde::de::{Deserialize, Deserializer};
+use serde::ser::Serializer;
+use serde::Serialize;
 
 use crate::{NodeId, Result};
 
@@ -349,18 +351,34 @@ pub fn deserialize_addr_option<'de, D>(
 }
 
 #[inline]
-pub fn deserialize_time_option<'de, D>(deserializer: D) -> std::result::Result<Option<Duration>, D::Error>
+pub fn deserialize_duration_option<'de, D>(deserializer: D) -> std::result::Result<Option<Duration>, D::Error>
     where
         D: Deserializer<'de>,
 {
     let t_str = String::deserialize(deserializer)?;
-    let t = if let Ok(d) = chrono::Local.datetime_from_str(&t_str, "%Y-%m-%d %H:%M:%S") {
-        Duration::from_secs(d.timestamp() as u64)
-    } else {
-        let d = t_str
-            .parse::<u64>()
-            .map_err(|e| serde::de::Error::custom(e))?;
-        Duration::from_secs(d)
-    };
-    Ok(Some(t))
+    if t_str.is_empty(){
+        Ok(None)
+    }else {
+        let t = if let Ok(d) = chrono::Local.datetime_from_str(&t_str, "%Y-%m-%d %H:%M:%S") {
+            Duration::from_secs(d.timestamp() as u64)
+        } else {
+            let d = t_str
+                .parse::<u64>()
+                .map_err(|e| serde::de::Error::custom(e))?;
+            Duration::from_secs(d)
+        };
+        Ok(Some(t))
+    }
+}
+
+#[inline]
+pub fn serialize_duration_option<S>(t: &Option<Duration>, s: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+{
+    if let Some(t) = t{
+        t.as_secs().to_string().serialize(s)
+    }else{
+        "".serialize(s)
+    }
 }
