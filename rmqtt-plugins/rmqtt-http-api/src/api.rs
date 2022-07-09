@@ -389,7 +389,7 @@ async fn _search_clients(message_type: MessageType, mut q: ClientSearchParams) -
         if replys.len() < q._limit {
             q._limit -= replys.len();
 
-            let q = Message::ClientSearch(q.clone()).encode()?;
+            let q = Message::ClientSearch(Box::new(q.clone())).encode()?;
             let reply = MessageSender::new(c.clone(), message_type, GrpcMessage::Data(q))
                 .send().await;
             match reply {

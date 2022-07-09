@@ -13,7 +13,7 @@ pub enum Message<'a> {
     NodeInfo,
     StatsInfo,
     MetricsInfo,
-    ClientSearch(ClientSearchParams),
+    ClientSearch(Box<ClientSearchParams>),
     ClientGet { clientid: &'a str },
 }
 

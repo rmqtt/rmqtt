@@ -339,14 +339,14 @@ pub fn deserialize_addr_option<'de, D>(
         D: Deserializer<'de>,
 {
     let addr = String::deserialize(deserializer).map(|mut addr| {
-        if !addr.contains(":") {
+        if !addr.contains(':') {
             addr += ":0";
         }
         addr
     })?;
     let addr = addr
         .parse::<std::net::SocketAddr>()
-        .map_err(|e| serde::de::Error::custom(e))?;
+        .map_err(serde::de::Error::custom)?;
     Ok(Some(addr))
 }
 
@@ -364,7 +364,7 @@ pub fn deserialize_duration_option<'de, D>(deserializer: D) -> std::result::Resu
         } else {
             let d = t_str
                 .parse::<u64>()
-                .map_err(|e| serde::de::Error::custom(e))?;
+                .map_err(serde::de::Error::custom)?;
             Duration::from_secs(d)
         };
         Ok(Some(t))

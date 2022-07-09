@@ -22,16 +22,15 @@ pub(crate) async fn search(q: &SearchParams) -> Vec<SearchResult> {
     let limit = q._limit;
     let mut curr: usize = 0;
     let peers = Runtime::instance().extends.shared().await.iter()
-        .filter(|entry| filtering(q, entry))
+        .filter(|entry| filtering(q, entry.as_ref()))
         .filter_map(|entry| {
             if curr < limit {
                 curr += 1;
-                Some((entry.session().clone(), entry.client().clone()))
+                Some((entry.session(), entry.client()))
             } else {
                 None
             }
-        })
-        .collect::<Vec<_>>();
+        });
 
     let futs = peers.into_iter()
         .map(|(s, c)| build_result(s, c))
@@ -86,7 +85,7 @@ async fn build_result(s: Option<Session>, c: Option<ClientInfo>) -> SearchResult
     }
 }
 
-fn filtering(q: &SearchParams, entry: &Box<dyn Entry>) -> bool {
+fn filtering(q: &SearchParams, entry: &dyn Entry) -> bool {
     let s = if let Some(s) = entry.session() {
         s
     } else {
@@ -129,9 +128,7 @@ fn filtering(q: &SearchParams, entry: &Box<dyn Entry>) -> bool {
 
     if let Some(clean_start) = &q.clean_start {
         let is_clean_start = !c.session_present;
-        if *clean_start && !is_clean_start {
-            return false;
-        } else if !*clean_start && is_clean_start {
+        if *clean_start && !is_clean_start || !*clean_start && is_clean_start {
             return false;
         }
     }
