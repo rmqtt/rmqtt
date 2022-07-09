@@ -27,6 +27,7 @@ pub use ntex_mqtt::v5::{
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer, SerializeStruct};
 use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 
 use crate::{MqttError, Result};
 
@@ -50,6 +51,7 @@ pub type MessageExpiry = bool;
 pub type TimestampMillis = i64;
 pub type Timestamp = i64;
 pub type IsOnline = bool;
+pub type IsAdmin = bool;
 
 pub type Tx = mpsc::UnboundedSender<Message>;
 pub type Rx = mpsc::UnboundedReceiver<Message>;
@@ -980,7 +982,7 @@ pub struct Retain {
 #[derive(Debug)]
 pub enum Message {
     Forward(From, Publish),
-    Kick(mpsc::UnboundedSender<()>, Id),
+    Kick(oneshot::Sender<()>, Id, IsAdmin),
     Disconnect(Disconnect),
     Closed(Reason),
     Keepalive,

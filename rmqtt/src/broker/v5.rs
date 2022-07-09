@@ -118,7 +118,7 @@ pub async fn handshake<Io>(
     };
 
     // Kick out the current session, if it exists
-    let (session_present, offline_info) = match entry.kick(packet.clean_start).await {
+    let (session_present, offline_info) = match entry.kick(packet.clean_start, false).await {
         Err(e) => {
             return Ok(refused_ack(
                 handshake,

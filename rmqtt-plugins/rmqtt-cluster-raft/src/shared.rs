@@ -5,15 +5,14 @@ use once_cell::sync::OnceCell;
 
 use rmqtt::{broker::{
     default::DefaultShared,
-    Entry,
+    Entry, Shared, SubRelations, SubRelationsMap,
     session::{ClientInfo, Session, SessionOfflineInfo},
-    Shared, SubRelations, SubRelationsMap, types::{From, Id, NodeId, Publish, Reason, SessionStatus,
+    types::{From, Id, NodeId, Publish, Reason, SessionStatus, IsAdmin,
                                                    Subscribe, SubscribeReturn, To, Tx, Unsubscribe},
 }, grpc::{Message, MessageReply, MessageType}, MqttError, Result, Runtime};
 
 use super::{ClusterRouter, GrpcClients, MessageSender, NodeGrpcClient};
-use super::message::Message as RaftMessage;
-use super::message::MessageReply as RaftMessageReply;
+use super::message::{MessageReply as RaftMessageReply, Message as RaftMessage, get_client_node_id};
 
 pub struct ClusterLockEntry {
     inner: Box<dyn Entry>,
@@ -50,6 +49,7 @@ impl Entry for ClusterLockEntry {
                         self.client().map(|c| c.id.clone()), prev_node_id
                     );
                 }
+                // _ => unreachable!()
             }
         }
         Ok(Box::new(ClusterLockEntry::new(self.inner.try_lock().await?, self.cluster_shared, prev_node_id)))
@@ -92,26 +92,32 @@ impl Entry for ClusterLockEntry {
     }
 
     #[inline]
-    async fn kick(&mut self, clear_subscriptions: bool) -> Result<Option<SessionOfflineInfo>> {
+    async fn kick(&mut self, clear_subscriptions: bool, is_admin: IsAdmin) -> Result<Option<SessionOfflineInfo>> {
         log::debug!(
-            "{:?} ClusterLockEntry kick ..., clear_subscriptions: {}",
+            "{:?} ClusterLockEntry kick ..., clear_subscriptions: {}, is_admin: {}",
             self.client().map(|c| c.id.clone()),
-            clear_subscriptions
+            clear_subscriptions, is_admin
         );
         let id = self.id();
 
-        log::debug!("{:?} kick, prev_node_id: {:?}", id, self.prev_node_id);
-        let prev_node_id = self.prev_node_id.unwrap_or(id.node_id);
+        let prev_node_id = if is_admin {
+            let raft_mailbox = self.cluster_shared.router.raft_mailbox().await;
+            let node_id = get_client_node_id(raft_mailbox, &id.client_id).await?;
+            node_id.unwrap_or(id.node_id)
+        }else{
+            self.prev_node_id.unwrap_or(id.node_id)
+        };
+        log::debug!("{:?} kick, prev_node_id: {:?}, is_admin: {}", id, self.prev_node_id, is_admin);
         if prev_node_id == id.node_id {
             //kicked from local
-            self.inner.kick(clear_subscriptions).await
+            self.inner.kick(clear_subscriptions, is_admin).await
         } else {
             //kicked from other node
             if let Some(client) = self.cluster_shared.grpc_client(prev_node_id) {
                 let mut msg_sender = MessageSender {
                     client,
                     msg_type: self.cluster_shared.message_type,
-                    msg: Message::Kick(id.clone(), true), //clear_subscriptions
+                    msg: Message::Kick(id.clone(), true, is_admin), //clear_subscriptions
                     max_retries: 0,
                     retry_interval: Duration::from_millis(500),
                 };
@@ -141,12 +147,10 @@ impl Entry for ClusterLockEntry {
                     }
                 }
             } else {
-                log::error!(
-                    "{:?} kick error, grpc_client is not exist, prev_node_id: {:?}",
-                    id,
-                    prev_node_id,
-                );
-                Ok(None)
+                return Err(MqttError::Msg(format!(
+                    "kick error, grpc_client is not exist, prev_node_id: {:?}",
+                    prev_node_id
+                )));
             }
         }
     }

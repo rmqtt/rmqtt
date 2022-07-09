@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use salvo::extra::affix;
 use salvo::prelude::*;
 
-use rmqtt::{anyhow, HashMap, log, MqttError, serde_json::{self, json}, tokio::sync::oneshot};
+use rmqtt::{anyhow, ClientId, HashMap, Id, log, MqttError, serde_json::{self, json}, tokio::sync::oneshot};
 use rmqtt::{
     broker::types::NodeId,
     grpc::{Message as GrpcMessage,
@@ -37,7 +37,9 @@ fn route(cfg: PluginConfigType) -> Router {
         .push(
             Router::with_path("clients")
                 .get(search_clients)
-                .push(Router::with_path("<clientid>").get(get_client))
+                .push(Router::with_path("<clientid>")
+                    .get(get_client)
+                    .delete(kick_client))
         )
         .push(
             Router::with_path("stats")
@@ -90,6 +92,12 @@ async fn list_apis(res: &mut Response) {
           "method": "GET",
           "path": "/clients/{clientid}",
           "descr": "Get client information from the cluster"
+        },
+        {
+          "name": "kick_client",
+          "method": "DELETE",
+          "path": "/clients/{clientid}",
+          "descr": "Kick client from the cluster"
         },
 
         {
@@ -406,6 +414,35 @@ async fn _search_clients(message_type: MessageType, mut q: ClientSearchParams) -
     let replys = replys.iter()
         .map(|res| res.to_json()).collect::<Vec<_>>();
     Ok(replys)
+}
+
+#[fn_handler]
+async fn kick_client(req: &mut Request, res: &mut Response) {
+
+    let clientid = req.param::<String>("clientid");
+    if let Some(clientid) = clientid {
+
+        let mut entry = Runtime::instance()
+            .extends
+            .shared()
+            .await
+            .entry(Id::from(Runtime::instance().node.id(), ClientId::from(clientid)));
+
+        match entry.kick(true, true).await{
+            Err(e) => {
+                res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string()))
+            }
+            Ok(None) => {
+                res.set_status_code(StatusCode::NOT_FOUND)
+            },
+            Ok(Some(offline_info)) => {
+                res.render(Json(offline_info.id))
+            },
+        }
+
+    } else {
+        res.set_status_error(StatusError::bad_request())
+    }
 }
 
 #[fn_handler]

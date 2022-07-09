@@ -9,7 +9,7 @@ use client::NodeGrpcClient;
 
 use crate::broker::{ClearSubscriptions, SubRelations, SubRelationsMap};
 use crate::broker::session::SessionOfflineInfo;
-use crate::broker::types::{From, Id, NodeId, Publish, Retain, TopicFilter, TopicName};
+use crate::broker::types::{From, Id, NodeId, Publish, Retain, TopicFilter, TopicName, IsAdmin};
 use crate::Result;
 
 pub mod client;
@@ -27,7 +27,7 @@ pub type MessageType = u64;
 pub enum Message {
     Forwards(From, Publish),
     ForwardsTo(From, Publish, SubRelations),
-    Kick(Id, ClearSubscriptions),
+    Kick(Id, ClearSubscriptions, IsAdmin),
     GetRetains(TopicFilter),
     NumberOfClients,
     NumberOfSessions,

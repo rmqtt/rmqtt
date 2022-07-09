@@ -31,7 +31,7 @@ pub trait Entry: Sync + Send {
     fn id(&self) -> Id;
     async fn set(&mut self, session: Session, tx: Tx, conn: ClientInfo) -> Result<()>;
     async fn remove(&mut self) -> Result<Option<(Session, Tx, ClientInfo)>>;
-    async fn kick(&mut self, clear_subscriptions: bool) -> Result<Option<SessionOfflineInfo>>;
+    async fn kick(&mut self, clear_subscriptions: bool, is_admin: IsAdmin) -> Result<Option<SessionOfflineInfo>>;
     fn is_connected(&self) -> bool;
     fn session(&self) -> Option<Session>;
     fn client(&self) -> Option<ClientInfo>;

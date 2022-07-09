@@ -1,5 +1,7 @@
-use rmqtt::broker::types::{Id, QoS, SharedGroup};
+use rmqtt::broker::types::{Id, QoS, SharedGroup, NodeId};
 use rmqtt::Result;
+
+use super::Mailbox;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Message<'a> {
@@ -57,5 +59,17 @@ impl MessageReply {
     #[inline]
     pub fn decode(data: &[u8]) -> Result<MessageReply> {
         Ok(bincode::deserialize::<MessageReply>(data).map_err(anyhow::Error::new)?)
+    }
+}
+
+#[inline]
+pub(crate) async fn get_client_node_id(raft_mailbox: Mailbox, client_id: &str) -> Result<Option<NodeId>>{
+    let msg = Message::GetClientNodeId { client_id }
+        .encode()?;
+    let reply = raft_mailbox.query(msg).await.map_err(anyhow::Error::new)?;
+    if !reply.is_empty() {
+        Ok(bincode::deserialize(&reply).map_err(anyhow::Error::new)?)
+    }else{
+        Ok(None)
     }
 }

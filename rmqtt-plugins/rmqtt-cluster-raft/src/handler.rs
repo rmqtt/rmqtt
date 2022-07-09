@@ -72,9 +72,9 @@ impl Handler for HookHandler {
                         }
                         return (false, acc);
                     }
-                    GrpcMessage::Kick(id, clear_subscriptions) => {
+                    GrpcMessage::Kick(id, clear_subscriptions, is_admin) => {
                         let mut entry = self.shared.inner().entry(id.clone());
-                        let new_acc = match entry.kick(*clear_subscriptions).await {
+                        let new_acc = match entry.kick(*clear_subscriptions, *is_admin).await {
                             Ok(o) => HookResult::GrpcMessageReply(Ok(MessageReply::Kick(o))),
                             Err(e) => HookResult::GrpcMessageReply(Err(e)),
                         };

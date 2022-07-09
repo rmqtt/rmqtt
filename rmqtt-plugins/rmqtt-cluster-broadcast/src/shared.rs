@@ -6,10 +6,11 @@ use rmqtt::{
     AsStr,
     broker::{
         default::DefaultShared,
-        Entry,
-        session::{ClientInfo, Session, SessionOfflineInfo}, Shared, SubRelations, SubRelationsMap, types::{
+        Entry, Shared, SubRelations, SubRelationsMap,
+        session::{ClientInfo, Session, SessionOfflineInfo},
+        types::{
             ClientId, From, Id, IsOnline, NodeId, Publish, QoS, Reason, SessionStatus, SharedGroup, Subscribe,
-            SubscribeReturn, To, TopicFilter, TopicFilterString, Tx, Unsubscribe,
+            SubscribeReturn, To, TopicFilter, TopicFilterString, Tx, Unsubscribe, IsAdmin
         },
     },
     grpc::{GrpcClients, Message, MessageReply, MessageType}, Result, Runtime,
@@ -59,9 +60,9 @@ impl Entry for ClusterLockEntry {
     }
 
     #[inline]
-    async fn kick(&mut self, clear_subscriptions: bool) -> Result<Option<SessionOfflineInfo>> {
+    async fn kick(&mut self, clear_subscriptions: bool, is_admin: IsAdmin) -> Result<Option<SessionOfflineInfo>> {
         log::debug!("{:?} ClusterLockEntry kick 1 ...", self.client().map(|c| c.id.clone()));
-        if let Some(kicked) = self.inner.kick(clear_subscriptions).await? {
+        if let Some(kicked) = self.inner.kick(clear_subscriptions, is_admin).await? {
             log::debug!("{:?} broadcast kick reply kicked: {:?}", self.id(), kicked);
             return Ok(Some(kicked));
         }
@@ -69,7 +70,7 @@ impl Entry for ClusterLockEntry {
         match MessageBroadcaster::new(
             self.cluster_shared.grpc_clients.clone(),
             self.cluster_shared.message_type,
-            Message::Kick(self.id(), true),
+            Message::Kick(self.id(), true, is_admin),
         )
             .kick()
             .await
