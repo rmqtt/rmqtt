@@ -98,6 +98,11 @@ impl ClusterRouter {
     }
 
     #[inline]
+    pub(crate) fn remove_client_status(&self, client_id: &str) {
+        self.client_statuses.remove(client_id);
+    }
+
+    #[inline]
     pub(crate) fn all_onlines(&self) -> usize {
         self.client_statuses
             .iter()
