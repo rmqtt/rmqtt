@@ -1,8 +1,23 @@
 
 use rmqtt::{Runtime, broker::Entry, Session, ClientInfo, TimestampMillis};
-use rmqtt::{chrono, futures};
+use rmqtt::{chrono, futures, log};
 
 use super::types::{ClientSearchParams as SearchParams, ClientSearchResult as SearchResult};
+
+pub(crate) async fn get(clientid: &str) -> Option<SearchResult>{
+    let shared = Runtime::instance().extends.shared().await;
+    if !shared.exist(clientid){
+        return None;
+    }
+    let id = shared.id(clientid)?;
+    let peer = shared.entry(id);
+    let (s, c) = if let (Some(s), Some(c)) = (peer.session(), peer.client()){
+        (s, c)
+    }else{
+        return None;
+    };
+    Some(build_result(Some(s), Some(c)).await)
+}
 
 pub(crate) async fn search(q: &SearchParams) -> Vec<SearchResult> {
     let limit = q._limit;

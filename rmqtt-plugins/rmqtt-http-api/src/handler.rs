@@ -71,6 +71,12 @@ impl Handler for HookHandler {
                                     Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(e.to_string())))
                                 }
                             },
+                            Ok(Message::ClientGet{clientid}) => {
+                                match MessageReply::ClientGet(clients::get(clientid).await).encode(){
+                                    Ok(ress) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Bytes(ress))),
+                                    Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(e.to_string())))
+                                }
+                            },
                             Ok(_) => unreachable!()
                         };
                         return (false, Some(new_acc));

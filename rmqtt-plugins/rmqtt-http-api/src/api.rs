@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use salvo::extra::affix;
 use salvo::prelude::*;
 
-use rmqtt::{anyhow, HashMap, log, serde_json::{self, json}, tokio::sync::oneshot};
+use rmqtt::{anyhow, HashMap, log, MqttError, serde_json::{self, json}, tokio::sync::oneshot};
 use rmqtt::{
     broker::types::NodeId,
     grpc::{Message as GrpcMessage,
@@ -37,6 +37,7 @@ fn route(cfg: PluginConfigType) -> Router {
         .push(
             Router::with_path("clients")
                 .get(search_clients)
+                .push(Router::with_path("<clientid>").get(get_client))
         )
         .push(
             Router::with_path("stats")
@@ -83,6 +84,12 @@ async fn list_apis(res: &mut Response) {
           "method": "GET",
           "path": "/clients/",
           "descr": "Search clients information from the cluster"
+        },
+        {
+          "name": "get_client",
+          "method": "GET",
+          "path": "/clients/{clientid}",
+          "descr": "Get client information from the cluster"
         },
 
         {
@@ -247,6 +254,71 @@ async fn _get_nodes(message_type: MessageType) -> Vec<serde_json::Value> {
         nodes.extend(replys);
     }
     nodes
+}
+
+#[fn_handler]
+async fn get_client(req: &mut Request, depot: &mut Depot, res: &mut Response){
+    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+    let message_type = cfg.read().message_type;
+    let clientid = req.param::<String>("clientid");
+    if let Some(clientid) = clientid{
+        match _get_client(message_type, &clientid).await{
+            Ok(Some(reply)) => {
+                res.render(Json(reply))
+            },
+            Ok(None) | Err(MqttError::None) => {
+                res.set_status_code(StatusCode::NOT_FOUND)
+            }
+            Err(e) => {
+                res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string()))
+            }
+        }
+    }else{
+        res.set_status_error(StatusError::bad_request())
+    }
+}
+
+async fn _get_client(message_type: MessageType, clientid: &str) -> Result<Option<serde_json::Value>>{
+    let reply = clients::get(clientid).await;
+    if let Some(reply) = reply{
+        return Ok(Some(reply.to_json()));
+    }
+
+    let check_result = |reply: GrpcMessageReply|{
+        match reply {
+            GrpcMessageReply::Bytes(res) => {
+                match MessageReply::decode(&res) {
+                    Ok(MessageReply::ClientGet(ress)) => {
+                        match ress{
+                            Some(res) => {
+                                Ok(res)
+                            },
+                            None => {
+                                Err(MqttError::None)
+                            }
+                        }
+                    },
+                    Err(e) => {
+                        Err(e)
+                    }
+                    _ => unreachable!()
+                }
+            },
+            _ => unreachable!(),
+        }
+    };
+
+    let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
+    if !grpc_clients.is_empty() {
+        let q = Message::ClientGet{clientid}.encode()?;
+        let reply =
+            MessageBroadcaster::new(grpc_clients, message_type, GrpcMessage::Bytes(q))
+                .select_ok(check_result)
+                .await?;
+        return Ok(Some(reply.to_json()));
+    }
+
+    Ok(None)
 }
 
 #[fn_handler]

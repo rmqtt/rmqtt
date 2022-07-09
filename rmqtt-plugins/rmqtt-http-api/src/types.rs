@@ -9,15 +9,16 @@ use rmqtt::{metrics::Metrics, stats::Stats};
 use rmqtt::Result;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum Message {
+pub enum Message<'a> {
     BrokerInfo,
     NodeInfo,
     StateInfo,
     MetricsInfo,
-    ClientSearch(ClientSearchParams)
+    ClientSearch(ClientSearchParams),
+    ClientGet {clientid: &'a str},
 }
 
-impl Message {
+impl<'a> Message<'a> {
     #[inline]
     pub fn encode(&self) -> Result<Vec<u8>> {
         Ok(bincode::serialize(self).map_err(anyhow::Error::new)?)
@@ -34,7 +35,8 @@ pub enum MessageReply {
     NodeInfo(NodeInfo),
     StateInfo(NodeStatus, Box<Stats>),
     MetricsInfo(Metrics),
-    ClientSearch(Vec<ClientSearchResult>)
+    ClientSearch(Vec<ClientSearchResult>),
+    ClientGet(Option<ClientSearchResult>),
 }
 
 impl MessageReply {
