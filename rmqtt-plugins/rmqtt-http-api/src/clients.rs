@@ -1,6 +1,6 @@
 
 use rmqtt::{Runtime, broker::Entry, Session, ClientInfo, TimestampMillis};
-use rmqtt::{chrono, futures, log};
+use rmqtt::{chrono, futures};
 
 use super::types::{ClientSearchParams as SearchParams, ClientSearchResult as SearchResult};
 
