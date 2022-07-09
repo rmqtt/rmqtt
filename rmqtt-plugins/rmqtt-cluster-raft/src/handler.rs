@@ -75,7 +75,16 @@ impl Handler for HookHandler {
                     GrpcMessage::Kick(id, clear_subscriptions, is_admin) => {
                         let mut entry = self.shared.inner().entry(id.clone());
                         let new_acc = match entry.kick(*clear_subscriptions, *is_admin).await {
-                            Ok(o) => HookResult::GrpcMessageReply(Ok(MessageReply::Kick(o))),
+                            Ok(Some(o)) => {
+                                if *is_admin {
+                                    self.shared.router().remove_client_status(&id.client_id);
+                                }
+                                HookResult::GrpcMessageReply(Ok(MessageReply::Kick(Some(o))))
+                            }
+                            Ok(None) => {
+                                self.shared.router().remove_client_status(&id.client_id);
+                                HookResult::GrpcMessageReply(Ok(MessageReply::Kick(None)))
+                            }
                             Err(e) => HookResult::GrpcMessageReply(Err(e)),
                         };
                         return (false, Some(new_acc));
