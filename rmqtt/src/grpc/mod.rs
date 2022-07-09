@@ -140,19 +140,23 @@ impl MessageBroadcaster {
     }
 
     #[inline]
-    pub async fn select_ok<F: Fn(MessageReply) -> Result<MessageReply> + Send + Sync>(
+    pub async fn select_ok<R, F>(
         self,
-        check_fn: &F,
-    ) -> Result<MessageReply> {
+        check_fn: F,
+    ) -> Result<R>
+        where
+            R: std::any::Any + Send + Sync,
+            F: Fn(MessageReply) -> Result<R> + Send + Sync,
+    {
         let msg = self.msg;
         let mut senders = Vec::new();
         let max_idx = self.grpc_clients.len() - 1;
         for (i, (_, (_, grpc_client))) in self.grpc_clients.iter().enumerate() {
             if i == max_idx {
-                senders.push(Self::send(grpc_client, self.msg_type, msg, check_fn).boxed());
+                senders.push(Self::send(grpc_client, self.msg_type, msg, &check_fn).boxed());
                 break;
             } else {
-                senders.push(Self::send(grpc_client, self.msg_type, msg.clone(), check_fn).boxed());
+                senders.push(Self::send(grpc_client, self.msg_type, msg.clone(), &check_fn).boxed());
             }
         }
         let (reply, _) = futures::future::select_ok(senders).await?;
@@ -160,12 +164,16 @@ impl MessageBroadcaster {
     }
 
     #[inline]
-    async fn send<F: Fn(MessageReply) -> Result<MessageReply> + Send + Sync>(
+    async fn send<R, F>(
         grpc_client: &NodeGrpcClient,
         typ: MessageType,
         msg: Message,
         check_fn: &F,
-    ) -> Result<MessageReply> {
+    ) -> Result<R>
+        where
+            R: std::any::Any + Send + Sync,
+            F: Fn(MessageReply) -> Result<R> + Send + Sync,
+    {
         match grpc_client.send_message(typ, msg).await {
             Ok(r) => {
                 log::debug!("OK reply: {:?}", r);
