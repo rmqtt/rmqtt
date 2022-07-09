@@ -3,8 +3,8 @@ use std::net::SocketAddr;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::time::Duration;
-use chrono::TimeZone;
 
+use chrono::TimeZone;
 use config::{Config, ConfigError, File};
 use parking_lot::RwLock;
 use serde::de::{Deserialize, Deserializer};
@@ -338,7 +338,7 @@ pub fn deserialize_addr_option<'de, D>(
     where
         D: Deserializer<'de>,
 {
-    let addr = String::deserialize(deserializer).map(|mut addr|{
+    let addr = String::deserialize(deserializer).map(|mut addr| {
         if !addr.contains(":") {
             addr += ":0";
         }
@@ -356,9 +356,9 @@ pub fn deserialize_duration_option<'de, D>(deserializer: D) -> std::result::Resu
         D: Deserializer<'de>,
 {
     let t_str = String::deserialize(deserializer)?;
-    if t_str.is_empty(){
+    if t_str.is_empty() {
         Ok(None)
-    }else {
+    } else {
         let t = if let Ok(d) = chrono::Local.datetime_from_str(&t_str, "%Y-%m-%d %H:%M:%S") {
             Duration::from_secs(d.timestamp() as u64)
         } else {
@@ -376,9 +376,9 @@ pub fn serialize_duration_option<S>(t: &Option<Duration>, s: S) -> std::result::
     where
         S: Serializer,
 {
-    if let Some(t) = t{
+    if let Some(t) = t {
         t.as_secs().to_string().serialize(s)
-    }else{
+    } else {
         "".serialize(s)
     }
 }

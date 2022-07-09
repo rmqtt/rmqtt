@@ -167,7 +167,7 @@ impl super::Entry for LockEntry {
     }
 
     #[inline]
-    fn exist(&self) -> bool{
+    fn exist(&self) -> bool {
         self.shared.peers.contains_key(&self.id.client_id)
     }
 
@@ -276,7 +276,7 @@ impl Shared for &'static DefaultShared {
     }
 
     #[inline]
-    fn exist(&self, client_id: &str) -> bool{
+    fn exist(&self, client_id: &str) -> bool {
         self.peers.contains_key(client_id)
     }
 

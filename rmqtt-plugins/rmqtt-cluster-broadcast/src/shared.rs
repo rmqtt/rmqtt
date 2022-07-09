@@ -44,7 +44,7 @@ impl Entry for ClusterLockEntry {
     }
 
     #[inline]
-    fn exist(&self) -> bool{
+    fn exist(&self) -> bool {
         self.inner.exist()
     }
 
@@ -169,7 +169,7 @@ impl Shared for &'static ClusterShared {
     }
 
     #[inline]
-    fn exist(&self, client_id: &str) -> bool{
+    fn exist(&self, client_id: &str) -> bool {
         self.inner.exist(client_id)
     }
 

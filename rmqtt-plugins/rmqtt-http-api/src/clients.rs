@@ -1,19 +1,18 @@
-
-use rmqtt::{Runtime, broker::Entry, Session, ClientInfo, TimestampMillis};
+use rmqtt::{broker::Entry, ClientInfo, Runtime, Session, TimestampMillis};
 use rmqtt::{chrono, futures};
 
 use super::types::{ClientSearchParams as SearchParams, ClientSearchResult as SearchResult};
 
-pub(crate) async fn get(clientid: &str) -> Option<SearchResult>{
+pub(crate) async fn get(clientid: &str) -> Option<SearchResult> {
     let shared = Runtime::instance().extends.shared().await;
-    if !shared.exist(clientid){
+    if !shared.exist(clientid) {
         return None;
     }
     let id = shared.id(clientid)?;
     let peer = shared.entry(id);
-    let (s, c) = if let (Some(s), Some(c)) = (peer.session(), peer.client()){
+    let (s, c) = if let (Some(s), Some(c)) = (peer.session(), peer.client()) {
         (s, c)
-    }else{
+    } else {
         return None;
     };
     Some(build_result(Some(s), Some(c)).await)
@@ -23,7 +22,7 @@ pub(crate) async fn search(q: &SearchParams) -> Vec<SearchResult> {
     let limit = q._limit;
     let mut curr: usize = 0;
     let peers = Runtime::instance().extends.shared().await.iter()
-        .filter(|entry|filtering(q, entry))
+        .filter(|entry| filtering(q, entry))
         .filter_map(|entry| {
             if curr < limit {
                 curr += 1;
@@ -40,15 +39,15 @@ pub(crate) async fn search(q: &SearchParams) -> Vec<SearchResult> {
     futures::future::join_all(futs).await
 }
 
-async fn build_result(s: Option<Session>, c: Option<ClientInfo>) -> SearchResult{
-    let s = if let Some(s) = s{
+async fn build_result(s: Option<Session>, c: Option<ClientInfo>) -> SearchResult {
+    let s = if let Some(s) = s {
         s
-    }else{
+    } else {
         return SearchResult::default();
     };
-    let c = if let Some(c) = c{
+    let c = if let Some(c) = c {
         c
-    }else{
+    } else {
         return SearchResult::default();
     };
 
@@ -62,13 +61,13 @@ async fn build_result(s: Option<Session>, c: Option<ClientInfo>) -> SearchResult
             - (chrono::Local::now().timestamp() - disconnected_at)
     };
     let inflight = s.inflight_win.read().await.len();
-    SearchResult{
+    SearchResult {
         node_id: c.id.node_id,
         clientid: c.id.client_id.clone(),
         username: c.username().clone(),
         proto_ver: c.connect_info.proto_ver(),
-        ip_address: c.id.remote_addr.map(|addr|addr.ip().to_string()),
-        port: c.id.remote_addr.map(|addr|addr.port()),
+        ip_address: c.id.remote_addr.map(|addr| addr.ip().to_string()),
+        port: c.id.remote_addr.map(|addr| addr.port()),
         connected,
         connected_at,
         disconnected_at,
@@ -88,15 +87,15 @@ async fn build_result(s: Option<Session>, c: Option<ClientInfo>) -> SearchResult
 }
 
 fn filtering(q: &SearchParams, entry: &Box<dyn Entry>) -> bool {
-    let s = if let Some(s) = entry.session(){
+    let s = if let Some(s) = entry.session() {
         s
-    }else{
+    } else {
         return false;
     };
 
-    let c = if let Some(c) = entry.client(){
+    let c = if let Some(c) = entry.client() {
         c
-    }else{
+    } else {
         return false;
     };
 

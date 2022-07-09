@@ -34,21 +34,21 @@ impl Handler for HookHandler {
                 }
                 match msg {
                     GrpcMessage::Data(data) => {
-                        let new_acc = match Message::decode(data){
+                        let new_acc = match Message::decode(data) {
                             Err(e) => {
                                 log::error!("Message::decode, error: {:?}", e);
                                 HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(e.to_string())))
-                            },
+                            }
                             Ok(Message::BrokerInfo) => {
                                 let broker_info = Runtime::instance().node.broker_info().await;
-                                match MessageReply::BrokerInfo(broker_info).encode(){
+                                match MessageReply::BrokerInfo(broker_info).encode() {
                                     Ok(ress) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress))),
                                     Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(e.to_string())))
                                 }
                             }
                             Ok(Message::NodeInfo) => {
                                 let node_info = Runtime::instance().node.node_info().await;
-                                match MessageReply::NodeInfo(node_info).encode(){
+                                match MessageReply::NodeInfo(node_info).encode() {
                                     Ok(ress) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress))),
                                     Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(e.to_string())))
                                 }
@@ -56,30 +56,30 @@ impl Handler for HookHandler {
                             Ok(Message::StatsInfo) => {
                                 let node_status = Runtime::instance().node.status().await;
                                 let stats = Runtime::instance().stats.clone().await;
-                                match MessageReply::StatsInfo(node_status, Box::new(stats)).encode(){
+                                match MessageReply::StatsInfo(node_status, Box::new(stats)).encode() {
                                     Ok(ress) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress))),
                                     Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(e.to_string())))
                                 }
                             }
                             Ok(Message::MetricsInfo) => {
                                 let metrics = Runtime::instance().metrics.clone();
-                                match MessageReply::MetricsInfo(metrics).encode(){
+                                match MessageReply::MetricsInfo(metrics).encode() {
                                     Ok(ress) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress))),
                                     Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(e.to_string())))
                                 }
                             }
                             Ok(Message::ClientSearch(q)) => {
-                                match MessageReply::ClientSearch(clients::search(&q).await).encode(){
+                                match MessageReply::ClientSearch(clients::search(&q).await).encode() {
                                     Ok(ress) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress))),
                                     Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(e.to_string())))
                                 }
-                            },
-                            Ok(Message::ClientGet{clientid}) => {
-                                match MessageReply::ClientGet(clients::get(clientid).await).encode(){
+                            }
+                            Ok(Message::ClientGet { clientid }) => {
+                                match MessageReply::ClientGet(clients::get(clientid).await).encode() {
                                     Ok(ress) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress))),
                                     Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(e.to_string())))
                                 }
-                            },
+                            }
                         };
                         return (false, Some(new_acc));
                     }

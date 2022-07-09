@@ -147,7 +147,7 @@ impl ConnectInfo {
     }
 
     #[inline]
-    pub fn clean_start(&self) -> bool{
+    pub fn clean_start(&self) -> bool {
         match self {
             ConnectInfo::V3(_, conn_info) => conn_info.clean_session,
             ConnectInfo::V5(_, conn_info) => conn_info.clean_start,
@@ -155,14 +155,12 @@ impl ConnectInfo {
     }
 
     #[inline]
-    pub fn proto_ver(&self) -> u8{
+    pub fn proto_ver(&self) -> u8 {
         match self {
             ConnectInfo::V3(_, conn_info) => conn_info.protocol.level(),
             ConnectInfo::V5(_, _) => 5,
         }
     }
-
-
 }
 
 #[derive(Debug, Clone, PartialEq)]

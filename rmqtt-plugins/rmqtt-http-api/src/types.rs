@@ -1,12 +1,11 @@
 use std::time::Duration;
 
-use rmqtt::{chrono, serde_json, anyhow, bincode};
-
-use rmqtt::{NodeId, ClientId, UserName, Timestamp};
-use rmqtt::settings::{deserialize_duration_option, serialize_duration_option};
-use rmqtt::node::{BrokerInfo, NodeInfo, NodeStatus};
+use rmqtt::{anyhow, bincode, chrono, serde_json};
+use rmqtt::{ClientId, NodeId, Timestamp, UserName};
 use rmqtt::{metrics::Metrics, stats::Stats};
+use rmqtt::node::{BrokerInfo, NodeInfo, NodeStatus};
 use rmqtt::Result;
+use rmqtt::settings::{deserialize_duration_option, serialize_duration_option};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Message<'a> {
@@ -15,7 +14,7 @@ pub enum Message<'a> {
     StatsInfo,
     MetricsInfo,
     ClientSearch(ClientSearchParams),
-    ClientGet {clientid: &'a str},
+    ClientGet { clientid: &'a str },
 }
 
 impl<'a> Message<'a> {
@@ -60,22 +59,29 @@ pub struct ClientSearchParams {
     pub connected: Option<bool>,
     pub clean_start: Option<bool>,
     pub proto_ver: Option<u8>,
-    pub _like_clientid: Option<String>, //Substring fuzzy search
-    pub _like_username: Option<String>, //Substring fuzzy search
+    pub _like_clientid: Option<String>,
+    //Substring fuzzy search
+    pub _like_username: Option<String>,
+    //Substring fuzzy search
     #[serde(default, deserialize_with = "deserialize_duration_option", serialize_with = "serialize_duration_option")]
-    pub _gte_created_at: Option<Duration>, //Greater than or equal search
+    pub _gte_created_at: Option<Duration>,
+    //Greater than or equal search
     #[serde(default, deserialize_with = "deserialize_duration_option", serialize_with = "serialize_duration_option")]
-    pub _lte_created_at: Option<Duration>, //Less than or equal search
+    pub _lte_created_at: Option<Duration>,
+    //Less than or equal search
     #[serde(default, deserialize_with = "deserialize_duration_option", serialize_with = "serialize_duration_option")]
-    pub _gte_connected_at: Option<Duration>, //Greater than or equal search
+    pub _gte_connected_at: Option<Duration>,
+    //Greater than or equal search
     #[serde(default, deserialize_with = "deserialize_duration_option", serialize_with = "serialize_duration_option")]
-    pub _lte_connected_at: Option<Duration>, //Less than or equal search
-    pub _gte_mqueue_len: Option<usize>,   //Current length of message queue, Greater than or equal search
+    pub _lte_connected_at: Option<Duration>,
+    //Less than or equal search
+    pub _gte_mqueue_len: Option<usize>,
+    //Current length of message queue, Greater than or equal search
     pub _lte_mqueue_len: Option<usize>,   //Current length of message queue, Less than or equal search
 }
 
 #[derive(Deserialize, Serialize, Debug, Default)]
-pub struct ClientSearchResult{
+pub struct ClientSearchResult {
     pub node_id: NodeId,
     pub clientid: ClientId,
     pub username: UserName,
@@ -111,9 +117,8 @@ pub struct ClientSearchResult{
 }
 
 impl ClientSearchResult {
-
     #[inline]
-    pub fn to_json(&self) -> serde_json::Value{
+    pub fn to_json(&self) -> serde_json::Value {
         let data = serde_json::json!({
         "node_id": self.node_id,
         "clientid": self.clientid,

@@ -8,6 +8,8 @@ pub extern crate serde_json;
 
 pub use ahash;
 pub use anyhow;
+pub use bincode;
+pub use chrono;
 pub use dashmap;
 pub use futures;
 pub use log;
@@ -15,8 +17,6 @@ pub use ntex;
 pub use ntex_mqtt;
 pub use parking_lot::RwLock;
 pub use tokio;
-pub use chrono;
-pub use bincode;
 
 pub use crate::broker::{error::MqttError,
                         metrics,

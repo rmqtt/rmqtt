@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::Arc;
+
 use futures::FutureExt;
 
 use client::NodeGrpcClient;
