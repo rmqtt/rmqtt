@@ -61,6 +61,11 @@ impl Entry for ClusterLockEntry {
     }
 
     #[inline]
+    fn exist(&self) -> bool{
+        self.inner.exist()
+    }
+
+    #[inline]
     async fn set(&mut self, session: Session, tx: Tx, conn: ClientInfo) -> Result<()> {
         let msg = RaftMessage::Connected { id: session.id.clone() }
             .encode()?;
@@ -221,6 +226,11 @@ impl Shared for &'static ClusterShared {
     #[inline]
     fn id(&self, client_id: &str) -> Option<Id> {
         self.router.id(client_id)
+    }
+
+    #[inline]
+    fn exist(&self, client_id: &str) -> bool{
+        self.inner.exist(client_id)
     }
 
     #[inline]

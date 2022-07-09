@@ -35,6 +35,7 @@ pub trait Entry: Sync + Send {
     fn is_connected(&self) -> bool;
     fn session(&self) -> Option<Session>;
     fn client(&self) -> Option<ClientInfo>;
+    fn exist(&self) -> bool;
     fn tx(&self) -> Option<Tx>;
     async fn subscribe(&self, subscribe: &Subscribe) -> Result<SubscribeReturn>;
     async fn unsubscribe(&self, unsubscribe: &Unsubscribe) -> Result<bool>;
@@ -48,6 +49,9 @@ pub trait Shared: Sync + Send {
 
     ///
     fn id(&self, client_id: &str) -> Option<Id>;
+
+    ///
+    fn exist(&self, client_id: &str) -> bool;
 
     ///Route and dispense publish message
     async fn forwards(&self, from: From, publish: Publish) -> Result<(), Vec<(To, From, Publish, Reason)>>;

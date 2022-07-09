@@ -167,6 +167,11 @@ impl super::Entry for LockEntry {
     }
 
     #[inline]
+    fn exist(&self) -> bool{
+        self.shared.peers.contains_key(&self.id.client_id)
+    }
+
+    #[inline]
     fn tx(&self) -> Option<Tx> {
         self.shared.peers.get(&self.id.client_id).map(|peer| peer.tx.clone())
     }
@@ -268,6 +273,11 @@ impl Shared for &'static DefaultShared {
         } else {
             None
         }
+    }
+
+    #[inline]
+    fn exist(&self, client_id: &str) -> bool{
+        self.peers.contains_key(client_id)
     }
 
     #[inline]
