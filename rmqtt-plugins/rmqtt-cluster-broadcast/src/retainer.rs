@@ -6,11 +6,9 @@ use rmqtt::{
         RetainStorage,
         types::{Retain, TopicFilter, TopicName},
     },
-    grpc::{GrpcClients, Message, MessageReply, MessageType},
+    grpc::{GrpcClients, Message, MessageBroadcaster, MessageReply, MessageType},
     Result,
 };
-
-use super::MessageBroadcaster;
 
 pub(crate) struct ClusterRetainer {
     inner: &'static DefaultRetainStorage,
@@ -54,7 +52,7 @@ impl RetainStorage for &'static ClusterRetainer {
             .join_all()
             .await;
 
-        for reply in replys {
+        for (_, reply) in replys {
             match reply {
                 Ok(reply) => {
                     if let MessageReply::GetRetains(o_retains) = reply {
