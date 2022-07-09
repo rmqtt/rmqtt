@@ -201,22 +201,29 @@ impl NodeGrpcClient {
             let (typ, msg) = msgs.remove(0);
             let r_tx = r_txs.remove(0);
             let reply = client.inner_send_message(typ, msg).await;
-            if let Err(r) = r_tx.send(reply) {
-                log::error!("Failed to return result, reply message: {:?}", r);
+            if !r_tx.is_closed() {
+                if let Err(r) = r_tx.send(reply) {
+                    log::warn!("Failed to return result, reply message: {:?}", r);
+                }
             }
         } else {
             match client.inner_batch_send_messages(msgs).await {
                 Err(e) => {
                     for r_tx in r_txs {
-                        if let Err(r) = r_tx.send(Err(MqttError::from(e.to_string()))) {
-                            log::debug!("Failed to return result, reply error message: {:?}", r);
+                        if !r_tx.is_closed() {
+                            if let Err(r) = r_tx.send(Err(MqttError::from(e.to_string()))) {
+                                log::warn!("Failed to return result, reply error message: {:?}", r);
+                            }
                         }
                     }
                 }
                 Ok(mut replys) => {
                     for msg in replys.drain(..) {
-                        if let Err(r) = r_txs.remove(0).send(Ok(msg)) {
-                            log::debug!("Failed to return result, reply message: {:?}", r);
+                        let r_tx = r_txs.remove(0);
+                        if !r_tx.is_closed() {
+                            if let Err(r) = r_tx.send(Ok(msg)) {
+                                log::warn!("Failed to return result, reply message: {:?}", r);
+                            }
                         }
                     }
                 }
