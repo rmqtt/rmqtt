@@ -131,14 +131,18 @@ impl SessionState {
                                         Runtime::instance().extends.hook_mgr().await.message_dropped(Some(state.id.clone()), from, p, Reason::from_static("deliver queue is full")).await;
                                     }
                                 },
-                                Message::Kick(sender, by_id) => {
-                                    log::debug!("{:?} Kicked, send kick result, to {:?}", id, by_id);
-                                    if let Err(e) = sender.send(()) {
-                                        log::warn!("{:?} Kicked response error, {:?}", id, e);
+                                Message::Kick(sender, by_id, is_admin) => {
+                                    log::debug!("{:?} Message::Kick, send kick result, to {:?}, is_admin: {}", id, by_id, is_admin);
+                                    if !sender.is_closed() {
+                                        if let Err(e) = sender.send(()) {
+                                            log::warn!("{:?} Message::Kick, send response error, {:?}", id, e);
+                                        }
+                                        _kicked = true;
+                                        state.client.add_disconnected_reason(Reason::from(format!("Kicked by {:?}, is_admin: {}", by_id, is_admin))).await;
+                                        break
+                                    }else{
+                                        log::warn!("{:?} Message::Kick, kick sender is closed, to {:?}, is_admin: {}", id, by_id, is_admin);
                                     }
-                                    _kicked = true;
-                                    state.client.add_disconnected_reason(Reason::from(format!("Kicked by {:?}", by_id))).await;
-                                    break
                                 },
                                 Message::Disconnect(d) => {
                                     _disconnect_received = true;
@@ -259,13 +263,17 @@ impl SessionState {
                                     Runtime::instance().extends.hook_mgr().await.message_dropped(Some(state.id.clone()), from, p, Reason::from_static("deliver queue is full")).await;
                                 }
                             },
-                            Message::Kick(sender, by_id) => {
-                                log::debug!("{:?} offline Kicked, send kick result, to {:?}", id, by_id);
-                                if let Err(e) = sender.send(()) {
-                                    log::warn!("{:?} offline Kick response error, {:?}", id, e);
+                            Message::Kick(sender, by_id, is_admin) => {
+                                log::debug!("{:?} offline Kicked, send kick result, to: {:?}, is_admin: {}", id, by_id, is_admin);
+                                if !sender.is_closed() {
+                                    if let Err(e) = sender.send(()) {
+                                        log::warn!("{:?} offline Kick send response error, to: {:?}, is_admin: {}, {:?}", id, by_id, is_admin, e);
+                                    }
+                                    *kicked = true;
+                                    break
+                                }else{
+                                    log::warn!("{:?} offline Kick sender is closed, to {:?}, is_admin: {}", id, by_id, is_admin);
                                 }
-                                *kicked = true;
-                                break
                             },
                             _ => {
                                 log::warn!("{:?} offline receive message is {:?}", id, msg);

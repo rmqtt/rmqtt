@@ -11,7 +11,7 @@ use leaky_bucket::RateLimiter;
 use ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 use once_cell::sync::OnceCell;
 use tokio::sync::{self, Mutex, OwnedMutexGuard};
-use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 use tokio::sync::RwLock;
 use tokio::time::Duration;
 use uuid::Uuid;
@@ -120,27 +120,34 @@ impl super::Entry for LockEntry {
     }
 
     #[inline]
-    async fn kick(&mut self, clear_subscriptions: bool) -> Result<Option<SessionOfflineInfo>> {
+    async fn kick(&mut self, clear_subscriptions: bool, is_admin: IsAdmin) -> Result<Option<SessionOfflineInfo>> {
         log::debug!(
-            "{:?} LockEntry kick ..., clear_subscriptions: {}",
+            "{:?} LockEntry kick ..., clear_subscriptions: {}, is_admin: {}",
             self.client().map(|c| c.id.clone()),
-            clear_subscriptions
+            clear_subscriptions,
+            is_admin
         );
-        //@TODO ... check ID whether is same ...
-        if let Some((s, peer_tx, c)) = self._remove(clear_subscriptions).await {
-            let (tx, mut rx) = mpsc::unbounded_channel();
-            if let Err(e) = peer_tx.send(Message::Kick(tx, self.id.clone())) {
-                log::warn!("{:?} kick, {:?}, {:?}", self.id, c.id, e.to_string());
-            } else {
-                match tokio::time::timeout(Duration::from_secs(3), rx.recv()).await {
-                    Ok(_) => {
-                        log::debug!("{:?} kicked, from {:?}", self.id, c.id);
+
+        if let Some(peer_tx) = self.tx().and_then(|tx| if tx.is_closed() { None } else { Some(tx) }){
+            let (tx, rx) = oneshot::channel();
+            if let Ok(()) = peer_tx.send(Message::Kick(tx, self.id.clone(), is_admin)) {
+                match tokio::time::timeout(Duration::from_secs(5), rx).await {
+                    Ok(Ok(())) => {
+                        log::debug!("{:?} kicked, from {:?}", self.id, self.client().map(|c| c.id.clone()));
+                    }
+                    Ok(Err(e)) => {
+                        log::warn!("{:?} kick, recv result is {:?}, from {:?}", self.id, e, self.client().map(|c| c.id.clone()));
+                        return Err(MqttError::Msg(format!("recv kick result is {:?}", e)))
                     }
                     Err(_) => {
-                        log::warn!("{:?} kick, recv result is Timeout, from {:?}", self.id, c.id);
+                        log::warn!("{:?} kick, recv result is Timeout, from {:?}", self.id, self.client().map(|c| c.id.clone()));
+                        return Err(MqttError::Msg("recv kick result is Timeout".into()))
                     }
                 }
             }
+        }
+
+        if let Some((s, _, _)) = self._remove(clear_subscriptions).await {
             Ok(Some(s.to_offline_info().await))
         } else {
             Ok(None)
