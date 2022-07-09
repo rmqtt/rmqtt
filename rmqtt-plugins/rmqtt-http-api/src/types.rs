@@ -12,7 +12,7 @@ use rmqtt::Result;
 pub enum Message<'a> {
     BrokerInfo,
     NodeInfo,
-    StateInfo,
+    StatsInfo,
     MetricsInfo,
     ClientSearch(ClientSearchParams),
     ClientGet {clientid: &'a str},
@@ -33,7 +33,7 @@ impl<'a> Message<'a> {
 pub enum MessageReply {
     BrokerInfo(BrokerInfo),
     NodeInfo(NodeInfo),
-    StateInfo(NodeStatus, Box<Stats>),
+    StatsInfo(NodeStatus, Box<Stats>),
     MetricsInfo(Metrics),
     ClientSearch(Vec<ClientSearchResult>),
     ClientGet(Option<ClientSearchResult>),

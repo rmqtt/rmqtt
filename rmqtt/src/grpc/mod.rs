@@ -2,16 +2,13 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::Arc;
-
 use futures::FutureExt;
 
 use client::NodeGrpcClient;
 
-use crate::{metrics::Metrics, stats::Stats};
 use crate::broker::{ClearSubscriptions, SubRelations, SubRelationsMap};
 use crate::broker::session::SessionOfflineInfo;
 use crate::broker::types::{From, Id, NodeId, Publish, Retain, TopicFilter, TopicName};
-use crate::node::{BrokerInfo, NodeInfo, NodeStatus};
 use crate::Result;
 
 pub mod client;
@@ -33,11 +30,7 @@ pub enum Message {
     GetRetains(TopicFilter),
     NumberOfClients,
     NumberOfSessions,
-    Bytes(Vec<u8>),
-    BrokerInfo,
-    NodeInfo,
-    StateInfo,
-    MetricsInfo,
+    Data(Vec<u8>),
 }
 
 impl Message {
@@ -60,11 +53,7 @@ pub enum MessageReply {
     GetRetains(Vec<(TopicName, Retain)>),
     NumberOfClients(usize),
     NumberOfSessions(usize),
-    Bytes(Vec<u8>),
-    BrokerInfo(BrokerInfo),
-    NodeInfo(NodeInfo),
-    StateInfo(NodeStatus, Box<Stats>),
-    MetricsInfo(Metrics),
+    Data(Vec<u8>),
 }
 
 
