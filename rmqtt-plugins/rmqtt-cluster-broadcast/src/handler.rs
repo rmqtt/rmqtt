@@ -83,6 +83,13 @@ impl Handler for HookHandler {
                         };
                         return (false, Some(new_acc));
                     }
+                    Message::Online(clientid) => {
+                        let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::Online(
+                            Runtime::instance().extends.router().await
+                                .is_online(Runtime::instance().node.id(), clientid).await,
+                        )));
+                        return (false, Some(new_acc));
+                    }
                     _ => {
                         log::error!("unimplemented, {:?}", param)
                     }

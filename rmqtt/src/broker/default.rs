@@ -155,6 +155,11 @@ impl super::Entry for LockEntry {
     }
 
     #[inline]
+    async fn online(&self) -> bool {
+        self.is_connected()
+    }
+
+    #[inline]
     fn is_connected(&self) -> bool {
         if let Some(entry) = self.shared.peers.get(&self.id.client_id) {
             entry.c.connected.load(Ordering::SeqCst)

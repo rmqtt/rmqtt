@@ -2,21 +2,17 @@ use std::convert::From as _f;
 
 use once_cell::sync::OnceCell;
 
-use rmqtt::{
-    AsStr,
-    broker::{
-        default::DefaultShared,
-        Entry, session::{ClientInfo, Session, SessionOfflineInfo}, Shared, SubRelations,
-        SubRelationsMap,
-        types::{
-            ClientId, From, Id, IsAdmin, IsOnline, NodeId, Publish, QoS, Reason, SessionStatus, SharedGroup,
-            Subscribe, SubscribeReturn, To, TopicFilter, TopicFilterString, Tx, Unsubscribe,
-        },
+use rmqtt::{AsStr, broker::{
+    default::DefaultShared,
+    Entry, session::{ClientInfo, Session, SessionOfflineInfo}, Shared, SubRelations,
+    SubRelationsMap,
+    types::{
+        ClientId, From, Id, IsAdmin, IsOnline, NodeId, Publish, QoS, Reason, SessionStatus, SharedGroup,
+        Subscribe, SubscribeReturn, To, TopicFilter, TopicFilterString, Tx, Unsubscribe,
     },
-    grpc::{GrpcClients, Message, MessageReply, MessageType}, Result, Runtime,
-};
+}, grpc::{GrpcClients, Message, MessageBroadcaster, MessageReply, MessageType}, MqttError, Result, Runtime};
 
-use super::{hook_message_dropped, MessageBroadcaster};
+use super::{hook_message_dropped, kick};
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
@@ -67,12 +63,9 @@ impl Entry for ClusterLockEntry {
             return Ok(Some(kicked));
         }
 
-        match MessageBroadcaster::new(
-            self.cluster_shared.grpc_clients.clone(),
-            self.cluster_shared.message_type,
-            Message::Kick(self.id(), true, is_admin),
-        )
-            .kick()
+        match kick(self.cluster_shared.grpc_clients.clone(),
+                   self.cluster_shared.message_type,
+                   Message::Kick(self.id(), true, is_admin))
             .await
         {
             Ok(kicked) => {
@@ -97,6 +90,25 @@ impl Entry for ClusterLockEntry {
                 Ok(None)
             }
         }
+    }
+
+    #[inline]
+    async fn online(&self) -> bool {
+        if self.inner.online().await {
+            return true;
+        }
+
+        MessageBroadcaster::new(self.cluster_shared.grpc_clients.clone(),
+                                self.cluster_shared.message_type,
+                                Message::Online(self.id().client_id.clone()))
+            .select_ok(|reply: MessageReply| -> Result<bool> {
+                if let MessageReply::Online(true) = reply {
+                    Ok(true)
+                } else {
+                    Err(MqttError::None)
+                }
+            })
+            .await.unwrap_or(false)
     }
 
     #[inline]
@@ -253,7 +265,7 @@ impl Shared for &'static ClusterShared {
 
             add_to_shared_sub_groups(&mut shared_sub_groups, shared_relations);
 
-            for reply in replys {
+            for (_, reply) in replys {
                 match reply {
                     Ok(reply) => {
                         if let MessageReply::Forwards(mut o_relations_map) = reply {
@@ -370,7 +382,7 @@ impl Shared for &'static ClusterShared {
                 .join_all()
                 .await;
 
-        for reply in replys {
+        for (_, reply) in replys {
             match reply {
                 Ok(reply) => {
                     if let MessageReply::NumberOfClients(n) = reply {
@@ -395,7 +407,7 @@ impl Shared for &'static ClusterShared {
                 .join_all()
                 .await;
 
-        for reply in replys {
+        for (_, reply) in replys {
             match reply {
                 Ok(reply) => {
                     if let MessageReply::NumberOfSessions(n) = reply {

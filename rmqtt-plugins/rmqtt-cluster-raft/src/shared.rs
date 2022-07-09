@@ -10,6 +10,7 @@ use rmqtt::{broker::{
     types::{From, Id, IsAdmin, NodeId, Publish, Reason, SessionStatus,
             Subscribe, SubscribeReturn, To, Tx, Unsubscribe},
 }, grpc::{Message, MessageReply, MessageType}, MqttError, Result, Runtime};
+use rmqtt::broker::Router;
 
 use super::{ClusterRouter, GrpcClients, MessageSender, NodeGrpcClient};
 use super::message::{get_client_node_id, Message as RaftMessage, MessageReply as RaftMessageReply};
@@ -156,6 +157,11 @@ impl Entry for ClusterLockEntry {
     }
 
     #[inline]
+    async fn online(&self) -> bool {
+        self.cluster_shared.router.is_online(0, &self.id().client_id).await
+    }
+
+    #[inline]
     fn is_connected(&self) -> bool {
         self.inner.is_connected()
     }
@@ -207,6 +213,11 @@ impl ClusterShared {
     ) -> &'static ClusterShared {
         static INSTANCE: OnceCell<ClusterShared> = OnceCell::new();
         INSTANCE.get_or_init(|| Self { inner: DefaultShared::instance(), router, grpc_clients, message_type })
+    }
+
+    #[inline]
+    pub(crate) fn router(&self) -> &'static ClusterRouter {
+        self.router
     }
 
     #[inline]

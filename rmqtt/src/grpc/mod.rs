@@ -7,10 +7,10 @@ use futures::FutureExt;
 
 use client::NodeGrpcClient;
 
+use crate::{ClientId, Result};
 use crate::broker::{ClearSubscriptions, SubRelations, SubRelationsMap};
 use crate::broker::session::SessionOfflineInfo;
 use crate::broker::types::{From, Id, IsAdmin, NodeId, Publish, Retain, TopicFilter, TopicName};
-use crate::Result;
 
 pub mod client;
 pub mod server;
@@ -31,6 +31,7 @@ pub enum Message {
     GetRetains(TopicFilter),
     NumberOfClients,
     NumberOfSessions,
+    Online(ClientId),
     Data(Vec<u8>),
 }
 
@@ -54,6 +55,7 @@ pub enum MessageReply {
     GetRetains(Vec<(TopicName, Retain)>),
     NumberOfClients(usize),
     NumberOfSessions(usize),
+    Online(bool),
     Data(Vec<u8>),
 }
 

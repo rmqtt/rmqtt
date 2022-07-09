@@ -39,7 +39,11 @@ fn route(cfg: PluginConfigType) -> Router {
                 .get(search_clients)
                 .push(Router::with_path("<clientid>")
                     .get(get_client)
-                    .delete(kick_client))
+                    .delete(kick_client)
+                    .push(Router::with_path("online")
+                        .get(check_online)
+                    )
+                )
         )
         .push(
             Router::with_path("stats")
@@ -98,6 +102,12 @@ async fn list_apis(res: &mut Response) {
           "method": "DELETE",
           "path": "/clients/{clientid}",
           "descr": "Kick client from the cluster"
+        },
+        {
+          "name": "check_online",
+          "method": "GET",
+          "path": "/clients/{clientid}/online",
+          "descr": "Check a client whether online from the cluster"
         },
 
         {
@@ -437,6 +447,23 @@ async fn kick_client(req: &mut Request, res: &mut Response) {
                 res.render(Json(offline_info.id))
             }
         }
+    } else {
+        res.set_status_error(StatusError::bad_request())
+    }
+}
+
+#[fn_handler]
+async fn check_online(req: &mut Request, res: &mut Response) {
+    let clientid = req.param::<String>("clientid");
+    if let Some(clientid) = clientid {
+        let entry = Runtime::instance()
+            .extends
+            .shared()
+            .await
+            .entry(Id::from(Runtime::instance().node.id(), ClientId::from(clientid)));
+
+        let online = entry.online().await;
+        res.render(Json(online));
     } else {
         res.set_status_error(StatusError::bad_request())
     }
