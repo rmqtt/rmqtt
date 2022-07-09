@@ -7,7 +7,6 @@ extern crate serde_json;
 
 use std::sync::Arc;
 
-use futures::future::FutureExt;
 use parking_lot::RwLock;
 
 use config::PluginConfig;
@@ -20,7 +19,7 @@ use rmqtt::{
         session::SessionOfflineInfo,
         types::{From, Publish, Reason, To},
     },
-    grpc::{client::NodeGrpcClient, GrpcClients, Message, MessageReply, MessageType},
+    grpc::{GrpcClients, Message, MessageReply, MessageType},
     plugin::{DynPlugin, DynPluginResult, Plugin},
     Result, Runtime,
 };
@@ -158,88 +157,22 @@ impl Plugin for ClusterPlugin {
     }
 }
 
-pub struct MessageBroadcaster {
-    grpc_clients: GrpcClients,
-    msg_type: MessageType,
-    msg: Option<Message>,
-}
-
-impl MessageBroadcaster {
-    pub fn new(grpc_clients: GrpcClients, msg_type: MessageType, msg: Message) -> Self {
-        Self { grpc_clients, msg_type, msg: Some(msg) }
-    }
-
-    #[inline]
-    pub async fn join_all(&mut self) -> Vec<Result<MessageReply>> {
-        let msg = self.msg.take().unwrap();
-        let mut senders = Vec::new();
-        let max_idx = self.grpc_clients.len() - 1;
-        for (i, (_, (_, grpc_client))) in self.grpc_clients.iter().enumerate() {
-            if i == max_idx {
-                senders.push(grpc_client.send_message(self.msg_type, msg));
-                break;
+#[inline]
+pub(crate) async fn kick(grpc_clients: GrpcClients, msg_type: MessageType, msg: Message) -> Result<SessionOfflineInfo> {
+    let reply = rmqtt::grpc::MessageBroadcaster::new(grpc_clients, msg_type, msg)
+        .select_ok(|reply: MessageReply| -> Result<MessageReply> {
+            log::debug!("reply: {:?}", reply);
+            if let MessageReply::Kick(Some(o)) = reply {
+                Ok(MessageReply::Kick(Some(o)))
             } else {
-                senders.push(grpc_client.send_message(self.msg_type, msg.clone()));
+                Err(MqttError::None)
             }
-        }
-        futures::future::join_all(senders).await
-    }
-
-    #[inline]
-    pub async fn kick(&mut self) -> Result<SessionOfflineInfo> {
-        let reply = self
-            .select_ok(&|reply: MessageReply| -> Result<MessageReply> {
-                log::debug!("reply: {:?}", reply);
-                if let MessageReply::Kick(Some(o)) = reply {
-                    Ok(MessageReply::Kick(Some(o)))
-                } else {
-                    Err(MqttError::None)
-                }
-            })
-            .await?;
-        if let MessageReply::Kick(Some(kicked)) = reply {
-            Ok(kicked)
-        } else {
-            Err(MqttError::None)
-        }
-    }
-
-    #[inline]
-    pub async fn select_ok<F: Fn(MessageReply) -> Result<MessageReply> + Send + Sync>(
-        &mut self,
-        check_fn: &F,
-    ) -> Result<MessageReply> {
-        let msg = self.msg.take().unwrap();
-        let mut senders = Vec::new();
-        let max_idx = self.grpc_clients.len() - 1;
-        for (i, (_, (_, grpc_client))) in self.grpc_clients.iter().enumerate() {
-            if i == max_idx {
-                senders.push(Self::send(grpc_client, self.msg_type, msg, check_fn).boxed());
-                break;
-            } else {
-                senders.push(Self::send(grpc_client, self.msg_type, msg.clone(), check_fn).boxed());
-            }
-        }
-        let (reply, _) = futures::future::select_ok(senders).await?;
-        Ok(reply)
-    }
-
-    async fn send<F: Fn(MessageReply) -> Result<MessageReply> + Send + Sync>(
-        grpc_client: &NodeGrpcClient,
-        typ: MessageType,
-        msg: Message,
-        check_fn: &F,
-    ) -> Result<MessageReply> {
-        match grpc_client.send_message(typ, msg).await {
-            Ok(r) => {
-                log::debug!("OK reply: {:?}", r);
-                check_fn(r)
-            }
-            Err(e) => {
-                log::debug!("ERROR reply: {:?}", e);
-                Err(e)
-            }
-        }
+        })
+        .await?;
+    if let MessageReply::Kick(Some(kicked)) = reply {
+        Ok(kicked)
+    } else {
+        Err(MqttError::None)
     }
 }
 
