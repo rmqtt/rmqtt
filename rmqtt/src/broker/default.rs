@@ -128,7 +128,7 @@ impl super::Entry for LockEntry {
             is_admin
         );
 
-        if let Some(peer_tx) = self.tx().and_then(|tx| if tx.is_closed() { None } else { Some(tx) }){
+        if let Some(peer_tx) = self.tx().and_then(|tx| if tx.is_closed() { None } else { Some(tx) }) {
             let (tx, rx) = oneshot::channel();
             if let Ok(()) = peer_tx.send(Message::Kick(tx, self.id.clone(), is_admin)) {
                 match tokio::time::timeout(Duration::from_secs(5), rx).await {
@@ -137,11 +137,11 @@ impl super::Entry for LockEntry {
                     }
                     Ok(Err(e)) => {
                         log::warn!("{:?} kick, recv result is {:?}, from {:?}", self.id, e, self.client().map(|c| c.id.clone()));
-                        return Err(MqttError::Msg(format!("recv kick result is {:?}", e)))
+                        return Err(MqttError::Msg(format!("recv kick result is {:?}", e)));
                     }
                     Err(_) => {
                         log::warn!("{:?} kick, recv result is Timeout, from {:?}", self.id, self.client().map(|c| c.id.clone()));
-                        return Err(MqttError::Msg("recv kick result is Timeout".into()))
+                        return Err(MqttError::Msg("recv kick result is Timeout".into()));
                     }
                 }
             }

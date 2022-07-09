@@ -5,14 +5,14 @@ use once_cell::sync::OnceCell;
 
 use rmqtt::{broker::{
     default::DefaultShared,
-    Entry, Shared, SubRelations, SubRelationsMap,
-    session::{ClientInfo, Session, SessionOfflineInfo},
-    types::{From, Id, NodeId, Publish, Reason, SessionStatus, IsAdmin,
-                                                   Subscribe, SubscribeReturn, To, Tx, Unsubscribe},
+    Entry, session::{ClientInfo, Session, SessionOfflineInfo}, Shared, SubRelations,
+    SubRelationsMap,
+    types::{From, Id, IsAdmin, NodeId, Publish, Reason, SessionStatus,
+            Subscribe, SubscribeReturn, To, Tx, Unsubscribe},
 }, grpc::{Message, MessageReply, MessageType}, MqttError, Result, Runtime};
 
 use super::{ClusterRouter, GrpcClients, MessageSender, NodeGrpcClient};
-use super::message::{MessageReply as RaftMessageReply, Message as RaftMessage, get_client_node_id};
+use super::message::{get_client_node_id, Message as RaftMessage, MessageReply as RaftMessageReply};
 
 pub struct ClusterLockEntry {
     inner: Box<dyn Entry>,
@@ -104,7 +104,7 @@ impl Entry for ClusterLockEntry {
             let raft_mailbox = self.cluster_shared.router.raft_mailbox().await;
             let node_id = get_client_node_id(raft_mailbox, &id.client_id).await?;
             node_id.unwrap_or(id.node_id)
-        }else{
+        } else {
             self.prev_node_id.unwrap_or(id.node_id)
         };
         log::debug!("{:?} kick, prev_node_id: {:?}, is_admin: {}", id, self.prev_node_id, is_admin);

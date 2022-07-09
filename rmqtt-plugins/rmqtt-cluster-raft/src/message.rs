@@ -1,4 +1,4 @@
-use rmqtt::broker::types::{Id, QoS, SharedGroup, NodeId};
+use rmqtt::broker::types::{Id, NodeId, QoS, SharedGroup};
 use rmqtt::Result;
 
 use super::Mailbox;
@@ -63,13 +63,13 @@ impl MessageReply {
 }
 
 #[inline]
-pub(crate) async fn get_client_node_id(raft_mailbox: Mailbox, client_id: &str) -> Result<Option<NodeId>>{
+pub(crate) async fn get_client_node_id(raft_mailbox: Mailbox, client_id: &str) -> Result<Option<NodeId>> {
     let msg = Message::GetClientNodeId { client_id }
         .encode()?;
     let reply = raft_mailbox.query(msg).await.map_err(anyhow::Error::new)?;
     if !reply.is_empty() {
         Ok(bincode::deserialize(&reply).map_err(anyhow::Error::new)?)
-    }else{
+    } else {
         Ok(None)
     }
 }

@@ -418,28 +418,25 @@ async fn _search_clients(message_type: MessageType, mut q: ClientSearchParams) -
 
 #[fn_handler]
 async fn kick_client(req: &mut Request, res: &mut Response) {
-
     let clientid = req.param::<String>("clientid");
     if let Some(clientid) = clientid {
-
         let mut entry = Runtime::instance()
             .extends
             .shared()
             .await
             .entry(Id::from(Runtime::instance().node.id(), ClientId::from(clientid)));
 
-        match entry.kick(true, true).await{
+        match entry.kick(true, true).await {
             Err(e) => {
                 res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string()))
             }
             Ok(None) => {
                 res.set_status_code(StatusCode::NOT_FOUND)
-            },
+            }
             Ok(Some(offline_info)) => {
                 res.render(Json(offline_info.id))
-            },
+            }
         }
-
     } else {
         res.set_status_error(StatusError::bad_request())
     }
