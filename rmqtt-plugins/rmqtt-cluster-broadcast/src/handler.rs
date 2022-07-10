@@ -7,6 +7,7 @@ use rmqtt::{
     grpc::{Message, MessageReply},
     Runtime,
 };
+use rmqtt::broker::Shared;
 
 use super::{hook_message_dropped, retainer::ClusterRetainer, shared::ClusterShared};
 
@@ -87,6 +88,12 @@ impl Handler for HookHandler {
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::Online(
                             Runtime::instance().extends.router().await
                                 .is_online(Runtime::instance().node.id(), clientid).await,
+                        )));
+                        return (false, Some(new_acc));
+                    }
+                    Message::SubscriptionsSearch(q) => {
+                        let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::SubscriptionsSearch(
+                            self.shared.inner()._query_subscriptions(q).await
                         )));
                         return (false, Some(new_acc));
                     }

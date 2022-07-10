@@ -10,7 +10,8 @@ use client::NodeGrpcClient;
 use crate::{ClientId, Result};
 use crate::broker::{ClearSubscriptions, SubRelations, SubRelationsMap};
 use crate::broker::session::SessionOfflineInfo;
-use crate::broker::types::{From, Id, IsAdmin, NodeId, Publish, Retain, TopicFilter, TopicName};
+use crate::broker::types::{From, Id, IsAdmin, NodeId, Publish, Retain, SubsSearchParams, SubsSearchResult,
+                           TopicFilter, TopicName};
 
 pub mod client;
 pub mod server;
@@ -29,6 +30,7 @@ pub enum Message {
     ForwardsTo(From, Publish, SubRelations),
     Kick(Id, ClearSubscriptions, IsAdmin),
     GetRetains(TopicFilter),
+    SubscriptionsSearch(SubsSearchParams),
     NumberOfClients,
     NumberOfSessions,
     Online(ClientId),
@@ -53,6 +55,7 @@ pub enum MessageReply {
     Error(String),
     Kick(Option<SessionOfflineInfo>),
     GetRetains(Vec<(TopicName, Retain)>),
+    SubscriptionsSearch(Vec<SubsSearchResult>),
     NumberOfClients(usize),
     NumberOfSessions(usize),
     Online(bool),

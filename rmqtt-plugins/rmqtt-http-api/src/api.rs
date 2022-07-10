@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use salvo::extra::affix;
 use salvo::prelude::*;
 
-use rmqtt::{anyhow, ClientId, HashMap, Id, log, MqttError, serde_json::{self, json}, tokio::sync::oneshot};
+use rmqtt::{anyhow, ClientId, HashMap, Id, log, MqttError, serde_json::{self, json}, SubsSearchParams, tokio::sync::oneshot};
 use rmqtt::{
     broker::types::NodeId,
     grpc::{Message as GrpcMessage,
@@ -45,6 +45,12 @@ fn route(cfg: PluginConfigType) -> Router {
                     )
                 )
         )
+        .push(
+            Router::with_path("subscriptions")
+                .get(query_subscriptions)
+            //.push(Router::with_path("<id>").get(get_subscription))
+        )
+
         .push(
             Router::with_path("stats")
                 .get(get_stats)
@@ -108,6 +114,13 @@ async fn list_apis(res: &mut Response) {
           "method": "GET",
           "path": "/clients/{clientid}/online",
           "descr": "Check a client whether online from the cluster"
+        },
+
+        {
+          "name": "query_subscriptions",
+          "method": "GET",
+          "path": "/subscriptions",
+          "descr": "Query subscriptions information from the cluste"
         },
 
         {
@@ -468,6 +481,22 @@ async fn check_online(req: &mut Request, res: &mut Response) {
         res.set_status_error(StatusError::bad_request())
     }
 }
+
+#[fn_handler]
+async fn query_subscriptions(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+    let max_row_limit = cfg.read().max_row_limit;
+    let mut q = match req.parse_queries::<SubsSearchParams>() {
+        Ok(q) => q,
+        Err(e) => return res.set_status_error(StatusError::bad_request().with_detail(e.to_string()))
+    };
+    if q._limit == 0 || q._limit > max_row_limit {
+        q._limit = max_row_limit;
+    }
+    let replys = Runtime::instance().extends.shared().await.query_subscriptions(q).await;
+    res.render(Json(replys));
+}
+
 
 #[fn_handler]
 async fn get_stats_sum(depot: &mut Depot, res: &mut Response) {

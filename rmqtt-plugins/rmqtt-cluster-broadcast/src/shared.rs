@@ -8,9 +8,11 @@ use rmqtt::{AsStr, broker::{
     SubRelationsMap,
     types::{
         ClientId, From, Id, IsAdmin, IsOnline, NodeId, Publish, QoS, Reason, SessionStatus, SharedGroup,
-        Subscribe, SubscribeReturn, To, TopicFilter, TopicFilterString, Tx, Unsubscribe,
+        Subscribe, SubscribeReturn, SubsSearchParams, SubsSearchResult, To, TopicFilter, TopicFilterString, Tx,
+        Unsubscribe,
     },
 }, grpc::{GrpcClients, Message, MessageBroadcaster, MessageReply, MessageType}, MqttError, Result, Runtime};
+use rmqtt::grpc::MessageSender;
 
 use super::{hook_message_dropped, kick};
 
@@ -164,8 +166,8 @@ impl ClusterShared {
     }
 
     #[inline]
-    pub(crate) fn inner(&self) -> Box<dyn Shared> {
-        Box::new(self.inner)
+    pub(crate) fn inner(&self) -> &'static DefaultShared {
+        self.inner
     }
 }
 
@@ -447,6 +449,37 @@ impl Shared for &'static ClusterShared {
     #[inline]
     async fn session_status(&self, client_id: &str) -> Option<SessionStatus> {
         self.inner.session_status(client_id).await
+    }
+
+    #[inline]
+    async fn query_subscriptions(
+        &self,
+        mut q: SubsSearchParams,
+    ) -> Vec<SubsSearchResult> {
+        let mut replys = self.inner.query_subscriptions(q.clone()).await;
+
+        let grpc_clients = self.get_grpc_clients();
+        for c in grpc_clients.iter().map(|(_, (_, c))| c.clone()) {
+            if replys.len() < q._limit {
+                q._limit -= replys.len();
+
+                let reply = MessageSender::new(c, self.message_type, Message::SubscriptionsSearch(q.clone()))
+                    .send().await;
+                match reply {
+                    Ok(MessageReply::SubscriptionsSearch(subs)) => {
+                        replys.extend(subs);
+                    }
+                    Err(e) => {
+                        log::warn!("query_subscriptions, error: {:?}", e);
+                    }
+                    _ => unreachable!(),
+                };
+            } else {
+                break;
+            }
+        }
+
+        replys
     }
 
     #[inline]

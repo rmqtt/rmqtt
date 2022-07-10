@@ -1029,3 +1029,25 @@ pub struct SessionStatus {
     pub online: IsOnline,
     pub handshaking: bool,
 }
+
+#[derive(Deserialize, Serialize, Debug, Default, Clone)]
+pub struct SubsSearchParams {
+    #[serde(default)]
+    pub _limit: usize,
+    pub clientid: Option<String>,
+    pub topic: Option<String>,
+    //value is 0,1,2
+    pub qos: Option<u8>,
+    pub share: Option<SharedGroup>,
+    pub _match_topic: Option<String>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Default)]
+pub struct SubsSearchResult {
+    pub node_id: NodeId,
+    pub clientid: ClientId,
+    pub topic: TopicFilter,
+    pub qos: u8,
+    pub share: Option<SharedGroup>,
+}
+

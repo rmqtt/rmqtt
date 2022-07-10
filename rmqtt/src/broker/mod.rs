@@ -105,6 +105,9 @@ pub trait Shared: Sync + Send {
     ///
     async fn session_status(&self, client_id: &str) -> Option<SessionStatus>;
 
+    ///
+    async fn query_subscriptions(&self, q: SubsSearchParams) -> Vec<SubsSearchResult>;
+
     ///This node is not included
     #[inline]
     fn get_grpc_clients(&self) -> GrpcClients {

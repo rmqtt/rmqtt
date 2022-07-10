@@ -7,6 +7,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use itertools::Itertools;
 use leaky_bucket::RateLimiter;
 use ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 use once_cell::sync::OnceCell;
@@ -269,6 +270,11 @@ impl DefaultShared {
     pub fn tx(&self, client_id: &str) -> Option<(Tx, To)> {
         self.peers.get(client_id).map(|peer| (peer.tx.clone(), peer.c.id.clone()))
     }
+
+    #[inline]
+    pub async fn _query_subscriptions(&self, q: &SubsSearchParams) -> Vec<SubsSearchResult> {
+        DefaultRouter::instance()._query_subscriptions(q).await
+    }
 }
 
 #[async_trait]
@@ -462,6 +468,11 @@ impl Shared for &'static DefaultShared {
             }
         })
     }
+
+    #[inline]
+    async fn query_subscriptions(&self, q: SubsSearchParams) -> Vec<SubsSearchResult> {
+        self._query_subscriptions(&q).await
+    }
 }
 
 pub struct DefaultIter<'a> {
@@ -554,6 +565,165 @@ impl DefaultRouter {
 
         log::debug!("{:?} this_subs: {:?}", topic_name, subs);
         Ok(subs)
+    }
+
+
+    #[inline]
+    fn _query_subscriptions_filter(q: &SubsSearchParams, client_id: &str, qos: &QoS, group: &Option<SharedGroup>) -> bool {
+        if let Some(ref q_clientid) = q.clientid {
+            if q_clientid.as_bytes() != client_id.as_bytes() {
+                return false;
+            }
+        }
+
+        if let Some(ref q_qos) = q.qos {
+            if *q_qos != qos.value() {
+                return false;
+            }
+        }
+
+        match (&q.share, group) {
+            (Some(q_group), Some(group)) => {
+                if q_group != group {
+                    return false;
+                }
+            }
+            (Some(_), None) => return false,
+            _ => {}
+        }
+
+        true
+    }
+
+    #[inline]
+    async fn _query_subscriptions_for_topic(
+        &self,
+        q: &SubsSearchParams,
+        topic: &str,
+    ) -> Vec<SubsSearchResult> {
+        let limit = q._limit;
+        let mut curr: usize = 0;
+        let topic_filter = TopicFilter::from(topic);
+        return self
+            .relations
+            .get(topic)
+            .map(|e| {
+                e.value()
+                    .iter()
+                    .filter(|(client_id, (_id, qos, group))| {
+                        Self::_query_subscriptions_filter(q, client_id.as_str(), qos, group)
+                    })
+                    .filter_map(|(client_id, (id, qos, group))| {
+                        if curr < limit {
+                            curr += 1;
+                            Some(SubsSearchResult {
+                                node_id: id.node_id,
+                                clientid: client_id.clone(),
+                                topic: topic_filter.clone(),
+                                qos: qos.value(),
+                                share: group.as_ref().cloned(),
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+    }
+
+    #[inline]
+    async fn _query_subscriptions_for_matches(
+        &self,
+        q: &SubsSearchParams,
+        _match_topic: &str,
+    ) -> Vec<SubsSearchResult> {
+        let topic = if let Ok(t) = Topic::from_str(_match_topic) {
+            t
+        } else {
+            return Vec::new();
+        };
+
+        let limit = q._limit;
+        let mut curr: usize = 0;
+
+        self.topics.read().await.matches(&topic).iter().unique().flat_map(|(topic_filter, _)| {
+            let topic_filter = topic_filter.to_topic_filter();
+            if let Some(entry) = self.relations.get(&topic_filter) {
+                entry.iter()
+                    .filter(|(client_id, (_id, qos, group))| {
+                        Self::_query_subscriptions_filter(q, client_id.as_str(), qos, group)
+                    })
+                    .filter_map(|(client_id, (id, qos, group))| {
+                        if curr < limit {
+                            curr += 1;
+                            Some(SubsSearchResult {
+                                node_id: id.node_id,
+                                clientid: client_id.clone(),
+                                topic: topic_filter.clone(),
+                                qos: qos.value(),
+                                share: group.as_ref().cloned(),
+                            })
+                        } else {
+                            None
+                        }
+                    }).collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            }
+        }).collect::<Vec<_>>()
+    }
+
+    #[inline]
+    async fn _query_subscriptions_for_other(
+        &self,
+        q: &SubsSearchParams,
+    ) -> Vec<SubsSearchResult> {
+        let limit = q._limit;
+        let mut curr: usize = 0;
+        self.relations
+            .iter()
+            .flat_map(|e| {
+                let topic_filter = e.key();
+                e.value()
+                    .iter()
+                    .filter(|(client_id, (_id, qos, group))| {
+                        Self::_query_subscriptions_filter(q, client_id.as_str(), qos, group)
+                    })
+                    .filter_map(|(client_id, (id, qos, group))| {
+                        if curr < limit {
+                            curr += 1;
+                            Some(SubsSearchResult {
+                                node_id: id.node_id,
+                                clientid: client_id.clone(),
+                                topic: topic_filter.clone(),
+                                qos: qos.value(),
+                                share: group.as_ref().cloned(),
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>()
+    }
+
+    #[inline]
+    async fn _query_subscriptions(&self, q: &SubsSearchParams) -> Vec<SubsSearchResult> {
+
+        //topic
+        if let Some(ref topic) = q.topic {
+            return self._query_subscriptions_for_topic(q, topic).await;
+        }
+
+        //_match_topic
+        if let Some(ref _match_topic) = q._match_topic {
+            return self._query_subscriptions_for_matches(q, _match_topic).await;
+        }
+
+        //other
+        self._query_subscriptions_for_other(q).await
     }
 }
 

@@ -7,8 +7,8 @@ use rmqtt::{broker::{
     default::DefaultShared,
     Entry, session::{ClientInfo, Session, SessionOfflineInfo}, Shared, SubRelations,
     SubRelationsMap,
-    types::{From, Id, IsAdmin, NodeId, Publish, Reason, SessionStatus,
-            Subscribe, SubscribeReturn, To, Tx, Unsubscribe},
+    types::{From, Id, IsAdmin, NodeId, Publish, Reason, SessionStatus, Subscribe, SubscribeReturn,
+            SubsSearchParams, SubsSearchResult, To, Tx, Unsubscribe},
 }, grpc::{Message, MessageReply, MessageType}, MqttError, Result, Runtime};
 use rmqtt::broker::Router;
 
@@ -391,6 +391,14 @@ impl Shared for &'static ClusterShared {
                 online: s.online,
             }
         })
+    }
+
+    #[inline]
+    async fn query_subscriptions(
+        &self,
+        q: SubsSearchParams,
+    ) -> Vec<SubsSearchResult> {
+        self.inner.query_subscriptions(q).await
     }
 
     #[inline]
