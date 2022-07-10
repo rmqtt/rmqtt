@@ -1,12 +1,8 @@
-use rmqtt::{
-    broker::{
-        hook::{Handler, HookResult, Parameter, ReturnType},
-        SubRelationsMap,
-        types::{From, Publish},
-    },
-    grpc::{Message, MessageReply},
-    Runtime,
-};
+use rmqtt::{broker::{
+    hook::{Handler, HookResult, Parameter, ReturnType},
+    SubRelationsMap,
+    types::{From, Publish},
+}, grpc::{Message, MessageReply}, Id, Runtime};
 use rmqtt::broker::Shared;
 
 use super::{hook_message_dropped, retainer::ClusterRetainer, shared::ClusterShared};
@@ -94,6 +90,14 @@ impl Handler for HookHandler {
                     Message::SubscriptionsSearch(q) => {
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::SubscriptionsSearch(
                             self.shared.inner()._query_subscriptions(q).await
+                        )));
+                        return (false, Some(new_acc));
+                    }
+                    Message::SubscriptionsGet(clientid) => {
+                        let id = Id::from(Runtime::instance().node.id(), clientid.clone());
+                        let entry = self.shared.inner().entry(id);
+                        let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::SubscriptionsGet(
+                            entry.subscriptions().await
                         )));
                         return (false, Some(new_acc));
                     }
