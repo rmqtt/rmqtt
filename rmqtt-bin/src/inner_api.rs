@@ -264,6 +264,7 @@ async fn random_session() -> Result<Option<serde_json::Value>> {
 }
 
 async fn session_status(client_id: String) -> Option<SessionStatus> {
+    #[allow(deprecated)]
     Runtime::instance()
         .extends
         .shared()
