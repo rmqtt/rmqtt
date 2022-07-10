@@ -203,7 +203,6 @@ impl Entry for ClusterLockEntry {
         } else {
             return None;
         };
-        log::info!("id: {:?}", id);
 
         if id.node_id == Runtime::instance().node.id() {
             self.inner.subscriptions().await

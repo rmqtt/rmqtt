@@ -120,13 +120,13 @@ async fn list_apis(res: &mut Response) {
           "name": "query_subscriptions",
           "method": "GET",
           "path": "/subscriptions",
-          "descr": "Query subscriptions information from the cluste"
+          "descr": "Query subscriptions information from the cluster"
         },
         {
           "name": "get_client_subscriptions",
           "method": "GET",
           "path": "/subscriptions/{clientid}",
-          "descr": "Get subscriptions information for the client"
+          "descr": "Get subscriptions information for the client from the cluster"
         },
 
         {

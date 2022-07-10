@@ -163,7 +163,7 @@ impl Entry for ClusterLockEntry {
                     Err(MqttError::None)
                 }
             })
-            .await.unwrap_or(Some(Vec::new()))
+            .await.unwrap_or(None)
     }
 }
 
