@@ -48,7 +48,7 @@ fn route(cfg: PluginConfigType) -> Router {
         .push(
             Router::with_path("subscriptions")
                 .get(query_subscriptions)
-            //.push(Router::with_path("<id>").get(get_subscription))
+                .push(Router::with_path("<clientid>").get(get_client_subscriptions))
         )
 
         .push(
@@ -121,6 +121,12 @@ async fn list_apis(res: &mut Response) {
           "method": "GET",
           "path": "/subscriptions",
           "descr": "Query subscriptions information from the cluste"
+        },
+        {
+          "name": "get_client_subscriptions",
+          "method": "GET",
+          "path": "/subscriptions/{clientid}",
+          "descr": "Get subscriptions information for the client"
         },
 
         {
@@ -497,6 +503,24 @@ async fn query_subscriptions(req: &mut Request, depot: &mut Depot, res: &mut Res
     res.render(Json(replys));
 }
 
+#[fn_handler]
+async fn get_client_subscriptions(req: &mut Request, res: &mut Response) {
+    let clientid = req.param::<String>("clientid");
+    if let Some(clientid) = clientid {
+        let entry = Runtime::instance()
+            .extends
+            .shared()
+            .await
+            .entry(Id::from(Runtime::instance().node.id(), ClientId::from(clientid)));
+        if let Some(subs) = entry.subscriptions().await {
+            res.render(Json(subs));
+        } else {
+            res.set_status_code(StatusCode::NOT_FOUND)
+        }
+    } else {
+        res.set_status_error(StatusError::bad_request())
+    }
+}
 
 #[fn_handler]
 async fn get_stats_sum(depot: &mut Depot, res: &mut Response) {

@@ -195,6 +195,45 @@ impl Entry for ClusterLockEntry {
     async fn publish(&self, from: From, p: Publish) -> Result<(), (From, Publish, Reason)> {
         self.inner.publish(from, p).await
     }
+
+    #[inline]
+    async fn subscriptions(&self) -> Option<Vec<SubsSearchResult>> {
+        let id = if let Some(id) = self.cluster_shared.id(&self.id().client_id) {
+            id
+        } else {
+            return None;
+        };
+        log::info!("id: {:?}", id);
+
+        if id.node_id == Runtime::instance().node.id() {
+            self.inner.subscriptions().await
+        } else {
+            //from other node
+            if let Some(client) = self.cluster_shared.grpc_client(id.node_id) {
+                let reply = MessageSender {
+                    client,
+                    msg_type: self.cluster_shared.message_type,
+                    msg: Message::SubscriptionsGet(id.client_id.clone()),
+                    max_retries: 0,
+                    retry_interval: Duration::from_millis(500),
+                }.send().await;
+                match reply {
+                    Ok(MessageReply::SubscriptionsGet(subs)) => subs,
+                    Err(e) => {
+                        log::warn!("Message::SubscriptionsGet, error: {:?}", e);
+                        None
+                    }
+                    _ => unreachable!()
+                }
+            } else {
+                log::error!(
+                        "get subscriptions error, grpc_client is not exist, node_id: {}",
+                        id.node_id,
+                    );
+                None
+            }
+        }
+    }
 }
 
 pub struct ClusterShared {

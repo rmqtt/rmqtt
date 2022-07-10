@@ -147,6 +147,24 @@ impl Entry for ClusterLockEntry {
     async fn publish(&self, from: From, p: Publish) -> Result<(), (From, Publish, Reason)> {
         self.inner.publish(from, p).await
     }
+
+    #[inline]
+    async fn subscriptions(&self) -> Option<Vec<SubsSearchResult>> {
+        if let Some(subs) = self.inner.subscriptions().await {
+            return Some(subs);
+        }
+        MessageBroadcaster::new(self.cluster_shared.grpc_clients.clone(),
+                                self.cluster_shared.message_type,
+                                Message::SubscriptionsGet(self.id().client_id.clone()))
+            .select_ok(|reply: MessageReply| -> Result<Option<Vec<SubsSearchResult>>> {
+                if let MessageReply::SubscriptionsGet(Some(subs)) = reply {
+                    Ok(Some(subs))
+                } else {
+                    Err(MqttError::None)
+                }
+            })
+            .await.unwrap_or(Some(Vec::new()))
+    }
 }
 
 pub struct ClusterShared {
@@ -445,9 +463,9 @@ impl Shared for &'static ClusterShared {
         self.inner.random_session()
     }
 
-
     #[inline]
     async fn session_status(&self, client_id: &str) -> Option<SessionStatus> {
+        #[allow(deprecated)]
         self.inner.session_status(client_id).await
     }
 

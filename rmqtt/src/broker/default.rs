@@ -245,6 +245,25 @@ impl super::Entry for LockEntry {
         }
         Ok(())
     }
+
+    #[inline]
+    async fn subscriptions(&self) -> Option<Vec<SubsSearchResult>> {
+        if let Some(s) = self.session() {
+            let subs = s.subscriptions().iter().map(|entry| {
+                let (topic_filter, (qos, group)) = entry.pair();
+                SubsSearchResult {
+                    node_id: self.id.node_id,
+                    clientid: self.id.client_id.clone(),
+                    topic: TopicFilter::from(topic_filter.as_str()),
+                    qos: qos.value(),
+                    share: group.as_ref().cloned(),
+                }
+            }).collect::<Vec<_>>();
+            Some(subs)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Clone)]

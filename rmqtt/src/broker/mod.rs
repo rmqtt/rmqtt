@@ -41,6 +41,7 @@ pub trait Entry: Sync + Send {
     async fn subscribe(&self, subscribe: &Subscribe) -> Result<SubscribeReturn>;
     async fn unsubscribe(&self, unsubscribe: &Unsubscribe) -> Result<bool>;
     async fn publish(&self, from: From, p: Publish) -> Result<(), (From, Publish, Reason)>;
+    async fn subscriptions(&self) -> Option<Vec<SubsSearchResult>>;
 }
 
 #[async_trait]
@@ -103,6 +104,7 @@ pub trait Shared: Sync + Send {
     fn random_session(&self) -> Option<(Session, ClientInfo)>;
 
     ///
+    #[deprecated]
     async fn session_status(&self, client_id: &str) -> Option<SessionStatus>;
 
     ///
