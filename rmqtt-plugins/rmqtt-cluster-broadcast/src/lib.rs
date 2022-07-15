@@ -23,12 +23,14 @@ use rmqtt::{
     plugin::{DynPlugin, DynPluginResult, Plugin},
     Result, Runtime,
 };
+use router::ClusterRouter;
 use shared::ClusterShared;
 
 mod config;
 mod handler;
 mod retainer;
 mod shared;
+mod router;
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
@@ -60,7 +62,7 @@ struct ClusterPlugin {
     grpc_clients: GrpcClients,
     shared: &'static ClusterShared,
     retainer: &'static ClusterRetainer,
-    // shared_subscriber: &'static ClusterSharedSubscriber,
+    router: &'static ClusterRouter,
 }
 
 impl ClusterPlugin {
@@ -86,11 +88,10 @@ impl ClusterPlugin {
         }
         let grpc_clients = Arc::new(grpc_clients);
         let message_type = cfg.read().message_type;
+        let router = ClusterRouter::get_or_init(grpc_clients.clone(), message_type);
         let shared = ClusterShared::get_or_init(grpc_clients.clone(), message_type);
         let retainer = ClusterRetainer::get_or_init(grpc_clients.clone(), message_type);
-        // let shared_subscriber =
-        //     ClusterSharedSubscriber::get_or_init(grpc_clients.clone(), runtime.node.id(), message_type);
-        Ok(Self { runtime, name, descr: descr.into(), register, cfg, grpc_clients, shared, retainer })
+        Ok(Self { runtime, name, descr: descr.into(), register, cfg, grpc_clients, shared, retainer, router })
     }
 }
 
@@ -100,7 +101,7 @@ impl Plugin for ClusterPlugin {
     async fn init(&mut self) -> Result<()> {
         log::info!("{} init", self.name);
         self.register
-            .add(Type::GrpcMessageReceived, Box::new(HookHandler::new(self.shared, self.retainer)))
+            .add(Type::GrpcMessageReceived, Box::new(HookHandler::new(self.shared, self.router, self.retainer)))
             .await;
         Ok(())
     }
@@ -121,7 +122,7 @@ impl Plugin for ClusterPlugin {
         self.register.start().await;
         *self.runtime.extends.shared_mut().await = Box::new(self.shared);
         *self.runtime.extends.retain_mut().await = Box::new(self.retainer);
-        // *self.runtime.extends.shared_subscriber_mut().await = Box::new(self.shared_subscriber);
+        *self.runtime.extends.router_mut().await = Box::new(self.router);
         Ok(())
     }
 

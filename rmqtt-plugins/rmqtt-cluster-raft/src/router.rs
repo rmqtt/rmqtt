@@ -9,7 +9,7 @@ use tokio::sync::RwLock;
 use rmqtt::{broker::{
     default::DefaultRouter,
     Router,
-    SubRelationsMap, topic::TopicTree, types::{ClientId, Id, IsOnline, NodeId, QoS,
+    SubRelationsMap, topic::TopicTree, types::{ClientId, Id, IsOnline, NodeId, QoS, Route,
                                                SharedGroup, TimestampMillis, TopicFilter, TopicName},
 }, Result};
 
@@ -197,6 +197,16 @@ impl Router for &'static ClusterRouter {
                 entry.online
             })
             .unwrap_or(false)
+    }
+
+    #[inline]
+    async fn gets(&self, limit: usize) -> Vec<Route> {
+        self.inner.gets(limit).await
+    }
+
+    #[inline]
+    async fn get(&self, topic: &str) -> Result<Vec<Route>> {
+        self.inner.get(topic).await
     }
 
     // #[inline]

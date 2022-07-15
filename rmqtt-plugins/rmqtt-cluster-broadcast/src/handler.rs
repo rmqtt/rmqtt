@@ -3,18 +3,19 @@ use rmqtt::{broker::{
     SubRelationsMap,
     types::{From, Publish},
 }, grpc::{Message, MessageReply}, Id, Runtime};
-use rmqtt::broker::Shared;
+use rmqtt::broker::{Router, Shared};
 
-use super::{hook_message_dropped, retainer::ClusterRetainer, shared::ClusterShared};
+use super::{hook_message_dropped, retainer::ClusterRetainer, router::ClusterRouter, shared::ClusterShared};
 
 pub(crate) struct HookHandler {
     shared: &'static ClusterShared,
+    router: &'static ClusterRouter,
     retainer: &'static ClusterRetainer,
 }
 
 impl HookHandler {
-    pub(crate) fn new(shared: &'static ClusterShared, retainer: &'static ClusterRetainer) -> Self {
-        Self { shared, retainer }
+    pub(crate) fn new(shared: &'static ClusterShared, router: &'static ClusterRouter, retainer: &'static ClusterRetainer) -> Self {
+        Self { shared, router, retainer }
     }
 }
 
@@ -99,6 +100,20 @@ impl Handler for HookHandler {
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::SubscriptionsGet(
                             entry.subscriptions().await
                         )));
+                        return (false, Some(new_acc));
+                    }
+                    Message::RoutesGet(limit) => {
+                        let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::RoutesGet(
+                            self.router._inner().gets(*limit).await
+                        )));
+                        return (false, Some(new_acc));
+                    }
+                    Message::RoutesGetBy(topic) => {
+                        let routes = match self.router._inner()._get_routes(topic).await {
+                            Ok(routes) => Ok(MessageReply::RoutesGetBy(routes)),
+                            Err(e) => Err(e),
+                        };
+                        let new_acc = HookResult::GrpcMessageReply(routes);
                         return (false, Some(new_acc));
                     }
                     _ => {

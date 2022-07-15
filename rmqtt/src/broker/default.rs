@@ -533,6 +533,27 @@ impl DefaultRouter {
             })
     }
 
+    #[inline]
+    pub async fn _has_matches(&self, topic: &str) -> Result<bool> {
+        let topic = Topic::from_str(topic)?;
+        Ok(self.topics.read().await.is_match(&topic))
+    }
+
+    #[inline]
+    pub async fn _get_routes(&self, topic: &str) -> Result<Vec<Route>> {
+        let topic = Topic::from_str(topic)?;
+        let node_id = Runtime::instance().node.id();
+        let routes = self.topics.read().await.matches(&topic).iter()
+            .unique()
+            .map(|(topic_filter, _)| {
+                Route {
+                    node_id,
+                    topic: topic_filter.to_topic_filter(),
+                }
+            }).collect::<Vec<_>>();
+        Ok(routes)
+    }
+
     #[allow(clippy::type_complexity)]
     #[inline]
     pub async fn _matches(&self, topic_name: &TopicName) -> Result<SubRelationsMap> {
@@ -824,6 +845,55 @@ impl Router for &'static DefaultRouter {
     #[inline]
     async fn matches(&self, topic: &TopicName) -> Result<SubRelationsMap> {
         Ok(self._matches(topic).await?)
+    }
+
+    #[inline]
+    async fn gets(&self, limit: usize) -> Vec<Route> {
+        let mut curr: usize = 0;
+        self.relations
+            .iter()
+            .flat_map(|e| {
+                let topic_filter = e.key();
+                e.value()
+                    .iter()
+                    .map(|(_, (id, _, _))| (id.node_id, topic_filter))
+                    .unique()
+                    .filter_map(|(node_id, topic_filter)| {
+                        if curr < limit {
+                            curr += 1;
+                            Some(Route {
+                                node_id,
+                                topic: topic_filter.clone(),
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>()
+    }
+
+    #[inline]
+    async fn get(&self, topic: &str) -> Result<Vec<Route>> {
+        let topic = Topic::from_str(topic)?;
+        let routes = self.topics.read().await.matches(&topic).iter().unique().flat_map(|(topic_filter, _)| {
+            let topic_filter = topic_filter.to_topic_filter();
+            if let Some(entry) = self.relations.get(&topic_filter) {
+                entry.iter()
+                    .map(|(_, (id, _, _))| id.node_id)
+                    .unique()
+                    .map(|node_id| {
+                        Route {
+                            node_id,
+                            topic: topic_filter.clone(),
+                        }
+                    }).collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            }
+        }).collect::<Vec<_>>();
+        Ok(routes)
     }
 
     // #[inline]

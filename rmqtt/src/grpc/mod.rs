@@ -10,8 +10,8 @@ use client::NodeGrpcClient;
 use crate::{ClientId, Result};
 use crate::broker::{ClearSubscriptions, SubRelations, SubRelationsMap};
 use crate::broker::session::SessionOfflineInfo;
-use crate::broker::types::{From, Id, IsAdmin, NodeId, Publish, Retain, SubsSearchParams, SubsSearchResult,
-                           TopicFilter, TopicName};
+use crate::broker::types::{From, Id, IsAdmin, NodeId, Publish, Retain, Route, SubsSearchParams,
+                           SubsSearchResult, TopicFilter, TopicName};
 
 pub mod client;
 pub mod server;
@@ -32,6 +32,8 @@ pub enum Message {
     GetRetains(TopicFilter),
     SubscriptionsSearch(SubsSearchParams),
     SubscriptionsGet(ClientId),
+    RoutesGet(usize),
+    RoutesGetBy(TopicFilter),
     NumberOfClients,
     NumberOfSessions,
     Online(ClientId),
@@ -58,6 +60,8 @@ pub enum MessageReply {
     GetRetains(Vec<(TopicName, Retain)>),
     SubscriptionsSearch(Vec<SubsSearchResult>),
     SubscriptionsGet(Option<Vec<SubsSearchResult>>),
+    RoutesGet(Vec<Route>),
+    RoutesGetBy(Vec<Route>),
     NumberOfClients(usize),
     NumberOfSessions(usize),
     Online(bool),

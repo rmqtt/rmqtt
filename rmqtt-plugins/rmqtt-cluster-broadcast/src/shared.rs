@@ -474,13 +474,13 @@ impl Shared for &'static ClusterShared {
         &self,
         mut q: SubsSearchParams,
     ) -> Vec<SubsSearchResult> {
+        let limit = q._limit;
         let mut replys = self.inner.query_subscriptions(q.clone()).await;
 
         let grpc_clients = self.get_grpc_clients();
         for c in grpc_clients.iter().map(|(_, (_, c))| c.clone()) {
-            if replys.len() < q._limit {
-                q._limit -= replys.len();
-
+            if replys.len() < limit {
+                q._limit = limit - replys.len();
                 let reply = MessageSender::new(c, self.message_type, Message::SubscriptionsSearch(q.clone()))
                     .send().await;
                 match reply {

@@ -1051,3 +1051,9 @@ pub struct SubsSearchResult {
     pub share: Option<SharedGroup>,
 }
 
+#[derive(Deserialize, Serialize, Debug, Default, PartialEq, Eq, Hash, Clone)]
+pub struct Route {
+    pub node_id: NodeId,
+    pub topic: TopicFilter,
+}
+

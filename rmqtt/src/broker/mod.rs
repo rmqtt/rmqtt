@@ -158,6 +158,12 @@ pub trait Router: Sync + Send {
             .is_connected()
     }
 
+    ///
+    async fn gets(&self, limit: usize) -> Vec<Route>;
+
+    ///
+    async fn get(&self, topic: &str) -> Result<Vec<Route>>;
+
     // ///Return number of topics
     // async fn topics(&self) -> usize;
 

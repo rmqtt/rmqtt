@@ -50,6 +50,11 @@ fn route(cfg: PluginConfigType) -> Router {
                 .get(query_subscriptions)
                 .push(Router::with_path("<clientid>").get(get_client_subscriptions))
         )
+        .push(
+            Router::with_path("routes")
+                .get(get_routes)
+                .push(Router::with_path("<topic>").get(get_route))
+        )
 
         .push(
             Router::with_path("stats")
@@ -127,6 +132,19 @@ async fn list_apis(res: &mut Response) {
           "method": "GET",
           "path": "/subscriptions/{clientid}",
           "descr": "Get subscriptions information for the client from the cluster"
+        },
+
+        {
+          "name": "get_routes",
+          "method": "GET",
+          "path": "/routes",
+          "descr": "Return all routing information from the cluster"
+        },
+        {
+          "name": "get_route",
+          "method": "GET",
+          "path": "/routes/{topic}",
+          "descr": "Get routing information from the cluster"
         },
 
         {
@@ -516,6 +534,37 @@ async fn get_client_subscriptions(req: &mut Request, res: &mut Response) {
             res.render(Json(subs));
         } else {
             res.set_status_code(StatusCode::NOT_FOUND)
+        }
+    } else {
+        res.set_status_error(StatusError::bad_request())
+    }
+}
+
+#[fn_handler]
+async fn get_routes(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+    let max_row_limit = cfg.read().max_row_limit;
+    let limit = req.query::<usize>("_limit");
+    let limit = if let Some(limit) = limit {
+        if limit > max_row_limit {
+            max_row_limit
+        } else {
+            limit
+        }
+    } else {
+        max_row_limit
+    };
+    let replys = Runtime::instance().extends.router().await.gets(limit).await;
+    res.render(Json(replys));
+}
+
+#[fn_handler]
+async fn get_route(req: &mut Request, res: &mut Response) {
+    let topic = req.param::<String>("topic");
+    if let Some(topic) = topic {
+        match Runtime::instance().extends.router().await.get(&topic).await {
+            Ok(replys) => res.render(Json(replys)),
+            Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
         }
     } else {
         res.set_status_error(StatusError::bad_request())
