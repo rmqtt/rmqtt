@@ -8,7 +8,9 @@ pub extern crate serde_json;
 
 pub use ahash;
 pub use anyhow;
+pub use base64;
 pub use bincode;
+pub use bytes;
 pub use chrono;
 pub use dashmap;
 pub use futures;

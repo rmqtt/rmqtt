@@ -158,6 +158,45 @@ impl ClientSearchResult {
     }
 }
 
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+pub struct PublishParams {
+    //For topic and topics, with at least one of them specified
+    pub topic: Option<String>,
+    //Multiple topics separated by ,. This field is used to publish messages to multiple topics at the same time
+    pub topics: Option<String>,
+    //Client identifier. Default:　system
+    #[serde(default = "PublishParams::clientid_default")]
+    pub clientid: String,
+    //Message body
+    pub payload: String,
+    //The encoding used in the message body. Currently only plain and base64 are supported. Default:　plain
+    #[serde(default = "PublishParams::encoding_default")]
+    pub encoding: String,
+    //QoS level, Default: 0
+    #[serde(default = "PublishParams::qos_default")]
+    pub qos: u8,
+    //Whether it is a retained message, Default: false
+    #[serde(default = "PublishParams::retain_default")]
+    pub retain: bool,
+}
+
+impl PublishParams {
+    fn clientid_default() -> String {
+        "system".into()
+    }
+
+    fn encoding_default() -> String {
+        "plain".into()
+    }
+
+    fn qos_default() -> u8 {
+        0
+    }
+
+    fn retain_default() -> bool {
+        false
+    }
+}
 
 #[inline]
 fn format_timestamp(t: i64) -> String {

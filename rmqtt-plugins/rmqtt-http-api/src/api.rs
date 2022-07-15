@@ -3,22 +3,19 @@ use std::net::SocketAddr;
 use salvo::extra::affix;
 use salvo::prelude::*;
 
-use rmqtt::{anyhow, ClientId, HashMap, Id, log, MqttError, serde_json::{self, json}, SubsSearchParams, tokio::sync::oneshot};
-use rmqtt::{
-    broker::types::NodeId,
-    grpc::{Message as GrpcMessage,
-           MessageBroadcaster,
-           MessageReply as GrpcMessageReply,
-           MessageSender,
-           MessageType},
-    node::NodeStatus,
-    Result,
-    Runtime,
-};
+use rmqtt::{broker::types::NodeId, ClientId, grpc::{Message as GrpcMessage,
+                                                    MessageBroadcaster,
+                                                    MessageReply as GrpcMessageReply,
+                                                    MessageSender,
+                                                    MessageType},
+            Id, MqttError, node::NodeStatus, Publish, PublishProperties, Result,
+            Runtime, SubsSearchParams, TopicName};
+use rmqtt::{anyhow, base64, bytes, chrono, futures, HashMap,
+            log, QoS, serde_json::{self, json}, tokio::sync::oneshot};
 
 use super::clients;
 use super::PluginConfigType;
-use super::types::{ClientSearchParams, Message, MessageReply};
+use super::types::{ClientSearchParams, Message, MessageReply, PublishParams};
 
 fn route(cfg: PluginConfigType) -> Router {
     Router::with_path("api/v1")
@@ -54,6 +51,11 @@ fn route(cfg: PluginConfigType) -> Router {
             Router::with_path("routes")
                 .get(get_routes)
                 .push(Router::with_path("<topic>").get(get_route))
+        )
+        .push(
+            Router::with_path("mqtt")
+                .push(Router::with_path("publish").post(publish))
+            // .push(Router::with_path("subscribe").get(subscribe))
         )
 
         .push(
@@ -145,6 +147,13 @@ async fn list_apis(res: &mut Response) {
           "method": "GET",
           "path": "/routes/{topic}",
           "descr": "Get routing information from the cluster"
+        },
+
+        {
+          "name": "publish",
+          "method": "POST",
+          "path": "/mqtt/publish",
+          "descr": "Publish MQTT message"
         },
 
         {
@@ -570,6 +579,72 @@ async fn get_route(req: &mut Request, res: &mut Response) {
         res.set_status_error(StatusError::bad_request())
     }
 }
+
+#[handler]
+async fn publish(req: &mut Request, res: &mut Response) {
+    let param = match req.extract_json::<PublishParams>().await {
+        Ok(p) => p,
+        Err(e) => return res.set_status_error(StatusError::bad_request().with_detail(e.to_string()))
+    };
+    match _publish(param).await {
+        Ok(()) => res.render(Text::Plain("ok")),
+        Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+    }
+}
+
+async fn _publish(param: PublishParams) -> Result<()> {
+    let mut topics = if let Some(topics) = param.topics {
+        topics.split(',').collect::<Vec<_>>().iter().map(|t| TopicName::from(t.trim())).collect()
+    } else {
+        Vec::new()
+    };
+    if let Some(topic) = param.topic {
+        topics.push(TopicName::from(topic));
+    }
+    if topics.is_empty(){
+        return Err(MqttError::Msg("topics or topic is empty".into()));
+    }
+    let qos = QoS::try_from(param.qos).map_err(|e| anyhow::Error::msg(e.to_string()))?;
+    let encoding = param.encoding.to_ascii_lowercase();
+    let payload = if encoding == "plain" {
+        bytes::Bytes::from(param.payload)
+    } else if encoding == "base64" {
+        bytes::Bytes::from(base64::decode(param.payload).map_err(anyhow::Error::new)?)
+    } else {
+        return Err(MqttError::Msg("encoding error, currently only plain and base64 are supported".into()));
+    };
+
+    let from = rmqtt::From::from(Runtime::instance().node.id(), ClientId::from(param.clientid));
+    let p = Publish {
+        dup: false,
+        retain: param.retain,
+        qos,
+        topic: "".into(),
+        packet_id: None,
+        payload,
+        properties: PublishProperties::default(),
+        create_time: chrono::Local::now().timestamp_millis(),
+    };
+
+    let mut futs = Vec::new();
+    for topic in topics {
+        let mut p1 = p.clone();
+        p1.topic = topic;
+        let fut = async {
+            let replys = Runtime::instance().extends.shared().await.forwards(from.clone(), p1).await;
+            if let Err(droppeds) = replys {
+                //@TODO ... Dropped
+                for (to, from, p, reason) in droppeds {
+                    log::warn!("publish error, to: {:?}, from: {:?}, p: {:?}, reason: {}", to, from, p, reason);
+                }
+            }
+        };
+        futs.push(fut);
+    }
+    let _ = futures::future::join_all(futs).await;
+    Ok(())
+}
+
 
 #[handler]
 async fn get_stats_sum(depot: &mut Depot, res: &mut Response) {
