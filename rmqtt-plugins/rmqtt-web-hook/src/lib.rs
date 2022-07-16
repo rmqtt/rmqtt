@@ -378,7 +378,7 @@ trait JsonTo {
 impl JsonTo for Id {
     fn to(&self, mut json: serde_json::Value) -> serde_json::Value {
         if let Some(obj) = json.as_object_mut() {
-            obj.insert("node".into(), serde_json::Value::String(self.node()));
+            obj.insert("node".into(), serde_json::Value::Number(serde_json::Number::from(self.node())));
             obj.insert(
                 "ipaddress".into(),
                 self.remote_addr
@@ -399,7 +399,7 @@ trait JsonFrom {
 impl JsonFrom for Id {
     fn from(&self, mut json: serde_json::Value) -> serde_json::Value {
         if let Some(obj) = json.as_object_mut() {
-            obj.insert("from_node".into(), serde_json::Value::String(self.node()));
+            obj.insert("from_node".into(), serde_json::Value::Number(serde_json::Number::from(self.node())));
             obj.insert(
                 "from_ipaddress".into(),
                 self.remote_addr
