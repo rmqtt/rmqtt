@@ -15,13 +15,13 @@ pub mod error;
 pub mod fitter;
 pub mod hook;
 pub mod inflight;
+pub mod metrics;
 pub mod queue;
 pub mod retain;
 pub mod session;
+pub mod stats;
 pub mod topic;
 pub mod types;
-pub mod stats;
-pub mod metrics;
 pub mod v3;
 pub mod v5;
 
@@ -31,7 +31,11 @@ pub trait Entry: Sync + Send {
     fn id(&self) -> Id;
     async fn set(&mut self, session: Session, tx: Tx, conn: ClientInfo) -> Result<()>;
     async fn remove(&mut self) -> Result<Option<(Session, Tx, ClientInfo)>>;
-    async fn kick(&mut self, clear_subscriptions: bool, is_admin: IsAdmin) -> Result<Option<SessionOfflineInfo>>;
+    async fn kick(
+        &mut self,
+        clear_subscriptions: bool,
+        is_admin: IsAdmin,
+    ) -> Result<Option<SessionOfflineInfo>>;
     async fn online(&self) -> bool;
     fn is_connected(&self) -> bool;
     fn session(&self) -> Option<Session>;
@@ -260,6 +264,3 @@ pub trait LimiterManager: Sync + Send {
 pub trait Limiter: Sync + Send {
     async fn acquire(&self, handshakings: isize) -> Result<()>;
 }
-
-
-

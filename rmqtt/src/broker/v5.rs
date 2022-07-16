@@ -279,7 +279,10 @@ pub async fn control_message<E: std::fmt::Debug>(
         v5::ControlMessage::Ping(ping) => ping.ack(),
         v5::ControlMessage::Subscribe(subs) => match subscribes(&state, subs).await {
             Err(e) => {
-                state.client.add_disconnected_reason(Reason::from(format!("Subscribe failed, {:?}", e))).await;
+                state
+                    .client
+                    .add_disconnected_reason(Reason::from(format!("Subscribe failed, {:?}", e)))
+                    .await;
                 log::error!("{:?} Subscribe failed, reason: {:?}", state.id, e);
                 return Err(e);
             }
@@ -287,7 +290,10 @@ pub async fn control_message<E: std::fmt::Debug>(
         },
         v5::ControlMessage::Unsubscribe(unsubs) => match unsubscribes(&state, unsubs).await {
             Err(e) => {
-                state.client.add_disconnected_reason(Reason::from(format!("Unsubscribe failed, {:?}", e))).await;
+                state
+                    .client
+                    .add_disconnected_reason(Reason::from(format!("Unsubscribe failed, {:?}", e)))
+                    .await;
                 log::error!("{:?} Unsubscribe failed, reason: {:?}", state.id, e);
                 return Err(e);
             }
@@ -311,7 +317,9 @@ pub async fn control_message<E: std::fmt::Debug>(
             err.ack(DisconnectReasonCode::ServerBusy)
         }
         v5::ControlMessage::ProtocolError(protocol_error) => {
-            if let Err(e) = state.send(Message::Closed(Reason::from(format!("{:?}", protocol_error.get_ref())))) {
+            if let Err(e) =
+            state.send(Message::Closed(Reason::from(format!("{:?}", protocol_error.get_ref()))))
+            {
                 log::debug!("{:?} Closed error, reason: {:?}", state.id, e);
             }
             protocol_error.ack()

@@ -24,8 +24,8 @@ use rmqtt::{
     },
     grpc::{client::NodeGrpcClient, GrpcClients, Message, MessageReply, MessageType},
     plugin::{DynPlugin, DynPluginResult, Plugin},
-    Result, Runtime,
-    tokio::time::sleep,
+    Result,
+    Runtime, tokio::time::sleep,
 };
 use router::ClusterRouter;
 use shared::ClusterShared;
@@ -91,7 +91,10 @@ impl ClusterPlugin {
         let node_grpc_addrs = cfg.read().node_grpc_addrs.clone();
         for node_addr in &node_grpc_addrs {
             if node_addr.id != runtime.node.id() {
-                grpc_clients.insert(node_addr.id, (node_addr.addr, runtime.node.new_grpc_client(&node_addr.addr).await?));
+                grpc_clients.insert(
+                    node_addr.id,
+                    (node_addr.addr, runtime.node.new_grpc_client(&node_addr.addr).await?),
+                );
             }
         }
         let grpc_clients = Arc::new(grpc_clients);

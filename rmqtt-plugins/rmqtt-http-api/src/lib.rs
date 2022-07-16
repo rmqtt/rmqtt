@@ -6,20 +6,19 @@ use std::sync::Arc;
 use config::PluginConfig;
 use rmqtt::{
     async_trait::async_trait,
-    log,
-    RwLock,
+    log, RwLock,
     serde_json,
     tokio::{self, sync::oneshot},
 };
 use rmqtt::{
-    broker::{hook::{Register, Type}},
+    broker::hook::{Register, Type},
     plugin::{DynPlugin, DynPluginResult, Plugin},
     Result, Runtime,
 };
 
-mod config;
 mod api;
 mod clients;
+mod config;
 mod handler;
 mod types;
 
@@ -68,30 +67,25 @@ impl HttpApiPlugin {
     fn start(_runtime: &'static Runtime, cfg: PluginConfigType) -> ShutdownTX {
         let (shutdown_tx, shutdown_rx): (oneshot::Sender<()>, oneshot::Receiver<()>) = oneshot::channel();
 
-        let _child = std::thread::Builder::new()
-            .name("http-api".to_string())
-            .spawn(move || {
-                let cfg1 = cfg.clone();
-                let runner = async move {
-                    let laddr = cfg1.read().http_laddr;
-                    if let Err(e) = api::listen_and_serve(laddr, cfg1, shutdown_rx).await {
-                        log::error!("{:?}", e);
-                    }
-                };
+        let _child = std::thread::Builder::new().name("http-api".to_string()).spawn(move || {
+            let cfg1 = cfg.clone();
+            let runner = async move {
+                let laddr = cfg1.read().http_laddr;
+                if let Err(e) = api::listen_and_serve(laddr, cfg1, shutdown_rx).await {
+                    log::error!("{:?}", e);
+                }
+            };
 
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .worker_threads(cfg.read().workers)
-                    .thread_name("http-api-worker")
-                    .thread_stack_size(4 * 1024 * 1024)
-                    .build()
-                    .unwrap();
-                rt.block_on(runner);
-                log::info!(
-                    "Exit HTTP API Server, ..., http://{:?}",
-                    cfg.read().http_laddr
-                );
-            });
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .worker_threads(cfg.read().workers)
+                .thread_name("http-api-worker")
+                .thread_stack_size(4 * 1024 * 1024)
+                .build()
+                .unwrap();
+            rt.block_on(runner);
+            log::info!("Exit HTTP API Server, ..., http://{:?}", cfg.read().http_laddr);
+        });
         shutdown_tx
     }
 }
@@ -102,9 +96,7 @@ impl Plugin for HttpApiPlugin {
     async fn init(&mut self) -> Result<()> {
         log::info!("{} init", self.name);
         let mgs_type = self.cfg.read().message_type;
-        self.register
-            .add(Type::GrpcMessageReceived, Box::new(handler::HookHandler::new(mgs_type)))
-            .await;
+        self.register.add(Type::GrpcMessageReceived, Box::new(handler::HookHandler::new(mgs_type))).await;
         Ok(())
     }
 

@@ -17,7 +17,6 @@ lazy_static::lazy_static! {
         .with_multiplier(2.5).build();
 }
 
-
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
     #[serde(default = "PluginConfig::message_type_default")]
@@ -25,7 +24,7 @@ pub struct PluginConfig {
     pub node_grpc_addrs: Vec<NodeAddr>,
     pub raft_peer_addrs: Vec<NodeAddr>,
     #[serde(default = "PluginConfig::try_lock_timeout_default", deserialize_with = "deserialize_duration")]
-    pub try_lock_timeout: Duration,  //Message::HandshakeTryLock
+    pub try_lock_timeout: Duration, //Message::HandshakeTryLock
 }
 
 impl PluginConfig {

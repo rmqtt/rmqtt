@@ -1,8 +1,12 @@
-use rmqtt::{broker::{
-    hook::{Handler, HookResult, Parameter, ReturnType},
-    SubRelationsMap,
-    types::{From, Publish},
-}, grpc::{Message, MessageReply}, Id, Runtime};
+use rmqtt::{
+    broker::{
+        hook::{Handler, HookResult, Parameter, ReturnType},
+        SubRelationsMap,
+        types::{From, Publish},
+    },
+    grpc::{Message, MessageReply},
+    Id, Runtime,
+};
 use rmqtt::broker::{Router, Shared};
 
 use super::{hook_message_dropped, retainer::ClusterRetainer, router::ClusterRouter, shared::ClusterShared};
@@ -14,7 +18,11 @@ pub(crate) struct HookHandler {
 }
 
 impl HookHandler {
-    pub(crate) fn new(shared: &'static ClusterShared, router: &'static ClusterRouter, retainer: &'static ClusterRetainer) -> Self {
+    pub(crate) fn new(
+        shared: &'static ClusterShared,
+        router: &'static ClusterRouter,
+        retainer: &'static ClusterRetainer,
+    ) -> Self {
         Self { shared, router, retainer }
     }
 }
@@ -83,14 +91,18 @@ impl Handler for HookHandler {
                     }
                     Message::Online(clientid) => {
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::Online(
-                            Runtime::instance().extends.router().await
-                                .is_online(Runtime::instance().node.id(), clientid).await,
+                            Runtime::instance()
+                                .extends
+                                .router()
+                                .await
+                                .is_online(Runtime::instance().node.id(), clientid)
+                                .await,
                         )));
                         return (false, Some(new_acc));
                     }
                     Message::SubscriptionsSearch(q) => {
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::SubscriptionsSearch(
-                            self.shared.inner()._query_subscriptions(q).await
+                            self.shared.inner()._query_subscriptions(q).await,
                         )));
                         return (false, Some(new_acc));
                     }
@@ -98,13 +110,13 @@ impl Handler for HookHandler {
                         let id = Id::from(Runtime::instance().node.id(), clientid.clone());
                         let entry = self.shared.inner().entry(id);
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::SubscriptionsGet(
-                            entry.subscriptions().await
+                            entry.subscriptions().await,
                         )));
                         return (false, Some(new_acc));
                     }
                     Message::RoutesGet(limit) => {
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::RoutesGet(
-                            self.router._inner().gets(*limit).await
+                            self.router._inner().gets(*limit).await,
                         )));
                         return (false, Some(new_acc));
                     }

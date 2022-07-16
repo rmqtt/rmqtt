@@ -1,10 +1,15 @@
 use itertools::Itertools;
 use once_cell::sync::OnceCell;
 
-use rmqtt::{broker::{
-    default::DefaultRouter, Router, SubRelationsMap,
-    types::{Id, NodeId, QoS, Route, SharedGroup, TopicName},
-}, grpc::{GrpcClients, Message, MessageBroadcaster, MessageReply, MessageSender, MessageType}, Result, TopicFilter};
+use rmqtt::{
+    broker::{
+        default::DefaultRouter,
+        Router,
+        SubRelationsMap, types::{Id, NodeId, QoS, Route, SharedGroup, TopicName},
+    },
+    grpc::{GrpcClients, Message, MessageBroadcaster, MessageReply, MessageSender, MessageType},
+    Result, TopicFilter,
+};
 
 pub(crate) struct ClusterRouter {
     inner: &'static DefaultRouter,
@@ -16,11 +21,7 @@ impl ClusterRouter {
     #[inline]
     pub(crate) fn get_or_init(grpc_clients: GrpcClients, message_type: MessageType) -> &'static Self {
         static INSTANCE: OnceCell<ClusterRouter> = OnceCell::new();
-        INSTANCE.get_or_init(|| Self {
-            inner: DefaultRouter::instance(),
-            grpc_clients,
-            message_type,
-        })
+        INSTANCE.get_or_init(|| Self { inner: DefaultRouter::instance(), grpc_clients, message_type })
     }
 
     #[inline]
@@ -62,10 +63,13 @@ impl Router for &'static ClusterRouter {
         let mut routes = self.inner.gets(limit).await;
         for (_id, (_addr, c)) in self.grpc_clients.iter() {
             if routes.len() < limit {
-                let reply = MessageSender::new(c.clone(),
-                                               self.message_type,
-                                               Message::RoutesGet(limit - routes.len()))
-                    .send().await;
+                let reply = MessageSender::new(
+                    c.clone(),
+                    self.message_type,
+                    Message::RoutesGet(limit - routes.len()),
+                )
+                    .send()
+                    .await;
                 match reply {
                     Ok(MessageReply::RoutesGet(ress)) => {
                         routes.extend(ress);
@@ -86,17 +90,20 @@ impl Router for &'static ClusterRouter {
     async fn get(&self, topic: &str) -> Result<Vec<Route>> {
         let routes = self.inner._get_routes(topic).await?;
 
-        let mut replys =
-            MessageBroadcaster::new(self.grpc_clients.clone(), self.message_type, Message::RoutesGetBy(TopicFilter::from(topic)))
-                .join_all()
-                .await.into_iter()
-                .map(|(_, replys)| {
-                    match replys {
-                        Ok(MessageReply::RoutesGetBy(routes)) => Ok(routes),
-                        Ok(_) => unreachable!(),
-                        Err(e) => Err(e),
-                    }
-                }).collect::<Result<Vec<_>>>()?;
+        let mut replys = MessageBroadcaster::new(
+            self.grpc_clients.clone(),
+            self.message_type,
+            Message::RoutesGetBy(TopicFilter::from(topic)),
+        )
+            .join_all()
+            .await
+            .into_iter()
+            .map(|(_, replys)| match replys {
+                Ok(MessageReply::RoutesGetBy(routes)) => Ok(routes),
+                Ok(_) => unreachable!(),
+                Err(e) => Err(e),
+            })
+            .collect::<Result<Vec<_>>>()?;
         replys.push(routes);
         Ok(replys.into_iter().flatten().unique().collect())
     }

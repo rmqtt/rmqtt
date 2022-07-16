@@ -121,7 +121,11 @@ impl super::Entry for LockEntry {
     }
 
     #[inline]
-    async fn kick(&mut self, clear_subscriptions: bool, is_admin: IsAdmin) -> Result<Option<SessionOfflineInfo>> {
+    async fn kick(
+        &mut self,
+        clear_subscriptions: bool,
+        is_admin: IsAdmin,
+    ) -> Result<Option<SessionOfflineInfo>> {
         log::debug!(
             "{:?} LockEntry kick ..., clear_subscriptions: {}, is_admin: {}",
             self.client().map(|c| c.id.clone()),
@@ -137,11 +141,20 @@ impl super::Entry for LockEntry {
                         log::debug!("{:?} kicked, from {:?}", self.id, self.client().map(|c| c.id.clone()));
                     }
                     Ok(Err(e)) => {
-                        log::warn!("{:?} kick, recv result is {:?}, from {:?}", self.id, e, self.client().map(|c| c.id.clone()));
+                        log::warn!(
+                            "{:?} kick, recv result is {:?}, from {:?}",
+                            self.id,
+                            e,
+                            self.client().map(|c| c.id.clone())
+                        );
                         return Err(MqttError::Msg(format!("recv kick result is {:?}", e)));
                     }
                     Err(_) => {
-                        log::warn!("{:?} kick, recv result is Timeout, from {:?}", self.id, self.client().map(|c| c.id.clone()));
+                        log::warn!(
+                            "{:?} kick, recv result is Timeout, from {:?}",
+                            self.id,
+                            self.client().map(|c| c.id.clone())
+                        );
                         return Err(MqttError::Msg("recv kick result is Timeout".into()));
                     }
                 }
@@ -206,8 +219,12 @@ impl super::Entry for LockEntry {
             node_id, this_node_id
         );
 
-        Runtime::instance().extends.router().await
-            .add(&sub.topic_filter, self.id(), sub.qos, sub.shared_group.clone()).await?;
+        Runtime::instance()
+            .extends
+            .router()
+            .await
+            .add(&sub.topic_filter, self.id(), sub.qos, sub.shared_group.clone())
+            .await?;
         peer.s.subscriptions_add(sub.topic_filter.to_string(), sub.qos, sub.shared_group.clone());
         Ok(SubscribeReturn::new_success(sub.qos))
     }
@@ -221,8 +238,9 @@ impl super::Entry for LockEntry {
             .map(|peer| peer.value().clone())
             .ok_or_else(|| MqttError::from("session is not exist"))?;
 
-        if let Err(e) = Runtime::instance().extends.router().await
-            .remove(&unsubscribe.topic_filter, self.id()).await {
+        if let Err(e) =
+        Runtime::instance().extends.router().await.remove(&unsubscribe.topic_filter, self.id()).await
+        {
             log::warn!("{:?} unsubscribe, error:{:?}", self.id, e);
         }
         let remove_ok = peer.s.subscriptions_remove(&unsubscribe.topic_filter).is_some();
@@ -249,16 +267,20 @@ impl super::Entry for LockEntry {
     #[inline]
     async fn subscriptions(&self) -> Option<Vec<SubsSearchResult>> {
         if let Some(s) = self.session() {
-            let subs = s.subscriptions().iter().map(|entry| {
-                let (topic_filter, (qos, group)) = entry.pair();
-                SubsSearchResult {
-                    node_id: self.id.node_id,
-                    clientid: self.id.client_id.clone(),
-                    topic: TopicFilter::from(topic_filter.as_str()),
-                    qos: qos.value(),
-                    share: group.as_ref().cloned(),
-                }
-            }).collect::<Vec<_>>();
+            let subs = s
+                .subscriptions()
+                .iter()
+                .map(|entry| {
+                    let (topic_filter, (qos, group)) = entry.pair();
+                    SubsSearchResult {
+                        node_id: self.id.node_id,
+                        clientid: self.id.client_id.clone(),
+                        topic: TopicFilter::from(topic_filter.as_str()),
+                        qos: qos.value(),
+                        share: group.as_ref().cloned(),
+                    }
+                })
+                .collect::<Vec<_>>();
             Some(subs)
         } else {
             None
@@ -320,13 +342,14 @@ impl Shared for &'static DefaultShared {
     #[inline]
     async fn forwards(&self, from: From, publish: Publish) -> Result<(), Vec<(To, From, Publish, Reason)>> {
         let topic = publish.topic();
-        let mut relations_map = match Runtime::instance().extends.router().await.matches(publish.topic()).await {
-            Ok(relations_map) => relations_map,
-            Err(e) => {
-                log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
-                SubRelationsMap::default()
-            }
-        };
+        let mut relations_map =
+            match Runtime::instance().extends.router().await.matches(publish.topic()).await {
+                Ok(relations_map) => relations_map,
+                Err(e) => {
+                    log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
+                    SubRelationsMap::default()
+                }
+            };
 
         let this_node_id = Runtime::instance().node.id();
         if let Some(relations) = relations_map.remove(&this_node_id) {
@@ -440,23 +463,22 @@ impl Shared for &'static DefaultShared {
 
     #[inline]
     fn subscriptions(&self) -> usize {
-        self.peers.iter()
-            .map(|entry| (entry.s.subscriptions.len()))
-            .sum()
+        self.peers.iter().map(|entry| (entry.s.subscriptions.len())).sum()
     }
 
     #[inline]
     fn subscriptions_shared(&self) -> usize {
-        self.peers.iter()
-            .map(|entry| (
-                entry.s.subscriptions.iter()
-                    .map(|subs| {
-                        if let (_, Some(_)) = subs.value() {
-                            1
-                        } else {
-                            0
-                        }
-                    }).sum::<usize>())).sum()
+        self.peers
+            .iter()
+            .map(|entry| {
+                entry
+                    .s
+                    .subscriptions
+                    .iter()
+                    .map(|subs| if let (_, Some(_)) = subs.value() { 1 } else { 0 })
+                    .sum::<usize>()
+            })
+            .sum()
     }
 
     #[inline]
@@ -479,12 +501,10 @@ impl Shared for &'static DefaultShared {
 
     #[inline]
     async fn session_status(&self, client_id: &str) -> Option<SessionStatus> {
-        self.peers.get(client_id).map(|entry| {
-            SessionStatus {
-                id: entry.c.id.clone(),
-                online: entry.c.is_connected(),
-                handshaking: false,
-            }
+        self.peers.get(client_id).map(|entry| SessionStatus {
+            id: entry.c.id.clone(),
+            online: entry.c.is_connected(),
+            handshaking: false,
         })
     }
 
@@ -524,13 +544,12 @@ impl DefaultRouter {
     #[inline]
     pub fn instance() -> &'static DefaultRouter {
         static INSTANCE: OnceCell<DefaultRouter> = OnceCell::new();
-        INSTANCE
-            .get_or_init(|| Self {
-                topics_max: AtomicUsize::new(0),
-                relations_max: AtomicUsize::new(0),
-                topics: RwLock::new(TopicTree::default()),
-                relations: DashMap::default(),
-            })
+        INSTANCE.get_or_init(|| Self {
+            topics_max: AtomicUsize::new(0),
+            relations_max: AtomicUsize::new(0),
+            topics: RwLock::new(TopicTree::default()),
+            relations: DashMap::default(),
+        })
     }
 
     #[inline]
@@ -543,14 +562,15 @@ impl DefaultRouter {
     pub async fn _get_routes(&self, topic: &str) -> Result<Vec<Route>> {
         let topic = Topic::from_str(topic)?;
         let node_id = Runtime::instance().node.id();
-        let routes = self.topics.read().await.matches(&topic).iter()
+        let routes = self
+            .topics
+            .read()
+            .await
+            .matches(&topic)
+            .iter()
             .unique()
-            .map(|(topic_filter, _)| {
-                Route {
-                    node_id,
-                    topic: topic_filter.to_topic_filter(),
-                }
-            }).collect::<Vec<_>>();
+            .map(|(topic_filter, _)| Route { node_id, topic: topic_filter.to_topic_filter() })
+            .collect::<Vec<_>>();
         Ok(routes)
     }
 
@@ -607,9 +627,13 @@ impl DefaultRouter {
         Ok(subs)
     }
 
-
     #[inline]
-    fn _query_subscriptions_filter(q: &SubsSearchParams, client_id: &str, qos: &QoS, group: &Option<SharedGroup>) -> bool {
+    fn _query_subscriptions_filter(
+        q: &SubsSearchParams,
+        client_id: &str,
+        qos: &QoS,
+        group: &Option<SharedGroup>,
+    ) -> bool {
         if let Some(ref q_clientid) = q.clientid {
             if q_clientid.as_bytes() != client_id.as_bytes() {
                 return false;
@@ -687,38 +711,44 @@ impl DefaultRouter {
         let limit = q._limit;
         let mut curr: usize = 0;
 
-        self.topics.read().await.matches(&topic).iter().unique().flat_map(|(topic_filter, _)| {
-            let topic_filter = topic_filter.to_topic_filter();
-            if let Some(entry) = self.relations.get(&topic_filter) {
-                entry.iter()
-                    .filter(|(client_id, (_id, qos, group))| {
-                        Self::_query_subscriptions_filter(q, client_id.as_str(), qos, group)
-                    })
-                    .filter_map(|(client_id, (id, qos, group))| {
-                        if curr < limit {
-                            curr += 1;
-                            Some(SubsSearchResult {
-                                node_id: id.node_id,
-                                clientid: client_id.clone(),
-                                topic: topic_filter.clone(),
-                                qos: qos.value(),
-                                share: group.as_ref().cloned(),
-                            })
-                        } else {
-                            None
-                        }
-                    }).collect::<Vec<_>>()
-            } else {
-                Vec::new()
-            }
-        }).collect::<Vec<_>>()
+        self.topics
+            .read()
+            .await
+            .matches(&topic)
+            .iter()
+            .unique()
+            .flat_map(|(topic_filter, _)| {
+                let topic_filter = topic_filter.to_topic_filter();
+                if let Some(entry) = self.relations.get(&topic_filter) {
+                    entry
+                        .iter()
+                        .filter(|(client_id, (_id, qos, group))| {
+                            Self::_query_subscriptions_filter(q, client_id.as_str(), qos, group)
+                        })
+                        .filter_map(|(client_id, (id, qos, group))| {
+                            if curr < limit {
+                                curr += 1;
+                                Some(SubsSearchResult {
+                                    node_id: id.node_id,
+                                    clientid: client_id.clone(),
+                                    topic: topic_filter.clone(),
+                                    qos: qos.value(),
+                                    share: group.as_ref().cloned(),
+                                })
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                } else {
+                    Vec::new()
+                }
+            })
+            .collect::<Vec<_>>()
     }
 
     #[inline]
-    async fn _query_subscriptions_for_other(
-        &self,
-        q: &SubsSearchParams,
-    ) -> Vec<SubsSearchResult> {
+    async fn _query_subscriptions_for_other(&self, q: &SubsSearchParams) -> Vec<SubsSearchResult> {
         let limit = q._limit;
         let mut curr: usize = 0;
         self.relations
@@ -751,7 +781,6 @@ impl DefaultRouter {
 
     #[inline]
     async fn _query_subscriptions(&self, q: &SubsSearchParams) -> Vec<SubsSearchResult> {
-
         //topic
         if let Some(ref topic) = q.topic {
             return self._query_subscriptions_for_topic(q, topic).await;
@@ -822,12 +851,7 @@ impl Router for &'static DefaultRouter {
             None
         };
 
-        log::debug!(
-            "{:?} remove, topic_filter: {:?}, res: {:?}",
-            id,
-            topic_filter,
-            res
-        );
+        log::debug!("{:?} remove, topic_filter: {:?}, res: {:?}", id, topic_filter, res);
 
         let remove_ok = if let Some((is_empty, remove_ok)) = res {
             if is_empty {
@@ -861,10 +885,7 @@ impl Router for &'static DefaultRouter {
                     .filter_map(|(node_id, topic_filter)| {
                         if curr < limit {
                             curr += 1;
-                            Some(Route {
-                                node_id,
-                                topic: topic_filter.clone(),
-                            })
+                            Some(Route { node_id, topic: topic_filter.clone() })
                         } else {
                             None
                         }
@@ -877,22 +898,27 @@ impl Router for &'static DefaultRouter {
     #[inline]
     async fn get(&self, topic: &str) -> Result<Vec<Route>> {
         let topic = Topic::from_str(topic)?;
-        let routes = self.topics.read().await.matches(&topic).iter().unique().flat_map(|(topic_filter, _)| {
-            let topic_filter = topic_filter.to_topic_filter();
-            if let Some(entry) = self.relations.get(&topic_filter) {
-                entry.iter()
-                    .map(|(_, (id, _, _))| id.node_id)
-                    .unique()
-                    .map(|node_id| {
-                        Route {
-                            node_id,
-                            topic: topic_filter.clone(),
-                        }
-                    }).collect::<Vec<_>>()
-            } else {
-                Vec::new()
-            }
-        }).collect::<Vec<_>>();
+        let routes = self
+            .topics
+            .read()
+            .await
+            .matches(&topic)
+            .iter()
+            .unique()
+            .flat_map(|(topic_filter, _)| {
+                let topic_filter = topic_filter.to_topic_filter();
+                if let Some(entry) = self.relations.get(&topic_filter) {
+                    entry
+                        .iter()
+                        .map(|(_, (id, _, _))| id.node_id)
+                        .unique()
+                        .map(|node_id| Route { node_id, topic: topic_filter.clone() })
+                        .collect::<Vec<_>>()
+                } else {
+                    Vec::new()
+                }
+            })
+            .collect::<Vec<_>>();
         Ok(routes)
     }
 
@@ -972,9 +998,7 @@ impl DefaultRetainStorage {
     #[inline]
     pub fn instance() -> &'static DefaultRetainStorage {
         static INSTANCE: OnceCell<DefaultRetainStorage> = OnceCell::new();
-        INSTANCE.get_or_init(|| Self {
-            messages: RwLock::new(RetainTree::default()),
-        })
+        INSTANCE.get_or_init(|| Self { messages: RwLock::new(RetainTree::default()) })
     }
 
     #[inline]
@@ -1460,10 +1484,7 @@ impl Hook for DefaultHook {
     async fn client_unsubscribe(&self, unsub: &Unsubscribe) -> Option<TopicFilter> {
         let reply = self
             .manager
-            .exec(
-                Type::ClientUnsubscribe,
-                Parameter::ClientUnsubscribe(&self.s, &self.c, unsub),
-            )
+            .exec(Type::ClientUnsubscribe, Parameter::ClientUnsubscribe(&self.s, &self.c, unsub))
             .await;
         log::debug!("{:?} result: {:?}", self.s.id, reply);
 
@@ -1590,7 +1611,7 @@ impl DefaultLimiter {
                     .max(max_handshake_rate)
                     .interval(Duration::from_millis(1000))
                     // .fair(false)
-                    .build()
+                    .build(),
             ),
             handshake_timeout,
         }
@@ -1602,7 +1623,10 @@ impl Limiter for DefaultLimiter {
     #[inline]
     async fn acquire(&self, handshakings: isize) -> Result<()> {
         if self.max_handshake_limit > 0 && handshakings > self.max_handshake_limit {
-            return Err(MqttError::from(format!("too many concurrent handshake connections, handshakings: {}", handshakings)));
+            return Err(MqttError::from(format!(
+                "too many concurrent handshake connections, handshakings: {}",
+                handshakings
+            )));
         }
 
         let now = std::time::Instant::now();

@@ -16,19 +16,17 @@ pub struct PluginConfig {
     #[serde(default = "PluginConfig::max_row_limit_default")]
     pub max_row_limit: usize,
 
-    #[serde(
-    default = "PluginConfig::http_laddr_default",
-    deserialize_with = "deserialize_addr"
-    )]
+    #[serde(default = "PluginConfig::http_laddr_default", deserialize_with = "deserialize_addr")]
     pub http_laddr: SocketAddr,
 
-    #[serde(default = "PluginConfig::metrics_sample_interval_default",
-    deserialize_with = "deserialize_duration")]
+    #[serde(
+    default = "PluginConfig::metrics_sample_interval_default",
+    deserialize_with = "deserialize_duration"
+    )]
     pub metrics_sample_interval: Duration,
 
     #[serde(default = "PluginConfig::message_type_default")]
     pub message_type: MessageType,
-
 }
 
 impl PluginConfig {
@@ -59,15 +57,14 @@ impl PluginConfig {
 
     #[inline]
     pub fn changed(&self, other: &Self) -> bool {
-        self.workers != other.workers ||
-            self.max_row_limit != other.max_row_limit ||
-            self.http_laddr != other.http_laddr ||
-            self.metrics_sample_interval != other.metrics_sample_interval
+        self.workers != other.workers
+            || self.max_row_limit != other.max_row_limit
+            || self.http_laddr != other.http_laddr
+            || self.metrics_sample_interval != other.metrics_sample_interval
     }
 
     #[inline]
     pub fn restart_enable(&self, other: &Self) -> bool {
-        self.workers != other.workers ||
-            self.http_laddr != other.http_laddr
+        self.workers != other.workers || self.http_laddr != other.http_laddr
     }
 }

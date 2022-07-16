@@ -344,9 +344,7 @@ pub fn deserialize_addr_option<'de, D>(
         }
         addr
     })?;
-    let addr = addr
-        .parse::<std::net::SocketAddr>()
-        .map_err(serde::de::Error::custom)?;
+    let addr = addr.parse::<std::net::SocketAddr>().map_err(serde::de::Error::custom)?;
     Ok(Some(addr))
 }
 
@@ -362,9 +360,7 @@ pub fn deserialize_duration_option<'de, D>(deserializer: D) -> std::result::Resu
         let t = if let Ok(d) = chrono::Local.datetime_from_str(&t_str, "%Y-%m-%d %H:%M:%S") {
             Duration::from_secs(d.timestamp() as u64)
         } else {
-            let d = t_str
-                .parse::<u64>()
-                .map_err(serde::de::Error::custom)?;
+            let d = t_str.parse::<u64>().map_err(serde::de::Error::custom)?;
             Duration::from_secs(d)
         };
         Ok(Some(t))

@@ -3,13 +3,19 @@ use std::time::Duration;
 use futures::future::FutureExt;
 use once_cell::sync::OnceCell;
 
-use rmqtt::{broker::{
-    default::DefaultShared,
-    Entry, session::{ClientInfo, Session, SessionOfflineInfo}, Shared, SubRelations,
-    SubRelationsMap,
-    types::{From, Id, IsAdmin, NodeId, Publish, Reason, SessionStatus, Subscribe, SubscribeReturn,
-            SubsSearchParams, SubsSearchResult, To, Tx, Unsubscribe},
-}, grpc::{Message, MessageReply, MessageType}, MqttError, Result, Runtime};
+use rmqtt::{
+    broker::{
+        default::DefaultShared,
+        Entry,
+        session::{ClientInfo, Session, SessionOfflineInfo},
+        Shared, SubRelations, SubRelationsMap, types::{
+            From, Id, IsAdmin, NodeId, Publish, Reason, SessionStatus, Subscribe, SubscribeReturn,
+            SubsSearchParams, SubsSearchResult, To, Tx, Unsubscribe,
+        },
+    },
+    grpc::{Message, MessageReply, MessageType},
+    MqttError, Result, Runtime,
+};
 use rmqtt::broker::Router;
 
 use super::{ClusterRouter, GrpcClients, MessageSender, NodeGrpcClient};
@@ -23,18 +29,20 @@ pub struct ClusterLockEntry {
 
 impl ClusterLockEntry {
     #[inline]
-    pub fn new(inner: Box<dyn Entry>, cluster_shared: &'static ClusterShared, prev_node_id: Option<NodeId>) -> Self {
+    pub fn new(
+        inner: Box<dyn Entry>,
+        cluster_shared: &'static ClusterShared,
+        prev_node_id: Option<NodeId>,
+    ) -> Self {
         Self { inner, cluster_shared, prev_node_id }
     }
 }
-
 
 #[async_trait]
 impl Entry for ClusterLockEntry {
     #[inline]
     async fn try_lock(&self) -> Result<Box<dyn Entry>> {
-        let msg = RaftMessage::HandshakeTryLock { id: self.id() }
-            .encode()?;
+        let msg = RaftMessage::HandshakeTryLock { id: self.id() }.encode()?;
         let raft_mailbox = self.cluster_shared.router.raft_mailbox().await;
         let reply = raft_mailbox.send(msg).await.map_err(anyhow::Error::new)?;
         let mut prev_node_id = None;
@@ -47,10 +55,10 @@ impl Entry for ClusterLockEntry {
                     prev_node_id = prev_id.map(|id| id.node_id);
                     log::debug!(
                         "{:?} ClusterLockEntry try_lock prev_node_id: {:?}",
-                        self.client().map(|c| c.id.clone()), prev_node_id
+                        self.client().map(|c| c.id.clone()),
+                        prev_node_id
                     );
-                }
-                // _ => unreachable!()
+                } // _ => unreachable!()
             }
         }
         Ok(Box::new(ClusterLockEntry::new(self.inner.try_lock().await?, self.cluster_shared, prev_node_id)))
@@ -68,8 +76,7 @@ impl Entry for ClusterLockEntry {
 
     #[inline]
     async fn set(&mut self, session: Session, tx: Tx, conn: ClientInfo) -> Result<()> {
-        let msg = RaftMessage::Connected { id: session.id.clone() }
-            .encode()?;
+        let msg = RaftMessage::Connected { id: session.id.clone() }.encode()?;
         let raft_mailbox = self.cluster_shared.router.raft_mailbox().await;
         let reply = raft_mailbox.send(msg).await.map_err(anyhow::Error::new)?;
         if !reply.is_empty() {
@@ -93,11 +100,16 @@ impl Entry for ClusterLockEntry {
     }
 
     #[inline]
-    async fn kick(&mut self, clear_subscriptions: bool, is_admin: IsAdmin) -> Result<Option<SessionOfflineInfo>> {
+    async fn kick(
+        &mut self,
+        clear_subscriptions: bool,
+        is_admin: IsAdmin,
+    ) -> Result<Option<SessionOfflineInfo>> {
         log::debug!(
             "{:?} ClusterLockEntry kick ..., clear_subscriptions: {}, is_admin: {}",
             self.client().map(|c| c.id.clone()),
-            clear_subscriptions, is_admin
+            clear_subscriptions,
+            is_admin
         );
         let id = self.id();
 
@@ -215,20 +227,19 @@ impl Entry for ClusterLockEntry {
                     msg: Message::SubscriptionsGet(id.client_id.clone()),
                     max_retries: 0,
                     retry_interval: Duration::from_millis(500),
-                }.send().await;
+                }
+                    .send()
+                    .await;
                 match reply {
                     Ok(MessageReply::SubscriptionsGet(subs)) => subs,
                     Err(e) => {
                         log::warn!("Message::SubscriptionsGet, error: {:?}", e);
                         None
                     }
-                    _ => unreachable!()
+                    _ => unreachable!(),
                 }
             } else {
-                log::error!(
-                        "get subscriptions error, grpc_client is not exist, node_id: {}",
-                        id.node_id,
-                    );
+                log::error!("get subscriptions error, grpc_client is not exist, node_id: {}", id.node_id,);
                 None
             }
         }
@@ -422,20 +433,15 @@ impl Shared for &'static ClusterShared {
     #[inline]
     async fn session_status(&self, client_id: &str) -> Option<SessionStatus> {
         let try_lock_timeout = self.router.try_lock_timeout;
-        self.router.status(client_id).map(|s| {
-            SessionStatus {
-                handshaking: s.handshaking(try_lock_timeout),
-                id: s.id,
-                online: s.online,
-            }
+        self.router.status(client_id).map(|s| SessionStatus {
+            handshaking: s.handshaking(try_lock_timeout),
+            id: s.id,
+            online: s.online,
         })
     }
 
     #[inline]
-    async fn query_subscriptions(
-        &self,
-        q: SubsSearchParams,
-    ) -> Vec<SubsSearchResult> {
+    async fn query_subscriptions(&self, q: SubsSearchParams) -> Vec<SubsSearchResult> {
         self.inner.query_subscriptions(q).await
     }
 

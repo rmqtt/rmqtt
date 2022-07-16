@@ -10,8 +10,10 @@ use client::NodeGrpcClient;
 use crate::{ClientId, Result};
 use crate::broker::{ClearSubscriptions, SubRelations, SubRelationsMap};
 use crate::broker::session::SessionOfflineInfo;
-use crate::broker::types::{From, Id, IsAdmin, NodeId, Publish, Retain, Route, SubsSearchParams,
-                           SubsSearchResult, TopicFilter, TopicName};
+use crate::broker::types::{
+    From, Id, IsAdmin, NodeId, Publish, Retain, Route, SubsSearchParams, SubsSearchResult, TopicFilter,
+    TopicName,
+};
 
 pub mod client;
 pub mod server;
@@ -68,7 +70,6 @@ pub enum MessageReply {
     Data(Vec<u8>),
 }
 
-
 impl MessageReply {
     #[inline]
     pub fn encode(&self) -> Result<Vec<u8>> {
@@ -79,7 +80,6 @@ impl MessageReply {
         Ok(bincode::deserialize::<MessageReply>(data).map_err(anyhow::Error::new)?)
     }
 }
-
 
 pub struct MessageSender {
     client: NodeGrpcClient,
@@ -96,9 +96,7 @@ impl MessageSender {
     #[inline]
     pub async fn send(self) -> Result<MessageReply> {
         match self.client.send_message(self.msg_type, self.msg).await {
-            Ok(reply) => {
-                Ok(reply)
-            }
+            Ok(reply) => Ok(reply),
             Err(e) => {
                 log::warn!("error sending message, {:?}", e);
                 Err(e)
@@ -129,22 +127,14 @@ impl MessageBroadcaster {
         for (id, (_, grpc_client)) in self.grpc_clients.iter() {
             let msg_type = self.msg_type;
             let msg = msg.clone();
-            let fut = async move {
-                (
-                    *id,
-                    grpc_client.send_message(msg_type, msg).await
-                )
-            };
+            let fut = async move { (*id, grpc_client.send_message(msg_type, msg).await) };
             senders.push(fut.boxed());
         }
         futures::future::join_all(senders).await
     }
 
     #[inline]
-    pub async fn select_ok<R, F>(
-        self,
-        check_fn: F,
-    ) -> Result<R>
+    pub async fn select_ok<R, F>(self, check_fn: F) -> Result<R>
         where
             R: std::any::Any + Send + Sync,
             F: Fn(MessageReply) -> Result<R> + Send + Sync,

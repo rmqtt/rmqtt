@@ -29,8 +29,8 @@ use shared::ClusterShared;
 mod config;
 mod handler;
 mod retainer;
-mod shared;
 mod router;
+mod shared;
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
@@ -83,7 +83,10 @@ impl ClusterPlugin {
         let node_grpc_addrs = cfg.read().node_grpc_addrs.clone();
         for node_addr in &node_grpc_addrs {
             if node_addr.id != runtime.node.id() {
-                grpc_clients.insert(node_addr.id, (node_addr.addr, runtime.node.new_grpc_client(&node_addr.addr).await?));
+                grpc_clients.insert(
+                    node_addr.id,
+                    (node_addr.addr, runtime.node.new_grpc_client(&node_addr.addr).await?),
+                );
             }
         }
         let grpc_clients = Arc::new(grpc_clients);
@@ -101,7 +104,10 @@ impl Plugin for ClusterPlugin {
     async fn init(&mut self) -> Result<()> {
         log::info!("{} init", self.name);
         self.register
-            .add(Type::GrpcMessageReceived, Box::new(HookHandler::new(self.shared, self.router, self.retainer)))
+            .add(
+                Type::GrpcMessageReceived,
+                Box::new(HookHandler::new(self.shared, self.router, self.retainer)),
+            )
             .await;
         Ok(())
     }
@@ -159,7 +165,11 @@ impl Plugin for ClusterPlugin {
 }
 
 #[inline]
-pub(crate) async fn kick(grpc_clients: GrpcClients, msg_type: MessageType, msg: Message) -> Result<SessionOfflineInfo> {
+pub(crate) async fn kick(
+    grpc_clients: GrpcClients,
+    msg_type: MessageType,
+    msg: Message,
+) -> Result<SessionOfflineInfo> {
     let reply = rmqtt::grpc::MessageBroadcaster::new(grpc_clients, msg_type, msg)
         .select_ok(|reply: MessageReply| -> Result<MessageReply> {
             log::debug!("reply: {:?}", reply);

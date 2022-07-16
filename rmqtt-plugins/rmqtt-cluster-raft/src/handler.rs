@@ -1,6 +1,10 @@
 use rmqtt_raft::Mailbox;
 
-use rmqtt::{broker::hook::{Handler, HookResult, Parameter, ReturnType}, grpc::{Message as GrpcMessage, MessageReply}, Id, Runtime};
+use rmqtt::{
+    broker::hook::{Handler, HookResult, Parameter, ReturnType},
+    grpc::{Message as GrpcMessage, MessageReply},
+    Id, Runtime,
+};
 use rmqtt::broker::Shared;
 
 use super::{hook_message_dropped, retainer::ClusterRetainer, shared::ClusterShared};
@@ -36,8 +40,13 @@ impl Handler for HookHandler {
                     tokio::spawn(async move {
                         if let Err(e) = retry(BACKOFF_STRATEGY.clone(), || async {
                             Ok(raft_mailbox.send(msg.clone()).await?)
-                        }).await {
-                            log::warn!("HookHandler, Message::Disconnected, raft mailbox send error, {:?}", e);
+                        })
+                            .await
+                        {
+                            log::warn!(
+                                "HookHandler, Message::Disconnected, raft mailbox send error, {:?}",
+                                e
+                            );
                         }
                     });
                 }
@@ -49,8 +58,13 @@ impl Handler for HookHandler {
                 tokio::spawn(async move {
                     if let Err(e) = retry(BACKOFF_STRATEGY.clone(), || async {
                         Ok(raft_mailbox.send(msg.clone()).await?)
-                    }).await {
-                        log::warn!("HookHandler, Message::SessionTerminated, raft mailbox send error, {:?}", e);
+                    })
+                        .await
+                    {
+                        log::warn!(
+                            "HookHandler, Message::SessionTerminated, raft mailbox send error, {:?}",
+                            e
+                        );
                     }
                 });
             }
@@ -100,7 +114,7 @@ impl Handler for HookHandler {
                         let id = Id::from(Runtime::instance().node.id(), clientid.clone());
                         let entry = self.shared.inner().entry(id);
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::SubscriptionsGet(
-                            entry.subscriptions().await
+                            entry.subscriptions().await,
                         )));
                         return (false, Some(new_acc));
                     }

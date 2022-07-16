@@ -2,16 +2,20 @@ use std::convert::From as _f;
 
 use once_cell::sync::OnceCell;
 
-use rmqtt::{AsStr, broker::{
-    default::DefaultShared,
-    Entry, session::{ClientInfo, Session, SessionOfflineInfo}, Shared, SubRelations,
-    SubRelationsMap,
-    types::{
-        ClientId, From, Id, IsAdmin, IsOnline, NodeId, Publish, QoS, Reason, SessionStatus, SharedGroup,
-        Subscribe, SubscribeReturn, SubsSearchParams, SubsSearchResult, To, TopicFilter, TopicFilterString, Tx,
-        Unsubscribe,
+use rmqtt::{
+    AsStr,
+    broker::{
+        default::DefaultShared,
+        Entry,
+        session::{ClientInfo, Session, SessionOfflineInfo},
+        Shared, SubRelations, SubRelationsMap, types::{
+            ClientId, From, Id, IsAdmin, IsOnline, NodeId, Publish, QoS, Reason, SessionStatus, SharedGroup,
+            Subscribe, SubscribeReturn, SubsSearchParams, SubsSearchResult, To, TopicFilter,
+            TopicFilterString, Tx, Unsubscribe,
+        },
     },
-}, grpc::{GrpcClients, Message, MessageBroadcaster, MessageReply, MessageType}, MqttError, Result, Runtime};
+    grpc::{GrpcClients, Message, MessageBroadcaster, MessageReply, MessageType}, MqttError, Result, Runtime,
+};
 use rmqtt::grpc::MessageSender;
 
 use super::{hook_message_dropped, kick};
@@ -58,16 +62,22 @@ impl Entry for ClusterLockEntry {
     }
 
     #[inline]
-    async fn kick(&mut self, clear_subscriptions: bool, is_admin: IsAdmin) -> Result<Option<SessionOfflineInfo>> {
+    async fn kick(
+        &mut self,
+        clear_subscriptions: bool,
+        is_admin: IsAdmin,
+    ) -> Result<Option<SessionOfflineInfo>> {
         log::debug!("{:?} ClusterLockEntry kick 1 ...", self.client().map(|c| c.id.clone()));
         if let Some(kicked) = self.inner.kick(clear_subscriptions, is_admin).await? {
             log::debug!("{:?} broadcast kick reply kicked: {:?}", self.id(), kicked);
             return Ok(Some(kicked));
         }
 
-        match kick(self.cluster_shared.grpc_clients.clone(),
-                   self.cluster_shared.message_type,
-                   Message::Kick(self.id(), true, is_admin))
+        match kick(
+            self.cluster_shared.grpc_clients.clone(),
+            self.cluster_shared.message_type,
+            Message::Kick(self.id(), true, is_admin),
+        )
             .await
         {
             Ok(kicked) => {
@@ -100,9 +110,11 @@ impl Entry for ClusterLockEntry {
             return true;
         }
 
-        MessageBroadcaster::new(self.cluster_shared.grpc_clients.clone(),
-                                self.cluster_shared.message_type,
-                                Message::Online(self.id().client_id.clone()))
+        MessageBroadcaster::new(
+            self.cluster_shared.grpc_clients.clone(),
+            self.cluster_shared.message_type,
+            Message::Online(self.id().client_id.clone()),
+        )
             .select_ok(|reply: MessageReply| -> Result<bool> {
                 if let MessageReply::Online(true) = reply {
                     Ok(true)
@@ -110,7 +122,8 @@ impl Entry for ClusterLockEntry {
                     Err(MqttError::None)
                 }
             })
-            .await.unwrap_or(false)
+            .await
+            .unwrap_or(false)
     }
 
     #[inline]
@@ -153,9 +166,11 @@ impl Entry for ClusterLockEntry {
         if let Some(subs) = self.inner.subscriptions().await {
             return Some(subs);
         }
-        MessageBroadcaster::new(self.cluster_shared.grpc_clients.clone(),
-                                self.cluster_shared.message_type,
-                                Message::SubscriptionsGet(self.id().client_id.clone()))
+        MessageBroadcaster::new(
+            self.cluster_shared.grpc_clients.clone(),
+            self.cluster_shared.message_type,
+            Message::SubscriptionsGet(self.id().client_id.clone()),
+        )
             .select_ok(|reply: MessageReply| -> Result<Option<Vec<SubsSearchResult>>> {
                 if let MessageReply::SubscriptionsGet(Some(subs)) = reply {
                     Ok(Some(subs))
@@ -163,7 +178,8 @@ impl Entry for ClusterLockEntry {
                     Err(MqttError::None)
                 }
             })
-            .await.unwrap_or(None)
+            .await
+            .unwrap_or(None)
     }
 }
 
@@ -470,10 +486,7 @@ impl Shared for &'static ClusterShared {
     }
 
     #[inline]
-    async fn query_subscriptions(
-        &self,
-        mut q: SubsSearchParams,
-    ) -> Vec<SubsSearchResult> {
+    async fn query_subscriptions(&self, mut q: SubsSearchParams) -> Vec<SubsSearchResult> {
         let limit = q._limit;
         let mut replys = self.inner.query_subscriptions(q.clone()).await;
 
@@ -482,7 +495,8 @@ impl Shared for &'static ClusterShared {
             if replys.len() < limit {
                 q._limit = limit - replys.len();
                 let reply = MessageSender::new(c, self.message_type, Message::SubscriptionsSearch(q.clone()))
-                    .send().await;
+                    .send()
+                    .await;
                 match reply {
                     Ok(MessageReply::SubscriptionsSearch(subs)) => {
                         replys.extend(subs);

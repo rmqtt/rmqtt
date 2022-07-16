@@ -6,7 +6,6 @@ fn main() {
     version();
 }
 
-
 fn proto() {
     let out = std::env::var("OUT_DIR").unwrap();
     println!("out: {}", out);
@@ -14,7 +13,6 @@ fn proto() {
     println!("compile proto result! {:?}", build_res);
     build_res.unwrap();
 }
-
 
 fn version() {
     let mut cargo_text = String::new();

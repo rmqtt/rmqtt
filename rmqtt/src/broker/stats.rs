@@ -13,8 +13,10 @@ pub struct Counter(Current, Max);
 
 impl Clone for Counter {
     fn clone(&self) -> Self {
-        Counter(AtomicIsize::new(self.0.load(Ordering::SeqCst)),
-                AtomicIsize::new(self.1.load(Ordering::SeqCst)))
+        Counter(
+            AtomicIsize::new(self.0.load(Ordering::SeqCst)),
+            AtomicIsize::new(self.1.load(Ordering::SeqCst)),
+        )
     }
 }
 
@@ -111,7 +113,7 @@ impl Stats {
             subscriptions_shared: self.subscriptions_shared.clone(),
             retaineds: self.retaineds.clone(), //retained messages
 
-            topics_count: router.topics() as isize,   //subscribed_topics
+            topics_count: router.topics() as isize, //subscribed_topics
             topics_max: router.topics_max() as isize,
             routes_count: router.relations() as isize, //subscribe to the relationship
             routes_max: router.relations_max() as isize,

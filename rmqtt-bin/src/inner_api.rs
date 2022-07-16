@@ -54,7 +54,7 @@ pub async fn serve<T: Into<SocketAddr>>(laddr: T) -> Result<()> {
         .and_then(|client_id: String| async move {
             match session_status(client_id).await {
                 Some(s) => with_reply_json(s),
-                None => with_reply_status(warp::http::StatusCode::NOT_FOUND, Some("not found".into()))
+                None => with_reply_status(warp::http::StatusCode::NOT_FOUND, Some("not found".into())),
             }
         });
 
@@ -265,12 +265,8 @@ async fn random_session() -> Result<Option<serde_json::Value>> {
 
 async fn session_status(client_id: String) -> Option<SessionStatus> {
     #[allow(deprecated)]
-    Runtime::instance()
-        .extends
-        .shared()
-        .await.session_status(&client_id).await
+    Runtime::instance().extends.shared().await.session_status(&client_id).await
 }
-
 
 async fn list_router_topics(mut top: usize) -> String {
     if top > 10000 {

@@ -17,9 +17,7 @@ pub struct Node {
 
 impl Node {
     pub(crate) fn new() -> Self {
-        Self {
-            start_time: chrono::Local::now(),
-        }
+        Self { start_time: chrono::Local::now() }
     }
 
     #[inline]
@@ -104,7 +102,10 @@ impl Node {
             load15: loadavg.as_ref().map(|l| l.fifteen).unwrap_or_default(),
             memory_total: mem_info.as_ref().map(|m| m.total.as_u64()).unwrap_or_default(),
             memory_free: mem_info.as_ref().map(|m| m.free.as_u64()).unwrap_or_default(),
-            memory_used: mem_info.as_ref().map(|m| systemstat::saturating_sub_bytes(m.total, m.free).as_u64()).unwrap_or_default(),
+            memory_used: mem_info
+                .as_ref()
+                .map(|m| systemstat::saturating_sub_bytes(m.total, m.free).as_u64())
+                .unwrap_or_default(),
             disk_total,
             disk_free,
             node_status: self.status().await,
@@ -215,8 +216,5 @@ pub fn to_uptime(uptime: i64) -> String {
     let uptime = uptime / 60;
     let uptime_hours = uptime % 24;
     let uptime_days = uptime / 24;
-    format!(
-        "{} days {} hours, {} minutes, {} seconds",
-        uptime_days, uptime_hours, uptime_minus, uptime_secs
-    )
+    format!("{} days {} hours, {} minutes, {} seconds", uptime_days, uptime_hours, uptime_minus, uptime_secs)
 }

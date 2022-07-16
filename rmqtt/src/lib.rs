@@ -20,11 +20,12 @@ pub use ntex_mqtt;
 pub use parking_lot::RwLock;
 pub use tokio;
 
-pub use crate::broker::{error::MqttError,
-                        metrics,
-                        session::{ClientInfo, Session, SessionState},
-                        stats,
-                        types::*,
+pub use crate::broker::{
+    error::MqttError,
+    metrics,
+    session::{ClientInfo, Session, SessionState},
+    stats,
+    types::*,
 };
 pub use crate::runtime::Runtime;
 

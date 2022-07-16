@@ -1,9 +1,11 @@
+use rmqtt::{async_trait::async_trait, log};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::metrics::Metrics,
     broker::stats::Stats,
-    plugin::{DynPlugin, DynPluginResult, Plugin}, Result, Runtime};
-use rmqtt::{async_trait::async_trait, log};
+    plugin::{DynPlugin, DynPluginResult, Plugin},
+    Result, Runtime,
+};
 
 #[inline]
 pub async fn register(
@@ -23,7 +25,6 @@ pub async fn register(
         .await?;
     Ok(())
 }
-
 
 struct CounterPlugin {
     name: String,
@@ -107,7 +108,6 @@ impl Plugin for CounterPlugin {
     }
 }
 
-
 struct CounterHandler {
     metrics: &'static Metrics,
     stats: &'static Stats,
@@ -115,10 +115,7 @@ struct CounterHandler {
 
 impl CounterHandler {
     fn new() -> Self {
-        Self {
-            metrics: Metrics::instance(),
-            stats: Stats::instance(),
-        }
+        Self { metrics: Metrics::instance(), stats: Stats::instance() }
     }
 }
 
@@ -135,9 +132,7 @@ impl Handler for CounterHandler {
             Parameter::ClientAuthenticate(_session, _client, _p) => {
                 self.metrics.client_authenticate_inc();
             }
-            Parameter::ClientConnack(_connect_info, _reason) => {
-                self.metrics.client_connack_inc()
-            }
+            Parameter::ClientConnack(_connect_info, _reason) => self.metrics.client_connack_inc(),
             Parameter::ClientConnected(_session, client) => {
                 self.metrics.client_connected_inc();
                 if client.session_present {
@@ -201,7 +196,7 @@ impl Handler for CounterHandler {
                 self.metrics.messages_acked_inc();
             }
             Parameter::MessageDropped(_to, _from, _p, _r) => {
-                self.metrics.messages_dropped_inc();  //@TODO ... elaboration
+                self.metrics.messages_dropped_inc(); //@TODO ... elaboration
             }
 
             _ => {
@@ -211,4 +206,3 @@ impl Handler for CounterHandler {
         (true, acc)
     }
 }
-

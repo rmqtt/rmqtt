@@ -248,7 +248,10 @@ pub async fn control_message(
     let crs = match ctrl_msg {
         v3::ControlMessage::Subscribe(subs) => match subscribes(&state, subs).await {
             Err(e) => {
-                state.client.add_disconnected_reason(Reason::from(format!("Subscribe failed, {:?}", e))).await;
+                state
+                    .client
+                    .add_disconnected_reason(Reason::from(format!("Subscribe failed, {:?}", e)))
+                    .await;
                 log::error!("{:?} Subscribe failed, reason: {:?}", state.id, e);
                 return Err(e);
             }
@@ -256,7 +259,10 @@ pub async fn control_message(
         },
         v3::ControlMessage::Unsubscribe(unsubs) => match unsubscribes(&state, unsubs).await {
             Err(e) => {
-                state.client.add_disconnected_reason(Reason::from(format!("Unsubscribe failed, {:?}", e))).await;
+                state
+                    .client
+                    .add_disconnected_reason(Reason::from(format!("Unsubscribe failed, {:?}", e)))
+                    .await;
                 log::error!("{:?} Unsubscribe failed, reason: {:?}", state.id, e);
                 return Err(e);
             }

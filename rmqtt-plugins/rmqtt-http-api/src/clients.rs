@@ -21,7 +21,11 @@ pub(crate) async fn get(clientid: &str) -> Option<SearchResult> {
 pub(crate) async fn search(q: &SearchParams) -> Vec<SearchResult> {
     let limit = q._limit;
     let mut curr: usize = 0;
-    let peers = Runtime::instance().extends.shared().await.iter()
+    let peers = Runtime::instance()
+        .extends
+        .shared()
+        .await
+        .iter()
         .filter(|entry| filtering(q, entry.as_ref()))
         .filter_map(|entry| {
             if curr < limit {
@@ -32,9 +36,7 @@ pub(crate) async fn search(q: &SearchParams) -> Vec<SearchResult> {
             }
         });
 
-    let futs = peers.into_iter()
-        .map(|(s, c)| build_result(s, c))
-        .collect::<Vec<_>>();
+    let futs = peers.into_iter().map(|(s, c)| build_result(s, c)).collect::<Vec<_>>();
     futures::future::join_all(futs).await
 }
 
