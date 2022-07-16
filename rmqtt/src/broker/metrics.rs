@@ -31,6 +31,4 @@ pub struct Metrics {
     // messages_sent: AtomicUsize,
     messages_acked: AtomicUsize,
     messages_dropped: AtomicUsize,
-
 }
-
