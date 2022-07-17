@@ -5,6 +5,8 @@ use rmqtt::{
     Runtime,
 };
 
+use crate::subs;
+
 use super::clients;
 use super::types::{Message, MessageReply};
 
@@ -98,6 +100,47 @@ impl Handler for HookHandler {
                                         e.to_string(),
                                     ))),
                                 }
+                            }
+                            Ok(Message::Subscribe(params)) => {
+                                let replys = match subs::subscribe(params).await {
+                                    Ok(replys) => {
+                                        let ress = replys
+                                            .into_iter()
+                                            .map(|(t, res)| match res {
+                                                Ok(b) => (t, (b, None)),
+                                                Err(e) => (t, (false, Some(e.to_string()))),
+                                            })
+                                            .collect();
+                                        match MessageReply::Subscribe(ress).encode() {
+                                            Ok(ress) => {
+                                                HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
+                                            }
+                                            Err(e) => HookResult::GrpcMessageReply(Ok(
+                                                GrpcMessageReply::Error(e.to_string()),
+                                            )),
+                                        }
+                                    }
+                                    Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
+                                        e.to_string(),
+                                    ))),
+                                };
+                                replys
+                            }
+                            Ok(Message::Unsubscribe(params)) => {
+                                let replys = match subs::unsubscribe(params).await {
+                                    Ok(()) => match MessageReply::Unsubscribe.encode() {
+                                        Ok(ress) => {
+                                            HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
+                                        }
+                                        Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
+                                            e.to_string(),
+                                        ))),
+                                    },
+                                    Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
+                                        e.to_string(),
+                                    ))),
+                                };
+                                replys
                             }
                         };
                         return (false, Some(new_acc));

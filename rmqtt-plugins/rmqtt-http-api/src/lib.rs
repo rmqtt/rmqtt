@@ -20,6 +20,7 @@ mod api;
 mod clients;
 mod config;
 mod handler;
+mod subs;
 mod types;
 
 type ShutdownTX = oneshot::Sender<()>;

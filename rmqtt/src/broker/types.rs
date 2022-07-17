@@ -281,7 +281,6 @@ impl Subscribe {
         Subscribe::from_v3(topic_filter, opt.qos, shared_subscription_supported)
     }
 
-
     #[inline]
     pub fn is_shared(&self) -> bool {
         self.shared_group.is_some()
@@ -319,7 +318,7 @@ impl SubscribeReturn {
 
     #[inline]
     pub fn failure(&self) -> bool {
-        matches!(
+        !matches!(
             self.0,
             SubscribeAckReason::GrantedQos0
                 | SubscribeAckReason::GrantedQos1
@@ -892,8 +891,9 @@ impl Id {
     }
 
     #[inline]
-    pub fn node(&self) -> String {
-        format!("{}/{}", self.node_id, self.local_addr.map(|addr| addr.to_string()).unwrap_or_default())
+    pub fn node(&self) -> NodeId {
+        //format!("{}/{}", self.node_id, self.local_addr.map(|addr| addr.to_string()).unwrap_or_default())
+        self.node_id
     }
 }
 
@@ -986,6 +986,8 @@ pub enum Message {
     Disconnect(Disconnect),
     Closed(Reason),
     Keepalive,
+    Subscribe(Subscribe, oneshot::Sender<Result<SubscribeReturn>>),
+    Unsubscribe(Unsubscribe, oneshot::Sender<Result<()>>),
 }
 
 pub trait AsStr {
@@ -1022,7 +1024,6 @@ impl AsStr for bytes::Bytes {
     }
 }
 
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SessionStatus {
     pub id: Id,
@@ -1056,4 +1057,3 @@ pub struct Route {
     pub node_id: NodeId,
     pub topic: TopicFilter,
 }
-

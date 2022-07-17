@@ -160,6 +160,26 @@ impl SessionState {
                                 Message::Keepalive => {
                                     keep_alive_delay.as_mut().reset(Instant::now() + keep_alive_interval);
                                 },
+                                Message::Subscribe(sub, reply_tx) => {
+                                    let sub_reply = state.subscribe(sub).await;
+                                    if !reply_tx.is_closed(){
+                                        if let Err(e) = reply_tx.send(sub_reply) {
+                                            log::warn!("{:?} Message::Subscribe, send response error, {:?}", id, e);
+                                        }
+                                    }else{
+                                        log::warn!("{:?} Message::Subscribe, reply sender is closed", id);
+                                    }
+                                },
+                                Message::Unsubscribe(unsub, reply_tx) => {
+                                    let unsub_reply = state.unsubscribe(unsub).await;
+                                    if !reply_tx.is_closed(){
+                                        if let Err(e) = reply_tx.send(unsub_reply) {
+                                            log::warn!("{:?} Message::Unsubscribe, send response error, {:?}", id, e);
+                                        }
+                                    }else{
+                                        log::warn!("{:?} Message::Unsubscribe, reply sender is closed", id);
+                                    }
+                                }
                             }
                         }else{
                             log::warn!("{:?} None is received from the Rx", id);
@@ -215,7 +235,10 @@ impl SessionState {
             state.sink.close();
 
             //hook, client_disconnected
-            let reason = state.client.get_disconnected_reason().await
+            let reason = state
+                .client
+                .get_disconnected_reason()
+                .await
                 .unwrap_or(Reason::from_static("Remote close connect"));
             state.hook.client_disconnected(reason).await;
 
@@ -502,7 +525,8 @@ impl SessionState {
         if let Some(qos) = sub_ret.success() {
             //send retain messages
             if self.listen_cfg.retain_available {
-                let retain_messages = Runtime::instance().extends.retain().await.get(&sub.topic_filter).await?;
+                let retain_messages =
+                    Runtime::instance().extends.retain().await.get(&sub.topic_filter).await?;
                 self.send_retain_messages(retain_messages, qos).await?;
             };
             //hook, session_subscribed
@@ -521,7 +545,8 @@ impl SessionState {
             unsub.topic_filter = topic_filter;
             log::debug!("{:?} adjust topic_filter: {:?}", self.id, unsub.topic_filter);
         }
-        let ok = Runtime::instance().extends.shared().await.entry(self.id.clone()).unsubscribe(&unsub).await?;
+        let ok =
+            Runtime::instance().extends.shared().await.entry(self.id.clone()).unsubscribe(&unsub).await?;
         if ok {
             //hook, session_unsubscribed
             self.hook.session_unsubscribed(unsub).await;
@@ -637,7 +662,8 @@ impl SessionState {
                 .await;
         }
 
-        let id_not_same = if let Some(id) = Runtime::instance().extends.shared().await.id(&self.id.client_id) {
+        let id_not_same = if let Some(id) = Runtime::instance().extends.shared().await.id(&self.id.client_id)
+        {
             if self.id != id && self.id.node_id == id.node_id {
                 log::warn!("id not the same, id: {:?}, current id: {:?}, reason: {:?}", self.id, id, reason);
                 true
@@ -681,7 +707,9 @@ impl SessionState {
                 let shared_group = shared_group.as_ref().cloned();
                 let qos = *qos;
                 let id = self.id.clone();
-                if let Err(e) = Runtime::instance().extends.router().await.add(tf, id, qos, shared_group).await {
+                if let Err(e) =
+                Runtime::instance().extends.router().await.add(tf, id, qos, shared_group).await
+                {
                     log::warn!("transfer_session_state, router.add, {:?}", e);
                     return Err(e);
                 }
@@ -849,7 +877,8 @@ impl _SessionInner {
     pub async fn to_json(&self) -> serde_json::Value {
         let count = self.subscriptions.len();
 
-        let subs = self.subscriptions
+        let subs = self
+            .subscriptions
             .iter()
             .enumerate()
             .filter_map(|(i, entry)| {
@@ -889,13 +918,18 @@ impl _SessionInner {
     }
 
     #[inline]
-    pub fn subscriptions_remove(&self, topic_filter: &str) -> Option<(TopicFilterString, (QoS, Option<SharedGroup>))> {
+    pub fn subscriptions_remove(
+        &self,
+        topic_filter: &str,
+    ) -> Option<(TopicFilterString, (QoS, Option<SharedGroup>))> {
         self.subscriptions.remove(topic_filter)
     }
 
     #[inline]
     pub fn drain_subscriptions(&self) -> Subscriptions {
-        let subs = self.subscriptions.iter()
+        let subs = self
+            .subscriptions
+            .iter()
             .map(|entry| (entry.key().clone(), (*entry.value()).clone()))
             .collect::<Vec<_>>();
         self.subscriptions.clear();
@@ -914,9 +948,7 @@ impl _SessionInner {
 
     #[inline]
     pub fn is_shared_subscriptions(&self, topic_filter: &str) -> Option<bool> {
-        self.subscriptions.get(topic_filter).map(|entry| {
-            matches!(entry.value(), (_, Some(_)))
-        })
+        self.subscriptions.get(topic_filter).map(|entry| matches!(entry.value(), (_, Some(_))))
     }
 }
 

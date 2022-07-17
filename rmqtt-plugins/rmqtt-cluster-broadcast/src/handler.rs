@@ -128,6 +128,12 @@ impl Handler for HookHandler {
                         let new_acc = HookResult::GrpcMessageReply(routes);
                         return (false, Some(new_acc));
                     }
+                    Message::SessionStatus(clientid) => {
+                        let status = self.shared.inner().session_status(clientid).await;
+                        let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::SessionStatus(status)));
+                        return (false, Some(new_acc));
+                    }
+
                     _ => {
                         log::error!("unimplemented, {:?}", param)
                     }
