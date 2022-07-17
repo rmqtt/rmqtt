@@ -481,8 +481,23 @@ impl Shared for &'static ClusterShared {
 
     #[inline]
     async fn session_status(&self, client_id: &str) -> Option<SessionStatus> {
-        #[allow(deprecated)]
-        self.inner.session_status(client_id).await
+        if let Some(status) = self.inner.session_status(client_id).await {
+            return Some(status);
+        }
+        MessageBroadcaster::new(
+            self.grpc_clients.clone(),
+            self.message_type,
+            Message::SessionStatus(ClientId::from(client_id)),
+        )
+            .select_ok(|reply: MessageReply| -> Result<SessionStatus> {
+                if let MessageReply::SessionStatus(Some(status)) = reply {
+                    Ok(status)
+                } else {
+                    Err(MqttError::None)
+                }
+            })
+            .await
+            .ok()
     }
 
     #[inline]

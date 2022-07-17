@@ -11,8 +11,8 @@ use crate::{ClientId, Result};
 use crate::broker::{ClearSubscriptions, SubRelations, SubRelationsMap};
 use crate::broker::session::SessionOfflineInfo;
 use crate::broker::types::{
-    From, Id, IsAdmin, NodeId, Publish, Retain, Route, SubsSearchParams, SubsSearchResult, TopicFilter,
-    TopicName,
+    From, Id, IsAdmin, NodeId, Publish, Retain, Route, SessionStatus, SubsSearchParams, SubsSearchResult,
+    TopicFilter, TopicName,
 };
 
 pub mod client;
@@ -39,6 +39,7 @@ pub enum Message {
     NumberOfClients,
     NumberOfSessions,
     Online(ClientId),
+    SessionStatus(ClientId),
     Data(Vec<u8>),
 }
 
@@ -67,6 +68,7 @@ pub enum MessageReply {
     NumberOfClients(usize),
     NumberOfSessions(usize),
     Online(bool),
+    SessionStatus(Option<SessionStatus>),
     Data(Vec<u8>),
 }
 

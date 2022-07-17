@@ -108,7 +108,6 @@ pub trait Shared: Sync + Send {
     fn random_session(&self) -> Option<(Session, ClientInfo)>;
 
     ///
-    #[deprecated]
     async fn session_status(&self, client_id: &str) -> Option<SessionStatus>;
 
     ///
