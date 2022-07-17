@@ -668,11 +668,11 @@ async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response) {
         if status.online {
             status.id.node_id
         } else {
-            res.set_status_error(StatusError::bad_request().with_detail("the session is offline"));
+            res.set_status_error(StatusError::service_unavailable().with_detail("the session is offline"));
             return;
         }
     } else {
-        res.set_status_error(StatusError::bad_request().with_detail("session does not exist"));
+        res.set_status_error(StatusError::not_found().with_detail("session does not exist"));
         return;
     };
 
@@ -755,11 +755,11 @@ async fn unsubscribe(req: &mut Request, depot: &mut Depot, res: &mut Response) {
         if status.online {
             status.id.node_id
         } else {
-            res.set_status_error(StatusError::bad_request().with_detail("the session is offline"));
+            res.set_status_error(StatusError::service_unavailable().with_detail("the session is offline"));
             return;
         }
     } else {
-        res.set_status_error(StatusError::bad_request().with_detail("session does not exist"));
+        res.set_status_error(StatusError::not_found().with_detail("session does not exist"));
         return;
     };
 
