@@ -143,6 +143,61 @@ impl Entry {
             }))
         }
     }
+
+    #[inline]
+    pub async fn to_info(&self, name: &str) -> Result<PluginInfo> {
+        if let Ok(plugin) = self.plugin().await {
+            let attrs = serde_json::to_vec(&plugin.attrs().await)?;
+            Ok(PluginInfo {
+                name: plugin.name().to_owned(),
+                version: Some(plugin.version().to_owned()),
+                descr: Some(plugin.descr().to_owned()),
+                inited: self.inited,
+                active: self.active,
+                immutable: self.immutable,
+                attrs,
+            })
+        } else {
+            Ok(PluginInfo {
+                name: name.to_owned(),
+                inited: self.inited,
+                active: self.active,
+                immutable: self.immutable,
+                ..Default::default()
+            })
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+pub struct PluginInfo {
+    pub name: String,
+    pub version: Option<String>,
+    pub descr: Option<String>,
+    pub inited: bool,
+    pub active: bool,
+    pub immutable: bool,
+    pub attrs: Vec<u8>, //json data
+}
+
+impl PluginInfo {
+    #[inline]
+    pub fn to_json(&self) -> Result<serde_json::Value> {
+        let attrs = if self.attrs.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::from_slice(&self.attrs)?
+        };
+        Ok(json!({
+            "name": self.name,
+            "version": self.version,
+            "descr": self.descr,
+            "inited": self.inited,
+            "active": self.active,
+            "immutable": self.immutable,
+            "attrs": attrs,
+        }))
+    }
 }
 
 pub struct Manager {
