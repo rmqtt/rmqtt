@@ -20,6 +20,7 @@ mod api;
 mod clients;
 mod config;
 mod handler;
+mod plugin;
 mod subs;
 mod types;
 

@@ -5,9 +5,9 @@ use rmqtt::{
     Runtime,
 };
 
-use crate::subs;
-
 use super::clients;
+use super::plugin;
+use super::subs;
 use super::types::{Message, MessageReply};
 
 pub(crate) struct HookHandler {
@@ -141,6 +141,102 @@ impl Handler for HookHandler {
                                     ))),
                                 };
                                 replys
+                            }
+                            Ok(Message::GetPlugins) => {
+                                let replys = match plugin::get_plugins().await {
+                                    Ok(plugins) => match MessageReply::GetPlugins(plugins).encode() {
+                                        Ok(ress) => {
+                                            HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
+                                        }
+                                        Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
+                                            e.to_string(),
+                                        ))),
+                                    },
+                                    Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
+                                        e.to_string(),
+                                    ))),
+                                };
+                                replys
+                            }
+                            Ok(Message::GetPlugin { name }) => {
+                                let reply = match plugin::get_plugin(name).await {
+                                    Ok(plugin) => match MessageReply::GetPlugin(plugin).encode() {
+                                        Ok(ress) => {
+                                            HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
+                                        }
+                                        Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
+                                            e.to_string(),
+                                        ))),
+                                    },
+                                    Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
+                                        e.to_string(),
+                                    ))),
+                                };
+                                reply
+                            }
+                            Ok(Message::GetPluginConfig { name }) => {
+                                let reply = match plugin::get_plugin_config(name).await {
+                                    Ok(cfg) => match MessageReply::GetPluginConfig(cfg).encode() {
+                                        Ok(ress) => {
+                                            HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
+                                        }
+                                        Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
+                                            e.to_string(),
+                                        ))),
+                                    },
+                                    Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
+                                        e.to_string(),
+                                    ))),
+                                };
+                                reply
+                            }
+                            Ok(Message::ReloadPluginConfig { name }) => {
+                                let reply = match Runtime::instance().plugins.load_config(name).await {
+                                    Ok(()) => match MessageReply::ReloadPluginConfig.encode() {
+                                        Ok(ress) => {
+                                            HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
+                                        }
+                                        Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
+                                            e.to_string(),
+                                        ))),
+                                    },
+                                    Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
+                                        e.to_string(),
+                                    ))),
+                                };
+                                reply
+                            }
+                            Ok(Message::LoadPlugin { name }) => {
+                                let reply = match Runtime::instance().plugins.start(name).await {
+                                    Ok(()) => match MessageReply::LoadPlugin.encode() {
+                                        Ok(ress) => {
+                                            HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
+                                        }
+                                        Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
+                                            e.to_string(),
+                                        ))),
+                                    },
+                                    Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
+                                        e.to_string(),
+                                    ))),
+                                };
+                                reply
+                            }
+                            Ok(Message::UnloadPlugin { name }) => {
+                                let reply = match Runtime::instance().plugins.stop(name).await {
+                                    Ok(ok) => match MessageReply::UnloadPlugin(ok).encode() {
+                                        Ok(ress) => {
+                                            HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
+                                        }
+                                        Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
+                                            e.to_string(),
+                                        ))),
+                                    },
+                                    Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
+                                        e.to_string(),
+                                    ))),
+                                };
+                                reply
                             }
                         };
                         return (false, Some(new_acc));

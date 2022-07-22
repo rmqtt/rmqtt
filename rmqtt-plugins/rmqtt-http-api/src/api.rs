@@ -1,28 +1,28 @@
 use std::net::SocketAddr;
 
 use salvo::extra::affix;
+use salvo::http::header::{CONTENT_TYPE, HeaderValue};
 use salvo::prelude::*;
 
 use rmqtt::{
     anyhow, base64, bytes, chrono, futures, HashMap,
     log,
-    QoS,
     serde_json::{self, json}, tokio::sync::oneshot,
 };
 use rmqtt::{
     broker::types::NodeId,
     ClientId,
     grpc::{
-        Message as GrpcMessage, MessageBroadcaster, MessageReply as GrpcMessageReply, MessageSender,
-        MessageType,
+        client::NodeGrpcClient, Message as GrpcMessage, MessageBroadcaster, MessageReply as GrpcMessageReply,
+        MessageSender, MessageType,
     },
-    Id, MqttError, node::NodeStatus, Publish, PublishProperties, Result, Retain, Runtime, SubsSearchParams,
+    Id,
+    MqttError, node::NodeStatus, Publish, PublishProperties, QoS, Result, Retain, Runtime, SubsSearchParams,
     TopicFilter, TopicName, UserName,
 };
 
-use super::clients;
+use super::{clients, plugin, subs};
 use super::PluginConfigType;
-use super::subs;
 use super::types::{
     ClientSearchParams, Message, MessageReply, PublishParams, SubscribeParams, UnsubscribeParams,
 };
@@ -52,6 +52,16 @@ fn route(cfg: PluginConfigType) -> Router {
                 .push(Router::with_path("publish").post(publish))
                 .push(Router::with_path("subscribe").post(subscribe))
                 .push(Router::with_path("unsubscribe").post(unsubscribe)),
+        )
+        .push(
+            Router::with_path("plugins")
+                .get(all_plugins)
+                .push(Router::with_path("<node>").get(node_plugins))
+                .push(Router::with_path("<node>/<plugin>").get(node_plugin_info))
+                .push(Router::with_path("<node>/<plugin>/config").get(node_plugin_config))
+                .push(Router::with_path("<node>/<plugin>/config/reload").put(node_plugin_config_reload))
+                .push(Router::with_path("<node>/<plugin>/load").put(node_plugin_load))
+                .push(Router::with_path("<node>/<plugin>/unload").put(node_plugin_unload)),
         )
         .push(
             Router::with_path("stats")
@@ -86,115 +96,156 @@ pub(crate) async fn listen_and_serve(
 async fn list_apis(res: &mut Response) {
     let data = serde_json::json!([
         {
-          "name": "get_brokers",
-          "method": "GET",
-          "path": "/brokers/{node}",
-          "descr": "Return the basic information of all nodes in the cluster"
+            "name": "get_brokers",
+            "method": "GET",
+            "path": "/brokers/{node}",
+            "descr": "Return the basic information of all nodes in the cluster"
         },
         {
-          "name": "get_nodes",
-          "method": "GET",
-          "path": "/nodes/{node}",
-          "descr": "Returns the status of the node"
+            "name": "get_nodes",
+            "method": "GET",
+            "path": "/nodes/{node}",
+            "descr": "Returns the status of the node"
         },
 
         {
-          "name": "search_clients",
-          "method": "GET",
-          "path": "/clients/",
-          "descr": "Search clients information from the cluster"
+            "name": "search_clients",
+            "method": "GET",
+            "path": "/clients/",
+            "descr": "Search clients information from the cluster"
         },
         {
-          "name": "get_client",
-          "method": "GET",
-          "path": "/clients/{clientid}",
-          "descr": "Get client information from the cluster"
+            "name": "get_client",
+            "method": "GET",
+            "path": "/clients/{clientid}",
+            "descr": "Get client information from the cluster"
         },
         {
-          "name": "kick_client",
-          "method": "DELETE",
-          "path": "/clients/{clientid}",
-          "descr": "Kick client from the cluster"
+            "name": "kick_client",
+            "method": "DELETE",
+            "path": "/clients/{clientid}",
+            "descr": "Kick client from the cluster"
         },
         {
-          "name": "check_online",
-          "method": "GET",
-          "path": "/clients/{clientid}/online",
-          "descr": "Check a client whether online from the cluster"
+            "name": "check_online",
+            "method": "GET",
+            "path": "/clients/{clientid}/online",
+            "descr": "Check a client whether online from the cluster"
         },
 
         {
-          "name": "query_subscriptions",
-          "method": "GET",
-          "path": "/subscriptions",
-          "descr": "Query subscriptions information from the cluster"
+            "name": "query_subscriptions",
+            "method": "GET",
+            "path": "/subscriptions",
+            "descr": "Query subscriptions information from the cluster"
         },
         {
-          "name": "get_client_subscriptions",
-          "method": "GET",
-          "path": "/subscriptions/{clientid}",
-          "descr": "Get subscriptions information for the client from the cluster"
+            "name": "get_client_subscriptions",
+            "method": "GET",
+            "path": "/subscriptions/{clientid}",
+            "descr": "Get subscriptions information for the client from the cluster"
         },
 
         {
-          "name": "get_routes",
-          "method": "GET",
-          "path": "/routes",
-          "descr": "Return all routing information from the cluster"
+            "name": "get_routes",
+            "method": "GET",
+            "path": "/routes",
+            "descr": "Return all routing information from the cluster"
         },
         {
-          "name": "get_route",
-          "method": "GET",
-          "path": "/routes/{topic}",
-          "descr": "Get routing information from the cluster"
+            "name": "get_route",
+            "method": "GET",
+            "path": "/routes/{topic}",
+            "descr": "Get routing information from the cluster"
         },
 
         {
-          "name": "publish",
-          "method": "POST",
-          "path": "/mqtt/publish",
-          "descr": "Publish MQTT message"
+            "name": "publish",
+            "method": "POST",
+            "path": "/mqtt/publish",
+            "descr": "Publish MQTT message"
         },
         {
-          "name": "subscribe",
-          "method": "POST",
-          "path": "/mqtt/subscribe",
-          "descr": "Subscribe to MQTT topic"
+            "name": "subscribe",
+            "method": "POST",
+            "path": "/mqtt/subscribe",
+            "descr": "Subscribe to MQTT topic"
         },
         {
-          "name": "unsubscribe",
-          "method": "POST",
-          "path": "/mqtt/unsubscribe",
-          "descr": "Unsubscribe"
+            "name": "unsubscribe",
+            "method": "POST",
+            "path": "/mqtt/unsubscribe",
+            "descr": "Unsubscribe"
         },
 
         {
-          "name": "get_stats",
-          "method": "GET",
-          "path": "/stats/{node}",
-          "descr": "Returns all statistics information from the cluster"
+            "name": "all_plugins",
+            "method": "GET",
+            "path": "/plugins/",
+            "descr": "Returns information of all plugins in the cluster"
         },
         {
-          "name": "get_stats_sum",
-          "method": "GET",
-          "path": "/stats/sum",
-          "descr": "Summarize all statistics information from the cluster"
+            "name": "node_plugins",
+            "method": "GET",
+            "path": "/plugins/{node}",
+            "descr": "Similar with GET /api/v1/plugins, return the plugin information under the specified node"
+        },
+        {
+            "name": "node_plugin_info",
+            "method": "GET",
+            "path": "/plugins/{node}/{plugin}",
+            "descr": "Get a plugin info"
+        },
+        {
+            "name": "node_plugin_config",
+            "method": "GET",
+            "path": "/plugins/{node}/{plugin}/config",
+            "descr": "Get a plugin config"
+        },
+        {
+            "name": "node_plugin_config_reload",
+            "method": "PUT",
+            "path": "/plugins/{node}/{plugin}/config/reload",
+            "descr": "Reload a plugin config"
+        },
+        {
+            "name": "node_plugin_load",
+            "method": "PUT",
+            "path": "/plugins/{node}/{plugin}/load",
+            "descr": "Load the specified plugin under the specified node."
+        },
+        {
+            "name": "node_plugin_unload",
+            "method": "PUT",
+            "path": "/plugins/{node}/{plugin}/unload",
+            "descr": "Unload the specified plugin under the specified node."
         },
 
         {
-          "name": "get_metrics",
-          "method": "GET",
-          "path": "/metrics/{node}",
-          "descr": "Returns all metrics information from the cluster"
+            "name": "get_stats",
+            "method": "GET",
+            "path": "/stats/{node}",
+            "descr": "Returns all statistics information from the cluster"
         },
         {
-          "name": "get_metrics_sum",
-          "method": "GET",
-          "path": "/metrics/sum",
-          "descr": "Summarize all metrics information from the cluster"
+            "name": "get_stats_sum",
+            "method": "GET",
+            "path": "/stats/sum",
+            "descr": "Summarize all statistics information from the cluster"
         },
 
-
+        {
+            "name": "get_metrics",
+            "method": "GET",
+            "path": "/metrics/{node}",
+            "descr": "Returns all metrics information from the cluster"
+        },
+        {
+            "name": "get_metrics_sum",
+            "method": "GET",
+            "path": "/metrics/sum",
+            "descr": "Summarize all metrics information from the cluster"
+        },
 
     ]);
     res.render(Json(data));
@@ -723,14 +774,7 @@ async fn _subscribe_on_other_node(
     node_id: NodeId,
     params: SubscribeParams,
 ) -> Result<HashMap<TopicFilter, (bool, Option<String>)>> {
-    let c = Runtime::instance()
-        .extends
-        .shared()
-        .await
-        .get_grpc_clients()
-        .get(&node_id)
-        .map(|(_, c)| c.clone())
-        .ok_or(MqttError::from("node grpc client is not exist!"))?;
+    let c = get_grpc_client(node_id).await?;
     let q = Message::Subscribe(params).encode()?;
     let reply = MessageSender::new(c, message_type, GrpcMessage::Data(q)).send().await?;
     match reply {
@@ -785,14 +829,7 @@ async fn _unsubscribe_on_other_node(
     node_id: NodeId,
     params: UnsubscribeParams,
 ) -> Result<()> {
-    let c = Runtime::instance()
-        .extends
-        .shared()
-        .await
-        .get_grpc_clients()
-        .get(&node_id)
-        .map(|(_, c)| c.clone())
-        .ok_or(MqttError::from("node grpc client is not exist!"))?;
+    let c = get_grpc_client(node_id).await?;
     let q = Message::Unsubscribe(params).encode()?;
     let reply = MessageSender::new(c, message_type, GrpcMessage::Data(q)).send().await?;
     match reply {
@@ -801,6 +838,322 @@ async fn _unsubscribe_on_other_node(
             _ => unreachable!(),
         },
         _ => unreachable!(),
+    }
+}
+
+#[handler]
+async fn all_plugins(depot: &mut Depot, res: &mut Response) {
+    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+    let message_type = cfg.read().message_type;
+
+    match _all_plugins(message_type).await {
+        Ok(pluginss) => res.render(Json(pluginss)),
+        Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+    }
+}
+
+#[inline]
+async fn _all_plugins(message_type: MessageType) -> Result<Vec<serde_json::Value>> {
+    let mut pluginss = Vec::new();
+    let node_id = Runtime::instance().node.id();
+    let plugins = plugin::get_plugins().await?;
+    let plugins = plugins.into_iter().map(|p| p.to_json()).collect::<Result<Vec<_>>>()?;
+    pluginss.push(json!({
+        "node": node_id,
+        "plugins": plugins,
+    }));
+
+    let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
+    if !grpc_clients.is_empty() {
+        let msg = Message::GetPlugins.encode()?;
+        let replys = MessageBroadcaster::new(grpc_clients, message_type, GrpcMessage::Data(msg))
+            .join_all()
+            .await
+            .drain(..)
+            .map(|(node_id, reply)| {
+                let plugins = match reply {
+                    Ok(GrpcMessageReply::Data(reply_msg)) => match MessageReply::decode(&reply_msg) {
+                        Ok(MessageReply::GetPlugins(plugins)) => {
+                            match plugins.into_iter().map(|p| p.to_json()).collect::<Result<Vec<_>>>() {
+                                Ok(plugins) => serde_json::Value::Array(plugins),
+                                Err(e) => serde_json::Value::String(e.to_string()),
+                            }
+                        }
+                        Err(e) => serde_json::Value::String(e.to_string()),
+                        _ => unreachable!(),
+                    },
+                    Ok(_) => unreachable!(),
+                    Err(e) => serde_json::Value::String(e.to_string()),
+                };
+                json!({
+                    "node": node_id,
+                    "plugins": plugins,
+                })
+            })
+            .collect::<Vec<_>>();
+        pluginss.extend(replys);
+    }
+    Ok(pluginss)
+}
+
+#[handler]
+async fn node_plugins(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+    let message_type = cfg.read().message_type;
+    let node_id = if let Some(node_id) = req.param::<NodeId>("node") {
+        node_id
+    } else {
+        return res.set_status_code(StatusCode::NOT_FOUND);
+    };
+    match _node_plugins(node_id, message_type).await {
+        Ok(plugins) => res.render(Json(plugins)),
+        Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+    }
+}
+
+async fn _node_plugins(node_id: NodeId, message_type: MessageType) -> Result<Vec<serde_json::Value>> {
+    let plugins = if node_id == Runtime::instance().node.id() {
+        plugin::get_plugins().await?
+    } else {
+        let c = get_grpc_client(node_id).await?;
+        let msg = Message::GetPlugins.encode()?;
+        let reply = MessageSender::new(c, message_type, GrpcMessage::Data(msg)).send().await?;
+        match reply {
+            GrpcMessageReply::Data(msg) => match MessageReply::decode(&msg)? {
+                MessageReply::GetPlugins(plugins) => plugins,
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        }
+    };
+    plugins.into_iter().map(|p| p.to_json()).collect::<Result<Vec<_>>>()
+}
+
+#[handler]
+async fn node_plugin_info(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+    let message_type = cfg.read().message_type;
+    let node_id = if let Some(node_id) = req.param::<NodeId>("node") {
+        node_id
+    } else {
+        return res.set_status_code(StatusCode::NOT_FOUND);
+    };
+    let name = if let Some(name) = req.param::<String>("plugin") {
+        name
+    } else {
+        return res.set_status_code(StatusCode::NOT_FOUND);
+    };
+
+    match _node_plugin_info(node_id, &name, message_type).await {
+        Ok(plugin) => res.render(Json(plugin)),
+        Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+    }
+}
+
+async fn _node_plugin_info(
+    node_id: NodeId,
+    name: &str,
+    message_type: MessageType,
+) -> Result<Option<serde_json::Value>> {
+    let plugin = if node_id == Runtime::instance().node.id() {
+        plugin::get_plugin(name).await?
+    } else {
+        let c = get_grpc_client(node_id).await?;
+        let msg = Message::GetPlugin { name }.encode()?;
+        let reply = MessageSender::new(c, message_type, GrpcMessage::Data(msg)).send().await?;
+        match reply {
+            GrpcMessageReply::Data(msg) => match MessageReply::decode(&msg)? {
+                MessageReply::GetPlugin(plugin) => plugin,
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        }
+    };
+    if let Some(plugin) = plugin {
+        Ok(Some(plugin.to_json()?))
+    } else {
+        Ok(None)
+    }
+}
+
+#[handler]
+async fn node_plugin_config(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+    let message_type = cfg.read().message_type;
+    let node_id = if let Some(node_id) = req.param::<NodeId>("node") {
+        node_id
+    } else {
+        return res.set_status_code(StatusCode::NOT_FOUND);
+    };
+    let name = if let Some(name) = req.param::<String>("plugin") {
+        name
+    } else {
+        return res.set_status_code(StatusCode::NOT_FOUND);
+    };
+
+    match _node_plugin_config(node_id, &name, message_type).await {
+        Ok(cfg) => {
+            res.headers_mut().insert(
+                CONTENT_TYPE,
+                HeaderValue::from_static("application/json; charset=utf-8"),
+            );
+            res.write_body(cfg).ok();
+        },
+        Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+    }
+}
+
+async fn _node_plugin_config(
+    node_id: NodeId,
+    name: &str,
+    message_type: MessageType,
+) -> Result<Vec<u8>> {
+    let plugin_cfg = if node_id == Runtime::instance().node.id() {
+        plugin::get_plugin_config(name).await?
+    } else {
+        let c = get_grpc_client(node_id).await?;
+        let msg = Message::GetPluginConfig { name }.encode()?;
+        let reply = MessageSender::new(c, message_type, GrpcMessage::Data(msg)).send().await?;
+        match reply {
+            GrpcMessageReply::Data(msg) => match MessageReply::decode(&msg)? {
+                MessageReply::GetPluginConfig(cfg) => cfg,
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        }
+    };
+    Ok(plugin_cfg)
+}
+
+#[handler]
+async fn node_plugin_config_reload(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+    let message_type = cfg.read().message_type;
+    let node_id = if let Some(node_id) = req.param::<NodeId>("node") {
+        node_id
+    } else {
+        return res.set_status_code(StatusCode::NOT_FOUND);
+    };
+    let name = if let Some(name) = req.param::<String>("plugin") {
+        name
+    } else {
+        return res.set_status_code(StatusCode::NOT_FOUND);
+    };
+
+    match _node_plugin_config_reload(node_id, &name, message_type).await {
+        Ok(()) => {
+            res.render(Text::Plain("ok"))
+        },
+        Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+    }
+}
+
+async fn _node_plugin_config_reload(
+    node_id: NodeId,
+    name: &str,
+    message_type: MessageType,
+) -> Result<()> {
+    if node_id == Runtime::instance().node.id() {
+        Runtime::instance().plugins.load_config(name).await
+    } else {
+        let c = get_grpc_client(node_id).await?;
+        let msg = Message::ReloadPluginConfig { name }.encode()?;
+        let reply = MessageSender::new(c, message_type, GrpcMessage::Data(msg)).send().await?;
+        match reply {
+            GrpcMessageReply::Data(msg) => match MessageReply::decode(&msg)? {
+                MessageReply::ReloadPluginConfig => Ok(()),
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[handler]
+async fn node_plugin_load(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+    let message_type = cfg.read().message_type;
+    let node_id = if let Some(node_id) = req.param::<NodeId>("node") {
+        node_id
+    } else {
+        return res.set_status_code(StatusCode::NOT_FOUND);
+    };
+    let name = if let Some(name) = req.param::<String>("plugin") {
+        name
+    } else {
+        return res.set_status_code(StatusCode::NOT_FOUND);
+    };
+
+    match _node_plugin_load(node_id, &name, message_type).await {
+        Ok(()) => {
+            res.render(Text::Plain("ok"))
+        },
+        Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+    }
+}
+
+async fn _node_plugin_load(
+    node_id: NodeId,
+    name: &str,
+    message_type: MessageType,
+) -> Result<()> {
+    if node_id == Runtime::instance().node.id() {
+        Runtime::instance().plugins.start(name).await
+    } else {
+        let c = get_grpc_client(node_id).await?;
+        let msg = Message::LoadPlugin { name }.encode()?;
+        let reply = MessageSender::new(c, message_type, GrpcMessage::Data(msg)).send().await?;
+        match reply {
+            GrpcMessageReply::Data(msg) => match MessageReply::decode(&msg)? {
+                MessageReply::LoadPlugin => Ok(()),
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[handler]
+async fn node_plugin_unload(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+    let message_type = cfg.read().message_type;
+    let node_id = if let Some(node_id) = req.param::<NodeId>("node") {
+        node_id
+    } else {
+        return res.set_status_code(StatusCode::NOT_FOUND);
+    };
+    let name = if let Some(name) = req.param::<String>("plugin") {
+        name
+    } else {
+        return res.set_status_code(StatusCode::NOT_FOUND);
+    };
+
+    match _node_plugin_unload(node_id, &name, message_type).await {
+        Ok(r) => {
+            res.render(Json(r))
+        },
+        Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+    }
+}
+
+async fn _node_plugin_unload(
+    node_id: NodeId,
+    name: &str,
+    message_type: MessageType,
+) -> Result<bool> {
+    if node_id == Runtime::instance().node.id() {
+        Runtime::instance().plugins.stop(name).await
+    } else {
+        let c = get_grpc_client(node_id).await?;
+        let msg = Message::UnloadPlugin { name }.encode()?;
+        let reply = MessageSender::new(c, message_type, GrpcMessage::Data(msg)).send().await?;
+        match reply {
+            GrpcMessageReply::Data(msg) => match MessageReply::decode(&msg)? {
+                MessageReply::UnloadPlugin(ok) => Ok(ok),
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        }
     }
 }
 
@@ -1084,4 +1437,16 @@ async fn _build_metrics(id: NodeId, metrics: serde_json::Value) -> serde_json::V
         "metrics": metrics
     });
     data
+}
+
+#[inline]
+async fn get_grpc_client(node_id: NodeId) -> Result<NodeGrpcClient> {
+    Runtime::instance()
+        .extends
+        .shared()
+        .await
+        .get_grpc_clients()
+        .get(&node_id)
+        .map(|(_, c)| c.clone())
+        .ok_or(MqttError::from("node grpc client is not exist!"))
 }

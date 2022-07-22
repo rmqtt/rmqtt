@@ -4,6 +4,7 @@ use rmqtt::{anyhow, bincode, chrono, HashMap, MqttError, QoS, serde_json};
 use rmqtt::{metrics::Metrics, stats::Stats};
 use rmqtt::{ClientId, NodeId, Timestamp, TopicFilter, TopicName, UserName};
 use rmqtt::node::{BrokerInfo, NodeInfo, NodeStatus};
+use rmqtt::plugin::PluginInfo;
 use rmqtt::Result;
 use rmqtt::settings::{deserialize_duration_option, serialize_duration_option};
 
@@ -17,6 +18,12 @@ pub enum Message<'a> {
     ClientGet { clientid: &'a str },
     Subscribe(SubscribeParams),
     Unsubscribe(UnsubscribeParams),
+    GetPlugins,
+    GetPlugin { name: &'a str },
+    GetPluginConfig { name: &'a str },
+    ReloadPluginConfig { name: &'a str },
+    LoadPlugin { name: &'a str },
+    UnloadPlugin { name: &'a str },
 }
 
 impl<'a> Message<'a> {
@@ -40,6 +47,12 @@ pub enum MessageReply {
     ClientGet(Option<ClientSearchResult>),
     Subscribe(HashMap<TopicFilter, (bool, Option<String>)>),
     Unsubscribe,
+    GetPlugins(Vec<PluginInfo>),
+    GetPlugin(Option<PluginInfo>),
+    GetPluginConfig(Vec<u8>),
+    ReloadPluginConfig,
+    LoadPlugin,
+    UnloadPlugin(bool),
 }
 
 impl MessageReply {
