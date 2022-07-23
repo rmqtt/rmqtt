@@ -44,7 +44,7 @@ pub type TopicName = bytestring::ByteString;
 pub type Topic = ntex_mqtt::Topic;
 ///topic filter
 pub type TopicFilter = bytestring::ByteString;
-pub type TopicFilterString = String;
+// pub type TopicFilterString = String;
 pub type SharedGroup = String;
 pub type IsDisconnect = bool;
 pub type MessageExpiry = bool;
@@ -61,8 +61,8 @@ pub type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
 pub type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 pub type QoS = ntex_mqtt::types::QoS;
 pub type PublishReceiveTime = TimestampMillis;
-pub type TopicFilterMap = DashMap<TopicFilterString, (QoS, Option<SharedGroup>)>;
-pub type Subscriptions = Vec<(TopicFilterString, (QoS, Option<SharedGroup>))>;
+pub type TopicFilterMap = DashMap<TopicFilter, (QoS, Option<SharedGroup>)>;
+pub type Subscriptions = Vec<(TopicFilter, (QoS, Option<SharedGroup>))>;
 pub type TopicFilters = Vec<TopicFilter>;
 
 pub type HookSubscribeResult = Vec<Option<TopicFilter>>;
