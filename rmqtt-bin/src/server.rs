@@ -26,8 +26,6 @@ use rmqtt::ntex_mqtt::{
 };
 use rmqtt::settings::listener::Listener;
 
-mod inner_api;
-
 #[allow(dead_code)]
 mod plugin {
     include!(concat!(env!("OUT_DIR"), "/plugin.rs"));
@@ -44,7 +42,6 @@ async fn main() {
         std::env::set_var("RMQTT-CONFIG-FILENAME", args[1].clone());
     }
     logger_init();
-    inner_api_serve_and_listen();
     plugin::registers(plugin::default_startups()).await.expect("Failed to register plug-in");
 
     //start gRPC server
@@ -284,22 +281,3 @@ async fn listen_tls(name: String, listen_cfg: &Listener) -> Result<()> {
     })
 }
 
-fn inner_api_serve_and_listen() {
-    std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .worker_threads(1)
-            .thread_name("inner-api-worker")
-            .thread_stack_size(4 * 1024 * 1024)
-            .build()
-            .unwrap();
-
-        let inner_api = async {
-            let laddr = Runtime::instance().settings.inner_api_addr;
-            if let Err(e) = inner_api::serve(laddr).await {
-                log::error!("error: inner api listen on {}, {:?}", laddr, e);
-            }
-        };
-        rt.block_on(inner_api);
-    });
-}
