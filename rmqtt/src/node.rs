@@ -95,7 +95,7 @@ impl Node {
         };
 
         NodeInfo {
-            connections: Runtime::instance().extends.shared().await.clients().await,
+            connections: Runtime::instance().stats.connections.count(),
             boottime,
             load1: loadavg.as_ref().map(|l| l.one).unwrap_or_default(),
             load5: loadavg.as_ref().map(|l| l.five).unwrap_or_default(),
@@ -144,7 +144,7 @@ impl BrokerInfo {
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct NodeInfo {
-    pub connections: usize,
+    pub connections: isize,
     pub boottime: String,
     pub load1: f32,
     pub load5: f32,

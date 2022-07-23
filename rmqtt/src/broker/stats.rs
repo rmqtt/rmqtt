@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicIsize, Ordering};
 
 use once_cell::sync::OnceCell;
 
-use crate::Runtime;
+use crate::{NodeId, HashMap, Runtime};
 
 type Current = AtomicIsize;
 type Max = AtomicIsize;
@@ -27,7 +27,9 @@ impl fmt::Debug for Counter {
 }
 
 impl Counter {
-    fn new() -> Self {
+
+    #[inline]
+    pub fn new() -> Self {
         Counter(AtomicIsize::new(0), AtomicIsize::new(0))
     }
 
@@ -36,6 +38,12 @@ impl Counter {
         let prev = self.0.fetch_add(1, Ordering::SeqCst);
         self.1.fetch_max(prev + 1, Ordering::SeqCst);
     }
+
+    #[inline]
+    pub fn current_inc(&self) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+
 
     #[inline]
     pub fn dec(&self) {
@@ -63,10 +71,17 @@ impl Counter {
     }
 
     #[inline]
-    fn add(&self, other: &Self) {
+    pub fn add(&self, other: &Self) {
         self.0.fetch_add(other.0.load(Ordering::SeqCst), Ordering::SeqCst);
         self.1.fetch_add(other.1.load(Ordering::SeqCst), Ordering::SeqCst);
     }
+
+    #[inline]
+    pub fn set(&self, other: &Self) {
+        self.0.store(other.0.load(Ordering::SeqCst), Ordering::SeqCst);
+        self.1.store(other.1.load(Ordering::SeqCst), Ordering::SeqCst);
+    }
+
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -77,12 +92,9 @@ pub struct Stats {
     pub subscriptions_shared: Counter,
     pub retaineds: Counter, //retained messages
 
-    topics_count: isize,
-    //subscribed_topics
-    topics_max: isize,
-    routes_count: isize,
-    //subscribe to the relationship
-    routes_max: isize,
+    topics_map: HashMap<NodeId, Counter>,
+    routes_map: HashMap<NodeId, Counter>,
+
 }
 
 impl Stats {
@@ -96,16 +108,20 @@ impl Stats {
             subscriptions_shared: Counter::new(),
             retaineds: Counter::new(),
 
-            topics_count: 0,
-            topics_max: 0,
-            routes_count: 0,
-            routes_max: 0,
+            topics_map: HashMap::default(),
+            routes_map: HashMap::default(),
         })
     }
 
     #[inline]
     pub async fn clone(&self) -> Self {
         let router = Runtime::instance().extends.router().await;
+
+        let node_id = Runtime::instance().node.id();
+        let mut topics_map = HashMap::default();
+        topics_map.insert(node_id, router.topics());
+        let mut routes_map = HashMap::default();
+        routes_map.insert(node_id, router.routes());
         Self {
             connections: self.connections.clone(),
             sessions: self.sessions.clone(),
@@ -113,10 +129,8 @@ impl Stats {
             subscriptions_shared: self.subscriptions_shared.clone(),
             retaineds: self.retaineds.clone(), //retained messages
 
-            topics_count: router.topics() as isize, //subscribed_topics
-            topics_max: router.topics_max() as isize,
-            routes_count: router.relations() as isize, //subscribe to the relationship
-            routes_max: router.relations_max() as isize,
+            topics_map,
+            routes_map,
         }
     }
 
@@ -128,14 +142,15 @@ impl Stats {
         self.subscriptions_shared.add(&other.subscriptions_shared);
         self.retaineds.add(&other.retaineds);
 
-        self.topics_count = self.topics_count.min(other.topics_count);
-        self.topics_max = self.topics_max.max(other.topics_max);
-        self.routes_count = self.routes_count.min(other.routes_count);
-        self.routes_max = self.routes_max.max(other.routes_max);
+        self.topics_map.extend(other.topics_map);
+        self.routes_map.extend(other.routes_map);
     }
 
     #[inline]
-    pub fn to_json(&self) -> serde_json::Value {
+    pub async fn to_json(&self) -> serde_json::Value {
+        let router = Runtime::instance().extends.router().await;
+        let topics = router.merge_topics(&self.topics_map);
+        let routes = router.merge_routes(&self.routes_map);
         json!({
             "connections.count": self.connections.count(),
             "connections.max": self.connections.max(),
@@ -148,10 +163,10 @@ impl Stats {
             "retained.count": self.retaineds.count(),
             "retained.max": self.retaineds.max(),
 
-            "topics.count": self.topics_count,
-            "topics.max": self.topics_max,
-            "routes.count": self.routes_count,
-            "routes.max": self.routes_max,
+            "topics.count": topics.count(),
+            "topics.max": topics.max(),
+            "routes.count": routes.count(),
+            "routes.max": routes.max(),
         })
     }
 }

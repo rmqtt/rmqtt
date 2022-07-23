@@ -8,8 +8,9 @@ use rmqtt::{
         SubRelationsMap, types::{Id, NodeId, QoS, Route, SharedGroup, TopicName},
     },
     grpc::{GrpcClients, Message, MessageBroadcaster, MessageReply, MessageSender, MessageType},
-    Result, TopicFilter,
+    Result, TopicFilter, HashMap,
 };
+use rmqtt::stats::Counter;
 
 pub(crate) struct ClusterRouter {
     inner: &'static DefaultRouter,
@@ -109,23 +110,31 @@ impl Router for &'static ClusterRouter {
     }
 
     #[inline]
-    fn topics_max(&self) -> usize {
-        self.inner.topics_max()
-    }
-
-    #[inline]
-    fn topics(&self) -> usize {
+    fn topics(&self) -> Counter {
         self.inner.topics()
     }
 
     #[inline]
-    fn relations(&self) -> usize {
-        self.inner.relations()
+    fn routes(&self) -> Counter {
+        self.inner.routes()
     }
 
     #[inline]
-    fn relations_max(&self) -> usize {
-        self.inner.relations_max()
+    fn merge_topics(&self, topics_map: &HashMap<NodeId, Counter>) -> Counter{
+        let topics = Counter::new();
+        for (_, counter) in topics_map.iter(){
+            topics.add(counter);
+        }
+        topics
+    }
+
+    #[inline]
+    fn merge_routes(&self, routes_map: &HashMap<NodeId, Counter>) -> Counter{
+        let routes = Counter::new();
+        for (_, counter) in routes_map.iter(){
+            routes.add(counter);
+        }
+        routes
     }
 
     #[inline]

@@ -1211,7 +1211,7 @@ async fn _get_stats_sum(message_type: MessageType) -> Result<serde_json::Value> 
 
     let stats_sum = json!({
         "nodes": nodes,
-        "stats": stats_sum.to_json()
+        "stats": stats_sum.to_json().await
     });
 
     Ok(stats_sum)
@@ -1242,7 +1242,7 @@ async fn _get_stats_one(message_type: MessageType, id: NodeId) -> Result<Option<
     if id == Runtime::instance().node.id() {
         let node_status = Runtime::instance().node.status().await;
         let stats = Runtime::instance().stats.clone().await;
-        Ok(Some(_build_stats(id, node_status, stats.to_json()).await))
+        Ok(Some(_build_stats(id, node_status, stats.to_json().await).await))
     } else {
         let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
         if let Some(c) = grpc_clients.get(&id).map(|(_, c)| c.clone()) {
@@ -1251,7 +1251,7 @@ async fn _get_stats_one(message_type: MessageType, id: NodeId) -> Result<Option<
             let stats = match reply {
                 Ok(GrpcMessageReply::Data(msg)) => match MessageReply::decode(&msg)? {
                     MessageReply::StatsInfo(node_status, stats) => {
-                        _build_stats(id, node_status, stats.to_json()).await
+                        _build_stats(id, node_status, stats.to_json().await).await
                     }
                     _ => unreachable!(),
                 },
@@ -1273,7 +1273,7 @@ async fn _get_stats_all(message_type: MessageType) -> Result<Vec<serde_json::Val
     let id = Runtime::instance().node.id();
     let node_status = Runtime::instance().node.status().await;
     let state = Runtime::instance().stats.clone().await;
-    let mut stats = vec![_build_stats(id, node_status, state.to_json()).await];
+    let mut stats = vec![_build_stats(id, node_status, state.to_json().await).await];
 
     let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
@@ -1284,7 +1284,7 @@ async fn _get_stats_all(message_type: MessageType) -> Result<Vec<serde_json::Val
             let data = match reply {
                 (id, Ok(GrpcMessageReply::Data(msg))) => match MessageReply::decode(&msg)? {
                     MessageReply::StatsInfo(node_status, stats) => {
-                        _build_stats(id, node_status, stats.to_json()).await
+                        _build_stats(id, node_status, stats.to_json().await).await
                     }
                     _ => unreachable!(),
                 },

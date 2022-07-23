@@ -10,8 +10,7 @@ use rmqtt::{
         session::{ClientInfo, Session, SessionOfflineInfo},
         Shared, SubRelations, SubRelationsMap, types::{
             ClientId, From, Id, IsAdmin, IsOnline, NodeId, Publish, QoS, Reason, SessionStatus, SharedGroup,
-            Subscribe, SubscribeReturn, SubsSearchParams, SubsSearchResult, To, TopicFilter,
-            TopicFilterString, Tx, Unsubscribe,
+            Subscribe, SubscribeReturn, SubsSearchParams, SubsSearchResult, To, TopicFilter, Tx, Unsubscribe,
         },
     },
     grpc::{GrpcClients, Message, MessageBroadcaster, MessageReply, MessageType}, MqttError, Result, Runtime,
@@ -89,12 +88,6 @@ impl Entry for ClusterLockEntry {
                     kicked.subscriptions.is_empty(),
                     !clear_subscriptions && !kicked.subscriptions.is_empty()
                 );
-                if !clear_subscriptions && !kicked.subscriptions.is_empty() {
-                    let router = Runtime::instance().extends.router().await;
-                    for (tf, (qos, group)) in kicked.subscriptions.iter() {
-                        router.add(tf, self.id(), *qos, (*group).clone()).await?;
-                    }
-                }
                 Ok(Some(kicked))
             }
             Err(e) => {
@@ -273,7 +266,7 @@ impl Shared for &'static ClusterShared {
                 .await;
 
             type SharedSubGroups = HashMap<
-                TopicFilterString, //key is TopicFilter
+                TopicFilter, //key is TopicFilter
                 HashMap<SharedGroup, Vec<(NodeId, ClientId, QoS, Option<IsOnline>)>>,
             >;
             type SharedRelation = (TopicFilter, NodeId, ClientId, QoS, (SharedGroup, IsOnline));
@@ -288,7 +281,7 @@ impl Shared for &'static ClusterShared {
                     } else {
                         let mut groups = HashMap::default();
                         groups.insert(group, vec![(node_id, client_id, qos, Some(is_online))]);
-                        shared_groups.insert(topic_filter.to_string(), groups);
+                        shared_groups.insert(topic_filter, groups);
                     }
                 };
 
@@ -397,76 +390,6 @@ impl Shared for &'static ClusterShared {
         relations: SubRelations,
     ) -> Result<(), Vec<(To, From, Publish, Reason)>> {
         self.inner.forwards_to(from, publish, relations).await
-    }
-
-    #[inline]
-    async fn clients(&self) -> usize {
-        self.inner.clients().await
-    }
-
-    #[inline]
-    async fn sessions(&self) -> usize {
-        self.inner.sessions().await
-    }
-
-    #[inline]
-    async fn all_clients(&self) -> usize {
-        let mut clients = self.inner.all_clients().await;
-
-        let replys =
-            MessageBroadcaster::new(self.grpc_clients.clone(), self.message_type, Message::NumberOfClients)
-                .join_all()
-                .await;
-
-        for (_, reply) in replys {
-            match reply {
-                Ok(reply) => {
-                    if let MessageReply::NumberOfClients(n) = reply {
-                        clients += n
-                    }
-                }
-                Err(e) => {
-                    log::error!("Get Message::NumberOfClients from other node, error: {:?}", e);
-                }
-            }
-        }
-
-        clients
-    }
-
-    #[inline]
-    async fn all_sessions(&self) -> usize {
-        let mut sessions = self.inner.all_sessions().await;
-
-        let replys =
-            MessageBroadcaster::new(self.grpc_clients.clone(), self.message_type, Message::NumberOfSessions)
-                .join_all()
-                .await;
-
-        for (_, reply) in replys {
-            match reply {
-                Ok(reply) => {
-                    if let MessageReply::NumberOfSessions(n) = reply {
-                        sessions += n
-                    }
-                }
-                Err(e) => {
-                    log::error!("Get Message::NumberOfSessions from other node, error: {:?}", e);
-                }
-            }
-        }
-
-        sessions
-    }
-
-    #[inline]
-    fn subscriptions(&self) -> usize {
-        self.inner.subscriptions()
-    }
-
-    #[inline]
-    fn subscriptions_shared(&self) -> usize {
-        self.inner.subscriptions_shared()
     }
 
     #[inline]

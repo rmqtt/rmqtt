@@ -5,7 +5,7 @@ use std::num::NonZeroU16;
 use std::num::NonZeroU32;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::Ordering;
 
 use itertools::Itertools;
 use leaky_bucket::RateLimiter;
@@ -24,6 +24,7 @@ use crate::broker::session::{ClientInfo, Session, SessionOfflineInfo};
 use crate::broker::topic::{Topic, VecToTopic};
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
+use crate::stats::Counter;
 
 use super::{
     Entry, IsOnline, Limiter, LimiterManager, retain::RetainTree, RetainStorage, Router, Shared,
@@ -225,7 +226,7 @@ impl super::Entry for LockEntry {
             .await
             .add(&sub.topic_filter, self.id(), sub.qos, sub.shared_group.clone())
             .await?;
-        peer.s.subscriptions_add(sub.topic_filter.to_string(), sub.qos, sub.shared_group.clone());
+        peer.s.subscriptions_add(sub.topic_filter.clone(), sub.qos, sub.shared_group.clone());
         Ok(SubscribeReturn::new_success(sub.qos))
     }
 
@@ -452,36 +453,6 @@ impl Shared for &'static DefaultShared {
     }
 
     #[inline]
-    async fn clients(&self) -> usize {
-        self.peers.iter().filter(|entry| entry.value().c.is_connected()).count()
-    }
-
-    #[inline]
-    async fn sessions(&self) -> usize {
-        self.peers.len()
-    }
-
-    #[inline]
-    fn subscriptions(&self) -> usize {
-        self.peers.iter().map(|entry| (entry.s.subscriptions.len())).sum()
-    }
-
-    #[inline]
-    fn subscriptions_shared(&self) -> usize {
-        self.peers
-            .iter()
-            .map(|entry| {
-                entry
-                    .s
-                    .subscriptions
-                    .iter()
-                    .map(|subs| if let (_, Some(_)) = subs.value() { 1 } else { 0 })
-                    .sum::<usize>()
-            })
-            .sum()
-    }
-
-    #[inline]
     fn iter(&self) -> Box<dyn Iterator<Item=Box<dyn Entry>> + Sync + Send> {
         Box::new(DefaultIter { shared: self, ptr: self.peers.iter() })
     }
@@ -534,10 +505,10 @@ impl Iterator for DefaultIter<'_> {
 
 #[allow(clippy::type_complexity)]
 pub struct DefaultRouter {
-    pub topics_max: AtomicUsize,
-    pub relations_max: AtomicUsize,
     pub topics: RwLock<TopicTree<()>>,
+    pub topics_count: Counter,
     pub relations: DashMap<TopicFilter, HashMap<ClientId, (Id, QoS, Option<SharedGroup>)>>,
+    pub relations_count: Counter,
 }
 
 impl DefaultRouter {
@@ -545,10 +516,10 @@ impl DefaultRouter {
     pub fn instance() -> &'static DefaultRouter {
         static INSTANCE: OnceCell<DefaultRouter> = OnceCell::new();
         INSTANCE.get_or_init(|| Self {
-            topics_max: AtomicUsize::new(0),
-            relations_max: AtomicUsize::new(0),
             topics: RwLock::new(TopicTree::default()),
+            topics_count: Counter::new(),
             relations: DashMap::default(),
+            relations_count: Counter::new(),
         })
     }
 
@@ -816,13 +787,13 @@ impl Router for &'static DefaultRouter {
             .relations
             .entry(TopicFilter::from(topic_filter))
             .or_insert_with(|| {
-                self.topics_max.fetch_add(1, Ordering::SeqCst);
+                self.topics_count.inc();
                 HashMap::default()
             })
             .insert(id.client_id.clone(), (id, qos, shared_group));
 
         if old.is_none() {
-            self.relations_max.fetch_add(1, Ordering::SeqCst);
+            self.relations_count.inc();
         }
 
         Ok(())
@@ -843,6 +814,9 @@ impl Router for &'static DefaultRouter {
             }).unwrap_or(false);
             if remove_enable {
                 let remove_ok = rels.value_mut().remove(&id.client_id).is_some();
+                if remove_ok{
+                    self.relations_count.dec();
+                }
                 Some((rels.is_empty(), remove_ok))
             } else {
                 None
@@ -855,7 +829,9 @@ impl Router for &'static DefaultRouter {
 
         let remove_ok = if let Some((is_empty, remove_ok)) = res {
             if is_empty {
-                self.relations.remove(topic_filter);
+                if self.relations.remove(topic_filter).is_some(){
+                    self.topics_count.dec();
+                }
                 let topic = Topic::from_str(topic_filter)?;
                 self.topics.write().await.remove(&topic, &());
             }
@@ -922,30 +898,46 @@ impl Router for &'static DefaultRouter {
         Ok(routes)
     }
 
-    // #[inline]
-    // async fn topics(&self) -> usize {
-    //     self.topics.read().await.values_size()
-    // }
-
     #[inline]
-    fn topics_max(&self) -> usize {
-        self.topics_max.load(Ordering::SeqCst)
+    fn topics(&self) -> Counter {
+        //self.relations.len()
+        self.topics_count.clone()
     }
 
     #[inline]
-    fn topics(&self) -> usize {
-        self.relations.len()
+    fn routes(&self) -> Counter {
+        //self.relations.iter().map(|rels| rels.len()).sum::<usize>()
+        self.relations_count.clone()
     }
 
     #[inline]
-    fn relations_max(&self) -> usize {
-        self.relations_max.load(Ordering::SeqCst)
+    fn merge_topics(&self, topics_map: &HashMap<NodeId, Counter>) -> Counter{
+        let topics = Counter::new();
+        for (i, (_, counter)) in topics_map.iter().enumerate(){
+            if i == 0{
+                topics.set(counter);
+            }else{
+                topics.count_min(counter.count());
+                topics.max_max(counter.max())
+            }
+        }
+        topics
     }
 
     #[inline]
-    fn relations(&self) -> usize {
-        self.relations.iter().map(|rels| rels.len()).sum::<usize>()
+    fn merge_routes(&self, routes_map: &HashMap<NodeId, Counter>) -> Counter{
+        let routes = Counter::new();
+        for (i, (_, counter)) in routes_map.iter().enumerate(){
+            if i == 0{
+                routes.set(counter);
+            }else{
+                routes.count_min(counter.count());
+                routes.max_max(counter.max())
+            }
+        }
+        routes
     }
+
 
     #[inline]
     async fn list_topics(&self, top: usize) -> Vec<String> {

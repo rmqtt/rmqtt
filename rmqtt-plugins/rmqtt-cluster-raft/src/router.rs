@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use once_cell::sync::OnceCell;
@@ -17,6 +16,7 @@ use rmqtt::{
     },
     Result,
 };
+use rmqtt::stats::Counter;
 
 use super::config::{BACKOFF_STRATEGY, retry};
 use super::message::{Message, MessageReply};
@@ -99,16 +99,6 @@ impl ClusterRouter {
     }
 
     #[inline]
-    pub(crate) fn all_onlines(&self) -> usize {
-        self.client_statuses.iter().filter_map(|entry| if entry.online { Some(()) } else { None }).count()
-    }
-
-    #[inline]
-    pub(crate) fn all_statuses(&self) -> usize {
-        self.client_statuses.len()
-    }
-
-    #[inline]
     pub(crate) fn _handshakings(&self) -> usize {
         self.client_statuses
             .iter()
@@ -177,29 +167,24 @@ impl Router for &'static ClusterRouter {
         self.inner.get(topic).await
     }
 
-    // #[inline]
-    // async fn topics(&self) -> usize {
-    //     self.inner.topics().await
-    // }
-
     #[inline]
-    fn topics_max(&self) -> usize {
-        self.inner.topics_max()
-    }
-
-    #[inline]
-    fn topics(&self) -> usize {
+    fn topics(&self) -> Counter {
         self.inner.topics()
     }
 
     #[inline]
-    fn relations(&self) -> usize {
-        self.inner.relations()
+    fn routes(&self) -> Counter {
+        self.inner.routes()
     }
 
     #[inline]
-    fn relations_max(&self) -> usize {
-        self.inner.relations_max()
+    fn merge_topics(&self, topics_map: &HashMap<NodeId, Counter>) -> Counter{
+        self.inner.merge_topics(topics_map)
+    }
+
+    #[inline]
+    fn merge_routes(&self, routes_map: &HashMap<NodeId, Counter>) -> Counter{
+        self.inner.merge_routes(routes_map)
     }
 
     #[inline]
@@ -255,7 +240,7 @@ impl Store for &'static ClusterRouter {
                 let mut reply = None;
                 self.client_statuses.entry(id.client_id.clone()).and_modify(|status| {
                     if status.id != id && id.create_time < status.id.create_time {
-                        log::warn!("[Router.Connected] id not the same, input id: {:?}, current status: {:?}", id, status);
+                        log::info!("[Router.Connected] id not the same, input id: {:?}, current status: {:?}", id, status);
                         reply = Some(MessageReply::Error("id not the same".into()));
                     } else {
                         if id.create_time > status.id.create_time {
@@ -278,7 +263,7 @@ impl Store for &'static ClusterRouter {
                 if let Some(mut entry) = self.client_statuses.get_mut(&id.client_id) {
                     let mut status = entry.value_mut();
                     if status.id != id {
-                        log::warn!(
+                        log::info!(
                             "[Router.Disconnected] id not the same, input id: {:?}, current status: {:?}",
                             id,
                             status
@@ -294,7 +279,7 @@ impl Store for &'static ClusterRouter {
                 log::debug!("[Router.SessionTerminated] id: {:?}", id,);
                 self.client_statuses.remove_if(&id.client_id, |_, status| {
                     if status.id != id {
-                        log::warn!("[Router.SessionTerminated] id not the same, input id: {:?}, current status: {:?}", id, status);
+                        log::info!("[Router.SessionTerminated] id not the same, input id: {:?}, current status: {:?}", id, status);
                         false
                     } else {
                         true
@@ -358,15 +343,15 @@ impl Store for &'static ClusterRouter {
             .map(|entry| (entry.key().clone(), entry.value().clone()))
             .collect::<Vec<_>>();
 
-        let topics_max = self.inner.topics_max();
-        let relations_max = self.inner.relations_max();
+        let topics_count = &self.inner.topics_count;
+        let relations_count = &self.inner.relations_count;
 
         let snapshot = bincode::serialize(&(
             self.inner.topics.read().await.as_ref(),
             relations,
             client_statuses,
-            topics_max,
-            relations_max,
+            topics_count,
+            relations_count,
         ))
             .map_err(|e| Error::Other(e))?;
         log::debug!("snapshot len: {}", snapshot.len());
@@ -376,28 +361,27 @@ impl Store for &'static ClusterRouter {
     async fn restore(&mut self, snapshot: &[u8]) -> RaftResult<()> {
         log::info!("restore, snapshot.len: {}", snapshot.len());
 
-        let (topics, relations, client_statuses, topics_max, relations_max): (
+        let (topics, relations, client_statuses, topics_count, relations_count): (
             TopicTree<()>,
             Vec<(TopicFilter, HashMap<ClientId, (Id, QoS, Option<SharedGroup>)>)>,
             Vec<(ClientId, ClientStatus)>,
-            usize,
-            usize,
+            Counter,
+            Counter,
         ) = bincode::deserialize(snapshot).map_err(|e| Error::Other(e))?;
 
         *self.inner.topics.write().await = topics;
+        self.inner.topics_count.set(&topics_count);
 
         self.inner.relations.clear();
         for (topic_filter, relation) in relations {
             self.inner.relations.insert(topic_filter, relation);
         }
+        self.inner.relations_count.set(&relations_count);
 
         self.client_statuses.clear();
         for (client_id, content) in client_statuses {
             self.client_statuses.insert(client_id, content);
         }
-
-        self.inner.topics_max.store(topics_max, Ordering::SeqCst);
-        self.inner.relations_max.store(relations_max, Ordering::SeqCst);
 
         Ok(())
     }

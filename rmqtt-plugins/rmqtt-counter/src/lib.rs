@@ -2,7 +2,6 @@ use rmqtt::{async_trait::async_trait, log};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::metrics::Metrics,
-    broker::stats::Stats,
     plugin::{DynPlugin, DynPluginResult, Plugin},
     Result, Runtime,
 };
@@ -110,12 +109,13 @@ impl Plugin for CounterPlugin {
 
 struct CounterHandler {
     metrics: &'static Metrics,
-    stats: &'static Stats,
 }
 
 impl CounterHandler {
     fn new() -> Self {
-        Self { metrics: Metrics::instance(), stats: Stats::instance() }
+        Self {
+            metrics: Metrics::instance(),
+        }
     }
 }
 
@@ -138,11 +138,9 @@ impl Handler for CounterHandler {
                 if client.session_present {
                     self.metrics.session_resumed_inc();
                 }
-                self.stats.connections.inc();
             }
             Parameter::ClientDisconnected(_session, _client, _r) => {
                 self.metrics.client_disconnected_inc();
-                self.stats.connections.dec();
             }
             Parameter::ClientSubscribeCheckAcl(_session, _client, _s) => {
                 self.metrics.client_subscribe_check_acl_inc();
@@ -156,25 +154,15 @@ impl Handler for CounterHandler {
 
             Parameter::SessionCreated(_session, _client) => {
                 self.metrics.session_created_inc();
-                self.stats.sessions.inc();
             }
             Parameter::SessionTerminated(_session, _client, _r) => {
                 self.metrics.session_terminated_inc();
-                self.stats.sessions.dec();
             }
-            Parameter::SessionSubscribed(_s, _client, sub) => {
+            Parameter::SessionSubscribed(_s, _client, _sub) => {
                 self.metrics.session_subscribed_inc();
-                self.stats.subscriptions.inc();
-                if sub.is_shared() {
-                    self.stats.subscriptions_shared.inc();
-                }
             }
-            Parameter::SessionUnsubscribed(_s, _client, unsub) => {
+            Parameter::SessionUnsubscribed(_s, _client, _unsub) => {
                 self.metrics.session_unsubscribed_inc();
-                self.stats.subscriptions.dec();
-                if unsub.is_shared() {
-                    self.stats.subscriptions_shared.dec();
-                }
             }
 
             Parameter::MessagePublishCheckAcl(_session, _client, _p) => {

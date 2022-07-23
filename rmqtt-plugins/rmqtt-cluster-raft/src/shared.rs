@@ -391,36 +391,6 @@ impl Shared for &'static ClusterShared {
     }
 
     #[inline]
-    async fn clients(&self) -> usize {
-        self.inner.clients().await
-    }
-
-    #[inline]
-    async fn sessions(&self) -> usize {
-        self.inner.sessions().await
-    }
-
-    #[inline]
-    async fn all_clients(&self) -> usize {
-        self.router.all_onlines()
-    }
-
-    #[inline]
-    async fn all_sessions(&self) -> usize {
-        self.router.all_statuses()
-    }
-
-    #[inline]
-    fn subscriptions(&self) -> usize {
-        self.inner.subscriptions()
-    }
-
-    #[inline]
-    fn subscriptions_shared(&self) -> usize {
-        self.inner.subscriptions_shared()
-    }
-
-    #[inline]
     fn iter(&self) -> Box<dyn Iterator<Item=Box<dyn Entry>> + Sync + Send> {
         self.inner.iter()
     }

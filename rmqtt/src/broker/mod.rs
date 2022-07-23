@@ -7,6 +7,7 @@ use crate::broker::session::{ClientInfo, Session, SessionOfflineInfo};
 use crate::broker::types::*;
 use crate::grpc::GrpcClients;
 use crate::settings::listener::Listener;
+use crate::stats::Counter;
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
@@ -77,30 +78,6 @@ pub trait Shared: Sync + Send {
         relations: SubRelations,
     ) -> Result<(), Vec<(To, From, Publish, Reason)>>;
 
-    ///Returns the number of current node connections
-    async fn clients(&self) -> usize;
-
-    ///Returns the number of all node connections
-    #[inline]
-    async fn all_clients(&self) -> usize {
-        self.clients().await
-    }
-
-    ///Returns the number of current node sessions
-    async fn sessions(&self) -> usize;
-
-    ///Returns the number of all node sessions
-    #[inline]
-    async fn all_sessions(&self) -> usize {
-        self.sessions().await
-    }
-
-    ///Return the number of subscriptions
-    fn subscriptions(&self) -> usize;
-
-    ///Return the number of shared subscriptions
-    fn subscriptions_shared(&self) -> usize;
-
     ///
     fn iter(&self) -> Box<dyn Iterator<Item=Box<dyn Entry>> + Sync + Send>;
 
@@ -125,7 +102,7 @@ pub trait Shared: Sync + Send {
     }
 }
 
-pub type SharedSubRelations = HashMap<TopicFilterString, Vec<(SharedGroup, NodeId, ClientId, QoS, IsOnline)>>;
+pub type SharedSubRelations = HashMap<TopicFilter, Vec<(SharedGroup, NodeId, ClientId, QoS, IsOnline)>>;
 //key is TopicFilter
 pub type OtherSubRelations = HashMap<NodeId, Vec<TopicFilter>>; //In other nodes
 
@@ -167,20 +144,17 @@ pub trait Router: Sync + Send {
     ///
     async fn get(&self, topic: &str) -> Result<Vec<Route>>;
 
-    // ///Return number of topics
-    // async fn topics(&self) -> usize;
-
-    ///Return number of subscribed topics max
-    fn topics_max(&self) -> usize;
-
     ///Return number of subscribed topics
-    fn topics(&self) -> usize;
-
-    ///Returns the number of Subscription relationship max
-    fn relations_max(&self) -> usize;
+    fn topics(&self) -> Counter;
 
     ///Returns the number of Subscription relationship
-    fn relations(&self) -> usize;
+    fn routes(&self) -> Counter;
+
+    ///
+    fn merge_topics(&self, topics_map: &HashMap<NodeId, Counter>) -> Counter;
+
+    ///
+    fn merge_routes(&self, routes_map: &HashMap<NodeId, Counter>) -> Counter;
 
     ///get topic tree
     async fn list_topics(&self, top: usize) -> Vec<String>;

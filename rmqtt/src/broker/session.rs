@@ -70,6 +70,8 @@ impl SessionState {
         let mut state = self.clone();
         ntex::rt::spawn(async move {
             log::debug!("{:?} there are {} offline messages ...", state.id, state.deliver_queue.len());
+            Runtime::instance().stats.sessions.inc();
+            Runtime::instance().stats.connections.inc();
 
             let (burst, replenish_n_per) = state.fitter.mqueue_rate_limit();
             let limiter = Limiter::new(burst, replenish_n_per);
@@ -87,6 +89,7 @@ impl SessionState {
 
             let id = state.id.clone();
             let mut _kicked = false;
+            let mut _by_admin_kick = false;
             let mut _disconnect_received = false;
             log::debug!("{:?} start online event loop", id);
 
@@ -138,6 +141,7 @@ impl SessionState {
                                             log::warn!("{:?} Message::Kick, send response error, {:?}", id, e);
                                         }
                                         _kicked = true;
+                                        _by_admin_kick = is_admin;
                                         state.client.add_disconnected_reason(Reason::from(format!("Kicked by {:?}, is_admin: {}", by_id, is_admin))).await;
                                         break
                                     }else{
@@ -225,6 +229,8 @@ impl SessionState {
                 state.clean_session().await
             );
 
+            Runtime::instance().stats.connections.dec();
+
             //Setting the disconnected state
             state.client.set_disconnected(None).await;
             if !_disconnect_received {
@@ -247,13 +253,16 @@ impl SessionState {
                     state.clean(state.client.get_disconnected_reason().await.unwrap_or_default()).await;
                 } else {
                     //Start offline event loop
-                    Self::offline_start(state.clone(), &mut msg_rx, &deliver_queue_tx, &mut _kicked).await;
+                    Self::offline_start(state.clone(), &mut msg_rx, &deliver_queue_tx, &mut _kicked, &mut _by_admin_kick).await;
                     log::debug!("{:?} offline _kicked: {}", id, _kicked);
                     if !_kicked {
                         state.clean(Reason::from_static("session expired")).await;
                     }
                 }
             }
+
+            Runtime::instance().stats.sessions.dec();
+
         });
         (self, msg_tx)
     }
@@ -264,6 +273,7 @@ impl SessionState {
         msg_rx: &mut Rx,
         deliver_queue_tx: &MessageSender,
         kicked: &mut bool,
+        by_admin_kick: &mut bool,
     ) {
         log::debug!("{:?} start offline event loop", state.id);
         let id = state.id.clone();
@@ -293,6 +303,7 @@ impl SessionState {
                                         log::warn!("{:?} offline Kick send response error, to: {:?}, is_admin: {}, {:?}", id, by_id, is_admin, e);
                                     }
                                     *kicked = true;
+                                    *by_admin_kick = is_admin;
                                     break
                                 }else{
                                     log::warn!("{:?} offline Kick sender is closed, to {:?}, is_admin: {}", id, by_id, is_admin);
@@ -492,7 +503,7 @@ impl SessionState {
     #[inline]
     pub(crate) async fn subscribe(&self, mut sub: Subscribe) -> Result<SubscribeReturn> {
         if self.listen_cfg.max_subscriptions > 0
-            && (self.subscriptions.len() >= self.listen_cfg.max_subscriptions)
+            && (self.subscriptions_len() >= self.listen_cfg.max_subscriptions)
         {
             return Err(MqttError::TooManySubscriptions);
         }
@@ -665,7 +676,7 @@ impl SessionState {
         let id_not_same = if let Some(id) = Runtime::instance().extends.shared().await.id(&self.id.client_id)
         {
             if self.id != id && self.id.node_id == id.node_id {
-                log::warn!("id not the same, id: {:?}, current id: {:?}, reason: {:?}", self.id, id, reason);
+                log::info!("id not the same, id: {:?}, current id: {:?}, reason: {:?}", self.id, id, reason);
                 true
             } else {
                 false
@@ -811,7 +822,7 @@ impl Session {
         Self(Arc::new(_SessionInner {
             id,
             listen_cfg,
-            subscriptions: Arc::new(TopicFilterMap::default()), //Arc::new(RwLock::new(TopicFilterMap::default())),
+            _subscriptions: Arc::new(TopicFilterMap::default()), //Arc::new(RwLock::new(TopicFilterMap::default())),
             deliver_queue: Arc::new(MessageQueue::new(max_mqueue_len)),
             inflight_win: Arc::new(RwLock::new(Inflight::new(
                 max_inflight,
@@ -865,7 +876,7 @@ impl std::fmt::Debug for Session {
 pub struct _SessionInner {
     pub id: Id,
     pub listen_cfg: Listener,
-    pub subscriptions: Arc<TopicFilterMap>,
+    _subscriptions: Arc<TopicFilterMap>,
     //Current subscription for this session
     pub deliver_queue: Arc<MessageQueue>,
     pub inflight_win: Arc<RwLock<Inflight>>,
@@ -875,10 +886,10 @@ pub struct _SessionInner {
 impl _SessionInner {
     #[inline]
     pub async fn to_json(&self) -> serde_json::Value {
-        let count = self.subscriptions.len();
+        let count = self.subscriptions_len();
 
         let subs = self
-            .subscriptions
+            ._subscriptions
             .iter()
             .enumerate()
             .filter_map(|(i, entry)| {
@@ -910,46 +921,80 @@ impl _SessionInner {
     #[inline]
     pub fn subscriptions_add(
         &self,
-        topic_filter: TopicFilterString,
+        topic_filter: TopicFilter,
         qos: QoS,
         shared_group: Option<SharedGroup>,
     ) {
-        self.subscriptions.insert(topic_filter, (qos, shared_group));
+        let is_shared = shared_group.is_some();
+        let prev = self._subscriptions.insert(topic_filter, (qos, shared_group));
+
+            let inc = |shared: bool|{
+                Runtime::instance().stats.subscriptions.inc();
+                if shared{
+                    Runtime::instance().stats.subscriptions_shared.inc();
+                }
+            };
+
+            if let Some((_, prev_group)) = prev {
+                match (prev_group.is_some(), is_shared) {
+                    (true, false) => {
+                        Runtime::instance().stats.subscriptions_shared.dec();
+                    },
+                    (false, true) => {
+                        inc(true);
+                    },
+                    (false, false) => {}
+                    (true, true) => {},
+                }
+            } else {
+                inc(is_shared);
+            }
     }
 
     #[inline]
     pub fn subscriptions_remove(
         &self,
         topic_filter: &str,
-    ) -> Option<(TopicFilterString, (QoS, Option<SharedGroup>))> {
-        self.subscriptions.remove(topic_filter)
+    ) -> Option<(TopicFilter, (QoS, Option<SharedGroup>))> {
+        let removed = self._subscriptions.remove(topic_filter);
+        if let Some((_, (_, group))) = &removed{
+            Runtime::instance().stats.subscriptions.dec();
+            if group.is_some(){
+                Runtime::instance().stats.subscriptions_shared.dec();
+            }
+        }
+        removed
     }
 
     #[inline]
     pub fn drain_subscriptions(&self) -> Subscriptions {
-        let subs = self
-            .subscriptions
-            .iter()
-            .map(|entry| (entry.key().clone(), (*entry.value()).clone()))
-            .collect::<Vec<_>>();
-        self.subscriptions.clear();
+        let topic_filters = self._subscriptions.iter().map(|entry|entry.key().clone()).collect::<Vec<_>>();
+        let subs = topic_filters.iter().filter_map(|tf|{
+            self.subscriptions_remove(tf)
+        }).collect();
         subs
     }
 
     #[inline]
     pub fn subscriptions(&self) -> &TopicFilterMap {
-        self.subscriptions.as_ref()
+        self._subscriptions.as_ref()
     }
+
+    #[inline]
+    pub fn subscriptions_len(&self) -> usize {
+        self._subscriptions.len()
+    }
+
 
     #[inline]
     pub fn clone_topic_filters(&self) -> TopicFilters {
-        self.subscriptions.iter().map(|entry| TopicFilter::from(entry.key().as_str())).collect()
+        self._subscriptions.iter().map(|entry| TopicFilter::from(entry.key().as_str())).collect()
     }
 
-    #[inline]
-    pub fn is_shared_subscriptions(&self, topic_filter: &str) -> Option<bool> {
-        self.subscriptions.get(topic_filter).map(|entry| matches!(entry.value(), (_, Some(_))))
-    }
+    // #[inline]
+    // pub fn is_shared_subscriptions(&self, topic_filter: &str) -> Option<bool> {
+    //     self._subscriptions.get(topic_filter).map(|entry| matches!(entry.value(), (_, Some(_))))
+    // }
 }
 
 #[derive(Clone)]
