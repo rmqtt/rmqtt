@@ -24,8 +24,6 @@ pub struct Settings(Arc<Inner>);
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Inner {
-    #[serde(default = "inner_api_addr_default", deserialize_with = "deserialize_addr")]
-    pub inner_api_addr: SocketAddr,
     #[serde(default)]
     pub node: Node,
     #[serde(default)]
@@ -39,10 +37,6 @@ pub struct Inner {
     pub plugins: Plugins,
     #[serde(default)]
     pub mqtt: Mqtt,
-}
-
-fn inner_api_addr_default() -> SocketAddr {
-    ([0, 0, 0, 0], 6063).into()
 }
 
 impl Deref for Settings {
