@@ -253,7 +253,14 @@ impl SessionState {
                     state.clean(state.client.get_disconnected_reason().await.unwrap_or_default()).await;
                 } else {
                     //Start offline event loop
-                    Self::offline_start(state.clone(), &mut msg_rx, &deliver_queue_tx, &mut _kicked, &mut _by_admin_kick).await;
+                    Self::offline_start(
+                        state.clone(),
+                        &mut msg_rx,
+                        &deliver_queue_tx,
+                        &mut _kicked,
+                        &mut _by_admin_kick,
+                    )
+                        .await;
                     log::debug!("{:?} offline _kicked: {}", id, _kicked);
                     if !_kicked {
                         state.clean(Reason::from_static("session expired")).await;
@@ -262,7 +269,6 @@ impl SessionState {
             }
 
             Runtime::instance().stats.sessions.dec();
-
         });
         (self, msg_tx)
     }
@@ -919,36 +925,31 @@ impl _SessionInner {
     }
 
     #[inline]
-    pub fn subscriptions_add(
-        &self,
-        topic_filter: TopicFilter,
-        qos: QoS,
-        shared_group: Option<SharedGroup>,
-    ) {
+    pub fn subscriptions_add(&self, topic_filter: TopicFilter, qos: QoS, shared_group: Option<SharedGroup>) {
         let is_shared = shared_group.is_some();
         let prev = self._subscriptions.insert(topic_filter, (qos, shared_group));
 
-            let inc = |shared: bool|{
-                Runtime::instance().stats.subscriptions.inc();
-                if shared{
-                    Runtime::instance().stats.subscriptions_shared.inc();
-                }
-            };
-
-            if let Some((_, prev_group)) = prev {
-                match (prev_group.is_some(), is_shared) {
-                    (true, false) => {
-                        Runtime::instance().stats.subscriptions_shared.dec();
-                    },
-                    (false, true) => {
-                        inc(true);
-                    },
-                    (false, false) => {}
-                    (true, true) => {},
-                }
-            } else {
-                inc(is_shared);
+        let inc = |shared: bool| {
+            Runtime::instance().stats.subscriptions.inc();
+            if shared {
+                Runtime::instance().stats.subscriptions_shared.inc();
             }
+        };
+
+        if let Some((_, prev_group)) = prev {
+            match (prev_group.is_some(), is_shared) {
+                (true, false) => {
+                    Runtime::instance().stats.subscriptions_shared.dec();
+                }
+                (false, true) => {
+                    inc(true);
+                }
+                (false, false) => {}
+                (true, true) => {}
+            }
+        } else {
+            inc(is_shared);
+        }
     }
 
     #[inline]
@@ -957,9 +958,9 @@ impl _SessionInner {
         topic_filter: &str,
     ) -> Option<(TopicFilter, (QoS, Option<SharedGroup>))> {
         let removed = self._subscriptions.remove(topic_filter);
-        if let Some((_, (_, group))) = &removed{
+        if let Some((_, (_, group))) = &removed {
             Runtime::instance().stats.subscriptions.dec();
-            if group.is_some(){
+            if group.is_some() {
                 Runtime::instance().stats.subscriptions_shared.dec();
             }
         }
@@ -968,10 +969,8 @@ impl _SessionInner {
 
     #[inline]
     pub fn drain_subscriptions(&self) -> Subscriptions {
-        let topic_filters = self._subscriptions.iter().map(|entry|entry.key().clone()).collect::<Vec<_>>();
-        let subs = topic_filters.iter().filter_map(|tf|{
-            self.subscriptions_remove(tf)
-        }).collect();
+        let topic_filters = self._subscriptions.iter().map(|entry| entry.key().clone()).collect::<Vec<_>>();
+        let subs = topic_filters.iter().filter_map(|tf| self.subscriptions_remove(tf)).collect();
         subs
     }
 
@@ -984,7 +983,6 @@ impl _SessionInner {
     pub fn subscriptions_len(&self) -> usize {
         self._subscriptions.len()
     }
-
 
     #[inline]
     pub fn clone_topic_filters(&self) -> TopicFilters {

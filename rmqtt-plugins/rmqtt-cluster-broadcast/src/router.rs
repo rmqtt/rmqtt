@@ -8,7 +8,7 @@ use rmqtt::{
         SubRelationsMap, types::{Id, NodeId, QoS, Route, SharedGroup, TopicName},
     },
     grpc::{GrpcClients, Message, MessageBroadcaster, MessageReply, MessageSender, MessageType},
-    Result, TopicFilter, HashMap,
+    HashMap, Result, TopicFilter,
 };
 use rmqtt::stats::Counter;
 
@@ -120,18 +120,18 @@ impl Router for &'static ClusterRouter {
     }
 
     #[inline]
-    fn merge_topics(&self, topics_map: &HashMap<NodeId, Counter>) -> Counter{
+    fn merge_topics(&self, topics_map: &HashMap<NodeId, Counter>) -> Counter {
         let topics = Counter::new();
-        for (_, counter) in topics_map.iter(){
+        for (_, counter) in topics_map.iter() {
             topics.add(counter);
         }
         topics
     }
 
     #[inline]
-    fn merge_routes(&self, routes_map: &HashMap<NodeId, Counter>) -> Counter{
+    fn merge_routes(&self, routes_map: &HashMap<NodeId, Counter>) -> Counter {
         let routes = Counter::new();
-        for (_, counter) in routes_map.iter(){
+        for (_, counter) in routes_map.iter() {
             routes.add(counter);
         }
         routes

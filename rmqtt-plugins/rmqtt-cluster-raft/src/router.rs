@@ -178,12 +178,12 @@ impl Router for &'static ClusterRouter {
     }
 
     #[inline]
-    fn merge_topics(&self, topics_map: &HashMap<NodeId, Counter>) -> Counter{
+    fn merge_topics(&self, topics_map: &HashMap<NodeId, Counter>) -> Counter {
         self.inner.merge_topics(topics_map)
     }
 
     #[inline]
-    fn merge_routes(&self, routes_map: &HashMap<NodeId, Counter>) -> Counter{
+    fn merge_routes(&self, routes_map: &HashMap<NodeId, Counter>) -> Counter {
         self.inner.merge_routes(routes_map)
     }
 

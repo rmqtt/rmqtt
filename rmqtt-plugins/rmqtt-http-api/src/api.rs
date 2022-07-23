@@ -7,7 +7,8 @@ use salvo::prelude::*;
 use rmqtt::{
     anyhow, base64, bytes, chrono, futures, HashMap,
     log,
-    serde_json::{self, json}, tokio::sync::oneshot,
+    serde_json::{self, json},
+    tokio::sync::oneshot,
 };
 use rmqtt::{
     broker::types::NodeId,
@@ -16,8 +17,7 @@ use rmqtt::{
         client::NodeGrpcClient, Message as GrpcMessage, MessageBroadcaster, MessageReply as GrpcMessageReply,
         MessageSender, MessageType,
     },
-    Id,
-    MqttError, node::NodeStatus, Publish, PublishProperties, QoS, Result, Retain, Runtime, SubsSearchParams,
+    Id, MqttError, node::NodeStatus, Publish, PublishProperties, QoS, Result, Retain, Runtime, SubsSearchParams,
     TopicFilter, TopicName, UserName,
 };
 
@@ -993,21 +993,15 @@ async fn node_plugin_config(req: &mut Request, depot: &mut Depot, res: &mut Resp
 
     match _node_plugin_config(node_id, &name, message_type).await {
         Ok(cfg) => {
-            res.headers_mut().insert(
-                CONTENT_TYPE,
-                HeaderValue::from_static("application/json; charset=utf-8"),
-            );
+            res.headers_mut()
+                .insert(CONTENT_TYPE, HeaderValue::from_static("application/json; charset=utf-8"));
             res.write_body(cfg).ok();
-        },
+        }
         Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
     }
 }
 
-async fn _node_plugin_config(
-    node_id: NodeId,
-    name: &str,
-    message_type: MessageType,
-) -> Result<Vec<u8>> {
+async fn _node_plugin_config(node_id: NodeId, name: &str, message_type: MessageType) -> Result<Vec<u8>> {
     let plugin_cfg = if node_id == Runtime::instance().node.id() {
         plugin::get_plugin_config(name).await?
     } else {
@@ -1041,18 +1035,12 @@ async fn node_plugin_config_reload(req: &mut Request, depot: &mut Depot, res: &m
     };
 
     match _node_plugin_config_reload(node_id, &name, message_type).await {
-        Ok(()) => {
-            res.render(Text::Plain("ok"))
-        },
+        Ok(()) => res.render(Text::Plain("ok")),
         Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
     }
 }
 
-async fn _node_plugin_config_reload(
-    node_id: NodeId,
-    name: &str,
-    message_type: MessageType,
-) -> Result<()> {
+async fn _node_plugin_config_reload(node_id: NodeId, name: &str, message_type: MessageType) -> Result<()> {
     if node_id == Runtime::instance().node.id() {
         Runtime::instance().plugins.load_config(name).await
     } else {
@@ -1085,18 +1073,12 @@ async fn node_plugin_load(req: &mut Request, depot: &mut Depot, res: &mut Respon
     };
 
     match _node_plugin_load(node_id, &name, message_type).await {
-        Ok(()) => {
-            res.render(Text::Plain("ok"))
-        },
+        Ok(()) => res.render(Text::Plain("ok")),
         Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
     }
 }
 
-async fn _node_plugin_load(
-    node_id: NodeId,
-    name: &str,
-    message_type: MessageType,
-) -> Result<()> {
+async fn _node_plugin_load(node_id: NodeId, name: &str, message_type: MessageType) -> Result<()> {
     if node_id == Runtime::instance().node.id() {
         Runtime::instance().plugins.start(name).await
     } else {
@@ -1129,18 +1111,12 @@ async fn node_plugin_unload(req: &mut Request, depot: &mut Depot, res: &mut Resp
     };
 
     match _node_plugin_unload(node_id, &name, message_type).await {
-        Ok(r) => {
-            res.render(Json(r))
-        },
+        Ok(r) => res.render(Json(r)),
         Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
     }
 }
 
-async fn _node_plugin_unload(
-    node_id: NodeId,
-    name: &str,
-    message_type: MessageType,
-) -> Result<bool> {
+async fn _node_plugin_unload(node_id: NodeId, name: &str, message_type: MessageType) -> Result<bool> {
     if node_id == Runtime::instance().node.id() {
         Runtime::instance().plugins.stop(name).await
     } else {

@@ -17,8 +17,8 @@ impl<V> Default for Node<V> {
 }
 
 impl<V> Node<V>
-    where
-        V: std::fmt::Debug + Clone,
+where
+    V: std::fmt::Debug + Clone,
 {
     #[inline]
     pub fn insert(&mut self, topic: &Topic, value: V) {

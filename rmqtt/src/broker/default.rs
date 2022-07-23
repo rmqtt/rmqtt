@@ -814,7 +814,7 @@ impl Router for &'static DefaultRouter {
             }).unwrap_or(false);
             if remove_enable {
                 let remove_ok = rels.value_mut().remove(&id.client_id).is_some();
-                if remove_ok{
+                if remove_ok {
                     self.relations_count.dec();
                 }
                 Some((rels.is_empty(), remove_ok))
@@ -829,7 +829,7 @@ impl Router for &'static DefaultRouter {
 
         let remove_ok = if let Some((is_empty, remove_ok)) = res {
             if is_empty {
-                if self.relations.remove(topic_filter).is_some(){
+                if self.relations.remove(topic_filter).is_some() {
                     self.topics_count.dec();
                 }
                 let topic = Topic::from_str(topic_filter)?;
@@ -911,12 +911,12 @@ impl Router for &'static DefaultRouter {
     }
 
     #[inline]
-    fn merge_topics(&self, topics_map: &HashMap<NodeId, Counter>) -> Counter{
+    fn merge_topics(&self, topics_map: &HashMap<NodeId, Counter>) -> Counter {
         let topics = Counter::new();
-        for (i, (_, counter)) in topics_map.iter().enumerate(){
-            if i == 0{
+        for (i, (_, counter)) in topics_map.iter().enumerate() {
+            if i == 0 {
                 topics.set(counter);
-            }else{
+            } else {
                 topics.count_min(counter.count());
                 topics.max_max(counter.max())
             }
@@ -925,19 +925,18 @@ impl Router for &'static DefaultRouter {
     }
 
     #[inline]
-    fn merge_routes(&self, routes_map: &HashMap<NodeId, Counter>) -> Counter{
+    fn merge_routes(&self, routes_map: &HashMap<NodeId, Counter>) -> Counter {
         let routes = Counter::new();
-        for (i, (_, counter)) in routes_map.iter().enumerate(){
-            if i == 0{
+        for (i, (_, counter)) in routes_map.iter().enumerate() {
+            if i == 0 {
                 routes.set(counter);
-            }else{
+            } else {
                 routes.count_min(counter.count());
                 routes.max_max(counter.max())
             }
         }
         routes
     }
-
 
     #[inline]
     async fn list_topics(&self, top: usize) -> Vec<String> {

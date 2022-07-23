@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicIsize, Ordering};
 
 use once_cell::sync::OnceCell;
 
-use crate::{NodeId, HashMap, Runtime};
+use crate::{HashMap, NodeId, Runtime};
 
 type Current = AtomicIsize;
 type Max = AtomicIsize;
@@ -32,9 +32,7 @@ impl Default for Counter {
     }
 }
 
-
 impl Counter {
-
     #[inline]
     pub fn new() -> Self {
         Counter(AtomicIsize::new(0), AtomicIsize::new(0))
@@ -50,7 +48,6 @@ impl Counter {
     pub fn current_inc(&self) {
         self.0.fetch_add(1, Ordering::SeqCst);
     }
-
 
     #[inline]
     pub fn dec(&self) {
@@ -88,7 +85,6 @@ impl Counter {
         self.0.store(other.0.load(Ordering::SeqCst), Ordering::SeqCst);
         self.1.store(other.1.load(Ordering::SeqCst), Ordering::SeqCst);
     }
-
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -101,7 +97,6 @@ pub struct Stats {
 
     topics_map: HashMap<NodeId, Counter>,
     routes_map: HashMap<NodeId, Counter>,
-
 }
 
 impl Stats {

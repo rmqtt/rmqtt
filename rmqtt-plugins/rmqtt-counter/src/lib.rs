@@ -113,9 +113,7 @@ struct CounterHandler {
 
 impl CounterHandler {
     fn new() -> Self {
-        Self {
-            metrics: Metrics::instance(),
-        }
+        Self { metrics: Metrics::instance() }
     }
 }
 

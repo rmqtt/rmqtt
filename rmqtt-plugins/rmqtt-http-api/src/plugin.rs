@@ -1,6 +1,6 @@
 use rmqtt::{Result, Runtime};
 use rmqtt::plugin::PluginInfo;
-use rmqtt::{serde_json};
+use rmqtt::serde_json;
 
 #[inline]
 pub(crate) async fn get_plugins() -> Result<Vec<PluginInfo>> {
@@ -26,9 +26,6 @@ pub(crate) async fn get_plugin(name: &str) -> Result<Option<PluginInfo>> {
 
 #[inline]
 pub(crate) async fn get_plugin_config(name: &str) -> Result<Vec<u8>> {
-    let data = Runtime::instance().plugins.get_config(name).await.map(|cfg|{
-        serde_json::to_vec(&cfg)
-    })??;
+    let data = Runtime::instance().plugins.get_config(name).await.map(|cfg| serde_json::to_vec(&cfg))??;
     Ok(data)
 }
-

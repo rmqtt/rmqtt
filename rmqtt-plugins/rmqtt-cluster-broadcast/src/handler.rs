@@ -71,14 +71,14 @@ impl Handler for HookHandler {
                     Message::NumberOfClients => {
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::NumberOfClients(
                             //self.shared.inner().clients().await,
-                            Runtime::instance().stats.connections.count() as usize
+                            Runtime::instance().stats.connections.count() as usize,
                         )));
                         return (false, Some(new_acc));
                     }
                     Message::NumberOfSessions => {
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::NumberOfSessions(
                             //self.shared.inner().sessions().await,
-                            Runtime::instance().stats.sessions.count() as usize
+                            Runtime::instance().stats.sessions.count() as usize,
                         )));
                         return (false, Some(new_acc));
                     }
