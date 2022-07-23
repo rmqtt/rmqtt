@@ -608,11 +608,9 @@ async fn publish(req: &mut Request, depot: &mut Depot, res: &mut Response) {
 
     let remote_addr = req.remote_addr().and_then(|addr| {
         if let Some(ipv4) = addr.as_ipv4() {
-            Some(SocketAddr::V4(ipv4.clone()))
-        } else if let Some(ipv6) = addr.as_ipv6() {
-            Some(SocketAddr::V6(ipv6.clone()))
+            Some(SocketAddr::V4(*ipv4))
         } else {
-            None
+            addr.as_ipv6().map(|ipv6| SocketAddr::V6(*ipv6))
         }
     });
     let params = match req.extract_json::<PublishParams>().await {
@@ -728,6 +726,7 @@ async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     };
 
     if node_id == Runtime::instance().node.id() {
+        #[allow(clippy::mutable_key_type)]
         match subs::subscribe(params).await {
             Ok(replys) => {
                 let replys = replys
@@ -748,6 +747,7 @@ async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response) {
         let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
         let message_type = cfg.read().message_type;
         //The session is on another node
+        #[allow(clippy::mutable_key_type)]
         match _subscribe_on_other_node(message_type, node_id, params).await {
             Ok(replys) => {
                 let replys = replys
@@ -1448,5 +1448,5 @@ async fn get_grpc_client(node_id: NodeId) -> Result<NodeGrpcClient> {
         .get_grpc_clients()
         .get(&node_id)
         .map(|(_, c)| c.clone())
-        .ok_or(MqttError::from("node grpc client is not exist!"))
+        .ok_or_else(|| MqttError::from("node grpc client is not exist!"))
 }

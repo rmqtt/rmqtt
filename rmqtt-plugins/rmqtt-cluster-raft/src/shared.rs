@@ -210,11 +210,7 @@ impl Entry for ClusterLockEntry {
 
     #[inline]
     async fn subscriptions(&self) -> Option<Vec<SubsSearchResult>> {
-        let id = if let Some(id) = self.cluster_shared.id(&self.id().client_id) {
-            id
-        } else {
-            return None;
-        };
+        let id = self.cluster_shared.id(&self.id().client_id)?;
 
         if id.node_id == Runtime::instance().node.id() {
             self.inner.subscriptions().await

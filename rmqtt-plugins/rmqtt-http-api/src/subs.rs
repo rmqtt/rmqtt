@@ -12,10 +12,10 @@ pub(crate) async fn subscribe(params: SubscribeParams) -> Result<HashMap<TopicFi
     let clientid = params.clientid;
     let id = Id::from(Runtime::instance().node.id(), clientid);
     let entry = Runtime::instance().extends.shared().await.entry(id);
-    let s = entry.session().ok_or(MqttError::from("session does not exist!"))?;
+    let s = entry.session().ok_or_else(|| MqttError::from("session does not exist!"))?;
     let shared_sub_supported =
         Runtime::instance().extends.shared_subscription().await.is_supported(&s.listen_cfg);
-    let tx = entry.tx().ok_or(MqttError::from("session message TX is not exist!"))?;
+    let tx = entry.tx().ok_or_else(|| MqttError::from("session message TX is not exist!"))?;
     let qos = qos.less_value(s.listen_cfg.max_qos_allowed);
     let subs = topics
         .iter()
@@ -52,10 +52,10 @@ pub(crate) async fn unsubscribe(params: UnsubscribeParams) -> Result<()> {
     let clientid = params.clientid;
     let id = Id::from(Runtime::instance().node.id(), clientid);
     let entry = Runtime::instance().extends.shared().await.entry(id);
-    let s = entry.session().ok_or(MqttError::from("session does not exist!"))?;
+    let s = entry.session().ok_or_else(|| MqttError::from("session does not exist!"))?;
     let shared_sub_supported =
         Runtime::instance().extends.shared_subscription().await.is_supported(&s.listen_cfg);
-    let tx = entry.tx().ok_or(MqttError::from("session message TX is not exist!"))?;
+    let tx = entry.tx().ok_or_else(|| MqttError::from("session message TX is not exist!"))?;
 
     let unsub = Unsubscribe::from(&topic_filter, shared_sub_supported)?;
     let (reply_tx, reply_rx) = oneshot::channel();

@@ -271,6 +271,7 @@ impl Shared for &'static ClusterShared {
             >;
             type SharedRelation = (TopicFilter, NodeId, ClientId, QoS, (SharedGroup, IsOnline));
 
+            #[allow(clippy::mutable_key_type)]
             let mut shared_sub_groups: SharedSubGroups = HashMap::default();
 
             let add_one_to_shared_sub_groups =
@@ -330,7 +331,7 @@ impl Shared for &'static ClusterShared {
                     {
                         let (node_id, client_id, qos, _is_online) = subs.remove(idx);
                         node_shared_subs.entry(node_id).or_default().push((
-                            TopicFilter::from(topic_filter.clone()),
+                            topic_filter.clone(),
                             client_id,
                             qos,
                             None,

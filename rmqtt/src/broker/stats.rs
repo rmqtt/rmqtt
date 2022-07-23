@@ -26,6 +26,13 @@ impl fmt::Debug for Counter {
     }
 }
 
+impl Default for Counter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+
 impl Counter {
 
     #[inline]
