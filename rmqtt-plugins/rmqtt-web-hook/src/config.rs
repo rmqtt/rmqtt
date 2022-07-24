@@ -5,6 +5,7 @@ use std::time::Duration;
 use serde::de::{self, Deserialize};
 use serde::ser::{self, Serialize};
 
+use rmqtt::{ahash, serde_json};
 use rmqtt::{Result, Topic};
 use rmqtt::broker::hook::Type;
 use rmqtt::broker::topic::TopicTree;

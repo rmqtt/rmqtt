@@ -4,8 +4,6 @@ extern crate serde;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use tokio::sync::RwLock;
-
 use config::{Access, Control, PH_C, PH_U, PluginConfig};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
@@ -13,8 +11,7 @@ use rmqtt::{
     plugin::{DynPlugin, DynPluginResult, Plugin},
     Result, Runtime,
 };
-use rmqtt::{serde_json, tokio};
-use rmqtt::async_trait::async_trait;
+use rmqtt::{async_trait::async_trait, log, serde_json, tokio::{self, sync::RwLock}};
 
 mod config;
 

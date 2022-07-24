@@ -1,4 +1,3 @@
-// use serde::ser::{Serialize};
 use std::net::SocketAddr;
 use std::str::FromStr;
 
@@ -7,6 +6,7 @@ use serde::de::{self};
 use rmqtt::broker::types::NodeId;
 use rmqtt::grpc::MessageType;
 use rmqtt::Result;
+use rmqtt::serde_json;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {

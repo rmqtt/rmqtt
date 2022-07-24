@@ -6,6 +6,7 @@ pub(crate) use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
 pub(crate) use backoff::future::retry;
 use serde::de::{self};
 
+use rmqtt::{lazy_static, serde_json};
 use rmqtt::broker::types::NodeId;
 use rmqtt::grpc::MessageType;
 use rmqtt::Result;

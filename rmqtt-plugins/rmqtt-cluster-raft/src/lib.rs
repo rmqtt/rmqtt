@@ -1,21 +1,17 @@
 #[macro_use]
-extern crate async_trait;
-#[macro_use]
 extern crate serde;
-#[macro_use]
-extern crate serde_json;
 
 use std::convert::From as _f;
 use std::sync::Arc;
 use std::time::Duration;
 
 use futures::FutureExt;
-use parking_lot::RwLock;
 use rmqtt_raft::{Mailbox, Raft};
 
 use config::PluginConfig;
 use handler::HookHandler;
 use retainer::ClusterRetainer;
+use rmqtt::{ahash, anyhow, async_trait::async_trait, futures, log, RwLock, serde_json::{self, json}, tokio};
 use rmqtt::{
     broker::{
         error::MqttError,

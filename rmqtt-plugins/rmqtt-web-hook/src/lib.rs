@@ -1,18 +1,17 @@
 #[macro_use]
 extern crate serde;
-#[macro_use]
-extern crate serde_json;
+// #[macro_use]
+// extern crate serde_json;
 
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::time::Duration;
 
-use async_trait::async_trait;
 use crossbeam::channel::{bounded, Receiver, Sender};
-use parking_lot::RwLock;
 
 use config::PluginConfig;
+use rmqtt::{async_trait::async_trait, base64, chrono, crossbeam, futures, lazy_static, log, reqwest, RwLock, serde_json::{self, json}, tokio};
 use rmqtt::{
     broker::hook::{self, Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::types::{ConnectInfo, Id, MQTT_LEVEL_5, QoSEx},

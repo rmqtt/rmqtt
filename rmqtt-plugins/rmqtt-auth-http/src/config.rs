@@ -6,6 +6,7 @@ use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue};
 use serde::de::{self, Deserialize, Deserializer};
 use serde::ser::{self, Serialize};
 
+use rmqtt::{ahash, reqwest, serde_json};
 use rmqtt::broker::hook::Priority;
 use rmqtt::Result;
 use rmqtt::settings::deserialize_duration;

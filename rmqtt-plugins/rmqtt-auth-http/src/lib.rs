@@ -11,6 +11,7 @@ use serde::ser::Serialize;
 use tokio::sync::RwLock;
 
 use config::PluginConfig;
+use rmqtt::{ahash, async_trait, dashmap, lazy_static, log, reqwest, serde_json, tokio};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::session::ClientInfo,

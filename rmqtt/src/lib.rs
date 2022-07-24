@@ -12,12 +12,17 @@ pub use base64;
 pub use bincode;
 pub use bytes;
 pub use chrono;
+pub use crossbeam;
 pub use dashmap;
 pub use futures;
+pub use itertools;
+pub use lazy_static;
 pub use log;
 pub use ntex;
 pub use ntex_mqtt;
+pub use once_cell;
 pub use parking_lot::RwLock;
+pub use reqwest;
 pub use tokio;
 
 pub use crate::broker::{

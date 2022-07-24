@@ -1,3 +1,4 @@
+use rmqtt::{async_trait::async_trait, log};
 use rmqtt::{
     broker::{
         hook::{Handler, HookResult, Parameter, ReturnType},

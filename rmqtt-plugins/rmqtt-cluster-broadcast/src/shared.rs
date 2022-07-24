@@ -2,6 +2,7 @@ use std::convert::From as _f;
 
 use once_cell::sync::OnceCell;
 
+use rmqtt::{ahash, async_trait::async_trait, futures, log, once_cell, tokio};
 use rmqtt::{
     AsStr,
     broker::{

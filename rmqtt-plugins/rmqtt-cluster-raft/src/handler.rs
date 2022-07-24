@@ -1,5 +1,6 @@
 use rmqtt_raft::Mailbox;
 
+use rmqtt::{async_trait::async_trait, log, tokio};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, ReturnType},
     grpc::{Message as GrpcMessage, MessageReply},

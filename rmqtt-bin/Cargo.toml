@@ -19,7 +19,6 @@ codegen-units = 1
 
 [dependencies]
 rustls = "0.19"
-warp = "0.3.1"
 
 ##mqtt broker
 rmqtt = "0.2"

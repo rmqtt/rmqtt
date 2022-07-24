@@ -3,6 +3,7 @@ use std::time::Duration;
 use futures::future::FutureExt;
 use once_cell::sync::OnceCell;
 
+use rmqtt::{anyhow, async_trait::async_trait, futures, log, once_cell, tokio};
 use rmqtt::{
     broker::{
         default::DefaultShared,

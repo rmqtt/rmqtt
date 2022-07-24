@@ -1178,7 +1178,7 @@ impl DefaultHookManager {
 
     #[inline]
     async fn add(&self, typ: Type, priority: Priority, handler: Box<dyn Handler>) -> Result<HandlerId> {
-        let id = Uuid::new_v4().to_simple().encode_lower(&mut Uuid::encode_buffer()).to_string();
+        let id = Uuid::new_v4().as_simple().encode_lower(&mut Uuid::encode_buffer()).to_string();
         let type_handlers =
             self.handlers.entry(typ).or_insert(Arc::new(sync::RwLock::new(BTreeMap::default())));
         let mut type_handlers = type_handlers.write().await;
