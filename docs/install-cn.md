@@ -1,5 +1,3 @@
-[toc]
-
 # RMQTT Broker
 
 [English](./install.md)  | 简体中文
