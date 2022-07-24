@@ -10,6 +10,7 @@
 
 - 100% Rust安全编码;
 - 基于 [tokio](https://crates.io/crates/tokio), [ntex](https://crates.io/crates/ntex), [ntex-mqtt](https://crates.io/crates/ntex-mqtt) 开发;
+- 支持MQTT v3.1,v3.1.1和v5.0协议;
 - 内置 ACL;
 - HTTP ACL;
 - WebHook;
