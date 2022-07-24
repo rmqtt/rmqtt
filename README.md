@@ -52,4 +52,5 @@ Get the binary package of the corresponding OS from [RMQTT Download](https://git
 
 - MQTT Borker: 121.4.74.58:1883
 - Account: 
+- HTTP APIs: http://121.4.74.58:6060/api/v1/
 

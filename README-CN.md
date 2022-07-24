@@ -47,7 +47,7 @@
 
 - MQTT Borker：121.4.74.58:1883
 - Account: 无
-
+- HTTP APIs: http://121.4.74.58:6060/api/v1/
 
 
 
