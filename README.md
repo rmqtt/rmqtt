@@ -7,6 +7,26 @@ English | [简体中文](./README-CN.md)
 *RMQTT* broker is a fully open source, highly scalable, highly available distributed MQTT messaging broker for IoT, M2M
 and mobile applications that can handle millions of concurrent clients on a single service node.
 
+## Features
+
+- 100% Rust security code;
+- Based on [tokio](https://crates.io/crates/tokio), [ntex](https://crates.io/crates/ntex), [ntex-mqtt](https://crates.io/crates/ntex-mqtt);
+- Built-in ACL;
+- HTTP ACL;
+- WebHook;
+- HTTP API;
+- Distributed cluster;
+- Hooks;
+- TLS support;
+- Share subscription;
+- Retain messages;
+- Built-in extensible components;
+- Extensible plug-in support;
+- Metrics & Stats;
+- Rate limit;
+- Inflight and Queue;
+- Message resending;
+
 - For full list of new features, please read [RMQTT Release Notes](https://github.com/rmqtt/rmqtt/releases).
 
 ## Installation

@@ -6,6 +6,26 @@
 
 *RMQTT* 是一款完全开源，高度可伸缩，高可用的分布式 MQTT 消息服务器，适用于 IoT、M2M 和移动应用程序，可以在单个服务节点上处理百万级别的并发客户端。
 
+## 功能特色
+
+- 100% Rust安全编码;
+- 基于 [tokio](https://crates.io/crates/tokio), [ntex](https://crates.io/crates/ntex), [ntex-mqtt](https://crates.io/crates/ntex-mqtt) 开发;
+- 内置 ACL;
+- HTTP ACL;
+- WebHook;
+- HTTP API;
+- 分布式集群;
+- 钩子(Hooks);
+- TLS支持;
+- 共享订阅;
+- 保留消息;
+- 内置可扩展功能;
+- 支持扩展插件;
+- 指标监控;
+- 速率限制;
+- 飞行窗口和消息队列;
+- 消息重传;
+
 - 新功能的完整列表，请参阅 [RMQTT Release Notes](https://github.com/rmqtt/rmqtt/releases) 。
 
 ## 安装
