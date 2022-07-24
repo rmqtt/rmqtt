@@ -1,3 +1,5 @@
+[toc]
+
 # RMQTT Broker
 
 [English](./install.md)  | 简体中文
@@ -17,13 +19,13 @@ RMQTT 目前支持的操作系统:
 1. 从[GitHub Release](https://github.com/rmqtt/rmqtt/releases) 下载zip包。
 
 ```bash
-$ wget "https://github.com/rmqtt/rmqtt/releases/download/v0.2.2/rmqtt-0.2.2-x86_64-unknown-linux-musl.zip"
+$ wget "https://github.com/rmqtt/rmqtt/releases/download/v0.2.3/rmqtt-0.2.3-x86_64-unknown-linux-musl.zip"
 ```
 
 2. 解压从[GitHub Release](https://github.com/rmqtt/rmqtt/releases) 下载的zip包。
 
 ```bash
-$ unzip rmqtt-0.2.2-x86_64-unknown-linux-musl.zip -d /app/
+$ unzip rmqtt-0.2.3-x86_64-unknown-linux-musl.zip -d /app/
 ```
 
 3. 修改权限
