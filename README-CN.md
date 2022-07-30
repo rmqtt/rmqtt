@@ -10,7 +10,11 @@
 
 - 100% Rust安全编码;
 - 基于 [tokio](https://crates.io/crates/tokio), [ntex](https://crates.io/crates/ntex), [ntex-mqtt](https://crates.io/crates/ntex-mqtt) 开发;
-- 支持MQTT v3.1,v3.1.1和v5.0协议;
+- 支持MQTT v3.1,v3.1.1 及 v5.0协议;
+  - QoS0, QoS1, QoS2 消息支持;
+  - 离线消息支持;
+  - Retained 消息支持;
+  - Last Will 消息支持;
 - 内置 ACL;
 - HTTP ACL;
 - WebHook;
@@ -18,8 +22,7 @@
 - 分布式集群;
 - 钩子(Hooks);
 - TLS支持;
-- 共享订阅;
-- 保留消息;
+- 共享订阅($share/{group}/topic);
 - 内置可扩展功能;
 - 支持扩展插件;
 - 指标监控;

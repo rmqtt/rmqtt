@@ -12,6 +12,10 @@ and mobile applications that can handle millions of concurrent clients on a sing
 - 100% Rust safe code;
 - Based on [tokio](https://crates.io/crates/tokio), [ntex](https://crates.io/crates/ntex), [ntex-mqtt](https://crates.io/crates/ntex-mqtt);
 - MQTT v3.1, v3.1.1 and v5.0 protocols support;
+  - QoS0, QoS1, QoS2 message support;
+  - Offline message support;
+  - Retained message support;
+  - Last Will message support;
 - Built-in ACL;
 - HTTP ACL;
 - WebHook;
@@ -19,8 +23,7 @@ and mobile applications that can handle millions of concurrent clients on a sing
 - Distributed cluster;
 - Hooks;
 - TLS support;
-- Share subscription;
-- Retain messages;
+- Shared subscription($share/{group}/topic);
 - Built-in extensible components;
 - Extensible plug-in support;
 - Metrics & Stats;
