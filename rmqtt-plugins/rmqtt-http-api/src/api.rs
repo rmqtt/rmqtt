@@ -512,7 +512,7 @@ async fn kick_client(req: &mut Request, res: &mut Response) {
         match entry.kick(true, true).await {
             Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
             Ok(None) => res.set_status_code(StatusCode::NOT_FOUND),
-            Ok(Some(offline_info)) => res.render(Json(offline_info.id)),
+            Ok(Some(offline_info)) => res.render(Text::Plain(offline_info.id.as_str().to_owned())),
         }
     } else {
         res.set_status_error(StatusError::bad_request())
