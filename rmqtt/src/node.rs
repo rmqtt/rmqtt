@@ -73,7 +73,7 @@ impl Node {
             node_status: self.status().await,
             node_id,
             node_name: format!("{}@{}", node_id, "127.0.0.1"),
-            datetime: self.start_time.format("%Y-%m-%d %H:%M:%S").to_string(),
+            datetime: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
         }
     }
 
