@@ -40,18 +40,33 @@ impl Counter {
 
     #[inline]
     pub fn inc(&self) {
-        let prev = self.0.fetch_add(1, Ordering::SeqCst);
-        self.1.fetch_max(prev + 1, Ordering::SeqCst);
+        self.incs(1);
+    }
+
+    #[inline]
+    pub fn incs(&self, c: isize) {
+        let prev = self.0.fetch_add(c, Ordering::SeqCst);
+        self.1.fetch_max(prev + c, Ordering::SeqCst);
     }
 
     #[inline]
     pub fn current_inc(&self) {
-        self.0.fetch_add(1, Ordering::SeqCst);
+        self.current_incs(1);
+    }
+
+    #[inline]
+    pub fn current_incs(&self, c: isize) {
+        self.0.fetch_add(c, Ordering::SeqCst);
     }
 
     #[inline]
     pub fn dec(&self) {
-        self.0.fetch_sub(1, Ordering::SeqCst);
+        self.decs(1)
+    }
+
+    #[inline]
+    pub fn decs(&self, c: isize) {
+        self.0.fetch_sub(c, Ordering::SeqCst);
     }
 
     #[inline]
