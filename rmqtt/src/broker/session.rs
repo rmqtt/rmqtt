@@ -734,8 +734,10 @@ impl SessionState {
         }
 
         //Subscription transfer from previous session
-        for (tf, (qos, shared_sub)) in offline_info.subscriptions.drain(..) {
-            self.subscriptions_add(tf, qos, shared_sub);
+        if !clear_subscriptions {
+            for (tf, (qos, shared_sub)) in offline_info.subscriptions.drain(..) {
+                self.subscriptions_add(tf, qos, shared_sub);
+            }
         }
 
         //Send previous session unacked messages
@@ -889,6 +891,12 @@ pub struct _SessionInner {
     pub created_at: TimestampMillis,
 }
 
+impl Drop for _SessionInner {
+    fn drop(&mut self) {
+        self.clear_subscriptions();
+    }
+}
+
 impl _SessionInner {
     #[inline]
     pub async fn to_json(&self) -> serde_json::Value {
@@ -972,6 +980,18 @@ impl _SessionInner {
         let topic_filters = self._subscriptions.iter().map(|entry| entry.key().clone()).collect::<Vec<_>>();
         let subs = topic_filters.iter().filter_map(|tf| self.subscriptions_remove(tf)).collect();
         subs
+    }
+
+    #[inline]
+    pub fn clear_subscriptions(&self) {
+        for entry in self._subscriptions.iter() {
+            Runtime::instance().stats.subscriptions.dec();
+            let (_, group) = entry.value();
+            if group.is_some() {
+                Runtime::instance().stats.subscriptions_shared.dec();
+            }
+        }
+        self._subscriptions.clear();
     }
 
     #[inline]

@@ -60,6 +60,9 @@ impl LockEntry {
     #[inline]
     async fn _unsubscribe(&self, id: Id, topic_filter: &str) -> Result<()> {
         Runtime::instance().extends.router().await.remove(topic_filter, id).await?;
+        if let Some(s) = self.session() {
+            s.subscriptions_remove(topic_filter);
+        }
         Ok(())
     }
 
