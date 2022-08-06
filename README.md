@@ -19,7 +19,7 @@ and mobile applications that can handle millions of concurrent clients on a sing
 - Built-in ACL;
 - HTTP ACL;
 - WebHook;
-- HTTP API;
+- [HTTP APIs](./docs/en_US/http-api.md);
 - Distributed cluster;
 - Hooks;
 - TLS support;
