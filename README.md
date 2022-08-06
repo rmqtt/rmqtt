@@ -47,9 +47,9 @@ x86_64 architecture servers and ARM devices like Raspberry Pi.
 
 Get the binary package of the corresponding OS from [RMQTT Download](https://github.com/rmqtt/rmqtt/releases) page.
 
-- [Single Node Install](./docs/install.md)
+- [Single Node Install](./docs/en_US/install.md)
 
-- [Multi Node Install](./docs/install.md)
+- [Multi Node Install](./docs/en_US/install.md)
 
 ## Experience
 

@@ -42,9 +42,9 @@
 
 需从 [GitHub Release](https://github.com/rmqtt/rmqtt/releases) 页面获取相应操作系统的ZIP压缩包。
 
-- [单节点安装配置文档](./docs/install-cn.md)
+- [单节点安装配置文档](./docs/zh_CN/install.md)
 
-- [集群安装配置文档](./docs/install-cn.md)
+- [集群安装配置文档](./docs/zh_CN/install.md)
 
 ## 体验
 
