@@ -1,6 +1,6 @@
 # RMQTT Broker
 
-[English](./install.md)  | 简体中文
+[English](../en_US/install.md)  | 简体中文
 
 ## 安装
 
