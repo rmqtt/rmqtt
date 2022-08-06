@@ -18,7 +18,7 @@
 - 内置 ACL;
 - HTTP ACL;
 - WebHook;
-- [HTTP API](./docs/zh_CN/http-api.md);
+- [HTTP APIs](./docs/zh_CN/http-api.md);
 - 分布式集群;
 - 钩子(Hooks);
 - TLS支持;
