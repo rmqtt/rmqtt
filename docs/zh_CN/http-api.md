@@ -105,7 +105,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1/brokers/1"
 
 | Name | Type | Required | Description                 |
 | ---- | --------- | ------------|-----------------------------|
-| node | Integer    | False       | 节点名字，如：1 <br/>不指定时返回所有节点的信息 |
+| node | Integer    | False       | 节点ID，如：1 <br/>不指定时返回所有节点的信息 |
 
 **Success Response Body (JSON):**
 
@@ -185,10 +185,10 @@ $ curl -i -X GET "http://localhost:6060/api/v1/nodes/1"
 | []                    | Array of Objects | 所有客户端的信息                                                                   |
 | [0].node_id           | Integer    | 客户端所连接的节点ID                                                                |
 | [0].clientid          | String    | 客户端标识符                                                                     |
-| [0].username          | String    | 客户端连接时使用的用户名                                                               |                                                                  |
+| [0].username          | String    | 客户端连接时使用的用户名                                                               | 
 | [0].proto_ver         | Integer   | 客户端使用的协议版本                                                                 |
 | [0].ip_address        | String    | 客户端的 IP 地址                                                                 |
-| [0].port              | Integer   | 客户端的端口                                                                     |                                                          |
+| [0].port              | Integer   | 客户端的端口                                                                     | 
 | [0].connected_at      | String    | 客户端连接时间，格式为 "YYYY-MM-DD HH:mm:ss"                                          |
 | [0].disconnected_at   | String    | 客户端离线时间，格式为 "YYYY-MM-DD HH:mm:ss"，<br/>此字段仅在 `connected` 为 `false` 时有效并被返回 |
 | [0].connected         | Boolean   | 客户端是否处于连接状态                                                                |
@@ -535,7 +535,7 @@ true
 | [0].plugins.descr     | String           | 插件描述                             |
 | [0].plugins.active    | Boolean          | 插件是否启动                           |
 | [0].plugins.inited    | Boolean          | 插件是否已经初始化                        |
-| [0].plugins.immutable | Boolean          | 插件是否不可变，不可变插件将不能被停止，不有修改配置，不能重启等 |
+| [0].plugins.immutable | Boolean          | 插件是否不可变，不可变插件将不能被停止，不能修改配置，不能重启等 |
 | [0].plugins.attrs     | Json             | 插件其它附加属性                         |
 
 
@@ -553,9 +553,9 @@ $ curl -i -X GET "http://localhost:6060/api/v1/plugins"
 
 **Path Parameters:** 
 
-| Name | Type | Required | Description                |
-| ---- | --------- |----------|----------------------------|
-| node | Integer    | True     | 节点名字，如：1 |
+| Name | Type | Required | Description |
+| ---- | --------- |----------|-------------|
+| node | Integer    | True     | 节点ID，如：1    |
 
 
 **Success Response Body (JSON):**
@@ -589,7 +589,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1/plugins/1"
 
 | Name | Type | Required | Description |
 | ---- | --------- | ------------|-------------|
-| node | Integer    | True       | 节点名字，如：1    |
+| node | Integer    | True       | 节点ID，如：1    |
 | plugin | String    | True       | 插件名称        |
 
 **Success Response Body (JSON):**
@@ -623,7 +623,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1/plugins/1/rmqtt-web-hook"
 
 | Name | Type | Required | Description |
 | ---- | --------- | ------------|-------------|
-| node | Integer    | True       | 节点名字，如：1    |
+| node | Integer    | True       | 节点ID，如：1    |
 | plugin | String    | True       | 插件名称        |
 
 **Success Response Body (JSON):**
@@ -652,7 +652,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1/plugins/1/rmqtt-http-api/config"
 
 | Name | Type | Required | Description |
 | ---- | --------- | ------------|-------------|
-| node | Integer    | True       | 节点名字，如：1    |
+| node | Integer    | True       | 节点ID，如：1    |
 | plugin | String    | True       | 插件名称        |
 
 **Success Response Body (String):**
@@ -680,7 +680,7 @@ ok
 
 | Name | Type | Required | Description |
 | ---- | --------- | ------------|-------------|
-| node | Integer    | True       | 节点名字，如：1    |
+| node | Integer    | True       | 节点ID，如：1    |
 | plugin | String    | True       | 插件名称        |
 
 **Success Response Body (String):**
@@ -708,7 +708,7 @@ ok
 
 | Name | Type | Required | Description |
 | ---- | --------- | ------------|-------------|
-| node | Integer    | True       | 节点名字，如：1    |
+| node | Integer    | True       | 节点ID，如：1    |
 | plugin | String    | True       | 插件名称        |
 
 **Success Response Body (JSON):**
@@ -789,7 +789,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1/stats"
 
 | Name | Type | Required | Description |
 | ---- | --------- | ------------|-------------|
-| node | Integer    | True       | 节点名字，如：1    |
+| node | Integer    | True       | 节点ID，如：1    |
 
 **Success Response Body (JSON):**
 
@@ -899,7 +899,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1/stats/sum"
 | client.subscribe                | Integer   | 客户端订阅次数 |
 | client.unsubscribe              | Integer   | 客户端取消订阅次数 |
 | messages.publish                | Integer   | 接收到PUBLISH消息数量 |
-| messages.delivered              | Integer   | 内部转发到订阅端消息数量 |
+| messages.delivered              | Integer   | 除系统消息外已发布的消息数 |
 | messages.acked                  | Integer   | 接收的 PUBACK 和 PUBREC 报文数量 |
 | messages.dropped                | Integer   | 丢弃的消息总数 |
 | session.created                 | Integer   | 创建的会话数量 |
@@ -926,14 +926,14 @@ $ curl -i -X GET "http://localhost:6060/api/v1/metrics"
 
 | Name | Type | Required | Description |
 | ---- | --------- | ------------|-------------|
-| node | Integer    | True       | 节点名字，如：1    |
+| node | Integer    | True       | 节点ID，如：1    |
 
 **Success Response Body (JSON):**
 
-| Name          | Type                 | Description        |
-|---------------|----------------------|--------------------|
-| {}            | Object               | 各节点上的统计指标列表        |
-| {}.node  | Json Object          | 节点信息               |
+| Name          | Type                 | Description            |
+|---------------|----------------------|------------------------|
+| {}            | Object               | 统计指标信息                   |
+| {}.node  | Json Object          | 节点信息                   |
 | {}.metrics | Json Object          | 监控指标数据，详见下面的 *metrics* |
 
 **node:**
@@ -960,7 +960,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1/metrics/1"
 
 ### GET /api/v1/metrics/sum
 
-汇总集群下指定节点的统计指标数据。
+汇总集群下所有节点的统计指标数据。
 
 **Path Parameters:** 无
 
