@@ -279,7 +279,7 @@ impl super::Entry for LockEntry {
                     SubsSearchResult {
                         node_id: self.id.node_id,
                         clientid: self.id.client_id.clone(),
-                        topic: TopicFilter::from(topic_filter.as_str()),
+                        topic: TopicFilter::from(topic_filter.as_ref()),
                         qos: qos.value(),
                         share: group.as_ref().cloned(),
                     }
@@ -649,7 +649,7 @@ impl DefaultRouter {
                 e.value()
                     .iter()
                     .filter(|(client_id, (_id, qos, group))| {
-                        Self::_query_subscriptions_filter(q, client_id.as_str(), qos, group)
+                        Self::_query_subscriptions_filter(q, client_id.as_ref(), qos, group)
                     })
                     .filter_map(|(client_id, (id, qos, group))| {
                         if curr < limit {
@@ -697,7 +697,7 @@ impl DefaultRouter {
                     entry
                         .iter()
                         .filter(|(client_id, (_id, qos, group))| {
-                            Self::_query_subscriptions_filter(q, client_id.as_str(), qos, group)
+                            Self::_query_subscriptions_filter(q, client_id.as_ref(), qos, group)
                         })
                         .filter_map(|(client_id, (id, qos, group))| {
                             if curr < limit {
@@ -732,7 +732,7 @@ impl DefaultRouter {
                 e.value()
                     .iter()
                     .filter(|(client_id, (_id, qos, group))| {
-                        Self::_query_subscriptions_filter(q, client_id.as_str(), qos, group)
+                        Self::_query_subscriptions_filter(q, client_id.as_ref(), qos, group)
                     })
                     .filter_map(|(client_id, (id, qos, group))| {
                         if curr < limit {

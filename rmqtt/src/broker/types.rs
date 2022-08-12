@@ -858,7 +858,7 @@ impl Id {
                 local_addr.map(|addr| addr.to_string()).unwrap_or_default(),
                 remote_addr.map(|addr| addr.to_string()).unwrap_or_default(),
                 client_id,
-                username.as_ref().map(|un| un.as_str()).unwrap_or_default(),
+                username.as_ref().map(|un| <ByteString as AsRef<str>>::as_ref(un)).unwrap_or_default(),
             )),
             node_id,
             local_addr,
@@ -988,40 +988,6 @@ pub enum Message {
     Keepalive,
     Subscribe(Subscribe, oneshot::Sender<Result<SubscribeReturn>>),
     Unsubscribe(Unsubscribe, oneshot::Sender<Result<()>>),
-}
-
-pub trait AsStr {
-    fn as_str(&self) -> &str;
-}
-
-impl AsStr for bytestring::ByteString {
-    fn as_str(&self) -> &str {
-        #[inline(always)]
-        fn slice_as_str(slice: &[u8]) -> &str {
-            union Slices<'a> {
-                str: &'a str,
-                slice: &'a [u8],
-            }
-            unsafe { Slices { slice }.str }
-        }
-
-        slice_as_str(self.as_ref())
-    }
-}
-
-impl AsStr for bytes::Bytes {
-    fn as_str(&self) -> &str {
-        #[inline(always)]
-        fn slice_as_str(slice: &[u8]) -> &str {
-            union Slices<'a> {
-                str: &'a str,
-                slice: &'a [u8],
-            }
-            unsafe { Slices { slice }.str }
-        }
-
-        slice_as_str(self.as_ref())
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

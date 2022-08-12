@@ -1006,7 +1006,7 @@ impl _SessionInner {
 
     #[inline]
     pub fn clone_topic_filters(&self) -> TopicFilters {
-        self._subscriptions.iter().map(|entry| TopicFilter::from(entry.key().as_str())).collect()
+        self._subscriptions.iter().map(|entry| TopicFilter::from(entry.key().as_ref())).collect()
     }
 
     // #[inline]

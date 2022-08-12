@@ -59,7 +59,7 @@ pub async fn handshake<Io>(
             local_addr,
             remote_addr,
             handshake.packet().client_id,
-            handshake.packet().username.as_ref().map(|u| u.as_str()).unwrap_or_default(),
+            handshake.packet().username.as_ref().map(|un| <UserName as AsRef<str>>::as_ref(un)).unwrap_or_default(),
             e
         );
         return Ok(handshake.failed(ConnectAckReasonV5::ServerUnavailable));

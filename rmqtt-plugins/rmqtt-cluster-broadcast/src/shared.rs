@@ -4,7 +4,6 @@ use once_cell::sync::OnceCell;
 
 use rmqtt::{ahash, async_trait::async_trait, futures, log, once_cell, tokio};
 use rmqtt::{
-    AsStr,
     broker::{
         default::DefaultShared,
         Entry,
@@ -278,7 +277,7 @@ impl Shared for &'static ClusterShared {
             let add_one_to_shared_sub_groups =
                 |shared_groups: &mut SharedSubGroups, shared_rel: SharedRelation| {
                     let (topic_filter, node_id, client_id, qos, (group, is_online)) = shared_rel;
-                    if let Some(groups) = shared_groups.get_mut(topic_filter.as_str()) {
+                    if let Some(groups) = shared_groups.get_mut(&topic_filter) {
                         groups.entry(group).or_default().push((node_id, client_id, qos, Some(is_online)));
                     } else {
                         let mut groups = HashMap::default();

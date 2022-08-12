@@ -15,10 +15,11 @@ use rmqtt::{ahash, async_trait, dashmap, lazy_static, log, reqwest, serde_json, 
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::session::ClientInfo,
-    broker::types::{AsStr, AuthResult, Password, PublishAclResult, SubscribeAckReason, SubscribeAclResult},
+    broker::types::{AuthResult, Password, PublishAclResult, SubscribeAckReason, SubscribeAclResult},
     ClientId,
     MqttError, plugin::{DynPlugin, DynPluginResult, Plugin}, Result, Runtime, TopicName,
 };
+use rmqtt::ntex::util::ByteString;
 
 mod config;
 
@@ -233,14 +234,20 @@ impl AuthHandler {
         client: &ClientInfo,
         password: Option<&Password>,
         sub_or_pub: Option<(&str, &TopicName)>,
-    ) {
+    ) -> Result<()> {
+        let password = if let Some(p) = password{
+            ByteString::try_from(p.clone())?
+        }else{
+            ByteString::default()
+        };
+        let username = client.connect_info.username().map(|n| n.as_ref()).unwrap_or("");
+        let remote_addr = client.id.remote_addr.map(|addr| addr.ip().to_string()).unwrap_or_default();
         for v in params.values_mut() {
-            *v = v.replace("%u", client.connect_info.username().map(|n| n.as_str()).unwrap_or(""));
+            *v = v.replace("%u", username);
             *v = v.replace("%c", &client.id.client_id);
-            *v =
-                v.replace("%a", &client.id.remote_addr.map(|addr| addr.ip().to_string()).unwrap_or_default());
+            *v = v.replace("%a", &remote_addr);
             *v = v.replace("%r", "mqtt");
-            *v = v.replace("%P", password.map(|p| p.as_str()).unwrap_or_default());
+            *v = v.replace("%P", &password);
             if let Some((flag, topic)) = sub_or_pub {
                 *v = v.replace("%A", flag);
                 *v = v.replace("%t", topic);
@@ -249,6 +256,7 @@ impl AuthHandler {
                 *v = v.replace("%t", "");
             }
         }
+        Ok(())
     }
 
     async fn request(
@@ -304,16 +312,16 @@ impl AuthHandler {
 
         let (allow, ignore) = if req_cfg.is_get() {
             let body = &mut req_cfg.params;
-            Self::replaces(body, client, password, sub_or_pub);
+            Self::replaces(body, client, password, sub_or_pub)?;
             Self::http_get_request(req_cfg.url, body, headers, timeout).await?
         } else if req_cfg.json_body() {
             let body = &mut req_cfg.params;
-            Self::replaces(body, client, password, sub_or_pub);
+            Self::replaces(body, client, password, sub_or_pub)?;
             Self::http_json_request(req_cfg.url, req_cfg.method, body, headers, timeout).await?
         } else {
             //form body
             let body = &mut req_cfg.params;
-            Self::replaces(body, client, password, sub_or_pub);
+            Self::replaces(body, client, password, sub_or_pub)?;
             Self::http_form_request(req_cfg.url, req_cfg.method, body, headers, timeout).await?
         };
 
