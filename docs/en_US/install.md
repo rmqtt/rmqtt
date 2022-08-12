@@ -228,25 +228,6 @@ $ cd /app/rmqtt
 ./bin/rmqttd "./etc/rmqtt.toml"
 ```
 
-##### Solve the problem of compilation failure
-
-If the tool chain of version 1.59 and later is used, the version of the dependent library may be too low, resulting in
-link failure.
-
-solve:
-
-- Use version 1.58 tool chain
-
-```bash
-#Install version 1.58 tool chain
-$ rustup install 1.58
-
-#Switch the current tool chain to 1.58
-$ rustup default 1.58
-
-#Rebuild
-$ cargo build --release
-```
 
 
 

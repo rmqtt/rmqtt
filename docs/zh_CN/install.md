@@ -254,23 +254,6 @@ $ cd /app/rmqtt
 ./bin/rmqttd "./etc/rmqtt.toml"
 ```
 
-##### 解决编译失败问题
-
-如果使用1.59版及之后工具链，可能会存在依赖库版本太低导致链接失败问题，解决办法：
-
-- 使用1.58版工具链
-
-```bash
-#安装1.58版本工具链
-$ rustup install 1.58
-
-#将当前工具链切换到1.58
-$ rustup default 1.58
-
-#重新编译
-$ cargo build --release
-```
-
 
 
 
