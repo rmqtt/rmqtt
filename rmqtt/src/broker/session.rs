@@ -709,21 +709,21 @@ impl SessionState {
         mut offline_info: SessionOfflineInfo,
     ) -> Result<()> {
         log::debug!(
-            "{:?} transfer session state, form: {:?}, subscriptions: {}, inflight_messages: {}, offline_messages: {}",
+            "{:?} transfer session state, form: {:?}, subscriptions: {}, inflight_messages: {}, offline_messages: {}, clear_subscriptions: {}",
             self.id,
             offline_info.id,
             offline_info.subscriptions.len(),
             offline_info.inflight_messages.len(),
-            offline_info.offline_messages.len()
+            offline_info.offline_messages.len(),
+            clear_subscriptions
         );
-        if self.id.node_id != offline_info.id.node_id
-            && !clear_subscriptions
-            && !offline_info.subscriptions.is_empty()
+        if !clear_subscriptions && !offline_info.subscriptions.is_empty()
         {
             for (tf, (qos, shared_group)) in offline_info.subscriptions.iter() {
                 let shared_group = shared_group.as_ref().cloned();
                 let qos = *qos;
                 let id = self.id.clone();
+                log::debug!("{:?} transfer_session_state, router.add ... topic_filter: {:?}, shared_group: {:?}, qos: {:?}", id, tf, shared_group, qos);
                 if let Err(e) =
                 Runtime::instance().extends.router().await.add(tf, id, qos, shared_group).await
                 {
