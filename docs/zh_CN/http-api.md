@@ -315,14 +315,15 @@ false
 
 **Success Response Body (JSON):**
 
-| Name             | Type | Description |
-|------------------| --------- |-------------|
-| []               | Array of Objects | 所有订阅信息      |
-| [0].node_id     | Integer    | 节点ID        |
-| [0].clientid | String    | 客户端标识符      |
-| [0].topic    | String    | 订阅主题        |
-| [0].qos      | Integer   | QoS 等级      |
-| [0].share      | String   | 共享订阅的组名称      |
+| Name            | Type             | Description |
+|-----------------|------------------|-------------|
+| []              | Array of Objects | 所有订阅信息      |
+| [0].node_id     | Integer          | 节点ID        |
+| [0].clientid    | String           | 客户端标识符      |
+| [0].client_addr | String           | 客户端IP地址和端口  |
+| [0].topic       | String           | 订阅主题        |
+| [0].qos         | Integer          | QoS 等级      |
+| [0].share       | String           | 共享订阅的组名称    |
 
 
 **Examples:**
@@ -346,14 +347,15 @@ $ curl -i -X GET "http://localhost:6060/api/v1/subscriptions?_limit=10"
 
 **Success Response Body (JSON):**
 
-| Name             | Type | Description |
-|------------------| --------- |-------------|
-| []               | Array of Objects | 所有订阅信息      |
-| [0].node_id     | Integer    | 节点ID        |
-| [0].clientid | String    | 客户端标识符      |
-| [0].topic    | String    | 订阅主题        |
-| [0].qos      | Integer   | QoS 等级      |
-| [0].share      | String   | 共享订阅的组名称      |
+| Name            | Type             | Description |
+|-----------------|------------------|-------------|
+| []              | Array of Objects | 所有订阅信息      |
+| [0].node_id     | Integer          | 节点ID        |
+| [0].clientid    | String           | 客户端标识符      |
+| [0].client_addr | String           | 客户端IP地址和端口  |
+| [0].topic       | String           | 订阅主题        |
+| [0].qos         | Integer          | QoS 等级      |
+| [0].share       | String           | 共享订阅的组名称      |
 
 **Examples:**
 

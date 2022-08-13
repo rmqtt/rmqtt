@@ -316,14 +316,15 @@ Returns all subscription information under the cluster.
 
 **Success Response Body (JSON):**
 
-| Name          | Type | Description |
-|---------------| --------- |-------------|
-| []            | Array of Objects | All subscription information      |
-| [0].node_id   | Integer    | Node ID     |
-| [0].clientid  | String    | Client identifier      |
-| [0].topic     | String    | Subscribe to topic        |
-| [0].qos       | Integer   | QoS level      |
-| [0].share     | String   | Shared subscription group name    |
+| Name            | Type             | Description |
+|-----------------|------------------|-------------|
+| []              | Array of Objects | All subscription information      |
+| [0].node_id     | Integer          | Node ID     |
+| [0].clientid    | String           | Client identifier      |
+| [0].client_addr | String           | Client IP address and port  |
+| [0].topic       | String           | Subscribe to topic        |
+| [0].qos         | Integer          | QoS level      |
+| [0].share       | String           | Shared subscription group name    |
 
 
 **Examples:**
@@ -347,14 +348,15 @@ Return the subscription information of the specified client in the cluster.
 
 **Success Response Body (JSON):**
 
-| Name          | Type | Description |
-|---------------| --------- |-------------|
-| []            | Array of Objects | All subscription information      |
-| [0].node_id   | Integer    | Node ID     |
-| [0].clientid  | String    | Client identifier      |
-| [0].topic     | String    | Subscribe to topic        |
-| [0].qos       | Integer   | QoS level      |
-| [0].share     | String   | Shared subscription group name    |
+| Name            | Type             | Description |
+|-----------------|------------------|-------------|
+| []              | Array of Objects | All subscription information      |
+| [0].node_id     | Integer          | Node ID     |
+| [0].clientid    | String           | Client identifier      |
+| [0].client_addr | String           | Client IP address and port  |
+| [0].topic       | String           | Subscribe to topic        |
+| [0].qos         | Integer          | QoS level      |
+| [0].share       | String           | Shared subscription group name    |
 
 **Examples:**
 
