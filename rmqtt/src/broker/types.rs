@@ -1013,6 +1013,7 @@ pub struct SubsSearchParams {
 pub struct SubsSearchResult {
     pub node_id: NodeId,
     pub clientid: ClientId,
+    pub client_addr: Option<SocketAddr>,
     pub topic: TopicFilter,
     pub qos: u8,
     pub share: Option<SharedGroup>,

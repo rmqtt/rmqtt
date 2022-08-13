@@ -279,6 +279,7 @@ impl super::Entry for LockEntry {
                     SubsSearchResult {
                         node_id: self.id.node_id,
                         clientid: self.id.client_id.clone(),
+                        client_addr: self.id.remote_addr,
                         topic: TopicFilter::from(topic_filter.as_ref()),
                         qos: qos.value(),
                         share: group.as_ref().cloned(),
@@ -657,6 +658,7 @@ impl DefaultRouter {
                             Some(SubsSearchResult {
                                 node_id: id.node_id,
                                 clientid: client_id.clone(),
+                                client_addr: id.remote_addr,
                                 topic: topic_filter.clone(),
                                 qos: qos.value(),
                                 share: group.as_ref().cloned(),
@@ -705,6 +707,7 @@ impl DefaultRouter {
                                 Some(SubsSearchResult {
                                     node_id: id.node_id,
                                     clientid: client_id.clone(),
+                                    client_addr: id.remote_addr,
                                     topic: topic_filter.clone(),
                                     qos: qos.value(),
                                     share: group.as_ref().cloned(),
@@ -740,6 +743,7 @@ impl DefaultRouter {
                             Some(SubsSearchResult {
                                 node_id: id.node_id,
                                 clientid: client_id.clone(),
+                                client_addr: id.remote_addr,
                                 topic: topic_filter.clone(),
                                 qos: qos.value(),
                                 share: group.as_ref().cloned(),
@@ -780,7 +784,7 @@ impl Router for &'static DefaultRouter {
         qos: QoS,
         shared_group: Option<SharedGroup>,
     ) -> Result<()> {
-        log::debug!("add, topic_filter: {:?}", topic_filter);
+        log::debug!("{:?} add, topic_filter: {:?}", id, topic_filter);
         let topic = Topic::from_str(topic_filter)?;
         //add to topic tree
         self.topics.write().await.insert(&topic, ());
@@ -804,7 +808,7 @@ impl Router for &'static DefaultRouter {
 
     #[inline]
     async fn remove(&self, topic_filter: &str, id: Id) -> Result<bool> {
-        log::debug!("remove, topic_filter: {:?}", topic_filter.to_string());
+        log::debug!("{:?} remove, topic_filter: {:?}", id, topic_filter);
         //Remove subscription relationship from local
         let res = if let Some(mut rels) = self.relations.get_mut(topic_filter) {
             let remove_enable = rels.value().get(&id.client_id).map(|(s_id, _, _)| {
