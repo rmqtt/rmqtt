@@ -75,6 +75,7 @@ pub struct ClientSearchParams {
     pub ip_address: Option<String>,
     pub connected: Option<bool>,
     pub clean_start: Option<bool>,
+    pub session_present: Option<bool>,
     pub proto_ver: Option<u8>,
     pub _like_clientid: Option<String>,
     //Substring fuzzy search
@@ -126,6 +127,7 @@ pub struct ClientSearchResult {
     pub disconnected_at: Timestamp,
     pub keepalive: u16,
     pub clean_start: bool,
+    pub clean_present: bool,
     pub expiry_interval: i64,
     pub created_at: Timestamp,
     pub subscriptions_cnt: usize,
@@ -163,6 +165,7 @@ impl ClientSearchResult {
             "disconnected_at": format_timestamp(self.disconnected_at),
             "keepalive": self.keepalive,
             "clean_start": self.clean_start,
+            "clean_present": self.clean_present,
             "expiry_interval": self.expiry_interval,
             "created_at": format_timestamp(self.created_at),
             "subscriptions_cnt": self.subscriptions_cnt,
