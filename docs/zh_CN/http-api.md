@@ -160,22 +160,23 @@ $ curl -i -X GET "http://localhost:6060/api/v1/nodes/1"
 | ------ | --------- | -------- | ------- |  ---- |
 | _limit | Integer   | False | 10000   | 一次最多返回的数据条数，未指定时由 `rmqtt-http-api.toml` 插件的配置项 `max_row_limit` 决定 |
 
-| Name            | Type   | Required | Description                     |
-| --------------- | ------ | -------- |---------------------------------|
-| clientid        | String | False    | 客户端标识符                          |
-| username        | String | False    | 客户端用户名                          |
-| ip_address      | String | False    | 客户端 IP 地址                       |
-| connected       | Bool   | False    | 客户端当前连接状态                       |
-| clean_start     | Bool   | False    | 客户端是否使用了全新的会话                   |
-| proto_ver       | Integer| False    | 客户端协议版本, 3,4,5                  |
-| _like_clientid  | String | False    | 客户端标识符，子串方式模糊查找                 |
-| _like_username  | String | False    | 客户端用户名，子串方式模糊查找                 |
-| _gte_created_at | Integer| False    | 客户端会话创建时间，大于等于查找                |
-| _lte_created_at | Integer| False    | 客户端会话创建时间，小于等于查找                |
-| _gte_connected_at | Integer| False    | 客户端连接创建时间，大于等于查找                |
-| _lte_connected_at | Integer| False    | 客户端连接创建时间，小于等于查找                |
-| _gte_mqueue_len | Integer| False    | 客户端消息队列当前长度， 大于等于查找              |
-| _lte_mqueue_len | Integer| False    | 客户端消息队列当前长度， 大于等于查找              |
+| Name            | Type   | Required | Description         |
+| --------------- | ------ | -------- |---------------------|
+| clientid        | String | False    | 客户端标识符              |
+| username        | String | False    | 客户端用户名              |
+| ip_address      | String | False    | 客户端 IP 地址           |
+| connected       | Bool   | False    | 客户端当前连接状态           |
+| clean_start     | Bool   | False    | 客户端是否使用了全新的会话       |
+| session_present | Bool   | False    | 客户端是否连接到已经存在的会话    |
+| proto_ver       | Integer| False    | 客户端协议版本, 3,4,5      |
+| _like_clientid  | String | False    | 客户端标识符，子串方式模糊查找     |
+| _like_username  | String | False    | 客户端用户名，子串方式模糊查找     |
+| _gte_created_at | Integer| False    | 客户端会话创建时间，大于等于查找    |
+| _lte_created_at | Integer| False    | 客户端会话创建时间，小于等于查找    |
+| _gte_connected_at | Integer| False    | 客户端连接创建时间，大于等于查找    |
+| _lte_connected_at | Integer| False    | 客户端连接创建时间，小于等于查找    |
+| _gte_mqueue_len | Integer| False    | 客户端消息队列当前长度， 大于等于查找 |
+| _lte_mqueue_len | Integer| False    | 客户端消息队列当前长度， 大于等于查找 |
 
 
 **Success Response Body (JSON):**

@@ -170,6 +170,7 @@ Returns the information of all clients under the cluster.
 | ip_address      | String | False    | Client IP address                      |
 | connected       | Bool   | False    | The current connection status of the client     |
 | clean_start     | Bool   | False    | Whether the client uses a new session            |
+| session_present | Bool   | False    | Whether the client is connected to an existing session    |
 | proto_ver       | Integer| False    | Client protocol version             |
 | _like_clientid  | String | False    | Fuzzy search of client identifier by substring method                  |
 | _like_username  | String | False    | Client user name, fuzzy search by substring                 |
