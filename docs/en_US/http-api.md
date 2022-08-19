@@ -184,28 +184,29 @@ Returns the information of all clients under the cluster.
 
 **Success Response Body (JSON):**
 
-| Name                  | Type | Description                                                                                                                       |
-|-----------------------| --------- |-----------------------------------------------------------------------------------------------------------------------------------|
-| []                    | Array of Objects | Information for all clients                                                                                                       |
-| [0].node_id           | Integer    | ID of the node to which the client is connected                                                                                   |
-| [0].clientid          | String    | Client identifier                                                                                                                 |
-| [0].username          | String    | User name of client when connecting                                                                                               |
-| [0].proto_ver         | Integer   | Protocol version used by the client                                                                                               |
-| [0].ip_address        | String    | Client's IP address                                                                                                               |
-| [0].port              | Integer   | Client port                                                                                                                       | 
-| [0].connected_at      | String    | Client connection time, in the format of "YYYY-MM-DD HH:mm:ss"                                                                    |
-| [0].disconnected_at   | String    | Client offline time, in the formatof "YYYY-MM-DD HH:mm:ss"，<br/>This field is only valid and returned when `connected` is` false` |
-| [0].connected         | Boolean   | Whether the client is connected                                                                                                   |
-| [0].keepalive         | Integer   | keepalive time, with the unit of second                                                                                           |
-| [0].clean_start       | Boolean   | Indicate whether the client is using a brand new session                                                                          |
-| [0].expiry_interval   | Integer   | Session expiration interval, with the unit of second                                                                              |
-| [0].created_at        | String    | Session creation time, in the format "YYYY-MM-DD HH:mm:ss"                                                                        |
-| [0].subscriptions_cnt | Integer   | Number of subscriptions established by this client                                                                                |
-| [0].max_subscriptions | Integer   | Maximum number of subscriptions allowed by this client                                                                            |
-| [0].inflight          | Integer   | Current length of inflight                                                                                                        |
-| [0].max_inflight      | Integer   | Maximum length of inflight                                                                                                        |
-| [0].mqueue_len        | Integer   | Current length of message queue                                                                                                   |
-| [0].max_mqueue        | Integer   | Maximum length of message queue                                                                                                   |
+| Name                    | Type             | Description                                                                                                                       |
+|-------------------------|------------------|-----------------------------------------------------------------------------------------------------------------------------------|
+| []                      | Array of Objects | Information for all clients                                                                                                       |
+| [0].node_id             | Integer          | ID of the node to which the client is connected                                                                                   |
+| [0].clientid            | String           | Client identifier                                                                                                                 |
+| [0].username            | String           | User name of client when connecting                                                                                               |
+| [0].proto_ver           | Integer          | Protocol version used by the client                                                                                               |
+| [0].ip_address          | String           | Client's IP address                                                                                                               |
+| [0].port                | Integer          | Client port                                                                                                                       | 
+| [0].connected_at        | String           | Client connection time, in the format of "YYYY-MM-DD HH:mm:ss"                                                                    |
+| [0].disconnected_at     | String           | Client offline time, in the formatof "YYYY-MM-DD HH:mm:ss"，<br/>This field is only valid and returned when `connected` is` false` |
+| [0].disconnected_reason | String           | Client offline reason                                                                    |
+| [0].connected           | Boolean          | Whether the client is connected                                                                                                   |
+| [0].keepalive           | Integer          | keepalive time, with the unit of second                                                                                           |
+| [0].clean_start         | Boolean          | Indicate whether the client is using a brand new session                                                                          |
+| [0].expiry_interval     | Integer          | Session expiration interval, with the unit of second                                                                              |
+| [0].created_at          | String           | Session creation time, in the format "YYYY-MM-DD HH:mm:ss"                                                                        |
+| [0].subscriptions_cnt   | Integer          | Number of subscriptions established by this client                                                                                |
+| [0].max_subscriptions   | Integer          | Maximum number of subscriptions allowed by this client                                                                            |
+| [0].inflight            | Integer          | Current length of inflight                                                                                                        |
+| [0].max_inflight        | Integer          | Maximum length of inflight                                                                                                        |
+| [0].mqueue_len          | Integer          | Current length of message queue                                                                                                   |
+| [0].max_mqueue          | Integer          | Maximum length of message queue                                                                                                   |
 
 **Examples:**
 

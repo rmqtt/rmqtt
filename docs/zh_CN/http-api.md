@@ -181,28 +181,29 @@ $ curl -i -X GET "http://localhost:6060/api/v1/nodes/1"
 
 **Success Response Body (JSON):**
 
-| Name                  | Type | Description                                                                |
-|-----------------------| --------- |----------------------------------------------------------------------------|
-| []                    | Array of Objects | 所有客户端的信息                                                                   |
-| [0].node_id           | Integer    | 客户端所连接的节点ID                                                                |
-| [0].clientid          | String    | 客户端标识符                                                                     |
-| [0].username          | String    | 客户端连接时使用的用户名                                                               | 
-| [0].proto_ver         | Integer   | 客户端使用的协议版本                                                                 |
-| [0].ip_address        | String    | 客户端的 IP 地址                                                                 |
-| [0].port              | Integer   | 客户端的端口                                                                     | 
-| [0].connected_at      | String    | 客户端连接时间，格式为 "YYYY-MM-DD HH:mm:ss"                                          |
-| [0].disconnected_at   | String    | 客户端离线时间，格式为 "YYYY-MM-DD HH:mm:ss"，<br/>此字段仅在 `connected` 为 `false` 时有效并被返回 |
-| [0].connected         | Boolean   | 客户端是否处于连接状态                                                                |
-| [0].keepalive         | Integer   | 保持连接时间，单位：秒                                                                |
-| [0].clean_start       | Boolean   | 指示客户端是否使用了全新的会话                                                            |
-| [0].expiry_interval   | Integer   | 会话过期间隔，单位：秒                                                                |
-| [0].created_at        | String    | 会话创建时间，格式为 "YYYY-MM-DD HH:mm:ss"                                           |
-| [0].subscriptions_cnt | Integer   | 此客户端已建立的订阅数量                                                               |
-| [0].max_subscriptions | Integer   | 此客户端允许建立的最大订阅数量                                                            |
-| [0].inflight          | Integer   | 飞行队列当前长度                                                                   |
-| [0].max_inflight      | Integer   | 飞行队列最大长度                                                                   |
-| [0].mqueue_len        | Integer   | 消息队列当前长度                                                                   |
-| [0].max_mqueue        | Integer   | 消息队列最大长度                                                                   |
+| Name                    | Type             | Description                                                                |
+|-------------------------|------------------|----------------------------------------------------------------------------|
+| []                      | Array of Objects | 所有客户端的信息                                                                   |
+| [0].node_id             | Integer          | 客户端所连接的节点ID                                                                |
+| [0].clientid            | String           | 客户端标识符                                                                     |
+| [0].username            | String           | 客户端连接时使用的用户名                                                               | 
+| [0].proto_ver           | Integer          | 客户端使用的协议版本                                                                 |
+| [0].ip_address          | String           | 客户端的 IP 地址                                                                 |
+| [0].port                | Integer          | 客户端的端口                                                                     | 
+| [0].connected_at        | String           | 客户端连接时间，格式为 "YYYY-MM-DD HH:mm:ss"                                          |
+| [0].disconnected_at     | String           | 客户端离线时间，格式为 "YYYY-MM-DD HH:mm:ss"，<br/>此字段仅在 `connected` 为 `false` 时有效并被返回 |
+| [0].disconnected_reason | String           | 客户端离线原因                                                                    |
+| [0].connected           | Boolean          | 客户端是否处于连接状态                                                                |
+| [0].keepalive           | Integer          | 保持连接时间，单位：秒                                                                |
+| [0].clean_start         | Boolean          | 指示客户端是否使用了全新的会话                                                            |
+| [0].expiry_interval     | Integer          | 会话过期间隔，单位：秒                                                                |
+| [0].created_at          | String           | 会话创建时间，格式为 "YYYY-MM-DD HH:mm:ss"                                           |
+| [0].subscriptions_cnt   | Integer          | 此客户端已建立的订阅数量                                                               |
+| [0].max_subscriptions   | Integer          | 此客户端允许建立的最大订阅数量                                                            |
+| [0].inflight            | Integer          | 飞行队列当前长度                                                                   |
+| [0].max_inflight        | Integer          | 飞行队列最大长度                                                                   |
+| [0].mqueue_len          | Integer          | 消息队列当前长度                                                                   |
+| [0].max_mqueue          | Integer          | 消息队列最大长度                                                                   |
 
 
 **Examples:**
