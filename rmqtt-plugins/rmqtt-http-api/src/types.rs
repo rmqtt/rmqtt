@@ -164,7 +164,7 @@ impl ClientSearchResult {
             "connected": self.connected,
             "connected_at": format_timestamp(self.connected_at),
             "disconnected_at": format_timestamp(self.disconnected_at),
-            "": self.disconnected_reason,
+            "disconnected_reason": self.disconnected_reason,
             "keepalive": self.keepalive,
             "clean_start": self.clean_start,
             "session_present": self.session_present,
