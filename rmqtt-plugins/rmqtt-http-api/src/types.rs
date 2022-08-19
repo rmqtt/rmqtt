@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use rmqtt::{anyhow, bincode, chrono, HashMap, MqttError, QoS, serde_json};
+use rmqtt::{anyhow, bincode, chrono, HashMap, MqttError, QoS, Reason, serde_json};
 use rmqtt::{metrics::Metrics, stats::Stats};
 use rmqtt::{ClientId, NodeId, Timestamp, TopicFilter, TopicName, UserName};
 use rmqtt::node::{BrokerInfo, NodeInfo, NodeStatus};
@@ -125,6 +125,7 @@ pub struct ClientSearchResult {
     pub connected: bool,
     pub connected_at: Timestamp,
     pub disconnected_at: Timestamp,
+    pub disconnected_reason: Reason,
     pub keepalive: u16,
     pub clean_start: bool,
     pub session_present: bool,
@@ -163,6 +164,7 @@ impl ClientSearchResult {
             "connected": self.connected,
             "connected_at": format_timestamp(self.connected_at),
             "disconnected_at": format_timestamp(self.disconnected_at),
+            "": self.disconnected_reason,
             "keepalive": self.keepalive,
             "clean_start": self.clean_start,
             "session_present": self.session_present,
