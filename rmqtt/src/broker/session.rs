@@ -316,7 +316,7 @@ impl SessionState {
                                 }
                             },
                             _ => {
-                                log::warn!("{:?} offline receive message is {:?}", id, msg);
+                                log::info!("{:?} offline receive message is {:?}", id, msg);
                             }
                         }
                     }else{
