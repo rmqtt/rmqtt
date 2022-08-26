@@ -71,6 +71,11 @@ impl Entry for ClusterLockEntry {
     }
 
     #[inline]
+    fn id_same(&self) -> Option<bool>{
+        self.inner.id_same()
+    }
+
+    #[inline]
     fn exist(&self) -> bool {
         self.inner.exist()
     }
@@ -211,8 +216,7 @@ impl Entry for ClusterLockEntry {
 
     #[inline]
     async fn subscriptions(&self) -> Option<Vec<SubsSearchResult>> {
-        let id = self.cluster_shared.id(&self.id().client_id)?;
-
+        let id = self.cluster_shared.router.id(&self.id().client_id)?;
         if id.node_id == Runtime::instance().node.id() {
             self.inner.subscriptions().await
         } else {
@@ -282,11 +286,6 @@ impl Shared for &'static ClusterShared {
     #[inline]
     fn entry(&self, id: Id) -> Box<dyn Entry> {
         Box::new(ClusterLockEntry::new(self.inner.entry(id), self, None))
-    }
-
-    #[inline]
-    fn id(&self, client_id: &str) -> Option<Id> {
-        self.router.id(client_id)
     }
 
     #[inline]

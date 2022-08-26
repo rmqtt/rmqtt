@@ -1,4 +1,4 @@
-use rmqtt::{broker::Entry, ClientInfo, Runtime, Session, TimestampMillis};
+use rmqtt::{broker::Entry, ClientId, ClientInfo, Id, Runtime, Session, TimestampMillis};
 use rmqtt::{chrono, futures};
 
 use super::types::{ClientSearchParams as SearchParams, ClientSearchResult as SearchResult};
@@ -8,7 +8,8 @@ pub(crate) async fn get(clientid: &str) -> Option<SearchResult> {
     if !shared.exist(clientid) {
         return None;
     }
-    let id = shared.id(clientid)?;
+
+    let id = Id::from(Runtime::instance().node.id(), ClientId::from(clientid));
     let peer = shared.entry(id);
     let (s, c) = if let (Some(s), Some(c)) = (peer.session(), peer.client()) {
         (s, c)

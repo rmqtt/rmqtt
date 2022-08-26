@@ -30,6 +30,7 @@ pub mod v5;
 pub trait Entry: Sync + Send {
     async fn try_lock(&self) -> Result<Box<dyn Entry>>;
     fn id(&self) -> Id;
+    fn id_same(&self) -> Option<bool>;
     async fn set(&mut self, session: Session, tx: Tx, conn: ClientInfo) -> Result<()>;
     async fn remove(&mut self) -> Result<Option<(Session, Tx, ClientInfo)>>;
     async fn kick(
@@ -53,9 +54,6 @@ pub trait Entry: Sync + Send {
 pub trait Shared: Sync + Send {
     ///
     fn entry(&self, id: Id) -> Box<dyn Entry>;
-
-    ///
-    fn id(&self, client_id: &str) -> Option<Id>;
 
     ///
     fn exist(&self, client_id: &str) -> bool;

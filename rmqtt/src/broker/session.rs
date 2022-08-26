@@ -679,24 +679,14 @@ impl SessionState {
                 .await;
         }
 
-        let id_not_same = if let Some(id) = Runtime::instance().extends.shared().await.id(&self.id.client_id)
-        {
-            if self.id != id && self.id.node_id == id.node_id {
-                log::info!("id not the same, id: {:?}, current id: {:?}, reason: {:?}", self.id, id, reason);
-                true
-            } else {
-                false
-            }
-        } else {
-            false
-        };
+        //hook, session terminated
+        self.hook.session_terminated(reason).await;
 
-        if !id_not_same {
-            //hook, session terminated
-            self.hook.session_terminated(reason).await;
-
-            //clear session, and unsubscribe
-            if let Err(e) = Runtime::instance().extends.shared().await.entry(self.id.clone()).remove().await {
+        //clear session, and unsubscribe
+        let mut entry = Runtime::instance().extends.shared().await.entry(self.id.clone());
+        if let Some(false) = entry.id_same(){
+            log::info!("{:?} remove session ...", self.id);
+            if let Err(e) = entry.remove().await {
                 log::warn!("{:?} failed to remove the session from the broker, {:?}", self.id, e);
             }
         }

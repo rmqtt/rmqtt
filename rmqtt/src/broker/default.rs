@@ -114,6 +114,11 @@ impl super::Entry for LockEntry {
     }
 
     #[inline]
+    fn id_same(&self) -> Option<bool>{
+        self.shared.peers.get(&self.id.client_id).map(|peer| peer.c.id == self.id)
+    }
+
+    #[inline]
     async fn set(&mut self, s: Session, tx: Tx, c: ClientInfo) -> Result<()> {
         self.shared.peers.insert(self.id.client_id.clone(), EntryItem { s, tx, c });
         Ok(())
@@ -328,15 +333,6 @@ impl Shared for &'static DefaultShared {
     #[inline]
     fn entry(&self, id: Id) -> Box<dyn Entry> {
         Box::new(LockEntry::new(id, self, None))
-    }
-
-    #[inline]
-    fn id(&self, client_id: &str) -> Option<Id> {
-        if let Some(e) = self.peers.get(client_id) {
-            Some(e.c.id.clone())
-        } else {
-            None
-        }
     }
 
     #[inline]
