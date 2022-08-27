@@ -682,10 +682,11 @@ impl SessionState {
         //hook, session terminated
         self.hook.session_terminated(reason).await;
 
+
         //clear session, and unsubscribe
         let mut entry = Runtime::instance().extends.shared().await.entry(self.id.clone());
-        if let Some(false) = entry.id_same(){
-            if let Err(e) = entry.remove().await {
+        if let Some(true) = entry.id_same(){
+            if let Err(e) = entry.remove_with(&self.id).await {
                 log::warn!("{:?} failed to remove the session from the broker, {:?}", self.id, e);
             }
         }

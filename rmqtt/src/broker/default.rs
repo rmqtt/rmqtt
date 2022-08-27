@@ -67,11 +67,29 @@ impl LockEntry {
     }
 
     #[inline]
-    pub async fn _remove(&mut self, clear_subscriptions: bool) -> Option<(Session, Tx, ClientInfo)> {
-        if !self.shared.peers.contains_key(&self.id.client_id) {
-            return None;
+    pub async fn _remove_with(&mut self, clear_subscriptions: bool, with_id: &Id) -> Option<(Session, Tx, ClientInfo)> {
+        if let Some((_, peer)) = { self.shared.peers.remove_if(&self.id.client_id, |_, entry| &entry.c.id == with_id) } {
+            if clear_subscriptions {
+                for topic_filter in peer.s.clone_topic_filters() {
+                    if let Err(e) = self._unsubscribe(peer.c.id.clone(), &topic_filter).await {
+                        log::warn!(
+                            "{:?} remove._unsubscribe, topic_filter: {}, {:?}",
+                            self.id,
+                            topic_filter,
+                            e
+                        );
+                    }
+                }
+            }
+            log::debug!("{:?} remove ...", self.id);
+            Some((peer.s, peer.tx, peer.c))
+        } else {
+            None
         }
+    }
 
+    #[inline]
+    pub async fn _remove(&mut self, clear_subscriptions: bool) -> Option<(Session, Tx, ClientInfo)> {
         if let Some((_, peer)) = { self.shared.peers.remove(&self.id.client_id) } {
             if clear_subscriptions {
                 for topic_filter in peer.s.clone_topic_filters() {
@@ -127,6 +145,11 @@ impl super::Entry for LockEntry {
     #[inline]
     async fn remove(&mut self) -> Result<Option<(Session, Tx, ClientInfo)>> {
         Ok(self._remove(true).await)
+    }
+
+    #[inline]
+    async fn remove_with(&mut self, id: &Id) -> Result<Option<(Session, Tx, ClientInfo)>> {
+        Ok(self._remove_with(true, id).await)
     }
 
     #[inline]

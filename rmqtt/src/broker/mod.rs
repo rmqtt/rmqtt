@@ -33,6 +33,7 @@ pub trait Entry: Sync + Send {
     fn id_same(&self) -> Option<bool>;
     async fn set(&mut self, session: Session, tx: Tx, conn: ClientInfo) -> Result<()>;
     async fn remove(&mut self) -> Result<Option<(Session, Tx, ClientInfo)>>;
+    async fn remove_with(&mut self, id: &Id) -> Result<Option<(Session, Tx, ClientInfo)>>;
     async fn kick(
         &mut self,
         clear_subscriptions: bool,

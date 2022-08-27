@@ -66,6 +66,11 @@ impl Entry for ClusterLockEntry {
     }
 
     #[inline]
+    async fn remove_with(&mut self, id: &Id) -> Result<Option<(Session, Tx, ClientInfo)>> {
+        self.inner.remove_with(id).await
+    }
+
+    #[inline]
     async fn kick(
         &mut self,
         clear_subscriptions: bool,
