@@ -61,7 +61,7 @@ impl LockEntry {
     async fn _unsubscribe(&self, id: Id, topic_filter: &str) -> Result<()> {
         Runtime::instance().extends.router().await.remove(topic_filter, id).await?;
         if let Some(s) = self.session() {
-            s.subscriptions_remove(topic_filter);
+            s.subscriptions.remove(topic_filter);
         }
         Ok(())
     }
@@ -70,7 +70,7 @@ impl LockEntry {
     pub async fn _remove_with(&mut self, clear_subscriptions: bool, with_id: &Id) -> Option<(Session, Tx, ClientInfo)> {
         if let Some((_, peer)) = { self.shared.peers.remove_if(&self.id.client_id, |_, entry| &entry.c.id == with_id) } {
             if clear_subscriptions {
-                for topic_filter in peer.s.clone_topic_filters() {
+                for topic_filter in peer.s.subscriptions.clone() {
                     if let Err(e) = self._unsubscribe(peer.c.id.clone(), &topic_filter).await {
                         log::warn!(
                             "{:?} remove._unsubscribe, topic_filter: {}, {:?}",
@@ -92,7 +92,7 @@ impl LockEntry {
     pub async fn _remove(&mut self, clear_subscriptions: bool) -> Option<(Session, Tx, ClientInfo)> {
         if let Some((_, peer)) = { self.shared.peers.remove(&self.id.client_id) } {
             if clear_subscriptions {
-                for topic_filter in peer.s.clone_topic_filters() {
+                for topic_filter in peer.s.subscriptions.clone() {
                     if let Err(e) = self._unsubscribe(peer.c.id.clone(), &topic_filter).await {
                         log::warn!(
                             "{:?} remove._unsubscribe, topic_filter: {}, {:?}",
@@ -257,7 +257,7 @@ impl super::Entry for LockEntry {
             .await
             .add(&sub.topic_filter, self.id(), sub.qos, sub.shared_group.clone())
             .await?;
-        peer.s.subscriptions_add(sub.topic_filter.clone(), sub.qos, sub.shared_group.clone());
+        peer.s.subscriptions.add(sub.topic_filter.clone(), sub.qos, sub.shared_group.clone());
         Ok(SubscribeReturn::new_success(sub.qos))
     }
 
@@ -275,7 +275,7 @@ impl super::Entry for LockEntry {
         {
             log::warn!("{:?} unsubscribe, error:{:?}", self.id, e);
         }
-        let remove_ok = peer.s.subscriptions_remove(&unsubscribe.topic_filter).is_some();
+        let remove_ok = peer.s.subscriptions.remove(&unsubscribe.topic_filter).is_some();
         Ok(remove_ok)
     }
 
@@ -300,7 +300,7 @@ impl super::Entry for LockEntry {
     async fn subscriptions(&self) -> Option<Vec<SubsSearchResult>> {
         if let Some(s) = self.session() {
             let subs = s
-                .subscriptions()
+                .subscriptions
                 .iter()
                 .map(|entry| {
                     let (topic_filter, (qos, group)) = entry.pair();
@@ -1019,12 +1019,12 @@ impl DefaultRetainStorage {
     }
 
     #[inline]
-    pub async fn add(&self, topic: &Topic, retain: Retain) {
+    async fn add(&self, topic: &Topic, retain: Retain) {
         self.messages.write().await.insert(topic, retain);
     }
 
     #[inline]
-    pub async fn remove(&self, topic: &Topic) -> Option<Retain> {
+    async fn remove(&self, topic: &Topic) -> Option<Retain> {
         self.messages.write().await.remove(topic)
     }
 }
