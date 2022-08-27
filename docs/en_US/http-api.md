@@ -368,7 +368,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1/subscriptions/example1"
 ```
 
 
-## 路由
+## Routes
 
 ### GET /api/v1/routes
 
@@ -730,7 +730,7 @@ $ curl -i -X PUT "http://localhost:6060/api/v1/plugins/1/rmqtt-web-hook/unload"
 true
 ```
 
-## 状态
+## Stats
 ### GET /api/v1/stats
 
 <span id = "get-stats" />
