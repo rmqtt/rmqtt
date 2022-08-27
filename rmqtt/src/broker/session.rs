@@ -70,7 +70,7 @@ impl SessionState {
         let mut state = self.clone();
         ntex::rt::spawn(async move {
             log::debug!("{:?} there are {} offline messages ...", state.id, state.deliver_queue.len());
-            Runtime::instance().stats.sessions.inc();
+            // Runtime::instance().stats.sessions.inc();
             Runtime::instance().stats.connections.inc();
 
             let (burst, replenish_n_per) = state.fitter.mqueue_rate_limit();
@@ -268,7 +268,7 @@ impl SessionState {
                 }
             }
 
-            Runtime::instance().stats.sessions.dec();
+            // Runtime::instance().stats.sessions.dec();
         });
         (self, msg_tx)
     }
@@ -814,9 +814,9 @@ impl Session {
         max_inflight: usize,
         created_at: TimestampMillis,
     ) -> Self {
-        //let max_inflight = listen_cfg.max_inflight;
         let message_retry_interval = listen_cfg.message_retry_interval.as_millis() as TimestampMillis;
         let message_expiry_interval = listen_cfg.message_expiry_interval.as_millis() as TimestampMillis;
+        Runtime::instance().stats.sessions.inc();
         Self(Arc::new(_SessionInner {
             id,
             listen_cfg,
@@ -883,6 +883,7 @@ pub struct _SessionInner {
 
 impl Drop for _SessionInner {
     fn drop(&mut self) {
+        Runtime::instance().stats.sessions.dec();
         self.clear_subscriptions();
     }
 }
