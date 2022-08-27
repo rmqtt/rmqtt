@@ -108,7 +108,7 @@ pub struct Stats {
     pub sessions: Counter,
     pub subscriptions: Counter,
     pub subscriptions_shared: Counter,
-    pub retaineds: Counter, //retained messages
+    pub retaineds: Counter,
 
     topics_map: HashMap<NodeId, Counter>,
     routes_map: HashMap<NodeId, Counter>,
