@@ -685,7 +685,6 @@ impl SessionState {
         //clear session, and unsubscribe
         let mut entry = Runtime::instance().extends.shared().await.entry(self.id.clone());
         if let Some(false) = entry.id_same(){
-            log::info!("{:?} remove session ...", self.id);
             if let Err(e) = entry.remove().await {
                 log::warn!("{:?} failed to remove the session from the broker, {:?}", self.id, e);
             }
