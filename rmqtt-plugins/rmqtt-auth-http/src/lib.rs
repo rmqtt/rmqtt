@@ -407,7 +407,7 @@ impl Handler for AuthHandler {
                 }
 
                 return if !self.auth(*connect_info, connect_info.password()).await {
-                    (false, Some(HookResult::AuthResult(AuthResult::NotAuthorized)))
+                    (false, Some(HookResult::AuthResult(AuthResult::BadUsernameOrPassword)))
                 } else {
                     (stop, Some(HookResult::AuthResult(AuthResult::Allow)))
                 };
