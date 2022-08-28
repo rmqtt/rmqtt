@@ -1266,6 +1266,61 @@ impl HookManager for &'static DefaultHookManager {
         }
     }
 
+    #[inline]
+    async fn client_authenticate(&self, connect_info: &ConnectInfo, allow_anonymous: bool) -> ConnectAckReason {
+        let proto_ver = connect_info.proto_ver();
+        let ok = || match proto_ver {
+            MQTT_LEVEL_31 => ConnectAckReason::V3(ConnectAckReasonV3::ConnectionAccepted),
+            MQTT_LEVEL_311 => ConnectAckReason::V3(ConnectAckReasonV3::ConnectionAccepted),
+            MQTT_LEVEL_5 => ConnectAckReason::V5(ConnectAckReasonV5::Success),
+            _ => ConnectAckReason::V3(ConnectAckReasonV3::ConnectionAccepted),
+        };
+
+        log::debug!("{:?} username: {:?}", connect_info.id(), connect_info.username());
+        if connect_info.username().is_none() && allow_anonymous {
+            return ok();
+        }
+
+        let result = self
+            .exec(Type::ClientAuthenticate, Parameter::ClientAuthenticate(connect_info))
+            .await;
+        log::debug!("{:?} result: {:?}", connect_info.id(), result);
+        let (bad_user_or_pass, not_auth) = match result {
+            Some(HookResult::AuthResult(AuthResult::BadUsernameOrPassword)) => (true, false),
+            Some(HookResult::AuthResult(AuthResult::NotAuthorized)) => (false, true),
+            Some(HookResult::AuthResult(AuthResult::Allow)) => return ok(),
+            _ => {
+                //or AuthResult::NotFound
+                if allow_anonymous {
+                    return ok();
+                } else {
+                    (false, true)
+                }
+            }
+        };
+
+        if bad_user_or_pass {
+            return match proto_ver {
+                MQTT_LEVEL_31 => ConnectAckReason::V3(ConnectAckReasonV3::BadUserNameOrPassword),
+                MQTT_LEVEL_311 => ConnectAckReason::V3(ConnectAckReasonV3::BadUserNameOrPassword),
+                MQTT_LEVEL_5 => ConnectAckReason::V5(ConnectAckReasonV5::BadUserNameOrPassword),
+                _ => ConnectAckReason::V3(ConnectAckReasonV3::BadUserNameOrPassword),
+            };
+        }
+
+        if not_auth {
+            return match proto_ver {
+                MQTT_LEVEL_31 => ConnectAckReason::V3(ConnectAckReasonV3::NotAuthorized),
+                MQTT_LEVEL_311 => ConnectAckReason::V3(ConnectAckReasonV3::NotAuthorized),
+                MQTT_LEVEL_5 => ConnectAckReason::V5(ConnectAckReasonV5::NotAuthorized),
+                _ => ConnectAckReason::V3(ConnectAckReasonV3::NotAuthorized),
+            };
+        }
+
+        ok()
+    }
+
+
     ///When sending mqtt:: connectack message
     async fn client_connack(
         &self,
@@ -1372,60 +1427,6 @@ impl Hook for DefaultHook {
     #[inline]
     async fn session_created(&self) {
         self.manager.exec(Type::SessionCreated, Parameter::SessionCreated(&self.s, &self.c)).await;
-    }
-
-    #[inline]
-    async fn client_authenticate(&self, password: Option<Password>) -> ConnectAckReason {
-        let ok = || match self.c.protocol() {
-            MQTT_LEVEL_31 => ConnectAckReason::V3(ConnectAckReasonV3::ConnectionAccepted),
-            MQTT_LEVEL_311 => ConnectAckReason::V3(ConnectAckReasonV3::ConnectionAccepted),
-            MQTT_LEVEL_5 => ConnectAckReason::V5(ConnectAckReasonV5::Success),
-            _ => ConnectAckReason::V3(ConnectAckReasonV3::ConnectionAccepted),
-        };
-
-        log::debug!("{:?} username: {:?}", self.s.id, self.c.connect_info.username());
-        if self.c.connect_info.username().is_none() && self.s.listen_cfg.allow_anonymous {
-            return ok();
-        }
-
-        let result = self
-            .manager
-            .exec(Type::ClientAuthenticate, Parameter::ClientAuthenticate(&self.s, &self.c, password))
-            .await;
-        log::debug!("{:?} result: {:?}", self.s.id, result);
-        let (bad_user_or_pass, not_auth) = match result {
-            Some(HookResult::AuthResult(AuthResult::BadUsernameOrPassword)) => (true, false),
-            Some(HookResult::AuthResult(AuthResult::NotAuthorized)) => (false, true),
-            Some(HookResult::AuthResult(AuthResult::Allow)) => return ok(),
-            _ => {
-                //or AuthResult::NotFound
-                if self.s.listen_cfg.allow_anonymous {
-                    return ok();
-                } else {
-                    (false, true)
-                }
-            }
-        };
-
-        if bad_user_or_pass {
-            return match self.c.protocol() {
-                MQTT_LEVEL_31 => ConnectAckReason::V3(ConnectAckReasonV3::BadUserNameOrPassword),
-                MQTT_LEVEL_311 => ConnectAckReason::V3(ConnectAckReasonV3::BadUserNameOrPassword),
-                MQTT_LEVEL_5 => ConnectAckReason::V5(ConnectAckReasonV5::BadUserNameOrPassword),
-                _ => ConnectAckReason::V3(ConnectAckReasonV3::BadUserNameOrPassword),
-            };
-        }
-
-        if not_auth {
-            return match self.c.protocol() {
-                MQTT_LEVEL_31 => ConnectAckReason::V3(ConnectAckReasonV3::NotAuthorized),
-                MQTT_LEVEL_311 => ConnectAckReason::V3(ConnectAckReasonV3::NotAuthorized),
-                MQTT_LEVEL_5 => ConnectAckReason::V5(ConnectAckReasonV5::NotAuthorized),
-                _ => ConnectAckReason::V3(ConnectAckReasonV3::NotAuthorized),
-            };
-        }
-
-        ok()
     }
 
     #[inline]

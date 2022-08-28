@@ -84,6 +84,14 @@ impl ConnectInfo {
     }
 
     #[inline]
+    pub fn client_id(&self) -> &ClientId {
+        match self {
+            ConnectInfo::V3(_, c) => &c.client_id,
+            ConnectInfo::V5(_, c) => &c.client_id,
+        }
+    }
+
+    #[inline]
     pub fn to_json(&self) -> serde_json::Value {
         let json = match self {
             ConnectInfo::V3(id, conn_info) => {
@@ -149,6 +157,14 @@ impl ConnectInfo {
     }
 
     #[inline]
+    pub fn password(&self) -> Option<&Password> {
+        match self {
+            ConnectInfo::V3(_, conn_info) => conn_info.password.as_ref(),
+            ConnectInfo::V5(_, conn_info) => conn_info.password.as_ref(),
+        }
+    }
+
+    #[inline]
     pub fn clean_start(&self) -> bool {
         match self {
             ConnectInfo::V3(_, conn_info) => conn_info.clean_session,
@@ -160,7 +176,7 @@ impl ConnectInfo {
     pub fn proto_ver(&self) -> u8 {
         match self {
             ConnectInfo::V3(_, conn_info) => conn_info.protocol.level(),
-            ConnectInfo::V5(_, _) => 5,
+            ConnectInfo::V5(_, _) => MQTT_LEVEL_5,
         }
     }
 }

@@ -1,4 +1,4 @@
-use crate::{ClientInfo, grpc, Password, Result, Session};
+use crate::{ClientInfo, grpc, Result, Session};
 use crate::broker::types::*;
 
 pub type Priority = u32;
@@ -15,6 +15,9 @@ pub trait HookManager: Sync + Send {
 
     ///When a connect message is received
     async fn client_connect(&self, connect_info: &ConnectInfo) -> Option<UserProperties>;
+
+    ///authenticate
+    async fn client_authenticate(&self, connect_info: &ConnectInfo, allow_anonymous: bool) -> ConnectAckReason;
 
     ///When sending mqtt:: connectack message
     async fn client_connack(
@@ -57,8 +60,8 @@ pub trait Hook: Sync + Send {
     ///session created
     async fn session_created(&self);
 
-    ///authenticate
-    async fn client_authenticate(&self, password: Option<Password>) -> ConnectAckReason;
+    // ///authenticate
+    // async fn client_authenticate(&self, password: Option<Password>) -> ConnectAckReason;
 
     ///After the mqtt:: connectack message is sent, the connection is created successfully
     async fn client_connected(&self);
@@ -175,7 +178,7 @@ pub enum Parameter<'a> {
 
     ClientConnect(&'a ConnectInfo),
     ClientConnack(&'a ConnectInfo, &'a ConnectAckReason),
-    ClientAuthenticate(&'a Session, &'a ClientInfo, Option<Password>),
+    ClientAuthenticate(&'a ConnectInfo),
     ClientConnected(&'a Session, &'a ClientInfo),
     ClientDisconnected(&'a Session, &'a ClientInfo, Reason),
     ClientSubscribe(&'a Session, &'a ClientInfo, &'a Subscribe),
@@ -202,7 +205,7 @@ impl<'a> Parameter<'a> {
             Parameter::SessionSubscribed(_, _, _) => Type::SessionSubscribed,
             Parameter::SessionUnsubscribed(_, _, _) => Type::SessionUnsubscribed,
 
-            Parameter::ClientAuthenticate(_, _, _) => Type::ClientAuthenticate,
+            Parameter::ClientAuthenticate(_) => Type::ClientAuthenticate,
             Parameter::ClientConnect(_) => Type::ClientConnect,
             Parameter::ClientConnack(_, _) => Type::ClientConnack,
             Parameter::ClientConnected(_, _) => Type::ClientConnected,

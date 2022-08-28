@@ -5,7 +5,7 @@ use std::sync::Arc;
 use serde::de::{self, Deserialize, Deserializer};
 use serde::ser::{self, Serialize};
 
-use rmqtt::{ClientId, ClientInfo, MqttError, Result, Topic, UserName};
+use rmqtt::{ClientId, ConnectInfo, MqttError, Result, Topic, UserName};
 use rmqtt::{ahash, dashmap, serde_json::{self, Value}, tokio::sync::RwLock};
 use rmqtt::broker::topic::TopicTree;
 
@@ -128,19 +128,19 @@ pub enum User {
 
 impl User {
     #[inline]
-    pub fn hit(&self, client_info: &ClientInfo) -> bool {
+    pub fn hit(&self, connect_info: &ConnectInfo) -> bool {
         match self {
             User::All => true,
             User::Username(name1) => {
-                if let Some(name2) = client_info.connect_info.username() {
+                if let Some(name2) = connect_info.username() {
                     name1 == name2
                 } else {
                     false
                 }
             }
-            User::Clientid(clientid) => client_info.id.client_id == clientid,
+            User::Clientid(clientid) => connect_info.client_id() == clientid,
             User::Ipaddr(ipaddr) => {
-                if let Some(remote_addr) = client_info.id.remote_addr {
+                if let Some(remote_addr) = connect_info.id().remote_addr {
                     ipaddr == remote_addr.ip().to_string().as_str()
                 } else {
                     false

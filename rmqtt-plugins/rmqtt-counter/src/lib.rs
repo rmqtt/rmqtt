@@ -127,7 +127,7 @@ impl Handler for CounterHandler {
                     self.metrics.client_auth_anonymous_inc();
                 }
             }
-            Parameter::ClientAuthenticate(_session, _client, _p) => {
+            Parameter::ClientAuthenticate(_) => {
                 self.metrics.client_authenticate_inc();
             }
             Parameter::ClientConnack(_connect_info, _reason) => self.metrics.client_connack_inc(),
