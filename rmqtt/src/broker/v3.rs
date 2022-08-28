@@ -90,6 +90,18 @@ pub async fn handshake<Io>(
             .await);
     }
 
+    //hook, client authenticate
+    let ack = Runtime::instance().extends.hook_mgr().await.client_authenticate(&connect_info, listen_cfg.allow_anonymous).await;
+    if !ack.success() {
+        if let ConnectAckReason::V3(ack) = ack {
+            return Ok(
+                refused_ack(handshake, &connect_info, ack, "Authentication failed".into()).await
+            );
+        } else {
+            unreachable!()
+        }
+    }
+
     let sink = handshake.sink();
     let packet = handshake.packet_mut();
 
@@ -156,18 +168,6 @@ pub async fn handshake<Io>(
     if offline_info.is_none() {
         //hook, session created
         hook.session_created().await;
-    }
-
-    //hook, client authenticate
-    let ack = hook.client_authenticate(packet.password.take()).await;
-    if !ack.success() {
-        if let ConnectAckReason::V3(ack) = ack {
-            return Ok(
-                refused_ack(handshake, &client.connect_info, ack, "Authentication failed".into()).await
-            );
-        } else {
-            unreachable!()
-        }
     }
 
     let (state, tx) =
