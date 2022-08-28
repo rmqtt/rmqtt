@@ -14,8 +14,7 @@ use config::PluginConfig;
 use rmqtt::{ahash, async_trait, dashmap, lazy_static, log, reqwest, serde_json, tokio};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
-    broker::types::{ConnectInfo, AuthResult, Password, PublishAclResult, SubscribeAckReason, SubscribeAclResult},
-    ClientId,
+    broker::types::{Id, ConnectInfo, AuthResult, Password, PublishAclResult, SubscribeAckReason, SubscribeAclResult},
     MqttError, plugin::{DynPlugin, DynPluginResult, Plugin}, Result, Runtime, TopicName,
 };
 use rmqtt::ntex::util::ByteString;
@@ -27,10 +26,24 @@ type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 type HashSet<K> = std::collections::HashSet<K, ahash::RandomState>;
 
 const IGNORE: &str = "ignore";
-const SUB: &str = "1";
-const PUB: &str = "2";
 
-type CacheMap = Arc<DashMap<ClientId, CacheValue>>;
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Copy)]
+enum ACLType{
+    SUB = 1,
+    PUB = 2,
+}
+
+impl ACLType {
+    fn as_str(&self) -> &str{
+        match self{
+            Self::SUB => "1",
+            Self::PUB => "2",
+        }
+    }
+}
+
+
+type CacheMap = Arc<DashMap<Id, CacheValue>>;
 
 #[inline]
 pub async fn register(
@@ -138,6 +151,14 @@ impl Plugin for AuthHttpPlugin {
     fn descr(&self) -> &str {
         &self.descr
     }
+
+    #[inline]
+    async fn attrs(&self) -> serde_json::Value {
+        serde_json::json!({
+            "cache_count": self.cache_map.len()
+        })
+    }
+
 }
 
 struct AuthHandler {
@@ -232,7 +253,7 @@ impl AuthHandler {
         params: &'a mut HashMap<String, String>,
         connect_info: &ConnectInfo,
         password: Option<&Password>,
-        sub_or_pub: Option<(&str, &TopicName)>,
+        sub_or_pub: Option<(ACLType, &TopicName)>,
     ) -> Result<()> {
         let password = if let Some(p) = password{
             ByteString::try_from(p.clone())?
@@ -248,8 +269,8 @@ impl AuthHandler {
             *v = v.replace("%a", &remote_addr);
             *v = v.replace("%r", "mqtt");
             *v = v.replace("%P", &password);
-            if let Some((flag, topic)) = sub_or_pub {
-                *v = v.replace("%A", flag);
+            if let Some((ref acl_type, topic)) = sub_or_pub {
+                *v = v.replace("%A", acl_type.as_str());
                 *v = v.replace("%t", topic);
             } else {
                 *v = v.replace("%A", "");
@@ -264,27 +285,25 @@ impl AuthHandler {
         connect_info: &ConnectInfo,
         mut req_cfg: config::Req,
         password: Option<&Password>,
-        sub_or_pub: Option<(&str, &TopicName)>,
+        sub_or_pub: Option<(ACLType, &TopicName)>,
         check_super: bool,
     ) -> Result<bool> {
-        log::debug!("req_cfg.url.path(): {:?}", req_cfg.url.path());
+        log::debug!("{:?} req_cfg.url.path(): {:?}", connect_info.id(), req_cfg.url.path());
         let catch_key_fn = || {
-            CacheKey(
+            CacheItem(
                 req_cfg.url.path().to_owned(),
-                connect_info.id().remote_addr.map(|addr| addr.ip()),
-                password.cloned(),
-                sub_or_pub.map(|(f, t)| (f.to_owned(), t.to_string())),
+                sub_or_pub.map(|(f, t)| (f, t.clone())),
             )
         };
         let catch_key = {
-            if let Some(c_map) = self.cache_map.get(&connect_info.id().client_id) {
-                log::debug!("{:?} catch value: {:?}", connect_info.id(), c_map.value());
-                if c_map.is_super {
+            if let Some(cached) = self.cache_map.get(connect_info.id()) {
+                log::debug!("{:?} catch value: {:?}", connect_info.id(), cached.value());
+                if cached.is_super {
                     return Ok(true);
                 }
 
                 let catch_key = catch_key_fn();
-                if c_map.ignores.contains(&catch_key) {
+                if cached.ignores.contains(&catch_key) {
                     return Ok(true);
                 }
                 catch_key
@@ -325,15 +344,15 @@ impl AuthHandler {
             Self::http_form_request(req_cfg.url, req_cfg.method, body, headers, timeout).await?
         };
 
-        log::debug!("allow: {:?}", allow);
+        log::debug!("check_super: {}, allow: {:?}, ignore: {}", check_super, allow, ignore);
 
         //IGNORE
         if allow && ignore == IGNORE {
-            let mut c_map = self.cache_map.entry(connect_info.id().client_id.clone()).or_default();
+            let mut cached = self.cache_map.entry(connect_info.id().clone()).or_default();
             if check_super {
-                c_map.is_super = true;
-            } else {
-                c_map.ignores.insert(catch_key);
+                cached.is_super = true;
+            } else if sub_or_pub.is_some() {
+                cached.ignores.insert(catch_key);
             }
         }
 
@@ -368,7 +387,7 @@ impl AuthHandler {
         }
     }
 
-    async fn acl(&self, connect_info: &ConnectInfo, sub_or_pub: Option<(&str, &TopicName)>) -> bool {
+    async fn acl(&self, connect_info: &ConnectInfo, sub_or_pub: Option<(ACLType, &TopicName)>) -> bool {
         if let Some(req) = { self.cfg.read().await.http_acl_req.clone() } {
             match self.request(connect_info, req.clone(), None, sub_or_pub, false).await {
                 Ok(allow) => {
@@ -420,7 +439,7 @@ impl Handler for AuthHandler {
                     }
                 }
 
-                return if self.acl(&client_info.connect_info, Some((SUB, &subscribe.topic_filter))).await {
+                return if self.acl(&client_info.connect_info, Some((ACLType::SUB, &subscribe.topic_filter))).await {
                     (
                         !self.cfg.read().await.break_if_allow,
                         Some(HookResult::SubscribeAclResult(SubscribeAclResult::new_success(subscribe.qos))),
@@ -441,7 +460,7 @@ impl Handler for AuthHandler {
                     return (false, acc);
                 }
 
-                return if self.acl(&client_info.connect_info, Some((PUB, publish.topic()))).await {
+                return if self.acl(&client_info.connect_info, Some((ACLType::PUB, publish.topic()))).await {
                     (
                         !self.cfg.read().await.break_if_allow,
                         Some(HookResult::PublishAclResult(PublishAclResult::Allow)),
@@ -453,7 +472,7 @@ impl Handler for AuthHandler {
             }
             Parameter::ClientDisconnected(_session, client_info, _reason) => {
                 log::debug!("ClientDisconnected");
-                self.cache_map.remove(&client_info.id.client_id);
+                self.cache_map.remove(&client_info.id);
             }
             _ => {
                 log::error!("unimplemented, {:?}", param)
@@ -475,30 +494,11 @@ lazy_static::lazy_static! {
 
 type Path = String;
 
-#[derive(Clone, Debug)]
-struct CacheKey(Path, Option<std::net::IpAddr>, Option<Password>, Option<(String, String)>);
-
-impl PartialEq<CacheKey> for CacheKey {
-    #[inline]
-    fn eq(&self, other: &CacheKey) -> bool {
-        self.0 == other.0 && self.1 == other.1 && self.2 == other.2 && self.3 == other.3
-    }
-}
-
-impl Eq for CacheKey {}
-
-impl std::hash::Hash for CacheKey {
-    #[inline]
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.0.hash(state);
-        self.1.hash(state);
-        self.2.hash(state);
-        self.3.hash(state);
-    }
-}
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct CacheItem(Path, Option<(ACLType, TopicName)>);
 
 #[derive(Debug, Default)]
 struct CacheValue {
     is_super: bool,
-    ignores: HashSet<CacheKey>,
+    ignores: HashSet<CacheItem>,
 }
