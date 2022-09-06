@@ -44,7 +44,6 @@ pub type TopicName = bytestring::ByteString;
 pub type Topic = ntex_mqtt::Topic;
 ///topic filter
 pub type TopicFilter = bytestring::ByteString;
-// pub type TopicFilterString = String;
 pub type SharedGroup = String;
 pub type IsDisconnect = bool;
 pub type MessageExpiry = bool;
@@ -52,6 +51,7 @@ pub type TimestampMillis = i64;
 pub type Timestamp = i64;
 pub type IsOnline = bool;
 pub type IsAdmin = bool;
+pub type LimiterName = u16;
 
 pub type Tx = mpsc::UnboundedSender<Message>;
 pub type Rx = mpsc::UnboundedReceiver<Message>;

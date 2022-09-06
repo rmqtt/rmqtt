@@ -1580,7 +1580,7 @@ impl Hook for DefaultHook {
 }
 
 pub struct DefaultLimiterManager {
-    limiters: DashMap<String, DefaultLimiter>,
+    limiters: DashMap<LimiterName, DefaultLimiter>,
 }
 
 impl DefaultLimiterManager {
@@ -1593,7 +1593,7 @@ impl DefaultLimiterManager {
 
 impl LimiterManager for &'static DefaultLimiterManager {
     #[inline]
-    fn get(&self, name: String, listen_cfg: Listener) -> Result<Box<dyn Limiter>> {
+    fn get(&self, name: LimiterName, listen_cfg: Listener) -> Result<Box<dyn Limiter>> {
         let l = self
             .limiters
             .entry(name)

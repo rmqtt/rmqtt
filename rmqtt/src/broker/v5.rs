@@ -50,7 +50,7 @@ pub async fn handshake<Io>(
         .extends
         .limiter_mgr()
         .await
-        .get(format!("{}", local_addr.port()), listen_cfg.clone())?;
+        .get(local_addr.port(), listen_cfg.clone())?;
 
     if let Err(e) = limiter.acquire(handshake.handshakings()).await {
         log::debug!(
