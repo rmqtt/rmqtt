@@ -2,8 +2,9 @@ use std::fmt;
 use std::sync::atomic::{AtomicIsize, Ordering};
 
 use once_cell::sync::OnceCell;
-
+use ntex_mqtt::handshakings;
 use crate::{HashMap, NodeId, Runtime};
+use crate::broker::executor::{get_active_count, get_rate};
 
 type Current = AtomicIsize;
 type Max = AtomicIsize;
@@ -60,6 +61,17 @@ impl Counter {
     }
 
     #[inline]
+    pub fn current_set(&self, c: isize) {
+        self.0.store(c, Ordering::SeqCst);
+    }
+
+    #[inline]
+    pub fn sets(&self, c: isize) {
+        self.current_set(c);
+        self.1.fetch_max(c, Ordering::SeqCst);
+    }
+
+    #[inline]
     pub fn dec(&self) {
         self.decs(1)
     }
@@ -100,10 +112,14 @@ impl Counter {
         self.0.store(other.0.load(Ordering::SeqCst), Ordering::SeqCst);
         self.1.store(other.1.load(Ordering::SeqCst), Ordering::SeqCst);
     }
+
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Stats {
+    pub handshakings: Counter,
+    pub handshakings_active: Counter,
+    pub handshakings_rate: Counter,
     pub connections: Counter,
     pub sessions: Counter,
     pub subscriptions: Counter,
@@ -119,6 +135,9 @@ impl Stats {
     pub fn instance() -> &'static Self {
         static INSTANCE: OnceCell<Stats> = OnceCell::new();
         INSTANCE.get_or_init(|| Self {
+            handshakings: Counter::new(),
+            handshakings_active: Counter::new(),
+            handshakings_rate: Counter::new(),
             connections: Counter::new(),
             sessions: Counter::new(),
             subscriptions: Counter::new(),
@@ -139,7 +158,15 @@ impl Stats {
         topics_map.insert(node_id, router.topics());
         let mut routes_map = HashMap::default();
         routes_map.insert(node_id, router.routes());
+
+        self.handshakings.current_set(handshakings());
+        self.handshakings_active.current_set(get_active_count());
+        self.handshakings_rate.sets((get_rate() * 100.0) as isize);
+
         Self {
+            handshakings: self.handshakings.clone(),
+            handshakings_active: self.handshakings_active.clone(),
+            handshakings_rate: self.handshakings_rate.clone(),
             connections: self.connections.clone(),
             sessions: self.sessions.clone(),
             subscriptions: self.subscriptions.clone(),
@@ -153,6 +180,9 @@ impl Stats {
 
     #[inline]
     pub fn add(&mut self, other: Self) {
+        self.handshakings.add(&other.handshakings);
+        self.handshakings_active.add(&other.handshakings_active);
+        self.handshakings_rate.add(&other.handshakings_rate);
         self.connections.add(&other.connections);
         self.sessions.add(&other.sessions);
         self.subscriptions.add(&other.subscriptions);
@@ -169,6 +199,11 @@ impl Stats {
         let topics = router.merge_topics(&self.topics_map);
         let routes = router.merge_routes(&self.routes_map);
         json!({
+            "handshakings.count": self.handshakings.count(),
+            "handshakings.max": self.handshakings.max(),
+            "handshakings_active.count": self.handshakings_active.count(),
+            "handshakings_rate.count": self.handshakings_rate.count() as f64 / 100.0,
+            "handshakings_rate.max": self.handshakings_rate.max() as f64 / 100.0,
             "connections.count": self.connections.count(),
             "connections.max": self.connections.max(),
             "sessions.count": self.sessions.count(),
