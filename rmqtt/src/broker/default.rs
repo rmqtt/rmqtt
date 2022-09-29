@@ -67,10 +67,16 @@ impl LockEntry {
     }
 
     #[inline]
-    pub async fn _remove_with(&mut self, clear_subscriptions: bool, with_id: &Id) -> Option<(Session, Tx, ClientInfo)> {
-        if let Some((_, peer)) = { self.shared.peers.remove_if(&self.id.client_id, |_, entry| &entry.c.id == with_id) } {
+    pub async fn _remove_with(
+        &mut self,
+        clear_subscriptions: bool,
+        with_id: &Id,
+    ) -> Option<(Session, Tx, ClientInfo)> {
+        if let Some((_, peer)) =
+        { self.shared.peers.remove_if(&self.id.client_id, |_, entry| &entry.c.id == with_id) }
+        {
             if clear_subscriptions {
-                for topic_filter in peer.s.subscriptions.clone() {
+                for topic_filter in peer.s.subscriptions.to_topic_filters() {
                     if let Err(e) = self._unsubscribe(peer.c.id.clone(), &topic_filter).await {
                         log::warn!(
                             "{:?} remove._unsubscribe, topic_filter: {}, {:?}",
@@ -92,7 +98,7 @@ impl LockEntry {
     pub async fn _remove(&mut self, clear_subscriptions: bool) -> Option<(Session, Tx, ClientInfo)> {
         if let Some((_, peer)) = { self.shared.peers.remove(&self.id.client_id) } {
             if clear_subscriptions {
-                for topic_filter in peer.s.subscriptions.clone() {
+                for topic_filter in peer.s.subscriptions.to_topic_filters() {
                     if let Err(e) = self._unsubscribe(peer.c.id.clone(), &topic_filter).await {
                         log::warn!(
                             "{:?} remove._unsubscribe, topic_filter: {}, {:?}",
@@ -132,7 +138,7 @@ impl super::Entry for LockEntry {
     }
 
     #[inline]
-    fn id_same(&self) -> Option<bool>{
+    fn id_same(&self) -> Option<bool> {
         self.shared.peers.get(&self.id.client_id).map(|peer| peer.c.id == self.id)
     }
 
@@ -1267,7 +1273,11 @@ impl HookManager for &'static DefaultHookManager {
     }
 
     #[inline]
-    async fn client_authenticate(&self, connect_info: &ConnectInfo, allow_anonymous: bool) -> ConnectAckReason {
+    async fn client_authenticate(
+        &self,
+        connect_info: &ConnectInfo,
+        allow_anonymous: bool,
+    ) -> ConnectAckReason {
         let proto_ver = connect_info.proto_ver();
         let ok = || match proto_ver {
             MQTT_LEVEL_31 => ConnectAckReason::V3(ConnectAckReasonV3::ConnectionAccepted),
@@ -1281,9 +1291,7 @@ impl HookManager for &'static DefaultHookManager {
             return ok();
         }
 
-        let result = self
-            .exec(Type::ClientAuthenticate, Parameter::ClientAuthenticate(connect_info))
-            .await;
+        let result = self.exec(Type::ClientAuthenticate, Parameter::ClientAuthenticate(connect_info)).await;
         log::debug!("{:?} result: {:?}", connect_info.id(), result);
         let (bad_user_or_pass, not_auth) = match result {
             Some(HookResult::AuthResult(AuthResult::BadUsernameOrPassword)) => (true, false),
@@ -1319,7 +1327,6 @@ impl HookManager for &'static DefaultHookManager {
 
         ok()
     }
-
 
     ///When sending mqtt:: connectack message
     async fn client_connack(
@@ -1613,8 +1620,8 @@ impl LimiterManager for &'static DefaultLimiterManager {
 #[derive(Clone)]
 pub struct DefaultLimiter {
     max_handshake_limit: isize,
-    limiter: Arc<RateLimiter>,
     handshake_timeout: Duration,
+    limiter: Arc<RateLimiter>,
 }
 
 impl DefaultLimiter {
@@ -1622,6 +1629,7 @@ impl DefaultLimiter {
     pub fn new(max_handshake_rate: usize, max_handshake_limit: usize, handshake_timeout: Duration) -> Self {
         Self {
             max_handshake_limit: max_handshake_limit as isize,
+            handshake_timeout,
             limiter: Arc::new(
                 RateLimiter::builder()
                     .initial(max_handshake_rate)
@@ -1631,7 +1639,6 @@ impl DefaultLimiter {
                     // .fair(false)
                     .build(),
             ),
-            handshake_timeout,
         }
     }
 }
