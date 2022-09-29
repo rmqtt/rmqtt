@@ -2,11 +2,13 @@ use std::convert::From as _f;
 use std::net::SocketAddr;
 
 use ntex_mqtt::v3::{self};
+use rust_box::task_executor::LocalSpawnExt;
 
 use crate::{ClientInfo, MqttError, Result, Session, SessionState};
 use crate::broker::{inflight::MomentStatus, types::*};
 use crate::runtime::Runtime;
 use crate::settings::listener::Listener;
+use crate::broker::executor::get_handshake_executor;
 
 #[inline]
 async fn refused_ack<Io>(
@@ -32,9 +34,9 @@ async fn refused_ack<Io>(
 }
 
 #[inline]
-pub async fn handshake<Io>(
+pub async fn handshake<Io: 'static>(
     listen_cfg: Listener,
-    mut handshake: v3::Handshake<Io>,
+    handshake: v3::Handshake<Io>,
     remote_addr: SocketAddr,
     local_addr: SocketAddr,
 ) -> Result<v3::HandshakeAck<Io, SessionState>, MqttError> {
@@ -46,36 +48,57 @@ pub async fn handshake<Io>(
         listen_cfg
     );
 
-    let limiter = Runtime::instance()
-        .extends
-        .limiter_mgr()
-        .await
-        .get(local_addr.port(), listen_cfg.clone())?;
-
-    if let Err(e) = limiter.acquire(handshake.handshakings()).await {
-        log::debug!(
-            "{}@{}/{}/{}/{} Connection Refused, handshake failed, reason: {:?}",
-            Runtime::instance().node.id(),
-            local_addr,
-            remote_addr,
-            handshake.packet().client_id,
-            handshake.packet().username.as_ref().map(|un| <UserName as AsRef<str>>::as_ref(un)).unwrap_or_default(),
-            e
-        );
-        return Ok(handshake.service_unavailable());
-    }
-
-    let packet = handshake.packet().clone();
-
     let id = Id::new(
         Runtime::instance().node.id(),
         Some(local_addr),
         Some(remote_addr),
-        packet.client_id.clone(),
-        handshake.packet_mut().username.take(),
+        handshake.packet().client_id.clone(),
+        handshake.packet().username.clone(),
     );
+    let id1 = id.clone();
+    Runtime::instance().stats.handshakings.max_max(handshake.handshakings());
 
-    let connect_info = ConnectInfo::V3(id.clone(), packet);
+    let exec = get_handshake_executor(local_addr.port(), listen_cfg.clone());
+
+    let start = chrono::Local::now().timestamp_millis();
+    let handshake_fut = async move {
+        if (chrono::Local::now().timestamp_millis() - start) > listen_cfg.handshake_timeout() as i64 {
+            Runtime::instance().metrics.client_handshaking_timeout_inc();
+            return Err(MqttError::from("execute handshake timeout"))
+        }
+        _handshake(id, listen_cfg, handshake).await
+    };
+
+    match handshake_fut.spawn_with(&exec, id1.client_id.clone()).result().await{
+        Ok(Ok(res)) => Ok(res),
+        Ok(Err(e)) => {
+            log::warn!(
+                    "{:?} Connection Refused, handshake error, reason: {:?}",
+                    id1,
+                    e.to_string()
+                );
+            Err(e)
+        },
+        Err(e) => {
+            Runtime::instance().metrics.client_handshaking_timeout_inc();
+            log::warn!(
+                "{:?} Connection Refused, handshake timeout, reason: {:?}",
+                id1,
+                e.to_string()
+            );
+            Err(MqttError::from("Connection Refused, execute handshake timeout"))
+        }
+    }
+}
+
+#[inline]
+async fn _handshake<Io: 'static>(
+    id: Id,
+    listen_cfg: Listener,
+    mut handshake: v3::Handshake<Io>,
+) -> Result<v3::HandshakeAck<Io, SessionState>, MqttError> {
+
+    let connect_info = ConnectInfo::V3(id.clone(), handshake.packet().clone());
 
     //hook, client connect
     let _ = Runtime::instance().extends.hook_mgr().await.client_connect(&connect_info).await;
@@ -91,12 +114,15 @@ pub async fn handshake<Io>(
     }
 
     //hook, client authenticate
-    let ack = Runtime::instance().extends.hook_mgr().await.client_authenticate(&connect_info, listen_cfg.allow_anonymous).await;
+    let ack = Runtime::instance()
+        .extends
+        .hook_mgr()
+        .await
+        .client_authenticate(&connect_info, listen_cfg.allow_anonymous)
+        .await;
     if !ack.success() {
         if let ConnectAckReason::V3(ack) = ack {
-            return Ok(
-                refused_ack(handshake, &connect_info, ack, "Authentication failed".into()).await
-            );
+            return Ok(refused_ack(handshake, &connect_info, ack, "Authentication failed".into()).await);
         } else {
             unreachable!()
         }
