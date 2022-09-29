@@ -1,15 +1,17 @@
 # HTTP API
 
-RMQTT Broker provides HTTP APIs for integration with external systems,such as querying client information, publishing messages.
+RMQTT Broker provides HTTP APIs for integration with external systems,such as querying client information, publishing
+messages.
 
-RMQTT Broker's HTTP API service listens on port 6060 by default. You can modify the listening port through the configuration 
-file of etc/plugins/rmqtt-http-api.toml. All API calls start with api/v1.
+RMQTT Broker's HTTP API service listens on port 6060 by default. You can modify the listening port through the
+configuration file of etc/plugins/rmqtt-http-api.toml. All API calls start with api/v1.
 
 ## Response code
 
 ### HTTP status codes
 
-The RMQTT Broker interface always returns 200 OK when the call is successful, and the response content is returned in JSON format.
+The RMQTT Broker interface always returns 200 OK when the call is successful, and the response content is returned in
+JSON format.
 
 The possible status codes are as follows:
 
@@ -20,7 +22,6 @@ The possible status codes are as follows:
 | 401  | Client authentication failed , maybe because of invalid authentication credentials |
 | 404  | The requested path cannot be found or the requested object does not exist |
 | 500  | An internal error occurred while the server was processing the request |
-
 
 ## API Endpoints
 
@@ -63,7 +64,6 @@ Return basic information of all nodes in the cluster.
 | ---- | --------- | ------------|------------------------------------------------------------------------------|
 | node | Integer    | False       | Node ID，such as 1. <br/>If not specified, returns all node basic information |
 
-
 **Success Response Body (JSON):**
 
 | Name         | Type | Description                                                                                                                   |
@@ -76,8 +76,6 @@ Return basic information of all nodes in the cluster.
 | .sysdescr    | String    | Software description                                                                                                                         |
 | .uptime      | String    | RMQTT Broker runtime, in the format of "D days, H hours, m minutes, s seconds"                                                                       |
 | .version     | String    | RMQTT Broker version                                                                                                                      |
-
-
 
 **Examples:**
 
@@ -162,7 +160,6 @@ Returns the information of all clients under the cluster.
 | ------ | --------- | -------- | ------- |-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | _limit | Integer   | False | 10000   | The maximum number of data items returned at one time. If not specified, it is determined by the configuration item `max_row_limit` of the` rmqtt-http-api.toml` plugin |
 
-
 | Name            | Type   | Required | Description                     |
 | --------------- | ------ | -------- |---------------------------------|
 | clientid        | String | False    | Client identifier                    |
@@ -180,7 +177,6 @@ Returns the information of all clients under the cluster.
 | _lte_connected_at | Integer| False    | Search client connection creation time by less than or equal method  |
 | _gte_mqueue_len | Integer| False    | Current length of message queue by greater than or equal method  |
 | _lte_mqueue_len | Integer| False    | Current length of message queue by less than or equal method |
-
 
 **Success Response Body (JSON):**
 
@@ -294,7 +290,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/clients/example1/online"
 false
 ```
 
-
 ## Subscription Information
 
 ### GET /api/v1/subscriptions
@@ -327,7 +322,6 @@ Returns all subscription information under the cluster.
 | [0].qos         | Integer          | QoS level      |
 | [0].share       | String           | Shared subscription group name    |
 
-
 **Examples:**
 
 ```bash
@@ -335,7 +329,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/subscriptions?_limit=10"
 
 [{"node_id":1,"clientid":"example1","topic":"foo/#","qos":2,"share":null},{"node_id":1,"clientid":"example1","topic":"foo/+","qos":2,"share":"test"}]
 ```
-
 
 ### GET /api/v1/subscriptions/{clientid}
 
@@ -367,7 +360,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/subscriptions/example1"
 [{"node_id":1,"clientid":"example1","topic":"foo/+","qos":2,"share":"test"},{"node_id":1,"clientid":"example1","topic":"foo/#","qos":2,"share":null}]
 ```
 
-
 ## Routes
 
 ### GET /api/v1/routes
@@ -387,7 +379,6 @@ List all routes
 | []            | Array of Objects | All routes information      |
 | [0].topic | String    | MQTT Topic  |
 | [0].node_id  | Integer    | Node ID     |
-
 
 **Examples:**
 
@@ -423,7 +414,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/routes/foo%2f1"
 [{"node_id":1,"topic":"foo/#"},{"node_id":1,"topic":"foo/+"}]
 ```
 
-
 ## Publish message
 
 ### POST /api/v1/mqtt/publish
@@ -441,7 +431,6 @@ Publish MQTT message。
 | encoding | String    | Optional | plain  | The encoding used in the message body. Currently only plain and base64 are supported |
 | qos      | Integer   | Optional | 0      | QoS level                                  |
 | retain   | Boolean   | Optional | false  | Whether it is a retained message                                 |
-
 
 **Success Response Body (JSON):**
 
@@ -482,7 +471,6 @@ Subscribe to MQTT topic
 |---------|--------|--------------------------------------------------------------------|
 | {}      | Object |                                                                    |
 | {topic} | Bool   | Key is topic name，The value is the subscription result: true/false |
-
 
 **Examples:**
 
@@ -562,7 +550,6 @@ Return the plugin information under the specified node
 | ---- | --------- |----------|---------------------|
 | node | Integer    | True     | Node ID, Such as: 1 |
 
-
 **Success Response Body (JSON):**
 
 | Name           | Type             | Description                    |
@@ -583,7 +570,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/plugins/1"
 
 [{"active":false,"attrs":null,"descr":null,"immutable":true,"inited":false,"name":"rmqtt-cluster-raft","version":null},{"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-auth-http","version":null},{"active":true,"attrs":null,"descr":"","immutable":true,"inited":true,"name":"rmqtt-acl","version":"0.1.1"},{"active":true,"attrs":null,"descr":"","immutable":false,"inited":true,"name":"rmqtt-counter","version":"0.1.0"},{"active":true,"attrs":null,"descr":"","immutable":false,"inited":true,"name":"rmqtt-http-api","version":"0.1.1"},{"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-web-hook","version":null},{"active":false,"attrs":null,"descr":null,"immutable":true,"inited":false,"name":"rmqtt-cluster-broadcast","version":null}]
 ```
-
 
 ### GET /api/v1/plugins/{node}/{plugin}
 
@@ -617,7 +603,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/plugins/1/rmqtt-web-hook"
 {"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-web-hook","version":null}
 ```
 
-
 ### GET /api/v1/plugins/{node}/{plugin}/config
 
 Returns the plugin configuration information of the specified plugin name under the specified node.
@@ -635,8 +620,6 @@ Returns the plugin configuration information of the specified plugin name under 
 |----------------|----------|-------------|
 | {}             | Object   | Plugin configuration information      |
 
-
-
 **Examples:**
 
 ```bash
@@ -644,8 +627,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/plugins/1/rmqtt-http-api/config"
 
 {"http_laddr":"0.0.0.0:6060","max_row_limit":10000,"workers":1}
 ```
-
-
 
 ### PUT /api/v1/plugins/{node}/{plugin}/config/reload
 
@@ -664,8 +645,6 @@ Reloads the plugin configuration information of the specified plugin name under 
 |------|--------|-------------|
 | body | String | ok          |
 
-
-
 **Examples:**
 
 ```bash
@@ -673,7 +652,6 @@ $ curl -i -X PUT "http://localhost:6060/api/v1/plugins/1/rmqtt-http-api/config/r
 
 ok
 ```
-
 
 ### PUT /api/v1/plugins/{node}/{plugin}/load
 
@@ -692,8 +670,6 @@ Load the specified plugin under the specified node.
 |------|--------|-------------|
 | body | String | ok          |
 
-
-
 **Examples:**
 
 ```bash
@@ -701,7 +677,6 @@ $ curl -i -X PUT "http://localhost:6060/api/v1/plugins/1/rmqtt-web-hook/load"
 
 ok
 ```
-
 
 ### PUT /api/v1/plugins/{node}/{plugin}/unload
 
@@ -720,8 +695,6 @@ Unload the specified plugin under the specified node.
 |------|------|-------------|
 | body | Bool | true/false  |
 
-
-
 **Examples:**
 
 ```bash
@@ -731,6 +704,7 @@ true
 ```
 
 ## Stats
+
 ### GET /api/v1/stats
 
 <span id = "get-stats" />
@@ -774,7 +748,6 @@ Return all status data in the cluster.
 | retained.count             | Integer   | Number of currently retained messages |
 | retained.max               | Integer   | Historical maximum number of retained messages |
 
-
 **Examples:**
 
 ```bash
@@ -782,7 +755,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/stats"
 
 [{"node":{"id":1,"name":"1@127.0.0.1","status":"Running"},"stats":{"connections.count":1,"connections.max":2,"retained.count":2,"retained.max":2,"routes.count":3,"routes.max":4,"sessions.count":1,"sessions.max":2,"subscriptions.count":7,"subscriptions.max":8,"subscriptions_shared.count":1,"subscriptions_shared.max":2,"topics.count":3,"topics.max":4}}]
 ```
-
 
 ### GET /api/v1/stats/{node}
 
@@ -816,8 +788,6 @@ Returns status data on the specified node.
 |------| --------- |---------------|
 | {}   | Json Object | Status data, see [GET /api/v1/stats](#get-stats) for details |
 
-
-
 **Examples:**
 
 ```bash
@@ -825,7 +795,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/stats/1"
 
 {"node":{"id":1,"name":"1@127.0.0.1","status":"Running"},"stats":{"connections.count":1,"connections.max":2,"retained.count":2,"retained.max":2,"routes.count":3,"routes.max":4,"sessions.count":1,"sessions.max":2,"subscriptions.count":7,"subscriptions.max":8,"subscriptions_shared.count":1,"subscriptions_shared.max":2,"topics.count":3,"topics.max":4}}
 ```
-
 
 ### GET /api/v1/stats/sum
 
@@ -863,9 +832,8 @@ $ curl -i -X GET "http://localhost:6060/api/v1/stats/sum"
 {"nodes":{"1":{"name":"1@127.0.0.1","status":"Running"}},"stats":{"connections.count":1,"connections.max":2,"retained.count":2,"retained.max":2,"routes.count":3,"routes.max":4,"sessions.count":1,"sessions.max":2,"subscriptions.count":7,"subscriptions.max":8,"subscriptions_shared.count":1,"subscriptions_shared.max":2,"topics.count":3,"topics.max":4}}
 ```
 
-
-
 ## Metrics
+
 ### GET /api/v1/metrics
 
 <span id = "get-metrics" />
@@ -921,7 +889,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/metrics"
 [{"metrics":{"client.auth.anonymous":38,"client.authenticate":47,"client.connack":47,"client.connect":47,"client.connected":47,"client.disconnected":46,"client.publish.check.acl":50,"client.subscribe":37,"client.subscribe.check.acl":15,"client.unsubscribe":8,"messages.acked":35,"messages.delivered":78,"messages.dropped":0,"messages.publish":78,"session.created":45,"session.resumed":2,"session.subscribed":15,"session.terminated":42,"session.unsubscribed":8},"node":{"id":1,"name":"1@127.0.0.1"}}]
 ```
 
-
 ### GET /api/v1/metrics/{node}
 
 Returns statistical metrics data of the specified node under the cluster.
@@ -960,7 +927,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/metrics/1"
 
 {"metrics":{"client.auth.anonymous":38,"client.authenticate":47,"client.connack":47,"client.connect":47,"client.connected":47,"client.disconnected":46,"client.publish.check.acl":50,"client.subscribe":37,"client.subscribe.check.acl":15,"client.unsubscribe":8,"messages.acked":35,"messages.delivered":78,"messages.dropped":0,"messages.publish":78,"session.created":45,"session.resumed":2,"session.subscribed":15,"session.terminated":42,"session.unsubscribed":8},"node":{"id":1,"name":"1@127.0.0.1"}}
 ```
-
 
 ### GET /api/v1/metrics/sum
 

@@ -4,7 +4,6 @@ RMQTT 提供了 HTTP API 以实现与外部系统的集成，例如查询客户�
 
 RMQTT 的 HTTP API 服务默认监听 6060 端口，可通过 `etc/plugins/rmqtt-http-api.toml` 配置文件修改监听端口。所有 API 调用均以 `api/v1` 开头。
 
-
 ## 响应码
 
 ### HTTP 状态码 (status codes)
@@ -20,7 +19,6 @@ RMQTT 接口在调用成功时总是返回 200 OK，响应内容主要以 JSON �
 | 401  | 客户端未通过服务端认证，使用无效的身份验证凭据可能会发生              |
 | 404  | 找不到请求的路径或者请求的对象不存在                        |
 | 500  | 服务端处理请求时发生内部错误                            |
-
 
 ## API Endpoints
 
@@ -76,7 +74,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1"
 | .uptime      | String    | RMQTT 运行时间，格式为 "D days, H hours, m minutes, s seconds" |
 | .version     | String    | RMQTT 版本                                               |
 
-
 **Examples:**
 
 获取所有节点的基本信息：
@@ -121,7 +118,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1/brokers/1"
 | .load15             | Float                   | 15 分钟内的 CPU 平均负载                                 |
 | .memory_free        | Integer                 | 系统可用内存大小（字节）                                     |
 | .memory_total       | Integer                 | 系统总内存大小（字节）                                      |
-| .memory_used        | Integer                 | 系统已占用的内存大小   （字节）                                |
+| .memory_used        | Integer                 | 系统已占用的内存大小 （字节）                                |
 | .node_id            | Integer                 | 节点ID                                             |
 | .node_name          | String                  | 节点名称                                             |
 | .node_status        | String                  | 节点状态                                             |
@@ -178,7 +175,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/nodes/1"
 | _gte_mqueue_len | Integer| False    | 客户端消息队列当前长度， 大于等于查找 |
 | _lte_mqueue_len | Integer| False    | 客户端消息队列当前长度， 大于等于查找 |
 
-
 **Success Response Body (JSON):**
 
 | Name                    | Type             | Description                                                                |
@@ -204,7 +200,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/nodes/1"
 | [0].max_inflight        | Integer          | 飞行队列最大长度                                                                   |
 | [0].mqueue_len          | Integer          | 消息队列当前长度                                                                   |
 | [0].max_mqueue          | Integer          | 消息队列最大长度                                                                   |
-
 
 **Examples:**
 
@@ -292,7 +287,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/clients/example1/online"
 false
 ```
 
-
 ## 订阅信息
 
 ### GET /api/v1/subscriptions
@@ -313,7 +307,6 @@ false
 | share        | String  | 共享订阅的组名称 |
 | _match_topic | String  | 主题，匹配查询 |
 
-
 **Success Response Body (JSON):**
 
 | Name            | Type             | Description |
@@ -326,7 +319,6 @@ false
 | [0].qos         | Integer          | QoS 等级      |
 | [0].share       | String           | 共享订阅的组名称    |
 
-
 **Examples:**
 
 ```bash
@@ -334,7 +326,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/subscriptions?_limit=10"
 
 [{"node_id":1,"clientid":"example1","topic":"foo/#","qos":2,"share":null},{"node_id":1,"clientid":"example1","topic":"foo/+","qos":2,"share":"test"}]
 ```
-
 
 ### GET /api/v1/subscriptions/{clientid}
 
@@ -365,7 +356,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/subscriptions/example1"
 
 [{"node_id":1,"clientid":"example1","topic":"foo/+","qos":2,"share":"test"},{"node_id":1,"clientid":"example1","topic":"foo/#","qos":2,"share":null}]
 ```
-
 
 ## 路由
 
@@ -421,7 +411,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/routes/foo%2f1"
 [{"node_id":1,"topic":"foo/#"},{"node_id":1,"topic":"foo/+"}]
 ```
 
-
 ## 消息发布
 
 ### POST /api/v1/mqtt/publish
@@ -439,7 +428,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/routes/foo%2f1"
 | encoding | String    | Optional | plain  | 消息正文使用的编码方式，目前仅支持 `plain` 与 `base64` 两种 |
 | qos      | Integer   | Optional | 0      | QoS 等级                                  |
 | retain   | Boolean   | Optional | false  | 是否为保留消息                                 |
-
 
 **Success Response Body (JSON):**
 
@@ -480,7 +468,6 @@ ok
 |---------|--------|---------------------------|
 | {}      | Object |                           |
 | {topic} | Bool   | key为主题，值为订阅结果: true/false |
-
 
 **Examples:**
 
@@ -542,7 +529,6 @@ true
 | [0].plugins.immutable | Boolean          | 插件是否不可变，不可变插件将不能被停止，不能修改配置，不能重启等 |
 | [0].plugins.attrs     | Json             | 插件其它附加属性                         |
 
-
 **Examples:**
 
 ```bash
@@ -555,12 +541,11 @@ $ curl -i -X GET "http://localhost:6060/api/v1/plugins"
 
 返回指定节点下的插件信息。
 
-**Path Parameters:** 
+**Path Parameters:**
 
 | Name | Type | Required | Description |
 | ---- | --------- |----------|-------------|
 | node | Integer    | True     | 节点ID，如：1    |
-
 
 **Success Response Body (JSON):**
 
@@ -575,7 +560,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/plugins"
 | [0].immutable  | Boolean          | 插件是否不可变，不可变插件将不能被停止，不有修改配置，不能重启等 |
 | [0].attrs      | Json             | 插件其它附加属性                       |
 
-
 **Examples:**
 
 ```bash
@@ -584,12 +568,11 @@ $ curl -i -X GET "http://localhost:6060/api/v1/plugins/1"
 [{"active":false,"attrs":null,"descr":null,"immutable":true,"inited":false,"name":"rmqtt-cluster-raft","version":null},{"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-auth-http","version":null},{"active":true,"attrs":null,"descr":"","immutable":true,"inited":true,"name":"rmqtt-acl","version":"0.1.1"},{"active":true,"attrs":null,"descr":"","immutable":false,"inited":true,"name":"rmqtt-counter","version":"0.1.0"},{"active":true,"attrs":null,"descr":"","immutable":false,"inited":true,"name":"rmqtt-http-api","version":"0.1.1"},{"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-web-hook","version":null},{"active":false,"attrs":null,"descr":null,"immutable":true,"inited":false,"name":"rmqtt-cluster-broadcast","version":null}]
 ```
 
-
 ### GET /api/v1/plugins/{node}/{plugin}
 
 返回指定节点下指定插件名称的插件信息。
 
-**Path Parameters:** 
+**Path Parameters:**
 
 | Name | Type | Required | Description |
 | ---- | --------- | ------------|-------------|
@@ -609,7 +592,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/plugins/1"
 | {}.immutable  | Boolean         | 插件是否不可变，不可变插件将不能被停止，不有修改配置，不能重启等 |
 | {}.attrs      | Json            | 插件其它附加属性                       |
 
-
 **Examples:**
 
 ```bash
@@ -617,7 +599,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/plugins/1/rmqtt-web-hook"
 
 {"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-web-hook","version":null}
 ```
-
 
 ### GET /api/v1/plugins/{node}/{plugin}/config
 
@@ -636,8 +617,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/plugins/1/rmqtt-web-hook"
 |----------------|----------|-------------|
 | {}             | Object   | 插件配置信息      |
 
-
-
 **Examples:**
 
 ```bash
@@ -645,8 +624,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/plugins/1/rmqtt-http-api/config"
 
 {"http_laddr":"0.0.0.0:6060","max_row_limit":10000,"workers":1}
 ```
-
-
 
 ### PUT /api/v1/plugins/{node}/{plugin}/config/reload
 
@@ -665,8 +642,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/plugins/1/rmqtt-http-api/config"
 |------|--------|-------------|
 | body | String | ok          |
 
-
-
 **Examples:**
 
 ```bash
@@ -674,7 +649,6 @@ $ curl -i -X PUT "http://localhost:6060/api/v1/plugins/1/rmqtt-http-api/config/r
 
 ok
 ```
-
 
 ### PUT /api/v1/plugins/{node}/{plugin}/load
 
@@ -693,8 +667,6 @@ ok
 |------|--------|-------------|
 | body | String | ok          |
 
-
-
 **Examples:**
 
 ```bash
@@ -702,7 +674,6 @@ $ curl -i -X PUT "http://localhost:6060/api/v1/plugins/1/rmqtt-web-hook/load"
 
 ok
 ```
-
 
 ### PUT /api/v1/plugins/{node}/{plugin}/unload
 
@@ -721,8 +692,6 @@ ok
 |------|------|-------------|
 | body | Bool | true/false  |
 
-
-
 **Examples:**
 
 ```bash
@@ -732,6 +701,7 @@ true
 ```
 
 ## 状态
+
 ### GET /api/v1/stats
 
 <span id = "get-stats" />
@@ -775,7 +745,6 @@ true
 | retained.count             | Integer   | 当前保留消息数量           |
 | retained.max               | Integer   | 保留消息的历史最大值       |
 
-
 **Examples:**
 
 ```bash
@@ -783,7 +752,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/stats"
 
 [{"node":{"id":1,"name":"1@127.0.0.1","status":"Running"},"stats":{"connections.count":1,"connections.max":2,"retained.count":2,"retained.max":2,"routes.count":3,"routes.max":4,"sessions.count":1,"sessions.max":2,"subscriptions.count":7,"subscriptions.max":8,"subscriptions_shared.count":1,"subscriptions_shared.max":2,"topics.count":3,"topics.max":4}}]
 ```
-
 
 ### GET /api/v1/stats/{node}
 
@@ -825,7 +793,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/stats/1"
 {"node":{"id":1,"name":"1@127.0.0.1","status":"Running"},"stats":{"connections.count":1,"connections.max":2,"retained.count":2,"retained.max":2,"routes.count":3,"routes.max":4,"sessions.count":1,"sessions.max":2,"subscriptions.count":7,"subscriptions.max":8,"subscriptions_shared.count":1,"subscriptions_shared.max":2,"topics.count":3,"topics.max":4}}
 ```
 
-
 ### GET /api/v1/stats/sum
 
 汇总集群下所有节点状态数据。
@@ -862,9 +829,8 @@ $ curl -i -X GET "http://localhost:6060/api/v1/stats/sum"
 {"nodes":{"1":{"name":"1@127.0.0.1","status":"Running"}},"stats":{"connections.count":1,"connections.max":2,"retained.count":2,"retained.max":2,"routes.count":3,"routes.max":4,"sessions.count":1,"sessions.max":2,"subscriptions.count":7,"subscriptions.max":8,"subscriptions_shared.count":1,"subscriptions_shared.max":2,"topics.count":3,"topics.max":4}}
 ```
 
-
-
 ## 统计指标
+
 ### GET /api/v1/metrics
 
 <span id = "get-metrics" />
@@ -912,7 +878,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/stats/sum"
 | session.unsubscribed            | Integer   | 客户端成功取消订阅次数 |
 | session.terminated              | Integer   | 终结的会话数量 |
 
-
 **Examples:**
 
 ```bash
@@ -920,7 +885,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/metrics"
 
 [{"metrics":{"client.auth.anonymous":38,"client.authenticate":47,"client.connack":47,"client.connect":47,"client.connected":47,"client.disconnected":46,"client.publish.check.acl":50,"client.subscribe":37,"client.subscribe.check.acl":15,"client.unsubscribe":8,"messages.acked":35,"messages.delivered":78,"messages.dropped":0,"messages.publish":78,"session.created":45,"session.resumed":2,"session.subscribed":15,"session.terminated":42,"session.unsubscribed":8},"node":{"id":1,"name":"1@127.0.0.1"}}]
 ```
-
 
 ### GET /api/v1/metrics/{node}
 
@@ -960,7 +924,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/metrics/1"
 
 {"metrics":{"client.auth.anonymous":38,"client.authenticate":47,"client.connack":47,"client.connect":47,"client.connected":47,"client.disconnected":46,"client.publish.check.acl":50,"client.subscribe":37,"client.subscribe.check.acl":15,"client.unsubscribe":8,"messages.acked":35,"messages.delivered":78,"messages.dropped":0,"messages.publish":78,"session.created":45,"session.resumed":2,"session.subscribed":15,"session.terminated":42,"session.unsubscribed":8},"node":{"id":1,"name":"1@127.0.0.1"}}
 ```
-
 
 ### GET /api/v1/metrics/sum
 
