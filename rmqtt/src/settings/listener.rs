@@ -279,6 +279,16 @@ impl ListenerInner {
     }
 
     #[inline]
+    pub fn handshake_timeout(&self) -> u16 {
+        let millis = self.handshake_timeout.as_millis();
+        if millis > 0xffff{
+            0xffff
+        }else{
+            millis as u16
+        }
+    }
+
+    #[inline]
     fn deserialize_mqueue_rate_limit<'de, D>(deserializer: D) -> Result<(NonZeroU32, Duration), D::Error>
         where
             D: Deserializer<'de>,
