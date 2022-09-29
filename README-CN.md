@@ -3,7 +3,6 @@
 [![GitHub Release](https://img.shields.io/github/release/rmqtt/rmqtt?color=brightgreen)](https://github.com/rmqtt/rmqtt/releases)
 <a href="https://blog.rust-lang.org/2022/02/24/Rust-1.59.0.html"><img alt="Rust Version" src="https://img.shields.io/badge/rust-1.59%2B-blue" /></a>
 
-
 [English](./README.md)  | 简体中文
 
 *RMQTT* 是一款完全开源，高度可伸缩，高可用的分布式 MQTT 消息服务器，适用于 IoT、M2M 和移动应用程序，可以在单个服务节点上处理百万级别的并发客户端。
@@ -11,12 +10,13 @@
 ## 功能特色
 
 - 100% Rust安全编码;
-- 基于 [tokio](https://crates.io/crates/tokio), [ntex](https://crates.io/crates/ntex), [ntex-mqtt](https://crates.io/crates/ntex-mqtt) 开发;
+- 基于 [tokio](https://crates.io/crates/tokio), [ntex](https://crates.io/crates/ntex)
+  , [ntex-mqtt](https://crates.io/crates/ntex-mqtt) 开发;
 - 支持MQTT v3.1,v3.1.1 及 v5.0协议;
-  - QoS0, QoS1, QoS2 消息支持;
-  - 离线消息支持;
-  - Retained 消息支持;
-  - Last Will 消息支持;
+    - QoS0, QoS1, QoS2 消息支持;
+    - 离线消息支持;
+    - Retained 消息支持;
+    - Last Will 消息支持;
 - 内置 ACL;
 - HTTP ACL;
 - WebHook;
