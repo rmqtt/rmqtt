@@ -682,10 +682,9 @@ impl SessionState {
         //hook, session terminated
         self.hook.session_terminated(reason).await;
 
-
         //clear session, and unsubscribe
         let mut entry = Runtime::instance().extends.shared().await.entry(self.id.clone());
-        if let Some(true) = entry.id_same(){
+        if let Some(true) = entry.id_same() {
             if let Err(e) = entry.remove_with(&self.id).await {
                 log::warn!("{:?} failed to remove the session from the broker, {:?}", self.id, e);
             }
@@ -707,8 +706,7 @@ impl SessionState {
             offline_info.offline_messages.len(),
             clear_subscriptions
         );
-        if !clear_subscriptions && !offline_info.subscriptions.is_empty()
-        {
+        if !clear_subscriptions && !offline_info.subscriptions.is_empty() {
             for (tf, (qos, shared_group)) in offline_info.subscriptions.iter() {
                 let shared_group = shared_group.as_ref().cloned();
                 let qos = *qos;

@@ -6,12 +6,16 @@ use std::sync::Arc;
 
 use config::{Access, Control, PH_C, PH_U, PluginConfig};
 use rmqtt::{
+    async_trait::async_trait,
+    log, serde_json,
+    tokio::{self, sync::RwLock},
+};
+use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::types::{AuthResult, PublishAclResult, SubscribeAckReason, SubscribeAclResult, Topic},
     plugin::{DynPlugin, DynPluginResult, Plugin},
     Result, Runtime,
 };
-use rmqtt::{async_trait::async_trait, log, serde_json, tokio::{self, sync::RwLock}};
 
 mod config;
 

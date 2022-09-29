@@ -6,7 +6,13 @@ use std::sync::Arc;
 use config::PluginConfig;
 use handler::HookHandler;
 use retainer::ClusterRetainer;
-use rmqtt::{ahash, async_trait::async_trait, log, RwLock, serde_json::{self, json}};
+use rmqtt::{
+    ahash,
+    async_trait::async_trait,
+    log,
+    RwLock,
+    serde_json::{self, json},
+};
 use rmqtt::{
     broker::{
         error::MqttError,

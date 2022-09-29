@@ -14,8 +14,11 @@ use config::PluginConfig;
 use rmqtt::{ahash, async_trait, dashmap, lazy_static, log, reqwest, serde_json, tokio};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
-    broker::types::{Id, ConnectInfo, AuthResult, Password, PublishAclResult, SubscribeAckReason, SubscribeAclResult},
-    MqttError, plugin::{DynPlugin, DynPluginResult, Plugin}, Result, Runtime, TopicName,
+    broker::types::{
+        AuthResult, ConnectInfo, Id, Password, PublishAclResult, SubscribeAckReason, SubscribeAclResult,
+    },
+    MqttError,
+    plugin::{DynPlugin, DynPluginResult, Plugin}, Result, Runtime, TopicName,
 };
 use rmqtt::ntex::util::ByteString;
 
@@ -28,20 +31,19 @@ type HashSet<K> = std::collections::HashSet<K, ahash::RandomState>;
 const IGNORE: &str = "ignore";
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Copy)]
-enum ACLType{
-    SUB = 1,
-    PUB = 2,
+enum ACLType {
+    Sub = 1,
+    Pub = 2,
 }
 
 impl ACLType {
-    fn as_str(&self) -> &str{
-        match self{
-            Self::SUB => "1",
-            Self::PUB => "2",
+    fn as_str(&self) -> &str {
+        match self {
+            Self::Sub => "1",
+            Self::Pub => "2",
         }
     }
 }
-
 
 type CacheMap = Arc<DashMap<Id, CacheValue>>;
 
@@ -158,7 +160,6 @@ impl Plugin for AuthHttpPlugin {
             "cache_count": self.cache_map.len()
         })
     }
-
 }
 
 struct AuthHandler {
@@ -255,11 +256,8 @@ impl AuthHandler {
         password: Option<&Password>,
         sub_or_pub: Option<(ACLType, &TopicName)>,
     ) -> Result<()> {
-        let password = if let Some(p) = password{
-            ByteString::try_from(p.clone())?
-        }else{
-            ByteString::default()
-        };
+        let password =
+            if let Some(p) = password { ByteString::try_from(p.clone())? } else { ByteString::default() };
         let client_id = connect_info.client_id();
         let username = connect_info.username().map(|n| n.as_ref()).unwrap_or("");
         let remote_addr = connect_info.id().remote_addr.map(|addr| addr.ip().to_string()).unwrap_or_default();
@@ -289,12 +287,8 @@ impl AuthHandler {
         check_super: bool,
     ) -> Result<bool> {
         log::debug!("{:?} req_cfg.url.path(): {:?}", connect_info.id(), req_cfg.url.path());
-        let catch_key_fn = || {
-            CacheItem(
-                req_cfg.url.path().to_owned(),
-                sub_or_pub.map(|(f, t)| (f, t.clone())),
-            )
-        };
+        let catch_key_fn =
+            || CacheItem(req_cfg.url.path().to_owned(), sub_or_pub.map(|(f, t)| (f, t.clone())));
         let catch_key = {
             if let Some(cached) = self.cache_map.get(connect_info.id()) {
                 log::debug!("{:?} catch value: {:?}", connect_info.id(), cached.value());
@@ -439,7 +433,10 @@ impl Handler for AuthHandler {
                     }
                 }
 
-                return if self.acl(&client_info.connect_info, Some((ACLType::SUB, &subscribe.topic_filter))).await {
+                return if self
+                    .acl(&client_info.connect_info, Some((ACLType::Sub, &subscribe.topic_filter)))
+                    .await
+                {
                     (
                         !self.cfg.read().await.break_if_allow,
                         Some(HookResult::SubscribeAclResult(SubscribeAclResult::new_success(subscribe.qos))),
@@ -460,7 +457,7 @@ impl Handler for AuthHandler {
                     return (false, acc);
                 }
 
-                return if self.acl(&client_info.connect_info, Some((ACLType::PUB, publish.topic()))).await {
+                return if self.acl(&client_info.connect_info, Some((ACLType::Pub, publish.topic()))).await {
                     (
                         !self.cfg.read().await.break_if_allow,
                         Some(HookResult::PublishAclResult(PublishAclResult::Allow)),

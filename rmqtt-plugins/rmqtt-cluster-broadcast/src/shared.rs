@@ -13,7 +13,8 @@ use rmqtt::{
             Subscribe, SubscribeReturn, SubsSearchParams, SubsSearchResult, To, TopicFilter, Tx, Unsubscribe,
         },
     },
-    grpc::{GrpcClients, Message, MessageBroadcaster, MessageReply, MessageType}, MqttError, Result, Runtime,
+    grpc::{GrpcClients, Message, MessageBroadcaster, MessageReply, MessageType},
+    MqttError, Result, Runtime,
 };
 use rmqtt::grpc::MessageSender;
 
@@ -46,7 +47,7 @@ impl Entry for ClusterLockEntry {
     }
 
     #[inline]
-    fn id_same(&self) -> Option<bool>{
+    fn id_same(&self) -> Option<bool> {
         self.inner.id_same()
     }
 
@@ -277,7 +278,7 @@ impl Shared for &'static ClusterShared {
             type SharedRelation = (TopicFilter, NodeId, ClientId, QoS, (SharedGroup, IsOnline));
 
             #[allow(clippy::mutable_key_type)]
-            let mut shared_sub_groups: SharedSubGroups = HashMap::default();
+                let mut shared_sub_groups: SharedSubGroups = HashMap::default();
 
             let add_one_to_shared_sub_groups =
                 |shared_groups: &mut SharedSubGroups, shared_rel: SharedRelation| {

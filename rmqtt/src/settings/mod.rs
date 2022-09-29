@@ -186,8 +186,8 @@ pub struct Mqtt {}
 pub struct ValueMut<T>(Arc<RwLock<T>>);
 
 impl<T> ValueMut<T>
-where
-    T: Copy,
+    where
+        T: Copy,
 {
     #[inline]
     pub fn new(v: T) -> Self {

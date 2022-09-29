@@ -5,7 +5,9 @@ use once_cell::sync::OnceCell;
 use rmqtt_raft::{Error, Mailbox, Result as RaftResult, Store};
 use tokio::sync::RwLock;
 
-use rmqtt::{ahash, anyhow, async_trait::async_trait, bincode, chrono, dashmap, log, once_cell, serde_json, tokio};
+use rmqtt::{
+    ahash, anyhow, async_trait::async_trait, bincode, chrono, dashmap, log, once_cell, serde_json, tokio,
+};
 use rmqtt::{
     broker::{
         default::DefaultRouter,

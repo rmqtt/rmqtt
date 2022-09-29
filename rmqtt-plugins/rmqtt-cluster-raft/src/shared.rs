@@ -71,7 +71,7 @@ impl Entry for ClusterLockEntry {
     }
 
     #[inline]
-    fn id_same(&self) -> Option<bool>{
+    fn id_same(&self) -> Option<bool> {
         self.inner.id_same()
     }
 

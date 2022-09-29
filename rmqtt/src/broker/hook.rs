@@ -17,7 +17,11 @@ pub trait HookManager: Sync + Send {
     async fn client_connect(&self, connect_info: &ConnectInfo) -> Option<UserProperties>;
 
     ///authenticate
-    async fn client_authenticate(&self, connect_info: &ConnectInfo, allow_anonymous: bool) -> ConnectAckReason;
+    async fn client_authenticate(
+        &self,
+        connect_info: &ConnectInfo,
+        allow_anonymous: bool,
+    ) -> ConnectAckReason;
 
     ///When sending mqtt:: connectack message
     async fn client_connack(

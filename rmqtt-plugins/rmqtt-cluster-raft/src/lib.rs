@@ -11,7 +11,13 @@ use rmqtt_raft::{Mailbox, Raft};
 use config::PluginConfig;
 use handler::HookHandler;
 use retainer::ClusterRetainer;
-use rmqtt::{ahash, anyhow, async_trait::async_trait, futures, log, RwLock, serde_json::{self, json}, tokio};
+use rmqtt::{
+    ahash, anyhow,
+    async_trait::async_trait,
+    futures, log,
+    RwLock,
+    serde_json::{self, json}, tokio,
+};
 use rmqtt::{
     broker::{
         error::MqttError,
@@ -166,7 +172,7 @@ impl ClusterPlugin {
                         tokio::spawn(raft.lead(id))
                     }
                 };
-                let _ = raft_handle.await.unwrap().unwrap();
+                raft_handle.await.unwrap().unwrap();
             };
 
             rt.block_on(runner);

@@ -874,7 +874,7 @@ impl Id {
                 local_addr.map(|addr| addr.to_string()).unwrap_or_default(),
                 remote_addr.map(|addr| addr.to_string()).unwrap_or_default(),
                 client_id,
-                username.as_ref().map(|un| <ByteString as AsRef<str>>::as_ref(un)).unwrap_or_default(),
+                username.as_ref().map(<UserName as AsRef<str>>::as_ref).unwrap_or_default()
             )),
             node_id,
             local_addr,
@@ -1041,12 +1041,11 @@ pub struct Route {
     pub topic: TopicFilter,
 }
 
-
 pub struct SessionSubs(Arc<_SessionSubs>);
 
-impl SessionSubs{
+impl SessionSubs {
     #[inline]
-    pub(crate) fn new() -> Self{
+    pub(crate) fn new() -> Self {
         Self(Arc::new(_SessionSubs::new()))
     }
 }
@@ -1059,18 +1058,15 @@ impl Deref for SessionSubs {
     }
 }
 
-pub struct _SessionSubs{
+pub struct _SessionSubs {
     subs: DashMap<TopicFilter, SubscriptionValue>,
 }
 
-impl _SessionSubs{
+impl _SessionSubs {
     #[inline]
-    pub(crate) fn new() -> Self{
-        Self{
-            subs: DashMap::default(),
-        }
+    pub(crate) fn new() -> Self {
+        Self { subs: DashMap::default() }
     }
-
 
     #[inline]
     pub fn add(&self, topic_filter: TopicFilter, qos: QoS, shared_group: Option<SharedGroup>) {
@@ -1097,10 +1093,7 @@ impl _SessionSubs{
     }
 
     #[inline]
-    pub fn remove(
-        &self,
-        topic_filter: &str,
-    ) -> Option<(TopicFilter, SubscriptionValue)> {
+    pub fn remove(&self, topic_filter: &str) -> Option<(TopicFilter, SubscriptionValue)> {
         let removed = self.subs.remove(topic_filter);
         if let Some((_, (_, group))) = &removed {
             Runtime::instance().stats.subscriptions.dec();
@@ -1120,7 +1113,7 @@ impl _SessionSubs{
 
     #[inline]
     pub fn extend(&self, subs: Subscriptions) {
-        for (topic_filter, (qos, group)) in subs{
+        for (topic_filter, (qos, group)) in subs {
             self.add(topic_filter, qos, group);
         }
     }
@@ -1143,12 +1136,24 @@ impl _SessionSubs{
     }
 
     #[inline]
-    pub fn clone(&self) -> TopicFilters {
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    #[inline]
+    pub fn to_topic_filters(&self) -> TopicFilters {
         self.subs.iter().map(|entry| TopicFilter::from(entry.key().as_ref())).collect()
     }
 
     #[inline]
-    pub fn iter(&self) -> dashmap::iter::Iter<TopicFilter, SubscriptionValue, ahash::RandomState, DashMap<TopicFilter, SubscriptionValue>> {
+    pub fn iter(
+        &self,
+    ) -> dashmap::iter::Iter<
+        TopicFilter,
+        SubscriptionValue,
+        ahash::RandomState,
+        DashMap<TopicFilter, SubscriptionValue>,
+    > {
         self.subs.iter()
     }
 }

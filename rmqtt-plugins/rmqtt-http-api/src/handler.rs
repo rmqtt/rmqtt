@@ -103,7 +103,7 @@ impl Handler for HookHandler {
                             }
                             Ok(Message::Subscribe(params)) => {
                                 #[allow(clippy::mutable_key_type)]
-                                let replys = match subs::subscribe(params).await {
+                                    let replys = match subs::subscribe(params).await {
                                     Ok(replys) => {
                                         let ress = replys
                                             .into_iter()

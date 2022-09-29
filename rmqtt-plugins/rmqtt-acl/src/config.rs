@@ -5,8 +5,12 @@ use std::sync::Arc;
 use serde::de::{self, Deserialize, Deserializer};
 use serde::ser::{self, Serialize};
 
+use rmqtt::{
+    ahash, dashmap,
+    serde_json::{self, Value},
+    tokio::sync::RwLock,
+};
 use rmqtt::{ClientId, ConnectInfo, MqttError, Result, Topic, UserName};
-use rmqtt::{ahash, dashmap, serde_json::{self, Value}, tokio::sync::RwLock};
 use rmqtt::broker::topic::TopicTree;
 
 type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
