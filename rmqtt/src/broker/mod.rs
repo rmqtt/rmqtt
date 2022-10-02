@@ -88,6 +88,12 @@ pub trait Shared: Sync + Send {
     async fn session_status(&self, client_id: &str) -> Option<SessionStatus>;
 
     ///
+    async fn clinet_states_count(&self) -> usize;
+
+    ///
+    fn sessions_count(&self) -> usize;
+
+    ///
     async fn query_subscriptions(&self, q: SubsSearchParams) -> Vec<SubsSearchResult>;
 
     ///This node is not included
@@ -143,6 +149,9 @@ pub trait Router: Sync + Send {
 
     ///
     async fn get(&self, topic: &str) -> Result<Vec<Route>>;
+
+    ///
+    async fn topics_tree(&self) -> usize;
 
     ///Return number of subscribed topics
     fn topics(&self) -> Counter;

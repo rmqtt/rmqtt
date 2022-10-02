@@ -509,6 +509,16 @@ impl Shared for &'static DefaultShared {
     }
 
     #[inline]
+    async fn clinet_states_count(&self) -> usize {
+        self.peers.len()
+    }
+
+    #[inline]
+    fn sessions_count(&self) -> usize{
+        self.peers.len()
+    }
+
+    #[inline]
     async fn query_subscriptions(&self, q: SubsSearchParams) -> Vec<SubsSearchResult> {
         self._query_subscriptions(&q).await
     }
@@ -931,14 +941,17 @@ impl Router for &'static DefaultRouter {
     }
 
     #[inline]
+    async fn topics_tree(&self) -> usize {
+        self.topics.read().await.values_size()
+    }
+
+    #[inline]
     fn topics(&self) -> Counter {
-        //self.relations.len()
         self.topics_count.clone()
     }
 
     #[inline]
     fn routes(&self) -> Counter {
-        //self.relations.iter().map(|rels| rels.len()).sum::<usize>()
         self.relations_count.clone()
     }
 
