@@ -17,6 +17,9 @@ lto = true
 opt-level = 's'
 codegen-units = 1
 
+[target.'cfg(unix)'.dependencies]
+tikv-jemallocator = "0.5"
+
 [dependencies]
 rustls = "0.19"
 

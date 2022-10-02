@@ -26,6 +26,10 @@ use rmqtt::ntex_mqtt::{
 };
 use rmqtt::settings::listener::Listener;
 
+#[cfg(unix)]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 #[allow(dead_code)]
 mod plugin {
     include!(concat!(env!("OUT_DIR"), "/plugin.rs"));
