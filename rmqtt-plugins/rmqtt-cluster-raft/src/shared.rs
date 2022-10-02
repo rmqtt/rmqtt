@@ -412,6 +412,16 @@ impl Shared for &'static ClusterShared {
     }
 
     #[inline]
+    async fn clinet_states_count(&self) -> usize {
+        self.router.states_count()
+    }
+
+    #[inline]
+    fn sessions_count(&self) -> usize {
+        self.inner.sessions_count()
+    }
+
+    #[inline]
     async fn query_subscriptions(&self, q: SubsSearchParams) -> Vec<SubsSearchResult> {
         self.inner.query_subscriptions(q).await
     }
