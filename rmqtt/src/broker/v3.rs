@@ -69,7 +69,7 @@ pub async fn handshake<Io: 'static>(
         _handshake(id, listen_cfg, handshake).await
     };
 
-    match handshake_fut.spawn_with(&exec, id1.client_id.clone()).result().await{
+    match handshake_fut.spawn(&exec).result().await{
         Ok(Ok(res)) => Ok(res),
         Ok(Err(e)) => {
             log::warn!(

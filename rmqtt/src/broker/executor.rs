@@ -1,50 +1,26 @@
-use std::pin::Pin;
-use std::sync::Arc;
-use std::rc::Rc;
-use std::task::{Context, Poll};
-use std::ops::{DerefMut, Deref};
 use std::thread::ThreadId;
-use futures::{Sink, Stream};
-use linked_hash_map::LinkedHashMap;
-use parking_lot::RwLock;
 use tokio::task::spawn_local;
 use once_cell::sync::OnceCell;
 
-use rust_box::queue_ext::{Action, QueueExt, Reply, SendError};
-use rust_box::task_executor::{LocalBuilder, LocalExecutor, LocalTaskType};
-
+use rust_box::task_executor::{LocalBuilder, LocalExecutor};
 
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
-use crate::{ClientId, Runtime};
 
 pub type Port = u16;
 
-type DataType = (ClientId, LocalTaskType);
-type ErrorType = SendError<DataType>;
-
-type ExecutorType = LocalExecutor<TxSink, (), ClientId>;
-
-pub trait SinkType: futures::Sink<DataType, Error = ErrorType> + Sync + Unpin + 'static {}
-impl<T> SinkType for T
-    where
-        T: Sink<DataType, Error = ErrorType>  + Sync + Unpin + 'static,
-{}
-
 std::thread_local! {
-    pub static HANDSHAKE_EXECUTORS: DashMap<Port, ExecutorType> = DashMap::default();
+    pub static HANDSHAKE_EXECUTORS: DashMap<Port, LocalExecutor> = DashMap::default();
 }
 
 #[inline]
-pub(crate) fn get_handshake_executor(name: Port, listen_cfg: Listener) -> ExecutorType {
+pub(crate) fn get_handshake_executor(name: Port, listen_cfg: Listener) -> LocalExecutor {
     let exec = HANDSHAKE_EXECUTORS.with(|m| {
         m.entry(name)
             .or_insert_with(|| {
-                let (tx, rx) = channel(listen_cfg.max_connections / listen_cfg.workers);
                 let (exec, task_runner) = LocalBuilder::default()
                     .workers(listen_cfg.max_handshake_limit / listen_cfg.workers)
                     .queue_max(listen_cfg.max_connections / listen_cfg.workers)
-                    .with_channel(tx, rx)
                     .build();
 
                 spawn_local(async move{
@@ -101,74 +77,3 @@ pub fn get_rate() -> f64 {
             }).sum::<f64>() / m.len() as f64).unwrap_or_default()
 }
 
-fn channel(cap: usize)-> (TxSink, impl Stream<Item=DataType>)
-{
-    let (tx, rx) = Arc::new(RwLock::new(LinkedHashMap::new())).queue_channel(
-        move |s, act| match act {
-            Action::Send((key, val)) => {
-                let mut s = s.write();
-                if s.contains_key(&key) {
-                    Runtime::instance().metrics.client_handshaking_reentry_inc();
-                    s.remove(&key);
-                }
-                s.insert(key, val);
-                Reply::Send(())
-            }
-            Action::IsFull => Reply::IsFull(s.read().len() >= cap),
-            Action::IsEmpty => Reply::IsEmpty(s.read().is_empty()),
-        },
-        |s, _| {
-            let mut s = s.write();
-            if s.is_empty() {
-                Poll::Pending
-            } else {
-                match s.pop_front() {
-                    Some(m) => Poll::Ready(Some(m)),
-                    None => Poll::Pending,
-                }
-            }
-        },
-    );
-    (TxSink(Rc::new(RwLock::new(tx))), rx)
-}
-
-#[derive(Clone)]
-pub struct TxSink(Rc<RwLock<dyn SinkType>>);
-
-impl Deref for TxSink {
-    type Target = Rc<RwLock<dyn SinkType>>;
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for TxSink {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-unsafe impl Sync for TxSink {}
-impl Unpin for TxSink {}
-
-impl futures::Sink<DataType> for TxSink{
-    type Error = ErrorType;
-
-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(self.0.write()).as_mut().poll_ready(cx)
-    }
-
-    fn start_send(self: Pin<&mut Self>, item: DataType) -> Result<(), Self::Error> {
-        Pin::new(self.0.write()).as_mut().start_send(item)
-    }
-
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(self.0.write()).as_mut().poll_flush(cx)
-    }
-
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(self.0.write()).as_mut().poll_close(cx)
-    }
-}
