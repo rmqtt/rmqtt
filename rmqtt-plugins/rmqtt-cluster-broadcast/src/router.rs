@@ -111,6 +111,11 @@ impl Router for &'static ClusterRouter {
     }
 
     #[inline]
+    async fn topics_tree(&self) -> usize {
+        self.inner.topics_tree().await
+    }
+
+    #[inline]
     fn topics(&self) -> Counter {
         self.inner.topics()
     }
