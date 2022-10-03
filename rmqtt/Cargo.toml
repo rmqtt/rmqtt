@@ -14,6 +14,10 @@ edition = "2021"
 name = "rmqtt"
 path = "src/lib.rs"
 
+[features]
+default = []
+debug = []
+
 [dependencies]
 rmqtt-macros = "0.1"
 ntex = { git = "https://github.com/rmqtt/ntex.git", branch = "0.3.16", features = ["rustls"] }

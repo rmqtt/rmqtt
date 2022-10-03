@@ -128,8 +128,11 @@ pub struct Stats {
 
     topics_map: HashMap<NodeId, Counter>,
     routes_map: HashMap<NodeId, Counter>,
-    clinet_states_map: HashMap<NodeId, usize>,
-    topics_tree_map: HashMap<NodeId, usize>,
+
+    #[cfg(feature = "debug")]
+    debug_clinet_states_map: HashMap<NodeId, usize>,
+    #[cfg(feature = "debug")]
+    debug_topics_tree_map: HashMap<NodeId, usize>,
 }
 
 impl Stats {
@@ -148,8 +151,11 @@ impl Stats {
 
             topics_map: HashMap::default(),
             routes_map: HashMap::default(),
-            clinet_states_map: HashMap::default(),
-            topics_tree_map: HashMap::default(),
+
+            #[cfg(feature = "debug")]
+            debug_clinet_states_map: HashMap::default(),
+            #[cfg(feature = "debug")]
+            debug_topics_tree_map: HashMap::default(),
         })
     }
 
@@ -163,16 +169,22 @@ impl Stats {
         topics_map.insert(node_id, router.topics());
         let mut routes_map = HashMap::default();
         routes_map.insert(node_id, router.routes());
-        let mut clinet_states_map = HashMap::default();
-        clinet_states_map.insert(node_id, shared.clinet_states_count().await);
-        let mut topics_tree_map = HashMap::default();
-        topics_tree_map.insert(node_id, router.topics_tree().await);
 
         self.handshakings.current_set(handshakings());
         self.handshakings_active.current_set(get_active_count());
         self.handshakings_rate.sets((get_rate() * 100.0) as isize);
 
         self.sessions.current_set(shared.sessions_count() as isize);
+
+        #[cfg(feature = "debug")]
+            let mut debug_clinet_states_map = HashMap::default();
+        #[cfg(feature = "debug")]
+            let mut debug_topics_tree_map = HashMap::default();
+        #[cfg(feature = "debug")]
+        {
+            debug_clinet_states_map.insert(node_id, shared.clinet_states_count().await);
+            debug_topics_tree_map.insert(node_id, router.topics_tree().await);
+        }
 
         Self {
             handshakings: self.handshakings.clone(),
@@ -186,8 +198,11 @@ impl Stats {
 
             topics_map,
             routes_map,
-            clinet_states_map,
-            topics_tree_map,
+
+            #[cfg(feature = "debug")]
+            debug_clinet_states_map,
+            #[cfg(feature = "debug")]
+            debug_topics_tree_map,
         }
     }
 
@@ -204,8 +219,12 @@ impl Stats {
 
         self.topics_map.extend(other.topics_map);
         self.routes_map.extend(other.routes_map);
-        self.clinet_states_map.extend(other.clinet_states_map);
-        self.topics_tree_map.extend(other.topics_tree_map);
+
+        #[cfg(feature = "debug")]
+        {
+            self.debug_clinet_states_map.extend(other.debug_clinet_states_map);
+            self.debug_topics_tree_map.extend(other.debug_topics_tree_map);
+        }
     }
 
     #[inline]
@@ -214,7 +233,7 @@ impl Stats {
         let topics = router.merge_topics(&self.topics_map);
         let routes = router.merge_routes(&self.routes_map);
 
-        json!({
+        let mut json_val = json!({
             "handshakings.count": self.handshakings.count(),
             "handshakings.max": self.handshakings.max(),
             "handshakings_active.count": self.handshakings_active.count(),
@@ -235,9 +254,16 @@ impl Stats {
             "topics.max": topics.max(),
             "routes.count": routes.count(),
             "routes.max": routes.max(),
+        });
 
-            "clinet_states_map": self.clinet_states_map,
-            "topics_tree_map": self.topics_tree_map,
-        })
+        #[cfg(feature = "debug")]
+        {
+            if let Some(obj) = json_val.as_object_mut() {
+                obj.insert("debug_clinet_states_map".into(), json!(self.debug_clinet_states_map));
+                obj.insert("debug_topics_tree_map".into(), json!(self.debug_topics_tree_map));
+            }
+        }
+
+        json_val
     }
 }
