@@ -4,38 +4,41 @@ use std::default::Default;
 use std::fmt;
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::iter::FromIterator;
+use std::cmp::Ord;
 
-use serde::de::{self, Deserialize, Deserializer, Error, SeqAccess, Visitor};
-use serde::ser::{Serialize, Serializer, SerializeTuple};
+use serde::de::Deserialize;
+use serde::ser::Serialize;
 
 use crate::broker::types::TopicFilter;
-use crate::NodeId;
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
-type HashSet<K> = linked_hash_map::LinkedHashMap<K, (), ahash::RandomState>;
+type ValueSet<K> = std::collections::BTreeSet<K>;
 type LinkedHashMap<K, V> = linked_hash_map::LinkedHashMap<K, V, ahash::RandomState>;
 
 pub type Level = ntex_mqtt::TopicLevel;
 pub type Topic = ntex_mqtt::Topic;
 pub type TopicTree<V> = Node<V>;
 
-pub struct Node<V> {
-    values: HashSet<V>,
+#[derive(Serialize, Deserialize)]
+pub struct Node<V: Ord> {
+    values: ValueSet<V>,
     branches: HashMap<Level, Node<V>>,
 }
 
 impl<V> Default for Node<V>
     where
-        V: Hash + Eq + Clone + Debug,
+        V: Hash + Ord + Eq + Clone + Debug
 {
     #[inline]
     fn default() -> Node<V> {
-        Self { values: HashSet::default(), branches: HashMap::default() }
+        Self { values: ValueSet::default(), branches: HashMap::default() }
     }
 }
 
-impl<V> AsRef<Node<V>> for Node<V> {
+impl<V> AsRef<Node<V>> for Node<V>
+    where
+        V: Hash + Ord + Eq + Clone + Debug
+{
     fn as_ref(&self) -> &Node<V> {
         self
     }
@@ -43,7 +46,7 @@ impl<V> AsRef<Node<V>> for Node<V> {
 
 impl<V> Node<V>
     where
-        V: Hash + Eq + Clone + Debug,
+        V: Hash + Ord + Eq + Clone + Debug + Serialize + Deserialize<'static>,
 {
     #[inline]
     pub fn insert(&mut self, topic_filter: &Topic, value: V) -> bool {
@@ -57,7 +60,7 @@ impl<V> Node<V>
         if let Some(first) = path.pop() {
             self.branches.entry(first).or_default()._insert(path, value)
         } else {
-            self.values.insert(value, ()).is_none()
+            self.values.insert(value)
         }
     }
 
@@ -69,7 +72,7 @@ impl<V> Node<V>
     #[inline]
     fn _remove(&mut self, path: &[Level], value: &V) -> bool {
         if path.is_empty() {
-            self.values.remove(value).is_some()
+            self.values.remove(value)
         } else {
             let t = &path[0];
             if let Some(x) = self.branches.get_mut(t) {
@@ -94,20 +97,20 @@ impl<V> Node<V>
         Matcher { node: self, path: topic.levels() }
     }
 
-    #[inline]
-    pub fn old_matches(&self, topic: &Topic) -> HashMap<Topic, Vec<V>> {
-        let mut out = HashMap::default();
-        self._matches(topic.levels(), Vec::new(), &mut out);
-        out
-    }
+    // #[inline]
+    // pub fn old_matches(&self, topic: &Topic) -> HashMap<Topic, Vec<V>> {
+    //     let mut out = HashMap::default();
+    //     self._matches(topic.levels(), Vec::new(), &mut out);
+    //     out
+    // }
 
     #[inline]
     fn _matches(&self, path: &[Level], mut sub_path: Vec<Level>, out: &mut HashMap<Topic, Vec<V>>) {
-        let mut add_to_out = |levels: Vec<Level>, v_set: &HashSet<V>| {
+        let mut add_to_out = |levels: Vec<Level>, v_set: &ValueSet<V>| {
             if !v_set.is_empty() {
                 out.entry(Topic::from(levels))
                     .or_default()
-                    .extend(v_set.iter().map(|(v, _)| (*v).clone()).collect::<Vec<V>>().into_iter());
+                    .extend(v_set.iter().map(|v| (*v).clone()).collect::<Vec<V>>().into_iter());
             }
         };
 
@@ -168,7 +171,7 @@ impl<V> Node<V>
     }
 
     #[inline]
-    pub fn values(&self) -> &HashSet<V> {
+    pub fn values(&self) -> &ValueSet<V> {
         &self.values
     }
 
@@ -204,120 +207,23 @@ impl<V> Node<V>
 
 impl<V> Debug for Node<V>
     where
-        V: Hash + Eq + Clone + Debug,
+        V: Hash + Eq + Ord + Clone + Debug + Serialize + Deserialize<'static>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Node {{ nodes_size: {}, values_size: {} }}", self.nodes_size(), self.values_size())
     }
 }
 
-impl Serialize for Node<()> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
-    {
-        let mut s = serializer.serialize_tuple(2)?;
-        s.serialize_element(
-            &self.branches.iter().map(|(k, v)| (k, v)).collect::<Vec<(&Level, &Node<()>)>>(),
-        )?;
-        s.end()
-    }
-}
-
-impl<'de> Deserialize<'de> for Node<()> {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
-    {
-        struct NodeVisitor;
-
-        impl<'de> Visitor<'de> for NodeVisitor {
-            type Value = Node<()>;
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("struct Node<()>")
-            }
-
-            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-                where
-                    A: SeqAccess<'de>,
-            {
-                if seq.size_hint() != Some(2) {
-                    return Err(Error::invalid_type(serde::de::Unexpected::Seq, &self));
-                }
-
-                let values = HashSet::default();
-                let branches = seq
-                    .next_element::<HashMap<Level, Node<()>>>()?
-                    .ok_or_else(|| de::Error::missing_field("branches"))?;
-
-                Ok(Node { values, branches })
-            }
-        }
-        deserializer.deserialize_tuple(2, NodeVisitor)
-    }
-}
-
-impl Serialize for Node<NodeId> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
-    {
-        let mut s = serializer.serialize_tuple(2)?;
-        s.serialize_element(&self.values.iter().collect::<Vec<(&NodeId, &())>>())?;
-        s.serialize_element(
-            &self.branches.iter().map(|(k, v)| (k, v)).collect::<Vec<(&Level, &Node<NodeId>)>>(),
-        )?;
-        s.end()
-    }
-}
-
-impl<'de> Deserialize<'de> for Node<NodeId> {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
-    {
-        struct NodeVisitor;
-
-        impl<'de> Visitor<'de> for NodeVisitor {
-            type Value = Node<NodeId>;
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("struct Node<NodeId>")
-            }
-
-            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-                where
-                    A: SeqAccess<'de>,
-            {
-                if seq.size_hint() != Some(2) {
-                    return Err(Error::invalid_type(serde::de::Unexpected::Seq, &self));
-                }
-
-                let values = seq
-                    .next_element::<Vec<(NodeId, ())>>()?
-                    .ok_or_else(|| de::Error::missing_field("values"))?;
-
-                let values = HashSet::from_iter(values);
-                let branches = seq
-                    .next_element::<HashMap<Level, Node<NodeId>>>()?
-                    .ok_or_else(|| de::Error::missing_field("branches"))?;
-
-                Ok(Node { values, branches })
-            }
-        }
-        deserializer.deserialize_tuple(2, NodeVisitor)
-    }
-}
-
 type Item<'a, V> = (Vec<&'a Level>, Vec<&'a V>);
 
-pub struct Matcher<'a, V> {
+pub struct Matcher<'a, V: Ord> {
     node: &'a Node<V>,
     path: &'a [Level],
 }
 
 impl<'a, V> Matcher<'a, V>
     where
-        V: Hash + Eq + Clone + Debug,
+        V: Hash + Eq + Ord + Clone + Debug + Serialize + Deserialize<'static>,
 {
     #[inline]
     pub fn iter(&self) -> MatchedIter<'a, V> {
@@ -365,7 +271,7 @@ impl<'a> VecToTopic for Vec<&'a Level> {
     }
 }
 
-pub struct MatchedIter<'a, V> {
+pub struct MatchedIter<'a, V: Ord> {
     node: &'a Node<V>,
     path: &'a [Level],
     sub_path: Option<Vec<&'a Level>>,
@@ -375,7 +281,7 @@ pub struct MatchedIter<'a, V> {
 
 impl<'a, V> MatchedIter<'a, V>
     where
-        V: Hash + Eq + Clone + Debug,
+        V: Hash + Eq + Ord + Clone + Debug + Serialize + Deserialize<'static>,
 {
     #[inline]
     fn new(node: &'a Node<V>, path: &'a [Level], sub_path: Vec<&'a Level>) -> Self {
@@ -389,9 +295,9 @@ impl<'a, V> MatchedIter<'a, V>
     }
 
     #[inline]
-    fn add_to_items(&mut self, levels: Vec<&'a Level>, v_set: &'a HashSet<V>) {
+    fn add_to_items(&mut self, levels: Vec<&'a Level>, v_set: &'a ValueSet<V>) {
         if !v_set.is_empty() {
-            self.curr_items.entry(levels).or_insert(v_set.iter().map(|(v, _)| v).collect::<Vec<&V>>());
+            self.curr_items.entry(levels).or_insert(v_set.iter().map(|v| v).collect::<Vec<&V>>());
         }
     }
 
@@ -472,7 +378,7 @@ impl<'a, V> MatchedIter<'a, V>
 
 impl<'a, V> Iterator for MatchedIter<'a, V>
     where
-        V: Hash + Eq + Clone + Debug,
+        V: Hash + Eq + Ord + Clone + Debug + Serialize + Deserialize<'static>,
 {
     type Item = (Vec<&'a Level>, Vec<&'a V>);
 
@@ -520,7 +426,7 @@ mod tests {
     }
 
     #[test]
-    fn topic() {
+    fn topic_nodeid() {
         let mut topics: TopicTree<NodeId> = TopicTree::default();
         topics.insert(&Topic::from_str("/iot/b/x").unwrap(), 1);
         topics.insert(&Topic::from_str("/iot/b/x").unwrap(), 2);
@@ -573,9 +479,11 @@ mod tests {
             topics.insert(&Topic::from_str("/iot/x").unwrap(), v);
         }
         println!("insert cost time: {:?}", start.elapsed());
-
+        println!("serialize topics.values_size(): {:?}", topics.values_size());
+        let val_size = topics.values_size();
         let topics: TopicTree<NodeId> = bincode::deserialize(&bincode::serialize(&topics).unwrap()).unwrap();
-
+        println!("deserialize topics.values_size(): {:?}", topics.values_size());
+        assert_eq!(val_size, topics.values_size());
         assert!(match_one(&topics, "/a/b/c", &[1]));
         assert!(match_one(&topics, "/a/b", &[2]));
         assert!(match_one(&topics, "/a/1", &[2]));
@@ -590,5 +498,22 @@ mod tests {
         let start = std::time::Instant::now();
         assert!(topics.is_match(&t));
         println!("is_matches cost time: {:?}", start.elapsed());
+
+
     }
+
+    #[test]
+    fn topic() {
+        let mut topics: TopicTree<()> = TopicTree::default();
+        topics.insert(&Topic::from_str("/iot/b/x").unwrap(), ());
+        topics.insert(&Topic::from_str("/iot/b/x").unwrap(), ());
+        topics.insert(&Topic::from_str("/iot/b/y").unwrap(), ());
+        topics.insert(&Topic::from_str("/iot/cc/dd").unwrap(), ());
+        topics.insert(&Topic::from_str("/ddl/22/#").unwrap(), ());
+        let val_size = topics.values_size();
+        let topics: TopicTree<()> = bincode::deserialize(&bincode::serialize(&topics).unwrap()).unwrap();
+        assert_eq!(val_size, topics.values_size());
+
+    }
+
 }
