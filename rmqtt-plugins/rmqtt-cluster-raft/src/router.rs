@@ -379,7 +379,7 @@ impl Store for &'static ClusterRouter {
             relations_count,
         ))
             .map_err(|e| Error::Other(e))?;
-        log::debug!("snapshot len: {}", snapshot.len());
+        log::info!("create snapshot, len: {}", snapshot.len());
         Ok(snapshot)
     }
 
