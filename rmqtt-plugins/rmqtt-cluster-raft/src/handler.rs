@@ -1,14 +1,15 @@
 use rmqtt_raft::Mailbox;
 
-use rmqtt::{async_trait::async_trait, log, tokio};
+use rmqtt::{async_trait::async_trait, log, MqttError, tokio};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, ReturnType},
     grpc::{Message as GrpcMessage, MessageReply},
     Id, Runtime,
 };
+use rmqtt::rust_box::task_executor::SpawnExt;
 use rmqtt::broker::Shared;
 
-use super::{hook_message_dropped, retainer::ClusterRetainer, shared::ClusterShared};
+use super::{executor, hook_message_dropped, retainer::ClusterRetainer, shared::ClusterShared};
 use super::config::{BACKOFF_STRATEGY, retry};
 use super::message::Message;
 
@@ -40,7 +41,13 @@ impl Handler for HookHandler {
                     let raft_mailbox = self.raft_mailbox.clone();
                     tokio::spawn(async move {
                         if let Err(e) = retry(BACKOFF_STRATEGY.clone(), || async {
-                            Ok(raft_mailbox.send(msg.clone()).await?)
+                            let msg = msg.clone();
+                            let mailbox = raft_mailbox.clone();
+                            let res = async move { mailbox.send(msg).await }
+                                .spawn(executor()).result().await
+                                .map_err(|_| MqttError::from("Handler::hook(Message::Disconnected), task execution failure"))?
+                                .map_err(|e| MqttError::from(e.to_string()))?;
+                            Ok(res)
                         })
                             .await
                         {
@@ -58,7 +65,13 @@ impl Handler for HookHandler {
                 let raft_mailbox = self.raft_mailbox.clone();
                 tokio::spawn(async move {
                     if let Err(e) = retry(BACKOFF_STRATEGY.clone(), || async {
-                        Ok(raft_mailbox.send(msg.clone()).await?)
+                        let msg = msg.clone();
+                        let mailbox = raft_mailbox.clone();
+                        let res = async move { mailbox.send(msg).await }
+                            .spawn(executor()).result().await
+                            .map_err(|_| MqttError::from("Handler::hook(Message::SessionTerminated), task execution failure"))?
+                            .map_err(|e| MqttError::from(e.to_string()))?;
+                        Ok(res)
                     })
                         .await
                     {

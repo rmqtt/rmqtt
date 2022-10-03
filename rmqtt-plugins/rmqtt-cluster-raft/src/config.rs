@@ -26,6 +26,11 @@ pub struct PluginConfig {
     pub raft_peer_addrs: Vec<NodeAddr>,
     #[serde(default = "PluginConfig::try_lock_timeout_default", deserialize_with = "deserialize_duration")]
     pub try_lock_timeout: Duration, //Message::HandshakeTryLock
+
+    #[serde(default = "PluginConfig::executor_workers_default")]
+    pub executor_workers: usize,
+    #[serde(default = "PluginConfig::executor_queue_max_default")]
+    pub executor_queue_max: usize,
 }
 
 impl PluginConfig {
@@ -40,6 +45,14 @@ impl PluginConfig {
 
     fn try_lock_timeout_default() -> Duration {
         Duration::from_secs(10)
+    }
+
+    fn executor_workers_default() -> usize {
+        500
+    }
+
+    fn executor_queue_max_default() -> usize {
+        100_000
     }
 }
 
