@@ -297,7 +297,7 @@ impl<'a, V> MatchedIter<'a, V>
     #[inline]
     fn add_to_items(&mut self, levels: Vec<&'a Level>, v_set: &'a ValueSet<V>) {
         if !v_set.is_empty() {
-            self.curr_items.entry(levels).or_insert(v_set.iter().map(|v| v).collect::<Vec<&V>>());
+            self.curr_items.entry(levels).or_insert(v_set.iter().collect());
         }
     }
 
