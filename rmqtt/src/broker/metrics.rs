@@ -7,7 +7,6 @@ pub struct Metrics {
     client_authenticate: AtomicUsize,
     client_auth_anonymous: AtomicUsize,
     client_handshaking_timeout: AtomicUsize,
-    client_handshaking_reentry: AtomicUsize,
     client_connect: AtomicUsize,
     client_connack: AtomicUsize,
     client_connected: AtomicUsize,
