@@ -227,6 +227,7 @@ impl Stats {
         }
     }
 
+    #[allow(unused_mut)]
     #[inline]
     pub async fn to_json(&self) -> serde_json::Value {
         let router = Runtime::instance().extends.router().await;
