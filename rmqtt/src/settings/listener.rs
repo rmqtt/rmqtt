@@ -93,8 +93,6 @@ pub struct ListenerInner {
     pub workers: usize,
     #[serde(default = "ListenerInner::max_connections_default")]
     pub max_connections: usize,
-    #[serde(default = "ListenerInner::max_handshake_rate_default")]
-    pub max_handshake_rate: usize,
     #[serde(default = "ListenerInner::max_handshaking_limit_default")]
     pub max_handshaking_limit: usize,
     #[serde(default = "ListenerInner::max_packet_size_default")]
@@ -187,10 +185,6 @@ impl ListenerInner {
     #[inline]
     fn max_handshaking_limit_default() -> usize {
         500
-    }
-    #[inline]
-    fn max_handshake_rate_default() -> usize {
-        2000
     }
     #[inline]
     fn max_packet_size_default() -> Bytesize {
