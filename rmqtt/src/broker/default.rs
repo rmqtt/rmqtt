@@ -8,7 +8,6 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use itertools::Itertools;
-use leaky_bucket::RateLimiter;
 use ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 use once_cell::sync::OnceCell;
 use tokio::sync::{self, Mutex, OwnedMutexGuard};
@@ -27,7 +26,7 @@ use crate::settings::listener::Listener;
 use crate::stats::Counter;
 
 use super::{
-    Entry, IsOnline, Limiter, LimiterManager, retain::RetainTree, RetainStorage, Router, Shared,
+    Entry, IsOnline, retain::RetainTree, RetainStorage, Router, Shared,
     SharedSubscription, SubRelations, SubRelationsMap, topic::TopicTree,
 };
 
@@ -1596,83 +1595,5 @@ impl Hook for DefaultHook {
             return false;
         }
         true
-    }
-}
-
-pub struct DefaultLimiterManager {
-    limiters: DashMap<LimiterName, DefaultLimiter>,
-}
-
-impl DefaultLimiterManager {
-    #[inline]
-    pub fn instance() -> &'static DefaultLimiterManager {
-        static INSTANCE: OnceCell<DefaultLimiterManager> = OnceCell::new();
-        INSTANCE.get_or_init(|| Self { limiters: DashMap::default() })
-    }
-}
-
-impl LimiterManager for &'static DefaultLimiterManager {
-    #[inline]
-    fn get(&self, name: LimiterName, listen_cfg: Listener) -> Result<Box<dyn Limiter>> {
-        let l = self
-            .limiters
-            .entry(name)
-            .or_insert_with(|| {
-                DefaultLimiter::new(
-                    listen_cfg.max_handshake_rate,
-                    listen_cfg.max_handshake_limit,
-                    listen_cfg.handshake_timeout,
-                )
-            })
-            .value()
-            .clone();
-        Ok(Box::new(l))
-    }
-}
-
-#[derive(Clone)]
-pub struct DefaultLimiter {
-    max_handshake_limit: isize,
-    handshake_timeout: Duration,
-    limiter: Arc<RateLimiter>,
-}
-
-impl DefaultLimiter {
-    #[inline]
-    pub fn new(max_handshake_rate: usize, max_handshake_limit: usize, handshake_timeout: Duration) -> Self {
-        Self {
-            max_handshake_limit: max_handshake_limit as isize,
-            handshake_timeout,
-            limiter: Arc::new(
-                RateLimiter::builder()
-                    .initial(max_handshake_rate)
-                    .refill(max_handshake_rate)
-                    .max(max_handshake_rate)
-                    .interval(Duration::from_millis(1000))
-                    // .fair(false)
-                    .build(),
-            ),
-        }
-    }
-}
-
-#[async_trait]
-impl Limiter for DefaultLimiter {
-    #[inline]
-    async fn acquire(&self, handshakings: isize) -> Result<()> {
-        if self.max_handshake_limit > 0 && handshakings > self.max_handshake_limit {
-            return Err(MqttError::from(format!(
-                "too many concurrent handshake connections, handshakings: {}",
-                handshakings
-            )));
-        }
-
-        let now = std::time::Instant::now();
-        self.limiter.acquire_one().await;
-        if now.elapsed() > self.handshake_timeout {
-            Err(MqttError::from(format!("handshake timeout, acquire cost time: {:?}", now.elapsed())))
-        } else {
-            Ok(())
-        }
     }
 }

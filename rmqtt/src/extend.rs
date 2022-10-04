@@ -2,12 +2,12 @@ use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::broker::{
     default::{
-        DefaultFitterManager, DefaultHookManager, DefaultLimiterManager, DefaultRetainStorage, DefaultRouter,
+        DefaultFitterManager, DefaultHookManager, DefaultRetainStorage, DefaultRouter,
         DefaultShared, DefaultSharedSubscription,
     },
     fitter::FitterManager,
     hook::HookManager,
-    LimiterManager, RetainStorage, Router, Shared, SharedSubscription,
+    RetainStorage, Router, Shared, SharedSubscription,
 };
 
 pub struct Manager {
@@ -16,9 +16,7 @@ pub struct Manager {
     retain: RwLock<Box<dyn RetainStorage>>,
     fitter_mgr: RwLock<Box<dyn FitterManager>>,
     hook_mgr: RwLock<Box<dyn HookManager>>,
-    limiter_mgr: RwLock<Box<dyn LimiterManager>>,
     shared_subscription: RwLock<Box<dyn SharedSubscription>>,
-    // stats: RwLock<Box<dyn Stats>>,
 }
 
 impl Manager {
@@ -30,9 +28,7 @@ impl Manager {
             retain: RwLock::new(Box::new(DefaultRetainStorage::instance())),
             fitter_mgr: RwLock::new(Box::new(DefaultFitterManager::instance())),
             hook_mgr: RwLock::new(Box::new(DefaultHookManager::instance())),
-            limiter_mgr: RwLock::new(Box::new(DefaultLimiterManager::instance())),
             shared_subscription: RwLock::new(Box::new(DefaultSharedSubscription::instance())),
-            // stats: RwLock::new(Box::new(DefaultStats::instance())),
         }
     }
 
@@ -79,21 +75,6 @@ impl Manager {
     #[inline]
     pub async fn hook_mgr(&self) -> RwLockReadGuard<'_, Box<dyn HookManager>> {
         self.hook_mgr.read().await
-    }
-
-    // #[inline]
-    // pub async fn hook_mgr_mut(&self) -> RwLockWriteGuard<'_, Box<dyn HookManager>> {
-    //     self.hook_mgr.write().await
-    // }
-
-    #[inline]
-    pub async fn limiter_mgr(&self) -> RwLockReadGuard<'_, Box<dyn LimiterManager>> {
-        self.limiter_mgr.read().await
-    }
-
-    #[inline]
-    pub async fn limiter_mgr_mut(&self) -> RwLockWriteGuard<'_, Box<dyn LimiterManager>> {
-        self.limiter_mgr.write().await
     }
 
     #[inline]

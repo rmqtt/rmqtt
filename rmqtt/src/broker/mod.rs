@@ -236,13 +236,3 @@ pub trait RetainStorage: Sync + Send {
     ///
     fn max(&self) -> isize;
 }
-
-#[async_trait]
-pub trait LimiterManager: Sync + Send {
-    fn get(&self, name: LimiterName, listen_cfg: Listener) -> Result<Box<dyn Limiter>>;
-}
-
-#[async_trait]
-pub trait Limiter: Sync + Send {
-    async fn acquire(&self, handshakings: isize) -> Result<()>;
-}
