@@ -1,4 +1,6 @@
 use std::thread::ThreadId;
+use std::time::Duration;
+use futures::StreamExt;
 use tokio::task::spawn_local;
 use once_cell::sync::OnceCell;
 
@@ -19,7 +21,7 @@ pub(crate) fn get_handshake_executor(name: Port, listen_cfg: Listener) -> LocalE
         m.entry(name)
             .or_insert_with(|| {
                 let (exec, task_runner) = LocalBuilder::default()
-                    .workers(listen_cfg.max_handshake_limit / listen_cfg.workers)
+                    .workers(listen_cfg.max_handshaking_limit / listen_cfg.workers)
                     .queue_max(listen_cfg.max_connections / listen_cfg.workers)
                     .build();
 
@@ -74,6 +76,6 @@ pub fn get_rate() -> f64 {
         .map(|m| m.iter()
             .map(|entry|{
                 *entry.value()
-            }).sum::<f64>() / m.len() as f64).unwrap_or_default()
+            }).sum::<f64>()).unwrap_or_default()
 }
 
