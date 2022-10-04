@@ -60,13 +60,13 @@ plugins.default_startups = [
 ## MQTT/TCP - External TCP Listener for MQTT Protocol
 listener.tcp.external.addr = "0.0.0.0:1883"
 #Number of worker threads
-listener.tcp.external.workers = 10
+listener.tcp.external.workers = 5
 #The maximum number of concurrent connections allowed by the listener.
 listener.tcp.external.max_connections = 1024000
-#Maximum concurrent handshake limit, Default: 1000
-listener.tcp.external.max_handshake_limit = 1000
+#Maximum concurrent handshake limit, Default: 500
+listener.tcp.external.max_handshaking_limit = 500
 #Handshake timeout.
-listener.tcp.external.handshake_timeout = "25s"
+listener.tcp.external.handshake_timeout = "30s"
 #Maximum allowed mqtt message length. 0 means unlimited, default: 1m
 listener.tcp.external.max_packet_size = "1m"
 #The maximum length of the TCP connection queue.
