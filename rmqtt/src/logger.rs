@@ -1,5 +1,5 @@
 use std::fs::{File, OpenOptions};
-use std::io::{self, Stdout};
+use std::io::{self, Stdout, Write};
 
 use slog::{b, Drain, o, Record};
 pub use slog::Logger;
@@ -128,23 +128,33 @@ struct WriteFilter {
 
     file: Option<File>,
     console: Stdout,
+
+    buf: Option<Vec<u8>>,
 }
 
 impl WriteFilter {
     fn new(filename: String, to: ValueMut<To>) -> Self {
-        Self { filename, to, file: None, console: std::io::stdout() }
+        Self { filename, to, file: None, console: std::io::stdout(), buf: None }
     }
 
+    #[inline]
     fn file(&mut self) -> &File {
         if self.file.is_none() {
             self.file = Some(open_file(&self.filename).unwrap());
         }
         self.file.as_ref().unwrap()
     }
-}
 
-impl io::Write for WriteFilter {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+    #[inline]
+    fn _flush(&mut self) -> io::Result<()> {
+        if let Some(buf) = self.buf.take() {
+            self._write(&buf)?;
+        }
+        Ok(())
+    }
+
+    #[inline]
+    fn _write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let n = match self.to.get() {
             To::Console => self.console.write(buf)?,
             To::File => self.file().write(buf)?,
@@ -157,16 +167,25 @@ impl io::Write for WriteFilter {
         Ok(n)
     }
 
+}
+
+impl io::Write for WriteFilter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if matches!(self.to.get(), To::Off) {
+            return Ok(buf.len())
+        }
+        if let Some(b) = &mut self.buf {
+            b.extend_from_slice(buf);
+        }else{
+            self.buf = Some(buf.to_vec());
+        }
+        Ok(buf.len())
+    }
+
     fn flush(&mut self) -> io::Result<()> {
-        match self.to.get() {
-            To::Console => self.console.flush()?,
-            To::File => self.file().flush()?,
-            To::Both => {
-                self.console.flush()?;
-                self.file().flush()?;
-            }
-            To::Off => {}
-        };
+        if !matches!(self.to.get(), To::Off) {
+            let _ = self._flush();
+        }
         Ok(())
     }
 }
