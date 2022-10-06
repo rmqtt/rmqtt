@@ -87,7 +87,7 @@ impl ClusterPlugin {
                 .map_err(|e| MqttError::from(e.to_string()))?;
         log::debug!("{} ClusterPlugin cfg: {:?}", name, cfg);
 
-        init_executor(cfg.executor_workers, cfg.executor_queue_max);
+        init_task_exec_queue(cfg.executor_workers, cfg.executor_queue_max);
 
         let register = runtime.extends.hook_mgr().await.register();
         let mut grpc_clients = HashMap::default();
@@ -300,13 +300,13 @@ impl Plugin for ClusterPlugin {
             nodes.insert(*node_id, stats);
         }
 
-        let exec = executor();
+        let exec = task_exec_queue();
         json!({
             "grpc_clients": nodes,
             "raft_status": raft_status,
             "raft_pears": pears,
             "client_states": self.router.states_count(),
-            "executor": {
+            "task_exec_queue": {
                 "waiting_count": exec.waiting_count(),
                 "active_count": exec.active_count(),
                 "completed_count": exec.completed_count(),
@@ -390,14 +390,14 @@ pub(crate) async fn hook_message_dropped(droppeds: Vec<(To, From, Publish, Reaso
 
 use rmqtt::{
         once_cell::sync::OnceCell,
-        rust_box::task_executor::{Builder, Executor}
+        rust_box::task_exec_queue::{Builder, TaskExecQueue}
     };
 
 
-static EXECUTOR: OnceCell<Executor> = OnceCell::new();
+static TASK_EXEC_QUEUE: OnceCell<TaskExecQueue> = OnceCell::new();
 
 #[inline]
-fn init_executor(workers: usize, queue_max: usize) {
+fn init_task_exec_queue(workers: usize, queue_max: usize) {
     let (exec, task_runner) = Builder::default()
         .workers(workers)
         .queue_max(queue_max)
@@ -407,10 +407,10 @@ fn init_executor(workers: usize, queue_max: usize) {
         task_runner.await;
     });
 
-    EXECUTOR.set(exec).ok().expect("Failed to initialize executor")
+    TASK_EXEC_QUEUE.set(exec).ok().expect("Failed to initialize task execution queue")
 }
 
 #[inline]
-pub(crate) fn executor() -> &'static Executor {
-    EXECUTOR.get().expect("Executor not initialized")
+pub(crate) fn task_exec_queue() -> &'static TaskExecQueue {
+    TASK_EXEC_QUEUE.get().expect("TaskExecQueue not initialized")
 }

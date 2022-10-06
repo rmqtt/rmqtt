@@ -3,12 +3,12 @@ use std::net::SocketAddr;
 
 use ntex_mqtt::v5;
 use ntex_mqtt::v5::codec::{Auth, DisconnectReasonCode};
-use rust_box::task_executor::LocalSpawnExt;
+use rust_box::task_exec_queue::LocalSpawnExt;
 
 use crate::{ClientInfo, MqttError, Result, Runtime, Session, SessionState};
 use crate::broker::{inflight::MomentStatus, types::*};
 use crate::settings::listener::Listener;
-use crate::broker::executor::get_handshake_executor;
+use crate::broker::executor::get_handshake_exec_queue;
 
 #[inline]
 async fn refused_ack<Io>(
@@ -58,7 +58,7 @@ pub async fn handshake<Io: 'static>(
     let id1 = id.clone();
     Runtime::instance().stats.handshakings.max_max(handshake.handshakings());
 
-    let exec = get_handshake_executor(local_addr.port(), listen_cfg.clone());
+    let exec = get_handshake_exec_queue(local_addr.port(), listen_cfg.clone());
 
     let start = chrono::Local::now().timestamp_millis();
     let handshake_fut = async move {

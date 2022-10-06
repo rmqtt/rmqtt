@@ -2,7 +2,7 @@ use std::thread::ThreadId;
 use tokio::task::spawn_local;
 use once_cell::sync::OnceCell;
 
-use rust_box::task_executor::{LocalBuilder, LocalExecutor};
+use rust_box::task_exec_queue::{LocalBuilder, LocalTaskExecQueue};
 
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
@@ -10,11 +10,11 @@ use crate::settings::listener::Listener;
 pub type Port = u16;
 
 std::thread_local! {
-    pub static HANDSHAKE_EXECUTORS: DashMap<Port, LocalExecutor> = DashMap::default();
+    pub static HANDSHAKE_EXECUTORS: DashMap<Port, LocalTaskExecQueue> = DashMap::default();
 }
 
 #[inline]
-pub(crate) fn get_handshake_executor(name: Port, listen_cfg: Listener) -> LocalExecutor {
+pub(crate) fn get_handshake_exec_queue(name: Port, listen_cfg: Listener) -> LocalTaskExecQueue {
     let exec = HANDSHAKE_EXECUTORS.with(|m| {
         m.entry(name)
             .or_insert_with(|| {

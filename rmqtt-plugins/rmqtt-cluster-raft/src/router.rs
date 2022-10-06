@@ -17,9 +17,9 @@ use rmqtt::{
     },
     Result,
 };
-use rmqtt::rust_box::task_executor::SpawnExt;
+use rmqtt::rust_box::task_exec_queue::SpawnExt;
 use rmqtt::stats::Counter;
-use crate::executor;
+use crate::task_exec_queue;
 
 use super::config::{BACKOFF_STRATEGY, retry};
 use super::message::{Message, MessageReply};
@@ -137,7 +137,7 @@ impl Router for &'static ClusterRouter {
         let mailbox = self.raft_mailbox().await;
         let _ = async move {
             mailbox.send(msg).await.map_err(anyhow::Error::new)
-        }.spawn(executor()).result().await
+        }.spawn(task_exec_queue()).result().await
             .map_err(|_| MqttError::from("Router::add(..), task execution failure"))??;
         Ok(())
     }
@@ -153,7 +153,7 @@ impl Router for &'static ClusterRouter {
                 let msg = msg.clone();
                 let mailbox = raft_mailbox.clone();
                 let res = async move { mailbox.send(msg).await }
-                    .spawn(executor()).result().await
+                    .spawn(task_exec_queue()).result().await
                     .map_err(|_| MqttError::from("Router::remove(..), task execution failure"))?
                     .map_err(|e| MqttError::from(e.to_string()))?;
                 Ok(res)
