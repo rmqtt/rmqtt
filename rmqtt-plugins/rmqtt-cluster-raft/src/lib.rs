@@ -85,9 +85,9 @@ impl ClusterPlugin {
                 .plugins
                 .load_config::<PluginConfig>(&name)
                 .map_err(|e| MqttError::from(e.to_string()))?;
-        log::debug!("{} ClusterPlugin cfg: {:?}", name, cfg);
+        log::info!("{} ClusterPlugin cfg: {:?}", name, cfg);
 
-        init_task_exec_queue(cfg.executor_workers, cfg.executor_queue_max);
+        init_task_exec_queue(cfg.task_exec_queue_workers, cfg.task_exec_queue_max);
 
         let register = runtime.extends.hook_mgr().await.register();
         let mut grpc_clients = HashMap::default();
@@ -131,7 +131,7 @@ impl ClusterPlugin {
             .map(|peer| peer.addr.to_string())
             .expect("raft listening address does not exist");
         let logger = Runtime::instance().logger.clone();
-        let raft = Raft::new(raft_addr, router, logger);
+        let raft = Raft::new(raft_addr, router, logger, cfg.read().raft.to_raft_config());
         let mailbox = raft.mailbox();
 
         let peer_addrs = cfg
