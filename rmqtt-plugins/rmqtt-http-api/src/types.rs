@@ -6,7 +6,7 @@ use rmqtt::{ClientId, NodeId, Timestamp, TopicFilter, TopicName, UserName};
 use rmqtt::node::{BrokerInfo, NodeInfo, NodeStatus};
 use rmqtt::plugin::PluginInfo;
 use rmqtt::Result;
-use rmqtt::settings::{deserialize_duration_option, serialize_duration_option};
+use rmqtt::settings::{deserialize_datetime_option, serialize_datetime_option};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Message<'a> {
@@ -83,29 +83,29 @@ pub struct ClientSearchParams {
     //Substring fuzzy search
     #[serde(
     default,
-    deserialize_with = "deserialize_duration_option",
-    serialize_with = "serialize_duration_option"
+    deserialize_with = "deserialize_datetime_option",
+    serialize_with = "serialize_datetime_option"
     )]
     pub _gte_created_at: Option<Duration>,
     //Greater than or equal search
     #[serde(
     default,
-    deserialize_with = "deserialize_duration_option",
-    serialize_with = "serialize_duration_option"
+    deserialize_with = "deserialize_datetime_option",
+    serialize_with = "serialize_datetime_option"
     )]
     pub _lte_created_at: Option<Duration>,
     //Less than or equal search
     #[serde(
     default,
-    deserialize_with = "deserialize_duration_option",
-    serialize_with = "serialize_duration_option"
+    deserialize_with = "deserialize_datetime_option",
+    serialize_with = "serialize_datetime_option"
     )]
     pub _gte_connected_at: Option<Duration>,
     //Greater than or equal search
     #[serde(
     default,
-    deserialize_with = "deserialize_duration_option",
-    serialize_with = "serialize_duration_option"
+    deserialize_with = "deserialize_datetime_option",
+    serialize_with = "serialize_datetime_option"
     )]
     pub _lte_connected_at: Option<Duration>,
     //Less than or equal search

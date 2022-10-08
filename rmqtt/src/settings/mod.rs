@@ -285,6 +285,19 @@ pub fn deserialize_duration<'de, D>(deserializer: D) -> Result<Duration, D::Erro
 }
 
 #[inline]
+pub fn deserialize_duration_option<'de, D>(deserializer: D) -> Result<Option<Duration>, D::Error>
+    where
+        D: Deserializer<'de>,
+{
+    let v = String::deserialize(deserializer)?;
+    if v.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(to_duration(&v)))
+    }
+}
+
+#[inline]
 pub fn to_duration(text: &str) -> Duration {
     let text = text.to_lowercase().replace("ms", "Y");
     let ms: u64 = text
@@ -343,7 +356,7 @@ pub fn deserialize_addr_option<'de, D>(
 }
 
 #[inline]
-pub fn deserialize_duration_option<'de, D>(deserializer: D) -> std::result::Result<Option<Duration>, D::Error>
+pub fn deserialize_datetime_option<'de, D>(deserializer: D) -> std::result::Result<Option<Duration>, D::Error>
     where
         D: Deserializer<'de>,
 {
@@ -362,7 +375,7 @@ pub fn deserialize_duration_option<'de, D>(deserializer: D) -> std::result::Resu
 }
 
 #[inline]
-pub fn serialize_duration_option<S>(t: &Option<Duration>, s: S) -> std::result::Result<S::Ok, S::Error>
+pub fn serialize_datetime_option<S>(t: &Option<Duration>, s: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
 {
