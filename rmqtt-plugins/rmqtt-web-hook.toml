@@ -9,10 +9,14 @@
 
 ## web hook general config
 worker_threads = 3
-queue_capacity = 1_000_000
+queue_capacity = 300_000
 concurrency_limit = 128
 http_urls = ["http://127.0.0.1:5656/mqtt/webhook"] #default urls
 http_timeout = "8s"
+
+##If it fails, try again after approximately 2, 4, 7, 11, 18, or 42 seconds
+retry_max_elapsed_time = "60s"
+retry_multiplier = 2.5
 
 ## web hook rules config
 #rule.session_created = [{action = "session_created" } ]

@@ -2,6 +2,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
 use serde::de::{self, Deserialize};
 use serde::ser::{self, Serialize};
 
@@ -28,6 +29,14 @@ pub struct PluginConfig {
     #[serde(rename = "rule")]
     #[serde(default, deserialize_with = "PluginConfig::deserialize_rules")]
     pub rules: HashMap<Type, Vec<Rule>>,
+
+    #[serde(
+    default = "PluginConfig::retry_max_elapsed_time_default",
+    deserialize_with = "deserialize_duration"
+    )]
+    pub retry_max_elapsed_time: Duration,
+    #[serde(default = "PluginConfig::retry_multiplier_default")]
+    pub retry_multiplier: f64,
 }
 
 impl PluginConfig {
@@ -42,6 +51,12 @@ impl PluginConfig {
     }
     fn http_timeout_default() -> Duration {
         Duration::from_secs(5)
+    }
+    fn retry_max_elapsed_time_default() -> Duration {
+        Duration::from_secs(60)
+    }
+    fn retry_multiplier_default() -> f64 {
+        2.5
     }
 
     fn deserialize_rules<'de, D>(deserializer: D) -> std::result::Result<HashMap<Type, Vec<Rule>>, D::Error>
@@ -59,6 +74,14 @@ impl PluginConfig {
     #[inline]
     pub fn to_json(&self) -> Result<serde_json::Value> {
         Ok(serde_json::to_value(self)?)
+    }
+
+    #[inline]
+    pub fn get_backoff_strategy(&self) -> ExponentialBackoff {
+        ExponentialBackoffBuilder::new()
+            .with_max_elapsed_time(Some(self.retry_max_elapsed_time))
+            .with_multiplier(self.retry_multiplier)
+            .build()
     }
 }
 
