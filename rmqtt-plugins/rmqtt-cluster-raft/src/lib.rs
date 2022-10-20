@@ -29,6 +29,10 @@ use rmqtt::{
     Result,
     Runtime, tokio::time::sleep,
 };
+use rmqtt::{
+    once_cell::sync::OnceCell,
+    rust_box::task_exec_queue::{Builder, TaskExecQueue},
+};
 use router::ClusterRouter;
 use shared::ClusterShared;
 
@@ -79,12 +83,11 @@ impl ClusterPlugin {
     #[inline]
     async fn new<S: Into<String>>(runtime: &'static Runtime, name: S, descr: S) -> Result<Self> {
         let name = name.into();
-        let cfg =
-            runtime
-                .settings
-                .plugins
-                .load_config::<PluginConfig>(&name)
-                .map_err(|e| MqttError::from(e.to_string()))?;
+        let cfg = runtime
+            .settings
+            .plugins
+            .load_config::<PluginConfig>(&name)
+            .map_err(|e| MqttError::from(e.to_string()))?;
         log::info!("{} ClusterPlugin cfg: {:?}", name, cfg);
 
         init_task_exec_queue(cfg.task_exec_queue_workers, cfg.task_exec_queue_max);
@@ -324,7 +327,6 @@ pub(crate) struct MessageSender {
 }
 
 impl MessageSender {
-
     #[inline]
     async fn send(&mut self) -> Result<MessageReply> {
         let mut current_retry = 0usize;
@@ -388,22 +390,13 @@ pub(crate) async fn hook_message_dropped(droppeds: Vec<(To, From, Publish, Reaso
     }
 }
 
-use rmqtt::{
-        once_cell::sync::OnceCell,
-        rust_box::task_exec_queue::{Builder, TaskExecQueue}
-    };
-
-
 static TASK_EXEC_QUEUE: OnceCell<TaskExecQueue> = OnceCell::new();
 
 #[inline]
 fn init_task_exec_queue(workers: usize, queue_max: usize) {
-    let (exec, task_runner) = Builder::default()
-        .workers(workers)
-        .queue_max(queue_max)
-        .build();
+    let (exec, task_runner) = Builder::default().workers(workers).queue_max(queue_max).build();
 
-    tokio::spawn(async move{
+    tokio::spawn(async move {
         task_runner.await;
     });
 

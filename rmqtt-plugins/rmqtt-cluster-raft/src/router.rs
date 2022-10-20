@@ -5,7 +5,10 @@ use once_cell::sync::OnceCell;
 use rmqtt_raft::{Error, Mailbox, Result as RaftResult, Store};
 use tokio::sync::RwLock;
 
-use rmqtt::{ahash, anyhow, async_trait::async_trait, bincode, chrono, dashmap, log, MqttError, once_cell, serde_json, tokio};
+use rmqtt::{
+    ahash, anyhow, async_trait::async_trait, bincode, chrono, dashmap, log, MqttError, once_cell, serde_json,
+    tokio,
+};
 use rmqtt::{
     broker::{
         default::DefaultRouter,
@@ -19,6 +22,7 @@ use rmqtt::{
 };
 use rmqtt::rust_box::task_exec_queue::SpawnExt;
 use rmqtt::stats::Counter;
+
 use crate::task_exec_queue;
 
 use super::config::{BACKOFF_STRATEGY, retry};
@@ -108,10 +112,7 @@ impl ClusterRouter {
 
     #[inline]
     pub(crate) fn _handshakings(&self) -> usize {
-        self.client_states
-            .iter()
-            .filter_map(|entry| if entry.handshaking { Some(()) } else { None })
-            .count()
+        self.client_states.iter().filter_map(|entry| if entry.handshaking { Some(()) } else { None }).count()
     }
 }
 
@@ -135,9 +136,10 @@ impl Router for &'static ClusterRouter {
 
         let msg = Message::Add { topic_filter, id, qos, shared_group }.encode()?;
         let mailbox = self.raft_mailbox().await;
-        let _ = async move {
-            mailbox.send(msg).await.map_err(anyhow::Error::new)
-        }.spawn(task_exec_queue()).result().await
+        let _ = async move { mailbox.send(msg).await.map_err(anyhow::Error::new) }
+            .spawn(task_exec_queue())
+            .result()
+            .await
             .map_err(|_| MqttError::from("Router::add(..), task execution failure"))??;
         Ok(())
     }
@@ -148,17 +150,18 @@ impl Router for &'static ClusterRouter {
         let msg = Message::Remove { topic_filter, id: id.clone() }.encode()?;
         let raft_mailbox = self.raft_mailbox().await;
         tokio::spawn(async move {
-            if let Err(e) =
-            retry(BACKOFF_STRATEGY.clone(), || async {
+            if let Err(e) = retry(BACKOFF_STRATEGY.clone(), || async {
                 let msg = msg.clone();
                 let mailbox = raft_mailbox.clone();
                 let res = async move { mailbox.send(msg).await }
-                    .spawn(task_exec_queue()).result().await
+                    .spawn(task_exec_queue())
+                    .result()
+                    .await
                     .map_err(|_| MqttError::from("Router::remove(..), task execution failure"))?
                     .map_err(|e| MqttError::from(e.to_string()))?;
                 Ok(res)
-
-            }).await
+            })
+                .await
             {
                 log::warn!("[Router.remove] Failed to send Message::Remove, id: {:?}, {:?}", id, e);
             }

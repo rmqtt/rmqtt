@@ -61,9 +61,7 @@ impl PluginConfig {
     }
 
     fn raft_default() -> RaftConfig {
-        RaftConfig {
-            ..Default::default()
-        }
+        RaftConfig { ..Default::default() }
     }
 }
 
@@ -129,7 +127,11 @@ pub struct RaftConfig {
     /// Choose the linearizability mode or the lease mode to read data. If you don’t care about the read consistency and want a higher read performance, you can use the lease mode.
     ///
     /// Setting this to `LeaseBased` requires `check_quorum = true`.
-    #[serde(default = "RaftConfig::read_only_option_default", serialize_with = "RaftConfig::serialize_read_only_option", deserialize_with = "RaftConfig::deserialize_read_only_option")]
+    #[serde(
+    default = "RaftConfig::read_only_option_default",
+    serialize_with = "RaftConfig::serialize_read_only_option",
+    deserialize_with = "RaftConfig::deserialize_read_only_option"
+    )]
     pub read_only_option: ReadOnlyOption,
 
     /// Don't broadcast an empty raft entry to notify follower to commit an entry.
@@ -149,15 +151,11 @@ pub struct RaftConfig {
 
     /// Max size for committed entries in a `Ready`.
     pub max_committed_size_per_ready: Option<u64>,
-
 }
 
 impl RaftConfig {
-
     pub(crate) fn to_raft_config(&self) -> rmqtt_raft::Config {
-        let mut cfg = rmqtt_raft::Config {
-            ..Default::default()
-        };
+        let mut cfg = rmqtt_raft::Config { ..Default::default() };
 
         if let Some(grpc_timeout) = self.grpc_timeout {
             cfg.grpc_timeout = grpc_timeout;
@@ -228,7 +226,6 @@ impl RaftConfig {
         cfg
     }
 
-
     fn read_only_option_default() -> ReadOnlyOption {
         ReadOnlyOption::Safe
     }
@@ -241,7 +238,7 @@ impl RaftConfig {
         match v.as_str() {
             "safe" => Ok(ReadOnlyOption::Safe),
             "leasebased" => Ok(ReadOnlyOption::LeaseBased),
-            _ => return Err(de::Error::missing_field("read_only_option"))
+            _ => Err(de::Error::missing_field("read_only_option")),
         }
     }
 
@@ -256,9 +253,7 @@ impl RaftConfig {
         };
         rop_str.serialize(s)
     }
-
 }
-
 
 #[derive(Clone, Serialize)]
 pub struct NodeAddr {
