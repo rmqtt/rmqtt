@@ -26,8 +26,8 @@ use crate::settings::listener::Listener;
 use crate::stats::Counter;
 
 use super::{
-    Entry, IsOnline, retain::RetainTree, RetainStorage, Router, Shared,
-    SharedSubscription, SubRelations, SubRelationsMap, topic::TopicTree,
+    Entry, IsOnline, retain::RetainTree, RetainStorage, Router, Shared, SharedSubscription, SubRelations,
+    SubRelationsMap, topic::TopicTree,
 };
 
 type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
@@ -513,7 +513,7 @@ impl Shared for &'static DefaultShared {
     }
 
     #[inline]
-    fn sessions_count(&self) -> usize{
+    fn sessions_count(&self) -> usize {
         self.peers.len()
     }
 

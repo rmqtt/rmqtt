@@ -166,17 +166,16 @@ impl WriteFilter {
         };
         Ok(n)
     }
-
 }
 
 impl io::Write for WriteFilter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         if matches!(self.to.get(), To::Off) {
-            return Ok(buf.len())
+            return Ok(buf.len());
         }
         if let Some(b) = &mut self.buf {
             b.extend_from_slice(buf);
-        }else{
+        } else {
             self.buf = Some(buf.to_vec());
         }
         Ok(buf.len())

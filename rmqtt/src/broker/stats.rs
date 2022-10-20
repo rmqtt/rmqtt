@@ -1,8 +1,9 @@
 use std::fmt;
 use std::sync::atomic::{AtomicIsize, Ordering};
 
-use once_cell::sync::OnceCell;
 use ntex_mqtt::handshakings;
+use once_cell::sync::OnceCell;
+
 use crate::{HashMap, NodeId, Runtime};
 use crate::broker::executor::{get_active_count, get_rate};
 
@@ -112,7 +113,6 @@ impl Counter {
         self.0.store(other.0.load(Ordering::SeqCst), Ordering::SeqCst);
         self.1.store(other.1.load(Ordering::SeqCst), Ordering::SeqCst);
     }
-
 }
 
 #[derive(Serialize, Deserialize, Debug)]

@@ -2,8 +2,8 @@ use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::broker::{
     default::{
-        DefaultFitterManager, DefaultHookManager, DefaultRetainStorage, DefaultRouter,
-        DefaultShared, DefaultSharedSubscription,
+        DefaultFitterManager, DefaultHookManager, DefaultRetainStorage, DefaultRouter, DefaultShared,
+        DefaultSharedSubscription,
     },
     fitter::FitterManager,
     hook::HookManager,

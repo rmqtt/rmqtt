@@ -275,9 +275,9 @@ impl ListenerInner {
     #[inline]
     pub fn handshake_timeout(&self) -> u16 {
         let millis = self.handshake_timeout.as_millis();
-        if millis > 0xffff{
+        if millis > 0xffff {
             0xffff
-        }else{
+        } else {
             millis as u16
         }
     }

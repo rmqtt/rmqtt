@@ -13,8 +13,8 @@ type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
 pub mod default;
 pub mod error;
-pub mod fitter;
 pub mod executor;
+pub mod fitter;
 pub mod hook;
 pub mod inflight;
 pub mod metrics;

@@ -7,8 +7,8 @@ use rust_box::task_exec_queue::LocalSpawnExt;
 
 use crate::{ClientInfo, MqttError, Result, Runtime, Session, SessionState};
 use crate::broker::{inflight::MomentStatus, types::*};
-use crate::settings::listener::Listener;
 use crate::broker::executor::get_handshake_exec_queue;
+use crate::settings::listener::Listener;
 
 #[inline]
 async fn refused_ack<Io>(
@@ -64,28 +64,20 @@ pub async fn handshake<Io: 'static>(
     let handshake_fut = async move {
         if (chrono::Local::now().timestamp_millis() - start) > listen_cfg.handshake_timeout() as i64 {
             Runtime::instance().metrics.client_handshaking_timeout_inc();
-            return Err(MqttError::from("execute handshake timeout"))
+            return Err(MqttError::from("execute handshake timeout"));
         }
         _handshake(id, listen_cfg, handshake).await
     };
 
-    match handshake_fut.spawn(&exec).result().await{
+    match handshake_fut.spawn(&exec).result().await {
         Ok(Ok(res)) => Ok(res),
         Ok(Err(e)) => {
-            log::warn!(
-                    "{:?} Connection Refused, handshake error, reason: {:?}",
-                    id1,
-                    e.to_string()
-                );
+            log::warn!("{:?} Connection Refused, handshake error, reason: {:?}", id1, e.to_string());
             Err(e)
-        },
+        }
         Err(e) => {
             Runtime::instance().metrics.client_handshaking_timeout_inc();
-            log::warn!(
-                "{:?} Connection Refused, handshake timeout, reason: {:?}",
-                id1,
-                e.to_string()
-            );
+            log::warn!("{:?} Connection Refused, handshake timeout, reason: {:?}", id1, e.to_string());
             Err(MqttError::from("Connection Refused, execute handshake timeout"))
         }
     }
@@ -97,7 +89,6 @@ pub async fn _handshake<Io: 'static>(
     listen_cfg: Listener,
     mut handshake: v5::Handshake<Io>,
 ) -> Result<v5::HandshakeAck<Io, SessionState>, MqttError> {
-
     let connect_info = ConnectInfo::V5(id.clone(), Box::new(handshake.packet().clone()));
 
     //hook, client connect

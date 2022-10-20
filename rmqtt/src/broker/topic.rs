@@ -1,10 +1,10 @@
 use std::clone::Clone;
 use std::cmp::Eq;
+use std::cmp::Ord;
 use std::default::Default;
 use std::fmt;
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::cmp::Ord;
 
 use serde::de::Deserialize;
 use serde::ser::Serialize;
@@ -27,7 +27,7 @@ pub struct Node<V: Ord> {
 
 impl<V> Default for Node<V>
     where
-        V: Hash + Ord + Eq + Clone + Debug
+        V: Hash + Ord + Eq + Clone + Debug,
 {
     #[inline]
     fn default() -> Node<V> {
@@ -37,7 +37,7 @@ impl<V> Default for Node<V>
 
 impl<V> AsRef<Node<V>> for Node<V>
     where
-        V: Hash + Ord + Eq + Clone + Debug
+        V: Hash + Ord + Eq + Clone + Debug,
 {
     fn as_ref(&self) -> &Node<V> {
         self
@@ -498,8 +498,6 @@ mod tests {
         let start = std::time::Instant::now();
         assert!(topics.is_match(&t));
         println!("is_matches cost time: {:?}", start.elapsed());
-
-
     }
 
     #[test]
@@ -513,7 +511,5 @@ mod tests {
         let val_size = topics.values_size();
         let topics: TopicTree<()> = bincode::deserialize(&bincode::serialize(&topics).unwrap()).unwrap();
         assert_eq!(val_size, topics.values_size());
-
     }
-
 }

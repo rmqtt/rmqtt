@@ -1,8 +1,8 @@
 use std::thread::ThreadId;
-use tokio::task::spawn_local;
-use once_cell::sync::OnceCell;
 
+use once_cell::sync::OnceCell;
 use rust_box::task_exec_queue::{LocalBuilder, LocalTaskExecQueue};
+use tokio::task::spawn_local;
 
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
@@ -23,7 +23,7 @@ pub(crate) fn get_handshake_exec_queue(name: Port, listen_cfg: Listener) -> Loca
                     .queue_max(listen_cfg.max_connections / listen_cfg.workers)
                     .build();
 
-                spawn_local(async move{
+                spawn_local(async move {
                     task_runner.await;
                 });
 
@@ -40,7 +40,7 @@ pub(crate) fn get_handshake_exec_queue(name: Port, listen_cfg: Listener) -> Loca
 
 static ACTIVE_COUNTS: OnceCell<DashMap<(Port, ThreadId), (isize, Timestamp)>> = OnceCell::new();
 
-fn set_active_count(name: Port, c: isize){
+fn set_active_count(name: Port, c: isize) {
     let active_counts = ACTIVE_COUNTS.get_or_init(DashMap::default);
     let mut entry = active_counts.entry((name, std::thread::current().id())).or_default();
     let (count, t) = entry.value_mut();
@@ -49,31 +49,31 @@ fn set_active_count(name: Port, c: isize){
 }
 
 pub fn get_active_count() -> isize {
-    ACTIVE_COUNTS.get()
-        .map(|m| m.iter()
-            .filter_map(|entry|{
-                let (c, t) = entry.value();
-                if *t + 5 > chrono::Local::now().timestamp(){
-                    Some(*c)
-                }else{
-                    None
-                }
-            }).sum()).unwrap_or_default()
+    ACTIVE_COUNTS
+        .get()
+        .map(|m| {
+            m.iter()
+                .filter_map(|entry| {
+                    let (c, t) = entry.value();
+                    if *t + 5 > chrono::Local::now().timestamp() {
+                        Some(*c)
+                    } else {
+                        None
+                    }
+                })
+                .sum()
+        })
+        .unwrap_or_default()
 }
 
 static RATES: OnceCell<DashMap<(Port, ThreadId), f64>> = OnceCell::new();
 
-fn set_rate(name: Port, rate: f64){
+fn set_rate(name: Port, rate: f64) {
     let rates = RATES.get_or_init(DashMap::default);
     let mut entry = rates.entry((name, std::thread::current().id())).or_default();
     *entry.value_mut() = rate;
 }
 
 pub fn get_rate() -> f64 {
-    RATES.get()
-        .map(|m| m.iter()
-            .map(|entry|{
-                *entry.value()
-            }).sum::<f64>()).unwrap_or_default()
+    RATES.get().map(|m| m.iter().map(|entry| *entry.value()).sum::<f64>()).unwrap_or_default()
 }
-
