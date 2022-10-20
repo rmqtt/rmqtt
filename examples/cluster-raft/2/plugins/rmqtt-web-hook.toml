@@ -9,7 +9,7 @@
 
 ## web hook general config
 worker_threads = 3
-queue_capacity = 1_000_000
+queue_capacity = 300_000
 concurrency_limit = 128
 http_urls = ["http://127.0.0.1:5656/mqtt/webhook"] #default urls
 http_timeout = "8s"
