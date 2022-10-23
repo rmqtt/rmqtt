@@ -463,8 +463,7 @@ impl Handler for AuthHandler {
                         Some(HookResult::PublishAclResult(PublishAclResult::Allow)),
                     )
                 } else {
-                    (false, Some(HookResult::PublishAclResult(PublishAclResult::Rejected(true))))
-                    //@TODO ... Do you want to disconnect?
+                    (false, Some(HookResult::PublishAclResult(PublishAclResult::Rejected(self.cfg.read().await.disconnect_if_pub_rejected))))
                 };
             }
             Parameter::ClientDisconnected(_session, client_info, _reason) => {
