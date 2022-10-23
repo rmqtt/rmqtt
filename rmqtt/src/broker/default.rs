@@ -192,7 +192,6 @@ impl super::Entry for LockEntry {
                             self.id,
                             self.client().map(|c| c.id.clone())
                         );
-                        return Err(MqttError::Msg("recv kick result is Timeout".into()));
                     }
                 }
             }
