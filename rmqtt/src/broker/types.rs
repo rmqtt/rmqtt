@@ -304,7 +304,7 @@ impl Subscribe {
 }
 
 #[derive(Clone, Debug)]
-pub struct SubscribeReturn(SubscribeAckReason);
+pub struct SubscribeReturn(pub SubscribeAckReason);
 
 impl SubscribeReturn {
     #[inline]
@@ -373,6 +373,34 @@ impl ConnectAckReason {
             ConnectAckReason::V3(ConnectAckReasonV3::ConnectionAccepted)
                 | ConnectAckReason::V5(ConnectAckReasonV5::Success)
         )
+    }
+
+    #[inline]
+    pub fn not_authorized(&self) -> bool {
+        matches!(
+            *self,
+            ConnectAckReason::V3(ConnectAckReasonV3::NotAuthorized)
+                | ConnectAckReason::V3(ConnectAckReasonV3::BadUserNameOrPassword)
+                | ConnectAckReason::V5(ConnectAckReasonV5::NotAuthorized)
+                | ConnectAckReason::V5(ConnectAckReasonV5::BadUserNameOrPassword)
+        )
+    }
+
+    #[inline]
+    pub fn success_or_auth_error(&self) -> (bool, bool) {
+        match *self {
+            ConnectAckReason::V3(ConnectAckReasonV3::ConnectionAccepted)
+            | ConnectAckReason::V5(ConnectAckReasonV5::Success) => {
+                (true, false)
+            },
+            ConnectAckReason::V3(ConnectAckReasonV3::NotAuthorized)
+            | ConnectAckReason::V3(ConnectAckReasonV3::BadUserNameOrPassword)
+            | ConnectAckReason::V5(ConnectAckReasonV5::NotAuthorized)
+            | ConnectAckReason::V5(ConnectAckReasonV5::BadUserNameOrPassword) => {
+                (false, true)
+            },
+            _ => (false, false)
+        }
     }
 
     #[inline]
