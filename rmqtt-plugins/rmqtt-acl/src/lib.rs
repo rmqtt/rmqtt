@@ -67,10 +67,10 @@ impl Plugin for AclPlugin {
     async fn init(&mut self) -> Result<()> {
         log::info!("{} init", self.name);
         let cfg = &self.cfg;
-        self.register.add(Type::ClientConnected, Box::new(AclHandler::new(cfg))).await;
-        self.register.add(Type::ClientAuthenticate, Box::new(AclHandler::new(cfg))).await;
-        self.register.add(Type::ClientSubscribeCheckAcl, Box::new(AclHandler::new(cfg))).await;
-        self.register.add(Type::MessagePublishCheckAcl, Box::new(AclHandler::new(cfg))).await;
+        self.register.add_priority(Type::ClientConnected, 10, Box::new(AclHandler::new(cfg))).await;
+        self.register.add_priority(Type::ClientAuthenticate, 10, Box::new(AclHandler::new(cfg))).await;
+        self.register.add_priority(Type::ClientSubscribeCheckAcl, 10, Box::new(AclHandler::new(cfg))).await;
+        self.register.add_priority(Type::MessagePublishCheckAcl, 10, Box::new(AclHandler::new(cfg))).await;
         Ok(())
     }
 
