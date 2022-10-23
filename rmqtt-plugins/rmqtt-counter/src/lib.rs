@@ -5,6 +5,7 @@ use rmqtt::{
     plugin::{DynPlugin, DynPluginResult, Plugin},
     Result, Runtime,
 };
+use rmqtt::broker::hook::Priority;
 
 #[inline]
 pub async fn register(
@@ -49,26 +50,26 @@ impl Plugin for CounterPlugin {
     #[inline]
     async fn init(&mut self) -> Result<()> {
         log::info!("{} init", self.name);
-        self.register.add(Type::ClientConnect, Box::new(CounterHandler::new())).await;
-        self.register.add(Type::ClientAuthenticate, Box::new(CounterHandler::new())).await;
-        self.register.add(Type::ClientConnack, Box::new(CounterHandler::new())).await;
-        self.register.add(Type::ClientConnected, Box::new(CounterHandler::new())).await;
-        self.register.add(Type::ClientDisconnected, Box::new(CounterHandler::new())).await;
-        self.register.add(Type::ClientSubscribe, Box::new(CounterHandler::new())).await;
-        self.register.add(Type::ClientUnsubscribe, Box::new(CounterHandler::new())).await;
+        self.register.add_priority(Type::ClientConnect, Priority::MAX, Box::new(CounterHandler::new())).await;
+        self.register.add_priority(Type::ClientAuthenticate, Priority::MAX, Box::new(CounterHandler::new())).await;
+        self.register.add_priority(Type::ClientConnack, Priority::MAX, Box::new(CounterHandler::new())).await;
+        self.register.add_priority(Type::ClientConnected, Priority::MAX, Box::new(CounterHandler::new())).await;
+        self.register.add_priority(Type::ClientDisconnected, Priority::MAX, Box::new(CounterHandler::new())).await;
+        self.register.add_priority(Type::ClientSubscribe, Priority::MAX, Box::new(CounterHandler::new())).await;
+        self.register.add_priority(Type::ClientUnsubscribe, Priority::MAX, Box::new(CounterHandler::new())).await;
 
-        self.register.add(Type::ClientSubscribeCheckAcl, Box::new(CounterHandler::new())).await;
-        self.register.add(Type::MessagePublishCheckAcl, Box::new(CounterHandler::new())).await;
+        self.register.add_priority(Type::ClientSubscribeCheckAcl, Priority::MAX, Box::new(CounterHandler::new())).await;
+        self.register.add_priority(Type::MessagePublishCheckAcl, Priority::MAX, Box::new(CounterHandler::new())).await;
 
-        self.register.add(Type::SessionCreated, Box::new(CounterHandler::new())).await;
-        self.register.add(Type::SessionTerminated, Box::new(CounterHandler::new())).await;
-        self.register.add(Type::SessionSubscribed, Box::new(CounterHandler::new())).await;
-        self.register.add(Type::SessionUnsubscribed, Box::new(CounterHandler::new())).await;
+        self.register.add_priority(Type::SessionCreated, Priority::MAX, Box::new(CounterHandler::new())).await;
+        self.register.add_priority(Type::SessionTerminated, Priority::MAX, Box::new(CounterHandler::new())).await;
+        self.register.add_priority(Type::SessionSubscribed, Priority::MAX, Box::new(CounterHandler::new())).await;
+        self.register.add_priority(Type::SessionUnsubscribed, Priority::MAX, Box::new(CounterHandler::new())).await;
 
-        self.register.add(Type::MessagePublish, Box::new(CounterHandler::new())).await;
-        self.register.add(Type::MessageDelivered, Box::new(CounterHandler::new())).await;
-        self.register.add(Type::MessageAcked, Box::new(CounterHandler::new())).await;
-        self.register.add(Type::MessageDropped, Box::new(CounterHandler::new())).await;
+        self.register.add_priority(Type::MessagePublish, Priority::MAX, Box::new(CounterHandler::new())).await;
+        self.register.add_priority(Type::MessageDelivered, Priority::MAX, Box::new(CounterHandler::new())).await;
+        self.register.add_priority(Type::MessageAcked, Priority::MAX, Box::new(CounterHandler::new())).await;
+        self.register.add_priority(Type::MessageDropped, Priority::MAX, Box::new(CounterHandler::new())).await;
 
         Ok(())
     }
@@ -130,7 +131,21 @@ impl Handler for CounterHandler {
             Parameter::ClientAuthenticate(_) => {
                 self.metrics.client_authenticate_inc();
             }
-            Parameter::ClientConnack(_connect_info, _reason) => self.metrics.client_connack_inc(),
+            Parameter::ClientConnack(connect_info, reason) => {
+                self.metrics.client_connack_inc();
+                match reason.success_or_auth_error() {
+                    (true, _) => {},
+                    (false, not_authorized) => {
+                        self.metrics.client_connack_error_inc();
+                        if not_authorized {
+                            self.metrics.client_connack_auth_error_inc();
+                        }
+                        if connect_info.username().is_none() {
+                            self.metrics.client_auth_anonymous_error_inc();
+                        }
+                    }
+                }
+            },
             Parameter::ClientConnected(_session, client) => {
                 self.metrics.client_connected_inc();
                 if client.session_present {
