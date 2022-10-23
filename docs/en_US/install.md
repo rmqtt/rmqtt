@@ -17,13 +17,13 @@ Get the binary package of the corresponding OS from [RMQTT Download](https://git
 1. Download the ZIP package from [GitHub Release](https://github.com/rmqtt/rmqtt/releases).
 
 ```bash
-$ wget "https://github.com/rmqtt/rmqtt/releases/download/v0.2.5/rmqtt-0.2.5-x86_64-unknown-linux-musl.zip"
+$ wget "https://github.com/rmqtt/rmqtt/releases/download/v0.2.6/rmqtt-0.2.6-x86_64-unknown-linux-musl.zip"
 ```
 
 2. Decompress the zip package you downloaded from [GitHub Release](https://github.com/rmqtt/rmqtt/releases).
 
 ```bash
-$ unzip rmqtt-0.2.5-x86_64-unknown-linux-musl.zip -d /app/
+$ unzip rmqtt-0.2.6-x86_64-unknown-linux-musl.zip -d /app/
 ```
 
 3. Modify the permissions
