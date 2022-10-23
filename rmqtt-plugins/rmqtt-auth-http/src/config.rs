@@ -15,7 +15,7 @@ type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
-    ///Stop the hook chain after successful authentication, included: auth, pub-acl, sub-acl
+    ///Stop the hook chain after successful authentication, including auth, pub-acl and sub-acl
     #[serde(default = "PluginConfig::break_if_allow_default")]
     pub break_if_allow: bool,
 

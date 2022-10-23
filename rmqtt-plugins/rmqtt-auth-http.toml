@@ -8,7 +8,7 @@ http_headers.Cache-Control = "no-cache"
 http_headers.User-Agent = "RMQTT/0.1.1"
 http_headers.Connection = "keep-alive"
 
-#Stop the hook chain after successful authentication, included: auth, pub-acl, sub-acl
+#Stop the hook chain after successful authentication, including auth, pub-acl and sub-acl
 break_if_allow = true
 #Disconnect if publishing is rejected
 disconnect_if_pub_rejected = true
