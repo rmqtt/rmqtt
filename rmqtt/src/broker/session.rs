@@ -18,6 +18,7 @@ use crate::broker::{fitter::Fitter, hook::Hook};
 use crate::broker::inflight::{Inflight, InflightMessage, MomentStatus};
 use crate::broker::queue::{Limiter, Policy, Queue, Sender};
 use crate::broker::types::*;
+use crate::metrics::Metrics;
 use crate::settings::listener::Listener;
 
 type MessageSender = Sender<(From, Publish)>;
@@ -507,7 +508,24 @@ impl SessionState {
     }
 
     #[inline]
-    pub(crate) async fn subscribe(&self, mut sub: Subscribe) -> Result<SubscribeReturn> {
+    pub(crate) async fn subscribe(&self, sub: Subscribe) -> Result<SubscribeReturn> {
+        let ret = self._subscribe(sub).await;
+        match ret {
+            Ok(SubscribeReturn(SubscribeAckReason::NotAuthorized)) => {
+                Metrics::instance().client_subscribe_auth_error_inc();
+            },
+            Ok(SubscribeReturn(SubscribeAckReason::GrantedQos0))
+            | Ok(SubscribeReturn(SubscribeAckReason::GrantedQos1))
+            | Ok(SubscribeReturn(SubscribeAckReason::GrantedQos2)) => {},
+            _ => {
+                Metrics::instance().client_subscribe_error_inc();
+            }
+        }
+        ret
+    }
+
+    #[inline]
+    async fn _subscribe(&self, mut sub: Subscribe) -> Result<SubscribeReturn> {
         if self.listen_cfg.max_subscriptions > 0
             && (self.subscriptions.len() >= self.listen_cfg.max_subscriptions)
         {
@@ -572,25 +590,39 @@ impl SessionState {
     }
 
     #[inline]
-    pub async fn publish_v3(&self, publish: &v3::Publish) -> Result<()> {
-        if let Err(e) = self.publish(Publish::try_from(publish)?).await {
-            self.client.add_disconnected_reason(Reason::from(format!("Publish failed, {:?}", e))).await;
-            return Err(e);
+    pub async fn publish_v3(&self, publish: &v3::Publish) -> Result<bool> {
+        match self.publish(Publish::try_from(publish)?).await {
+            Err(e) => {
+                Metrics::instance().client_publish_error_inc();
+                self.client.add_disconnected_reason(Reason::from(format!("Publish failed, {:?}", e))).await;
+                Err(e)
+            },
+            Ok(false) => {
+                Metrics::instance().client_publish_error_inc();
+                Ok(false)
+            },
+            Ok(true) => Ok(true)
         }
-        Ok(())
     }
 
     #[inline]
-    pub async fn publish_v5(&self, publish: &v5::Publish) -> Result<()> {
-        if let Err(e) = self.publish(Publish::try_from(publish)?).await {
-            self.client.add_disconnected_reason(Reason::from(format!("Publish failed, {:?}", e))).await;
-            return Err(e);
+    pub async fn publish_v5(&self, publish: &v5::Publish) -> Result<bool> {
+        match self.publish(Publish::try_from(publish)?).await {
+            Err(e) => {
+                Metrics::instance().client_publish_error_inc();
+                self.client.add_disconnected_reason(Reason::from(format!("Publish failed, {:?}", e))).await;
+                Err(e)
+            },
+            Ok(false) => {
+                Metrics::instance().client_publish_error_inc();
+                Ok(false)
+            },
+            Ok(true) => Ok(true)
         }
-        Ok(())
     }
 
     #[inline]
-    async fn publish(&self, publish: Publish) -> Result<()> {
+    async fn publish(&self, publish: Publish) -> Result<bool> {
         //hook, message_publish
         let publish = self.hook.message_publish(&publish).await.unwrap_or(publish);
 
@@ -598,6 +630,7 @@ impl SessionState {
         let acl_result = self.hook.message_publish_check_acl(&publish).await;
         log::debug!("{:?} acl_result: {:?}", self.id, acl_result);
         if let PublishAclResult::Rejected(disconnect) = acl_result {
+            Metrics::instance().client_publish_auth_error_inc();
             //Message dropped
             Runtime::instance()
                 .extends
@@ -618,7 +651,7 @@ impl SessionState {
                     "Publish Refused, reason: hook::message_publish_check_acl() -> Rejected(Disconnect)",
                 ))
             } else {
-                Ok(())
+                Ok(false)
             };
         }
 
@@ -639,7 +672,7 @@ impl SessionState {
             }
         }
 
-        Ok(())
+        Ok(true)
     }
 
     #[inline]
