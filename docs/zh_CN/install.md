@@ -182,6 +182,14 @@ $ apt install pkg-config -y
 $ apt-get install libssl-dev -y
 ```
 
+4. 安装protoc
+   
+   如果编译时报: protoc directory is not found，那么需要在以下位置下载并安装匹配安装包:
+
+```bash
+   https://github.com/protocolbuffers/protobuf/releases
+```
+
 ##### 编译
 
 1. 获取源码

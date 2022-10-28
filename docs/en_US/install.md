@@ -155,6 +155,16 @@ $ apt install pkg-config -y
 $ apt-get install libssl-dev -y
 ```
 
+4. Install protoc
+
+   If the compiler reports: protoc directory is not found,
+   then you need to download and install the matching installation package in the following location:
+
+```bash
+   https://github.com/protocolbuffers/protobuf/releases
+```
+
+
 ##### Compile
 
 1. Get source code
