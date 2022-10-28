@@ -13,6 +13,10 @@ pub struct Options {
     #[structopt(name = "id", long)]
     pub node_id: Option<NodeId>,
 
+    /// Launched Plug ins
+    #[structopt(name = "plugins-default-startups", long)]
+    pub plugins_default_startups: Option<Vec<String>>,
+
     ///Node gRPC service address list, --node-grpc-addrs "1@127.0.0.1:5363" "2@127.0.0.1:5364" "3@127.0.0.1:5365"]
     #[structopt(name = "node-grpc-addrs", long)]
     pub node_grpc_addrs: Option<Vec<NodeAddr>>,

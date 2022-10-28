@@ -88,6 +88,9 @@ impl Settings {
                 inner.node.id = id;
             }
         }
+        if let Some(plugins_default_startups) = opts.plugins_default_startups.as_ref() {
+            inner.plugins.default_startups = plugins_default_startups.clone()
+        }
 
         inner.opts = opts;
         Ok(Self(Arc::new(inner)))
