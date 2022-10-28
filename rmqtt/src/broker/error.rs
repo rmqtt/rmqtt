@@ -1,4 +1,5 @@
 use std::net::AddrParseError;
+use std::num::ParseIntError;
 use std::str::Utf8Error;
 
 use config::ConfigError;
@@ -38,6 +39,8 @@ pub enum MqttError {
     ConfigError(ConfigError),
     #[error("{0}")]
     AddrParseError(AddrParseError),
+    #[error("{0}")]
+    ParseIntError(ParseIntError),
     #[error("None")]
     None,
 }
