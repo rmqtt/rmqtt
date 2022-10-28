@@ -1,5 +1,3 @@
-use std::net::SocketAddr;
-use std::str::FromStr;
 use std::time::Duration;
 
 pub(crate) use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
@@ -10,10 +8,9 @@ use serde::ser::Serializer;
 use serde::Serialize;
 
 use rmqtt::{lazy_static, serde_json};
-use rmqtt::broker::types::NodeId;
 use rmqtt::grpc::MessageType;
 use rmqtt::Result;
-use rmqtt::settings::{deserialize_duration, deserialize_duration_option};
+use rmqtt::settings::{NodeAddr, deserialize_duration, deserialize_duration_option, Options};
 
 lazy_static::lazy_static! {
     pub static ref BACKOFF_STRATEGY: ExponentialBackoff = ExponentialBackoffBuilder::new()
@@ -62,6 +59,15 @@ impl PluginConfig {
 
     fn raft_default() -> RaftConfig {
         RaftConfig { ..Default::default() }
+    }
+
+    pub fn merge(&mut self, opts: &Options) {
+        if let Some(node_grpc_addrs) = opts.node_grpc_addrs.as_ref() {
+            self.node_grpc_addrs = node_grpc_addrs.clone();
+        }
+        if let Some(raft_peer_addrs) = opts.raft_peer_addrs.as_ref() {
+            self.raft_peer_addrs = raft_peer_addrs.clone();
+        }
     }
 }
 
@@ -252,36 +258,5 @@ impl RaftConfig {
             ReadOnlyOption::LeaseBased => "leasebased",
         };
         rop_str.serialize(s)
-    }
-}
-
-#[derive(Clone, Serialize)]
-pub struct NodeAddr {
-    pub id: NodeId,
-    pub addr: SocketAddr,
-}
-
-impl std::fmt::Debug for NodeAddr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}/{:?}", self.id, self.addr)
-    }
-}
-
-impl<'de> de::Deserialize<'de> for NodeAddr {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-        where
-            D: de::Deserializer<'de>,
-    {
-        let node_addr = String::deserialize(deserializer)?;
-        let parts: Vec<&str> = node_addr.split('@').collect();
-        if parts.len() < 2 {
-            return Err(de::Error::custom(format!(
-                "Plugin \"rmqtt-cluster-raft\" \"node_grpc_addrs\" config error, {}",
-                node_addr
-            )));
-        }
-        let id = NodeId::from_str(parts[0]).map_err(de::Error::custom)?;
-        let addr = parts[1].parse().map_err(de::Error::custom)?;
-        Ok(NodeAddr { id, addr })
     }
 }

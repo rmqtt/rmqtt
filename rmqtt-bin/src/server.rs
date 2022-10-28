@@ -4,7 +4,7 @@ use std::time::Duration;
 use rustls::{NoClientAuth, ServerConfig};
 use rustls::internal::pemfile::{certs, rsa_private_keys};
 
-use rmqtt::{log, tokio};
+use rmqtt::{log, tokio, structopt::StructOpt};
 use rmqtt::{logger::logger_init, MqttError, Result, Runtime, SessionState};
 use rmqtt::broker::{
     v3::control_message as control_message_v3, v3::handshake as handshake_v3, v3::publish as publish_v3,
@@ -24,9 +24,9 @@ use rmqtt::ntex_mqtt::{
     v3::Handshake as HandshakeV3,
     v5::Handshake as HandshakeV5,
 };
-use rmqtt::settings::listener::Listener;
+use rmqtt::settings::{listener::Listener, Options, Settings};
 
-#[cfg(unix)]
+#[cfg(linux)]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
@@ -41,12 +41,17 @@ mod plugin {
 
 #[ntex::main]
 async fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() > 1 {
-        std::env::set_var("RMQTT-CONFIG-FILENAME", args[1].clone());
-    }
+    //init config
+    Settings::init(Options::from_args());
+
+    //init log
     logger_init();
-    plugin::registers(plugin::default_startups()).await.expect("Failed to register plug-in");
+
+    Settings::logs();
+
+    //register plugin
+    plugin::registers(plugin::default_startups()).await
+        .map_err(|e| format!("Failed to register plug-in, {:?}", e)).unwrap();
 
     //start gRPC server
     Runtime::instance().node.start_grpc_server();

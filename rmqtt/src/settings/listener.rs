@@ -33,7 +33,7 @@ pub struct Listeners {
 
 impl Listeners {
     #[inline]
-    pub fn init(&mut self) {
+    pub(crate) fn init(&mut self) {
         for (name, mut inner) in self._tcps.drain() {
             inner.name = name;
             self.tcps.insert(inner.addr.port(), Listener::new(inner));
@@ -62,9 +62,15 @@ impl Listeners {
         }
         self.tls(port)
     }
+
+    #[inline]
+    pub(crate) fn set_default(&mut self) {
+        let inner = Listener::default();
+        self.tcps.insert(inner.addr.port(), inner);
+    }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Listener {
     inner: Arc<ListenerInner>,
 }
@@ -167,6 +173,41 @@ pub struct ListenerInner {
 
     pub cert: Option<String>,
     pub key: Option<String>,
+}
+
+impl Default for ListenerInner {
+    fn default() -> Self {
+        Self {
+            name: "external".into(),
+            addr: ListenerInner::addr_default(),
+            workers: ListenerInner::workers_default(),
+            max_connections: ListenerInner::max_connections_default(),
+            max_handshaking_limit: ListenerInner::max_handshaking_limit_default(),
+            max_packet_size: ListenerInner::max_packet_size_default(),
+            backlog: ListenerInner::backlog_default(),
+            idle_timeout: ListenerInner::idle_timeout_default(),
+            allow_anonymous: ListenerInner::allow_anonymous_default(),
+            min_keepalive: ListenerInner::min_keepalive_default(),
+            keepalive_backoff: ListenerInner::keepalive_backoff_default(),
+            max_inflight: ListenerInner::max_inflight_default(),
+            handshake_timeout: ListenerInner::handshake_timeout_default(),
+            max_mqueue_len: ListenerInner::max_mqueue_len_default(),
+            mqueue_rate_limit: ListenerInner::mqueue_rate_limit_default(),
+            max_clientid_len: ListenerInner::max_clientid_len_default(),
+            max_qos_allowed: ListenerInner::max_qos_allowed_default(),
+            max_topic_levels: ListenerInner::max_topic_levels_default(),
+            retain_available: ListenerInner::retain_available_default(),
+            session_expiry_interval: ListenerInner::session_expiry_interval_default(),
+            message_retry_interval: ListenerInner::message_retry_interval_default(),
+            message_expiry_interval: ListenerInner::message_expiry_interval_default(),
+            max_awaiting_rel: ListenerInner::max_awaiting_rel_default(),
+            await_rel_timeout: ListenerInner::await_rel_timeout_default(),
+            max_subscriptions: ListenerInner::max_subscriptions_default(),
+            shared_subscription: ListenerInner::shared_subscription_default(),
+            cert: None,
+            key: None,
+        }
+    }
 }
 
 impl ListenerInner {

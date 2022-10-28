@@ -83,18 +83,21 @@ impl ClusterPlugin {
     #[inline]
     async fn new<S: Into<String>>(runtime: &'static Runtime, name: S, descr: S) -> Result<Self> {
         let name = name.into();
-        let cfg = runtime
+        let mut cfg = runtime
             .settings
             .plugins
             .load_config::<PluginConfig>(&name)
             .map_err(|e| MqttError::from(e.to_string()))?;
         log::info!("{} ClusterPlugin cfg: {:?}", name, cfg);
+        cfg.merge(&runtime.settings.opts);
 
         init_task_exec_queue(cfg.task_exec_queue_workers, cfg.task_exec_queue_max);
 
         let register = runtime.extends.hook_mgr().await.register();
         let mut grpc_clients = HashMap::default();
+
         let node_grpc_addrs = cfg.node_grpc_addrs.clone();
+        log::info!("node_grpc_addrs: {:?}", node_grpc_addrs);
         for node_addr in &node_grpc_addrs {
             if node_addr.id != runtime.node.id() {
                 grpc_clients.insert(
@@ -125,21 +128,21 @@ impl ClusterPlugin {
 
     //raft init ...
     async fn start_raft(cfg: Arc<RwLock<PluginConfig>>, router: &'static ClusterRouter) -> Mailbox {
+
+        let raft_peer_addrs = cfg.read().raft_peer_addrs.clone();
+
         let id = Runtime::instance().node.id();
-        let raft_addr = cfg
-            .read()
-            .raft_peer_addrs
+        let raft_laddr = raft_peer_addrs
             .iter()
             .find(|peer| peer.id == id)
             .map(|peer| peer.addr.to_string())
             .expect("raft listening address does not exist");
         let logger = Runtime::instance().logger.clone();
-        let raft = Raft::new(raft_addr, router, logger, cfg.read().raft.to_raft_config());
+        log::info!("raft_laddr: {:?}", raft_laddr);
+        let raft = Raft::new(raft_laddr, router, logger, cfg.read().raft.to_raft_config());
         let mailbox = raft.mailbox();
 
-        let peer_addrs = cfg
-            .read()
-            .raft_peer_addrs
+        let peer_addrs = raft_peer_addrs
             .iter()
             .filter_map(|peer| if peer.id != id { Some(peer.addr.to_string()) } else { None })
             .collect();
