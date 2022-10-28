@@ -24,7 +24,7 @@ impl Runtime {
     pub fn instance() -> &'static Self {
         static INSTANCE: OnceCell<Runtime> = OnceCell::new();
         INSTANCE.get_or_init(|| {
-            let settings = Settings::new().unwrap();
+            let settings = Settings::instance();
             Self {
                 logger: config_logger(
                     settings.log.filename(),
