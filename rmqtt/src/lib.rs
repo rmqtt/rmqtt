@@ -25,6 +25,7 @@ pub use parking_lot::RwLock;
 pub use reqwest;
 pub use rust_box;
 pub use tokio;
+pub use structopt;
 
 pub use crate::broker::{
     error::MqttError,
