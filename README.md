@@ -40,9 +40,10 @@ and mobile applications that can handle millions of concurrent clients on a sing
 The *RMQTT* broker is cross-platform, which supports Linux, Unix, macOS and Windows. It means *RMQTT* can be deployed on
 x86_64 architecture servers and ARM devices like Raspberry Pi.
 
-#### Installing via RMQTT Docker Image
+#### Run RMQTT using Docker
 
-```
+```bash
+docker run -d --name rmqtt -p 1883:1883 -p 8883:8883 -p 11883:11883 -p 6060:6060 -v /app/log/rmqtt:/var/log/rmqtt  rmqtt/rmqtt:latest
 ```
 
 #### Installing via ZIP Binary Package (Linux、MacOS、Windows)

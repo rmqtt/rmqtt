@@ -38,7 +38,11 @@
 
 *RMQTT* 是跨平台的，支持 Linux、Unix、macOS 以及 Windows。这意味着 *RMQTT* 可以部署在 x86_64 架构的服务器上，也可以部署在 Raspberry Pi 这样的 ARM 设备上。
 
-#### RMQTT Docker 镜像安装
+#### 使用 Docker 运行 RMQTT
+
+```bash
+docker run -d --name rmqtt -p 1883:1883 -p 8883:8883 -p 11883:11883 -p 6060:6060 -v /app/log/rmqtt:/var/log/rmqtt  rmqtt/rmqtt:latest
+```
 
 #### ZIP 压缩包安装 (Linux、MacOS、Windows)
 
