@@ -1,4 +1,4 @@
-FROM pingcap/alpine-glibc
+FROM alpine:3.16.2
 LABEL maintainer="rmqtt <rmqttd@126.com>"
 
 RUN mkdir -p /app/rmqtt/rmqtt-bin
@@ -11,7 +11,7 @@ COPY rmqtt-bin/rmqtt.key  /app/rmqtt/rmqtt-bin/
 
 WORKDIR /app/rmqtt
 
-VOLUME ["/app/rmqtt/log", "/var/log/rmqtt"]
+VOLUME ["/var/log/rmqtt"]
 
 # rmqtt will occupy these port:
 # - 1883 port for MQTT
