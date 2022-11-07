@@ -235,7 +235,7 @@ listener.tls.external.key = "/app/rmqtt/etc/rmqtt.key"
 
 ```bash
 $ cd /app/rmqtt
-./bin/rmqttd "./etc/rmqtt.toml"
+./bin/rmqttd -f "./etc/rmqtt.toml"
 ```
 
 
