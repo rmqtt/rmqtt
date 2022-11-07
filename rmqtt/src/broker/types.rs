@@ -1,10 +1,9 @@
 use std::convert::From as _f;
 use std::fmt;
-use std::net::SocketAddr;
 use std::num::{NonZeroU16, NonZeroU32};
 use std::ops::Deref;
 use std::sync::Arc;
-
+use std::net::SocketAddr;
 use bytestring::ByteString;
 use ntex::util::Bytes;
 use ntex_mqtt::error::SendPacketError;
@@ -34,6 +33,7 @@ use crate::{MqttError, Result, Runtime};
 pub type NodeId = u64;
 pub type RemoteSocketAddr = SocketAddr;
 pub type LocalSocketAddr = SocketAddr;
+pub type Addr = bytestring::ByteString;
 pub type ClientId = bytestring::ByteString;
 pub type UserName = bytestring::ByteString;
 pub type Password = bytes::Bytes;

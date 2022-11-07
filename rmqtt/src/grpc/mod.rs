@@ -1,13 +1,12 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use futures::FutureExt;
 
 use client::NodeGrpcClient;
 
-use crate::{ClientId, Result};
+use crate::{Addr, ClientId, Result};
 use crate::broker::{ClearSubscriptions, SubRelations, SubRelationsMap};
 use crate::broker::session::SessionOfflineInfo;
 use crate::broker::types::{
@@ -107,7 +106,7 @@ impl MessageSender {
     }
 }
 
-pub type GrpcClients = Arc<HashMap<NodeId, (SocketAddr, NodeGrpcClient), ahash::RandomState>>;
+pub type GrpcClients = Arc<HashMap<NodeId, (Addr, NodeGrpcClient), ahash::RandomState>>;
 
 pub struct MessageBroadcaster {
     grpc_clients: GrpcClients,

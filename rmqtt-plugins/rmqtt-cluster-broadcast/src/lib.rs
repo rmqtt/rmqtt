@@ -86,7 +86,7 @@ impl ClusterPlugin {
             if node_addr.id != runtime.node.id() {
                 grpc_clients.insert(
                     node_addr.id,
-                    (node_addr.addr, runtime.node.new_grpc_client(&node_addr.addr).await?),
+                    (node_addr.addr.clone(), runtime.node.new_grpc_client(&node_addr.addr).await?),
                 );
             }
         }

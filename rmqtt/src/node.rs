@@ -1,5 +1,3 @@
-use std::net::SocketAddr;
-
 use systemstat::Platform;
 
 use crate::{NodeId, Result, Runtime};
@@ -31,7 +29,7 @@ impl Node {
     }
 
     #[inline]
-    pub async fn new_grpc_client(&self, remote_addr: &SocketAddr) -> Result<NodeGrpcClient> {
+    pub async fn new_grpc_client(&self, remote_addr: &str) -> Result<NodeGrpcClient> {
         NodeGrpcClient::new(remote_addr).await
     }
 

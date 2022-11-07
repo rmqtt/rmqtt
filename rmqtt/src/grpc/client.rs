@@ -26,8 +26,10 @@ pub struct NodeGrpcClient {
 }
 
 impl NodeGrpcClient {
+
+    //server_addr - ip:port, 127.0.0.1:6666
     #[inline]
-    pub async fn new(server_addr: &std::net::SocketAddr) -> Result<Self> {
+    pub async fn new(server_addr: &str) -> Result<Self> {
         log::debug!("rpc.client_timeout: {:?}", Runtime::instance().settings.rpc.client_timeout);
         let concurrency_limit = Runtime::instance().settings.rpc.client_concurrency_limit + 1;
         let endpoint = Channel::from_shared(format!("http://{}", server_addr))

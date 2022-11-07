@@ -12,7 +12,7 @@ use serde::ser::Serializer;
 use serde::Serialize;
 use once_cell::sync::OnceCell;
 
-use crate::{MqttError, NodeId, Result};
+use crate::{Addr, MqttError, NodeId, Result};
 
 use self::listener::Listeners;
 use self::log::Log;
@@ -429,7 +429,7 @@ pub fn serialize_datetime_option<S>(t: &Option<Duration>, s: S) -> std::result::
 #[derive(Clone, Serialize)]
 pub struct NodeAddr {
     pub id: NodeId,
-    pub addr: SocketAddr,
+    pub addr: Addr,
 }
 
 impl std::fmt::Debug for NodeAddr {
@@ -449,7 +449,8 @@ impl FromStr for NodeAddr {
             )));
         }
         let id = NodeId::from_str(parts[0]).map_err(|e|MqttError::ParseIntError(e))?;
-        let addr = parts[1].parse().map_err(|e|MqttError::AddrParseError(e))?;
+        //let addr = parts[1].parse().map_err(|e|MqttError::AddrParseError(e))?;
+        let addr = Addr::from(parts[1]);
         Ok(NodeAddr { id, addr })
     }
 }
