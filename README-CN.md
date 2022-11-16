@@ -56,6 +56,20 @@ docker run -d --name rmqtt -p 1883:1883 -p 8883:8883 -p 11883:11883 -p 6060:6060
 ```
 节点IDs: 1, 2, 3; 节点IP Addrs: 172.17.0.3, 172.17.0.4, 172.17.0.5
 
+#### 通过 docker-compose 创建静态集群
+
+1. [下载配置模板](./examples/docker-compose.zip)
+
+2. 启动 docker-compose 集群
+```bash
+docker-compose up -d
+```
+
+3. 查看集群
+```bash
+curl "http://127.0.0.1:6066/api/v1/brokers"
+```
+
 
 #### ZIP 压缩包安装 (Linux、MacOS、Windows)
 

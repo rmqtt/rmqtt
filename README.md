@@ -57,6 +57,20 @@ docker run -d --name rmqtt -p 1883:1883 -p 8883:8883 -p 11883:11883 -p 6060:6060
 ```
 Node IDs: 1, 2, 3; Node IP Addrs: 172.17.0.3, 172.17.0.4, 172.17.0.5
 
+#### Create a static cluster by docker-compose
+
+1. [Download docker-compose configuration template](./examples/docker-compose.zip)
+
+2. Start docker-compose cluster
+```bash
+docker-compose up -d
+```
+
+3. View cluster
+```bash
+curl "http://127.0.0.1:6066/api/v1/brokers"
+```
+
 #### Installing via ZIP Binary Package (Linux、MacOS、Windows)
 
 Get the binary package of the corresponding OS from [RMQTT Download](https://github.com/rmqtt/rmqtt/releases) page.
