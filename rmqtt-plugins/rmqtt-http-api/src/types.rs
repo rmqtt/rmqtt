@@ -3,6 +3,7 @@ use std::time::Duration;
 use rmqtt::{anyhow, bincode, chrono, HashMap, MqttError, QoS, Reason, serde_json};
 use rmqtt::{metrics::Metrics, stats::Stats};
 use rmqtt::{ClientId, NodeId, Timestamp, TopicFilter, TopicName, UserName};
+use rmqtt::chrono::LocalResult;
 use rmqtt::node::{BrokerInfo, NodeInfo, NodeStatus};
 use rmqtt::plugin::PluginInfo;
 use rmqtt::Result;
@@ -287,6 +288,10 @@ fn format_timestamp(t: i64) -> String {
         "".into()
     } else {
         use chrono::TimeZone;
-        chrono::Local.timestamp(t, 0).format("%Y-%m-%d %H:%M:%S").to_string()
+        if let LocalResult::Single(t) = chrono::Local.timestamp_opt(t, 0) {
+            t.format("%Y-%m-%d %H:%M:%S").to_string()
+        }else{
+            "".into()
+        }
     }
 }
