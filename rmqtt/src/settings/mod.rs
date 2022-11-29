@@ -1,23 +1,22 @@
-use std::fmt;
-use std::net::SocketAddr;
-use std::ops::{Deref, DerefMut};
-use std::sync::Arc;
-use std::time::Duration;
-use std::str::FromStr;
 use chrono::TimeZone;
 use config::{Config, ConfigError, File};
-use parking_lot::RwLock;
+use once_cell::sync::OnceCell;
 use serde::de::{self, Deserialize, Deserializer};
 use serde::ser::Serializer;
 use serde::Serialize;
-use once_cell::sync::OnceCell;
+use std::fmt;
+use std::net::SocketAddr;
+use std::ops::{Deref, DerefMut};
+use std::str::FromStr;
+use std::sync::Arc;
+use std::time::Duration;
 
 use crate::{Addr, MqttError, NodeId, Result};
 
+pub use self::listener::Listener;
 use self::listener::Listeners;
 use self::log::Log;
 pub use self::options::Options;
-pub use self::listener::Listener;
 
 pub mod listener;
 pub mod log;
@@ -55,7 +54,6 @@ impl Deref for Settings {
 }
 
 impl Settings {
-
     fn new(opts: Options) -> Result<Self, ConfigError> {
         let mut s = Config::new();
 
@@ -149,7 +147,6 @@ impl Node {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Rpc {
-
     #[serde(default = "Rpc::server_addr_default", deserialize_with = "deserialize_addr")]
     pub server_addr: SocketAddr,
 
@@ -223,40 +220,6 @@ impl Plugins {
 pub struct Mqtt {}
 
 #[derive(Debug, Clone)]
-pub struct ValueMut<T>(Arc<RwLock<T>>);
-
-impl<T> ValueMut<T>
-    where
-        T: Copy,
-{
-    #[inline]
-    pub fn new(v: T) -> Self {
-        Self(Arc::new(RwLock::new(v)))
-    }
-
-    #[inline]
-    pub fn get(&self) -> T {
-        *self.0.read()
-    }
-
-    #[inline]
-    pub fn set(&self, v: T) {
-        *self.0.write() = v;
-    }
-}
-
-impl<'de, T: serde::Deserialize<'de> + Copy> Deserialize<'de> for ValueMut<T> {
-    #[inline]
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
-    {
-        let v = T::deserialize(deserializer)?;
-        Ok(ValueMut::new(v))
-    }
-}
-
-#[derive(Debug, Clone)]
 pub struct Bytesize(usize);
 
 impl Bytesize {
@@ -282,8 +245,8 @@ impl DerefMut for Bytesize {
 impl<'de> Deserialize<'de> for Bytesize {
     #[inline]
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         let v = to_bytesize(&String::deserialize(deserializer)?);
         Ok(Bytesize(v))
@@ -317,8 +280,8 @@ pub fn to_bytesize(text: &str) -> usize {
 
 #[inline]
 pub fn deserialize_duration<'de, D>(deserializer: D) -> Result<Duration, D::Error>
-    where
-        D: Deserializer<'de>,
+where
+    D: Deserializer<'de>,
 {
     let v = String::deserialize(deserializer)?;
     Ok(to_duration(&v))
@@ -326,8 +289,8 @@ pub fn deserialize_duration<'de, D>(deserializer: D) -> Result<Duration, D::Erro
 
 #[inline]
 pub fn deserialize_duration_option<'de, D>(deserializer: D) -> Result<Option<Duration>, D::Error>
-    where
-        D: Deserializer<'de>,
+where
+    D: Deserializer<'de>,
 {
     let v = String::deserialize(deserializer)?;
     if v.is_empty() {
@@ -369,8 +332,8 @@ pub fn to_duration(text: &str) -> Duration {
 
 #[inline]
 pub fn deserialize_addr<'de, D>(deserializer: D) -> Result<SocketAddr, D::Error>
-    where
-        D: Deserializer<'de>,
+where
+    D: Deserializer<'de>,
 {
     let addr = String::deserialize(deserializer)?
         .parse::<std::net::SocketAddr>()
@@ -382,8 +345,8 @@ pub fn deserialize_addr<'de, D>(deserializer: D) -> Result<SocketAddr, D::Error>
 pub fn deserialize_addr_option<'de, D>(
     deserializer: D,
 ) -> std::result::Result<Option<std::net::SocketAddr>, D::Error>
-    where
-        D: Deserializer<'de>,
+where
+    D: Deserializer<'de>,
 {
     let addr = String::deserialize(deserializer).map(|mut addr| {
         if !addr.contains(':') {
@@ -397,8 +360,8 @@ pub fn deserialize_addr_option<'de, D>(
 
 #[inline]
 pub fn deserialize_datetime_option<'de, D>(deserializer: D) -> std::result::Result<Option<Duration>, D::Error>
-    where
-        D: Deserializer<'de>,
+where
+    D: Deserializer<'de>,
 {
     let t_str = String::deserialize(deserializer)?;
     if t_str.is_empty() {
@@ -416,8 +379,8 @@ pub fn deserialize_datetime_option<'de, D>(deserializer: D) -> std::result::Resu
 
 #[inline]
 pub fn serialize_datetime_option<S>(t: &Option<Duration>, s: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
+where
+    S: Serializer,
 {
     if let Some(t) = t {
         t.as_secs().to_string().serialize(s)
@@ -443,12 +406,9 @@ impl FromStr for NodeAddr {
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let parts: Vec<&str> = s.split('@').collect();
         if parts.len() < 2 {
-            return Err(MqttError::Msg(format!(
-                "NodeAddr format error, {}",
-                s
-            )));
+            return Err(MqttError::Msg(format!("NodeAddr format error, {}", s)));
         }
-        let id = NodeId::from_str(parts[0]).map_err(|e|MqttError::ParseIntError(e))?;
+        let id = NodeId::from_str(parts[0]).map_err(|e| MqttError::ParseIntError(e))?;
         //let addr = parts[1].parse().map_err(|e|MqttError::AddrParseError(e))?;
         let addr = Addr::from(parts[1]);
         Ok(NodeAddr { id, addr })
@@ -457,10 +417,9 @@ impl FromStr for NodeAddr {
 
 impl<'de> de::Deserialize<'de> for NodeAddr {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-        where
-            D: de::Deserializer<'de>,
+    where
+        D: de::Deserializer<'de>,
     {
-        Ok(NodeAddr::from_str(&String::deserialize(deserializer)?)
-            .map_err(de::Error::custom)?)
+        Ok(NodeAddr::from_str(&String::deserialize(deserializer)?).map_err(de::Error::custom)?)
     }
 }

@@ -1,20 +1,17 @@
 use std::fs::{File, OpenOptions};
 use std::io::{self, Stdout, Write};
 
-use slog::{b, Drain, o, Record};
 pub use slog::Logger;
+use slog::{b, o, Drain, Record};
 use slog_logfmt::Logfmt;
 
 use crate::{MqttError, Result, Runtime};
 
-use super::settings::{
-    log::{Level, To},
-    ValueMut,
-};
+use super::settings::log::{Level, To};
 
 pub fn logger_init() {
     log::set_boxed_logger(Box::new(LoggerEx(Runtime::instance().logger.clone()))).unwrap();
-    let l = Runtime::instance().settings.log.level.get().inner();
+    let l = Runtime::instance().settings.log.level.inner();
     log::set_max_level(slog_log_to_level(l).to_level_filter());
 }
 
@@ -67,7 +64,7 @@ fn record_as_location(r: &log::Record) -> slog::RecordLocation {
     slog::RecordLocation { file, line, column: 0, function: "", module }
 }
 
-pub fn config_logger(filename: String, to: ValueMut<To>, level: ValueMut<Level>) -> slog::Logger {
+pub fn config_logger(filename: String, to: To, level: Level) -> slog::Logger {
     let drain = Logfmt::new(WriteFilter::new(filename, to))
         .set_prefix(move |io: &mut dyn io::Write, rec: &Record| -> slog::Result {
             write!(
@@ -99,12 +96,12 @@ pub fn config_logger(filename: String, to: ValueMut<To>, level: ValueMut<Level>)
 
 struct LevelFilter<D> {
     drain: D,
-    level: ValueMut<Level>,
+    level: Level,
 }
 
 impl<D> Drain for LevelFilter<D>
-    where
-        D: Drain,
+where
+    D: Drain,
 {
     type Ok = Option<D::Ok>;
     type Err = Option<D::Err>;
@@ -114,7 +111,7 @@ impl<D> Drain for LevelFilter<D>
         record: &slog::Record,
         values: &slog::OwnedKVList,
     ) -> std::result::Result<Self::Ok, Self::Err> {
-        if record.level().is_at_least(*self.level.get()) {
+        if record.level().is_at_least(self.level.inner()) {
             self.drain.log(record, values).map(Some).map_err(Some)
         } else {
             Ok(None)
@@ -124,7 +121,7 @@ impl<D> Drain for LevelFilter<D>
 
 struct WriteFilter {
     filename: String,
-    to: ValueMut<To>,
+    to: To,
 
     file: Option<File>,
     console: Stdout,
@@ -133,7 +130,7 @@ struct WriteFilter {
 }
 
 impl WriteFilter {
-    fn new(filename: String, to: ValueMut<To>) -> Self {
+    fn new(filename: String, to: To) -> Self {
         Self { filename, to, file: None, console: std::io::stdout(), buf: None }
     }
 
@@ -155,7 +152,7 @@ impl WriteFilter {
 
     #[inline]
     fn _write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let n = match self.to.get() {
+        let n = match self.to {
             To::Console => self.console.write(buf)?,
             To::File => self.file().write(buf)?,
             To::Both => {
@@ -170,7 +167,7 @@ impl WriteFilter {
 
 impl io::Write for WriteFilter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        if matches!(self.to.get(), To::Off) {
+        if matches!(self.to, To::Off) {
             return Ok(buf.len());
         }
         if let Some(b) = &mut self.buf {
@@ -182,7 +179,7 @@ impl io::Write for WriteFilter {
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        if !matches!(self.to.get(), To::Off) {
+        if !matches!(self.to, To::Off) {
             let _ = self._flush();
         }
         Ok(())
