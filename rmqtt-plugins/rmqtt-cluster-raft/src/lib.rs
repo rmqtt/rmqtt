@@ -1,3 +1,4 @@
+#![deny(unsafe_code)]
 #[macro_use]
 extern crate serde;
 
@@ -15,8 +16,8 @@ use rmqtt::{
     ahash, anyhow,
     async_trait::async_trait,
     futures, log,
-    RwLock,
-    serde_json::{self, json}, tokio,
+    serde_json::{self, json},
+    tokio, RwLock,
 };
 use rmqtt::{
     broker::{
@@ -26,8 +27,8 @@ use rmqtt::{
     },
     grpc::{client::NodeGrpcClient, GrpcClients, Message, MessageReply, MessageType},
     plugin::{DynPlugin, DynPluginResult, Plugin},
-    Result,
-    Runtime, tokio::time::sleep,
+    tokio::time::sleep,
+    Result, Runtime,
 };
 use rmqtt::{
     once_cell::sync::OnceCell,
@@ -128,7 +129,6 @@ impl ClusterPlugin {
 
     //raft init ...
     async fn start_raft(cfg: Arc<RwLock<PluginConfig>>, router: &'static ClusterRouter) -> Mailbox {
-
         let raft_peer_addrs = cfg.read().raft_peer_addrs.clone();
 
         let id = Runtime::instance().node.id();

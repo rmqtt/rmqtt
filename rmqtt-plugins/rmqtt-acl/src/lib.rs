@@ -1,10 +1,11 @@
+#![deny(unsafe_code)]
 #[macro_use]
 extern crate serde;
 
 use std::str::FromStr;
 use std::sync::Arc;
 
-use config::{Access, Control, PH_C, PH_U, PluginConfig};
+use config::{Access, Control, PluginConfig, PH_C, PH_U};
 use rmqtt::{
     async_trait::async_trait,
     log, serde_json,

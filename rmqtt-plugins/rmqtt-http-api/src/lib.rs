@@ -1,3 +1,4 @@
+#![deny(unsafe_code)]
 #[macro_use]
 extern crate serde;
 
@@ -6,9 +7,9 @@ use std::sync::Arc;
 use config::PluginConfig;
 use rmqtt::{
     async_trait::async_trait,
-    log, RwLock,
-    serde_json,
+    log, serde_json,
     tokio::{self, sync::oneshot},
+    RwLock,
 };
 use rmqtt::{
     broker::hook::{Register, Type},

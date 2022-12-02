@@ -1,3 +1,4 @@
+#![deny(unsafe_code)]
 #[macro_use]
 extern crate serde;
 
@@ -5,22 +6,22 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use reqwest::{Method, Url};
 use reqwest::header::HeaderMap;
+use reqwest::{Method, Url};
 use serde::ser::Serialize;
 use tokio::sync::RwLock;
 
 use config::PluginConfig;
+use rmqtt::ntex::util::ByteString;
 use rmqtt::{ahash, async_trait, dashmap, lazy_static, log, reqwest, serde_json, tokio};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::types::{
         AuthResult, ConnectInfo, Id, Password, PublishAclResult, SubscribeAckReason, SubscribeAclResult,
     },
-    MqttError,
-    plugin::{DynPlugin, DynPluginResult, Plugin}, Result, Runtime, TopicName,
+    plugin::{DynPlugin, DynPluginResult, Plugin},
+    MqttError, Result, Runtime, TopicName,
 };
-use rmqtt::ntex::util::ByteString;
 
 mod config;
 
@@ -463,7 +464,12 @@ impl Handler for AuthHandler {
                         Some(HookResult::PublishAclResult(PublishAclResult::Allow)),
                     )
                 } else {
-                    (false, Some(HookResult::PublishAclResult(PublishAclResult::Rejected(self.cfg.read().await.disconnect_if_pub_rejected))))
+                    (
+                        false,
+                        Some(HookResult::PublishAclResult(PublishAclResult::Rejected(
+                            self.cfg.read().await.disconnect_if_pub_rejected,
+                        ))),
+                    )
                 };
             }
             Parameter::ClientDisconnected(_session, client_info, _reason) => {

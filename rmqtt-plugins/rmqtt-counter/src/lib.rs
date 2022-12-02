@@ -1,3 +1,5 @@
+#![deny(unsafe_code)]
+use rmqtt::broker::hook::Priority;
 use rmqtt::{async_trait::async_trait, log};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
@@ -5,7 +7,6 @@ use rmqtt::{
     plugin::{DynPlugin, DynPluginResult, Plugin},
     Result, Runtime,
 };
-use rmqtt::broker::hook::Priority;
 
 #[inline]
 pub async fn register(
@@ -51,25 +52,53 @@ impl Plugin for CounterPlugin {
     async fn init(&mut self) -> Result<()> {
         log::info!("{} init", self.name);
         self.register.add_priority(Type::ClientConnect, Priority::MAX, Box::new(CounterHandler::new())).await;
-        self.register.add_priority(Type::ClientAuthenticate, Priority::MAX, Box::new(CounterHandler::new())).await;
+        self.register
+            .add_priority(Type::ClientAuthenticate, Priority::MAX, Box::new(CounterHandler::new()))
+            .await;
         self.register.add_priority(Type::ClientConnack, Priority::MAX, Box::new(CounterHandler::new())).await;
-        self.register.add_priority(Type::ClientConnected, Priority::MAX, Box::new(CounterHandler::new())).await;
-        self.register.add_priority(Type::ClientDisconnected, Priority::MAX, Box::new(CounterHandler::new())).await;
-        self.register.add_priority(Type::ClientSubscribe, Priority::MAX, Box::new(CounterHandler::new())).await;
-        self.register.add_priority(Type::ClientUnsubscribe, Priority::MAX, Box::new(CounterHandler::new())).await;
+        self.register
+            .add_priority(Type::ClientConnected, Priority::MAX, Box::new(CounterHandler::new()))
+            .await;
+        self.register
+            .add_priority(Type::ClientDisconnected, Priority::MAX, Box::new(CounterHandler::new()))
+            .await;
+        self.register
+            .add_priority(Type::ClientSubscribe, Priority::MAX, Box::new(CounterHandler::new()))
+            .await;
+        self.register
+            .add_priority(Type::ClientUnsubscribe, Priority::MAX, Box::new(CounterHandler::new()))
+            .await;
 
-        self.register.add_priority(Type::ClientSubscribeCheckAcl, Priority::MAX, Box::new(CounterHandler::new())).await;
-        self.register.add_priority(Type::MessagePublishCheckAcl, Priority::MAX, Box::new(CounterHandler::new())).await;
+        self.register
+            .add_priority(Type::ClientSubscribeCheckAcl, Priority::MAX, Box::new(CounterHandler::new()))
+            .await;
+        self.register
+            .add_priority(Type::MessagePublishCheckAcl, Priority::MAX, Box::new(CounterHandler::new()))
+            .await;
 
-        self.register.add_priority(Type::SessionCreated, Priority::MAX, Box::new(CounterHandler::new())).await;
-        self.register.add_priority(Type::SessionTerminated, Priority::MAX, Box::new(CounterHandler::new())).await;
-        self.register.add_priority(Type::SessionSubscribed, Priority::MAX, Box::new(CounterHandler::new())).await;
-        self.register.add_priority(Type::SessionUnsubscribed, Priority::MAX, Box::new(CounterHandler::new())).await;
+        self.register
+            .add_priority(Type::SessionCreated, Priority::MAX, Box::new(CounterHandler::new()))
+            .await;
+        self.register
+            .add_priority(Type::SessionTerminated, Priority::MAX, Box::new(CounterHandler::new()))
+            .await;
+        self.register
+            .add_priority(Type::SessionSubscribed, Priority::MAX, Box::new(CounterHandler::new()))
+            .await;
+        self.register
+            .add_priority(Type::SessionUnsubscribed, Priority::MAX, Box::new(CounterHandler::new()))
+            .await;
 
-        self.register.add_priority(Type::MessagePublish, Priority::MAX, Box::new(CounterHandler::new())).await;
-        self.register.add_priority(Type::MessageDelivered, Priority::MAX, Box::new(CounterHandler::new())).await;
+        self.register
+            .add_priority(Type::MessagePublish, Priority::MAX, Box::new(CounterHandler::new()))
+            .await;
+        self.register
+            .add_priority(Type::MessageDelivered, Priority::MAX, Box::new(CounterHandler::new()))
+            .await;
         self.register.add_priority(Type::MessageAcked, Priority::MAX, Box::new(CounterHandler::new())).await;
-        self.register.add_priority(Type::MessageDropped, Priority::MAX, Box::new(CounterHandler::new())).await;
+        self.register
+            .add_priority(Type::MessageDropped, Priority::MAX, Box::new(CounterHandler::new()))
+            .await;
 
         Ok(())
     }
@@ -134,7 +163,7 @@ impl Handler for CounterHandler {
             Parameter::ClientConnack(connect_info, reason) => {
                 self.metrics.client_connack_inc();
                 match reason.success_or_auth_error() {
-                    (true, _) => {},
+                    (true, _) => {}
                     (false, not_authorized) => {
                         self.metrics.client_connack_error_inc();
                         if not_authorized {
@@ -145,7 +174,7 @@ impl Handler for CounterHandler {
                         }
                     }
                 }
-            },
+            }
             Parameter::ClientConnected(_session, client) => {
                 self.metrics.client_connected_inc();
                 if client.session_present {

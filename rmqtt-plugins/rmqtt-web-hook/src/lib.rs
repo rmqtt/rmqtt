@@ -1,3 +1,4 @@
+#![deny(unsafe_code)]
 #[macro_use]
 extern crate serde;
 
@@ -5,8 +6,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use backoff::ExponentialBackoff;
 use backoff::future::retry;
+use backoff::ExponentialBackoff;
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::StreamExt;
 
@@ -17,14 +18,14 @@ use rmqtt::{
     base64, chrono, futures, lazy_static, log, reqwest,
     rust_box::std_ext::ArcExt,
     rust_box::task_exec_queue::SpawnExt,
-    RwLock,
-    serde_json::{self, json}, tokio,
+    serde_json::{self, json},
+    tokio, RwLock,
 };
 use rmqtt::{
     broker::error::MqttError,
     broker::hook::{self, Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::stats::Counter,
-    broker::types::{ConnectInfo, Id, MQTT_LEVEL_5, QoSEx},
+    broker::types::{ConnectInfo, Id, QoSEx, MQTT_LEVEL_5},
     plugin::{DynPlugin, DynPluginResult, Plugin},
     Result, Runtime, Topic, TopicFilter,
 };
@@ -111,7 +112,7 @@ impl WebHookPlugin {
                                         topic,
                                         data,
                                     )
-                                        .await
+                                    .await
                                     {
                                         log::warn!("Failed to build the web-hook message, {:?}", e);
                                     }
@@ -346,14 +347,14 @@ impl WebHookHandler {
             if let Err(e) = retry(backoff_strategy.as_ref().clone(), || async {
                 Ok(Self::_http_request(url.clone(), body.clone(), timeout).await?)
             })
-                .await
+            .await
             {
                 fails().current_inc();
                 log::warn!("send web hook message failure, {:?}", e);
             }
         }
-            .spawn(task_exec_queue())
-            .await
+        .spawn(task_exec_queue())
+        .await
         {
             fails().current_inc();
             log::error!("send web hook message failure, exec task error, {:?}", e.to_string());

@@ -1,3 +1,4 @@
+#![deny(unsafe_code)]
 extern crate proc_macro;
 extern crate proc_macro2;
 

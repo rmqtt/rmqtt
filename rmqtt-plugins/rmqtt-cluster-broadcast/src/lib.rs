@@ -1,3 +1,4 @@
+#![deny(unsafe_code)]
 #[macro_use]
 extern crate serde;
 
@@ -10,8 +11,8 @@ use rmqtt::{
     ahash,
     async_trait::async_trait,
     log,
-    RwLock,
     serde_json::{self, json},
+    RwLock,
 };
 use rmqtt::{
     broker::{
