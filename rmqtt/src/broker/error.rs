@@ -4,8 +4,8 @@ use std::str::Utf8Error;
 
 use config::ConfigError;
 use ntex_mqtt::error::SendPacketError;
-use ntex_mqtt::TopicError;
 use ntex_mqtt::v5;
+use ntex_mqtt::TopicError;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 use tokio::task::JoinError;
@@ -20,7 +20,7 @@ pub enum MqttError {
     #[error("send packet error, {0}")]
     SendPacketError(SendPacketError),
     #[error("{0}")]
-    Error(Box<dyn std::error::Error>),
+    Error(Box<dyn std::error::Error + Send + Sync>),
     #[error("{0}")]
     IoError(std::io::Error),
     #[error("{0}")]
@@ -44,10 +44,6 @@ pub enum MqttError {
     #[error("None")]
     None,
 }
-
-unsafe impl std::marker::Send for MqttError {}
-
-unsafe impl std::marker::Sync for MqttError {}
 
 impl Default for MqttError {
     #[inline]
@@ -133,10 +129,17 @@ impl From<JoinError> for MqttError {
     }
 }
 
+impl From<Box<dyn std::error::Error + Send + Sync>> for MqttError {
+    #[inline]
+    fn from(e: Box<dyn std::error::Error + Send + Sync>) -> Self {
+        MqttError::Error(e)
+    }
+}
+
 impl From<Box<dyn std::error::Error>> for MqttError {
     #[inline]
     fn from(e: Box<dyn std::error::Error>) -> Self {
-        MqttError::Error(e)
+        MqttError::Msg(e.to_string())
     }
 }
 

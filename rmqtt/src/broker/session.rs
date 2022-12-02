@@ -4,8 +4,8 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::ops::Deref;
 use std::rc::Rc;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::Arc;
 
 use futures::StreamExt;
 use ntex_mqtt::types::MQTT_LEVEL_5;
@@ -13,13 +13,13 @@ use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 use tokio::time::{Duration, Instant};
 
-use crate::{MqttError, Result, Runtime};
-use crate::broker::{fitter::Fitter, hook::Hook};
 use crate::broker::inflight::{Inflight, InflightMessage, MomentStatus};
 use crate::broker::queue::{Limiter, Policy, Queue, Sender};
 use crate::broker::types::*;
+use crate::broker::{fitter::Fitter, hook::Hook};
 use crate::metrics::Metrics;
 use crate::settings::listener::Listener;
+use crate::{MqttError, Result, Runtime};
 
 type MessageSender = Sender<(From, Publish)>;
 type MessageQueue = Queue<(From, Publish)>;
@@ -34,10 +34,6 @@ pub struct SessionState {
     pub deliver_queue_tx: Option<MessageSender>,
     pub fitter: Rc<dyn Fitter>,
 }
-
-unsafe impl std::marker::Send for SessionState {}
-
-unsafe impl std::marker::Sync for SessionState {}
 
 impl fmt::Debug for SessionState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -111,11 +107,11 @@ impl SessionState {
                 deliver_timeout_delay.as_mut().reset(
                     Instant::now()
                         + state
-                        .inflight_win
-                        .read()
-                        .await
-                        .get_timeout()
-                        .unwrap_or_else(|| Duration::from_secs(120)),
+                            .inflight_win
+                            .read()
+                            .await
+                            .get_timeout()
+                            .unwrap_or_else(|| Duration::from_secs(120)),
                 );
 
                 tokio::select! {
@@ -261,7 +257,7 @@ impl SessionState {
                         &mut _kicked,
                         &mut _by_admin_kick,
                     )
-                        .await;
+                    .await;
                     log::debug!("{:?} offline _kicked: {}", id, _kicked);
                     if !_kicked {
                         state.clean(Reason::from_static("session expired")).await;
@@ -513,10 +509,10 @@ impl SessionState {
         match ret {
             Ok(SubscribeReturn(SubscribeAckReason::NotAuthorized)) => {
                 Metrics::instance().client_subscribe_auth_error_inc();
-            },
+            }
             Ok(SubscribeReturn(SubscribeAckReason::GrantedQos0))
             | Ok(SubscribeReturn(SubscribeAckReason::GrantedQos1))
-            | Ok(SubscribeReturn(SubscribeAckReason::GrantedQos2)) => {},
+            | Ok(SubscribeReturn(SubscribeAckReason::GrantedQos2)) => {}
             _ => {
                 Metrics::instance().client_subscribe_error_inc();
             }
@@ -596,12 +592,12 @@ impl SessionState {
                 Metrics::instance().client_publish_error_inc();
                 self.client.add_disconnected_reason(Reason::from(format!("Publish failed, {:?}", e))).await;
                 Err(e)
-            },
+            }
             Ok(false) => {
                 Metrics::instance().client_publish_error_inc();
                 Ok(false)
-            },
-            Ok(true) => Ok(true)
+            }
+            Ok(true) => Ok(true),
         }
     }
 
@@ -612,12 +608,12 @@ impl SessionState {
                 Metrics::instance().client_publish_error_inc();
                 self.client.add_disconnected_reason(Reason::from(format!("Publish failed, {:?}", e))).await;
                 Err(e)
-            },
+            }
             Ok(false) => {
                 Metrics::instance().client_publish_error_inc();
                 Ok(false)
-            },
-            Ok(true) => Ok(true)
+            }
+            Ok(true) => Ok(true),
         }
     }
 
@@ -746,7 +742,7 @@ impl SessionState {
                 let id = self.id.clone();
                 log::debug!("{:?} transfer_session_state, router.add ... topic_filter: {:?}, shared_group: {:?}, qos: {:?}", id, tf, shared_group, qos);
                 if let Err(e) =
-                Runtime::instance().extends.router().await.add(tf, id, qos, shared_group).await
+                    Runtime::instance().extends.router().await.add(tf, id, qos, shared_group).await
                 {
                     log::warn!("transfer_session_state, router.add, {:?}", e);
                     return Err(e);

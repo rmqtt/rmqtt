@@ -13,8 +13,8 @@ use futures::Stream;
 use governor::{
     clock::DefaultClock,
     prelude::StreamRateLimitExt,
-    Quota,
-    RatelimitedStream, RateLimiter, state::{InMemoryState, NotKeyed},
+    state::{InMemoryState, NotKeyed},
+    Quota, RateLimiter, RatelimitedStream,
 };
 
 type DirectLimiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock>;
@@ -22,9 +22,10 @@ type DirectLimiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock>;
 pub type Receiver<'a, T> = RatelimitedStream<'a, ReceiverStream<T>, InMemoryState, DefaultClock>;
 
 pub enum Policy {
-    Current,
     //Discard current value
-    Early, //Discard earliest value
+    Current,
+    //Discard earliest value
+    Early,
 }
 
 pub trait PolicyFn<P>: 'static + Fn(&P) -> Policy {}
@@ -37,10 +38,6 @@ pub struct Sender<T> {
     queue: Arc<Queue<T>>,
     policy_fn: Rc<dyn PolicyFn<T>>,
 }
-
-unsafe impl<T> std::marker::Send for Sender<T> {}
-
-unsafe impl<T> std::marker::Sync for Sender<T> {}
 
 impl<T> Sender<T> {
     #[inline]
@@ -61,8 +58,8 @@ impl<T> Sender<T> {
 
     #[inline]
     pub fn policy<F>(mut self, f: F) -> Self
-        where
-            F: PolicyFn<T>, // + Clone,
+    where
+        F: PolicyFn<T>, // + Clone,
     {
         self.policy_fn = Rc::new(f);
         self
