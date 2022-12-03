@@ -13,7 +13,6 @@ use crate::broker::types::TopicFilter;
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 type ValueSet<K> = std::collections::BTreeSet<K>;
-type LinkedHashMap<K, V> = linked_hash_map::LinkedHashMap<K, V, ahash::RandomState>;
 
 pub type Level = ntex_mqtt::TopicLevel;
 pub type Topic = ntex_mqtt::Topic;
@@ -26,8 +25,8 @@ pub struct Node<V: Ord> {
 }
 
 impl<V> Default for Node<V>
-    where
-        V: Hash + Ord + Eq + Clone + Debug,
+where
+    V: Hash + Ord + Eq + Clone + Debug,
 {
     #[inline]
     fn default() -> Node<V> {
@@ -36,8 +35,8 @@ impl<V> Default for Node<V>
 }
 
 impl<V> AsRef<Node<V>> for Node<V>
-    where
-        V: Hash + Ord + Eq + Clone + Debug,
+where
+    V: Hash + Ord + Eq + Clone + Debug,
 {
     fn as_ref(&self) -> &Node<V> {
         self
@@ -45,8 +44,8 @@ impl<V> AsRef<Node<V>> for Node<V>
 }
 
 impl<V> Node<V>
-    where
-        V: Hash + Ord + Eq + Clone + Debug + Serialize + Deserialize<'static>,
+where
+    V: Hash + Ord + Eq + Clone + Debug + Serialize + Deserialize<'static>,
 {
     #[inline]
     pub fn insert(&mut self, topic_filter: &Topic, value: V) -> bool {
@@ -131,7 +130,7 @@ impl<V> Node<V>
                 && !matches!(path[0], Level::Blank)
                 && path[0].is_metadata()
                 && (self.branches.contains_key(&Level::MultiWildcard)
-                || self.branches.contains_key(&Level::SingleWildcard)))
+                    || self.branches.contains_key(&Level::SingleWildcard)))
             {
                 //Multilayer matching
                 if let Some(n) = self.branches.get(&Level::MultiWildcard) {
@@ -206,8 +205,8 @@ impl<V> Node<V>
 }
 
 impl<V> Debug for Node<V>
-    where
-        V: Hash + Eq + Ord + Clone + Debug + Serialize + Deserialize<'static>,
+where
+    V: Hash + Eq + Ord + Clone + Debug + Serialize + Deserialize<'static>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Node {{ nodes_size: {}, values_size: {} }}", self.nodes_size(), self.values_size())
@@ -222,8 +221,8 @@ pub struct Matcher<'a, V: Ord> {
 }
 
 impl<'a, V> Matcher<'a, V>
-    where
-        V: Hash + Eq + Ord + Clone + Debug + Serialize + Deserialize<'static>,
+where
+    V: Hash + Eq + Ord + Clone + Debug + Serialize + Deserialize<'static>,
 {
     #[inline]
     pub fn iter(&self) -> MatchedIter<'a, V> {
@@ -275,35 +274,29 @@ pub struct MatchedIter<'a, V: Ord> {
     node: &'a Node<V>,
     path: &'a [Level],
     sub_path: Option<Vec<&'a Level>>,
-    curr_items: LinkedHashMap<Vec<&'a Level>, Vec<&'a V>>,
+    curr_items: Vec<(Vec<&'a Level>, Vec<&'a V>)>,
     sub_iters: Vec<Self>,
 }
 
 impl<'a, V> MatchedIter<'a, V>
-    where
-        V: Hash + Eq + Ord + Clone + Debug + Serialize + Deserialize<'static>,
+where
+    V: Hash + Eq + Ord + Clone + Debug + Serialize + Deserialize<'static>,
 {
     #[inline]
     fn new(node: &'a Node<V>, path: &'a [Level], sub_path: Vec<&'a Level>) -> Self {
-        Self {
-            node,
-            path,
-            sub_path: Some(sub_path),
-            curr_items: LinkedHashMap::default(),
-            sub_iters: Vec::new(),
-        }
+        Self { node, path, sub_path: Some(sub_path), curr_items: Vec::new(), sub_iters: Vec::new() }
     }
 
     #[inline]
     fn add_to_items(&mut self, levels: Vec<&'a Level>, v_set: &'a ValueSet<V>) {
         if !v_set.is_empty() {
-            self.curr_items.entry(levels).or_insert(v_set.iter().collect());
+            self.curr_items.push((levels, v_set.iter().collect()));
         }
     }
 
     #[inline]
     fn next_item(&mut self) -> Option<Item<'a, V>> {
-        if let Some(item) = self.curr_items.pop_front() {
+        if let Some(item) = self.curr_items.pop() {
             return Some(item);
         }
         while !self.sub_iters.is_empty() {
@@ -335,7 +328,7 @@ impl<'a, V> MatchedIter<'a, V>
                 && !matches!(self.path[0], Level::Blank)
                 && self.path[0].is_metadata()
                 && (self.node.branches.contains_key(&Level::MultiWildcard)
-                || self.node.branches.contains_key(&Level::SingleWildcard)))
+                    || self.node.branches.contains_key(&Level::SingleWildcard)))
             {
                 //Multilayer matching
                 if let Some(b_node) = self.node.branches.get(&Level::MultiWildcard) {
@@ -377,8 +370,8 @@ impl<'a, V> MatchedIter<'a, V>
 }
 
 impl<'a, V> Iterator for MatchedIter<'a, V>
-    where
-        V: Hash + Eq + Ord + Clone + Debug + Serialize + Deserialize<'static>,
+where
+    V: Hash + Eq + Ord + Clone + Debug + Serialize + Deserialize<'static>,
 {
     type Item = (Vec<&'a Level>, Vec<&'a V>);
 
@@ -402,19 +395,29 @@ impl<'a, V> Iterator for MatchedIter<'a, V>
 mod tests {
     use std::str::FromStr;
 
-    use super::{Topic, TopicTree, VecToString};
     use super::super::NodeId;
+    use super::{Topic, TopicTree, VecToString};
 
     fn match_one(topics: &TopicTree<NodeId>, topic: &str, vs: &[NodeId]) -> bool {
         let mut matcheds = 0;
         let t = Topic::from_str(topic).unwrap();
-        for (topic_filter, matched) in topics.matches(&t).iter() {
-            println!("[topic] {}({}) => {:?}, {:?}", topic, topic_filter.to_string(), matched, vs);
+        for (i, (topic_filter, matched)) in topics.matches(&t).iter().enumerate() {
             let matched_len = matched
                 .iter()
                 .filter_map(|v| if vs.contains(v) { Some(v) } else { None })
                 .collect::<Vec<&&NodeId>>()
                 .len();
+
+            println!(
+                "{} [topic] {}({}) => {:?}({},{}), {:?}",
+                i,
+                topic,
+                topic_filter.to_string(),
+                matched,
+                matched.len(),
+                matched_len,
+                vs
+            );
 
             if matched_len != matched.len() {
                 return false;
@@ -481,7 +484,8 @@ mod tests {
         println!("insert cost time: {:?}", start.elapsed());
         println!("serialize topics.values_size(): {:?}", topics.values_size());
         let val_size = topics.values_size();
-        let topics: TopicTree<NodeId> = bincode::deserialize(&bincode::serialize(&topics).unwrap()).unwrap();
+        let mut topics: TopicTree<NodeId> =
+            bincode::deserialize(&bincode::serialize(&topics).unwrap()).unwrap();
         println!("deserialize topics.values_size(): {:?}", topics.values_size());
         assert_eq!(val_size, topics.values_size());
         assert!(match_one(&topics, "/a/b/c", &[1]));
@@ -498,6 +502,16 @@ mod tests {
         let start = std::time::Instant::now();
         assert!(topics.is_match(&t));
         println!("is_matches cost time: {:?}", start.elapsed());
+
+        topics.insert(&Topic::from_str("/x/y/z/#").unwrap(), 1);
+        topics.insert(&Topic::from_str("/x/y/z/#").unwrap(), 2);
+        topics.insert(&Topic::from_str("/x/y/z/").unwrap(), 3);
+        assert!(match_one(&topics, "/x/y/z/", &[1, 2, 3]));
+
+        topics.insert(&Topic::from_str("/x/y/z/+").unwrap(), 1);
+        topics.insert(&Topic::from_str("/x/y/z/+").unwrap(), 2);
+        topics.insert(&Topic::from_str("/x/y/z/+").unwrap(), 3);
+        assert!(match_one(&topics, "/x/y/z/2", &[1, 2, 1, 2, 3]));
     }
 
     #[test]
@@ -508,6 +522,7 @@ mod tests {
         topics.insert(&Topic::from_str("/iot/b/y").unwrap(), ());
         topics.insert(&Topic::from_str("/iot/cc/dd").unwrap(), ());
         topics.insert(&Topic::from_str("/ddl/22/#").unwrap(), ());
+
         let val_size = topics.values_size();
         let topics: TopicTree<()> = bincode::deserialize(&bincode::serialize(&topics).unwrap()).unwrap();
         assert_eq!(val_size, topics.values_size());

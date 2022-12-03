@@ -555,6 +555,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dequemap"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "080ec90abf0f809184bc2703483b79c1747b8cae353a552845aafd149c624e12"
+
+[[package]]
 name = "derive_more"
 version = "0.99.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1143,12 +1149,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "linked-hash-map"
-version = "0.5.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0717cef1bc8b636c6e1c1bbdefc09e6322da8a9321966e8928ef80d20f7f770f"
-
-[[package]]
 name = "lock_api"
 version = "0.4.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1407,15 +1407,15 @@ dependencies = [
 
 [[package]]
 name = "ntex-mqtt"
-version = "0.6.12"
-source = "git+https://github.com/rmqtt/ntex-mqtt?branch=0.6.12#29efab9e87e8f5e67e8a4f14547161852e314240"
+version = "0.6.13"
+source = "git+https://github.com/rmqtt/ntex-mqtt?branch=0.6.13#ce34128ffa49c26ac74c2e6106290873453cc94d"
 dependencies = [
  "ahash 0.7.6",
  "bitflags",
  "chrono",
+ "dequemap",
  "derive_more",
  "lazy_static",
- "linked-hash-map",
  "log",
  "ntex",
  "pin-project-lite",
@@ -1837,12 +1837,13 @@ dependencies = [
 
 [[package]]
 name = "queue-ext"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a549daf3640dff080957a0aa14891fc38fd1967ce757c2822a595b6b2d0955f"
+checksum = "c22b7c1be684cc8777945302f2d6cc9bdf232e385ee7cfec571b7fbcfb7f9f11"
 dependencies = [
  "futures",
  "log",
+ "pin-project",
  "pin-project-lite",
 ]
 
@@ -2059,7 +2060,6 @@ dependencies = [
  "governor",
  "itertools",
  "lazy_static",
- "linked-hash-map",
  "log",
  "ntex",
  "ntex-mqtt",
@@ -2199,10 +2199,11 @@ dependencies = [
 
 [[package]]
 name = "rust-box"
-version = "0.5.1"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b5b24d53bdc19c5b972f8e1fb12c74f3c66aca50746d28a41a09cd2265c6b0e"
+checksum = "be69f7e5c83fd9296e55f62c98a38995a4d958dc7058c14cc40bbf66c026dad4"
 dependencies = [
+ "dequemap",
  "std-ext",
  "task-exec-queue",
 ]
@@ -2589,9 +2590,9 @@ checksum = "f764005d11ee5f36500a149ace24e00e3da98b0158b3e2d53a7495660d3f4d60"
 
 [[package]]
 name = "task-exec-queue"
-version = "0.4.1"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a73bdd82e2833dba961be18866ab881aedf49c6a60d2444da11712f82d674b4"
+checksum = "1bf70a052012a574592d5459ce754921155bd1da7dfca0288bff2f23afc35175"
 dependencies = [
  "ahash 0.8.0",
  "dashmap 5.4.0",
