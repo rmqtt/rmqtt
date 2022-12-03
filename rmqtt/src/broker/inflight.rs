@@ -1,12 +1,15 @@
-use std::sync::Arc;
+use rust_box::dequemap::DequeMap;
 use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
-use crate::{MqttError, Result};
 use crate::broker::types::{
     From, Packet, PacketId, PacketV3, PacketV5, Publish, PublishAck2, PublishAck2Reason, TimestampMillis,
     UserProperties,
 };
+use crate::{MqttError, Result};
+
+type Queues = DequeMap<PacketId, InflightMessage>;
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub enum MomentStatus {
@@ -76,8 +79,6 @@ pub struct Inflight {
     next: Arc<AtomicU16>,
     queues: Queues,
 }
-
-type Queues = linked_hash_map::LinkedHashMap<PacketId, InflightMessage, ahash::RandomState>;
 
 impl Inflight {
     #[inline]
@@ -192,7 +193,7 @@ impl Inflight {
 
     #[inline]
     pub fn next_id(&self) -> Result<PacketId> {
-        for _ in 0..u16::max_value() {
+        for _ in 0..u16::MAX {
             let packet_id = self.next.fetch_add(1, Ordering::SeqCst);
             if packet_id == 0 {
                 continue;

@@ -21,7 +21,7 @@ debug = []
 [dependencies]
 rmqtt-macros = "0.1"
 ntex = { git = "https://github.com/rmqtt/ntex.git", branch = "0.3.17", features = ["rustls"] }
-ntex-mqtt = { git = "https://github.com/rmqtt/ntex-mqtt", branch = "0.6.12" }
+ntex-mqtt = { git = "https://github.com/rmqtt/ntex-mqtt", branch = "0.6.13" }
 #ntex = { path = "../../ntex/ntex", features = ["rustls"]}
 #ntex-mqtt = { path = "../../ntex-mqtt" }
 futures = "0.3"
@@ -46,7 +46,6 @@ rand = "0.8"
 crossbeam = "0.8"
 governor = "0.3"
 config = { version = "0.11.0", default-features = false, features = ["toml"] }
-linked-hash-map = "0.5"
 log = { version = "0.4", features = ["std"] }
 slog = "2.7"
 slog-async = "2.7"
@@ -57,7 +56,7 @@ url = { version = "2.2", default-features = false }
 systemstat = "0.1"
 itertools = "0.10"
 reqwest = { version = "0.11", features = ["json"] }
-rust-box = { version = "0.5.1", features = ["task-exec-queue", "task-exec-queue-rate", "std-ext"] }
+rust-box = { version = "0.6.1", features = ["task-exec-queue", "task-exec-queue-rate", "std-ext", "dequemap"] }
 structopt = "0.3"
 
 [build-dependencies]
