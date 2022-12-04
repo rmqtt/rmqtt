@@ -70,6 +70,8 @@ pub fn config_logger(filename: String, to: To, level: Level) -> slog::Logger {
         .build()
         .fuse();
 
+    let stdout_drain = stdout_drain.filter_level(level.inner()).fuse();
+
     //File
     let decorator = slog_term::PlainSyncDecorator::new(open_file(&filename).unwrap());
     let file_drain = slog_term::FullFormat::new(decorator)
@@ -84,6 +86,8 @@ pub fn config_logger(filename: String, to: To, level: Level) -> slog::Logger {
         .overflow_strategy(slog_async::OverflowStrategy::DropAndReport)
         .build()
         .fuse();
+
+    let file_drain = file_drain.filter_level(level.inner()).fuse();
 
     match to {
         To::Console => slog::Logger::root(stdout_drain, o!()),
