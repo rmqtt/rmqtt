@@ -1,48 +1,23 @@
 use std::fs::{File, OpenOptions};
-use std::io::{self, Stdout, Write};
+use std::io::{self, Write};
 
 pub use slog::Logger;
-use slog::{b, o, Drain, Record};
-use slog_logfmt::Logfmt;
+use slog::{o, Drain, Record};
+use slog_scope::GlobalLoggerGuard;
+use slog_term::{CountingWriter, RecordDecorator, ThreadSafeTimestampFn};
 
 use crate::{MqttError, Result, Runtime};
 
 use super::settings::log::{Level, To};
 
-pub fn logger_init() {
-    log::set_boxed_logger(Box::new(LoggerEx(Runtime::instance().logger.clone()))).unwrap();
-    let l = Runtime::instance().settings.log.level.inner();
-    log::set_max_level(slog_log_to_level(l).to_level_filter());
-}
-
-struct LoggerEx(Logger);
-
-impl log::Log for LoggerEx {
-    fn enabled(&self, _metadata: &log::Metadata) -> bool {
-        true
-    }
-
-    fn log(&self, r: &log::Record) {
-        let level = log_to_slog_level(r.metadata().level());
-        let args = r.args();
-        let target = r.target();
-        let location = &record_as_location(r);
-        let s = slog::RecordStatic { location, level, tag: target };
-
-        self.0.log(&slog::Record::new(&s, args, b!()))
-    }
-
-    fn flush(&self) {}
-}
-
-fn log_to_slog_level(level: log::Level) -> slog::Level {
-    match level {
-        log::Level::Trace => slog::Level::Trace,
-        log::Level::Debug => slog::Level::Debug,
-        log::Level::Info => slog::Level::Info,
-        log::Level::Warn => slog::Level::Warning,
-        log::Level::Error => slog::Level::Error,
-    }
+pub fn logger_init() -> GlobalLoggerGuard {
+    let level = slog_log_to_level(Runtime::instance().settings.log.level.inner());
+    let logger = Runtime::instance().logger.clone();
+    // Make sure to save the guard, see documentation for more information
+    let guard = slog_scope::set_global_logger(logger.clone());
+    // register slog_stdlog as the log handler with the log crate
+    slog_stdlog::init_with_level(level).unwrap();
+    guard
 }
 
 fn slog_log_to_level(level: slog::Level) -> log::Level {
@@ -56,133 +31,65 @@ fn slog_log_to_level(level: slog::Level) -> log::Level {
     }
 }
 
-fn record_as_location(r: &log::Record) -> slog::RecordLocation {
-    let module = r.module_path_static().unwrap_or("<unknown>");
-    let file = r.file_static().unwrap_or("<unknown>");
-    let line = r.line().unwrap_or_default();
-
-    slog::RecordLocation { file, line, column: 0, function: "", module }
-}
-
 pub fn config_logger(filename: String, to: To, level: Level) -> slog::Logger {
-    let drain = Logfmt::new(WriteFilter::new(filename, to))
-        .set_prefix(move |io: &mut dyn io::Write, rec: &Record| -> slog::Result {
-            write!(
-                io,
-                "{date} {level_str} {module}{func}.{line} | {msg}\t",
-                date = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
-                level_str = rec.level().as_short_str(),
-                msg = rec.msg(),
-                line = rec.line(),
-                module = rec.module(),
-                func = if rec.function() != "" { format!("::{}", rec.function()) } else { "".into() },
-            )?;
+    let custom_timestamp =
+        |io: &mut dyn io::Write| write!(io, "{}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f"));
 
-            Ok(())
-        })
+    let print_msg_header = |fn_timestamp: &dyn ThreadSafeTimestampFn<Output = io::Result<()>>,
+                            mut rd: &mut dyn RecordDecorator,
+                            record: &Record,
+                            _use_file_location: bool|
+     -> io::Result<bool> {
+        rd.start_timestamp()?;
+        fn_timestamp(&mut rd)?;
+
+        rd.start_whitespace()?;
+        write!(rd, " ")?;
+
+        rd.start_level()?;
+        write!(rd, "{}", record.level().as_short_str())?;
+
+        rd.start_location()?;
+        if record.function().is_empty() {
+            write!(rd, " {}.{} | ", record.module(), record.line())?;
+        } else {
+            write!(rd, " {}::{}.{} | ", record.module(), record.function(), record.line())?;
+        }
+
+        rd.start_msg()?;
+        let mut count_rd = CountingWriter::new(&mut rd);
+        write!(count_rd, "{}", record.msg())?;
+        Ok(count_rd.count() != 0)
+    };
+
+    //Console
+    let plain = slog_term::PlainSyncDecorator::new(std::io::stdout());
+    let stdout_drain = slog_term::FullFormat::new(plain)
+        .use_custom_timestamp(custom_timestamp)
+        .use_custom_header_print(print_msg_header)
         .build()
         .fuse();
 
-    let drain = LevelFilter { drain, level }.fuse();
-
-    let drain = slog_async::Async::new(drain)
-        .chan_size(4096 * 8)
-        .overflow_strategy(slog_async::OverflowStrategy::Block)
+    //File
+    let decorator = slog_term::PlainSyncDecorator::new(open_file(&filename).unwrap());
+    let file_drain = slog_term::FullFormat::new(decorator)
+        .use_custom_timestamp(custom_timestamp)
+        .use_custom_header_print(print_msg_header)
         .build()
         .fuse();
 
-    slog::Logger::root(drain, o!())
-}
+    //@TODO config ...
+    let file_drain = slog_async::Async::new(file_drain)
+        .chan_size(100_000)
+        .overflow_strategy(slog_async::OverflowStrategy::DropAndReport)
+        .build()
+        .fuse();
 
-struct LevelFilter<D> {
-    drain: D,
-    level: Level,
-}
-
-impl<D> Drain for LevelFilter<D>
-where
-    D: Drain,
-{
-    type Ok = Option<D::Ok>;
-    type Err = Option<D::Err>;
-
-    fn log(
-        &self,
-        record: &slog::Record,
-        values: &slog::OwnedKVList,
-    ) -> std::result::Result<Self::Ok, Self::Err> {
-        if record.level().is_at_least(self.level.inner()) {
-            self.drain.log(record, values).map(Some).map_err(Some)
-        } else {
-            Ok(None)
-        }
-    }
-}
-
-struct WriteFilter {
-    filename: String,
-    to: To,
-
-    file: Option<File>,
-    console: Stdout,
-
-    buf: Option<Vec<u8>>,
-}
-
-impl WriteFilter {
-    fn new(filename: String, to: To) -> Self {
-        Self { filename, to, file: None, console: std::io::stdout(), buf: None }
-    }
-
-    #[inline]
-    fn file(&mut self) -> &File {
-        if self.file.is_none() {
-            self.file = Some(open_file(&self.filename).unwrap());
-        }
-        self.file.as_ref().unwrap()
-    }
-
-    #[inline]
-    fn _flush(&mut self) -> io::Result<()> {
-        if let Some(buf) = self.buf.take() {
-            self._write(&buf)?;
-        }
-        Ok(())
-    }
-
-    #[inline]
-    fn _write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let n = match self.to {
-            To::Console => self.console.write(buf)?,
-            To::File => self.file().write(buf)?,
-            To::Both => {
-                let _ = self.console.write(buf)?;
-                self.file().write(buf)?
-            }
-            To::Off => buf.len(),
-        };
-        Ok(n)
-    }
-}
-
-impl io::Write for WriteFilter {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        if matches!(self.to, To::Off) {
-            return Ok(buf.len());
-        }
-        if let Some(b) = &mut self.buf {
-            b.extend_from_slice(buf);
-        } else {
-            self.buf = Some(buf.to_vec());
-        }
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        if !matches!(self.to, To::Off) {
-            let _ = self._flush();
-        }
-        Ok(())
+    match to {
+        To::Console => slog::Logger::root(stdout_drain, o!()),
+        To::File => slog::Logger::root(file_drain, o!()),
+        To::Both => slog::Logger::root(slog::Duplicate::new(stdout_drain, file_drain).fuse(), o!()),
+        To::Off => slog::Logger::root(slog::Discard, o!()),
     }
 }
 

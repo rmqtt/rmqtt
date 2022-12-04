@@ -46,7 +46,7 @@ async fn main() {
     Settings::init(Options::from_args());
 
     //init log
-    logger_init();
+    let _guard = logger_init();
 
     Settings::logs();
 
