@@ -10,6 +10,8 @@ use crate::broker::{
     RetainStorage, Router, Shared, SharedSubscription,
 };
 
+// Defines a struct that manages a number of lock objects to different components that are
+// part of an MQTT broker.
 pub struct Manager {
     shared: RwLock<Box<dyn Shared>>,
     router: RwLock<Box<dyn Router>>,

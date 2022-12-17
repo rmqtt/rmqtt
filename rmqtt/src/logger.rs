@@ -10,6 +10,11 @@ use crate::{MqttError, Result, Runtime};
 
 use super::settings::log::{Level, To};
 
+/// Initializes a logger using `slog` and `slog_scope`.
+///
+/// This function creates a `GlobalLoggerGuard` and sets the global logger to the `logger` passed
+/// in the `Runtime` instance. It also initializes `slog_stdlog` with the log level specified in
+/// the `Runtime` settings.
 pub fn logger_init() -> GlobalLoggerGuard {
     let level = slog_log_to_level(Runtime::instance().settings.log.level.inner());
     let logger = Runtime::instance().logger.clone();
@@ -31,6 +36,14 @@ fn slog_log_to_level(level: slog::Level) -> log::Level {
     }
 }
 
+/// Creates a new `slog::Logger` with two `Drain`s: one for printing to the console and another for
+/// printing to a file.
+///
+/// This function takes three arguments: `filename`, which specifies the name of the file to print
+/// to; `to`, which specifies where to print the logs (either the console or a file); and `level`,
+/// which specifies the minimum log level to print. The function sets the format for the logs and
+/// creates the two `Drain`s using the provided parameters. It then combines the two `Drain`s using a
+/// `Tee` and returns the resulting `Logger`.
 pub fn config_logger(filename: String, to: To, level: Level) -> slog::Logger {
     let custom_timestamp =
         |io: &mut dyn io::Write| write!(io, "{}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f"));
