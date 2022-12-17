@@ -3,24 +3,24 @@ use std::time::Duration;
 use futures::future::FutureExt;
 use once_cell::sync::OnceCell;
 
+use rmqtt::broker::Router;
 use rmqtt::{anyhow, async_trait::async_trait, futures, log, once_cell, tokio};
 use rmqtt::{
     broker::{
         default::DefaultShared,
-        Entry,
         session::{ClientInfo, Session, SessionOfflineInfo},
-        Shared, SubRelations, SubRelationsMap, types::{
-            From, Id, IsAdmin, NodeId, Publish, Reason, SessionStatus, Subscribe, SubscribeReturn,
-            SubsSearchParams, SubsSearchResult, To, Tx, Unsubscribe,
+        types::{
+            From, Id, IsAdmin, NodeId, NodeName, Publish, Reason, SessionStatus, SubsSearchParams,
+            SubsSearchResult, Subscribe, SubscribeReturn, To, Tx, Unsubscribe,
         },
+        Entry, Shared, SubRelations, SubRelationsMap,
     },
     grpc::{Message, MessageReply, MessageType},
     MqttError, Result, Runtime,
 };
-use rmqtt::broker::Router;
 
-use super::{ClusterRouter, GrpcClients, MessageSender, NodeGrpcClient};
 use super::message::{get_client_node_id, Message as RaftMessage, MessageReply as RaftMessageReply};
+use super::{ClusterRouter, GrpcClients, HashMap, MessageSender, NodeGrpcClient};
 
 pub struct ClusterLockEntry {
     inner: Box<dyn Entry>,
@@ -234,8 +234,8 @@ impl Entry for ClusterLockEntry {
                     max_retries: 0,
                     retry_interval: Duration::from_millis(500),
                 }
-                    .send()
-                    .await;
+                .send()
+                .await;
                 match reply {
                     Ok(MessageReply::SubscriptionsGet(subs)) => subs,
                     Err(e) => {
@@ -256,6 +256,7 @@ pub struct ClusterShared {
     inner: &'static DefaultShared,
     router: &'static ClusterRouter,
     grpc_clients: GrpcClients,
+    node_names: HashMap<NodeId, NodeName>,
     pub message_type: MessageType,
 }
 
@@ -264,10 +265,17 @@ impl ClusterShared {
     pub(crate) fn get_or_init(
         router: &'static ClusterRouter,
         grpc_clients: GrpcClients,
+        node_names: HashMap<NodeId, NodeName>,
         message_type: MessageType,
     ) -> &'static ClusterShared {
         static INSTANCE: OnceCell<ClusterShared> = OnceCell::new();
-        INSTANCE.get_or_init(|| Self { inner: DefaultShared::instance(), router, grpc_clients, message_type })
+        INSTANCE.get_or_init(|| Self {
+            inner: DefaultShared::instance(),
+            router,
+            grpc_clients,
+            node_names,
+            message_type,
+        })
     }
 
     #[inline]
@@ -392,7 +400,7 @@ impl Shared for &'static ClusterShared {
     }
 
     #[inline]
-    fn iter(&self) -> Box<dyn Iterator<Item=Box<dyn Entry>> + Sync + Send> {
+    fn iter(&self) -> Box<dyn Iterator<Item = Box<dyn Entry>> + Sync + Send> {
         self.inner.iter()
     }
 
@@ -429,5 +437,10 @@ impl Shared for &'static ClusterShared {
     #[inline]
     fn get_grpc_clients(&self) -> GrpcClients {
         self.grpc_clients.clone()
+    }
+
+    #[inline]
+    fn node_name(&self, id: NodeId) -> String {
+        self.node_names.get(&id).map(|n| n.clone()).unwrap_or_default()
     }
 }

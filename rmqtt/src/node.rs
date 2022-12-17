@@ -1,8 +1,8 @@
 use systemstat::Platform;
 
-use crate::{NodeId, Result, Runtime};
 use crate::grpc::client::NodeGrpcClient;
 use crate::grpc::server::Server;
+use crate::{NodeId, Result, Runtime};
 
 #[allow(dead_code)]
 mod version {
@@ -70,7 +70,7 @@ impl Node {
             sysdescr: "RMQTT Broker".into(),
             node_status: self.status().await,
             node_id,
-            node_name: format!("{}@{}", node_id, "127.0.0.1"),
+            node_name: Runtime::instance().extends.shared().await.node_name(node_id),
             datetime: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
         }
     }
@@ -108,7 +108,7 @@ impl Node {
             disk_free,
             node_status: self.status().await,
             node_id,
-            node_name: format!("{}@{}", node_id, "127.0.0.1"),
+            node_name: Runtime::instance().extends.shared().await.node_name(node_id),
             uptime: self.uptime(),
             version: version::VERSION.to_string(),
         }

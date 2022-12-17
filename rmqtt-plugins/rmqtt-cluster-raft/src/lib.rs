@@ -96,6 +96,7 @@ impl ClusterPlugin {
 
         let register = runtime.extends.hook_mgr().await.register();
         let mut grpc_clients = HashMap::default();
+        let mut node_names = HashMap::default();
 
         let node_grpc_addrs = cfg.node_grpc_addrs.clone();
         log::info!("node_grpc_addrs: {:?}", node_grpc_addrs);
@@ -106,10 +107,11 @@ impl ClusterPlugin {
                     (node_addr.addr.clone(), runtime.node.new_grpc_client(&node_addr.addr).await?),
                 );
             }
+            node_names.insert(node_addr.id, format!("{}@{}", node_addr.id, node_addr.addr.to_string()));
         }
         let grpc_clients = Arc::new(grpc_clients);
         let router = ClusterRouter::get_or_init(cfg.try_lock_timeout);
-        let shared = ClusterShared::get_or_init(router, grpc_clients.clone(), cfg.message_type);
+        let shared = ClusterShared::get_or_init(router, grpc_clients.clone(), node_names, cfg.message_type);
         let retainer = ClusterRetainer::get_or_init(grpc_clients.clone(), cfg.message_type);
         let raft_mailbox = None;
         let cfg = Arc::new(RwLock::new(cfg));
