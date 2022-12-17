@@ -2,12 +2,12 @@ use std::convert::From as _f;
 use std::iter::Iterator;
 use std::sync::Arc;
 
-use crate::{ClientId, Id, NodeId, QoS, Result, Runtime, TopicFilter};
 use crate::broker::session::{ClientInfo, Session, SessionOfflineInfo};
 use crate::broker::types::*;
 use crate::grpc::GrpcClients;
 use crate::settings::listener::Listener;
 use crate::stats::Counter;
+use crate::{ClientId, Id, NodeId, QoS, Result, Runtime, TopicFilter};
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
@@ -79,7 +79,7 @@ pub trait Shared: Sync + Send {
     ) -> Result<(), Vec<(To, From, Publish, Reason)>>;
 
     ///
-    fn iter(&self) -> Box<dyn Iterator<Item=Box<dyn Entry>> + Sync + Send>;
+    fn iter(&self) -> Box<dyn Iterator<Item = Box<dyn Entry>> + Sync + Send>;
 
     ///
     fn random_session(&self) -> Option<(Session, ClientInfo)>;
