@@ -6,7 +6,6 @@ use std::convert::From as _f;
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::FutureExt;
 use rmqtt_raft::{Mailbox, Raft};
 
 use config::PluginConfig;
@@ -15,7 +14,7 @@ use retainer::ClusterRetainer;
 use rmqtt::{
     ahash, anyhow,
     async_trait::async_trait,
-    futures, log,
+    log,
     serde_json::{self, json},
     tokio, RwLock,
 };
@@ -354,38 +353,38 @@ impl MessageSender {
     }
 }
 
-pub struct MessageBroadcaster {
-    grpc_clients: GrpcClients,
-    msg_type: MessageType,
-    msg: Option<Message>,
-}
-
-impl MessageBroadcaster {
-    pub fn new(grpc_clients: GrpcClients, msg_type: MessageType, msg: Message) -> Self {
-        Self { grpc_clients, msg_type, msg: Some(msg) }
-    }
-
-    #[inline]
-    pub async fn join_all(&mut self) -> Vec<Result<MessageReply>> {
-        let msg_type = self.msg_type;
-        let msg = self.msg.take().unwrap();
-        let mut senders = Vec::new();
-        let max_idx = self.grpc_clients.len() - 1;
-        for (i, (_, (_, grpc_client))) in self.grpc_clients.iter().enumerate() {
-            let grpc_client = grpc_client.clone();
-            if i == max_idx {
-                let fut = async move { grpc_client.send_message(msg_type, msg).await };
-                senders.push(fut.boxed());
-                break;
-            } else {
-                let msg = msg.clone();
-                let fut = async move { grpc_client.send_message(msg_type, msg).await };
-                senders.push(fut.boxed());
-            }
-        }
-        futures::future::join_all(senders).await
-    }
-}
+//pub struct MessageBroadcaster {
+//    grpc_clients: GrpcClients,
+//    msg_type: MessageType,
+//    msg: Option<Message>,
+//}
+//
+//impl MessageBroadcaster {
+//    pub fn new(grpc_clients: GrpcClients, msg_type: MessageType, msg: Message) -> Self {
+//        Self { grpc_clients, msg_type, msg: Some(msg) }
+//    }
+//
+//    #[inline]
+//    pub async fn join_all(&mut self) -> Vec<Result<MessageReply>> {
+//        let msg_type = self.msg_type;
+//        let msg = self.msg.take().unwrap();
+//        let mut senders = Vec::new();
+//        let max_idx = self.grpc_clients.len() - 1;
+//        for (i, (_, (_, grpc_client))) in self.grpc_clients.iter().enumerate() {
+//            let grpc_client = grpc_client.clone();
+//            if i == max_idx {
+//                let fut = async move { grpc_client.send_message(msg_type, msg).await };
+//                senders.push(fut.boxed());
+//                break;
+//            } else {
+//                let msg = msg.clone();
+//                let fut = async move { grpc_client.send_message(msg_type, msg).await };
+//                senders.push(fut.boxed());
+//            }
+//        }
+//        futures::future::join_all(senders).await
+//    }
+//}
 
 #[inline]
 pub(crate) async fn hook_message_dropped(droppeds: Vec<(To, From, Publish, Reason)>) {

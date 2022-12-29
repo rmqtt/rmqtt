@@ -1,17 +1,17 @@
 use rmqtt_raft::Mailbox;
 
-use rmqtt::{async_trait::async_trait, log, MqttError, tokio};
+use rmqtt::broker::Shared;
+use rmqtt::rust_box::task_exec_queue::SpawnExt;
+use rmqtt::{async_trait::async_trait, log, tokio, MqttError};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, ReturnType},
     grpc::{Message as GrpcMessage, MessageReply},
     Id, Runtime,
 };
-use rmqtt::broker::Shared;
-use rmqtt::rust_box::task_exec_queue::SpawnExt;
 
+use super::config::{retry, BACKOFF_STRATEGY};
+use super::message::{Message, RaftGrpcMessage, RaftGrpcMessageReply};
 use super::{hook_message_dropped, retainer::ClusterRetainer, shared::ClusterShared, task_exec_queue};
-use super::config::{BACKOFF_STRATEGY, retry};
-use super::message::Message;
 
 pub(crate) struct HookHandler {
     shared: &'static ClusterShared,
@@ -55,7 +55,7 @@ impl Handler for HookHandler {
                                 .map_err(|e| MqttError::from(e.to_string()))?;
                             Ok(res)
                         })
-                            .await
+                        .await
                         {
                             log::warn!(
                                 "HookHandler, Message::Disconnected, raft mailbox send error, {:?}",
@@ -85,7 +85,7 @@ impl Handler for HookHandler {
                             .map_err(|e| MqttError::from(e.to_string()))?;
                         Ok(res)
                     })
-                        .await
+                    .await
                     {
                         log::warn!(
                             "HookHandler, Message::SessionTerminated, raft mailbox send error, {:?}",
@@ -103,7 +103,7 @@ impl Handler for HookHandler {
                 match msg {
                     GrpcMessage::ForwardsTo(from, publish, sub_rels) => {
                         if let Err(droppeds) =
-                        self.shared.forwards_to(from.clone(), publish, sub_rels.clone()).await
+                            self.shared.forwards_to(from.clone(), publish, sub_rels.clone()).await
                         {
                             hook_message_dropped(droppeds).await;
                         }
@@ -142,6 +142,34 @@ impl Handler for HookHandler {
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::SubscriptionsGet(
                             entry.subscriptions().await,
                         )));
+                        return (false, Some(new_acc));
+                    }
+                    GrpcMessage::Data(data) => {
+                        let new_acc = match RaftGrpcMessage::decode(data) {
+                            Err(e) => {
+                                log::error!("Message::decode, error: {:?}", e);
+                                HookResult::GrpcMessageReply(Ok(MessageReply::Error(e.to_string())))
+                            }
+                            Ok(RaftGrpcMessage::GetRaftStatus) => {
+                                let raft_mailbox = self.raft_mailbox.clone();
+                                let reply = match raft_mailbox.status().await {
+                                    Ok(status) => {
+                                        match RaftGrpcMessageReply::GetRaftStatus(status).encode() {
+                                            Ok(ress) => {
+                                                HookResult::GrpcMessageReply(Ok(MessageReply::Data(ress)))
+                                            }
+                                            Err(e) => HookResult::GrpcMessageReply(Ok(MessageReply::Error(
+                                                e.to_string(),
+                                            ))),
+                                        }
+                                    }
+                                    Err(e) => {
+                                        HookResult::GrpcMessageReply(Ok(MessageReply::Error(e.to_string())))
+                                    }
+                                };
+                                reply
+                            }
+                        };
                         return (false, Some(new_acc));
                     }
                     _ => {

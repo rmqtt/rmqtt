@@ -106,11 +106,17 @@ pub trait Shared: Sync + Send {
     fn node_name(&self, id: NodeId) -> String {
         format!("{}@127.0.0.1", id)
     }
+
+    #[inline]
+    async fn check_health(&self) -> Result<Option<serde_json::Value>> {
+        Ok(None)
+    }
 }
 
-pub type SharedSubRelations = HashMap<TopicFilter, Vec<(SharedGroup, NodeId, ClientId, QoS, IsOnline)>>;
 //key is TopicFilter
-pub type OtherSubRelations = HashMap<NodeId, Vec<TopicFilter>>; //In other nodes
+pub type SharedSubRelations = HashMap<TopicFilter, Vec<(SharedGroup, NodeId, ClientId, QoS, IsOnline)>>;
+//In other nodes
+pub type OtherSubRelations = HashMap<NodeId, Vec<TopicFilter>>;
 
 pub type SubRelations = Vec<(TopicFilter, ClientId, QoS, Option<(SharedGroup, IsOnline)>)>;
 pub type SubRelationsMap = HashMap<NodeId, SubRelations>;

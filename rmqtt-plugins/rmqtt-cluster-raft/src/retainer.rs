@@ -4,14 +4,14 @@ use rmqtt::{async_trait::async_trait, log, once_cell};
 use rmqtt::{
     broker::{
         default::DefaultRetainStorage,
-        RetainStorage,
         types::{Retain, TopicFilter, TopicName},
+        RetainStorage,
     },
-    grpc::{Message, MessageReply, MessageType},
+    grpc::{Message, MessageBroadcaster, MessageReply, MessageType},
     Result,
 };
 
-use super::{GrpcClients, MessageBroadcaster};
+use super::GrpcClients;
 
 #[allow(dead_code)]
 pub(crate) struct ClusterRetainer {
@@ -53,10 +53,10 @@ impl RetainStorage for &'static ClusterRetainer {
             self.message_type,
             Message::GetRetains(topic_filter.clone()),
         )
-            .join_all()
-            .await;
+        .join_all()
+        .await;
 
-        for reply in replys {
+        for (_, reply) in replys {
             match reply {
                 Ok(reply) => {
                     if let MessageReply::GetRetains(o_retains) = reply {
