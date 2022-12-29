@@ -2187,9 +2187,9 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-raft"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e3028b95cd53e0bca5b9cca5521ba836bfce4287576087d8f632104a7c76176"
+checksum = "749107ed0fe2a17b97147f8dee5a0877e1710b85bfb728266c18aa6e8294f269"
 dependencies = [
  "ahash 0.8.0",
  "async-trait",
