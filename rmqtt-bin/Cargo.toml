@@ -1,8 +1,15 @@
 [package]
 name = "rmqttd"
-version = "0.2.10"
-authors = ["rmqtt <rmqttd@126.com>"]
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description.workspace = true
+categories.workspace = true
+keywords.workspace = true
+exclude.workspace = true
+rust-version.workspace = true
 build = "build.rs"
 
 [[bin]]

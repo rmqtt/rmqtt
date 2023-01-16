@@ -1,14 +1,15 @@
 [package]
 name = "rmqtt"
-version = "0.2.10"
-authors = ["rmqtt <rmqttd@126.com>"]
-description = "MQTT Server for v3.1, v3.1.1 and v5.0 protocols"
-repository = "https://github.com/rmqtt/rmqtt.git"
-categories = ["network-programming"]
-keywords = ["MQTT", "IoT", "messaging", "MQTT Server", "MQTT Broker"]
-license = "MIT license, Apache-2.0 License"
-exclude = [".gitignore", ".cargo/config"]
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description.workspace = true
+categories.workspace = true
+keywords.workspace = true
+exclude.workspace = true
+rust-version.workspace = true
 
 [lib]
 name = "rmqtt"
