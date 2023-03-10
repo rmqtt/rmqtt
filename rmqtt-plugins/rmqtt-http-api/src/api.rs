@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use salvo::extra::affix;
+use salvo::affix;
 use salvo::http::header::{HeaderValue, CONTENT_TYPE};
 use salvo::prelude::*;
 
@@ -467,7 +467,7 @@ async fn search_clients(req: &mut Request, depot: &mut Depot, res: &mut Response
     let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
     let message_type = cfg.read().message_type;
     let max_row_limit = cfg.read().max_row_limit;
-    let mut q = match req.extract_queries::<ClientSearchParams>() {
+    let mut q = match req.parse_queries::<ClientSearchParams>() {
         Ok(q) => q,
         Err(e) => return res.set_status_error(StatusError::bad_request().with_detail(e.to_string())),
     };
@@ -555,7 +555,7 @@ async fn check_online(req: &mut Request, res: &mut Response) {
 async fn query_subscriptions(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
     let max_row_limit = cfg.read().max_row_limit;
-    let mut q = match req.extract_queries::<SubsSearchParams>() {
+    let mut q = match req.parse_queries::<SubsSearchParams>() {
         Ok(q) => q,
         Err(e) => return res.set_status_error(StatusError::bad_request().with_detail(e.to_string())),
     };
@@ -628,7 +628,8 @@ async fn publish(req: &mut Request, depot: &mut Depot, res: &mut Response) {
             addr.as_ipv6().map(|ipv6| SocketAddr::V6(*ipv6))
         }
     });
-    let params = match req.extract_json::<PublishParams>().await {
+
+    let params = match req.parse_json::<PublishParams>().await {
         Ok(p) => p,
         Err(e) => return res.set_status_error(StatusError::bad_request().with_detail(e.to_string())),
     };
@@ -721,7 +722,7 @@ async fn _publish(
 
 #[handler]
 async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let params = match req.extract_json::<SubscribeParams>().await {
+    let params = match req.parse_json::<SubscribeParams>().await {
         Ok(p) => p,
         Err(e) => return res.set_status_error(StatusError::bad_request().with_detail(e.to_string())),
     };
@@ -803,7 +804,7 @@ async fn _subscribe_on_other_node(
 
 #[handler]
 async fn unsubscribe(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let params = match req.extract_json::<UnsubscribeParams>().await {
+    let params = match req.parse_json::<UnsubscribeParams>().await {
         Ok(p) => p,
         Err(e) => return res.set_status_error(StatusError::bad_request().with_detail(e.to_string())),
     };
