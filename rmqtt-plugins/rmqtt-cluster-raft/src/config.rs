@@ -149,7 +149,7 @@ pub struct RaftConfig {
     pub batch_append: Option<bool>,
 
     /// The election priority of this node.
-    pub priority: Option<u64>,
+    pub priority: Option<i64>,
 
     /// Specify maximum of uncommitted entry size.
     /// When this limit is reached, all proposals to append new log will be dropped
