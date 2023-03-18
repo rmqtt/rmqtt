@@ -101,9 +101,10 @@ impl Handler for HookHandler {
                                     ))),
                                 }
                             }
-                            Ok(Message::Subscribe(params)) => {
+                            Ok(Message::Subscribe(params)) =>
+                            {
                                 #[allow(clippy::mutable_key_type)]
-                                    let replys = match subs::subscribe(params).await {
+                                match subs::subscribe(params).await {
                                     Ok(replys) => {
                                         let ress = replys
                                             .into_iter()
@@ -124,59 +125,49 @@ impl Handler for HookHandler {
                                     Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
                                         e.to_string(),
                                     ))),
-                                };
-                                replys
+                                }
                             }
-                            Ok(Message::Unsubscribe(params)) => {
-                                let replys = match subs::unsubscribe(params).await {
-                                    Ok(()) => match MessageReply::Unsubscribe.encode() {
-                                        Ok(ress) => {
-                                            HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
-                                        }
-                                        Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
-                                            e.to_string(),
-                                        ))),
-                                    },
+                            Ok(Message::Unsubscribe(params)) => match subs::unsubscribe(params).await {
+                                Ok(()) => match MessageReply::Unsubscribe.encode() {
+                                    Ok(ress) => {
+                                        HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
+                                    }
                                     Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
                                         e.to_string(),
                                     ))),
-                                };
-                                replys
-                            }
-                            Ok(Message::GetPlugins) => {
-                                let replys = match plugin::get_plugins().await {
-                                    Ok(plugins) => match MessageReply::GetPlugins(plugins).encode() {
-                                        Ok(ress) => {
-                                            HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
-                                        }
-                                        Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
-                                            e.to_string(),
-                                        ))),
-                                    },
+                                },
+                                Err(e) => {
+                                    HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(e.to_string())))
+                                }
+                            },
+                            Ok(Message::GetPlugins) => match plugin::get_plugins().await {
+                                Ok(plugins) => match MessageReply::GetPlugins(plugins).encode() {
+                                    Ok(ress) => {
+                                        HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
+                                    }
                                     Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
                                         e.to_string(),
                                     ))),
-                                };
-                                replys
-                            }
-                            Ok(Message::GetPlugin { name }) => {
-                                let reply = match plugin::get_plugin(name).await {
-                                    Ok(plugin) => match MessageReply::GetPlugin(plugin).encode() {
-                                        Ok(ress) => {
-                                            HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
-                                        }
-                                        Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
-                                            e.to_string(),
-                                        ))),
-                                    },
+                                },
+                                Err(e) => {
+                                    HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(e.to_string())))
+                                }
+                            },
+                            Ok(Message::GetPlugin { name }) => match plugin::get_plugin(name).await {
+                                Ok(plugin) => match MessageReply::GetPlugin(plugin).encode() {
+                                    Ok(ress) => {
+                                        HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
+                                    }
                                     Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
                                         e.to_string(),
                                     ))),
-                                };
-                                reply
-                            }
+                                },
+                                Err(e) => {
+                                    HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(e.to_string())))
+                                }
+                            },
                             Ok(Message::GetPluginConfig { name }) => {
-                                let reply = match plugin::get_plugin_config(name).await {
+                                match plugin::get_plugin_config(name).await {
                                     Ok(cfg) => match MessageReply::GetPluginConfig(cfg).encode() {
                                         Ok(ress) => {
                                             HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
@@ -188,11 +179,10 @@ impl Handler for HookHandler {
                                     Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
                                         e.to_string(),
                                     ))),
-                                };
-                                reply
+                                }
                             }
                             Ok(Message::ReloadPluginConfig { name }) => {
-                                let reply = match Runtime::instance().plugins.load_config(name).await {
+                                match Runtime::instance().plugins.load_config(name).await {
                                     Ok(()) => match MessageReply::ReloadPluginConfig.encode() {
                                         Ok(ress) => {
                                             HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
@@ -204,11 +194,10 @@ impl Handler for HookHandler {
                                     Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
                                         e.to_string(),
                                     ))),
-                                };
-                                reply
+                                }
                             }
                             Ok(Message::LoadPlugin { name }) => {
-                                let reply = match Runtime::instance().plugins.start(name).await {
+                                match Runtime::instance().plugins.start(name).await {
                                     Ok(()) => match MessageReply::LoadPlugin.encode() {
                                         Ok(ress) => {
                                             HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
@@ -220,11 +209,10 @@ impl Handler for HookHandler {
                                     Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
                                         e.to_string(),
                                     ))),
-                                };
-                                reply
+                                }
                             }
                             Ok(Message::UnloadPlugin { name }) => {
-                                let reply = match Runtime::instance().plugins.stop(name).await {
+                                match Runtime::instance().plugins.stop(name).await {
                                     Ok(ok) => match MessageReply::UnloadPlugin(ok).encode() {
                                         Ok(ress) => {
                                             HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
@@ -236,8 +224,7 @@ impl Handler for HookHandler {
                                     Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
                                         e.to_string(),
                                     ))),
-                                };
-                                reply
+                                }
                             }
                         };
                         return (false, Some(new_acc));

@@ -1,15 +1,15 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::Arc;
 
-use tonic::{Response, transport};
+use tonic::{transport, Response};
 
 use crate::{Result, Runtime};
 
-use super::{Message, MessageReply, MessageType};
 use super::pb::{
     self,
     node_service_server::{NodeService, NodeServiceServer},
 };
+use super::{Message, MessageReply, MessageType};
 
 pub struct Server {}
 

@@ -1,15 +1,16 @@
-use chrono::TimeZone;
-use config::{Config, ConfigError, File};
-use once_cell::sync::OnceCell;
-use serde::de::{self, Deserialize, Deserializer};
-use serde::ser::Serializer;
-use serde::Serialize;
 use std::fmt;
 use std::net::SocketAddr;
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+
+use chrono::TimeZone;
+use config::{Config, ConfigError, File};
+use once_cell::sync::OnceCell;
+use serde::de::{self, Deserialize, Deserializer};
+use serde::ser::Serializer;
+use serde::Serialize;
 
 use crate::{Addr, MqttError, NodeId, Result};
 
@@ -408,7 +409,7 @@ impl FromStr for NodeAddr {
         if parts.len() < 2 {
             return Err(MqttError::Msg(format!("NodeAddr format error, {}", s)));
         }
-        let id = NodeId::from_str(parts[0]).map_err(|e| MqttError::ParseIntError(e))?;
+        let id = NodeId::from_str(parts[0]).map_err(MqttError::ParseIntError)?;
         //let addr = parts[1].parse().map_err(|e|MqttError::AddrParseError(e))?;
         let addr = Addr::from(parts[1]);
         Ok(NodeAddr { id, addr })
@@ -420,6 +421,6 @@ impl<'de> de::Deserialize<'de> for NodeAddr {
     where
         D: de::Deserializer<'de>,
     {
-        Ok(NodeAddr::from_str(&String::deserialize(deserializer)?).map_err(de::Error::custom)?)
+        NodeAddr::from_str(&String::deserialize(deserializer)?).map_err(de::Error::custom)
     }
 }

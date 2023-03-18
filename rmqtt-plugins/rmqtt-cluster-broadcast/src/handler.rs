@@ -1,14 +1,14 @@
+use rmqtt::broker::{Router, Shared};
 use rmqtt::{async_trait::async_trait, log};
 use rmqtt::{
     broker::{
         hook::{Handler, HookResult, Parameter, ReturnType},
-        SubRelationsMap,
         types::{From, Publish},
+        SubRelationsMap,
     },
     grpc::{Message, MessageReply},
     Id, Runtime,
 };
-use rmqtt::broker::{Router, Shared};
 
 use super::{hook_message_dropped, retainer::ClusterRetainer, router::ClusterRouter, shared::ClusterShared};
 
@@ -45,7 +45,7 @@ impl Handler for HookHandler {
                     }
                     Message::ForwardsTo(from, publish, sub_rels) => {
                         if let Err(droppeds) =
-                        self.shared.inner().forwards_to(from.clone(), publish, sub_rels.clone()).await
+                            self.shared.inner().forwards_to(from.clone(), publish, sub_rels.clone()).await
                         {
                             hook_message_dropped(droppeds).await;
                         }

@@ -6,13 +6,13 @@ use futures::FutureExt;
 
 use client::NodeGrpcClient;
 
-use crate::{Addr, ClientId, Result};
-use crate::broker::{ClearSubscriptions, SubRelations, SubRelationsMap};
 use crate::broker::session::SessionOfflineInfo;
 use crate::broker::types::{
     From, Id, IsAdmin, NodeId, Publish, Retain, Route, SessionStatus, SubsSearchParams, SubsSearchResult,
     TopicFilter, TopicName,
 };
+use crate::broker::{ClearSubscriptions, SubRelations, SubRelationsMap};
+use crate::{Addr, ClientId, Result};
 
 pub mod client;
 pub mod server;
@@ -136,9 +136,9 @@ impl MessageBroadcaster {
 
     #[inline]
     pub async fn select_ok<R, F>(self, check_fn: F) -> Result<R>
-        where
-            R: std::any::Any + Send + Sync,
-            F: Fn(MessageReply) -> Result<R> + Send + Sync,
+    where
+        R: std::any::Any + Send + Sync,
+        F: Fn(MessageReply) -> Result<R> + Send + Sync,
     {
         let msg = self.msg;
         let mut senders = Vec::new();
@@ -162,9 +162,9 @@ impl MessageBroadcaster {
         msg: Message,
         check_fn: &F,
     ) -> Result<R>
-        where
-            R: std::any::Any + Send + Sync,
-            F: Fn(MessageReply) -> Result<R> + Send + Sync,
+    where
+        R: std::any::Any + Send + Sync,
+        F: Fn(MessageReply) -> Result<R> + Send + Sync,
     {
         match grpc_client.send_message(typ, msg).await {
             Ok(r) => {

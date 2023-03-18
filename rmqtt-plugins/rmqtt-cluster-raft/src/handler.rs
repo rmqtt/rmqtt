@@ -152,7 +152,7 @@ impl Handler for HookHandler {
                             }
                             Ok(RaftGrpcMessage::GetRaftStatus) => {
                                 let raft_mailbox = self.raft_mailbox.clone();
-                                let reply = match raft_mailbox.status().await {
+                                match raft_mailbox.status().await {
                                     Ok(status) => {
                                         match RaftGrpcMessageReply::GetRaftStatus(status).encode() {
                                             Ok(ress) => {
@@ -166,8 +166,7 @@ impl Handler for HookHandler {
                                     Err(e) => {
                                         HookResult::GrpcMessageReply(Ok(MessageReply::Error(e.to_string())))
                                     }
-                                };
-                                reply
+                                }
                             }
                         };
                         return (false, Some(new_acc));
@@ -184,13 +183,3 @@ impl Handler for HookHandler {
         (true, acc)
     }
 }
-
-// async fn forwards(from: From, publish: Publish) -> SharedSubRelations {
-//     match Runtime::instance().extends.shared().await.forwards_and_get_shareds(from, publish).await {
-//         Err(droppeds) => {
-//             hook_message_dropped(droppeds).await;
-//             SharedSubRelations::default()
-//         }
-//         Ok(shared_subs) => shared_subs,
-//     }
-// }

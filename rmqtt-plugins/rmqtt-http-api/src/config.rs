@@ -1,12 +1,12 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use rmqtt::serde_json;
 use rmqtt::{
     grpc::MessageType,
-    Result,
     settings::{deserialize_addr, deserialize_duration},
+    Result,
 };
-use rmqtt::serde_json;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
@@ -20,8 +20,8 @@ pub struct PluginConfig {
     pub http_laddr: SocketAddr,
 
     #[serde(
-    default = "PluginConfig::metrics_sample_interval_default",
-    deserialize_with = "deserialize_duration"
+        default = "PluginConfig::metrics_sample_interval_default",
+        deserialize_with = "deserialize_duration"
     )]
     pub metrics_sample_interval: Duration,
 

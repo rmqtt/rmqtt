@@ -6,11 +6,11 @@ use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
 use serde::de::{self, Deserialize};
 use serde::ser::{self, Serialize};
 
-use rmqtt::{ahash, serde_json};
-use rmqtt::{Result, Topic};
 use rmqtt::broker::hook::Type;
 use rmqtt::broker::topic::TopicTree;
 use rmqtt::settings::deserialize_duration;
+use rmqtt::{ahash, serde_json};
+use rmqtt::{Result, Topic};
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
@@ -31,8 +31,8 @@ pub struct PluginConfig {
     pub rules: HashMap<Type, Vec<Rule>>,
 
     #[serde(
-    default = "PluginConfig::retry_max_elapsed_time_default",
-    deserialize_with = "deserialize_duration"
+        default = "PluginConfig::retry_max_elapsed_time_default",
+        deserialize_with = "deserialize_duration"
     )]
     pub retry_max_elapsed_time: Duration,
     #[serde(default = "PluginConfig::retry_multiplier_default")]
@@ -60,8 +60,8 @@ impl PluginConfig {
     }
 
     fn deserialize_rules<'de, D>(deserializer: D) -> std::result::Result<HashMap<Type, Vec<Rule>>, D::Error>
-        where
-            D: de::Deserializer<'de>,
+    where
+        D: de::Deserializer<'de>,
     {
         let mut rules_cfg: HashMap<String, Vec<Rule>> = HashMap::deserialize(deserializer)?;
         let mut rules = HashMap::default();
@@ -93,17 +93,17 @@ pub struct Rule {
     #[serde(default)]
     pub urls: Vec<String>,
     #[serde(
-    default,
-    deserialize_with = "Rule::deserialize_topics",
-    serialize_with = "Rule::serialize_topics"
+        default,
+        deserialize_with = "Rule::deserialize_topics",
+        serialize_with = "Rule::serialize_topics"
     )]
     pub topics: TopicsType,
 }
 
 impl Rule {
     fn serialize_topics<S>(topics: &TopicsType, s: S) -> std::result::Result<S::Ok, S::Error>
-        where
-            S: ser::Serializer,
+    where
+        S: ser::Serializer,
     {
         if let Some((_, topics_cfg)) = topics {
             topics_cfg.as_slice().serialize(s)
@@ -114,8 +114,8 @@ impl Rule {
     }
 
     fn deserialize_topics<'de, D>(deserializer: D) -> std::result::Result<TopicsType, D::Error>
-        where
-            D: de::Deserializer<'de>,
+    where
+        D: de::Deserializer<'de>,
     {
         let topics_cfg: Vec<String> = Vec::deserialize(deserializer)?;
 

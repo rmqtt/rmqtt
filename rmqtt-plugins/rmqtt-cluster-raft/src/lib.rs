@@ -106,7 +106,7 @@ impl ClusterPlugin {
                     (node_addr.addr.clone(), runtime.node.new_grpc_client(&node_addr.addr).await?),
                 );
             }
-            node_names.insert(node_addr.id, format!("{}@{}", node_addr.id, node_addr.addr.to_string()));
+            node_names.insert(node_addr.id, format!("{}@{}", node_addr.id, node_addr.addr));
         }
         let grpc_clients = Arc::new(grpc_clients);
         let router = ClusterRouter::get_or_init(cfg.try_lock_timeout);

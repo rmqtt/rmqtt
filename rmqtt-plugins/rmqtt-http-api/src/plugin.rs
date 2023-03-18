@@ -1,6 +1,6 @@
-use rmqtt::{Result, Runtime};
 use rmqtt::plugin::PluginInfo;
 use rmqtt::serde_json;
+use rmqtt::{Result, Runtime};
 
 #[inline]
 pub(crate) async fn get_plugins() -> Result<Vec<PluginInfo>> {

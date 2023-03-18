@@ -1,5 +1,5 @@
-use crate::{ClientInfo, grpc, Result, Session};
 use crate::broker::types::*;
+use crate::{grpc, ClientInfo, Result, Session};
 
 pub type Priority = u32;
 pub type ReturnType = (bool, Option<HookResult>);

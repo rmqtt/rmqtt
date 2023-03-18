@@ -5,10 +5,10 @@ use ntex_mqtt::v5;
 use ntex_mqtt::v5::codec::{Auth, DisconnectReasonCode};
 use rust_box::task_exec_queue::LocalSpawnExt;
 
-use crate::{ClientInfo, MqttError, Result, Runtime, Session, SessionState};
-use crate::broker::{inflight::MomentStatus, types::*};
 use crate::broker::executor::get_handshake_exec_queue;
+use crate::broker::{inflight::MomentStatus, types::*};
 use crate::settings::listener::Listener;
+use crate::{ClientInfo, MqttError, Result, Runtime, Session, SessionState};
 
 #[inline]
 async fn refused_ack<Io>(
@@ -101,7 +101,7 @@ pub async fn _handshake<Io: 'static>(
             ConnectAckReasonV5::ClientIdentifierNotValid,
             "client_id is too long".into(),
         )
-            .await);
+        .await);
     }
 
     //Extended Auth is not supported
@@ -112,7 +112,7 @@ pub async fn _handshake<Io: 'static>(
             ConnectAckReasonV5::BadAuthenticationMethod,
             "extended Auth is not supported".into(),
         )
-            .await);
+        .await);
     }
 
     //hook, client authenticate
@@ -141,7 +141,7 @@ pub async fn _handshake<Io: 'static>(
                 ConnectAckReasonV5::ServerUnavailable,
                 format!("{:?}", e),
             )
-                .await);
+            .await);
         }
         Ok(entry) => entry,
     };
@@ -155,7 +155,7 @@ pub async fn _handshake<Io: 'static>(
                 ConnectAckReasonV5::ServerUnavailable,
                 format!("{:?}", e),
             )
-                .await);
+            .await);
         }
         Ok(Some(offline_info)) => (!packet.clean_start, Some(offline_info)),
         Ok(None) => (false, None),
@@ -184,7 +184,7 @@ pub async fn _handshake<Io: 'static>(
                 ConnectAckReasonV5::ServerUnavailable,
                 format!("{:?}", e),
             )
-                .await);
+            .await);
         }
     };
 
@@ -205,7 +205,7 @@ pub async fn _handshake<Io: 'static>(
             ConnectAckReasonV5::ServerUnavailable,
             format!("{:?}", e),
         )
-            .await);
+        .await);
     }
 
     if let Some(o) = offline_info {
@@ -335,7 +335,7 @@ pub async fn control_message<E: std::fmt::Debug>(
         }
         v5::ControlMessage::ProtocolError(protocol_error) => {
             if let Err(e) =
-            state.send(Message::Closed(Reason::from(format!("{:?}", protocol_error.get_ref()))))
+                state.send(Message::Closed(Reason::from(format!("{:?}", protocol_error.get_ref()))))
             {
                 log::debug!("{:?} Closed error, reason: {:?}", state.id, e);
             }

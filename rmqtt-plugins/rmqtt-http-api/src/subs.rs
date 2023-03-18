@@ -1,4 +1,4 @@
-use rmqtt::{anyhow, futures, HashMap, tokio::sync::oneshot};
+use rmqtt::{anyhow, futures, tokio::sync::oneshot, HashMap};
 use rmqtt::{
     Id, Message as MqttMessage, MqttError, QoSEx, Result, Runtime, Subscribe, TopicFilter, Unsubscribe,
 };

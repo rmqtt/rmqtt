@@ -5,27 +5,27 @@ use once_cell::sync::OnceCell;
 use rmqtt_raft::{Error, Mailbox, Result as RaftResult, Store};
 use tokio::sync::RwLock;
 
+use rmqtt::rust_box::task_exec_queue::SpawnExt;
+use rmqtt::stats::Counter;
 use rmqtt::{
-    ahash, anyhow, async_trait::async_trait, bincode, chrono, dashmap, log, MqttError, once_cell, serde_json,
-    tokio,
+    ahash, anyhow, async_trait::async_trait, bincode, chrono, dashmap, log, once_cell, serde_json, tokio,
+    MqttError,
 };
 use rmqtt::{
     broker::{
         default::DefaultRouter,
-        Router,
-        SubRelationsMap,
-        topic::TopicTree, types::{
+        topic::TopicTree,
+        types::{
             ClientId, Id, IsOnline, NodeId, QoS, Route, SharedGroup, TimestampMillis, TopicFilter, TopicName,
         },
+        Router, SubRelationsMap,
     },
     Result,
 };
-use rmqtt::rust_box::task_exec_queue::SpawnExt;
-use rmqtt::stats::Counter;
 
 use crate::task_exec_queue;
 
-use super::config::{BACKOFF_STRATEGY, retry};
+use super::config::{retry, BACKOFF_STRATEGY};
 use super::message::{Message, MessageReply};
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
@@ -47,7 +47,7 @@ impl ClientStatus {
     pub fn handshaking(&self, try_lock_timeout: Duration) -> bool {
         self.handshaking
             && (chrono::Local::now().timestamp_millis()
-            < (self.handshak_duration + try_lock_timeout.as_millis() as TimestampMillis))
+                < (self.handshak_duration + try_lock_timeout.as_millis() as TimestampMillis))
     }
 }
 
@@ -161,7 +161,7 @@ impl Router for &'static ClusterRouter {
                     .map_err(|e| MqttError::from(e.to_string()))?;
                 Ok(res)
             })
-                .await
+            .await
             {
                 log::warn!("[Router.remove] Failed to send Message::Remove, id: {:?}, {:?}", id, e);
             }
@@ -381,7 +381,7 @@ impl Store for &'static ClusterRouter {
             topics_count,
             relations_count,
         ))
-            .map_err(|e| Error::Other(e))?;
+        .map_err(|e| Error::Other(e))?;
         log::info!("create snapshot, len: {}", snapshot.len());
         Ok(snapshot)
     }

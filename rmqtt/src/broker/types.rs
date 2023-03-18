@@ -1,3 +1,10 @@
+use std::convert::From as _f;
+use std::fmt;
+use std::net::SocketAddr;
+use std::num::{NonZeroU16, NonZeroU32};
+use std::ops::Deref;
+use std::sync::Arc;
+
 use bytestring::ByteString;
 use ntex::util::Bytes;
 use ntex_mqtt::error::SendPacketError;
@@ -19,12 +26,6 @@ pub use ntex_mqtt::v5::{
 };
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, SerializeStruct, Serializer};
-use std::convert::From as _f;
-use std::fmt;
-use std::net::SocketAddr;
-use std::num::{NonZeroU16, NonZeroU32};
-use std::ops::Deref;
-use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
@@ -69,7 +70,7 @@ pub type SubscriptionValue = (QoS, Option<SharedGroup>);
 pub type HookSubscribeResult = Vec<Option<TopicFilter>>;
 pub type HookUnsubscribeResult = Vec<Option<TopicFilter>>;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ConnectInfo {
     V3(Id, ConnectV3),
     V5(Id, Box<ConnectV5>),
@@ -94,7 +95,7 @@ impl ConnectInfo {
 
     #[inline]
     pub fn to_json(&self) -> serde_json::Value {
-        let json = match self {
+        match self {
             ConnectInfo::V3(id, conn_info) => {
                 json!({
                     "node": id.node(),
@@ -129,8 +130,7 @@ impl ConnectInfo {
                     "max_packet_size": conn_info.max_packet_size,
                 })
             }
-        };
-        json
+        }
     }
 
     #[inline]
@@ -182,7 +182,7 @@ impl ConnectInfo {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Disconnect {
     V3,
     V5(DisconnectV5),
@@ -233,13 +233,13 @@ impl QoSEx for QoS {
 
 pub type SubscribeAclResult = SubscribeReturn;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PublishAclResult {
     Allow,
     Rejected(IsDisconnect),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AuthResult {
     Allow,
     ///User is not found
@@ -257,7 +257,7 @@ pub fn parse_topic_filter(
     //$share/abc/
     let topic = if shared_subscription_supported {
         let mut levels = topic_filter.splitn(3, '/').collect::<Vec<_>>();
-        let is_share = levels.get(0).map(|f| *f == "$share").unwrap_or(false);
+        let is_share = levels.first().map(|f| *f == "$share").unwrap_or(false);
         if is_share {
             if levels.len() < 3 {
                 return Err(err);
@@ -349,7 +349,7 @@ impl SubscribeReturn {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SubscribedV5 {
     /// Packet Identifier
     pub packet_id: NonZeroU16,
@@ -360,7 +360,7 @@ pub struct SubscribedV5 {
     pub topic_filter: (ByteString, SubscriptionOptions),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ConnectAckReason {
     V3(ConnectAckReasonV3),
     V5(ConnectAckReasonV5),
@@ -617,7 +617,7 @@ pub enum Packet {
     V5(PacketV5),
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Default)]
 pub struct PublishProperties {
     pub topic_alias: Option<NonZeroU16>,
     pub correlation_data: Option<Bytes>,

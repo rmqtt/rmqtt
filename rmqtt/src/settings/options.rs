@@ -1,10 +1,11 @@
 use structopt::StructOpt;
+
 use crate::NodeId;
+
 use super::NodeAddr;
 
 #[derive(StructOpt, Debug, Clone, Default)]
 pub struct Options {
-
     /// Config filename
     #[structopt(name = "config", short = "f", long)]
     pub cfg_name: Option<String>,
@@ -24,7 +25,6 @@ pub struct Options {
     ///Raft peer address list, --raft-peer-addrs "1@127.0.0.1:6003" "2@127.0.0.1:6004" "3@127.0.0.1:6005"
     #[structopt(name = "raft-peer-addrs", long)]
     pub raft_peer_addrs: Option<Vec<NodeAddr>>,
-
     // ///Node cookie
     // #[structopt(name = "cookie", long)]
     // pub node_cookie: Option<String>,
@@ -49,4 +49,3 @@ pub struct Options {
     // #[structopt(name = "rpc-batch-size", long)]
     // pub rpc_batch_size: Option<usize>,
 }
-

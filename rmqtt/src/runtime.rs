@@ -1,5 +1,6 @@
 use once_cell::sync::OnceCell;
 
+use crate::logger::{config_logger, Logger};
 use crate::{
     broker::{metrics::Metrics, stats::Stats},
     extend,
@@ -7,7 +8,6 @@ use crate::{
     plugin,
     settings::Settings,
 };
-use crate::logger::{config_logger, Logger};
 
 pub struct Runtime {
     pub logger: Logger,
@@ -26,11 +26,7 @@ impl Runtime {
         INSTANCE.get_or_init(|| {
             let settings = Settings::instance();
             Self {
-                logger: config_logger(
-                    settings.log.filename(),
-                    settings.log.to.clone(),
-                    settings.log.level.clone(),
-                ),
+                logger: config_logger(settings.log.filename(), settings.log.to, settings.log.level),
                 settings: settings.clone(),
                 extends: extend::Manager::new(),
                 plugins: plugin::Manager::new(),

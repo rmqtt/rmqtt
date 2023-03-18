@@ -1,5 +1,5 @@
 use quote::quote;
-use syn::{Data, DeriveInput, Fields, FieldsNamed, Ident, parse_macro_input};
+use syn::{parse_macro_input, Data, DeriveInput, Fields, FieldsNamed, Ident};
 
 use super::proc_macro;
 

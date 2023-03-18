@@ -64,7 +64,7 @@ pub trait Plugin: Send + Sync {
     }
 }
 
-type BoxFuture<T> = Pin<Box<dyn Future<Output=T> + Send>>;
+type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 // type LocalBoxFuture<T> = Pin<Box<dyn Future<Output = T>>>;
 
 pub trait PluginFn: 'static + Sync + Send + Fn() -> BoxFuture<Result<DynPlugin>> {}

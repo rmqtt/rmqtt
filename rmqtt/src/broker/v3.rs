@@ -4,11 +4,11 @@ use std::net::SocketAddr;
 use ntex_mqtt::v3::{self};
 use rust_box::task_exec_queue::LocalSpawnExt;
 
-use crate::{ClientInfo, MqttError, Result, Session, SessionState};
-use crate::broker::{inflight::MomentStatus, types::*};
 use crate::broker::executor::get_handshake_exec_queue;
+use crate::broker::{inflight::MomentStatus, types::*};
 use crate::runtime::Runtime;
 use crate::settings::listener::Listener;
+use crate::{ClientInfo, MqttError, Result, Session, SessionState};
 
 #[inline]
 async fn refused_ack<Io>(
@@ -101,7 +101,7 @@ async fn _handshake<Io: 'static>(
             ConnectAckReasonV3::IdentifierRejected,
             "client_id is too long".into(),
         )
-            .await);
+        .await);
     }
 
     //hook, client authenticate
@@ -130,7 +130,7 @@ async fn _handshake<Io: 'static>(
                 ConnectAckReasonV3::ServiceUnavailable,
                 format!("{:?}", e),
             )
-                .await);
+            .await);
         }
         Ok(entry) => entry,
     };
@@ -144,7 +144,7 @@ async fn _handshake<Io: 'static>(
                 ConnectAckReasonV3::ServiceUnavailable,
                 format!("{:?}", e),
             )
-                .await);
+            .await);
         }
         Ok(Some(offline_info)) => (!packet.clean_session, Some(offline_info)),
         Ok(None) => (false, None),
@@ -176,7 +176,7 @@ async fn _handshake<Io: 'static>(
                 ConnectAckReasonV3::ServiceUnavailable,
                 format!("{:?}", e),
             )
-                .await);
+            .await);
         }
     };
 
@@ -196,7 +196,7 @@ async fn _handshake<Io: 'static>(
             ConnectAckReasonV3::ServiceUnavailable,
             format!("{:?}", e),
         )
-            .await);
+        .await);
     }
 
     if let Some(o) = offline_info {

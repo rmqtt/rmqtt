@@ -448,7 +448,7 @@ impl Shared for &'static ClusterShared {
 
     #[inline]
     fn node_name(&self, id: NodeId) -> String {
-        self.node_names.get(&id).map(|n| n.clone()).unwrap_or_default()
+        self.node_names.get(&id).cloned().unwrap_or_default()
     }
 
     #[inline]

@@ -1,4 +1,5 @@
 #![deny(unsafe_code)]
+
 use rmqtt::broker::hook::Priority;
 use rmqtt::{async_trait::async_trait, log};
 use rmqtt::{

@@ -4,8 +4,8 @@ use rmqtt::{async_trait::async_trait, log, once_cell};
 use rmqtt::{
     broker::{
         default::DefaultRetainStorage,
-        RetainStorage,
         types::{Retain, TopicFilter, TopicName},
+        RetainStorage,
     },
     grpc::{GrpcClients, Message, MessageBroadcaster, MessageReply, MessageType},
     Result,
@@ -50,8 +50,8 @@ impl RetainStorage for &'static ClusterRetainer {
             self.message_type,
             Message::GetRetains(topic_filter.clone()),
         )
-            .join_all()
-            .await;
+        .join_all()
+        .await;
 
         for (_, reply) in replys {
             match reply {

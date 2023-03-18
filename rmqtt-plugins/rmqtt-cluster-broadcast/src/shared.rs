@@ -2,21 +2,21 @@ use std::convert::From as _f;
 
 use once_cell::sync::OnceCell;
 
+use rmqtt::grpc::MessageSender;
 use rmqtt::{ahash, async_trait::async_trait, futures, log, once_cell, tokio};
 use rmqtt::{
     broker::{
         default::DefaultShared,
-        Entry,
         session::{ClientInfo, Session, SessionOfflineInfo},
-        Shared, SubRelations, SubRelationsMap, types::{
+        types::{
             ClientId, From, Id, IsAdmin, IsOnline, NodeId, Publish, QoS, Reason, SessionStatus, SharedGroup,
-            Subscribe, SubscribeReturn, SubsSearchParams, SubsSearchResult, To, TopicFilter, Tx, Unsubscribe,
+            SubsSearchParams, SubsSearchResult, Subscribe, SubscribeReturn, To, TopicFilter, Tx, Unsubscribe,
         },
+        Entry, Shared, SubRelations, SubRelationsMap,
     },
     grpc::{GrpcClients, Message, MessageBroadcaster, MessageReply, MessageType},
     MqttError, Result, Runtime,
 };
-use rmqtt::grpc::MessageSender;
 
 use super::{hook_message_dropped, kick};
 
@@ -88,7 +88,7 @@ impl Entry for ClusterLockEntry {
             self.cluster_shared.message_type,
             Message::Kick(self.id(), true, is_admin),
         )
-            .await
+        .await
         {
             Ok(kicked) => {
                 log::debug!("{:?} broadcast kick reply kicked: {:?}", self.id(), kicked);
@@ -119,15 +119,15 @@ impl Entry for ClusterLockEntry {
             self.cluster_shared.message_type,
             Message::Online(self.id().client_id.clone()),
         )
-            .select_ok(|reply: MessageReply| -> Result<bool> {
-                if let MessageReply::Online(true) = reply {
-                    Ok(true)
-                } else {
-                    Err(MqttError::None)
-                }
-            })
-            .await
-            .unwrap_or(false)
+        .select_ok(|reply: MessageReply| -> Result<bool> {
+            if let MessageReply::Online(true) = reply {
+                Ok(true)
+            } else {
+                Err(MqttError::None)
+            }
+        })
+        .await
+        .unwrap_or(false)
     }
 
     #[inline]
@@ -175,15 +175,15 @@ impl Entry for ClusterLockEntry {
             self.cluster_shared.message_type,
             Message::SubscriptionsGet(self.id().client_id.clone()),
         )
-            .select_ok(|reply: MessageReply| -> Result<Option<Vec<SubsSearchResult>>> {
-                if let MessageReply::SubscriptionsGet(Some(subs)) = reply {
-                    Ok(Some(subs))
-                } else {
-                    Err(MqttError::None)
-                }
-            })
-            .await
-            .unwrap_or(None)
+        .select_ok(|reply: MessageReply| -> Result<Option<Vec<SubsSearchResult>>> {
+            if let MessageReply::SubscriptionsGet(Some(subs)) = reply {
+                Ok(Some(subs))
+            } else {
+                Err(MqttError::None)
+            }
+        })
+        .await
+        .unwrap_or(None)
     }
 }
 
@@ -268,8 +268,8 @@ impl Shared for &'static ClusterShared {
                 message_type,
                 Message::Forwards(from.clone(), publish.clone()),
             )
-                .join_all()
-                .await;
+            .join_all()
+            .await;
 
             type SharedSubGroups = HashMap<
                 TopicFilter, //key is TopicFilter
@@ -278,7 +278,7 @@ impl Shared for &'static ClusterShared {
             type SharedRelation = (TopicFilter, NodeId, ClientId, QoS, (SharedGroup, IsOnline));
 
             #[allow(clippy::mutable_key_type)]
-                let mut shared_sub_groups: SharedSubGroups = HashMap::default();
+            let mut shared_sub_groups: SharedSubGroups = HashMap::default();
 
             let add_one_to_shared_sub_groups =
                 |shared_groups: &mut SharedSubGroups, shared_rel: SharedRelation| {
@@ -333,7 +333,7 @@ impl Shared for &'static ClusterShared {
             for (topic_filter, sub_groups) in shared_sub_groups.iter_mut() {
                 for (_group, subs) in sub_groups.iter_mut() {
                     if let Some((idx, _is_online)) =
-                    Runtime::instance().extends.shared_subscription().await.choice(subs).await
+                        Runtime::instance().extends.shared_subscription().await.choice(subs).await
                     {
                         let (node_id, client_id, qos, _is_online) = subs.remove(idx);
                         node_shared_subs.entry(node_id).or_default().push((
@@ -400,7 +400,7 @@ impl Shared for &'static ClusterShared {
     }
 
     #[inline]
-    fn iter(&self) -> Box<dyn Iterator<Item=Box<dyn Entry>> + Sync + Send> {
+    fn iter(&self) -> Box<dyn Iterator<Item = Box<dyn Entry>> + Sync + Send> {
         self.inner.iter()
     }
 
@@ -419,15 +419,15 @@ impl Shared for &'static ClusterShared {
             self.message_type,
             Message::SessionStatus(ClientId::from(client_id)),
         )
-            .select_ok(|reply: MessageReply| -> Result<SessionStatus> {
-                if let MessageReply::SessionStatus(Some(status)) = reply {
-                    Ok(status)
-                } else {
-                    Err(MqttError::None)
-                }
-            })
-            .await
-            .ok()
+        .select_ok(|reply: MessageReply| -> Result<SessionStatus> {
+            if let MessageReply::SessionStatus(Some(status)) = reply {
+                Ok(status)
+            } else {
+                Err(MqttError::None)
+            }
+        })
+        .await
+        .ok()
     }
 
     #[inline]

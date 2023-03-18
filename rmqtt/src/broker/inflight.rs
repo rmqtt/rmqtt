@@ -1,7 +1,8 @@
-use rust_box::dequemap::DequeMap;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+
+use rust_box::dequemap::DequeMap;
 
 use crate::broker::types::{
     From, Packet, PacketId, PacketV3, PacketV5, Publish, PublishAck2, PublishAck2Reason, TimestampMillis,

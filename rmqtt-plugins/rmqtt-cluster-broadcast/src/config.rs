@@ -1,7 +1,7 @@
 use rmqtt::grpc::MessageType;
-use rmqtt::Result;
 use rmqtt::serde_json;
 use rmqtt::settings::NodeAddr;
+use rmqtt::Result;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
@@ -21,4 +21,3 @@ impl PluginConfig {
         Ok(serde_json::to_value(self)?)
     }
 }
-

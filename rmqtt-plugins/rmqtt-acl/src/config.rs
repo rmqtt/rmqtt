@@ -5,13 +5,13 @@ use std::sync::Arc;
 use serde::de::{self, Deserialize, Deserializer};
 use serde::ser::{self, Serialize};
 
+use rmqtt::broker::topic::TopicTree;
 use rmqtt::{
     ahash, dashmap,
     serde_json::{self, Value},
     tokio::sync::RwLock,
 };
 use rmqtt::{ClientId, ConnectInfo, MqttError, Result, Topic, UserName};
-use rmqtt::broker::topic::TopicTree;
 
 type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
 
@@ -21,9 +21,9 @@ pub const PH_U: &str = "%u";
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
     #[serde(
-    default,
-    serialize_with = "PluginConfig::serialize_rules",
-    deserialize_with = "PluginConfig::deserialize_rules"
+        default,
+        serialize_with = "PluginConfig::serialize_rules",
+        deserialize_with = "PluginConfig::deserialize_rules"
     )]
     rules: (Vec<Rule>, serde_json::Value),
 }
@@ -40,8 +40,8 @@ impl PluginConfig {
         rules: &(Vec<Rule>, serde_json::Value),
         s: S,
     ) -> std::result::Result<S::Ok, S::Error>
-        where
-            S: ser::Serializer,
+    where
+        S: ser::Serializer,
     {
         let (_, rules) = rules;
         rules.serialize(s)
@@ -51,8 +51,8 @@ impl PluginConfig {
     pub fn deserialize_rules<'de, D>(
         deserializer: D,
     ) -> std::result::Result<(Vec<Rule>, serde_json::Value), D::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         let json_rules = serde_json::Value::deserialize(deserializer)?;
         let mut rules = Vec::new();

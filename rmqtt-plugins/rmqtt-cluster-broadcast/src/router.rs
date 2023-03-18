@@ -1,17 +1,17 @@
 use itertools::Itertools;
 use once_cell::sync::OnceCell;
 
+use rmqtt::stats::Counter;
 use rmqtt::{async_trait::async_trait, itertools, log, once_cell, serde_json};
 use rmqtt::{
     broker::{
         default::DefaultRouter,
-        Router,
-        SubRelationsMap, types::{Id, NodeId, QoS, Route, SharedGroup, TopicName},
+        types::{Id, NodeId, QoS, Route, SharedGroup, TopicName},
+        Router, SubRelationsMap,
     },
     grpc::{GrpcClients, Message, MessageBroadcaster, MessageReply, MessageSender, MessageType},
     HashMap, Result, TopicFilter,
 };
-use rmqtt::stats::Counter;
 
 pub(crate) struct ClusterRouter {
     inner: &'static DefaultRouter,
@@ -70,8 +70,8 @@ impl Router for &'static ClusterRouter {
                     self.message_type,
                     Message::RoutesGet(limit - routes.len()),
                 )
-                    .send()
-                    .await;
+                .send()
+                .await;
                 match reply {
                     Ok(MessageReply::RoutesGet(ress)) => {
                         routes.extend(ress);
@@ -97,15 +97,15 @@ impl Router for &'static ClusterRouter {
             self.message_type,
             Message::RoutesGetBy(TopicFilter::from(topic)),
         )
-            .join_all()
-            .await
-            .into_iter()
-            .map(|(_, replys)| match replys {
-                Ok(MessageReply::RoutesGetBy(routes)) => Ok(routes),
-                Ok(_) => unreachable!(),
-                Err(e) => Err(e),
-            })
-            .collect::<Result<Vec<_>>>()?;
+        .join_all()
+        .await
+        .into_iter()
+        .map(|(_, replys)| match replys {
+            Ok(MessageReply::RoutesGetBy(routes)) => Ok(routes),
+            Ok(_) => unreachable!(),
+            Err(e) => Err(e),
+        })
+        .collect::<Result<Vec<_>>>()?;
         replys.push(routes);
         Ok(replys.into_iter().flatten().unique().collect())
     }

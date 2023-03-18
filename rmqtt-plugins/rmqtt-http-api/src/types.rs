@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use rmqtt::chrono::LocalResult;
 use rmqtt::node::{BrokerInfo, NodeInfo, NodeStatus};
 use rmqtt::plugin::PluginInfo;
@@ -6,7 +8,6 @@ use rmqtt::Result;
 use rmqtt::{anyhow, bincode, chrono, serde_json, HashMap, MqttError, QoS, Reason};
 use rmqtt::{metrics::Metrics, stats::Stats};
 use rmqtt::{ClientId, NodeId, Timestamp, TopicFilter, TopicName, UserName};
-use std::time::Duration;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Message<'a> {

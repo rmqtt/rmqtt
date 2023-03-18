@@ -4,8 +4,8 @@ use std::sync::atomic::{AtomicIsize, Ordering};
 use ntex_mqtt::handshakings;
 use once_cell::sync::OnceCell;
 
-use crate::{HashMap, NodeId, Runtime};
 use crate::broker::executor::{get_active_count, get_rate};
+use crate::{HashMap, NodeId, Runtime};
 
 type Current = AtomicIsize;
 type Max = AtomicIsize;
@@ -177,9 +177,9 @@ impl Stats {
         self.sessions.current_set(shared.sessions_count() as isize);
 
         #[cfg(feature = "debug")]
-            let mut debug_clinet_states_map = HashMap::default();
+        let mut debug_clinet_states_map = HashMap::default();
         #[cfg(feature = "debug")]
-            let mut debug_topics_tree_map = HashMap::default();
+        let mut debug_topics_tree_map = HashMap::default();
         #[cfg(feature = "debug")]
         {
             debug_clinet_states_map.insert(node_id, shared.clinet_states_count().await);

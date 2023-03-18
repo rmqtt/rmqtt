@@ -43,6 +43,7 @@
 #### 使用 Docker 运行 RMQTT
 
 * 单节点
+
 ```bash
 docker run -d --name rmqtt -p 1883:1883 -p 8883:8883 -p 11883:11883 -p 6060:6060 -v /app/log/rmqtt:/var/log/rmqtt  rmqtt/rmqtt:latest
 ```
@@ -56,6 +57,7 @@ docker run -d --name rmqtt -p 1883:1883 -p 8883:8883 -p 11883:11883 -p 6060:6060
 
   docker run -d --name rmqtt3 -p 1886:1883 -p 8886:8883 -p 11886:11883 -p 6066:6060 -v /app/log/rmqtt/3:/var/log/rmqtt  rmqtt/rmqtt:latest --id 3 --plugins-default-startups "rmqtt-cluster-raft" --node-grpc-addrs "1@172.17.0.3:5363" "2@172.17.0.4:5363" "3@172.17.0.5:5363" --raft-peer-addrs "1@172.17.0.3:6003" "2@172.17.0.4:6003" "3@172.17.0.5:6003"
 ```
+
 节点IDs: 1, 2, 3; 节点IP Addrs: 172.17.0.3, 172.17.0.4, 172.17.0.5
 
 #### 通过 docker-compose 创建静态集群
@@ -63,15 +65,16 @@ docker run -d --name rmqtt -p 1883:1883 -p 8883:8883 -p 11883:11883 -p 6060:6060
 1. [下载配置模板](./examples/docker-compose.zip)
 
 2. 启动 docker-compose 集群
+
 ```bash
 docker-compose up -d
 ```
 
 3. 查看集群
+
 ```bash
 curl "http://127.0.0.1:6066/api/v1/brokers"
 ```
-
 
 #### ZIP 压缩包安装 (Linux、MacOS、Windows)
 

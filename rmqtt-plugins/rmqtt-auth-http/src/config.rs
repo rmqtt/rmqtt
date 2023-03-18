@@ -1,15 +1,15 @@
 use std::str::FromStr;
 use std::time::Duration;
 
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE};
 use reqwest::{Method, Url};
-use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue};
 use serde::de::{self, Deserialize, Deserializer};
 use serde::ser::{self, Serialize};
 
-use rmqtt::{ahash, reqwest, serde_json};
 use rmqtt::broker::hook::Priority;
-use rmqtt::Result;
 use rmqtt::settings::deserialize_duration;
+use rmqtt::Result;
+use rmqtt::{ahash, reqwest, serde_json};
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
@@ -30,9 +30,9 @@ pub struct PluginConfig {
     #[serde(default = "PluginConfig::http_timeout_default", deserialize_with = "deserialize_duration")]
     pub http_timeout: Duration,
     #[serde(
-    default,
-    serialize_with = "PluginConfig::serialize_http_headers",
-    deserialize_with = "PluginConfig::deserialize_http_headers"
+        default,
+        serialize_with = "PluginConfig::serialize_http_headers",
+        deserialize_with = "PluginConfig::deserialize_http_headers"
     )]
     pub http_headers: (HeaderMap, HashMap<String, String>),
     #[serde(default)]
@@ -56,7 +56,9 @@ impl PluginConfig {
     fn break_if_allow_default() -> bool {
         true
     }
-    fn disconnect_if_pub_rejected_default() -> bool { true }
+    fn disconnect_if_pub_rejected_default() -> bool {
+        true
+    }
     fn priority_default() -> Priority {
         100
     }
@@ -69,8 +71,8 @@ impl PluginConfig {
         headers: &(HeaderMap, HashMap<String, String>),
         s: S,
     ) -> std::result::Result<S::Ok, S::Error>
-        where
-            S: ser::Serializer,
+    where
+        S: ser::Serializer,
     {
         let (_, headers) = headers;
         headers.serialize(s)
@@ -80,8 +82,8 @@ impl PluginConfig {
     pub fn deserialize_http_headers<'de, D>(
         deserializer: D,
     ) -> std::result::Result<(HeaderMap, HashMap<String, String>), D::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         let hs: HashMap<String, String> = HashMap::deserialize(deserializer)?;
         let mut headers = HeaderMap::new();
@@ -138,9 +140,9 @@ pub struct Req {
     #[serde(serialize_with = "Req::serialize_method", deserialize_with = "Req::deserialize_method")]
     pub method: Method,
     #[serde(
-    default,
-    serialize_with = "Req::serialize_headers",
-    deserialize_with = "Req::deserialize_headers"
+        default,
+        serialize_with = "Req::serialize_headers",
+        deserialize_with = "Req::deserialize_headers"
     )]
     pub headers: Headers,
     pub params: HashMap<String, String>,
@@ -166,16 +168,16 @@ impl Req {
 
     #[inline]
     fn serialize_url<S>(url: &Url, s: S) -> std::result::Result<S::Ok, S::Error>
-        where
-            S: ser::Serializer,
+    where
+        S: ser::Serializer,
     {
         url.to_string().serialize(s)
     }
 
     #[inline]
     pub fn deserialize_url<'de, D>(deserializer: D) -> std::result::Result<Url, D::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         let v = String::deserialize(deserializer)?;
         Url::from_str(&v).map_err(de::Error::custom)
@@ -183,16 +185,16 @@ impl Req {
 
     #[inline]
     fn serialize_method<S>(method: &Method, s: S) -> std::result::Result<S::Ok, S::Error>
-        where
-            S: ser::Serializer,
+    where
+        S: ser::Serializer,
     {
         method.to_string().serialize(s)
     }
 
     #[inline]
     pub fn deserialize_method<'de, D>(deserializer: D) -> std::result::Result<Method, D::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         let v = String::deserialize(deserializer)?.to_uppercase();
         Method::from_str(&v).map_err(de::Error::custom)
@@ -200,8 +202,8 @@ impl Req {
 
     #[inline]
     fn serialize_headers<S>(headers: &Headers, s: S) -> std::result::Result<S::Ok, S::Error>
-        where
-            S: ser::Serializer,
+    where
+        S: ser::Serializer,
     {
         let (_, _, headers) = headers;
         headers.serialize(s)
@@ -209,8 +211,8 @@ impl Req {
 
     #[inline]
     pub fn deserialize_headers<'de, D>(deserializer: D) -> std::result::Result<Headers, D::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         let hs: HashMap<String, String> = HashMap::deserialize(deserializer)?;
         let mut headers = HeaderMap::new();

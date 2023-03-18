@@ -1,8 +1,10 @@
-use super::Mailbox;
+use rmqtt_raft::Status;
+
 use rmqtt::broker::types::{Id, NodeId, QoS, SharedGroup};
 use rmqtt::Result;
 use rmqtt::{anyhow, bincode};
-use rmqtt_raft::Status;
+
+use super::Mailbox;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Message<'a> {

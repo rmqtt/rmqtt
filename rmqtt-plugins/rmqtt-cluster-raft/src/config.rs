@@ -1,16 +1,16 @@
 use std::time::Duration;
 
-pub(crate) use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
 pub(crate) use backoff::future::retry;
+pub(crate) use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
 use rmqtt_raft::ReadOnlyOption;
 use serde::de::{self, Deserialize, Deserializer};
 use serde::ser::Serializer;
 use serde::Serialize;
 
-use rmqtt::{lazy_static, serde_json};
 use rmqtt::grpc::MessageType;
+use rmqtt::settings::{deserialize_duration, deserialize_duration_option, NodeAddr, Options};
 use rmqtt::Result;
-use rmqtt::settings::{NodeAddr, deserialize_duration, deserialize_duration_option, Options};
+use rmqtt::{lazy_static, serde_json};
 
 lazy_static::lazy_static! {
     pub static ref BACKOFF_STRATEGY: ExponentialBackoff = ExponentialBackoffBuilder::new()
@@ -134,9 +134,9 @@ pub struct RaftConfig {
     ///
     /// Setting this to `LeaseBased` requires `check_quorum = true`.
     #[serde(
-    default = "RaftConfig::read_only_option_default",
-    serialize_with = "RaftConfig::serialize_read_only_option",
-    deserialize_with = "RaftConfig::deserialize_read_only_option"
+        default = "RaftConfig::read_only_option_default",
+        serialize_with = "RaftConfig::serialize_read_only_option",
+        deserialize_with = "RaftConfig::deserialize_read_only_option"
     )]
     pub read_only_option: ReadOnlyOption,
 
@@ -237,8 +237,8 @@ impl RaftConfig {
     }
 
     pub fn deserialize_read_only_option<'de, D>(deserializer: D) -> Result<ReadOnlyOption, D::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         let v = String::deserialize(deserializer)?.to_lowercase();
         match v.as_str() {
@@ -250,8 +250,8 @@ impl RaftConfig {
 
     #[inline]
     pub fn serialize_read_only_option<S>(rop: &ReadOnlyOption, s: S) -> std::result::Result<S::Ok, S::Error>
-        where
-            S: Serializer,
+    where
+        S: Serializer,
     {
         let rop_str = match rop {
             ReadOnlyOption::Safe => "safe",

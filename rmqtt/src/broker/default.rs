@@ -4,19 +4,18 @@ use std::iter::Iterator;
 use std::num::NonZeroU16;
 use std::num::NonZeroU32;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 use itertools::Itertools;
 use ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 use once_cell::sync::OnceCell;
-use tokio::sync::{self, Mutex, OwnedMutexGuard};
 use tokio::sync::oneshot;
 use tokio::sync::RwLock;
+use tokio::sync::{self, Mutex, OwnedMutexGuard};
 use tokio::time::Duration;
 use uuid::Uuid;
 
-use crate::{ClientId, grpc, Id, MqttError, NodeId, QoS, Result, Runtime, TopicFilter};
 use crate::broker::fitter::{Fitter, FitterManager};
 use crate::broker::hook::{Handler, Hook, HookManager, HookResult, Parameter, Priority, Register, Type};
 use crate::broker::session::{ClientInfo, Session, SessionOfflineInfo};
@@ -24,10 +23,11 @@ use crate::broker::topic::{Topic, VecToTopic};
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
 use crate::stats::Counter;
+use crate::{grpc, ClientId, Id, MqttError, NodeId, QoS, Result, Runtime, TopicFilter};
 
 use super::{
-    Entry, IsOnline, retain::RetainTree, RetainStorage, Router, Shared, SharedSubscription, SubRelations,
-    SubRelationsMap, topic::TopicTree,
+    retain::RetainTree, topic::TopicTree, Entry, IsOnline, RetainStorage, Router, Shared, SharedSubscription,
+    SubRelations, SubRelationsMap,
 };
 
 type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
@@ -72,7 +72,7 @@ impl LockEntry {
         with_id: &Id,
     ) -> Option<(Session, Tx, ClientInfo)> {
         if let Some((_, peer)) =
-        { self.shared.peers.remove_if(&self.id.client_id, |_, entry| &entry.c.id == with_id) }
+            { self.shared.peers.remove_if(&self.id.client_id, |_, entry| &entry.c.id == with_id) }
         {
             if clear_subscriptions {
                 for topic_filter in peer.s.subscriptions.to_topic_filters() {
@@ -275,7 +275,7 @@ impl super::Entry for LockEntry {
             .ok_or_else(|| MqttError::from("session is not exist"))?;
 
         if let Err(e) =
-        Runtime::instance().extends.router().await.remove(&unsubscribe.topic_filter, self.id()).await
+            Runtime::instance().extends.router().await.remove(&unsubscribe.topic_filter, self.id()).await
         {
             log::warn!("{:?} unsubscribe, error:{:?}", self.id, e);
         }
@@ -480,7 +480,7 @@ impl Shared for &'static DefaultShared {
     }
 
     #[inline]
-    fn iter(&self) -> Box<dyn Iterator<Item=Box<dyn Entry>> + Sync + Send> {
+    fn iter(&self) -> Box<dyn Iterator<Item = Box<dyn Entry>> + Sync + Send> {
         Box::new(DefaultIter { shared: self, ptr: self.peers.iter() })
     }
 
@@ -618,7 +618,7 @@ impl DefaultRouter {
             for (group, mut s_subs) in groups.drain() {
                 log::debug!("group: {}, s_subs: {:?}", group, s_subs);
                 if let Some((idx, is_online)) =
-                Runtime::instance().extends.shared_subscription().await.choice(&s_subs).await
+                    Runtime::instance().extends.shared_subscription().await.choice(&s_subs).await
                 {
                     let (node_id, client_id, qos, _) = s_subs.remove(idx);
                     subs.entry(node_id).or_default().push((

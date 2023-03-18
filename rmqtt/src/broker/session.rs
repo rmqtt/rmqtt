@@ -134,7 +134,7 @@ impl SessionState {
                                 Message::Kick(sender, by_id, is_admin) => {
                                     log::debug!("{:?} Message::Kick, send kick result, to {:?}, is_admin: {}", id, by_id, is_admin);
                                     if !sender.is_closed() {
-                                        if let Err(_) = sender.send(()) {
+                                        if sender.send(()).is_err() {
                                             log::warn!("{:?} Message::Kick, send response error, sender is closed", id);
                                         }
                                         _kicked = true;

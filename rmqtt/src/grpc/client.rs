@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::mpsc::{
@@ -11,8 +11,8 @@ use tonic::transport::{Channel, Endpoint};
 
 use crate::{MqttError, Result, Runtime};
 
-use super::{Message, MessageReply, MessageType};
 use super::pb::{self, node_service_client::NodeServiceClient};
+use super::{Message, MessageReply, MessageType};
 
 type NodeServiceClientType = NodeServiceClient<Channel>;
 
@@ -26,7 +26,6 @@ pub struct NodeGrpcClient {
 }
 
 impl NodeGrpcClient {
-
     //server_addr - ip:port, 127.0.0.1:6666
     #[inline]
     pub async fn new(server_addr: &str) -> Result<Self> {
