@@ -152,4 +152,12 @@ listener.tls.external.addr = "0.0.0.0:8883"
 listener.tls.external.cert = "./rmqtt-bin/rmqtt.pem"
 listener.tls.external.key = "./rmqtt-bin/rmqtt.key"
 
+##--------------------------------------------------------------------
+## MQTT/WebSocket - External WebSocket Listener for MQTT Protocol
+listener.ws.external.addr = "0.0.0.0:8080"
 
+##--------------------------------------------------------------------
+## MQTT/TLS-WebSocket - External TLS-WebSocket Listener for MQTT Protocol
+listener.wss.external.addr = "0.0.0.0:8443"
+listener.wss.external.cert = "./rmqtt-bin/rmqtt.pem"
+listener.wss.external.key = "./rmqtt-bin/rmqtt.key"

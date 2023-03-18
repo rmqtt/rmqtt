@@ -23,10 +23,12 @@ pub use ntex;
 pub use ntex_mqtt;
 pub use once_cell;
 pub use parking_lot::RwLock;
+pub use pin_project_lite;
 pub use reqwest;
 pub use rust_box;
 pub use structopt;
 pub use tokio;
+pub use tokio_tungstenite;
 
 pub use crate::broker::{
     error::MqttError,

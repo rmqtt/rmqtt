@@ -41,6 +41,8 @@ pub enum MqttError {
     AddrParseError(AddrParseError),
     #[error("{0}")]
     ParseIntError(ParseIntError),
+    #[error("listener config is error")]
+    ListenerConfigError,
     #[error("None")]
     None,
 }
@@ -140,6 +142,13 @@ impl From<Box<dyn std::error::Error>> for MqttError {
     #[inline]
     fn from(e: Box<dyn std::error::Error>) -> Self {
         MqttError::Msg(e.to_string())
+    }
+}
+
+impl From<tokio_tungstenite::tungstenite::Error> for MqttError {
+    #[inline]
+    fn from(e: tokio_tungstenite::tungstenite::Error) -> Self {
+        MqttError::Error(Box::new(e))
     }
 }
 

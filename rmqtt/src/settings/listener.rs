@@ -9,7 +9,7 @@ use serde::de::{self, Deserialize, Deserializer};
 
 use crate::broker::types::QoS;
 
-use super::{Bytesize, deserialize_addr, deserialize_duration, to_duration};
+use super::{deserialize_addr, deserialize_duration, to_duration, Bytesize};
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
@@ -25,10 +25,22 @@ pub struct Listeners {
     #[serde(default)]
     _tlss: HashMap<String, ListenerInner>,
 
+    #[serde(rename = "ws")]
+    #[serde(default)]
+    _wss: HashMap<String, ListenerInner>,
+
+    #[serde(rename = "wss")]
+    #[serde(default)]
+    _wsss: HashMap<String, ListenerInner>,
+
     #[serde(default, skip)]
     pub tcps: HashMap<Port, Listener>,
     #[serde(default, skip)]
     pub tlss: HashMap<Port, Listener>,
+    #[serde(default, skip)]
+    pub wss: HashMap<Port, Listener>,
+    #[serde(default, skip)]
+    pub wsss: HashMap<Port, Listener>,
 }
 
 impl Listeners {
@@ -43,6 +55,16 @@ impl Listeners {
             inner.name = name;
             self.tlss.insert(inner.addr.port(), Listener::new(inner));
         }
+
+        for (name, mut inner) in self._wss.drain() {
+            inner.name = name;
+            self.wss.insert(inner.addr.port(), Listener::new(inner));
+        }
+
+        for (name, mut inner) in self._wsss.drain() {
+            inner.name = name;
+            self.wsss.insert(inner.addr.port(), Listener::new(inner));
+        }
     }
 
     #[inline]
@@ -56,11 +78,30 @@ impl Listeners {
     }
 
     #[inline]
+    pub fn ws(&self, port: u16) -> Option<Listener> {
+        self.wss.get(&port).cloned()
+    }
+
+    #[inline]
+    pub fn wss(&self, port: u16) -> Option<Listener> {
+        self.wsss.get(&port).cloned()
+    }
+
+    #[inline]
     pub fn get(&self, port: u16) -> Option<Listener> {
-        if let Some(tcp) = self.tcp(port) {
-            return Some(tcp);
+        if let Some(l) = self.tcp(port) {
+            return Some(l);
         }
-        self.tls(port)
+        if let Some(l) = self.tls(port) {
+            return Some(l);
+        }
+        if let Some(l) = self.ws(port) {
+            return Some(l);
+        }
+        if let Some(l) = self.wss(port) {
+            return Some(l);
+        }
+        None
     }
 
     #[inline]
@@ -123,8 +164,8 @@ pub struct ListenerInner {
     #[serde(default = "ListenerInner::max_mqueue_len_default")]
     pub max_mqueue_len: usize,
     #[serde(
-    default = "ListenerInner::mqueue_rate_limit_default",
-    deserialize_with = "ListenerInner::deserialize_mqueue_rate_limit"
+        default = "ListenerInner::mqueue_rate_limit_default",
+        deserialize_with = "ListenerInner::deserialize_mqueue_rate_limit"
     )]
     pub mqueue_rate_limit: (NonZeroU32, Duration),
 
@@ -132,8 +173,8 @@ pub struct ListenerInner {
     pub max_clientid_len: usize,
 
     #[serde(
-    default = "ListenerInner::max_qos_allowed_default",
-    deserialize_with = "ListenerInner::deserialize_max_qos_allowed"
+        default = "ListenerInner::max_qos_allowed_default",
+        deserialize_with = "ListenerInner::deserialize_max_qos_allowed"
     )]
     pub max_qos_allowed: QoS,
 
@@ -143,20 +184,20 @@ pub struct ListenerInner {
     #[serde(default = "ListenerInner::retain_available_default")]
     pub retain_available: bool,
     #[serde(
-    default = "ListenerInner::session_expiry_interval_default",
-    deserialize_with = "deserialize_duration"
+        default = "ListenerInner::session_expiry_interval_default",
+        deserialize_with = "deserialize_duration"
     )]
     pub session_expiry_interval: Duration,
 
     #[serde(
-    default = "ListenerInner::message_retry_interval_default",
-    deserialize_with = "deserialize_duration"
+        default = "ListenerInner::message_retry_interval_default",
+        deserialize_with = "deserialize_duration"
     )]
     pub message_retry_interval: Duration,
 
     #[serde(
-    default = "ListenerInner::message_expiry_interval_default",
-    deserialize_with = "deserialize_duration"
+        default = "ListenerInner::message_expiry_interval_default",
+        deserialize_with = "deserialize_duration"
     )]
     pub message_expiry_interval: Duration,
 
@@ -325,8 +366,8 @@ impl ListenerInner {
 
     #[inline]
     fn deserialize_mqueue_rate_limit<'de, D>(deserializer: D) -> Result<(NonZeroU32, Duration), D::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         let v = String::deserialize(deserializer)?;
         let pair: Vec<&str> = v.split(',').collect();
@@ -347,8 +388,8 @@ impl ListenerInner {
     }
     #[inline]
     fn deserialize_max_qos_allowed<'de, D>(deserializer: D) -> Result<QoS, D::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         let qos = match u8::deserialize(deserializer)? {
             0 => QoS::AtMostOnce,
