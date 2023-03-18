@@ -24,6 +24,8 @@
 - 分布式集群;
 - 钩子(Hooks);
 - TLS支持;
+- WebSocket支持;
+- WebSocket-TLS支持;
 - 共享订阅($share/{group}/topic);
 - 内置可扩展功能;
 - 支持扩展插件;

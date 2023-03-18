@@ -25,6 +25,8 @@ and mobile applications that can handle millions of concurrent clients on a sing
 - Distributed cluster;
 - Hooks;
 - TLS support;
+- WebSocket support;
+- WebSocket-TLS support;
 - Shared subscription($share/{group}/topic);
 - Built-in extensible components;
 - Extensible plug-in support;
