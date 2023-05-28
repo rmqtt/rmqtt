@@ -17,7 +17,7 @@
     - 离线消息支持;
     - Retained 消息支持;
     - Last Will 消息支持;
-- 内置 ACL;
+- [内置 ACL](./docs/zh_CN/acl.md);
 - HTTP ACL;
 - WebHook;
 - [HTTP APIs](./docs/zh_CN/http-api.md);

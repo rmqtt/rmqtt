@@ -18,7 +18,7 @@ and mobile applications that can handle millions of concurrent clients on a sing
     - Offline message support;
     - Retained message support;
     - Last Will message support;
-- Built-in ACL;
+- [Built-in ACL](./docs/en_US/acl.md);
 - HTTP ACL;
 - WebHook;
 - [HTTP APIs](./docs/en_US/http-api.md);
