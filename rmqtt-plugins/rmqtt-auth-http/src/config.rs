@@ -15,10 +15,6 @@ type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
-    ///Stop the hook chain after successful authentication, including auth, pub-acl and sub-acl
-    //    #[serde(default = "PluginConfig::break_if_allow_default")]
-    //    pub break_if_allow: bool,
-
     ///Disconnect if publishing is rejected
     #[serde(default = "PluginConfig::disconnect_if_pub_rejected_default")]
     pub disconnect_if_pub_rejected: bool,
@@ -53,9 +49,6 @@ impl PluginConfig {
         }
     }
 
-    //    fn break_if_allow_default() -> bool {
-    //        true
-    //    }
     fn disconnect_if_pub_rejected_default() -> bool {
         true
     }
