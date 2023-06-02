@@ -13,11 +13,12 @@ use tokio::sync::RwLock;
 
 use config::PluginConfig;
 use rmqtt::ntex::util::ByteString;
-use rmqtt::{ahash, async_trait, dashmap, lazy_static, log, reqwest, serde_json, tokio};
+use rmqtt::reqwest::Response;
+use rmqtt::{ahash, async_trait, lazy_static, log, reqwest, serde_json, tokio, chrono};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::types::{
-        AuthResult, ConnectInfo, Id, Password, PublishAclResult, SubscribeAckReason, SubscribeAclResult,
+        AuthResult, Superuser, ConnectInfo, Password, PublishAclResult, SubscribeAckReason, SubscribeAclResult,
     },
     plugin::{DynPlugin, DynPluginResult, Plugin},
     MqttError, Result, Runtime, TopicName,
@@ -25,11 +26,33 @@ use rmqtt::{
 
 mod config;
 
-type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
-type HashSet<K> = std::collections::HashSet<K, ahash::RandomState>;
 
-const IGNORE: &str = "ignore";
+const CACHEABLE: &str = "X-Cache";
+const SUPERUSER: &str = "X-Superuser";
+
+const CACHE_KEY: &str = "ACL-CACHE-MAP";
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Copy)]
+enum ResponseResult {
+    Allow(Superuser),
+    Deny,
+    Ignore,
+}
+
+impl ResponseResult {
+    #[inline]
+    fn from(s: &str, superuser: Superuser) -> Self {
+        match s {
+            "allow" => ResponseResult::Allow(superuser),
+            "deny" => ResponseResult::Deny,
+            "ignore" => ResponseResult::Ignore,
+            _ => ResponseResult::Allow(superuser),
+        }
+    }
+}
+
+type Cacheable = Option<i64>;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Copy)]
 enum ACLType {
@@ -45,8 +68,6 @@ impl ACLType {
         }
     }
 }
-
-type CacheMap = Arc<DashMap<Id, CacheValue>>;
 
 #[inline]
 pub async fn register(
@@ -73,7 +94,6 @@ struct AuthHttpPlugin {
     descr: String,
     register: Box<dyn Register>,
     cfg: Arc<RwLock<PluginConfig>>,
-    cache_map: CacheMap,
 }
 
 impl AuthHttpPlugin {
@@ -83,8 +103,7 @@ impl AuthHttpPlugin {
         let cfg = Arc::new(RwLock::new(runtime.settings.plugins.load_config::<PluginConfig>(&name)?));
         log::debug!("{} AuthHttpPlugin cfg: {:?}", name, cfg.read().await);
         let register = runtime.extends.hook_mgr().await.register();
-        let cache_map = Arc::new(DashMap::default());
-        Ok(Self { runtime, name, descr: descr.into(), register, cfg, cache_map })
+        Ok(Self { runtime, name, descr: descr.into(), register, cfg })
     }
 }
 
@@ -94,20 +113,16 @@ impl Plugin for AuthHttpPlugin {
     async fn init(&mut self) -> Result<()> {
         log::info!("{} init", self.name);
         let cfg = &self.cfg;
-        let cache_map = &self.cache_map;
 
         let priority = cfg.read().await.priority;
         self.register
-            .add_priority(Type::ClientAuthenticate, priority, Box::new(AuthHandler::new(cfg, cache_map)))
+            .add_priority(Type::ClientAuthenticate, priority, Box::new(AuthHandler::new(cfg)))
             .await;
         self.register
-            .add_priority(Type::ClientSubscribeCheckAcl, priority, Box::new(AuthHandler::new(cfg, cache_map)))
+            .add_priority(Type::ClientSubscribeCheckAcl, priority, Box::new(AuthHandler::new(cfg)))
             .await;
         self.register
-            .add_priority(Type::MessagePublishCheckAcl, priority, Box::new(AuthHandler::new(cfg, cache_map)))
-            .await;
-        self.register
-            .add_priority(Type::ClientDisconnected, priority, Box::new(AuthHandler::new(cfg, cache_map)))
+            .add_priority(Type::MessagePublishCheckAcl, priority, Box::new(AuthHandler::new(cfg)))
             .await;
 
         Ok(())
@@ -157,20 +172,39 @@ impl Plugin for AuthHttpPlugin {
 
     #[inline]
     async fn attrs(&self) -> serde_json::Value {
-        serde_json::json!({
-            "cache_count": self.cache_map.len()
-        })
+        serde_json::json!({})
     }
 }
 
 struct AuthHandler {
     cfg: Arc<RwLock<PluginConfig>>,
-    cache_map: CacheMap,
 }
 
 impl AuthHandler {
-    fn new(cfg: &Arc<RwLock<PluginConfig>>, cache_map: &CacheMap) -> Self {
-        Self { cfg: cfg.clone(), cache_map: cache_map.clone() }
+    fn new(cfg: &Arc<RwLock<PluginConfig>>) -> Self {
+        Self { cfg: cfg.clone() }
+    }
+
+    async fn response_result(resp: Response) -> Result<(ResponseResult, Superuser, Cacheable)> {
+        if resp.status().is_success() {
+            let superuser = resp.headers().contains_key(SUPERUSER);
+            let cache_timeout = if let Some(tm) = resp.headers().get(CACHEABLE).and_then(|v|v.to_str().ok()) {
+                match tm.parse::<i64>() {
+                    Ok(tm) => Some(tm),
+                    Err(e) => {
+                        log::warn!("Parse X-Cache error, {:?}", e);
+                        None
+                    }
+                }
+            }else{
+                None
+            };
+            log::debug!("Cache timeout is {:?}", cache_timeout);
+            let body = resp.text().await.map_err(|e| MqttError::Msg(e.to_string()))?;
+            Ok((ResponseResult::from(body.as_str(), superuser), superuser, cache_timeout))
+        } else {
+            Ok((ResponseResult::Ignore, false, None))
+        }
     }
 
     async fn http_get_request<T: Serialize + ?Sized>(
@@ -178,18 +212,14 @@ impl AuthHandler {
         body: &T,
         headers: HeaderMap,
         timeout: Duration,
-    ) -> Result<(bool, String)> {
+    ) -> Result<(ResponseResult, Superuser, Cacheable)> {
         log::debug!("http_get_request, timeout: {:?}, url: {}", timeout, url);
         match HTTP_CLIENT.clone().get(url).headers(headers).timeout(timeout).query(body).send().await {
             Err(e) => {
                 log::error!("error:{:?}", e);
                 Err(MqttError::Msg(e.to_string()))
             }
-            Ok(resp) => {
-                let ok = resp.status().is_success();
-                let body = resp.text().await.map_err(|e| MqttError::Msg(e.to_string()))?;
-                Ok((ok, body))
-            }
+            Ok(resp) => Self::response_result(resp).await,
         }
     }
 
@@ -199,7 +229,7 @@ impl AuthHandler {
         body: &T,
         headers: HeaderMap,
         timeout: Duration,
-    ) -> Result<(bool, String)> {
+    ) -> Result<(ResponseResult, Superuser, Cacheable)> {
         log::debug!("http_form_request, method: {:?}, timeout: {:?}, url: {}", method, timeout, url);
         match HTTP_CLIENT
             .clone()
@@ -214,11 +244,7 @@ impl AuthHandler {
                 log::error!("error:{:?}", e);
                 Err(MqttError::Msg(e.to_string()))
             }
-            Ok(resp) => {
-                let ok = resp.status().is_success();
-                let body = resp.text().await.map_err(|e| MqttError::Msg(e.to_string()))?;
-                Ok((ok, body))
-            }
+            Ok(resp) => Self::response_result(resp).await,
         }
     }
 
@@ -228,7 +254,7 @@ impl AuthHandler {
         body: &T,
         headers: HeaderMap,
         timeout: Duration,
-    ) -> Result<(bool, String)> {
+    ) -> Result<(ResponseResult, Superuser, Cacheable)> {
         log::debug!("http_json_request, method: {:?}, timeout: {:?}, url: {}", method, timeout, url);
         match HTTP_CLIENT
             .clone()
@@ -243,11 +269,7 @@ impl AuthHandler {
                 log::error!("error:{:?}", e);
                 Err(MqttError::Msg(e.to_string()))
             }
-            Ok(resp) => {
-                let ok = resp.status().is_success();
-                let body = resp.text().await.map_err(|e| MqttError::Msg(e.to_string()))?;
-                Ok((ok, body))
-            }
+            Ok(resp) => Self::response_result(resp).await,
         }
     }
 
@@ -285,30 +307,8 @@ impl AuthHandler {
         mut req_cfg: config::Req,
         password: Option<&Password>,
         sub_or_pub: Option<(ACLType, &TopicName)>,
-        check_super: bool,
-    ) -> Result<bool> {
+    ) -> Result<(ResponseResult, Cacheable)> {
         log::debug!("{:?} req_cfg.url.path(): {:?}", connect_info.id(), req_cfg.url.path());
-        let catch_key_fn =
-            || CacheItem(req_cfg.url.path().to_owned(), sub_or_pub.map(|(f, t)| (f, t.clone())));
-        let catch_key = {
-            if let Some(cached) = self.cache_map.get(connect_info.id()) {
-                log::debug!("{:?} catch value: {:?}", connect_info.id(), cached.value());
-                if cached.is_super {
-                    return Ok(true);
-                }
-
-                let catch_key = catch_key_fn();
-                if cached.ignores.contains(&catch_key) {
-                    return Ok(true);
-                }
-                catch_key
-            } else {
-                catch_key_fn()
-            }
-        };
-
-        log::debug!("catch_key: {:?}", catch_key);
-
         let (headers, timeout) = {
             let cfg = self.cfg.read().await;
             let headers = match (cfg.headers(), req_cfg.headers()) {
@@ -324,7 +324,7 @@ impl AuthHandler {
             (headers, cfg.http_timeout)
         };
 
-        let (allow, ignore) = if req_cfg.is_get() {
+        let (auth_result, superuser, cacheable) = if req_cfg.is_get() {
             let body = &mut req_cfg.params;
             Self::replaces(body, connect_info, password, sub_or_pub)?;
             Self::http_get_request(req_cfg.url, body, headers, timeout).await?
@@ -338,64 +338,58 @@ impl AuthHandler {
             Self::replaces(body, connect_info, password, sub_or_pub)?;
             Self::http_form_request(req_cfg.url, req_cfg.method, body, headers, timeout).await?
         };
-
-        log::debug!("check_super: {}, allow: {:?}, ignore: {}", check_super, allow, ignore);
-
-        //IGNORE
-        if allow && ignore == IGNORE {
-            let mut cached = self.cache_map.entry(connect_info.id().clone()).or_default();
-            if check_super {
-                cached.is_super = true;
-            } else if sub_or_pub.is_some() {
-                cached.ignores.insert(catch_key);
-            }
-        }
-
-        Ok(allow)
+        log::debug!(
+            "auth_result: {:?}, superuser: {}, cacheable: {:?}",
+            auth_result,
+            superuser,
+            cacheable
+        );
+        Ok((auth_result, cacheable))
     }
 
-    async fn auth(&self, connect_info: &ConnectInfo, password: Option<&Password>) -> bool {
+    async fn auth(&self, connect_info: &ConnectInfo, password: Option<&Password>) -> ResponseResult {
         if let Some(req) = { self.cfg.read().await.http_auth_req.clone() } {
-            match self.request(connect_info, req.clone(), password, None, false).await {
-                Ok(resp) => resp,
+            match self.request(connect_info, req.clone(), password, None).await {
+                Ok((auth_res, _)) => {
+                    log::debug!("auth result: {:?}", auth_res);
+                    auth_res
+                }
                 Err(e) => {
                     log::warn!("{:?} auth error, {:?}", connect_info.id(), e);
-                    false
+                    if self.cfg.read().await.deny_if_error {
+                        ResponseResult::Deny
+                    }else{
+                        ResponseResult::Ignore
+                    }
                 }
             }
         } else {
-            true
+            ResponseResult::Ignore
         }
     }
 
-    async fn is_super(&self, connect_info: &ConnectInfo) -> bool {
-        if let Some(req) = { self.cfg.read().await.http_super_req.clone() } {
-            match self.request(connect_info, req.clone(), None, None, true).await {
-                Ok(resp) => resp,
-                Err(e) => {
-                    log::warn!("{:?} check super error, {:?}", connect_info.id(), e);
-                    false
-                }
-            }
-        } else {
-            true
-        }
-    }
-
-    async fn acl(&self, connect_info: &ConnectInfo, sub_or_pub: Option<(ACLType, &TopicName)>) -> bool {
+    async fn acl(
+        &self,
+        connect_info: &ConnectInfo,
+        sub_or_pub: Option<(ACLType, &TopicName)>,
+    ) -> (ResponseResult, Cacheable) {
         if let Some(req) = { self.cfg.read().await.http_acl_req.clone() } {
-            match self.request(connect_info, req.clone(), None, sub_or_pub, false).await {
-                Ok(allow) => {
-                    log::debug!("acl.allow: {:?}", allow);
-                    allow
+            match self.request(connect_info, req.clone(), None, sub_or_pub).await {
+                Ok(acl_res) => {
+                    log::debug!("acl result: {:?}", acl_res);
+                    acl_res
                 }
                 Err(e) => {
                     log::warn!("{:?} acl error, {:?}", connect_info.id(), e);
-                    false
+                    if self.cfg.read().await.deny_if_error {
+                        (ResponseResult::Deny, None)
+                    }else{
+                        (ResponseResult::Ignore, None)
+                    }
                 }
             }
         } else {
-            true
+            (ResponseResult::Ignore, None)
         }
     }
 }
@@ -414,16 +408,12 @@ impl Handler for AuthHandler {
                     return (false, acc);
                 }
 
-                let stop = !self.cfg.read().await.break_if_allow;
-
-                if self.is_super(*connect_info).await {
-                    return (stop, Some(HookResult::AuthResult(AuthResult::Allow)));
-                }
-
-                return if !self.auth(*connect_info, connect_info.password()).await {
-                    (false, Some(HookResult::AuthResult(AuthResult::BadUsernameOrPassword)))
-                } else {
-                    (stop, Some(HookResult::AuthResult(AuthResult::Allow)))
+                return match self.auth(*connect_info, connect_info.password()).await {
+                    ResponseResult::Allow(superuser) => (false, Some(HookResult::AuthResult(AuthResult::Allow(superuser)))),
+                    ResponseResult::Deny => {
+                        (false, Some(HookResult::AuthResult(AuthResult::BadUsernameOrPassword)))
+                    }
+                    ResponseResult::Ignore => (true, None),
                 };
             }
 
@@ -434,21 +424,23 @@ impl Handler for AuthHandler {
                     }
                 }
 
-                return if self
+                //ResponseResult, Cacheable
+                let (acl_res, _) = self
                     .acl(&client_info.connect_info, Some((ACLType::Sub, &subscribe.topic_filter)))
-                    .await
+                    .await;
+                return match acl_res
                 {
-                    (
-                        !self.cfg.read().await.break_if_allow,
+                    ResponseResult::Allow(_) => (
+                        false,
                         Some(HookResult::SubscribeAclResult(SubscribeAclResult::new_success(subscribe.qos))),
-                    )
-                } else {
-                    (
+                    ),
+                    ResponseResult::Deny => (
                         false,
                         Some(HookResult::SubscribeAclResult(SubscribeAclResult::new_failure(
                             SubscribeAckReason::NotAuthorized,
                         ))),
-                    )
+                    ),
+                    ResponseResult::Ignore => (true, None),
                 };
             }
 
@@ -458,23 +450,51 @@ impl Handler for AuthHandler {
                     return (false, acc);
                 }
 
-                return if self.acl(&client_info.connect_info, Some((ACLType::Pub, publish.topic()))).await {
-                    (
-                        !self.cfg.read().await.break_if_allow,
-                        Some(HookResult::PublishAclResult(PublishAclResult::Allow)),
-                    )
-                } else {
-                    (
+                let acl_res = if let Some((acl_res, expire)) = client_info.extra_attrs.read().await
+                    .get::<HashMap<TopicName, (ResponseResult, i64)>>(CACHE_KEY)
+                    .and_then(|cache_map| cache_map.get(publish.topic())) {
+                    if *expire < 0 || chrono::Local::now().timestamp_millis() < *expire {
+                        Some(acl_res.clone())
+                    } else {
+                        None
+                    }
+                }else {
+                    None
+                };
+
+                let acl_res = if let Some(acl_res) = acl_res {
+                    acl_res
+                }else{
+                    //ResponseResult, Cacheable
+                    let (acl_res, cacheable) = self
+                        .acl(&client_info.connect_info, Some((ACLType::Pub, publish.topic())))
+                        .await;
+                    if let Some(tm) = cacheable {
+                        let def_fn = ||{
+                            let def: HashMap<TopicName, (ResponseResult, i64)> = HashMap::default();
+                            def
+                        };
+                        let expire = if tm < 0 { tm }else{ chrono::Local::now().timestamp_millis() + tm };
+                        if let Some(cache_map) = client_info.extra_attrs.write().await.get_default_mut(CACHE_KEY.into(), def_fn){
+                            cache_map.insert(publish.topic().clone(), (acl_res, expire));
+                        }
+                    }
+                    acl_res
+                };
+
+                return match acl_res
+                {
+                    ResponseResult::Allow(_) => {
+                        (false, Some(HookResult::PublishAclResult(PublishAclResult::Allow)))
+                    }
+                    ResponseResult::Deny => (
                         false,
                         Some(HookResult::PublishAclResult(PublishAclResult::Rejected(
                             self.cfg.read().await.disconnect_if_pub_rejected,
                         ))),
-                    )
+                    ),
+                    ResponseResult::Ignore => (true, None),
                 };
-            }
-            Parameter::ClientDisconnected(_session, client_info, _reason) => {
-                log::debug!("ClientDisconnected");
-                self.cache_map.remove(&client_info.id);
             }
             _ => {
                 log::error!("unimplemented, {:?}", param)
@@ -494,13 +514,3 @@ lazy_static::lazy_static! {
     };
 }
 
-type Path = String;
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct CacheItem(Path, Option<(ACLType, TopicName)>);
-
-#[derive(Debug, Default)]
-struct CacheValue {
-    is_super: bool,
-    ignores: HashSet<CacheItem>,
-}
