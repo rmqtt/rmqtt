@@ -64,10 +64,12 @@ async fn build_result(s: Option<Session>, c: Option<ClientInfo>) -> SearchResult
             - (chrono::Local::now().timestamp() - disconnected_at)
     };
     let inflight = s.inflight_win.read().await.len();
+    let extra_attrs = c.extra_attrs.read().await.len();
     SearchResult {
         node_id: c.id.node_id,
         clientid: c.id.client_id.clone(),
         username: c.username().clone(),
+        superuser: c.superuser,
         proto_ver: c.connect_info.proto_ver(),
         ip_address: c.id.remote_addr.map(|addr| addr.ip().to_string()),
         port: c.id.remote_addr.map(|addr| addr.port()),
@@ -82,6 +84,7 @@ async fn build_result(s: Option<Session>, c: Option<ClientInfo>) -> SearchResult
         created_at: s.created_at / 1000,
         subscriptions_cnt: s.subscriptions.len(),
         max_subscriptions: s.listen_cfg.max_subscriptions,
+        extra_attrs,
 
         inflight,
         max_inflight: s.listen_cfg.max_inflight,

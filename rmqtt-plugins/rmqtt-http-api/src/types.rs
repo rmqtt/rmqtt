@@ -120,6 +120,7 @@ pub struct ClientSearchResult {
     pub node_id: NodeId,
     pub clientid: ClientId,
     pub username: UserName,
+    pub superuser: bool,
     pub proto_ver: u8,
     pub ip_address: Option<String>,
     pub port: Option<u16>,
@@ -134,6 +135,7 @@ pub struct ClientSearchResult {
     pub created_at: Timestamp,
     pub subscriptions_cnt: usize,
     pub max_subscriptions: usize,
+    pub extra_attrs: usize,
 
     pub inflight: usize,
     pub max_inflight: usize,
@@ -159,6 +161,7 @@ impl ClientSearchResult {
             "node_id": self.node_id,
             "clientid": self.clientid,
             "username": self.username,
+            "superuser": self.superuser,
             "proto_ver": self.proto_ver,
             "ip_address": self.ip_address,
             "port": self.port,
@@ -173,6 +176,7 @@ impl ClientSearchResult {
             "created_at": format_timestamp(self.created_at),
             "subscriptions_cnt": self.subscriptions_cnt,
             "max_subscriptions": self.max_subscriptions,
+            "extra_attrs": self.extra_attrs,
 
             "inflight": self.inflight,
             "max_inflight": self.max_inflight,
