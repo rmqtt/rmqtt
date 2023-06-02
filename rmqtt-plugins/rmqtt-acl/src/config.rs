@@ -5,13 +5,14 @@ use std::sync::Arc;
 use serde::de::{self, Deserialize, Deserializer};
 use serde::ser::{self, Serialize};
 
+use rmqtt::broker::hook::Priority;
 use rmqtt::broker::topic::TopicTree;
 use rmqtt::{
     ahash, dashmap,
     serde_json::{self, Value},
     tokio::sync::RwLock,
 };
-use rmqtt::{ClientId, ConnectInfo, MqttError, Result, Topic, UserName};
+use rmqtt::{ClientId, ConnectInfo, MqttError, Result, Superuser, Topic, UserName, Password};
 
 type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
 
@@ -20,6 +21,15 @@ pub const PH_U: &str = "%u";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
+
+    ///Disconnect if publishing is rejected
+    #[serde(default = "PluginConfig::disconnect_if_pub_rejected_default")]
+    pub disconnect_if_pub_rejected: bool,
+
+    ///Hook priority
+    #[serde(default = "PluginConfig::priority_default")]
+    pub priority: Priority,
+
     #[serde(
         default,
         serialize_with = "PluginConfig::serialize_rules",
@@ -29,6 +39,15 @@ pub struct PluginConfig {
 }
 
 impl PluginConfig {
+
+    fn disconnect_if_pub_rejected_default() -> bool {
+        true
+    }
+
+    fn priority_default() -> Priority {
+        10
+    }
+
     #[inline]
     pub fn rules(&self) -> &Vec<Rule> {
         let (_rules, _) = &self.rules;
@@ -124,7 +143,7 @@ pub enum Access {
 
 #[derive(Debug, Clone)]
 pub enum User {
-    Username(UserName),
+    Username(UserName, Option<Password>, Superuser),
     Clientid(ClientId),
     Ipaddr(String),
     All,
@@ -132,22 +151,27 @@ pub enum User {
 
 impl User {
     #[inline]
-    pub fn hit(&self, connect_info: &ConnectInfo) -> bool {
+    pub fn hit(&self, connect_info: &ConnectInfo, allow: bool) -> (bool, Superuser) {
         match self {
-            User::All => true,
-            User::Username(name1) => {
-                if let Some(name2) = connect_info.username() {
-                    name1 == name2
-                } else {
-                    false
+            User::All => (true, false),
+            User::Username(name1, password1, superuser) => {
+                match (connect_info.username(), connect_info.password(), password1, allow) {
+                    (Some(name2), Some(password2), Some(password1), true) => {
+                        (name1 == name2 && password1 == password2, *superuser)
+                    },
+                    (Some(name2), Some(_), &Some(_), false) => (name1 == name2, false),
+                    (Some(name2), _, None, true) => (name1 == name2, *superuser),
+                    (Some(name2), _, None, false) => (name1 == name2, false),
+                    (Some(_), None, Some(_), _) => (false, false),
+                    (None, _, _, _) => (false, false),
                 }
             }
-            User::Clientid(clientid) => connect_info.client_id() == clientid,
+            User::Clientid(clientid) => (connect_info.client_id() == clientid, false),
             User::Ipaddr(ipaddr) => {
                 if let Some(remote_addr) = connect_info.id().remote_addr {
-                    ipaddr == remote_addr.ip().to_string().as_str()
+                    (ipaddr == remote_addr.ip().to_string().as_str(), false)
                 } else {
-                    false
+                    (false, false)
                 }
             }
         }
@@ -216,14 +240,20 @@ impl std::convert::TryFrom<&serde_json::Value> for User {
                     Err(MqttError::from(err_msg))
                 }
             }
-            Value::Object(map) => match (map.get("user"), map.get("clientid"), map.get("ipaddr")) {
-                (Some(Value::String(name)), _, _) => Ok(User::Username(UserName::from(name.as_str()))),
-                (_, Some(Value::String(clientid)), _) => {
-                    Ok(User::Clientid(ClientId::from(clientid.as_str())))
+            Value::Object(map) => {
+                match (map.get("user"), map.get("password"), map.get("superuser"), map.get("clientid"), map.get("ipaddr")) {
+                    (Some(Value::String(name)), password, superuser, _, _) => {
+                        let password = password.and_then(|p| p.as_str().map(|p| Password::from(p.to_owned())));
+                        let superuser = superuser.and_then(|p| p.as_bool()).unwrap_or_default();
+                        Ok(User::Username(UserName::from(name.as_str()), password, superuser))
+                    }
+                    (_, _, _, Some(Value::String(clientid)), _) => {
+                        Ok(User::Clientid(ClientId::from(clientid.as_str())))
+                    }
+                    (_, _, _, _, Some(Value::String(ipaddr))) => Ok(User::Ipaddr(ipaddr.clone())),
+                    _ => Err(MqttError::from(err_msg)),
                 }
-                (_, _, Some(Value::String(ipaddr))) => Ok(User::Ipaddr(ipaddr.clone())),
-                _ => Err(MqttError::from(err_msg)),
-            },
+            }
             _ => Err(MqttError::from(err_msg)),
         };
         user

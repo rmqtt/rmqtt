@@ -68,10 +68,11 @@ impl Plugin for AclPlugin {
     async fn init(&mut self) -> Result<()> {
         log::info!("{} init", self.name);
         let cfg = &self.cfg;
-        self.register.add_priority(Type::ClientConnected, 10, Box::new(AclHandler::new(cfg))).await;
-        self.register.add_priority(Type::ClientAuthenticate, 10, Box::new(AclHandler::new(cfg))).await;
-        self.register.add_priority(Type::ClientSubscribeCheckAcl, 10, Box::new(AclHandler::new(cfg))).await;
-        self.register.add_priority(Type::MessagePublishCheckAcl, 10, Box::new(AclHandler::new(cfg))).await;
+        let priority = cfg.read().await.priority;
+        self.register.add_priority(Type::ClientConnected, priority, Box::new(AclHandler::new(cfg))).await;
+        self.register.add_priority(Type::ClientAuthenticate, priority, Box::new(AclHandler::new(cfg))).await;
+        self.register.add_priority(Type::ClientSubscribeCheckAcl, priority, Box::new(AclHandler::new(cfg))).await;
+        self.register.add_priority(Type::MessagePublishCheckAcl, priority, Box::new(AclHandler::new(cfg))).await;
         Ok(())
     }
 
@@ -187,10 +188,13 @@ impl Handler for AclHandler {
                     if !matches!(rule.control, Control::Connect | Control::All) {
                         continue;
                     }
-                    if rule.user.hit(connect_info) {
+
+                    let allow = matches!(rule.access, Access::Allow);
+                    let (hit, superuser) = rule.user.hit(connect_info, allow);
+                    if hit {
                         log::debug!("{:?} ClientAuthenticate, rule: {:?}", connect_info.id(), rule);
-                        return if matches!(rule.access, Access::Allow) {
-                            (true, Some(HookResult::AuthResult(AuthResult::Allow)))
+                        return if allow {
+                            (false, Some(HookResult::AuthResult(AuthResult::Allow(superuser))))
                         } else {
                             (false, Some(HookResult::AuthResult(AuthResult::NotAuthorized)))
                         };
@@ -212,7 +216,10 @@ impl Handler for AclHandler {
                     if !matches!(rule.control, Control::Subscribe | Control::Pubsub | Control::All) {
                         continue;
                     }
-                    if !rule.user.hit(&client_info.connect_info) {
+
+                    let allow = matches!(rule.access, Access::Allow);
+                    let (hit, _) = rule.user.hit(&client_info.connect_info, allow);
+                    if !hit {
                         continue;
                     }
                     if !rule.topics.is_match(&topic, topic_filter).await {
@@ -224,9 +231,9 @@ impl Handler for AclHandler {
                         idx,
                         topic_filter
                     );
-                    return if matches!(rule.access, Access::Allow) {
+                    return if allow {
                         (
-                            true,
+                            false,
                             Some(HookResult::SubscribeAclResult(SubscribeAclResult::new_success(
                                 subscribe.qos,
                             ))),
@@ -254,11 +261,15 @@ impl Handler for AclHandler {
                 }
                 let topic_str = publish.topic();
                 let topic = Topic::from_str(topic_str).unwrap_or_else(|_| Topic::from(Vec::new()));
+                let disconnect_if_pub_rejected = self.cfg.read().await.disconnect_if_pub_rejected;
                 for (idx, rule) in self.cfg.read().await.rules().iter().enumerate() {
                     if !matches!(rule.control, Control::Publish | Control::Pubsub | Control::All) {
                         continue;
                     }
-                    if !rule.user.hit(&client_info.connect_info) {
+
+                    let allow = matches!(rule.access, Access::Allow);
+                    let (hit, _) = rule.user.hit(&client_info.connect_info, allow);
+                    if !hit {
                         continue;
                     }
                     if !rule.topics.is_match(&topic, topic_str).await {
@@ -270,13 +281,13 @@ impl Handler for AclHandler {
                         idx,
                         topic_str
                     );
-                    return if matches!(rule.access, Access::Allow) {
-                        (true, Some(HookResult::PublishAclResult(PublishAclResult::Allow)))
+                    return if allow {
+                        (false, Some(HookResult::PublishAclResult(PublishAclResult::Allow)))
                     } else {
-                        (false, Some(HookResult::PublishAclResult(PublishAclResult::Rejected(true))))
+                        (false, Some(HookResult::PublishAclResult(PublishAclResult::Rejected(disconnect_if_pub_rejected))))
                     };
                 }
-                return (false, Some(HookResult::PublishAclResult(PublishAclResult::Rejected(true))));
+                return (false, Some(HookResult::PublishAclResult(PublishAclResult::Rejected(disconnect_if_pub_rejected))));
             }
             _ => {
                 log::error!("parameter is: {:?}", param);
