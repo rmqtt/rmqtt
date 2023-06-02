@@ -2,6 +2,9 @@
 ## rmqtt-acl
 ##--------------------------------------------------------------------
 
+#Disconnect if publishing is rejected
+disconnect_if_pub_rejected = true
+
 rules = [
     ["allow", { user = "dashboard" }, "subscribe", ["$SYS/#"]],
     ["allow", { ipaddr = "127.0.0.1" }, "pubsub", ["$SYS/#", "#"]],
