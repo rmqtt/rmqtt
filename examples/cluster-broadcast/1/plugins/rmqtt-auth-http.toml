@@ -23,7 +23,7 @@ http_headers.Connection = "keep-alive"
 ##  - %P: password
 ##
 ## Value: URL
-http_auth_req.url = "http://127.0.0.1:8080/mqtt/auth"
+http_auth_req.url = "http://127.0.0.1:9090/mqtt/auth"
 ## Value: post | get | put
 http_auth_req.method = "post"
 ## HTTP request header of authentication request
@@ -32,25 +32,6 @@ http_auth_req.headers = { content-type = "application/x-www-form-urlencoded" }
 #http_auth_req.headers.content-type="application/json"
 ## Value: Params
 http_auth_req.params = { clientid = "%c", username = "%u", password = "%P" }
-
-
-##--------------------------------------------------------------------
-## Superuser request.
-##
-## Variables:
-##  - %u: username
-##  - %c: clientid
-##  - %a: ipaddress
-##  - %r: protocol
-##  - %P: password
-##
-## Value: URL
-http_super_req.url = "http://127.0.0.1:8080/mqtt/superuser"
-## Value: post | get | put
-http_super_req.method = "post"
-## Value: Params
-http_super_req.params = { clientid = "%c", username = "%u" }
-
 
 ##--------------------------------------------------------------------
 ## ACL request.
@@ -65,7 +46,7 @@ http_super_req.params = { clientid = "%c", username = "%u" }
 ##  - %t: topic
 ##
 ## Value: URL
-http_acl_req.url = "http://127.0.0.1:8080/mqtt/acl"
+http_acl_req.url = "http://127.0.0.1:9090/mqtt/acl"
 ## Value: post | get | put
 http_acl_req.method = "post"
 ## Value: Params
