@@ -958,6 +958,7 @@ impl ClientInfo {
     pub(crate) fn new(
         connect_info: ConnectInfo,
         session_present: bool,
+        superuser: bool,
         connected_at: TimestampMillis,
     ) -> ClientInfo {
         let id = connect_info.id().clone();
@@ -965,11 +966,13 @@ impl ClientInfo {
             id,
             connect_info,
             session_present,
+            superuser,
             connected: AtomicBool::new(true),
             connected_at,
             disconnected_at: AtomicI64::new(0),
             disconnected_reason: RwLock::new(Vec::new()),
             disconnect: RwLock::new(None),
+            extra_attrs: Arc::new(RwLock::new(ExtraAttrs::new())),
         }))
     }
 
@@ -977,6 +980,7 @@ impl ClientInfo {
     pub async fn to_json(&self) -> serde_json::Value {
         let mut json = self.connect_info.to_json();
         if let Some(json) = json.as_object_mut() {
+            json.insert("superuser".into(), serde_json::Value::Bool(self.superuser));
             json.insert("session_present".into(), serde_json::Value::Bool(self.session_present));
             json.insert("connected".into(), serde_json::Value::Bool(self.connected.load(Ordering::SeqCst)));
             json.insert(
@@ -995,6 +999,14 @@ impl ClientInfo {
             } else {
                 json.insert("disconnected_reason".into(), serde_json::Value::Null);
             }
+
+            json.insert(
+                "extra_attrs".into(),
+                serde_json::Value::Number(serde_json::Number::from(
+                    self.extra_attrs.read().await.len()
+                )),
+            );
+
         }
         json
     }
@@ -1029,6 +1041,7 @@ impl ClientInfo {
         if let Some(reason) = reason {
             self.add_disconnected_reason(reason).await;
         }
+        self.extra_attrs.write().await.clear();
     }
 
     #[inline]
@@ -1083,9 +1096,11 @@ pub struct _ClientInfo {
     pub id: Id,
     pub connect_info: ConnectInfo,
     pub session_present: bool,
+    pub superuser: bool,
     pub connected: AtomicBool,
     pub connected_at: TimestampMillis,
     pub disconnected_at: AtomicI64,
     pub disconnected_reason: RwLock<Vec<Reason>>,
     pub disconnect: RwLock<Option<Disconnect>>,
+    pub extra_attrs: Arc<RwLock<ExtraAttrs>>,
 }

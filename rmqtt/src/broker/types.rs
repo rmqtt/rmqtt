@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::convert::From as _f;
 use std::fmt;
 use std::net::SocketAddr;
@@ -38,6 +39,7 @@ pub type LocalSocketAddr = SocketAddr;
 pub type Addr = bytestring::ByteString;
 pub type ClientId = bytestring::ByteString;
 pub type UserName = bytestring::ByteString;
+pub type Superuser = bool;
 pub type Password = bytes::Bytes;
 pub type PacketId = u16;
 pub type Reason = bytestring::ByteString;
@@ -241,7 +243,7 @@ pub enum PublishAclResult {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AuthResult {
-    Allow,
+    Allow(Superuser),
     ///User is not found
     NotFound,
     BadUsernameOrPassword,
@@ -1180,5 +1182,50 @@ impl _SessionSubs {
         DashMap<TopicFilter, SubscriptionValue>,
     > {
         self.subs.iter()
+    }
+}
+
+pub struct ExtraAttrs {
+    attrs: HashMap<String, Box<dyn Any + Sync + Send>>,
+}
+
+impl ExtraAttrs {
+    #[inline]
+    pub fn new() -> Self {
+        Self { attrs: HashMap::default() }
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.attrs.len()
+    }
+
+    #[inline]
+    pub fn clear(&mut self) {
+        self.attrs.clear()
+    }
+
+    #[inline]
+    pub fn insert<T: Any + Sync + Send>(&mut self, key: String, value: T) {
+        self.attrs.insert(key, Box::new(value));
+    }
+
+    #[inline]
+    pub fn get<T: Any + Sync + Send>(&self, key: &str) -> Option<&T> {
+        self.attrs.get(key).and_then(|v| v.downcast_ref::<T>())
+    }
+
+    #[inline]
+    pub fn get_mut<T: Any + Sync + Send>(&mut self, key: &str) -> Option<&mut T> {
+        self.attrs.get_mut(key).and_then(|v| v.downcast_mut::<T>())
+    }
+
+    #[inline]
+    pub fn get_default_mut<T: Any + Sync + Send, F: Fn() -> T>(
+        &mut self,
+        key: String,
+        def_fn: F,
+    ) -> Option<&mut T> {
+        self.attrs.entry(key).or_insert_with(|| Box::new(def_fn())).downcast_mut::<T>()
     }
 }
