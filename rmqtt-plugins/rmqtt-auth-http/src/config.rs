@@ -23,6 +23,10 @@ pub struct PluginConfig {
     #[serde(default = "PluginConfig::priority_default")]
     pub priority: Priority,
 
+    ///#Return 'Deny' if http request error otherwise 'Ignore'
+    #[serde(default = "PluginConfig::deny_if_error_default")]
+    pub deny_if_error: bool,
+
     #[serde(default = "PluginConfig::http_timeout_default", deserialize_with = "deserialize_duration")]
     pub http_timeout: Duration,
     #[serde(
@@ -35,7 +39,6 @@ pub struct PluginConfig {
     pub http_retry: Retry,
 
     pub http_auth_req: Option<Req>,
-    pub http_super_req: Option<Req>,
     pub http_acl_req: Option<Req>,
 }
 
@@ -52,9 +55,15 @@ impl PluginConfig {
     fn disconnect_if_pub_rejected_default() -> bool {
         true
     }
+
     fn priority_default() -> Priority {
         100
     }
+
+    fn deny_if_error_default() -> bool {
+        true
+    }
+
     fn http_timeout_default() -> Duration {
         Duration::from_secs(5)
     }
