@@ -1288,7 +1288,7 @@ impl HookManager for &'static DefaultHookManager {
         &self,
         connect_info: &ConnectInfo,
         allow_anonymous: bool,
-    ) -> ConnectAckReason {
+    ) -> (ConnectAckReason, Superuser) {
         let proto_ver = connect_info.proto_ver();
         let ok = || match proto_ver {
             MQTT_LEVEL_31 => ConnectAckReason::V3(ConnectAckReasonV3::ConnectionAccepted),
@@ -1299,7 +1299,7 @@ impl HookManager for &'static DefaultHookManager {
 
         log::debug!("{:?} username: {:?}", connect_info.id(), connect_info.username());
         if connect_info.username().is_none() && allow_anonymous {
-            return ok();
+            return (ok(), false);
         }
 
         let result = self.exec(Type::ClientAuthenticate, Parameter::ClientAuthenticate(connect_info)).await;
@@ -1307,11 +1307,11 @@ impl HookManager for &'static DefaultHookManager {
         let (bad_user_or_pass, not_auth) = match result {
             Some(HookResult::AuthResult(AuthResult::BadUsernameOrPassword)) => (true, false),
             Some(HookResult::AuthResult(AuthResult::NotAuthorized)) => (false, true),
-            Some(HookResult::AuthResult(AuthResult::Allow)) => return ok(),
+            Some(HookResult::AuthResult(AuthResult::Allow(superuser))) => return (ok(), superuser),
             _ => {
                 //or AuthResult::NotFound
                 if allow_anonymous {
-                    return ok();
+                    return (ok(), false);
                 } else {
                     (false, true)
                 }
@@ -1319,24 +1319,30 @@ impl HookManager for &'static DefaultHookManager {
         };
 
         if bad_user_or_pass {
-            return match proto_ver {
-                MQTT_LEVEL_31 => ConnectAckReason::V3(ConnectAckReasonV3::BadUserNameOrPassword),
-                MQTT_LEVEL_311 => ConnectAckReason::V3(ConnectAckReasonV3::BadUserNameOrPassword),
-                MQTT_LEVEL_5 => ConnectAckReason::V5(ConnectAckReasonV5::BadUserNameOrPassword),
-                _ => ConnectAckReason::V3(ConnectAckReasonV3::BadUserNameOrPassword),
-            };
+            return (
+                match proto_ver {
+                    MQTT_LEVEL_31 => ConnectAckReason::V3(ConnectAckReasonV3::BadUserNameOrPassword),
+                    MQTT_LEVEL_311 => ConnectAckReason::V3(ConnectAckReasonV3::BadUserNameOrPassword),
+                    MQTT_LEVEL_5 => ConnectAckReason::V5(ConnectAckReasonV5::BadUserNameOrPassword),
+                    _ => ConnectAckReason::V3(ConnectAckReasonV3::BadUserNameOrPassword),
+                },
+                false,
+            );
         }
 
         if not_auth {
-            return match proto_ver {
-                MQTT_LEVEL_31 => ConnectAckReason::V3(ConnectAckReasonV3::NotAuthorized),
-                MQTT_LEVEL_311 => ConnectAckReason::V3(ConnectAckReasonV3::NotAuthorized),
-                MQTT_LEVEL_5 => ConnectAckReason::V5(ConnectAckReasonV5::NotAuthorized),
-                _ => ConnectAckReason::V3(ConnectAckReasonV3::NotAuthorized),
-            };
+            return (
+                match proto_ver {
+                    MQTT_LEVEL_31 => ConnectAckReason::V3(ConnectAckReasonV3::NotAuthorized),
+                    MQTT_LEVEL_311 => ConnectAckReason::V3(ConnectAckReasonV3::NotAuthorized),
+                    MQTT_LEVEL_5 => ConnectAckReason::V5(ConnectAckReasonV5::NotAuthorized),
+                    _ => ConnectAckReason::V3(ConnectAckReasonV3::NotAuthorized),
+                },
+                false,
+            );
         }
 
-        ok()
+        (ok(), false)
     }
 
     ///When sending mqtt:: connectack message
@@ -1470,6 +1476,9 @@ impl Hook for DefaultHook {
 
     #[inline]
     async fn client_subscribe_check_acl(&self, sub: &Subscribe) -> Option<SubscribeAclResult> {
+        if self.c.superuser {
+            return Some(SubscribeAclResult::new_success(sub.qos.clone()));
+        }
         let reply = self
             .manager
             .exec(Type::ClientSubscribeCheckAcl, Parameter::ClientSubscribeCheckAcl(&self.s, &self.c, sub))
@@ -1484,6 +1493,9 @@ impl Hook for DefaultHook {
 
     #[inline]
     async fn message_publish_check_acl(&self, publish: &Publish) -> PublishAclResult {
+        if self.c.superuser {
+            return PublishAclResult::Allow;
+        }
         let result = self
             .manager
             .exec(Type::MessagePublishCheckAcl, Parameter::MessagePublishCheckAcl(&self.s, &self.c, publish))
