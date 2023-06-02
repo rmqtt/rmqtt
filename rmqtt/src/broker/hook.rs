@@ -22,7 +22,7 @@ pub trait HookManager: Sync + Send {
         &self,
         connect_info: &ConnectInfo,
         allow_anonymous: bool,
-    ) -> ConnectAckReason;
+    ) -> (ConnectAckReason, Superuser);
 
     ///When sending mqtt:: connectack message
     async fn client_connack(

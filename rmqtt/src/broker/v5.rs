@@ -116,7 +116,7 @@ pub async fn _handshake<Io: 'static>(
     }
 
     //hook, client authenticate
-    let ack = Runtime::instance()
+    let (ack, superuser) = Runtime::instance()
         .extends
         .hook_mgr()
         .await
@@ -162,7 +162,7 @@ pub async fn _handshake<Io: 'static>(
     };
 
     let connected_at = chrono::Local::now().timestamp_millis();
-    let client = ClientInfo::new(connect_info, session_present, connected_at);
+    let client = ClientInfo::new(connect_info, session_present, superuser, connected_at);
 
     let fitter =
         Runtime::instance().extends.fitter_mgr().await.get(client.clone(), id.clone(), listen_cfg.clone());
