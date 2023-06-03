@@ -1002,11 +1002,8 @@ impl ClientInfo {
 
             json.insert(
                 "extra_attrs".into(),
-                serde_json::Value::Number(serde_json::Number::from(
-                    self.extra_attrs.read().await.len()
-                )),
+                serde_json::Value::Number(serde_json::Number::from(self.extra_attrs.read().await.len())),
             );
-
         }
         json
     }

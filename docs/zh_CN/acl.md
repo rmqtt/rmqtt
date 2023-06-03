@@ -8,10 +8,8 @@ ACL 规则文件：
 plugins/rmqtt-acl.toml
 ```
 
-::: tip
-内置 ACL 优先级最低，可以被 其它ACL 插件覆盖，如需禁用全部注释即可。规则文件更改后需重启 RMQTT服务 以应用生效。
+::: tip 内置 ACL 优先级最低，可以被 其它ACL 插件覆盖，如需禁用全部注释即可。规则文件更改后需重启 RMQTT服务 以应用生效。
 :::
-
 
 ## 定义 ACL
 
@@ -37,7 +35,7 @@ rules = [
 
 1. 第一条规则允许用户名为 `dashboard` 的客户端订阅 `$SYS/#` 主题，为第三条开了特例
 2. 第二条规则允许 ip 地址为 `127.0.0.1` 的客户端连接以及发布/订阅 `$SYS/#` 与 `#` 主题，为第三条开了特例
-3. 第三条规则禁止全部客户端订阅 `$SYS/#` 与 `#` 主题 
+3. 第三条规则禁止全部客户端订阅 `$SYS/#` 与 `#` 主题
 4. 第四条规则允许全部客户端连接,发布/订阅所有主题
 
 可知，默认的 ACL 主要是为了限制客户端对系统主题 `$SYS/#` 和全通配主题 `#` 的权限。
@@ -54,7 +52,8 @@ rules = [
 
 - 元组第二位：表示规则所生效的用户，可使用的格式为：
     * `{ user = "dashboard" }`：表明规则仅对 *用户名 (Username)* 为 "dashboard" 的用户生效
-    * `{ user = "dashboard", password = "123456", superuser = true }`：当元组第一位为allow时，可以设置password或superuser，表明规则对 *用户名 (Username)* 为 "dashboard" 且 *密码(Password)* 为 "123456" 的用户生效; superuser指示此用户为超级用户，在之后发布/订阅消息时将跳过认证直接允许操作。
+    * `{ user = "dashboard", password = "123456", superuser = true }`：当元组第一位为allow时，可以设置password或superuser，表明规则对 *用户名 (
+      Username)* 为 "dashboard" 且 *密码(Password)* 为 "123456" 的用户生效; superuser指示此用户为超级用户，在之后发布/订阅消息时将跳过认证直接允许操作。
     * `{ clientid = "dashboard" }`：表明规则仅对 *客户端标识 (ClientId)* 为 "dashboard" 的用户生效
     * `{ ipaddr = "127.0.0.1" }`：表明规则仅对 *源地址* 为 "127.0.0.1" 的用户生效
     * `all`：表明规则对所有的用户都生效
@@ -95,7 +94,5 @@ curl -X PUT "http://127.0.0.1:6066/api/v1/plugins/1/rmqtt-acl/config/reload"
 
 表示，**允许** 客户端 ID 为 `light` 的客户端 **订阅和发布** 到 `sensor/light/ctrl` 主题。
 
-
-::: tip
-rmqtt-acl.toml 中应只包含一些简单而通用的规则，使其成为系统基础的 ACL 原则。如果需要支持复杂、大量的 ACL 内容，你应该在认证插件中去实现它。
+::: tip rmqtt-acl.toml 中应只包含一些简单而通用的规则，使其成为系统基础的 ACL 原则。如果需要支持复杂、大量的 ACL 内容，你应该在认证插件中去实现它。
 :::

@@ -1477,7 +1477,7 @@ impl Hook for DefaultHook {
     #[inline]
     async fn client_subscribe_check_acl(&self, sub: &Subscribe) -> Option<SubscribeAclResult> {
         if self.c.superuser {
-            return Some(SubscribeAclResult::new_success(sub.qos.clone()));
+            return Some(SubscribeAclResult::new_success(sub.qos));
         }
         let reply = self
             .manager

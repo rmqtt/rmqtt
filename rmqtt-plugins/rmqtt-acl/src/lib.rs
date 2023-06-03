@@ -71,8 +71,12 @@ impl Plugin for AclPlugin {
         let priority = cfg.read().await.priority;
         self.register.add_priority(Type::ClientConnected, priority, Box::new(AclHandler::new(cfg))).await;
         self.register.add_priority(Type::ClientAuthenticate, priority, Box::new(AclHandler::new(cfg))).await;
-        self.register.add_priority(Type::ClientSubscribeCheckAcl, priority, Box::new(AclHandler::new(cfg))).await;
-        self.register.add_priority(Type::MessagePublishCheckAcl, priority, Box::new(AclHandler::new(cfg))).await;
+        self.register
+            .add_priority(Type::ClientSubscribeCheckAcl, priority, Box::new(AclHandler::new(cfg)))
+            .await;
+        self.register
+            .add_priority(Type::MessagePublishCheckAcl, priority, Box::new(AclHandler::new(cfg)))
+            .await;
         Ok(())
     }
 
@@ -284,10 +288,20 @@ impl Handler for AclHandler {
                     return if allow {
                         (false, Some(HookResult::PublishAclResult(PublishAclResult::Allow)))
                     } else {
-                        (false, Some(HookResult::PublishAclResult(PublishAclResult::Rejected(disconnect_if_pub_rejected))))
+                        (
+                            false,
+                            Some(HookResult::PublishAclResult(PublishAclResult::Rejected(
+                                disconnect_if_pub_rejected,
+                            ))),
+                        )
                     };
                 }
-                return (false, Some(HookResult::PublishAclResult(PublishAclResult::Rejected(disconnect_if_pub_rejected))));
+                return (
+                    false,
+                    Some(HookResult::PublishAclResult(PublishAclResult::Rejected(
+                        disconnect_if_pub_rejected,
+                    ))),
+                );
             }
             _ => {
                 log::error!("parameter is: {:?}", param);

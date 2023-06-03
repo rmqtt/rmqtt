@@ -14,11 +14,12 @@ use tokio::sync::RwLock;
 use config::PluginConfig;
 use rmqtt::ntex::util::ByteString;
 use rmqtt::reqwest::Response;
-use rmqtt::{ahash, async_trait, lazy_static, log, reqwest, serde_json, tokio, chrono};
+use rmqtt::{ahash, async_trait, chrono, lazy_static, log, reqwest, serde_json, tokio};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::types::{
-        AuthResult, Superuser, ConnectInfo, Password, PublishAclResult, SubscribeAckReason, SubscribeAclResult,
+        AuthResult, ConnectInfo, Password, PublishAclResult, SubscribeAckReason, SubscribeAclResult,
+        Superuser,
     },
     plugin::{DynPlugin, DynPluginResult, Plugin},
     MqttError, Result, Runtime, TopicName,
@@ -115,9 +116,7 @@ impl Plugin for AuthHttpPlugin {
         let cfg = &self.cfg;
 
         let priority = cfg.read().await.priority;
-        self.register
-            .add_priority(Type::ClientAuthenticate, priority, Box::new(AuthHandler::new(cfg)))
-            .await;
+        self.register.add_priority(Type::ClientAuthenticate, priority, Box::new(AuthHandler::new(cfg))).await;
         self.register
             .add_priority(Type::ClientSubscribeCheckAcl, priority, Box::new(AuthHandler::new(cfg)))
             .await;
@@ -188,7 +187,8 @@ impl AuthHandler {
     async fn response_result(resp: Response) -> Result<(ResponseResult, Superuser, Cacheable)> {
         if resp.status().is_success() {
             let superuser = resp.headers().contains_key(SUPERUSER);
-            let cache_timeout = if let Some(tm) = resp.headers().get(CACHEABLE).and_then(|v|v.to_str().ok()) {
+            let cache_timeout = if let Some(tm) = resp.headers().get(CACHEABLE).and_then(|v| v.to_str().ok())
+            {
                 match tm.parse::<i64>() {
                     Ok(tm) => Some(tm),
                     Err(e) => {
@@ -196,7 +196,7 @@ impl AuthHandler {
                         None
                     }
                 }
-            }else{
+            } else {
                 None
             };
             log::debug!("Cache timeout is {:?}", cache_timeout);
@@ -338,12 +338,7 @@ impl AuthHandler {
             Self::replaces(body, connect_info, password, sub_or_pub)?;
             Self::http_form_request(req_cfg.url, req_cfg.method, body, headers, timeout).await?
         };
-        log::debug!(
-            "auth_result: {:?}, superuser: {}, cacheable: {:?}",
-            auth_result,
-            superuser,
-            cacheable
-        );
+        log::debug!("auth_result: {:?}, superuser: {}, cacheable: {:?}", auth_result, superuser, cacheable);
         Ok((auth_result, cacheable))
     }
 
@@ -358,7 +353,7 @@ impl AuthHandler {
                     log::warn!("{:?} auth error, {:?}", connect_info.id(), e);
                     if self.cfg.read().await.deny_if_error {
                         ResponseResult::Deny
-                    }else{
+                    } else {
                         ResponseResult::Ignore
                     }
                 }
@@ -383,7 +378,7 @@ impl AuthHandler {
                     log::warn!("{:?} acl error, {:?}", connect_info.id(), e);
                     if self.cfg.read().await.deny_if_error {
                         (ResponseResult::Deny, None)
-                    }else{
+                    } else {
                         (ResponseResult::Ignore, None)
                     }
                 }
@@ -409,7 +404,9 @@ impl Handler for AuthHandler {
                 }
 
                 return match self.auth(*connect_info, connect_info.password()).await {
-                    ResponseResult::Allow(superuser) => (false, Some(HookResult::AuthResult(AuthResult::Allow(superuser)))),
+                    ResponseResult::Allow(superuser) => {
+                        (false, Some(HookResult::AuthResult(AuthResult::Allow(superuser))))
+                    }
                     ResponseResult::Deny => {
                         (false, Some(HookResult::AuthResult(AuthResult::BadUsernameOrPassword)))
                     }
@@ -425,11 +422,9 @@ impl Handler for AuthHandler {
                 }
 
                 //ResponseResult, Cacheable
-                let (acl_res, _) = self
-                    .acl(&client_info.connect_info, Some((ACLType::Sub, &subscribe.topic_filter)))
-                    .await;
-                return match acl_res
-                {
+                let (acl_res, _) =
+                    self.acl(&client_info.connect_info, Some((ACLType::Sub, &subscribe.topic_filter))).await;
+                return match acl_res {
                     ResponseResult::Allow(_) => (
                         false,
                         Some(HookResult::SubscribeAclResult(SubscribeAclResult::new_success(subscribe.qos))),
@@ -450,40 +445,43 @@ impl Handler for AuthHandler {
                     return (false, acc);
                 }
 
-                let acl_res = if let Some((acl_res, expire)) = client_info.extra_attrs.read().await
+                let acl_res = if let Some((acl_res, expire)) = client_info
+                    .extra_attrs
+                    .read()
+                    .await
                     .get::<HashMap<TopicName, (ResponseResult, i64)>>(CACHE_KEY)
-                    .and_then(|cache_map| cache_map.get(publish.topic())) {
+                    .and_then(|cache_map| cache_map.get(publish.topic()))
+                {
                     if *expire < 0 || chrono::Local::now().timestamp_millis() < *expire {
-                        Some(acl_res.clone())
+                        Some(*acl_res)
                     } else {
                         None
                     }
-                }else {
+                } else {
                     None
                 };
 
                 let acl_res = if let Some(acl_res) = acl_res {
                     acl_res
-                }else{
+                } else {
                     //ResponseResult, Cacheable
-                    let (acl_res, cacheable) = self
-                        .acl(&client_info.connect_info, Some((ACLType::Pub, publish.topic())))
-                        .await;
+                    let (acl_res, cacheable) =
+                        self.acl(&client_info.connect_info, Some((ACLType::Pub, publish.topic()))).await;
                     if let Some(tm) = cacheable {
-                        let def_fn = ||{
-                            let def: HashMap<TopicName, (ResponseResult, i64)> = HashMap::default();
-                            def
-                        };
-                        let expire = if tm < 0 { tm }else{ chrono::Local::now().timestamp_millis() + tm };
-                        if let Some(cache_map) = client_info.extra_attrs.write().await.get_default_mut(CACHE_KEY.into(), def_fn){
+                        let expire = if tm < 0 { tm } else { chrono::Local::now().timestamp_millis() + tm };
+                        if let Some(cache_map) = client_info
+                            .extra_attrs
+                            .write()
+                            .await
+                            .get_default_mut(CACHE_KEY.into(), HashMap::default)
+                        {
                             cache_map.insert(publish.topic().clone(), (acl_res, expire));
                         }
                     }
                     acl_res
                 };
 
-                return match acl_res
-                {
+                return match acl_res {
                     ResponseResult::Allow(_) => {
                         (false, Some(HookResult::PublishAclResult(PublishAclResult::Allow)))
                     }
@@ -513,4 +511,3 @@ lazy_static::lazy_static! {
                 .unwrap()
     };
 }
-

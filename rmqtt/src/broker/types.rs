@@ -1189,6 +1189,12 @@ pub struct ExtraAttrs {
     attrs: HashMap<String, Box<dyn Any + Sync + Send>>,
 }
 
+impl Default for ExtraAttrs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ExtraAttrs {
     #[inline]
     pub fn new() -> Self {
@@ -1198,6 +1204,11 @@ impl ExtraAttrs {
     #[inline]
     pub fn len(&self) -> usize {
         self.attrs.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.attrs.is_empty()
     }
 
     #[inline]
