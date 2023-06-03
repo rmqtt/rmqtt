@@ -25,21 +25,21 @@ rules = [
     # Allow "dashboard" users to subscribe to "$SYS/#" topics
     ["allow", { user = "dashboard" }, "subscribe", ["$SYS/#"]],
 
-    # Allow users with IP address "127.0.0.1" to publish/subscribe to topics "$SYS/#", "#"
-    ["allow", { ipaddr = "127.0.0.1" }, "pubsub", ["$SYS/#", "#"]],
+    # Allow users with IP address "127.0.0.1" to connect and publish/subscribe to topics "$SYS/#", "#"
+    ["allow", { ipaddr = "127.0.0.1" }, "all", ["$SYS/#", "#"]],
 
     # Deny "All Users" subscribe to "$SYS/#" "#" Topics
     ["deny", "all", "subscribe", ["$SYS/#", { eq = "#" }]],
 
-    # Allow any other publish/subscribe operation
+    # Allow any other clients connect and publish/subscribe operations
     ["allow", "all"]
 ]
 ```
 
-1. The fourth rule allows clients to publish and subscribe to all topics
-2. The third rule prohibits all clients from subscribing to the topics `$SYS/#` and `#`
-3. The second rule allows clients with IP address `127.0.0.1` to publish / subscribe to the topics ` $SYS/# `and `#`, which makes a special case for the second rule
-4. The first rule allows clients with the username `dashboard` to subscribe to the topic ` $SYS/#`, which makes a special case for the second rule
+1. The first rule allows clients with the username `dashboard` to subscribe to the topic ` $SYS/#`, which makes a special case for the third rule
+2. The second rule allows clients with IP address `127.0.0.1` to connect and publish / subscribe to the topics ` $SYS/# `and `#`, which makes a special case for the third rule
+3. The third rule prohibits all clients from subscribing to the topics `$SYS/#` and `#`
+4. The fourth rule allows clients to connect and publish/subscribe to all topics
 
 It can be seen that the default ACL is mainly to restrict the client's permissions on the system topic `$SYS/#` and the all wildcard topic `#`.
 
@@ -55,6 +55,7 @@ The rules in the `rmqtt-acl.toml` file are matched from top to bottom in writing
     * `deny`
 - The second position of the tuple indicates the user to which the rule takes effect. The format that can be used is:
     * `{ user = "dashboard" }`: The rule only takes effect for users whose Username  is dashboard
+    * `{ user = "dashboard", password = "123456", superuser = true }`：Indicates that the rule is effective for users with * Username * as "dashboard" and * Password * as "123456"; Superuser indicates that this user is a superuser and will skip authentication when publish/subscribe to messages.
     * `{ clientid = "dashboard" }`: The rule only takes effect for users whose ClientId is dashboard
     * `{ ipaddr = "127.0.0.1" }`: The rule only takes effect for users whose Source Address is "127.0.0.1"
     * `all`: The rule takes effect for all users
