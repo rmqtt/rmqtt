@@ -47,7 +47,8 @@ x86_64 architecture servers and ARM devices like Raspberry Pi.
 * Single node
 
 ```bash
-docker run -d --name rmqtt -p 1883:1883 -p 8883:8883 -p 11883:11883 -p 6060:6060 -v /app/log/rmqtt:/var/log/rmqtt  rmqtt/rmqtt:latest
+mkdir -p /app/log/rmqtt
+docker run -itd --name rmqtt -p 1883:1883 -p 8883:8883 -p 11883:11883 -p 6060:6060 -v /app/log/rmqtt:/var/log/rmqtt  rmqtt/rmqtt:latest
 ```
 
 * Multi node
