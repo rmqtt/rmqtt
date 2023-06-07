@@ -1,5 +1,8 @@
 # 内置 ACL
 
+[English](../en_US/acl.md)  | 简体中文
+
+
 内置 ACL 通过文件设置规则，使用上足够简单轻量，适用于规则数量可预测、无变动需求或变动较小的项目。
 
 ACL 规则文件：
@@ -8,8 +11,13 @@ ACL 规则文件：
 plugins/rmqtt-acl.toml
 ```
 
-::: tip 内置 ACL 优先级最低，可以被 其它ACL 插件覆盖，如需禁用全部注释即可。规则文件更改后需重启 RMQTT服务 以应用生效。
-:::
+<div style="width:100%;padding:15px;border-left:10px solid #1cc68b;background-color: #d1e3dd; color: #00b173;">
+<div style="font-size:1.3em;">提示<br></div>
+<font style="color:#435364;font-size:1.1em;">
+内置 ACL 优先级最低，可以被 其它ACL 插件覆盖，如需禁用全部注释即可。规则文件更改后需重启 RMQTT服务 以应用生效。
+</font>
+</div>
+
 
 ## 定义 ACL
 
@@ -94,5 +102,11 @@ curl -X PUT "http://127.0.0.1:6066/api/v1/plugins/1/rmqtt-acl/config/reload"
 
 表示，**允许** 客户端 ID 为 `light` 的客户端 **订阅和发布** 到 `sensor/light/ctrl` 主题。
 
-::: tip rmqtt-acl.toml 中应只包含一些简单而通用的规则，使其成为系统基础的 ACL 原则。如果需要支持复杂、大量的 ACL 内容，你应该在认证插件中去实现它。
-:::
+<div style="width:100%;padding:15px;border-left:10px solid #1cc68b;background-color: #d1e3dd; color: #00b173;">
+<div style="font-size:1.3em;">提示<br></div>
+<font style="color:#435364;font-size:1.1em;">
+rmqtt-acl.toml 中应只包含一些简单而通用的规则，使其成为系统基础的 ACL 原则。如果需要支持复杂、大量的 ACL 内容，你应该在认证插件中去实现它。
+</font>
+</div>
+
+

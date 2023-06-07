@@ -1,5 +1,8 @@
 # HTTP API
 
+[English](../en_US/http-api.md)  | 简体中文
+
+
 RMQTT 提供了 HTTP API 以实现与外部系统的集成，例如查询客户端信息、发布消息等。
 
 RMQTT 的 HTTP API 服务默认监听 6060 端口，可通过 `etc/plugins/rmqtt-http-api.toml` 配置文件修改监听端口。所有 API 调用均以 `api/v1` 开头。

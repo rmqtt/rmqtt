@@ -1,5 +1,8 @@
 # Internal ACL
 
+English | [简体中文](../zh_CN/acl.md)
+
+
 The built-in ACL sets rules through files, which is simple and lightweight to use. It is suitable for projects with a
 predictable number of rules, no change, or small change requirements.
 
@@ -9,11 +12,16 @@ ACL rules file:
 plugins/rmqtt-acl.toml
 ```
 
-::: tip The built-in ACL has the lowest priority and can be overridden by the ACL plugin. If you want to disable it, you
+<div style="width:100%;padding:15px;border-left:10px solid #1cc68b;background-color: #d1e3dd; color: #00b173;">
+<div style="font-size:1.3em;">TIP<br></div>
+<font style="color:#435364;font-size:1.1em;">
+The built-in ACL has the lowest priority and can be overridden by the ACL plugin. If you want to disable it, you
 can comment on all the rules. After the rules file is changed, RMQTT Broker needs to be restarted to make them take
 effect.
+</font>
+</div>
 
-:::
+
 
 ## Define ACL
 
@@ -107,7 +115,13 @@ This means that a client with ID 'light' is **Allowed** to **Subscribe and Publi
 If you need to support complex, large amounts of ACL content, you should implement it in an authentication plugin.
 
 :::
-
+<div style="width:100%;padding:15px;border-left:10px solid #1cc68b;background-color: #d1e3dd; color: #00b173;">
+<div style="font-size:1.3em;">TIP<br></div>
+<font style="color:#435364;font-size:1.1em;">
+Only a few simple and general rules are contained in `rmqtt-acl.toml` that make it a system-based ACL principle.
+If you need to support complex, large amounts of ACL content, you should implement it in an authentication plugin.
+</font>
+</div>
 
 
 

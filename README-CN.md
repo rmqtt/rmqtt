@@ -18,7 +18,7 @@
     - Retained 消息支持;
     - Last Will 消息支持;
 - [内置 ACL](./docs/zh_CN/acl.md);
-- HTTP ACL;
+- [HTTP AUTH/ACL](./docs/zh_CN/auth-http.md);
 - WebHook;
 - [HTTP APIs](./docs/zh_CN/http-api.md);
 - 分布式集群;
