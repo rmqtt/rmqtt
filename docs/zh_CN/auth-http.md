@@ -1,7 +1,6 @@
-# HTTP 认证
-
 [English](../en_US/auth-http.md)  | 简体中文
 
+# HTTP 认证
 
 HTTP 认证使用外部自建 HTTP 应用认证数据源，根据 HTTP API 返回的数据判定认证结果，能够实现复杂的认证鉴权逻辑。
 

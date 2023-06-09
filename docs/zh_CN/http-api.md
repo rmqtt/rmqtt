@@ -1,7 +1,6 @@
-# HTTP API
-
 [English](../en_US/http-api.md)  | 简体中文
 
+# HTTP API
 
 RMQTT 提供了 HTTP API 以实现与外部系统的集成，例如查询客户端信息、发布消息等。
 

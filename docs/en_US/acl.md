@@ -1,7 +1,6 @@
-# Internal ACL
-
 English | [简体中文](../zh_CN/acl.md)
 
+# Internal ACL
 
 The built-in ACL sets rules through files, which is simple and lightweight to use. It is suitable for projects with a
 predictable number of rules, no change, or small change requirements.
