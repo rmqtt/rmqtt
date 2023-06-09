@@ -34,8 +34,8 @@ The rules file is described in Toml syntax:
 rules = [
     # Allow "dashboard" users to subscribe to "$SYS/#" topics
     ["allow", { user = "dashboard" }, "subscribe", ["$SYS/#"]],
-    # Allow users with IP address "127.0.0.1" to connect and publish/subscribe to topics "$SYS/#", "#"
-    ["allow", { ipaddr = "127.0.0.1" }, "all", ["$SYS/#", "#"]],
+    # Allow client with IP address "127.0.0.1" to publish/subscribe to "$SYS/#" or "#" topics.
+    ["allow", { ipaddr = "127.0.0.1" }, "pubsub", ["$SYS/#", "#"]],
     # Deny "All Users" subscribe to "$SYS/#" "#" Topics
     ["deny", "all", "subscribe", ["$SYS/#", { eq = "#" }]],
     # Allow any other clients connect and publish/subscribe operations
@@ -45,10 +45,10 @@ rules = [
 
 1. The first rule allows clients with the username `dashboard` to subscribe to the topic ` $SYS/#`, which makes a
    special case for the third rule
-2. The second rule allows clients with IP address `127.0.0.1` to connect and publish / subscribe to the
-   topics ` $SYS/# `and `#`, which makes a special case for the third rule
-3. The third rule prohibits all clients from subscribing to the topics `$SYS/#` and `#`
-4. The fourth rule allows clients to connect and publish/subscribe to all topics
+2. The second rule allows clients with IP address `127.0.0.1` to publish / subscribe to the
+   topics ` $SYS/# ` or `#`, which makes a special case for the third rule
+4. The third rule prohibits all clients from subscribing to the topics `$SYS/#` and `#`
+5. The fourth rule allows clients to connect and publish/subscribe to all topics
 
 It can be seen that the default ACL is mainly to restrict the client's permissions on the system topic `$SYS/#` and the
 all wildcard topic `#`.

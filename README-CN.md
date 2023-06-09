@@ -19,7 +19,7 @@
     - Last Will 消息支持;
 - [内置 ACL](./docs/zh_CN/acl.md);
 - [HTTP AUTH/ACL](./docs/zh_CN/auth-http.md);
-- WebHook;
+- [WebHook](./docs/zh_CN/web-hook.md);
 - [HTTP APIs](./docs/zh_CN/http-api.md);
 - 分布式集群;
 - 钩子(Hooks);
