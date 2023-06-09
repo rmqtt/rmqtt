@@ -120,6 +120,7 @@ listener.tcp.external.shared_subscription = true
 
 ##--------------------------------------------------------------------
 ## Internal TCP Listener for MQTT Protocol
+listener.tcp.internal.enable = true
 listener.tcp.internal.addr = "0.0.0.0:11883"
 listener.tcp.internal.workers = 4
 listener.tcp.internal.max_connections = 102400

@@ -47,23 +47,31 @@ impl Listeners {
     #[inline]
     pub(crate) fn init(&mut self) {
         for (name, mut inner) in self._tcps.drain() {
-            inner.name = name;
-            self.tcps.insert(inner.addr.port(), Listener::new(inner));
+            if inner.enable {
+                inner.name = name;
+                self.tcps.insert(inner.addr.port(), Listener::new(inner));
+            }
         }
 
         for (name, mut inner) in self._tlss.drain() {
-            inner.name = name;
-            self.tlss.insert(inner.addr.port(), Listener::new(inner));
+            if inner.enable {
+                inner.name = name;
+                self.tlss.insert(inner.addr.port(), Listener::new(inner));
+            }
         }
 
         for (name, mut inner) in self._wss.drain() {
-            inner.name = name;
-            self.wss.insert(inner.addr.port(), Listener::new(inner));
+            if inner.enable {
+                inner.name = name;
+                self.wss.insert(inner.addr.port(), Listener::new(inner));
+            }
         }
 
         for (name, mut inner) in self._wsss.drain() {
-            inner.name = name;
-            self.wsss.insert(inner.addr.port(), Listener::new(inner));
+            if inner.enable {
+                inner.name = name;
+                self.wsss.insert(inner.addr.port(), Listener::new(inner));
+            }
         }
     }
 
@@ -134,6 +142,8 @@ impl Deref for Listener {
 pub struct ListenerInner {
     #[serde(default)]
     pub name: String,
+    #[serde(default = "ListenerInner::enable_default")]
+    pub enable: bool,
     #[serde(default = "ListenerInner::addr_default", deserialize_with = "deserialize_addr")]
     pub addr: SocketAddr,
     #[serde(default = "ListenerInner::workers_default")]
@@ -220,6 +230,7 @@ impl Default for ListenerInner {
     fn default() -> Self {
         Self {
             name: "external".into(),
+            enable: ListenerInner::enable_default(),
             addr: ListenerInner::addr_default(),
             workers: ListenerInner::workers_default(),
             max_connections: ListenerInner::max_connections_default(),
@@ -252,6 +263,9 @@ impl Default for ListenerInner {
 }
 
 impl ListenerInner {
+    fn enable_default() -> bool {
+        true
+    }
     #[inline]
     fn addr_default() -> SocketAddr {
         ([0, 0, 0, 0], 1883).into()
