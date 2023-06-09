@@ -45,6 +45,7 @@
 * 单节点
 
 ```bash
+mkdir -p /app/log/rmqtt
 docker run -d --name rmqtt -p 1883:1883 -p 8883:8883 -p 11883:11883 -p 6060:6060 -v /app/log/rmqtt:/var/log/rmqtt  rmqtt/rmqtt:latest
 ```
 
