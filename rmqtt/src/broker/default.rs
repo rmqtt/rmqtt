@@ -1034,16 +1034,6 @@ impl DefaultRetainStorage {
         static INSTANCE: OnceCell<DefaultRetainStorage> = OnceCell::new();
         INSTANCE.get_or_init(|| Self { messages: RwLock::new(RetainTree::default()) })
     }
-
-    #[inline]
-    async fn add(&self, topic: &Topic, retain: Retain) {
-        self.messages.write().await.insert(topic, retain);
-    }
-
-    #[inline]
-    async fn remove(&self, topic: &Topic) -> Option<Retain> {
-        self.messages.write().await.remove(topic)
-    }
 }
 
 #[async_trait]
@@ -1051,9 +1041,10 @@ impl RetainStorage for &'static DefaultRetainStorage {
     #[inline]
     async fn set(&self, topic: &TopicName, retain: Retain) -> Result<()> {
         let topic = Topic::from_str(topic)?;
-        let old = self.remove(&topic).await;
+        let mut messages = self.messages.write().await;
+        let old = messages.remove(&topic);
         if !retain.publish.is_empty() {
-            self.add(&topic, retain).await;
+            messages.insert(&topic, retain);
             if old.is_none() {
                 Runtime::instance().stats.retaineds.inc();
             }
@@ -1068,7 +1059,7 @@ impl RetainStorage for &'static DefaultRetainStorage {
         let topic = Topic::from_str(topic_filter)?;
         Ok(self
             .messages
-            .write()
+            .read()
             .await
             .matches(&topic)
             .drain(..)
