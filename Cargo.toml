@@ -8,6 +8,7 @@ members = [
     "rmqtt-plugins/rmqtt-cluster-raft",
     "rmqtt-plugins/rmqtt-counter",
     "rmqtt-plugins/rmqtt-http-api",
+    "rmqtt-plugins/rmqtt-retainer",
     "rmqtt-bin",
     "rmqtt-macros"
 ]
@@ -22,6 +23,7 @@ rmqtt-cluster-broadcast = { path = "rmqtt-plugins/rmqtt-cluster-broadcast" }
 rmqtt-cluster-raft = { path = "rmqtt-plugins/rmqtt-cluster-raft" }
 rmqtt-counter = { path = "rmqtt-plugins/rmqtt-counter" }
 rmqtt-http-api = { path = "rmqtt-plugins/rmqtt-http-api" }
+rmqtt-retainer = { path = "rmqtt-plugins/rmqtt-retainer" }
 
 [workspace.package]
 version = "0.2.12"
