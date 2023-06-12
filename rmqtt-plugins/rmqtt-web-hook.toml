@@ -19,23 +19,19 @@ retry_max_elapsed_time = "60s"
 retry_multiplier = 2.5
 
 ## web hook rules config
-#rule.session_created = [{action = "session_created" } ]
-#rule.session_terminated = [{action = "session_terminated" } ]
-#rule.session_subscribed = [{action = "session_subscribed" , topics=["x/y/z", "foo/#"] } ]
-#rule.session_unsubscribed = [{action = "session_unsubscribed" , topics=["x/y/z", "foo/#"] } ]
-#
-#rule.client_connect = [
-#    {action = "client_connect"},
-#    {action = "client_connect", urls = ["http://127.0.0.1:5656/mqtt/webhook", "http://127.0.0.1:5656/mqtt/webhook"] },
-#    {action = "client_connect", urls = ["http://127.0.0.1:5656/mqtt/webhook"] }
-#]
-#rule.client_connack = [{action = "client_connack", urls = ["http://127.0.0.1:5656/mqtt/webhook", "http://127.0.0.1:5656/mqtt/webhook"] } ]
-#rule.client_connected = [{action = "client_connected" } ]
-#rule.client_disconnected = [{action = "client_disconnected" } ]
-#rule.client_subscribe = [{action = "client_subscribe", topics=["x/y/z", "foo/#"]} ]
-#rule.client_unsubscribe = [{action = "client_unsubscribe", topics=["x/y/z", "foo/#"] } ]
+rule.session_created = [{action = "session_created" } ]
+rule.session_terminated = [{action = "session_terminated" } ]
+rule.session_subscribed = [{action = "session_subscribed"  } ]
+rule.session_unsubscribed = [{action = "session_unsubscribed" } ]
 
-#rule.message_publish = [{action = "message_publish" }]
-#rule.message_delivered = [{action = "message_delivered", topics=["x/y/z", "foo/#"] } ]
-#rule.message_acked = [{action = "message_acked", topics=["x/y/z", "foo/#"] } ]
-#rule.message_dropped = [{action = "message_dropped" } ]
+rule.client_connect = [{action = "client_connect"}]
+rule.client_connack = [{action = "client_connack"} ]
+rule.client_connected = [{action = "client_connected" } ]
+rule.client_disconnected = [{action = "client_disconnected" } ]
+rule.client_subscribe = [{action = "client_subscribe" } ]
+rule.client_unsubscribe = [{action = "client_unsubscribe" } ]
+
+rule.message_publish = [{action = "message_publish", topics=["x/y/z", "foo/#", "testtopic/#"] }]
+rule.message_delivered = [{action = "message_delivered", topics=["x/y/z", "foo/#", "testtopic/#"] } ]
+rule.message_acked = [{action = "message_acked", topics=["x/y/z", "foo/#", "testtopic/#"] } ]
+rule.message_dropped = [{action = "message_dropped" } ]
