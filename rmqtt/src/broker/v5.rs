@@ -208,12 +208,6 @@ pub async fn _handshake<Io: 'static>(
         .await);
     }
 
-    if let Some(o) = offline_info {
-        if let Err(e) = state.transfer_session_state(packet.clean_start, o).await {
-            log::warn!("{:?} Failed to transfer session state, {:?}", state.id, e);
-        }
-    }
-
     //hook, client connack
     let _ = Runtime::instance()
         .extends
@@ -224,6 +218,17 @@ pub async fn _handshake<Io: 'static>(
 
     //hook, client connected
     state.hook.client_connected().await;
+
+    //transfer session state
+    if let Some(o) = offline_info {
+        let state1 = state.clone();
+        let clean_start = packet.clean_start;
+        ntex::rt::spawn(async move {
+            if let Err(e) = state1.transfer_session_state(clean_start, o).await {
+                log::warn!("{:?} Failed to transfer session state, {:?}", state1.id, e);
+            }
+        });
+    }
 
     log::debug!("{:?} keep_alive: {}", state.id, keep_alive);
     let id = state.id.clone();
