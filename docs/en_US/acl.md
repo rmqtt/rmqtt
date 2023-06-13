@@ -91,7 +91,7 @@ After the `rmqtt-acl.toml` modification is completed, it will not be automatical
 but needs to be performed manually:
 
 ```bash
-curl -X PUT "http://127.0.0.1:6066/api/v1/plugins/1/rmqtt-acl/config/reload"
+curl -X PUT "http://127.0.0.1:6060/api/v1/plugins/1/rmqtt-acl/config/reload"
 ```
 
 ## Placeholders
