@@ -83,7 +83,7 @@ rules = [
 在 `rmqtt-acl.toml` 修改完成后，并不会自动加载至 RMQTT 系统。需要手动执行：
 
 ```bash
-curl -X PUT "http://127.0.0.1:6066/api/v1/plugins/1/rmqtt-acl/config/reload"
+curl -X PUT "http://127.0.0.1:6060/api/v1/plugins/1/rmqtt-acl/config/reload"
 ```
 
 ## 占位符
