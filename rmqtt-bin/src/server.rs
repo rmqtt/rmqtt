@@ -48,6 +48,9 @@ async fn main() {
     //init config
     Settings::init(Options::from_args());
 
+    //init global task executor
+    Runtime::init().await;
+
     //init log
     let _guard = logger_init();
 
