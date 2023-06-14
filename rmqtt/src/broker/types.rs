@@ -5,6 +5,7 @@ use std::net::SocketAddr;
 use std::num::{NonZeroU16, NonZeroU32};
 use std::ops::Deref;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use bytestring::ByteString;
 use ntex::util::Bytes;
@@ -1240,3 +1241,39 @@ impl ExtraAttrs {
         self.attrs.entry(key).or_insert_with(|| Box::new(def_fn())).downcast_mut::<T>()
     }
 }
+
+#[derive(Clone, Debug)]
+pub struct TimedValue<V>(V, Option<Instant>);
+
+impl<V> TimedValue<V> {
+    pub fn new(value: V, timeout_duration: Option<Duration>) -> Self {
+        TimedValue(value, timeout_duration.map(|t| Instant::now() + t))
+    }
+
+    pub fn value(&self) -> &V {
+        &self.0
+    }
+
+    pub fn value_mut(&mut self) -> &mut V {
+        &mut self.0
+    }
+
+    pub fn into_value(self) -> V {
+        self.0
+    }
+
+    pub fn is_expired(&self) -> bool {
+        self.1.map(|e| Instant::now() >= e).unwrap_or(false)
+    }
+}
+
+impl<V> PartialEq for TimedValue<V>
+where
+    V: PartialEq,
+{
+    fn eq(&self, other: &TimedValue<V>) -> bool {
+        self.value() == other.value()
+    }
+}
+
+//impl<V> Eq for TimedValue<V> where V: Eq {}
