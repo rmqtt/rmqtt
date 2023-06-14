@@ -28,6 +28,7 @@ pub use reqwest;
 pub use rust_box;
 pub use structopt;
 pub use tokio;
+pub use tokio_cron_scheduler;
 pub use tokio_tungstenite;
 
 pub use crate::broker::{

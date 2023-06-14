@@ -129,7 +129,6 @@ impl Plugin for ClusterPlugin {
         log::info!("{} start", self.name);
         self.register.start().await;
         *self.runtime.extends.shared_mut().await = Box::new(self.shared);
-        *self.runtime.extends.retain_mut().await = Box::new(self.retainer);
         *self.runtime.extends.router_mut().await = Box::new(self.router);
         Ok(())
     }

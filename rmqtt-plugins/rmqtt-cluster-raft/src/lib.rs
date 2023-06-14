@@ -254,7 +254,6 @@ impl Plugin for ClusterPlugin {
         let raft_mailbox = self.raft_mailbox();
         *self.runtime.extends.router_mut().await = Box::new(self.router);
         *self.runtime.extends.shared_mut().await = Box::new(self.shared);
-        *self.runtime.extends.retain_mut().await = Box::new(self.retainer);
         self.register.start().await;
 
         for i in 0..10 {

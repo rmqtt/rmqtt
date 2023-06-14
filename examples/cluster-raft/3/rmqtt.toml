@@ -39,6 +39,7 @@ log.file = "rmqtt_3.log"
 plugins.dir = "./plugins/"
 #Plug in started by default, when the mqtt server is started
 plugins.default_startups = [
+    "rmqtt-retainer",
     "rmqtt-cluster-raft",
     #    "rmqtt-auth-http",
     "rmqtt-web-hook"

@@ -1025,7 +1025,7 @@ impl DefaultSharedSubscription {
 impl SharedSubscription for &'static DefaultSharedSubscription {}
 
 pub struct DefaultRetainStorage {
-    messages: RwLock<RetainTree<Retain>>,
+    messages: RwLock<RetainTree<TimedValue<Retain>>>,
 }
 
 impl DefaultRetainStorage {
@@ -1034,17 +1034,32 @@ impl DefaultRetainStorage {
         static INSTANCE: OnceCell<DefaultRetainStorage> = OnceCell::new();
         INSTANCE.get_or_init(|| Self { messages: RwLock::new(RetainTree::default()) })
     }
-}
 
-#[async_trait]
-impl RetainStorage for &'static DefaultRetainStorage {
     #[inline]
-    async fn set(&self, topic: &TopicName, retain: Retain) -> Result<()> {
+    pub async fn remove_expired_messages(&self) {
+        let mut messages = self.messages.write().await;
+        messages.retain(|tv| {
+            if tv.is_expired() {
+                Runtime::instance().stats.retaineds.dec();
+                false
+            } else {
+                true
+            }
+        });
+    }
+
+    #[inline]
+    pub async fn set_with_timeout(
+        &self,
+        topic: &TopicName,
+        retain: Retain,
+        timeout: Option<Duration>,
+    ) -> Result<()> {
         let topic = Topic::from_str(topic)?;
         let mut messages = self.messages.write().await;
         let old = messages.remove(&topic);
         if !retain.publish.is_empty() {
-            messages.insert(&topic, retain);
+            messages.insert(&topic, TimedValue::new(retain, timeout));
             if old.is_none() {
                 Runtime::instance().stats.retaineds.inc();
             }
@@ -1053,18 +1068,33 @@ impl RetainStorage for &'static DefaultRetainStorage {
         }
         Ok(())
     }
+}
+
+#[async_trait]
+impl RetainStorage for &'static DefaultRetainStorage {
+    #[inline]
+    async fn set(&self, topic: &TopicName, retain: Retain) -> Result<()> {
+        self.set_with_timeout(topic, retain, None).await
+    }
 
     #[inline]
     async fn get(&self, topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>> {
         let topic = Topic::from_str(topic_filter)?;
-        Ok(self
+        let retains = self
             .messages
             .read()
             .await
             .matches(&topic)
             .drain(..)
-            .map(|(t, r)| (TopicName::from(t.to_string()), r))
-            .collect())
+            .filter_map(|(t, r)| {
+                if r.is_expired() {
+                    None
+                } else {
+                    Some((TopicName::from(t.to_string()), r.into_value()))
+                }
+            })
+            .collect::<Vec<(TopicName, Retain)>>();
+        Ok(retains)
     }
 
     #[inline]
