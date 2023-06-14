@@ -2,7 +2,7 @@
 ## rmqtt-retainer
 ##--------------------------------------------------------------------
 
-#ram: only stored in memory;
+# ram: only stored in memory;
 storage_type = "ram"
 
 # The maximum number of retained messages, where 0 indicates no limit. After the number of reserved messages exceeds
@@ -16,4 +16,4 @@ max_payload_size = "1MB"
 
 # The expiration time of the retention message, where 0 means it will never expire. If the message expiration interval is set in
 # the PUBLISH message, the message expiration interval in the PUBLISH message shall prevail.
-expiry_interval = "10m"
+expiry_interval = "0s"
