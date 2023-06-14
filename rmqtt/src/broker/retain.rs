@@ -59,6 +59,31 @@ where
         }
     }
 
+    //remove all pairs `v` for which `f(&mut v)` returns `false`.
+    #[inline]
+    pub fn retain<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&mut V) -> bool,
+    {
+        self._retain(&mut f);
+    }
+
+    #[inline]
+    fn _retain<F>(&mut self, f: &mut F)
+    where
+        F: FnMut(&mut V) -> bool,
+    {
+        self.branches.retain(|_, child_node| {
+            child_node._retain(f);
+            if let Some(v) = child_node.value_mut() {
+                if !f(v) {
+                    let _ = child_node.value.take();
+                }
+            }
+            !(child_node.value.is_none() && child_node.branches.is_empty())
+        });
+    }
+
     #[inline]
     pub fn matches(&self, topic: &Topic) -> Vec<(Topic, V)> {
         let mut out = Vec::new();
@@ -144,6 +169,11 @@ where
     }
 
     #[inline]
+    pub fn value_mut(&mut self) -> Option<&mut V> {
+        self.value.as_mut()
+    }
+
+    #[inline]
     pub fn children(&self) -> &HashMap<Level, Node<V>> {
         &self.branches
     }
@@ -151,6 +181,22 @@ where
     #[inline]
     pub fn child(&self, l: &Level) -> Option<&Node<V>> {
         self.branches.get(l)
+    }
+
+    #[inline]
+    pub fn values_size(&self) -> usize {
+        let len: usize = self.branches.iter().map(|(_, n)| n.values_size()).sum();
+        if self.value.is_some() {
+            len + 1
+        } else {
+            len
+        }
+    }
+
+    #[inline]
+    pub fn nodes_size(&self) -> usize {
+        let len: usize = self.branches.iter().map(|(_, n)| n.nodes_size()).sum();
+        self.branches.len() + len
     }
 }
 
@@ -179,11 +225,18 @@ mod tests {
         tree.insert(&Topic::from_str("/iot/b/x").unwrap(), 1);
         tree.insert(&Topic::from_str("/iot/b/y").unwrap(), 2);
         tree.insert(&Topic::from_str("/iot/b/z").unwrap(), 3);
+        tree.insert(&Topic::from_str("/iot/b").unwrap(), 123);
         tree.insert(&Topic::from_str("/x/y/z").unwrap(), 4);
 
         assert!(match_one(&tree, "/iot/b/y", &[2]));
         assert!(match_one(&tree, "/iot/b/+", &[1, 2, 3]));
         assert!(match_one(&tree, "/x/y/z", &[4]));
         assert!(!match_one(&tree, "/x/y/z", &[1]));
+
+        println!("1 tree.values_size: {}", tree.values_size());
+        println!("1 tree.nodes_size: {}", tree.nodes_size());
+        tree.retain(|v| false);
+        println!("2 tree.values_size: {}", tree.values_size());
+        println!("2 tree.nodes_size: {}", tree.nodes_size());
     }
 }

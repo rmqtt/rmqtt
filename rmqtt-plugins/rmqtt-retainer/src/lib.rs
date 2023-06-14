@@ -2,25 +2,18 @@
 #[macro_use]
 extern crate serde;
 
-use std::str::FromStr;
-use std::sync::Arc;
-
 use config::PluginConfig;
-use rmqtt::{
-    async_trait::async_trait,
-    log, serde_json,
-    tokio::{self, sync::RwLock},
-};
+use retainer::Retainer;
+use rmqtt::broker::RetainStorage;
+use rmqtt::grpc::MessageType;
+use rmqtt::{async_trait::async_trait, log, serde_json, tokio::sync::RwLock, tokio_cron_scheduler::Job};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
-    broker::types::{AuthResult, PublishAclResult, SubscribeAckReason, SubscribeAclResult, Topic},
     grpc::{Message, MessageReply},
     plugin::{DynPlugin, DynPluginResult, Plugin},
     Result, Runtime,
 };
-
-use retainer::Retainer;
-use rmqtt::grpc::MessageType;
+use std::sync::Arc;
 
 mod config;
 mod retainer;
@@ -62,10 +55,12 @@ impl RetainerPlugin {
     ) -> Result<Self> {
         let name = name.into();
         let cfg = runtime.settings.plugins.load_config::<PluginConfig>(&name)?;
-        log::debug!("{} RetainerPlugin cfg: {:?}", name, cfg);
+        log::info!("{} RetainerPlugin cfg: {:?}", name, cfg);
         let register = runtime.extends.hook_mgr().await.register();
-        let retainer = Retainer::get_or_init(cfg.message_type);
+        let message_type = cfg.message_type;
         let cfg = Arc::new(RwLock::new(cfg));
+        let retainer = Retainer::get_or_init(cfg.clone(), message_type);
+
         Ok(Self { runtime, name, descr: descr.into(), register, cfg, retainer })
     }
 }
@@ -80,6 +75,25 @@ impl Plugin for RetainerPlugin {
         self.register
             .add(Type::GrpcMessageReceived, Box::new(RetainHandler::new(self.retainer, cfg, message_type)))
             .await;
+
+        let retainer = self.retainer;
+        let async_jj = Job::new_async("0 1/10 * * * *", move |_uuid, _l| {
+            Box::pin(async move {
+                let c = retainer.count();
+                retainer.remove_expired_messages().await;
+                let removeds = c - retainer.count();
+                if removeds > 0 {
+                    log::info!(
+                        "{:?} remove_expired_messages, removed count: {}",
+                        std::thread::current().id(),
+                        removeds
+                    );
+                }
+            })
+        })
+        .unwrap();
+        self.runtime.sched.add(async_jj).await.unwrap();
+
         Ok(())
     }
 
@@ -129,13 +143,13 @@ impl Plugin for RetainerPlugin {
 
 struct RetainHandler {
     retainer: &'static Retainer,
-    cfg: Arc<RwLock<PluginConfig>>,
+    _cfg: Arc<RwLock<PluginConfig>>,
     message_type: MessageType,
 }
 
 impl RetainHandler {
     fn new(retainer: &'static Retainer, cfg: &Arc<RwLock<PluginConfig>>, message_type: MessageType) -> Self {
-        Self { retainer, cfg: cfg.clone(), message_type }
+        Self { retainer, _cfg: cfg.clone(), message_type }
     }
 }
 
