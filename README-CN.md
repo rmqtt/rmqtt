@@ -63,7 +63,7 @@ docker run -d --name rmqtt -p 1883:1883 -p 8883:8883 -p 11883:11883 -p 6060:6060
 
 #### 通过 docker-compose 创建静态集群
 
-1. [下载配置模板](./examples/docker-compose.zip)
+1. [下载配置模板](https://github.com/rmqtt/templates/blob/main/docker-compose-template/docker-compose-template.zip)
 
 2. 启动 docker-compose 集群
 

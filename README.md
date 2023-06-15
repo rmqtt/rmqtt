@@ -48,7 +48,7 @@ x86_64 architecture servers and ARM devices like Raspberry Pi.
 
 ```bash
 mkdir -p /app/log/rmqtt
-docker run -itd --name rmqtt -p 1883:1883 -p 8883:8883 -p 11883:11883 -p 6060:6060 -v /app/log/rmqtt:/var/log/rmqtt  rmqtt/rmqtt:latest
+docker run -d --name rmqtt -p 1883:1883 -p 8883:8883 -p 11883:11883 -p 6060:6060 -v /app/log/rmqtt:/var/log/rmqtt  rmqtt/rmqtt:latest
 ```
 
 * Multi node
@@ -65,7 +65,7 @@ Node IDs: 1, 2, 3; Node IP Addrs: 172.17.0.3, 172.17.0.4, 172.17.0.5
 
 #### Create a static cluster by docker-compose
 
-1. [Download docker-compose configuration template](./examples/docker-compose.zip)
+1. [Download docker-compose configuration template](https://github.com/rmqtt/templates/blob/main/docker-compose-template/docker-compose-template.zip)
 
 2. Start docker-compose cluster
 
