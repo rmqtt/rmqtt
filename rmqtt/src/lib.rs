@@ -24,6 +24,7 @@ pub use ntex_mqtt;
 pub use once_cell;
 pub use parking_lot::RwLock;
 pub use pin_project_lite;
+pub use rand;
 pub use reqwest;
 pub use rust_box;
 pub use structopt;
