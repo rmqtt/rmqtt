@@ -147,10 +147,12 @@ impl ClusterPlugin {
         let raft = Raft::new(raft_laddr, router, logger, cfg.read().raft.to_raft_config());
         let mailbox = raft.mailbox();
 
-        let peer_addrs = raft_peer_addrs
-            .iter()
-            .filter_map(|peer| if peer.id != id { Some(peer.addr.to_string()) } else { None })
-            .collect::<Vec<String>>();
+        let mut peer_addrs = Vec::new();
+        for peer in raft_peer_addrs.iter() {
+            if peer.id != id {
+                peer_addrs.push(parse_addr(&peer.addr.to_string()).await?.to_string())
+            }
+        }
         log::info!("peer_addrs: {:?}", peer_addrs);
 
         let leader_info =
