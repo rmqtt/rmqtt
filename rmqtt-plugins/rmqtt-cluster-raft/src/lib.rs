@@ -137,7 +137,7 @@ impl ClusterPlugin {
             .iter()
             .find(|peer| peer.id == id)
             .map(|peer| peer.addr.to_string())
-            .ok_or(MqttError::from("raft listening address does not exist"))?;
+            .ok_or_else(|| MqttError::from("raft listening address does not exist"))?;
         let logger = Runtime::instance().logger.clone();
         log::info!("raft_laddr: {:?}", raft_laddr);
 
@@ -150,7 +150,7 @@ impl ClusterPlugin {
         let mut peer_addrs = Vec::new();
         for peer in raft_peer_addrs.iter() {
             if peer.id != id {
-                peer_addrs.push(parse_addr(&peer.addr.to_string()).await?.to_string())
+                peer_addrs.push(parse_addr(&peer.addr).await?.to_string())
             }
         }
         log::info!("peer_addrs: {:?}", peer_addrs);
@@ -338,7 +338,7 @@ async fn parse_addr(addr: &str) -> Result<SocketAddr> {
         }
         tokio::time::sleep(Duration::from_millis((rand::random::<u64>() % 300) + 500)).await;
     }
-    return Err(MqttError::from("Parsing address error"));
+    Err(MqttError::from("Parsing address error"))
 }
 
 pub(crate) struct MessageSender {
