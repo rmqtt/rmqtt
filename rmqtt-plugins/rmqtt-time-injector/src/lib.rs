@@ -112,7 +112,7 @@ impl Handler for PublishHandler {
                                     retain: p.retain,
                                     qos: p.qos,
                                     topic: p.topic.clone(),
-                                    packet_id: None,
+                                    packet_id: p.packet_id,
                                     payload: Bytes::from(payload),
 
                                     properties: p.properties.clone(),
