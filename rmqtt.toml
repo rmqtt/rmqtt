@@ -44,6 +44,7 @@ plugins.default_startups = [
     #    "rmqtt-web-hook",
     #    "rmqtt-cluster-broadcast",
     #    "rmqtt-cluster-raft",
+    #    "rmqtt-time-injector",
     #    "rmqtt-http-api"
 ]
 

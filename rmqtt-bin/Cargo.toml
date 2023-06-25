@@ -41,6 +41,7 @@ rmqtt-cluster-raft = "0.1"
 rmqtt-counter = "0.1"
 rmqtt-http-api = "0.1"
 rmqtt-retainer = "0.1"
+rmqtt-time-injector = "0.1"
 #rmqtt-plugin-template = "0.1"
 
 [package.metadata.plugins]
@@ -52,6 +53,7 @@ rmqtt-auth-http = { }
 rmqtt-cluster-broadcast = { immutable = true }
 rmqtt-cluster-raft = { immutable = true }
 rmqtt-retainer = { }
+rmqtt-time-injector = { }
 #rmqtt-plugin-template = { }
 
 [build-dependencies]
