@@ -76,7 +76,7 @@ docker-compose up -d
 3. View cluster
 
 ```bash
-curl "http://127.0.0.1:6066/api/v1/brokers"
+curl "http://127.0.0.1:6066/api/v1/health/check"
 ```
 
 #### Installing via ZIP Binary Package (Linux、MacOS、Windows)
@@ -89,7 +89,7 @@ Get the binary package of the corresponding OS from [RMQTT Download](https://git
 
 ## Experience
 
-- MQTT Borker: 121.4.74.58:1883
+- MQTT Borker: 47.103.110.134:1883
 - Account:
-- HTTP APIs: http://121.4.74.58:6060/api/v1/
+- HTTP APIs: http://47.103.110.134:6080/api/v1/
 

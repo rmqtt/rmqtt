@@ -74,7 +74,7 @@ docker-compose up -d
 3. 查看集群
 
 ```bash
-curl "http://127.0.0.1:6066/api/v1/brokers"
+curl "http://127.0.0.1:6066/api/v1/health/check"
 ```
 
 #### ZIP 压缩包安装 (Linux、MacOS、Windows)
@@ -87,9 +87,9 @@ curl "http://127.0.0.1:6066/api/v1/brokers"
 
 ## 体验
 
-- MQTT Borker：121.4.74.58:1883
+- MQTT Borker：47.103.110.134:1883
 - Account: 无
-- HTTP APIs: http://121.4.74.58:6060/api/v1/
+- HTTP APIs: http://47.103.110.134:6080/api/v1/
 
 
 
