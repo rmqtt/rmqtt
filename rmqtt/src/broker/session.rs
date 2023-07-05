@@ -1022,8 +1022,8 @@ impl ClientInfo {
     }
 
     #[inline]
-    pub fn username(&self) -> &UserName {
-        &self.id.username
+    pub fn username(&self) -> &str {
+        self.id.username_ref()
     }
 
     #[inline]

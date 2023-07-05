@@ -68,7 +68,7 @@ async fn build_result(s: Option<Session>, c: Option<ClientInfo>) -> SearchResult
     SearchResult {
         node_id: c.id.node_id,
         clientid: c.id.client_id.clone(),
-        username: c.username().clone(),
+        username: c.id.username(),
         superuser: c.superuser,
         proto_ver: c.connect_info.proto_ver(),
         ip_address: c.id.remote_addr.map(|addr| addr.ip().to_string()),

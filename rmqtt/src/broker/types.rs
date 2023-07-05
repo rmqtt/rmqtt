@@ -73,6 +73,8 @@ pub type SubscriptionValue = (QoS, Option<SharedGroup>);
 pub type HookSubscribeResult = Vec<Option<TopicFilter>>;
 pub type HookUnsubscribeResult = Vec<Option<TopicFilter>>;
 
+pub(crate) const UNDEFINED: &str = "undefined";
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ConnectInfo {
     V3(Id, ConnectV3),
@@ -896,19 +898,11 @@ impl Id {
         username: Option<UserName>,
     ) -> Self {
         Self(Arc::new(_Id {
-            id: ByteString::from(format!(
-                "{}@{}/{}/{}/{}",
-                node_id,
-                local_addr.map(|addr| addr.to_string()).unwrap_or_default(),
-                remote_addr.map(|addr| addr.to_string()).unwrap_or_default(),
-                client_id,
-                username.as_ref().map(<UserName as AsRef<str>>::as_ref).unwrap_or_default()
-            )),
             node_id,
             local_addr,
             remote_addr,
             client_id,
-            username: username.unwrap_or_else(|| "undefined".into()),
+            username,
             create_time: chrono::Local::now().timestamp_millis(),
         }))
     }
@@ -919,7 +913,7 @@ impl Id {
             "node": self.node(),
             "ipaddress": self.remote_addr,
             "clientid": self.client_id,
-            "username": self.username,
+            "username": self.username_ref(),
             "create_time": self.create_time,
         })
     }
@@ -930,42 +924,50 @@ impl Id {
     }
 
     #[inline]
-    pub fn as_str(&self) -> &str {
-        &self.id
-    }
-
-    #[inline]
     pub fn node(&self) -> NodeId {
-        //format!("{}/{}", self.node_id, self.local_addr.map(|addr| addr.to_string()).unwrap_or_default())
         self.node_id
     }
-}
 
-impl AsRef<str> for Id {
     #[inline]
-    fn as_ref(&self) -> &str {
-        &self.id
+    pub fn username(&self) -> UserName {
+        self.username.clone().unwrap_or_else(|| UserName::from_static(UNDEFINED))
+    }
+
+    #[inline]
+    pub fn username_ref(&self) -> &str {
+        self.username.as_ref().map(<UserName as AsRef<str>>::as_ref).unwrap_or_else(|| UNDEFINED)
     }
 }
 
 impl ToString for Id {
     #[inline]
     fn to_string(&self) -> String {
-        self.id.to_string()
+        format!(
+            "{}@{}/{}/{}/{}",
+            self.node_id,
+            self.local_addr.map(|addr| addr.to_string()).unwrap_or_default(),
+            self.remote_addr.map(|addr| addr.to_string()).unwrap_or_default(),
+            self.client_id,
+            self.username_ref()
+        )
     }
 }
 
 impl std::fmt::Debug for Id {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}-{}", self.id, self.create_time)
+        write!(f, "{}-{}", self.to_string(), self.create_time)
     }
 }
 
 impl PartialEq<Id> for Id {
     #[inline]
-    fn eq(&self, other: &Id) -> bool {
-        self.id == other.id
+    fn eq(&self, o: &Id) -> bool {
+        self.node_id == o.node_id
+            && self.client_id == o.client_id
+            && self.local_addr == o.local_addr
+            && self.remote_addr == o.remote_addr
+            && self.username == o.username
     }
 }
 
@@ -974,7 +976,11 @@ impl Eq for Id {}
 impl std::hash::Hash for Id {
     #[inline]
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.id.hash(state);
+        self.node_id.hash(state);
+        self.local_addr.hash(state);
+        self.remote_addr.hash(state);
+        self.client_id.hash(state);
+        self.username.hash(state);
     }
 }
 
@@ -1008,12 +1014,11 @@ impl<'de> Deserialize<'de> for Id {
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Deserialize, Serialize)]
 pub struct _Id {
-    id: ByteString,
     pub node_id: NodeId,
     pub local_addr: Option<SocketAddr>,
     pub remote_addr: Option<SocketAddr>,
     pub client_id: ClientId,
-    pub username: UserName,
+    pub username: Option<UserName>,
     pub create_time: TimestampMillis,
 }
 

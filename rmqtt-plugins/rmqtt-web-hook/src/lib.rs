@@ -429,7 +429,7 @@ impl JsonTo for Id {
                     .unwrap_or(serde_json::Value::Null),
             );
             obj.insert("clientid".into(), serde_json::Value::String(self.client_id.to_string()));
-            obj.insert("username".into(), serde_json::Value::String(self.username.to_string()));
+            obj.insert("username".into(), serde_json::Value::String(self.username_ref().into()));
         }
         json
     }
@@ -450,7 +450,7 @@ impl JsonFrom for Id {
                     .unwrap_or(serde_json::Value::Null),
             );
             obj.insert("from_clientid".into(), serde_json::Value::String(self.client_id.to_string()));
-            obj.insert("from_username".into(), serde_json::Value::String(self.username.to_string()));
+            obj.insert("from_username".into(), serde_json::Value::String(self.username_ref().into()));
         }
         json
     }
