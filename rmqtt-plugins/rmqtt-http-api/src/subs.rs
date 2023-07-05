@@ -26,7 +26,7 @@ pub(crate) async fn subscribe(params: SubscribeParams) -> Result<HashMap<TopicFi
     for sub in subs {
         let topic_filter = sub.topic_filter.clone();
         let (reply_tx, reply_rx) = oneshot::channel();
-        let send_reply = tx.clone().send(MqttMessage::Subscribe(sub, reply_tx));
+        let send_reply = tx.unbounded_send(MqttMessage::Subscribe(sub, reply_tx));
 
         let reply_fut = async move {
             let reply = if let Err(send_err) = send_reply {
@@ -59,7 +59,7 @@ pub(crate) async fn unsubscribe(params: UnsubscribeParams) -> Result<()> {
 
     let unsub = Unsubscribe::from(&topic_filter, shared_sub_supported)?;
     let (reply_tx, reply_rx) = oneshot::channel();
-    tx.send(MqttMessage::Unsubscribe(unsub, reply_tx))?;
+    tx.unbounded_send(MqttMessage::Unsubscribe(unsub, reply_tx)).map_err(anyhow::Error::new)?;
     reply_rx.await.map_err(anyhow::Error::new)??;
     Ok(())
 }

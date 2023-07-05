@@ -9,7 +9,6 @@ use std::sync::Arc;
 
 use futures::StreamExt;
 use ntex_mqtt::types::MQTT_LEVEL_5;
-use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 use tokio::time::{Duration, Instant};
 
@@ -62,7 +61,7 @@ impl SessionState {
 
     #[inline]
     pub(crate) async fn start(mut self, keep_alive: u16) -> (Self, Tx) {
-        let (msg_tx, mut msg_rx) = mpsc::unbounded_channel();
+        let (msg_tx, mut msg_rx) = futures::channel::mpsc::unbounded();
         self.tx.replace(msg_tx.clone());
         let mut state = self.clone();
         ntex::rt::spawn(async move {
@@ -120,7 +119,7 @@ impl SessionState {
                         state.client.add_disconnected_reason(Reason::from_static("Timeout(Read/Write)")).await;
                         break
                     },
-                    msg = msg_rx.recv() => {
+                    msg = msg_rx.next() => {
                         log::debug!("{:?} recv msg: {:?}", id, msg);
                         if let Some(msg) = msg{
                             match msg{
@@ -288,7 +287,7 @@ impl SessionState {
 
         loop {
             tokio::select! {
-                msg = msg_rx.recv() => {
+                msg = msg_rx.next() => {
                     log::debug!("{:?} recv offline msg: {:?}", id, msg);
                     if let Some(msg) = msg{
                         match msg{
@@ -333,8 +332,8 @@ impl SessionState {
     #[inline]
     pub(crate) async fn forward(&self, from: From, p: Publish) {
         let res = if let Some(ref tx) = self.tx {
-            if let Err(e) = tx.send(Message::Forward(from, p)) {
-                if let Message::Forward(from, p) = e.0 {
+            if let Err(e) = tx.unbounded_send(Message::Forward(from, p)) {
+                if let Message::Forward(from, p) = e.into_inner() {
                     Err((from, p, "Send Publish message error, Tx is closed"))
                 } else {
                     Ok(())
@@ -361,7 +360,7 @@ impl SessionState {
     #[inline]
     pub(crate) fn send(&self, msg: Message) -> Result<()> {
         if let Some(ref tx) = self.tx {
-            tx.send(msg)?;
+            tx.unbounded_send(msg).map_err(anyhow::Error::new)?;
             Ok(())
         } else {
             Err(MqttError::from("Message Sender is None"))

@@ -172,7 +172,7 @@ impl super::Entry for LockEntry {
 
         if let Some(peer_tx) = self.tx().and_then(|tx| if tx.is_closed() { None } else { Some(tx) }) {
             let (tx, rx) = oneshot::channel();
-            if let Ok(()) = peer_tx.send(Message::Kick(tx, self.id.clone(), is_admin)) {
+            if let Ok(()) = peer_tx.unbounded_send(Message::Kick(tx, self.id.clone(), is_admin)) {
                 match tokio::time::timeout(Duration::from_secs(5), rx).await {
                     Ok(Ok(())) => {
                         log::debug!("{:?} kicked, from {:?}", self.id, self.client().map(|c| c.id.clone()));
@@ -291,9 +291,9 @@ impl super::Entry for LockEntry {
             log::warn!("{:?} forward, from:{:?}, error: Tx is None", self.id, from);
             return Err((from, p, Reason::from_static("Tx is None")));
         };
-        if let Err(e) = tx.send(Message::Forward(from, p)) {
+        if let Err(e) = tx.unbounded_send(Message::Forward(from, p)) {
             log::warn!("{:?} forward, error: {:?}", self.id, e);
-            if let Message::Forward(from, p) = e.0 {
+            if let Message::Forward(from, p) = e.into_inner() {
                 return Err((from, p, Reason::from_static("Tx is closed")));
             }
         }
@@ -457,7 +457,7 @@ impl Shared for &'static DefaultShared {
                 continue;
             };
 
-            if let Err(e) = tx.send(Message::Forward(from.clone(), p)) {
+            if let Err(e) = tx.unbounded_send(Message::Forward(from.clone(), p)) {
                 log::warn!(
                     "forwards,  from:{:?}, to:{:?}, topic_filter:{:?}, topic:{:?}, error:{:?}",
                     from,
@@ -466,7 +466,7 @@ impl Shared for &'static DefaultShared {
                     publish.topic,
                     e
                 );
-                if let Message::Forward(from, p) = e.0 {
+                if let Message::Forward(from, p) = e.into_inner() {
                     errs.push((to, from, p, Reason::from_static("Connection Tx is closed")));
                 }
             }

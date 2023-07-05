@@ -28,7 +28,6 @@ pub use ntex_mqtt::v5::{
 };
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, SerializeStruct, Serializer};
-use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
 use crate::{MqttError, Result, Runtime};
@@ -58,8 +57,8 @@ pub type IsOnline = bool;
 pub type IsAdmin = bool;
 pub type LimiterName = u16;
 
-pub type Tx = mpsc::UnboundedSender<Message>;
-pub type Rx = mpsc::UnboundedReceiver<Message>;
+pub type Tx = futures::channel::mpsc::UnboundedSender<Message>;
+pub type Rx = futures::channel::mpsc::UnboundedReceiver<Message>;
 
 pub type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
 pub type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
