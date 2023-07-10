@@ -1,0 +1,19 @@
+[package]
+name = "rmqtt-http-web"
+version = "0.1.0"
+authors = ["shaun <savages@savages.com>"]
+edition = "2021"
+
+[dependencies]
+rmqtt = "0.2"
+log = "0.4"
+async-trait = "0.1.36"
+tokio = { version = "1.5", features = ["macros"]}
+bytestring = "1.0"
+tracing-subscriber = { version = "0.3.17", features =["env-filter"]}
+#salvo.workspace = true
+salvo = { version = "0.37.9", features = ["affix","serve-static","session","cors","logging"] }
+serde = { version = "1.0.169", features = ["serde_derive", "alloc"]}
+serde_json = { version = "1.0.100"}
+tracing = "0.1"
+tracing-appender = "0.2.2"

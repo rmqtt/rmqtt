@@ -45,6 +45,7 @@ plugins.default_startups = [
     #    "rmqtt-cluster-broadcast",
     #    "rmqtt-cluster-raft",
     #    "rmqtt-http-api"
+    #    "rmqtt-http-web"
 ]
 
 
