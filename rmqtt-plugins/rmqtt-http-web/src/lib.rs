@@ -64,7 +64,7 @@ async fn srv_static() -> StaticDir {
 
 #[handler]
 pub async fn login(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let sess = depot.session;
+    let sess = depot.session();
     println!("{:?}", sess);
     if req.method() == salvo::http::Method::POST {
         let mut session = Session::new();
