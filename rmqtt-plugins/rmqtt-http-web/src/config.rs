@@ -19,6 +19,12 @@ pub struct PluginConfig {
     #[serde(default = "PluginConfig::http_laddr_default", deserialize_with = "deserialize_addr")]
     pub http_laddr: SocketAddr,
 
+    #[serde(default = "PluginConfig::tls_cert_default")]
+    pub tls_cert: String,
+
+    #[serde(default = "PluginConfig::tls_key_default")]
+    pub tls_key: String,
+
     #[serde(
         default = "PluginConfig::metrics_sample_interval_default",
         deserialize_with = "deserialize_duration"
@@ -39,7 +45,7 @@ impl PluginConfig {
     }
 
     fn http_laddr_default() -> SocketAddr {
-        "0.0.0.0:6060".parse::<std::net::SocketAddr>().unwrap()
+        "0.0.0.0:4080".parse::<std::net::SocketAddr>().unwrap()
     }
 
     fn metrics_sample_interval_default() -> Duration {
@@ -48,6 +54,14 @@ impl PluginConfig {
 
     fn message_type_default() -> MessageType {
         99
+    }
+
+    fn tls_cert_default() -> String {
+        String::from("./rmqtt-bin/rmqtt.cert")
+    }
+
+    fn tls_key_default() -> String {
+        String::from("./rmqtt-bin/rmqtt.key")
     }
 
     #[inline]

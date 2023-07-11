@@ -4,16 +4,18 @@ extern crate serde;
 
 use std::net::SocketAddr;
 
-use salvo::affix;
-use salvo::http::header::{HeaderValue, CONTENT_TYPE};
+//use salvo::affix;
+//use salvo::http::header::{HeaderValue, CONTENT_TYPE};
 use salvo::prelude::*;
-//use salvo::logging::Logger;  ??
+use salvo::logging::Logger; 
 use salvo::serve_static::StaticDir;
 use salvo::session::{CookieStore, Session, SessionDepotExt, SessionHandler};
+use salvo::listener::rustls::{Keycert, RustlsConfig};
 use std::env;
 
 use std::sync::Arc;
-
+use std::fs::File;
+use std::io::Read;
 
 use config::PluginConfig;
 use async_trait::async_trait;
@@ -51,15 +53,6 @@ async fn hello(depot: &mut Depot) -> &'static str {
     let sess = depot.session();
     println!("{:?}", sess);
     "Hello World"
-}
-
-//#[handler]
-async fn srv_static() -> StaticDir {
-    StaticDir::new([
-        "dist",
-    ])
-      .with_defaults("index.html")
-      .with_listing(true)
 }
 
 #[handler]
@@ -102,7 +95,7 @@ fn init_tracing() -> WorkerGuard {
     guard
 }
 
-fn route(cfg: PluginConfigType) -> Router {
+fn route(_cfg: PluginConfigType) -> Router {
     println!("{:?}", env::current_dir().expect("SHT").display());
     
     let _guard = init_tracing();
@@ -133,8 +126,29 @@ pub(crate) async fn listen_and_serve(
     cfg: PluginConfigType,
     rx: oneshot::Receiver<()>,
 ) -> Result<()> {
-    log::info!("HTTP WEBListening on {}", laddr);
-    Server::new(TcpListener::bind(laddr))
+    let cfg = cfg.clone();
+    println!("{:?}", cfg);
+
+    let key: String = cfg.read().tls_key.clone();
+    let cert: String = cfg.read().tls_cert.clone();
+
+    let mut cert_data = Vec::new();
+    let mut key_data = Vec::new();
+    let mut cert_file = File::open(cert)?;
+    cert_file.read_to_end(&mut cert_data)?;
+    let mut key_file = File::open(key)?;
+    key_file.read_to_end(&mut key_data)?;
+
+    let config = RustlsConfig::new(
+        Keycert::new()
+            .with_cert(cert_data)
+            .with_key(key_data),
+            //.with_key(include_bytes!(cfg.tls_key).as_ref()),
+    );
+    let listener = RustlsListener::with_config(config).bind(laddr);
+    log::info!("HTTPS WEBListening on {}", laddr);
+    //Server::new(TcpListener::bind(laddr))
+    Server::new(listener)
         .try_serve_with_graceful_shutdown(route(cfg), async {
             rx.await.ok();
         })

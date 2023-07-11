@@ -12,7 +12,7 @@ tokio = { version = "1.5", features = ["macros"]}
 bytestring = "1.0"
 tracing-subscriber = { version = "0.3.17", features =["env-filter"]}
 #salvo.workspace = true
-salvo = { version = "0.37.9", features = ["affix","serve-static","session","cors","logging"] }
+salvo = { version = "0.37.9", features = ["affix","serve-static","session","cors","logging","rustls"] }
 serde = { version = "1.0.169", features = ["serde_derive", "alloc"]}
 serde_json = { version = "1.0.100"}
 tracing = "0.1"

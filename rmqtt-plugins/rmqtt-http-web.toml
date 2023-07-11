@@ -8,5 +8,8 @@ workers = 1
 max_row_limit = 10_000
 ## HTTP Listener
 http_laddr = "0.0.0.0:4080"
+tls_cert = "/home/ubuntu/rmqtt/rmqtt-bin/rmqtt.pem"
+tls_key = "/home/ubuntu/rmqtt/rmqtt-bin/rmqtt.key"
+
 
 
