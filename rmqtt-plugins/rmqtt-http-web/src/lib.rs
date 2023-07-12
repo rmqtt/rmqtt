@@ -4,7 +4,7 @@ extern crate serde;
 
 use std::net::SocketAddr;
 
-//use salvo::affix;
+use salvo::affix;
 //use salvo::http::header::{HeaderValue, CONTENT_TYPE};
 use salvo::prelude::*;
 use salvo::logging::Logger; 

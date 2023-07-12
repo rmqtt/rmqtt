@@ -10,6 +10,10 @@ max_row_limit = 10_000
 http_laddr = "0.0.0.0:4080"
 tls_cert = "/home/ubuntu/rmqtt/rmqtt-bin/rmqtt.pem"
 tls_key = "/home/ubuntu/rmqtt/rmqtt-bin/rmqtt.key"
+admin_path = "/admin"
+admin_user = "admin"
+rest_path = "/app"
+root_path = "/"
 
 
 
