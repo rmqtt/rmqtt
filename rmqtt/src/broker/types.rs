@@ -7,6 +7,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use bitflags::bitflags;
 use bytestring::ByteString;
 use ntex::util::Bytes;
 use ntex_mqtt::error::SendPacketError;
@@ -1281,3 +1282,12 @@ where
 }
 
 //impl<V> Eq for TimedValue<V> where V: Eq {}
+
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct StateFlags: u8 {
+        const Kicked = 0b00000001;
+        const ByAdminKick = 0b00000010;
+        const DisconnectReceived = 0b00000100;
+    }
+}
