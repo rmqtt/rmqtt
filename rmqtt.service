@@ -1,0 +1,14 @@
+[Unit]
+Description=rmqtt server with web server
+After=network.target
+
+[Service]
+Type=exec
+User=rmqtt
+Restart=never
+WorkingDirectory=/opt/rmqtt
+ExecStart=/opt/rmqtt/bin/rmqttd -f /opt/rmqtt/etc/rmqtt.toml
+
+[Install]
+WantedBy=multi-user.target
+RequiredBy=network.target
