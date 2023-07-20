@@ -89,7 +89,7 @@ Get the binary package of the corresponding OS from [RMQTT Download](https://git
 
 ## Experience
 
-- MQTT Borker: 47.103.110.134:1883
+- MQTT Broker: 47.103.110.134:1883
 - Account:
 - HTTP APIs: http://47.103.110.134:6080/api/v1/
 
