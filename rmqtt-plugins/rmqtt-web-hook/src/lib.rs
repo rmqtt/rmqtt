@@ -2,6 +2,7 @@
 #[macro_use]
 extern crate serde;
 
+use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,15 +12,20 @@ use backoff::ExponentialBackoff;
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::StreamExt;
 
+use crate::config::Url;
 use config::PluginConfig;
+use rmqtt::tokio::fs::{File, OpenOptions};
+use rmqtt::tokio::io::AsyncWriteExt;
 use rmqtt::{
     anyhow::anyhow,
     async_trait::async_trait,
-    base64, chrono, futures, lazy_static, log, reqwest,
+    base64,
+    bytestring::ByteString,
+    chrono, futures, lazy_static, log, reqwest,
     rust_box::std_ext::ArcExt,
     rust_box::task_exec_queue::SpawnExt,
     serde_json::{self, json},
-    tokio, RwLock,
+    tokio, DashMap, RwLock,
 };
 use rmqtt::{
     broker::error::MqttError,
@@ -63,6 +69,7 @@ struct WebHookPlugin {
 
     cfg: Arc<RwLock<PluginConfig>>,
     tx: Arc<RwLock<Sender<Message>>>,
+    writers: Arc<DashMap<ByteString, HookWriter>>,
 }
 
 impl WebHookPlugin {
@@ -76,14 +83,19 @@ impl WebHookPlugin {
                 .load_config::<PluginConfig>(&name)
                 .map_err(|e| MqttError::from(e.to_string()))?,
         ));
+        cfg.write().merge_urls();
         log::debug!("{} WebHookPlugin cfg: {:?}", name, cfg.read());
-
-        let tx = Arc::new(RwLock::new(Self::start(runtime, cfg.clone())));
+        let writers = Arc::new(DashMap::default());
+        let tx = Arc::new(RwLock::new(Self::start(runtime, cfg.clone(), writers.clone())));
         let register = runtime.extends.hook_mgr().await.register();
-        Ok(Self { runtime, name, descr: descr.into(), register, cfg, tx })
+        Ok(Self { runtime, name, descr: descr.into(), register, cfg, tx, writers })
     }
 
-    fn start(_runtime: &'static Runtime, cfg: Arc<RwLock<PluginConfig>>) -> Sender<Message> {
+    fn start(
+        _runtime: &'static Runtime,
+        cfg: Arc<RwLock<PluginConfig>>,
+        writers: Arc<DashMap<ByteString, HookWriter>>,
+    ) -> Sender<Message> {
         let (tx, mut rx): (Sender<Message>, Receiver<Message>) = channel(cfg.read().queue_capacity);
         let _child = std::thread::Builder::new().name("web-hook".to_string()).spawn(move || {
             log::info!("start web-hook async worker.");
@@ -99,6 +111,7 @@ impl WebHookPlugin {
                 let backoff_strategy = cfg.read().get_backoff_strategy().arc();
                 loop {
                     let cfg = cfg.clone();
+                    let writers = writers.clone();
                     let backoff_strategy = backoff_strategy.clone();
                     match rx.next().await {
                         Some(msg) => {
@@ -107,6 +120,7 @@ impl WebHookPlugin {
                                 Message::Body(typ, topic, data) => {
                                     if let Err(e) = WebHookHandler::handle(
                                         cfg,
+                                        writers,
                                         backoff_strategy.clone(),
                                         typ,
                                         topic,
@@ -183,7 +197,7 @@ impl Plugin for WebHookPlugin {
         {
             let new_cfg = Arc::new(RwLock::new(new_cfg));
             //restart
-            let new_tx = Self::start(self.runtime, new_cfg.clone());
+            let new_tx = Self::start(self.runtime, new_cfg.clone(), self.writers.clone());
             if let Err(e) = self.tx.write().try_send(Message::Exit) {
                 log::error!("restart web-hook failed, {:?}", e);
                 return Err(MqttError::Error(Box::new(e)));
@@ -257,95 +271,123 @@ struct WebHookHandler {
 impl WebHookHandler {
     async fn handle(
         cfg: Arc<RwLock<PluginConfig>>,
+        writers: Arc<DashMap<ByteString, HookWriter>>,
         backoff_strategy: Arc<ExponentialBackoff>,
         typ: hook::Type,
         topic: Option<TopicFilter>,
         body: serde_json::Value,
     ) -> Result<()> {
-        let (timeout, default_urls) = {
-            let cfg = cfg.read();
-            (cfg.http_timeout, cfg.http_urls.clone())
-        };
-
         let topic = if let Some(topic) = topic { Some(Topic::from_str(&topic)?) } else { None };
 
-        let http_requests = if let Some(rules) = cfg.read().rules.get(&typ) {
-            //get action and urls
-            let action_urls = rules.iter().filter_map(|r| {
-                let is_allowed = if let Some(topic) = &topic {
-                    if let Some((rule_topics, _)) = &r.topics {
-                        rule_topics.is_match(topic)
+        let hook_writes = {
+            let cfg = cfg.read();
+            if let Some(rules) = cfg.rules.get(&typ) {
+                //get action and urls
+                let action_urls = rules.iter().filter_map(|r| {
+                    let is_allowed = if let Some(topic) = &topic {
+                        if let Some((rule_topics, _)) = &r.topics {
+                            rule_topics.is_match(topic)
+                        } else {
+                            true
+                        }
                     } else {
                         true
-                    }
-                } else {
-                    true
-                };
+                    };
 
-                if is_allowed {
-                    let urls = if r.urls.is_empty() { &default_urls } else { &r.urls };
-                    if urls.is_empty() {
-                        None
+                    if is_allowed {
+                        let urls = if r.urls.is_empty() { cfg.urls() } else { &r.urls };
+                        if urls.is_empty() {
+                            None
+                        } else {
+                            Some((&r.action, urls))
+                        }
                     } else {
-                        Some((&r.action, urls))
+                        None
                     }
-                } else {
-                    None
-                }
-            });
+                });
 
-            //build http send futures
-            let mut http_requests = Vec::new();
-            for (action, urls) in action_urls {
-                let mut new_body = body.clone();
-                if let Some(obj) = new_body.as_object_mut() {
-                    obj.insert("action".into(), serde_json::Value::String(action.clone()));
-                }
-                if urls.len() == 1 {
-                    log::debug!("action: {}, url: {}", action, urls[0]);
-                    http_requests.push(Self::http_request(
-                        backoff_strategy.clone(),
-                        urls[0].clone(),
-                        new_body.arc(),
-                        timeout,
-                    ));
-                } else {
-                    let new_body = new_body.arc();
-                    for url in urls {
-                        log::debug!("action: {}, url: {}", action, url);
-                        http_requests.push(Self::http_request(
+                //build hook log write futures
+                let mut hook_writes = Vec::new();
+                for (action, urls) in action_urls {
+                    let mut new_body = body.clone();
+                    if let Some(obj) = new_body.as_object_mut() {
+                        obj.insert("action".into(), serde_json::Value::String(action.clone()));
+                    }
+                    if urls.len() == 1 {
+                        log::debug!("action: {}, url: {:?}", action, urls[0]);
+                        hook_writes.push(Self::write(
+                            writers.clone(),
                             backoff_strategy.clone(),
-                            url.clone(),
-                            new_body.clone(),
-                            timeout,
+                            urls[0].clone(),
+                            new_body.arc(),
+                            cfg.http_timeout,
                         ));
+                    } else {
+                        let new_body = new_body.arc();
+                        for url in urls {
+                            log::debug!("action: {}, url: {:?}", action, url);
+                            hook_writes.push(Self::write(
+                                writers.clone(),
+                                backoff_strategy.clone(),
+                                url.clone(),
+                                new_body.clone(),
+                                cfg.http_timeout,
+                            ));
+                        }
                     }
                 }
-            }
 
-            Some(http_requests)
-        } else {
-            None
+                Some(hook_writes)
+            } else {
+                None
+            }
         };
 
-        //send http_requests
-        if let Some(http_requests) = http_requests {
-            log::debug!("http_requests length: {}", http_requests.len());
-            let _ = futures::future::join_all(http_requests).await;
+        //send hook_writes
+        if let Some(hook_writes) = hook_writes {
+            log::debug!("hook_writes length: {}", hook_writes.len());
+            let _ = futures::future::join_all(hook_writes).await;
         }
 
         Ok(())
     }
 
+    #[inline]
+    async fn write(
+        writers: Arc<DashMap<ByteString, HookWriter>>,
+        backoff_strategy: Arc<ExponentialBackoff>,
+        url: Url,
+        body: Arc<serde_json::Value>,
+        timeout: Duration,
+    ) {
+        if url.is_file() {
+            //is file
+            let data = match serde_json::to_vec(body.as_ref()) {
+                Ok(data) => data,
+                Err(e) => {
+                    log::warn!("write hook message failure, {:?}", e);
+                    return;
+                }
+            };
+            let mut writer = writers.entry(url.loc.clone()).or_insert_with(|| HookWriter::new(&url.loc));
+            if let Err(e) = writer.log(data.as_slice()).await {
+                log::warn!("write hook message failure, file: {:?}, {:?}", writer.file_name, e);
+            }
+        } else {
+            //is http
+            Self::http_request(backoff_strategy, url, body, timeout).await;
+        }
+    }
+
     async fn http_request(
         backoff_strategy: Arc<ExponentialBackoff>,
-        url: String,
+        url: Url,
         body: Arc<serde_json::Value>,
         timeout: Duration,
     ) {
         if let Err(e) = async move {
             if let Err(e) = retry(backoff_strategy.as_ref().clone(), || async {
-                Ok(Self::_http_request(url.clone(), body.clone(), timeout).await?)
+                Ok(Self::_http_request(&url.loc, body.clone(), timeout).await?)
             })
             .await
             {
@@ -361,12 +403,12 @@ impl WebHookHandler {
         }
     }
 
-    async fn _http_request(url: String, body: Arc<serde_json::Value>, timeout: Duration) -> Result<()> {
+    async fn _http_request(url: &str, body: Arc<serde_json::Value>, timeout: Duration) -> Result<()> {
         log::debug!("http_request, timeout: {:?}, url: {}, body: {}", timeout, url, body);
 
         let resp = HTTP_CLIENT
             .clone()
-            .request(reqwest::Method::POST, &url)
+            .request(reqwest::Method::POST, url)
             .timeout(timeout)
             .json(body.as_ref())
             .send()
@@ -656,6 +698,43 @@ impl Handler for WebHookHandler {
         }
 
         (true, acc)
+    }
+}
+
+struct HookWriter {
+    file_name: String,
+    file: Option<File>,
+}
+
+impl HookWriter {
+    fn new(file: &str) -> Self {
+        Self { file_name: String::from(file), file: None }
+    }
+
+    #[inline]
+    pub async fn log(&mut self, msg: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(file) = self.file.as_mut() {
+            file.write_all(msg).await?;
+            file.write_all(b"\n").await?;
+        } else {
+            Self::create_dirs(Path::new(&self.file_name)).await?;
+            let mut file = OpenOptions::new().create(true).append(true).open(&self.file_name).await?;
+            file.write_all(msg).await?;
+            file.write_all(b"\n").await?;
+            self.file.replace(file);
+        }
+        Ok(())
+    }
+
+    #[inline]
+    async fn create_dirs(path: &Path) -> Result<(), std::io::Error> {
+        if let Some(parent) = path.parent() {
+            // If the parent directory does not exist, create it recursively.
+            if !parent.exists() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+        }
+        Ok(())
     }
 }
 

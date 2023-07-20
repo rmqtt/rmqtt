@@ -1,24 +1,30 @@
 ##--------------------------------------------------------------------
 ## rmqtt-web-hook
 ##--------------------------------------------------------------------
-##
+## http
 #    Method: POST
 #    Body: <JSON>
 #    Payload: BASE64
+## file
+#    None
 #
 
-## web hook general config
+## Hook general config
 worker_threads = 3
 queue_capacity = 300_000
 concurrency_limit = 128
-http_urls = ["http://127.0.0.1:5656/mqtt/webhook"] #default urls
-http_timeout = "8s"
 
-##If it fails, try again after approximately 2, 4, 7, 11, 18, or 42 seconds
+## Default urls, supports http and file protocols
+#urls = ["file:///var/log/rmqtt/hook.log", "http://127.0.0.1:5656/mqtt/webhook"]
+urls = ["file:///var/log/rmqtt/hook.log"]
+
+## Http config
+http_timeout = "8s"
+#If it fails, try again after approximately 2, 4, 7, 11, 18, or 42 seconds
 retry_max_elapsed_time = "60s"
 retry_multiplier = 2.5
 
-## web hook rules config
+## Hook rules config
 rule.session_created = [{action = "session_created" } ]
 rule.session_terminated = [{action = "session_terminated" } ]
 rule.session_subscribed = [{action = "session_subscribed"  } ]

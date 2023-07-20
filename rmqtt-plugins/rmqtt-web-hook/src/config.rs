@@ -3,13 +3,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
-use serde::de::{self, Deserialize};
+use serde::de::{self, Deserialize, Unexpected};
 use serde::ser::{self, Serialize};
+use serde::Deserializer;
 
 use rmqtt::broker::hook::Type;
 use rmqtt::broker::topic::TopicTree;
+use rmqtt::bytestring::ByteString;
 use rmqtt::settings::deserialize_duration;
-use rmqtt::{ahash, serde_json};
+use rmqtt::{ahash, serde_json, url};
 use rmqtt::{Result, Topic};
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
@@ -23,7 +25,10 @@ pub struct PluginConfig {
     #[serde(default = "PluginConfig::concurrency_limit_default")]
     pub concurrency_limit: usize,
     #[serde(default)]
-    pub http_urls: Vec<String>,
+    pub urls: Vec<Url>,
+    #[serde(default)]
+    #[deprecated]
+    http_urls: Vec<Url>,
     #[serde(default = "PluginConfig::http_timeout_default", deserialize_with = "deserialize_duration")]
     pub http_timeout: Duration,
     #[serde(rename = "rule")]
@@ -83,6 +88,18 @@ impl PluginConfig {
             .with_multiplier(self.retry_multiplier)
             .build()
     }
+
+    #[allow(deprecated)]
+    #[inline]
+    pub fn urls(&self) -> &Vec<Url> {
+        &self.urls
+    }
+
+    #[allow(deprecated)]
+    #[inline]
+    pub fn merge_urls(&mut self) {
+        self.urls.append(&mut self.http_urls)
+    }
 }
 
 type TopicsType = Option<(Arc<TopicTree<()>>, Vec<String>)>;
@@ -91,7 +108,7 @@ type TopicsType = Option<(Arc<TopicTree<()>>, Vec<String>)>;
 pub struct Rule {
     pub action: String,
     #[serde(default)]
-    pub urls: Vec<String>,
+    pub urls: Vec<Url>,
     #[serde(
         default,
         deserialize_with = "Rule::deserialize_topics",
@@ -130,4 +147,43 @@ impl Rule {
             Ok(Some((Arc::new(topics), topics_cfg)))
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Url {
+    pub loc: ByteString,
+    pub typ: UrlType,
+}
+
+impl Url {
+    #[inline]
+    pub fn is_file(&self) -> bool {
+        matches!(self.typ, UrlType::File)
+    }
+}
+
+impl<'de> Deserialize<'de> for Url {
+    #[inline]
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let loc = String::deserialize(deserializer)?;
+        let loc = loc.trim();
+        let uri = url::Url::parse(loc).map_err(de::Error::custom)?;
+        let (typ, loc) = if uri.scheme() == "http" || uri.scheme() == "https" {
+            (UrlType::Http, loc)
+        } else if uri.scheme() == "file" {
+            (UrlType::File, uri.path())
+        } else {
+            return Err(de::Error::invalid_value(Unexpected::Str(loc), &"http:// or https:// or file://"));
+        };
+        Ok(Url { loc: ByteString::from(loc), typ })
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub enum UrlType {
+    File,
+    Http,
 }
