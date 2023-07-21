@@ -3,7 +3,8 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::{
     io::{self, ErrorKind},
-    marker, time,
+    marker,
+    time::Duration,
 };
 
 use rmqtt::futures::{ready, FutureExt, Sink, Stream};
@@ -22,15 +23,13 @@ use rmqtt::tokio_tungstenite::tungstenite::Message;
 use rmqtt::tokio_tungstenite::WebSocketStream;
 use rmqtt::{log, MqttError};
 
-pub(self) const ZERO: std::time::Duration = std::time::Duration::from_millis(0);
-
 pub struct WSServer<T> {
-    timeout: time::Duration,
+    timeout: Duration,
     io: marker::PhantomData<T>,
 }
 
 impl<T: AsyncRead + AsyncWrite> WSServer<T> {
-    pub fn new(timeout: time::Duration) -> Self {
+    pub fn new(timeout: Duration) -> Self {
         WSServer { timeout, io: marker::PhantomData }
     }
 }
@@ -58,7 +57,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + 'static> ServiceFactory for WSServer<T>
 
 pub struct WSService<T> {
     io: marker::PhantomData<T>,
-    timeout: time::Duration,
+    timeout: Duration,
 }
 
 impl<T: AsyncRead + AsyncWrite + Unpin + 'static> Service for WSService<T> {
@@ -76,7 +75,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin + 'static> Service for WSService<T> {
     fn call(&self, req: Self::Request) -> Self::Future {
         WSServiceFut {
             fut: accept_hdr_async(req, on_handshake).boxed_local(),
-            delay: if self.timeout == ZERO { None } else { Some(sleep(self.timeout)) },
+            delay: if self.timeout == Duration::ZERO { None } else { Some(sleep(self.timeout)) },
         }
     }
 }
