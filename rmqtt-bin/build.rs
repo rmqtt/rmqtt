@@ -33,8 +33,8 @@ fn plugins(decoded: &toml::Value) {
             );
             // Use the extracted data to generate Rust code and add it to the inits vector
             inits.push(format!(
-                "    {}::register(rmqtt::Runtime::instance(), r#\"{}\"#, r#\"{}\"#, {} || default_startups.contains(&String::from(r#\"{}\"#)), {}).await?;",
-                plugin_id, name, descr, default_startup, name, immutable
+                "    {}::register(rmqtt::Runtime::instance(), r#\"{}\"#, r#\"{}\"#, {} || default_startups.contains(&String::from(r#\"{}\"#)), {}).await.map_err(|e| format!(r#\"Failed to register '{}' plug-in, {{}} \"#, e.to_string()))?;",
+                plugin_id, name, descr, default_startup, name, immutable, name
             ));
         }
     }
