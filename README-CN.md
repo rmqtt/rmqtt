@@ -87,7 +87,7 @@ curl "http://127.0.0.1:6066/api/v1/health/check"
 
 ## 体验
 
-- MQTT Borker：47.103.110.134:1883
+- MQTT Broker：47.103.110.134:1883
 - Account: 无
 - HTTP APIs: http://47.103.110.134:6080/api/v1/
 
