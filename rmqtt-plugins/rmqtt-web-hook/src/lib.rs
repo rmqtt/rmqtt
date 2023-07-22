@@ -243,7 +243,7 @@ impl Plugin for WebHookPlugin {
             "active_count": exec.active_count(),
             "waiting_count": exec.waiting_count(),
             "completed_count": exec.completed_count(),
-            "failure_count()": fails().count(),
+            "failure_count": fails().count(),
         })
     }
 }
@@ -435,7 +435,7 @@ impl ToBody for ConnectInfo {
                     "node": id.node(),
                     "ipaddress": id.remote_addr,
                     "clientid": id.client_id,
-                    "username": id.username,
+                    "username": id.username_ref(),
                     "keepalive": conn_info.keep_alive,
                     "proto_ver": conn_info.protocol.level(),
                     "clean_session": conn_info.clean_session,
@@ -446,7 +446,7 @@ impl ToBody for ConnectInfo {
                     "node": id.node(),
                     "ipaddress": id.remote_addr,
                     "clientid": id.client_id,
-                    "username": id.username,
+                    "username": id.username_ref(),
                     "keepalive": conn_info.keep_alive,
                     "proto_ver": MQTT_LEVEL_5,
                     "clean_start": conn_info.clean_start,
@@ -539,7 +539,7 @@ impl Handler for WebHookHandler {
                     "node": client.id.node(),
                     "ipaddress": client.id.remote_addr,
                     "clientid": client.id.client_id,
-                    "username": client.id.username,
+                    "username": client.id.username_ref(),
                     "disconnected_at": client.disconnected_at(),
                     "reason": reason,
                     "time": now_time
@@ -552,7 +552,7 @@ impl Handler for WebHookHandler {
                     "node": client.id.node(),
                     "ipaddress": client.id.remote_addr,
                     "clientid": client.id.client_id,
-                    "username": client.id.username,
+                    "username": client.id.username_ref(),
                     "topic": subscribe.topic_filter,
                     "opts": json!({
                         "qos": subscribe.qos.value()
@@ -567,7 +567,7 @@ impl Handler for WebHookHandler {
                     "node": client.id.node(),
                     "ipaddress": client.id.remote_addr,
                     "clientid": client.id.client_id,
-                    "username": client.id.username,
+                    "username": client.id.username_ref(),
                     "topic": unsubscribe.topic_filter,
                     "time": now_time
                 });
@@ -579,7 +579,7 @@ impl Handler for WebHookHandler {
                     "node": client.id.node(),
                     "ipaddress": client.id.remote_addr,
                     "clientid": client.id.client_id,
-                    "username": client.id.username,
+                    "username": client.id.username_ref(),
                     "topic": subscribe.topic_filter,
                     "opts": json!({
                         "qos": subscribe.qos.value()
@@ -595,7 +595,7 @@ impl Handler for WebHookHandler {
                     "node": client.id.node(),
                     "ipaddress": client.id.remote_addr,
                     "clientid": client.id.client_id,
-                    "username": client.id.username,
+                    "username": client.id.username_ref(),
                     "topic": topic,
                     "time": now_time
                 });
@@ -607,7 +607,7 @@ impl Handler for WebHookHandler {
                     "node": client.id.node(),
                     "ipaddress": client.id.remote_addr,
                     "clientid": client.id.client_id,
-                    "username": client.id.username,
+                    "username": client.id.username_ref(),
                     "created_at": session.created_at,
                     "time": now_time
                 });
@@ -619,7 +619,7 @@ impl Handler for WebHookHandler {
                     "node": client.id.node(),
                     "ipaddress": client.id.remote_addr,
                     "clientid": client.id.client_id,
-                    "username": client.id.username,
+                    "username": client.id.username_ref(),
                     "reason": reason,
                     "time": now_time
                 });
