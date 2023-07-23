@@ -2,6 +2,8 @@
 ## rmqtt-http-api
 ##--------------------------------------------------------------------
 
+# See more keys and their definitions at https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/http-api.md
+
 ##Number of worker threads
 workers = 1
 ## Max Row Limit
