@@ -507,7 +507,7 @@ impl Shared for &'static DefaultShared {
     }
 
     #[inline]
-    async fn clinet_states_count(&self) -> usize {
+    async fn client_states_count(&self) -> usize {
         self.peers.len()
     }
 

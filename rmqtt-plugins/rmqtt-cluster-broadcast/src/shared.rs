@@ -431,8 +431,8 @@ impl Shared for &'static ClusterShared {
     }
 
     #[inline]
-    async fn clinet_states_count(&self) -> usize {
-        self.inner.clinet_states_count().await
+    async fn client_states_count(&self) -> usize {
+        self.inner.client_states_count().await
     }
 
     #[inline]

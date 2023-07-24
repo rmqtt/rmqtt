@@ -107,6 +107,7 @@ impl ClusterRouter {
 
     #[inline]
     pub(crate) fn remove_client_status(&self, client_id: &str) {
+        log::debug!("remove_client_status, client_id: {}", client_id);
         self.client_states.remove(client_id);
     }
 

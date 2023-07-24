@@ -88,7 +88,7 @@ pub trait Shared: Sync + Send {
     async fn session_status(&self, client_id: &str) -> Option<SessionStatus>;
 
     ///
-    async fn clinet_states_count(&self) -> usize;
+    async fn client_states_count(&self) -> usize;
 
     ///
     fn sessions_count(&self) -> usize;

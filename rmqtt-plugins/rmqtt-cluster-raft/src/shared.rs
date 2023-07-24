@@ -427,7 +427,7 @@ impl Shared for &'static ClusterShared {
     }
 
     #[inline]
-    async fn clinet_states_count(&self) -> usize {
+    async fn client_states_count(&self) -> usize {
         self.router.states_count()
     }
 
