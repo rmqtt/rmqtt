@@ -968,6 +968,7 @@ impl PartialEq<Id> for Id {
             && self.local_addr == o.local_addr
             && self.remote_addr == o.remote_addr
             && self.username == o.username
+            && self.create_time == o.create_time
     }
 }
 
@@ -981,6 +982,7 @@ impl std::hash::Hash for Id {
         self.remote_addr.hash(state);
         self.client_id.hash(state);
         self.username.hash(state);
+        self.create_time.hash(state);
     }
 }
 
