@@ -242,7 +242,11 @@ impl SessionState {
                 .unwrap_or(Reason::from_static("Remote close connect"));
             state.hook.client_disconnected(reason).await;
 
-            if !flags.contains(StateFlags::Kicked) {
+            if flags.contains(StateFlags::Kicked) {
+                if flags.contains(StateFlags::ByAdminKick) {
+                    state.clean(state.client.get_disconnected_reason().await.unwrap_or_default()).await;
+                }
+            } else {
                 if state.clean_session().await {
                     state.clean(state.client.get_disconnected_reason().await.unwrap_or_default()).await;
                 } else {
