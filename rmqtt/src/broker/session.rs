@@ -361,10 +361,14 @@ impl SessionState {
     #[inline]
     async fn process_last_will(&self) -> Result<()> {
         if let Some(lw) = self.client.last_will() {
-            //@TODO ...
             let p = Publish::try_from(lw)?;
-            if let Err(e) = Runtime::instance().extends.shared().await.forwards(self.id.clone(), p).await {
-                log::error!("{:?} send last will message fail, {:?}", self.id, e);
+            if let Err(droppeds) =
+                Runtime::instance().extends.shared().await.forwards(self.id.clone(), p).await
+            {
+                for (to, from, p, r) in droppeds {
+                    //hook, message_dropped
+                    Runtime::instance().extends.hook_mgr().await.message_dropped(Some(to), from, p, r).await;
+                }
             }
         }
         Ok(())
