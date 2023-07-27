@@ -106,12 +106,6 @@ impl ClusterRouter {
     }
 
     #[inline]
-    pub(crate) fn remove_client_status(&self, client_id: &str) {
-        log::debug!("remove_client_status, client_id: {}", client_id);
-        self.client_states.remove(client_id);
-    }
-
-    #[inline]
     pub(crate) fn _handshakings(&self) -> usize {
         self.client_states.iter().filter_map(|entry| if entry.handshaking { Some(()) } else { None }).count()
     }
