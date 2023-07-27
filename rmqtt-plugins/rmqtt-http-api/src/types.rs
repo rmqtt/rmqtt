@@ -5,7 +5,7 @@ use rmqtt::node::{BrokerInfo, NodeInfo, NodeStatus};
 use rmqtt::plugin::PluginInfo;
 use rmqtt::settings::{deserialize_datetime_option, serialize_datetime_option};
 use rmqtt::Result;
-use rmqtt::{anyhow, bincode, chrono, serde_json, HashMap, MqttError, QoS, Reason};
+use rmqtt::{anyhow, bincode, chrono, serde_json, HashMap, MqttError, QoS};
 use rmqtt::{metrics::Metrics, stats::Stats};
 use rmqtt::{ClientId, NodeId, Timestamp, TopicFilter, TopicName, UserName};
 
@@ -127,7 +127,7 @@ pub struct ClientSearchResult {
     pub connected: bool,
     pub connected_at: Timestamp,
     pub disconnected_at: Timestamp,
-    pub disconnected_reason: Reason,
+    pub disconnected_reason: String,
     pub keepalive: u16,
     pub clean_start: bool,
     pub session_present: bool,

@@ -1,3 +1,4 @@
+use bytestring::ByteString;
 use std::convert::From as _f;
 use std::net::SocketAddr;
 
@@ -291,7 +292,7 @@ pub async fn control_message<E: std::fmt::Debug>(
             Err(e) => {
                 state
                     .client
-                    .add_disconnected_reason(Reason::from(format!("Subscribe failed, {:?}", e)))
+                    .add_disconnected_reason(Reason::SubscribeFailed(Some(ByteString::from(e.to_string()))))
                     .await;
                 log::error!("{:?} Subscribe failed, reason: {:?}", state.id, e);
                 return Err(e);
@@ -302,7 +303,7 @@ pub async fn control_message<E: std::fmt::Debug>(
             Err(e) => {
                 state
                     .client
-                    .add_disconnected_reason(Reason::from(format!("Unsubscribe failed, {:?}", e)))
+                    .add_disconnected_reason(Reason::UnsubscribeFailed(Some(ByteString::from(e.to_string()))))
                     .await;
                 log::error!("{:?} Unsubscribe failed, reason: {:?}", state.id, e);
                 return Err(e);
@@ -315,21 +316,24 @@ pub async fn control_message<E: std::fmt::Debug>(
             disconnect.ack()
         }
         v5::ControlMessage::Closed(closed) => {
-            if let Err(e) = state.send(Message::Closed(Reason::from_static("Remote close connect"))) {
+            if let Err(e) = state.send(Message::Closed(Reason::ConnectRemoteClose)) {
                 log::debug!("{:?} Closed error, reason: {:?}", state.id, e);
             }
             closed.ack()
         }
         v5::ControlMessage::Error(err) => {
-            if let Err(e) = state.send(Message::Closed(Reason::from(format!("{:?}", err.get_err())))) {
+            if let Err(e) =
+                state.send(Message::Closed(Reason::Error(ByteString::from(format!("{:?}", err.get_err())))))
+            {
                 log::debug!("{:?} Closed error, reason: {:?}", state.id, e);
             }
             err.ack(DisconnectReasonCode::ServerBusy)
         }
         v5::ControlMessage::ProtocolError(protocol_error) => {
-            if let Err(e) =
-                state.send(Message::Closed(Reason::from(format!("{:?}", protocol_error.get_ref()))))
-            {
+            if let Err(e) = state.send(Message::Closed(Reason::ProtocolError(ByteString::from(format!(
+                "{:?}",
+                protocol_error.get_ref()
+            ))))) {
                 log::debug!("{:?} Closed error, reason: {:?}", state.id, e);
             }
             protocol_error.ack()

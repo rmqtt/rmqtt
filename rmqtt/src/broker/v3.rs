@@ -1,3 +1,4 @@
+use bytestring::ByteString;
 use std::convert::From as _f;
 use std::net::SocketAddr;
 
@@ -260,7 +261,7 @@ pub async fn control_message(
             Err(e) => {
                 state
                     .client
-                    .add_disconnected_reason(Reason::from(format!("Subscribe failed, {:?}", e)))
+                    .add_disconnected_reason(Reason::SubscribeFailed(Some(ByteString::from(e.to_string()))))
                     .await;
                 log::error!("{:?} Subscribe failed, reason: {:?}", state.id, e);
                 return Err(e);
@@ -271,7 +272,7 @@ pub async fn control_message(
             Err(e) => {
                 state
                     .client
-                    .add_disconnected_reason(Reason::from(format!("Unsubscribe failed, {:?}", e)))
+                    .add_disconnected_reason(Reason::UnsubscribeFailed(Some(ByteString::from(e.to_string()))))
                     .await;
                 log::error!("{:?} Unsubscribe failed, reason: {:?}", state.id, e);
                 return Err(e);
@@ -284,7 +285,7 @@ pub async fn control_message(
             disc.ack()
         }
         v3::ControlMessage::Closed(m) => {
-            if let Err(e) = state.send(Message::Closed(Reason::from_static("Remote close connect"))) {
+            if let Err(e) = state.send(Message::Closed(Reason::ConnectRemoteClose)) {
                 log::debug!("{:?} Closed error, reason: {:?}", state.id, e);
             }
             m.ack()

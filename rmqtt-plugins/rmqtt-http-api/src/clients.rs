@@ -56,7 +56,7 @@ async fn build_result(s: Option<Session>, c: Option<ClientInfo>) -> SearchResult
     let connected = c.is_connected();
     let connected_at = c.connected_at / 1000;
     let disconnected_at = c.disconnected_at() / 1000;
-    let disconnected_reason = c.get_disconnected_reason().await.unwrap_or_default();
+    let disconnected_reason = c.get_disconnected_reason().await.to_string();
     let expiry_interval = if connected {
         s.listen_cfg.session_expiry_interval.as_secs() as i64
     } else {

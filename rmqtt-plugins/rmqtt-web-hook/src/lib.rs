@@ -541,7 +541,7 @@ impl Handler for WebHookHandler {
                     "clientid": client.id.client_id,
                     "username": client.id.username_ref(),
                     "disconnected_at": client.disconnected_at(),
-                    "reason": reason,
+                    "reason": reason.to_string(),
                     "time": now_time
                 });
                 vec![(None, body)]
@@ -620,7 +620,7 @@ impl Handler for WebHookHandler {
                     "ipaddress": client.id.remote_addr,
                     "clientid": client.id.client_id,
                     "username": client.id.username_ref(),
-                    "reason": reason,
+                    "reason": reason.to_string(),
                     "time": now_time
                 });
                 vec![(None, body)]
@@ -686,7 +686,7 @@ impl Handler for WebHookHandler {
                     "topic": publish.topic(),
                     "packet_id": publish.packet_id(),
                     "payload": base64::encode(publish.payload()),
-                    "reason": reason,
+                    "reason": reason.to_string(),
                     "pts": publish.create_time(),
                     "ts": now.timestamp_millis(),
                     "time": now_time

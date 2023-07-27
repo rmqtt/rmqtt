@@ -1,6 +1,7 @@
 use std::any::Any;
 use std::convert::From as _f;
 use std::fmt;
+use std::fmt::Display;
 use std::net::SocketAddr;
 use std::num::{NonZeroU16, NonZeroU32};
 use std::ops::Deref;
@@ -9,6 +10,7 @@ use std::time::{Duration, Instant};
 
 use bitflags::bitflags;
 use bytestring::ByteString;
+use itertools::Itertools;
 use ntex::util::Bytes;
 use ntex_mqtt::error::SendPacketError;
 pub use ntex_mqtt::types::{Protocol, MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
@@ -43,7 +45,6 @@ pub type UserName = bytestring::ByteString;
 pub type Superuser = bool;
 pub type Password = bytes::Bytes;
 pub type PacketId = u16;
-pub type Reason = bytestring::ByteString;
 ///topic name or topic filter
 pub type TopicName = bytestring::ByteString;
 pub type Topic = ntex_mqtt::Topic;
@@ -203,10 +204,10 @@ impl Disconnect {
     }
 
     #[inline]
-    pub fn reason(&self) -> Option<&Reason> {
+    pub fn reason(&self) -> Reason {
         match self {
-            Disconnect::V3 => None,
-            Disconnect::V5(d) => d.reason_string.as_ref(),
+            Disconnect::V3 => Reason::ConnectDisconnect(None),
+            Disconnect::V5(d) => Reason::ConnectDisconnect(d.reason_string.as_ref().cloned()),
         }
     }
 }
@@ -1292,4 +1293,174 @@ bitflags! {
         const ByAdminKick = 0b00000010;
         const DisconnectReceived = 0b00000100;
     }
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub enum Reason {
+    ConnectDisconnect(Option<ByteString>),
+    ConnectReadWriteTimeout,
+    ConnectReadWriteError,
+    ConnectRemoteClose,
+    ConnectKeepaliveTimeout,
+    ConnectKicked(IsAdmin),
+    SessionExpiration,
+    SubscribeFailed(Option<ByteString>),
+    UnsubscribeFailed(Option<ByteString>),
+    SubscribeRefused,
+    PublishRefused,
+    MessageExpiration,
+    MessageQueueFull,
+    PublishFailed(ByteString),
+    ProtocolError(ByteString),
+    Error(ByteString),
+    Reasons(Vec<Reason>),
+    Unknown,
+}
+
+impl Default for Reason {
+    #[inline]
+    fn default() -> Self {
+        Reason::Unknown
+    }
+}
+
+impl Reason {
+    #[inline]
+    pub fn from_static(r: &'static str) -> Self {
+        Reason::Error(ByteString::from_static(r))
+    }
+
+    #[inline]
+    pub fn is_kicked(&self, admin_opt: IsAdmin) -> bool {
+        match self {
+            Reason::ConnectKicked(_admin_opt) => *_admin_opt == admin_opt,
+            _ => false,
+        }
+    }
+
+    #[inline]
+    pub fn is_kicked_by_admin(&self) -> bool {
+        matches!(self, Reason::ConnectKicked(true))
+    }
+}
+
+impl std::convert::From<&str> for Reason {
+    #[inline]
+    fn from(r: &str) -> Self {
+        Reason::Error(ByteString::from(r))
+    }
+}
+
+impl std::convert::From<String> for Reason {
+    #[inline]
+    fn from(r: String) -> Self {
+        Reason::Error(ByteString::from(r))
+    }
+}
+
+impl std::convert::From<MqttError> for Reason {
+    #[inline]
+    fn from(e: MqttError) -> Self {
+        match e {
+            MqttError::Reason(r) => r,
+            MqttError::SendPacketError(_) | MqttError::IoError(_) => Reason::ConnectReadWriteError,
+            MqttError::Timeout(_) => Reason::ConnectReadWriteTimeout,
+            MqttError::None => Reason::Unknown,
+            _ => Reason::Error(ByteString::from(e.to_string())),
+        }
+    }
+}
+
+impl Display for Reason {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let r = match self {
+            Reason::ConnectDisconnect(r) => {
+                //Disconnect message received
+                match r {
+                    Some(r) => return write!(f, "Disconnect({})", r),
+                    None => "Disconnect",
+                }
+            }
+            Reason::ConnectReadWriteTimeout => {
+                "ReadWriteTimeout" //read/write timeout
+            }
+            Reason::ConnectReadWriteError => {
+                "ReadWriteError" //read/write error
+            }
+            Reason::ConnectRemoteClose => {
+                "RemoteClose" //"connection close by remote client"
+            }
+            Reason::ConnectKeepaliveTimeout => {
+                "KeepaliveTimeout" //keepalive timeout
+            }
+            Reason::ConnectKicked(admin_opt) => {
+                if *admin_opt {
+                    "ByAdminKick" //kicked by administrator
+                } else {
+                    "Kicked" //kicked
+                }
+            }
+            Reason::SessionExpiration => {
+                "SessionExpiration" //session expiration
+            }
+            Reason::SubscribeFailed(r) => {
+                //subscribe failed
+                match r {
+                    Some(r) => return write!(f, "SubscribeFailed({})", r),
+                    None => "SubscribeFailed",
+                }
+            }
+            Reason::UnsubscribeFailed(r) => {
+                //unsubscribe failed
+                match r {
+                    Some(r) => return write!(f, "UnsubscribeFailed({})", r),
+                    None => "UnsubscribeFailed",
+                }
+            }
+            Reason::SubscribeRefused => {
+                "SubscribeRefused" //subscribe refused
+            }
+            Reason::PublishRefused => {
+                "PublishRefused" //publish refused
+            }
+            Reason::MessageExpiration => {
+                "MessageExpiration" //message expiration
+            }
+            Reason::MessageQueueFull => {
+                "MessageQueueFull" //message deliver queue is full
+            }
+            Reason::PublishFailed(r) => return write!(f, "PublishFailed({})", r),
+            Reason::Error(r) => r,
+            Reason::ProtocolError(r) => return write!(f, "ProtocolError({})", r),
+            Reason::Reasons(reasons) => match reasons.len() {
+                0 => "Unknown",
+                1 => return write!(f, "{}", reasons.get(0).map(|r| r.to_string()).unwrap_or_default()),
+                _ => return write!(f, "{}", reasons.iter().map(|r| r.to_string()).join(",")),
+            },
+            Reason::Unknown => {
+                "Unknown" //unknown
+            }
+        };
+        write!(f, "{}", r)
+    }
+}
+
+#[test]
+fn test_reason() {
+    assert_eq!(Reason::ConnectKicked(false).is_kicked(false), true);
+    assert_eq!(Reason::ConnectKicked(false).is_kicked(true), false);
+    assert_eq!(Reason::ConnectKicked(true).is_kicked(true), true);
+    assert_eq!(Reason::ConnectKicked(true).is_kicked(false), false);
+    assert_eq!(Reason::ConnectKicked(true).is_kicked_by_admin(), true);
+    assert_eq!(Reason::ConnectKicked(false).is_kicked_by_admin(), false);
+    assert_eq!(Reason::ConnectDisconnect(None).is_kicked(false), false);
+    assert_eq!(Reason::ConnectDisconnect(None).is_kicked_by_admin(), false);
+
+    let reasons = Reason::Reasons(vec![
+        Reason::PublishRefused,
+        Reason::ConnectKicked(false),
+        Reason::MessageExpiration,
+    ]);
+    assert_eq!(reasons.to_string(), "PublishRefused,Kicked,MessageExpiration");
 }
