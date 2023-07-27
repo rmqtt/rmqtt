@@ -447,7 +447,7 @@ impl Shared for &'static DefaultShared {
                 (tx, to)
             } else {
                 log::warn!(
-                    "forwards, from:{:?}, to:{:?}, topic_filter:{:?}, topic:{:?}, error: Tx is None",
+                    "forwards_to, from:{:?}, to:{:?}, topic_filter:{:?}, topic:{:?}, error: Tx is None",
                     from,
                     client_id,
                     topic_filter,
@@ -459,7 +459,7 @@ impl Shared for &'static DefaultShared {
 
             if let Err(e) = tx.unbounded_send(Message::Forward(from.clone(), p)) {
                 log::warn!(
-                    "forwards,  from:{:?}, to:{:?}, topic_filter:{:?}, topic:{:?}, error:{:?}",
+                    "forwards_to,  from:{:?}, to:{:?}, topic_filter:{:?}, topic:{:?}, error:{:?}",
                     from,
                     client_id,
                     topic_filter,
