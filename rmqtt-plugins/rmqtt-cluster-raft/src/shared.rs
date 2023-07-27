@@ -286,11 +286,6 @@ impl ClusterShared {
     }
 
     #[inline]
-    pub(crate) fn router(&self) -> &'static ClusterRouter {
-        self.router
-    }
-
-    #[inline]
     pub(crate) fn inner(&self) -> Box<dyn Shared> {
         Box::new(self.inner)
     }
