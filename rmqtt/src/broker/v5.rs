@@ -136,19 +136,20 @@ pub async fn _handshake<Io: 'static>(
     };
 
     // Kick out the current session, if it exists
-    let (session_present, offline_info) = match entry.kick(packet.clean_start, false).await {
-        Err(e) => {
-            return Ok(refused_ack(
-                handshake,
-                &connect_info,
-                ConnectAckReasonV5::ServerUnavailable,
-                format!("{:?}", e),
-            )
-            .await);
-        }
-        Ok(Some(offline_info)) => (!packet.clean_start, Some(offline_info)),
-        Ok(None) => (false, None),
-    };
+    let (session_present, offline_info) =
+        match entry.kick(packet.clean_start, packet.clean_start, false).await {
+            Err(e) => {
+                return Ok(refused_ack(
+                    handshake,
+                    &connect_info,
+                    ConnectAckReasonV5::ServerUnavailable,
+                    format!("{:?}", e),
+                )
+                .await);
+            }
+            Ok(Some(offline_info)) => (!packet.clean_start, Some(offline_info)),
+            Ok(None) => (false, None),
+        };
 
     let connected_at = chrono::Local::now().timestamp_millis();
     let client = ClientInfo::new(connect_info, session_present, superuser, connected_at);

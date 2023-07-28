@@ -561,7 +561,7 @@ async fn kick_client(req: &mut Request, res: &mut Response) {
             .await
             .entry(Id::from(Runtime::instance().node.id(), ClientId::from(clientid)));
 
-        match entry.kick(true, true).await {
+        match entry.kick(true, true, true).await {
             Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
             Ok(None) => res.set_status_code(StatusCode::NOT_FOUND),
             Ok(Some(offline_info)) => res.render(Text::Plain(offline_info.id.to_string())),

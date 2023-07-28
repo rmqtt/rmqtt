@@ -58,6 +58,7 @@ pub type Timestamp = i64;
 pub type IsOnline = bool;
 pub type IsAdmin = bool;
 pub type LimiterName = u16;
+pub type CleanStart = bool;
 
 pub type Tx = futures::channel::mpsc::UnboundedSender<Message>;
 pub type Rx = futures::channel::mpsc::UnboundedReceiver<Message>;
@@ -1034,7 +1035,7 @@ pub struct Retain {
 #[derive(Debug)]
 pub enum Message {
     Forward(From, Publish),
-    Kick(oneshot::Sender<()>, Id, IsAdmin),
+    Kick(oneshot::Sender<()>, Id, CleanStart, IsAdmin),
     Disconnect(Disconnect),
     Closed(Reason),
     Keepalive,
@@ -1292,6 +1293,7 @@ bitflags! {
         const Kicked = 0b00000001;
         const ByAdminKick = 0b00000010;
         const DisconnectReceived = 0b00000100;
+        const CleanStart = 0b00001000;
     }
 }
 
@@ -1434,7 +1436,7 @@ impl Display for Reason {
             Reason::Error(r) => r,
             Reason::ProtocolError(r) => return write!(f, "ProtocolError({})", r),
             Reason::Reasons(reasons) => match reasons.len() {
-                0 => "Unknown",
+                0 => "",
                 1 => return write!(f, "{}", reasons.get(0).map(|r| r.to_string()).unwrap_or_default()),
                 _ => return write!(f, "{}", reasons.iter().map(|r| r.to_string()).join(",")),
             },

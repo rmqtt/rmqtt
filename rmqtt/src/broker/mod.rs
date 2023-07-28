@@ -37,6 +37,7 @@ pub trait Entry: Sync + Send {
     async fn remove_with(&mut self, id: &Id) -> Result<Option<(Session, Tx, ClientInfo)>>;
     async fn kick(
         &mut self,
+        clean_start: bool,
         clear_subscriptions: bool,
         is_admin: IsAdmin,
     ) -> Result<Option<SessionOfflineInfo>>;

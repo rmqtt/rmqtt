@@ -74,11 +74,12 @@ impl Entry for ClusterLockEntry {
     #[inline]
     async fn kick(
         &mut self,
+        clean_start: bool,
         clear_subscriptions: bool,
         is_admin: IsAdmin,
     ) -> Result<Option<SessionOfflineInfo>> {
         log::debug!("{:?} ClusterLockEntry kick 1 ...", self.client().map(|c| c.id.clone()));
-        if let Some(kicked) = self.inner.kick(clear_subscriptions, is_admin).await? {
+        if let Some(kicked) = self.inner.kick(clean_start, clear_subscriptions, is_admin).await? {
             log::debug!("{:?} broadcast kick reply kicked: {:?}", self.id(), kicked);
             return Ok(Some(kicked));
         }
@@ -86,7 +87,7 @@ impl Entry for ClusterLockEntry {
         match kick(
             self.cluster_shared.grpc_clients.clone(),
             self.cluster_shared.message_type,
-            Message::Kick(self.id(), true, is_admin),
+            Message::Kick(self.id(), clean_start, true, is_admin),
         )
         .await
         {

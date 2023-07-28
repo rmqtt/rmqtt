@@ -160,19 +160,22 @@ impl super::Entry for LockEntry {
     #[inline]
     async fn kick(
         &mut self,
+        clean_start: bool,
         clear_subscriptions: bool,
         is_admin: IsAdmin,
     ) -> Result<Option<SessionOfflineInfo>> {
         log::debug!(
-            "{:?} LockEntry kick ..., clear_subscriptions: {}, is_admin: {}",
+            "{:?} LockEntry kick ..., clean_start: {}, clear_subscriptions: {}, is_admin: {}",
             self.client().map(|c| c.id.clone()),
+            clean_start,
             clear_subscriptions,
             is_admin
         );
 
         if let Some(peer_tx) = self.tx().and_then(|tx| if tx.is_closed() { None } else { Some(tx) }) {
             let (tx, rx) = oneshot::channel();
-            if let Ok(()) = peer_tx.unbounded_send(Message::Kick(tx, self.id.clone(), is_admin)) {
+            if let Ok(()) = peer_tx.unbounded_send(Message::Kick(tx, self.id.clone(), clean_start, is_admin))
+            {
                 match tokio::time::timeout(Duration::from_secs(5), rx).await {
                     Ok(Ok(())) => {
                         log::debug!("{:?} kicked, from {:?}", self.id, self.client().map(|c| c.id.clone()));

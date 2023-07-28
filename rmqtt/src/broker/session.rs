@@ -127,8 +127,8 @@ impl SessionState {
                                         Runtime::instance().extends.hook_mgr().await.message_dropped(Some(state.id.clone()), from, p, Reason::MessageQueueFull).await;
                                     }
                                 },
-                                Message::Kick(sender, by_id, is_admin) => {
-                                    log::debug!("{:?} Message::Kick, send kick result, to {:?}, is_admin: {}", state.id, by_id, is_admin);
+                                Message::Kick(sender, by_id, clean_start, is_admin) => {
+                                    log::debug!("{:?} Message::Kick, send kick result, to {:?}, clean_start: {}, is_admin: {}", state.id, by_id, clean_start, is_admin);
                                     if !sender.is_closed() {
                                         if sender.send(()).is_err() {
                                             log::warn!("{:?} Message::Kick, send response error, sender is closed", state.id);
@@ -136,6 +136,9 @@ impl SessionState {
                                         flags.insert(StateFlags::Kicked);
                                         if is_admin {
                                             flags.insert(StateFlags::ByAdminKick);
+                                        }
+                                        if clean_start {
+                                            flags.insert(StateFlags::CleanStart);
                                         }
                                         state.client.add_disconnected_reason(Reason::ConnectKicked(is_admin)).await;
                                         break
@@ -216,22 +219,27 @@ impl SessionState {
                 }
             }
 
+            let clean_session = state.clean_session().await;
+
             log::debug!(
-                "{:?} exit online worker, flags: {:?}, clean_session: {}",
+                "{:?} exit online worker, flags: {:?}, clean_session: {} {}",
                 state.id,
                 flags,
-                state.clean_session().await
+                clean_session,
+                flags.contains(StateFlags::CleanStart)
             );
 
             Runtime::instance().stats.connections.dec();
 
             //Setting the disconnected state
             state.client.set_disconnected(None).await;
-            if !flags.contains(StateFlags::DisconnectReceived) {
+
+            if state.last_will_enable(flags, clean_session) {
                 if let Err(e) = state.process_last_will().await {
                     log::error!("{:?} process last will error, {:?}", state.id, e);
                 }
             }
+
             state.sink.close();
 
             //hook, client_disconnected
@@ -247,7 +255,7 @@ impl SessionState {
                 if flags.contains(StateFlags::ByAdminKick) {
                     state.clean(state.client.take_disconnected_reason().await).await;
                 }
-            } else if state.clean_session().await {
+            } else if clean_session {
                 state.clean(state.client.take_disconnected_reason().await).await;
             } else {
                 //Start offline event loop
@@ -287,19 +295,22 @@ impl SessionState {
                                     Runtime::instance().extends.hook_mgr().await.message_dropped(Some(state.id.clone()), from, p, Reason::MessageQueueFull).await;
                                 }
                             },
-                            Message::Kick(sender, by_id, is_admin) => {
-                                log::debug!("{:?} offline Kicked, send kick result, to: {:?}, is_admin: {}", state.id, by_id, is_admin);
+                            Message::Kick(sender, by_id, clean_start, is_admin) => {
+                                log::debug!("{:?} offline Kicked, send kick result, to: {:?}, clean_start: {}, is_admin: {}", state.id, by_id, clean_start, is_admin);
                                 if !sender.is_closed() {
                                     if let Err(e) = sender.send(()) {
-                                        log::warn!("{:?} offline Kick send response error, to: {:?}, is_admin: {}, {:?}", state.id, by_id, is_admin, e);
+                                        log::warn!("{:?} offline Kick send response error, to: {:?}, clean_start: {}, is_admin: {}, {:?}", state.id, by_id, clean_start, is_admin, e);
                                     }
                                     flags.insert(StateFlags::Kicked);
                                     if is_admin {
                                         flags.insert(StateFlags::ByAdminKick);
                                     }
+                                    if clean_start {
+                                        flags.insert(StateFlags::CleanStart);
+                                    }
                                     break
                                 }else{
-                                    log::warn!("{:?} offline Kick sender is closed, to {:?}, is_admin: {}", state.id, by_id, is_admin);
+                                    log::warn!("{:?} offline Kick sender is closed, to {:?}, clean_start: {}, is_admin: {}", state.id, by_id, clean_start, is_admin);
                                 }
                             },
                             _ => {
@@ -356,6 +367,13 @@ impl SessionState {
         } else {
             Err(MqttError::from("Message Sender is None"))
         }
+    }
+
+    #[inline]
+    fn last_will_enable(&self, flags: StateFlags, clean_session: bool) -> bool {
+        let session_present =
+            flags.contains(StateFlags::Kicked) && !flags.contains(StateFlags::CleanStart) && !clean_session;
+        !(flags.contains(StateFlags::DisconnectReceived) || session_present)
     }
 
     #[inline]
