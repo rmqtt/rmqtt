@@ -1123,8 +1123,8 @@ impl DefaultFitterManager {
 
 impl FitterManager for &'static DefaultFitterManager {
     #[inline]
-    fn get(&self, client: ClientInfo, id: Id, listen_cfg: Listener) -> std::rc::Rc<dyn Fitter> {
-        std::rc::Rc::new(DefaultFitter::new(client, id, listen_cfg))
+    fn get(&self, client: ClientInfo, id: Id, listen_cfg: Listener) -> Box<dyn Fitter> {
+        Box::new(DefaultFitter::new(client, id, listen_cfg))
     }
 }
 
@@ -1187,11 +1187,23 @@ impl Fitter for DefaultFitter {
     }
 
     #[inline]
-    fn session_expiry_interval(&self) -> Duration {
-        if let ConnectInfo::V5(_, connect) = &self.client.connect_info {
-            Duration::from_secs(connect.session_expiry_interval_secs.unwrap_or_default() as u64)
+    async fn session_expiry_interval(&self) -> Duration {
+        let expiry_interval = || {
+            if let ConnectInfo::V5(_, connect) = &self.client.connect_info {
+                Duration::from_secs(connect.session_expiry_interval_secs.unwrap_or_default() as u64)
+            } else {
+                self.listen_cfg.session_expiry_interval
+            }
+        };
+
+        if let Some(Disconnect::V5(d)) = self.client.disconnect.read().await.as_ref() {
+            if let Some(interval_secs) = d.session_expiry_interval_secs {
+                Duration::from_secs(interval_secs as u64)
+            } else {
+                expiry_interval()
+            }
         } else {
-            self.listen_cfg.session_expiry_interval
+            expiry_interval()
         }
     }
 

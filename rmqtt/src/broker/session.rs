@@ -3,6 +3,7 @@ use std::convert::AsRef;
 use std::convert::From as _f;
 use std::convert::TryFrom;
 use std::fmt;
+use std::num::NonZeroU16;
 use std::ops::Deref;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
@@ -32,7 +33,6 @@ pub struct SessionState {
     pub sink: Sink,
     pub hook: Rc<dyn Hook>,
     pub deliver_queue_tx: Option<MessageSender>,
-    pub fitter: Rc<dyn Fitter>,
 }
 
 impl fmt::Debug for SessionState {
@@ -50,14 +50,8 @@ impl fmt::Debug for SessionState {
 
 impl SessionState {
     #[inline]
-    pub(crate) fn new(
-        session: Session,
-        client: ClientInfo,
-        sink: Sink,
-        hook: Rc<dyn Hook>,
-        fitter: Rc<dyn Fitter>,
-    ) -> Self {
-        Self { tx: None, session, client, sink, hook, deliver_queue_tx: None, fitter }
+    pub(crate) fn new(session: Session, client: ClientInfo, sink: Sink, hook: Rc<dyn Hook>) -> Self {
+        Self { tx: None, session, client, sink, hook, deliver_queue_tx: None }
     }
 
     #[inline]
@@ -276,10 +270,14 @@ impl SessionState {
         deliver_queue_tx: &MessageSender,
         flags: &mut StateFlags,
     ) {
-        log::debug!("{:?} start offline event loop", state.id);
+        log::debug!(
+            "{:?} start offline event loop, session_expiry_interval: {:?}",
+            state.id,
+            state.fitter.session_expiry_interval().await
+        );
 
         //state.client.disconnect
-        let session_expiry_delay = tokio::time::sleep(state.fitter.session_expiry_interval());
+        let session_expiry_delay = tokio::time::sleep(state.fitter.session_expiry_interval().await);
         tokio::pin!(session_expiry_delay);
 
         loop {
@@ -315,6 +313,7 @@ impl SessionState {
                             },
                             _ => {
                                 log::info!("{:?} offline receive message is {:?}", state.id, msg);
+                                break;
                             }
                         }
                     }else{
@@ -775,24 +774,11 @@ impl SessionState {
     }
 
     #[inline]
-    async fn session_expiry_interval(&self) -> Duration {
-        if let Some(Disconnect::V5(d)) = self.client.disconnect.read().await.as_ref() {
-            if let Some(interval_secs) = d.session_expiry_interval_secs {
-                Duration::from_secs(interval_secs as u64)
-            } else {
-                self.fitter.session_expiry_interval()
-            }
-        } else {
-            self.fitter.session_expiry_interval()
-        }
-    }
-
-    #[inline]
     async fn clean_session(&self) -> bool {
         if let ConnectInfo::V3(_, conn_info) = &self.client.connect_info {
             conn_info.clean_session
         } else {
-            self.session_expiry_interval().await.as_secs() == 0
+            self.fitter.session_expiry_interval().await.is_zero()
         }
     }
 }
@@ -837,16 +823,19 @@ impl Session {
     #[inline]
     pub(crate) fn new(
         id: Id,
+        fitter: Box<dyn Fitter>,
         listen_cfg: Listener,
-        max_mqueue_len: usize,
-        max_inflight: usize,
+        max_inflight: NonZeroU16,
         created_at: TimestampMillis,
     ) -> Self {
+        let max_mqueue_len = fitter.max_mqueue_len();
+        let max_inflight = max_inflight.get() as usize;
         let message_retry_interval = listen_cfg.message_retry_interval.as_millis() as TimestampMillis;
         let message_expiry_interval = listen_cfg.message_expiry_interval.as_millis() as TimestampMillis;
         Runtime::instance().stats.sessions.inc();
         Self(Arc::new(_SessionInner {
             id,
+            fitter,
             listen_cfg,
             subscriptions: SessionSubs::new(),
             deliver_queue: Arc::new(MessageQueue::new(max_mqueue_len)),
@@ -901,6 +890,7 @@ impl std::fmt::Debug for Session {
 
 pub struct _SessionInner {
     pub id: Id,
+    pub fitter: Box<dyn Fitter>,
     pub listen_cfg: Listener,
     //Current subscription for this session
     pub subscriptions: SessionSubs,

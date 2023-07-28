@@ -8,7 +8,7 @@ use crate::Result;
 
 #[async_trait]
 pub trait FitterManager: Sync + Send {
-    fn get(&self, client: ClientInfo, id: Id, listen_cfg: Listener) -> std::rc::Rc<dyn Fitter>;
+    fn get(&self, client: ClientInfo, id: Id, listen_cfg: Listener) -> Box<dyn Fitter>;
 }
 
 #[async_trait]
@@ -28,7 +28,7 @@ pub trait Fitter: Sync + Send {
     fn max_inflight(&self) -> std::num::NonZeroU16;
 
     ///session expiry interval
-    fn session_expiry_interval(&self) -> Duration;
+    async fn session_expiry_interval(&self) -> Duration;
 
     ///max packet size
     fn max_packet_size(&self) -> u32;

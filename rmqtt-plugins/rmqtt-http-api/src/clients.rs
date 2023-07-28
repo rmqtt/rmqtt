@@ -58,9 +58,9 @@ async fn build_result(s: Option<Session>, c: Option<ClientInfo>) -> SearchResult
     let disconnected_at = c.disconnected_at() / 1000;
     let disconnected_reason = c.get_disconnected_reason().await.to_string();
     let expiry_interval = if connected {
-        s.listen_cfg.session_expiry_interval.as_secs() as i64
+        s.fitter.session_expiry_interval().await.as_secs() as i64
     } else {
-        s.listen_cfg.session_expiry_interval.as_secs() as i64
+        s.fitter.session_expiry_interval().await.as_secs() as i64
             - (chrono::Local::now().timestamp() - disconnected_at)
     };
     let inflight = s.inflight_win.read().await.len();

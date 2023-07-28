@@ -149,15 +149,10 @@ async fn _handshake<Io: 'static>(
     let created_at =
         if let Some(ref offline_info) = offline_info { offline_info.created_at } else { connected_at };
 
-    let session = Session::new(
-        id,
-        listen_cfg,
-        fitter.max_mqueue_len(),
-        fitter.max_inflight().get() as usize,
-        created_at,
-    );
+    let max_inflight = fitter.max_inflight();
+    let session = Session::new(id, fitter, listen_cfg, max_inflight, created_at);
 
-    let keep_alive = match fitter.keep_alive(&mut packet.keep_alive) {
+    let keep_alive = match session.fitter.keep_alive(&mut packet.keep_alive) {
         Ok(keep_alive) => keep_alive,
         Err(e) => {
             return Ok(refused_ack(
@@ -177,8 +172,7 @@ async fn _handshake<Io: 'static>(
         hook.session_created().await;
     }
 
-    let (state, tx) =
-        SessionState::new(session, client, Sink::V3(sink), hook, fitter).start(keep_alive).await;
+    let (state, tx) = SessionState::new(session, client, Sink::V3(sink), hook).start(keep_alive).await;
     if let Err(e) = entry.set(state.session.clone(), tx, state.client.clone()).await {
         return Ok(refused_ack(
             handshake,
