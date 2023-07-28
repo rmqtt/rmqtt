@@ -1,13 +1,16 @@
 use std::any::Any;
 use std::convert::From as _f;
 use std::fmt;
+use std::fmt::Display;
 use std::net::SocketAddr;
 use std::num::{NonZeroU16, NonZeroU32};
 use std::ops::Deref;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use bitflags::bitflags;
 use bytestring::ByteString;
+use itertools::Itertools;
 use ntex::util::Bytes;
 use ntex_mqtt::error::SendPacketError;
 pub use ntex_mqtt::types::{Protocol, MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
@@ -28,7 +31,6 @@ pub use ntex_mqtt::v5::{
 };
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, SerializeStruct, Serializer};
-use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
 use crate::{MqttError, Result, Runtime};
@@ -43,7 +45,6 @@ pub type UserName = bytestring::ByteString;
 pub type Superuser = bool;
 pub type Password = bytes::Bytes;
 pub type PacketId = u16;
-pub type Reason = bytestring::ByteString;
 ///topic name or topic filter
 pub type TopicName = bytestring::ByteString;
 pub type Topic = ntex_mqtt::Topic;
@@ -57,9 +58,10 @@ pub type Timestamp = i64;
 pub type IsOnline = bool;
 pub type IsAdmin = bool;
 pub type LimiterName = u16;
+pub type CleanStart = bool;
 
-pub type Tx = mpsc::UnboundedSender<Message>;
-pub type Rx = mpsc::UnboundedReceiver<Message>;
+pub type Tx = futures::channel::mpsc::UnboundedSender<Message>;
+pub type Rx = futures::channel::mpsc::UnboundedReceiver<Message>;
 
 pub type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
 pub type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
@@ -72,6 +74,8 @@ pub type SubscriptionValue = (QoS, Option<SharedGroup>);
 
 pub type HookSubscribeResult = Vec<Option<TopicFilter>>;
 pub type HookUnsubscribeResult = Vec<Option<TopicFilter>>;
+
+pub(crate) const UNDEFINED: &str = "undefined";
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ConnectInfo {
@@ -104,7 +108,7 @@ impl ConnectInfo {
                     "node": id.node(),
                     "ipaddress": id.remote_addr,
                     "clientid": id.client_id,
-                    "username": id.username,
+                    "username": id.username_ref(),
                     "keepalive": conn_info.keep_alive,
                     "proto_ver": conn_info.protocol.level(),
                     "clean_session": conn_info.clean_session,
@@ -116,7 +120,7 @@ impl ConnectInfo {
                     "node": id.node(),
                     "ipaddress": id.remote_addr,
                     "clientid": id.client_id,
-                    "username": id.username,
+                    "username": id.username_ref(),
                     "keepalive": conn_info.keep_alive,
                     "proto_ver": ntex_mqtt::types::MQTT_LEVEL_5,
                     "clean_start": conn_info.clean_start,
@@ -201,10 +205,10 @@ impl Disconnect {
     }
 
     #[inline]
-    pub fn reason(&self) -> Option<&Reason> {
+    pub fn reason(&self) -> Reason {
         match self {
-            Disconnect::V3 => None,
-            Disconnect::V5(d) => d.reason_string.as_ref(),
+            Disconnect::V3 => Reason::ConnectDisconnect(None),
+            Disconnect::V5(d) => Reason::ConnectDisconnect(d.reason_string.as_ref().cloned()),
         }
     }
 }
@@ -896,19 +900,11 @@ impl Id {
         username: Option<UserName>,
     ) -> Self {
         Self(Arc::new(_Id {
-            id: ByteString::from(format!(
-                "{}@{}/{}/{}/{}",
-                node_id,
-                local_addr.map(|addr| addr.to_string()).unwrap_or_default(),
-                remote_addr.map(|addr| addr.to_string()).unwrap_or_default(),
-                client_id,
-                username.as_ref().map(<UserName as AsRef<str>>::as_ref).unwrap_or_default()
-            )),
             node_id,
             local_addr,
             remote_addr,
             client_id,
-            username: username.unwrap_or_else(|| "undefined".into()),
+            username,
             create_time: chrono::Local::now().timestamp_millis(),
         }))
     }
@@ -919,7 +915,7 @@ impl Id {
             "node": self.node(),
             "ipaddress": self.remote_addr,
             "clientid": self.client_id,
-            "username": self.username,
+            "username": self.username_ref(),
             "create_time": self.create_time,
         })
     }
@@ -930,42 +926,51 @@ impl Id {
     }
 
     #[inline]
-    pub fn as_str(&self) -> &str {
-        &self.id
-    }
-
-    #[inline]
     pub fn node(&self) -> NodeId {
-        //format!("{}/{}", self.node_id, self.local_addr.map(|addr| addr.to_string()).unwrap_or_default())
         self.node_id
     }
-}
 
-impl AsRef<str> for Id {
     #[inline]
-    fn as_ref(&self) -> &str {
-        &self.id
+    pub fn username(&self) -> UserName {
+        self.username.clone().unwrap_or_else(|| UserName::from_static(UNDEFINED))
+    }
+
+    #[inline]
+    pub fn username_ref(&self) -> &str {
+        self.username.as_ref().map(<UserName as AsRef<str>>::as_ref).unwrap_or_else(|| UNDEFINED)
     }
 }
 
 impl ToString for Id {
     #[inline]
     fn to_string(&self) -> String {
-        self.id.to_string()
+        format!(
+            "{}@{}/{}/{}/{}",
+            self.node_id,
+            self.local_addr.map(|addr| addr.to_string()).unwrap_or_default(),
+            self.remote_addr.map(|addr| addr.to_string()).unwrap_or_default(),
+            self.client_id,
+            self.username_ref()
+        )
     }
 }
 
 impl std::fmt::Debug for Id {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}-{}", self.id, self.create_time)
+        write!(f, "{}-{}", self.to_string(), self.create_time)
     }
 }
 
 impl PartialEq<Id> for Id {
     #[inline]
-    fn eq(&self, other: &Id) -> bool {
-        self.id == other.id
+    fn eq(&self, o: &Id) -> bool {
+        self.node_id == o.node_id
+            && self.client_id == o.client_id
+            && self.local_addr == o.local_addr
+            && self.remote_addr == o.remote_addr
+            && self.username == o.username
+            && self.create_time == o.create_time
     }
 }
 
@@ -974,7 +979,12 @@ impl Eq for Id {}
 impl std::hash::Hash for Id {
     #[inline]
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.id.hash(state);
+        self.node_id.hash(state);
+        self.local_addr.hash(state);
+        self.remote_addr.hash(state);
+        self.client_id.hash(state);
+        self.username.hash(state);
+        self.create_time.hash(state);
     }
 }
 
@@ -1008,12 +1018,11 @@ impl<'de> Deserialize<'de> for Id {
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Deserialize, Serialize)]
 pub struct _Id {
-    id: ByteString,
     pub node_id: NodeId,
     pub local_addr: Option<SocketAddr>,
     pub remote_addr: Option<SocketAddr>,
     pub client_id: ClientId,
-    pub username: UserName,
+    pub username: Option<UserName>,
     pub create_time: TimestampMillis,
 }
 
@@ -1026,7 +1035,7 @@ pub struct Retain {
 #[derive(Debug)]
 pub enum Message {
     Forward(From, Publish),
-    Kick(oneshot::Sender<()>, Id, IsAdmin),
+    Kick(oneshot::Sender<()>, Id, CleanStart, IsAdmin),
     Disconnect(Disconnect),
     Closed(Reason),
     Keepalive,
@@ -1277,3 +1286,183 @@ where
 }
 
 //impl<V> Eq for TimedValue<V> where V: Eq {}
+
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct StateFlags: u8 {
+        const Kicked = 0b00000001;
+        const ByAdminKick = 0b00000010;
+        const DisconnectReceived = 0b00000100;
+        const CleanStart = 0b00001000;
+    }
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub enum Reason {
+    ConnectDisconnect(Option<ByteString>),
+    ConnectReadWriteTimeout,
+    ConnectReadWriteError,
+    ConnectRemoteClose,
+    ConnectKeepaliveTimeout,
+    ConnectKicked(IsAdmin),
+    SessionExpiration,
+    SubscribeFailed(Option<ByteString>),
+    UnsubscribeFailed(Option<ByteString>),
+    SubscribeRefused,
+    PublishRefused,
+    MessageExpiration,
+    MessageQueueFull,
+    PublishFailed(ByteString),
+    ProtocolError(ByteString),
+    Error(ByteString),
+    Reasons(Vec<Reason>),
+    Unknown,
+}
+
+impl Default for Reason {
+    #[inline]
+    fn default() -> Self {
+        Reason::Unknown
+    }
+}
+
+impl Reason {
+    #[inline]
+    pub fn from_static(r: &'static str) -> Self {
+        Reason::Error(ByteString::from_static(r))
+    }
+
+    #[inline]
+    pub fn is_kicked(&self, admin_opt: IsAdmin) -> bool {
+        match self {
+            Reason::ConnectKicked(_admin_opt) => *_admin_opt == admin_opt,
+            _ => false,
+        }
+    }
+
+    #[inline]
+    pub fn is_kicked_by_admin(&self) -> bool {
+        matches!(self, Reason::ConnectKicked(true))
+    }
+}
+
+impl std::convert::From<&str> for Reason {
+    #[inline]
+    fn from(r: &str) -> Self {
+        Reason::Error(ByteString::from(r))
+    }
+}
+
+impl std::convert::From<String> for Reason {
+    #[inline]
+    fn from(r: String) -> Self {
+        Reason::Error(ByteString::from(r))
+    }
+}
+
+impl std::convert::From<MqttError> for Reason {
+    #[inline]
+    fn from(e: MqttError) -> Self {
+        match e {
+            MqttError::Reason(r) => r,
+            MqttError::SendPacketError(_) | MqttError::IoError(_) => Reason::ConnectReadWriteError,
+            MqttError::Timeout(_) => Reason::ConnectReadWriteTimeout,
+            MqttError::None => Reason::Unknown,
+            _ => Reason::Error(ByteString::from(e.to_string())),
+        }
+    }
+}
+
+impl Display for Reason {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let r = match self {
+            Reason::ConnectDisconnect(r) => {
+                //Disconnect message received
+                match r {
+                    Some(r) => return write!(f, "Disconnect({})", r),
+                    None => "Disconnect",
+                }
+            }
+            Reason::ConnectReadWriteTimeout => {
+                "ReadWriteTimeout" //read/write timeout
+            }
+            Reason::ConnectReadWriteError => {
+                "ReadWriteError" //read/write error
+            }
+            Reason::ConnectRemoteClose => {
+                "RemoteClose" //"connection close by remote client"
+            }
+            Reason::ConnectKeepaliveTimeout => {
+                "KeepaliveTimeout" //keepalive timeout
+            }
+            Reason::ConnectKicked(admin_opt) => {
+                if *admin_opt {
+                    "ByAdminKick" //kicked by administrator
+                } else {
+                    "Kicked" //kicked
+                }
+            }
+            Reason::SessionExpiration => {
+                "SessionExpiration" //session expiration
+            }
+            Reason::SubscribeFailed(r) => {
+                //subscribe failed
+                match r {
+                    Some(r) => return write!(f, "SubscribeFailed({})", r),
+                    None => "SubscribeFailed",
+                }
+            }
+            Reason::UnsubscribeFailed(r) => {
+                //unsubscribe failed
+                match r {
+                    Some(r) => return write!(f, "UnsubscribeFailed({})", r),
+                    None => "UnsubscribeFailed",
+                }
+            }
+            Reason::SubscribeRefused => {
+                "SubscribeRefused" //subscribe refused
+            }
+            Reason::PublishRefused => {
+                "PublishRefused" //publish refused
+            }
+            Reason::MessageExpiration => {
+                "MessageExpiration" //message expiration
+            }
+            Reason::MessageQueueFull => {
+                "MessageQueueFull" //message deliver queue is full
+            }
+            Reason::PublishFailed(r) => return write!(f, "PublishFailed({})", r),
+            Reason::Error(r) => r,
+            Reason::ProtocolError(r) => return write!(f, "ProtocolError({})", r),
+            Reason::Reasons(reasons) => match reasons.len() {
+                0 => "",
+                1 => return write!(f, "{}", reasons.get(0).map(|r| r.to_string()).unwrap_or_default()),
+                _ => return write!(f, "{}", reasons.iter().map(|r| r.to_string()).join(",")),
+            },
+            Reason::Unknown => {
+                "Unknown" //unknown
+            }
+        };
+        write!(f, "{}", r)
+    }
+}
+
+#[test]
+fn test_reason() {
+    assert_eq!(Reason::ConnectKicked(false).is_kicked(false), true);
+    assert_eq!(Reason::ConnectKicked(false).is_kicked(true), false);
+    assert_eq!(Reason::ConnectKicked(true).is_kicked(true), true);
+    assert_eq!(Reason::ConnectKicked(true).is_kicked(false), false);
+    assert_eq!(Reason::ConnectKicked(true).is_kicked_by_admin(), true);
+    assert_eq!(Reason::ConnectKicked(false).is_kicked_by_admin(), false);
+    assert_eq!(Reason::ConnectDisconnect(None).is_kicked(false), false);
+    assert_eq!(Reason::ConnectDisconnect(None).is_kicked_by_admin(), false);
+
+    let reasons = Reason::Reasons(vec![
+        Reason::PublishRefused,
+        Reason::ConnectKicked(false),
+        Reason::MessageExpiration,
+    ]);
+    assert_eq!(reasons.to_string(), "PublishRefused,Kicked,MessageExpiration");
+}

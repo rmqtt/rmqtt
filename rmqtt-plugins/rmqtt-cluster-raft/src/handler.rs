@@ -36,7 +36,7 @@ impl Handler for HookHandler {
         match param {
             Parameter::ClientDisconnected(_s, c, r) => {
                 log::debug!("{:?} hook::ClientDisconnected reason: {:?}", c.id, r);
-                if !r.contains("Kicked") {
+                if !r.is_kicked(false) {
                     let msg = Message::Disconnected { id: c.id.clone() }.encode().unwrap();
                     let raft_mailbox = self.raft_mailbox.clone();
                     tokio::spawn(async move {
@@ -109,19 +109,11 @@ impl Handler for HookHandler {
                         }
                         return (false, acc);
                     }
-                    GrpcMessage::Kick(id, clear_subscriptions, is_admin) => {
+                    GrpcMessage::Kick(id, clean_start, clear_subscriptions, is_admin) => {
                         let mut entry = self.shared.inner().entry(id.clone());
-                        let new_acc = match entry.kick(*clear_subscriptions, *is_admin).await {
-                            Ok(Some(o)) => {
-                                if *is_admin {
-                                    self.shared.router().remove_client_status(&id.client_id);
-                                }
-                                HookResult::GrpcMessageReply(Ok(MessageReply::Kick(Some(o))))
-                            }
-                            Ok(None) => {
-                                self.shared.router().remove_client_status(&id.client_id);
-                                HookResult::GrpcMessageReply(Ok(MessageReply::Kick(None)))
-                            }
+                        let new_acc = match entry.kick(*clean_start, *clear_subscriptions, *is_admin).await {
+                            Ok(Some(o)) => HookResult::GrpcMessageReply(Ok(MessageReply::Kick(Some(o)))),
+                            Ok(None) => HookResult::GrpcMessageReply(Ok(MessageReply::Kick(None))),
                             Err(e) => HookResult::GrpcMessageReply(Err(e)),
                         };
                         return (false, Some(new_acc));

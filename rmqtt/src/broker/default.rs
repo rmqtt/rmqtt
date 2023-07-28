@@ -160,19 +160,22 @@ impl super::Entry for LockEntry {
     #[inline]
     async fn kick(
         &mut self,
+        clean_start: bool,
         clear_subscriptions: bool,
         is_admin: IsAdmin,
     ) -> Result<Option<SessionOfflineInfo>> {
         log::debug!(
-            "{:?} LockEntry kick ..., clear_subscriptions: {}, is_admin: {}",
+            "{:?} LockEntry kick ..., clean_start: {}, clear_subscriptions: {}, is_admin: {}",
             self.client().map(|c| c.id.clone()),
+            clean_start,
             clear_subscriptions,
             is_admin
         );
 
         if let Some(peer_tx) = self.tx().and_then(|tx| if tx.is_closed() { None } else { Some(tx) }) {
             let (tx, rx) = oneshot::channel();
-            if let Ok(()) = peer_tx.send(Message::Kick(tx, self.id.clone(), is_admin)) {
+            if let Ok(()) = peer_tx.unbounded_send(Message::Kick(tx, self.id.clone(), clean_start, is_admin))
+            {
                 match tokio::time::timeout(Duration::from_secs(5), rx).await {
                     Ok(Ok(())) => {
                         log::debug!("{:?} kicked, from {:?}", self.id, self.client().map(|c| c.id.clone()));
@@ -291,9 +294,9 @@ impl super::Entry for LockEntry {
             log::warn!("{:?} forward, from:{:?}, error: Tx is None", self.id, from);
             return Err((from, p, Reason::from_static("Tx is None")));
         };
-        if let Err(e) = tx.send(Message::Forward(from, p)) {
+        if let Err(e) = tx.unbounded_send(Message::Forward(from, p)) {
             log::warn!("{:?} forward, error: {:?}", self.id, e);
-            if let Message::Forward(from, p) = e.0 {
+            if let Message::Forward(from, p) = e.into_inner() {
                 return Err((from, p, Reason::from_static("Tx is closed")));
             }
         }
@@ -447,7 +450,7 @@ impl Shared for &'static DefaultShared {
                 (tx, to)
             } else {
                 log::warn!(
-                    "forwards, from:{:?}, to:{:?}, topic_filter:{:?}, topic:{:?}, error: Tx is None",
+                    "forwards_to, from:{:?}, to:{:?}, topic_filter:{:?}, topic:{:?}, error: Tx is None",
                     from,
                     client_id,
                     topic_filter,
@@ -457,16 +460,16 @@ impl Shared for &'static DefaultShared {
                 continue;
             };
 
-            if let Err(e) = tx.send(Message::Forward(from.clone(), p)) {
+            if let Err(e) = tx.unbounded_send(Message::Forward(from.clone(), p)) {
                 log::warn!(
-                    "forwards,  from:{:?}, to:{:?}, topic_filter:{:?}, topic:{:?}, error:{:?}",
+                    "forwards_to,  from:{:?}, to:{:?}, topic_filter:{:?}, topic:{:?}, error:{:?}",
                     from,
                     client_id,
                     topic_filter,
                     publish.topic,
                     e
                 );
-                if let Message::Forward(from, p) = e.0 {
+                if let Message::Forward(from, p) = e.into_inner() {
                     errs.push((to, from, p, Reason::from_static("Connection Tx is closed")));
                 }
             }
@@ -507,7 +510,7 @@ impl Shared for &'static DefaultShared {
     }
 
     #[inline]
-    async fn clinet_states_count(&self) -> usize {
+    async fn client_states_count(&self) -> usize {
         self.peers.len()
     }
 
@@ -1120,8 +1123,8 @@ impl DefaultFitterManager {
 
 impl FitterManager for &'static DefaultFitterManager {
     #[inline]
-    fn get(&self, client: ClientInfo, id: Id, listen_cfg: Listener) -> std::rc::Rc<dyn Fitter> {
-        std::rc::Rc::new(DefaultFitter::new(client, id, listen_cfg))
+    fn get(&self, client: ClientInfo, id: Id, listen_cfg: Listener) -> Box<dyn Fitter> {
+        Box::new(DefaultFitter::new(client, id, listen_cfg))
     }
 }
 
@@ -1184,11 +1187,23 @@ impl Fitter for DefaultFitter {
     }
 
     #[inline]
-    fn session_expiry_interval(&self) -> Duration {
-        if let ConnectInfo::V5(_, connect) = &self.client.connect_info {
-            Duration::from_secs(connect.session_expiry_interval_secs.unwrap_or_default() as u64)
+    async fn session_expiry_interval(&self) -> Duration {
+        let expiry_interval = || {
+            if let ConnectInfo::V5(_, connect) = &self.client.connect_info {
+                Duration::from_secs(connect.session_expiry_interval_secs.unwrap_or_default() as u64)
+            } else {
+                self.listen_cfg.session_expiry_interval
+            }
+        };
+
+        if let Some(Disconnect::V5(d)) = self.client.disconnect.read().await.as_ref() {
+            if let Some(interval_secs) = d.session_expiry_interval_secs {
+                Duration::from_secs(interval_secs as u64)
+            } else {
+                expiry_interval()
+            }
         } else {
-            self.listen_cfg.session_expiry_interval
+            expiry_interval()
         }
     }
 

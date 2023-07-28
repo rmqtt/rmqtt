@@ -59,11 +59,13 @@ url = { version = "2.2", default-features = false }
 systemstat = "0.1"
 itertools = "0.10"
 reqwest = { version = "0.11", features = ["json"] }
-rust-box = { version = "0.6.1", features = ["task-exec-queue", "task-exec-queue-rate", "std-ext", "dequemap"] }
+rust-box = { version = "0.7.1", features = ["task-exec-queue", "task-exec-queue-rate", "std-ext", "dequemap"] }
 structopt = "0.3"
 tokio-tungstenite = "0.18"
 pin-project-lite = "0.2.5"
 tokio-cron-scheduler = "0.9.4"
+update_rate = "2.0"
+bitflags = "2.3.3"
 time = "=0.3.20"
 
 [build-dependencies]

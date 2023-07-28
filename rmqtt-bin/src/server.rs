@@ -57,10 +57,7 @@ async fn main() {
     Settings::logs();
 
     //register plugin
-    plugin::registers(plugin::default_startups())
-        .await
-        .map_err(|e| format!("Failed to register plug-in, {:?}", e))
-        .unwrap();
+    plugin::registers(plugin::default_startups()).await.unwrap();
 
     //start gRPC server
     Runtime::instance().node.start_grpc_server();

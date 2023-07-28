@@ -1,7 +1,9 @@
+use bytestring::ByteString;
 use std::convert::AsRef;
 use std::convert::From as _f;
 use std::convert::TryFrom;
 use std::fmt;
+use std::num::NonZeroU16;
 use std::ops::Deref;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
@@ -9,7 +11,6 @@ use std::sync::Arc;
 
 use futures::StreamExt;
 use ntex_mqtt::types::MQTT_LEVEL_5;
-use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 use tokio::time::{Duration, Instant};
 
@@ -32,7 +33,6 @@ pub struct SessionState {
     pub sink: Sink,
     pub hook: Rc<dyn Hook>,
     pub deliver_queue_tx: Option<MessageSender>,
-    pub fitter: Rc<dyn Fitter>,
 }
 
 impl fmt::Debug for SessionState {
@@ -50,30 +50,24 @@ impl fmt::Debug for SessionState {
 
 impl SessionState {
     #[inline]
-    pub(crate) fn new(
-        session: Session,
-        client: ClientInfo,
-        sink: Sink,
-        hook: Rc<dyn Hook>,
-        fitter: Rc<dyn Fitter>,
-    ) -> Self {
-        Self { tx: None, session, client, sink, hook, deliver_queue_tx: None, fitter }
+    pub(crate) fn new(session: Session, client: ClientInfo, sink: Sink, hook: Rc<dyn Hook>) -> Self {
+        Self { tx: None, session, client, sink, hook, deliver_queue_tx: None }
     }
 
     #[inline]
     pub(crate) async fn start(mut self, keep_alive: u16) -> (Self, Tx) {
-        let (msg_tx, mut msg_rx) = mpsc::unbounded_channel();
+        let (msg_tx, mut msg_rx) = futures::channel::mpsc::unbounded();
         self.tx.replace(msg_tx.clone());
         let mut state = self.clone();
         ntex::rt::spawn(async move {
             log::debug!("{:?} there are {} offline messages ...", state.id, state.deliver_queue.len());
-            // Runtime::instance().stats.sessions.inc();
             Runtime::instance().stats.connections.inc();
 
-            let (burst, replenish_n_per) = state.fitter.mqueue_rate_limit();
-            let limiter = Limiter::new(burst, replenish_n_per);
+            let limiter = {
+                let (burst, replenish_n_per) = state.fitter.mqueue_rate_limit();
+                Limiter::new(burst, replenish_n_per)
+            };
             let (deliver_queue_tx, mut deliver_queue_rx) = limiter.channel(state.deliver_queue.clone());
-
             //When the message queue is full, the message dropping policy is implemented
             let deliver_queue_tx = deliver_queue_tx.policy(|(_, p): &(From, Publish)| -> Policy {
                 if let QoS::AtMostOnce = p.qos() {
@@ -84,18 +78,14 @@ impl SessionState {
             });
             state.deliver_queue_tx.replace(deliver_queue_tx.clone());
 
-            let id = state.id.clone();
-            let mut _kicked = false;
-            let mut _by_admin_kick = false;
-            let mut _disconnect_received = false;
-            log::debug!("{:?} start online event loop", id);
-
+            let mut flags = StateFlags::empty();
+            log::debug!("{:?} start online event loop", state.id);
             let keep_alive_interval = if keep_alive < 10 {
                 Duration::from_secs(10)
             } else {
                 Duration::from_secs((keep_alive + 10) as u64)
             };
-            log::debug!("{:?} keep_alive_interval is {:?}", id, keep_alive_interval);
+            log::debug!("{:?} keep_alive_interval is {:?}", state.id, keep_alive_interval);
             let keep_alive_delay = tokio::time::sleep(keep_alive_interval);
             tokio::pin!(keep_alive_delay);
 
@@ -103,7 +93,7 @@ impl SessionState {
             tokio::pin!(deliver_timeout_delay);
 
             loop {
-                log::debug!("{:?} tokio::select! loop", id);
+                log::debug!("{:?} tokio::select! loop", state.id);
                 deliver_timeout_delay.as_mut().reset(
                     Instant::now()
                         + state
@@ -116,43 +106,47 @@ impl SessionState {
 
                 tokio::select! {
                     _ = &mut keep_alive_delay => {  //, if !keep_alive_delay.is_elapsed()
-                        log::debug!("{:?} keep alive is timeout, is_elapsed: {:?}", id, keep_alive_delay.is_elapsed());
-                        state.client.add_disconnected_reason(Reason::from_static("Timeout(Read/Write)")).await;
+                        log::debug!("{:?} keep alive is timeout, is_elapsed: {:?}", state.id, keep_alive_delay.is_elapsed());
+                        state.client.add_disconnected_reason(Reason::ConnectKeepaliveTimeout).await;
                         break
                     },
-                    msg = msg_rx.recv() => {
-                        log::debug!("{:?} recv msg: {:?}", id, msg);
+                    msg = msg_rx.next() => {
+                        log::debug!("{:?} recv msg: {:?}", state.id, msg);
                         if let Some(msg) = msg{
                             match msg{
                                 Message::Forward(from, p) => {
                                     if let Err((from, p)) = deliver_queue_tx.send((from, p)).await{
-                                        log::warn!("{:?} deliver_dropped, from: {:?}, {:?}", id, from, p);
+                                        log::warn!("{:?} deliver_dropped, from: {:?}, {:?}", state.id, from, p);
                                         //hook, message_dropped
-                                        Runtime::instance().extends.hook_mgr().await.message_dropped(Some(state.id.clone()), from, p, Reason::from_static("deliver queue is full")).await;
+                                        Runtime::instance().extends.hook_mgr().await.message_dropped(Some(state.id.clone()), from, p, Reason::MessageQueueFull).await;
                                     }
                                 },
-                                Message::Kick(sender, by_id, is_admin) => {
-                                    log::debug!("{:?} Message::Kick, send kick result, to {:?}, is_admin: {}", id, by_id, is_admin);
+                                Message::Kick(sender, by_id, clean_start, is_admin) => {
+                                    log::debug!("{:?} Message::Kick, send kick result, to {:?}, clean_start: {}, is_admin: {}", state.id, by_id, clean_start, is_admin);
                                     if !sender.is_closed() {
                                         if sender.send(()).is_err() {
-                                            log::warn!("{:?} Message::Kick, send response error, sender is closed", id);
+                                            log::warn!("{:?} Message::Kick, send response error, sender is closed", state.id);
                                         }
-                                        _kicked = true;
-                                        _by_admin_kick = is_admin;
-                                        state.client.add_disconnected_reason(Reason::from(format!("Kicked by {:?}, is_admin: {}", by_id, is_admin))).await;
+                                        flags.insert(StateFlags::Kicked);
+                                        if is_admin {
+                                            flags.insert(StateFlags::ByAdminKick);
+                                        }
+                                        if clean_start {
+                                            flags.insert(StateFlags::CleanStart);
+                                        }
+                                        state.client.add_disconnected_reason(Reason::ConnectKicked(is_admin)).await;
                                         break
                                     }else{
-                                        log::warn!("{:?} Message::Kick, kick sender is closed, to {:?}, is_admin: {}", id, by_id, is_admin);
+                                        log::warn!("{:?} Message::Kick, kick sender is closed, to {:?}, is_admin: {}", state.id, by_id, is_admin);
                                     }
                                 },
                                 Message::Disconnect(d) => {
-                                    _disconnect_received = true;
+                                    flags.insert(StateFlags::DisconnectReceived);
+                                    state.client.add_disconnected_reason(d.reason()).await;
                                     state.client.set_mqtt_disconnect(d).await;
-                                    state.client.add_disconnected_reason("Disconnect(true) message is received".into()).await;
-
                                 },
                                 Message::Closed(reason) => {
-                                    log::debug!("{:?} Closed({}) message received, reason: {}", id, _disconnect_received, reason);
+                                    log::debug!("{:?} Closed({}) message received, reason: {}", state.id, flags.contains(StateFlags::DisconnectReceived), reason);
                                     if !state.client.has_disconnected_reason().await{
                                         state.client.add_disconnected_reason(reason).await;
                                     }
@@ -165,25 +159,25 @@ impl SessionState {
                                     let sub_reply = state.subscribe(sub).await;
                                     if !reply_tx.is_closed(){
                                         if let Err(e) = reply_tx.send(sub_reply) {
-                                            log::warn!("{:?} Message::Subscribe, send response error, {:?}", id, e);
+                                            log::warn!("{:?} Message::Subscribe, send response error, {:?}", state.id, e);
                                         }
                                     }else{
-                                        log::warn!("{:?} Message::Subscribe, reply sender is closed", id);
+                                        log::warn!("{:?} Message::Subscribe, reply sender is closed", state.id);
                                     }
                                 },
                                 Message::Unsubscribe(unsub, reply_tx) => {
                                     let unsub_reply = state.unsubscribe(unsub).await;
                                     if !reply_tx.is_closed(){
                                         if let Err(e) = reply_tx.send(unsub_reply) {
-                                            log::warn!("{:?} Message::Unsubscribe, send response error, {:?}", id, e);
+                                            log::warn!("{:?} Message::Unsubscribe, send response error, {:?}", state.id, e);
                                         }
                                     }else{
-                                        log::warn!("{:?} Message::Unsubscribe, reply sender is closed", id);
+                                        log::warn!("{:?} Message::Unsubscribe, reply sender is closed", state.id);
                                     }
                                 }
                             }
                         }else{
-                            log::warn!("{:?} None is received from the Rx", id);
+                            log::warn!("{:?} None is received from the Rx", state.id);
                             state.client.add_disconnected_reason(Reason::from_static("None is received from the Rx")).await;
                             break;
                         }
@@ -191,26 +185,26 @@ impl SessionState {
 
                     _ = &mut deliver_timeout_delay => {
                         while let Some(iflt_msg) = state.inflight_win.write().await.pop_front_timeout(){
-                            log::debug!("{:?} has timeout message in inflight: {:?}", id, iflt_msg);
+                            log::debug!("{:?} has timeout message in inflight: {:?}", state.id, iflt_msg);
                             if let Err(e) = state.reforward(iflt_msg).await{
-                                log::error!("{:?} redeliver message error, {:?}", id, e);
+                                log::error!("{:?} redeliver message error, {:?}", state.id, e);
                             }
                         }
                     },
 
                     deliver_packet = deliver_queue_rx.next(), if state.inflight_win.read().await.has_credit() => {
-                        log::debug!("{:?} deliver_packet: {:?}", id, deliver_packet);
+                        log::debug!("{:?} deliver_packet: {:?}", state.id, deliver_packet);
                         match deliver_packet{
                             Some(Some((from, p))) => {
                                 if let Err(e) = state.deliver(from, p).await{
-                                    log::error!("{:?} deliver message error, {:?}", id, e);
+                                    log::error!("{:?} deliver message error, {:?}", state.id, e);
                                 }
                             },
                             Some(None) => {
-                                log::warn!("{:?} None is received from the deliver Queue", id);
+                                log::warn!("{:?} None is received from the deliver Queue", state.id);
                             },
                             None => {
-                                log::warn!("{:?} Deliver Queue is closed", id);
+                                log::warn!("{:?} Deliver Queue is closed", state.id);
                                 state.client.add_disconnected_reason("Deliver Queue is closed".into()).await;
                                 break;
                             }
@@ -219,53 +213,52 @@ impl SessionState {
                 }
             }
 
+            let clean_session = state.clean_session().await;
+
             log::debug!(
-                "{:?} exit online worker, kicked: {}, clean_session: {}",
-                id,
-                _kicked,
-                state.clean_session().await
+                "{:?} exit online worker, flags: {:?}, clean_session: {} {}",
+                state.id,
+                flags,
+                clean_session,
+                flags.contains(StateFlags::CleanStart)
             );
 
             Runtime::instance().stats.connections.dec();
 
             //Setting the disconnected state
             state.client.set_disconnected(None).await;
-            if !_disconnect_received {
+
+            if state.last_will_enable(flags, clean_session) {
                 if let Err(e) = state.process_last_will().await {
-                    log::error!("{:?} process last will error, {:?}", id, e);
+                    log::error!("{:?} process last will error, {:?}", state.id, e);
                 }
             }
+
             state.sink.close();
 
             //hook, client_disconnected
-            let reason = state
-                .client
-                .get_disconnected_reason()
-                .await
-                .unwrap_or(Reason::from_static("Remote close connect"));
+            let reason = if state.client.has_disconnected_reason().await {
+                state.client.get_disconnected_reason().await
+            } else {
+                state.client.add_disconnected_reason(Reason::ConnectRemoteClose).await;
+                Reason::ConnectRemoteClose
+            };
             state.hook.client_disconnected(reason).await;
 
-            if !_kicked {
-                if state.clean_session().await {
-                    state.clean(state.client.get_disconnected_reason().await.unwrap_or_default()).await;
-                } else {
-                    //Start offline event loop
-                    Self::offline_start(
-                        state.clone(),
-                        &mut msg_rx,
-                        &deliver_queue_tx,
-                        &mut _kicked,
-                        &mut _by_admin_kick,
-                    )
-                    .await;
-                    log::debug!("{:?} offline _kicked: {}", id, _kicked);
-                    if !_kicked {
-                        state.clean(Reason::from_static("session expired")).await;
-                    }
+            if flags.contains(StateFlags::Kicked) {
+                if flags.contains(StateFlags::ByAdminKick) {
+                    state.clean(state.client.take_disconnected_reason().await).await;
+                }
+            } else if clean_session {
+                state.clean(state.client.take_disconnected_reason().await).await;
+            } else {
+                //Start offline event loop
+                Self::offline_start(state.clone(), &mut msg_rx, &deliver_queue_tx, &mut flags).await;
+                log::debug!("{:?} offline flags: {:?}", state.id, flags);
+                if !flags.contains(StateFlags::Kicked) {
+                    state.clean(Reason::SessionExpiration).await;
                 }
             }
-
-            // Runtime::instance().stats.sessions.dec();
         });
         (self, msg_tx)
     }
@@ -275,67 +268,74 @@ impl SessionState {
         state: SessionState,
         msg_rx: &mut Rx,
         deliver_queue_tx: &MessageSender,
-        kicked: &mut bool,
-        by_admin_kick: &mut bool,
+        flags: &mut StateFlags,
     ) {
-        log::debug!("{:?} start offline event loop", state.id);
-        let id = state.id.clone();
+        log::debug!(
+            "{:?} start offline event loop, session_expiry_interval: {:?}",
+            state.id,
+            state.fitter.session_expiry_interval().await
+        );
 
         //state.client.disconnect
-        let session_expiry_interval = state.fitter.session_expiry_interval(); //state.listen_cfg.session_expiry_interval;
-        let session_expiry_delay = tokio::time::sleep(session_expiry_interval);
+        let session_expiry_delay = tokio::time::sleep(state.fitter.session_expiry_interval().await);
         tokio::pin!(session_expiry_delay);
 
         loop {
             tokio::select! {
-                msg = msg_rx.recv() => {
-                    log::debug!("{:?} recv offline msg: {:?}", id, msg);
+                msg = msg_rx.next() => {
+                    log::debug!("{:?} recv offline msg: {:?}", state.id, msg);
                     if let Some(msg) = msg{
                         match msg{
                             Message::Forward(from, p) => {
                                 if let Err((from, p)) = deliver_queue_tx.send((from, p)).await{
-                                    log::warn!("{:?} offline deliver_dropped, from: {:?}, {:?}", id, from, p);
+                                    log::warn!("{:?} offline deliver_dropped, from: {:?}, {:?}", state.id, from, p);
                                     //hook, message_dropped
-                                    Runtime::instance().extends.hook_mgr().await.message_dropped(Some(state.id.clone()), from, p, Reason::from_static("deliver queue is full")).await;
+                                    Runtime::instance().extends.hook_mgr().await.message_dropped(Some(state.id.clone()), from, p, Reason::MessageQueueFull).await;
                                 }
                             },
-                            Message::Kick(sender, by_id, is_admin) => {
-                                log::debug!("{:?} offline Kicked, send kick result, to: {:?}, is_admin: {}", id, by_id, is_admin);
+                            Message::Kick(sender, by_id, clean_start, is_admin) => {
+                                log::debug!("{:?} offline Kicked, send kick result, to: {:?}, clean_start: {}, is_admin: {}", state.id, by_id, clean_start, is_admin);
                                 if !sender.is_closed() {
                                     if let Err(e) = sender.send(()) {
-                                        log::warn!("{:?} offline Kick send response error, to: {:?}, is_admin: {}, {:?}", id, by_id, is_admin, e);
+                                        log::warn!("{:?} offline Kick send response error, to: {:?}, clean_start: {}, is_admin: {}, {:?}", state.id, by_id, clean_start, is_admin, e);
                                     }
-                                    *kicked = true;
-                                    *by_admin_kick = is_admin;
+                                    flags.insert(StateFlags::Kicked);
+                                    if is_admin {
+                                        flags.insert(StateFlags::ByAdminKick);
+                                    }
+                                    if clean_start {
+                                        flags.insert(StateFlags::CleanStart);
+                                    }
                                     break
                                 }else{
-                                    log::warn!("{:?} offline Kick sender is closed, to {:?}, is_admin: {}", id, by_id, is_admin);
+                                    log::warn!("{:?} offline Kick sender is closed, to {:?}, clean_start: {}, is_admin: {}", state.id, by_id, clean_start, is_admin);
                                 }
                             },
                             _ => {
-                                log::info!("{:?} offline receive message is {:?}", id, msg);
+                                log::info!("{:?} offline receive message is {:?}", state.id, msg);
+                                break;
                             }
                         }
                     }else{
-                        log::warn!("{:?} offline None is received from the Rx", id);
+                        log::warn!("{:?} offline None is received from the Rx", state.id);
                         break;
                     }
                 },
                _ = &mut session_expiry_delay => { //, if !session_expiry_delay.is_elapsed() => {
-                  log::debug!("{:?} session expired", id);
+                  log::debug!("{:?} session expired", state.id);
                   break
                },
             }
         }
-        log::debug!("{:?} exit offline worker", id);
+        log::debug!("{:?} exit offline worker", state.id);
     }
 
     #[inline]
     pub(crate) async fn forward(&self, from: From, p: Publish) {
         let res = if let Some(ref tx) = self.tx {
-            if let Err(e) = tx.send(Message::Forward(from, p)) {
-                if let Message::Forward(from, p) = e.0 {
-                    Err((from, p, "Send Publish message error, Tx is closed"))
+            if let Err(e) = tx.unbounded_send(Message::Forward(from, p)) {
+                if let Message::Forward(from, p) = e.into_inner() {
+                    Err((from, p, Reason::from("Send Publish message error, Tx is closed")))
                 } else {
                     Ok(())
                 }
@@ -344,7 +344,7 @@ impl SessionState {
             }
         } else {
             log::warn!("{:?} Message Sender is None", self.id);
-            Err((from, p, "Message Sender is None"))
+            Err((from, p, Reason::from("Send Publish message error, Tx is None")))
         };
 
         if let Err((from, p, reason)) = res {
@@ -353,7 +353,7 @@ impl SessionState {
                 .extends
                 .hook_mgr()
                 .await
-                .message_dropped(Some(self.id.clone()), from, p, Reason::from_static(reason))
+                .message_dropped(Some(self.id.clone()), from, p, reason)
                 .await;
         }
     }
@@ -361,7 +361,7 @@ impl SessionState {
     #[inline]
     pub(crate) fn send(&self, msg: Message) -> Result<()> {
         if let Some(ref tx) = self.tx {
-            tx.send(msg)?;
+            tx.unbounded_send(msg).map_err(anyhow::Error::new)?;
             Ok(())
         } else {
             Err(MqttError::from("Message Sender is None"))
@@ -369,12 +369,23 @@ impl SessionState {
     }
 
     #[inline]
+    fn last_will_enable(&self, flags: StateFlags, clean_session: bool) -> bool {
+        let session_present =
+            flags.contains(StateFlags::Kicked) && !flags.contains(StateFlags::CleanStart) && !clean_session;
+        !(flags.contains(StateFlags::DisconnectReceived) || session_present)
+    }
+
+    #[inline]
     async fn process_last_will(&self) -> Result<()> {
         if let Some(lw) = self.client.last_will() {
-            //@TODO ...
             let p = Publish::try_from(lw)?;
-            if let Err(e) = Runtime::instance().extends.shared().await.forwards(self.id.clone(), p).await {
-                log::error!("{:?} send last will message fail, {:?}", self.id, e);
+            if let Err(droppeds) =
+                Runtime::instance().extends.shared().await.forwards(self.id.clone(), p).await
+            {
+                for (to, from, p, r) in droppeds {
+                    //hook, message_dropped
+                    Runtime::instance().extends.hook_mgr().await.message_dropped(Some(to), from, p, r).await;
+                }
             }
         }
         Ok(())
@@ -423,12 +434,7 @@ impl SessionState {
                 .extends
                 .hook_mgr()
                 .await
-                .message_dropped(
-                    Some(self.id.clone()),
-                    from,
-                    publish,
-                    Reason::from_static("message is expired"),
-                )
+                .message_dropped(Some(self.id.clone()), from, publish, Reason::MessageExpiration)
                 .await;
             return Ok(());
         }
@@ -590,7 +596,9 @@ impl SessionState {
         match self.publish(Publish::try_from(publish)?).await {
             Err(e) => {
                 Metrics::instance().client_publish_error_inc();
-                self.client.add_disconnected_reason(Reason::from(format!("Publish failed, {:?}", e))).await;
+                self.client
+                    .add_disconnected_reason(Reason::PublishFailed(ByteString::from(e.to_string())))
+                    .await;
                 Err(e)
             }
             Ok(false) => {
@@ -606,7 +614,9 @@ impl SessionState {
         match self.publish(Publish::try_from(publish)?).await {
             Err(e) => {
                 Metrics::instance().client_publish_error_inc();
-                self.client.add_disconnected_reason(Reason::from(format!("Publish failed, {:?}", e))).await;
+                self.client
+                    .add_disconnected_reason(Reason::PublishFailed(ByteString::from(e.to_string())))
+                    .await;
                 Err(e)
             }
             Ok(false) => {
@@ -632,15 +642,7 @@ impl SessionState {
                 .extends
                 .hook_mgr()
                 .await
-                .message_dropped(
-                    None,
-                    self.id.clone(),
-                    publish,
-                    Reason::from(format!(
-                        "hook::message_publish_check_acl, publish rejected, disconnect:{}",
-                        disconnect
-                    )),
-                )
+                .message_dropped(None, self.id.clone(), publish, Reason::PublishRefused)
                 .await;
             return if disconnect {
                 Err(MqttError::from(
@@ -772,24 +774,11 @@ impl SessionState {
     }
 
     #[inline]
-    async fn session_expiry_interval(&self) -> Duration {
-        if let Some(Disconnect::V5(d)) = self.client.disconnect.read().await.as_ref() {
-            if let Some(interval_secs) = d.session_expiry_interval_secs {
-                Duration::from_secs(interval_secs as u64)
-            } else {
-                self.fitter.session_expiry_interval()
-            }
-        } else {
-            self.fitter.session_expiry_interval()
-        }
-    }
-
-    #[inline]
     async fn clean_session(&self) -> bool {
         if let ConnectInfo::V3(_, conn_info) = &self.client.connect_info {
             conn_info.clean_session
         } else {
-            self.session_expiry_interval().await.as_secs() == 0
+            self.fitter.session_expiry_interval().await.is_zero()
         }
     }
 }
@@ -834,16 +823,19 @@ impl Session {
     #[inline]
     pub(crate) fn new(
         id: Id,
+        fitter: Box<dyn Fitter>,
         listen_cfg: Listener,
-        max_mqueue_len: usize,
-        max_inflight: usize,
+        max_inflight: NonZeroU16,
         created_at: TimestampMillis,
     ) -> Self {
+        let max_mqueue_len = fitter.max_mqueue_len();
+        let max_inflight = max_inflight.get() as usize;
         let message_retry_interval = listen_cfg.message_retry_interval.as_millis() as TimestampMillis;
         let message_expiry_interval = listen_cfg.message_expiry_interval.as_millis() as TimestampMillis;
         Runtime::instance().stats.sessions.inc();
         Self(Arc::new(_SessionInner {
             id,
+            fitter,
             listen_cfg,
             subscriptions: SessionSubs::new(),
             deliver_queue: Arc::new(MessageQueue::new(max_mqueue_len)),
@@ -898,6 +890,7 @@ impl std::fmt::Debug for Session {
 
 pub struct _SessionInner {
     pub id: Id,
+    pub fitter: Box<dyn Fitter>,
     pub listen_cfg: Listener,
     //Current subscription for this session
     pub subscriptions: SessionSubs,
@@ -994,11 +987,10 @@ impl ClientInfo {
                 )),
             );
 
-            if let Some(reason) = self.get_disconnected_reason().await {
-                json.insert("disconnected_reason".into(), serde_json::Value::String(reason.to_string()));
-            } else {
-                json.insert("disconnected_reason".into(), serde_json::Value::Null);
-            }
+            json.insert(
+                "disconnected_reason".into(),
+                serde_json::Value::String(self.get_disconnected_reason().await.to_string()),
+            );
 
             json.insert(
                 "extra_attrs".into(),
@@ -1022,8 +1014,8 @@ impl ClientInfo {
     }
 
     #[inline]
-    pub fn username(&self) -> &UserName {
-        &self.id.username
+    pub fn username(&self) -> &str {
+        self.id.username_ref()
     }
 
     #[inline]
@@ -1052,20 +1044,17 @@ impl ClientInfo {
     }
 
     pub(crate) async fn set_mqtt_disconnect(&self, d: Disconnect) {
-        if let Some(r) = d.reason() {
-            self.add_disconnected_reason(r.clone()).await;
-        }
         self.disconnect.write().await.replace(d);
     }
 
     #[inline]
-    pub async fn get_disconnected_reason(&self) -> Option<Reason> {
-        let reason = self.disconnected_reason.read().await;
-        if reason.is_empty() {
-            None
-        } else {
-            Some(Reason::from(reason.join(",")))
-        }
+    pub async fn get_disconnected_reason(&self) -> Reason {
+        Reason::Reasons(self.disconnected_reason.read().await.clone())
+    }
+
+    #[inline]
+    pub async fn take_disconnected_reason(&self) -> Reason {
+        Reason::Reasons(self.disconnected_reason.write().await.drain(..).collect())
     }
 
     #[inline]

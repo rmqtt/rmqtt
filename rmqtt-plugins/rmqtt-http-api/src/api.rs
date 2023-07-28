@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 
 use salvo::affix;
 use salvo::http::header::{HeaderValue, CONTENT_TYPE};
+use salvo::http::mime;
 use salvo::prelude::*;
 
 use rmqtt::{
@@ -30,6 +31,7 @@ use super::{clients, plugin, subs};
 fn route(cfg: PluginConfigType) -> Router {
     Router::with_path("api/v1")
         .hoop(affix::inject(cfg))
+        .hoop(api_logger)
         .get(list_apis)
         .push(Router::with_path("brokers").get(get_brokers).push(Router::with_path("<id>").get(get_brokers)))
         .push(Router::with_path("nodes").get(get_nodes).push(Router::with_path("<id>").get(get_nodes)))
@@ -255,6 +257,41 @@ async fn list_apis(res: &mut Response) {
 
     ]);
     res.render(Json(data));
+}
+
+#[handler]
+async fn api_logger(req: &mut Request, depot: &mut Depot) {
+    if let Some(cfg) = depot.obtain::<PluginConfigType>() {
+        if !cfg.read().http_request_log {
+            return;
+        }
+    }
+
+    let log_data = format!(
+        "Request {}, {:?}, {}, {}",
+        req.remote_addr().map(|addr| addr.to_string()).unwrap_or_else(|| "[Unknown]".into()),
+        req.version(),
+        req.method(),
+        req.uri()
+    );
+    let txt_body = if let Some(m) = req.content_type() {
+        if let mime::PLAIN | mime::JSON | mime::TEXT = m.subtype() {
+            if let Ok(body) = req.payload().await {
+                Some(String::from_utf8_lossy(body))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    if let Some(txt_body) = txt_body {
+        log::info!("{}, body: {}", log_data, txt_body);
+    } else {
+        log::info!("{}", log_data);
+    }
 }
 
 #[handler]
@@ -524,10 +561,10 @@ async fn kick_client(req: &mut Request, res: &mut Response) {
             .await
             .entry(Id::from(Runtime::instance().node.id(), ClientId::from(clientid)));
 
-        match entry.kick(true, true).await {
+        match entry.kick(true, true, true).await {
             Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
             Ok(None) => res.set_status_code(StatusCode::NOT_FOUND),
-            Ok(Some(offline_info)) => res.render(Text::Plain(offline_info.id.as_str().to_owned())),
+            Ok(Some(offline_info)) => res.render(Text::Plain(offline_info.id.to_string())),
         }
     } else {
         res.set_status_error(StatusError::bad_request())

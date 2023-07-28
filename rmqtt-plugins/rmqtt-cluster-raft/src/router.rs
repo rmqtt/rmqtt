@@ -106,11 +106,6 @@ impl ClusterRouter {
     }
 
     #[inline]
-    pub(crate) fn remove_client_status(&self, client_id: &str) {
-        self.client_states.remove(client_id);
-    }
-
-    #[inline]
     pub(crate) fn _handshakings(&self) -> usize {
         self.client_states.iter().filter_map(|entry| if entry.handshaking { Some(()) } else { None }).count()
     }
@@ -291,7 +286,7 @@ impl Store for &'static ClusterRouter {
                 if let Some(mut entry) = self.client_states.get_mut(&id.client_id) {
                     let mut status = entry.value_mut();
                     if status.id != id {
-                        log::info!(
+                        log::debug!(
                             "[Router.Disconnected] id not the same, input id: {:?}, current status: {:?}",
                             id,
                             status
@@ -307,7 +302,7 @@ impl Store for &'static ClusterRouter {
                 log::debug!("[Router.SessionTerminated] id: {:?}", id,);
                 self.client_states.remove_if(&id.client_id, |_, status| {
                     if status.id != id {
-                        log::info!("[Router.SessionTerminated] id not the same, input id: {:?}, current status: {:?}", id, status);
+                        log::debug!("[Router.SessionTerminated] id not the same, input id: {:?}, current status: {:?}", id, status);
                         false
                     } else {
                         true

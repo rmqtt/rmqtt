@@ -11,6 +11,8 @@ use tokio::sync::mpsc::error::SendError;
 use tokio::task::JoinError;
 use tokio::time::Duration;
 
+use super::types::Reason;
+
 #[derive(Error, Debug)]
 pub enum MqttError {
     #[error("service unavailable")]
@@ -43,6 +45,8 @@ pub enum MqttError {
     ParseIntError(ParseIntError),
     #[error("listener config is error")]
     ListenerConfigError,
+    #[error("{0}")]
+    Reason(Reason),
     #[error("None")]
     None,
 }

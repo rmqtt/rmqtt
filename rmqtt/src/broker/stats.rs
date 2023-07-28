@@ -130,9 +130,11 @@ pub struct Stats {
     routes_map: HashMap<NodeId, Counter>,
 
     #[cfg(feature = "debug")]
-    debug_clinet_states_map: HashMap<NodeId, usize>,
+    debug_client_states_map: HashMap<NodeId, usize>,
     #[cfg(feature = "debug")]
     debug_topics_tree_map: HashMap<NodeId, usize>,
+    #[cfg(feature = "debug")]
+    debug_shared_peers: Counter,
 }
 
 impl Stats {
@@ -153,16 +155,17 @@ impl Stats {
             routes_map: HashMap::default(),
 
             #[cfg(feature = "debug")]
-            debug_clinet_states_map: HashMap::default(),
+            debug_client_states_map: HashMap::default(),
             #[cfg(feature = "debug")]
             debug_topics_tree_map: HashMap::default(),
+            #[cfg(feature = "debug")]
+            debug_shared_peers: Counter::new(),
         })
     }
 
     #[inline]
     pub async fn clone(&self) -> Self {
         let router = Runtime::instance().extends.router().await;
-        let shared = Runtime::instance().extends.shared().await;
 
         let node_id = Runtime::instance().node.id();
         let mut topics_map = HashMap::default();
@@ -174,17 +177,20 @@ impl Stats {
         self.handshakings_active.current_set(get_active_count());
         self.handshakings_rate.sets((get_rate() * 100.0) as isize);
 
-        self.sessions.current_set(shared.sessions_count() as isize);
+        #[cfg(feature = "debug")]
+        let shared = Runtime::instance().extends.shared().await;
 
         #[cfg(feature = "debug")]
-        let mut debug_clinet_states_map = HashMap::default();
+        let mut debug_client_states_map = HashMap::default();
         #[cfg(feature = "debug")]
         let mut debug_topics_tree_map = HashMap::default();
         #[cfg(feature = "debug")]
         {
-            debug_clinet_states_map.insert(node_id, shared.clinet_states_count().await);
+            debug_client_states_map.insert(node_id, shared.client_states_count().await);
             debug_topics_tree_map.insert(node_id, router.topics_tree().await);
         }
+        #[cfg(feature = "debug")]
+        self.debug_shared_peers.current_set(shared.sessions_count() as isize);
 
         Self {
             handshakings: self.handshakings.clone(),
@@ -200,9 +206,11 @@ impl Stats {
             routes_map,
 
             #[cfg(feature = "debug")]
-            debug_clinet_states_map,
+            debug_client_states_map,
             #[cfg(feature = "debug")]
             debug_topics_tree_map,
+            #[cfg(feature = "debug")]
+            debug_shared_peers: self.debug_shared_peers.clone(),
         }
     }
 
@@ -222,8 +230,9 @@ impl Stats {
 
         #[cfg(feature = "debug")]
         {
-            self.debug_clinet_states_map.extend(other.debug_clinet_states_map);
+            self.debug_client_states_map.extend(other.debug_client_states_map);
             self.debug_topics_tree_map.extend(other.debug_topics_tree_map);
+            self.debug_shared_peers.add(&other.debug_shared_peers)
         }
     }
 
@@ -260,8 +269,9 @@ impl Stats {
         #[cfg(feature = "debug")]
         {
             if let Some(obj) = json_val.as_object_mut() {
-                obj.insert("debug_clinet_states_map".into(), json!(self.debug_clinet_states_map));
+                obj.insert("debug_client_states_map".into(), json!(self.debug_client_states_map));
                 obj.insert("debug_topics_tree_map".into(), json!(self.debug_topics_tree_map));
+                obj.insert("debug_shared_peers".into(), json!(self.debug_shared_peers.count()));
             }
         }
 

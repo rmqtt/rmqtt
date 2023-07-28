@@ -1,3 +1,5 @@
+use serde::de::{self, Deserialize};
+use serde::ser::{self, Serialize};
 use std::time::Duration;
 
 use rmqtt::chrono::LocalResult;
@@ -5,7 +7,7 @@ use rmqtt::node::{BrokerInfo, NodeInfo, NodeStatus};
 use rmqtt::plugin::PluginInfo;
 use rmqtt::settings::{deserialize_datetime_option, serialize_datetime_option};
 use rmqtt::Result;
-use rmqtt::{anyhow, bincode, chrono, serde_json, HashMap, MqttError, QoS, Reason};
+use rmqtt::{anyhow, bincode, chrono, serde_json, HashMap, MqttError, QoS};
 use rmqtt::{metrics::Metrics, stats::Stats};
 use rmqtt::{ClientId, NodeId, Timestamp, TopicFilter, TopicName, UserName};
 
@@ -127,7 +129,7 @@ pub struct ClientSearchResult {
     pub connected: bool,
     pub connected_at: Timestamp,
     pub disconnected_at: Timestamp,
-    pub disconnected_reason: Reason,
+    pub disconnected_reason: String,
     pub keepalive: u16,
     pub clean_start: bool,
     pub session_present: bool,
@@ -136,6 +138,12 @@ pub struct ClientSearchResult {
     pub subscriptions_cnt: usize,
     pub max_subscriptions: usize,
     pub extra_attrs: usize,
+    #[serde(
+        default,
+        serialize_with = "ClientSearchResult::serialize_last_will",
+        deserialize_with = "ClientSearchResult::deserialize_last_will"
+    )]
+    pub last_will: serde_json::Value,
 
     pub inflight: usize,
     pub max_inflight: usize,
@@ -155,6 +163,22 @@ pub struct ClientSearchResult {
 }
 
 impl ClientSearchResult {
+    #[inline]
+    fn serialize_last_will<S>(last_will: &serde_json::Value, s: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: ser::Serializer,
+    {
+        serde_json::to_vec(last_will).map_err(ser::Error::custom)?.serialize(s)
+    }
+
+    #[inline]
+    pub fn deserialize_last_will<'de, D>(d: D) -> std::result::Result<serde_json::Value, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        serde_json::from_slice(&Vec::deserialize(d)?).map_err(de::Error::custom)
+    }
+
     #[inline]
     pub fn to_json(&self) -> serde_json::Value {
         let data = serde_json::json!({
@@ -177,6 +201,7 @@ impl ClientSearchResult {
             "subscriptions_cnt": self.subscriptions_cnt,
             "max_subscriptions": self.max_subscriptions,
             "extra_attrs": self.extra_attrs,
+            "last_will": self.last_will,
 
             "inflight": self.inflight,
             "max_inflight": self.max_inflight,

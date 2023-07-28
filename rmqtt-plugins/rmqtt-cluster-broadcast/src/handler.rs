@@ -51,17 +51,19 @@ impl Handler for HookHandler {
                         }
                         return (false, acc);
                     }
-                    Message::Kick(id, clear_subscriptions, is_admin) => {
+                    Message::Kick(id, clean_start, clear_subscriptions, is_admin) => {
                         let entry = self.shared.inner().entry(id.clone());
                         log::debug!("{:?}", id);
                         let new_acc = match entry.try_lock().await {
-                            Ok(mut entry) => match entry.kick(*clear_subscriptions, *is_admin).await {
-                                Ok(o) => {
-                                    log::debug!("{:?} offline info: {:?}", id, o);
-                                    HookResult::GrpcMessageReply(Ok(MessageReply::Kick(o)))
+                            Ok(mut entry) => {
+                                match entry.kick(*clean_start, *clear_subscriptions, *is_admin).await {
+                                    Ok(o) => {
+                                        log::debug!("{:?} offline info: {:?}", id, o);
+                                        HookResult::GrpcMessageReply(Ok(MessageReply::Kick(o)))
+                                    }
+                                    Err(e) => HookResult::GrpcMessageReply(Err(e)),
                                 }
-                                Err(e) => HookResult::GrpcMessageReply(Err(e)),
-                            },
+                            }
                             Err(e) => {
                                 log::warn!("{:?}, try_lock error, {:?}", id, e);
                                 HookResult::GrpcMessageReply(Err(e))

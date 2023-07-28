@@ -2,11 +2,15 @@
 ## rmqtt-http-api
 ##--------------------------------------------------------------------
 
+# See more keys and their definitions at https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/http-api.md
+
 ##Number of worker threads
 workers = 1
 ## Max Row Limit
 max_row_limit = 10_000
 ## HTTP Listener
 http_laddr = "0.0.0.0:6060"
+## Indicates whether to print HTTP request logs
+http_request_log = false
 
 

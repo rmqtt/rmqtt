@@ -1,5 +1,5 @@
 use rmqtt::{broker::Entry, ClientId, ClientInfo, Id, Runtime, Session, TimestampMillis};
-use rmqtt::{chrono, futures};
+use rmqtt::{chrono, futures, serde_json};
 
 use super::types::{ClientSearchParams as SearchParams, ClientSearchResult as SearchResult};
 
@@ -56,19 +56,20 @@ async fn build_result(s: Option<Session>, c: Option<ClientInfo>) -> SearchResult
     let connected = c.is_connected();
     let connected_at = c.connected_at / 1000;
     let disconnected_at = c.disconnected_at() / 1000;
-    let disconnected_reason = c.get_disconnected_reason().await.unwrap_or_default();
+    let disconnected_reason = c.get_disconnected_reason().await.to_string();
     let expiry_interval = if connected {
-        s.listen_cfg.session_expiry_interval.as_secs() as i64
+        s.fitter.session_expiry_interval().await.as_secs() as i64
     } else {
-        s.listen_cfg.session_expiry_interval.as_secs() as i64
+        s.fitter.session_expiry_interval().await.as_secs() as i64
             - (chrono::Local::now().timestamp() - disconnected_at)
     };
     let inflight = s.inflight_win.read().await.len();
     let extra_attrs = c.extra_attrs.read().await.len();
+    let last_will = c.last_will().map(|lw| lw.to_json()).unwrap_or_else(|| serde_json::Value::Null);
     SearchResult {
         node_id: c.id.node_id,
         clientid: c.id.client_id.clone(),
-        username: c.username().clone(),
+        username: c.id.username(),
         superuser: c.superuser,
         proto_ver: c.connect_info.proto_ver(),
         ip_address: c.id.remote_addr.map(|addr| addr.ip().to_string()),
@@ -85,6 +86,7 @@ async fn build_result(s: Option<Session>, c: Option<ClientInfo>) -> SearchResult
         subscriptions_cnt: s.subscriptions.len(),
         max_subscriptions: s.listen_cfg.max_subscriptions,
         extra_attrs,
+        last_will,
 
         inflight,
         max_inflight: s.listen_cfg.max_inflight,

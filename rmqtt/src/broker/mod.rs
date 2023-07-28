@@ -37,6 +37,7 @@ pub trait Entry: Sync + Send {
     async fn remove_with(&mut self, id: &Id) -> Result<Option<(Session, Tx, ClientInfo)>>;
     async fn kick(
         &mut self,
+        clean_start: bool,
         clear_subscriptions: bool,
         is_admin: IsAdmin,
     ) -> Result<Option<SessionOfflineInfo>>;
@@ -88,7 +89,7 @@ pub trait Shared: Sync + Send {
     async fn session_status(&self, client_id: &str) -> Option<SessionStatus>;
 
     ///
-    async fn clinet_states_count(&self) -> usize;
+    async fn client_states_count(&self) -> usize;
 
     ///
     fn sessions_count(&self) -> usize;
