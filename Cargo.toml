@@ -28,7 +28,7 @@ rmqtt-retainer = { path = "rmqtt-plugins/rmqtt-retainer" }
 rmqtt-time-injector = { path = "rmqtt-plugins/rmqtt-time-injector" }
 
 [workspace.package]
-version = "0.2.13"
+version = "0.2.14"
 edition = "2021"
 authors = ["rmqtt <rmqttd@126.com>"]
 description = "MQTT Server for v3.1, v3.1.1 and v5.0 protocols"

@@ -9,12 +9,12 @@ release:
 	cargo build --release --target x86_64-unknown-linux-musl
 
 docker:
-	docker build --no-cache -t rmqtt/rmqtt:$$(git describe --tags $$(git rev-list --tags --max-count=1)) ./
-	docker build --no-cache -t rmqtt/rmqtt:latest ./
+	podman build --no-cache -t rmqtt/rmqtt:$$(git describe --tags $$(git rev-list --tags --max-count=1)) ./
+	podman build --no-cache -t rmqtt/rmqtt:latest ./
 
 publish:
-	docker push rmqtt/rmqtt:$$(git describe --tags $$(git rev-list --tags --max-count=1))
-	docker push rmqtt/rmqtt:latest
+	podman push rmqtt/rmqtt:$$(git describe --tags $$(git rev-list --tags --max-count=1))
+	podman push rmqtt/rmqtt:latest
 
 clean:
 	cargo clean
