@@ -82,11 +82,7 @@ impl ClusterPlugin {
     #[inline]
     async fn new<S: Into<String>>(runtime: &'static Runtime, name: S, descr: S) -> Result<Self> {
         let name = name.into();
-        let mut cfg = runtime
-            .settings
-            .plugins
-            .load_config::<PluginConfig>(&name)
-            .map_err(|e| MqttError::from(e.to_string()))?;
+        let mut cfg = runtime.settings.plugins.load_config::<PluginConfig>(&name)?;
         log::info!("{} ClusterPlugin cfg: {:?}", name, cfg);
         cfg.merge(&runtime.settings.opts);
 

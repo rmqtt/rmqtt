@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::TimeZone;
-use config::{Config, ConfigError, File};
+use config::{Config, File};
 use once_cell::sync::OnceCell;
 use serde::de::{self, Deserialize, Deserializer};
 use serde::ser::Serializer;
@@ -55,7 +55,7 @@ impl Deref for Settings {
 }
 
 impl Settings {
-    fn new(opts: Options) -> Result<Self, ConfigError> {
+    fn new(opts: Options) -> Result<Self> {
         let mut s = Config::new();
 
         // if let Ok(cfg_filename) = std::env::var("RMQTT-CONFIG-FILENAME") {
@@ -68,12 +68,7 @@ impl Settings {
             s.merge(File::with_name(cfg).required(false))?;
         }
 
-        let mut inner: Inner = match s.try_into() {
-            Ok(c) => c,
-            Err(e) => {
-                return Err(e);
-            }
-        };
+        let mut inner: Inner = s.try_into()?;
 
         inner.listeners.init();
         if inner.listeners.tcps.is_empty() && inner.listeners.tlss.is_empty() {
@@ -209,11 +204,11 @@ impl Plugins {
         "./plugins/".into()
     }
 
-    pub fn load_config<'de, T: serde::Deserialize<'de>>(&self, name: &str) -> Result<T, ConfigError> {
+    pub fn load_config<'de, T: serde::Deserialize<'de>>(&self, name: &str) -> Result<T> {
         let dir = self.dir.trim_end_matches(|c| c == '/' || c == '\\');
         let mut s = Config::new();
         s.merge(File::with_name(&format!("{}/{}", dir, name)).required(true))?;
-        s.try_into::<T>()
+        Ok(s.try_into::<T>()?)
     }
 }
 
