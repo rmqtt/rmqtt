@@ -76,14 +76,7 @@ impl WebHookPlugin {
     #[inline]
     async fn new<S: Into<String>>(runtime: &'static Runtime, name: S, descr: S) -> Result<Self> {
         let name = name.into();
-        let cfg = Arc::new(RwLock::new(
-            runtime
-                .settings
-                .plugins
-                .load_config::<PluginConfig>(&name)
-                .map_err(|e| MqttError::from(e.to_string()))?,
-        ));
-        cfg.write().merge_urls();
+        let cfg = Arc::new(RwLock::new(Self::load_config(runtime, &name)?));
         log::debug!("{} WebHookPlugin cfg: {:?}", name, cfg.read());
         let writers = Arc::new(DashMap::default());
         let tx = Arc::new(RwLock::new(Self::start(runtime, cfg.clone(), writers.clone())));
@@ -149,6 +142,13 @@ impl WebHookPlugin {
         });
         tx
     }
+
+    #[inline]
+    fn load_config(runtime: &'static Runtime, name: &str) -> Result<PluginConfig> {
+        let mut cfg = runtime.settings.plugins.load_config::<PluginConfig>(name)?;
+        cfg.merge_urls();
+        Ok(cfg)
+    }
 }
 
 #[async_trait]
@@ -189,7 +189,7 @@ impl Plugin for WebHookPlugin {
 
     #[inline]
     async fn load_config(&mut self) -> Result<()> {
-        let new_cfg = self.runtime.settings.plugins.load_config::<PluginConfig>(&self.name)?;
+        let new_cfg = Self::load_config(self.runtime, &self.name)?;
         let cfg = { self.cfg.read().clone() };
         if cfg.worker_threads != new_cfg.worker_threads
             || cfg.queue_capacity != new_cfg.queue_capacity
