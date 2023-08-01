@@ -140,7 +140,7 @@ impl ClusterPlugin {
         parse_addr(&raft_laddr).await?;
 
         let raft = Raft::new(raft_laddr, router, logger, cfg.read().raft.to_raft_config())
-            .map_err(|e| MqttError::Error(Box::new(e)))?;
+            .map_err(|e| MqttError::StdError(Box::new(e)))?;
         let mailbox = raft.mailbox();
 
         let mut peer_addrs = Vec::new();
@@ -152,7 +152,7 @@ impl ClusterPlugin {
         log::info!("peer_addrs: {:?}", peer_addrs);
 
         let leader_info =
-            raft.find_leader_info(peer_addrs).await.map_err(|e| MqttError::Error(Box::new(e)))?;
+            raft.find_leader_info(peer_addrs).await.map_err(|e| MqttError::StdError(Box::new(e)))?;
 
         //        let (status_tx, status_rx) = futures::channel::oneshot::channel::<Result<Status>>();
         let _child = std::thread::Builder::new().name("cluster-raft".to_string()).spawn(move || {

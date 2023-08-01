@@ -200,7 +200,7 @@ impl Plugin for WebHookPlugin {
             let new_tx = Self::start(self.runtime, new_cfg.clone(), self.writers.clone());
             if let Err(e) = self.tx.write().try_send(Message::Exit) {
                 log::error!("restart web-hook failed, {:?}", e);
-                return Err(MqttError::Error(Box::new(e)));
+                return Err(MqttError::StdError(Box::new(e)));
             }
             self.cfg = new_cfg;
             *self.tx.write() = new_tx;
