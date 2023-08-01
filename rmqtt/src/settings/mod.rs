@@ -146,6 +146,12 @@ pub struct Rpc {
     #[serde(default = "Rpc::server_addr_default", deserialize_with = "deserialize_addr")]
     pub server_addr: SocketAddr,
 
+    #[serde(default)]
+    pub reuseaddr: bool,
+
+    #[serde(default)]
+    pub reuseport: bool,
+
     #[serde(default = "Rpc::server_workers_default")]
     pub server_workers: usize,
 
@@ -164,6 +170,8 @@ impl Default for Rpc {
     #[inline]
     fn default() -> Self {
         Self {
+            reuseaddr: false,
+            reuseport: false,
             batch_size: Self::batch_size_default(),
             server_addr: Self::server_addr_default(),
             server_workers: Self::server_workers_default(),

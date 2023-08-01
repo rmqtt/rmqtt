@@ -156,6 +156,10 @@ pub struct ListenerInner {
     pub max_packet_size: Bytesize,
     #[serde(default = "ListenerInner::backlog_default")]
     pub backlog: i32,
+    #[serde(default = "ListenerInner::reuseaddr_default")]
+    pub reuseaddr: Option<bool>,
+    #[serde(default = "ListenerInner::reuseport_default")]
+    pub reuseport: Option<bool>,
     #[serde(default = "ListenerInner::idle_timeout_default", deserialize_with = "deserialize_duration")]
     pub idle_timeout: Duration,
     #[serde(default = "ListenerInner::allow_anonymous_default")]
@@ -236,6 +240,8 @@ impl Default for ListenerInner {
             max_connections: ListenerInner::max_connections_default(),
             max_handshaking_limit: ListenerInner::max_handshaking_limit_default(),
             max_packet_size: ListenerInner::max_packet_size_default(),
+            reuseaddr: ListenerInner::reuseaddr_default(),
+            reuseport: ListenerInner::reuseport_default(),
             backlog: ListenerInner::backlog_default(),
             idle_timeout: ListenerInner::idle_timeout_default(),
             allow_anonymous: ListenerInner::allow_anonymous_default(),
@@ -285,6 +291,14 @@ impl ListenerInner {
     #[inline]
     fn max_packet_size_default() -> Bytesize {
         Bytesize(1024 * 1024)
+    }
+    #[inline]
+    fn reuseaddr_default() -> Option<bool> {
+        Some(true)
+    }
+    #[inline]
+    fn reuseport_default() -> Option<bool> {
+        None
     }
     #[inline]
     fn backlog_default() -> i32 {

@@ -20,16 +20,26 @@ impl Server {
 
     pub(crate) async fn listen_and_serve(&self) -> Result<()> {
         //start grpc server
-        let addr = Runtime::instance().settings.rpc.server_addr;
+
+        let rpccfg = Runtime::instance().settings.rpc.clone();
 
         //NodeServiceServer::with_interceptor(RmqttNodeService::default(), Self::check_auth)
 
-        log::info!("grpc server is listening on tcp://{:?}", addr);
-        transport::Server::builder()
-            .add_service(NodeServiceServer::new(NodeGrpcService::default()))
-            .serve(addr)
-            .await
-            .map_err(anyhow::Error::new)?;
+        log::info!(
+            "grpc server is listening on tcp://{:?}, reuseaddr: {}, reuseport: {}",
+            rpccfg.server_addr,
+            rpccfg.reuseaddr,
+            rpccfg.reuseport
+        );
+        let server =
+            transport::Server::builder().add_service(NodeServiceServer::new(NodeGrpcService::default()));
+
+        if rpccfg.reuseaddr || rpccfg.reuseport {
+            let listener = Self::bind(rpccfg.server_addr, 1024, rpccfg.reuseaddr, rpccfg.reuseport)?;
+            server.serve_with_incoming(listener).await?;
+        } else {
+            server.serve(rpccfg.server_addr).await?;
+        }
         Ok(())
     }
 
@@ -43,6 +53,28 @@ impl Server {
     //         _ => Err(Status::unauthenticated("No valid auth token")),
     //     }
     // }
+
+    #[inline]
+    pub(crate) fn bind(
+        laddr: std::net::SocketAddr,
+        backlog: i32,
+        _reuseaddr: bool,
+        _reuseport: bool,
+    ) -> Result<tokio_stream::wrappers::TcpListenerStream> {
+        use socket2::{Domain, SockAddr, Socket, Type};
+        let builder = Socket::new(Domain::for_address(laddr), Type::STREAM, None)?;
+        builder.set_nonblocking(true)?;
+        #[cfg(unix)]
+        builder.set_reuse_address(_reuseaddr)?;
+        #[cfg(unix)]
+        builder.set_reuse_port(_reuseport)?;
+        builder.bind(&SockAddr::from(laddr))?;
+        builder.listen(backlog)?;
+        let listener = tokio_stream::wrappers::TcpListenerStream::new(tokio::net::TcpListener::from_std(
+            std::net::TcpListener::from(builder),
+        )?);
+        Ok(listener)
+    }
 }
 
 #[derive(Debug, Default)]

@@ -182,6 +182,8 @@ async fn listen(name: String, listen_cfg: &Listener) -> Result<()> {
             .workers(listen_cfg.workers)
             .maxconn(listen_cfg.max_connections / listen_cfg.workers)
             .backlog(listen_cfg.backlog)
+            .reuseaddr(listen_cfg.reuseaddr)
+            .reuseport(listen_cfg.reuseport)
             .run()
             .await?;
         Ok(())
@@ -300,6 +302,8 @@ async fn listen_tls(name: String, listen_cfg: &Listener) -> Result<()> {
             .workers(listen_cfg.workers)
             .maxconn(listen_cfg.max_connections / listen_cfg.workers)
             .backlog(listen_cfg.backlog)
+            .reuseaddr(listen_cfg.reuseaddr)
+            .reuseport(listen_cfg.reuseport)
             .run()
             .await?;
         Ok(())
@@ -403,6 +407,8 @@ async fn listen_ws(name: String, listen_cfg: &Listener) -> Result<()> {
             .workers(listen_cfg.workers)
             .maxconn(listen_cfg.max_connections / listen_cfg.workers)
             .backlog(listen_cfg.backlog)
+            .reuseaddr(listen_cfg.reuseaddr)
+            .reuseport(listen_cfg.reuseport)
             .run()
             .await?;
         Ok(())
@@ -516,6 +522,8 @@ async fn listen_wss(name: String, listen_cfg: &Listener) -> Result<()> {
             .workers(listen_cfg.workers)
             .maxconn(listen_cfg.max_connections / listen_cfg.workers)
             .backlog(listen_cfg.backlog)
+            .reuseaddr(listen_cfg.reuseaddr)
+            .reuseport(listen_cfg.reuseport)
             .run()
             .await?;
         Ok(())
