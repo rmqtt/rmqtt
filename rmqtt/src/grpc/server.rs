@@ -26,7 +26,7 @@ impl Server {
         //NodeServiceServer::with_interceptor(RmqttNodeService::default(), Self::check_auth)
 
         log::info!(
-            "grpc server is listening on tcp://{:?}, reuseaddr: {}, reuseport: {}",
+            "gRPC server is listening on tcp://{:?}, reuseaddr: {}, reuseport: {}",
             rpccfg.server_addr,
             rpccfg.reuseaddr,
             rpccfg.reuseport
@@ -35,7 +35,9 @@ impl Server {
             transport::Server::builder().add_service(NodeServiceServer::new(NodeGrpcService::default()));
 
         if rpccfg.reuseaddr || rpccfg.reuseport {
-            let listener = Self::bind(rpccfg.server_addr, 1024, rpccfg.reuseaddr, rpccfg.reuseport)?;
+            let listener = tokio_stream::wrappers::TcpListenerStream::new(tokio::net::TcpListener::from_std(
+                Self::bind(rpccfg.server_addr, 1024, rpccfg.reuseaddr, rpccfg.reuseport)?,
+            )?);
             server.serve_with_incoming(listener).await?;
         } else {
             server.serve(rpccfg.server_addr).await?;
@@ -55,12 +57,12 @@ impl Server {
     // }
 
     #[inline]
-    pub(crate) fn bind(
+    pub fn bind(
         laddr: std::net::SocketAddr,
         backlog: i32,
         _reuseaddr: bool,
         _reuseport: bool,
-    ) -> Result<tokio_stream::wrappers::TcpListenerStream> {
+    ) -> Result<std::net::TcpListener> {
         use socket2::{Domain, SockAddr, Socket, Type};
         let builder = Socket::new(Domain::for_address(laddr), Type::STREAM, None)?;
         builder.set_nonblocking(true)?;
@@ -70,10 +72,7 @@ impl Server {
         builder.set_reuse_port(_reuseport)?;
         builder.bind(&SockAddr::from(laddr))?;
         builder.listen(backlog)?;
-        let listener = tokio_stream::wrappers::TcpListenerStream::new(tokio::net::TcpListener::from_std(
-            std::net::TcpListener::from(builder),
-        )?);
-        Ok(listener)
+        Ok(std::net::TcpListener::from(builder))
     }
 }
 

@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use salvo::affix;
 use salvo::http::header::{HeaderValue, CONTENT_TYPE};
 use salvo::http::mime;
+use salvo::hyper::server::conn::AddrIncoming;
 use salvo::prelude::*;
 
 use rmqtt::{
@@ -85,8 +86,17 @@ pub(crate) async fn listen_and_serve(
     cfg: PluginConfigType,
     rx: oneshot::Receiver<()>,
 ) -> Result<()> {
-    log::info!("HTTP API Listening on {}", laddr);
-    Server::new(TcpListener::bind(laddr))
+    let (reuseaddr, reuseport) = {
+        let cfg = cfg.read();
+        (cfg.http_reuseaddr, cfg.http_reuseport)
+    };
+    log::info!("HTTP API Listening on {}, reuseaddr: {}, reuseport: {}", laddr, reuseaddr, reuseport);
+
+    let listen = rmqtt::tokio::net::TcpListener::from_std(rmqtt::grpc::server::Server::bind(
+        laddr, 128, reuseaddr, reuseport,
+    )?)?;
+    let incoming = AddrIncoming::from_listener(listen).map_err(anyhow::Error::new)?;
+    Server::new(TcpListener::bind(incoming))
         .try_serve_with_graceful_shutdown(route(cfg), async {
             rx.await.ok();
         })
