@@ -13,8 +13,6 @@ try_lock_timeout = "10s"
 task_exec_queue_workers = 500
 task_exec_queue_max = 100_000
 
-raft.grpc_reuseaddr = true
-raft.grpc_reuseport = true
 raft.grpc_timeout = "6s"
 raft.grpc_concurrency_limit = 200
 raft.grpc_breaker_threshold = 5
