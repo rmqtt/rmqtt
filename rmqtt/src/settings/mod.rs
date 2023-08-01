@@ -146,10 +146,10 @@ pub struct Rpc {
     #[serde(default = "Rpc::server_addr_default", deserialize_with = "deserialize_addr")]
     pub server_addr: SocketAddr,
 
-    #[serde(default)]
+    #[serde(default = "Rpc::reuseaddr_default")]
     pub reuseaddr: bool,
 
-    #[serde(default)]
+    #[serde(default = "Rpc::reuseport_default")]
     pub reuseport: bool,
 
     #[serde(default = "Rpc::server_workers_default")]
@@ -170,8 +170,8 @@ impl Default for Rpc {
     #[inline]
     fn default() -> Self {
         Self {
-            reuseaddr: false,
-            reuseport: false,
+            reuseaddr: Self::reuseaddr_default(),
+            reuseport: Self::reuseport_default(),
             batch_size: Self::batch_size_default(),
             server_addr: Self::server_addr_default(),
             server_workers: Self::server_workers_default(),
@@ -182,6 +182,12 @@ impl Default for Rpc {
 }
 
 impl Rpc {
+    fn reuseaddr_default() -> bool {
+        true
+    }
+    fn reuseport_default() -> bool {
+        false
+    }
     fn batch_size_default() -> usize {
         128
     }
