@@ -1,1 +1,1 @@
-..\..\..\target\release\rmqttd.exe
+..\..\..\target\debug\rmqttd.exe
