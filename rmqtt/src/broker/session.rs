@@ -379,8 +379,12 @@ impl SessionState {
     async fn process_last_will(&self) -> Result<()> {
         if let Some(lw) = self.client.last_will() {
             let p = Publish::try_from(lw)?;
-            if let Err(droppeds) =
-                Runtime::instance().extends.shared().await.forwards(self.id.clone(), p).await
+            if let Err(droppeds) = Runtime::instance()
+                .extends
+                .shared()
+                .await
+                .forwards(From::from_lastwill(self.id.clone()), p)
+                .await
             {
                 for (to, from, p, r) in droppeds {
                     //hook, message_dropped
@@ -631,7 +635,7 @@ impl SessionState {
     async fn publish(&self, publish: Publish) -> Result<bool> {
         //hook, message_publish
         let publish = self.hook.message_publish(&publish).await.unwrap_or(publish);
-
+        let from = From::from_user(self.id.clone());
         //hook, message_publish_check_acl
         let acl_result = self.hook.message_publish_check_acl(&publish).await;
         log::debug!("{:?} acl_result: {:?}", self.id, acl_result);
@@ -642,7 +646,7 @@ impl SessionState {
                 .extends
                 .hook_mgr()
                 .await
-                .message_dropped(None, self.id.clone(), publish, Reason::PublishRefused)
+                .message_dropped(None, from, publish, Reason::PublishRefused)
                 .await;
             return if disconnect {
                 Err(MqttError::from(
@@ -658,12 +662,11 @@ impl SessionState {
                 .extends
                 .retain()
                 .await
-                .set(publish.topic(), Retain { from: self.id.clone(), publish: publish.clone() })
+                .set(publish.topic(), Retain { from: from.clone(), publish: publish.clone() })
                 .await?;
         }
 
-        if let Err(errs) = Runtime::instance().extends.shared().await.forwards(self.id.clone(), publish).await
-        {
+        if let Err(errs) = Runtime::instance().extends.shared().await.forwards(from, publish).await {
             for (to, from, p, reason) in errs {
                 //Message dropped
                 Runtime::instance().extends.hook_mgr().await.message_dropped(Some(to), from, p, reason).await;

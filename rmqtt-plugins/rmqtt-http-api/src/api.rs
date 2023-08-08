@@ -19,8 +19,8 @@ use rmqtt::{
         MessageSender, MessageType,
     },
     node::NodeStatus,
-    ClientId, Id, MqttError, Publish, PublishProperties, QoS, Result, Retain, Runtime, SubsSearchParams,
-    TopicFilter, TopicName, UserName,
+    ClientId, From, Id, MqttError, Publish, PublishProperties, QoS, Result, Retain, Runtime,
+    SubsSearchParams, TopicFilter, TopicName, UserName,
 };
 
 use super::types::{
@@ -712,13 +712,13 @@ async fn _publish(
         return Err(MqttError::Msg("encoding error, currently only plain and base64 are supported".into()));
     };
 
-    let from = rmqtt::From::new(
+    let from = From::from_admin(Id::new(
         Runtime::instance().node.id(),
         Some(http_laddr),
         remote_addr,
         params.clientid,
         Some(UserName::from("admin")),
-    );
+    ));
     let p = Publish {
         dup: false,
         retain: params.retain,

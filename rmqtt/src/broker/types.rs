@@ -141,6 +141,34 @@ impl ConnectInfo {
     }
 
     #[inline]
+    pub fn to_hook_body(&self) -> serde_json::Value {
+        match self {
+            ConnectInfo::V3(id, conn_info) => {
+                json!({
+                    "node": id.node(),
+                    "ipaddress": id.remote_addr,
+                    "clientid": id.client_id,
+                    "username": id.username_ref(),
+                    "keepalive": conn_info.keep_alive,
+                    "proto_ver": conn_info.protocol.level(),
+                    "clean_session": conn_info.clean_session,
+                })
+            }
+            ConnectInfo::V5(id, conn_info) => {
+                json!({
+                    "node": id.node(),
+                    "ipaddress": id.remote_addr,
+                    "clientid": id.client_id,
+                    "username": id.username_ref(),
+                    "keepalive": conn_info.keep_alive,
+                    "proto_ver": ntex_mqtt::types::MQTT_LEVEL_5,
+                    "clean_start": conn_info.clean_start,
+                })
+            }
+        }
+    }
+
+    #[inline]
     pub fn last_will(&self) -> Option<LastWill> {
         match self {
             ConnectInfo::V3(_, conn_info) => conn_info.last_will.as_ref().map(LastWill::V3),
@@ -884,7 +912,86 @@ impl Publish {
     }
 }
 
-pub type From = Id;
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+pub enum FromType {
+    User,
+    Admin,
+    System,
+    LastWill,
+}
+
+impl std::fmt::Display for FromType {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let typ = match self {
+            FromType::User => "user",
+            FromType::Admin => "admin",
+            FromType::System => "system",
+            FromType::LastWill => "lastwill",
+        };
+        write!(f, "{}", typ)
+    }
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub struct From {
+    typ: FromType,
+    pub id: Id,
+}
+
+impl From {
+    #[inline]
+    pub fn from_user(id: Id) -> From {
+        From { typ: FromType::User, id }
+    }
+
+    #[inline]
+    pub fn from_admin(id: Id) -> From {
+        From { typ: FromType::Admin, id }
+    }
+
+    #[inline]
+    pub fn from_system(id: Id) -> From {
+        From { typ: FromType::System, id }
+    }
+
+    #[inline]
+    pub fn from_lastwill(id: Id) -> From {
+        From { typ: FromType::LastWill, id }
+    }
+
+    #[inline]
+    pub fn typ(&self) -> FromType {
+        self.typ
+    }
+
+    #[inline]
+    pub fn is_system(&self) -> bool {
+        matches!(self.typ, FromType::System)
+    }
+
+    #[inline]
+    pub fn is_user(&self) -> bool {
+        matches!(self.typ, FromType::User)
+    }
+}
+
+impl Deref for From {
+    type Target = Id;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.id
+    }
+}
+
+impl std::fmt::Debug for From {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}-{:?}", self.id.to_string(), self.typ)
+    }
+}
+
+//pub type From = Id;
 pub type To = Id;
 
 #[derive(Clone)]
