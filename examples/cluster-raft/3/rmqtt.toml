@@ -41,7 +41,8 @@ plugins.dir = "./plugins/"
 plugins.default_startups = [
     "rmqtt-retainer",
     "rmqtt-cluster-raft",
-    #    "rmqtt-auth-http",
+    #"rmqtt-auth-http",
+    "rmqtt-sys-topic",
     "rmqtt-web-hook"
 ]
 
