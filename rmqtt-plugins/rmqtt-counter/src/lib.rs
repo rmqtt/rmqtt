@@ -220,11 +220,15 @@ impl Handler for CounterHandler {
                 // }
                 self.metrics.messages_publish_inc();
             }
-            Parameter::MessageDelivered(_session, _client, _f, _p) => {
-                self.metrics.messages_delivered_inc();
+            Parameter::MessageDelivered(_session, _client, from, _p) => {
+                if !from.is_system() {
+                    self.metrics.messages_delivered_inc();
+                }
             }
-            Parameter::MessageAcked(_session, _client, _f, _p) => {
-                self.metrics.messages_acked_inc();
+            Parameter::MessageAcked(_session, _client, from, _p) => {
+                if !from.is_system() {
+                    self.metrics.messages_acked_inc();
+                }
             }
             Parameter::MessageDropped(_to, _from, _p, _r) => {
                 self.metrics.messages_dropped_inc(); //@TODO ... elaboration
