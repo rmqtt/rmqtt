@@ -31,6 +31,15 @@ pub trait HookManager: Sync + Send {
         return_code: ConnectAckReason,
     ) -> ConnectAckReason;
 
+    ///Publish message received
+    async fn message_publish(
+        &self,
+        s: Option<&Session>,
+        c: Option<&ClientInfo>,
+        from: From,
+        publish: &Publish,
+    ) -> Option<Publish>;
+
     ///Publish message Dropped
     async fn message_dropped(&self, to: Option<To>, from: From, p: Publish, reason: Reason);
 
@@ -65,9 +74,6 @@ pub trait Hook: Sync + Send {
     ///session created
     async fn session_created(&self);
 
-    // ///authenticate
-    // async fn client_authenticate(&self, password: Option<Password>) -> ConnectAckReason;
-
     ///After the mqtt:: connectack message is sent, the connection is created successfully
     async fn client_connected(&self);
 
@@ -96,10 +102,7 @@ pub trait Hook: Sync + Send {
     async fn session_unsubscribed(&self, unsubscribe: Unsubscribe);
 
     ///Publish message received
-    async fn message_publish(&self, p: &Publish) -> Option<Publish>;
-
-    // ///Publish message Dropped
-    // async fn message_dropped(&self, to: Option<To>, from: From, p: Publish, reason: Reason);
+    async fn message_publish(&self, from: From, p: &Publish) -> Option<Publish>;
 
     ///message delivered
     async fn message_delivered(&self, from: From, publish: &Publish) -> Option<Publish>;
@@ -191,7 +194,7 @@ pub enum Parameter<'a> {
     ClientSubscribeCheckAcl(&'a Session, &'a ClientInfo, &'a Subscribe),
 
     MessagePublishCheckAcl(&'a Session, &'a ClientInfo, &'a Publish),
-    MessagePublish(&'a Session, &'a ClientInfo, &'a Publish),
+    MessagePublish(Option<&'a Session>, Option<&'a ClientInfo>, From, &'a Publish),
     MessageDelivered(&'a Session, &'a ClientInfo, From, &'a Publish),
     MessageAcked(&'a Session, &'a ClientInfo, From, &'a Publish),
     MessageDropped(Option<To>, From, Publish, Reason),
@@ -220,7 +223,7 @@ impl<'a> Parameter<'a> {
             Parameter::ClientSubscribeCheckAcl(_, _, _) => Type::ClientSubscribeCheckAcl,
 
             Parameter::MessagePublishCheckAcl(_, _, _) => Type::MessagePublishCheckAcl,
-            Parameter::MessagePublish(_, _, _) => Type::MessagePublish,
+            Parameter::MessagePublish(_, _, _, _) => Type::MessagePublish,
             Parameter::MessageDelivered(_, _, _, _) => Type::MessageDelivered,
             Parameter::MessageAcked(_, _, _, _) => Type::MessageAcked,
             Parameter::MessageDropped(_, _, _, _) => Type::MessageDropped,

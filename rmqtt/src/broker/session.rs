@@ -633,9 +633,11 @@ impl SessionState {
 
     #[inline]
     async fn publish(&self, publish: Publish) -> Result<bool> {
-        //hook, message_publish
-        let publish = self.hook.message_publish(&publish).await.unwrap_or(publish);
         let from = From::from_user(self.id.clone());
+
+        //hook, message_publish
+        let publish = self.hook.message_publish(from.clone(), &publish).await.unwrap_or(publish);
+
         //hook, message_publish_check_acl
         let acl_result = self.hook.message_publish_check_acl(&publish).await;
         log::debug!("{:?} acl_result: {:?}", self.id, acl_result);

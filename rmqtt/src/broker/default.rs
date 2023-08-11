@@ -1397,6 +1397,22 @@ impl HookManager for &'static DefaultHookManager {
         }
     }
 
+    #[inline]
+    async fn message_publish(
+        &self,
+        s: Option<&Session>,
+        c: Option<&ClientInfo>,
+        from: From,
+        publish: &Publish,
+    ) -> Option<Publish> {
+        let result = self.exec(Type::MessagePublish, Parameter::MessagePublish(s, c, from, publish)).await;
+        if let Some(HookResult::Publish(publish)) = result {
+            Some(publish)
+        } else {
+            None
+        }
+    }
+
     ///Publish message Dropped
     async fn message_dropped(&self, to: Option<To>, from: From, publish: Publish, reason: Reason) {
         let _ = self.exec(Type::MessageDropped, Parameter::MessageDropped(to, from, publish, reason)).await;
@@ -1588,17 +1604,8 @@ impl Hook for DefaultHook {
     }
 
     #[inline]
-    async fn message_publish(&self, publish: &Publish) -> Option<Publish> {
-        let result = self
-            .manager
-            .exec(Type::MessagePublish, Parameter::MessagePublish(&self.s, &self.c, publish))
-            .await;
-        log::debug!("{:?} result: {:?}", self.s.id, result);
-        if let Some(HookResult::Publish(publish)) = result {
-            Some(publish)
-        } else {
-            None
-        }
+    async fn message_publish(&self, from: From, publish: &Publish) -> Option<Publish> {
+        self.manager.message_publish(Some(&self.s), Some(&self.c), from, publish).await
     }
 
     #[inline]

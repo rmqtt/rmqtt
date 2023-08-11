@@ -638,7 +638,7 @@ impl Handler for WebHookHandler {
                 Some((None, body))
             }
 
-            Parameter::MessagePublish(_session, client, publish) => {
+            Parameter::MessagePublish(_session, _client, from, publish) => {
                 let topic = publish.topic();
                 let body = json!({
                     "dup": publish.dup(),
@@ -650,7 +650,7 @@ impl Handler for WebHookHandler {
                     "ts": publish.create_time(),
                     "time": now_time
                 });
-                let body = client.id.from(body);
+                let body = from.from(body);
                 Some((Some(topic.clone()), body))
             }
 
