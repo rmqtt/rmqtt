@@ -914,7 +914,7 @@ impl Publish {
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 pub enum FromType {
-    User,
+    Custom,
     Admin,
     System,
     LastWill,
@@ -924,7 +924,7 @@ impl std::fmt::Display for FromType {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let typ = match self {
-            FromType::User => "user",
+            FromType::Custom => "custom",
             FromType::Admin => "admin",
             FromType::System => "system",
             FromType::LastWill => "lastwill",
@@ -941,8 +941,8 @@ pub struct From {
 
 impl From {
     #[inline]
-    pub fn from_user(id: Id) -> From {
-        From { typ: FromType::User, id }
+    pub fn from_custom(id: Id) -> From {
+        From { typ: FromType::Custom, id }
     }
 
     #[inline]
@@ -971,8 +971,8 @@ impl From {
     }
 
     #[inline]
-    pub fn is_user(&self) -> bool {
-        matches!(self.typ, FromType::User)
+    pub fn is_custom(&self) -> bool {
+        matches!(self.typ, FromType::Custom)
     }
 }
 

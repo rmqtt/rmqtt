@@ -501,10 +501,8 @@ impl JsonFrom for Id {
 impl JsonFrom for rmqtt::From {
     fn from(&self, json: serde_json::Value) -> serde_json::Value {
         let mut json = self.id.from(json);
-        if !self.is_user() {
-            if let Some(obj) = json.as_object_mut() {
-                obj.insert("from_type".into(), serde_json::Value::String(self.typ().to_string()));
-            }
+        if let Some(obj) = json.as_object_mut() {
+            obj.insert("from_type".into(), serde_json::Value::String(self.typ().to_string()));
         }
         json
     }

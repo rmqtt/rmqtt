@@ -633,7 +633,7 @@ impl SessionState {
 
     #[inline]
     async fn publish(&self, publish: Publish) -> Result<bool> {
-        let from = From::from_user(self.id.clone());
+        let from = From::from_custom(self.id.clone());
 
         //hook, message_publish
         let publish = self.hook.message_publish(from.clone(), &publish).await.unwrap_or(publish);
