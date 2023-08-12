@@ -974,6 +974,15 @@ impl From {
     pub fn is_custom(&self) -> bool {
         matches!(self.typ, FromType::Custom)
     }
+
+    #[inline]
+    pub fn to_from_json(&self, json: serde_json::Value) -> serde_json::Value {
+        let mut json = self.id.to_from_json(json);
+        if let Some(obj) = json.as_object_mut() {
+            obj.insert("from_type".into(), serde_json::Value::String(self.typ.to_string()));
+        }
+        json
+    }
 }
 
 impl Deref for From {
@@ -1025,6 +1034,38 @@ impl Id {
             "username": self.username_ref(),
             "create_time": self.create_time,
         })
+    }
+
+    #[inline]
+    pub fn to_from_json(&self, mut json: serde_json::Value) -> serde_json::Value {
+        if let Some(obj) = json.as_object_mut() {
+            obj.insert("from_node".into(), serde_json::Value::Number(serde_json::Number::from(self.node())));
+            obj.insert(
+                "from_ipaddress".into(),
+                self.remote_addr
+                    .map(|a| serde_json::Value::String(a.to_string()))
+                    .unwrap_or(serde_json::Value::Null),
+            );
+            obj.insert("from_clientid".into(), serde_json::Value::String(self.client_id.to_string()));
+            obj.insert("from_username".into(), serde_json::Value::String(self.username_ref().into()));
+        }
+        json
+    }
+
+    #[inline]
+    pub fn to_to_json(&self, mut json: serde_json::Value) -> serde_json::Value {
+        if let Some(obj) = json.as_object_mut() {
+            obj.insert("node".into(), serde_json::Value::Number(serde_json::Number::from(self.node())));
+            obj.insert(
+                "ipaddress".into(),
+                self.remote_addr
+                    .map(|a| serde_json::Value::String(a.to_string()))
+                    .unwrap_or(serde_json::Value::Null),
+            );
+            obj.insert("clientid".into(), serde_json::Value::String(self.client_id.to_string()));
+            obj.insert("username".into(), serde_json::Value::String(self.username_ref().into()));
+        }
+        json
     }
 
     #[inline]
