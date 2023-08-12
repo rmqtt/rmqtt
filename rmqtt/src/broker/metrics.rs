@@ -39,4 +39,23 @@ pub struct Metrics {
     // messages_sent: AtomicUsize,
     messages_acked: AtomicUsize,
     messages_dropped: AtomicUsize,
+
+    messages_publish_custom: AtomicUsize,
+    messages_delivered_custom: AtomicUsize,
+    messages_acked_custom: AtomicUsize,
+
+    messages_publish_admin: AtomicUsize,
+    messages_delivered_admin: AtomicUsize,
+    messages_acked_admin: AtomicUsize,
+
+    messages_publish_lastwill: AtomicUsize,
+    messages_delivered_lastwill: AtomicUsize,
+    messages_acked_lastwill: AtomicUsize,
+
+    messages_publish_system: AtomicUsize,
+    messages_delivered_system: AtomicUsize,
+    messages_acked_system: AtomicUsize,
+
+    messages_delivered_retain: AtomicUsize,
+    messages_acked_retain: AtomicUsize,
 }
