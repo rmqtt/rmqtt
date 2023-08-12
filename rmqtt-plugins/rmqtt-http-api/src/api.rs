@@ -746,7 +746,14 @@ async fn _publish(
         }
 
         let fut = async {
-            Runtime::instance().metrics.messages_publish_inc();
+            //hook, message_publish
+            let p1 = Runtime::instance()
+                .extends
+                .hook_mgr()
+                .await
+                .message_publish(None, None, from.clone(), &p1)
+                .await
+                .unwrap_or(p1);
 
             let replys = Runtime::instance().extends.shared().await.forwards(from.clone(), p1).await;
             if let Err(droppeds) = replys {
