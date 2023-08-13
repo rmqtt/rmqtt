@@ -31,7 +31,7 @@ use rmqtt::{
     broker::error::MqttError,
     broker::hook::{self, Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::stats::Counter,
-    broker::types::{ConnectInfo, Id, QoSEx, MQTT_LEVEL_5},
+    broker::types::{ConnectInfo, QoSEx, MQTT_LEVEL_5},
     plugin::{DynPlugin, DynPluginResult, Plugin},
     Result, Runtime, Topic, TopicFilter,
 };
@@ -456,60 +456,6 @@ impl ToBody for ConnectInfo {
     }
 }
 
-trait JsonTo {
-    fn to(&self, json: serde_json::Value) -> serde_json::Value;
-}
-
-impl JsonTo for Id {
-    fn to(&self, mut json: serde_json::Value) -> serde_json::Value {
-        if let Some(obj) = json.as_object_mut() {
-            obj.insert("node".into(), serde_json::Value::Number(serde_json::Number::from(self.node())));
-            obj.insert(
-                "ipaddress".into(),
-                self.remote_addr
-                    .map(|a| serde_json::Value::String(a.to_string()))
-                    .unwrap_or(serde_json::Value::Null),
-            );
-            obj.insert("clientid".into(), serde_json::Value::String(self.client_id.to_string()));
-            obj.insert("username".into(), serde_json::Value::String(self.username_ref().into()));
-        }
-        json
-    }
-}
-
-trait JsonFrom {
-    fn from(&self, json: serde_json::Value) -> serde_json::Value;
-}
-
-impl JsonFrom for Id {
-    fn from(&self, mut json: serde_json::Value) -> serde_json::Value {
-        if let Some(obj) = json.as_object_mut() {
-            obj.insert("from_node".into(), serde_json::Value::Number(serde_json::Number::from(self.node())));
-            obj.insert(
-                "from_ipaddress".into(),
-                self.remote_addr
-                    .map(|a| serde_json::Value::String(a.to_string()))
-                    .unwrap_or(serde_json::Value::Null),
-            );
-            obj.insert("from_clientid".into(), serde_json::Value::String(self.client_id.to_string()));
-            obj.insert("from_username".into(), serde_json::Value::String(self.username_ref().into()));
-        }
-        json
-    }
-}
-
-impl JsonFrom for rmqtt::From {
-    fn from(&self, json: serde_json::Value) -> serde_json::Value {
-        let mut json = self.id.from(json);
-        if !self.is_user() {
-            if let Some(obj) = json.as_object_mut() {
-                obj.insert("from_type".into(), serde_json::Value::String(self.typ().to_string()));
-            }
-        }
-        json
-    }
-}
-
 #[async_trait]
 impl Handler for WebHookHandler {
     async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
@@ -638,7 +584,7 @@ impl Handler for WebHookHandler {
                 Some((None, body))
             }
 
-            Parameter::MessagePublish(_session, client, publish) => {
+            Parameter::MessagePublish(_session, _client, from, publish) => {
                 let topic = publish.topic();
                 let body = json!({
                     "dup": publish.dup(),
@@ -650,7 +596,7 @@ impl Handler for WebHookHandler {
                     "ts": publish.create_time(),
                     "time": now_time
                 });
-                let body = client.id.from(body);
+                let body = from.to_from_json(body);
                 Some((Some(topic.clone()), body))
             }
 
@@ -670,8 +616,8 @@ impl Handler for WebHookHandler {
                         "ts": now.timestamp_millis(),
                         "time": now_time
                     });
-                    let body = client.id.to(body);
-                    let body = from.from(body);
+                    let body = client.id.to_to_json(body);
+                    let body = from.to_from_json(body);
                     Some((Some(topic.clone()), body))
                 }
             }
@@ -692,8 +638,8 @@ impl Handler for WebHookHandler {
                         "ts": now.timestamp_millis(),
                         "time": now_time
                     });
-                    let body = client.id.to(body);
-                    let body = from.from(body);
+                    let body = client.id.to_to_json(body);
+                    let body = from.to_from_json(body);
                     Some((Some(topic.clone()), body))
                 }
             }
@@ -714,9 +660,9 @@ impl Handler for WebHookHandler {
                         "ts": now.timestamp_millis(),
                         "time": now_time
                     });
-                    let mut body = from.from(body);
+                    let mut body = from.to_from_json(body);
                     if let Some(to) = to {
-                        body = to.to(body);
+                        body = to.to_to_json(body);
                     }
                     Some((None, body))
                 }

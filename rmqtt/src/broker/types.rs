@@ -71,6 +71,7 @@ pub type PublishReceiveTime = TimestampMillis;
 pub type Subscriptions = Vec<(TopicFilter, SubscriptionValue)>;
 pub type TopicFilters = Vec<TopicFilter>;
 pub type SubscriptionValue = (QoS, Option<SharedGroup>);
+pub type SubscriptionSize = usize;
 
 pub type HookSubscribeResult = Vec<Option<TopicFilter>>;
 pub type HookUnsubscribeResult = Vec<Option<TopicFilter>>;
@@ -914,7 +915,7 @@ impl Publish {
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 pub enum FromType {
-    User,
+    Custom,
     Admin,
     System,
     LastWill,
@@ -924,7 +925,7 @@ impl std::fmt::Display for FromType {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let typ = match self {
-            FromType::User => "user",
+            FromType::Custom => "custom",
             FromType::Admin => "admin",
             FromType::System => "system",
             FromType::LastWill => "lastwill",
@@ -941,8 +942,8 @@ pub struct From {
 
 impl From {
     #[inline]
-    pub fn from_user(id: Id) -> From {
-        From { typ: FromType::User, id }
+    pub fn from_custom(id: Id) -> From {
+        From { typ: FromType::Custom, id }
     }
 
     #[inline]
@@ -971,8 +972,17 @@ impl From {
     }
 
     #[inline]
-    pub fn is_user(&self) -> bool {
-        matches!(self.typ, FromType::User)
+    pub fn is_custom(&self) -> bool {
+        matches!(self.typ, FromType::Custom)
+    }
+
+    #[inline]
+    pub fn to_from_json(&self, json: serde_json::Value) -> serde_json::Value {
+        let mut json = self.id.to_from_json(json);
+        if let Some(obj) = json.as_object_mut() {
+            obj.insert("from_type".into(), serde_json::Value::String(self.typ.to_string()));
+        }
+        json
     }
 }
 
@@ -1025,6 +1035,38 @@ impl Id {
             "username": self.username_ref(),
             "create_time": self.create_time,
         })
+    }
+
+    #[inline]
+    pub fn to_from_json(&self, mut json: serde_json::Value) -> serde_json::Value {
+        if let Some(obj) = json.as_object_mut() {
+            obj.insert("from_node".into(), serde_json::Value::Number(serde_json::Number::from(self.node())));
+            obj.insert(
+                "from_ipaddress".into(),
+                self.remote_addr
+                    .map(|a| serde_json::Value::String(a.to_string()))
+                    .unwrap_or(serde_json::Value::Null),
+            );
+            obj.insert("from_clientid".into(), serde_json::Value::String(self.client_id.to_string()));
+            obj.insert("from_username".into(), serde_json::Value::String(self.username_ref().into()));
+        }
+        json
+    }
+
+    #[inline]
+    pub fn to_to_json(&self, mut json: serde_json::Value) -> serde_json::Value {
+        if let Some(obj) = json.as_object_mut() {
+            obj.insert("node".into(), serde_json::Value::Number(serde_json::Number::from(self.node())));
+            obj.insert(
+                "ipaddress".into(),
+                self.remote_addr
+                    .map(|a| serde_json::Value::String(a.to_string()))
+                    .unwrap_or(serde_json::Value::Null),
+            );
+            obj.insert("clientid".into(), serde_json::Value::String(self.client_id.to_string()));
+            obj.insert("username".into(), serde_json::Value::String(self.username_ref().into()));
+        }
+        json
     }
 
     #[inline]

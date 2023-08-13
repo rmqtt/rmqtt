@@ -1,7 +1,7 @@
 #![deny(unsafe_code)]
 
 use rmqtt::broker::hook::Priority;
-use rmqtt::{async_trait::async_trait, log};
+use rmqtt::{async_trait::async_trait, log, FromType};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::metrics::Metrics,
@@ -99,6 +99,9 @@ impl Plugin for CounterPlugin {
         self.register.add_priority(Type::MessageAcked, Priority::MAX, Box::new(CounterHandler::new())).await;
         self.register
             .add_priority(Type::MessageDropped, Priority::MAX, Box::new(CounterHandler::new()))
+            .await;
+        self.register
+            .add_priority(Type::MessageNonsubscribed, Priority::MAX, Box::new(CounterHandler::new()))
             .await;
 
         Ok(())
@@ -211,7 +214,7 @@ impl Handler for CounterHandler {
             Parameter::MessagePublishCheckAcl(_session, _client, _p) => {
                 self.metrics.client_publish_check_acl_inc();
             }
-            Parameter::MessagePublish(_session, _client, _p) => {
+            Parameter::MessagePublish(_session, _client, from, _p) => {
                 // self.metrics.messages_received_inc();  //@TODO ... elaboration
                 // match p.qos{
                 //     QoS::AtMostOnce => self.metrics.messages_received_qos0_inc(),
@@ -219,19 +222,48 @@ impl Handler for CounterHandler {
                 //     QoS::ExactlyOnce => self.metrics.messages_received_qos2_inc(),
                 // }
                 self.metrics.messages_publish_inc();
-            }
-            Parameter::MessageDelivered(_session, _client, from, _p) => {
-                if !from.is_system() {
-                    self.metrics.messages_delivered_inc();
+                match from.typ() {
+                    FromType::Custom => self.metrics.messages_publish_custom_inc(),
+                    FromType::Admin => self.metrics.messages_publish_admin_inc(),
+                    FromType::System => self.metrics.messages_publish_system_inc(),
+                    FromType::LastWill => self.metrics.messages_publish_lastwill_inc(),
                 }
             }
-            Parameter::MessageAcked(_session, _client, from, _p) => {
-                if !from.is_system() {
-                    self.metrics.messages_acked_inc();
+            Parameter::MessageDelivered(_session, _client, from, p) => {
+                self.metrics.messages_delivered_inc();
+                if p.retain {
+                    self.metrics.messages_delivered_retain_inc()
+                }
+                match from.typ() {
+                    FromType::Custom => self.metrics.messages_delivered_custom_inc(),
+                    FromType::Admin => self.metrics.messages_delivered_admin_inc(),
+                    FromType::System => self.metrics.messages_delivered_system_inc(),
+                    FromType::LastWill => self.metrics.messages_delivered_lastwill_inc(),
+                }
+            }
+            Parameter::MessageAcked(_session, _client, from, p) => {
+                self.metrics.messages_acked_inc();
+                if p.retain {
+                    self.metrics.messages_acked_retain_inc()
+                }
+                match from.typ() {
+                    FromType::Custom => self.metrics.messages_acked_custom_inc(),
+                    FromType::Admin => self.metrics.messages_acked_admin_inc(),
+                    FromType::System => self.metrics.messages_acked_system_inc(),
+                    FromType::LastWill => self.metrics.messages_acked_lastwill_inc(),
                 }
             }
             Parameter::MessageDropped(_to, _from, _p, _r) => {
                 self.metrics.messages_dropped_inc(); //@TODO ... elaboration
+            }
+            Parameter::MessageNonsubscribed(from) => {
+                self.metrics.messages_nonsubscribed_inc();
+                match from.typ() {
+                    FromType::Custom => self.metrics.messages_nonsubscribed_custom_inc(),
+                    FromType::Admin => self.metrics.messages_nonsubscribed_admin_inc(),
+                    FromType::System => self.metrics.messages_nonsubscribed_system_inc(),
+                    FromType::LastWill => self.metrics.messages_nonsubscribed_lastwill_inc(),
+                }
             }
 
             _ => {

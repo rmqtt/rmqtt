@@ -62,14 +62,18 @@ pub trait Shared: Sync + Send {
     fn exist(&self, client_id: &str) -> bool;
 
     ///Route and dispense publish message
-    async fn forwards(&self, from: From, publish: Publish) -> Result<(), Vec<(To, From, Publish, Reason)>>;
+    async fn forwards(
+        &self,
+        from: From,
+        publish: Publish,
+    ) -> Result<SubscriptionSize, Vec<(To, From, Publish, Reason)>>;
 
     ///Route and dispense publish message and return shared subscription relations
     async fn forwards_and_get_shareds(
         &self,
         from: From,
         publish: Publish,
-    ) -> Result<SubRelationsMap, Vec<(To, From, Publish, Reason)>>;
+    ) -> Result<(SubRelationsMap, SubscriptionSize), Vec<(To, From, Publish, Reason)>>;
 
     ///dispense publish message
     async fn forwards_to(
