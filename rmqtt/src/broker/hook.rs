@@ -43,6 +43,9 @@ pub trait HookManager: Sync + Send {
     ///Publish message Dropped
     async fn message_dropped(&self, to: Option<To>, from: From, p: Publish, reason: Reason);
 
+    ///Publish message nonsubscribed
+    async fn message_nonsubscribed(&self, from: From);
+
     ///grpc message received
     async fn grpc_message_received(
         &self,
@@ -138,6 +141,7 @@ pub enum Type {
     MessageAcked,
     MessageDropped,
     MessageExpiryCheck,
+    MessageNonsubscribed,
 
     GrpcMessageReceived,
 }
@@ -167,6 +171,7 @@ impl std::convert::From<&str> for Type {
             "message_acked" => Type::MessageAcked,
             "message_dropped" => Type::MessageDropped,
             "message_expiry_check" => Type::MessageExpiryCheck,
+            "message_nonsubscribed" => Type::MessageNonsubscribed,
 
             "grpc_message_received" => Type::GrpcMessageReceived,
 
@@ -199,6 +204,7 @@ pub enum Parameter<'a> {
     MessageAcked(&'a Session, &'a ClientInfo, From, &'a Publish),
     MessageDropped(Option<To>, From, Publish, Reason),
     MessageExpiryCheck(&'a Session, &'a ClientInfo, From, &'a Publish),
+    MessageNonsubscribed(From),
 
     GrpcMessageReceived(grpc::MessageType, grpc::Message),
 }
@@ -228,6 +234,7 @@ impl<'a> Parameter<'a> {
             Parameter::MessageAcked(_, _, _, _) => Type::MessageAcked,
             Parameter::MessageDropped(_, _, _, _) => Type::MessageDropped,
             Parameter::MessageExpiryCheck(_, _, _, _) => Type::MessageExpiryCheck,
+            Parameter::MessageNonsubscribed(_) => Type::MessageNonsubscribed,
 
             Parameter::GrpcMessageReceived(_, _) => Type::GrpcMessageReceived,
         }

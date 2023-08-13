@@ -100,6 +100,9 @@ impl Plugin for CounterPlugin {
         self.register
             .add_priority(Type::MessageDropped, Priority::MAX, Box::new(CounterHandler::new()))
             .await;
+        self.register
+            .add_priority(Type::MessageNonsubscribed, Priority::MAX, Box::new(CounterHandler::new()))
+            .await;
 
         Ok(())
     }
@@ -252,6 +255,15 @@ impl Handler for CounterHandler {
             }
             Parameter::MessageDropped(_to, _from, _p, _r) => {
                 self.metrics.messages_dropped_inc(); //@TODO ... elaboration
+            }
+            Parameter::MessageNonsubscribed(from) => {
+                self.metrics.messages_nonsubscribed_inc();
+                match from.typ() {
+                    FromType::Custom => self.metrics.messages_nonsubscribed_custom_inc(),
+                    FromType::Admin => self.metrics.messages_nonsubscribed_admin_inc(),
+                    FromType::System => self.metrics.messages_nonsubscribed_system_inc(),
+                    FromType::LastWill => self.metrics.messages_nonsubscribed_lastwill_inc(),
+                }
             }
 
             _ => {

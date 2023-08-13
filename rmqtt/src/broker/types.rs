@@ -71,6 +71,7 @@ pub type PublishReceiveTime = TimestampMillis;
 pub type Subscriptions = Vec<(TopicFilter, SubscriptionValue)>;
 pub type TopicFilters = Vec<TopicFilter>;
 pub type SubscriptionValue = (QoS, Option<SharedGroup>);
+pub type SubscriptionSize = usize;
 
 pub type HookSubscribeResult = Vec<Option<TopicFilter>>;
 pub type HookUnsubscribeResult = Vec<Option<TopicFilter>>;

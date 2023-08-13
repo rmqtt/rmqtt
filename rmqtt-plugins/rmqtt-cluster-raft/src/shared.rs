@@ -15,7 +15,7 @@ use rmqtt::{
         session::{ClientInfo, Session, SessionOfflineInfo},
         types::{
             From, Id, IsAdmin, NodeId, NodeName, Publish, Reason, SessionStatus, SubsSearchParams,
-            SubsSearchResult, Subscribe, SubscribeReturn, To, Tx, Unsubscribe,
+            SubsSearchResult, Subscribe, SubscribeReturn, SubscriptionSize, To, Tx, Unsubscribe,
         },
         Entry, Shared, SubRelations, SubRelationsMap,
     },
@@ -311,7 +311,11 @@ impl Shared for &'static ClusterShared {
     }
 
     #[inline]
-    async fn forwards(&self, from: From, publish: Publish) -> Result<(), Vec<(To, From, Publish, Reason)>> {
+    async fn forwards(
+        &self,
+        from: From,
+        publish: Publish,
+    ) -> Result<SubscriptionSize, Vec<(To, From, Publish, Reason)>> {
         log::debug!("[forwards] from: {:?}, publish: {:?}", from, publish);
 
         let topic = publish.topic();
@@ -323,6 +327,8 @@ impl Shared for &'static ClusterShared {
                     SubRelationsMap::default()
                 }
             };
+
+        let subs_size: SubscriptionSize = relations_map.iter().map(|(_, subs)| subs.len()).sum();
 
         let mut errs = Vec::new();
 
@@ -378,7 +384,7 @@ impl Shared for &'static ClusterShared {
         }
 
         if errs.is_empty() {
-            Ok(())
+            Ok(subs_size)
         } else {
             Err(errs)
         }
@@ -399,7 +405,7 @@ impl Shared for &'static ClusterShared {
         &self,
         from: From,
         publish: Publish,
-    ) -> Result<SubRelationsMap, Vec<(To, From, Publish, Reason)>> {
+    ) -> Result<(SubRelationsMap, SubscriptionSize), Vec<(To, From, Publish, Reason)>> {
         self.inner.forwards_and_get_shareds(from, publish).await
     }
 

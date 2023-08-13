@@ -58,4 +58,10 @@ pub struct Metrics {
 
     messages_delivered_retain: AtomicUsize,
     messages_acked_retain: AtomicUsize,
+
+    messages_nonsubscribed: AtomicUsize,
+    messages_nonsubscribed_custom: AtomicUsize,
+    messages_nonsubscribed_admin: AtomicUsize,
+    messages_nonsubscribed_lastwill: AtomicUsize,
+    messages_nonsubscribed_system: AtomicUsize,
 }

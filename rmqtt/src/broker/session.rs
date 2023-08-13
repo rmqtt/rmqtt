@@ -382,10 +382,23 @@ impl SessionState {
             let from = From::from_lastwill(self.id.clone());
             //hook, message_publish
             let p = self.hook.message_publish(from.clone(), &p).await.unwrap_or(p);
-            if let Err(droppeds) = Runtime::instance().extends.shared().await.forwards(from, p).await {
-                for (to, from, p, r) in droppeds {
-                    //hook, message_dropped
-                    Runtime::instance().extends.hook_mgr().await.message_dropped(Some(to), from, p, r).await;
+
+            match Runtime::instance().extends.shared().await.forwards(from.clone(), p).await {
+                Ok(0) => {
+                    //hook, message_nonsubscribed
+                    Runtime::instance().extends.hook_mgr().await.message_nonsubscribed(from).await;
+                }
+                Ok(_) => {}
+                Err(droppeds) => {
+                    for (to, from, p, r) in droppeds {
+                        //hook, message_dropped
+                        Runtime::instance()
+                            .extends
+                            .hook_mgr()
+                            .await
+                            .message_dropped(Some(to), from, p, r)
+                            .await;
+                    }
                 }
             }
         }
@@ -640,7 +653,7 @@ impl SessionState {
         log::debug!("{:?} acl_result: {:?}", self.id, acl_result);
         if let PublishAclResult::Rejected(disconnect) = acl_result {
             Metrics::instance().client_publish_auth_error_inc();
-            //Message dropped
+            //hook, Message dropped
             Runtime::instance()
                 .extends
                 .hook_mgr()
@@ -665,13 +678,24 @@ impl SessionState {
                 .await?;
         }
 
-        if let Err(errs) = Runtime::instance().extends.shared().await.forwards(from, publish).await {
-            for (to, from, p, reason) in errs {
-                //Message dropped
-                Runtime::instance().extends.hook_mgr().await.message_dropped(Some(to), from, p, reason).await;
+        match Runtime::instance().extends.shared().await.forwards(from.clone(), publish).await {
+            Ok(0) => {
+                //hook, message_nonsubscribed
+                Runtime::instance().extends.hook_mgr().await.message_nonsubscribed(from).await;
+            }
+            Ok(_) => {}
+            Err(errs) => {
+                for (to, from, p, reason) in errs {
+                    //Message dropped
+                    Runtime::instance()
+                        .extends
+                        .hook_mgr()
+                        .await
+                        .message_dropped(Some(to), from, p, reason)
+                        .await;
+                }
             }
         }
-
         Ok(true)
     }
 

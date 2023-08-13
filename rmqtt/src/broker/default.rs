@@ -371,7 +371,11 @@ impl Shared for &'static DefaultShared {
     }
 
     #[inline]
-    async fn forwards(&self, from: From, publish: Publish) -> Result<(), Vec<(To, From, Publish, Reason)>> {
+    async fn forwards(
+        &self,
+        from: From,
+        publish: Publish,
+    ) -> Result<SubscriptionSize, Vec<(To, From, Publish, Reason)>> {
         let topic = publish.topic();
         let mut relations_map =
             match Runtime::instance().extends.router().await.matches(publish.topic()).await {
@@ -382,6 +386,8 @@ impl Shared for &'static DefaultShared {
                 }
             };
 
+        let subs_size: SubscriptionSize = relations_map.iter().map(|(_, subs)| subs.len()).sum();
+
         let this_node_id = Runtime::instance().node.id();
         if let Some(relations) = relations_map.remove(&this_node_id) {
             self.forwards_to(from, &publish, relations).await?;
@@ -389,7 +395,7 @@ impl Shared for &'static DefaultShared {
         if !relations_map.is_empty() {
             log::warn!("forwards, relations_map:{:?}", relations_map);
         }
-        Ok(())
+        Ok(subs_size)
     }
 
     #[inline]
@@ -397,7 +403,7 @@ impl Shared for &'static DefaultShared {
         &self,
         from: From,
         publish: Publish,
-    ) -> Result<SubRelationsMap, Vec<(To, From, Publish, Reason)>> {
+    ) -> Result<(SubRelationsMap, SubscriptionSize), Vec<(To, From, Publish, Reason)>> {
         let topic = publish.topic();
         log::debug!("forwards_and_get_shareds, from: {:?}, topic: {:?}", from, topic.to_string());
         let relations_map = match Runtime::instance().extends.router().await.matches(topic).await {
@@ -407,6 +413,8 @@ impl Shared for &'static DefaultShared {
                 SubRelationsMap::default()
             }
         };
+
+        let subs_size: SubscriptionSize = relations_map.iter().map(|(_, subs)| subs.len()).sum();
 
         let mut relations = SubRelations::new();
         let mut sub_relations_map = SubRelationsMap::default();
@@ -428,7 +436,7 @@ impl Shared for &'static DefaultShared {
         if !relations.is_empty() {
             self.forwards_to(from, &publish, relations).await?;
         }
-        Ok(sub_relations_map)
+        Ok((sub_relations_map, subs_size))
     }
 
     #[inline]
@@ -1416,6 +1424,11 @@ impl HookManager for &'static DefaultHookManager {
     ///Publish message Dropped
     async fn message_dropped(&self, to: Option<To>, from: From, publish: Publish, reason: Reason) {
         let _ = self.exec(Type::MessageDropped, Parameter::MessageDropped(to, from, publish, reason)).await;
+    }
+
+    ///Publish message nonsubscribed
+    async fn message_nonsubscribed(&self, from: From) {
+        let _ = self.exec(Type::MessageNonsubscribed, Parameter::MessageNonsubscribed(from)).await;
     }
 
     ///grpc message received

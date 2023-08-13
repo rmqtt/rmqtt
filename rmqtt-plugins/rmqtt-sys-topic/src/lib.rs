@@ -342,9 +342,16 @@ async fn sys_publish(nodeid: NodeId, topic: String, publish_qos: QoS, payload: s
                 .await
                 .unwrap_or(p);
 
-            let replys = Runtime::instance().extends.shared().await.forwards(from, p).await;
-            if let Err(e) = replys {
-                log::warn!("send system message error, {:?}", e);
+            let replys = Runtime::instance().extends.shared().await.forwards(from.clone(), p).await;
+            match replys {
+                Ok(0) => {
+                    //hook, message_nonsubscribed
+                    Runtime::instance().extends.hook_mgr().await.message_nonsubscribed(from).await;
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    log::warn!("send system message error, {:?}", e);
+                }
             }
         }
         Err(e) => {
