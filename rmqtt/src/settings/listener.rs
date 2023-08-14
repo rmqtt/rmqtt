@@ -144,7 +144,7 @@ pub struct ListenerInner {
     pub name: String,
     #[serde(default = "ListenerInner::enable_default")]
     pub enable: bool,
-    #[serde(default = "ListenerInner::addr_default", deserialize_with = "deserialize_addr")]
+    #[serde(deserialize_with = "deserialize_addr")]
     pub addr: SocketAddr,
     #[serde(default = "ListenerInner::workers_default")]
     pub workers: usize,
