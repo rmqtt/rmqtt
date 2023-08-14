@@ -284,7 +284,7 @@ impl Store for &'static ClusterRouter {
             Message::Disconnected { id } => {
                 log::debug!("[Router.Disconnected] id: {:?}", id,);
                 if let Some(mut entry) = self.client_states.get_mut(&id.client_id) {
-                    let mut status = entry.value_mut();
+                    let status = entry.value_mut();
                     if status.id != id {
                         log::debug!(
                             "[Router.Disconnected] id not the same, input id: {:?}, current status: {:?}",
