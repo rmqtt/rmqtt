@@ -193,7 +193,7 @@ Returns the information of all clients under the cluster.
 | [0].port                | Integer          | Client port                                                                                                                       | 
 | [0].connected_at        | String           | Client connection time, in the format of "YYYY-MM-DD HH:mm:ss"                                                                    |
 | [0].disconnected_at     | String           | Client offline time, in the formatof "YYYY-MM-DD HH:mm:ss"，<br/>This field is only valid and returned when `connected` is` false` |
-| [0].disconnected_reason | String           | Client offline reason                                                                    |
+| [0].disconnected_reason | String           | Client offline reason                                                                                                             |
 | [0].connected           | Boolean          | Whether the client is connected                                                                                                   |
 | [0].keepalive           | Integer          | keepalive time, with the unit of second                                                                                           |
 | [0].clean_start         | Boolean          | Indicate whether the client is using a brand new session                                                                          |
@@ -205,6 +205,8 @@ Returns the information of all clients under the cluster.
 | [0].max_inflight        | Integer          | Maximum length of inflight                                                                                                        |
 | [0].mqueue_len          | Integer          | Current length of message queue                                                                                                   |
 | [0].max_mqueue          | Integer          | Maximum length of message queue                                                                                                   |
+| [0].extra_attrs         | Integer          | Number of Extended Attributes                                                                                                     |
+| [0].last_will           | Json             | Last Will Message, for example: { "message": "dGVzdCAvdGVzdC9sd3QgLi4u", "qos": 1, "retain": false, "topic": "/test/lwt" }        |
 
 **Examples:**
 
@@ -733,10 +735,15 @@ Return all status data in the cluster.
 
 **stats:**
 
-| Name                       | Type | Description                |
-|----------------------------| --------- | -------------------------- |
+| Name                       | Type | Description            |
+|----------------------------| --------- | ---------------------- |
 | connections.count          | Integer   | Number of current connections |
 | connections.max            | Integer   | Historical maximum number of connections |
+| handshakings.count         | Integer   | Current number of active handshakes |
+| handshakings.max           | Integer   | Historical maximum of current active handshake connections |
+| handshakings_active.count  | Integer   | Current number of connections undergoing handshake operations |
+| handshakings_rate.count    | Integer   | Connection handshake rate  |
+| handshakings_rate.max      | Integer   | Historical maximum of connection handshake rate |
 | sessions.count             | Integer   | Number of current sessions |
 | sessions.max               | Integer   | Historical maximum number of sessions |
 | topics.count               | Integer   | Number of current topics |
@@ -861,27 +868,55 @@ Returns all statistical metrics under the cluster
 
 **metrics:**
 
-| Name | Type | Description                                                                  |
-| ----------------| --------- |------------------------------------------------------------------------------|
-| client.auth.anonymous           | Integer   | Number of clients who log in anonymously                                     |
-| client.authenticate             | Integer   | Number of client authentications                                             |
-| client.connack                  | Integer   | Number of CONNACK packet sent                                                |
-| client.connect                  | Integer   | Number of client connections                                                 |
-| client.connected                | Integer   | Number of successful client connections                                      |
-| client.disconnected             | Integer   | Number of client disconnects                                                 |
-| client.publish.check.acl        | Integer   | Number of ACL rule checks                                                    |
-| client.subscribe.check.acl      | Integer   | Number of ACL rule checks                                                    |
-| client.subscribe                | Integer   | Number of client subscriptions                                               |
-| client.unsubscribe              | Integer   | Number of client unsubscriptions                                             |
-| messages.publish                | Integer   | Number of received PUBLISH packet                                            |
-| messages.delivered              | Integer   | Number of messages sent to the client                                        |
-| messages.acked                  | Integer   | Number of received PUBACK and PUBREC packet                                  |
-| messages.dropped                | Integer   | total number of messages dropped                                             |
-| session.created                 | Integer   | Number of sessions created                                                   |
-| session.resumed                 | Integer   | Number of sessions resumed because `Clean Session` or `Clean Start` is false |
-| session.subscribed              | Integer   | Number of successful client subscriptions                                    |
-| session.unsubscribed            | Integer   | Number of successful client unsubscriptions                                  |
-| session.terminated              | Integer   | Number of terminated sessions       |
+| Name | Type | Description                                                                                |
+| ----------------| --------- |--------------------------------------------------------------------------------------------|
+| client.auth.anonymous           | Integer   | Number of clients who log in anonymously                                                   |
+| client.auth.anonymous.error     | Integer   | Number of client login failures for anonymous connections.                                 |
+| client.authenticate             | Integer   | Number of client authentications                                                           |
+| client.connack                  | Integer   | Number of CONNACK packet sent                                                              |
+| client.connack.auth.error       | Integer   | Number of CONNACK packets sent with connection authentication failures                     |
+| client.connack.error            | Integer   | Number of CONNACK packets sent with connection failures                                    |
+| client.connect                  | Integer   | Number of client connections                                                               |
+| client.connected                | Integer   | Number of successful client connections                                                    |
+| client.disconnected             | Integer   | Number of client disconnects                                                               |
+| client.handshaking.timeout      | Integer   | Number of handshake timeouts for connections.                                              |
+| client.publish.auth.error       | Integer   | Publish, Number of failed ACL rule checks.                                                 |
+| client.publish.check.acl        | Integer   | Publish, Number of ACL rule checks                                                         |
+| client.publish.error            | Integer   | Publish, Number of Failures                                                                |
+| client.subscribe.auth.error     | Integer   | Subscribe, Number of ACL Rule Check Failures                                               |
+| client.subscribe.error          | Integer   | Subscribe, Number of Failures                                                              |
+| client.subscribe.check.acl      | Integer   | Number of ACL rule checks                                                                  |
+| client.subscribe                | Integer   | Number of client subscriptions                                                             |
+| client.unsubscribe              | Integer   | Number of client unsubscriptions                                                           |
+| messages.publish                | Integer   | Number of received PUBLISH packet                                                          |
+| messages.publish.admin          | Integer   | Number of received PUBLISH messages, Messages published via the HTTP API                   |
+| messages.publish.custom         | Integer   | Number of received PUBLISH messages, Messages published via MQTT clients                   |
+| messages.publish.lastwill       | Integer   | Number of received PUBLISH messages, Last Will Message                                     |
+| messages.publish.retain         | Integer   | Number of received PUBLISH messages, Forwarded Retained Message                            |
+| messages.publish.system         | Integer   | Number of received PUBLISH messages, System Topic Messages ($SYS/#)                        |
+| messages.delivered              | Integer   | Number of messages sent to the client                                                      |
+| messages.delivered.admin        | Integer   | Number of messages sent to the client, Messages published via the HTTP API                 |
+| messages.delivered.custom       | Integer   | Number of messages sent to the client, Messages published via MQTT clients                 |
+| messages.delivered.lastwill     | Integer   | Number of messages sent to the client, Last Will Message                                   |
+| messages.delivered.retain       | Integer   | Number of messages sent to the client, Forwarded Retained Message                          |
+| messages.delivered.system       | Integer   | Number of messages sent to the client, System Topic Messages ($SYS/#)                      |
+| messages.acked                  | Integer   | Number of received PUBACK and PUBREC packet                                                |
+| messages.acked.admin            | Integer   | Number of received PUBACK and PUBREC packet, Messages published via the HTTP API           |
+| messages.acked.custom           | Integer   | Number of received PUBACK and PUBREC packet, Messages published via MQTT clients           |
+| messages.acked.lastwill         | Integer   | Number of received PUBACK and PUBREC packet, Last Will Message                             |
+| messages.acked.retain           | Integer   | Number of received PUBACK and PUBREC packet, Forwarded Retained Message                    |
+| messages.acked.system           | Integer   | Number of received PUBACK and PUBREC packet, System Topic Messages ($SYS/#)                |
+| messages.nonsubscribed          | Integer   | Number of PUBLISH Messages Without Subscription Found                                      |
+| messages.nonsubscribed.admin    | Integer   | Number of PUBLISH Messages Without Subscription Found, Messages published via the HTTP API |
+| messages.nonsubscribed.custom   | Integer   | Number of PUBLISH Messages Without Subscription Found, Messages published via MQTT clients |
+| messages.nonsubscribed.lastwill | Integer   | Number of PUBLISH Messages Without Subscription Found, Last Will Message                   |
+| messages.nonsubscribed.system   | Integer   | Number of PUBLISH Messages Without Subscription Found, System Topic Messages ($SYS/#)      |
+| messages.dropped                | Integer   | Total number of messages dropped                                                           |
+| session.created                 | Integer   | Number of sessions created                                                                 |
+| session.resumed                 | Integer   | Number of sessions resumed because `Clean Session` or `Clean Start` is false               |
+| session.subscribed              | Integer   | Number of successful client subscriptions                                                  |
+| session.unsubscribed            | Integer   | Number of successful client unsubscriptions                                                |
+| session.terminated              | Integer   | Number of terminated sessions                                                              |
 
 **Examples:**
 

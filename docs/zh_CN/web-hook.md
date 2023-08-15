@@ -33,24 +33,30 @@ HTTP 请求Body内容为JSON格式, 消息Payload属性通过BASE64编码。
 ##--------------------------------------------------------------------
 ## rmqtt-web-hook
 ##--------------------------------------------------------------------
-##
+## http
 #    Method: POST
 #    Body: <JSON>
 #    Payload: BASE64
+## file
+#    None
 #
 
-## web hook general config
+## Hook general config
 # 由于WebHook使用单独的Tokio运行时环境启动，因此需要指定此运行时环境允许的核心工作线程数。
 worker_threads = 3
 # 消息队列容量，
 queue_capacity = 300_000
 # 并行发送WebHook Http请求数
 concurrency_limit = 128
+
+## Default urls, supports http and file protocols
 # 默认WebHook URL地址，可以指定多个地址
-http_urls = ["http://127.0.0.1:5656/mqtt/webhook"] #default urls
+#urls = ["file:///var/log/rmqtt/hook.log", "http://127.0.0.1:5656/mqtt/webhook"]
+urls = ["file:///var/log/rmqtt/hook.log"]
+
+## Http config
 # HTTP请求超时时间
 http_timeout = "8s"
-
 # 此配置项设置最大重试失效时间，如果http请求失败，将在大约2、4、7、11、18或42秒后重试，
 retry_max_elapsed_time = "60s"
 # 重试因子，默认: 2.5
@@ -146,38 +152,40 @@ Body: <JSON>    # Body 为 JSON 格式字符串
 
 **session_created**
 
-| Key        |  类型   | 说明  |
-| ---------- | ------- | ----- |
-| action     | string  | 事件名称<br>默认为："session_created" |
-| node       | integer  | 节点ID |
-| ipaddress  | string  | 客户端源 IP 地址和端口 |
-| clientid   | string  | 客户端 ClientId |
-| username   | string  | 客户端 Username，不存在时该值为 "undefined" |
-| created_at | integer | 会话创建时间, 单位：毫秒 |
-
+| Key        | 类型       | 说明                               |
+|------------|----------|----------------------------------|
+| action     | string   | 事件名称<br>默认为："session_created"    |
+| node       | integer  | 节点ID                             |
+| ipaddress  | string   | 客户端源 IP 地址和端口                    |
+| clientid   | string   | 客户端 ClientId                     |
+| username   | string   | 客户端 Username，不存在时该值为 "undefined" |
+| created_at | integer  | 会话创建时间, 单位：毫秒                    |
+| time       | string   | Hook信息创建时间，格式：%Y-%m-%d %H:%M:%S%.3f |
 
 **session_terminated**
 
-| Key          |  类型   | 说明                             |
-|--------------| ------- |--------------------------------|
-| action       | string  | 事件名称<br>默认为："session_terminated" |
-| node         | integer  | 节点ID |
-| ipaddress    | string  | 客户端源 IP 地址和端口 |
-| clientid     | string  | 客户端 ClientId                   |
-| username     | string  | 客户端 Username，不存在时该值为 "undefined" |
-| reason       | string  | 原因                             |
+| Key         |  类型   | 说明                             |
+|-------------| ------- |--------------------------------|
+| action      | string  | 事件名称<br>默认为："session_terminated" |
+| node        | integer | 节点ID |
+| ipaddress   | string  | 客户端源 IP 地址和端口 |
+| clientid    | string  | 客户端 ClientId                   |
+| username    | string  | 客户端 Username，不存在时该值为 "undefined" |
+| reason      | string  | 原因                             |
+| time        | string  | Hook信息创建时间，格式：%Y-%m-%d %H:%M:%S%.3f |
 
 **session_subscribed**
 
-| Key         |  类型   | 说明  |
-| ----------- | ------- | ----- |
-| action      | string  | 事件名称<br>默认为："session_subscribed" |
-| node         | integer  | 节点ID |
+| Key          |  类型   | 说明  |
+|--------------| ------- | ----- |
+| action       | string  | 事件名称<br>默认为："session_subscribed" |
+| node         | integer | 节点ID |
 | ipaddress    | string  | 客户端源 IP 地址和端口 |
-| clientid    | string  | 客户端 ClientId |
-| username    | string  | 客户端 Username，不存在时该值为 "undefined" |
-| topic       | string  | 订阅的主题 |
-| opts        | json    | 订阅参数 |
+| clientid     | string  | 客户端 ClientId |
+| username     | string  | 客户端 Username，不存在时该值为 "undefined" |
+| topic        | string  | 订阅的主题 |
+| opts         | json    | 订阅参数 |
+| time         | string  | Hook信息创建时间，格式：%Y-%m-%d %H:%M:%S%.3f |
 
 opts 包含
 
@@ -188,85 +196,88 @@ opts 包含
 **session_unsubscribed**
 
 | Key         |  类型   | 说明  |
-| ----------- | ------- | ----- |
+|-------------| ------- | ----- |
 | action      | string  | 事件名称<br>默认为："session_unsubscribed" |
-| node         | integer  | 节点ID |
-| ipaddress    | string  | 客户端源 IP 地址和端口 |
+| node        | integer | 节点ID |
+| ipaddress   | string  | 客户端源 IP 地址和端口 |
 | clientid    | string  | 客户端 ClientId |
 | username    | string  | 客户端 Username，不存在时该值为 "undefined" |
 | topic       | string  | 取消订阅的主题 |
-
+| time        | string  | Hook信息创建时间，格式：%Y-%m-%d %H:%M:%S%.3f |
 
 **client_connect**
 
-| Key        | 类型   | 说明                               |
-| ---------- |------|----------------------------------|
-| action     | string | 事件名称<br>默认为："client_connect"     |
-| node         | integer | 节点ID                             |
-| ipaddress    | string | 客户端源 IP 地址和端口                    |
-| clientid   | string | 客户端 ClientId                     |
-| username   | string | 客户端 Username，不存在时该值为 "undefined" |
-| keepalive  | integer | 客户端申请的心跳保活时间                     |
-| proto_ver  | integer | 协议版本号                            |
-| clean_session  | bool | 保持会话标记(MQTT 3.1, 3.1.1)          |
-| clean_start  | bool | 连接时清除会话标记(MQTT 5.0)              |
+| Key           | 类型      | 说明                               |
+|---------------|---------|----------------------------------|
+| action        | string  | 事件名称<br>默认为："client_connect"     |
+| node          | integer | 节点ID                             |
+| ipaddress     | string  | 客户端源 IP 地址和端口                    |
+| clientid      | string  | 客户端 ClientId                     |
+| username      | string  | 客户端 Username，不存在时该值为 "undefined" |
+| keepalive     | integer | 客户端申请的心跳保活时间                     |
+| proto_ver     | integer | 协议版本号                            |
+| clean_session | bool    | 保持会话标记(MQTT 3.1, 3.1.1)          |
+| clean_start   | bool    | 连接时清除会话标记(MQTT 5.0)              |
+| time          | string  | Hook信息创建时间，格式：%Y-%m-%d %H:%M:%S%.3f |
 
 **client_connack**
 
-| Key        | 类型   | 说明                                                           |
-| ---------- |------|--------------------------------------------------------------|
-| action     | string | 事件名称<br>默认为："client_connack"                                 |
-| node         | integer | 节点ID                                                         |
-| ipaddress    | string | 客户端源 IP 地址和端口                                                |
-| clientid   | string | 客户端 ClientId                                                 |
-| username   | string | 客户端 Username，不存在时该值为 "undefined"                             |
-| keepalive  | integer | 客户端申请的心跳保活时间                                                 |
-| proto_ver  | integer | 协议版本号                                                        |
-| clean_session  | bool | 保持会话标记(MQTT 3.1, 3.1.1)          |
-| clean_start  | bool | 连接时清除会话标记(MQTT 5.0)              |
-| conn_ack   | string  | "Connection Accepted" 表示成功，其它表示失败的原因 |
-
+| Key           | 类型      | 说明                                                           |
+|---------------|---------|--------------------------------------------------------------|
+| action        | string  | 事件名称<br>默认为："client_connack"                                 |
+| node          | integer | 节点ID                                                         |
+| ipaddress     | string  | 客户端源 IP 地址和端口                                                |
+| clientid      | string  | 客户端 ClientId                                                 |
+| username      | string  | 客户端 Username，不存在时该值为 "undefined"                             |
+| keepalive     | integer | 客户端申请的心跳保活时间                                                 |
+| proto_ver     | integer | 协议版本号                                                        |
+| clean_session | bool    | 保持会话标记(MQTT 3.1, 3.1.1)          |
+| clean_start   | bool    | 连接时清除会话标记(MQTT 5.0)              |
+| conn_ack      | string  | "Connection Accepted" 表示成功，其它表示失败的原因 |
+| time          | string  | Hook信息创建时间，格式：%Y-%m-%d %H:%M:%S%.3f |
 
 **client_connected**
 
-| Key        | 类型   | 说明                               |
-| ---------- |------|----------------------------------|
-| action     | string | 事件名称<br>默认为："client_connected"   |
-| node         | integer | 节点ID                             |
-| ipaddress    | string | 客户端源 IP 地址和端口                    |
-| clientid   | string | 客户端 ClientId                     |
-| username   | string | 客户端 Username，不存在时该值为 "undefined" |
-| keepalive  | integer | 客户端申请的心跳保活时间                     |
-| proto_ver  | integer | 协议版本号                            |
-| clean_session  | bool | 保持会话标记(MQTT 3.1, 3.1.1)          |
-| clean_start  | bool | 连接时清除会话标记(MQTT 5.0)              |
-| connected_at| integer | 时间戳(毫秒)                          |
-| session_present| bool | 是否持久会话                           |
-
+| Key             | 类型      | 说明                               |
+|-----------------|---------|----------------------------------|
+| action          | string  | 事件名称<br>默认为："client_connected"   |
+| node            | integer | 节点ID                             |
+| ipaddress       | string  | 客户端源 IP 地址和端口                    |
+| clientid        | string  | 客户端 ClientId                     |
+| username        | string  | 客户端 Username，不存在时该值为 "undefined" |
+| keepalive       | integer | 客户端申请的心跳保活时间                     |
+| proto_ver       | integer | 协议版本号                            |
+| clean_session   | bool    | 保持会话标记(MQTT 3.1, 3.1.1)          |
+| clean_start     | bool    | 连接时清除会话标记(MQTT 5.0)              |
+| connected_at    | integer | 时间戳(毫秒)                          |
+| session_present | bool    | 是否持久会话                           |
+| time            | string  | Hook信息创建时间，格式：%Y-%m-%d %H:%M:%S%.3f |
 
 **client_disconnected**
 
-| Key         |  类型   | 说明                                |
-| ----------- | ------- |-----------------------------------|
-| action      | string  | 事件名称<br>默认为："client_disconnected" |
-| node         | integer | 节点ID                              |
-| ipaddress    | string | 客户端源 IP 地址和端口                     |
-| clientid    | string  | 客户端 ClientId                      |
-| username    | string  | 客户端 Username，不存在时该值为 "undefined"  |
-| disconnected_at  | integer  | 时间戳(毫秒)                           |
-| reason      | string  | 断开原因                              |
+| Key             | 类型      | 说明                                |
+|-----------------|---------|-----------------------------------|
+| action          | string  | 事件名称<br>默认为："client_disconnected" |
+| node            | integer | 节点ID                              |
+| ipaddress       | string  | 客户端源 IP 地址和端口                     |
+| clientid        | string  | 客户端 ClientId                      |
+| username        | string  | 客户端 Username，不存在时该值为 "undefined"  |
+| disconnected_at | integer | 时间戳(毫秒)                           |
+| reason          | string  | 断开原因                              |
+| time            | string  | Hook信息创建时间，格式：%Y-%m-%d %H:%M:%S%.3f |
 
 **client_subscribe**
 
 | Key         |  类型   | 说明  |
-| ----------- | ------- | ----- |
+|-------------| ------- | ----- |
 | action      | string  | 事件名称<br>默认为："client_subscribe" |
-| node         | integer  | 节点ID |
-| ipaddress    | string  | 客户端源 IP 地址和端口 |
+| node        | integer | 节点ID |
+| ipaddress   | string  | 客户端源 IP 地址和端口 |
 | clientid    | string  | 客户端 ClientId |
 | username    | string  | 客户端 Username，不存在时该值为 "undefined" |
 | topic       | string  | 订阅的主题 |
 | opts        | json    | 订阅参数 |
+| time        | string  | Hook信息创建时间，格式：%Y-%m-%d %H:%M:%S%.3f |
 
 opts 包含
 
@@ -277,32 +288,33 @@ opts 包含
 
 **client_unsubscribe**
 
-| Key         |  类型   | 说明  |
-| ----------- | ------- | ----- |
-| action      | string  | 事件名称<br>默认为："client_unsubscribe" |
-| node         | integer  | 节点ID |
+| Key          |  类型   | 说明  |
+|--------------| ------- | ----- |
+| action       | string  | 事件名称<br>默认为："client_unsubscribe" |
+| node         | integer | 节点ID |
 | ipaddress    | string  | 客户端源 IP 地址和端口 |
-| clientid    | string  | 客户端 ClientId |
-| username    | string  | 客户端 Username，不存在时该值为 "undefined" |
-| topic       | string  | 取消订阅的主题 |
+| clientid     | string  | 客户端 ClientId |
+| username     | string  | 客户端 Username，不存在时该值为 "undefined" |
+| topic        | string  | 取消订阅的主题 |
+| time         | string  | Hook信息创建时间，格式：%Y-%m-%d %H:%M:%S%.3f |
 
 **message_publish**
 
-| Key               |  类型   | 说明                                  |
-|-------------------| ------- |-------------------------------------|
-| action            | string  | 事件名称<br>默认为："message_publish"       |
-| from_node         | integer | 发布端节点ID                             |
-| from_ipaddress    | string  | 发布端源 IP 地址和端口                       |
-| from_clientid     | string  | 发布端 ClientId                        |
-| from_username     | string  | 发布端 Username，不存在时该值为 "undefined"    |
-| dup               | bool    | 是否为 Dup 消息                          |
-| retain            | bool    | 是否为 Retain 消息                       |
-| qos               | enum    | QoS 等级，可取 `0` `1` `2`               |
-| topic             | string  | 消息主题                                |
-| packet_id         | string  | 消息ID                                |
-| payload           | string  | 消息 Payload                          |
-| ts                | integer | 接收到Publish消息时的时间戳(毫秒)               |
-
+| Key            |  类型   | 说明                                  |
+|----------------| ------- |-------------------------------------|
+| action         | string  | 事件名称<br>默认为："message_publish"       |
+| from_node      | integer | 发布端节点ID                             |
+| from_ipaddress | string  | 发布端源 IP 地址和端口                       |
+| from_clientid  | string  | 发布端 ClientId                        |
+| from_username  | string  | 发布端 Username，不存在时该值为 "undefined"    |
+| dup            | bool    | 是否为 Dup 消息                          |
+| retain         | bool    | 是否为 Retain 消息                       |
+| qos            | enum    | QoS 等级，可取 `0` `1` `2`               |
+| topic          | string  | 消息主题                                |
+| packet_id      | string  | 消息ID                                |
+| payload        | string  | 消息 Payload                          |
+| ts             | integer | 接收到Publish消息时的时间戳(毫秒)               |
+| time           | string  | Hook信息创建时间，格式：%Y-%m-%d %H:%M:%S%.3f |
 
 **message_delivered**
 
@@ -325,11 +337,12 @@ opts 包含
 | payload        | string  | 消息 Payload                       |
 | pts            | integer | 接收到Publish消息时的时间戳(毫秒)            |
 | ts             | integer | 生成此hook消息时的时间戳(毫秒)               |
+| time           | string  | Hook信息创建时间，格式：%Y-%m-%d %H:%M:%S%.3f |
 
 **message_acked**
 
 | Key            |  类型   | 说明  |
-| -------------- | ------- | ----- |
+|----------------| ------- | ----- |
 | action         | string  | 事件名称<br>默认为："message_acked" |
 | from_node      | integer | 发布端节点ID                          |
 | from_ipaddress | string  | 发布端源 IP 地址和端口                    |
@@ -347,31 +360,31 @@ opts 包含
 | payload        | string  | 消息 Payload                       |
 | pts            | integer | 接收到Publish消息时的时间戳(毫秒)       |
 | ts             | integer | 生成此hook消息时的时间戳(毫秒)         |
-
+| time           | string  | Hook信息创建时间，格式：%Y-%m-%d %H:%M:%S%.3f |
 
 **message_dropped**
 
-| Key             |  类型   | 说明                                |
-|-----------------| ------- |-----------------------------------|
-| action          | string  | 事件名称<br>默认为："message_dropped"     |
-| from_node       | integer | 发布端节点ID                           |
-| from_ipaddress  | string  | 发布端源 IP 地址和端口                     |
-| from_clientid   | string  | 发布端 ClientId                      |
-| from_username   | string  | 发布端 Username，不存在时该值为 "undefined"  |
-| node            | integer | 节点ID (非必须)                        |
-| ipaddress       | string  | 客户端源 IP 地址和端口 (非必须)               |
-| clientid        | string  | 客户端 ClientId (非必须)                |
-| username        | string  | 客户端 Username，不存在时该值为 "undefined" (非必须) |
-| dup             | bool    | 是否为 Dup 消息                        |
-| retain          | bool    | 是否为 Retain 消息                     |
-| qos             | enum    | QoS 等级，可取 `0` `1` `2`             |
-| topic           | string  | 消息主题                              |
-| packet_id       | string  | 消息ID                              |
-| payload         | string  | 消息 Payload                        |
-| reason          | string  | 消息丢弃原因                            |
-| pts             | integer | 接收到Publish消息时的时间戳(毫秒)             |
-| ts              | integer | 生成此hook消息时的时间戳(毫秒)                |
-
+| Key            |  类型   | 说明                                |
+|----------------| ------- |-----------------------------------|
+| action         | string  | 事件名称<br>默认为："message_dropped"     |
+| from_node      | integer | 发布端节点ID                           |
+| from_ipaddress | string  | 发布端源 IP 地址和端口                     |
+| from_clientid  | string  | 发布端 ClientId                      |
+| from_username  | string  | 发布端 Username，不存在时该值为 "undefined"  |
+| node           | integer | 节点ID (非必须)                        |
+| ipaddress      | string  | 客户端源 IP 地址和端口 (非必须)               |
+| clientid       | string  | 客户端 ClientId (非必须)                |
+| username       | string  | 客户端 Username，不存在时该值为 "undefined" (非必须) |
+| dup            | bool    | 是否为 Dup 消息                        |
+| retain         | bool    | 是否为 Retain 消息                     |
+| qos            | enum    | QoS 等级，可取 `0` `1` `2`             |
+| topic          | string  | 消息主题                              |
+| packet_id      | string  | 消息ID                              |
+| payload        | string  | 消息 Payload                        |
+| reason         | string  | 消息丢弃原因                            |
+| pts            | integer | 接收到Publish消息时的时间戳(毫秒)             |
+| ts             | integer | 生成此hook消息时的时间戳(毫秒)                |
+| time           | string  | Hook信息创建时间，格式：%Y-%m-%d %H:%M:%S%.3f |
 
 
 

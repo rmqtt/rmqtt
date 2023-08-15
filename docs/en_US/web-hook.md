@@ -33,24 +33,30 @@ The HTTP request body content is in JSON format, and the message payload attribu
 ##--------------------------------------------------------------------
 ## rmqtt-web-hook
 ##--------------------------------------------------------------------
-##
+## http
 #    Method: POST
 #    Body: <JSON>
 #    Payload: BASE64
+## file
+#    None
 #
 
-## web hook general config
+## Hook general config
 # Since WebHook starts a separate Tokio runtime environment, it is necessary to specify the number of core worker threads allowed for this runtime.
 worker_threads = 3
 # The message queue capacity.
 queue_capacity = 300_000
 # The maximum number of parallel WebHook HTTP requests to send.
 concurrency_limit = 128
+
+## Default urls, supports http and file protocols
 # The default WebHook URL address(es) that can be specified with multiple addresses.
-http_urls = ["http://127.0.0.1:5656/mqtt/webhook"] #default urls
+#urls = ["file:///var/log/rmqtt/hook.log", "http://127.0.0.1:5656/mqtt/webhook"]
+urls = ["file:///var/log/rmqtt/hook.log"]
+
+## Http config
 # The timeout duration for HTTP requests.
 http_timeout = "8s"
-
 # This configuration option sets the maximum retry backoff time. If an HTTP request fails, it will be retried approximately 2, 4, 7, 11, 18, or 42 seconds later.
 retry_max_elapsed_time = "60s"
 # The retry factor, defaulting to 2.5.
@@ -143,16 +149,15 @@ For different events, the request body content varies. The following table lists
 
 **session_created**
 
-| Key        | Type    | Description                                      |
-| ---------- | ------- | ------------------------------------------------ |
-| action     | string  | Event name<br>Default value: "session_created"   |
-| node       | integer | Node ID                                          |
-| ipaddress  | string  | Client's source IP address and port               |
-| clientid   | string  | Client ID                                        |
-| username   | string  | Client username. If it doesn't exist, the value is "undefined" |
-| created_at | integer | Session creation time, in milliseconds           |
-
-
+| Key        | Type    | Description                                                     |
+| ---------- | ------- |-----------------------------------------------------------------|
+| action     | string  | Event name<br>Default value: "session_created"                  |
+| node       | integer | Node ID                                                         |
+| ipaddress  | string  | Client's source IP address and port                             |
+| clientid   | string  | Client ID                                                       |
+| username   | string  | Client username. If it doesn't exist, the value is "undefined"  |
+| created_at | integer | Session creation time, in milliseconds                          |
+| time       | string  | Hook Information Creation Time, Format: %Y-%m-%d %H:%M:%S%.3f  |
 
 **session_terminated**
 
@@ -164,18 +169,20 @@ For different events, the request body content varies. The following table lists
 | clientid     | string  | Client ID                                        |
 | username     | string  | Client username. If it doesn't exist, the value is "undefined" |
 | reason       | string  | Reason for session termination                    |
+| time         | string  | Hook Information Creation Time, Format: %Y-%m-%d %H:%M:%S%.3f  |
 
 **session_subscribed**
 
-| Key         | Type    | Description                                      |
-| ----------- | ------- | ------------------------------------------------ |
-| action      | string  | Event name<br>Default value: "session_subscribed" |
+| Key          | Type    | Description                                      |
+|--------------| ------- | ------------------------------------------------ |
+| action       | string  | Event name<br>Default value: "session_subscribed" |
 | node         | integer | Node ID                                          |
 | ipaddress    | string  | Client's source IP address and port               |
-| clientid    | string  | Client ID                                        |
-| username    | string  | Client username. If it doesn't exist, the value is "undefined" |
-| topic       | string  | Subscribed topic                                 |
-| opts        | json    | Subscription options                             |
+| clientid     | string  | Client ID                                        |
+| username     | string  | Client username. If it doesn't exist, the value is "undefined" |
+| topic        | string  | Subscribed topic                                 |
+| opts         | json    | Subscription options                             |
+| time         | string  | Hook Information Creation Time, Format: %Y-%m-%d %H:%M:%S%.3f  |
 
 opts include
 
@@ -185,33 +192,35 @@ opts include
 
 **session_unsubscribed**
 
-| Key         | Type    | Description                                          |
-| ----------- | ------- | ---------------------------------------------------- |
-| action      | string  | Event name<br>Default value: "session_unsubscribed"   |
+| Key          | Type    | Description                                          |
+|--------------| ------- | ---------------------------------------------------- |
+| action       | string  | Event name<br>Default value: "session_unsubscribed"   |
 | node         | integer | Node ID                                              |
 | ipaddress    | string  | Client's source IP address and port                   |
-| clientid    | string  | Client ID                                            |
-| username    | string  | Client username. If it doesn't exist, the value is "undefined" |
-| topic       | string  | Unsubscribed topic                                   |
+| clientid     | string  | Client ID                                            |
+| username     | string  | Client username. If it doesn't exist, the value is "undefined" |
+| topic        | string  | Unsubscribed topic                                   |
+| time         | string  | Hook Information Creation Time, Format: %Y-%m-%d %H:%M:%S%.3f  |
 
 **client_connect**
 
-| Key        | Type    | Description                                        |
-| ---------- | ------- | -------------------------------------------------- |
-| action     | string  | Event name<br>Default value: "client_connect"       |
-| node         | integer | Node ID                                            |
-| ipaddress    | string  | Client's source IP address and port                 |
-| clientid   | string  | Client ID                                          |
-| username   | string  | Client username. If it doesn't exist, the value is "undefined" |
-| keepalive  | integer | Requested keepalive time by the client              |
-| proto_ver  | integer | Protocol version number                            |
-| clean_session  | bool | Session persistence flag (MQTT 3.1, 3.1.1)         |
-| clean_start  | bool | Clear session flag upon connection (MQTT 5.0)      |
+| Key           | Type    | Description                                        |
+|---------------|---------| -------------------------------------------------- |
+| action        | string  | Event name<br>Default value: "client_connect"       |
+| node          | integer | Node ID                                            |
+| ipaddress     | string  | Client's source IP address and port                 |
+| clientid      | string  | Client ID                                          |
+| username      | string  | Client username. If it doesn't exist, the value is "undefined" |
+| keepalive     | integer | Requested keepalive time by the client              |
+| proto_ver     | integer | Protocol version number                            |
+| clean_session | bool    | Session persistence flag (MQTT 3.1, 3.1.1)         |
+| clean_start   | bool    | Clear session flag upon connection (MQTT 5.0)      |
+| time          | string  | Hook Information Creation Time, Format: %Y-%m-%d %H:%M:%S%.3f  |
 
 **client_connack**
 
 | Key           | Type    | Description                                        |
-| ------------- | ------- |--------------------------------------------------- |
+|---------------| ------- |--------------------------------------------------- |
 | action        | string  | Event name<br>Default: "client_connack"              |
 | node          | integer | Node ID                                            |
 | ipaddress     | string  | Source IP address and port of the client               |
@@ -222,29 +231,29 @@ opts include
 | clean_session | bool    | Session persistence flag (MQTT 3.1, 3.1.1)          |
 | clean_start   | bool    | Session clean start flag (MQTT 5.0)                 |
 | conn_ack      | string  | "Connection Accepted" if successful; otherwise, indicates the reason for failure |
-
+| time          | string  | Hook Information Creation Time, Format: %Y-%m-%d %H:%M:%S%.3f  |
 
 **client_connected**
 
-| Key           | Type    | Description                                        |
-| ------------- | ------- |--------------------------------------------------- |
-| action        | string  | Event name<br>Default: "client_connected"           |
-| node          | integer | Node ID                                            |
-| ipaddress     | string  | Source IP address and port of the client               |
-| clientid      | string  | Client ID                                          |
-| username      | string  | Client Username; "undefined" if it doesn't exist     |
-| keepalive     | integer | Requested keep-alive time by the client               |
-| proto_ver     | integer | Protocol version number                             |
-| clean_session | bool    | Session persistence flag (MQTT 3.1, 3.1.1)          |
-| clean_start   | bool    | Session clean start flag (MQTT 5.0)                 |
-| connected_at  | integer | Timestamp in milliseconds when the connection was established |
-| session_present | bool  | Indicates whether a persistent session is present     |
-
+| Key             | Type    | Description                                        |
+|-----------------|---------|--------------------------------------------------- |
+| action          | string  | Event name<br>Default: "client_connected"           |
+| node            | integer | Node ID                                            |
+| ipaddress       | string  | Source IP address and port of the client               |
+| clientid        | string  | Client ID                                          |
+| username        | string  | Client Username; "undefined" if it doesn't exist     |
+| keepalive       | integer | Requested keep-alive time by the client               |
+| proto_ver       | integer | Protocol version number                             |
+| clean_session   | bool    | Session persistence flag (MQTT 3.1, 3.1.1)          |
+| clean_start     | bool    | Session clean start flag (MQTT 5.0)                 |
+| connected_at    | integer | Timestamp in milliseconds when the connection was established |
+| session_present | bool    | Indicates whether a persistent session is present     |
+| time            | string  | Hook Information Creation Time, Format: %Y-%m-%d %H:%M:%S%.3f  |
 
 **client_disconnected**
 
 | Key             | Type    | Description                                        |
-| --------------- | ------- |--------------------------------------------------- |
+|-----------------| ------- |--------------------------------------------------- |
 | action          | string  | Event name<br>Default: "client_disconnected"        |
 | node            | integer | Node ID                                            |
 | ipaddress       | string  | Source IP address and port of the client               |
@@ -252,11 +261,12 @@ opts include
 | username        | string  | Client Username; "undefined" if it doesn't exist     |
 | disconnected_at | integer | Timestamp in milliseconds when the disconnection occurred |
 | reason          | string  | Reason for disconnection                            |
+| time            | string  | Hook Information Creation Time, Format: %Y-%m-%d %H:%M:%S%.3f  |
 
 **client_subscribe**
 
 | Key          | Type    | Description                                      |
-| ------------ | ------- |------------------------------------------------- |
+|--------------| ------- |------------------------------------------------- |
 | action       | string  | Event name<br>Default: "client_subscribe"         |
 | node         | integer | Node ID                                          |
 | ipaddress    | string  | Source IP address and port of the client           |
@@ -264,6 +274,7 @@ opts include
 | username     | string  | Client Username; "undefined" if it doesn't exist   |
 | topic        | string  | Subscribed topic                                 |
 | opts         | json    | Subscription options                             |
+| time         | string  | Hook Information Creation Time, Format: %Y-%m-%d %H:%M:%S%.3f  |
 
 opts contains
 
@@ -274,37 +285,38 @@ opts contains
 
 **client_unsubscribe**
 
-| Key          | Type    | Description                                      |
-| ------------ | ------- |------------------------------------------------- |
-| action       | string  | Event name<br>Default: "client_unsubscribe"       |
-| node         | integer | Node ID                                          |
-| ipaddress    | string  | Source IP address and port of the client           |
-| clientid     | string  | Client ID                                        |
-| username     | string  | Client Username; "undefined" if it doesn't exist   |
-| topic        | string  | Topic to unsubscribe from                        |
+| Key         | Type    | Description                                      |
+|-------------| ------- |------------------------------------------------- |
+| action      | string  | Event name<br>Default: "client_unsubscribe"       |
+| node        | integer | Node ID                                          |
+| ipaddress   | string  | Source IP address and port of the client           |
+| clientid    | string  | Client ID                                        |
+| username    | string  | Client Username; "undefined" if it doesn't exist   |
+| topic       | string  | Topic to unsubscribe from                        |
+| time        | string  | Hook Information Creation Time, Format: %Y-%m-%d %H:%M:%S%.3f  |
 
 **message_publish**
 
-| Key               | Type    | Description                                      |
-| ----------------- | ------- |------------------------------------------------- |
-| action            | string  | Event name<br>Default: "message_publish"          |
-| from_node         | integer | Node ID of the publishing client                  |
-| from_ipaddress    | string  | Source IP address and port of the publishing client  |
-| from_clientid     | string  | Client ID of the publishing client                |
-| from_username     | string  | Username of the publishing client; "undefined" if it doesn't exist |
-| dup               | bool    | Indicates if the message is a duplicate           |
-| retain            | bool    | Indicates if the message should be retained       |
-| qos               | enum    | QoS level; can be `0`, `1`, or `2`                |
-| topic             | string  | Topic of the message                             |
-| packet_id         | string  | Message ID                                       |
-| payload           | string  | Message payload                                  |
-| ts                | integer | Timestamp in milliseconds when the Publish message was received |
-
+| Key            | Type    | Description                                      |
+|----------------| ------- |------------------------------------------------- |
+| action         | string  | Event name<br>Default: "message_publish"          |
+| from_node      | integer | Node ID of the publishing client                  |
+| from_ipaddress | string  | Source IP address and port of the publishing client  |
+| from_clientid  | string  | Client ID of the publishing client                |
+| from_username  | string  | Username of the publishing client; "undefined" if it doesn't exist |
+| dup            | bool    | Indicates if the message is a duplicate           |
+| retain         | bool    | Indicates if the message should be retained       |
+| qos            | enum    | QoS level; can be `0`, `1`, or `2`                |
+| topic          | string  | Topic of the message                             |
+| packet_id      | string  | Message ID                                       |
+| payload        | string  | Message payload                                  |
+| ts             | integer | Timestamp in milliseconds when the Publish message was received |
+| time           | string  | Hook Information Creation Time, Format: %Y-%m-%d %H:%M:%S%.3f  |
 
 **message_delivered**
 
 | Key            | Type    | Description                                      |
-| -------------- | ------- | -------------------------------------------------|
+|----------------| ------- | -------------------------------------------------|
 | action         | string  | Event name<br>Default: "message_delivered"        |
 | from_node      | integer | Node ID of the publishing client                   |
 | from_ipaddress | string  | Source IP address and port of the publishing client|
@@ -322,12 +334,12 @@ opts contains
 | payload        | string  | Message payload                                  |
 | pts            | integer | Timestamp in milliseconds when the Publish message was received |
 | ts             | integer | Timestamp in milliseconds when this hook message was generated |
-
+| time           | string  | Hook Information Creation Time, Format: %Y-%m-%d %H:%M:%S%.3f  |
 
 **message_acked**
 
 | Key            | Type    | Description                                      |
-| -------------- | ------- | -------------------------------------------------|
+|----------------| ------- | -------------------------------------------------|
 | action         | string  | Event name<br>Default: "message_acked"           |
 | from_node      | integer | Node ID of the publishing client                   |
 | from_ipaddress | string  | Source IP address and port of the publishing client|
@@ -345,31 +357,31 @@ opts contains
 | payload        | string  | Message payload                                  |
 | pts            | integer | Timestamp in milliseconds when the Publish message was received |
 | ts             | integer | Timestamp in milliseconds when this hook message was generated |
-
+| time           | string  | Hook Information Creation Time, Format: %Y-%m-%d %H:%M:%S%.3f  |
 
 **message_dropped**
 
-| Key             | Type    | Description                                      |
-|-----------------| ------- | -------------------------------------------------|
-| action          | string  | Event name<br>Default: "message_dropped"          |
-| from_node       | integer | Node ID of the publishing client                   |
-| from_ipaddress  | string  | Source IP address and port of the publishing client|
-| from_clientid   | string  | Client ID of the publishing client                |
-| from_username   | string  | Username of the publishing client; "undefined" if it doesn't exist |
-| node            | integer | Node ID (optional)                                |
-| ipaddress       | string  | Source IP address and port of the client (optional)|
-| clientid        | string  | Client ID(optional)                              |
-| username        | string  | Client Username; "undefined" if it doesn't exist (optional) |
-| dup             | bool    | Indicates if the message is a duplicate           |
-| retain          | bool    | Indicates if the message should be retained       |
-| qos             | enum    | QoS level; can be `0`, `1`, or `2`                |
-| topic           | string  | Topic of the message                             |
-| packet_id       | string  | Message ID                                       |
-| payload         | string  | Message payload                                  |
-| reason          | string  | Reason for dropping the message                   |
-| pts             | integer | Timestamp in milliseconds when the Publish message was received |
-| ts              | integer | Timestamp in milliseconds when this hook message was generated |
-
+| Key            | Type    | Description                                      |
+|----------------| ------- | -------------------------------------------------|
+| action         | string  | Event name<br>Default: "message_dropped"          |
+| from_node      | integer | Node ID of the publishing client                   |
+| from_ipaddress | string  | Source IP address and port of the publishing client|
+| from_clientid  | string  | Client ID of the publishing client                |
+| from_username  | string  | Username of the publishing client; "undefined" if it doesn't exist |
+| node           | integer | Node ID (optional)                                |
+| ipaddress      | string  | Source IP address and port of the client (optional)|
+| clientid       | string  | Client ID(optional)                              |
+| username       | string  | Client Username; "undefined" if it doesn't exist (optional) |
+| dup            | bool    | Indicates if the message is a duplicate           |
+| retain         | bool    | Indicates if the message should be retained       |
+| qos            | enum    | QoS level; can be `0`, `1`, or `2`                |
+| topic          | string  | Topic of the message                             |
+| packet_id      | string  | Message ID                                       |
+| payload        | string  | Message payload                                  |
+| reason         | string  | Reason for dropping the message                   |
+| pts            | integer | Timestamp in milliseconds when the Publish message was received |
+| ts             | integer | Timestamp in milliseconds when this hook message was generated |
+| time           | string  | Hook Information Creation Time, Format: %Y-%m-%d %H:%M:%S%.3f  |
 
 
 
