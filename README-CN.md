@@ -21,6 +21,7 @@
 - [HTTP AUTH/ACL](./docs/zh_CN/auth-http.md);
 - [WebHook](./docs/zh_CN/web-hook.md);
 - [HTTP APIs](./docs/zh_CN/http-api.md);
+- [$SYS 系统主题](./docs/zh_CN/sys-topic.md)
 - 分布式集群;
 - 钩子(Hooks);
 - TLS支持;

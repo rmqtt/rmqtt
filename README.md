@@ -22,6 +22,7 @@ and mobile applications that can handle millions of concurrent clients on a sing
 - [HTTP AUTH/ACL](./docs/en_US/auth-http.md);
 - [WebHook](./docs/en_US/web-hook.md);
 - [HTTP APIs](./docs/en_US/http-api.md);
+- [$SYS System Topics](./docs/en_US/sys-topic.md)
 - Distributed cluster;
 - Hooks;
 - TLS support;
