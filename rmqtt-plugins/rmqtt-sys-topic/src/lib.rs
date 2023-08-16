@@ -61,7 +61,7 @@ impl SystemTopicPlugin {
         descr: D,
     ) -> Result<Self> {
         let name = name.into();
-        let cfg = runtime.settings.plugins.load_config::<PluginConfig>(&name)?;
+        let cfg = runtime.settings.plugins.load_config_default::<PluginConfig>(&name)?;
         log::debug!("{} SystemTopicPlugin cfg: {:?}", name, cfg);
         let register = runtime.extends.hook_mgr().await.register();
         let cfg = Arc::new(RwLock::new(cfg));
