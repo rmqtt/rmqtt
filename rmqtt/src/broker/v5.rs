@@ -218,7 +218,7 @@ pub async fn _handshake<Io: 'static>(
         });
     }
 
-    log::debug!("{:?} keep_alive: {}", state.id, keep_alive);
+    log::debug!("{:?} keep_alive: {}, server_keepalive_sec: {}", state.id, keep_alive, packet.keep_alive);
     let id = state.id.clone();
     let session_expiry_interval_secs = packet.session_expiry_interval_secs;
     let server_keepalive_sec = packet.keep_alive;
