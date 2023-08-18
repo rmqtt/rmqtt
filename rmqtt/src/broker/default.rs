@@ -201,7 +201,11 @@ impl super::Entry for LockEntry {
         }
 
         if let Some((s, _, _)) = self._remove(clear_subscriptions).await {
-            Ok(Some(s.to_offline_info().await))
+            if clean_start {
+                Ok(None)
+            } else {
+                Ok(Some(s.to_offline_info().await))
+            }
         } else {
             Ok(None)
         }
@@ -1154,19 +1158,28 @@ impl Fitter for DefaultFitter {
     #[inline]
     fn keep_alive(&self, keep_alive: &mut u16) -> Result<u16> {
         if *keep_alive == 0 {
-            return Err(MqttError::from("Keepalive must be greater than 0"));
-        }
-        if *keep_alive < self.listen_cfg.min_keepalive {
-            if self.client.protocol() == MQTT_LEVEL_5 {
-                *keep_alive = self.listen_cfg.min_keepalive;
+            if self.listen_cfg.allow_zero_keepalive {
+                Ok(0)
             } else {
-                return Err(MqttError::from(format!(
-                    "Keepalive is too small, cannot be less than {}",
-                    self.listen_cfg.min_keepalive
-                )));
+                Err(MqttError::from("Keepalive must be greater than 0"))
+            }
+        } else {
+            if *keep_alive < self.listen_cfg.min_keepalive {
+                if self.client.protocol() == MQTT_LEVEL_5 {
+                    *keep_alive = self.listen_cfg.min_keepalive;
+                } else {
+                    return Err(MqttError::from(format!(
+                        "Keepalive is too small, cannot be less than {}",
+                        self.listen_cfg.min_keepalive
+                    )));
+                }
+            }
+            if *keep_alive < 6 {
+                Ok(*keep_alive + 3)
+            } else {
+                Ok(((*keep_alive as f32 * self.listen_cfg.keepalive_backoff) * 2.0) as u16)
             }
         }
-        Ok(((*keep_alive as f32 * self.listen_cfg.keepalive_backoff) * 2.0) as u16)
     }
 
     #[inline]

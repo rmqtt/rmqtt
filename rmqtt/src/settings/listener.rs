@@ -169,6 +169,8 @@ pub struct ListenerInner {
     //deserialize_with = "deserialize_duration"
     )]
     pub min_keepalive: u16,
+    #[serde(default = "ListenerInner::allow_zero_keepalive_default")]
+    pub allow_zero_keepalive: bool,
     #[serde(default = "ListenerInner::keepalive_backoff_default")]
     pub keepalive_backoff: f32,
     #[serde(default = "ListenerInner::max_inflight_default")]
@@ -246,6 +248,7 @@ impl Default for ListenerInner {
             idle_timeout: ListenerInner::idle_timeout_default(),
             allow_anonymous: ListenerInner::allow_anonymous_default(),
             min_keepalive: ListenerInner::min_keepalive_default(),
+            allow_zero_keepalive: ListenerInner::allow_zero_keepalive_default(),
             keepalive_backoff: ListenerInner::keepalive_backoff_default(),
             max_inflight: ListenerInner::max_inflight_default(),
             handshake_timeout: ListenerInner::handshake_timeout_default(),
@@ -315,6 +318,10 @@ impl ListenerInner {
     #[inline]
     fn min_keepalive_default() -> u16 {
         0
+    }
+    #[inline]
+    fn allow_zero_keepalive_default() -> bool {
+        true
     }
     #[inline]
     fn keepalive_backoff_default() -> f32 {

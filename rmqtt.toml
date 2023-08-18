@@ -82,6 +82,10 @@ listener.tcp.external.allow_anonymous = true
 #Minimum allowable keepalive value for mqtt connection,
 #less than this value will reject the connection, default: 0, unit: seconds
 listener.tcp.external.min_keepalive = 0
+#A value of zero indicates disabling the keep-alive feature, where the server
+#doesn't need to disconnect due to client inactivity, default: true
+listener.tcp.external.allow_zero_keepalive = true
+
 # > 0.5, Keepalive * backoff * 2
 listener.tcp.external.keepalive_backoff = 0.75
 #Flight window size. The flight window is used to store the unanswered QoS 1 and QoS 2 messages

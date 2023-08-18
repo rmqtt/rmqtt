@@ -56,17 +56,33 @@ impl SessionState {
 
     #[inline]
     pub(crate) async fn start(mut self, keep_alive: u16) -> (Self, Tx) {
+        log::debug!("{:?} start online event loop", self.id);
         let (msg_tx, mut msg_rx) = futures::channel::mpsc::unbounded();
         self.tx.replace(msg_tx.clone());
         let mut state = self.clone();
+
+        let keep_alive_interval = if keep_alive == 0 {
+            Duration::from_secs(u32::MAX as u64)
+        } else {
+            Duration::from_secs(keep_alive as u64)
+        };
+        log::debug!("{:?} keep_alive_interval is {:?}", state.id, keep_alive_interval);
+        let keep_alive_delay = tokio::time::sleep(keep_alive_interval);
+
+        let deliver_timeout_delay = tokio::time::sleep(Duration::from_secs(60));
+
+        let limiter = {
+            let (burst, replenish_n_per) = state.fitter.mqueue_rate_limit();
+            Limiter::new(burst, replenish_n_per)
+        };
+
+        let mut flags = StateFlags::empty();
+
+        log::debug!("{:?} there are {} offline messages ...", state.id, state.deliver_queue.len());
+
         ntex::rt::spawn(async move {
-            log::debug!("{:?} there are {} offline messages ...", state.id, state.deliver_queue.len());
             Runtime::instance().stats.connections.inc();
 
-            let limiter = {
-                let (burst, replenish_n_per) = state.fitter.mqueue_rate_limit();
-                Limiter::new(burst, replenish_n_per)
-            };
             let (deliver_queue_tx, mut deliver_queue_rx) = limiter.channel(state.deliver_queue.clone());
             //When the message queue is full, the message dropping policy is implemented
             let deliver_queue_tx = deliver_queue_tx.policy(|(_, p): &(From, Publish)| -> Policy {
@@ -78,18 +94,8 @@ impl SessionState {
             });
             state.deliver_queue_tx.replace(deliver_queue_tx.clone());
 
-            let mut flags = StateFlags::empty();
-            log::debug!("{:?} start online event loop", state.id);
-            let keep_alive_interval = if keep_alive < 10 {
-                Duration::from_secs(10)
-            } else {
-                Duration::from_secs((keep_alive + 10) as u64)
-            };
-            log::debug!("{:?} keep_alive_interval is {:?}", state.id, keep_alive_interval);
-            let keep_alive_delay = tokio::time::sleep(keep_alive_interval);
             tokio::pin!(keep_alive_delay);
 
-            let deliver_timeout_delay = tokio::time::sleep(Duration::from_secs(60));
             tokio::pin!(deliver_timeout_delay);
 
             loop {
@@ -153,6 +159,7 @@ impl SessionState {
                                     break
                                 },
                                 Message::Keepalive => {
+                                    log::debug!("{:?} Message::Keepalive ... ", state.id);
                                     keep_alive_delay.as_mut().reset(Instant::now() + keep_alive_interval);
                                 },
                                 Message::Subscribe(sub, reply_tx) => {
@@ -313,7 +320,6 @@ impl SessionState {
                             },
                             _ => {
                                 log::info!("{:?} offline receive message is {:?}", state.id, msg);
-                                break;
                             }
                         }
                     }else{
