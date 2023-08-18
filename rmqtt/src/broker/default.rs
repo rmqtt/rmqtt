@@ -1157,28 +1157,38 @@ impl DefaultFitter {
 impl Fitter for DefaultFitter {
     #[inline]
     fn keep_alive(&self, keep_alive: &mut u16) -> Result<u16> {
-        if *keep_alive == 0 {
-            if self.listen_cfg.allow_zero_keepalive {
-                Ok(0)
+        if self.client.protocol() == MQTT_LEVEL_5 {
+            if *keep_alive == 0 {
+                if self.listen_cfg.allow_zero_keepalive {
+                    *keep_alive = 10;
+                } else {
+                    return Err(MqttError::from("Keepalive must be greater than 0"));
+                }
             } else {
-                Err(MqttError::from("Keepalive must be greater than 0"))
+                if *keep_alive < self.listen_cfg.min_keepalive {
+                    *keep_alive = self.listen_cfg.min_keepalive;
+                }
             }
         } else {
-            if *keep_alive < self.listen_cfg.min_keepalive {
-                if self.client.protocol() == MQTT_LEVEL_5 {
-                    *keep_alive = self.listen_cfg.min_keepalive;
+            if *keep_alive == 0 {
+                return if self.listen_cfg.allow_zero_keepalive {
+                    Ok(0)
                 } else {
+                    Err(MqttError::from("Keepalive must be greater than 0"))
+                };
+            } else {
+                if *keep_alive < self.listen_cfg.min_keepalive {
                     return Err(MqttError::from(format!(
                         "Keepalive is too small, cannot be less than {}",
                         self.listen_cfg.min_keepalive
                     )));
                 }
             }
-            if *keep_alive < 6 {
-                Ok(*keep_alive + 3)
-            } else {
-                Ok(((*keep_alive as f32 * self.listen_cfg.keepalive_backoff) * 2.0) as u16)
-            }
+        }
+        if *keep_alive < 6 {
+            Ok(*keep_alive + 3)
+        } else {
+            Ok(((*keep_alive as f32 * self.listen_cfg.keepalive_backoff) * 2.0) as u16)
         }
     }
 
