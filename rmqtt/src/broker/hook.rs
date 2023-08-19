@@ -114,7 +114,7 @@ pub trait Hook: Sync + Send {
     async fn message_acked(&self, from: From, publish: &Publish);
 
     ///message expiry check
-    async fn message_expiry_check(&self, from: From, publish: &Publish) -> MessageExpiry;
+    async fn message_expiry_check(&self, from: From, publish: &Publish) -> MessageExpiryCheckResult;
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Deserialize, Serialize)]

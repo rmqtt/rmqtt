@@ -447,9 +447,8 @@ impl SessionState {
     #[inline]
     pub async fn deliver(&self, from: From, mut publish: Publish) -> Result<()> {
         //hook, message_expiry_check
-        let expiry = self.hook.message_expiry_check(from.clone(), &publish).await;
-
-        if expiry {
+        let expiry_check_res = self.hook.message_expiry_check(from.clone(), &publish).await;
+        if expiry_check_res.is_expiry() {
             Runtime::instance()
                 .extends
                 .hook_mgr()
@@ -470,7 +469,7 @@ impl SessionState {
         let publish = self.hook.message_delivered(from.clone(), &publish).await.unwrap_or(publish);
 
         //send message
-        self.sink.publish(publish.clone())?; //@TODO ... at exception, send hook and or store message
+        self.sink.publish(&publish, expiry_check_res.message_expiry_interval())?; //@TODO ... at exception, send hook and or store message
 
         //cache messages to inflight window
         let moment_status = match publish.qos() {
@@ -497,9 +496,10 @@ impl SessionState {
                 self.forward(iflt_msg.from, iflt_msg.publish).await;
             }
             MomentStatus::UnComplete => {
-                let expiry = self.hook.message_expiry_check(iflt_msg.from.clone(), &iflt_msg.publish).await;
+                let expiry_check_res =
+                    self.hook.message_expiry_check(iflt_msg.from.clone(), &iflt_msg.publish).await;
 
-                if expiry {
+                if expiry_check_res.is_expiry() {
                     log::warn!(
                         "{:?} MQTT::PublishComplete is not received, from: {:?}, message: {:?}",
                         self.id,

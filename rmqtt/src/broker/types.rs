@@ -284,6 +284,28 @@ pub enum AuthResult {
     NotAuthorized,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MessageExpiryCheckResult {
+    Expiry,
+    Remaining(Option<NonZeroU32>),
+}
+
+impl MessageExpiryCheckResult {
+    #[inline]
+    pub fn is_expiry(&self) -> bool {
+        matches!(self, Self::Expiry)
+    }
+
+    #[inline]
+    pub fn message_expiry_interval(&self) -> Option<NonZeroU32> {
+        match self {
+            Self::Expiry => None,
+            Self::Remaining(i) => *i,
+        }
+    }
+}
+
+#[inline]
 pub fn parse_topic_filter(
     topic_filter: &ByteString,
     shared_subscription_supported: bool,
@@ -321,11 +343,13 @@ pub struct Subscribe {
 }
 
 impl Subscribe {
+    #[inline]
     pub fn from_v3(topic_filter: &ByteString, qos: QoS, shared_subscription_supported: bool) -> Result<Self> {
         let (topic_filter, shared_group) = parse_topic_filter(topic_filter, shared_subscription_supported)?;
         Ok(Subscribe { topic_filter, qos, shared_group })
     }
 
+    #[inline]
     pub fn from_v5(
         topic_filter: &ByteString,
         opt: &SubscriptionOptions,
@@ -616,10 +640,10 @@ impl Sink {
     }
 
     #[inline]
-    pub(crate) fn publish(&self, p: Publish) -> Result<()> {
+    pub(crate) fn publish(&self, p: &Publish, message_expiry_interval: Option<NonZeroU32>) -> Result<()> {
         let pkt = match self {
             Sink::V3(_) => p.into_v3(),
-            Sink::V5(_) => p.into_v5(),
+            Sink::V5(_) => p.into_v5(message_expiry_interval),
         };
         self.send(pkt)
     }
@@ -821,29 +845,30 @@ impl std::convert::TryFrom<&v5::Publish> for Publish {
 
 impl Publish {
     #[inline]
-    pub fn into_v3(self) -> Packet {
+    pub fn into_v3(&self) -> Packet {
         let p = v3::codec::Publish {
             dup: self.dup,
             retain: self.retain,
             qos: self.qos,
-            topic: self.topic,
+            topic: self.topic.clone(),
             packet_id: self.packet_id,
-            payload: self.payload,
+            payload: self.payload.clone(),
         };
         Packet::V3(v3::codec::Packet::Publish(p))
     }
 
     #[inline]
-    pub fn into_v5(self) -> Packet {
-        let p = v5::codec::Publish {
+    pub fn into_v5(&self, message_expiry_interval: Option<NonZeroU32>) -> Packet {
+        let mut p = v5::codec::Publish {
             dup: self.dup,
             retain: self.retain,
             qos: self.qos,
-            topic: self.topic,
+            topic: self.topic.clone(),
             packet_id: self.packet_id,
-            payload: self.payload,
-            properties: self.properties.into(),
+            payload: self.payload.clone(),
+            properties: self.properties.clone().into(),
         };
+        p.properties.message_expiry_interval = message_expiry_interval;
         Packet::V5(v5::codec::Packet::Publish(p))
     }
 

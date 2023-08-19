@@ -1164,27 +1164,22 @@ impl Fitter for DefaultFitter {
                 } else {
                     return Err(MqttError::from("Keepalive must be greater than 0"));
                 }
-            } else {
-                if *keep_alive < self.listen_cfg.min_keepalive {
-                    *keep_alive = self.listen_cfg.min_keepalive;
-                }
+            } else if *keep_alive < self.listen_cfg.min_keepalive {
+                *keep_alive = self.listen_cfg.min_keepalive;
             }
-        } else {
-            if *keep_alive == 0 {
-                return if self.listen_cfg.allow_zero_keepalive {
-                    Ok(0)
-                } else {
-                    Err(MqttError::from("Keepalive must be greater than 0"))
-                };
+        } else if *keep_alive == 0 {
+            return if self.listen_cfg.allow_zero_keepalive {
+                Ok(0)
             } else {
-                if *keep_alive < self.listen_cfg.min_keepalive {
-                    return Err(MqttError::from(format!(
-                        "Keepalive is too small, cannot be less than {}",
-                        self.listen_cfg.min_keepalive
-                    )));
-                }
-            }
+                Err(MqttError::from("Keepalive must be greater than 0"))
+            };
+        } else if *keep_alive < self.listen_cfg.min_keepalive {
+            return Err(MqttError::from(format!(
+                "Keepalive is too small, cannot be less than {}",
+                self.listen_cfg.min_keepalive
+            )));
         }
+
         if *keep_alive < 6 {
             Ok(*keep_alive + 3)
         } else {
@@ -1667,23 +1662,32 @@ impl Hook for DefaultHook {
     }
 
     #[inline]
-    async fn message_expiry_check(&self, from: From, publish: &Publish) -> MessageExpiry {
+    async fn message_expiry_check(&self, from: From, publish: &Publish) -> MessageExpiryCheckResult {
+        log::debug!("{:?} publish: {:?}", self.s.id, publish);
         let result = self
             .manager
             .exec(Type::MessageExpiryCheck, Parameter::MessageExpiryCheck(&self.s, &self.c, from, publish))
             .await;
         log::debug!("{:?} result: {:?}", self.s.id, result);
         if let Some(HookResult::MessageExpiry) = result {
-            return true;
+            return MessageExpiryCheckResult::Expiry;
         }
 
-        let expiry_interval = self.s.listen_cfg.message_expiry_interval.as_millis() as i64;
+        let expiry_interval = publish
+            .properties
+            .message_expiry_interval
+            .map(|i| (i.get() * 1000) as i64)
+            .unwrap_or_else(|| self.s.listen_cfg.message_expiry_interval.as_millis() as i64);
+        log::debug!("{:?} expiry_interval: {:?}", self.s.id, expiry_interval);
         if expiry_interval == 0 {
-            return false;
+            return MessageExpiryCheckResult::Remaining(None);
         }
-        if (chrono::Local::now().timestamp_millis() - publish.create_time()) < expiry_interval {
-            return false;
+        let remaining = chrono::Local::now().timestamp_millis() - publish.create_time();
+        if remaining < expiry_interval {
+            return MessageExpiryCheckResult::Remaining(NonZeroU32::new(
+                ((expiry_interval - remaining) / 1000) as u32,
+            ));
         }
-        true
+        MessageExpiryCheckResult::Expiry
     }
 }
