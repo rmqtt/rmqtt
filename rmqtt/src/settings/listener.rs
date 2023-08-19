@@ -370,7 +370,7 @@ impl ListenerInner {
     }
     #[inline]
     fn message_expiry_interval_default() -> Duration {
-        Duration::from_secs(30)
+        Duration::from_secs(300)
     }
     #[inline]
     fn max_awaiting_rel_default() -> usize {
