@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use futures::StreamExt;
 use ntex_mqtt::types::MQTT_LEVEL_5;
+use ntex_mqtt::v5::codec::RetainHandling;
 use tokio::sync::RwLock;
 use tokio::time::{Duration, Instant};
 
@@ -532,14 +533,19 @@ impl SessionState {
     #[inline]
     pub(crate) async fn subscribe(&self, sub: Subscribe) -> Result<SubscribeReturn> {
         let ret = self._subscribe(sub).await;
-        match ret {
-            Ok(SubscribeReturn(SubscribeAckReason::NotAuthorized)) => {
-                Metrics::instance().client_subscribe_auth_error_inc();
-            }
-            Ok(SubscribeReturn(SubscribeAckReason::GrantedQos0))
-            | Ok(SubscribeReturn(SubscribeAckReason::GrantedQos1))
-            | Ok(SubscribeReturn(SubscribeAckReason::GrantedQos2)) => {}
-            _ => {
+        match &ret {
+            Ok(sub_ret) => match sub_ret.ack_reason {
+                SubscribeAckReason::NotAuthorized => {
+                    Metrics::instance().client_subscribe_auth_error_inc();
+                }
+                SubscribeAckReason::GrantedQos0
+                | SubscribeAckReason::GrantedQos1
+                | SubscribeAckReason::GrantedQos2 => {}
+                _ => {
+                    Metrics::instance().client_subscribe_error_inc();
+                }
+            },
+            Err(_) => {
                 Metrics::instance().client_subscribe_error_inc();
             }
         }
@@ -554,7 +560,7 @@ impl SessionState {
             return Err(MqttError::TooManySubscriptions);
         }
 
-        sub.qos = sub.qos.less_value(self.listen_cfg.max_qos_allowed);
+        sub.opts.set_qos(sub.opts.qos().less_value(self.listen_cfg.max_qos_allowed));
 
         //hook, client_subscribe
         let topic_filter = self.hook.client_subscribe(&sub).await;
@@ -569,7 +575,7 @@ impl SessionState {
         let acl_result = self.hook.client_subscribe_check_acl(&sub).await;
         if let Some(acl_result) = acl_result {
             if let Some(qos) = acl_result.success() {
-                sub.qos = sub.qos.less_value(qos)
+                sub.opts.set_qos(sub.opts.qos().less_value(qos))
             } else {
                 return Ok(acl_result);
             }
@@ -582,9 +588,23 @@ impl SessionState {
         if let Some(qos) = sub_ret.success() {
             //send retain messages
             if self.listen_cfg.retain_available {
-                let retain_messages =
-                    Runtime::instance().extends.retain().await.get(&sub.topic_filter).await?;
-                self.send_retain_messages(retain_messages, qos).await?;
+                //MQTT V5: Retain Handling
+                let send_retain_enable = match sub.opts.retain_handling() {
+                    Some(RetainHandling::AtSubscribe) => true,
+                    Some(RetainHandling::AtSubscribeNew) => sub_ret.prev_opts.is_none(),
+                    Some(RetainHandling::NoAtSubscribe) => false,
+                    None => true, //MQTT V3
+                };
+                log::debug!(
+                    "send_retain_enable: {}, sub_ret.prev_opts: {:?}",
+                    send_retain_enable,
+                    sub_ret.prev_opts
+                );
+                if send_retain_enable {
+                    let retain_messages =
+                        Runtime::instance().extends.retain().await.get(&sub.topic_filter).await?;
+                    self.send_retain_messages(retain_messages, qos).await?;
+                }
             };
             //hook, session_subscribed
             self.hook.session_subscribed(sub).await;
@@ -770,14 +790,15 @@ impl SessionState {
             clear_subscriptions
         );
         if !clear_subscriptions && !offline_info.subscriptions.is_empty() {
-            for (tf, (qos, shared_group)) in offline_info.subscriptions.iter() {
-                let shared_group = shared_group.as_ref().cloned();
-                let qos = *qos;
+            for (tf, opts) in offline_info.subscriptions.iter() {
                 let id = self.id.clone();
-                log::debug!("{:?} transfer_session_state, router.add ... topic_filter: {:?}, shared_group: {:?}, qos: {:?}", id, tf, shared_group, qos);
-                if let Err(e) =
-                    Runtime::instance().extends.router().await.add(tf, id, qos, shared_group).await
-                {
+                log::debug!(
+                    "{:?} transfer_session_state, router.add ... topic_filter: {:?}, opts: {:?}",
+                    id,
+                    tf,
+                    opts
+                );
+                if let Err(e) = Runtime::instance().extends.router().await.add(tf, id, opts.clone()).await {
                     log::warn!("transfer_session_state, router.add, {:?}", e);
                     return Err(e);
                 }
@@ -822,9 +843,6 @@ impl Deref for SessionState {
         &self.session
     }
 }
-
-// type SessionSerde =
-//     (u16, Vec<(TopicFilter, u8)>, Vec<(From, Publish)>, Vec<InflightMessage>, TimestampMillis);
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SessionOfflineInfo {
@@ -948,12 +966,11 @@ impl _SessionInner {
             .iter()
             .enumerate()
             .filter_map(|(i, entry)| {
-                let (tf, (qos, shared_sub)) = entry.pair();
+                let (tf, opts) = entry.pair();
                 if i < 100 {
                     Some(json!({
                         "topic_filter": tf.to_string(),
-                        "qos": qos.value(),
-                        "shared_group": shared_sub
+                        "opts": opts.to_json(),
                     }))
                 } else {
                     None

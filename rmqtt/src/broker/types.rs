@@ -20,16 +20,19 @@ pub use ntex_mqtt::v3::{
     codec::SubscribeReturnCode as SubscribeReturnCodeV3, HandshakeAck as HandshakeAckV3,
     MqttSink as MqttSinkV3,
 };
+
+use ntex_mqtt::v5::codec::RetainHandling;
 pub use ntex_mqtt::v5::{
     self, codec::Connect as ConnectV5, codec::ConnectAckReason as ConnectAckReasonV5,
     codec::Disconnect as DisconnectV5, codec::DisconnectReasonCode, codec::LastWill as LastWillV5,
     codec::Packet as PacketV5, codec::PublishAck2, codec::PublishAck2Reason,
     codec::PublishProperties as PublishPropertiesV5, codec::Subscribe as SubscribeV5,
-    codec::SubscribeAck as SubscribeAckV5, codec::SubscribeAckReason, codec::SubscriptionOptions,
-    codec::Unsubscribe as UnsubscribeV5, codec::UnsubscribeAck as UnsubscribeAckV5, codec::UserProperties,
-    codec::UserProperty, HandshakeAck as HandshakeAckV5, MqttSink as MqttSinkV5,
+    codec::SubscribeAck as SubscribeAckV5, codec::SubscribeAckReason,
+    codec::SubscriptionOptions as SubscriptionOptionsV5, codec::Unsubscribe as UnsubscribeV5,
+    codec::UnsubscribeAck as UnsubscribeAckV5, codec::UserProperties, codec::UserProperty,
+    HandshakeAck as HandshakeAckV5, MqttSink as MqttSinkV5,
 };
-use serde::de::{Deserialize, Deserializer};
+use serde::de::{self, Deserialize, Deserializer};
 use serde::ser::{Serialize, SerializeStruct, Serializer};
 use tokio::sync::oneshot;
 
@@ -68,9 +71,8 @@ pub type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
 pub type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 pub type QoS = ntex_mqtt::types::QoS;
 pub type PublishReceiveTime = TimestampMillis;
-pub type Subscriptions = Vec<(TopicFilter, SubscriptionValue)>;
+pub type Subscriptions = Vec<(TopicFilter, SubscriptionOptions)>;
 pub type TopicFilters = Vec<TopicFilter>;
-pub type SubscriptionValue = (QoS, Option<SharedGroup>);
 pub type SubscriptionSize = usize;
 
 pub type HookSubscribeResult = Vec<Option<TopicFilter>>;
@@ -335,57 +337,286 @@ pub fn parse_topic_filter(
     Ok((topic, shared_group))
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub enum SubscriptionOptions {
+    V3(SubOptionsV3),
+    V5(SubOptionsV5),
+}
+
+impl Default for SubscriptionOptions {
+    fn default() -> Self {
+        SubscriptionOptions::V3(SubOptionsV3 { qos: QoS::AtMostOnce, shared_group: None })
+    }
+}
+
+impl SubscriptionOptions {
+    #[inline]
+    pub fn no_local(&self) -> Option<bool> {
+        match self {
+            SubscriptionOptions::V3(_) => None,
+            SubscriptionOptions::V5(opts) => Some(opts.no_local),
+        }
+    }
+
+    #[inline]
+    pub fn retain_as_published(&self) -> Option<bool> {
+        match self {
+            SubscriptionOptions::V3(_) => None,
+            SubscriptionOptions::V5(opts) => Some(opts.retain_as_published),
+        }
+    }
+
+    #[inline]
+    pub fn retain_handling(&self) -> Option<RetainHandling> {
+        match self {
+            SubscriptionOptions::V3(_) => None,
+            SubscriptionOptions::V5(opts) => Some(opts.retain_handling),
+        }
+    }
+
+    #[inline]
+    pub fn qos(&self) -> QoS {
+        match self {
+            SubscriptionOptions::V3(opts) => opts.qos,
+            SubscriptionOptions::V5(opts) => opts.qos,
+        }
+    }
+
+    #[inline]
+    pub fn qos_value(&self) -> u8 {
+        match self {
+            SubscriptionOptions::V3(opts) => opts.qos.value(),
+            SubscriptionOptions::V5(opts) => opts.qos.value(),
+        }
+    }
+
+    #[inline]
+    pub fn set_qos(&mut self, qos: QoS) {
+        match self {
+            SubscriptionOptions::V3(opts) => opts.qos = qos,
+            SubscriptionOptions::V5(opts) => opts.qos = qos,
+        }
+    }
+
+    #[inline]
+    pub fn shared_group(&self) -> Option<&SharedGroup> {
+        match self {
+            SubscriptionOptions::V3(opts) => opts.shared_group.as_ref(),
+            SubscriptionOptions::V5(opts) => opts.shared_group.as_ref(),
+        }
+    }
+
+    #[inline]
+    pub fn has_shared_group(&self) -> bool {
+        match self {
+            SubscriptionOptions::V3(opts) => opts.shared_group.is_some(),
+            SubscriptionOptions::V5(opts) => opts.shared_group.is_some(),
+        }
+    }
+
+    #[inline]
+    pub fn is_v3(&self) -> bool {
+        matches!(self, SubscriptionOptions::V3(_))
+    }
+
+    #[inline]
+    pub fn is_v5(&self) -> bool {
+        matches!(self, SubscriptionOptions::V5(_))
+    }
+
+    #[inline]
+    pub fn to_json(&self) -> serde_json::Value {
+        match self {
+            SubscriptionOptions::V3(opts) => opts.to_json(),
+            SubscriptionOptions::V5(opts) => opts.to_json(),
+        }
+    }
+
+    #[inline]
+    pub fn deserialize_qos<'de, D>(deserializer: D) -> Result<QoS, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let v = u8::deserialize(deserializer)?;
+        Ok(match v {
+            0 => QoS::AtMostOnce,
+            1 => QoS::AtLeastOnce,
+            2 => QoS::ExactlyOnce,
+            _ => return Err(de::Error::custom(format!("invalid QoS value, {}", v))),
+        })
+    }
+
+    #[inline]
+    pub fn serialize_qos<S>(qos: &QoS, s: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        qos.value().serialize(s)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct SubOptionsV3 {
+    #[serde(
+        serialize_with = "SubscriptionOptions::serialize_qos",
+        deserialize_with = "SubscriptionOptions::deserialize_qos"
+    )]
+    pub qos: QoS,
+    pub shared_group: Option<SharedGroup>,
+}
+
+impl SubOptionsV3 {
+    #[inline]
+    pub fn to_json(&self) -> serde_json::Value {
+        json!({
+            "qos": self.qos.value(),
+            "group": self.shared_group,
+        })
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct SubOptionsV5 {
+    #[serde(
+        serialize_with = "SubscriptionOptions::serialize_qos",
+        deserialize_with = "SubscriptionOptions::deserialize_qos"
+    )]
+    pub qos: QoS,
+    pub shared_group: Option<SharedGroup>,
+    pub no_local: bool,
+    pub retain_as_published: bool,
+    #[serde(
+        serialize_with = "SubOptionsV5::serialize_retain_handling",
+        deserialize_with = "SubOptionsV5::deserialize_retain_handling"
+    )]
+    pub retain_handling: RetainHandling,
+}
+
+impl SubOptionsV5 {
+    #[inline]
+    pub fn retain_handling_value(&self) -> u8 {
+        match self.retain_handling {
+            RetainHandling::AtSubscribe => 0u8,
+            RetainHandling::AtSubscribeNew => 1u8,
+            RetainHandling::NoAtSubscribe => 2u8,
+        }
+    }
+
+    #[inline]
+    pub fn to_json(&self) -> serde_json::Value {
+        json!({
+            "qos": self.qos.value(),
+            "group": self.shared_group,
+            "no_local": self.no_local,
+            "retain_as_published": self.retain_as_published,
+            "retain_handling": self.retain_handling_value(),
+        })
+    }
+
+    #[inline]
+    pub fn deserialize_retain_handling<'de, D>(deserializer: D) -> Result<RetainHandling, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let v = u8::deserialize(deserializer)?;
+        Ok(match v {
+            0 => RetainHandling::AtSubscribe,
+            1 => RetainHandling::AtSubscribeNew,
+            2 => RetainHandling::NoAtSubscribe,
+            _ => return Err(de::Error::custom(format!("invalid RetainHandling value, {}", v))),
+        })
+    }
+
+    #[inline]
+    pub fn serialize_retain_handling<S>(rh: &RetainHandling, s: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let v = match rh {
+            RetainHandling::AtSubscribe => 0u8,
+            RetainHandling::AtSubscribeNew => 1u8,
+            RetainHandling::NoAtSubscribe => 2u8,
+        };
+        v.serialize(s)
+    }
+}
+
+impl std::convert::From<(QoS, Option<SharedGroup>)> for SubscriptionOptions {
+    #[inline]
+    fn from(opts: (QoS, Option<SharedGroup>)) -> Self {
+        SubscriptionOptions::V3(SubOptionsV3 { qos: opts.0, shared_group: opts.1 })
+    }
+}
+
+impl std::convert::From<(&SubscriptionOptionsV5, Option<SharedGroup>)> for SubscriptionOptions {
+    #[inline]
+    fn from(opts: (&SubscriptionOptionsV5, Option<SharedGroup>)) -> Self {
+        SubscriptionOptions::V5(SubOptionsV5 {
+            qos: opts.0.qos,
+            shared_group: opts.1,
+            no_local: opts.0.no_local,
+            retain_as_published: opts.0.retain_as_published,
+            retain_handling: opts.0.retain_handling,
+        })
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Subscribe {
     pub topic_filter: TopicFilter,
-    pub qos: QoS,
-    pub shared_group: Option<SharedGroup>,
+    pub opts: SubscriptionOptions,
 }
 
 impl Subscribe {
     #[inline]
     pub fn from_v3(topic_filter: &ByteString, qos: QoS, shared_subscription_supported: bool) -> Result<Self> {
         let (topic_filter, shared_group) = parse_topic_filter(topic_filter, shared_subscription_supported)?;
-        Ok(Subscribe { topic_filter, qos, shared_group })
+        let opts = (qos, shared_group).into();
+        Ok(Subscribe { topic_filter, opts })
     }
 
     #[inline]
     pub fn from_v5(
         topic_filter: &ByteString,
-        opt: &SubscriptionOptions,
+        opts: &SubscriptionOptionsV5,
         shared_subscription_supported: bool,
     ) -> Result<Self> {
-        Subscribe::from_v3(topic_filter, opt.qos, shared_subscription_supported)
+        let (topic_filter, shared_group) = parse_topic_filter(topic_filter, shared_subscription_supported)?;
+        let opts = (opts, shared_group).into();
+        Ok(Subscribe { topic_filter, opts })
     }
 
     #[inline]
     pub fn is_shared(&self) -> bool {
-        self.shared_group.is_some()
+        self.opts.has_shared_group()
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct SubscribeReturn(pub SubscribeAckReason);
+pub struct SubscribeReturn {
+    pub ack_reason: SubscribeAckReason,
+    pub prev_opts: Option<SubscriptionOptions>,
+}
 
 impl SubscribeReturn {
     #[inline]
-    pub fn new_success(qos: QoS) -> Self {
-        let status = match qos {
+    pub fn new_success(qos: QoS, prev_opts: Option<SubscriptionOptions>) -> Self {
+        let ack_reason = match qos {
             QoS::AtMostOnce => SubscribeAckReason::GrantedQos0,
             QoS::AtLeastOnce => SubscribeAckReason::GrantedQos1,
             QoS::ExactlyOnce => SubscribeAckReason::GrantedQos2,
         };
-        Self(status)
+        Self { ack_reason, prev_opts }
     }
 
     #[inline]
-    pub fn new_failure(status: SubscribeAckReason) -> Self {
-        Self(status)
+    pub fn new_failure(ack_reason: SubscribeAckReason) -> Self {
+        Self { ack_reason, prev_opts: None }
     }
 
     #[inline]
     pub fn success(&self) -> Option<QoS> {
-        match self.0 {
+        match self.ack_reason {
             SubscribeAckReason::GrantedQos0 => Some(QoS::AtMostOnce),
             SubscribeAckReason::GrantedQos1 => Some(QoS::AtLeastOnce),
             SubscribeAckReason::GrantedQos2 => Some(QoS::ExactlyOnce),
@@ -396,7 +627,7 @@ impl SubscribeReturn {
     #[inline]
     pub fn failure(&self) -> bool {
         !matches!(
-            self.0,
+            self.ack_reason,
             SubscribeAckReason::GrantedQos0
                 | SubscribeAckReason::GrantedQos1
                 | SubscribeAckReason::GrantedQos2
@@ -405,7 +636,7 @@ impl SubscribeReturn {
 
     #[inline]
     pub fn into_inner(self) -> SubscribeAckReason {
-        self.0
+        self.ack_reason
     }
 }
 
@@ -417,7 +648,7 @@ pub struct SubscribedV5 {
     pub id: Option<NonZeroU32>,
     pub user_properties: UserProperties,
     /// the list of Topic Filters and QoS to which the Client wants to subscribe.
-    pub topic_filter: (ByteString, SubscriptionOptions),
+    pub topic_filter: (ByteString, SubscriptionOptionsV5),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1242,8 +1473,7 @@ pub struct SubsSearchResult {
     pub clientid: ClientId,
     pub client_addr: Option<SocketAddr>,
     pub topic: TopicFilter,
-    pub qos: u8,
-    pub share: Option<SharedGroup>,
+    pub opts: SubscriptionOptions,
 }
 
 #[derive(Deserialize, Serialize, Debug, Default, PartialEq, Eq, Hash, Clone)]
@@ -1270,7 +1500,7 @@ impl Deref for SessionSubs {
 }
 
 pub struct _SessionSubs {
-    subs: DashMap<TopicFilter, SubscriptionValue>,
+    subs: DashMap<TopicFilter, SubscriptionOptions>,
 }
 
 impl _SessionSubs {
@@ -1280,12 +1510,12 @@ impl _SessionSubs {
     }
 
     #[inline]
-    pub fn add(&self, topic_filter: TopicFilter, qos: QoS, shared_group: Option<SharedGroup>) {
-        let is_shared = shared_group.is_some();
-        let prev = self.subs.insert(topic_filter, (qos, shared_group));
+    pub fn add(&self, topic_filter: TopicFilter, opts: SubscriptionOptions) -> Option<SubscriptionOptions> {
+        let is_shared = opts.has_shared_group();
+        let prev = self.subs.insert(topic_filter, opts);
 
-        if let Some((_, prev_group)) = prev {
-            match (prev_group.is_some(), is_shared) {
+        if let Some(prev_opts) = &prev {
+            match (prev_opts.has_shared_group(), is_shared) {
                 (true, false) => {
                     Runtime::instance().stats.subscriptions_shared.dec();
                 }
@@ -1301,14 +1531,16 @@ impl _SessionSubs {
                 Runtime::instance().stats.subscriptions_shared.inc();
             }
         }
+
+        prev
     }
 
     #[inline]
-    pub fn remove(&self, topic_filter: &str) -> Option<(TopicFilter, SubscriptionValue)> {
+    pub fn remove(&self, topic_filter: &str) -> Option<(TopicFilter, SubscriptionOptions)> {
         let removed = self.subs.remove(topic_filter);
-        if let Some((_, (_, group))) = &removed {
+        if let Some((_, opts)) = &removed {
             Runtime::instance().stats.subscriptions.dec();
-            if group.is_some() {
+            if opts.has_shared_group() {
                 Runtime::instance().stats.subscriptions_shared.dec();
             }
         }
@@ -1324,8 +1556,8 @@ impl _SessionSubs {
 
     #[inline]
     pub fn extend(&self, subs: Subscriptions) {
-        for (topic_filter, (qos, group)) in subs {
-            self.add(topic_filter, qos, group);
+        for (topic_filter, opts) in subs {
+            self.add(topic_filter, opts);
         }
     }
 
@@ -1333,8 +1565,8 @@ impl _SessionSubs {
     pub fn clear(&self) {
         for entry in self.subs.iter() {
             Runtime::instance().stats.subscriptions.dec();
-            let (_, group) = entry.value();
-            if group.is_some() {
+            let opts = entry.value();
+            if opts.has_shared_group() {
                 Runtime::instance().stats.subscriptions_shared.dec();
             }
         }
@@ -1361,9 +1593,9 @@ impl _SessionSubs {
         &self,
     ) -> dashmap::iter::Iter<
         TopicFilter,
-        SubscriptionValue,
+        SubscriptionOptions,
         ahash::RandomState,
-        DashMap<TopicFilter, SubscriptionValue>,
+        DashMap<TopicFilter, SubscriptionOptions>,
     > {
         self.subs.iter()
     }

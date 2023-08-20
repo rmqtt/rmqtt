@@ -123,26 +123,20 @@ pub type SharedSubRelations = HashMap<TopicFilter, Vec<(SharedGroup, NodeId, Cli
 //In other nodes
 pub type OtherSubRelations = HashMap<NodeId, Vec<TopicFilter>>;
 
-pub type SubRelations = Vec<(TopicFilter, ClientId, QoS, Option<(SharedGroup, IsOnline)>)>;
+pub type SubRelations = Vec<(TopicFilter, ClientId, SubscriptionOptions, Option<(SharedGroup, IsOnline)>)>;
 pub type SubRelationsMap = HashMap<NodeId, SubRelations>;
 pub type ClearSubscriptions = bool;
 
 #[async_trait]
 pub trait Router: Sync + Send {
     ///
-    async fn add(
-        &self,
-        topic_filter: &str,
-        id: Id,
-        qos: QoS,
-        shared_group: Option<SharedGroup>,
-    ) -> Result<()>;
+    async fn add(&self, topic_filter: &str, id: Id, opts: SubscriptionOptions) -> Result<()>;
 
     ///
     async fn remove(&self, topic_filter: &str, id: Id) -> Result<bool>;
 
     ///
-    async fn matches(&self, topic: &TopicName) -> Result<SubRelationsMap>;
+    async fn matches(&self, id: Id, topic: &TopicName) -> Result<SubRelationsMap>;
 
     ///Check online or offline
     #[inline]
@@ -193,7 +187,10 @@ pub trait SharedSubscription: Sync + Send {
 
     ///Shared subscription strategy, select a subscriber, default is "random"
     #[inline]
-    async fn choice(&self, ncs: &[(NodeId, ClientId, QoS, Option<IsOnline>)]) -> Option<(usize, IsOnline)> {
+    async fn choice(
+        &self,
+        ncs: &[(NodeId, ClientId, SubscriptionOptions, Option<IsOnline>)],
+    ) -> Option<(usize, IsOnline)> {
         if ncs.is_empty() {
             return None;
         }

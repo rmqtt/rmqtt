@@ -3,13 +3,13 @@ use std::convert::From as _f;
 use once_cell::sync::OnceCell;
 
 use rmqtt::grpc::MessageSender;
-use rmqtt::{ahash, async_trait::async_trait, futures, log, once_cell, tokio};
+use rmqtt::{ahash, async_trait::async_trait, futures, log, once_cell, tokio, SubscriptionOptions};
 use rmqtt::{
     broker::{
         default::DefaultShared,
         session::{ClientInfo, Session, SessionOfflineInfo},
         types::{
-            ClientId, From, Id, IsAdmin, IsOnline, NodeId, Publish, QoS, Reason, SessionStatus, SharedGroup,
+            ClientId, From, Id, IsAdmin, IsOnline, NodeId, Publish, Reason, SessionStatus, SharedGroup,
             SubsSearchParams, SubsSearchResult, Subscribe, SubscribeReturn, SubscriptionSize, To,
             TopicFilter, Tx, Unsubscribe,
         },
@@ -235,7 +235,7 @@ impl Shared for &'static ClusterShared {
 
         //Matching subscriptions
         let (relations, shared_relations, subs_size) =
-            match Runtime::instance().extends.router().await.matches(topic).await {
+            match Runtime::instance().extends.router().await.matches(from.id.clone(), topic).await {
                 Ok(mut relations_map) => {
                     let subs_size: SubscriptionSize = relations_map.iter().map(|(_, subs)| subs.len()).sum();
                     let mut relations = SubRelations::new();
@@ -281,21 +281,22 @@ impl Shared for &'static ClusterShared {
 
             type SharedSubGroups = HashMap<
                 TopicFilter, //key is TopicFilter
-                HashMap<SharedGroup, Vec<(NodeId, ClientId, QoS, Option<IsOnline>)>>,
+                HashMap<SharedGroup, Vec<(NodeId, ClientId, SubscriptionOptions, Option<IsOnline>)>>,
             >;
-            type SharedRelation = (TopicFilter, NodeId, ClientId, QoS, (SharedGroup, IsOnline));
+            type SharedRelation =
+                (TopicFilter, NodeId, ClientId, SubscriptionOptions, (SharedGroup, IsOnline));
 
             #[allow(clippy::mutable_key_type)]
             let mut shared_sub_groups: SharedSubGroups = HashMap::default();
 
             let add_one_to_shared_sub_groups =
                 |shared_groups: &mut SharedSubGroups, shared_rel: SharedRelation| {
-                    let (topic_filter, node_id, client_id, qos, (group, is_online)) = shared_rel;
+                    let (topic_filter, node_id, client_id, opts, (group, is_online)) = shared_rel;
                     if let Some(groups) = shared_groups.get_mut(&topic_filter) {
-                        groups.entry(group).or_default().push((node_id, client_id, qos, Some(is_online)));
+                        groups.entry(group).or_default().push((node_id, client_id, opts, Some(is_online)));
                     } else {
                         let mut groups = HashMap::default();
-                        groups.insert(group, vec![(node_id, client_id, qos, Some(is_online))]);
+                        groups.insert(group, vec![(node_id, client_id, opts, Some(is_online))]);
                         shared_groups.insert(topic_filter, groups);
                     }
                 };
@@ -320,11 +321,11 @@ impl Shared for &'static ClusterShared {
                             );
                             all_subs_size += subs_size;
                             for (node_id, rels) in o_relations_map.drain() {
-                                for (topic_filter, client_id, qos, group) in rels {
+                                for (topic_filter, client_id, opts, group) in rels {
                                     if let Some(group) = group {
                                         add_one_to_shared_sub_groups(
                                             &mut shared_sub_groups,
-                                            (topic_filter, node_id, client_id, qos, group),
+                                            (topic_filter, node_id, client_id, opts, group),
                                         );
                                     }
                                 }

@@ -6,21 +6,21 @@ use rmqtt_raft::{Error, Mailbox, Result as RaftResult, Store};
 use tokio::sync::RwLock;
 
 use rmqtt::rust_box::task_exec_queue::SpawnExt;
-use rmqtt::stats::Counter;
 use rmqtt::{
     ahash, anyhow, async_trait::async_trait, bincode, chrono, dashmap, log, once_cell, serde_json, tokio,
-    MqttError,
 };
 use rmqtt::{
     broker::{
         default::DefaultRouter,
         topic::TopicTree,
         types::{
-            ClientId, Id, IsOnline, NodeId, QoS, Route, SharedGroup, TimestampMillis, TopicFilter, TopicName,
+            ClientId, Id, IsOnline, NodeId, Route, SubscriptionOptions, TimestampMillis, TopicFilter,
+            TopicName,
         },
         Router, SubRelationsMap,
     },
-    Result,
+    stats::Counter,
+    MqttError, Result,
 };
 
 use crate::task_exec_queue;
@@ -114,22 +114,10 @@ impl ClusterRouter {
 #[async_trait]
 impl Router for &'static ClusterRouter {
     #[inline]
-    async fn add(
-        &self,
-        topic_filter: &str,
-        id: Id,
-        qos: QoS,
-        shared_group: Option<SharedGroup>,
-    ) -> Result<()> {
-        log::debug!(
-            "[Router.add] topic_filter: {:?}, id: {:?}, qos: {:?}, shared_group: {:?}",
-            topic_filter,
-            id,
-            qos,
-            shared_group
-        );
+    async fn add(&self, topic_filter: &str, id: Id, opts: SubscriptionOptions) -> Result<()> {
+        log::debug!("[Router.add] topic_filter: {:?}, id: {:?}, opts: {:?}", topic_filter, id, opts);
 
-        let msg = Message::Add { topic_filter, id, qos, shared_group }.encode()?;
+        let msg = Message::Add { topic_filter, id, opts }.encode()?;
         let mailbox = self.raft_mailbox().await;
         let _ = async move { mailbox.send(msg).await.map_err(anyhow::Error::new) }
             .spawn(task_exec_queue())
@@ -165,8 +153,8 @@ impl Router for &'static ClusterRouter {
     }
 
     #[inline]
-    async fn matches(&self, topic: &TopicName) -> Result<SubRelationsMap> {
-        self.inner.matches(topic).await
+    async fn matches(&self, id: Id, topic: &TopicName) -> Result<SubRelationsMap> {
+        self.inner.matches(id, topic).await
     }
 
     ///Check online or offline
@@ -309,18 +297,9 @@ impl Store for &'static ClusterRouter {
                     }
                 });
             }
-            Message::Add { topic_filter, id, qos, shared_group } => {
-                log::debug!(
-                    "[Router.add] topic_filter: {:?}, id: {:?}, qos: {:?}, shared_group: {:?}",
-                    topic_filter,
-                    id,
-                    qos,
-                    shared_group
-                );
-                self.inner
-                    .add(topic_filter, id, qos, shared_group)
-                    .await
-                    .map_err(|e| Error::Other(Box::new(e)))?;
+            Message::Add { topic_filter, id, opts } => {
+                log::debug!("[Router.add] topic_filter: {:?}, id: {:?}, opts: {:?}", topic_filter, id, opts);
+                self.inner.add(topic_filter, id, opts).await.map_err(|e| Error::Other(Box::new(e)))?;
             }
             Message::Remove { topic_filter, id } => {
                 log::debug!("[Router.remove] topic_filter: {:?}, id: {:?}", topic_filter, id,);
@@ -386,7 +365,7 @@ impl Store for &'static ClusterRouter {
 
         let (topics, relations, client_states, topics_count, relations_count): (
             TopicTree<()>,
-            Vec<(TopicFilter, HashMap<ClientId, (Id, QoS, Option<SharedGroup>)>)>,
+            Vec<(TopicFilter, HashMap<ClientId, (Id, SubscriptionOptions)>)>,
             Vec<(ClientId, ClientStatus)>,
             Counter,
             Counter,

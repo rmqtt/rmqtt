@@ -427,7 +427,10 @@ impl Handler for AuthHandler {
                 return match acl_res {
                     ResponseResult::Allow(_) => (
                         false,
-                        Some(HookResult::SubscribeAclResult(SubscribeAclResult::new_success(subscribe.qos))),
+                        Some(HookResult::SubscribeAclResult(SubscribeAclResult::new_success(
+                            subscribe.opts.qos(),
+                            None,
+                        ))),
                     ),
                     ResponseResult::Deny => (
                         false,

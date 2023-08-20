@@ -23,7 +23,7 @@ use crate::broker::topic::{Topic, VecToTopic};
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
 use crate::stats::Counter;
-use crate::{grpc, ClientId, Id, MqttError, NodeId, QoS, Result, Runtime, TopicFilter};
+use crate::{grpc, ClientId, Id, MqttError, NodeId, Result, Runtime, TopicFilter};
 
 use super::{
     retain::RetainTree, topic::TopicTree, Entry, IsOnline, RetainStorage, Router, Shared, SharedSubscription,
@@ -266,10 +266,10 @@ impl super::Entry for LockEntry {
             .extends
             .router()
             .await
-            .add(&sub.topic_filter, self.id(), sub.qos, sub.shared_group.clone())
+            .add(&sub.topic_filter, self.id(), sub.opts.clone())
             .await?;
-        peer.s.subscriptions.add(sub.topic_filter.clone(), sub.qos, sub.shared_group.clone());
-        Ok(SubscribeReturn::new_success(sub.qos))
+        let prev_opts = peer.s.subscriptions.add(sub.topic_filter.clone(), sub.opts.clone());
+        Ok(SubscribeReturn::new_success(sub.opts.qos(), prev_opts))
     }
 
     #[inline]
@@ -314,14 +314,13 @@ impl super::Entry for LockEntry {
                 .subscriptions
                 .iter()
                 .map(|entry| {
-                    let (topic_filter, (qos, group)) = entry.pair();
+                    let (topic_filter, opts) = entry.pair();
                     SubsSearchResult {
                         node_id: self.id.node_id,
                         clientid: self.id.client_id.clone(),
                         client_addr: self.id.remote_addr,
                         topic: TopicFilter::from(topic_filter.as_ref()),
-                        qos: qos.value(),
-                        share: group.as_ref().cloned(),
+                        opts: opts.clone(),
                     }
                 })
                 .collect::<Vec<_>>();
@@ -381,14 +380,19 @@ impl Shared for &'static DefaultShared {
         publish: Publish,
     ) -> Result<SubscriptionSize, Vec<(To, From, Publish, Reason)>> {
         let topic = publish.topic();
-        let mut relations_map =
-            match Runtime::instance().extends.router().await.matches(publish.topic()).await {
-                Ok(relations_map) => relations_map,
-                Err(e) => {
-                    log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
-                    SubRelationsMap::default()
-                }
-            };
+        let mut relations_map = match Runtime::instance()
+            .extends
+            .router()
+            .await
+            .matches(from.id.clone(), publish.topic())
+            .await
+        {
+            Ok(relations_map) => relations_map,
+            Err(e) => {
+                log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
+                SubRelationsMap::default()
+            }
+        };
 
         let subs_size: SubscriptionSize = relations_map.iter().map(|(_, subs)| subs.len()).sum();
 
@@ -410,13 +414,14 @@ impl Shared for &'static DefaultShared {
     ) -> Result<(SubRelationsMap, SubscriptionSize), Vec<(To, From, Publish, Reason)>> {
         let topic = publish.topic();
         log::debug!("forwards_and_get_shareds, from: {:?}, topic: {:?}", from, topic.to_string());
-        let relations_map = match Runtime::instance().extends.router().await.matches(topic).await {
-            Ok(relations_map) => relations_map,
-            Err(e) => {
-                log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
-                SubRelationsMap::default()
-            }
-        };
+        let relations_map =
+            match Runtime::instance().extends.router().await.matches(from.id.clone(), topic).await {
+                Ok(relations_map) => relations_map,
+                Err(e) => {
+                    log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
+                    SubRelationsMap::default()
+                }
+            };
 
         let subs_size: SubscriptionSize = relations_map.iter().map(|(_, subs)| subs.len()).sum();
 
@@ -452,11 +457,21 @@ impl Shared for &'static DefaultShared {
     ) -> Result<(), Vec<(To, From, Publish, Reason)>> {
         let mut errs = Vec::new();
 
-        for (topic_filter, client_id, qos, _) in relations.drain(..) {
+        for (topic_filter, client_id, opts, _) in relations.drain(..) {
+            let retain = if let Some(retain_as_published) = opts.retain_as_published() {
+                //MQTT V5: Retain As Publish
+                if retain_as_published {
+                    publish.retain
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
             let mut p = publish.clone();
             p.dup = false;
-            p.retain = false;
-            p.qos = p.qos.less_value(qos);
+            p.retain = retain;
+            p.qos = p.qos.less_value(opts.qos());
             p.packet_id = None;
             let (tx, to) = if let Some((tx, to)) = self.tx(&client_id) {
                 (tx, to)
@@ -559,7 +574,7 @@ impl Iterator for DefaultIter<'_> {
 pub struct DefaultRouter {
     pub topics: RwLock<TopicTree<()>>,
     pub topics_count: Counter,
-    pub relations: DashMap<TopicFilter, HashMap<ClientId, (Id, QoS, Option<SharedGroup>)>>,
+    pub relations: DashMap<TopicFilter, HashMap<ClientId, (Id, SubscriptionOptions)>>,
     pub relations_count: Counter,
 }
 
@@ -599,30 +614,38 @@ impl DefaultRouter {
 
     #[allow(clippy::type_complexity)]
     #[inline]
-    pub async fn _matches(&self, topic_name: &TopicName) -> Result<SubRelationsMap> {
+    pub async fn _matches(&self, this_id: Id, topic_name: &TopicName) -> Result<SubRelationsMap> {
         let mut subs: SubRelationsMap = HashMap::default();
         let topic = Topic::from_str(topic_name)?;
         for (topic_filter, _node_ids) in self.topics.read().await.matches(&topic).iter() {
             let topic_filter = topic_filter.to_topic_filter();
 
-            let mut groups: HashMap<SharedGroup, Vec<(NodeId, ClientId, QoS, Option<IsOnline>)>> =
-                HashMap::default();
+            let mut groups: HashMap<
+                SharedGroup,
+                Vec<(NodeId, ClientId, SubscriptionOptions, Option<IsOnline>)>,
+            > = HashMap::default();
 
             if let Some(rels) = self.relations.get(&topic_filter) {
-                for (client_id, (id, qos, group)) in rels.iter() {
-                    if let Some(group) = group {
+                for (client_id, (id, opts)) in rels.iter() {
+                    if let Some(no_local) = opts.no_local() {
+                        //MQTT V5: No Local
+                        if no_local && &this_id == id {
+                            continue;
+                        }
+                    }
+                    if let Some(group) = opts.shared_group() {
                         let router = Runtime::instance().extends.router().await;
                         groups.entry(group.clone()).or_default().push((
                             id.node_id,
                             client_id.clone(),
-                            *qos,
+                            opts.clone(),
                             Some(router.is_online(id.node_id, client_id).await),
                         ));
                     } else {
                         subs.entry(id.node_id).or_default().push((
                             topic_filter.clone(),
                             client_id.clone(),
-                            *qos,
+                            opts.clone(),
                             None,
                         ))
                     }
@@ -635,11 +658,11 @@ impl DefaultRouter {
                 if let Some((idx, is_online)) =
                     Runtime::instance().extends.shared_subscription().await.choice(&s_subs).await
                 {
-                    let (node_id, client_id, qos, _) = s_subs.remove(idx);
+                    let (node_id, client_id, opts, _) = s_subs.remove(idx);
                     subs.entry(node_id).or_default().push((
                         topic_filter.clone(),
                         client_id.clone(),
-                        qos,
+                        opts,
                         Some((group, is_online)),
                     ))
                 }
@@ -654,8 +677,7 @@ impl DefaultRouter {
     fn _query_subscriptions_filter(
         q: &SubsSearchParams,
         client_id: &str,
-        qos: &QoS,
-        group: &Option<SharedGroup>,
+        opts: &SubscriptionOptions,
     ) -> bool {
         if let Some(ref q_clientid) = q.clientid {
             if q_clientid.as_bytes() != client_id.as_bytes() {
@@ -664,12 +686,12 @@ impl DefaultRouter {
         }
 
         if let Some(ref q_qos) = q.qos {
-            if *q_qos != qos.value() {
+            if *q_qos != opts.qos_value() {
                 return false;
             }
         }
 
-        match (&q.share, group) {
+        match (&q.share, opts.shared_group()) {
             (Some(q_group), Some(group)) => {
                 if q_group != group {
                     return false;
@@ -697,10 +719,10 @@ impl DefaultRouter {
             .map(|e| {
                 e.value()
                     .iter()
-                    .filter(|(client_id, (_id, qos, group))| {
-                        Self::_query_subscriptions_filter(q, client_id.as_ref(), qos, group)
+                    .filter(|(client_id, (_id, opts))| {
+                        Self::_query_subscriptions_filter(q, client_id.as_ref(), opts)
                     })
-                    .filter_map(|(client_id, (id, qos, group))| {
+                    .filter_map(|(client_id, (id, opts))| {
                         if curr < limit {
                             curr += 1;
                             Some(SubsSearchResult {
@@ -708,8 +730,7 @@ impl DefaultRouter {
                                 clientid: client_id.clone(),
                                 client_addr: id.remote_addr,
                                 topic: topic_filter.clone(),
-                                qos: qos.value(),
-                                share: group.as_ref().cloned(),
+                                opts: opts.clone(),
                             })
                         } else {
                             None
@@ -746,10 +767,10 @@ impl DefaultRouter {
                 if let Some(entry) = self.relations.get(&topic_filter) {
                     entry
                         .iter()
-                        .filter(|(client_id, (_id, qos, group))| {
-                            Self::_query_subscriptions_filter(q, client_id.as_ref(), qos, group)
+                        .filter(|(client_id, (_id, opts))| {
+                            Self::_query_subscriptions_filter(q, client_id.as_ref(), opts)
                         })
-                        .filter_map(|(client_id, (id, qos, group))| {
+                        .filter_map(|(client_id, (id, opts))| {
                             if curr < limit {
                                 curr += 1;
                                 Some(SubsSearchResult {
@@ -757,8 +778,7 @@ impl DefaultRouter {
                                     clientid: client_id.clone(),
                                     client_addr: id.remote_addr,
                                     topic: topic_filter.clone(),
-                                    qos: qos.value(),
-                                    share: group.as_ref().cloned(),
+                                    opts: opts.clone(),
                                 })
                             } else {
                                 None
@@ -782,10 +802,10 @@ impl DefaultRouter {
                 let topic_filter = e.key();
                 e.value()
                     .iter()
-                    .filter(|(client_id, (_id, qos, group))| {
-                        Self::_query_subscriptions_filter(q, client_id.as_ref(), qos, group)
+                    .filter(|(client_id, (_id, opts))| {
+                        Self::_query_subscriptions_filter(q, client_id.as_ref(), opts)
                     })
-                    .filter_map(|(client_id, (id, qos, group))| {
+                    .filter_map(|(client_id, (id, opts))| {
                         if curr < limit {
                             curr += 1;
                             Some(SubsSearchResult {
@@ -793,8 +813,7 @@ impl DefaultRouter {
                                 clientid: client_id.clone(),
                                 client_addr: id.remote_addr,
                                 topic: topic_filter.clone(),
-                                qos: qos.value(),
-                                share: group.as_ref().cloned(),
+                                opts: opts.clone(),
                             })
                         } else {
                             None
@@ -825,13 +844,7 @@ impl DefaultRouter {
 #[async_trait]
 impl Router for &'static DefaultRouter {
     #[inline]
-    async fn add(
-        &self,
-        topic_filter: &str,
-        id: Id,
-        qos: QoS,
-        shared_group: Option<SharedGroup>,
-    ) -> Result<()> {
+    async fn add(&self, topic_filter: &str, id: Id, opts: SubscriptionOptions) -> Result<()> {
         log::debug!("{:?} add, topic_filter: {:?}", id, topic_filter);
         let topic = Topic::from_str(topic_filter)?;
         //add to topic tree
@@ -845,7 +858,7 @@ impl Router for &'static DefaultRouter {
                 self.topics_count.inc();
                 HashMap::default()
             })
-            .insert(id.client_id.clone(), (id, qos, shared_group));
+            .insert(id.client_id.clone(), (id, opts));
 
         if old.is_none() {
             self.relations_count.inc();
@@ -859,7 +872,7 @@ impl Router for &'static DefaultRouter {
         log::debug!("{:?} remove, topic_filter: {:?}", id, topic_filter);
         //Remove subscription relationship from local
         let res = if let Some(mut rels) = self.relations.get_mut(topic_filter) {
-            let remove_enable = rels.value().get(&id.client_id).map(|(s_id, _, _)| {
+            let remove_enable = rels.value().get(&id.client_id).map(|(s_id, _)| {
                 if *s_id != id {
                     log::info!("remove, input id not the same, input id: {:?}, current id: {:?}, topic_filter: {}", id, s_id, topic_filter);
                     false
@@ -898,8 +911,8 @@ impl Router for &'static DefaultRouter {
     }
 
     #[inline]
-    async fn matches(&self, topic: &TopicName) -> Result<SubRelationsMap> {
-        Ok(self._matches(topic).await?)
+    async fn matches(&self, id: Id, topic: &TopicName) -> Result<SubRelationsMap> {
+        Ok(self._matches(id, topic).await?)
     }
 
     #[inline]
@@ -911,7 +924,7 @@ impl Router for &'static DefaultRouter {
                 let topic_filter = e.key();
                 e.value()
                     .iter()
-                    .map(|(_, (id, _, _))| (id.node_id, topic_filter))
+                    .map(|(_, (id, _))| (id.node_id, topic_filter))
                     .unique()
                     .filter_map(|(node_id, topic_filter)| {
                         if curr < limit {
@@ -941,7 +954,7 @@ impl Router for &'static DefaultRouter {
                 if let Some(entry) = self.relations.get(&topic_filter) {
                     entry
                         .iter()
-                        .map(|(_, (id, _, _))| id.node_id)
+                        .map(|(_, (id, _))| id.node_id)
                         .unique()
                         .map(|node_id| Route { node_id, topic: topic_filter.clone() })
                         .collect::<Vec<_>>()
@@ -1007,13 +1020,12 @@ impl Router for &'static DefaultRouter {
         let mut rels = Vec::new();
         for entry in self.relations.iter() {
             let topic_filter = entry.key();
-            for (client_id, (id, qos, group)) in entry.iter() {
+            for (client_id, (id, opts)) in entry.iter() {
                 let item = json!({
                     "topic_filter": topic_filter,
                     "client_id": client_id,
                     "node_id": id.node_id,
-                    "qos": qos.value(),
-                    "group": group,
+                    "opts": opts.to_json(),
                 });
                 rels.push(item);
                 count += 1;
@@ -1560,7 +1572,7 @@ impl Hook for DefaultHook {
     #[inline]
     async fn client_subscribe_check_acl(&self, sub: &Subscribe) -> Option<SubscribeAclResult> {
         if self.c.superuser {
-            return Some(SubscribeAclResult::new_success(sub.qos));
+            return Some(SubscribeAclResult::new_success(sub.opts.qos(), None));
         }
         let reply = self
             .manager

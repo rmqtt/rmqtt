@@ -251,9 +251,7 @@ impl Handler for SystemTopicHandler {
                     "clientid": client.id.client_id,
                     "username": client.id.username_ref(),
                     "topic": subscribe.topic_filter,
-                    "opts": json!({
-                        "qos": subscribe.qos.value()
-                    }),
+                    "opts": subscribe.opts.to_json(),
                     "time": now_time
                 });
                 let topic =

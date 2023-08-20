@@ -239,7 +239,8 @@ impl Handler for AclHandler {
                         (
                             false,
                             Some(HookResult::SubscribeAclResult(SubscribeAclResult::new_success(
-                                subscribe.qos,
+                                subscribe.opts.qos(),
+                                None,
                             ))),
                         )
                     } else {
