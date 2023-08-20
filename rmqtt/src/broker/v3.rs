@@ -3,6 +3,7 @@ use std::convert::From as _f;
 use std::net::SocketAddr;
 
 use ntex_mqtt::v3::{self};
+use uuid::Uuid;
 
 use crate::broker::executor::get_handshake_exec;
 use crate::broker::{inflight::MomentStatus, types::*};
@@ -36,7 +37,7 @@ async fn refused_ack<Io>(
 #[inline]
 pub async fn handshake<Io: 'static>(
     listen_cfg: Listener,
-    handshake: v3::Handshake<Io>,
+    mut handshake: v3::Handshake<Io>,
     remote_addr: SocketAddr,
     local_addr: SocketAddr,
 ) -> Result<v3::HandshakeAck<Io, SessionState>, MqttError> {
@@ -47,6 +48,25 @@ pub async fn handshake<Io: 'static>(
         handshake,
         listen_cfg
     );
+
+    if handshake.packet().client_id.is_empty() {
+        if handshake.packet().clean_session {
+            handshake.packet_mut().client_id =
+                ClientId::from(Uuid::new_v4().as_simple().encode_lower(&mut Uuid::encode_buffer()).to_owned())
+        } else {
+            log::info!(
+                "{:?} Connection Refused, handshake error, reason: invalid client id",
+                Id::new(
+                    Runtime::instance().node.id(),
+                    Some(local_addr),
+                    Some(remote_addr),
+                    ClientId::default(),
+                    handshake.packet().username.clone(),
+                )
+            );
+            return Ok(ConnectAckReason::V3(ConnectAckReasonV3::IdentifierRejected).v3_error_ack(handshake));
+        }
+    }
 
     let id = Id::new(
         Runtime::instance().node.id(),
