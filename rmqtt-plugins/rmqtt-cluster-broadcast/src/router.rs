@@ -5,8 +5,8 @@ use rmqtt::{async_trait::async_trait, itertools, log, once_cell, serde_json};
 use rmqtt::{
     broker::{
         default::DefaultRouter,
-        types::{Id, NodeId, Route, SubscriptionOptions, TopicName},
-        Router, SubRelationsMap,
+        types::{Id, NodeId, Route, SubRelationsMap, SubscriptionOptions, TopicName},
+        Router,
     },
     grpc::{GrpcClients, Message, MessageBroadcaster, MessageReply, MessageSender, MessageType},
     stats::Counter,

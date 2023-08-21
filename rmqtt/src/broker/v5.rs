@@ -249,7 +249,7 @@ pub async fn _handshake<Io: 'static>(
         ack.assigned_client_id = assigned_client_id;
         ack.topic_alias_max = 0; //@TODO ...
         ack.wildcard_subscription_available = Some(true);
-        ack.subscription_identifiers_available = Some(false);
+        ack.subscription_identifiers_available = Some(true);
         ack.shared_subscription_available = Some(shared_subscription_available);
         log::debug!("{:?} handshake.ack: {:?}", id, ack);
     }))
@@ -261,8 +261,9 @@ async fn subscribes(
 ) -> Result<v5::ControlResult> {
     let shared_subscription_supported =
         Runtime::instance().extends.shared_subscription().await.is_supported(&state.listen_cfg);
+    let sub_id = subs.packet().id;
     for mut sub in subs.iter_mut() {
-        let s = Subscribe::from_v5(sub.topic(), sub.options(), shared_subscription_supported)?;
+        let s = Subscribe::from_v5(sub.topic(), sub.options(), shared_subscription_supported, sub_id)?;
         let sub_ret = state.subscribe(s).await?;
         if let Some(qos) = sub_ret.success() {
             sub.confirm(qos)

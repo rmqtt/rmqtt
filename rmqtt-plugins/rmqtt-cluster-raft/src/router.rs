@@ -14,10 +14,10 @@ use rmqtt::{
         default::DefaultRouter,
         topic::TopicTree,
         types::{
-            ClientId, Id, IsOnline, NodeId, Route, SubscriptionOptions, TimestampMillis, TopicFilter,
-            TopicName,
+            ClientId, Id, IsOnline, NodeId, Route, SubRelationsMap, SubscriptionOptions, TimestampMillis,
+            TopicFilter, TopicName,
         },
-        Router, SubRelationsMap,
+        Router,
     },
     stats::Counter,
     MqttError, Result,

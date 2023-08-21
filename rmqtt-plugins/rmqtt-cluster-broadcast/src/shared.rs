@@ -10,10 +10,10 @@ use rmqtt::{
         session::{ClientInfo, Session, SessionOfflineInfo},
         types::{
             ClientId, From, Id, IsAdmin, IsOnline, NodeId, Publish, Reason, SessionStatus, SharedGroup,
-            SubsSearchParams, SubsSearchResult, Subscribe, SubscribeReturn, SubscriptionSize, To,
-            TopicFilter, Tx, Unsubscribe,
+            SubRelations, SubRelationsMap, SubsSearchParams, SubsSearchResult, Subscribe, SubscribeReturn,
+            SubscriptionIdentifier, SubscriptionSize, To, TopicFilter, Tx, Unsubscribe,
         },
-        Entry, Shared, SubRelations, SubRelationsMap,
+        Entry, Shared,
     },
     grpc::{GrpcClients, Message, MessageBroadcaster, MessageReply, MessageType},
     MqttError, Result, Runtime,
@@ -234,29 +234,34 @@ impl Shared for &'static ClusterShared {
         log::debug!("forwards, from: {:?}, topic: {:?}", from, topic.to_string());
 
         //Matching subscriptions
-        let (relations, shared_relations, subs_size) =
-            match Runtime::instance().extends.router().await.matches(from.id.clone(), topic).await {
-                Ok(mut relations_map) => {
-                    let subs_size: SubscriptionSize = relations_map.iter().map(|(_, subs)| subs.len()).sum();
-                    let mut relations = SubRelations::new();
-                    let mut shared_relations = Vec::new();
-                    for (node_id, rels) in relations_map.drain() {
-                        for (topic_filter, client_id, qos, group) in rels {
-                            if let Some(group) = group {
-                                //pub type SharedSubRelations = HashMap<TopicFilterString, Vec<(SharedGroup, NodeId, ClientId, QoS, IsOnline)>>;
-                                shared_relations.push((topic_filter, node_id, client_id, qos, group));
-                            } else {
-                                relations.push((topic_filter, client_id, qos, None));
-                            }
+        let (relations, shared_relations, subs_size) = match Runtime::instance()
+            .extends
+            .router()
+            .await
+            .matches(from.id.clone(), topic)
+            .await
+        {
+            Ok(mut relations_map) => {
+                let subs_size: SubscriptionSize = relations_map.iter().map(|(_, subs)| subs.len()).sum();
+                let mut relations = SubRelations::new();
+                let mut shared_relations = Vec::new();
+                for (node_id, rels) in relations_map.drain() {
+                    for (topic_filter, client_id, opts, sub_ids, group) in rels {
+                        if let Some(group) = group {
+                            //pub type SharedSubRelations = HashMap<TopicFilterString, Vec<(SharedGroup, NodeId, ClientId, QoS, IsOnline)>>;
+                            shared_relations.push((topic_filter, node_id, client_id, opts, sub_ids, group));
+                        } else {
+                            relations.push((topic_filter, client_id, opts, sub_ids, None));
                         }
                     }
-                    (relations, shared_relations, subs_size)
                 }
-                Err(e) => {
-                    log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
-                    (Vec::new(), Vec::new(), 0)
-                }
-            };
+                (relations, shared_relations, subs_size)
+            }
+            Err(e) => {
+                log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
+                (Vec::new(), Vec::new(), 0)
+            }
+        };
 
         log::debug!("relations: {}, shared_relations:{}", relations.len(), shared_relations.len());
 
@@ -281,22 +286,43 @@ impl Shared for &'static ClusterShared {
 
             type SharedSubGroups = HashMap<
                 TopicFilter, //key is TopicFilter
-                HashMap<SharedGroup, Vec<(NodeId, ClientId, SubscriptionOptions, Option<IsOnline>)>>,
+                HashMap<
+                    SharedGroup,
+                    Vec<(
+                        NodeId,
+                        ClientId,
+                        SubscriptionOptions,
+                        Option<Vec<SubscriptionIdentifier>>,
+                        Option<IsOnline>,
+                    )>,
+                >,
             >;
-            type SharedRelation =
-                (TopicFilter, NodeId, ClientId, SubscriptionOptions, (SharedGroup, IsOnline));
+            type SharedRelation = (
+                TopicFilter,
+                NodeId,
+                ClientId,
+                SubscriptionOptions,
+                Option<Vec<SubscriptionIdentifier>>,
+                (SharedGroup, IsOnline),
+            );
 
             #[allow(clippy::mutable_key_type)]
             let mut shared_sub_groups: SharedSubGroups = HashMap::default();
 
             let add_one_to_shared_sub_groups =
                 |shared_groups: &mut SharedSubGroups, shared_rel: SharedRelation| {
-                    let (topic_filter, node_id, client_id, opts, (group, is_online)) = shared_rel;
+                    let (topic_filter, node_id, client_id, opts, sub_ids, (group, is_online)) = shared_rel;
                     if let Some(groups) = shared_groups.get_mut(&topic_filter) {
-                        groups.entry(group).or_default().push((node_id, client_id, opts, Some(is_online)));
+                        groups.entry(group).or_default().push((
+                            node_id,
+                            client_id,
+                            opts,
+                            sub_ids,
+                            Some(is_online),
+                        ));
                     } else {
                         let mut groups = HashMap::default();
-                        groups.insert(group, vec![(node_id, client_id, opts, Some(is_online))]);
+                        groups.insert(group, vec![(node_id, client_id, opts, sub_ids, Some(is_online))]);
                         shared_groups.insert(topic_filter, groups);
                     }
                 };
@@ -321,11 +347,11 @@ impl Shared for &'static ClusterShared {
                             );
                             all_subs_size += subs_size;
                             for (node_id, rels) in o_relations_map.drain() {
-                                for (topic_filter, client_id, opts, group) in rels {
+                                for (topic_filter, client_id, opts, sub_ids, group) in rels {
                                     if let Some(group) = group {
                                         add_one_to_shared_sub_groups(
                                             &mut shared_sub_groups,
-                                            (topic_filter, node_id, client_id, opts, group),
+                                            (topic_filter, node_id, client_id, opts, sub_ids, group),
                                         );
                                     }
                                 }
@@ -351,11 +377,12 @@ impl Shared for &'static ClusterShared {
                     if let Some((idx, _is_online)) =
                         Runtime::instance().extends.shared_subscription().await.choice(subs).await
                     {
-                        let (node_id, client_id, qos, _is_online) = subs.remove(idx);
+                        let (node_id, client_id, opts, sub_ids, _is_online) = subs.remove(idx);
                         node_shared_subs.entry(node_id).or_default().push((
                             topic_filter.clone(),
                             client_id,
-                            qos,
+                            opts,
+                            sub_ids,
                             None,
                         ));
                     }

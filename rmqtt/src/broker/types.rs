@@ -74,6 +74,7 @@ pub type PublishReceiveTime = TimestampMillis;
 pub type Subscriptions = Vec<(TopicFilter, SubscriptionOptions)>;
 pub type TopicFilters = Vec<TopicFilter>;
 pub type SubscriptionSize = usize;
+pub type SubscriptionIdentifier = NonZeroU32;
 
 pub type HookSubscribeResult = Vec<Option<TopicFilter>>;
 pub type HookUnsubscribeResult = Vec<Option<TopicFilter>>;
@@ -307,6 +308,82 @@ impl MessageExpiryCheckResult {
     }
 }
 
+//key is TopicFilter
+pub type SharedSubRelations = HashMap<TopicFilter, Vec<(SharedGroup, NodeId, ClientId, QoS, IsOnline)>>;
+//In other nodes
+pub type OtherSubRelations = HashMap<NodeId, Vec<TopicFilter>>;
+pub type ClearSubscriptions = bool;
+
+pub type SubRelation = (
+    TopicFilter,
+    ClientId,
+    SubscriptionOptions,
+    Option<Vec<SubscriptionIdentifier>>,
+    Option<(SharedGroup, IsOnline)>,
+);
+pub type SubRelations = Vec<SubRelation>;
+pub type SubRelationsMap = HashMap<NodeId, SubRelations>;
+
+impl std::convert::From<SubscriptioRelationsCollector> for SubRelations {
+    #[inline]
+    fn from(collector: SubscriptioRelationsCollector) -> Self {
+        let mut subs = collector.v3_rels;
+        subs.extend(collector.v5_rels.into_iter().map(|(clientid, (topic_filter, opts, sub_ids, group))| {
+            (topic_filter, clientid, opts, sub_ids, group)
+        }));
+        subs
+    }
+}
+
+pub type SubscriptioRelationsCollectorMap = HashMap<NodeId, SubscriptioRelationsCollector>;
+
+#[allow(clippy::type_complexity)]
+#[derive(Debug, Default)]
+pub struct SubscriptioRelationsCollector {
+    v3_rels: Vec<SubRelation>,
+    v5_rels: HashMap<
+        ClientId,
+        (
+            TopicFilter,
+            SubscriptionOptions,
+            Option<Vec<SubscriptionIdentifier>>,
+            Option<(SharedGroup, IsOnline)>,
+        ),
+    >,
+}
+
+impl SubscriptioRelationsCollector {
+    #[inline]
+    pub fn add(
+        &mut self,
+        topic_filter: &TopicFilter,
+        client_id: ClientId,
+        opts: SubscriptionOptions,
+        group: Option<(SharedGroup, IsOnline)>,
+    ) {
+        if opts.is_v3() {
+            self.v3_rels.push((topic_filter.clone(), client_id, opts, None, group));
+        } else {
+            //MQTT V5: Subscription Identifiers
+            self.v5_rels
+                .entry(client_id)
+                .and_modify(|(_, _, sub_ids, _)| {
+                    if let Some(sub_id) = opts.subscription_identifier() {
+                        if let Some(sub_ids) = sub_ids {
+                            sub_ids.push(sub_id)
+                        } else {
+                            *sub_ids = Some(vec![sub_id]);
+                        }
+                    }
+                })
+                .or_insert_with(|| {
+                    let sub_ids = opts.subscription_identifier().map(|id| vec![id]);
+                    (topic_filter.clone(), opts, sub_ids, group)
+                });
+        }
+    }
+}
+
 #[inline]
 pub fn parse_topic_filter(
     topic_filter: &ByteString,
@@ -371,6 +448,14 @@ impl SubscriptionOptions {
         match self {
             SubscriptionOptions::V3(_) => None,
             SubscriptionOptions::V5(opts) => Some(opts.retain_handling),
+        }
+    }
+
+    #[inline]
+    pub fn subscription_identifier(&self) -> Option<NonZeroU32> {
+        match self {
+            SubscriptionOptions::V3(_) => None,
+            SubscriptionOptions::V5(opts) => opts.id,
         }
     }
 
@@ -490,6 +575,8 @@ pub struct SubOptionsV5 {
         deserialize_with = "SubOptionsV5::deserialize_retain_handling"
     )]
     pub retain_handling: RetainHandling,
+    //Subscription Identifier
+    pub id: Option<SubscriptionIdentifier>,
 }
 
 impl SubOptionsV5 {
@@ -548,15 +635,18 @@ impl std::convert::From<(QoS, Option<SharedGroup>)> for SubscriptionOptions {
     }
 }
 
-impl std::convert::From<(&SubscriptionOptionsV5, Option<SharedGroup>)> for SubscriptionOptions {
+impl std::convert::From<(&SubscriptionOptionsV5, Option<SharedGroup>, Option<NonZeroU32>)>
+    for SubscriptionOptions
+{
     #[inline]
-    fn from(opts: (&SubscriptionOptionsV5, Option<SharedGroup>)) -> Self {
+    fn from(opts: (&SubscriptionOptionsV5, Option<SharedGroup>, Option<NonZeroU32>)) -> Self {
         SubscriptionOptions::V5(SubOptionsV5 {
             qos: opts.0.qos,
             shared_group: opts.1,
             no_local: opts.0.no_local,
             retain_as_published: opts.0.retain_as_published,
             retain_handling: opts.0.retain_handling,
+            id: opts.2,
         })
     }
 }
@@ -580,9 +670,10 @@ impl Subscribe {
         topic_filter: &ByteString,
         opts: &SubscriptionOptionsV5,
         shared_subscription_supported: bool,
+        sub_id: Option<NonZeroU32>,
     ) -> Result<Self> {
         let (topic_filter, shared_group) = parse_topic_filter(topic_filter, shared_subscription_supported)?;
-        let opts = (opts, shared_group).into();
+        let opts = (opts, shared_group, sub_id).into();
         Ok(Subscribe { topic_filter, opts })
     }
 
@@ -1100,6 +1191,7 @@ impl Publish {
             properties: self.properties.clone().into(),
         };
         p.properties.message_expiry_interval = message_expiry_interval;
+        log::debug!("p.properties.subscription_ids: {:?}", p.properties.subscription_ids);
         Packet::V5(v5::codec::Packet::Publish(p))
     }
 

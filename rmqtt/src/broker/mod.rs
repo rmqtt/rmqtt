@@ -7,7 +7,7 @@ use crate::broker::types::*;
 use crate::grpc::GrpcClients;
 use crate::settings::listener::Listener;
 use crate::stats::Counter;
-use crate::{ClientId, Id, NodeId, QoS, Result, Runtime, TopicFilter};
+use crate::{ClientId, Id, NodeId, Result, Runtime, TopicFilter};
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
@@ -118,15 +118,6 @@ pub trait Shared: Sync + Send {
     }
 }
 
-//key is TopicFilter
-pub type SharedSubRelations = HashMap<TopicFilter, Vec<(SharedGroup, NodeId, ClientId, QoS, IsOnline)>>;
-//In other nodes
-pub type OtherSubRelations = HashMap<NodeId, Vec<TopicFilter>>;
-
-pub type SubRelations = Vec<(TopicFilter, ClientId, SubscriptionOptions, Option<(SharedGroup, IsOnline)>)>;
-pub type SubRelationsMap = HashMap<NodeId, SubRelations>;
-pub type ClearSubscriptions = bool;
-
 #[async_trait]
 pub trait Router: Sync + Send {
     ///
@@ -189,7 +180,13 @@ pub trait SharedSubscription: Sync + Send {
     #[inline]
     async fn choice(
         &self,
-        ncs: &[(NodeId, ClientId, SubscriptionOptions, Option<IsOnline>)],
+        ncs: &[(
+            NodeId,
+            ClientId,
+            SubscriptionOptions,
+            Option<Vec<SubscriptionIdentifier>>,
+            Option<IsOnline>,
+        )],
     ) -> Option<(usize, IsOnline)> {
         if ncs.is_empty() {
             return None;
@@ -198,7 +195,7 @@ pub trait SharedSubscription: Sync + Send {
         let mut tmp_ncs = ncs
             .iter()
             .enumerate()
-            .map(|(idx, (node_id, client_id, _, is_online))| (idx, node_id, client_id, is_online))
+            .map(|(idx, (node_id, client_id, _, _, is_online))| (idx, node_id, client_id, is_online))
             .collect::<Vec<_>>();
 
         while !tmp_ncs.is_empty() {

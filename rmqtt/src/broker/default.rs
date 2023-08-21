@@ -428,16 +428,17 @@ impl Shared for &'static DefaultShared {
         let mut relations = SubRelations::new();
         let mut sub_relations_map = SubRelationsMap::default();
         for (node_id, rels) in relations_map {
-            for (topic_filter, client_id, qos, group) in rels {
+            for (topic_filter, client_id, opts, sub_ids, group) in rels {
                 if let Some(group) = group {
                     sub_relations_map.entry(node_id).or_default().push((
                         topic_filter,
                         client_id,
-                        qos,
+                        opts,
+                        sub_ids,
                         Some(group),
                     ));
                 } else {
-                    relations.push((topic_filter, client_id, qos, None));
+                    relations.push((topic_filter, client_id, opts, sub_ids, None));
                 }
             }
         }
@@ -457,7 +458,7 @@ impl Shared for &'static DefaultShared {
     ) -> Result<(), Vec<(To, From, Publish, Reason)>> {
         let mut errs = Vec::new();
 
-        for (topic_filter, client_id, opts, _) in relations.drain(..) {
+        for (topic_filter, client_id, opts, sub_ids, _) in relations.drain(..) {
             let retain = if let Some(retain_as_published) = opts.retain_as_published() {
                 //MQTT V5: Retain As Publish
                 if retain_as_published {
@@ -468,11 +469,13 @@ impl Shared for &'static DefaultShared {
             } else {
                 false
             };
+
             let mut p = publish.clone();
             p.dup = false;
             p.retain = retain;
             p.qos = p.qos.less_value(opts.qos());
             p.packet_id = None;
+            p.properties.subscription_ids = sub_ids;
             let (tx, to) = if let Some((tx, to)) = self.tx(&client_id) {
                 (tx, to)
             } else {
@@ -615,14 +618,20 @@ impl DefaultRouter {
     #[allow(clippy::type_complexity)]
     #[inline]
     pub async fn _matches(&self, this_id: Id, topic_name: &TopicName) -> Result<SubRelationsMap> {
-        let mut subs: SubRelationsMap = HashMap::default();
+        let mut collector_map: SubscriptioRelationsCollectorMap = HashMap::default();
         let topic = Topic::from_str(topic_name)?;
         for (topic_filter, _node_ids) in self.topics.read().await.matches(&topic).iter() {
             let topic_filter = topic_filter.to_topic_filter();
 
             let mut groups: HashMap<
                 SharedGroup,
-                Vec<(NodeId, ClientId, SubscriptionOptions, Option<IsOnline>)>,
+                Vec<(
+                    NodeId,
+                    ClientId,
+                    SubscriptionOptions,
+                    Option<Vec<SubscriptionIdentifier>>,
+                    Option<IsOnline>,
+                )>,
             > = HashMap::default();
 
             if let Some(rels) = self.relations.get(&topic_filter) {
@@ -639,15 +648,16 @@ impl DefaultRouter {
                             id.node_id,
                             client_id.clone(),
                             opts.clone(),
+                            None,
                             Some(router.is_online(id.node_id, client_id).await),
                         ));
                     } else {
-                        subs.entry(id.node_id).or_default().push((
-                            topic_filter.clone(),
+                        collector_map.entry(id.node_id).or_default().add(
+                            &topic_filter,
                             client_id.clone(),
                             opts.clone(),
                             None,
-                        ))
+                        );
                     }
                 }
             }
@@ -658,19 +668,24 @@ impl DefaultRouter {
                 if let Some((idx, is_online)) =
                     Runtime::instance().extends.shared_subscription().await.choice(&s_subs).await
                 {
-                    let (node_id, client_id, opts, _) = s_subs.remove(idx);
-                    subs.entry(node_id).or_default().push((
-                        topic_filter.clone(),
-                        client_id.clone(),
+                    let (node_id, client_id, opts, _, _) = s_subs.remove(idx);
+                    collector_map.entry(node_id).or_default().add(
+                        &topic_filter,
+                        client_id,
                         opts,
                         Some((group, is_online)),
-                    ))
+                    );
                 }
             }
         }
 
-        log::debug!("{:?} this_subs: {:?}", topic_name, subs);
-        Ok(subs)
+        let mut rels_map: SubRelationsMap = HashMap::default();
+        for (node_id, collector) in collector_map {
+            rels_map.insert(node_id, collector.into());
+        }
+
+        log::debug!("{:?} this_subs: {:?}", topic_name, rels_map);
+        Ok(rels_map)
     }
 
     #[inline]

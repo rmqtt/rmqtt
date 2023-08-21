@@ -3,8 +3,7 @@ use rmqtt::{async_trait::async_trait, log, SubscriptionSize};
 use rmqtt::{
     broker::{
         hook::{Handler, HookResult, Parameter, ReturnType},
-        types::{From, Publish},
-        SubRelationsMap,
+        types::{From, Publish, SubRelationsMap},
     },
     grpc::{Message, MessageReply},
     Id, Runtime,
