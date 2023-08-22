@@ -1187,13 +1187,14 @@ impl Fitter for DefaultFitter {
         if self.client.protocol() == MQTT_LEVEL_5 {
             if *keep_alive == 0 {
                 return if self.listen_cfg.allow_zero_keepalive {
-                    //*keep_alive = 10;
                     Ok(0)
                 } else {
                     Err(MqttError::from("Keepalive must be greater than 0"))
                 };
             } else if *keep_alive < self.listen_cfg.min_keepalive {
                 *keep_alive = self.listen_cfg.min_keepalive;
+            } else if *keep_alive > self.listen_cfg.max_keepalive {
+                *keep_alive = self.listen_cfg.max_keepalive;
             }
         } else if *keep_alive == 0 {
             return if self.listen_cfg.allow_zero_keepalive {
@@ -1203,8 +1204,13 @@ impl Fitter for DefaultFitter {
             };
         } else if *keep_alive < self.listen_cfg.min_keepalive {
             return Err(MqttError::from(format!(
-                "Keepalive is too small, cannot be less than {}",
+                "Keepalive is too small and cannot be less than {}",
                 self.listen_cfg.min_keepalive
+            )));
+        } else if *keep_alive > self.listen_cfg.max_keepalive {
+            return Err(MqttError::from(format!(
+                "Keepalive is too large and cannot be greater than {}",
+                self.listen_cfg.max_keepalive
             )));
         }
 

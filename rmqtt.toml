@@ -79,12 +79,19 @@ listener.tcp.external.backlog = 1024
 listener.tcp.external.idle_timeout = "20s"
 #Whether anonymous login is allowed. Default: true
 listener.tcp.external.allow_anonymous = true
-#Minimum allowable keepalive value for mqtt connection,
-#less than this value will reject the connection, default: 0, unit: seconds
-listener.tcp.external.min_keepalive = 0
 #A value of zero indicates disabling the keep-alive feature, where the server
 #doesn't need to disconnect due to client inactivity, default: true
 listener.tcp.external.allow_zero_keepalive = true
+#Minimum allowable keepalive value for mqtt connection,
+#less than this value will reject the connection(MQTT V3),
+#less than this value will set keepalive to this value in CONNACK (MQTT V5),
+#default: 0, unit: seconds
+listener.tcp.external.min_keepalive = 0
+#Maximum allowable keepalive value for mqtt connection,
+#greater than this value will reject the connection(MQTT V3),
+#greater than this value will set keepalive to this value in CONNACK (MQTT V5),
+#default value: 65535, unit: seconds
+listener.tcp.external.max_keepalive = 65535
 # > 0.5, Keepalive * backoff * 2
 listener.tcp.external.keepalive_backoff = 0.75
 #Flight window size. The flight window is used to store the unanswered QoS 1 and QoS 2 messages
