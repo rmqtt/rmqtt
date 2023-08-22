@@ -245,7 +245,7 @@ pub async fn _handshake<Io: 'static>(
     let server_keepalive_sec = packet.keep_alive;
     let max_qos = state.listen_cfg.max_qos_allowed;
     let retain_available = Runtime::instance().extends.retain().await.is_supported(&state.listen_cfg);
-    let max_packet_size = state.fitter.max_packet_size();
+    let max_server_packet_size = state.listen_cfg.max_packet_size.as_u32();
     let shared_subscription_available =
         Runtime::instance().extends.shared_subscription().await.is_supported(&state.listen_cfg);
     let assigned_client_id = if is_assigned_client_id { Some(state.id.client_id.clone()) } else { None };
@@ -256,7 +256,7 @@ pub async fn _handshake<Io: 'static>(
         ack.receive_max = Some(max_inflight);
         ack.max_qos = Some(max_qos);
         ack.retain_available = Some(retain_available);
-        ack.max_packet_size = Some(max_packet_size);
+        ack.max_packet_size = Some(max_server_packet_size);
         ack.assigned_client_id = assigned_client_id;
         ack.topic_alias_max = client_topic_alias_max;
         ack.wildcard_subscription_available = Some(true);

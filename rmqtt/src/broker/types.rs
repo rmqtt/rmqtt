@@ -220,6 +220,16 @@ impl ConnectInfo {
             ConnectInfo::V5(_, _) => MQTT_LEVEL_5,
         }
     }
+
+    ///client max packet size, S(Max Limit) -> C
+    #[inline]
+    pub fn max_packet_size(&self) -> Option<NonZeroU32> {
+        if let ConnectInfo::V5(_, connect) = self {
+            connect.max_packet_size
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

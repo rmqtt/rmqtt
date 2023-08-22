@@ -1261,27 +1261,6 @@ impl Fitter for DefaultFitter {
         }
     }
 
-    #[inline]
-    fn max_packet_size(&self) -> u32 {
-        let max_packet_size = if let ConnectInfo::V5(_, connect) = &self.client.connect_info {
-            connect.max_packet_size
-        } else {
-            None
-        };
-
-        if let Some(max_packet_size) = max_packet_size {
-            let cfg_max_packet_size = self.listen_cfg.max_packet_size.as_u32();
-            let max_packet_size = max_packet_size.get();
-            if max_packet_size < cfg_max_packet_size {
-                max_packet_size
-            } else {
-                cfg_max_packet_size
-            }
-        } else {
-            self.listen_cfg.max_packet_size.as_u32()
-        }
-    }
-
     fn max_client_topic_aliases(&self) -> u16 {
         if let ConnectInfo::V5(_, _connect) = &self.client.connect_info {
             self.listen_cfg.max_topic_aliases

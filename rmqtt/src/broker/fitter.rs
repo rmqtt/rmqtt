@@ -30,12 +30,9 @@ pub trait Fitter: Sync + Send {
     ///session expiry interval
     async fn session_expiry_interval(&self) -> Duration;
 
-    ///max packet size
-    fn max_packet_size(&self) -> u32;
-
-    ///client topic alias maximum
+    ///client topic alias maximum, C -> S(Max Limit)
     fn max_client_topic_aliases(&self) -> u16;
 
-    ///server topic alias maximum
+    ///server topic alias maximum, S(Max Limit) -> C
     fn max_server_topic_aliases(&self) -> u16;
 }
