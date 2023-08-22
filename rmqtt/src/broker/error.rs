@@ -1,10 +1,12 @@
+use bytestring::ByteString;
 use std::net::AddrParseError;
-use std::num::ParseIntError;
+use std::num::{ParseIntError, TryFromIntError};
 use std::str::Utf8Error;
 
 use config::ConfigError;
 use ntex_mqtt::error::SendPacketError;
 use ntex_mqtt::v5;
+use ntex_mqtt::v5::codec::PublishAckReason;
 use ntex_mqtt::TopicError;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
@@ -59,6 +61,10 @@ pub enum MqttError {
     ListenerConfigError,
     #[error("{0}")]
     Reason(Reason),
+    #[error("{1}")]
+    PublishAckReason(PublishAckReason, ByteString),
+    #[error("{0}")]
+    TryFromIntError(#[from] TryFromIntError),
     #[error("None")]
     None,
 }
