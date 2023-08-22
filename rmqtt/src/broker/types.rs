@@ -5,6 +5,7 @@ use std::fmt::Display;
 use std::net::SocketAddr;
 use std::num::{NonZeroU16, NonZeroU32};
 use std::ops::Deref;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -21,7 +22,7 @@ pub use ntex_mqtt::v3::{
     MqttSink as MqttSinkV3,
 };
 
-use ntex_mqtt::v5::codec::RetainHandling;
+use ntex_mqtt::v5::codec::{PublishAckReason, RetainHandling};
 pub use ntex_mqtt::v5::{
     self, codec::Connect as ConnectV5, codec::ConnectAckReason as ConnectAckReasonV5,
     codec::Disconnect as DisconnectV5, codec::DisconnectReasonCode, codec::LastWill as LastWillV5,
@@ -962,10 +963,15 @@ impl Sink {
     }
 
     #[inline]
-    pub(crate) fn publish(&self, p: &Publish, message_expiry_interval: Option<NonZeroU32>) -> Result<()> {
+    pub(crate) async fn publish(
+        &self,
+        p: &Publish,
+        message_expiry_interval: Option<NonZeroU32>,
+        server_topic_aliases: Option<&Rc<ServerTopicAliases>>,
+    ) -> Result<()> {
         let pkt = match self {
             Sink::V3(_) => p.into_v3(),
-            Sink::V5(_) => p.into_v5(message_expiry_interval),
+            Sink::V5(_) => p.into_v5(message_expiry_interval, server_topic_aliases).await,
         };
         self.send(pkt)
     }
@@ -1116,11 +1122,9 @@ impl<'a> std::convert::TryFrom<LastWill<'a>> for Publish {
     }
 }
 
-impl std::convert::TryFrom<&v3::Publish> for Publish {
-    type Error = MqttError;
-
+impl std::convert::From<&v3::Publish> for Publish {
     #[inline]
-    fn try_from(p: &v3::Publish) -> std::result::Result<Self, Self::Error> {
+    fn from(p: &v3::Publish) -> Self {
         let query = p.query();
         let p_props = if !query.is_empty() {
             let user_props = url::form_urlencoded::parse(query.as_bytes())
@@ -1132,7 +1136,7 @@ impl std::convert::TryFrom<&v3::Publish> for Publish {
             PublishProperties::default()
         };
 
-        Ok(Self {
+        Self {
             dup: p.dup(),
             retain: p.retain(),
             qos: p.qos(),
@@ -1142,16 +1146,14 @@ impl std::convert::TryFrom<&v3::Publish> for Publish {
 
             properties: p_props,
             create_time: chrono::Local::now().timestamp_millis(),
-        })
+        }
     }
 }
 
-impl std::convert::TryFrom<&v5::Publish> for Publish {
-    type Error = MqttError;
-
+impl std::convert::From<&v5::Publish> for Publish {
     #[inline]
-    fn try_from(p: &v5::Publish) -> std::result::Result<Self, Self::Error> {
-        Ok(Self {
+    fn from(p: &v5::Publish) -> Self {
+        Self {
             dup: p.dup(),
             retain: p.retain(),
             qos: p.qos(),
@@ -1161,7 +1163,7 @@ impl std::convert::TryFrom<&v5::Publish> for Publish {
 
             properties: PublishProperties::from(p.packet().properties.clone()),
             create_time: chrono::Local::now().timestamp_millis(),
-        })
+        }
     }
 }
 
@@ -1180,18 +1182,31 @@ impl Publish {
     }
 
     #[inline]
-    pub fn into_v5(&self, message_expiry_interval: Option<NonZeroU32>) -> Packet {
+    pub async fn into_v5(
+        &self,
+        message_expiry_interval: Option<NonZeroU32>,
+        server_topic_aliases: Option<&Rc<ServerTopicAliases>>,
+    ) -> Packet {
+        let (topic, alias) = {
+            if let Some(server_topic_aliases) = server_topic_aliases {
+                server_topic_aliases.get(self.topic.clone()).await
+            } else {
+                (Some(self.topic.clone()), None)
+            }
+        };
+        log::debug!("topic: {:?}, alias: {:?}", topic, alias);
         let mut p = v5::codec::Publish {
             dup: self.dup,
             retain: self.retain,
             qos: self.qos,
-            topic: self.topic.clone(),
+            topic: topic.unwrap_or_default(),
             packet_id: self.packet_id,
             payload: self.payload.clone(),
             properties: self.properties.clone().into(),
         };
         p.properties.message_expiry_interval = message_expiry_interval;
-        log::debug!("p.properties.subscription_ids: {:?}", p.properties.subscription_ids);
+        p.properties.topic_alias = alias;
+        log::debug!("p.properties: {:?}", p.properties);
         Packet::V5(v5::codec::Packet::Publish(p))
     }
 
@@ -1943,6 +1958,94 @@ impl Display for Reason {
             }
         };
         write!(f, "{}", r)
+    }
+}
+
+#[derive(Debug)]
+pub struct ServerTopicAliases {
+    max_topic_aliases: usize,
+    aliases: tokio::sync::Mutex<HashMap<TopicName, NonZeroU16>>,
+}
+
+impl ServerTopicAliases {
+    #[inline]
+    pub fn new(max_topic_aliases: usize) -> Self {
+        ServerTopicAliases { max_topic_aliases, aliases: tokio::sync::Mutex::new(HashMap::default()) }
+    }
+
+    #[inline]
+    pub async fn get(&self, topic: TopicName) -> (Option<TopicName>, Option<NonZeroU16>) {
+        if self.max_topic_aliases == 0 {
+            return (Some(topic), None);
+        }
+        let mut aliases = self.aliases.lock().await;
+        if let Some(alias) = aliases.get(&topic) {
+            return (None, Some(*alias));
+        }
+        let len = aliases.len();
+        if len >= self.max_topic_aliases {
+            return (Some(topic), None);
+        }
+        let alias = match NonZeroU16::try_from((len + 1) as u16) {
+            Ok(alias) => alias,
+            Err(_) => {
+                unreachable!()
+            }
+        };
+        aliases.insert(topic.clone(), alias);
+        (Some(topic), Some(alias))
+    }
+}
+
+#[derive(Debug)]
+pub struct ClientTopicAliases {
+    max_topic_aliases: usize,
+    aliases: DashMap<NonZeroU16, TopicName>,
+}
+
+impl ClientTopicAliases {
+    #[inline]
+    pub fn new(max_topic_aliases: usize) -> Self {
+        ClientTopicAliases { max_topic_aliases, aliases: DashMap::default() }
+    }
+
+    #[inline]
+    pub fn set_and_get(&self, alias: Option<NonZeroU16>, topic: TopicName) -> Result<TopicName> {
+        match (alias, topic.len()) {
+            (Some(alias), 0) => {
+                self.aliases.get(&alias).ok_or_else(|| {
+                    MqttError::PublishAckReason(
+                        PublishAckReason::ImplementationSpecificError,
+                        ByteString::from(
+                            "implementation specific error, the ‘topic‘ associated with the ‘alias‘ was not found",
+                        ),
+                    )
+                }).map(|topic|topic.value().clone())
+            }
+            (Some(alias), _) => {
+                let len = self.aliases.len();
+                self.aliases.entry(alias).and_modify(|topic_mut| {
+                    *topic_mut = topic.clone()
+                }).or_try_insert_with(|| {
+                    if len >= self.max_topic_aliases {
+                        Err(MqttError::PublishAckReason(
+                            PublishAckReason::ImplementationSpecificError,
+                            ByteString::from(
+                                format!("implementation specific error, the number of topic aliases exceeds the limit ({})", self.max_topic_aliases),
+                            ),
+                        ))
+                    } else {
+                        Ok(topic.clone())
+                    }
+                })?;
+                Ok(topic)
+            }
+            (None, 0) => Err(MqttError::PublishAckReason(
+                PublishAckReason::ImplementationSpecificError,
+                ByteString::from("implementation specific error, ‘alias’ and ‘topic’ are both empty"),
+            )),
+            (None, _) => Ok(topic),
+        }
     }
 }
 

@@ -32,4 +32,10 @@ pub trait Fitter: Sync + Send {
 
     ///max packet size
     fn max_packet_size(&self) -> u32;
+
+    ///client topic alias maximum
+    fn max_client_topic_aliases(&self) -> u16;
+
+    ///server topic alias maximum
+    fn max_server_topic_aliases(&self) -> u16;
 }

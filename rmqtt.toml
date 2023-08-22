@@ -122,6 +122,8 @@ listener.tcp.external.await_rel_timeout = "5m"
 listener.tcp.external.max_subscriptions = 0
 #Shared subscription switch, default value: true
 listener.tcp.external.shared_subscription = true
+#topic alias maximum, default value: 0, topic aliases not enabled.
+listener.tcp.external.max_topic_aliases = 16
 
 ##--------------------------------------------------------------------
 ## Internal TCP Listener for MQTT Protocol

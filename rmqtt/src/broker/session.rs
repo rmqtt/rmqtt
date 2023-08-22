@@ -34,6 +34,8 @@ pub struct SessionState {
     pub sink: Sink,
     pub hook: Rc<dyn Hook>,
     pub deliver_queue_tx: Option<MessageSender>,
+    pub server_topic_aliases: Option<Rc<ServerTopicAliases>>,
+    pub client_topic_aliases: Option<Rc<ClientTopicAliases>>,
 }
 
 impl fmt::Debug for SessionState {
@@ -51,8 +53,36 @@ impl fmt::Debug for SessionState {
 
 impl SessionState {
     #[inline]
-    pub(crate) fn new(session: Session, client: ClientInfo, sink: Sink, hook: Rc<dyn Hook>) -> Self {
-        Self { tx: None, session, client, sink, hook, deliver_queue_tx: None }
+    pub(crate) fn new(
+        session: Session,
+        client: ClientInfo,
+        sink: Sink,
+        hook: Rc<dyn Hook>,
+        server_topic_alias_max: u16,
+        client_topic_alias_max: u16,
+    ) -> Self {
+        let server_topic_aliases = if server_topic_alias_max > 0 {
+            Some(Rc::new(ServerTopicAliases::new(server_topic_alias_max as usize)))
+        } else {
+            None
+        };
+        let client_topic_aliases = if client_topic_alias_max > 0 {
+            Some(Rc::new(ClientTopicAliases::new(client_topic_alias_max as usize)))
+        } else {
+            None
+        };
+        log::debug!("server_topic_aliases: {:?}", server_topic_aliases);
+        log::debug!("client_topic_aliases: {:?}", client_topic_aliases);
+        Self {
+            tx: None,
+            session,
+            client,
+            sink,
+            hook,
+            deliver_queue_tx: None,
+            server_topic_aliases,
+            client_topic_aliases,
+        }
     }
 
     #[inline]
@@ -470,7 +500,9 @@ impl SessionState {
         let publish = self.hook.message_delivered(from.clone(), &publish).await.unwrap_or(publish);
 
         //send message
-        self.sink.publish(&publish, expiry_check_res.message_expiry_interval())?; //@TODO ... at exception, send hook and or store message
+        self.sink
+            .publish(&publish, expiry_check_res.message_expiry_interval(), self.server_topic_aliases.as_ref())
+            .await?; //@TODO ... at exception, send hook and or store message
 
         //cache messages to inflight window
         let moment_status = match publish.qos() {
@@ -633,7 +665,7 @@ impl SessionState {
 
     #[inline]
     pub async fn publish_v3(&self, publish: &v3::Publish) -> Result<bool> {
-        match self.publish(Publish::try_from(publish)?).await {
+        match self.publish(Publish::from(publish)).await {
             Err(e) => {
                 Metrics::instance().client_publish_error_inc();
                 self.client
@@ -651,7 +683,7 @@ impl SessionState {
 
     #[inline]
     pub async fn publish_v5(&self, publish: &v5::Publish) -> Result<bool> {
-        match self.publish(Publish::try_from(publish)?).await {
+        match self._publish_v5(publish).await {
             Err(e) => {
                 Metrics::instance().client_publish_error_inc();
                 self.client
@@ -665,6 +697,16 @@ impl SessionState {
             }
             Ok(true) => Ok(true),
         }
+    }
+
+    #[inline]
+    async fn _publish_v5(&self, publish: &v5::Publish) -> Result<bool> {
+        log::debug!("{:?} publish: {:?}", self.id, publish);
+        let mut p = Publish::from(publish);
+        if let Some(client_topic_aliases) = &self.client_topic_aliases {
+            p.topic = client_topic_aliases.set_and_get(p.properties.topic_alias, p.topic)?;
+        }
+        self.publish(p).await
     }
 
     #[inline]

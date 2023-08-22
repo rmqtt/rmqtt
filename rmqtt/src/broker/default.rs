@@ -1186,11 +1186,12 @@ impl Fitter for DefaultFitter {
     fn keep_alive(&self, keep_alive: &mut u16) -> Result<u16> {
         if self.client.protocol() == MQTT_LEVEL_5 {
             if *keep_alive == 0 {
-                if self.listen_cfg.allow_zero_keepalive {
-                    *keep_alive = 10;
+                return if self.listen_cfg.allow_zero_keepalive {
+                    //*keep_alive = 10;
+                    Ok(0)
                 } else {
-                    return Err(MqttError::from("Keepalive must be greater than 0"));
-                }
+                    Err(MqttError::from("Keepalive must be greater than 0"))
+                };
             } else if *keep_alive < self.listen_cfg.min_keepalive {
                 *keep_alive = self.listen_cfg.min_keepalive;
             }
@@ -1278,6 +1279,22 @@ impl Fitter for DefaultFitter {
             }
         } else {
             self.listen_cfg.max_packet_size.as_u32()
+        }
+    }
+
+    fn max_client_topic_aliases(&self) -> u16 {
+        if let ConnectInfo::V5(_, _connect) = &self.client.connect_info {
+            self.listen_cfg.max_topic_aliases
+        } else {
+            0
+        }
+    }
+
+    fn max_server_topic_aliases(&self) -> u16 {
+        if let ConnectInfo::V5(_, connect) = &self.client.connect_info {
+            connect.topic_alias_max.min(self.listen_cfg.max_topic_aliases)
+        } else {
+            0
         }
     }
 }

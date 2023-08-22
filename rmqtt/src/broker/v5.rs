@@ -194,7 +194,18 @@ pub async fn _handshake<Io: 'static>(
         hook.session_created().await;
     }
 
-    let (state, tx) = SessionState::new(session, client, Sink::V5(sink), hook).start(keep_alive).await;
+    let client_topic_alias_max = session.fitter.max_client_topic_aliases();
+    let server_topic_alias_max = session.fitter.max_server_topic_aliases();
+    let (state, tx) = SessionState::new(
+        session,
+        client,
+        Sink::V5(sink),
+        hook,
+        server_topic_alias_max,
+        client_topic_alias_max,
+    )
+    .start(keep_alive)
+    .await;
 
     if let Err(e) = entry.set(state.session.clone(), tx, state.client.clone()).await {
         return Ok(refused_ack(
@@ -247,7 +258,7 @@ pub async fn _handshake<Io: 'static>(
         ack.retain_available = Some(retain_available);
         ack.max_packet_size = Some(max_packet_size);
         ack.assigned_client_id = assigned_client_id;
-        ack.topic_alias_max = 0; //@TODO ...
+        ack.topic_alias_max = client_topic_alias_max;
         ack.wildcard_subscription_available = Some(true);
         ack.subscription_identifiers_available = Some(true);
         ack.shared_subscription_available = Some(shared_subscription_available);

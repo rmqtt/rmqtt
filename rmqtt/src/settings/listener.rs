@@ -228,6 +228,9 @@ pub struct ListenerInner {
     #[serde(default = "ListenerInner::shared_subscription_default")]
     pub shared_subscription: bool,
 
+    #[serde(default)]
+    pub max_topic_aliases: u16,
+
     pub cert: Option<String>,
     pub key: Option<String>,
 }
@@ -265,6 +268,7 @@ impl Default for ListenerInner {
             await_rel_timeout: ListenerInner::await_rel_timeout_default(),
             max_subscriptions: ListenerInner::max_subscriptions_default(),
             shared_subscription: ListenerInner::shared_subscription_default(),
+            max_topic_aliases: 0,
             cert: None,
             key: None,
         }
