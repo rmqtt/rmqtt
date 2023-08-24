@@ -105,12 +105,10 @@ async fn main() {
 
 async fn listen(name: String, listen_cfg: &Listener) -> Result<()> {
     async fn _listen(name: &str, listen_cfg: &Listener) -> Result<()> {
-        let max_inflight = listen_cfg.max_inflight;
+        let max_inflight = listen_cfg.max_inflight.get() as usize;
         let handshake_timeout = listen_cfg.handshake_timeout();
         let max_size = listen_cfg.max_packet_size.as_u32();
         let max_qos = listen_cfg.max_qos_allowed;
-        let max_awaiting_rel = listen_cfg.max_awaiting_rel;
-        let await_rel_timeout = listen_cfg.await_rel_timeout;
         ntex::server::Server::build()
             .bind(name, listen_cfg.addr, move || {
                 MqttServer::new()
@@ -133,8 +131,6 @@ async fn listen(name: String, listen_cfg: &Listener) -> Result<()> {
                     .inflight(max_inflight)
                     .handshake_timeout(handshake_timeout)
                     .max_size(max_size)
-                    .max_awaiting_rel(max_awaiting_rel)
-                    .await_rel_timeout(await_rel_timeout)
                     .publish(fn_factory_with_config(|session: v3::Session<SessionState>| {
                         ok::<_, MqttError>(fn_service(move |req| publish_v3(session.clone(), req)))
                     }))
@@ -166,8 +162,6 @@ async fn listen(name: String, listen_cfg: &Listener) -> Result<()> {
                     .max_size(max_size)
                     .max_qos(max_qos)
                     //.max_topic_alias(max_topic_alias),
-                    .max_awaiting_rel(max_awaiting_rel)
-                    .await_rel_timeout(await_rel_timeout)
                     .publish(fn_factory_with_config(|session: v5::Session<SessionState>| {
                         ok::<_, MqttError>(fn_service(move |req| publish_v5(session.clone(), req)))
                     }))
@@ -208,12 +202,10 @@ async fn listen_tls(name: String, listen_cfg: &Listener) -> Result<()> {
 
         let tls_acceptor = Acceptor::new(tls_config);
 
-        let max_inflight = listen_cfg.max_inflight;
+        let max_inflight = listen_cfg.max_inflight.get() as usize;
         let handshake_timeout = listen_cfg.handshake_timeout();
         let max_size = listen_cfg.max_packet_size.as_u32();
         let max_qos = listen_cfg.max_qos_allowed;
-        let max_awaiting_rel = listen_cfg.max_awaiting_rel;
-        let await_rel_timeout = listen_cfg.await_rel_timeout;
         ntex::server::Server::build()
             .bind(name, listen_cfg.addr, move || {
                 pipeline_factory(tls_acceptor.clone())
@@ -244,8 +236,6 @@ async fn listen_tls(name: String, listen_cfg: &Listener) -> Result<()> {
                             .inflight(max_inflight)
                             .handshake_timeout(handshake_timeout)
                             .max_size(max_size)
-                            .max_awaiting_rel(max_awaiting_rel)
-                            .await_rel_timeout(await_rel_timeout)
                             .publish(fn_factory_with_config(|session: v3::Session<SessionState>| {
                                 ok::<_, MqttError>(fn_service(move |req| publish_v3(session.clone(), req)))
                             }))
@@ -282,8 +272,6 @@ async fn listen_tls(name: String, listen_cfg: &Listener) -> Result<()> {
                                 .max_size(max_size)
                                 .max_qos(max_qos)
                                 //.max_topic_alias(max_topic_alias)
-                                .max_awaiting_rel(max_awaiting_rel)
-                                .await_rel_timeout(await_rel_timeout)
                                 .publish(fn_factory_with_config(|session: v5::Session<SessionState>| {
                                     ok::<_, MqttError>(fn_service(move |req| {
                                         publish_v5(session.clone(), req)
@@ -324,12 +312,10 @@ async fn listen_tls(name: String, listen_cfg: &Listener) -> Result<()> {
 
 async fn listen_ws(name: String, listen_cfg: &Listener) -> Result<()> {
     async fn _listen_ws(name: &str, listen_cfg: &Listener) -> Result<()> {
-        let max_inflight = listen_cfg.max_inflight;
+        let max_inflight = listen_cfg.max_inflight.get() as usize;
         let handshake_timeout = listen_cfg.handshake_timeout();
         let max_size = listen_cfg.max_packet_size.as_u32();
         let max_qos = listen_cfg.max_qos_allowed;
-        let max_awaiting_rel = listen_cfg.max_awaiting_rel;
-        let await_rel_timeout = listen_cfg.await_rel_timeout;
         ntex::server::Server::build()
             .bind(name, listen_cfg.addr, move || {
                 pipeline_factory(ws::WSServer::new(Duration::from_secs(handshake_timeout as u64))).and_then(
@@ -355,8 +341,6 @@ async fn listen_ws(name: String, listen_cfg: &Listener) -> Result<()> {
                         .inflight(max_inflight)
                         .handshake_timeout(handshake_timeout)
                         .max_size(max_size)
-                        .max_awaiting_rel(max_awaiting_rel)
-                        .await_rel_timeout(await_rel_timeout)
                         .publish(fn_factory_with_config(|session: v3::Session<SessionState>| {
                             ok::<_, MqttError>(fn_service(move |req| publish_v3(session.clone(), req)))
                         }))
@@ -390,8 +374,6 @@ async fn listen_ws(name: String, listen_cfg: &Listener) -> Result<()> {
                         .max_size(max_size)
                         .max_qos(max_qos)
                         //.max_topic_alias(max_topic_alias),
-                        .max_awaiting_rel(max_awaiting_rel)
-                        .await_rel_timeout(await_rel_timeout)
                         .publish(fn_factory_with_config(|session: v5::Session<SessionState>| {
                             ok::<_, MqttError>(fn_service(move |req| publish_v5(session.clone(), req)))
                         }))
@@ -433,12 +415,10 @@ async fn listen_wss(name: String, listen_cfg: &Listener) -> Result<()> {
 
         let tls_acceptor = Acceptor::new(tls_config);
 
-        let max_inflight = listen_cfg.max_inflight;
+        let max_inflight = listen_cfg.max_inflight.get() as usize;
         let handshake_timeout = listen_cfg.handshake_timeout();
         let max_size = listen_cfg.max_packet_size.as_u32();
         let max_qos = listen_cfg.max_qos_allowed;
-        let max_awaiting_rel = listen_cfg.max_awaiting_rel;
-        let await_rel_timeout = listen_cfg.await_rel_timeout;
         ntex::server::Server::build()
             .bind(name, listen_cfg.addr, move || {
                 pipeline_factory(tls_acceptor.clone())
@@ -469,8 +449,6 @@ async fn listen_wss(name: String, listen_cfg: &Listener) -> Result<()> {
                             .inflight(max_inflight)
                             .handshake_timeout(handshake_timeout)
                             .max_size(max_size)
-                            .max_awaiting_rel(max_awaiting_rel)
-                            .await_rel_timeout(await_rel_timeout)
                             .publish(fn_factory_with_config(|session: v3::Session<SessionState>| {
                                 ok::<_, MqttError>(fn_service(move |req| publish_v3(session.clone(), req)))
                             }))
@@ -505,8 +483,6 @@ async fn listen_wss(name: String, listen_cfg: &Listener) -> Result<()> {
                             .max_size(max_size)
                             .max_qos(max_qos)
                             //.max_topic_alias(max_topic_alias)
-                            .max_awaiting_rel(max_awaiting_rel)
-                            .await_rel_timeout(await_rel_timeout)
                             .publish(fn_factory_with_config(|session: v5::Session<SessionState>| {
                                 ok::<_, MqttError>(fn_service(move |req| publish_v5(session.clone(), req)))
                             }))

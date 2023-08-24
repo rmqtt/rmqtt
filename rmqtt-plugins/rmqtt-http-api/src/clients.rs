@@ -89,7 +89,7 @@ async fn build_result(s: Option<Session>, c: Option<ClientInfo>) -> SearchResult
         last_will,
 
         inflight,
-        max_inflight: s.listen_cfg.max_inflight,
+        max_inflight: s.listen_cfg.max_inflight.get(),
 
         mqueue_len: s.deliver_queue.len(),
         max_mqueue: s.listen_cfg.max_mqueue_len,

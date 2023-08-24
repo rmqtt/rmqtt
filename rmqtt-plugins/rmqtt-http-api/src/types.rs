@@ -146,7 +146,7 @@ pub struct ClientSearchResult {
     pub last_will: serde_json::Value,
 
     pub inflight: usize,
-    pub max_inflight: usize,
+    pub max_inflight: u16,
     //    pub inflight_dropped: usize,
     pub mqueue_len: usize,
     pub max_mqueue: usize,

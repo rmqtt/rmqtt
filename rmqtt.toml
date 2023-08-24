@@ -74,9 +74,6 @@ listener.tcp.external.max_packet_size = "1m"
 #The maximum length of the TCP connection queue.
 #It indicates the maximum number of TCP connection queues that are being handshaked three times in the system
 listener.tcp.external.backlog = 1024
-#The Daze time after the TCP connection is established. If no message is received during this period,
-#the connection will be closed. (temporarily not used)
-listener.tcp.external.idle_timeout = "20s"
 #Whether anonymous login is allowed. Default: true
 listener.tcp.external.allow_anonymous = true
 #A value of zero indicates disabling the keep-alive feature, where the server
@@ -116,21 +113,13 @@ listener.tcp.external.session_expiry_interval = "2h"
 listener.tcp.external.message_retry_interval = "20s"
 #Message expiration time, 0 means no expiration
 listener.tcp.external.message_expiry_interval = "5m"
-#QoS 2, Maximum flight window waiting for client to send pubrel message,
-#When the window is full, the oldest will be removed.
-#0 means unlimited
-listener.tcp.external.max_awaiting_rel = 100
-#QoS 2, The timeout of waiting for client to send pubrel message,
-#The pubrel message of this message will be ignored after timeout.
-#0 means unlimited
-listener.tcp.external.await_rel_timeout = "5m"
 #The maximum number of topics that a single client is allowed to subscribe to
 #0 means unlimited, default value: 0
 listener.tcp.external.max_subscriptions = 0
 #Shared subscription switch, default value: true
 listener.tcp.external.shared_subscription = true
 #topic alias maximum, default value: 0, topic aliases not enabled.
-listener.tcp.external.max_topic_aliases = 16
+listener.tcp.external.max_topic_aliases = 0
 
 ##--------------------------------------------------------------------
 ## Internal TCP Listener for MQTT Protocol
@@ -142,9 +131,10 @@ listener.tcp.internal.max_handshaking_limit = 500
 listener.tcp.internal.handshake_timeout = "30s"
 listener.tcp.internal.max_packet_size = "1M"
 listener.tcp.internal.backlog = 512
-listener.tcp.internal.idle_timeout = "15s"
 listener.tcp.internal.allow_anonymous = true
+listener.tcp.internal.allow_zero_keepalive = true
 listener.tcp.internal.min_keepalive = 0
+listener.tcp.internal.max_keepalive = 65535
 listener.tcp.internal.keepalive_backoff = 0.75
 listener.tcp.internal.max_inflight = 16
 listener.tcp.internal.max_mqueue_len = 1000
@@ -156,10 +146,9 @@ listener.tcp.internal.retain_available = true
 listener.tcp.internal.session_expiry_interval = "2h"
 listener.tcp.internal.message_retry_interval = "30s"
 listener.tcp.internal.message_expiry_interval = "5m"
-listener.tcp.internal.max_awaiting_rel = 1000
-listener.tcp.internal.await_rel_timeout = "600s"
 listener.tcp.internal.max_subscriptions = 0
 listener.tcp.internal.shared_subscription = true
+listener.tcp.internal.max_topic_aliases = 0
 
 ##--------------------------------------------------------------------
 ## MQTT/TLS - External TLS Listener for MQTT Protocol

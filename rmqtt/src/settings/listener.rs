@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use std::num::NonZeroU32;
+use std::num::{NonZeroU16, NonZeroU32};
 use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -160,8 +160,6 @@ pub struct ListenerInner {
     pub reuseaddr: Option<bool>,
     #[serde(default = "ListenerInner::reuseport_default")]
     pub reuseport: Option<bool>,
-    #[serde(default = "ListenerInner::idle_timeout_default", deserialize_with = "deserialize_duration")]
-    pub idle_timeout: Duration,
     #[serde(default = "ListenerInner::allow_anonymous_default")]
     pub allow_anonymous: bool,
     #[serde(default = "ListenerInner::min_keepalive_default")]
@@ -173,7 +171,7 @@ pub struct ListenerInner {
     #[serde(default = "ListenerInner::keepalive_backoff_default")]
     pub keepalive_backoff: f32,
     #[serde(default = "ListenerInner::max_inflight_default")]
-    pub max_inflight: usize,
+    pub max_inflight: NonZeroU16,
     #[serde(default = "ListenerInner::handshake_timeout_default", deserialize_with = "deserialize_duration")]
     pub handshake_timeout: Duration,
     #[serde(default = "ListenerInner::max_mqueue_len_default")]
@@ -216,11 +214,6 @@ pub struct ListenerInner {
     )]
     pub message_expiry_interval: Duration,
 
-    #[serde(default = "ListenerInner::max_awaiting_rel_default")]
-    pub max_awaiting_rel: usize,
-    #[serde(default = "ListenerInner::await_rel_timeout_default", deserialize_with = "deserialize_duration")]
-    pub await_rel_timeout: Duration,
-
     #[serde(default = "ListenerInner::max_subscriptions_default")]
     pub max_subscriptions: usize,
 
@@ -247,7 +240,6 @@ impl Default for ListenerInner {
             reuseaddr: ListenerInner::reuseaddr_default(),
             reuseport: ListenerInner::reuseport_default(),
             backlog: ListenerInner::backlog_default(),
-            idle_timeout: ListenerInner::idle_timeout_default(),
             allow_anonymous: ListenerInner::allow_anonymous_default(),
             min_keepalive: ListenerInner::min_keepalive_default(),
             max_keepalive: ListenerInner::max_keepalive_default(),
@@ -264,8 +256,6 @@ impl Default for ListenerInner {
             session_expiry_interval: ListenerInner::session_expiry_interval_default(),
             message_retry_interval: ListenerInner::message_retry_interval_default(),
             message_expiry_interval: ListenerInner::message_expiry_interval_default(),
-            max_awaiting_rel: ListenerInner::max_awaiting_rel_default(),
-            await_rel_timeout: ListenerInner::await_rel_timeout_default(),
             max_subscriptions: ListenerInner::max_subscriptions_default(),
             shared_subscription: ListenerInner::shared_subscription_default(),
             max_topic_aliases: 0,
@@ -311,10 +301,10 @@ impl ListenerInner {
     fn backlog_default() -> i32 {
         1024
     }
-    #[inline]
-    fn idle_timeout_default() -> Duration {
-        Duration::from_secs(15)
-    }
+    //    #[inline]
+    //    fn idle_timeout_default() -> Duration {
+    //        Duration::from_secs(15)
+    //    }
     #[inline]
     fn allow_anonymous_default() -> bool {
         true
@@ -336,8 +326,8 @@ impl ListenerInner {
         0.75
     }
     #[inline]
-    fn max_inflight_default() -> usize {
-        16
+    fn max_inflight_default() -> NonZeroU16 {
+        NonZeroU16::new(16).unwrap()
     }
     #[inline]
     fn handshake_timeout_default() -> Duration {
@@ -378,14 +368,6 @@ impl ListenerInner {
     }
     #[inline]
     fn message_expiry_interval_default() -> Duration {
-        Duration::from_secs(300)
-    }
-    #[inline]
-    fn max_awaiting_rel_default() -> usize {
-        100
-    }
-    #[inline]
-    fn await_rel_timeout_default() -> Duration {
         Duration::from_secs(300)
     }
     #[inline]

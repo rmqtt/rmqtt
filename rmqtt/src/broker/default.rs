@@ -1239,11 +1239,11 @@ impl Fitter for DefaultFitter {
             None
         };
 
-        receive_max.unwrap_or_else(|| {
-            let max_inflight =
-                if self.listen_cfg.max_inflight == 0 { 16 } else { self.listen_cfg.max_inflight };
-            NonZeroU16::new(max_inflight as u16).unwrap()
-        })
+        if let Some(receive_max) = receive_max {
+            self.listen_cfg.max_inflight.min(receive_max)
+        } else {
+            self.listen_cfg.max_inflight
+        }
     }
 
     #[inline]
