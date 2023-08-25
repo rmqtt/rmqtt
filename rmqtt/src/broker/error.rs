@@ -51,6 +51,8 @@ pub enum MqttError {
     Utf8Error(#[from] Utf8Error),
     #[error("too many subscriptions")]
     TooManySubscriptions,
+    #[error("too many topic levels")]
+    TooManyTopicLevels,
     #[error("{0}")]
     ConfigError(#[from] ConfigError),
     #[error("{0}")]

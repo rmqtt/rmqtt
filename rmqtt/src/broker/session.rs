@@ -6,6 +6,7 @@ use std::fmt;
 use std::num::NonZeroU16;
 use std::ops::Deref;
 use std::rc::Rc;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Arc;
 
@@ -635,6 +636,12 @@ impl SessionState {
             && (self.subscriptions.len() >= self.listen_cfg.max_subscriptions)
         {
             return Err(MqttError::TooManySubscriptions);
+        }
+
+        if self.listen_cfg.max_topic_levels > 0
+            && Topic::from_str(&sub.topic_filter)?.len() > self.listen_cfg.max_topic_levels
+        {
+            return Err(MqttError::TooManyTopicLevels);
         }
 
         sub.opts.set_qos(sub.opts.qos().less_value(self.listen_cfg.max_qos_allowed));
