@@ -71,11 +71,11 @@ pub async fn handshake<Io: 'static>(
     match exec.spawn(_handshake(id.clone(), listen_cfg, handshake, assigned_client_id)).await {
         Ok(Ok(res)) => Ok(res),
         Ok(Err(e)) => {
-            log::warn!("{:?} Connection Refused, handshake error, reason: {:?}", id, e);
+            log::warn!("{:?} Connection Refused, handshake error, reason: {}", id, e);
             Err(e)
         }
         Err(e) => {
-            log::warn!("{:?} Connection Refused, handshake timeout, reason: {:?}", id, e);
+            log::warn!("{:?} Connection Refused, handshake timeout, reason: {}", id, e);
             Err(MqttError::from("Connection Refused, execute handshake timeout"))
         }
     }
@@ -138,7 +138,7 @@ pub async fn _handshake<Io: 'static>(
                 handshake,
                 &connect_info,
                 ConnectAckReasonV5::ServerUnavailable,
-                format!("{:?}", e),
+                format!("{}", e),
             )
             .await);
         }
@@ -153,7 +153,7 @@ pub async fn _handshake<Io: 'static>(
                     handshake,
                     &connect_info,
                     ConnectAckReasonV5::ServerUnavailable,
-                    format!("{:?}", e),
+                    format!("{}", e),
                 )
                 .await);
             }
@@ -181,7 +181,7 @@ pub async fn _handshake<Io: 'static>(
                 handshake,
                 &client.connect_info,
                 ConnectAckReasonV5::ServerUnavailable,
-                format!("{:?}", e),
+                format!("{}", e),
             )
             .await);
         }
@@ -212,7 +212,7 @@ pub async fn _handshake<Io: 'static>(
             handshake,
             &state.client.connect_info,
             ConnectAckReasonV5::ServerUnavailable,
-            format!("{:?}", e),
+            format!("{}", e),
         )
         .await);
     }
@@ -234,7 +234,7 @@ pub async fn _handshake<Io: 'static>(
         let clean_start = packet.clean_start;
         ntex::rt::spawn(async move {
             if let Err(e) = state1.transfer_session_state(clean_start, o).await {
-                log::warn!("{:?} Failed to transfer session state, {:?}", state1.id, e);
+                log::warn!("{:?} Failed to transfer session state, {}", state1.id, e);
             }
         });
     }
@@ -315,7 +315,7 @@ pub async fn control_message<E: std::fmt::Debug>(
                     .client
                     .add_disconnected_reason(Reason::SubscribeFailed(Some(ByteString::from(e.to_string()))))
                     .await;
-                log::error!("{:?} Subscribe failed, reason: {:?}", state.id, e);
+                log::error!("{:?} Subscribe failed, reason: {}", state.id, e);
                 return Err(e);
             }
             Ok(r) => r,
@@ -326,7 +326,7 @@ pub async fn control_message<E: std::fmt::Debug>(
                     .client
                     .add_disconnected_reason(Reason::UnsubscribeFailed(Some(ByteString::from(e.to_string()))))
                     .await;
-                log::error!("{:?} Unsubscribe failed, reason: {:?}", state.id, e);
+                log::error!("{:?} Unsubscribe failed, reason: {}", state.id, e);
                 return Err(e);
             }
             Ok(r) => r,
