@@ -29,7 +29,7 @@ rmqtt-retainer = { path = "rmqtt-plugins/rmqtt-retainer" }
 rmqtt-sys-topic = { path = "rmqtt-plugins/rmqtt-sys-topic" }
 
 [workspace.package]
-version = "0.2.15"
+version = "0.2.16"
 edition = "2021"
 authors = ["rmqtt <rmqttd@126.com>"]
 description = "MQTT Server for v3.1, v3.1.1 and v5.0 protocols"
