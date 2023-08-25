@@ -889,6 +889,14 @@ impl<'a> fmt::Debug for LastWill<'a> {
 
 impl<'a> LastWill<'a> {
     #[inline]
+    pub fn will_delay_interval(&self) -> Option<Duration> {
+        match self {
+            LastWill::V3(_) => None,
+            LastWill::V5(lw) => lw.will_delay_interval_sec.map(|i| Duration::from_secs(i as u64)),
+        }
+    }
+
+    #[inline]
     pub fn to_json(&self) -> serde_json::Value {
         match self {
             LastWill::V3(lw) => {
@@ -1095,9 +1103,9 @@ impl<'a> std::convert::TryFrom<LastWill<'a>> for Publish {
 
     #[inline]
     fn try_from(lw: LastWill<'a>) -> std::result::Result<Self, Self::Error> {
-        let (retain, qos, topic, payload, user_props) = match lw {
+        let (retain, qos, topic, payload, props) = match lw {
             LastWill::V3(lw) => {
-                let (topic, user_props) = if let Some(pos) = lw.topic.find('?') {
+                let (topic, user_properties) = if let Some(pos) = lw.topic.find('?') {
                     let topic = lw.topic.clone();
                     let query = lw.topic.as_bytes().slice(pos + 1..lw.topic.len());
                     let user_props = url::form_urlencoded::parse(query.as_ref())
@@ -1109,12 +1117,21 @@ impl<'a> std::convert::TryFrom<LastWill<'a>> for Publish {
                     let topic = lw.topic.clone();
                     (topic, UserProperties::default())
                 };
-
-                (lw.retain, lw.qos, topic, lw.message.clone(), user_props)
+                let props = PublishProperties { user_properties, ..Default::default() };
+                (lw.retain, lw.qos, topic, lw.message.clone(), props)
             }
             LastWill::V5(lw) => {
                 let topic = lw.topic.clone();
-                (lw.retain, lw.qos, topic, lw.message.clone(), lw.user_properties.clone())
+                let props = PublishProperties {
+                    correlation_data: lw.correlation_data.clone(),
+                    message_expiry_interval: lw.message_expiry_interval,
+                    content_type: lw.content_type.clone(),
+                    user_properties: lw.user_properties.clone(),
+                    is_utf8_payload: lw.is_utf8_payload,
+                    response_topic: lw.response_topic.clone(),
+                    ..Default::default()
+                };
+                (lw.retain, lw.qos, topic, lw.message.clone(), props)
             }
         };
 
@@ -1126,7 +1143,7 @@ impl<'a> std::convert::TryFrom<LastWill<'a>> for Publish {
             packet_id: None,
             payload,
 
-            properties: PublishProperties::from(user_props),
+            properties: props,
             create_time: chrono::Local::now().timestamp_millis(),
         })
     }

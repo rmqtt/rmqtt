@@ -266,11 +266,20 @@ impl SessionState {
             //Setting the disconnected state
             state.client.set_disconnected(None).await;
 
-            if state.last_will_enable(flags, clean_session) {
-                if let Err(e) = state.process_last_will().await {
-                    log::error!("{:?} process last will error, {:?}", state.id, e);
+            //Last will message
+            let will_delay_interval = if state.last_will_enable(flags, clean_session) {
+                let will_delay_interval = state.will_delay_interval();
+                if clean_session || will_delay_interval.is_none() {
+                    if let Err(e) = state.process_last_will().await {
+                        log::error!("{:?} process last will error, {:?}", state.id, e);
+                    }
+                    None
+                } else {
+                    will_delay_interval
                 }
-            }
+            } else {
+                None
+            };
 
             state.sink.close();
 
@@ -291,7 +300,14 @@ impl SessionState {
                 state.clean(state.client.take_disconnected_reason().await).await;
             } else {
                 //Start offline event loop
-                Self::offline_start(state.clone(), &mut msg_rx, &deliver_queue_tx, &mut flags).await;
+                Self::offline_start(
+                    state.clone(),
+                    &mut msg_rx,
+                    &deliver_queue_tx,
+                    &mut flags,
+                    will_delay_interval,
+                )
+                .await;
                 log::debug!("{:?} offline flags: {:?}", state.id, flags);
                 if !flags.contains(StateFlags::Kicked) {
                     state.clean(Reason::SessionExpiration).await;
@@ -307,16 +323,23 @@ impl SessionState {
         msg_rx: &mut Rx,
         deliver_queue_tx: &MessageSender,
         flags: &mut StateFlags,
+        mut will_delay_interval: Option<Duration>,
     ) {
+        let session_expiry_interval = state.fitter.session_expiry_interval().await;
         log::debug!(
-            "{:?} start offline event loop, session_expiry_interval: {:?}",
+            "{:?} start offline event loop, session_expiry_interval: {:?}, will_delay_interval: {:?}",
             state.id,
-            state.fitter.session_expiry_interval().await
+            session_expiry_interval,
+            will_delay_interval
         );
 
         //state.client.disconnect
-        let session_expiry_delay = tokio::time::sleep(state.fitter.session_expiry_interval().await);
+        let session_expiry_delay = tokio::time::sleep(session_expiry_interval);
         tokio::pin!(session_expiry_delay);
+
+        let will_delay_interval_delay =
+            tokio::time::sleep(will_delay_interval.unwrap_or_else(|| Duration::MAX));
+        tokio::pin!(will_delay_interval_delay);
 
         loop {
             tokio::select! {
@@ -359,8 +382,25 @@ impl SessionState {
                     }
                 },
                _ = &mut session_expiry_delay => { //, if !session_expiry_delay.is_elapsed() => {
-                  log::debug!("{:?} session expired", state.id);
+                  log::debug!("{:?} session expired, will_delay_interval: {:?}", state.id, will_delay_interval);
+                  if will_delay_interval.is_some() {
+                      if let Err(e) = state.process_last_will().await {
+                          log::error!("{:?} process last will error, {:?}", state.id, e);
+                      }
+                  }
                   break
+               },
+               _ = &mut will_delay_interval_delay => { //, if !will_delay_interval_delay.is_elapsed() => {
+                  log::debug!("{:?} will delay interval, will_delay_interval: {:?}", state.id, will_delay_interval);
+                  if will_delay_interval.is_some() {
+                      if let Err(e) = state.process_last_will().await {
+                          log::error!("{:?} process last will error, {:?}", state.id, e);
+                      }
+                      will_delay_interval = None;
+                  }
+                  will_delay_interval_delay.as_mut().reset(
+                    Instant::now() + session_expiry_interval,
+                  );
                },
             }
         }
@@ -410,6 +450,11 @@ impl SessionState {
         let session_present =
             flags.contains(StateFlags::Kicked) && !flags.contains(StateFlags::CleanStart) && !clean_session;
         !(flags.contains(StateFlags::DisconnectReceived) || session_present)
+    }
+
+    #[inline]
+    fn will_delay_interval(&self) -> Option<Duration> {
+        self.client.last_will().and_then(|lw| lw.will_delay_interval())
     }
 
     #[inline]
