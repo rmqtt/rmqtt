@@ -22,7 +22,7 @@ debug = []
 [dependencies]
 rmqtt-macros = "0.1"
 ntex = { git = "https://github.com/rmqtt/ntex.git", branch = "0.3.19", features = ["rustls"] }
-ntex-mqtt = { git = "https://github.com/rmqtt/ntex-mqtt", branch = "0.6.17" }
+ntex-mqtt = { git = "https://github.com/rmqtt/ntex-mqtt", branch = "0.6.18" }
 #ntex = { path = "../../ntex/ntex", features = ["rustls"]}
 #ntex-mqtt = { path = "../../ntex-mqtt" }
 futures = "0.3"
@@ -73,4 +73,4 @@ time = "=0.3.20"
 [build-dependencies]
 tonic-build = "0.8"
 toml = "0.5"
-chrono = { version = "0.4", default-features = false, features = [] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
