@@ -92,7 +92,62 @@ curl "http://127.0.0.1:6066/api/v1/health/check"
 - Account: 无
 - HTTP APIs: http://47.103.110.134:6080/api/v1/
 
+## 测试
 
+### 功能测试
+
+#### paho.mqtt.testing(MQTT V3.1.1) [client_test.py](https://github.com/eclipse/paho.mqtt.testing/blob/master/interoperability/client_test.py)
+
+* client_test.py Test.test_retained_messages          [OK]
+* client_test.py Test.test_zero_length_clientid       [OK]
+* client_test.py Test.will_message_test               [OK]
+* client_test.py Test.test_zero_length_clientid       [OK]
+* client_test.py Test.test_offline_message_queueing   [OK]
+* client_test.py Test.test_overlapping_subscriptions  [OK]
+* client_test.py Test.test_keepalive                  [OK]
+* client_test.py Test.test_redelivery_on_reconnect    [OK]
+* client_test.py Test.test_dollar_topics              [OK]
+* client_test.py Test.test_unsubscribe                [OK]
+* client_test.py Test.test_subscribe_failure          [OK]  
+   需要修改rmqtt-acl.toml配置，在第一行添加：["deny", "all", "subscribe", ["test/nosubscribe"]],
+
+#### paho.mqtt.testing(MQTT V5.0) [client_test5.py](https://github.com/eclipse/paho.mqtt.testing/blob/master/interoperability/client_test5.py)
+
+* client_test5.py Test.test_retained_message            [OK]
+* client_test5.py Test.test_will_message                [OK]
+* client_test5.py Test.test_offline_message_queueing    [OK]
+* client_test5.py Test.test_dollar_topics               [OK]
+* client_test5.py Test.test_unsubscribe                 [OK]
+* client_test5.py Test.test_session_expiry              [OK]
+* client_test5.py Test.test_shared_subscriptions        [OK]
+* client_test5.py Test.test_basic                       [OK]
+* client_test5.py Test.test_overlapping_subscriptions   [OK]
+* client_test5.py Test.test_redelivery_on_reconnect     [OK]
+* client_test5.py Test.test_payload_format              [OK]
+* client_test5.py Test.test_publication_expiry          [OK]
+* client_test5.py Test.test_subscribe_options           [OK]
+* client_test5.py Test.test_assigned_clientid           [OK]
+* client_test5.py Test.test_subscribe_identifiers       [OK]
+* client_test5.py Test.test_request_response            [OK]
+* client_test5.py Test.test_server_topic_alias          [OK]
+* client_test5.py Test.test_client_topic_alias          [OK]
+* client_test5.py Test.test_maximum_packet_size         [OK]
+* client_test5.py Test.test_keepalive                   [OK]
+* client_test5.py Test.test_zero_length_clientid        [OK]
+* client_test5.py Test.test_user_properties             [OK]
+* client_test5.py Test.test_flow_control2               [OK]
+* client_test5.py Test.test_flow_control1               [OK]
+* client_test5.py Test.test_will_delay                  [OK]
+* client_test5.py Test.test_server_keep_alive           [OK]
+  * 需要修改rmqtt.toml配置，将max_keepalive改为60
+* client_test5.py Test.test_subscribe_failure           [OK]
+  * 需要修改rmqtt-acl.toml配置，在第一行添加：["deny", "all", "subscribe", ["test/nosubscribe"]],
+同时修改client_test5.py的test_subscribe_failure()方法中的0x80为0x87。
+因为rmqtt返回错误码是0x87, 而test_subscribe_failure要求返回0x80。
+UnspecifiedError = 0x80, NotAuthorized = 0x87。
+
+
+### 压力测试
 
 
 

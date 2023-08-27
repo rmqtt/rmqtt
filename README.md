@@ -94,3 +94,59 @@ Get the binary package of the corresponding OS from [RMQTT Download](https://git
 - Account:
 - HTTP APIs: http://47.103.110.134:6080/api/v1/
 
+## Test
+
+### Functional Testing
+
+#### paho.mqtt.testing(MQTT V3.1.1) [client_test.py](https://github.com/eclipse/paho.mqtt.testing/blob/master/interoperability/client_test.py)
+
+* client_test.py Test.test_retained_messages          [OK]
+* client_test.py Test.test_zero_length_clientid       [OK]
+* client_test.py Test.will_message_test               [OK]
+* client_test.py Test.test_zero_length_clientid       [OK]
+* client_test.py Test.test_offline_message_queueing   [OK]
+* client_test.py Test.test_overlapping_subscriptions  [OK]
+* client_test.py Test.test_keepalive                  [OK]
+* client_test.py Test.test_redelivery_on_reconnect    [OK]
+* client_test.py Test.test_dollar_topics              [OK]
+* client_test.py Test.test_unsubscribe                [OK]
+* client_test.py Test.test_subscribe_failure          [OK]  
+  You need to modify the `rmqtt-acl.toml` configuration and add the following line at the first line: ["deny", "all", "subscribe", ["test/nosubscribe"]],
+
+#### paho.mqtt.testing(MQTT V5.0) [client_test5.py](https://github.com/eclipse/paho.mqtt.testing/blob/master/interoperability/client_test5.py)
+
+* client_test5.py Test.test_retained_message            [OK]
+* client_test5.py Test.test_will_message                [OK]
+* client_test5.py Test.test_offline_message_queueing    [OK]
+* client_test5.py Test.test_dollar_topics               [OK]
+* client_test5.py Test.test_unsubscribe                 [OK]
+* client_test5.py Test.test_session_expiry              [OK]
+* client_test5.py Test.test_shared_subscriptions        [OK]
+* client_test5.py Test.test_basic                       [OK]
+* client_test5.py Test.test_overlapping_subscriptions   [OK]
+* client_test5.py Test.test_redelivery_on_reconnect     [OK]
+* client_test5.py Test.test_payload_format              [OK]
+* client_test5.py Test.test_publication_expiry          [OK]
+* client_test5.py Test.test_subscribe_options           [OK]
+* client_test5.py Test.test_assigned_clientid           [OK]
+* client_test5.py Test.test_subscribe_identifiers       [OK]
+* client_test5.py Test.test_request_response            [OK]
+* client_test5.py Test.test_server_topic_alias          [OK]
+* client_test5.py Test.test_client_topic_alias          [OK]
+* client_test5.py Test.test_maximum_packet_size         [OK]
+* client_test5.py Test.test_keepalive                   [OK]
+* client_test5.py Test.test_zero_length_clientid        [OK]
+* client_test5.py Test.test_user_properties             [OK]
+* client_test5.py Test.test_flow_control2               [OK]
+* client_test5.py Test.test_flow_control1               [OK]
+* client_test5.py Test.test_will_delay                  [OK]
+* client_test5.py Test.test_server_keep_alive           [OK]
+  * You need to modify the `rmqtt.toml` configuration and change `max_keepalive` to 60.
+* client_test5.py Test.test_subscribe_failure           [OK]
+  * You need to modify the `rmqtt-acl.toml` configuration and add the following line at the first line: ["deny", "all", "subscribe", ["test/nosubscribe"]],
+    Modify the `test_subscribe_failure()` method in `client_test5.py` by changing `0x80` to `0x87`.
+    Because `rmqtt` returns the error code 0x87, while `test_subscribe_failure` expects it to return 0x80.
+    UnspecifiedError = 0x80, NotAuthorized = 0x87。
+
+
+### Stress Testing
