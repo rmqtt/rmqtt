@@ -80,8 +80,8 @@ pub struct Inflight {
     interval: TimestampMillis,
     next: Arc<AtomicU16>,
     queues: Queues,
-    on_push_fn: Option<Arc<dyn OnEventFn<()>>>,
-    on_pop_fn: Option<Arc<dyn OnEventFn<()>>>,
+    on_push_fn: Option<Arc<dyn OnEventFn>>,
+    on_pop_fn: Option<Arc<dyn OnEventFn>>,
 }
 
 impl Inflight {
@@ -101,7 +101,7 @@ impl Inflight {
     #[inline]
     pub fn on_push<F>(mut self, f: F) -> Self
     where
-        F: OnEventFn<()>,
+        F: OnEventFn,
     {
         self.on_push_fn = Some(Arc::new(f));
         self
@@ -110,7 +110,7 @@ impl Inflight {
     #[inline]
     pub fn on_pop<F>(mut self, f: F) -> Self
     where
-        F: OnEventFn<()>,
+        F: OnEventFn,
     {
         self.on_pop_fn = Some(Arc::new(f));
         self
@@ -169,7 +169,7 @@ impl Inflight {
     pub fn pop_front(&mut self) -> Option<InflightMessage> {
         if let Some(msg) = self.queues.pop_front().map(|(_, m)| m) {
             if let Some(f) = self.on_pop_fn.as_ref() {
-                f(&());
+                f();
             }
             Some(msg)
         } else {
@@ -190,12 +190,12 @@ impl Inflight {
     pub fn push_back(&mut self, m: InflightMessage) {
         if let Some(packet_id) = m.publish.packet_id() {
             if let Some(f) = self.on_push_fn.as_ref() {
-                f(&());
+                f();
             }
             let old = self.queues.insert(packet_id, m);
             if old.is_some() {
                 if let Some(f) = self.on_pop_fn.as_ref() {
-                    f(&());
+                    f();
                 }
             }
         } else {
@@ -207,7 +207,7 @@ impl Inflight {
     pub fn remove(&mut self, packet_id: &PacketId) -> Option<InflightMessage> {
         if let Some(msg) = self.queues.remove(packet_id) {
             if let Some(f) = self.on_pop_fn.as_ref() {
-                f(&());
+                f();
             }
             Some(msg)
         } else {

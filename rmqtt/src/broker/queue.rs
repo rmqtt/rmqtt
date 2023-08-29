@@ -32,8 +32,8 @@ pub trait PolicyFn<P>: 'static + Fn(&P) -> Policy {}
 
 impl<T, P> PolicyFn<P> for T where T: 'static + Clone + ?Sized + Fn(&P) -> Policy {}
 
-pub trait OnEventFn<P>: 'static + Sync + Send + Fn(&P) {}
-impl<T, P> OnEventFn<P> for T where T: 'static + Sync + Send + Clone + ?Sized + Fn(&P) {}
+pub trait OnEventFn: 'static + Sync + Send + Fn() {}
+impl<T> OnEventFn for T where T: 'static + Sync + Send + Clone + ?Sized + Fn() {}
 
 #[derive(Clone)]
 pub struct Sender<T> {
@@ -153,8 +153,8 @@ impl Limiter {
 pub struct Queue<T> {
     cap: usize,
     inner: SegQueue<T>,
-    on_push_fn: Option<Arc<dyn OnEventFn<T>>>,
-    on_pop_fn: Option<Arc<dyn OnEventFn<T>>>,
+    on_push_fn: Option<Arc<dyn OnEventFn>>,
+    on_pop_fn: Option<Arc<dyn OnEventFn>>,
 }
 
 impl<T> Drop for Queue<T> {
@@ -172,16 +172,16 @@ impl<T> Queue<T> {
 
     #[inline]
     pub fn on_push<F>(&mut self, f: F)
-        where
-            F: OnEventFn<T>,
+    where
+        F: OnEventFn,
     {
         self.on_push_fn = Some(Arc::new(f));
     }
 
     #[inline]
     pub fn on_pop<F>(&mut self, f: F)
-        where
-            F: OnEventFn<T>,
+    where
+        F: OnEventFn,
     {
         self.on_pop_fn = Some(Arc::new(f));
     }
@@ -192,7 +192,7 @@ impl<T> Queue<T> {
             return Err(v);
         }
         if let Some(f) = self.on_push_fn.as_ref() {
-            f(&v);
+            f();
         }
         self.inner.push(v);
         Ok(())
@@ -202,10 +202,10 @@ impl<T> Queue<T> {
     pub fn pop(&self) -> Option<T> {
         if let Some(v) = self.inner.pop() {
             if let Some(f) = self.on_pop_fn.as_ref() {
-                f(&v);
+                f();
             }
             Some(v)
-        }else{
+        } else {
             None
         }
     }

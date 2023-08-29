@@ -976,21 +976,19 @@ impl Session {
         let message_retry_interval = listen_cfg.message_retry_interval.as_millis() as TimestampMillis;
         let message_expiry_interval = listen_cfg.message_expiry_interval.as_millis() as TimestampMillis;
         let mut deliver_queue = MessageQueue::new(max_mqueue_len);
-        deliver_queue.on_push(|_v|{
+        deliver_queue.on_push(|| {
             Runtime::instance().stats.message_queues.inc();
         });
-        deliver_queue.on_pop(|_v|{
+        deliver_queue.on_pop(|| {
             Runtime::instance().stats.message_queues.dec();
         });
-        let out_inflight = Inflight::new(
-            max_inflight,
-            message_retry_interval,
-            message_expiry_interval,
-        ).on_push(|_|{
-            Runtime::instance().stats.inflights.inc();
-        }).on_pop(|_|{
-            Runtime::instance().stats.inflights.dec();
-        });
+        let out_inflight = Inflight::new(max_inflight, message_retry_interval, message_expiry_interval)
+            .on_push(|| {
+                Runtime::instance().stats.inflights.inc();
+            })
+            .on_pop(|| {
+                Runtime::instance().stats.inflights.dec();
+            });
 
         Runtime::instance().stats.sessions.inc();
         Self(Arc::new(_SessionInner {
