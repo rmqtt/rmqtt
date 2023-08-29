@@ -26,7 +26,7 @@ ntex-mqtt = { git = "https://github.com/rmqtt/ntex-mqtt", branch = "0.6.18" }
 #ntex = { path = "../../ntex/ntex", features = ["rustls"]}
 #ntex-mqtt = { path = "../../ntex-mqtt" }
 futures = "0.3"
-tokio = { version = "1", features = ["sync", "time", "macros", "rt", "rt-multi-thread"] }
+tokio = { version = "1", features = ["sync", "time", "macros", "rt", "rt-multi-thread", "fs"] }
 socket2 = { version = "0.4", features = ["all"] }
 tokio-stream = { version = "0.1", features = ["net"] }
 tonic = "0.8"
