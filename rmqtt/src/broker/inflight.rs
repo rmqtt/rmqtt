@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use rust_box::dequemap::DequeMap;
 
+use crate::broker::queue::OnEventFn;
 use crate::broker::types::{
     From, Packet, PacketId, PacketV3, PacketV5, Publish, PublishAck2, PublishAck2Reason, TimestampMillis,
     UserProperties,
@@ -79,13 +80,40 @@ pub struct Inflight {
     interval: TimestampMillis,
     next: Arc<AtomicU16>,
     queues: Queues,
+    on_push_fn: Option<Arc<dyn OnEventFn<()>>>,
+    on_pop_fn: Option<Arc<dyn OnEventFn<()>>>,
 }
 
 impl Inflight {
     #[inline]
     pub fn new(cap: usize, retry_interval: TimestampMillis, expiry_interval: TimestampMillis) -> Self {
         let interval = Self::interval(retry_interval, expiry_interval);
-        Self { cap, interval, next: Arc::new(AtomicU16::new(1)), queues: Queues::default() }
+        Self {
+            cap,
+            interval,
+            next: Arc::new(AtomicU16::new(1)),
+            queues: Queues::default(),
+            on_push_fn: None,
+            on_pop_fn: None,
+        }
+    }
+
+    #[inline]
+    pub fn on_push<F>(mut self, f: F) -> Self
+    where
+        F: OnEventFn<()>,
+    {
+        self.on_push_fn = Some(Arc::new(f));
+        self
+    }
+
+    #[inline]
+    pub fn on_pop<F>(mut self, f: F) -> Self
+    where
+        F: OnEventFn<()>,
+    {
+        self.on_pop_fn = Some(Arc::new(f));
+        self
     }
 
     #[inline]
@@ -139,7 +167,14 @@ impl Inflight {
 
     #[inline]
     pub fn pop_front(&mut self) -> Option<InflightMessage> {
-        self.queues.pop_front().map(|(_, m)| m)
+        if let Some(msg) = self.queues.pop_front().map(|(_, m)| m) {
+            if let Some(f) = self.on_pop_fn.as_ref() {
+                f(&());
+            }
+            Some(msg)
+        } else {
+            None
+        }
     }
 
     #[inline]
@@ -154,7 +189,15 @@ impl Inflight {
     #[inline]
     pub fn push_back(&mut self, m: InflightMessage) {
         if let Some(packet_id) = m.publish.packet_id() {
-            self.queues.insert(packet_id, m);
+            if let Some(f) = self.on_push_fn.as_ref() {
+                f(&());
+            }
+            let old = self.queues.insert(packet_id, m);
+            if old.is_some() {
+                if let Some(f) = self.on_pop_fn.as_ref() {
+                    f(&());
+                }
+            }
         } else {
             log::warn!("packet_id is None, inflight message: {:?}", m);
         }
@@ -162,7 +205,14 @@ impl Inflight {
 
     #[inline]
     pub fn remove(&mut self, packet_id: &PacketId) -> Option<InflightMessage> {
-        self.queues.remove(packet_id)
+        if let Some(msg) = self.queues.remove(packet_id) {
+            if let Some(f) = self.on_pop_fn.as_ref() {
+                f(&());
+            }
+            Some(msg)
+        } else {
+            None
+        }
     }
 
     #[inline]
