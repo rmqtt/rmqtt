@@ -223,6 +223,8 @@ pub struct ListenerInner {
     #[serde(default)]
     pub max_topic_aliases: u16,
 
+    #[serde(default = "ListenerInner::cross_certificate_default")]
+    pub cross_certificate: bool,
     pub cert: Option<String>,
     pub key: Option<String>,
 }
@@ -259,6 +261,7 @@ impl Default for ListenerInner {
             max_subscriptions: ListenerInner::max_subscriptions_default(),
             shared_subscription: ListenerInner::shared_subscription_default(),
             max_topic_aliases: 0,
+            cross_certificate: ListenerInner::cross_certificate_default(),
             cert: None,
             key: None,
         }
@@ -423,5 +426,9 @@ impl ListenerInner {
             _ => return Err(de::Error::custom("QoS configuration error, only values (0,1,2) are supported")),
         };
         Ok(qos)
+    }
+    #[inline]
+    fn cross_certificate_default() -> bool {
+        false
     }
 }
