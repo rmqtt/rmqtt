@@ -4,7 +4,7 @@ use std::time::Duration;
 use std::{fs::File, io::BufReader};
 
 use rustls::internal::pemfile::{certs, rsa_private_keys};
-use rustls::{NoClientAuth, ServerConfig};
+use rustls::{AllowAnyAuthenticatedClient, NoClientAuth, RootCertStore, ServerConfig};
 
 use rmqtt::broker::{
     v3::control_message as control_message_v3, v3::handshake as handshake_v3, v3::publish as publish_v3,
@@ -191,13 +191,23 @@ async fn listen(name: String, listen_cfg: &Listener) -> Result<()> {
 
 async fn listen_tls(name: String, listen_cfg: &Listener) -> Result<()> {
     async fn _listen_tls(name: &str, listen_cfg: &Listener) -> Result<()> {
-        let mut tls_config = ServerConfig::new(NoClientAuth::new());
-
         let cert_file = &mut BufReader::new(File::open(listen_cfg.cert.as_ref().unwrap())?);
         let key_file = &mut BufReader::new(File::open(listen_cfg.key.as_ref().unwrap())?);
 
         let cert_chain = certs(cert_file).unwrap();
         let mut keys = rsa_private_keys(key_file).unwrap();
+
+        let mut tls_config = if listen_cfg.cross_certificate {
+            let root_chain = cert_chain.clone();
+            let mut client_auth_roots = RootCertStore::empty();
+            for root in root_chain {
+                client_auth_roots.add(&root).unwrap();
+            }
+            ServerConfig::new(AllowAnyAuthenticatedClient::new(client_auth_roots))
+        } else {
+            ServerConfig::new(NoClientAuth::new())
+        };
+
         tls_config.set_single_cert(cert_chain, keys.remove(0)).map_err(|e| MqttError::from(e.to_string()))?;
 
         let tls_acceptor = Acceptor::new(tls_config);
@@ -404,13 +414,23 @@ async fn listen_ws(name: String, listen_cfg: &Listener) -> Result<()> {
 
 async fn listen_wss(name: String, listen_cfg: &Listener) -> Result<()> {
     async fn _listen_wss(name: &str, listen_cfg: &Listener) -> Result<()> {
-        let mut tls_config = ServerConfig::new(NoClientAuth::new());
-
         let cert_file = &mut BufReader::new(File::open(listen_cfg.cert.as_ref().unwrap())?);
         let key_file = &mut BufReader::new(File::open(listen_cfg.key.as_ref().unwrap())?);
 
         let cert_chain = certs(cert_file).unwrap();
         let mut keys = rsa_private_keys(key_file).unwrap();
+
+        let mut tls_config = if listen_cfg.cross_certificate {
+            let root_chain = cert_chain.clone();
+            let mut client_auth_roots = RootCertStore::empty();
+            for root in root_chain {
+                client_auth_roots.add(&root).unwrap();
+            }
+            ServerConfig::new(AllowAnyAuthenticatedClient::new(client_auth_roots))
+        } else {
+            ServerConfig::new(NoClientAuth::new())
+        };
+
         tls_config.set_single_cert(cert_chain, keys.remove(0)).map_err(|e| MqttError::from(e.to_string()))?;
 
         let tls_acceptor = Acceptor::new(tls_config);

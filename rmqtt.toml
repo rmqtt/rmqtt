@@ -153,6 +153,9 @@ listener.tcp.internal.max_topic_aliases = 0
 ##--------------------------------------------------------------------
 ## MQTT/TLS - External TLS Listener for MQTT Protocol
 listener.tls.external.addr = "0.0.0.0:8883"
+#listener.tls.external.cross_certificate = true
+#listener.tls.external.cert = "./rmqtt-bin/rmqtt.fullchain.pem"
+listener.tls.external.cross_certificate = false
 listener.tls.external.cert = "./rmqtt-bin/rmqtt.pem"
 listener.tls.external.key = "./rmqtt-bin/rmqtt.key"
 
@@ -163,5 +166,8 @@ listener.ws.external.addr = "0.0.0.0:8080"
 ##--------------------------------------------------------------------
 ## MQTT/TLS-WebSocket - External TLS-WebSocket Listener for MQTT Protocol
 listener.wss.external.addr = "0.0.0.0:8443"
+#listener.wss.external.cross_certificate = true
+#listener.wss.external.cert = "./rmqtt-bin/rmqtt.fullchain.pem"
+listener.wss.external.cross_certificate = false
 listener.wss.external.cert = "./rmqtt-bin/rmqtt.pem"
 listener.wss.external.key = "./rmqtt-bin/rmqtt.key"
