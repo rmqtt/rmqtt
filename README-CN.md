@@ -147,7 +147,7 @@ curl "http://127.0.0.1:6066/api/v1/health/check"
 UnspecifiedError = 0x80, NotAuthorized = 0x87。
 
 
-### 压力测试
+### 基准测试
 
 
 

@@ -180,7 +180,6 @@ impl SessionState {
                                 },
                                 Message::Disconnect(d) => {
                                     flags.insert(StateFlags::DisconnectReceived);
-                                    state.client.add_disconnected_reason(d.reason()).await;
                                     state.client.set_mqtt_disconnect(d).await;
                                 },
                                 Message::Closed(reason) => {
@@ -976,18 +975,29 @@ impl Session {
         let max_inflight = max_inflight.get() as usize;
         let message_retry_interval = listen_cfg.message_retry_interval.as_millis() as TimestampMillis;
         let message_expiry_interval = listen_cfg.message_expiry_interval.as_millis() as TimestampMillis;
+        let mut deliver_queue = MessageQueue::new(max_mqueue_len);
+        deliver_queue.on_push(|| {
+            Runtime::instance().stats.message_queues.inc();
+        });
+        deliver_queue.on_pop(|| {
+            Runtime::instance().stats.message_queues.dec();
+        });
+        let out_inflight = Inflight::new(max_inflight, message_retry_interval, message_expiry_interval)
+            .on_push(|| {
+                Runtime::instance().stats.inflights.inc();
+            })
+            .on_pop(|| {
+                Runtime::instance().stats.inflights.dec();
+            });
+
         Runtime::instance().stats.sessions.inc();
         Self(Arc::new(_SessionInner {
             id,
             fitter,
             listen_cfg,
             subscriptions: SessionSubs::new(),
-            deliver_queue: Arc::new(MessageQueue::new(max_mqueue_len)),
-            inflight_win: Arc::new(RwLock::new(Inflight::new(
-                max_inflight,
-                message_retry_interval,
-                message_expiry_interval,
-            ))),
+            deliver_queue: Arc::new(deliver_queue),
+            inflight_win: Arc::new(RwLock::new(out_inflight)),
             created_at,
         }))
     }
@@ -1187,6 +1197,7 @@ impl ClientInfo {
     }
 
     pub(crate) async fn set_mqtt_disconnect(&self, d: Disconnect) {
+        self.add_disconnected_reason(d.reason()).await;
         self.disconnect.write().await.replace(d);
     }
 

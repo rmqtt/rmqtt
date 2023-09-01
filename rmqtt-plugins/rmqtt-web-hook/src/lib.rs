@@ -5,27 +5,35 @@ extern crate serde;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicIsize, Ordering};
 use std::time::Duration;
 
 use backoff::future::retry;
 use backoff::ExponentialBackoff;
-use futures::channel::mpsc::{channel, Receiver, Sender};
-use futures::StreamExt;
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 use crate::config::Url;
+use crate::tokio::time;
 use config::PluginConfig;
-use rmqtt::tokio::fs::{File, OpenOptions};
-use rmqtt::tokio::io::AsyncWriteExt;
 use rmqtt::{
     anyhow::anyhow,
     async_trait::async_trait,
     base64,
     bytestring::ByteString,
-    chrono, futures, lazy_static, log, reqwest,
+    chrono, futures, lazy_static, log,
+    once_cell::sync::OnceCell,
+    reqwest,
     rust_box::std_ext::ArcExt,
     rust_box::task_exec_queue::SpawnExt,
+    rust_box::task_exec_queue::{Builder, TaskExecQueue},
     serde_json::{self, json},
-    tokio, DashMap, RwLock,
+    tokio::{
+        self,
+        fs::{File, OpenOptions},
+        io::AsyncWriteExt,
+        sync::RwLock,
+    },
+    DashMap,
 };
 use rmqtt::{
     broker::error::MqttError,
@@ -35,12 +43,10 @@ use rmqtt::{
     plugin::{DynPlugin, DynPluginResult, Plugin},
     Result, Runtime, Topic, TopicFilter,
 };
-use rmqtt::{
-    once_cell::sync::OnceCell,
-    rust_box::task_exec_queue::{Builder, TaskExecQueue},
-};
 
 mod config;
+
+type HookWriters = Arc<DashMap<ByteString, Arc<RwLock<HookWriter>>>>;
 
 #[inline]
 pub async fn register(
@@ -68,8 +74,10 @@ struct WebHookPlugin {
     register: Box<dyn Register>,
 
     cfg: Arc<RwLock<PluginConfig>>,
+    chan_queue_count: Arc<AtomicIsize>,
     tx: Arc<RwLock<Sender<Message>>>,
-    writers: Arc<DashMap<ByteString, HookWriter>>,
+    writers: HookWriters,
+    exec: TaskExecQueue,
 }
 
 impl WebHookPlugin {
@@ -77,57 +85,56 @@ impl WebHookPlugin {
     async fn new<S: Into<String>>(runtime: &'static Runtime, name: S, descr: S) -> Result<Self> {
         let name = name.into();
         let cfg = Arc::new(RwLock::new(Self::load_config(runtime, &name)?));
-        log::debug!("{} WebHookPlugin cfg: {:?}", name, cfg.read());
+        log::debug!("{} WebHookPlugin cfg: {:?}", name, cfg.read().await);
         let writers = Arc::new(DashMap::default());
-        let tx = Arc::new(RwLock::new(Self::start(runtime, cfg.clone(), writers.clone())));
+        let chan_queue_count = Arc::new(AtomicIsize::new(0));
+        let (tx, exec) = Self::start(runtime, cfg.clone(), writers.clone(), chan_queue_count.clone()).await;
+        let tx = Arc::new(RwLock::new(tx));
         let register = runtime.extends.hook_mgr().await.register();
-        Ok(Self { runtime, name, descr: descr.into(), register, cfg, tx, writers })
+        Ok(Self { runtime, name, descr: descr.into(), register, cfg, chan_queue_count, tx, writers, exec})
     }
 
-    fn start(
+    async fn start(
         _runtime: &'static Runtime,
         cfg: Arc<RwLock<PluginConfig>>,
-        writers: Arc<DashMap<ByteString, HookWriter>>,
-    ) -> Sender<Message> {
-        let (tx, mut rx): (Sender<Message>, Receiver<Message>) = channel(cfg.read().queue_capacity);
+        writers: HookWriters,
+        chan_queue_count: Arc<AtomicIsize>,
+    ) -> (Sender<Message>, TaskExecQueue) {
+        let worker_threads = cfg.read().await.worker_threads;
+        let (tx, mut rx): (Sender<Message>, Receiver<Message>) = channel(cfg.read().await.queue_capacity);
+
+        let (exec_tx, exec_rx) = tokio::sync::oneshot::channel();
         let _child = std::thread::Builder::new().name("web-hook".to_string()).spawn(move || {
             log::info!("start web-hook async worker.");
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
-                .worker_threads(cfg.read().worker_threads)
+                .worker_threads(worker_threads)
                 .thread_name("web-hook-worker")
                 .thread_stack_size(4 * 1024 * 1024)
                 .build()
                 .unwrap();
             let runner = async {
-                init_task_exec_queue(cfg.read().concurrency_limit, cfg.read().queue_capacity);
-                let backoff_strategy = cfg.read().get_backoff_strategy().arc();
+                let exec = init_task_exec_queue(cfg.read().await.concurrency_limit, cfg.read().await.queue_capacity);
+                exec_tx.send(exec.clone()).ok().unwrap();
+                let backoff_strategy = cfg.read().await.get_backoff_strategy().arc();
                 loop {
                     let cfg = cfg.clone();
                     let writers = writers.clone();
                     let backoff_strategy = backoff_strategy.clone();
-                    match rx.next().await {
+                    match rx.recv().await {
                         Some(msg) => {
+                            chan_queue_count.fetch_sub(1, Ordering::SeqCst);
                             log::trace!("received web-hook Message: {:?}", msg);
-                            match msg {
-                                Message::Body(typ, topic, data) => {
-                                    if let Err(e) = WebHookHandler::handle(
-                                        cfg,
-                                        writers,
-                                        backoff_strategy.clone(),
-                                        typ,
-                                        topic,
-                                        data,
-                                    )
-                                    .await
-                                    {
-                                        log::warn!("Failed to build the web-hook message, {:?}", e);
+                            if exec.is_full() {
+                                loop {
+                                    time::sleep(Duration::from_millis(1)).await;
+                                    if !exec.is_full() {
+                                        break;
                                     }
                                 }
-                                Message::Exit => {
-                                    log::debug!("Is Message::Exit message ...");
-                                    break;
-                                }
+                            }
+                            if !Self::handle_msg(&exec, cfg, writers, backoff_strategy, msg).await {
+                                break;
                             }
                         }
                         None => {
@@ -140,7 +147,39 @@ impl WebHookPlugin {
             rt.block_on(runner);
             log::info!("exit web-hook async worker.");
         });
-        tx
+        let exec = exec_rx.await.unwrap();
+        (tx, exec)
+    }
+
+    #[inline]
+    async fn handle_msg(
+        exec: &TaskExecQueue,
+        cfg: Arc<RwLock<PluginConfig>>,
+        writers: HookWriters,
+        backoff_strategy: Arc<ExponentialBackoff>,
+        msg: Message,
+    ) -> bool {
+        match msg {
+            Message::Body(typ, topic, data) => {
+                if let Err(e) = async move {
+                    if let Err(e) =
+                        WebHookHandler::handle(cfg, writers, backoff_strategy, typ, topic, data).await
+                    {
+                        log::warn!("Failed to build the web-hook message, {:?}", e);
+                    }
+                }
+                .spawn(exec)
+                .await
+                {
+                    log::error!("send web hook message failure, exec task error, {:?}", e.to_string());
+                }
+                return true;
+            }
+            Message::Exit => {
+                log::debug!("Is Message::Exit message ...");
+                return false;
+            }
+        }
     }
 
     #[inline]
@@ -157,22 +196,23 @@ impl Plugin for WebHookPlugin {
     async fn init(&mut self) -> Result<()> {
         log::info!("{} init", self.name);
         let tx = self.tx.clone();
-        self.register.add(Type::SessionCreated, Box::new(WebHookHandler { tx: tx.clone() })).await;
-        self.register.add(Type::SessionTerminated, Box::new(WebHookHandler { tx: tx.clone() })).await;
-        self.register.add(Type::SessionSubscribed, Box::new(WebHookHandler { tx: tx.clone() })).await;
-        self.register.add(Type::SessionUnsubscribed, Box::new(WebHookHandler { tx: tx.clone() })).await;
+        let chan_queue_count = self.chan_queue_count.clone();
+        self.register.add(Type::SessionCreated, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
+        self.register.add(Type::SessionTerminated, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
+        self.register.add(Type::SessionSubscribed, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
+        self.register.add(Type::SessionUnsubscribed, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
 
-        self.register.add(Type::ClientConnect, Box::new(WebHookHandler { tx: tx.clone() })).await;
-        self.register.add(Type::ClientConnack, Box::new(WebHookHandler { tx: tx.clone() })).await;
-        self.register.add(Type::ClientConnected, Box::new(WebHookHandler { tx: tx.clone() })).await;
-        self.register.add(Type::ClientDisconnected, Box::new(WebHookHandler { tx: tx.clone() })).await;
-        self.register.add(Type::ClientSubscribe, Box::new(WebHookHandler { tx: tx.clone() })).await;
-        self.register.add(Type::ClientUnsubscribe, Box::new(WebHookHandler { tx: tx.clone() })).await;
+        self.register.add(Type::ClientConnect, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
+        self.register.add(Type::ClientConnack, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
+        self.register.add(Type::ClientConnected, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
+        self.register.add(Type::ClientDisconnected, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
+        self.register.add(Type::ClientSubscribe, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
+        self.register.add(Type::ClientUnsubscribe, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
 
-        self.register.add(Type::MessagePublish, Box::new(WebHookHandler { tx: tx.clone() })).await;
-        self.register.add(Type::MessageDelivered, Box::new(WebHookHandler { tx: tx.clone() })).await;
-        self.register.add(Type::MessageAcked, Box::new(WebHookHandler { tx: tx.clone() })).await;
-        self.register.add(Type::MessageDropped, Box::new(WebHookHandler { tx: tx.clone() })).await;
+        self.register.add(Type::MessagePublish, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
+        self.register.add(Type::MessageDelivered, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
+        self.register.add(Type::MessageAcked, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
+        self.register.add(Type::MessageDropped, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
 
         Ok(())
     }
@@ -184,28 +224,31 @@ impl Plugin for WebHookPlugin {
 
     #[inline]
     async fn get_config(&self) -> Result<serde_json::Value> {
-        self.cfg.read().to_json()
+        self.cfg.read().await.to_json()
     }
 
     #[inline]
     async fn load_config(&mut self) -> Result<()> {
         let new_cfg = Self::load_config(self.runtime, &self.name)?;
-        let cfg = { self.cfg.read().clone() };
+        let cfg = { self.cfg.read().await.clone() };
         if cfg.worker_threads != new_cfg.worker_threads
             || cfg.queue_capacity != new_cfg.queue_capacity
             || cfg.concurrency_limit != new_cfg.concurrency_limit
         {
             let new_cfg = Arc::new(RwLock::new(new_cfg));
             //restart
-            let new_tx = Self::start(self.runtime, new_cfg.clone(), self.writers.clone());
-            if let Err(e) = self.tx.write().try_send(Message::Exit) {
+            let (new_tx, new_exec) =
+                Self::start(self.runtime, new_cfg.clone(),self.writers.clone(), self.chan_queue_count.clone())
+                    .await;
+            if let Err(e) = self.tx.write().await.send(Message::Exit).await {
                 log::error!("restart web-hook failed, {:?}", e);
                 return Err(MqttError::StdError(Box::new(e)));
             }
+            self.exec = new_exec;
             self.cfg = new_cfg;
-            *self.tx.write() = new_tx;
+            *self.tx.write().await = new_tx;
         } else {
-            *self.cfg.write() = new_cfg;
+            *self.cfg.write().await = new_cfg;
         }
         log::debug!("load_config ok,  {:?}", self.cfg);
         Ok(())
@@ -237,13 +280,16 @@ impl Plugin for WebHookPlugin {
 
     #[inline]
     async fn attrs(&self) -> serde_json::Value {
-        let exec = task_exec_queue();
-
+        let chan_queue_count = self.chan_queue_count.load(Ordering::SeqCst);
+        let exec = &self.exec;
         json!({
-            "active_count": exec.active_count(),
-            "waiting_count": exec.waiting_count(),
-            "completed_count": exec.completed_count(),
-            "failure_count": fails().count(),
+            "chan_queue_count": chan_queue_count,
+            "task_exec_queue": {
+                "active_count": exec.active_count(),
+                "waiting_count": exec.waiting_count(),
+                "completed_count": exec.completed_count(),
+                "failure_count": fails().count(),
+            }
         })
     }
 }
@@ -266,21 +312,21 @@ pub enum Message {
 
 struct WebHookHandler {
     tx: Arc<RwLock<Sender<Message>>>,
+    chan_queue_count: Arc<AtomicIsize>
 }
 
 impl WebHookHandler {
     async fn handle(
         cfg: Arc<RwLock<PluginConfig>>,
-        writers: Arc<DashMap<ByteString, HookWriter>>,
+        writers: HookWriters,
         backoff_strategy: Arc<ExponentialBackoff>,
         typ: hook::Type,
         topic: Option<TopicFilter>,
         body: serde_json::Value,
     ) -> Result<()> {
         let topic = if let Some(topic) = topic { Some(Topic::from_str(&topic)?) } else { None };
-
         let hook_writes = {
-            let cfg = cfg.read();
+            let cfg = cfg.read().await;
             if let Some(rules) = cfg.rules.get(&typ) {
                 //get action and urls
                 let action_urls = rules.iter().filter_map(|r| {
@@ -336,17 +382,24 @@ impl WebHookHandler {
                         }
                     }
                 }
-
                 Some(hook_writes)
             } else {
                 None
             }
-        };
 
+        };
         //send hook_writes
-        if let Some(hook_writes) = hook_writes {
-            log::debug!("hook_writes length: {}", hook_writes.len());
-            let _ = futures::future::join_all(hook_writes).await;
+        if let Some(mut hook_writes) = hook_writes {
+            let c = hook_writes.len();
+            match c {
+                0 => {},
+                1 => {
+                    hook_writes.remove(0).await;
+                }
+                _ => {
+                    let _ = futures::future::join_all(hook_writes).await;
+                }
+            }
         }
 
         Ok(())
@@ -354,7 +407,7 @@ impl WebHookHandler {
 
     #[inline]
     async fn write(
-        writers: Arc<DashMap<ByteString, HookWriter>>,
+        writers: HookWriters,
         backoff_strategy: Arc<ExponentialBackoff>,
         url: Url,
         body: Arc<serde_json::Value>,
@@ -369,10 +422,18 @@ impl WebHookHandler {
                     return;
                 }
             };
-            let mut writer = writers.entry(url.loc.clone()).or_insert_with(|| HookWriter::new(&url.loc));
+            let writer = writers
+                .entry(url.loc.clone())
+                .or_insert_with(|| Arc::new(RwLock::new(HookWriter::new(url.loc))))
+                .value()
+                .clone();
+            let mut writer = writer.write().await;
+            log::debug!("writer.log start ... ");
+            //time::sleep(time::Duration::from_secs(2)).await;
             if let Err(e) = writer.log(data.as_slice()).await {
                 log::warn!("write hook message failure, file: {:?}, {:?}", writer.file_name, e);
             }
+            log::debug!("writer.log end ... ");
         } else {
             //is http
             Self::http_request(backoff_strategy, url, body, timeout).await;
@@ -385,21 +446,13 @@ impl WebHookHandler {
         body: Arc<serde_json::Value>,
         timeout: Duration,
     ) {
-        if let Err(e) = async move {
-            if let Err(e) = retry(backoff_strategy.as_ref().clone(), || async {
-                Ok(Self::_http_request(&url.loc, body.clone(), timeout).await?)
-            })
-            .await
-            {
-                fails().current_inc();
-                log::warn!("send web hook message failure, {:?}", e);
-            }
-        }
-        .spawn(task_exec_queue())
+        if let Err(e) = retry(backoff_strategy.as_ref().clone(), || async {
+            Ok(Self::_http_request(&url.loc, body.clone(), timeout).await?)
+        })
         .await
         {
             fails().current_inc();
-            log::error!("send web hook message failure, exec task error, {:?}", e.to_string());
+            log::warn!("send web hook message failure, {:?}", e);
         }
     }
 
@@ -672,9 +725,11 @@ impl Handler for WebHookHandler {
         log::debug!("bodys: {:?}", bodys);
 
         if let Some((topic, body)) = bodys {
-            let mut tx = self.tx.read().clone();
-            if let Err(e) = tx.try_send(Message::Body(typ, topic, body)) {
+            let tx = self.tx.read().await.clone();
+            if let Err(e) = tx.send(Message::Body(typ, topic, body)).await {
                 log::warn!("web-hook send error, typ: {:?}, {:?}", typ, e);
+            }else{
+                self.chan_queue_count.fetch_add(1, Ordering::SeqCst);
             }
         }
 
@@ -688,8 +743,8 @@ struct HookWriter {
 }
 
 impl HookWriter {
-    fn new(file: &str) -> Self {
-        Self { file_name: String::from(file), file: None }
+    fn new(file: ByteString) -> Self {
+        Self { file_name: file.to_string(), file: None }
     }
 
     #[inline]
@@ -719,22 +774,15 @@ impl HookWriter {
     }
 }
 
-static TASK_EXEC_QUEUE: OnceCell<TaskExecQueue> = OnceCell::new();
-
 #[inline]
-fn init_task_exec_queue(workers: usize, queue_max: usize) {
+fn init_task_exec_queue(workers: usize, queue_max: usize) -> TaskExecQueue {
     let (exec, task_runner) = Builder::default().workers(workers).queue_max(queue_max).build();
 
     tokio::spawn(async move {
         task_runner.await;
     });
 
-    TASK_EXEC_QUEUE.set(exec).ok().expect("Failed to initialize task execution queue")
-}
-
-#[inline]
-pub(crate) fn task_exec_queue() -> &'static TaskExecQueue {
-    TASK_EXEC_QUEUE.get().expect("TaskExecQueue not initialized")
+    exec
 }
 
 //Failure count

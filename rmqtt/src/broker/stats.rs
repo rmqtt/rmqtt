@@ -125,6 +125,8 @@ pub struct Stats {
     pub subscriptions: Counter,
     pub subscriptions_shared: Counter,
     pub retaineds: Counter,
+    pub message_queues: Counter,
+    pub inflights: Counter,
 
     topics_map: HashMap<NodeId, Counter>,
     routes_map: HashMap<NodeId, Counter>,
@@ -150,6 +152,8 @@ impl Stats {
             subscriptions: Counter::new(),
             subscriptions_shared: Counter::new(),
             retaineds: Counter::new(),
+            message_queues: Counter::new(),
+            inflights: Counter::new(),
 
             topics_map: HashMap::default(),
             routes_map: HashMap::default(),
@@ -201,6 +205,8 @@ impl Stats {
             subscriptions: self.subscriptions.clone(),
             subscriptions_shared: self.subscriptions_shared.clone(),
             retaineds: self.retaineds.clone(), //retained messages
+            message_queues: self.message_queues.clone(),
+            inflights: self.inflights.clone(),
 
             topics_map,
             routes_map,
@@ -224,6 +230,8 @@ impl Stats {
         self.subscriptions.add(&other.subscriptions);
         self.subscriptions_shared.add(&other.subscriptions_shared);
         self.retaineds.add(&other.retaineds);
+        self.message_queues.add(&other.message_queues);
+        self.inflights.add(&other.inflights);
 
         self.topics_map.extend(other.topics_map);
         self.routes_map.extend(other.routes_map);
@@ -259,6 +267,11 @@ impl Stats {
             "subscriptions_shared.max": self.subscriptions_shared.max(),
             "retained.count": self.retaineds.count(),
             "retained.max": self.retaineds.max(),
+
+            "message_queues.count": self.message_queues.count(),
+            "message_queues.max": self.message_queues.max(),
+            "inflights.count": self.inflights.count(),
+            "inflights.max": self.inflights.max(),
 
             "topics.count": topics.count(),
             "topics.max": topics.max(),
