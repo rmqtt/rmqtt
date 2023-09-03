@@ -9,6 +9,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use base64::{Engine as _, engine::general_purpose};
 use bitflags::bitflags;
 use bytestring::ByteString;
 use itertools::Itertools;
@@ -904,7 +905,7 @@ impl<'a> LastWill<'a> {
                     "qos": lw.qos.value(),
                     "retain": lw.retain,
                     "topic": lw.topic,
-                    "message": base64::encode(lw.message.as_ref()),
+                    "message": general_purpose::STANDARD.encode(lw.message.as_ref()),
                 })
             }
             LastWill::V5(lw) => {
@@ -912,7 +913,7 @@ impl<'a> LastWill<'a> {
                     "qos": lw.qos.value(),
                     "retain": lw.retain,
                     "topic": lw.topic,
-                    "message": base64::encode(lw.message.as_ref()),
+                    "message": general_purpose::STANDARD.encode(lw.message.as_ref()),
 
                     "will_delay_interval_sec": lw.will_delay_interval_sec,
                     "correlation_data": lw.correlation_data,

@@ -57,5 +57,5 @@ rmqtt-sys-topic = { }
 #rmqtt-plugin-template = { }
 
 [build-dependencies]
-toml = "0.5"
+toml = "0.7"
 

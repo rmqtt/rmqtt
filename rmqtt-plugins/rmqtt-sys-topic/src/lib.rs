@@ -5,13 +5,13 @@ extern crate serde;
 use config::PluginConfig;
 use rmqtt::{
     async_trait::async_trait,
-    base64,
     bytes::Bytes,
     chrono, log,
     serde_json::{self, json},
     tokio::spawn,
     tokio::sync::RwLock,
     tokio::time::sleep,
+    base64::{Engine as _, engine::general_purpose},
 };
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
@@ -281,7 +281,7 @@ impl Handler for SystemTopicHandler {
                     "qos": publish.qos().value(),
                     "topic": publish.topic(),
                     "packet_id": publish.packet_id(),
-                    "payload": base64::encode(publish.payload()),
+                    "payload": general_purpose::STANDARD.encode(publish.payload()),
                     "reason": reason.to_string(),
                     "pts": publish.create_time(),
                     "ts": now.timestamp_millis(),
