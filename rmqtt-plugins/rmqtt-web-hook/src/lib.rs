@@ -133,12 +133,10 @@ impl WebHookPlugin {
                                     }
                                 }
                             }
-                            if !Self::handle_msg(&exec, cfg, writers, backoff_strategy, msg).await {
-                                break;
-                            }
+                            Self::handle_msg(&exec, cfg, writers, backoff_strategy, msg).await;
                         }
                         None => {
-                            log::error!("web hook message channel is closed!");
+                            log::info!("web hook message channel is closed!");
                             break;
                         }
                     }
@@ -158,27 +156,19 @@ impl WebHookPlugin {
         writers: HookWriters,
         backoff_strategy: Arc<ExponentialBackoff>,
         msg: Message,
-    ) -> bool {
-        match msg {
-            Message::Body(typ, topic, data) => {
-                if let Err(e) = async move {
-                    if let Err(e) =
-                        WebHookHandler::handle(cfg, writers, backoff_strategy, typ, topic, data).await
-                    {
-                        log::warn!("Failed to build the web-hook message, {:?}", e);
-                    }
-                }
-                .spawn(exec)
-                .await
-                {
-                    log::error!("send web hook message failure, exec task error, {:?}", e.to_string());
-                }
-                return true;
+    ) {
+        if let Err(e) = async move {
+            let (typ, topic, data) = msg;
+            if let Err(e) =
+                WebHookHandler::handle(cfg, writers, backoff_strategy, typ, topic, data).await
+            {
+                log::warn!("Failed to build the web-hook message, {:?}", e);
             }
-            Message::Exit => {
-                log::debug!("Is Message::Exit message ...");
-                return false;
-            }
+        }
+        .spawn(exec)
+        .await
+        {
+            log::error!("send web hook message failure, exec task error, {:?}", e.to_string());
         }
     }
 
@@ -240,10 +230,6 @@ impl Plugin for WebHookPlugin {
             let (new_tx, new_exec) =
                 Self::start(self.runtime, new_cfg.clone(),self.writers.clone(), self.chan_queue_count.clone())
                     .await;
-            if let Err(e) = self.tx.write().await.send(Message::Exit).await {
-                log::error!("restart web-hook failed, {:?}", e);
-                return Err(MqttError::StdError(Box::new(e)));
-            }
             self.exec = new_exec;
             self.cfg = new_cfg;
             *self.tx.write().await = new_tx;
@@ -304,11 +290,7 @@ lazy_static::lazy_static! {
     };
 }
 
-#[derive(Debug)]
-pub enum Message {
-    Body(hook::Type, Option<TopicFilter>, serde_json::Value),
-    Exit,
-}
+type Message = (hook::Type, Option<TopicFilter>, serde_json::Value);
 
 struct WebHookHandler {
     tx: Arc<RwLock<Sender<Message>>>,
@@ -726,7 +708,7 @@ impl Handler for WebHookHandler {
 
         if let Some((topic, body)) = bodys {
             let tx = self.tx.read().await.clone();
-            if let Err(e) = tx.send(Message::Body(typ, topic, body)).await {
+            if let Err(e) = tx.send((typ, topic, body)).await {
                 log::warn!("web-hook send error, typ: {:?}, {:?}", typ, e);
             }else{
                 self.chan_queue_count.fetch_add(1, Ordering::SeqCst);
