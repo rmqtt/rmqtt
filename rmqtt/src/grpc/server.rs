@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::Arc;
 
+use once_cell::sync::Lazy;
 use tonic::{transport, Response};
 
 use crate::{Result, Runtime};
@@ -127,9 +128,9 @@ impl NodeService for NodeGrpcService {
     }
 }
 
-lazy_static::lazy_static! {
-    pub static ref ACTIVE_REQUEST_COUNT: Arc<AtomicIsize> = Arc::new(AtomicIsize::new(0));
-}
+pub static ACTIVE_REQUEST_COUNT: Lazy<Arc<AtomicIsize>> = Lazy::new(|| {
+    Arc::new(AtomicIsize::new(0))
+});
 
 pub fn active_grpc_requests() -> isize {
     ACTIVE_REQUEST_COUNT.load(Ordering::SeqCst)

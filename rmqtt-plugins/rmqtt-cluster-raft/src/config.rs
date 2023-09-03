@@ -10,13 +10,14 @@ use serde::Serialize;
 use rmqtt::grpc::MessageType;
 use rmqtt::settings::{deserialize_duration, deserialize_duration_option, NodeAddr, Options};
 use rmqtt::Result;
-use rmqtt::{lazy_static, serde_json};
+use rmqtt::{once_cell::sync::Lazy, serde_json};
 
-lazy_static::lazy_static! {
-    pub static ref BACKOFF_STRATEGY: ExponentialBackoff = ExponentialBackoffBuilder::new()
+pub(crate) static BACKOFF_STRATEGY: Lazy<ExponentialBackoff> = Lazy::new(|| {
+    ExponentialBackoffBuilder::new()
         .with_max_elapsed_time(Some(Duration::from_secs(60)))
-        .with_multiplier(2.5).build();
-}
+        .with_multiplier(2.5)
+        .build()
+});
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {

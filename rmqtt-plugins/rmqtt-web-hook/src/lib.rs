@@ -20,8 +20,8 @@ use rmqtt::{
     async_trait::async_trait,
     base64::{Engine as _, engine::general_purpose},
     bytestring::ByteString,
-    chrono, futures, lazy_static, log,
-    once_cell::sync::OnceCell,
+    chrono, futures, log,
+    once_cell::sync::{Lazy, OnceCell},
     reqwest,
     rust_box::std_ext::ArcExt,
     rust_box::task_exec_queue::SpawnExt,
@@ -280,15 +280,13 @@ impl Plugin for WebHookPlugin {
     }
 }
 
-lazy_static::lazy_static! {
-    static ref  HTTP_CLIENT: reqwest::Client = {
-            reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(8))
-                .timeout(Duration::from_secs(15))
-                .build()
-                .unwrap()
-    };
-}
+static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(8))
+        .timeout(Duration::from_secs(15))
+        .build()
+        .unwrap()
+});
 
 type Message = (hook::Type, Option<TopicFilter>, serde_json::Value);
 

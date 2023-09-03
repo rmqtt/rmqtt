@@ -19,7 +19,6 @@ pub use crossbeam;
 pub use dashmap;
 pub use futures;
 pub use itertools;
-pub use lazy_static;
 pub use log;
 pub use ntex;
 pub use ntex_mqtt;

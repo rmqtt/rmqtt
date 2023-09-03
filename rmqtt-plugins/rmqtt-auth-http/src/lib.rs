@@ -14,7 +14,7 @@ use tokio::sync::RwLock;
 use config::PluginConfig;
 use rmqtt::ntex::util::ByteString;
 use rmqtt::reqwest::Response;
-use rmqtt::{ahash, async_trait, chrono, lazy_static, log, reqwest, serde_json, tokio};
+use rmqtt::{ahash, async_trait, chrono, log, reqwest, serde_json, tokio, once_cell::sync::Lazy};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::types::{
@@ -505,12 +505,10 @@ impl Handler for AuthHandler {
     }
 }
 
-lazy_static::lazy_static! {
-    static ref  HTTP_CLIENT: reqwest::Client = {
-            reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(5))
-                .timeout(Duration::from_secs(5))
-                .build()
-                .unwrap()
-    };
-}
+static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(5))
+        .build()
+        .unwrap()
+});
