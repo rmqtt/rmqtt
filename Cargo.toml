@@ -38,4 +38,4 @@ license = "MIT license, Apache-2.0 License"
 categories = ["network-programming"]
 keywords = ["MQTT", "IoT", "messaging", "MQTT Server", "MQTT Broker"]
 exclude = [".gitignore", ".cargo/config"]
-rust-version = "1.64"
+rust-version = "1.67"
