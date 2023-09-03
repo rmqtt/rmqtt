@@ -6,7 +6,7 @@ edition = "2021"
 
 [dependencies]
 rmqtt = "0.2"
-rmqtt-raft = { version = "0.3.2", features = ["reuse"] }
+rmqtt-raft = { version = "0.3.3", features = ["reuse"] }
 #rmqtt-raft = { path = "../../../rmqtt-raft", features = ["reuse"] }
 serde = { version = "1.0", features = ["derive"] }
 backoff = { version = "0.4", features = ["futures", "tokio"] }
