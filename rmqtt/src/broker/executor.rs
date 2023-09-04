@@ -9,7 +9,8 @@ use std::time::Duration;
 use crossbeam::queue::SegQueue;
 use futures::task::AtomicWaker;
 use once_cell::sync::OnceCell;
-use parking_lot::RwLock;
+//use parking_lot::RwLock;
+use tokio::sync::RwLock;
 use update_rate::{DiscreteRateCounter, RateCounter};
 
 use crate::broker::types::*;
@@ -23,7 +24,7 @@ std::thread_local! {
 }
 
 #[inline]
-pub(crate) fn get_handshake_exec(name: Port, listen_cfg: Listener) -> Executor {
+pub(crate) async fn get_handshake_exec(name: Port, listen_cfg: Listener) -> Executor {
     let exec = LOCAL_HANDSHAKE_EXECUTORS.with(|m| {
         m.entry(name)
             .or_insert_with(|| {
@@ -37,7 +38,7 @@ pub(crate) fn get_handshake_exec(name: Port, listen_cfg: Listener) -> Executor {
     });
 
     set_active_count(name, exec.active_count());
-    set_rate(name, exec.rate());
+    set_rate(name, exec.rate().await);
     exec
 }
 
@@ -140,7 +141,7 @@ impl Executor {
         if let Some(w) = self.inner.pending_wakers.pop() {
             w.wake();
         }
-        self.inner.rate_counter.write().update();
+        self.inner.rate_counter.write().await.update();
         Ok(output)
     }
 
@@ -150,8 +151,8 @@ impl Executor {
     }
 
     #[inline]
-    pub fn rate(&self) -> f64 {
-        self.inner.rate_counter.read().rate()
+    pub async fn rate(&self) -> f64 {
+        self.inner.rate_counter.read().await.rate()
     }
 }
 

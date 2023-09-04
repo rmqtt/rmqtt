@@ -7,11 +7,12 @@ use salvo::hyper::server::conn::AddrIncoming;
 use salvo::prelude::*;
 
 use rmqtt::{
-    anyhow, bytes, chrono, futures, log,
+    anyhow,
+    base64::{engine::general_purpose, Engine as _},
+    bytes, chrono, futures, log,
     serde_json::{self, json},
     tokio::sync::oneshot,
     HashMap,
-    base64::{Engine as _, engine::general_purpose},
 };
 use rmqtt::{
     broker::types::NodeId,
@@ -88,7 +89,7 @@ pub(crate) async fn listen_and_serve(
     rx: oneshot::Receiver<()>,
 ) -> Result<()> {
     let (reuseaddr, reuseport) = {
-        let cfg = cfg.read();
+        let cfg = cfg.read().await;
         (cfg.http_reuseaddr, cfg.http_reuseport)
     };
     log::info!("HTTP API Listening on {}, reuseaddr: {}, reuseport: {}", laddr, reuseaddr, reuseport);
@@ -273,7 +274,7 @@ async fn list_apis(res: &mut Response) {
 #[handler]
 async fn api_logger(req: &mut Request, depot: &mut Depot) {
     if let Some(cfg) = depot.obtain::<PluginConfigType>() {
-        if !cfg.read().http_request_log {
+        if !cfg.read().await.http_request_log {
             return;
         }
     }
@@ -308,7 +309,7 @@ async fn api_logger(req: &mut Request, depot: &mut Depot) {
 #[handler]
 async fn get_brokers(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
-    let message_type = cfg.read().message_type;
+    let message_type = cfg.read().await.message_type;
 
     let id = req.param::<NodeId>("id");
     if let Some(id) = id {
@@ -383,7 +384,7 @@ async fn _get_brokers(message_type: MessageType) -> Result<Vec<serde_json::Value
 #[handler]
 async fn get_nodes(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
-    let message_type = cfg.read().message_type;
+    let message_type = cfg.read().await.message_type;
 
     let id = req.param::<NodeId>("id");
     if let Some(id) = id {
@@ -467,7 +468,7 @@ async fn check_health(_req: &mut Request, _depot: &mut Depot, res: &mut Response
 #[handler]
 async fn get_client(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
-    let message_type = cfg.read().message_type;
+    let message_type = cfg.read().await.message_type;
     let clientid = req.param::<String>("clientid");
     if let Some(clientid) = clientid {
         match _get_client(message_type, &clientid).await {
@@ -513,8 +514,8 @@ async fn _get_client(message_type: MessageType, clientid: &str) -> Result<Option
 #[handler]
 async fn search_clients(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
-    let message_type = cfg.read().message_type;
-    let max_row_limit = cfg.read().max_row_limit;
+    let message_type = cfg.read().await.message_type;
+    let max_row_limit = cfg.read().await.max_row_limit;
     let mut q = match req.parse_queries::<ClientSearchParams>() {
         Ok(q) => q,
         Err(e) => return res.set_status_error(StatusError::bad_request().with_detail(e.to_string())),
@@ -602,7 +603,7 @@ async fn check_online(req: &mut Request, res: &mut Response) {
 #[handler]
 async fn query_subscriptions(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
-    let max_row_limit = cfg.read().max_row_limit;
+    let max_row_limit = cfg.read().await.max_row_limit;
     let mut q = match req.parse_queries::<SubsSearchParams>() {
         Ok(q) => q,
         Err(e) => return res.set_status_error(StatusError::bad_request().with_detail(e.to_string())),
@@ -636,7 +637,7 @@ async fn get_client_subscriptions(req: &mut Request, res: &mut Response) {
 #[handler]
 async fn get_routes(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
-    let max_row_limit = cfg.read().max_row_limit;
+    let max_row_limit = cfg.read().await.max_row_limit;
     let limit = req.query::<usize>("_limit");
     let limit = if let Some(limit) = limit {
         if limit > max_row_limit {
@@ -667,7 +668,7 @@ async fn get_route(req: &mut Request, res: &mut Response) {
 #[handler]
 async fn publish(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
-    let http_laddr = cfg.read().http_laddr;
+    let http_laddr = cfg.read().await.http_laddr;
 
     let remote_addr = req.remote_addr().and_then(|addr| {
         if let Some(ipv4) = addr.as_ipv4() {
@@ -823,7 +824,7 @@ async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response) {
         }
     } else {
         let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
-        let message_type = cfg.read().message_type;
+        let message_type = cfg.read().await.message_type;
         //The session is on another node
         #[allow(clippy::mutable_key_type)]
         match _subscribe_on_other_node(message_type, node_id, params).await {
@@ -892,7 +893,7 @@ async fn unsubscribe(req: &mut Request, depot: &mut Depot, res: &mut Response) {
         }
     } else {
         let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
-        let message_type = cfg.read().message_type;
+        let message_type = cfg.read().await.message_type;
         //The session is on another node
         match _unsubscribe_on_other_node(message_type, node_id, params).await {
             Ok(()) => res.render(Text::Plain("ok")),
@@ -922,7 +923,7 @@ async fn _unsubscribe_on_other_node(
 #[handler]
 async fn all_plugins(depot: &mut Depot, res: &mut Response) {
     let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
-    let message_type = cfg.read().message_type;
+    let message_type = cfg.read().await.message_type;
 
     match _all_plugins(message_type).await {
         Ok(pluginss) => res.render(Json(pluginss)),
@@ -977,7 +978,7 @@ async fn _all_plugins(message_type: MessageType) -> Result<Vec<serde_json::Value
 #[handler]
 async fn node_plugins(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
-    let message_type = cfg.read().message_type;
+    let message_type = cfg.read().await.message_type;
     let node_id = if let Some(node_id) = req.param::<NodeId>("node") {
         node_id
     } else {
@@ -1010,7 +1011,7 @@ async fn _node_plugins(node_id: NodeId, message_type: MessageType) -> Result<Vec
 #[handler]
 async fn node_plugin_info(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
-    let message_type = cfg.read().message_type;
+    let message_type = cfg.read().await.message_type;
     let node_id = if let Some(node_id) = req.param::<NodeId>("node") {
         node_id
     } else {
@@ -1057,7 +1058,7 @@ async fn _node_plugin_info(
 #[handler]
 async fn node_plugin_config(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
-    let message_type = cfg.read().message_type;
+    let message_type = cfg.read().await.message_type;
     let node_id = if let Some(node_id) = req.param::<NodeId>("node") {
         node_id
     } else {
@@ -1100,7 +1101,7 @@ async fn _node_plugin_config(node_id: NodeId, name: &str, message_type: MessageT
 #[handler]
 async fn node_plugin_config_reload(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
-    let message_type = cfg.read().message_type;
+    let message_type = cfg.read().await.message_type;
     let node_id = if let Some(node_id) = req.param::<NodeId>("node") {
         node_id
     } else {
@@ -1138,7 +1139,7 @@ async fn _node_plugin_config_reload(node_id: NodeId, name: &str, message_type: M
 #[handler]
 async fn node_plugin_load(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
-    let message_type = cfg.read().message_type;
+    let message_type = cfg.read().await.message_type;
     let node_id = if let Some(node_id) = req.param::<NodeId>("node") {
         node_id
     } else {
@@ -1176,7 +1177,7 @@ async fn _node_plugin_load(node_id: NodeId, name: &str, message_type: MessageTyp
 #[handler]
 async fn node_plugin_unload(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
-    let message_type = cfg.read().message_type;
+    let message_type = cfg.read().await.message_type;
     let node_id = if let Some(node_id) = req.param::<NodeId>("node") {
         node_id
     } else {
@@ -1214,7 +1215,7 @@ async fn _node_plugin_unload(node_id: NodeId, name: &str, message_type: MessageT
 #[handler]
 async fn get_stats_sum(depot: &mut Depot, res: &mut Response) {
     let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
-    let message_type = cfg.read().message_type;
+    let message_type = cfg.read().await.message_type;
 
     match _get_stats_sum(message_type).await {
         Ok(stats_sum) => res.render(Json(stats_sum)),
@@ -1274,7 +1275,7 @@ async fn _get_stats_sum(message_type: MessageType) -> Result<serde_json::Value> 
 #[handler]
 async fn get_stats(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
-    let message_type = cfg.read().message_type;
+    let message_type = cfg.read().await.message_type;
 
     let id = req.param::<NodeId>("id");
     if let Some(id) = id {
@@ -1371,7 +1372,7 @@ async fn _build_stats(id: NodeId, node_status: NodeStatus, stats: serde_json::Va
 #[handler]
 async fn get_metrics(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
-    let message_type = cfg.read().message_type;
+    let message_type = cfg.read().await.message_type;
 
     let id = req.param::<NodeId>("id");
     if let Some(id) = id {
@@ -1448,7 +1449,7 @@ async fn _get_metrics_all(message_type: MessageType) -> Result<Vec<serde_json::V
 #[handler]
 async fn get_metrics_sum(depot: &mut Depot, res: &mut Response) {
     let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
-    let message_type = cfg.read().message_type;
+    let message_type = cfg.read().await.message_type;
 
     match _get_metrics_sum(message_type).await {
         Ok(metrics_sum) => res.render(Json(metrics_sum)),

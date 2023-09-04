@@ -12,7 +12,7 @@ use rmqtt::{
     async_trait::async_trait,
     log,
     serde_json::{self, json},
-    RwLock,
+    tokio::sync::RwLock,
 };
 use rmqtt::{
     broker::{
@@ -72,11 +72,11 @@ impl ClusterPlugin {
     async fn new<S: Into<String>>(runtime: &'static Runtime, name: S, descr: S) -> Result<Self> {
         let name = name.into();
         let cfg = Arc::new(RwLock::new(runtime.settings.plugins.load_config::<PluginConfig>(&name)?));
-        log::debug!("{} ClusterPlugin cfg: {:?}", name, cfg.read());
+        log::debug!("{} ClusterPlugin cfg: {:?}", name, cfg.read().await);
 
         let register = runtime.extends.hook_mgr().await.register();
         let mut grpc_clients = HashMap::default();
-        let node_grpc_addrs = cfg.read().node_grpc_addrs.clone();
+        let node_grpc_addrs = cfg.read().await.node_grpc_addrs.clone();
         for node_addr in &node_grpc_addrs {
             if node_addr.id != runtime.node.id() {
                 grpc_clients.insert(
@@ -86,7 +86,7 @@ impl ClusterPlugin {
             }
         }
         let grpc_clients = Arc::new(grpc_clients);
-        let message_type = cfg.read().message_type;
+        let message_type = cfg.read().await.message_type;
         let router = ClusterRouter::get_or_init(grpc_clients.clone(), message_type);
         let shared = ClusterShared::get_or_init(grpc_clients.clone(), message_type);
         let retainer = ClusterRetainer::get_or_init(grpc_clients.clone(), message_type);
@@ -115,7 +115,7 @@ impl Plugin for ClusterPlugin {
 
     #[inline]
     async fn get_config(&self) -> Result<serde_json::Value> {
-        self.cfg.read().to_json()
+        self.cfg.read().await.to_json()
     }
 
     #[inline]

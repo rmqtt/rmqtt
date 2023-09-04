@@ -16,7 +16,8 @@ use rmqtt::{
     async_trait::async_trait,
     log, rand,
     serde_json::{self, json},
-    tokio, RwLock,
+    tokio,
+    tokio::sync::RwLock,
 };
 use rmqtt::{
     broker::{
@@ -125,7 +126,7 @@ impl ClusterPlugin {
 
     //raft init ...
     async fn start_raft(cfg: Arc<RwLock<PluginConfig>>, router: &'static ClusterRouter) -> Result<Mailbox> {
-        let raft_peer_addrs = cfg.read().raft_peer_addrs.clone();
+        let raft_peer_addrs = cfg.read().await.raft_peer_addrs.clone();
 
         let id = Runtime::instance().node.id();
         let raft_laddr = raft_peer_addrs
@@ -139,7 +140,7 @@ impl ClusterPlugin {
         //verify the listening address
         parse_addr(&raft_laddr).await?;
 
-        let raft = Raft::new(raft_laddr, router, logger, cfg.read().raft.to_raft_config())
+        let raft = Raft::new(raft_laddr, router, logger, cfg.read().await.raft.to_raft_config())
             .map_err(|e| MqttError::StdError(Box::new(e)))?;
         let mailbox = raft.mailbox();
 
@@ -251,7 +252,7 @@ impl Plugin for ClusterPlugin {
 
     #[inline]
     async fn get_config(&self) -> Result<serde_json::Value> {
-        self.cfg.read().to_json()
+        self.cfg.read().await.to_json()
     }
 
     #[inline]

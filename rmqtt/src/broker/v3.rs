@@ -78,7 +78,7 @@ pub async fn handshake<Io: 'static>(
 
     Runtime::instance().stats.handshakings.max_max(handshake.handshakings());
 
-    let exec = get_handshake_exec(local_addr.port(), listen_cfg.clone());
+    let exec = get_handshake_exec(local_addr.port(), listen_cfg.clone()).await;
     match exec.spawn(_handshake(id.clone(), listen_cfg, handshake)).await {
         Ok(Ok(res)) => Ok(res),
         Ok(Err(e)) => {
