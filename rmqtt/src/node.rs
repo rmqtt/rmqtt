@@ -193,17 +193,12 @@ impl NodeInfo {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Default, Serialize, Deserialize, Clone, Debug)]
 pub enum NodeStatus {
+    #[default]
     Running,
     Stop,
     Error(String),
-}
-
-impl Default for NodeStatus {
-    fn default() -> Self {
-        NodeStatus::Running
-    }
 }
 
 #[inline]

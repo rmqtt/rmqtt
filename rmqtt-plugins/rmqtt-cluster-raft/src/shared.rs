@@ -334,7 +334,7 @@ impl Shared for &'static ClusterShared {
             }
         };
 
-        let subs_size: SubscriptionSize = relations_map.iter().map(|(_, subs)| subs.len()).sum();
+        let subs_size: SubscriptionSize = relations_map.values().map(|subs| subs.len()).sum();
 
         let mut errs = Vec::new();
 

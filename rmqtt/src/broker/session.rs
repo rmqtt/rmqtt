@@ -338,7 +338,7 @@ impl SessionState {
         tokio::pin!(session_expiry_delay);
 
         let will_delay_interval_delay =
-            tokio::time::sleep(will_delay_interval.unwrap_or_else(|| Duration::MAX));
+            tokio::time::sleep(will_delay_interval.unwrap_or(Duration::MAX));
         tokio::pin!(will_delay_interval_delay);
 
         loop {

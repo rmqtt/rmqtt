@@ -273,8 +273,8 @@ impl AuthHandler {
         }
     }
 
-    fn replaces<'a>(
-        params: &'a mut HashMap<String, String>,
+    fn replaces(
+        params: &mut HashMap<String, String>,
         connect_info: &ConnectInfo,
         password: Option<&Password>,
         sub_or_pub: Option<(ACLType, &TopicName)>,
@@ -403,7 +403,7 @@ impl Handler for AuthHandler {
                     return (false, acc);
                 }
 
-                return match self.auth(*connect_info, connect_info.password()).await {
+                return match self.auth(connect_info, connect_info.password()).await {
                     ResponseResult::Allow(superuser) => {
                         (false, Some(HookResult::AuthResult(AuthResult::Allow(superuser))))
                     }

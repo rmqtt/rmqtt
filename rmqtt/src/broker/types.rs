@@ -1838,7 +1838,7 @@ bitflags! {
     }
 }
 
-#[derive(Deserialize, Serialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
 pub enum Reason {
     ConnectDisconnect(Option<ByteString>),
     ConnectReadWriteTimeout,
@@ -1857,14 +1857,8 @@ pub enum Reason {
     ProtocolError(ByteString),
     Error(ByteString),
     Reasons(Vec<Reason>),
+    #[default]
     Unknown,
-}
-
-impl Default for Reason {
-    #[inline]
-    fn default() -> Self {
-        Reason::Unknown
-    }
 }
 
 impl Reason {

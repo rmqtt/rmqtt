@@ -180,8 +180,8 @@ impl NodeGrpcClient {
                     merger_txs.len()
                 );
                 //merge and send
-                let msgs = merger_msgs.drain(..).collect::<Vec<(MessageType, Message)>>();
-                let r_txs = merger_txs.drain(..).collect::<Vec<OneshotSender<Result<MessageReply>>>>();
+                let msgs = std::mem::take(&mut merger_msgs);
+                let r_txs = std::mem::take(&mut merger_txs);
 
                 if client.active_tasks() < Runtime::instance().settings.rpc.client_concurrency_limit {
                     tokio::task::spawn(Self::_send(client.clone(), msgs, r_txs));

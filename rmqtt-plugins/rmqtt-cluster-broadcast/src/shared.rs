@@ -242,7 +242,7 @@ impl Shared for &'static ClusterShared {
             .await
         {
             Ok(mut relations_map) => {
-                let subs_size: SubscriptionSize = relations_map.iter().map(|(_, subs)| subs.len()).sum();
+                let subs_size: SubscriptionSize = relations_map.values().map(|subs| subs.len()).sum();
                 let mut relations = SubRelations::new();
                 let mut shared_relations = Vec::new();
                 for (node_id, rels) in relations_map.drain() {

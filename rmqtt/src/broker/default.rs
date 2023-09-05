@@ -394,7 +394,7 @@ impl Shared for &'static DefaultShared {
             }
         };
 
-        let subs_size: SubscriptionSize = relations_map.iter().map(|(_, subs)| subs.len()).sum();
+        let subs_size: SubscriptionSize = relations_map.values().map(|subs| subs.len()).sum();
 
         let this_node_id = Runtime::instance().node.id();
         if let Some(relations) = relations_map.remove(&this_node_id) {
@@ -423,7 +423,7 @@ impl Shared for &'static DefaultShared {
                 }
             };
 
-        let subs_size: SubscriptionSize = relations_map.iter().map(|(_, subs)| subs.len()).sum();
+        let subs_size: SubscriptionSize = relations_map.values().map(|subs| subs.len()).sum();
 
         let mut relations = SubRelations::new();
         let mut sub_relations_map = SubRelationsMap::default();

@@ -15,9 +15,10 @@ use tokio::time::Duration;
 
 use super::types::Reason;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Default)]
 pub enum MqttError {
     #[error("service unavailable")]
+    #[default]
     ServiceUnavailable,
     #[error("read/write timeout")]
     Timeout(Duration),
@@ -69,13 +70,6 @@ pub enum MqttError {
     TryFromIntError(#[from] TryFromIntError),
     #[error("None")]
     None,
-}
-
-impl Default for MqttError {
-    #[inline]
-    fn default() -> Self {
-        MqttError::ServiceUnavailable
-    }
 }
 
 impl From<()> for MqttError {
