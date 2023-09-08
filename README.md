@@ -166,13 +166,13 @@ Get the binary package of the corresponding OS from [RMQTT Download](https://git
 #### Connection Concurrency Performance
 | Item                  | Single Node       | Raft Cluster Mode |
 |-----------------------|-------------------|--------------------|
-| Total Concurrent Clients | 1 million       | 1 million          |
+| Total Concurrent Clients | 1,000,000       | 1,000,000          |
 | Connection Handshake Rate | (5500-7000)/second | (5000-7000)/second |
 
 #### Message Throughput Performance
 | Item                    | Single Node         | Raft Cluster Mode |
 |-------------------------|---------------------|--------------------|
-| Subscription Client Count | 1 million          | 1 million          |
+| Subscription Client Count | 1,000,000          | 1,000,000          |
 | Publishing Client Count   | 40                | 40                 |
 | Message Throughput Rate  | 150,000/second      | 156,000/second     |
 
