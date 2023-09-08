@@ -163,7 +163,7 @@ After successful connection, subscriptions are initiated simultaneously. Connect
 
 | Item                               | Value | Description |
 |------------------------------------|---------------|----------------|
-| Total number of concurrent clients | One million          | 25000 * 10 * 4 |
+| Total number of concurrent clients | 1,000,000          | 25000 * 10 * 4 |
 | Connection Handshake Rate          | (5500-7000)/second | Average Rate         |
 | Broker Process Memory              | 75.4G              |                      |
 | Broker Process CPU                 | (1-200)%           |                      |
@@ -214,7 +214,7 @@ curl "http://127.0.0.1:7064/api/v1/stats" | jq
 
 | Item                               | Value | Description |
 |-----------------|---------------|----------------|
-| Subscription Client Count | One million        |                  |
+| Subscription Client Count | 1,000,000        |                  |
 | Publishing Client Count   | 40               |                  |
 | Message Throughput Rate   | 150,000/second   |                  |
 | Broker Process Memory    | 88.2G            |                  |
@@ -482,7 +482,7 @@ Subscriptions are initiated simultaneously upon successful connection. Connectio
 
 | Item               | Value        | Description       |
 | ------------------ | ------------ | ----------------- |
-| Total Concurrent Clients | 1 million  | 25000 * 10 * 4    |
+| Total Concurrent Clients | 1,000,000  | 25000 * 10 * 4    |
 | Connection Handshake Rate | (5000-7000)/second | Average Rate   |
 | Broker Process Memory | 26.8G * 3    | Three nodes       |
 | Broker Process CPU    | (1-90)% * 3  | Three nodes       |
@@ -540,7 +540,7 @@ curl "http://127.0.0.1:7064/api/v1/stats/sum" | jq
 
 | Item               | Value         | Description                                |
 | ------------------ | -------------- | ------------------------------------------ |
-| Subscription Client Count | 1 million   |                                          |
+| Subscription Client Count | 1,000,000   |                                          |
 | Publishing Client Count  | 40          |                                          |
 | Message Throughput Rate  | 156,000/second |                                       |
 | Broker Process Memory   | 30.5G * 3    | Three nodes                              |
