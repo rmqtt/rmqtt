@@ -5,7 +5,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::TimeZone;
+use chrono::{LocalResult, TimeZone};
 use config::{Config, File, Source};
 use once_cell::sync::OnceCell;
 use serde::de::{self, Deserialize, Deserializer};
@@ -461,8 +461,8 @@ where
     if t_str.is_empty() {
         Ok(None)
     } else {
-        let t = if let Ok(d) = chrono::Local.datetime_from_str(&t_str, "%Y-%m-%d %H:%M:%S") {
-            Duration::from_secs(d.timestamp() as u64)
+        let t = if let Ok(d) = timestamp_parse_from_str(&t_str, "%Y-%m-%d %H:%M:%S") {
+            Duration::from_secs(d as u64)
         } else {
             let d = t_str.parse::<u64>().map_err(serde::de::Error::custom)?;
             Duration::from_secs(d)
@@ -517,3 +517,21 @@ impl<'de> de::Deserialize<'de> for NodeAddr {
         NodeAddr::from_str(&String::deserialize(deserializer)?).map_err(de::Error::custom)
     }
 }
+
+#[inline]
+fn timestamp_parse_from_str(ts: &str, fmt: &str)  -> anyhow::Result<i64> {
+    let ndt = chrono::NaiveDateTime::parse_from_str(ts, fmt)?;
+    let ndt = ndt.and_local_timezone(chrono::Local::now().offset().clone());
+    match ndt{
+        LocalResult::None => {
+            Err(anyhow::Error::msg("Impossible"))
+        },
+        LocalResult::Single(d) => {
+            Ok(d.timestamp())
+        },
+        LocalResult::Ambiguous(d, _tz) => {
+            Ok(d.timestamp())
+        }
+    }
+}
+
