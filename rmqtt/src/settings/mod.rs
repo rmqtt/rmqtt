@@ -5,7 +5,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{LocalResult, TimeZone};
+use chrono::LocalResult;
 use config::{Config, File, Source};
 use once_cell::sync::OnceCell;
 use serde::de::{self, Deserialize, Deserializer};
