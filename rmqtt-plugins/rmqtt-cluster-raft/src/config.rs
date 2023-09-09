@@ -9,7 +9,7 @@ use serde::Serialize;
 
 use rmqtt::grpc::MessageType;
 use rmqtt::settings::{deserialize_duration, deserialize_duration_option, NodeAddr, Options};
-use rmqtt::Result;
+use rmqtt::{MqttError, NodeId, Result};
 use rmqtt::{once_cell::sync::Lazy, serde_json};
 
 pub(crate) static BACKOFF_STRATEGY: Lazy<ExponentialBackoff> = Lazy::new(|| {
@@ -21,22 +21,46 @@ pub(crate) static BACKOFF_STRATEGY: Lazy<ExponentialBackoff> = Lazy::new(|| {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
+
     #[serde(default = "PluginConfig::message_type_default")]
     pub message_type: MessageType,
+
     pub node_grpc_addrs: Vec<NodeAddr>,
+
     pub raft_peer_addrs: Vec<NodeAddr>,
+
+    #[serde(default)]
+    pub leader_id: NodeId,
+
     #[serde(default = "PluginConfig::try_lock_timeout_default", deserialize_with = "deserialize_duration")]
     pub try_lock_timeout: Duration, //Message::HandshakeTryLock
 
     #[serde(default = "PluginConfig::task_exec_queue_workers_default")]
     pub task_exec_queue_workers: usize,
+
     #[serde(default = "PluginConfig::task_exec_queue_max_default")]
     pub task_exec_queue_max: usize,
+
     #[serde(default = "PluginConfig::raft_default")]
     pub raft: RaftConfig,
 }
 
 impl PluginConfig {
+
+    #[inline]
+    pub fn leader(&self) -> Result<Option<&NodeAddr>> {
+        if self.leader_id == 0 {
+            Ok(None)
+        }else{
+            let leader = self.raft_peer_addrs
+                .iter()
+                .find(|leader| leader.id == self.leader_id)
+                .map(|leader| leader )
+                .ok_or_else(|| MqttError::from("Leader does not exist"))?;
+            Ok(Some(leader))
+        }
+    }
+
     #[inline]
     pub fn to_json(&self) -> Result<serde_json::Value> {
         Ok(serde_json::to_value(self)?)
