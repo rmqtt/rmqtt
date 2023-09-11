@@ -9,7 +9,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use base64::{Engine as _, engine::general_purpose};
+use base64::{engine::general_purpose, Engine as _};
 use bitflags::bitflags;
 use bytestring::ByteString;
 use itertools::Itertools;
@@ -22,6 +22,7 @@ pub use ntex_mqtt::v3::{
     codec::SubscribeReturnCode as SubscribeReturnCodeV3, HandshakeAck as HandshakeAckV3,
     MqttSink as MqttSinkV3,
 };
+use tokio::sync::oneshot;
 
 use ntex_mqtt::v5::codec::{PublishAckReason, RetainHandling};
 pub use ntex_mqtt::v5::{
@@ -36,7 +37,6 @@ pub use ntex_mqtt::v5::{
 };
 use serde::de::{self, Deserialize, Deserializer};
 use serde::ser::{Serialize, SerializeStruct, Serializer};
-use tokio::sync::oneshot;
 
 use crate::{MqttError, Result, Runtime};
 
@@ -565,10 +565,15 @@ pub struct SubOptionsV3 {
 impl SubOptionsV3 {
     #[inline]
     pub fn to_json(&self) -> serde_json::Value {
-        json!({
+        let mut obj = json!({
             "qos": self.qos.value(),
-            "group": self.shared_group,
-        })
+        });
+        if let Some(g) = &self.shared_group {
+            if let Some(obj) = obj.as_object_mut() {
+                obj.insert("group".into(), serde_json::Value::String(g.clone()));
+            }
+        }
+        obj
     }
 }
 
@@ -603,13 +608,21 @@ impl SubOptionsV5 {
 
     #[inline]
     pub fn to_json(&self) -> serde_json::Value {
-        json!({
+        let mut obj = json!({
             "qos": self.qos.value(),
-            "group": self.shared_group,
             "no_local": self.no_local,
             "retain_as_published": self.retain_as_published,
             "retain_handling": self.retain_handling_value(),
-        })
+        });
+        if let Some(obj) = obj.as_object_mut() {
+            if let Some(g) = &self.shared_group {
+                obj.insert("group".into(), serde_json::Value::String(g.clone()));
+            }
+            if let Some(id) = &self.id {
+                obj.insert("id".into(), serde_json::Value::Number(serde_json::Number::from(id.get())));
+            }
+        }
+        obj
     }
 
     #[inline]

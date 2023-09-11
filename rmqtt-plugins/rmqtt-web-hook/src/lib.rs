@@ -4,8 +4,8 @@ extern crate serde;
 
 use std::path::Path;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use backoff::future::retry;
@@ -18,7 +18,7 @@ use config::PluginConfig;
 use rmqtt::{
     anyhow::anyhow,
     async_trait::async_trait,
-    base64::{Engine as _, engine::general_purpose},
+    base64::{engine::general_purpose, Engine as _},
     bytestring::ByteString,
     chrono, futures, log,
     once_cell::sync::{Lazy, OnceCell},
@@ -91,7 +91,7 @@ impl WebHookPlugin {
         let (tx, exec) = Self::start(runtime, cfg.clone(), writers.clone(), chan_queue_count.clone()).await;
         let tx = Arc::new(RwLock::new(tx));
         let register = runtime.extends.hook_mgr().await.register();
-        Ok(Self { runtime, name, descr: descr.into(), register, cfg, chan_queue_count, tx, writers, exec})
+        Ok(Self { runtime, name, descr: descr.into(), register, cfg, chan_queue_count, tx, writers, exec })
     }
 
     async fn start(
@@ -114,7 +114,8 @@ impl WebHookPlugin {
                 .build()
                 .unwrap();
             let runner = async {
-                let exec = init_task_exec_queue(cfg.read().await.concurrency_limit, cfg.read().await.queue_capacity);
+                let exec =
+                    init_task_exec_queue(cfg.read().await.concurrency_limit, cfg.read().await.queue_capacity);
                 exec_tx.send(exec.clone()).ok().unwrap();
                 let backoff_strategy = cfg.read().await.get_backoff_strategy().arc();
                 loop {
@@ -159,9 +160,7 @@ impl WebHookPlugin {
     ) {
         if let Err(e) = async move {
             let (typ, topic, data) = msg;
-            if let Err(e) =
-                WebHookHandler::handle(cfg, writers, backoff_strategy, typ, topic, data).await
-            {
+            if let Err(e) = WebHookHandler::handle(cfg, writers, backoff_strategy, typ, topic, data).await {
                 log::warn!("Failed to build the web-hook message, {:?}", e);
             }
         }
@@ -187,22 +186,92 @@ impl Plugin for WebHookPlugin {
         log::info!("{} init", self.name);
         let tx = self.tx.clone();
         let chan_queue_count = self.chan_queue_count.clone();
-        self.register.add(Type::SessionCreated, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
-        self.register.add(Type::SessionTerminated, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
-        self.register.add(Type::SessionSubscribed, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
-        self.register.add(Type::SessionUnsubscribed, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
+        self.register
+            .add(
+                Type::SessionCreated,
+                Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() }),
+            )
+            .await;
+        self.register
+            .add(
+                Type::SessionTerminated,
+                Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() }),
+            )
+            .await;
+        self.register
+            .add(
+                Type::SessionSubscribed,
+                Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() }),
+            )
+            .await;
+        self.register
+            .add(
+                Type::SessionUnsubscribed,
+                Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() }),
+            )
+            .await;
 
-        self.register.add(Type::ClientConnect, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
-        self.register.add(Type::ClientConnack, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
-        self.register.add(Type::ClientConnected, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
-        self.register.add(Type::ClientDisconnected, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
-        self.register.add(Type::ClientSubscribe, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
-        self.register.add(Type::ClientUnsubscribe, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
+        self.register
+            .add(
+                Type::ClientConnect,
+                Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() }),
+            )
+            .await;
+        self.register
+            .add(
+                Type::ClientConnack,
+                Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() }),
+            )
+            .await;
+        self.register
+            .add(
+                Type::ClientConnected,
+                Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() }),
+            )
+            .await;
+        self.register
+            .add(
+                Type::ClientDisconnected,
+                Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() }),
+            )
+            .await;
+        self.register
+            .add(
+                Type::ClientSubscribe,
+                Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() }),
+            )
+            .await;
+        self.register
+            .add(
+                Type::ClientUnsubscribe,
+                Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() }),
+            )
+            .await;
 
-        self.register.add(Type::MessagePublish, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
-        self.register.add(Type::MessageDelivered, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
-        self.register.add(Type::MessageAcked, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
-        self.register.add(Type::MessageDropped, Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() })).await;
+        self.register
+            .add(
+                Type::MessagePublish,
+                Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() }),
+            )
+            .await;
+        self.register
+            .add(
+                Type::MessageDelivered,
+                Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() }),
+            )
+            .await;
+        self.register
+            .add(
+                Type::MessageAcked,
+                Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() }),
+            )
+            .await;
+        self.register
+            .add(
+                Type::MessageDropped,
+                Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() }),
+            )
+            .await;
 
         Ok(())
     }
@@ -227,9 +296,13 @@ impl Plugin for WebHookPlugin {
         {
             let new_cfg = Arc::new(RwLock::new(new_cfg));
             //restart
-            let (new_tx, new_exec) =
-                Self::start(self.runtime, new_cfg.clone(),self.writers.clone(), self.chan_queue_count.clone())
-                    .await;
+            let (new_tx, new_exec) = Self::start(
+                self.runtime,
+                new_cfg.clone(),
+                self.writers.clone(),
+                self.chan_queue_count.clone(),
+            )
+            .await;
             self.exec = new_exec;
             self.cfg = new_cfg;
             *self.tx.write().await = new_tx;
@@ -292,7 +365,7 @@ type Message = (hook::Type, Option<TopicFilter>, serde_json::Value);
 
 struct WebHookHandler {
     tx: Arc<RwLock<Sender<Message>>>,
-    chan_queue_count: Arc<AtomicIsize>
+    chan_queue_count: Arc<AtomicIsize>,
 }
 
 impl WebHookHandler {
@@ -366,13 +439,12 @@ impl WebHookHandler {
             } else {
                 None
             }
-
         };
         //send hook_writes
         if let Some(mut hook_writes) = hook_writes {
             let c = hook_writes.len();
             match c {
-                0 => {},
+                0 => {}
                 1 => {
                     hook_writes.remove(0).await;
                 }
@@ -708,7 +780,7 @@ impl Handler for WebHookHandler {
             let tx = self.tx.read().await.clone();
             if let Err(e) = tx.send((typ, topic, body)).await {
                 log::warn!("web-hook send error, typ: {:?}, {:?}", typ, e);
-            }else{
+            } else {
                 self.chan_queue_count.fetch_add(1, Ordering::SeqCst);
             }
         }
