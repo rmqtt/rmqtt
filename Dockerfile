@@ -1,4 +1,4 @@
-FROM alpine:3.16.2
+FROM alpine:3.18.3
 LABEL maintainer="rmqtt <rmqttd@126.com>"
 
 RUN mkdir -p /app/rmqtt/rmqtt-bin
