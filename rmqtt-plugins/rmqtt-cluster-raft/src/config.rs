@@ -54,7 +54,6 @@ impl PluginConfig {
                 .raft_peer_addrs
                 .iter()
                 .find(|leader| leader.id == self.leader_id)
-                .map(|leader| leader)
                 .ok_or_else(|| MqttError::from("Leader does not exist"))?;
             Ok(Some(leader))
         }
