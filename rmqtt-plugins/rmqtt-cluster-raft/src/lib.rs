@@ -83,8 +83,8 @@ impl ClusterPlugin {
     async fn new<S: Into<String>>(runtime: &'static Runtime, name: S, descr: S) -> Result<Self> {
         let name = name.into();
         let mut cfg = runtime.settings.plugins.load_config::<PluginConfig>(&name)?;
-        log::info!("{} ClusterPlugin cfg: {:?}", name, cfg);
         cfg.merge(&runtime.settings.opts);
+        log::info!("{} ClusterPlugin cfg: {:?}", name, cfg);
 
         init_task_exec_queue(cfg.task_exec_queue_workers, cfg.task_exec_queue_max);
 
@@ -157,28 +157,35 @@ impl ClusterPlugin {
                 if id == leader_info.id {
                     //This node is the leader.
                     None
-                }else{
+                } else {
                     //The other nodes are leader.
                     let mut actual_leader_info = None;
                     for i in 0..30 {
-                        actual_leader_info = raft.find_leader_info(peer_addrs.clone())
-                            .await.map_err(|e| MqttError::StdError(Box::new(e)))?;
+                        actual_leader_info = raft
+                            .find_leader_info(peer_addrs.clone())
+                            .await
+                            .map_err(|e| MqttError::StdError(Box::new(e)))?;
                         if actual_leader_info.is_some() {
-                            break
+                            break;
                         }
                         log::info!("Leader not found, rounds: {}", i);
                         sleep(Duration::from_millis(500)).await;
                     }
-                    let (actual_leader_id, actual_leader_addr) = actual_leader_info.ok_or_else(|| MqttError::from("Leader does not exist"))?;
+                    let (actual_leader_id, actual_leader_addr) =
+                        actual_leader_info.ok_or_else(|| MqttError::from("Leader does not exist"))?;
                     if actual_leader_id != leader_info.id {
-                        return Err(MqttError::from(format!("Not the expected Leader, the expected one is {:?}", leader_info)));
+                        return Err(MqttError::from(format!(
+                            "Not the expected Leader, the expected one is {:?}",
+                            leader_info
+                        )));
                     }
                     Some((actual_leader_id, actual_leader_addr))
                 }
-            },
+            }
             None => {
                 log::info!("Search for the existing leader ... ");
-                let leader_info = raft.find_leader_info(peer_addrs).await.map_err(|e| MqttError::StdError(Box::new(e)))?;
+                let leader_info =
+                    raft.find_leader_info(peer_addrs).await.map_err(|e| MqttError::StdError(Box::new(e)))?;
                 log::info!("The information about the located leader: {:?}", leader_info);
                 leader_info
             }

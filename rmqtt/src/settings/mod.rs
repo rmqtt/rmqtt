@@ -112,6 +112,9 @@ impl Settings {
         if cfg.opts.raft_peer_addrs.is_some() {
             crate::log::info!("raft_peer_addrs is {:?}", cfg.opts.raft_peer_addrs);
         }
+        if cfg.opts.raft_leader_id.is_some() {
+            crate::log::info!("raft_leader_id is {:?}", cfg.opts.raft_leader_id);
+        }
     }
 }
 
@@ -519,19 +522,12 @@ impl<'de> de::Deserialize<'de> for NodeAddr {
 }
 
 #[inline]
-fn timestamp_parse_from_str(ts: &str, fmt: &str)  -> anyhow::Result<i64> {
+fn timestamp_parse_from_str(ts: &str, fmt: &str) -> anyhow::Result<i64> {
     let ndt = chrono::NaiveDateTime::parse_from_str(ts, fmt)?;
     let ndt = ndt.and_local_timezone(chrono::Local::now().offset().clone());
-    match ndt{
-        LocalResult::None => {
-            Err(anyhow::Error::msg("Impossible"))
-        },
-        LocalResult::Single(d) => {
-            Ok(d.timestamp())
-        },
-        LocalResult::Ambiguous(d, _tz) => {
-            Ok(d.timestamp())
-        }
+    match ndt {
+        LocalResult::None => Err(anyhow::Error::msg("Impossible")),
+        LocalResult::Single(d) => Ok(d.timestamp()),
+        LocalResult::Ambiguous(d, _tz) => Ok(d.timestamp()),
     }
 }
-

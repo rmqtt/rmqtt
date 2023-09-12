@@ -25,6 +25,11 @@ pub struct Options {
     ///Raft peer address list, --raft-peer-addrs "1@127.0.0.1:6003" "2@127.0.0.1:6004" "3@127.0.0.1:6005"
     #[structopt(name = "raft-peer-addrs", long)]
     pub raft_peer_addrs: Option<Vec<NodeAddr>>,
+
+    ///Specify a leader id, when the value is 0 or not specified, the first node
+    ///will be designated as the Leader. Default value: 0
+    #[structopt(name = "raft-leader-id", long)]
+    pub raft_leader_id: Option<NodeId>,
     // ///Node cookie
     // #[structopt(name = "cookie", long)]
     // pub node_cookie: Option<String>,

@@ -9,8 +9,8 @@ use serde::Serialize;
 
 use rmqtt::grpc::MessageType;
 use rmqtt::settings::{deserialize_duration, deserialize_duration_option, NodeAddr, Options};
-use rmqtt::{MqttError, NodeId, Result};
 use rmqtt::{once_cell::sync::Lazy, serde_json};
+use rmqtt::{MqttError, NodeId, Result};
 
 pub(crate) static BACKOFF_STRATEGY: Lazy<ExponentialBackoff> = Lazy::new(|| {
     ExponentialBackoffBuilder::new()
@@ -21,7 +21,6 @@ pub(crate) static BACKOFF_STRATEGY: Lazy<ExponentialBackoff> = Lazy::new(|| {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
-
     #[serde(default = "PluginConfig::message_type_default")]
     pub message_type: MessageType,
 
@@ -46,16 +45,16 @@ pub struct PluginConfig {
 }
 
 impl PluginConfig {
-
     #[inline]
     pub fn leader(&self) -> Result<Option<&NodeAddr>> {
         if self.leader_id == 0 {
             Ok(None)
-        }else{
-            let leader = self.raft_peer_addrs
+        } else {
+            let leader = self
+                .raft_peer_addrs
                 .iter()
                 .find(|leader| leader.id == self.leader_id)
-                .map(|leader| leader )
+                .map(|leader| leader)
                 .ok_or_else(|| MqttError::from("Leader does not exist"))?;
             Ok(Some(leader))
         }
@@ -92,6 +91,9 @@ impl PluginConfig {
         }
         if let Some(raft_peer_addrs) = opts.raft_peer_addrs.as_ref() {
             self.raft_peer_addrs = raft_peer_addrs.clone();
+        }
+        if let Some(raft_leader_id) = opts.raft_leader_id.as_ref() {
+            self.leader_id = *raft_leader_id;
         }
     }
 }
