@@ -46,7 +46,7 @@ uuid = { version = "1.1", features = ["v4"] }
 rand = "0.8"
 crossbeam = "0.8"
 governor = "0.6"
-config = { version = "0.11", default-features = false, features = ["toml"] }
+config = { version = "0.13", default-features = false, features = ["toml"] }
 log = { version = "0.4", features = ["std"] }
 slog = "2.7"
 slog-term = "2.9"

@@ -56,19 +56,16 @@ impl Deref for Settings {
 
 impl Settings {
     fn new(opts: Options) -> Result<Self> {
-        let mut s = Config::new();
+        let mut builder = Config::builder()
+            .add_source(File::with_name("/etc/rmqtt/rmqtt").required(false))
+            .add_source(File::with_name("/etc/rmqtt").required(false))
+            .add_source(File::with_name("rmqtt").required(false));
 
-        // if let Ok(cfg_filename) = std::env::var("RMQTT-CONFIG-FILENAME") {
-        //     s.merge(File::with_name(&cfg_filename).required(false))?;
-        // }
-        s.merge(File::with_name("/etc/rmqtt/rmqtt").required(false))?;
-        s.merge(File::with_name("/etc/rmqtt").required(false))?;
-        s.merge(File::with_name("rmqtt").required(false))?;
         if let Some(cfg) = opts.cfg_name.as_ref() {
-            s.merge(File::with_name(cfg).required(false))?;
+            builder = builder.add_source(File::with_name(cfg).required(false));
         }
 
-        let mut inner: Inner = s.try_into()?;
+        let mut inner: Inner = builder.build()?.try_deserialize()?;
 
         inner.listeners.init();
         if inner.listeners.tcps.is_empty() && inner.listeners.tlss.is_empty() {
@@ -243,10 +240,11 @@ impl Plugins {
         required: bool,
     ) -> Result<(T, bool)> {
         let dir = self.dir.trim_end_matches(|c| c == '/' || c == '\\');
-        let mut s = Config::new();
-        s.merge(File::with_name(&format!("{}/{}", dir, name)).required(required))?;
+        let s = Config::builder()
+            .add_source(File::with_name(&format!("{}/{}", dir, name)).required(required))
+            .build()?;
         let count = s.collect()?.len();
-        Ok((s.try_into::<T>()?, count == 0))
+        Ok((s.try_deserialize::<T>()?, count == 0))
     }
 }
 
@@ -524,7 +522,7 @@ impl<'de> de::Deserialize<'de> for NodeAddr {
 #[inline]
 fn timestamp_parse_from_str(ts: &str, fmt: &str) -> anyhow::Result<i64> {
     let ndt = chrono::NaiveDateTime::parse_from_str(ts, fmt)?;
-    let ndt = ndt.and_local_timezone(chrono::Local::now().offset().clone());
+    let ndt = ndt.and_local_timezone(*chrono::Local::now().offset());
     match ndt {
         LocalResult::None => Err(anyhow::Error::msg("Impossible")),
         LocalResult::Single(d) => Ok(d.timestamp()),
