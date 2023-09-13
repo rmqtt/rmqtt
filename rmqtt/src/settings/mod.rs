@@ -59,7 +59,8 @@ impl Settings {
         let mut builder = Config::builder()
             .add_source(File::with_name("/etc/rmqtt/rmqtt").required(false))
             .add_source(File::with_name("/etc/rmqtt").required(false))
-            .add_source(File::with_name("rmqtt").required(false));
+            .add_source(File::with_name("rmqtt").required(false))
+            .add_source(config::Environment::with_prefix("rmqtt"));
 
         if let Some(cfg) = opts.cfg_name.as_ref() {
             builder = builder.add_source(File::with_name(cfg).required(false));
@@ -242,7 +243,9 @@ impl Plugins {
         let dir = self.dir.trim_end_matches(|c| c == '/' || c == '\\');
         let s = Config::builder()
             .add_source(File::with_name(&format!("{}/{}", dir, name)).required(required))
+            .add_source(config::Environment::with_prefix(&format!("rmqtt_plugin_{}", name.replace('-', "_"))))
             .build()?;
+
         let count = s.collect()?.len();
         Ok((s.try_deserialize::<T>()?, count == 0))
     }
