@@ -71,7 +71,9 @@ impl ClusterPlugin {
     #[inline]
     async fn new<S: Into<String>>(runtime: &'static Runtime, name: S, descr: S) -> Result<Self> {
         let name = name.into();
-        let cfg = Arc::new(RwLock::new(runtime.settings.plugins.load_config::<PluginConfig>(&name)?));
+        let cfg = Arc::new(RwLock::new(
+            runtime.settings.plugins.load_config_with::<PluginConfig>(&name, &["node_grpc_addrs"])?,
+        ));
         log::debug!("{} ClusterPlugin cfg: {:?}", name, cfg.read().await);
 
         let register = runtime.extends.hook_mgr().await.register();

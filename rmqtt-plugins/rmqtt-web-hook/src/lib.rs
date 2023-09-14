@@ -173,7 +173,7 @@ impl WebHookPlugin {
 
     #[inline]
     fn load_config(runtime: &'static Runtime, name: &str) -> Result<PluginConfig> {
-        let mut cfg = runtime.settings.plugins.load_config::<PluginConfig>(name)?;
+        let mut cfg = runtime.settings.plugins.load_config_with::<PluginConfig>(name, &["urls"])?;
         cfg.merge_urls();
         Ok(cfg)
     }

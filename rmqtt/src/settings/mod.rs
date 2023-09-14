@@ -60,7 +60,12 @@ impl Settings {
             .add_source(File::with_name("/etc/rmqtt/rmqtt").required(false))
             .add_source(File::with_name("/etc/rmqtt").required(false))
             .add_source(File::with_name("rmqtt").required(false))
-            .add_source(config::Environment::with_prefix("rmqtt"));
+            .add_source(
+                config::Environment::with_prefix("rmqtt")
+                    .try_parsing(true)
+                    .list_separator(" ")
+                    .with_list_parse_key("plugins.default_startups"),
+            );
 
         if let Some(cfg) = opts.cfg_name.as_ref() {
             builder = builder.add_source(File::with_name(cfg).required(false));
@@ -220,12 +225,36 @@ impl Plugins {
     }
 
     pub fn load_config<'de, T: serde::Deserialize<'de>>(&self, name: &str) -> Result<T> {
-        let (cfg, _) = self.load_config_with_required(name, true)?;
+        let (cfg, _) = self.load_config_with_required(name, true, &[])?;
         Ok(cfg)
     }
 
     pub fn load_config_default<'de, T: serde::Deserialize<'de>>(&self, name: &str) -> Result<T> {
-        let (cfg, def) = self.load_config_with_required(name, false)?;
+        let (cfg, def) = self.load_config_with_required(name, false, &[])?;
+        if def {
+            crate::log::warn!(
+                "The configuration for plugin '{}' does not exist, default values will be used!",
+                name
+            );
+        }
+        Ok(cfg)
+    }
+
+    pub fn load_config_with<'de, T: serde::Deserialize<'de>>(
+        &self,
+        name: &str,
+        env_list_keys: &[&str],
+    ) -> Result<T> {
+        let (cfg, _) = self.load_config_with_required(name, true, env_list_keys)?;
+        Ok(cfg)
+    }
+
+    pub fn load_config_default_with<'de, T: serde::Deserialize<'de>>(
+        &self,
+        name: &str,
+        env_list_keys: &[&str],
+    ) -> Result<T> {
+        let (cfg, def) = self.load_config_with_required(name, false, env_list_keys)?;
         if def {
             crate::log::warn!(
                 "The configuration for plugin '{}' does not exist, default values will be used!",
@@ -239,13 +268,22 @@ impl Plugins {
         &self,
         name: &str,
         required: bool,
+        env_list_keys: &[&str],
     ) -> Result<(T, bool)> {
         let dir = self.dir.trim_end_matches(|c| c == '/' || c == '\\');
-        let s = Config::builder()
-            .add_source(File::with_name(&format!("{}/{}", dir, name)).required(required))
-            .add_source(config::Environment::with_prefix(&format!("rmqtt_plugin_{}", name.replace('-', "_"))))
-            .build()?;
+        let mut builder =
+            Config::builder().add_source(File::with_name(&format!("{}/{}", dir, name)).required(required));
 
+        let mut env = config::Environment::with_prefix(&format!("rmqtt_plugin_{}", name.replace('-', "_")));
+        if !env_list_keys.is_empty() {
+            env = env.try_parsing(true).list_separator(" ");
+            for key in env_list_keys {
+                env = env.with_list_parse_key(key);
+            }
+        }
+        builder = builder.add_source(env);
+
+        let s = builder.build()?;
         let count = s.collect()?.len();
         Ok((s.try_deserialize::<T>()?, count == 0))
     }

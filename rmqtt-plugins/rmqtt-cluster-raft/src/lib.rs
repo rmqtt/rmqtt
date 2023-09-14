@@ -82,7 +82,8 @@ impl ClusterPlugin {
     #[inline]
     async fn new<S: Into<String>>(runtime: &'static Runtime, name: S, descr: S) -> Result<Self> {
         let name = name.into();
-        let mut cfg = runtime.settings.plugins.load_config::<PluginConfig>(&name)?;
+        let env_list_keys = ["node_grpc_addrs", "raft_peer_addrs"];
+        let mut cfg = runtime.settings.plugins.load_config_with::<PluginConfig>(&name, &env_list_keys)?;
         cfg.merge(&runtime.settings.opts);
         log::info!("{} ClusterPlugin cfg: {:?}", name, cfg);
 
