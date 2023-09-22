@@ -22,7 +22,7 @@ pub use ntex_mqtt::v3::{
     codec::SubscribeReturnCode as SubscribeReturnCodeV3, HandshakeAck as HandshakeAckV3,
     MqttSink as MqttSinkV3,
 };
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, RwLock};
 
 use ntex_mqtt::v5::codec::{PublishAckReason, RetainHandling};
 pub use ntex_mqtt::v5::{
@@ -1630,37 +1630,67 @@ pub struct Route {
     pub topic: TopicFilter,
 }
 
-pub struct SessionSubs(Arc<_SessionSubs>);
+#[derive(Clone)]
+pub struct SessionSubs {
+    subs: Arc<RwLock<HashMap<TopicFilter, SubscriptionOptions>>>,
+}
+
+impl Deref for SessionSubs {
+    type Target = Arc<RwLock<HashMap<TopicFilter, SubscriptionOptions>>>;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.subs
+    }
+}
+
+/*
+impl Serialize for SessionSubs {
+    #[inline]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.subs.read().deref().serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for SessionSubs {
+    #[inline]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Ok(SessionSubs::from(HashMap::deserialize(deserializer)?))
+    }
+}
+*/
 
 impl SessionSubs {
     #[inline]
     pub(crate) fn new() -> Self {
-        Self(Arc::new(_SessionSubs::new()))
-    }
-}
-
-impl Deref for SessionSubs {
-    type Target = _SessionSubs;
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        self.0.as_ref()
-    }
-}
-
-pub struct _SessionSubs {
-    subs: DashMap<TopicFilter, SubscriptionOptions>,
-}
-
-impl _SessionSubs {
-    #[inline]
-    pub(crate) fn new() -> Self {
-        Self { subs: DashMap::default() }
+        Self::from(HashMap::default())
     }
 
     #[inline]
-    pub fn add(&self, topic_filter: TopicFilter, opts: SubscriptionOptions) -> Option<SubscriptionOptions> {
+    #[allow(clippy::mutable_key_type)]
+    pub(crate) fn from(subs: HashMap<TopicFilter, SubscriptionOptions>) -> Self {
+        Self { subs: Arc::new(RwLock::new(subs)) }
+    }
+
+    #[inline]
+    pub async fn add(
+        &self,
+        topic_filter: TopicFilter,
+        opts: SubscriptionOptions,
+    ) -> Option<SubscriptionOptions> {
         let is_shared = opts.has_shared_group();
-        let prev = self.subs.insert(topic_filter, opts);
+
+        let prev = {
+            let mut subs = self.subs.write().await;
+            let prev = subs.insert(topic_filter, opts);
+            subs.shrink_to_fit();
+            prev
+        };
 
         if let Some(prev_opts) = &prev {
             match (prev_opts.has_shared_group(), is_shared) {
@@ -1684,68 +1714,74 @@ impl _SessionSubs {
     }
 
     #[inline]
-    pub fn remove(&self, topic_filter: &str) -> Option<(TopicFilter, SubscriptionOptions)> {
-        let removed = self.subs.remove(topic_filter);
+    pub async fn remove(&self, topic_filter: &str) -> Option<(TopicFilter, SubscriptionOptions)> {
+        let removed = {
+            let mut subs = self.subs.write().await;
+            let removed = subs.remove_entry(topic_filter);
+            subs.shrink_to_fit();
+            removed
+        };
+
         if let Some((_, opts)) = &removed {
             Runtime::instance().stats.subscriptions.dec();
             if opts.has_shared_group() {
                 Runtime::instance().stats.subscriptions_shared.dec();
             }
         }
+
         removed
     }
 
     #[inline]
-    pub fn drain(&self) -> Subscriptions {
-        let topic_filters = self.subs.iter().map(|entry| entry.key().clone()).collect::<Vec<_>>();
-        let subs = topic_filters.iter().filter_map(|tf| self.remove(tf)).collect();
+    pub async fn drain(&self) -> Subscriptions {
+        let topic_filters = self.subs.read().await.iter().map(|(key, _)| key.clone()).collect::<Vec<_>>();
+        //let subs = topic_filters.iter().filter_map(|tf| Some(async move { self.remove(tf).await }));
+        //futures::future::join_all(subs).await.into_iter().filter_map(|item| item).collect()
+        let mut subs = Vec::new();
+        for tf in topic_filters {
+            if let Some(sub) = self.remove(&tf).await {
+                subs.push(sub);
+            }
+        }
         subs
     }
 
     #[inline]
-    pub fn extend(&self, subs: Subscriptions) {
+    pub async fn extend(&self, subs: Subscriptions) {
         for (topic_filter, opts) in subs {
-            self.add(topic_filter, opts);
+            self.add(topic_filter, opts).await;
         }
     }
 
     #[inline]
-    pub fn clear(&self) {
-        for entry in self.subs.iter() {
-            Runtime::instance().stats.subscriptions.dec();
-            let opts = entry.value();
-            if opts.has_shared_group() {
-                Runtime::instance().stats.subscriptions_shared.dec();
+    pub async fn clear(&self) {
+        {
+            let subs = self.subs.read().await;
+            for (_, opts) in subs.iter() {
+                Runtime::instance().stats.subscriptions.dec();
+                if opts.has_shared_group() {
+                    Runtime::instance().stats.subscriptions_shared.dec();
+                }
             }
         }
-        self.subs.clear();
+        let mut subs = self.subs.write().await;
+        subs.clear();
+        subs.shrink_to_fit();
     }
 
     #[inline]
-    pub fn len(&self) -> usize {
-        self.subs.len()
+    pub async fn len(&self) -> usize {
+        self.subs.read().await.len()
     }
 
     #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
+    pub async fn is_empty(&self) -> bool {
+        self.subs.read().await.is_empty()
     }
 
     #[inline]
-    pub fn to_topic_filters(&self) -> TopicFilters {
-        self.subs.iter().map(|entry| TopicFilter::from(entry.key().as_ref())).collect()
-    }
-
-    #[inline]
-    pub fn iter(
-        &self,
-    ) -> dashmap::iter::Iter<
-        TopicFilter,
-        SubscriptionOptions,
-        ahash::RandomState,
-        DashMap<TopicFilter, SubscriptionOptions>,
-    > {
-        self.subs.iter()
+    pub async fn to_topic_filters(&self) -> TopicFilters {
+        self.subs.read().await.iter().map(|(key, _)| key.clone()).collect()
     }
 }
 
@@ -1999,13 +2035,13 @@ impl Display for Reason {
 #[derive(Debug)]
 pub struct ServerTopicAliases {
     max_topic_aliases: usize,
-    aliases: tokio::sync::Mutex<HashMap<TopicName, NonZeroU16>>,
+    aliases: RwLock<HashMap<TopicName, NonZeroU16>>,
 }
 
 impl ServerTopicAliases {
     #[inline]
     pub fn new(max_topic_aliases: usize) -> Self {
-        ServerTopicAliases { max_topic_aliases, aliases: tokio::sync::Mutex::new(HashMap::default()) }
+        ServerTopicAliases { max_topic_aliases, aliases: RwLock::new(HashMap::default()) }
     }
 
     #[inline]
@@ -2013,21 +2049,24 @@ impl ServerTopicAliases {
         if self.max_topic_aliases == 0 {
             return (Some(topic), None);
         }
-        let mut aliases = self.aliases.lock().await;
-        if let Some(alias) = aliases.get(&topic) {
-            return (None, Some(*alias));
-        }
-        let len = aliases.len();
-        if len >= self.max_topic_aliases {
-            return (Some(topic), None);
-        }
-        let alias = match NonZeroU16::try_from((len + 1) as u16) {
-            Ok(alias) => alias,
-            Err(_) => {
-                unreachable!()
+        let alias = {
+            let aliases = self.aliases.read().await;
+            if let Some(alias) = aliases.get(&topic) {
+                return (None, Some(*alias));
+            }
+            let len = aliases.len();
+            if len >= self.max_topic_aliases {
+                return (Some(topic), None);
+            }
+
+            match NonZeroU16::try_from((len + 1) as u16) {
+                Ok(alias) => alias,
+                Err(_) => {
+                    unreachable!()
+                }
             }
         };
-        aliases.insert(topic.clone(), alias);
+        self.aliases.write().await.insert(topic.clone(), alias);
         (Some(topic), Some(alias))
     }
 }
@@ -2035,44 +2074,44 @@ impl ServerTopicAliases {
 #[derive(Debug)]
 pub struct ClientTopicAliases {
     max_topic_aliases: usize,
-    aliases: DashMap<NonZeroU16, TopicName>,
+    aliases: RwLock<HashMap<NonZeroU16, TopicName>>,
 }
 
 impl ClientTopicAliases {
     #[inline]
     pub fn new(max_topic_aliases: usize) -> Self {
-        ClientTopicAliases { max_topic_aliases, aliases: DashMap::default() }
+        ClientTopicAliases { max_topic_aliases, aliases: RwLock::new(HashMap::default()) }
     }
 
     #[inline]
-    pub fn set_and_get(&self, alias: Option<NonZeroU16>, topic: TopicName) -> Result<TopicName> {
+    pub async fn set_and_get(&self, alias: Option<NonZeroU16>, topic: TopicName) -> Result<TopicName> {
         match (alias, topic.len()) {
             (Some(alias), 0) => {
-                self.aliases.get(&alias).ok_or_else(|| {
+                self.aliases.read().await.get(&alias).ok_or_else(|| {
                     MqttError::PublishAckReason(
                         PublishAckReason::ImplementationSpecificError,
                         ByteString::from(
                             "implementation specific error, the ‘topic‘ associated with the ‘alias‘ was not found",
                         ),
                     )
-                }).map(|topic|topic.value().clone())
+                }).map(|topic|topic.clone())
             }
             (Some(alias), _) => {
-                let len = self.aliases.len();
-                self.aliases.entry(alias).and_modify(|topic_mut| {
+                let mut aliases = self.aliases.write().await;
+                let len = aliases.len();
+                if let Some(topic_mut) = aliases.get_mut(&alias) {
                     *topic_mut = topic.clone()
-                }).or_try_insert_with(|| {
+                }else{
                     if len >= self.max_topic_aliases {
-                        Err(MqttError::PublishAckReason(
+                        return Err(MqttError::PublishAckReason(
                             PublishAckReason::ImplementationSpecificError,
                             ByteString::from(
                                 format!("implementation specific error, the number of topic aliases exceeds the limit ({})", self.max_topic_aliases),
                             ),
                         ))
-                    } else {
-                        Ok(topic.clone())
                     }
-                })?;
+                    aliases.insert(alias, topic.clone());
+                }
                 Ok(topic)
             }
             (None, 0) => Err(MqttError::PublishAckReason(

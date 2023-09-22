@@ -337,8 +337,7 @@ impl SessionState {
         let session_expiry_delay = tokio::time::sleep(session_expiry_interval);
         tokio::pin!(session_expiry_delay);
 
-        let will_delay_interval_delay =
-            tokio::time::sleep(will_delay_interval.unwrap_or(Duration::MAX));
+        let will_delay_interval_delay = tokio::time::sleep(will_delay_interval.unwrap_or(Duration::MAX));
         tokio::pin!(will_delay_interval_delay);
 
         loop {
@@ -632,7 +631,7 @@ impl SessionState {
     #[inline]
     async fn _subscribe(&self, mut sub: Subscribe) -> Result<SubscribeReturn> {
         if self.listen_cfg.max_subscriptions > 0
-            && (self.subscriptions.len() >= self.listen_cfg.max_subscriptions)
+            && (self.subscriptions.len().await >= self.listen_cfg.max_subscriptions)
         {
             return Err(MqttError::TooManySubscriptions);
         }
@@ -755,7 +754,7 @@ impl SessionState {
         log::debug!("{:?} publish: {:?}", self.id, publish);
         let mut p = Publish::from(publish);
         if let Some(client_topic_aliases) = &self.client_topic_aliases {
-            p.topic = client_topic_aliases.set_and_get(p.properties.topic_alias, p.topic)?;
+            p.topic = client_topic_aliases.set_and_get(p.properties.topic_alias, p.topic).await?;
         }
         self.publish(p).await
     }
@@ -900,7 +899,7 @@ impl SessionState {
 
         //Subscription transfer from previous session
         if !clear_subscriptions {
-            self.subscriptions.extend(offline_info.subscriptions);
+            self.subscriptions.extend(offline_info.subscriptions).await;
         }
 
         //Send previous session unacked messages
@@ -1005,7 +1004,7 @@ impl Session {
     #[inline]
     pub async fn to_offline_info(&self) -> SessionOfflineInfo {
         let id = self.id.clone();
-        let subscriptions = self.subscriptions.drain();
+        let subscriptions = self.subscriptions.drain().await;
         let mut offline_messages = Vec::new();
         while let Some(item) = self.deliver_queue.pop() {
             //@TODO ..., check message expired
@@ -1056,21 +1055,21 @@ pub struct _SessionInner {
 impl Drop for _SessionInner {
     fn drop(&mut self) {
         Runtime::instance().stats.sessions.dec();
-        self.subscriptions.clear();
     }
 }
 
 impl _SessionInner {
     #[inline]
     pub async fn to_json(&self) -> serde_json::Value {
-        let count = self.subscriptions.len();
+        let count = self.subscriptions.len().await;
 
         let subs = self
             .subscriptions
+            .read()
+            .await
             .iter()
             .enumerate()
-            .filter_map(|(i, entry)| {
-                let (tf, opts) = entry.pair();
+            .filter_map(|(i, (tf, opts))| {
                 if i < 100 {
                     Some(json!({
                         "topic_filter": tf.to_string(),
