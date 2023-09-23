@@ -983,10 +983,10 @@ impl Session {
         });
         let out_inflight = Inflight::new(max_inflight, message_retry_interval, message_expiry_interval)
             .on_push(|| {
-                Runtime::instance().stats.inflights.inc();
+                Runtime::instance().stats.out_inflights.inc();
             })
             .on_pop(|| {
-                Runtime::instance().stats.inflights.dec();
+                Runtime::instance().stats.out_inflights.dec();
             });
 
         Runtime::instance().stats.sessions.inc();
@@ -1055,6 +1055,8 @@ pub struct _SessionInner {
 impl Drop for _SessionInner {
     fn drop(&mut self) {
         Runtime::instance().stats.sessions.dec();
+        let subscriptions = self.subscriptions.clone();
+        tokio::spawn(async move { subscriptions.clear().await });
     }
 }
 
