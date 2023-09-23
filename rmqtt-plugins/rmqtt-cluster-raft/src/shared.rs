@@ -451,6 +451,10 @@ impl Shared for &'static ClusterShared {
     }
 
     #[inline]
+    async fn subscriptions_count(&self) -> usize {
+        self.inner.subscriptions_count().await
+    }
+    #[inline]
     fn get_grpc_clients(&self) -> GrpcClients {
         self.grpc_clients.clone()
     }

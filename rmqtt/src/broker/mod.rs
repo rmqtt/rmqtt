@@ -101,6 +101,8 @@ pub trait Shared: Sync + Send {
     ///
     async fn query_subscriptions(&self, q: SubsSearchParams) -> Vec<SubsSearchResult>;
 
+    async fn subscriptions_count(&self) -> usize;
+
     ///This node is not included
     #[inline]
     fn get_grpc_clients(&self) -> GrpcClients {

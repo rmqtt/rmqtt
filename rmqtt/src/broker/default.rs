@@ -554,6 +554,16 @@ impl Shared for &'static DefaultShared {
     async fn query_subscriptions(&self, q: SubsSearchParams) -> Vec<SubsSearchResult> {
         self._query_subscriptions(&q).await
     }
+
+    #[inline]
+    async fn subscriptions_count(&self) -> usize {
+        futures::future::join_all(
+            self.peers.iter().map(|entry| async move { entry.s.subscriptions.len().await }),
+        )
+        .await
+        .iter()
+        .sum()
+    }
 }
 
 pub struct DefaultIter<'a> {
