@@ -140,6 +140,8 @@ pub struct Stats {
     debug_shared_peers: Counter,
     #[cfg(feature = "debug")]
     debug_subscriptions: usize,
+    #[cfg(feature = "debug")]
+    pub debug_session_channels: Counter,
 }
 
 impl Stats {
@@ -170,6 +172,8 @@ impl Stats {
             debug_shared_peers: Counter::new(),
             #[cfg(feature = "debug")]
             debug_subscriptions: 0,
+            #[cfg(feature = "debug")]
+            debug_session_channels: Counter::new(),
         })
     }
 
@@ -232,6 +236,8 @@ impl Stats {
             debug_shared_peers: self.debug_shared_peers.clone(),
             #[cfg(feature = "debug")]
             debug_subscriptions,
+            #[cfg(feature = "debug")]
+            debug_session_channels: self.debug_session_channels.clone(),
         }
     }
 
@@ -258,6 +264,7 @@ impl Stats {
             self.debug_topics_tree_map.extend(other.debug_topics_tree_map);
             self.debug_shared_peers.add(&other.debug_shared_peers);
             self.debug_subscriptions += other.debug_subscriptions;
+            self.debug_session_channels.add(&other.debug_session_channels);
         }
     }
 
@@ -303,8 +310,10 @@ impl Stats {
             if let Some(obj) = json_val.as_object_mut() {
                 obj.insert("debug_client_states_map".into(), json!(self.debug_client_states_map));
                 obj.insert("debug_topics_tree_map".into(), json!(self.debug_topics_tree_map));
-                obj.insert("debug_shared_peers".into(), json!(self.debug_shared_peers.count()));
-                obj.insert("debug_subscriptions".into(), json!(self.debug_subscriptions));
+                obj.insert("debug_shared_peers.count".into(), json!(self.debug_shared_peers.count()));
+                obj.insert("debug_subscriptions.count".into(), json!(self.debug_subscriptions));
+                obj.insert("debug_session_channels.count".into(), json!(self.debug_session_channels.count()));
+                obj.insert("debug_session_channels.max".into(), json!(self.debug_session_channels.max()));
             }
         }
 

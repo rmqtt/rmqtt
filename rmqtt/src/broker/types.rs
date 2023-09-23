@@ -65,7 +65,7 @@ pub type IsAdmin = bool;
 pub type LimiterName = u16;
 pub type CleanStart = bool;
 
-pub type Tx = futures::channel::mpsc::UnboundedSender<Message>;
+pub type Tx = SessionTx; //futures::channel::mpsc::UnboundedSender<Message>;
 pub type Rx = futures::channel::mpsc::UnboundedReceiver<Message>;
 
 pub type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
@@ -82,6 +82,37 @@ pub type HookSubscribeResult = Vec<Option<TopicFilter>>;
 pub type HookUnsubscribeResult = Vec<Option<TopicFilter>>;
 
 pub(crate) const UNDEFINED: &str = "undefined";
+
+#[derive(Clone)]
+pub struct SessionTx {
+    tx: futures::channel::mpsc::UnboundedSender<Message>,
+}
+
+impl SessionTx {
+    pub fn new(tx: futures::channel::mpsc::UnboundedSender<Message>) -> Self {
+        Self { tx }
+    }
+
+    #[inline]
+    pub fn is_closed(&self) -> bool {
+        self.tx.is_closed()
+    }
+
+    #[inline]
+    pub fn unbounded_send(
+        &self,
+        msg: Message,
+    ) -> std::result::Result<(), futures::channel::mpsc::TrySendError<Message>> {
+        match self.tx.unbounded_send(msg) {
+            Ok(()) => {
+                #[cfg(feature = "debug")]
+                Runtime::instance().stats.debug_session_channels.inc();
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ConnectInfo {

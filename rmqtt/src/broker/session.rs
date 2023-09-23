@@ -90,6 +90,7 @@ impl SessionState {
     pub(crate) async fn start(mut self, keep_alive: u16) -> (Self, Tx) {
         log::debug!("{:?} start online event loop", self.id);
         let (msg_tx, mut msg_rx) = futures::channel::mpsc::unbounded();
+        let msg_tx = SessionTx::new(msg_tx);
         self.tx.replace(msg_tx.clone());
         let mut state = self.clone();
 
@@ -151,6 +152,8 @@ impl SessionState {
                     msg = msg_rx.next() => {
                         log::debug!("{:?} recv msg: {:?}", state.id, msg);
                         if let Some(msg) = msg{
+                            #[cfg(feature = "debug")]
+                            Runtime::instance().stats.debug_session_channels.dec();
                             match msg{
                                 Message::Forward(from, p) => {
                                     if let Err((from, p)) = deliver_queue_tx.send((from, p)).await{
