@@ -2,9 +2,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::mpsc::{
-    unbounded_channel as channel, UnboundedReceiver as Receiver, UnboundedSender as Sender,
-};
+//use tokio::sync::mpsc::{
+//    unbounded_channel as channel, UnboundedReceiver as Receiver, UnboundedSender as Sender,
+//};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::oneshot::Sender as OneshotSender;
 use tokio::sync::RwLock;
 use tonic::transport::{Channel, Endpoint};
@@ -41,7 +42,7 @@ impl NodeGrpcClient {
         let active_tasks = Arc::new(AtomicUsize::new(0));
         let channel_tasks = Arc::new(AtomicUsize::new(0));
         let grpc_client = Arc::new(RwLock::new(None));
-        let (tx, rx) = channel();
+        let (tx, rx) = channel(100_000);
         let c = Self { grpc_client, active_tasks, channel_tasks, endpoint, tx };
         c.start(rx);
         Ok(c)
@@ -83,6 +84,7 @@ impl NodeGrpcClient {
         let (r_tx, r_rx) = tokio::sync::oneshot::channel::<Result<MessageReply>>();
         self.tx
             .send((typ, msg, r_tx))
+            .await
             .map(|_| self.channel_tasks.fetch_add(1, Ordering::SeqCst))
             .map_err(|e| anyhow::Error::msg(e.to_string()))?;
         let reply = r_rx.await.map_err(anyhow::Error::new)??;
