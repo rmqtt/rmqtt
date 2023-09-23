@@ -10,7 +10,7 @@
 | 磁盘          |                                           | 2T                                                              |
 | 容器          | podman                                    | v4.4.1                                                          |
 | MQTT Bench  | docker.io/rmqtt/rmqtt-bench:latest        | v0.1.3                                                          |
-| MQTT Broker | docker.io/rmqtt/rmqtt:latest              | v0.2.16                                                         |
+| MQTT Broker | docker.io/rmqtt/rmqtt:latest              | v0.2.17                                                         |
 | 其它          | MQTT Bench和MQTT Broker同服         |                                                                 |
 
 
@@ -166,7 +166,7 @@ sh build-bench-pub-single.sh 40   1 > docker-compose-bench-pubs-single-40-1.yaml
 |-------------|---------------|----------------|
 | 并发客户端总数     | 100万          | 25000 * 10 * 4 |
 | 连接握手速率      | (5500-7000)/秒 | 平均速率           |
-| Broker进程内存  | 75.4G         |                |
+| Broker进程内存  | 33.2G         |                |
 | Broker进程CPU | (1-200)%      |       |
 | Bench-subs进程内存  | 400M * 40     |                |
 | Bench-subs进程CPU  | (0-20)% * 40  |       |
@@ -218,8 +218,8 @@ curl "http://127.0.0.1:7064/api/v1/stats" | jq
 | 订阅客户端数量         | 100万          |                |
 | 发布客户端数量         | 40            |                |
 | 消息吞吐速率          | 15万/秒         |                |
-| Broker进程内存      | 88.2G         |                |
-| Broker进程CPU     | (2600-2800)%  |       |
+| Broker进程内存      | 44.5G         |                |
+| Broker进程CPU     | (1800-1900)%  |       |
 | Bench-subs进程内存  | 430M * 40     |                |
 | Bench-subs进程CPU | (20-30)% * 40 |       |
 | Bench-pubs进程内存  | 16M * 40      |                |
@@ -484,7 +484,7 @@ sh build-bench-pub.sh 40   1 > docker-compose-bench-pubs-40-1.yaml
 |-------------|---------------|----------------|
 | 并发客户端总数     | 100万          | 25000 * 10 * 4 |
 | 连接握手速率      | (5000-7000)/秒 | 平均速率           |
-| Broker进程内存  | 26.8G * 3         | 三节点            |
+| Broker进程内存  | 12.9G * 3         | 三节点            |
 | Broker进程CPU | (1-90)% * 3       | 三节点            |
 | Bench-subs进程内存  | 400M * 40     |        |
 | Bench-subs进程CPU  | (0-20)% * 40  |                |
@@ -542,7 +542,7 @@ curl "http://127.0.0.1:7064/api/v1/stats/sum" | jq
 | 订阅客户端数量         | 100万          |    |
 | 发布客户端数量         | 40            |    |
 | 消息吞吐速率          | 15.6万/秒       |    |
-| Broker进程内存      | 30.5G * 3     |    |
+| Broker进程内存      | 16.6G * 3     |    |
 | Broker进程CPU     | (3000-3300)%  |(1000-1100)% + (1200-1300)% + (800-900)%    |
 | Bench-subs进程内存  | 430M * 40     |    |
 | Bench-subs进程CPU | (20-30)% * 40 |    |

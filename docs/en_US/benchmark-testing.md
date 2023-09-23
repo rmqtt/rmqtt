@@ -2,16 +2,16 @@ English | [简体中文](../zh_CN/benchmark-testing.md)
 
 
 # Hardware and software environment
-| Item        | Content                                   |                                                          |
-|-------------|-------------------------------------------|----------------------------------------------------------|
-| System      | x86_64 GNU/Linux                          | Rocky Linux 9.2 (Blue Onyx)                              |
+| Item        | Content                                   |                                                                 |
+|-------------|-------------------------------------------|-----------------------------------------------------------------|
+| System      | x86_64 GNU/Linux                          | Rocky Linux 9.2 (Blue Onyx)                                     |
 | CPU         | Intel(R) Xeon(R) CPU E5-2696 v3 @ 2.30GHz | 72(CPU(s)) = 18(Core(s)) * 2(Thread(s) per core) * 2(Socket(s)) |
-| Memory      | DDR3/2333                                 | 128G                                                     |
-| Disk        |                                           | 2T                                                       |
-| Container   | podman                                    | v4.4.1                                                   |
-| MQTT Bench  | docker.io/rmqtt/rmqtt-bench:latest        | v0.1.3                                                   |
-| MQTT Broker | docker.io/rmqtt/rmqtt:latest              | v0.2.16                                                  |
-| Other       | MQTT Bench and MQTT Broker coexistence    |                                                          |
+| Memory      | DDR3/2333                                 | 128G                                                            |
+| Disk        |                                           | 2T                                                              |
+| Container   | podman                                    | v4.4.1                                                          |
+| MQTT Bench  | docker.io/rmqtt/rmqtt-bench:latest        | v0.1.3                                                          |
+| MQTT Broker | docker.io/rmqtt/rmqtt:latest              | v0.2.17                                                         |
+| Other       | MQTT Bench and MQTT Broker coexistence    |                                                                 |
 
 
 # Standalone Mode
@@ -161,11 +161,11 @@ One container creates 1 connection and randomly sends messages in a loop to 25,0
 
 After successful connection, subscriptions are initiated simultaneously. Connections are established in four batches, with each batch consisting of 250,000 clients initiating connection requests simultaneously.
 
-| Item                               | Value | Description |
-|------------------------------------|---------------|----------------|
+| Item                               | Value              | Description |
+|------------------------------------|--------------------|----------------|
 | Total number of concurrent clients | 1,000,000          | 25000 * 10 * 4 |
 | Connection Handshake Rate          | (5500-7000)/second | Average Rate         |
-| Broker Process Memory              | 75.4G              |                      |
+| Broker Process Memory              | 33.2G              |                      |
 | Broker Process CPU                 | (1-200)%           |                      |
 | Bench-subs Process Memory          | 400M * 40          |                      |
 | Bench-subs Process CPU             | (0-20)% * 40       |                      |
@@ -212,17 +212,17 @@ curl "http://127.0.0.1:7064/api/v1/stats" | jq
 
 ## Message Throughput Performance
 
-| Item                               | Value | Description |
-|-----------------|---------------|----------------|
-| Subscription Client Count | 1,000,000        |                  |
-| Publishing Client Count   | 40               |                  |
-| Message Throughput Rate   | 150,000/second   |                  |
-| Broker Process Memory    | 88.2G            |                  |
-| Broker Process CPU       | (2600-2800)%     |                  |
-| Bench-subs Process Memory | 430M * 40        |                  |
-| Bench-subs Process CPU   | (20-30)% * 40    |                  |
-| Bench-pubs Process Memory | 16M * 40         |                  |
-| Bench-pubs Process CPU   | (20-30)% * 40    |                  |
+| Item                               | Value          | Description |
+|-----------------|----------------|----------------|
+| Subscription Client Count | 1,000,000      |                  |
+| Publishing Client Count   | 40             |                  |
+| Message Throughput Rate   | 150,000/second |                  |
+| Broker Process Memory    | 44.5G          |                  |
+| Broker Process CPU       | (1800-1900)%   |                  |
+| Bench-subs Process Memory | 430M * 40      |                  |
+| Bench-subs Process CPU   | (20-30)% * 40  |                  |
+| Bench-pubs Process Memory | 16M * 40       |                  |
+| Bench-pubs Process CPU   | (20-30)% * 40  |                  |
 
 To view the status::
 ```
@@ -480,14 +480,14 @@ One container creates 1 connection and sends messages in a loop to 25,000 subscr
 ## Connection Concurrency Performance
 Subscriptions are initiated simultaneously upon successful connection. Connections are established in four batches, with each batch consisting of 250,000 clients initiating connection requests simultaneously.
 
-| Item               | Value        | Description       |
-| ------------------ | ------------ | ----------------- |
-| Total Concurrent Clients | 1,000,000  | 25000 * 10 * 4    |
+| Item               | Value            | Description       |
+| ------------------ |------------------| ----------------- |
+| Total Concurrent Clients | 1,000,000        | 25000 * 10 * 4    |
 | Connection Handshake Rate | (5000-7000)/second | Average Rate   |
-| Broker Process Memory | 26.8G * 3    | Three nodes       |
-| Broker Process CPU    | (1-90)% * 3  | Three nodes       |
-| Bench-subs Process Memory | 400M * 40  |                   |
-| Bench-subs Process CPU  | (0-20)% * 40 |                   |
+| Broker Process Memory | 12.9G * 3        | Three nodes       |
+| Broker Process CPU    | (1-90)% * 3      | Three nodes       |
+| Bench-subs Process Memory | 400M * 40        |                   |
+| Bench-subs Process CPU  | (0-20)% * 40     |                   |
 
 
 To check the status:
@@ -538,17 +538,17 @@ curl "http://127.0.0.1:7064/api/v1/stats/sum" | jq
 
 ## Message Throughput Performance
 
-| Item               | Value         | Description                                |
-| ------------------ | -------------- | ------------------------------------------ |
-| Subscription Client Count | 1,000,000   |                                          |
-| Publishing Client Count  | 40          |                                          |
+| Item               | Value          | Description                                |
+| ------------------ |----------------| ------------------------------------------ |
+| Subscription Client Count | 1,000,000      |                                          |
+| Publishing Client Count  | 40             |                                          |
 | Message Throughput Rate  | 156,000/second |                                       |
-| Broker Process Memory   | 30.5G * 3    | Three nodes                              |
-| Broker Process CPU      | (3000-3300)% | (1000-1100)% + (1200-1300)% + (800-900)% |
-| Bench-subs Process Memory | 430M * 40  |                                          |
-| Bench-subs Process CPU | (20-30)% * 40 |                                       |
-| Bench-pubs Process Memory | 16M * 40   |                                          |
-| Bench-pubs Process CPU  | (20-30)% * 40 |                                       |
+| Broker Process Memory   | 16.6G * 3      | Three nodes                              |
+| Broker Process CPU      | (3000-3300)%   | (1000-1100)% + (1200-1300)% + (800-900)% |
+| Bench-subs Process Memory | 430M * 40      |                                          |
+| Bench-subs Process CPU | (20-30)% * 40  |                                       |
+| Bench-pubs Process Memory | 16M * 40       |                                          |
+| Bench-pubs Process CPU  | (20-30)% * 40  |                                       |
 
 To check the status:
 ```
