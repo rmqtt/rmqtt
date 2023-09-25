@@ -31,6 +31,8 @@ pub struct Settings(Arc<Inner>);
 #[derive(Debug, Clone, Deserialize)]
 pub struct Inner {
     #[serde(default)]
+    pub task: Task,
+    #[serde(default)]
     pub node: Node,
     #[serde(default)]
     pub rpc: Rpc,
@@ -125,6 +127,23 @@ impl fmt::Debug for Settings {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Settings ...")?;
         Ok(())
+    }
+}
+
+#[derive(Default, Debug, Clone, Deserialize)]
+pub struct Task {
+    #[serde(default = "Task::exec_workers_default")]
+    pub exec_workers: usize,
+    #[serde(default = "Task::exec_queue_max_default")]
+    pub exec_queue_max: usize,
+}
+
+impl Task {
+    fn exec_workers_default() -> usize {
+        1000
+    }
+    fn exec_queue_max_default() -> usize {
+        300_000
     }
 }
 

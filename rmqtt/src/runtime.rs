@@ -30,7 +30,13 @@ static INSTANCE: OnceCell<Runtime> = OnceCell::new();
 impl Runtime {
     #[inline]
     pub async fn init() -> &'static Self {
-        let (exec, task_runner) = Builder::default().workers(100).queue_max(100_000).build();
+        let settings = Settings::instance();
+
+        let (exec, task_runner) = Builder::default()
+            .workers(settings.task.exec_workers)
+            .queue_max(settings.task.exec_queue_max)
+            .build();
+
         spawn(async move {
             task_runner.await;
         });
@@ -38,7 +44,6 @@ impl Runtime {
         let sched = JobScheduler::new().await.unwrap();
         sched.start().await.unwrap();
 
-        let settings = Settings::instance();
         let r = Self {
             logger: config_logger(settings.log.filename(), settings.log.to, settings.log.level),
             settings: settings.clone(),
