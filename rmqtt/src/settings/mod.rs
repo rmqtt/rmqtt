@@ -111,6 +111,9 @@ impl Settings {
         let cfg = Self::instance();
         crate::log::debug!("Config info is {:?}", cfg.0);
         crate::log::info!("node_id is {}", cfg.node.id);
+        crate::log::info!("exec_workers is {}", cfg.task.exec_workers);
+        crate::log::info!("exec_queue_max is {}", cfg.task.exec_queue_max);
+
         if cfg.opts.node_grpc_addrs.is_some() {
             crate::log::info!("node_grpc_addrs is {:?}", cfg.opts.node_grpc_addrs);
         }
@@ -130,12 +133,19 @@ impl fmt::Debug for Settings {
     }
 }
 
-#[derive(Default, Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Task {
     #[serde(default = "Task::exec_workers_default")]
     pub exec_workers: usize,
     #[serde(default = "Task::exec_queue_max_default")]
     pub exec_queue_max: usize,
+}
+
+impl Default for Task {
+    #[inline]
+    fn default() -> Self {
+        Self { exec_workers: Self::exec_workers_default(), exec_queue_max: Self::exec_queue_max_default() }
+    }
 }
 
 impl Task {
