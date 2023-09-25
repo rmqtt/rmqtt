@@ -8,7 +8,7 @@ use rmqtt::anyhow::Error;
 use rmqtt::broker::Router;
 use rmqtt::grpc::MessageBroadcaster;
 use rmqtt::serde_json::json;
-use rmqtt::{anyhow, async_trait::async_trait, futures, log, once_cell, serde_json, tokio};
+use rmqtt::{anyhow, async_trait::async_trait, futures, log, once_cell, serde_json};
 use rmqtt::{
     broker::{
         default::DefaultShared,
@@ -374,19 +374,25 @@ impl Shared for &'static ClusterShared {
                 }
             }
 
-            tokio::spawn(async move {
-                let replys = futures::future::join_all(fut_senders).await;
-                for (node_id, reply) in replys {
-                    if let Err(e) = reply {
-                        log::error!(
+            //@TODO ... If the received message is greater than the sending rate, it is necessary to control the message receiving rate
+            if !fut_senders.is_empty() {
+                Runtime::instance().stats.forwards.inc();
+                let forwards_fut = async move {
+                    let replys = futures::future::join_all(fut_senders).await;
+                    for (node_id, reply) in replys {
+                        if let Err(e) = reply {
+                            log::error!(
                             "forwards Message::ForwardsTo to other node, from: {:?}, to: {:?}, error: {:?}",
                             from,
                             node_id,
                             e
                         );
+                        }
                     }
-                }
-            });
+                    Runtime::instance().stats.forwards.dec();
+                };
+                let _reply = Runtime::instance().exec.spawn(forwards_fut).await;
+            }
         }
 
         if errs.is_empty() {
