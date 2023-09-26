@@ -353,6 +353,12 @@ pub struct RuntimeExecStats {
     rate: f64,
 }
 
+impl Default for RuntimeExecStats {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RuntimeExecStats {
     #[allow(dead_code)]
     pub fn new() -> Self {
