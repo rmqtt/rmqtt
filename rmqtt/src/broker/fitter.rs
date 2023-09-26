@@ -6,7 +6,6 @@ use crate::broker::types::*;
 use crate::settings::listener::Listener;
 use crate::Result;
 
-#[async_trait]
 pub trait FitterManager: Sync + Send {
     fn get(&self, client: ClientInfo, id: Id, listen_cfg: Listener) -> Box<dyn Fitter>;
 }
