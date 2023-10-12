@@ -3,6 +3,7 @@ use std::convert::From as _f;
 use std::net::SocketAddr;
 
 use ntex_mqtt::v3::{self};
+use rust_box::task_exec_queue::LocalSpawnExt;
 use uuid::Uuid;
 
 use crate::broker::executor::get_handshake_exec;
@@ -78,16 +79,18 @@ pub async fn handshake<Io: 'static>(
 
     Runtime::instance().stats.handshakings.max_max(handshake.handshakings());
 
-    let exec = get_handshake_exec(local_addr.port(), listen_cfg.clone()).await;
-    match exec.spawn(_handshake(id.clone(), listen_cfg, handshake)).await {
+    let exec = get_handshake_exec(local_addr.port(), listen_cfg.clone());
+    match _handshake(id.clone(), listen_cfg, handshake).spawn(&exec).result().await {
         Ok(Ok(res)) => Ok(res),
         Ok(Err(e)) => {
-            log::warn!("{:?} Connection Refused, handshake error, reason: {}", id, e);
+            log::warn!("{:?} Connection Refused, handshake error, reason: {:?}", id, e.to_string());
             Err(e)
         }
         Err(e) => {
-            log::warn!("{:?} Connection Refused, handshake timeout, reason: {}", id, e);
-            Err(MqttError::from("Connection Refused, execute handshake timeout"))
+            Runtime::instance().metrics.client_handshaking_timeout_inc();
+            let err = MqttError::from("Connection Refused, execute handshake timeout");
+            log::warn!("{:?} {:?}, reason: {:?}", id, err, e.to_string());
+            Err(err)
         }
     }
 }
