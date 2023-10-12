@@ -138,7 +138,9 @@ impl ClusterPlugin {
         log::info!("raft_laddr: {:?}", raft_laddr);
 
         //verify the listening address
-        parse_addr(&raft_laddr).await?;
+        if cfg.verify_addr {
+            parse_addr(&raft_laddr).await?;
+        }
 
         let raft = Raft::new(raft_laddr, router, logger, cfg.raft.to_raft_config())
             .map_err(|e| MqttError::StdError(Box::new(e)))?;
@@ -147,7 +149,11 @@ impl ClusterPlugin {
         let mut peer_addrs = Vec::new();
         for peer in raft_peer_addrs.iter() {
             if peer.id != id {
-                peer_addrs.push(parse_addr(&peer.addr).await?.to_string())
+                if cfg.verify_addr {
+                    peer_addrs.push(parse_addr(&peer.addr).await?.to_string());
+                } else {
+                    peer_addrs.push(peer.addr.to_string());
+                }
             }
         }
         log::info!("peer_addrs: {:?}", peer_addrs);

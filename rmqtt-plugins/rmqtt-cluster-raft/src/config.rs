@@ -40,6 +40,9 @@ pub struct PluginConfig {
     #[serde(default = "PluginConfig::task_exec_queue_max_default")]
     pub task_exec_queue_max: usize,
 
+    #[serde(default)]
+    pub verify_addr: bool,
+
     #[serde(default = "PluginConfig::raft_default")]
     pub raft: RaftConfig,
 }
