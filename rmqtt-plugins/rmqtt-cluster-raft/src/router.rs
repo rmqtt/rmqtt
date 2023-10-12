@@ -283,7 +283,7 @@ impl Store for &'static ClusterRouter {
                         status.online = false;
                     }
                 } else {
-                    log::warn!("[Router.Disconnected] id: {:?}, Not found", id);
+                    log::info!("[Router.Disconnected] id: {:?}, Not found", id);
                 }
             }
             Message::SessionTerminated { id } => {
