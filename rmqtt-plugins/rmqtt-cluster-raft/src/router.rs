@@ -119,7 +119,7 @@ impl Router for &'static ClusterRouter {
 
         let msg = Message::Add { topic_filter, id, opts }.encode()?;
         let mailbox = self.raft_mailbox().await;
-        let _ = async move { mailbox.send(msg).await.map_err(anyhow::Error::new) }
+        let _ = async move { mailbox.send_proposal(msg).await.map_err(anyhow::Error::new) }
             .spawn(task_exec_queue())
             .result()
             .await
@@ -136,7 +136,7 @@ impl Router for &'static ClusterRouter {
             if let Err(e) = retry(BACKOFF_STRATEGY.clone(), || async {
                 let msg = msg.clone();
                 let mailbox = raft_mailbox.clone();
-                let res = async move { mailbox.send(msg).await }
+                let res = async move { mailbox.send_proposal(msg).await }
                     .spawn(task_exec_queue())
                     .result()
                     .await

@@ -53,7 +53,7 @@ impl Entry for ClusterLockEntry {
     async fn try_lock(&self) -> Result<Box<dyn Entry>> {
         let msg = RaftMessage::HandshakeTryLock { id: self.id() }.encode()?;
         let raft_mailbox = self.cluster_shared.router.raft_mailbox().await;
-        let reply = raft_mailbox.send(msg).await.map_err(anyhow::Error::new)?;
+        let reply = raft_mailbox.send_proposal(msg).await.map_err(anyhow::Error::new)?;
         let mut prev_node_id = None;
         if !reply.is_empty() {
             match RaftMessageReply::decode(&reply)? {
@@ -92,7 +92,7 @@ impl Entry for ClusterLockEntry {
     async fn set(&mut self, session: Session, tx: Tx, conn: ClientInfo) -> Result<()> {
         let msg = RaftMessage::Connected { id: session.id.clone() }.encode()?;
         let raft_mailbox = self.cluster_shared.router.raft_mailbox().await;
-        let reply = raft_mailbox.send(msg).await.map_err(anyhow::Error::new)?;
+        let reply = raft_mailbox.send_proposal(msg).await.map_err(anyhow::Error::new)?;
         if !reply.is_empty() {
             let reply = RaftMessageReply::decode(&reply)?;
             match reply {
