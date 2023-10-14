@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use rust_box::dequemap::DequeMap;
+use rust_box::dequemap::DequeBTreeMap as DequeMap;
 
 use crate::broker::queue::OnEventFn;
 use crate::broker::types::{

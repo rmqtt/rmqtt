@@ -29,7 +29,7 @@ pub(crate) fn get_handshake_exec(name: Port, listen_cfg: Listener) -> LocalTaskE
                     futures::future::join(task_runner, async move {
                         loop {
                             set_active_count(name, exec1.active_count());
-                            set_rate(name, exec1.rate());
+                            set_rate(name, exec1.rate().await);
                             tokio::time::sleep(Duration::from_secs(5)).await;
                         }
                     })

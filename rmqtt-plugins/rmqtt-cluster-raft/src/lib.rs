@@ -361,7 +361,7 @@ impl Plugin for ClusterPlugin {
             "task_exec_queue": {
                 "waiting_count": exec.waiting_count(),
                 "active_count": exec.active_count(),
-                "completed_count": exec.completed_count(),
+                "completed_count": exec.completed_count().await,
             }
         })
     }

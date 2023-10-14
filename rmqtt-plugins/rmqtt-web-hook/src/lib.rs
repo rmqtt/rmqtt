@@ -346,7 +346,7 @@ impl Plugin for WebHookPlugin {
             "task_exec_queue": {
                 "active_count": exec.active_count(),
                 "waiting_count": exec.waiting_count(),
-                "completed_count": exec.completed_count(),
+                "completed_count": exec.completed_count().await,
                 "failure_count": fails().count(),
             }
         })

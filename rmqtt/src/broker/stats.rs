@@ -353,22 +353,16 @@ pub struct RuntimeExecStats {
     rate: f64,
 }
 
-impl Default for RuntimeExecStats {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl RuntimeExecStats {
     #[allow(dead_code)]
-    pub fn new() -> Self {
+    pub async fn new() -> Self {
         let exec = &Runtime::instance().exec;
         Self {
             active_count: exec.active_count(),
-            completed_count: exec.completed_count(),
+            completed_count: exec.completed_count().await,
             pending_wakers_count: exec.pending_wakers_count(),
             waiting_count: exec.waiting_count(),
-            rate: exec.rate(),
+            rate: exec.rate().await,
         }
     }
 
