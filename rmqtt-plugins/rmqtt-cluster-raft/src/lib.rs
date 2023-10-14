@@ -200,9 +200,9 @@ impl ClusterPlugin {
 
         //let (status_tx, status_rx) = futures::channel::oneshot::channel::<Result<Status>>();
         let _child = std::thread::Builder::new().name("cluster-raft".to_string()).spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
+            let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
-                .worker_threads(8)
+                .worker_threads(cfg.worker_threads)
                 .thread_name("cluster-raft-worker")
                 .thread_stack_size(4 * 1024 * 1024)
                 .build()
