@@ -7,7 +7,6 @@ use std::time::Duration;
 use once_cell::sync::OnceCell;
 use rust_box::stream_ext::LimiterExt;
 use rust_box::task_exec_queue::{Builder, LocalBuilder, LocalSender, LocalTaskExecQueue, TaskExecQueue};
-use systemstat::Platform;
 use tokio::spawn;
 use tokio::task::spawn_local;
 use tokio_cron_scheduler::JobScheduler;
