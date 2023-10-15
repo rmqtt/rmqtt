@@ -342,7 +342,7 @@ impl ListenerInner {
     }
     #[inline]
     fn mqueue_rate_limit_default() -> (NonZeroU32, Duration) {
-        (NonZeroU32::new(u32::max_value()).unwrap(), Duration::from_secs(1))
+        (NonZeroU32::new(u32::MAX).unwrap(), Duration::from_secs(1))
     }
     #[inline]
     fn max_clientid_len_default() -> usize {
