@@ -5,6 +5,8 @@ use ntex_mqtt::{handshakings, in_inflights};
 use once_cell::sync::OnceCell;
 
 use crate::broker::executor::{get_active_count, get_rate};
+#[cfg(feature = "debug")]
+use crate::runtime::TaskExecStats;
 use crate::{HashMap, NodeId, Runtime};
 
 type Current = AtomicIsize;
@@ -144,7 +146,9 @@ pub struct Stats {
     #[cfg(feature = "debug")]
     pub debug_session_channels: Counter,
     #[cfg(feature = "debug")]
-    debug_runtime_exec_stats: Option<RuntimeExecStats>,
+    debug_task_exec_stats: Option<TaskExecStats>,
+    #[cfg(feature = "debug")]
+    debug_task_local_exec_stats: Option<TaskExecStats>,
 }
 
 impl Stats {
@@ -179,7 +183,9 @@ impl Stats {
             #[cfg(feature = "debug")]
             debug_session_channels: Counter::new(),
             #[cfg(feature = "debug")]
-            debug_runtime_exec_stats: None,
+            debug_task_exec_stats: None,
+            #[cfg(feature = "debug")]
+            debug_task_local_exec_stats: None,
         })
     }
 
@@ -218,7 +224,9 @@ impl Stats {
         #[cfg(feature = "debug")]
         let debug_subscriptions = shared.subscriptions_count().await;
         #[cfg(feature = "debug")]
-        let debug_runtime_exec_stats = Some(RuntimeExecStats::new());
+        let debug_task_exec_stats = Some(TaskExecStats::from_exec().await);
+        #[cfg(feature = "debug")]
+        let debug_task_local_exec_stats = Some(TaskExecStats::from_local_exec());
 
         Self {
             handshakings: self.handshakings.clone(),
@@ -248,7 +256,9 @@ impl Stats {
             #[cfg(feature = "debug")]
             debug_session_channels: self.debug_session_channels.clone(),
             #[cfg(feature = "debug")]
-            debug_runtime_exec_stats,
+            debug_task_exec_stats,
+            #[cfg(feature = "debug")]
+            debug_task_local_exec_stats,
         }
     }
 
@@ -278,11 +288,19 @@ impl Stats {
             self.debug_subscriptions += other.debug_subscriptions;
             self.debug_session_channels.add(&other.debug_session_channels);
 
-            if let Some(other) = other.debug_runtime_exec_stats.as_ref() {
-                if let Some(stats) = self.debug_runtime_exec_stats.as_mut() {
+            if let Some(other) = other.debug_task_exec_stats.as_ref() {
+                if let Some(stats) = self.debug_task_exec_stats.as_mut() {
                     stats.add(other);
                 } else {
-                    self.debug_runtime_exec_stats.replace(other.clone());
+                    self.debug_task_exec_stats.replace(other.clone());
+                }
+            }
+
+            if let Some(other) = other.debug_task_local_exec_stats.as_ref() {
+                if let Some(stats) = self.debug_task_local_exec_stats.as_mut() {
+                    stats.add(other);
+                } else {
+                    self.debug_task_local_exec_stats.replace(other.clone());
                 }
             }
         }
@@ -336,43 +354,11 @@ impl Stats {
                 obj.insert("debug_subscriptions.count".into(), json!(self.debug_subscriptions));
                 obj.insert("debug_session_channels.count".into(), json!(self.debug_session_channels.count()));
                 obj.insert("debug_session_channels.max".into(), json!(self.debug_session_channels.max()));
-                obj.insert("debug_runtime_exec_stats".into(), json!(self.debug_runtime_exec_stats));
+                obj.insert("debug_task_exec_stats".into(), json!(self.debug_task_exec_stats));
+                obj.insert("debug_task_local_exec_stats".into(), json!(self.debug_task_local_exec_stats));
             }
         }
 
         json_val
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct RuntimeExecStats {
-    active_count: isize,
-    completed_count: isize,
-    pending_wakers_count: usize,
-    waiting_count: isize,
-    rate: f64,
-}
-
-impl RuntimeExecStats {
-    #[allow(dead_code)]
-    pub async fn new() -> Self {
-        let exec = &Runtime::instance().exec;
-        Self {
-            active_count: exec.active_count(),
-            completed_count: exec.completed_count().await,
-            pending_wakers_count: exec.pending_wakers_count(),
-            waiting_count: exec.waiting_count(),
-            rate: exec.rate().await,
-        }
-    }
-
-    #[allow(dead_code)]
-    #[inline]
-    fn add(&mut self, other: &Self) {
-        self.active_count += other.active_count;
-        self.completed_count += other.completed_count;
-        self.pending_wakers_count += other.pending_wakers_count;
-        self.waiting_count += other.waiting_count;
-        self.rate += other.rate;
     }
 }
