@@ -26,7 +26,7 @@ use rmqtt::ntex_mqtt::{
 };
 use rmqtt::settings::{listener::Listener, Options, Settings};
 use rmqtt::{log, structopt::StructOpt, tokio};
-use rmqtt::{logger::logger_init, MqttError, Result, Runtime, SessionState};
+use rmqtt::{logger::logger_init, runtime, MqttError, Result, Runtime, SessionState};
 
 mod ws;
 
@@ -55,6 +55,9 @@ async fn main() {
     let _guard = logger_init();
 
     Settings::logs();
+
+    //init scheduler
+    runtime::scheduler_init().await.unwrap();
 
     //register plugin
     plugin::registers(plugin::default_startups()).await.unwrap();
