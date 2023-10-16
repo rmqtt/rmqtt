@@ -1,5 +1,6 @@
 use std::fmt;
 use std::net::SocketAddr;
+use std::num::NonZeroU32;
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -113,6 +114,10 @@ impl Settings {
         crate::log::info!("node_id is {}", cfg.node.id);
         crate::log::info!("exec_workers is {}", cfg.task.exec_workers);
         crate::log::info!("exec_queue_max is {}", cfg.task.exec_queue_max);
+        crate::log::info!("local_exec_workers is {}", cfg.task.local_exec_workers);
+        crate::log::info!("local_exec_queue_max is {}", cfg.task.local_exec_queue_max);
+        crate::log::info!("local_exec_rate_limit is {:?}", cfg.task.local_exec_rate_limit);
+        crate::log::info!("node.busy config is: {:?}", cfg.node.busy);
 
         if cfg.opts.node_grpc_addrs.is_some() {
             crate::log::info!("node_grpc_addrs is {:?}", cfg.opts.node_grpc_addrs);
@@ -135,16 +140,40 @@ impl fmt::Debug for Settings {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Task {
+    //Concurrent task count for global task executor.
     #[serde(default = "Task::exec_workers_default")]
     pub exec_workers: usize,
+
+    //Queue capacity for global task executor.
     #[serde(default = "Task::exec_queue_max_default")]
     pub exec_queue_max: usize,
+
+    //Concurrent task count for global local task executor, per worker thread.
+    #[serde(default = "Task::local_exec_workers_default")]
+    pub local_exec_workers: usize,
+
+    //Queue capacity for global local task executor, per worker thread.
+    #[serde(default = "Task::local_exec_queue_max_default")]
+    pub local_exec_queue_max: usize,
+
+    //The rate at which messages are dequeued from the 'LocalTaskExecQueue' message queue.
+    #[serde(
+        default = "Task::local_exec_rate_limit_default",
+        deserialize_with = "Task::deserialize_local_exec_rate_limit"
+    )]
+    pub local_exec_rate_limit: (NonZeroU32, Duration),
 }
 
 impl Default for Task {
     #[inline]
     fn default() -> Self {
-        Self { exec_workers: Self::exec_workers_default(), exec_queue_max: Self::exec_queue_max_default() }
+        Self {
+            exec_workers: Self::exec_workers_default(),
+            exec_queue_max: Self::exec_queue_max_default(),
+            local_exec_workers: Self::local_exec_workers_default(),
+            local_exec_queue_max: Self::local_exec_queue_max_default(),
+            local_exec_rate_limit: Self::local_exec_rate_limit_default(),
+        }
     }
 }
 
@@ -154,6 +183,39 @@ impl Task {
     }
     fn exec_queue_max_default() -> usize {
         300_000
+    }
+    fn local_exec_workers_default() -> usize {
+        50
+    }
+    fn local_exec_queue_max_default() -> usize {
+        10_000
+    }
+    fn local_exec_rate_limit_default() -> (NonZeroU32, Duration) {
+        (NonZeroU32::new(u32::MAX).unwrap(), Duration::from_secs(1))
+    }
+
+    #[inline]
+    fn deserialize_local_exec_rate_limit<'de, D>(deserializer: D) -> Result<(NonZeroU32, Duration), D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let v = String::deserialize(deserializer)?;
+        let pair: Vec<&str> = v.split(',').collect();
+        if pair.len() == 2 {
+            let burst = NonZeroU32::from_str(pair[0]).map_err(|e| {
+                de::Error::custom(format!("local_exec_rate_limit, burst format error, {:?}", e))
+            })?;
+            let replenish_n_per = to_duration(pair[1]);
+            if replenish_n_per.as_millis() == 0 {
+                return Err(de::Error::custom(format!(
+                    "local_exec_rate_limit, value format error, {}",
+                    pair.join(",")
+                )));
+            }
+            Ok((burst, replenish_n_per))
+        } else {
+            Err(de::Error::custom(format!("local_exec_rate_limit, value format error, {}", pair.join(","))))
+        }
     }
 }
 
@@ -165,6 +227,8 @@ pub struct Node {
     pub cookie: String,
     // #[serde(default = "Node::crash_dump_default")]
     // pub crash_dump: String,
+    #[serde(default)]
+    pub busy: Busy,
 }
 
 impl Node {
@@ -174,6 +238,54 @@ impl Node {
     // fn crash_dump_default() -> String {
     //     "/var/log/rmqtt/crash.dump".into()
     // }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Busy {
+    //Busy status check switch
+    #[serde(default = "Busy::check_enable_default")]
+    pub check_enable: bool,
+    //Busy status update interval
+    #[serde(default = "Busy::update_interval_default", deserialize_with = "deserialize_duration")]
+    pub update_interval: Duration,
+    //The threshold for the 1-minute average system load used to determine system busyness.
+    #[serde(default = "Busy::loadavg_default")]
+    pub loadavg: f32, //70.0
+    //The threshold for average CPU load used to determine system busyness.
+    #[serde(default = "Busy::cpuloadavg_default")]
+    pub cpuloadavg: f32, //80.0
+    //The threshold for determining high-concurrency connection handshakes in progress.
+    #[serde(default)]
+    pub handshaking: usize, //0
+}
+
+impl Default for Busy {
+    #[inline]
+    fn default() -> Self {
+        Self {
+            check_enable: Self::check_enable_default(),
+            update_interval: Self::update_interval_default(),
+            loadavg: Self::loadavg_default(),
+            cpuloadavg: Self::cpuloadavg_default(),
+            handshaking: 0,
+        }
+    }
+}
+
+impl Busy {
+    fn check_enable_default() -> bool {
+        true
+    }
+    fn update_interval_default() -> Duration {
+        Duration::from_secs(2)
+    }
+    fn loadavg_default() -> f32 {
+        80.0
+    }
+
+    fn cpuloadavg_default() -> f32 {
+        90.0
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

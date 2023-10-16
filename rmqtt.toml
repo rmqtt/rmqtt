@@ -9,12 +9,35 @@
 task.exec_workers = 1000
 #Queue capacity for global task executor.
 task.exec_queue_max = 300_000
+#Concurrent task count for global local task executor, per worker thread.
+task.local_exec_workers = 50
+#Queue capacity for global local task executor, per worker thread.
+task.local_exec_queue_max = 10_000
+#The rate at which messages are dequeued from the 'LocalTaskExecQueue' message queue, per worker thread.
+#default value: "u32::MAX,1s"
+task.local_exec_rate_limit = "1000,1s"
+
 
 ##--------------------------------------------------------------------
 ## Node
 ##--------------------------------------------------------------------
 #Node id
 node.id = 1
+
+#Busy status check switch.
+#default value: true
+node.busy.check_enable = true
+#Busy status update interval.
+#default value: 2s
+node.busy.update_interval = "2s"
+#The threshold for the 1-minute average system load used to determine system busyness.
+#Value range: 0.0-100.0, default value: 80.0
+node.busy.loadavg = 80.0
+#The threshold for average CPU load used to determine system busyness.
+#Value range: 0.0-100.0, default value: 90.0
+node.busy.cpuloadavg = 90.0
+#The threshold for determining high-concurrency connection handshakes in progress.
+node.busy.handshaking = 0
 
 ##--------------------------------------------------------------------
 ## RPC
