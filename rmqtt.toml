@@ -6,7 +6,7 @@
 ## Task
 ##--------------------------------------------------------------------
 #Concurrent task count for global task executor.
-task.exec_workers = 1000
+task.exec_workers = 2000
 #Queue capacity for global task executor.
 task.exec_queue_max = 300_000
 #Concurrent task count for global local task executor, per worker thread.
