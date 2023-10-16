@@ -139,7 +139,7 @@ impl Node {
         {
             let cached = CACHED.read();
             let (busy, inst) = cached.deref();
-            if inst.elapsed().as_secs() < 5 {
+            if inst.elapsed() < Runtime::instance().settings.node.busy.update_interval {
                 return *busy;
             }
         }
