@@ -14,7 +14,7 @@ use tokio::sync::RwLock;
 use config::PluginConfig;
 use rmqtt::ntex::util::ByteString;
 use rmqtt::reqwest::Response;
-use rmqtt::{ahash, async_trait, chrono, lazy_static, log, reqwest, serde_json, tokio};
+use rmqtt::{ahash, async_trait, chrono, log, reqwest, serde_json, tokio, once_cell::sync::Lazy};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::types::{
@@ -273,8 +273,8 @@ impl AuthHandler {
         }
     }
 
-    fn replaces<'a>(
-        params: &'a mut HashMap<String, String>,
+    fn replaces(
+        params: &mut HashMap<String, String>,
         connect_info: &ConnectInfo,
         password: Option<&Password>,
         sub_or_pub: Option<(ACLType, &TopicName)>,
@@ -403,7 +403,7 @@ impl Handler for AuthHandler {
                     return (false, acc);
                 }
 
-                return match self.auth(*connect_info, connect_info.password()).await {
+                return match self.auth(connect_info, connect_info.password()).await {
                     ResponseResult::Allow(superuser) => {
                         (false, Some(HookResult::AuthResult(AuthResult::Allow(superuser))))
                     }
@@ -427,7 +427,10 @@ impl Handler for AuthHandler {
                 return match acl_res {
                     ResponseResult::Allow(_) => (
                         false,
-                        Some(HookResult::SubscribeAclResult(SubscribeAclResult::new_success(subscribe.qos))),
+                        Some(HookResult::SubscribeAclResult(SubscribeAclResult::new_success(
+                            subscribe.opts.qos(),
+                            None,
+                        ))),
                     ),
                     ResponseResult::Deny => (
                         false,
@@ -502,12 +505,10 @@ impl Handler for AuthHandler {
     }
 }
 
-lazy_static::lazy_static! {
-    static ref  HTTP_CLIENT: reqwest::Client = {
-            reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(5))
-                .timeout(Duration::from_secs(5))
-                .build()
-                .unwrap()
-    };
-}
+static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(5))
+        .build()
+        .unwrap()
+});

@@ -1,4 +1,5 @@
 #![deny(unsafe_code)]
+#![recursion_limit = "256"]
 #[macro_use]
 pub extern crate async_trait;
 extern crate proc_macro;
@@ -18,12 +19,10 @@ pub use crossbeam;
 pub use dashmap;
 pub use futures;
 pub use itertools;
-pub use lazy_static;
 pub use log;
 pub use ntex;
 pub use ntex_mqtt;
 pub use once_cell;
-pub use parking_lot::RwLock;
 pub use pin_project_lite;
 pub use rand;
 pub use reqwest;

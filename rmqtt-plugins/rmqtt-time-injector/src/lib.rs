@@ -91,7 +91,7 @@ struct PublishHandler;
 impl Handler for PublishHandler {
     async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
         match param {
-            Parameter::MessagePublish(_s, _c, p) => {
+            Parameter::MessagePublish(_s, _c, _from, p) => {
                 log::debug!("MessagePublish, publish: {:?}", p);
                 match serde_json::from_slice::<serde_json::Value>(p.payload()) {
                     Err(e) => {

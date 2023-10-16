@@ -43,7 +43,7 @@ impl Handler for HookHandler {
                         if let Err(e) = retry(BACKOFF_STRATEGY.clone(), || async {
                             let msg = msg.clone();
                             let mailbox = raft_mailbox.clone();
-                            let res = async move { mailbox.send(msg).await }
+                            let res = async move { mailbox.send_proposal(msg).await }
                                 .spawn(task_exec_queue())
                                 .result()
                                 .await
@@ -73,7 +73,7 @@ impl Handler for HookHandler {
                     if let Err(e) = retry(BACKOFF_STRATEGY.clone(), || async {
                         let msg = msg.clone();
                         let mailbox = raft_mailbox.clone();
-                        let res = async move { mailbox.send(msg).await }
+                        let res = async move { mailbox.send_proposal(msg).await }
                             .spawn(task_exec_queue())
                             .result()
                             .await

@@ -1,4 +1,5 @@
 [workspace]
+resolver = "2"
 members = [
     "rmqtt",
     "rmqtt-plugins/rmqtt-acl",
@@ -9,6 +10,7 @@ members = [
     "rmqtt-plugins/rmqtt-counter",
     "rmqtt-plugins/rmqtt-http-api",
     "rmqtt-plugins/rmqtt-retainer",
+    "rmqtt-plugins/rmqtt-sys-topic",
     "rmqtt-plugins/rmqtt-time-injector",
     "rmqtt-bin",
     "rmqtt-macros"
@@ -26,9 +28,10 @@ rmqtt-counter = { path = "rmqtt-plugins/rmqtt-counter" }
 rmqtt-http-api = { path = "rmqtt-plugins/rmqtt-http-api" }
 rmqtt-retainer = { path = "rmqtt-plugins/rmqtt-retainer" }
 rmqtt-time-injector = { path = "rmqtt-plugins/rmqtt-time-injector" }
+rmqtt-sys-topic = { path = "rmqtt-plugins/rmqtt-sys-topic" }
 
 [workspace.package]
-version = "0.2.14"
+version = "0.2.18"
 edition = "2021"
 authors = ["rmqtt <rmqttd@126.com>"]
 description = "MQTT Server for v3.1, v3.1.1 and v5.0 protocols"
@@ -37,4 +40,4 @@ license = "MIT license, Apache-2.0 License"
 categories = ["network-programming"]
 keywords = ["MQTT", "IoT", "messaging", "MQTT Server", "MQTT Broker"]
 exclude = [".gitignore", ".cargo/config"]
-rust-version = "1.64"
+rust-version = "1.67"

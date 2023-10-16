@@ -1,10 +1,9 @@
 use rmqtt::broker::{Router, Shared};
-use rmqtt::{async_trait::async_trait, log};
+use rmqtt::{async_trait::async_trait, log, SubscriptionSize};
 use rmqtt::{
     broker::{
         hook::{Handler, HookResult, Parameter, ReturnType},
-        types::{From, Publish},
-        SubRelationsMap,
+        types::{From, Publish, SubRelationsMap},
     },
     grpc::{Message, MessageReply},
     Id, Runtime,
@@ -39,8 +38,9 @@ impl Handler for HookHandler {
                 }
                 match msg {
                     Message::Forwards(from, publish) => {
-                        let shared_subs = forwards(from.clone(), publish.clone()).await;
-                        let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::Forwards(shared_subs)));
+                        let (shared_subs, subs_size) = forwards(from.clone(), publish.clone()).await;
+                        let new_acc =
+                            HookResult::GrpcMessageReply(Ok(MessageReply::Forwards(shared_subs, subs_size)));
                         return (false, Some(new_acc));
                     }
                     Message::ForwardsTo(from, publish, sub_rels) => {
@@ -152,12 +152,13 @@ impl Handler for HookHandler {
     }
 }
 
-async fn forwards(from: From, publish: Publish) -> SubRelationsMap {
+async fn forwards(from: From, publish: Publish) -> (SubRelationsMap, SubscriptionSize) {
     log::debug!("forwards, From: {:?}, publish: {:?}", from, publish);
     match Runtime::instance().extends.shared().await.forwards_and_get_shareds(from, publish).await {
         Err(droppeds) => {
+            let subs_size = droppeds.len();
             hook_message_dropped(droppeds).await;
-            SubRelationsMap::default()
+            (SubRelationsMap::default(), subs_size)
         }
         Ok(relations_map) => relations_map,
     }

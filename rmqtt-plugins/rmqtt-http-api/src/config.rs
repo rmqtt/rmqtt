@@ -28,6 +28,12 @@ pub struct PluginConfig {
     #[serde(default = "PluginConfig::message_type_default")]
     pub message_type: MessageType,
 
+    #[serde(default = "PluginConfig::http_reuseaddr_default")]
+    pub http_reuseaddr: bool,
+
+    #[serde(default = "PluginConfig::http_reuseport_default")]
+    pub http_reuseport: bool,
+
     #[serde(default = "PluginConfig::http_request_log_default")]
     pub http_request_log: bool,
 }
@@ -51,6 +57,14 @@ impl PluginConfig {
 
     fn message_type_default() -> MessageType {
         99
+    }
+
+    fn http_reuseaddr_default() -> bool {
+        true
+    }
+
+    fn http_reuseport_default() -> bool {
+        false
     }
 
     fn http_request_log_default() -> bool {

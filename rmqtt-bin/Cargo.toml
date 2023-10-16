@@ -42,6 +42,7 @@ rmqtt-counter = "0.1"
 rmqtt-http-api = "0.1"
 rmqtt-retainer = "0.1"
 rmqtt-time-injector = "0.1"
+rmqtt-sys-topic = "0.1"
 #rmqtt-plugin-template = "0.1"
 
 [package.metadata.plugins]
@@ -54,9 +55,9 @@ rmqtt-cluster-broadcast = { immutable = true }
 rmqtt-cluster-raft = { immutable = true }
 rmqtt-retainer = { }
 rmqtt-time-injector = { }
+rmqtt-sys-topic = { }
 #rmqtt-plugin-template = { }
 
 [build-dependencies]
-toml = "0.5"
-chrono = { version = "0.4", default-features = false, features = [] }
+toml = "0.7"
 

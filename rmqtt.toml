@@ -3,10 +3,41 @@
 ##--------------------------------------------------------------------
 
 ##--------------------------------------------------------------------
+## Task
+##--------------------------------------------------------------------
+#Concurrent task count for global task executor.
+task.exec_workers = 2000
+#Queue capacity for global task executor.
+task.exec_queue_max = 300_000
+#Concurrent task count for global local task executor, per worker thread.
+task.local_exec_workers = 50
+#Queue capacity for global local task executor, per worker thread.
+task.local_exec_queue_max = 10_000
+#The rate at which messages are dequeued from the 'LocalTaskExecQueue' message queue, per worker thread.
+#default value: "u32::MAX,1s"
+task.local_exec_rate_limit = "1000,1s"
+
+
+##--------------------------------------------------------------------
 ## Node
 ##--------------------------------------------------------------------
 #Node id
 node.id = 1
+
+#Busy status check switch.
+#default value: true
+node.busy.check_enable = true
+#Busy status update interval.
+#default value: 2s
+node.busy.update_interval = "2s"
+#The threshold for the 1-minute average system load used to determine system busyness.
+#Value range: 0.0-100.0, default value: 80.0
+node.busy.loadavg = 80.0
+#The threshold for average CPU load used to determine system busyness.
+#Value range: 0.0-100.0, default value: 90.0
+node.busy.cpuloadavg = 90.0
+#The threshold for determining high-concurrency connection handshakes in progress.
+node.busy.handshaking = 0
 
 ##--------------------------------------------------------------------
 ## RPC
@@ -39,15 +70,15 @@ log.file = "rmqtt.log"
 plugins.dir = "rmqtt-plugins/"
 #Plug in started by default, when the mqtt server is started
 plugins.default_startups = [
-    #    "rmqtt-retainer"
-    #    "rmqtt-auth-http",
-    #    "rmqtt-web-hook",
-    #    "rmqtt-cluster-broadcast",
-    #    "rmqtt-cluster-raft",
-    #    "rmqtt-time-injector",
-    #    "rmqtt-http-api"
+    #"rmqtt-retainer",
+    #"rmqtt-auth-http",
+    #"rmqtt-web-hook",
+    #"rmqtt-cluster-broadcast",
+    #"rmqtt-cluster-raft",
+    #"rmqtt-sys-topic",
+    #"rmqtt-http-api",
+    "rmqtt-time-injector"
 ]
-
 
 ##--------------------------------------------------------------------
 ## MQTT
@@ -74,14 +105,21 @@ listener.tcp.external.max_packet_size = "1m"
 #The maximum length of the TCP connection queue.
 #It indicates the maximum number of TCP connection queues that are being handshaked three times in the system
 listener.tcp.external.backlog = 1024
-#The Daze time after the TCP connection is established. If no message is received during this period,
-#the connection will be closed. (temporarily not used)
-listener.tcp.external.idle_timeout = "20s"
 #Whether anonymous login is allowed. Default: true
 listener.tcp.external.allow_anonymous = true
+#A value of zero indicates disabling the keep-alive feature, where the server
+#doesn't need to disconnect due to client inactivity, default: true
+listener.tcp.external.allow_zero_keepalive = true
 #Minimum allowable keepalive value for mqtt connection,
-#less than this value will reject the connection, default: 0, unit: seconds
+#less than this value will reject the connection(MQTT V3),
+#less than this value will set keepalive to this value in CONNACK (MQTT V5),
+#default: 0, unit: seconds
 listener.tcp.external.min_keepalive = 0
+#Maximum allowable keepalive value for mqtt connection,
+#greater than this value will reject the connection(MQTT V3),
+#greater than this value will set keepalive to this value in CONNACK (MQTT V5),
+#default value: 65535, unit: seconds
+listener.tcp.external.max_keepalive = 65535
 # > 0.5, Keepalive * backoff * 2
 listener.tcp.external.keepalive_backoff = 0.75
 #Flight window size. The flight window is used to store the unanswered QoS 1 and QoS 2 messages
@@ -106,19 +144,13 @@ listener.tcp.external.session_expiry_interval = "2h"
 listener.tcp.external.message_retry_interval = "20s"
 #Message expiration time, 0 means no expiration
 listener.tcp.external.message_expiry_interval = "5m"
-#QoS 2, Maximum flight window waiting for client to send pubrel message,
-#When the window is full, the oldest will be removed.
-#0 means unlimited
-listener.tcp.external.max_awaiting_rel = 100
-#QoS 2, The timeout of waiting for client to send pubrel message,
-#The pubrel message of this message will be ignored after timeout.
-#0 means unlimited
-listener.tcp.external.await_rel_timeout = "5m"
 #The maximum number of topics that a single client is allowed to subscribe to
 #0 means unlimited, default value: 0
 listener.tcp.external.max_subscriptions = 0
 #Shared subscription switch, default value: true
 listener.tcp.external.shared_subscription = true
+#topic alias maximum, default value: 0, topic aliases not enabled. (MQTT 5.0)
+listener.tcp.external.max_topic_aliases = 32
 
 ##--------------------------------------------------------------------
 ## Internal TCP Listener for MQTT Protocol
@@ -130,9 +162,10 @@ listener.tcp.internal.max_handshaking_limit = 500
 listener.tcp.internal.handshake_timeout = "30s"
 listener.tcp.internal.max_packet_size = "1M"
 listener.tcp.internal.backlog = 512
-listener.tcp.internal.idle_timeout = "15s"
 listener.tcp.internal.allow_anonymous = true
+listener.tcp.internal.allow_zero_keepalive = true
 listener.tcp.internal.min_keepalive = 0
+listener.tcp.internal.max_keepalive = 65535
 listener.tcp.internal.keepalive_backoff = 0.75
 listener.tcp.internal.max_inflight = 16
 listener.tcp.internal.max_mqueue_len = 1000
@@ -144,14 +177,16 @@ listener.tcp.internal.retain_available = true
 listener.tcp.internal.session_expiry_interval = "2h"
 listener.tcp.internal.message_retry_interval = "30s"
 listener.tcp.internal.message_expiry_interval = "5m"
-listener.tcp.internal.max_awaiting_rel = 1000
-listener.tcp.internal.await_rel_timeout = "600s"
 listener.tcp.internal.max_subscriptions = 0
 listener.tcp.internal.shared_subscription = true
+listener.tcp.internal.max_topic_aliases = 0
 
 ##--------------------------------------------------------------------
 ## MQTT/TLS - External TLS Listener for MQTT Protocol
 listener.tls.external.addr = "0.0.0.0:8883"
+#listener.tls.external.cross_certificate = true
+#listener.tls.external.cert = "./rmqtt-bin/rmqtt.fullchain.pem"
+listener.tls.external.cross_certificate = false
 listener.tls.external.cert = "./rmqtt-bin/rmqtt.pem"
 listener.tls.external.key = "./rmqtt-bin/rmqtt.key"
 
@@ -162,5 +197,8 @@ listener.ws.external.addr = "0.0.0.0:8080"
 ##--------------------------------------------------------------------
 ## MQTT/TLS-WebSocket - External TLS-WebSocket Listener for MQTT Protocol
 listener.wss.external.addr = "0.0.0.0:8443"
+#listener.wss.external.cross_certificate = true
+#listener.wss.external.cert = "./rmqtt-bin/rmqtt.fullchain.pem"
+listener.wss.external.cross_certificate = false
 listener.wss.external.cert = "./rmqtt-bin/rmqtt.pem"
 listener.wss.external.key = "./rmqtt-bin/rmqtt.key"

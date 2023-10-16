@@ -83,13 +83,13 @@ async fn build_result(s: Option<Session>, c: Option<ClientInfo>) -> SearchResult
         session_present: c.session_present,
         expiry_interval,
         created_at: s.created_at / 1000,
-        subscriptions_cnt: s.subscriptions.len(),
+        subscriptions_cnt: s.subscriptions.len().await,
         max_subscriptions: s.listen_cfg.max_subscriptions,
         extra_attrs,
         last_will,
 
         inflight,
-        max_inflight: s.listen_cfg.max_inflight,
+        max_inflight: s.listen_cfg.max_inflight.get(),
 
         mqueue_len: s.deliver_queue.len(),
         max_mqueue: s.listen_cfg.max_mqueue_len,

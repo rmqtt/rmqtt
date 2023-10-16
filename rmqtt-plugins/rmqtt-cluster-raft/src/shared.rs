@@ -8,16 +8,17 @@ use rmqtt::anyhow::Error;
 use rmqtt::broker::Router;
 use rmqtt::grpc::MessageBroadcaster;
 use rmqtt::serde_json::json;
-use rmqtt::{anyhow, async_trait::async_trait, futures, log, once_cell, serde_json, tokio};
+use rmqtt::{anyhow, async_trait::async_trait, futures, log, once_cell, serde_json};
 use rmqtt::{
     broker::{
         default::DefaultShared,
         session::{ClientInfo, Session, SessionOfflineInfo},
         types::{
-            From, Id, IsAdmin, NodeId, NodeName, Publish, Reason, SessionStatus, SubsSearchParams,
-            SubsSearchResult, Subscribe, SubscribeReturn, To, Tx, Unsubscribe,
+            From, Id, IsAdmin, NodeId, NodeName, Publish, Reason, SessionStatus, SubRelations,
+            SubRelationsMap, SubsSearchParams, SubsSearchResult, Subscribe, SubscribeReturn,
+            SubscriptionSize, To, Tx, Unsubscribe,
         },
-        Entry, Shared, SubRelations, SubRelationsMap,
+        Entry, Shared,
     },
     grpc::{Message, MessageReply, MessageType},
     MqttError, Result, Runtime,
@@ -52,7 +53,7 @@ impl Entry for ClusterLockEntry {
     async fn try_lock(&self) -> Result<Box<dyn Entry>> {
         let msg = RaftMessage::HandshakeTryLock { id: self.id() }.encode()?;
         let raft_mailbox = self.cluster_shared.router.raft_mailbox().await;
-        let reply = raft_mailbox.send(msg).await.map_err(anyhow::Error::new)?;
+        let reply = raft_mailbox.send_proposal(msg).await.map_err(anyhow::Error::new)?;
         let mut prev_node_id = None;
         if !reply.is_empty() {
             match RaftMessageReply::decode(&reply)? {
@@ -91,7 +92,7 @@ impl Entry for ClusterLockEntry {
     async fn set(&mut self, session: Session, tx: Tx, conn: ClientInfo) -> Result<()> {
         let msg = RaftMessage::Connected { id: session.id.clone() }.encode()?;
         let raft_mailbox = self.cluster_shared.router.raft_mailbox().await;
-        let reply = raft_mailbox.send(msg).await.map_err(anyhow::Error::new)?;
+        let reply = raft_mailbox.send_proposal(msg).await.map_err(anyhow::Error::new)?;
         if !reply.is_empty() {
             let reply = RaftMessageReply::decode(&reply)?;
             match reply {
@@ -311,18 +312,29 @@ impl Shared for &'static ClusterShared {
     }
 
     #[inline]
-    async fn forwards(&self, from: From, publish: Publish) -> Result<(), Vec<(To, From, Publish, Reason)>> {
+    async fn forwards(
+        &self,
+        from: From,
+        publish: Publish,
+    ) -> Result<SubscriptionSize, Vec<(To, From, Publish, Reason)>> {
         log::debug!("[forwards] from: {:?}, publish: {:?}", from, publish);
 
         let topic = publish.topic();
-        let mut relations_map =
-            match Runtime::instance().extends.router().await.matches(publish.topic()).await {
-                Ok(relations_map) => relations_map,
-                Err(e) => {
-                    log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
-                    SubRelationsMap::default()
-                }
-            };
+        let mut relations_map = match Runtime::instance()
+            .extends
+            .router()
+            .await
+            .matches(from.id.clone(), publish.topic())
+            .await
+        {
+            Ok(relations_map) => relations_map,
+            Err(e) => {
+                log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
+                SubRelationsMap::default()
+            }
+        };
+
+        let subs_size: SubscriptionSize = relations_map.values().map(|subs| subs.len()).sum();
 
         let mut errs = Vec::new();
 
@@ -362,23 +374,29 @@ impl Shared for &'static ClusterShared {
                 }
             }
 
-            tokio::spawn(async move {
-                let replys = futures::future::join_all(fut_senders).await;
-                for (node_id, reply) in replys {
-                    if let Err(e) = reply {
-                        log::error!(
+            //@TODO ... If the received message is greater than the sending rate, it is necessary to control the message receiving rate
+            if !fut_senders.is_empty() {
+                Runtime::instance().stats.forwards.inc();
+                let forwards_fut = async move {
+                    let replys = futures::future::join_all(fut_senders).await;
+                    for (node_id, reply) in replys {
+                        if let Err(e) = reply {
+                            log::error!(
                             "forwards Message::ForwardsTo to other node, from: {:?}, to: {:?}, error: {:?}",
                             from,
                             node_id,
                             e
                         );
+                        }
                     }
-                }
-            });
+                    Runtime::instance().stats.forwards.dec();
+                };
+                let _reply = Runtime::instance().exec.spawn(forwards_fut).await;
+            }
         }
 
         if errs.is_empty() {
-            Ok(())
+            Ok(subs_size)
         } else {
             Err(errs)
         }
@@ -399,7 +417,7 @@ impl Shared for &'static ClusterShared {
         &self,
         from: From,
         publish: Publish,
-    ) -> Result<SubRelationsMap, Vec<(To, From, Publish, Reason)>> {
+    ) -> Result<(SubRelationsMap, SubscriptionSize), Vec<(To, From, Publish, Reason)>> {
         self.inner.forwards_and_get_shareds(from, publish).await
     }
 
@@ -438,6 +456,10 @@ impl Shared for &'static ClusterShared {
         self.inner.query_subscriptions(q).await
     }
 
+    #[inline]
+    async fn subscriptions_count(&self) -> usize {
+        self.inner.subscriptions_count().await
+    }
     #[inline]
     fn get_grpc_clients(&self) -> GrpcClients {
         self.grpc_clients.clone()

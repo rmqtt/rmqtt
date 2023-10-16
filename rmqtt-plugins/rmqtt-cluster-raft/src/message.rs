@@ -1,8 +1,8 @@
 use rmqtt_raft::Status;
 
-use rmqtt::broker::types::{Id, NodeId, QoS, SharedGroup};
-use rmqtt::Result;
+use rmqtt::broker::types::{Id, NodeId};
 use rmqtt::{anyhow, bincode};
+use rmqtt::{Result, SubscriptionOptions};
 
 use super::Mailbox;
 
@@ -12,7 +12,7 @@ pub enum Message<'a> {
     Connected { id: Id },
     Disconnected { id: Id },
     SessionTerminated { id: Id },
-    Add { topic_filter: &'a str, id: Id, qos: QoS, shared_group: Option<SharedGroup> },
+    Add { topic_filter: &'a str, id: Id, opts: SubscriptionOptions },
     Remove { topic_filter: &'a str, id: Id },
     //get client node id
     GetClientNodeId { client_id: &'a str },

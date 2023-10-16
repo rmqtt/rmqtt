@@ -1,15 +1,15 @@
 use itertools::Itertools;
 use once_cell::sync::OnceCell;
 
-use rmqtt::stats::Counter;
 use rmqtt::{async_trait::async_trait, itertools, log, once_cell, serde_json};
 use rmqtt::{
     broker::{
         default::DefaultRouter,
-        types::{Id, NodeId, QoS, Route, SharedGroup, TopicName},
-        Router, SubRelationsMap,
+        types::{Id, NodeId, Route, SubRelationsMap, SubscriptionOptions, TopicName},
+        Router,
     },
     grpc::{GrpcClients, Message, MessageBroadcaster, MessageReply, MessageSender, MessageType},
+    stats::Counter,
     HashMap, Result, TopicFilter,
 };
 
@@ -35,14 +35,8 @@ impl ClusterRouter {
 #[async_trait]
 impl Router for &'static ClusterRouter {
     #[inline]
-    async fn add(
-        &self,
-        topic_filter: &str,
-        id: Id,
-        qos: QoS,
-        shared_group: Option<SharedGroup>,
-    ) -> Result<()> {
-        self.inner.add(topic_filter, id, qos, shared_group).await
+    async fn add(&self, topic_filter: &str, id: Id, opts: SubscriptionOptions) -> Result<()> {
+        self.inner.add(topic_filter, id, opts).await
     }
 
     #[inline]
@@ -51,8 +45,8 @@ impl Router for &'static ClusterRouter {
     }
 
     #[inline]
-    async fn matches(&self, topic: &TopicName) -> Result<SubRelationsMap> {
-        self.inner.matches(topic).await
+    async fn matches(&self, id: Id, topic: &TopicName) -> Result<SubRelationsMap> {
+        self.inner.matches(id, topic).await
     }
 
     ///Check online or offline

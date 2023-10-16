@@ -15,11 +15,12 @@ use governor::{
     prelude::StreamRateLimitExt,
     state::{InMemoryState, NotKeyed},
     Quota, RateLimiter, RatelimitedStream,
+    middleware::NoOpMiddleware
 };
 
 type DirectLimiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock>;
 
-pub type Receiver<'a, T> = RatelimitedStream<'a, ReceiverStream<T>, InMemoryState, DefaultClock>;
+pub type Receiver<'a, T> = RatelimitedStream<'a, ReceiverStream<T>, InMemoryState, DefaultClock, NoOpMiddleware>;
 
 pub enum Policy {
     //Discard current value
@@ -31,6 +32,9 @@ pub enum Policy {
 pub trait PolicyFn<P>: 'static + Fn(&P) -> Policy {}
 
 impl<T, P> PolicyFn<P> for T where T: 'static + Clone + ?Sized + Fn(&P) -> Policy {}
+
+pub trait OnEventFn: 'static + Sync + Send + Fn() {}
+impl<T> OnEventFn for T where T: 'static + Sync + Send + Clone + ?Sized + Fn() {}
 
 #[derive(Clone)]
 pub struct Sender<T> {
@@ -150,6 +154,8 @@ impl Limiter {
 pub struct Queue<T> {
     cap: usize,
     inner: SegQueue<T>,
+    on_push_fn: Option<Arc<dyn OnEventFn>>,
+    on_pop_fn: Option<Arc<dyn OnEventFn>>,
 }
 
 impl<T> Drop for Queue<T> {
@@ -162,7 +168,23 @@ impl<T> Drop for Queue<T> {
 impl<T> Queue<T> {
     #[inline]
     pub fn new(cap: usize) -> Self {
-        Self { cap, inner: SegQueue::new() }
+        Self { cap, inner: SegQueue::new(), on_push_fn: None, on_pop_fn: None }
+    }
+
+    #[inline]
+    pub fn on_push<F>(&mut self, f: F)
+    where
+        F: OnEventFn,
+    {
+        self.on_push_fn = Some(Arc::new(f));
+    }
+
+    #[inline]
+    pub fn on_pop<F>(&mut self, f: F)
+    where
+        F: OnEventFn,
+    {
+        self.on_pop_fn = Some(Arc::new(f));
     }
 
     #[inline]
@@ -170,13 +192,23 @@ impl<T> Queue<T> {
         if self.inner.len() > self.cap {
             return Err(v);
         }
+        if let Some(f) = self.on_push_fn.as_ref() {
+            f();
+        }
         self.inner.push(v);
         Ok(())
     }
 
     #[inline]
     pub fn pop(&self) -> Option<T> {
-        self.inner.pop()
+        if let Some(v) = self.inner.pop() {
+            if let Some(f) = self.on_pop_fn.as_ref() {
+                f();
+            }
+            Some(v)
+        } else {
+            None
+        }
     }
 
     #[inline]

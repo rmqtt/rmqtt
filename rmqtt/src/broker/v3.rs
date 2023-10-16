@@ -3,6 +3,8 @@ use std::convert::From as _f;
 use std::net::SocketAddr;
 
 use ntex_mqtt::v3::{self};
+use rust_box::task_exec_queue::LocalSpawnExt;
+use uuid::Uuid;
 
 use crate::broker::executor::get_handshake_exec;
 use crate::broker::{inflight::MomentStatus, types::*};
@@ -36,7 +38,7 @@ async fn refused_ack<Io>(
 #[inline]
 pub async fn handshake<Io: 'static>(
     listen_cfg: Listener,
-    handshake: v3::Handshake<Io>,
+    mut handshake: v3::Handshake<Io>,
     remote_addr: SocketAddr,
     local_addr: SocketAddr,
 ) -> Result<v3::HandshakeAck<Io, SessionState>, MqttError> {
@@ -47,6 +49,25 @@ pub async fn handshake<Io: 'static>(
         handshake,
         listen_cfg
     );
+
+    if handshake.packet().client_id.is_empty() {
+        if handshake.packet().clean_session {
+            handshake.packet_mut().client_id =
+                ClientId::from(Uuid::new_v4().as_simple().encode_lower(&mut Uuid::encode_buffer()).to_owned())
+        } else {
+            log::info!(
+                "{:?} Connection Refused, handshake error, reason: invalid client id",
+                Id::new(
+                    Runtime::instance().node.id(),
+                    Some(local_addr),
+                    Some(remote_addr),
+                    ClientId::default(),
+                    handshake.packet().username.clone(),
+                )
+            );
+            return Ok(ConnectAckReason::V3(ConnectAckReasonV3::IdentifierRejected).v3_error_ack(handshake));
+        }
+    }
 
     let id = Id::new(
         Runtime::instance().node.id(),
@@ -59,15 +80,17 @@ pub async fn handshake<Io: 'static>(
     Runtime::instance().stats.handshakings.max_max(handshake.handshakings());
 
     let exec = get_handshake_exec(local_addr.port(), listen_cfg.clone());
-    match exec.spawn(_handshake(id.clone(), listen_cfg, handshake)).await {
+    match _handshake(id.clone(), listen_cfg, handshake).spawn(&exec).result().await {
         Ok(Ok(res)) => Ok(res),
         Ok(Err(e)) => {
-            log::warn!("{:?} Connection Refused, handshake error, reason: {:?}", id, e);
+            log::warn!("{:?} Connection Refused, handshake error, reason: {:?}", id, e.to_string());
             Err(e)
         }
         Err(e) => {
-            log::warn!("{:?} Connection Refused, handshake timeout, reason: {:?}", id, e);
-            Err(MqttError::from("Connection Refused, execute handshake timeout"))
+            Runtime::instance().metrics.client_handshaking_timeout_inc();
+            let err = MqttError::from("Connection Refused, execute handshake timeout");
+            log::warn!("{:?} {:?}, reason: {:?}", id, err, e.to_string());
+            Err(err)
         }
     }
 }
@@ -117,7 +140,7 @@ async fn _handshake<Io: 'static>(
                 handshake,
                 &connect_info,
                 ConnectAckReasonV3::ServiceUnavailable,
-                format!("{:?}", e),
+                format!("{}", e),
             )
             .await);
         }
@@ -132,7 +155,7 @@ async fn _handshake<Io: 'static>(
                     handshake,
                     &connect_info,
                     ConnectAckReasonV3::ServiceUnavailable,
-                    format!("{:?}", e),
+                    format!("{}", e),
                 )
                 .await);
             }
@@ -172,13 +195,13 @@ async fn _handshake<Io: 'static>(
         hook.session_created().await;
     }
 
-    let (state, tx) = SessionState::new(session, client, Sink::V3(sink), hook).start(keep_alive).await;
+    let (state, tx) = SessionState::new(session, client, Sink::V3(sink), hook, 0, 0).start(keep_alive).await;
     if let Err(e) = entry.set(state.session.clone(), tx, state.client.clone()).await {
         return Ok(refused_ack(
             handshake,
             &state.client.connect_info,
             ConnectAckReasonV3::ServiceUnavailable,
-            format!("{:?}", e),
+            format!("{}", e),
         )
         .await);
     }
@@ -203,7 +226,7 @@ async fn _handshake<Io: 'static>(
         let clean_session = packet.clean_session;
         ntex::rt::spawn(async move {
             if let Err(e) = state1.transfer_session_state(clean_session, o).await {
-                log::warn!("{:?} Failed to transfer session state, {:?}", state1.id, e);
+                log::warn!("{:?} Failed to transfer session state, {}", state1.id, e);
             }
         });
     }
@@ -258,7 +281,7 @@ pub async fn control_message(
                     .client
                     .add_disconnected_reason(Reason::SubscribeFailed(Some(ByteString::from(e.to_string()))))
                     .await;
-                log::error!("{:?} Subscribe failed, reason: {:?}", state.id, e);
+                log::error!("{:?} Subscribe failed, reason: {}", state.id, e);
                 return Err(e);
             }
             Ok(r) => r,
@@ -269,7 +292,7 @@ pub async fn control_message(
                     .client
                     .add_disconnected_reason(Reason::UnsubscribeFailed(Some(ByteString::from(e.to_string()))))
                     .await;
-                log::error!("{:?} Unsubscribe failed, reason: {:?}", state.id, e);
+                log::error!("{:?} Unsubscribe failed, reason: {}", state.id, e);
                 return Err(e);
             }
             Ok(r) => r,
@@ -281,7 +304,7 @@ pub async fn control_message(
         }
         v3::ControlMessage::Closed(m) => {
             if let Err(e) = state.send(Message::Closed(Reason::ConnectRemoteClose)) {
-                log::debug!("{:?} Closed error, reason: {:?}", state.id, e);
+                log::debug!("{:?} Closed error, reason: {}", state.id, e);
             }
             m.ack()
         }
@@ -298,13 +321,26 @@ pub async fn publish(state: v3::Session<SessionState>, pub_msg: v3::PublishMessa
 
     match pub_msg {
         v3::PublishMessage::Publish(publish) => {
-            if let Err(e) = state.publish_v3(&publish).await {
-                log::error!(
-                    "{:?} Publish failed, reason: {:?}",
-                    state.id,
-                    state.client.get_disconnected_reason().await
-                );
-                return Err(e);
+            let publish_fut = async move {
+                if let Err(e) = state.publish_v3(&publish).await {
+                    log::error!(
+                        "{:?} Publish failed, reason: {}",
+                        state.id,
+                        state.client.get_disconnected_reason().await
+                    );
+                    Err(e)
+                } else {
+                    Ok(())
+                }
+            };
+            if Runtime::instance().is_busy() {
+                Runtime::local_exec()
+                    .spawn(publish_fut)
+                    .result()
+                    .await
+                    .map_err(|e| MqttError::from(e.to_string()))??;
+            } else {
+                publish_fut.await?;
             }
         }
         v3::PublishMessage::PublishAck(packet_id) => {

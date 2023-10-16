@@ -1,7 +1,7 @@
 # RMQTT Broker
 
 [![GitHub Release](https://img.shields.io/github/release/rmqtt/rmqtt?color=brightgreen)](https://github.com/rmqtt/rmqtt/releases)
-<a href="https://blog.rust-lang.org/2022/09/22/Rust-1.64.0.html"><img alt="Rust Version" src="https://img.shields.io/badge/rust-1.64%2B-blue" /></a>
+<a href="https://blog.rust-lang.org/2023/02/09/Rust-1.67.1.html"><img alt="Rust Version" src="https://img.shields.io/badge/rust-1.67%2B-blue" /></a>
 
 English | [简体中文](./README-CN.md)
 
@@ -22,6 +22,7 @@ and mobile applications that can handle millions of concurrent clients on a sing
 - [HTTP AUTH/ACL](./docs/en_US/auth-http.md);
 - [WebHook](./docs/en_US/web-hook.md);
 - [HTTP APIs](./docs/en_US/http-api.md);
+- [$SYS System Topics](./docs/en_US/sys-topic.md)
 - Distributed cluster;
 - Hooks;
 - TLS support;
@@ -92,4 +93,88 @@ Get the binary package of the corresponding OS from [RMQTT Download](https://git
 - MQTT Broker: 47.103.110.134:1883
 - Account:
 - HTTP APIs: http://47.103.110.134:6080/api/v1/
+
+## Test
+
+### Functional Testing
+
+#### paho.mqtt.testing(MQTT V3.1.1) [client_test.py](https://github.com/eclipse/paho.mqtt.testing/blob/master/interoperability/client_test.py)
+
+* client_test.py Test.test_retained_messages          [OK]
+* client_test.py Test.test_zero_length_clientid       [OK]
+* client_test.py Test.will_message_test               [OK]
+* client_test.py Test.test_zero_length_clientid       [OK]
+* client_test.py Test.test_offline_message_queueing   [OK]
+* client_test.py Test.test_overlapping_subscriptions  [OK]
+* client_test.py Test.test_keepalive                  [OK]
+* client_test.py Test.test_redelivery_on_reconnect    [OK]
+* client_test.py Test.test_dollar_topics              [OK]
+* client_test.py Test.test_unsubscribe                [OK]
+* client_test.py Test.test_subscribe_failure          [OK]  
+  You need to modify the `rmqtt-acl.toml` configuration and add the following line at the first line: ["deny", "all", "subscribe", ["test/nosubscribe"]],
+
+#### paho.mqtt.testing(MQTT V5.0) [client_test5.py](https://github.com/eclipse/paho.mqtt.testing/blob/master/interoperability/client_test5.py)
+
+* client_test5.py Test.test_retained_message            [OK]
+* client_test5.py Test.test_will_message                [OK]
+* client_test5.py Test.test_offline_message_queueing    [OK]
+* client_test5.py Test.test_dollar_topics               [OK]
+* client_test5.py Test.test_unsubscribe                 [OK]
+* client_test5.py Test.test_session_expiry              [OK]
+* client_test5.py Test.test_shared_subscriptions        [OK]
+* client_test5.py Test.test_basic                       [OK]
+* client_test5.py Test.test_overlapping_subscriptions   [OK]
+* client_test5.py Test.test_redelivery_on_reconnect     [OK]
+* client_test5.py Test.test_payload_format              [OK]
+* client_test5.py Test.test_publication_expiry          [OK]
+* client_test5.py Test.test_subscribe_options           [OK]
+* client_test5.py Test.test_assigned_clientid           [OK]
+* client_test5.py Test.test_subscribe_identifiers       [OK]
+* client_test5.py Test.test_request_response            [OK]
+* client_test5.py Test.test_server_topic_alias          [OK]
+* client_test5.py Test.test_client_topic_alias          [OK]
+* client_test5.py Test.test_maximum_packet_size         [OK]
+* client_test5.py Test.test_keepalive                   [OK]
+* client_test5.py Test.test_zero_length_clientid        [OK]
+* client_test5.py Test.test_user_properties             [OK]
+* client_test5.py Test.test_flow_control2               [OK]
+* client_test5.py Test.test_flow_control1               [OK]
+* client_test5.py Test.test_will_delay                  [OK]
+* client_test5.py Test.test_server_keep_alive           [OK]
+  * You need to modify the `rmqtt.toml` configuration and change `max_keepalive` to 60.
+* client_test5.py Test.test_subscribe_failure           [OK]
+  * You need to modify the `rmqtt-acl.toml` configuration and add the following line at the first line: ["deny", "all", "subscribe", ["test/nosubscribe"]],
+    Modify the `test_subscribe_failure()` method in `client_test5.py` by changing `0x80` to `0x87`.
+    Because `rmqtt` returns the error code 0x87, while `test_subscribe_failure` expects it to return 0x80.
+    UnspecifiedError = 0x80, NotAuthorized = 0x87。
+
+
+### Benchmark Testing
+
+#### environment
+| Item        | Content                                   |                                                                 |
+|-------------|-------------------------------------------|-----------------------------------------------------------------|
+| System      | x86_64 GNU/Linux                          | Rocky Linux 9.2 (Blue Onyx)                                     |
+| CPU         | Intel(R) Xeon(R) CPU E5-2696 v3 @ 2.30GHz | 72(CPU(s)) = 18(Core(s)) * 2(Thread(s) per core) * 2(Socket(s)) |
+| Memory      | DDR3/2333                                 | 128G                                                            |
+| Disk        |                                           | 2T                                                              |
+| Container   | podman                                    | v4.4.1                                                          |
+| MQTT Bench  | docker.io/rmqtt/rmqtt-bench:latest        | v0.1.3                                                          |
+| MQTT Broker | docker.io/rmqtt/rmqtt:latest              | v0.2.17                                                         |
+| Other       | MQTT Bench and MQTT Broker coexistence    |                                                                 |
+
+#### Connection Concurrency Performance
+| Item                  | Single Node       | Raft Cluster Mode |
+|-----------------------|-------------------|--------------------|
+| Total Concurrent Clients | 1,000,000       | 1,000,000          |
+| Connection Handshake Rate | (5500-7000)/second | (5000-7000)/second |
+
+#### Message Throughput Performance
+| Item                    | Single Node         | Raft Cluster Mode |
+|-------------------------|---------------------|--------------------|
+| Subscription Client Count | 1,000,000          | 1,000,000          |
+| Publishing Client Count   | 40                | 40                 |
+| Message Throughput Rate  | 150,000/second      | 156,000/second     |
+
+[For detailed benchmark test results and information, see documentation.](./docs/en_US/benchmark-testing.md)
 

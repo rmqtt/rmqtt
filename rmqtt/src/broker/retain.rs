@@ -185,7 +185,7 @@ where
 
     #[inline]
     pub fn values_size(&self) -> usize {
-        let len: usize = self.branches.iter().map(|(_, n)| n.values_size()).sum();
+        let len: usize = self.branches.values().map(|n| n.values_size()).sum();
         if self.value.is_some() {
             len + 1
         } else {
@@ -195,7 +195,7 @@ where
 
     #[inline]
     pub fn nodes_size(&self) -> usize {
-        let len: usize = self.branches.iter().map(|(_, n)| n.nodes_size()).sum();
+        let len: usize = self.branches.values().map(|n| n.nodes_size()).sum();
         self.branches.len() + len
     }
 }

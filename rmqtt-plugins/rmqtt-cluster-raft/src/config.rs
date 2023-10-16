@@ -9,36 +9,69 @@ use serde::Serialize;
 
 use rmqtt::grpc::MessageType;
 use rmqtt::settings::{deserialize_duration, deserialize_duration_option, NodeAddr, Options};
-use rmqtt::Result;
-use rmqtt::{lazy_static, serde_json};
+use rmqtt::{once_cell::sync::Lazy, serde_json};
+use rmqtt::{MqttError, NodeId, Result};
 
-lazy_static::lazy_static! {
-    pub static ref BACKOFF_STRATEGY: ExponentialBackoff = ExponentialBackoffBuilder::new()
+pub(crate) static BACKOFF_STRATEGY: Lazy<ExponentialBackoff> = Lazy::new(|| {
+    ExponentialBackoffBuilder::new()
         .with_max_elapsed_time(Some(Duration::from_secs(60)))
-        .with_multiplier(2.5).build();
-}
+        .with_multiplier(2.5)
+        .build()
+});
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
+    #[serde(default = "PluginConfig::worker_threads_default")]
+    pub worker_threads: usize,
+
     #[serde(default = "PluginConfig::message_type_default")]
     pub message_type: MessageType,
+
     pub node_grpc_addrs: Vec<NodeAddr>,
+
     pub raft_peer_addrs: Vec<NodeAddr>,
+
+    #[serde(default)]
+    pub leader_id: NodeId,
+
     #[serde(default = "PluginConfig::try_lock_timeout_default", deserialize_with = "deserialize_duration")]
     pub try_lock_timeout: Duration, //Message::HandshakeTryLock
 
     #[serde(default = "PluginConfig::task_exec_queue_workers_default")]
     pub task_exec_queue_workers: usize,
+
     #[serde(default = "PluginConfig::task_exec_queue_max_default")]
     pub task_exec_queue_max: usize,
+
+    #[serde(default)]
+    pub verify_addr: bool,
+
     #[serde(default = "PluginConfig::raft_default")]
     pub raft: RaftConfig,
 }
 
 impl PluginConfig {
     #[inline]
+    pub fn leader(&self) -> Result<Option<&NodeAddr>> {
+        if self.leader_id == 0 {
+            Ok(None)
+        } else {
+            let leader = self
+                .raft_peer_addrs
+                .iter()
+                .find(|leader| leader.id == self.leader_id)
+                .ok_or_else(|| MqttError::from("Leader does not exist"))?;
+            Ok(Some(leader))
+        }
+    }
+
+    #[inline]
     pub fn to_json(&self) -> Result<serde_json::Value> {
         Ok(serde_json::to_value(self)?)
+    }
+
+    fn worker_threads_default() -> usize {
+        6
     }
 
     fn message_type_default() -> MessageType {
@@ -68,11 +101,18 @@ impl PluginConfig {
         if let Some(raft_peer_addrs) = opts.raft_peer_addrs.as_ref() {
             self.raft_peer_addrs = raft_peer_addrs.clone();
         }
+        if let Some(raft_leader_id) = opts.raft_leader_id.as_ref() {
+            self.leader_id = *raft_leader_id;
+        }
     }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct RaftConfig {
+    #[serde(default = "RaftConfig::grpc_reuseaddr_default")]
+    pub grpc_reuseaddr: bool,
+    #[serde(default = "RaftConfig::grpc_reuseport_default")]
+    pub grpc_reuseport: bool,
     #[serde(default, deserialize_with = "deserialize_duration_option")]
     pub grpc_timeout: Option<Duration>,
     pub grpc_concurrency_limit: Option<usize>,
@@ -162,7 +202,8 @@ pub struct RaftConfig {
 impl RaftConfig {
     pub(crate) fn to_raft_config(&self) -> rmqtt_raft::Config {
         let mut cfg = rmqtt_raft::Config { ..Default::default() };
-
+        cfg.reuseaddr = self.grpc_reuseaddr;
+        cfg.reuseport = self.grpc_reuseport;
         if let Some(grpc_timeout) = self.grpc_timeout {
             cfg.grpc_timeout = grpc_timeout;
         }
@@ -234,6 +275,14 @@ impl RaftConfig {
 
     fn read_only_option_default() -> ReadOnlyOption {
         ReadOnlyOption::Safe
+    }
+
+    fn grpc_reuseaddr_default() -> bool {
+        true
+    }
+
+    fn grpc_reuseport_default() -> bool {
+        false
     }
 
     pub fn deserialize_read_only_option<'de, D>(deserializer: D) -> Result<ReadOnlyOption, D::Error>
