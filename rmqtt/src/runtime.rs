@@ -13,7 +13,7 @@ use tokio_cron_scheduler::JobScheduler;
 
 use crate::logger::{config_logger, Logger};
 use crate::{
-    broker::{metrics::Metrics, stats::Stats, types::DashMap},
+    broker::{executor::is_busy as handshake_is_busy, metrics::Metrics, stats::Stats, types::DashMap},
     extend,
     node::Node,
     plugin,
@@ -81,6 +81,15 @@ impl Runtime {
     pub fn local_exec_stats() -> TaskExecStats {
         get_local_stats()
     }
+
+    #[inline]
+    pub fn is_busy(&self) -> bool {
+        if self.settings.node.busy.check_enable {
+            handshake_is_busy() || self.node.sys_is_busy()
+        } else {
+            false
+        }
+    }
 }
 
 impl fmt::Debug for Runtime {
@@ -92,13 +101,15 @@ impl fmt::Debug for Runtime {
 
 pub async fn scheduler_init() -> Result<()> {
     //Execute every 5 seconds
-    let async_job_5 = tokio_cron_scheduler::Job::new_async("*/5 * * * * *", move |_uuid, _l| {
-        Box::pin(async move {
-            Runtime::instance().node.update_cpuload().await;
+    if Runtime::instance().settings.node.busy.check_enable {
+        let async_job_5 = tokio_cron_scheduler::Job::new_async("*/3 * * * * *", move |_uuid, _l| {
+            Box::pin(async move {
+                Runtime::instance().node.update_cpuload().await;
+            })
         })
-    })
-    .map_err(anyhow::Error::new)?;
-    Runtime::instance().sched.add(async_job_5).await.map_err(anyhow::Error::new)?;
+        .map_err(anyhow::Error::new)?;
+        Runtime::instance().sched.add(async_job_5).await.map_err(anyhow::Error::new)?;
+    }
 
     Ok(())
 }
