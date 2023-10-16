@@ -321,13 +321,26 @@ pub async fn publish(state: v3::Session<SessionState>, pub_msg: v3::PublishMessa
 
     match pub_msg {
         v3::PublishMessage::Publish(publish) => {
-            if let Err(e) = state.publish_v3(&publish).await {
-                log::error!(
-                    "{:?} Publish failed, reason: {}",
-                    state.id,
-                    state.client.get_disconnected_reason().await
-                );
-                return Err(e);
+            let publish_fut = async move {
+                if let Err(e) = state.publish_v3(&publish).await {
+                    log::error!(
+                        "{:?} Publish failed, reason: {}",
+                        state.id,
+                        state.client.get_disconnected_reason().await
+                    );
+                    Err(e)
+                } else {
+                    Ok(())
+                }
+            };
+            if Runtime::instance().is_busy() {
+                Runtime::local_exec()
+                    .spawn(publish_fut)
+                    .result()
+                    .await
+                    .map_err(|e| MqttError::from(e.to_string()))??;
+            } else {
+                publish_fut.await?;
             }
         }
         v3::PublishMessage::PublishAck(packet_id) => {
