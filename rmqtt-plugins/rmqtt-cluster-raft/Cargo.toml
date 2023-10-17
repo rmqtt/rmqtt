@@ -5,7 +5,7 @@ authors = ["rmqtt <rmqttd@126.com>"]
 edition = "2021"
 
 [dependencies]
-rmqtt = "0.2"
+rmqtt = "0.3"
 rmqtt-raft = { version = "0.3.4", features = ["reuse"] }
 #rmqtt-raft = { path = "../../../rmqtt-raft", features = ["reuse"] }
 serde = { version = "1.0", features = ["derive"] }
