@@ -158,7 +158,7 @@ UnspecifiedError = 0x80, NotAuthorized = 0x87。
 | 磁盘          |                                           | 2T                                                              |
 | 容器          | podman                                    | v4.4.1                                                          |
 | 测试客户端       | docker.io/rmqtt/rmqtt-bench:latest        | v0.1.3                                                          |
-| MQTT Broker | docker.io/rmqtt/rmqtt:latest              | v0.2.17                                                         |
+| MQTT Broker | docker.io/rmqtt/rmqtt:latest              | v0.2.18                                                         |
 | 其它          | 测试客户端和MQTT Broker同服         |                                                                 |
 
 #### 连接并发性能
