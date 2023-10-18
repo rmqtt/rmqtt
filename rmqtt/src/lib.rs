@@ -1,12 +1,13 @@
 #![deny(unsafe_code)]
 #![recursion_limit = "256"]
-#[macro_use]
-pub extern crate async_trait;
+
 extern crate proc_macro;
 #[macro_use]
-pub extern crate serde;
+extern crate serde;
 #[macro_use]
 pub extern crate serde_json;
+#[macro_use]
+pub extern crate async_trait;
 
 pub use ahash;
 pub use anyhow;
