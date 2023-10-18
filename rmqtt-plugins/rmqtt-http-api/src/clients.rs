@@ -57,7 +57,8 @@ async fn build_result(s: Option<Session>) -> SearchResult {
     let inflight = s.inflight_win().read().await.len();
     let created_at = s.created_at().await.map(|at| at / 1000).unwrap_or_default();
     let subscriptions_cnt = if let Ok(subs) = s.subscriptions().await { subs.len().await } else { 0 };
-    let extra_attrs = s.extra_data_len().await.unwrap_or_default();
+    let _extra_datas = s.extra_data_len().await.unwrap_or_default();
+    let extra_attrs = s.extra_attrs.read().await.len();
 
     let connect_info = s.connect_info().await.ok();
     let last_will = connect_info
