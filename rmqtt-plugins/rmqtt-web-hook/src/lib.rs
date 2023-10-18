@@ -584,38 +584,43 @@ impl Handler for WebHookHandler {
                 Some((None, body))
             }
 
-            Parameter::ClientConnected(_session, client) => {
-                let mut body = client.connect_info.to_body();
+            Parameter::ClientConnected(session) => {
+                let mut body = session.connect_info().await.map(|c| c.to_body()).unwrap_or_default();
                 if let Some(obj) = body.as_object_mut() {
                     obj.insert(
                         "connected_at".into(),
-                        serde_json::Value::Number(serde_json::Number::from(client.connected_at)),
+                        serde_json::Value::Number(serde_json::Number::from(
+                            session.connected_at().await.unwrap_or_default(),
+                        )),
                     );
-                    obj.insert("session_present".into(), serde_json::Value::Bool(client.session_present));
+                    obj.insert(
+                        "session_present".into(),
+                        serde_json::Value::Bool(session.session_present().await.unwrap_or_default()),
+                    );
                     obj.insert("time".into(), serde_json::Value::String(now_time));
                 }
                 Some((None, body))
             }
 
-            Parameter::ClientDisconnected(_session, client, reason) => {
+            Parameter::ClientDisconnected(session, reason) => {
                 let body = json!({
-                    "node": client.id.node(),
-                    "ipaddress": client.id.remote_addr,
-                    "clientid": client.id.client_id,
-                    "username": client.id.username_ref(),
-                    "disconnected_at": client.disconnected_at(),
+                    "node": session.id.node(),
+                    "ipaddress": session.id.remote_addr,
+                    "clientid": session.id.client_id,
+                    "username": session.id.username_ref(),
+                    "disconnected_at": session.disconnected_at().await.unwrap_or_default(),
                     "reason": reason.to_string(),
                     "time": now_time
                 });
                 Some((None, body))
             }
 
-            Parameter::ClientSubscribe(_session, client, subscribe) => {
+            Parameter::ClientSubscribe(session, subscribe) => {
                 let body = json!({
-                    "node": client.id.node(),
-                    "ipaddress": client.id.remote_addr,
-                    "clientid": client.id.client_id,
-                    "username": client.id.username_ref(),
+                    "node": session.id.node(),
+                    "ipaddress": session.id.remote_addr,
+                    "clientid": session.id.client_id,
+                    "username": session.id.username_ref(),
                     "topic": subscribe.topic_filter,
                     "opts": subscribe.opts.to_json(),
                     "time": now_time
@@ -623,24 +628,24 @@ impl Handler for WebHookHandler {
                 Some((Some(subscribe.topic_filter.clone()), body))
             }
 
-            Parameter::ClientUnsubscribe(_session, client, unsubscribe) => {
+            Parameter::ClientUnsubscribe(session, unsubscribe) => {
                 let body = json!({
-                    "node": client.id.node(),
-                    "ipaddress": client.id.remote_addr,
-                    "clientid": client.id.client_id,
-                    "username": client.id.username_ref(),
+                    "node": session.id.node(),
+                    "ipaddress": session.id.remote_addr,
+                    "clientid": session.id.client_id,
+                    "username": session.id.username_ref(),
                     "topic": unsubscribe.topic_filter,
                     "time": now_time
                 });
                 Some((Some(unsubscribe.topic_filter.clone()), body))
             }
 
-            Parameter::SessionSubscribed(_session, client, subscribe) => {
+            Parameter::SessionSubscribed(session, subscribe) => {
                 let body = json!({
-                    "node": client.id.node(),
-                    "ipaddress": client.id.remote_addr,
-                    "clientid": client.id.client_id,
-                    "username": client.id.username_ref(),
+                    "node": session.id.node(),
+                    "ipaddress": session.id.remote_addr,
+                    "clientid": session.id.client_id,
+                    "username": session.id.username_ref(),
                     "topic": subscribe.topic_filter,
                     "opts": subscribe.opts.to_json(),
                     "time": now_time
@@ -648,44 +653,44 @@ impl Handler for WebHookHandler {
                 Some((Some(subscribe.topic_filter.clone()), body))
             }
 
-            Parameter::SessionUnsubscribed(_session, client, unsubscribed) => {
+            Parameter::SessionUnsubscribed(session, unsubscribed) => {
                 let topic = unsubscribed.topic_filter.clone();
                 let body = json!({
-                    "node": client.id.node(),
-                    "ipaddress": client.id.remote_addr,
-                    "clientid": client.id.client_id,
-                    "username": client.id.username_ref(),
+                    "node": session.id.node(),
+                    "ipaddress": session.id.remote_addr,
+                    "clientid": session.id.client_id,
+                    "username": session.id.username_ref(),
                     "topic": topic,
                     "time": now_time
                 });
                 Some((Some(topic), body))
             }
 
-            Parameter::SessionCreated(session, client) => {
+            Parameter::SessionCreated(session) => {
                 let body = json!({
-                    "node": client.id.node(),
-                    "ipaddress": client.id.remote_addr,
-                    "clientid": client.id.client_id,
-                    "username": client.id.username_ref(),
-                    "created_at": session.created_at,
+                    "node": session.id.node(),
+                    "ipaddress": session.id.remote_addr,
+                    "clientid": session.id.client_id,
+                    "username": session.id.username_ref(),
+                    "created_at": session.created_at().await.unwrap_or_default(),
                     "time": now_time
                 });
                 Some((None, body))
             }
 
-            Parameter::SessionTerminated(_session, client, reason) => {
+            Parameter::SessionTerminated(session, reason) => {
                 let body = json!({
-                    "node": client.id.node(),
-                    "ipaddress": client.id.remote_addr,
-                    "clientid": client.id.client_id,
-                    "username": client.id.username_ref(),
+                    "node": session.id.node(),
+                    "ipaddress": session.id.remote_addr,
+                    "clientid": session.id.client_id,
+                    "username": session.id.username_ref(),
                     "reason": reason.to_string(),
                     "time": now_time
                 });
                 Some((None, body))
             }
 
-            Parameter::MessagePublish(_session, _client, from, publish) => {
+            Parameter::MessagePublish(_session, from, publish) => {
                 let topic = publish.topic();
                 let body = json!({
                     "dup": publish.dup(),
@@ -701,7 +706,7 @@ impl Handler for WebHookHandler {
                 Some((Some(topic.clone()), body))
             }
 
-            Parameter::MessageDelivered(_session, client, from, publish) => {
+            Parameter::MessageDelivered(session, from, publish) => {
                 if from.is_system() {
                     None
                 } else {
@@ -717,13 +722,13 @@ impl Handler for WebHookHandler {
                         "ts": now.timestamp_millis(),
                         "time": now_time
                     });
-                    let body = client.id.to_to_json(body);
+                    let body = session.id.to_to_json(body);
                     let body = from.to_from_json(body);
                     Some((Some(topic.clone()), body))
                 }
             }
 
-            Parameter::MessageAcked(_session, client, from, publish) => {
+            Parameter::MessageAcked(session, from, publish) => {
                 if from.is_system() {
                     None
                 } else {
@@ -739,7 +744,7 @@ impl Handler for WebHookHandler {
                         "ts": now.timestamp_millis(),
                         "time": now_time
                     });
-                    let body = client.id.to_to_json(body);
+                    let body = session.id.to_to_json(body);
                     let body = from.to_from_json(body);
                     Some((Some(topic.clone()), body))
                 }

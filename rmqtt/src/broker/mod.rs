@@ -2,7 +2,7 @@ use std::convert::From as _f;
 use std::iter::Iterator;
 use std::sync::Arc;
 
-use crate::broker::session::{ClientInfo, Session, SessionOfflineInfo};
+use crate::broker::session::{Session, SessionOfflineInfo};
 use crate::broker::types::*;
 use crate::grpc::GrpcClients;
 use crate::settings::listener::Listener;
@@ -32,9 +32,9 @@ pub trait Entry: Sync + Send {
     async fn try_lock(&self) -> Result<Box<dyn Entry>>;
     fn id(&self) -> Id;
     fn id_same(&self) -> Option<bool>;
-    async fn set(&mut self, session: Session, tx: Tx, conn: ClientInfo) -> Result<()>;
-    async fn remove(&mut self) -> Result<Option<(Session, Tx, ClientInfo)>>;
-    async fn remove_with(&mut self, id: &Id) -> Result<Option<(Session, Tx, ClientInfo)>>;
+    async fn set(&mut self, session: Session, tx: Tx) -> Result<()>;
+    async fn remove(&mut self) -> Result<Option<(Session, Tx)>>;
+    async fn remove_with(&mut self, id: &Id) -> Result<Option<(Session, Tx)>>;
     async fn kick(
         &mut self,
         clean_start: bool,
@@ -42,9 +42,8 @@ pub trait Entry: Sync + Send {
         is_admin: IsAdmin,
     ) -> Result<Option<SessionOfflineInfo>>;
     async fn online(&self) -> bool;
-    fn is_connected(&self) -> bool;
+    async fn is_connected(&self) -> bool;
     fn session(&self) -> Option<Session>;
-    fn client(&self) -> Option<ClientInfo>;
     fn exist(&self) -> bool;
     fn tx(&self) -> Option<Tx>;
     async fn subscribe(&self, subscribe: &Subscribe) -> Result<SubscribeReturn>;
@@ -87,7 +86,7 @@ pub trait Shared: Sync + Send {
     fn iter(&self) -> Box<dyn Iterator<Item = Box<dyn Entry>> + Sync + Send>;
 
     ///
-    fn random_session(&self) -> Option<(Session, ClientInfo)>;
+    fn random_session(&self) -> Option<Session>;
 
     ///
     async fn session_status(&self, client_id: &str) -> Option<SessionStatus>;
@@ -140,6 +139,7 @@ pub trait Router: Sync + Send {
             .await
             .entry(Id::from(node_id, ClientId::from(client_id)))
             .is_connected()
+            .await
     }
 
     ///

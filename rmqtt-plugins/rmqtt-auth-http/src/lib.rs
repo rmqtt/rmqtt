@@ -14,12 +14,11 @@ use tokio::sync::RwLock;
 use config::PluginConfig;
 use rmqtt::ntex::util::ByteString;
 use rmqtt::reqwest::Response;
-use rmqtt::{ahash, async_trait, chrono, log, reqwest, serde_json, tokio, once_cell::sync::Lazy};
+use rmqtt::{ahash, async_trait, chrono, log, once_cell::sync::Lazy, reqwest, serde_json, tokio, Id};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::types::{
-        AuthResult, ConnectInfo, Password, PublishAclResult, SubscribeAckReason, SubscribeAclResult,
-        Superuser,
+        AuthResult, Password, PublishAclResult, SubscribeAckReason, SubscribeAclResult, Superuser,
     },
     plugin::{DynPlugin, DynPluginResult, Plugin},
     MqttError, Result, Runtime, TopicName,
@@ -275,15 +274,15 @@ impl AuthHandler {
 
     fn replaces(
         params: &mut HashMap<String, String>,
-        connect_info: &ConnectInfo,
+        id: &Id,
         password: Option<&Password>,
         sub_or_pub: Option<(ACLType, &TopicName)>,
     ) -> Result<()> {
         let password =
             if let Some(p) = password { ByteString::try_from(p.clone())? } else { ByteString::default() };
-        let client_id = connect_info.client_id();
-        let username = connect_info.username().map(|n| n.as_ref()).unwrap_or("");
-        let remote_addr = connect_info.id().remote_addr.map(|addr| addr.ip().to_string()).unwrap_or_default();
+        let client_id = id.client_id.as_ref();
+        let username = id.username.as_ref().map(|n| n.as_ref()).unwrap_or("");
+        let remote_addr = id.remote_addr.map(|addr| addr.ip().to_string()).unwrap_or_default();
         for v in params.values_mut() {
             *v = v.replace("%u", username);
             *v = v.replace("%c", client_id);
@@ -303,12 +302,12 @@ impl AuthHandler {
 
     async fn request(
         &self,
-        connect_info: &ConnectInfo,
+        id: &Id,
         mut req_cfg: config::Req,
         password: Option<&Password>,
         sub_or_pub: Option<(ACLType, &TopicName)>,
     ) -> Result<(ResponseResult, Cacheable)> {
-        log::debug!("{:?} req_cfg.url.path(): {:?}", connect_info.id(), req_cfg.url.path());
+        log::debug!("{:?} req_cfg.url.path(): {:?}", id, req_cfg.url.path());
         let (headers, timeout) = {
             let cfg = self.cfg.read().await;
             let headers = match (cfg.headers(), req_cfg.headers()) {
@@ -326,31 +325,31 @@ impl AuthHandler {
 
         let (auth_result, superuser, cacheable) = if req_cfg.is_get() {
             let body = &mut req_cfg.params;
-            Self::replaces(body, connect_info, password, sub_or_pub)?;
+            Self::replaces(body, id, password, sub_or_pub)?;
             Self::http_get_request(req_cfg.url, body, headers, timeout).await?
         } else if req_cfg.json_body() {
             let body = &mut req_cfg.params;
-            Self::replaces(body, connect_info, password, sub_or_pub)?;
+            Self::replaces(body, id, password, sub_or_pub)?;
             Self::http_json_request(req_cfg.url, req_cfg.method, body, headers, timeout).await?
         } else {
             //form body
             let body = &mut req_cfg.params;
-            Self::replaces(body, connect_info, password, sub_or_pub)?;
+            Self::replaces(body, id, password, sub_or_pub)?;
             Self::http_form_request(req_cfg.url, req_cfg.method, body, headers, timeout).await?
         };
         log::debug!("auth_result: {:?}, superuser: {}, cacheable: {:?}", auth_result, superuser, cacheable);
         Ok((auth_result, cacheable))
     }
 
-    async fn auth(&self, connect_info: &ConnectInfo, password: Option<&Password>) -> ResponseResult {
+    async fn auth(&self, id: &Id, password: Option<&Password>) -> ResponseResult {
         if let Some(req) = { self.cfg.read().await.http_auth_req.clone() } {
-            match self.request(connect_info, req.clone(), password, None).await {
+            match self.request(id, req.clone(), password, None).await {
                 Ok((auth_res, _)) => {
                     log::debug!("auth result: {:?}", auth_res);
                     auth_res
                 }
                 Err(e) => {
-                    log::warn!("{:?} auth error, {:?}", connect_info.id(), e);
+                    log::warn!("{:?} auth error, {:?}", id, e);
                     if self.cfg.read().await.deny_if_error {
                         ResponseResult::Deny
                     } else {
@@ -363,19 +362,15 @@ impl AuthHandler {
         }
     }
 
-    async fn acl(
-        &self,
-        connect_info: &ConnectInfo,
-        sub_or_pub: Option<(ACLType, &TopicName)>,
-    ) -> (ResponseResult, Cacheable) {
+    async fn acl(&self, id: &Id, sub_or_pub: Option<(ACLType, &TopicName)>) -> (ResponseResult, Cacheable) {
         if let Some(req) = { self.cfg.read().await.http_acl_req.clone() } {
-            match self.request(connect_info, req.clone(), None, sub_or_pub).await {
+            match self.request(id, req.clone(), None, sub_or_pub).await {
                 Ok(acl_res) => {
                     log::debug!("acl result: {:?}", acl_res);
                     acl_res
                 }
                 Err(e) => {
-                    log::warn!("{:?} acl error, {:?}", connect_info.id(), e);
+                    log::warn!("{:?} acl error, {:?}", id, e);
                     if self.cfg.read().await.deny_if_error {
                         (ResponseResult::Deny, None)
                     } else {
@@ -403,7 +398,7 @@ impl Handler for AuthHandler {
                     return (false, acc);
                 }
 
-                return match self.auth(connect_info, connect_info.password()).await {
+                return match self.auth(connect_info.id(), connect_info.password()).await {
                     ResponseResult::Allow(superuser) => {
                         (false, Some(HookResult::AuthResult(AuthResult::Allow(superuser))))
                     }
@@ -414,7 +409,7 @@ impl Handler for AuthHandler {
                 };
             }
 
-            Parameter::ClientSubscribeCheckAcl(_session, client_info, subscribe) => {
+            Parameter::ClientSubscribeCheckAcl(session, subscribe) => {
                 if let Some(HookResult::SubscribeAclResult(acl_result)) = &acc {
                     if acl_result.failure() {
                         return (false, acc);
@@ -422,8 +417,7 @@ impl Handler for AuthHandler {
                 }
 
                 //ResponseResult, Cacheable
-                let (acl_res, _) =
-                    self.acl(&client_info.connect_info, Some((ACLType::Sub, &subscribe.topic_filter))).await;
+                let (acl_res, _) = self.acl(&session.id, Some((ACLType::Sub, &subscribe.topic_filter))).await;
                 return match acl_res {
                     ResponseResult::Allow(_) => (
                         false,
@@ -442,13 +436,13 @@ impl Handler for AuthHandler {
                 };
             }
 
-            Parameter::MessagePublishCheckAcl(_session, client_info, publish) => {
+            Parameter::MessagePublishCheckAcl(session, publish) => {
                 log::debug!("MessagePublishCheckAcl");
                 if let Some(HookResult::PublishAclResult(PublishAclResult::Rejected(_))) = &acc {
                     return (false, acc);
                 }
 
-                let acl_res = if let Some((acl_res, expire)) = client_info
+                let acl_res = if let Some((acl_res, expire)) = session
                     .extra_attrs
                     .read()
                     .await
@@ -469,10 +463,10 @@ impl Handler for AuthHandler {
                 } else {
                     //ResponseResult, Cacheable
                     let (acl_res, cacheable) =
-                        self.acl(&client_info.connect_info, Some((ACLType::Pub, publish.topic()))).await;
+                        self.acl(&session.id, Some((ACLType::Pub, publish.topic()))).await;
                     if let Some(tm) = cacheable {
                         let expire = if tm < 0 { tm } else { chrono::Local::now().timestamp_millis() + tm };
-                        if let Some(cache_map) = client_info
+                        if let Some(cache_map) = session
                             .extra_attrs
                             .write()
                             .await

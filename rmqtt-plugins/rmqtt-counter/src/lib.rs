@@ -179,42 +179,42 @@ impl Handler for CounterHandler {
                     }
                 }
             }
-            Parameter::ClientConnected(_session, client) => {
+            Parameter::ClientConnected(session) => {
                 self.metrics.client_connected_inc();
-                if client.session_present {
+                if session.session_present().await.unwrap_or_default() {
                     self.metrics.session_resumed_inc();
                 }
             }
-            Parameter::ClientDisconnected(_session, _client, _r) => {
+            Parameter::ClientDisconnected(_session, _r) => {
                 self.metrics.client_disconnected_inc();
             }
-            Parameter::ClientSubscribeCheckAcl(_session, _client, _s) => {
+            Parameter::ClientSubscribeCheckAcl(_session, _s) => {
                 self.metrics.client_subscribe_check_acl_inc();
             }
-            Parameter::ClientSubscribe(_s, _client, _sub) => {
+            Parameter::ClientSubscribe(_s, _sub) => {
                 self.metrics.client_subscribe_inc();
             }
-            Parameter::ClientUnsubscribe(_s, _client, _unsub) => {
+            Parameter::ClientUnsubscribe(_s, _unsub) => {
                 self.metrics.client_unsubscribe_inc();
             }
 
-            Parameter::SessionCreated(_session, _client) => {
+            Parameter::SessionCreated(_session) => {
                 self.metrics.session_created_inc();
             }
-            Parameter::SessionTerminated(_session, _client, _r) => {
+            Parameter::SessionTerminated(_session, _r) => {
                 self.metrics.session_terminated_inc();
             }
-            Parameter::SessionSubscribed(_s, _client, _sub) => {
+            Parameter::SessionSubscribed(_s, _sub) => {
                 self.metrics.session_subscribed_inc();
             }
-            Parameter::SessionUnsubscribed(_s, _client, _unsub) => {
+            Parameter::SessionUnsubscribed(_s, _unsub) => {
                 self.metrics.session_unsubscribed_inc();
             }
 
-            Parameter::MessagePublishCheckAcl(_session, _client, _p) => {
+            Parameter::MessagePublishCheckAcl(_session, _p) => {
                 self.metrics.client_publish_check_acl_inc();
             }
-            Parameter::MessagePublish(_session, _client, from, _p) => {
+            Parameter::MessagePublish(_session, from, _p) => {
                 // self.metrics.messages_received_inc();  //@TODO ... elaboration
                 // match p.qos{
                 //     QoS::AtMostOnce => self.metrics.messages_received_qos0_inc(),
@@ -229,7 +229,7 @@ impl Handler for CounterHandler {
                     FromType::LastWill => self.metrics.messages_publish_lastwill_inc(),
                 }
             }
-            Parameter::MessageDelivered(_session, _client, from, p) => {
+            Parameter::MessageDelivered(_session, from, p) => {
                 self.metrics.messages_delivered_inc();
                 if p.retain {
                     self.metrics.messages_delivered_retain_inc()
@@ -241,7 +241,7 @@ impl Handler for CounterHandler {
                     FromType::LastWill => self.metrics.messages_delivered_lastwill_inc(),
                 }
             }
-            Parameter::MessageAcked(_session, _client, from, p) => {
+            Parameter::MessageAcked(_session, from, p) => {
                 self.metrics.messages_acked_inc();
                 if p.retain {
                     self.metrics.messages_acked_retain_inc()

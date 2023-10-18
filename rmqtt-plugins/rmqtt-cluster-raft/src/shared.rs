@@ -12,7 +12,7 @@ use rmqtt::{anyhow, async_trait::async_trait, futures, log, once_cell, serde_jso
 use rmqtt::{
     broker::{
         default::DefaultShared,
-        session::{ClientInfo, Session, SessionOfflineInfo},
+        session::{Session, SessionOfflineInfo},
         types::{
             From, Id, IsAdmin, NodeId, NodeName, Publish, Reason, SessionStatus, SubRelations,
             SubRelationsMap, SubsSearchParams, SubsSearchResult, Subscribe, SubscribeReturn,
@@ -64,7 +64,7 @@ impl Entry for ClusterLockEntry {
                     prev_node_id = prev_id.map(|id| id.node_id);
                     log::debug!(
                         "{:?} ClusterLockEntry try_lock prev_node_id: {:?}",
-                        self.client().map(|c| c.id.clone()),
+                        self.session().map(|s| s.id.clone()),
                         prev_node_id
                     );
                 } // _ => unreachable!()
@@ -89,7 +89,7 @@ impl Entry for ClusterLockEntry {
     }
 
     #[inline]
-    async fn set(&mut self, session: Session, tx: Tx, conn: ClientInfo) -> Result<()> {
+    async fn set(&mut self, session: Session, tx: Tx) -> Result<()> {
         let msg = RaftMessage::Connected { id: session.id.clone() }.encode()?;
         let raft_mailbox = self.cluster_shared.router.raft_mailbox().await;
         let reply = raft_mailbox.send_proposal(msg).await.map_err(anyhow::Error::new)?;
@@ -105,16 +105,16 @@ impl Entry for ClusterLockEntry {
                 }
             }
         }
-        self.inner.set(session, tx, conn).await
+        self.inner.set(session, tx).await
     }
 
     #[inline]
-    async fn remove(&mut self) -> Result<Option<(Session, Tx, ClientInfo)>> {
+    async fn remove(&mut self) -> Result<Option<(Session, Tx)>> {
         self.inner.remove().await
     }
 
     #[inline]
-    async fn remove_with(&mut self, id: &Id) -> Result<Option<(Session, Tx, ClientInfo)>> {
+    async fn remove_with(&mut self, id: &Id) -> Result<Option<(Session, Tx)>> {
         self.inner.remove_with(id).await
     }
 
@@ -127,7 +127,7 @@ impl Entry for ClusterLockEntry {
     ) -> Result<Option<SessionOfflineInfo>> {
         log::debug!(
             "{:?} ClusterLockEntry kick ..., clean_start: {}, clear_subscriptions: {}, is_admin: {}",
-            self.client().map(|c| c.id.clone()),
+            self.session().map(|s| s.id.clone()),
             clean_start,
             clear_subscriptions,
             is_admin
@@ -195,18 +195,13 @@ impl Entry for ClusterLockEntry {
     }
 
     #[inline]
-    fn is_connected(&self) -> bool {
-        self.inner.is_connected()
+    async fn is_connected(&self) -> bool {
+        self.inner.is_connected().await
     }
 
     #[inline]
     fn session(&self) -> Option<Session> {
         self.inner.session()
-    }
-
-    #[inline]
-    fn client(&self) -> Option<ClientInfo> {
-        self.inner.client()
     }
 
     #[inline]
@@ -427,7 +422,7 @@ impl Shared for &'static ClusterShared {
     }
 
     #[inline]
-    fn random_session(&self) -> Option<(Session, ClientInfo)> {
+    fn random_session(&self) -> Option<Session> {
         self.inner.random_session()
     }
 

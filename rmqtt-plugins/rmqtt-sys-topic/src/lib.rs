@@ -5,13 +5,13 @@ extern crate serde;
 use config::PluginConfig;
 use rmqtt::{
     async_trait::async_trait,
+    base64::{engine::general_purpose, Engine as _},
     bytes::Bytes,
     chrono, log,
     serde_json::{self, json},
     tokio::spawn,
     tokio::sync::RwLock,
     tokio::time::sleep,
-    base64::{Engine as _, engine::general_purpose},
 };
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
@@ -19,6 +19,7 @@ use rmqtt::{
     plugin::{DynPlugin, DynPluginResult, Plugin},
     ClientId, NodeId, Publish, PublishProperties, QoS, Result, Runtime, TopicName, UserName,
 };
+use std::convert::From as _;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -190,87 +191,97 @@ impl Handler for SystemTopicHandler {
         let now = chrono::Local::now();
         let now_time = now.format("%Y-%m-%d %H:%M:%S%.3f").to_string();
         if let Some((topic, payload)) = match param {
-            Parameter::SessionCreated(session, client) => {
+            Parameter::SessionCreated(session) => {
                 let body = json!({
-                    "node": client.id.node(),
-                    "ipaddress": client.id.remote_addr,
-                    "clientid": client.id.client_id,
-                    "username": client.id.username_ref(),
-                    "created_at": session.created_at,
+                    "node": session.id.node(),
+                    "ipaddress": session.id.remote_addr,
+                    "clientid": session.id.client_id,
+                    "username": session.id.username_ref(),
+                    "created_at": session.created_at().await.unwrap_or_default(),
                     "time": now_time
                 });
-                let topic = format!("$SYS/brokers/{}/session/{}/created", self.nodeid, client.id.client_id);
+                let topic = format!("$SYS/brokers/{}/session/{}/created", self.nodeid, session.id.client_id);
                 Some((topic, body))
             }
 
-            Parameter::SessionTerminated(_session, client, reason) => {
+            Parameter::SessionTerminated(session, reason) => {
                 let body = json!({
-                    "node": client.id.node(),
-                    "ipaddress": client.id.remote_addr,
-                    "clientid": client.id.client_id,
-                    "username": client.id.username_ref(),
+                    "node": session.id.node(),
+                    "ipaddress": session.id.remote_addr,
+                    "clientid": session.id.client_id,
+                    "username": session.id.username_ref(),
                     "reason": reason.to_string(),
                     "time": now_time
                 });
                 let topic =
-                    format!("$SYS/brokers/{}/session/{}/terminated", self.nodeid, client.id.client_id);
+                    format!("$SYS/brokers/{}/session/{}/terminated", self.nodeid, session.id.client_id);
                 Some((topic, body))
             }
-            Parameter::ClientConnected(_session, client) => {
-                let mut body = client.connect_info.to_hook_body();
+            Parameter::ClientConnected(session) => {
+                let mut body = session
+                    .connect_info()
+                    .await
+                    .map(|connect_info| connect_info.to_hook_body())
+                    .unwrap_or_default();
                 if let Some(obj) = body.as_object_mut() {
                     obj.insert(
                         "connected_at".into(),
-                        serde_json::Value::Number(serde_json::Number::from(client.connected_at)),
+                        serde_json::Value::Number(serde_json::Number::from(
+                            session.connected_at().await.unwrap_or_default(),
+                        )),
                     );
-                    obj.insert("session_present".into(), serde_json::Value::Bool(client.session_present));
+                    obj.insert(
+                        "session_present".into(),
+                        serde_json::Value::Bool(session.session_present().await.unwrap_or_default()),
+                    );
                     obj.insert("time".into(), serde_json::Value::String(now_time));
                 }
-                let topic = format!("$SYS/brokers/{}/clients/{}/connected", self.nodeid, client.id.client_id);
+                let topic =
+                    format!("$SYS/brokers/{}/clients/{}/connected", self.nodeid, session.id.client_id);
                 Some((topic, body))
             }
-            Parameter::ClientDisconnected(_session, client, reason) => {
+            Parameter::ClientDisconnected(session, reason) => {
                 let body = json!({
-                    "node": client.id.node(),
-                    "ipaddress": client.id.remote_addr,
-                    "clientid": client.id.client_id,
-                    "username": client.id.username_ref(),
-                    "disconnected_at": client.disconnected_at(),
+                    "node": session.id.node(),
+                    "ipaddress": session.id.remote_addr,
+                    "clientid": session.id.client_id,
+                    "username": session.id.username_ref(),
+                    "disconnected_at": session.disconnected_at().await.unwrap_or_default(),
                     "reason": reason.to_string(),
                     "time": now_time
                 });
                 let topic =
-                    format!("$SYS/brokers/{}/clients/{}/disconnected", self.nodeid, client.id.client_id);
+                    format!("$SYS/brokers/{}/clients/{}/disconnected", self.nodeid, session.id.client_id);
                 Some((topic, body))
             }
 
-            Parameter::SessionSubscribed(_session, client, subscribe) => {
+            Parameter::SessionSubscribed(session, subscribe) => {
                 let body = json!({
-                    "node": client.id.node(),
-                    "ipaddress": client.id.remote_addr,
-                    "clientid": client.id.client_id,
-                    "username": client.id.username_ref(),
+                    "node": session.id.node(),
+                    "ipaddress": session.id.remote_addr,
+                    "clientid": session.id.client_id,
+                    "username": session.id.username_ref(),
                     "topic": subscribe.topic_filter,
                     "opts": subscribe.opts.to_json(),
                     "time": now_time
                 });
                 let topic =
-                    format!("$SYS/brokers/{}/session/{}/subscribed", self.nodeid, client.id.client_id);
+                    format!("$SYS/brokers/{}/session/{}/subscribed", self.nodeid, session.id.client_id);
                 Some((topic, body))
             }
 
-            Parameter::SessionUnsubscribed(_session, client, unsubscribed) => {
+            Parameter::SessionUnsubscribed(session, unsubscribed) => {
                 let topic = unsubscribed.topic_filter.clone();
                 let body = json!({
-                    "node": client.id.node(),
-                    "ipaddress": client.id.remote_addr,
-                    "clientid": client.id.client_id,
-                    "username": client.id.username_ref(),
+                    "node": session.id.node(),
+                    "ipaddress": session.id.remote_addr,
+                    "clientid": session.id.client_id,
+                    "username": session.id.username_ref(),
                     "topic": topic,
                     "time": now_time
                 });
                 let topic =
-                    format!("$SYS/brokers/{}/session/{}/unsubscribed", self.nodeid, client.id.client_id);
+                    format!("$SYS/brokers/{}/session/{}/unsubscribed", self.nodeid, session.id.client_id);
                 Some((topic, body))
             }
 
@@ -336,7 +347,7 @@ async fn sys_publish(nodeid: NodeId, topic: String, publish_qos: QoS, payload: s
                 .extends
                 .hook_mgr()
                 .await
-                .message_publish(None, None, from.clone(), &p)
+                .message_publish(None, from.clone(), &p)
                 .await
                 .unwrap_or(p);
 

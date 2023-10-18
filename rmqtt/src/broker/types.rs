@@ -2,6 +2,7 @@ use std::any::Any;
 use std::convert::From as _f;
 use std::fmt;
 use std::fmt::Display;
+use std::hash::Hash;
 use std::net::SocketAddr;
 use std::num::{NonZeroU16, NonZeroU32};
 use std::ops::Deref;
@@ -9,11 +10,17 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use serde::de::{self, Deserialize, Deserializer};
+use serde::ser::{Serialize, SerializeStruct, Serializer};
+use tokio::sync::{oneshot, RwLock};
+
 use base64::{engine::general_purpose, Engine as _};
-use bitflags::bitflags;
+use bitflags::{self, *};
 use bytestring::ByteString;
 use itertools::Itertools;
+
 use ntex::util::Bytes;
+
 use ntex_mqtt::error::SendPacketError;
 pub use ntex_mqtt::types::{Protocol, MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 pub use ntex_mqtt::v3::{
@@ -22,8 +29,6 @@ pub use ntex_mqtt::v3::{
     codec::SubscribeReturnCode as SubscribeReturnCodeV3, HandshakeAck as HandshakeAckV3,
     MqttSink as MqttSinkV3,
 };
-use tokio::sync::{oneshot, RwLock};
-
 use ntex_mqtt::v5::codec::{PublishAckReason, RetainHandling};
 pub use ntex_mqtt::v5::{
     self, codec::Connect as ConnectV5, codec::ConnectAckReason as ConnectAckReasonV5,
@@ -35,9 +40,10 @@ pub use ntex_mqtt::v5::{
     codec::UnsubscribeAck as UnsubscribeAckV5, codec::UserProperties, codec::UserProperty,
     HandshakeAck as HandshakeAckV5, MqttSink as MqttSinkV5,
 };
-use serde::de::{self, Deserialize, Deserializer};
-use serde::ser::{Serialize, SerializeStruct, Serializer};
 
+use crate::broker::fitter::Fitter;
+use crate::broker::inflight::Inflight;
+use crate::broker::queue::{Queue, Sender};
 use crate::{MqttError, Result, Runtime};
 
 pub type NodeId = u64;
@@ -81,6 +87,14 @@ pub type SubscriptionIdentifier = NonZeroU32;
 pub type HookSubscribeResult = Vec<Option<TopicFilter>>;
 pub type HookUnsubscribeResult = Vec<Option<TopicFilter>>;
 
+pub type MessageSender = Sender<(From, Publish)>;
+pub type MessageQueue = Queue<(From, Publish)>;
+pub type MessageQueueType = Arc<MessageQueue>;
+pub type InflightType = Arc<RwLock<Inflight>>;
+
+pub type ConnectInfoType = Arc<ConnectInfo>;
+pub type FitterType = Arc<dyn Fitter>;
+
 pub(crate) const UNDEFINED: &str = "undefined";
 
 #[derive(Clone)]
@@ -114,7 +128,7 @@ impl SessionTx {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 pub enum ConnectInfo {
     V3(Id, ConnectV3),
     V5(Id, Box<ConnectV5>),
@@ -264,7 +278,7 @@ impl ConnectInfo {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub enum Disconnect {
     V3,
     V5(DisconnectV5),
@@ -1816,6 +1830,86 @@ impl SessionSubs {
     }
 }
 
+pub struct ExtraData<K, T> {
+    attrs: Arc<rust_box::std_ext::RwLock<HashMap<K, T>>>,
+}
+
+impl<K, T> Deref for ExtraData<K, T> {
+    type Target = Arc<rust_box::std_ext::RwLock<HashMap<K, T>>>;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.attrs
+    }
+}
+
+impl<K, T> Serialize for ExtraData<K, T>
+where
+    K: serde::Serialize,
+    T: serde::Serialize,
+{
+    #[inline]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.attrs.read().deref().serialize(serializer)
+    }
+}
+
+impl<'de, K, T> Deserialize<'de> for ExtraData<K, T>
+where
+    K: Eq + Hash,
+    K: serde::de::DeserializeOwned,
+    T: serde::de::DeserializeOwned,
+{
+    #[inline]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let v = HashMap::deserialize(deserializer)?;
+        Ok(Self { attrs: Arc::new(rust_box::std_ext::RwLock::new(v)) })
+    }
+}
+
+impl<K, T> Default for ExtraData<K, T>
+where
+    K: Eq + Hash,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl<K, T> ExtraData<K, T>
+where
+    K: Eq + Hash,
+{
+    #[inline]
+    pub fn new() -> Self {
+        Self { attrs: Arc::new(rust_box::std_ext::RwLock::new(HashMap::default())) }
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.attrs.read().len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.attrs.read().is_empty()
+    }
+
+    #[inline]
+    pub fn clear(&self) {
+        self.attrs.write().clear()
+    }
+
+    #[inline]
+    pub fn insert(&self, key: K, value: T) {
+        self.attrs.write().insert(key, value);
+    }
+}
+
 pub struct ExtraAttrs {
     attrs: HashMap<String, Box<dyn Any + Sync + Send>>,
 }
@@ -1870,6 +1964,15 @@ impl ExtraAttrs {
     ) -> Option<&mut T> {
         self.attrs.entry(key).or_insert_with(|| Box::new(def_fn())).downcast_mut::<T>()
     }
+
+    #[inline]
+    pub fn serialize_key<S, T>(&self, key: &str, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        T: Any + Sync + Send + serde::ser::Serialize,
+        S: Serializer,
+    {
+        self.get::<T>(key).serialize(serializer)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -1915,6 +2018,37 @@ bitflags! {
         const ByAdminKick = 0b00000010;
         const DisconnectReceived = 0b00000100;
         const CleanStart = 0b00001000;
+    }
+}
+
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct SessionStateFlags: u8 {
+        const SessionPresent = 0b00000001;
+        const Superuser = 0b00000010;
+        const Connected = 0b00000100;
+    }
+}
+
+impl Serialize for SessionStateFlags {
+    #[inline]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let v: u8 = self.0 .0;
+        v.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for SessionStateFlags {
+    #[inline]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let v = u8::deserialize(deserializer)?;
+        Ok(SessionStateFlags::from_bits_retain(v))
     }
 }
 

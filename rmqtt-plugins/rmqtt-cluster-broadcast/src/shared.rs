@@ -7,7 +7,7 @@ use rmqtt::{ahash, async_trait::async_trait, futures, log, once_cell, tokio, Sub
 use rmqtt::{
     broker::{
         default::DefaultShared,
-        session::{ClientInfo, Session, SessionOfflineInfo},
+        session::{Session, SessionOfflineInfo},
         types::{
             ClientId, From, Id, IsAdmin, IsOnline, NodeId, Publish, Reason, SessionStatus, SharedGroup,
             SubRelations, SubRelationsMap, SubsSearchParams, SubsSearchResult, Subscribe, SubscribeReturn,
@@ -58,17 +58,17 @@ impl Entry for ClusterLockEntry {
     }
 
     #[inline]
-    async fn set(&mut self, session: Session, tx: Tx, conn: ClientInfo) -> Result<()> {
-        self.inner.set(session, tx, conn).await
+    async fn set(&mut self, session: Session, tx: Tx) -> Result<()> {
+        self.inner.set(session, tx).await
     }
 
     #[inline]
-    async fn remove(&mut self) -> Result<Option<(Session, Tx, ClientInfo)>> {
+    async fn remove(&mut self) -> Result<Option<(Session, Tx)>> {
         self.inner.remove().await
     }
 
     #[inline]
-    async fn remove_with(&mut self, id: &Id) -> Result<Option<(Session, Tx, ClientInfo)>> {
+    async fn remove_with(&mut self, id: &Id) -> Result<Option<(Session, Tx)>> {
         self.inner.remove_with(id).await
     }
 
@@ -79,7 +79,7 @@ impl Entry for ClusterLockEntry {
         clear_subscriptions: bool,
         is_admin: IsAdmin,
     ) -> Result<Option<SessionOfflineInfo>> {
-        log::debug!("{:?} ClusterLockEntry kick 1 ...", self.client().map(|c| c.id.clone()));
+        log::debug!("{:?} ClusterLockEntry kick 1 ...", self.session().map(|s| s.id.clone()));
         if let Some(kicked) = self.inner.kick(clean_start, clear_subscriptions, is_admin).await? {
             log::debug!("{:?} broadcast kick reply kicked: {:?}", self.id(), kicked);
             return Ok(Some(kicked));
@@ -133,18 +133,13 @@ impl Entry for ClusterLockEntry {
     }
 
     #[inline]
-    fn is_connected(&self) -> bool {
-        self.inner.is_connected()
+    async fn is_connected(&self) -> bool {
+        self.inner.is_connected().await
     }
 
     #[inline]
     fn session(&self) -> Option<Session> {
         self.inner.session()
-    }
-
-    #[inline]
-    fn client(&self) -> Option<ClientInfo> {
-        self.inner.client()
     }
 
     #[inline]
@@ -448,7 +443,7 @@ impl Shared for &'static ClusterShared {
     }
 
     #[inline]
-    fn random_session(&self) -> Option<(Session, ClientInfo)> {
+    fn random_session(&self) -> Option<Session> {
         self.inner.random_session()
     }
 

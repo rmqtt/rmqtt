@@ -34,10 +34,10 @@ impl Handler for HookHandler {
     async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
         log::debug!("hook, Parameter type: {:?}", param.get_type());
         match param {
-            Parameter::ClientDisconnected(_s, c, r) => {
-                log::debug!("{:?} hook::ClientDisconnected reason: {:?}", c.id, r);
+            Parameter::ClientDisconnected(s, r) => {
+                log::debug!("{:?} hook::ClientDisconnected reason: {:?}", s.id, r);
                 if !r.is_kicked(false) {
-                    let msg = Message::Disconnected { id: c.id.clone() }.encode().unwrap();
+                    let msg = Message::Disconnected { id: s.id.clone() }.encode().unwrap();
                     let raft_mailbox = self.raft_mailbox.clone();
                     tokio::spawn(async move {
                         if let Err(e) = retry(BACKOFF_STRATEGY.clone(), || async {
@@ -66,8 +66,8 @@ impl Handler for HookHandler {
                 }
             }
 
-            Parameter::SessionTerminated(_s, c, _r) => {
-                let msg = Message::SessionTerminated { id: c.id.clone() }.encode().unwrap();
+            Parameter::SessionTerminated(s, _r) => {
+                let msg = Message::SessionTerminated { id: s.id.clone() }.encode().unwrap();
                 let raft_mailbox = self.raft_mailbox.clone();
                 tokio::spawn(async move {
                     if let Err(e) = retry(BACKOFF_STRATEGY.clone(), || async {

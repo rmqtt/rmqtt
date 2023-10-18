@@ -11,8 +11,9 @@ use rmqtt::{
     ahash, dashmap, log,
     serde_json::{self, Value},
     tokio::sync::RwLock,
+    Id,
 };
-use rmqtt::{ClientId, ConnectInfo, MqttError, Password, Result, Superuser, Topic, UserName};
+use rmqtt::{ClientId, MqttError, Password, Result, Superuser, Topic, UserName};
 
 type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
 
@@ -151,11 +152,11 @@ pub enum User {
 
 impl User {
     #[inline]
-    pub fn hit(&self, connect_info: &ConnectInfo, allow: bool) -> (bool, Superuser) {
+    pub fn hit(&self, id: &Id, password: Option<&Password>, allow: bool) -> (bool, Superuser) {
         match self {
             User::All => (true, false),
             User::Username(name1, password1, superuser) => {
-                match (connect_info.username(), connect_info.password(), password1, allow) {
+                match (id.username.as_ref(), password, password1, allow) {
                     (Some(name2), Some(password2), Some(password1), true) => {
                         (name1 == name2 && password1 == password2, *superuser)
                     }
@@ -166,10 +167,10 @@ impl User {
                     (None, _, _, _) => (false, false),
                 }
             }
-            User::Clientid(clientid) => (connect_info.client_id() == clientid, false),
+            User::Clientid(clientid) => (id.client_id == clientid, false),
             User::Ipaddr(ipaddr) => {
-                if let Some(remote_addr) = connect_info.id().remote_addr {
-                    (ipaddr == remote_addr.ip().to_string().as_str(), false)
+                if let Some(remote_addr) = id.remote_addr {
+                    (ipaddr == remote_addr.ip().to_string().as_str(), false) //@TODO Consider using integer representation of IP addresses
                 } else {
                     (false, false)
                 }

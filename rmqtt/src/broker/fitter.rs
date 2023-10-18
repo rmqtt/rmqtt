@@ -1,13 +1,13 @@
 use std::num::NonZeroU32;
+use std::sync::Arc;
 use std::time::Duration;
 
-use crate::broker::session::ClientInfo;
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
 use crate::Result;
 
 pub trait FitterManager: Sync + Send {
-    fn get(&self, client: ClientInfo, id: Id, listen_cfg: Listener) -> Box<dyn Fitter>;
+    fn create(&self, conn_info: Arc<ConnectInfo>, id: Id, listen_cfg: Listener) -> FitterType;
 }
 
 #[async_trait]
@@ -27,7 +27,7 @@ pub trait Fitter: Sync + Send {
     fn max_inflight(&self) -> std::num::NonZeroU16;
 
     ///session expiry interval
-    async fn session_expiry_interval(&self) -> Duration;
+    async fn session_expiry_interval(&self, d: Option<&Disconnect>) -> Duration;
 
     ///client topic alias maximum, C -> S(Max Limit)
     fn max_client_topic_aliases(&self) -> u16;

@@ -36,7 +36,7 @@ pub use url;
 pub use crate::broker::{
     error::MqttError,
     metrics,
-    session::{ClientInfo, Session, SessionState},
+    session::{Session, SessionState},
     stats,
     types::*,
 };

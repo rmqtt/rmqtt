@@ -137,10 +137,10 @@ impl AclHandler {
 impl Handler for AclHandler {
     async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
         match param {
-            Parameter::ClientConnected(_session, client) => {
+            Parameter::ClientConnected(session) => {
                 let cfg = self.cfg.clone();
-                let client_id = client.id.client_id.clone();
-                let username = client.connect_info.username().cloned();
+                let client_id = session.id.client_id.clone();
+                let username = session.id.username.clone();
                 let build_placeholders = async move {
                     for rule in cfg.read().await.rules() {
                         for ph_tf in &rule.topics.placeholders {
@@ -194,7 +194,7 @@ impl Handler for AclHandler {
                     }
 
                     let allow = matches!(rule.access, Access::Allow);
-                    let (hit, superuser) = rule.user.hit(connect_info, allow);
+                    let (hit, superuser) = rule.user.hit(connect_info.id(), connect_info.password(), allow);
                     if hit {
                         log::debug!("{:?} ClientAuthenticate, rule: {:?}", connect_info.id(), rule);
                         return if allow {
@@ -207,7 +207,7 @@ impl Handler for AclHandler {
                 return (false, Some(HookResult::AuthResult(AuthResult::NotAuthorized)));
             }
 
-            Parameter::ClientSubscribeCheckAcl(_session, client_info, subscribe) => {
+            Parameter::ClientSubscribeCheckAcl(session, subscribe) => {
                 if let Some(HookResult::SubscribeAclResult(acl_result)) = &acc {
                     if acl_result.failure() {
                         return (false, acc);
@@ -222,7 +222,7 @@ impl Handler for AclHandler {
                     }
 
                     let allow = matches!(rule.access, Access::Allow);
-                    let (hit, _) = rule.user.hit(&client_info.connect_info, allow);
+                    let (hit, _) = rule.user.hit(&session.id, session.password(), allow);
                     if !hit {
                         continue;
                     }
@@ -231,7 +231,7 @@ impl Handler for AclHandler {
                     }
                     log::debug!(
                         "{:?} ClientSubscribeCheckAcl, {}, is_match ok: topic_filter: {}",
-                        client_info.id,
+                        session.id,
                         idx,
                         topic_filter
                     );
@@ -260,7 +260,7 @@ impl Handler for AclHandler {
                 );
             }
 
-            Parameter::MessagePublishCheckAcl(_session, client_info, publish) => {
+            Parameter::MessagePublishCheckAcl(session, publish) => {
                 if let Some(HookResult::PublishAclResult(PublishAclResult::Rejected(_))) = &acc {
                     return (false, acc);
                 }
@@ -273,7 +273,7 @@ impl Handler for AclHandler {
                     }
 
                     let allow = matches!(rule.access, Access::Allow);
-                    let (hit, _) = rule.user.hit(&client_info.connect_info, allow);
+                    let (hit, _) = rule.user.hit(&session.id, session.password(), allow);
                     if !hit {
                         continue;
                     }
@@ -282,7 +282,7 @@ impl Handler for AclHandler {
                     }
                     log::debug!(
                         "{:?} MessagePublishCheckAcl, {}, is_match ok: topic_str: {}",
-                        client_info.id,
+                        session.id,
                         idx,
                         topic_str
                     );

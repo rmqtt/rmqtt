@@ -3,10 +3,11 @@ use std::convert::From as _f;
 use std::iter::Iterator;
 use std::num::NonZeroU16;
 use std::num::NonZeroU32;
+use std::ops::Deref;
 use std::str::FromStr;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
+use bytestring::ByteString;
 use itertools::Itertools;
 use ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 use once_cell::sync::OnceCell;
@@ -18,7 +19,7 @@ use uuid::Uuid;
 
 use crate::broker::fitter::{Fitter, FitterManager};
 use crate::broker::hook::{Handler, Hook, HookManager, HookResult, Parameter, Priority, Register, Type};
-use crate::broker::session::{ClientInfo, Session, SessionOfflineInfo};
+use crate::broker::session::{Session, SessionLike, SessionManager, SessionOfflineInfo};
 use crate::broker::topic::{Topic, VecToTopic};
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
@@ -60,24 +61,20 @@ impl LockEntry {
     async fn _unsubscribe(&self, id: Id, topic_filter: &str) -> Result<()> {
         Runtime::instance().extends.router().await.remove(topic_filter, id).await?;
         if let Some(s) = self.session() {
-            s.subscriptions.remove(topic_filter).await;
+            s.subscriptions().await?.remove(topic_filter).await;
         }
         Ok(())
     }
 
     #[inline]
-    pub async fn _remove_with(
-        &mut self,
-        clear_subscriptions: bool,
-        with_id: &Id,
-    ) -> Option<(Session, Tx, ClientInfo)> {
+    pub async fn _remove_with(&mut self, clear_subscriptions: bool, with_id: &Id) -> Option<(Session, Tx)> {
         if let Some((_, peer)) =
-            { self.shared.peers.remove_if(&self.id.client_id, |_, entry| &entry.c.id == with_id) }
+            { self.shared.peers.remove_if(&self.id.client_id, |_, entry| &entry.s.id == with_id) }
         {
             if clear_subscriptions {
-                let topic_filters = peer.s.subscriptions.to_topic_filters().await;
+                let topic_filters = peer.s.subscriptions().await.ok()?.to_topic_filters().await;
                 for topic_filter in topic_filters {
-                    if let Err(e) = self._unsubscribe(peer.c.id.clone(), &topic_filter).await {
+                    if let Err(e) = self._unsubscribe(peer.s.id.clone(), &topic_filter).await {
                         log::warn!(
                             "{:?} remove._unsubscribe, topic_filter: {}, {:?}",
                             self.id,
@@ -88,19 +85,19 @@ impl LockEntry {
                 }
             }
             log::debug!("{:?} remove ...", self.id);
-            Some((peer.s, peer.tx, peer.c))
+            Some((peer.s, peer.tx))
         } else {
             None
         }
     }
 
     #[inline]
-    pub async fn _remove(&mut self, clear_subscriptions: bool) -> Option<(Session, Tx, ClientInfo)> {
+    pub async fn _remove(&mut self, clear_subscriptions: bool) -> Option<(Session, Tx)> {
         if let Some((_, peer)) = { self.shared.peers.remove(&self.id.client_id) } {
             if clear_subscriptions {
-                let topic_filters = peer.s.subscriptions.to_topic_filters().await;
+                let topic_filters = peer.s.subscriptions().await.ok()?.to_topic_filters().await;
                 for topic_filter in topic_filters {
-                    if let Err(e) = self._unsubscribe(peer.c.id.clone(), &topic_filter).await {
+                    if let Err(e) = self._unsubscribe(peer.s.id.clone(), &topic_filter).await {
                         log::warn!(
                             "{:?} remove._unsubscribe, topic_filter: {}, {:?}",
                             self.id,
@@ -111,7 +108,7 @@ impl LockEntry {
                 }
             }
             log::debug!("{:?} remove ...", self.id);
-            Some((peer.s, peer.tx, peer.c))
+            Some((peer.s, peer.tx))
         } else {
             None
         }
@@ -140,22 +137,22 @@ impl super::Entry for LockEntry {
 
     #[inline]
     fn id_same(&self) -> Option<bool> {
-        self.shared.peers.get(&self.id.client_id).map(|peer| peer.c.id == self.id)
+        self.shared.peers.get(&self.id.client_id).map(|peer| peer.s.id == self.id)
     }
 
     #[inline]
-    async fn set(&mut self, s: Session, tx: Tx, c: ClientInfo) -> Result<()> {
-        self.shared.peers.insert(self.id.client_id.clone(), EntryItem { s, tx, c });
+    async fn set(&mut self, s: Session, tx: Tx) -> Result<()> {
+        self.shared.peers.insert(self.id.client_id.clone(), EntryItem { s, tx });
         Ok(())
     }
 
     #[inline]
-    async fn remove(&mut self) -> Result<Option<(Session, Tx, ClientInfo)>> {
+    async fn remove(&mut self) -> Result<Option<(Session, Tx)>> {
         Ok(self._remove(true).await)
     }
 
     #[inline]
-    async fn remove_with(&mut self, id: &Id) -> Result<Option<(Session, Tx, ClientInfo)>> {
+    async fn remove_with(&mut self, id: &Id) -> Result<Option<(Session, Tx)>> {
         Ok(self._remove_with(true, id).await)
     }
 
@@ -168,7 +165,7 @@ impl super::Entry for LockEntry {
     ) -> Result<Option<SessionOfflineInfo>> {
         log::debug!(
             "{:?} LockEntry kick ..., clean_start: {}, clear_subscriptions: {}, is_admin: {}",
-            self.client().map(|c| c.id.clone()),
+            self.session().map(|s| s.id.clone()),
             clean_start,
             clear_subscriptions,
             is_admin
@@ -180,14 +177,14 @@ impl super::Entry for LockEntry {
             {
                 match tokio::time::timeout(Duration::from_secs(5), rx).await {
                     Ok(Ok(())) => {
-                        log::debug!("{:?} kicked, from {:?}", self.id, self.client().map(|c| c.id.clone()));
+                        log::debug!("{:?} kicked, from {:?}", self.id, self.session().map(|s| s.id.clone()));
                     }
                     Ok(Err(e)) => {
                         log::warn!(
                             "{:?} kick, recv result is {:?}, from {:?}",
                             self.id,
                             e,
-                            self.client().map(|c| c.id.clone())
+                            self.session().map(|s| s.id.clone())
                         );
                         return Err(MqttError::Msg(format!("recv kick result is {:?}", e)));
                     }
@@ -195,18 +192,18 @@ impl super::Entry for LockEntry {
                         log::warn!(
                             "{:?} kick, recv result is Timeout, from {:?}",
                             self.id,
-                            self.client().map(|c| c.id.clone())
+                            self.session().map(|s| s.id.clone())
                         );
                     }
                 }
             }
         }
 
-        if let Some((s, _, _)) = self._remove(clear_subscriptions).await {
+        if let Some((s, _)) = self._remove(clear_subscriptions).await {
             if clean_start {
                 Ok(None)
             } else {
-                Ok(Some(s.to_offline_info().await))
+                Ok(Some(s.to_offline_info().await?))
             }
         } else {
             Ok(None)
@@ -215,13 +212,13 @@ impl super::Entry for LockEntry {
 
     #[inline]
     async fn online(&self) -> bool {
-        self.is_connected()
+        self.is_connected().await
     }
 
     #[inline]
-    fn is_connected(&self) -> bool {
+    async fn is_connected(&self) -> bool {
         if let Some(entry) = self.shared.peers.get(&self.id.client_id) {
-            entry.c.connected.load(Ordering::SeqCst)
+            entry.s.connected().await.unwrap_or_default()
         } else {
             false
         }
@@ -230,11 +227,6 @@ impl super::Entry for LockEntry {
     #[inline]
     fn session(&self) -> Option<Session> {
         self.shared.peers.get(&self.id.client_id).map(|peer| peer.s.clone())
-    }
-
-    #[inline]
-    fn client(&self) -> Option<ClientInfo> {
-        self.shared.peers.get(&self.id.client_id).map(|peer| peer.c.clone())
     }
 
     #[inline]
@@ -257,7 +249,7 @@ impl super::Entry for LockEntry {
             .ok_or_else(|| MqttError::from("session is not exist"))?;
 
         let this_node_id = Runtime::instance().node.id();
-        let node_id = peer.c.id.node_id;
+        let node_id = peer.s.id.node_id;
         assert_eq!(
             node_id, this_node_id,
             "session node exception, session node id is {}, this node id is {}",
@@ -270,7 +262,7 @@ impl super::Entry for LockEntry {
             .await
             .add(&sub.topic_filter, self.id(), sub.opts.clone())
             .await?;
-        let prev_opts = peer.s.subscriptions.add(sub.topic_filter.clone(), sub.opts.clone()).await;
+        let prev_opts = peer.s.subscriptions().await?.add(sub.topic_filter.clone(), sub.opts.clone()).await;
         Ok(SubscribeReturn::new_success(sub.opts.qos(), prev_opts))
     }
 
@@ -288,7 +280,7 @@ impl super::Entry for LockEntry {
         {
             log::warn!("{:?} unsubscribe, error:{:?}", self.id, e);
         }
-        let remove_ok = peer.s.subscriptions.remove(&unsubscribe.topic_filter).await.is_some();
+        let remove_ok = peer.s.subscriptions().await?.remove(&unsubscribe.topic_filter).await.is_some();
         Ok(remove_ok)
     }
 
@@ -313,7 +305,9 @@ impl super::Entry for LockEntry {
     async fn subscriptions(&self) -> Option<Vec<SubsSearchResult>> {
         if let Some(s) = self.session() {
             let subs = s
-                .subscriptions
+                .subscriptions()
+                .await
+                .ok()?
                 .read()
                 .await
                 .iter()
@@ -336,7 +330,6 @@ impl super::Entry for LockEntry {
 struct EntryItem {
     s: Session,
     tx: Tx,
-    c: ClientInfo,
 }
 
 pub struct DefaultShared {
@@ -353,7 +346,7 @@ impl DefaultShared {
 
     #[inline]
     pub fn tx(&self, client_id: &str) -> Option<(Tx, To)> {
-        self.peers.get(client_id).map(|peer| (peer.tx.clone(), peer.c.id.clone()))
+        self.peers.get(client_id).map(|peer| (peer.tx.clone(), peer.s.id.clone()))
     }
 
     #[inline]
@@ -519,9 +512,8 @@ impl Shared for &'static DefaultShared {
     }
 
     #[inline]
-    fn random_session(&self) -> Option<(Session, ClientInfo)> {
-        let mut sessions =
-            self.peers.iter().map(|p| (p.s.clone(), p.c.clone())).collect::<Vec<(Session, ClientInfo)>>();
+    fn random_session(&self) -> Option<Session> {
+        let mut sessions = self.peers.iter().map(|p| (p.s.clone())).collect::<Vec<Session>>();
         let len = self.peers.len();
         if len > 0 {
             let idx = rand::prelude::random::<usize>() % len;
@@ -533,11 +525,15 @@ impl Shared for &'static DefaultShared {
 
     #[inline]
     async fn session_status(&self, client_id: &str) -> Option<SessionStatus> {
-        self.peers.get(client_id).map(|entry| SessionStatus {
-            id: entry.c.id.clone(),
-            online: entry.c.is_connected(),
-            handshaking: false,
-        })
+        if let Some(entry) = self.peers.get(client_id) {
+            Some(SessionStatus {
+                id: entry.s.id().clone(),
+                online: entry.s.connected().await.unwrap_or_default(),
+                handshaking: false,
+            })
+        } else {
+            None
+        }
     }
 
     #[inline]
@@ -557,9 +553,13 @@ impl Shared for &'static DefaultShared {
 
     #[inline]
     async fn subscriptions_count(&self) -> usize {
-        futures::future::join_all(
-            self.peers.iter().map(|entry| async move { entry.s.subscriptions.len().await }),
-        )
+        futures::future::join_all(self.peers.iter().map(|entry| async move {
+            if let Ok(subs) = entry.s.subscriptions().await {
+                subs.len().await
+            } else {
+                0
+            }
+        }))
         .await
         .iter()
         .sum()
@@ -577,7 +577,7 @@ impl Iterator for DefaultIter<'_> {
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(item) = self.ptr.next() {
-            Some(Box::new(LockEntry::new(item.c.id.clone(), self.shared, None)))
+            Some(Box::new(LockEntry::new(item.s.id.clone(), self.shared, None)))
         } else {
             None
         }
@@ -1173,21 +1173,21 @@ impl DefaultFitterManager {
 
 impl FitterManager for &'static DefaultFitterManager {
     #[inline]
-    fn get(&self, client: ClientInfo, id: Id, listen_cfg: Listener) -> Box<dyn Fitter> {
-        Box::new(DefaultFitter::new(client, id, listen_cfg))
+    fn create(&self, conn_info: Arc<ConnectInfo>, id: Id, listen_cfg: Listener) -> FitterType {
+        Arc::new(DefaultFitter::new(conn_info, id, listen_cfg))
     }
 }
 
 #[derive(Clone)]
 pub struct DefaultFitter {
-    client: ClientInfo,
+    conn_info: Arc<ConnectInfo>,
     listen_cfg: Listener,
 }
 
 impl DefaultFitter {
     #[inline]
-    pub fn new(client: ClientInfo, _id: Id, listen_cfg: Listener) -> Self {
-        Self { client, listen_cfg }
+    pub fn new(conn_info: Arc<ConnectInfo>, _id: Id, listen_cfg: Listener) -> Self {
+        Self { conn_info, listen_cfg }
     }
 }
 
@@ -1195,7 +1195,7 @@ impl DefaultFitter {
 impl Fitter for DefaultFitter {
     #[inline]
     fn keep_alive(&self, keep_alive: &mut u16) -> Result<u16> {
-        if self.client.protocol() == MQTT_LEVEL_5 {
+        if self.conn_info.proto_ver() == MQTT_LEVEL_5 {
             if *keep_alive == 0 {
                 return if self.listen_cfg.allow_zero_keepalive {
                     Ok(0)
@@ -1244,7 +1244,7 @@ impl Fitter for DefaultFitter {
 
     #[inline]
     fn max_inflight(&self) -> NonZeroU16 {
-        let receive_max = if let ConnectInfo::V5(_, connect) = &self.client.connect_info {
+        let receive_max = if let ConnectInfo::V5(_, connect) = self.conn_info.as_ref() {
             connect.receive_max
         } else {
             None
@@ -1258,16 +1258,16 @@ impl Fitter for DefaultFitter {
     }
 
     #[inline]
-    async fn session_expiry_interval(&self) -> Duration {
+    async fn session_expiry_interval(&self, d: Option<&Disconnect>) -> Duration {
         let expiry_interval = || {
-            if let ConnectInfo::V5(_, connect) = &self.client.connect_info {
+            if let ConnectInfo::V5(_, connect) = self.conn_info.as_ref() {
                 Duration::from_secs(connect.session_expiry_interval_secs.unwrap_or_default() as u64)
             } else {
                 self.listen_cfg.session_expiry_interval
             }
         };
 
-        if let Some(Disconnect::V5(d)) = self.client.disconnect.read().await.as_ref() {
+        if let Some(Disconnect::V5(d)) = d {
             if let Some(interval_secs) = d.session_expiry_interval_secs {
                 Duration::from_secs(interval_secs as u64)
             } else {
@@ -1279,7 +1279,7 @@ impl Fitter for DefaultFitter {
     }
 
     fn max_client_topic_aliases(&self) -> u16 {
-        if let ConnectInfo::V5(_, _connect) = &self.client.connect_info {
+        if let ConnectInfo::V5(_, _connect) = self.conn_info.as_ref() {
             self.listen_cfg.max_topic_aliases
         } else {
             0
@@ -1287,7 +1287,7 @@ impl Fitter for DefaultFitter {
     }
 
     fn max_server_topic_aliases(&self) -> u16 {
-        if let ConnectInfo::V5(_, connect) = &self.client.connect_info {
+        if let ConnectInfo::V5(_, connect) = self.conn_info.as_ref() {
             connect.topic_alias_max.min(self.listen_cfg.max_topic_aliases)
         } else {
             0
@@ -1360,8 +1360,8 @@ impl DefaultHookManager {
 #[async_trait]
 impl HookManager for &'static DefaultHookManager {
     #[inline]
-    fn hook(&self, s: &Session, c: &ClientInfo) -> std::rc::Rc<dyn Hook> {
-        std::rc::Rc::new(DefaultHook::new(self, s, c))
+    fn hook(&self, s: &Session) -> std::rc::Rc<dyn Hook> {
+        std::rc::Rc::new(DefaultHook::new(self, s))
     }
 
     #[inline]
@@ -1464,14 +1464,8 @@ impl HookManager for &'static DefaultHookManager {
     }
 
     #[inline]
-    async fn message_publish(
-        &self,
-        s: Option<&Session>,
-        c: Option<&ClientInfo>,
-        from: From,
-        publish: &Publish,
-    ) -> Option<Publish> {
-        let result = self.exec(Type::MessagePublish, Parameter::MessagePublish(s, c, from, publish)).await;
+    async fn message_publish(&self, s: Option<&Session>, from: From, publish: &Publish) -> Option<Publish> {
+        let result = self.exec(Type::MessagePublish, Parameter::MessagePublish(s, from, publish)).await;
         if let Some(HookResult::Publish(publish)) = result {
             Some(publish)
         } else {
@@ -1559,13 +1553,12 @@ impl Register for DefaultHookRegister {
 pub struct DefaultHook {
     manager: &'static DefaultHookManager,
     s: Session,
-    c: ClientInfo,
 }
 
 impl DefaultHook {
     #[inline]
-    pub fn new(manager: &'static DefaultHookManager, s: &Session, c: &ClientInfo) -> Self {
-        Self { manager, s: s.clone(), c: c.clone() }
+    pub fn new(manager: &'static DefaultHookManager, s: &Session) -> Self {
+        Self { manager, s: s.clone() }
     }
 }
 
@@ -1573,40 +1566,34 @@ impl DefaultHook {
 impl Hook for DefaultHook {
     #[inline]
     async fn session_created(&self) {
-        self.manager.exec(Type::SessionCreated, Parameter::SessionCreated(&self.s, &self.c)).await;
+        self.manager.exec(Type::SessionCreated, Parameter::SessionCreated(&self.s)).await;
     }
 
     #[inline]
     async fn client_connected(&self) {
-        let _ = self.manager.exec(Type::ClientConnected, Parameter::ClientConnected(&self.s, &self.c)).await;
+        let _ = self.manager.exec(Type::ClientConnected, Parameter::ClientConnected(&self.s)).await;
     }
 
     #[inline]
     async fn client_disconnected(&self, r: Reason) {
-        let _ = self
-            .manager
-            .exec(Type::ClientDisconnected, Parameter::ClientDisconnected(&self.s, &self.c, r))
-            .await;
+        let _ = self.manager.exec(Type::ClientDisconnected, Parameter::ClientDisconnected(&self.s, r)).await;
     }
 
     #[inline]
     async fn session_terminated(&self, r: Reason) {
-        let _ = self
-            .manager
-            .exec(Type::SessionTerminated, Parameter::SessionTerminated(&self.s, &self.c, r))
-            .await;
+        let _ = self.manager.exec(Type::SessionTerminated, Parameter::SessionTerminated(&self.s, r)).await;
     }
 
     #[inline]
     async fn client_subscribe_check_acl(&self, sub: &Subscribe) -> Option<SubscribeAclResult> {
-        if self.c.superuser {
+        if self.s.superuser().await.unwrap_or_default() {
             return Some(SubscribeAclResult::new_success(sub.opts.qos(), None));
         }
         let reply = self
             .manager
-            .exec(Type::ClientSubscribeCheckAcl, Parameter::ClientSubscribeCheckAcl(&self.s, &self.c, sub))
+            .exec(Type::ClientSubscribeCheckAcl, Parameter::ClientSubscribeCheckAcl(&self.s, sub))
             .await;
-        log::debug!("{:?} result: {:?}", self.s.id, reply);
+        log::debug!("{:?} result: {:?}", self.s.id(), reply);
         if let Some(HookResult::SubscribeAclResult(r)) = reply {
             Some(r)
         } else {
@@ -1616,14 +1603,14 @@ impl Hook for DefaultHook {
 
     #[inline]
     async fn message_publish_check_acl(&self, publish: &Publish) -> PublishAclResult {
-        if self.c.superuser {
+        if self.s.superuser().await.unwrap_or_default() {
             return PublishAclResult::Allow;
         }
         let result = self
             .manager
-            .exec(Type::MessagePublishCheckAcl, Parameter::MessagePublishCheckAcl(&self.s, &self.c, publish))
+            .exec(Type::MessagePublishCheckAcl, Parameter::MessagePublishCheckAcl(&self.s, publish))
             .await;
-        log::debug!("{:?} result: {:?}", self.s.id, result);
+        log::debug!("{:?} result: {:?}", self.s.id(), result);
         if let Some(HookResult::PublishAclResult(acl_result)) = result {
             acl_result
         } else {
@@ -1633,9 +1620,8 @@ impl Hook for DefaultHook {
 
     #[inline]
     async fn client_subscribe(&self, sub: &Subscribe) -> Option<TopicFilter> {
-        let reply =
-            self.manager.exec(Type::ClientSubscribe, Parameter::ClientSubscribe(&self.s, &self.c, sub)).await;
-        log::debug!("{:?} result: {:?}", self.s.id, reply);
+        let reply = self.manager.exec(Type::ClientSubscribe, Parameter::ClientSubscribe(&self.s, sub)).await;
+        log::debug!("{:?} result: {:?}", self.s.id(), reply);
         if let Some(HookResult::TopicFilter(tf)) = reply {
             tf
         } else {
@@ -1647,17 +1633,15 @@ impl Hook for DefaultHook {
     async fn session_subscribed(&self, subscribe: Subscribe) {
         let _ = self
             .manager
-            .exec(Type::SessionSubscribed, Parameter::SessionSubscribed(&self.s, &self.c, subscribe))
+            .exec(Type::SessionSubscribed, Parameter::SessionSubscribed(&self.s, subscribe))
             .await;
     }
 
     #[inline]
     async fn client_unsubscribe(&self, unsub: &Unsubscribe) -> Option<TopicFilter> {
-        let reply = self
-            .manager
-            .exec(Type::ClientUnsubscribe, Parameter::ClientUnsubscribe(&self.s, &self.c, unsub))
-            .await;
-        log::debug!("{:?} result: {:?}", self.s.id, reply);
+        let reply =
+            self.manager.exec(Type::ClientUnsubscribe, Parameter::ClientUnsubscribe(&self.s, unsub)).await;
+        log::debug!("{:?} result: {:?}", self.s.id(), reply);
 
         if let Some(HookResult::TopicFilter(topic_filter)) = reply {
             topic_filter
@@ -1670,22 +1654,22 @@ impl Hook for DefaultHook {
     async fn session_unsubscribed(&self, unsubscribe: Unsubscribe) {
         let _ = self
             .manager
-            .exec(Type::SessionUnsubscribed, Parameter::SessionUnsubscribed(&self.s, &self.c, unsubscribe))
+            .exec(Type::SessionUnsubscribed, Parameter::SessionUnsubscribed(&self.s, unsubscribe))
             .await;
     }
 
     #[inline]
     async fn message_publish(&self, from: From, publish: &Publish) -> Option<Publish> {
-        self.manager.message_publish(Some(&self.s), Some(&self.c), from, publish).await
+        self.manager.message_publish(Some(&self.s), from, publish).await
     }
 
     #[inline]
     async fn message_delivered(&self, from: From, publish: &Publish) -> Option<Publish> {
         let result = self
             .manager
-            .exec(Type::MessageDelivered, Parameter::MessageDelivered(&self.s, &self.c, from, publish))
+            .exec(Type::MessageDelivered, Parameter::MessageDelivered(&self.s, from, publish))
             .await;
-        log::debug!("{:?} result: {:?}", self.s.id, result);
+        log::debug!("{:?} result: {:?}", self.s.id(), result);
         if let Some(HookResult::Publish(publish)) = result {
             Some(publish)
         } else {
@@ -1695,20 +1679,17 @@ impl Hook for DefaultHook {
 
     #[inline]
     async fn message_acked(&self, from: From, publish: &Publish) {
-        let _ = self
-            .manager
-            .exec(Type::MessageAcked, Parameter::MessageAcked(&self.s, &self.c, from, publish))
-            .await;
+        let _ = self.manager.exec(Type::MessageAcked, Parameter::MessageAcked(&self.s, from, publish)).await;
     }
 
     #[inline]
     async fn message_expiry_check(&self, from: From, publish: &Publish) -> MessageExpiryCheckResult {
-        log::debug!("{:?} publish: {:?}", self.s.id, publish);
+        log::debug!("{:?} publish: {:?}", self.s.id(), publish);
         let result = self
             .manager
-            .exec(Type::MessageExpiryCheck, Parameter::MessageExpiryCheck(&self.s, &self.c, from, publish))
+            .exec(Type::MessageExpiryCheck, Parameter::MessageExpiryCheck(&self.s, from, publish))
             .await;
-        log::debug!("{:?} result: {:?}", self.s.id, result);
+        log::debug!("{:?} result: {:?}", self.s.id(), result);
         if let Some(HookResult::MessageExpiry) = result {
             return MessageExpiryCheckResult::Expiry;
         }
@@ -1717,8 +1698,8 @@ impl Hook for DefaultHook {
             .properties
             .message_expiry_interval
             .map(|i| (i.get() * 1000) as i64)
-            .unwrap_or_else(|| self.s.listen_cfg.message_expiry_interval.as_millis() as i64);
-        log::debug!("{:?} expiry_interval: {:?}", self.s.id, expiry_interval);
+            .unwrap_or_else(|| self.s.listen_cfg().message_expiry_interval.as_millis() as i64);
+        log::debug!("{:?} expiry_interval: {:?}", self.s.id(), expiry_interval);
         if expiry_interval == 0 {
             return MessageExpiryCheckResult::Remaining(None);
         }
@@ -1729,5 +1710,259 @@ impl Hook for DefaultHook {
             ));
         }
         MessageExpiryCheckResult::Expiry
+    }
+}
+
+#[derive(Clone, Default)]
+struct DisconnectInfo {
+    pub disconnected_at: TimestampMillis,
+    pub reasons: Vec<Reason>,
+    pub mqtt_disconnect: Option<Disconnect>, //MQTT Disconnect
+}
+
+impl DisconnectInfo {
+    fn is_disconnected(&self) -> bool {
+        self.disconnected_at != 0
+    }
+}
+
+pub struct DefaultSessionManager {}
+
+impl DefaultSessionManager {
+    #[inline]
+    pub fn instance() -> &'static DefaultSessionManager {
+        static INSTANCE: OnceCell<DefaultSessionManager> = OnceCell::new();
+        INSTANCE.get_or_init(|| Self {})
+    }
+}
+
+#[async_trait]
+impl SessionManager for &'static DefaultSessionManager {
+    #[allow(clippy::too_many_arguments)]
+    fn create(
+        &self,
+        id: Id,
+        listen_cfg: Listener,
+        subscriptions: SessionSubs,
+        deliver_queue: MessageQueueType,
+        inflight_win: InflightType,
+        conn_info: ConnectInfoType,
+
+        created_at: TimestampMillis,
+        connected_at: TimestampMillis,
+        session_present: bool,
+        superuser: bool,
+        connected: bool,
+    ) -> Arc<dyn SessionLike> {
+        Arc::new(DefaultSession::new(
+            id,
+            listen_cfg,
+            subscriptions,
+            deliver_queue,
+            inflight_win,
+            conn_info,
+            created_at,
+            connected_at,
+            session_present,
+            superuser,
+            connected,
+        ))
+    }
+}
+
+pub struct DefaultSession(Arc<DefaultSessionInner>);
+
+impl Deref for DefaultSession {
+    type Target = DefaultSessionInner;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref()
+    }
+}
+
+pub struct DefaultSessionInner {
+    id: Id,
+    listen_cfg: Listener,
+    subscriptions: SessionSubs,
+    deliver_queue: MessageQueueType,
+    inflight_win: InflightType,
+    conn_info: ConnectInfoType,
+
+    created_at: TimestampMillis,
+    state_flags: SessionStateFlags,
+    connected_at: TimestampMillis,
+
+    disconnect_info: RwLock<DisconnectInfo>,
+    extra_data: ExtraData<ByteString, Vec<u8>>,
+}
+
+impl DefaultSession {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        id: Id,
+        listen_cfg: Listener,
+        subscriptions: SessionSubs,
+        deliver_queue: MessageQueueType,
+        inflight_win: InflightType,
+        conn_info: ConnectInfoType,
+
+        created_at: TimestampMillis,
+        connected_at: TimestampMillis,
+        session_present: bool,
+        superuser: bool,
+        connected: bool,
+    ) -> Self {
+        let mut state_flags = SessionStateFlags::empty();
+        if session_present {
+            state_flags.insert(SessionStateFlags::SessionPresent);
+        }
+        if superuser {
+            state_flags.insert(SessionStateFlags::Superuser);
+        }
+        if connected {
+            state_flags.insert(SessionStateFlags::Connected);
+        }
+
+        Self(Arc::new(DefaultSessionInner {
+            id,
+            listen_cfg,
+            subscriptions,
+            deliver_queue,
+            inflight_win,
+            conn_info,
+
+            created_at,
+            state_flags,
+            connected_at,
+
+            disconnect_info: RwLock::new(DisconnectInfo::default()),
+            extra_data: ExtraData::default(),
+        }))
+    }
+}
+
+#[async_trait]
+impl SessionLike for DefaultSession {
+    #[inline]
+    fn id(&self) -> &Id {
+        &self.id
+    }
+
+    #[inline]
+    fn listen_cfg(&self) -> &Listener {
+        &self.listen_cfg
+    }
+
+    #[inline]
+    fn deliver_queue(&self) -> &MessageQueueType {
+        &self.deliver_queue
+    }
+
+    #[inline]
+    fn inflight_win(&self) -> &InflightType {
+        &self.inflight_win
+    }
+
+    async fn to_offline_info(&self) -> Result<SessionOfflineInfo> {
+        let id = self.id.clone();
+        let created_at = self.created_at().await?;
+        let subscriptions = self.subscriptions().await?.drain().await;
+
+        let mut offline_messages = Vec::new();
+        while let Some(item) = self.deliver_queue.pop() {
+            //@TODO ..., check message expired
+            offline_messages.push(item);
+        }
+        let mut inflight_win = self.inflight_win.write().await;
+        let mut inflight_messages = Vec::new();
+        while let Some(msg) = inflight_win.pop_front() {
+            //@TODO ..., check message expired
+            inflight_messages.push(msg);
+        }
+        Ok(SessionOfflineInfo { id, subscriptions, offline_messages, inflight_messages, created_at })
+    }
+
+    async fn subscriptions(&self) -> Result<SessionSubs> {
+        Ok(self.subscriptions.clone())
+    }
+    async fn created_at(&self) -> Result<TimestampMillis> {
+        Ok(self.created_at)
+    }
+    async fn session_present(&self) -> Result<bool> {
+        Ok(self.state_flags.contains(SessionStateFlags::SessionPresent))
+    }
+
+    async fn connect_info(&self) -> Result<Arc<ConnectInfo>> {
+        Ok(self.conn_info.clone())
+    }
+    fn username(&self) -> Option<&UserName> {
+        self.id.username.as_ref()
+    }
+    fn password(&self) -> Option<&Password> {
+        self.conn_info.password()
+    }
+    async fn protocol(&self) -> Result<u8> {
+        Ok(self.conn_info.proto_ver())
+    }
+    async fn superuser(&self) -> Result<bool> {
+        Ok(self.state_flags.contains(SessionStateFlags::Superuser))
+    }
+    async fn connected(&self) -> Result<bool> {
+        Ok(self.state_flags.contains(SessionStateFlags::Connected)
+            && !self.disconnect_info.read().await.is_disconnected())
+    }
+    async fn connected_at(&self) -> Result<TimestampMillis> {
+        Ok(self.connected_at)
+    }
+    async fn disconnected_at(&self) -> Result<TimestampMillis> {
+        Ok(self.disconnect_info.read().await.disconnected_at)
+    }
+    async fn disconnected_reasons(&self) -> Result<Vec<Reason>> {
+        Ok(self.disconnect_info.read().await.reasons.clone())
+    }
+    async fn disconnected_reason(&self) -> Result<Reason> {
+        Ok(Reason::Reasons(self.disconnect_info.read().await.reasons.clone()))
+    }
+    async fn has_disconnected_reason(&self) -> bool {
+        !self.disconnect_info.read().await.reasons.is_empty()
+    }
+    async fn disconnect(&self) -> Result<Option<Disconnect>> {
+        Ok(self.disconnect_info.read().await.mqtt_disconnect.clone())
+    }
+    async fn set_disconnected(&self, d: Option<Disconnect>, reason: Option<Reason>) -> Result<()> {
+        let mut disconnect_info = self.disconnect_info.write().await;
+
+        if !disconnect_info.is_disconnected() {
+            disconnect_info.disconnected_at = chrono::Local::now().timestamp_millis();
+        }
+
+        if let Some(d) = d {
+            disconnect_info.reasons.push(d.reason());
+            disconnect_info.mqtt_disconnect.replace(d);
+        }
+
+        if let Some(reason) = reason {
+            disconnect_info.reasons.push(reason);
+        }
+
+        Ok(())
+    }
+    async fn add_disconnected_reason(&self, r: Reason) -> Result<()> {
+        self.disconnect_info.write().await.reasons.push(r);
+        Ok(())
+    }
+    async fn take_disconnected_reason(&self) -> Result<Reason> {
+        Ok(Reason::Reasons(self.disconnect_info.write().await.reasons.drain(..).collect()))
+    }
+
+    async fn set_extra_data(&self, key: ByteString, data: Vec<u8>) -> Result<()> {
+        self.extra_data.insert(key, data);
+        Ok(())
+    }
+    async fn get_extra_data(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        Ok(self.extra_data.read().get(key).cloned())
+    }
+    async fn extra_data_len(&self) -> Result<usize> {
+        Ok(self.extra_data.len())
     }
 }

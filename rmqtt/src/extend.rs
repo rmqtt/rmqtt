@@ -1,5 +1,7 @@
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
+use crate::broker::default::DefaultSessionManager;
+use crate::broker::session::SessionManager;
 use crate::broker::{
     default::{
         DefaultFitterManager, DefaultHookManager, DefaultRetainStorage, DefaultRouter, DefaultShared,
@@ -19,6 +21,7 @@ pub struct Manager {
     fitter_mgr: RwLock<Box<dyn FitterManager>>,
     hook_mgr: RwLock<Box<dyn HookManager>>,
     shared_subscription: RwLock<Box<dyn SharedSubscription>>,
+    session_mgr: RwLock<Box<dyn SessionManager>>,
 }
 
 impl Manager {
@@ -31,6 +34,7 @@ impl Manager {
             fitter_mgr: RwLock::new(Box::new(DefaultFitterManager::instance())),
             hook_mgr: RwLock::new(Box::new(DefaultHookManager::instance())),
             shared_subscription: RwLock::new(Box::new(DefaultSharedSubscription::instance())),
+            session_mgr: RwLock::new(Box::new(DefaultSessionManager::instance())),
         }
     }
 
@@ -87,5 +91,15 @@ impl Manager {
     #[inline]
     pub async fn shared_subscription_mut(&self) -> RwLockWriteGuard<'_, Box<dyn SharedSubscription>> {
         self.shared_subscription.write().await
+    }
+
+    #[inline]
+    pub async fn session_mgr(&self) -> RwLockReadGuard<'_, Box<dyn SessionManager>> {
+        self.session_mgr.read().await
+    }
+
+    #[inline]
+    pub async fn session_mgr_mut(&self) -> RwLockWriteGuard<'_, Box<dyn SessionManager>> {
+        self.session_mgr.write().await
     }
 }
