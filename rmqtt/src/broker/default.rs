@@ -3,7 +3,6 @@ use std::convert::From as _f;
 use std::iter::Iterator;
 use std::num::NonZeroU16;
 use std::num::NonZeroU32;
-use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -1714,14 +1713,15 @@ impl Hook for DefaultHook {
 }
 
 #[derive(Clone, Default)]
-struct DisconnectInfo {
+pub struct DisconnectInfo {
     pub disconnected_at: TimestampMillis,
     pub reasons: Vec<Reason>,
     pub mqtt_disconnect: Option<Disconnect>, //MQTT Disconnect
 }
 
 impl DisconnectInfo {
-    fn is_disconnected(&self) -> bool {
+    #[inline]
+    pub fn is_disconnected(&self) -> bool {
         self.disconnected_at != 0
     }
 }
@@ -1736,7 +1736,6 @@ impl DefaultSessionManager {
     }
 }
 
-#[async_trait]
 impl SessionManager for &'static DefaultSessionManager {
     #[allow(clippy::too_many_arguments)]
     fn create(
@@ -1770,17 +1769,7 @@ impl SessionManager for &'static DefaultSessionManager {
     }
 }
 
-pub struct DefaultSession(Arc<DefaultSessionInner>);
-
-impl Deref for DefaultSession {
-    type Target = DefaultSessionInner;
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        self.0.as_ref()
-    }
-}
-
-pub struct DefaultSessionInner {
+pub struct DefaultSession {
     id: Id,
     listen_cfg: Listener,
     subscriptions: SessionSubs,
@@ -1823,7 +1812,7 @@ impl DefaultSession {
             state_flags.insert(SessionStateFlags::Connected);
         }
 
-        Self(Arc::new(DefaultSessionInner {
+        Self {
             id,
             listen_cfg,
             subscriptions,
@@ -1837,7 +1826,7 @@ impl DefaultSession {
 
             disconnect_info: RwLock::new(DisconnectInfo::default()),
             extra_data: ExtraData::default(),
-        }))
+        }
     }
 }
 
