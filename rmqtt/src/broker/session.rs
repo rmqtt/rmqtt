@@ -452,7 +452,6 @@ impl SessionState {
 
     #[inline]
     async fn will_delay_interval(&self) -> Option<Duration> {
-        //self.last_will().and_then(|lw| lw.will_delay_interval())
         self.connect_info().await.ok()?.last_will().and_then(|lw| lw.will_delay_interval())
     }
 
@@ -959,27 +958,25 @@ impl std::fmt::Debug for SessionOfflineInfo {
     }
 }
 
-pub type Session = SessionNew;
-
 #[derive(Clone)]
-pub struct SessionNew(Arc<_SessionNew>);
+pub struct Session(Arc<_Session>);
 
-impl Deref for SessionNew {
-    type Target = _SessionNew;
+impl Deref for Session {
+    type Target = _Session;
     #[inline]
     fn deref(&self) -> &Self::Target {
         self.0.as_ref()
     }
 }
 
-pub struct _SessionNew {
+pub struct _Session {
     inner: Arc<dyn SessionLike>,
     pub id: Id,
     pub fitter: FitterType,
     pub extra_attrs: RwLock<ExtraAttrs>,
 }
 
-impl Deref for _SessionNew {
+impl Deref for _Session {
     type Target = dyn SessionLike;
     #[inline]
     fn deref(&self) -> &Self::Target {
@@ -987,7 +984,7 @@ impl Deref for _SessionNew {
     }
 }
 
-impl Drop for _SessionNew {
+impl Drop for _Session {
     fn drop(&mut self) {
         Runtime::instance().stats.sessions.dec();
 
@@ -1000,14 +997,14 @@ impl Drop for _SessionNew {
     }
 }
 
-impl std::fmt::Debug for SessionNew {
+impl std::fmt::Debug for Session {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Session {:?}", self.id())
     }
 }
 
-impl SessionNew {
+impl Session {
     #[inline]
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn new(
@@ -1058,7 +1055,7 @@ impl SessionNew {
             superuser,
             connected,
         );
-        Self(Arc::new(_SessionNew { inner: session_like, id, fitter, extra_attrs }))
+        Self(Arc::new(_Session { inner: session_like, id, fitter, extra_attrs }))
     }
 
     #[inline]
