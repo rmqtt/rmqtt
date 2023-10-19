@@ -6,7 +6,6 @@ use std::num::NonZeroU32;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use bytestring::ByteString;
 use itertools::Itertools;
 use ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 use once_cell::sync::OnceCell;
@@ -60,7 +59,7 @@ impl LockEntry {
     async fn _unsubscribe(&self, id: Id, topic_filter: &str) -> Result<()> {
         Runtime::instance().extends.router().await.remove(topic_filter, id).await?;
         if let Some(s) = self.session() {
-            s.subscriptions().await?.remove(topic_filter).await;
+            s.subscriptions_remove(topic_filter).await?;
         }
         Ok(())
     }
@@ -261,7 +260,7 @@ impl super::Entry for LockEntry {
             .await
             .add(&sub.topic_filter, self.id(), sub.opts.clone())
             .await?;
-        let prev_opts = peer.s.subscriptions().await?.add(sub.topic_filter.clone(), sub.opts.clone()).await;
+        let prev_opts = peer.s.subscriptions_add(sub.topic_filter.clone(), sub.opts.clone()).await?;
         Ok(SubscribeReturn::new_success(sub.opts.qos(), prev_opts))
     }
 
@@ -279,7 +278,7 @@ impl super::Entry for LockEntry {
         {
             log::warn!("{:?} unsubscribe, error:{:?}", self.id, e);
         }
-        let remove_ok = peer.s.subscriptions().await?.remove(&unsubscribe.topic_filter).await.is_some();
+        let remove_ok = peer.s.subscriptions_remove(&unsubscribe.topic_filter).await?.is_some();
         Ok(remove_ok)
     }
 
@@ -1782,7 +1781,6 @@ pub struct DefaultSession {
     connected_at: TimestampMillis,
 
     disconnect_info: RwLock<DisconnectInfo>,
-    extra_data: ExtraData<ByteString, Vec<u8>>,
 }
 
 impl DefaultSession {
@@ -1825,7 +1823,6 @@ impl DefaultSession {
             connected_at,
 
             disconnect_info: RwLock::new(DisconnectInfo::default()),
-            extra_data: ExtraData::default(),
         }
     }
 }
@@ -1852,31 +1849,51 @@ impl SessionLike for DefaultSession {
         &self.inflight_win
     }
 
-    async fn to_offline_info(&self) -> Result<SessionOfflineInfo> {
-        let id = self.id.clone();
-        let created_at = self.created_at().await?;
-        let subscriptions = self.subscriptions().await?.drain().await;
-
-        let mut offline_messages = Vec::new();
-        while let Some(item) = self.deliver_queue.pop() {
-            //@TODO ..., check message expired
-            offline_messages.push(item);
-        }
-        let mut inflight_win = self.inflight_win.write().await;
-        let mut inflight_messages = Vec::new();
-        while let Some(msg) = inflight_win.pop_front() {
-            //@TODO ..., check message expired
-            inflight_messages.push(msg);
-        }
-        Ok(SessionOfflineInfo { id, subscriptions, offline_messages, inflight_messages, created_at })
-    }
-
+    #[inline]
     async fn subscriptions(&self) -> Result<SessionSubs> {
         Ok(self.subscriptions.clone())
     }
+
+    #[inline]
+    async fn subscriptions_add(
+        &self,
+        topic_filter: TopicFilter,
+        opts: SubscriptionOptions,
+    ) -> Result<Option<SubscriptionOptions>> {
+        Ok(self.subscriptions._add(topic_filter, opts).await)
+    }
+
+    #[inline]
+    async fn subscriptions_remove(
+        &self,
+        topic_filter: &str,
+    ) -> Result<Option<(TopicFilter, SubscriptionOptions)>> {
+        Ok(self.subscriptions._remove(topic_filter).await)
+    }
+
+    #[inline]
+    async fn subscriptions_drain(&self) -> Result<Subscriptions> {
+        Ok(self.subscriptions._drain().await)
+    }
+
+    #[inline]
+    async fn subscriptions_extend(&self, other: Subscriptions) -> Result<()> {
+        self.subscriptions._extend(other).await;
+        Ok(())
+    }
+
+    #[inline]
+    async fn subscriptions_clear(&self) -> Result<()> {
+        self.subscriptions._clear().await;
+        Ok(())
+    }
+
+    #[inline]
     async fn created_at(&self) -> Result<TimestampMillis> {
         Ok(self.created_at)
     }
+
+    #[inline]
     async fn session_present(&self) -> Result<bool> {
         Ok(self.state_flags.contains(SessionStateFlags::SessionPresent))
     }
@@ -1912,13 +1929,13 @@ impl SessionLike for DefaultSession {
     async fn disconnected_reason(&self) -> Result<Reason> {
         Ok(Reason::Reasons(self.disconnect_info.read().await.reasons.clone()))
     }
-    async fn has_disconnected_reason(&self) -> bool {
+    async fn disconnected_reason_has(&self) -> bool {
         !self.disconnect_info.read().await.reasons.is_empty()
     }
     async fn disconnect(&self) -> Result<Option<Disconnect>> {
         Ok(self.disconnect_info.read().await.mqtt_disconnect.clone())
     }
-    async fn set_disconnected(&self, d: Option<Disconnect>, reason: Option<Reason>) -> Result<()> {
+    async fn disconnected_set(&self, d: Option<Disconnect>, reason: Option<Reason>) -> Result<()> {
         let mut disconnect_info = self.disconnect_info.write().await;
 
         if !disconnect_info.is_disconnected() {
@@ -1936,22 +1953,11 @@ impl SessionLike for DefaultSession {
 
         Ok(())
     }
-    async fn add_disconnected_reason(&self, r: Reason) -> Result<()> {
+    async fn disconnected_reason_add(&self, r: Reason) -> Result<()> {
         self.disconnect_info.write().await.reasons.push(r);
         Ok(())
     }
-    async fn take_disconnected_reason(&self) -> Result<Reason> {
+    async fn disconnected_reason_take(&self) -> Result<Reason> {
         Ok(Reason::Reasons(self.disconnect_info.write().await.reasons.drain(..).collect()))
-    }
-
-    async fn set_extra_data(&self, key: ByteString, data: Vec<u8>) -> Result<()> {
-        self.extra_data.insert(key, data);
-        Ok(())
-    }
-    async fn get_extra_data(&self, key: &str) -> Result<Option<Vec<u8>>> {
-        Ok(self.extra_data.read().get(key).cloned())
-    }
-    async fn extra_data_len(&self) -> Result<usize> {
-        Ok(self.extra_data.len())
     }
 }

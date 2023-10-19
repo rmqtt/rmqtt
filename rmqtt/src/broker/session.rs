@@ -96,6 +96,8 @@ impl SessionState {
 
         let deliver_timeout_delay = tokio::time::sleep(Duration::from_secs(60));
 
+        let tick_delay = tokio::time::sleep(Duration::from_secs(90));
+
         let limiter = {
             let (burst, replenish_n_per) = state.fitter.mqueue_rate_limit();
             Limiter::new(burst, replenish_n_per)
@@ -123,6 +125,8 @@ impl SessionState {
 
             tokio::pin!(deliver_timeout_delay);
 
+            tokio::pin!(tick_delay);
+
             loop {
                 log::debug!("{:?} tokio::select! loop", state.id());
                 deliver_timeout_delay.as_mut().reset(
@@ -138,9 +142,16 @@ impl SessionState {
                 tokio::select! {
                     _ = &mut keep_alive_delay => {  //, if !keep_alive_delay.is_elapsed()
                         log::debug!("{:?} keep alive is timeout, is_elapsed: {:?}", state.id(), keep_alive_delay.is_elapsed());
-                        let _ = state.add_disconnected_reason(Reason::ConnectKeepaliveTimeout).await;
+                        let _ = state.disconnected_reason_add(Reason::ConnectKeepaliveTimeout).await;
                         break
                     },
+
+                    _ = &mut tick_delay => {
+                        let s = state.session.clone();
+                        ntex::rt::spawn(async move {s.tick().await});
+                        tick_delay.as_mut().reset(Instant::now() + Duration::from_secs(90));
+                    },
+
                     msg = msg_rx.next() => {
                         log::debug!("{:?} recv msg: {:?}", state.id(), msg);
                         if let Some(msg) = msg{
@@ -167,7 +178,7 @@ impl SessionState {
                                         if clean_start {
                                             flags.insert(StateFlags::CleanStart);
                                         }
-                                        let _ = state.add_disconnected_reason(Reason::ConnectKicked(is_admin)).await;
+                                        let _ = state.disconnected_reason_add(Reason::ConnectKicked(is_admin)).await;
                                         break
                                     }else{
                                         log::warn!("{:?} Message::Kick, kick sender is closed, to {:?}, is_admin: {}", state.id(), by_id, is_admin);
@@ -176,12 +187,12 @@ impl SessionState {
                                 Message::Disconnect(d) => {
                                     flags.insert(StateFlags::DisconnectReceived);
                                     //state.set_mqtt_disconnect(d).await;
-                                    let _ = state.set_disconnected(Some(d), None).await;
+                                    let _ = state.disconnected_set(Some(d), None).await;
                                 },
                                 Message::Closed(reason) => {
                                     log::debug!("{:?} Closed({}) message received, reason: {}", state.id(), flags.contains(StateFlags::DisconnectReceived), reason);
-                                    if !state.has_disconnected_reason().await{
-                                        let _ = state.add_disconnected_reason(reason).await;
+                                    if !state.disconnected_reason_has().await{
+                                        let _ = state.disconnected_reason_add(reason).await;
                                     }
                                     break
                                 },
@@ -212,7 +223,7 @@ impl SessionState {
                             }
                         }else{
                             log::warn!("{:?} None is received from the Rx", state.id());
-                            let _ = state.add_disconnected_reason(Reason::from_static("None is received from the Rx")).await;
+                            let _ = state.disconnected_reason_add(Reason::from_static("None is received from the Rx")).await;
                             break;
                         }
                     },
@@ -239,7 +250,7 @@ impl SessionState {
                             },
                             None => {
                                 log::warn!("{:?} Deliver Queue is closed", state.id());
-                                let _ = state.add_disconnected_reason("Deliver Queue is closed".into()).await;
+                                let _ = state.disconnected_reason_add("Deliver Queue is closed".into()).await;
                                 break;
                             }
                         }
@@ -261,7 +272,7 @@ impl SessionState {
             Runtime::instance().stats.connections.dec();
 
             //Setting the disconnected state
-            let _ = state.set_disconnected(None, None).await;
+            let _ = state.disconnected_set(None, None).await;
 
             //Last will message
             let will_delay_interval = if state.last_will_enable(flags, clean_session) {
@@ -281,20 +292,20 @@ impl SessionState {
             state.sink.close();
 
             //hook, client_disconnected
-            let reason = if state.has_disconnected_reason().await {
+            let reason = if state.disconnected_reason_has().await {
                 state.disconnected_reason().await.unwrap_or_default()
             } else {
-                let _ = state.add_disconnected_reason(Reason::ConnectRemoteClose).await;
+                let _ = state.disconnected_reason_add(Reason::ConnectRemoteClose).await;
                 Reason::ConnectRemoteClose
             };
             state.hook.client_disconnected(reason).await;
 
             if flags.contains(StateFlags::Kicked) {
                 if flags.contains(StateFlags::ByAdminKick) {
-                    state.clean(state.take_disconnected_reason().await.unwrap_or_default()).await;
+                    state.clean(state.disconnected_reason_take().await.unwrap_or_default()).await;
                 }
             } else if clean_session {
-                state.clean(state.take_disconnected_reason().await.unwrap_or_default()).await;
+                state.clean(state.disconnected_reason_take().await.unwrap_or_default()).await;
             } else {
                 //Start offline event loop
                 Self::offline_start(
@@ -717,7 +728,7 @@ impl SessionState {
         match self.publish(Publish::from(publish)).await {
             Err(e) => {
                 Metrics::instance().client_publish_error_inc();
-                self.add_disconnected_reason(Reason::PublishFailed(ByteString::from(e.to_string()))).await?;
+                self.disconnected_reason_add(Reason::PublishFailed(ByteString::from(e.to_string()))).await?;
                 Err(e)
             }
             Ok(false) => {
@@ -733,7 +744,7 @@ impl SessionState {
         match self._publish_v5(publish).await {
             Err(e) => {
                 Metrics::instance().client_publish_error_inc();
-                self.add_disconnected_reason(Reason::PublishFailed(ByteString::from(e.to_string()))).await?;
+                self.disconnected_reason_add(Reason::PublishFailed(ByteString::from(e.to_string()))).await?;
                 Err(e)
             }
             Ok(false) => {
@@ -894,7 +905,7 @@ impl SessionState {
 
         //Subscription transfer from previous session
         if !clear_subscriptions {
-            self.subscriptions().await?.extend(offline_info.subscriptions).await;
+            self.subscriptions_extend(offline_info.subscriptions).await?;
         }
 
         //Send previous session unacked messages
@@ -990,8 +1001,8 @@ impl Drop for _Session {
 
         let s = self.inner.clone();
         tokio::spawn(async move {
-            if let Ok(subscriptions) = s.subscriptions().await {
-                subscriptions.clear().await
+            if let Err(e) = s.on_drop().await {
+                log::error!("{:?} session clear error, {:?}", s.id(), e);
             }
         });
     }
@@ -1059,6 +1070,26 @@ impl Session {
     }
 
     #[inline]
+    pub async fn to_offline_info(&self) -> Result<SessionOfflineInfo> {
+        let id = self.id.clone();
+        let created_at = self.created_at().await?;
+        let subscriptions = self.subscriptions_drain().await?;
+
+        let mut offline_messages = Vec::new();
+        while let Some(item) = self.deliver_queue().pop() {
+            //@TODO ..., check message expired
+            offline_messages.push(item);
+        }
+        let mut inflight_win = self.inflight_win().write().await;
+        let mut inflight_messages = Vec::new();
+        while let Some(msg) = inflight_win.pop_front() {
+            //@TODO ..., check message expired
+            inflight_messages.push(msg);
+        }
+        Ok(SessionOfflineInfo { id, subscriptions, offline_messages, inflight_messages, created_at })
+    }
+
+    #[inline]
     pub async fn to_json(&self) -> serde_json::Value {
         let (count, subs) = if let Ok(subs) = self.subscriptions().await {
             let count = subs.len().await;
@@ -1122,12 +1153,22 @@ pub trait SessionLike: Sync + Send {
     fn deliver_queue(&self) -> &MessageQueueType;
     fn inflight_win(&self) -> &InflightType;
 
-    async fn to_offline_info(&self) -> Result<SessionOfflineInfo>;
-
     async fn subscriptions(&self) -> Result<SessionSubs>;
+    async fn subscriptions_add(
+        &self,
+        topic_filter: TopicFilter,
+        opts: SubscriptionOptions,
+    ) -> Result<Option<SubscriptionOptions>>;
+    async fn subscriptions_remove(
+        &self,
+        topic_filter: &str,
+    ) -> Result<Option<(TopicFilter, SubscriptionOptions)>>;
+    async fn subscriptions_drain(&self) -> Result<Subscriptions>;
+    async fn subscriptions_extend(&self, other: Subscriptions) -> Result<()>;
+    async fn subscriptions_clear(&self) -> Result<()>;
+
     async fn created_at(&self) -> Result<TimestampMillis>;
     async fn session_present(&self) -> Result<bool>;
-
     async fn connect_info(&self) -> Result<Arc<ConnectInfo>>;
     fn username(&self) -> Option<&UserName>;
     fn password(&self) -> Option<&Password>;
@@ -1139,13 +1180,20 @@ pub trait SessionLike: Sync + Send {
     async fn disconnected_at(&self) -> Result<TimestampMillis>;
     async fn disconnected_reasons(&self) -> Result<Vec<Reason>>;
     async fn disconnected_reason(&self) -> Result<Reason>;
-    async fn has_disconnected_reason(&self) -> bool;
+    async fn disconnected_reason_has(&self) -> bool;
+    async fn disconnected_reason_add(&self, r: Reason) -> Result<()>;
+    async fn disconnected_reason_take(&self) -> Result<Reason>;
     async fn disconnect(&self) -> Result<Option<Disconnect>>;
-    async fn set_disconnected(&self, d: Option<Disconnect>, reason: Option<Reason>) -> Result<()>;
-    async fn add_disconnected_reason(&self, r: Reason) -> Result<()>;
-    async fn take_disconnected_reason(&self) -> Result<Reason>;
+    async fn disconnected_set(&self, d: Option<Disconnect>, reason: Option<Reason>) -> Result<()>;
 
-    async fn set_extra_data(&self, key: ByteString, data: Vec<u8>) -> Result<()>;
-    async fn get_extra_data(&self, key: &str) -> Result<Option<Vec<u8>>>;
-    async fn extra_data_len(&self) -> Result<usize>;
+    #[inline]
+    async fn on_drop(&self) -> Result<()> {
+        if let Err(e) = self.subscriptions_clear().await {
+            log::error!("subscriptions clear error, {:?}", e);
+        }
+        Ok(())
+    }
+
+    #[inline]
+    async fn tick(&self) {}
 }

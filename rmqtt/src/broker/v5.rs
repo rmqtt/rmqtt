@@ -330,7 +330,7 @@ pub async fn control_message<E: std::fmt::Debug>(
             Err(e) => {
                 log::warn!("{:?} Subscribe failed, reason: {}", state.id(), e);
                 state
-                    .add_disconnected_reason(Reason::SubscribeFailed(Some(ByteString::from(e.to_string()))))
+                    .disconnected_reason_add(Reason::SubscribeFailed(Some(ByteString::from(e.to_string()))))
                     .await?;
                 return Err(e);
             }
@@ -340,7 +340,7 @@ pub async fn control_message<E: std::fmt::Debug>(
             Err(e) => {
                 log::warn!("{:?} Unsubscribe failed, reason: {}", state.id(), e);
                 state
-                    .add_disconnected_reason(Reason::UnsubscribeFailed(Some(ByteString::from(e.to_string()))))
+                    .disconnected_reason_add(Reason::UnsubscribeFailed(Some(ByteString::from(e.to_string()))))
                     .await?;
                 return Err(e);
             }

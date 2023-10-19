@@ -1688,28 +1688,6 @@ impl Deref for SessionSubs {
     }
 }
 
-/*
-impl Serialize for SessionSubs {
-    #[inline]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        self.subs.read().deref().serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for SessionSubs {
-    #[inline]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        Ok(SessionSubs::from(HashMap::deserialize(deserializer)?))
-    }
-}
-*/
-
 impl SessionSubs {
     #[inline]
     pub(crate) fn new() -> Self {
@@ -1718,12 +1696,12 @@ impl SessionSubs {
 
     #[inline]
     #[allow(clippy::mutable_key_type)]
-    pub(crate) fn from(subs: HashMap<TopicFilter, SubscriptionOptions>) -> Self {
+    pub fn from(subs: HashMap<TopicFilter, SubscriptionOptions>) -> Self {
         Self { subs: Arc::new(RwLock::new(subs)) }
     }
 
     #[inline]
-    pub async fn add(
+    pub async fn _add(
         &self,
         topic_filter: TopicFilter,
         opts: SubscriptionOptions,
@@ -1759,7 +1737,7 @@ impl SessionSubs {
     }
 
     #[inline]
-    pub async fn remove(&self, topic_filter: &str) -> Option<(TopicFilter, SubscriptionOptions)> {
+    pub async fn _remove(&self, topic_filter: &str) -> Option<(TopicFilter, SubscriptionOptions)> {
         let removed = {
             let mut subs = self.subs.write().await;
             let removed = subs.remove_entry(topic_filter);
@@ -1778,13 +1756,11 @@ impl SessionSubs {
     }
 
     #[inline]
-    pub async fn drain(&self) -> Subscriptions {
+    pub async fn _drain(&self) -> Subscriptions {
         let topic_filters = self.subs.read().await.iter().map(|(key, _)| key.clone()).collect::<Vec<_>>();
-        //let subs = topic_filters.iter().filter_map(|tf| Some(async move { self.remove(tf).await }));
-        //futures::future::join_all(subs).await.into_iter().filter_map(|item| item).collect()
         let mut subs = Vec::new();
         for tf in topic_filters {
-            if let Some(sub) = self.remove(&tf).await {
+            if let Some(sub) = self._remove(&tf).await {
                 subs.push(sub);
             }
         }
@@ -1792,14 +1768,14 @@ impl SessionSubs {
     }
 
     #[inline]
-    pub async fn extend(&self, subs: Subscriptions) {
+    pub async fn _extend(&self, subs: Subscriptions) {
         for (topic_filter, opts) in subs {
-            self.add(topic_filter, opts).await;
+            self._add(topic_filter, opts).await;
         }
     }
 
     #[inline]
-    pub async fn clear(&self) {
+    pub async fn _clear(&self) {
         {
             let subs = self.subs.read().await;
             for (_, opts) in subs.iter() {
