@@ -447,6 +447,16 @@ impl Bytesize {
     }
 
     #[inline]
+    pub fn as_u64(&self) -> u64 {
+        self.0 as u64
+    }
+
+    #[inline]
+    pub fn as_usize(&self) -> usize {
+        self.0
+    }
+
+    #[inline]
     pub fn string(&self) -> String {
         let mut v = self.0;
         let mut res = String::new();
