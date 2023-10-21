@@ -12,15 +12,16 @@ use futures::SinkExt;
 use futures::Stream;
 use governor::{
     clock::DefaultClock,
+    middleware::NoOpMiddleware,
     prelude::StreamRateLimitExt,
     state::{InMemoryState, NotKeyed},
     Quota, RateLimiter, RatelimitedStream,
-    middleware::NoOpMiddleware
 };
 
 type DirectLimiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock>;
 
-pub type Receiver<'a, T> = RatelimitedStream<'a, ReceiverStream<T>, InMemoryState, DefaultClock, NoOpMiddleware>;
+pub type Receiver<'a, T> =
+    RatelimitedStream<'a, ReceiverStream<T>, InMemoryState, DefaultClock, NoOpMiddleware>;
 
 pub enum Policy {
     //Discard current value
