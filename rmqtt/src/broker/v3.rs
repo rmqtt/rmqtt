@@ -178,7 +178,6 @@ async fn _handshake<Io: 'static>(
 
     let max_inflight = fitter.max_inflight();
     let max_mqueue_len = fitter.max_mqueue_len();
-    //let session = Session::new(id, max_mqueue_len, listen_cfg, max_inflight, created_at);
     let session = Session::new(
         id,
         max_mqueue_len,
@@ -242,7 +241,7 @@ async fn _handshake<Io: 'static>(
         let clean_session = packet.clean_session;
         ntex::rt::spawn(async move {
             if let Err(e) = state1.transfer_session_state(clean_session, o).await {
-                log::warn!("{:?} Failed to transfer session state, {}", state1.id(), e);
+                log::warn!("{:?} Failed to transfer session state, {}", state1.id, e);
             }
         });
     }
@@ -286,14 +285,14 @@ pub async fn control_message(
     state: v3::Session<SessionState>,
     ctrl_msg: v3::ControlMessage,
 ) -> Result<v3::ControlResult, MqttError> {
-    log::debug!("{:?} incoming control message -> {:?}", state.id(), ctrl_msg);
+    log::debug!("{:?} incoming control message -> {:?}", state.id, ctrl_msg);
 
     let _ = state.send(Message::Keepalive);
 
     let crs = match ctrl_msg {
         v3::ControlMessage::Subscribe(subs) => match subscribes(&state, subs).await {
             Err(e) => {
-                log::warn!("{:?} Subscribe failed, reason: {}", state.id(), e);
+                log::warn!("{:?} Subscribe failed, reason: {}", state.id, e);
                 state
                     .disconnected_reason_add(Reason::SubscribeFailed(Some(ByteString::from(e.to_string()))))
                     .await?;
@@ -303,7 +302,7 @@ pub async fn control_message(
         },
         v3::ControlMessage::Unsubscribe(unsubs) => match unsubscribes(&state, unsubs).await {
             Err(e) => {
-                log::warn!("{:?} Unsubscribe failed, reason: {}", state.id(), e);
+                log::warn!("{:?} Unsubscribe failed, reason: {}", state.id, e);
                 state
                     .disconnected_reason_add(Reason::UnsubscribeFailed(Some(ByteString::from(e.to_string()))))
                     .await?;
@@ -318,7 +317,7 @@ pub async fn control_message(
         }
         v3::ControlMessage::Closed(m) => {
             if let Err(e) = state.send(Message::Closed(Reason::ConnectRemoteClose)) {
-                log::debug!("{:?} Closed error, reason: {}", state.id(), e);
+                log::debug!("{:?} Closed error, reason: {}", state.id, e);
             }
             m.ack()
         }
@@ -329,7 +328,7 @@ pub async fn control_message(
 
 #[inline]
 pub async fn publish(state: v3::Session<SessionState>, pub_msg: v3::PublishMessage) -> Result<(), MqttError> {
-    log::debug!("{:?} incoming publish message: {:?}", state.id(), pub_msg);
+    log::debug!("{:?} incoming publish message: {:?}", state.id, pub_msg);
 
     let _ = state.send(Message::Keepalive);
 
@@ -339,7 +338,7 @@ pub async fn publish(state: v3::Session<SessionState>, pub_msg: v3::PublishMessa
                 if let Err(e) = state.publish_v3(&publish).await {
                     log::warn!(
                         "{:?} Publish failed, reason: {:?}",
-                        state.id(),
+                        state.id,
                         state.disconnected_reason().await
                     );
                     Err(e)
