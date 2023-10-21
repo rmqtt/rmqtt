@@ -181,7 +181,6 @@ pub async fn _handshake<Io: 'static>(
 
     let max_inflight = fitter.max_inflight();
     let max_mqueue_len = fitter.max_mqueue_len();
-    //let session = Session::new(id, max_mqueue_len, listen_cfg, max_inflight, created_at);
     let session = Session::new(
         id,
         max_mqueue_len,
@@ -251,13 +250,13 @@ pub async fn _handshake<Io: 'static>(
         let clean_start = packet.clean_start;
         ntex::rt::spawn(async move {
             if let Err(e) = state1.transfer_session_state(clean_start, o).await {
-                log::warn!("{:?} Failed to transfer session state, {}", state1.id(), e);
+                log::warn!("{:?} Failed to transfer session state, {}", state1.id, e);
             }
         });
     }
 
-    log::debug!("{:?} keep_alive: {}, server_keepalive_sec: {}", state.id(), keep_alive, packet.keep_alive);
-    let id = state.id().clone();
+    log::debug!("{:?} keep_alive: {}, server_keepalive_sec: {}", state.id, keep_alive, packet.keep_alive);
+    let id = state.id.clone();
     let session_expiry_interval_secs = packet.session_expiry_interval_secs;
     let server_keepalive_sec = packet.keep_alive;
     let max_qos = state.listen_cfg().max_qos_allowed;
@@ -265,7 +264,7 @@ pub async fn _handshake<Io: 'static>(
     let max_server_packet_size = state.listen_cfg().max_packet_size.as_u32();
     let shared_subscription_available =
         Runtime::instance().extends.shared_subscription().await.is_supported(state.listen_cfg());
-    let assigned_client_id = if is_assigned_client_id { Some(state.id().client_id.clone()) } else { None };
+    let assigned_client_id = if is_assigned_client_id { Some(state.id.client_id.clone()) } else { None };
     Ok(handshake.ack(state).keep_alive(keep_alive).with(|ack: &mut v5::codec::ConnectAck| {
         ack.session_present = session_present;
         ack.server_keepalive_sec = Some(server_keepalive_sec);
@@ -319,7 +318,7 @@ pub async fn control_message<E: std::fmt::Debug>(
     state: v5::Session<SessionState>,
     ctrl_msg: v5::ControlMessage<E>,
 ) -> Result<v5::ControlResult, MqttError> {
-    log::debug!("{:?} incoming control message -> {:?}", state.id(), ctrl_msg);
+    log::debug!("{:?} incoming control message -> {:?}", state.id, ctrl_msg);
 
     let _ = state.send(Message::Keepalive);
 
@@ -328,7 +327,7 @@ pub async fn control_message<E: std::fmt::Debug>(
         v5::ControlMessage::Ping(ping) => ping.ack(),
         v5::ControlMessage::Subscribe(subs) => match subscribes(&state, subs).await {
             Err(e) => {
-                log::warn!("{:?} Subscribe failed, reason: {}", state.id(), e);
+                log::warn!("{:?} Subscribe failed, reason: {}", state.id, e);
                 state
                     .disconnected_reason_add(Reason::SubscribeFailed(Some(ByteString::from(e.to_string()))))
                     .await?;
@@ -338,7 +337,7 @@ pub async fn control_message<E: std::fmt::Debug>(
         },
         v5::ControlMessage::Unsubscribe(unsubs) => match unsubscribes(&state, unsubs).await {
             Err(e) => {
-                log::warn!("{:?} Unsubscribe failed, reason: {}", state.id(), e);
+                log::warn!("{:?} Unsubscribe failed, reason: {}", state.id, e);
                 state
                     .disconnected_reason_add(Reason::UnsubscribeFailed(Some(ByteString::from(e.to_string()))))
                     .await?;
@@ -353,7 +352,7 @@ pub async fn control_message<E: std::fmt::Debug>(
         }
         v5::ControlMessage::Closed(closed) => {
             if let Err(e) = state.send(Message::Closed(Reason::ConnectRemoteClose)) {
-                log::debug!("{:?} Closed error, reason: {:?}", state.id(), e);
+                log::debug!("{:?} Closed error, reason: {:?}", state.id, e);
             }
             closed.ack()
         }
@@ -361,7 +360,7 @@ pub async fn control_message<E: std::fmt::Debug>(
             if let Err(e) =
                 state.send(Message::Closed(Reason::Error(ByteString::from(format!("{:?}", err.get_err())))))
             {
-                log::debug!("{:?} Closed error, reason: {:?}", state.id(), e);
+                log::debug!("{:?} Closed error, reason: {:?}", state.id, e);
             }
             err.ack(DisconnectReasonCode::ServerBusy)
         }
@@ -370,7 +369,7 @@ pub async fn control_message<E: std::fmt::Debug>(
                 "{:?}",
                 protocol_error.get_ref()
             ))))) {
-                log::debug!("{:?} Closed error, reason: {:?}", state.id(), e);
+                log::debug!("{:?} Closed error, reason: {:?}", state.id, e);
             }
             protocol_error.ack()
         }
@@ -384,7 +383,7 @@ pub async fn publish(
     state: v5::Session<SessionState>,
     pub_msg: v5::PublishMessage,
 ) -> Result<v5::PublishResult, MqttError> {
-    log::debug!("{:?} incoming publish message: {:?}", state.id(), pub_msg);
+    log::debug!("{:?} incoming publish message: {:?}", state.id, pub_msg);
 
     let _ = state.send(Message::Keepalive);
 
@@ -394,7 +393,7 @@ pub async fn publish(
                 if let Err(e) = state.publish_v5(&publish).await {
                     log::warn!(
                         "{:?} Publish failed, reason: {:?}",
-                        state.id(),
+                        state.id,
                         state.disconnected_reason().await
                     );
                     Err(e)

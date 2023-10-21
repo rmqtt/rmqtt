@@ -258,7 +258,7 @@ impl super::Entry for LockEntry {
             .extends
             .router()
             .await
-            .add(&sub.topic_filter, self.id(), sub.opts.clone())
+            .add(&sub.topic_filter, self.id.clone(), sub.opts.clone())
             .await?;
         let prev_opts = peer.s.subscriptions_add(sub.topic_filter.clone(), sub.opts.clone()).await?;
         Ok(SubscribeReturn::new_success(sub.opts.qos(), prev_opts))
@@ -525,7 +525,7 @@ impl Shared for &'static DefaultShared {
     async fn session_status(&self, client_id: &str) -> Option<SessionStatus> {
         if let Some(entry) = self.peers.get(client_id) {
             Some(SessionStatus {
-                id: entry.s.id().clone(),
+                id: entry.s.id.clone(),
                 online: entry.s.connected().await.unwrap_or_default(),
                 handshaking: false,
             })
@@ -1591,7 +1591,7 @@ impl Hook for DefaultHook {
             .manager
             .exec(Type::ClientSubscribeCheckAcl, Parameter::ClientSubscribeCheckAcl(&self.s, sub))
             .await;
-        log::debug!("{:?} result: {:?}", self.s.id(), reply);
+        log::debug!("{:?} result: {:?}", self.s.id, reply);
         if let Some(HookResult::SubscribeAclResult(r)) = reply {
             Some(r)
         } else {
@@ -1608,7 +1608,7 @@ impl Hook for DefaultHook {
             .manager
             .exec(Type::MessagePublishCheckAcl, Parameter::MessagePublishCheckAcl(&self.s, publish))
             .await;
-        log::debug!("{:?} result: {:?}", self.s.id(), result);
+        log::debug!("{:?} result: {:?}", self.s.id, result);
         if let Some(HookResult::PublishAclResult(acl_result)) = result {
             acl_result
         } else {
@@ -1619,7 +1619,7 @@ impl Hook for DefaultHook {
     #[inline]
     async fn client_subscribe(&self, sub: &Subscribe) -> Option<TopicFilter> {
         let reply = self.manager.exec(Type::ClientSubscribe, Parameter::ClientSubscribe(&self.s, sub)).await;
-        log::debug!("{:?} result: {:?}", self.s.id(), reply);
+        log::debug!("{:?} result: {:?}", self.s.id, reply);
         if let Some(HookResult::TopicFilter(tf)) = reply {
             tf
         } else {
@@ -1639,7 +1639,7 @@ impl Hook for DefaultHook {
     async fn client_unsubscribe(&self, unsub: &Unsubscribe) -> Option<TopicFilter> {
         let reply =
             self.manager.exec(Type::ClientUnsubscribe, Parameter::ClientUnsubscribe(&self.s, unsub)).await;
-        log::debug!("{:?} result: {:?}", self.s.id(), reply);
+        log::debug!("{:?} result: {:?}", self.s.id, reply);
 
         if let Some(HookResult::TopicFilter(topic_filter)) = reply {
             topic_filter
@@ -1667,7 +1667,7 @@ impl Hook for DefaultHook {
             .manager
             .exec(Type::MessageDelivered, Parameter::MessageDelivered(&self.s, from, publish))
             .await;
-        log::debug!("{:?} result: {:?}", self.s.id(), result);
+        log::debug!("{:?} result: {:?}", self.s.id, result);
         if let Some(HookResult::Publish(publish)) = result {
             Some(publish)
         } else {
@@ -1682,12 +1682,12 @@ impl Hook for DefaultHook {
 
     #[inline]
     async fn message_expiry_check(&self, from: From, publish: &Publish) -> MessageExpiryCheckResult {
-        log::debug!("{:?} publish: {:?}", self.s.id(), publish);
+        log::debug!("{:?} publish: {:?}", self.s.id, publish);
         let result = self
             .manager
             .exec(Type::MessageExpiryCheck, Parameter::MessageExpiryCheck(&self.s, from, publish))
             .await;
-        log::debug!("{:?} result: {:?}", self.s.id(), result);
+        log::debug!("{:?} result: {:?}", self.s.id, result);
         if let Some(HookResult::MessageExpiry) = result {
             return MessageExpiryCheckResult::Expiry;
         }
@@ -1697,7 +1697,7 @@ impl Hook for DefaultHook {
             .message_expiry_interval
             .map(|i| (i.get() * 1000) as i64)
             .unwrap_or_else(|| self.s.listen_cfg().message_expiry_interval.as_millis() as i64);
-        log::debug!("{:?} expiry_interval: {:?}", self.s.id(), expiry_interval);
+        log::debug!("{:?} expiry_interval: {:?}", self.s.id, expiry_interval);
         if expiry_interval == 0 {
             return MessageExpiryCheckResult::Remaining(None);
         }
@@ -1830,11 +1830,6 @@ impl DefaultSession {
 #[async_trait]
 impl SessionLike for DefaultSession {
     #[inline]
-    fn id(&self) -> &Id {
-        &self.id
-    }
-
-    #[inline]
     fn listen_cfg(&self) -> &Listener {
         &self.listen_cfg
     }
@@ -1879,12 +1874,6 @@ impl SessionLike for DefaultSession {
     #[inline]
     async fn subscriptions_extend(&self, other: Subscriptions) -> Result<()> {
         self.subscriptions._extend(other).await;
-        Ok(())
-    }
-
-    #[inline]
-    async fn subscriptions_clear(&self) -> Result<()> {
-        self.subscriptions._clear().await;
         Ok(())
     }
 
@@ -1959,5 +1948,11 @@ impl SessionLike for DefaultSession {
     }
     async fn disconnected_reason_take(&self) -> Result<Reason> {
         Ok(Reason::Reasons(self.disconnect_info.write().await.reasons.drain(..).collect()))
+    }
+
+    #[inline]
+    async fn on_drop(&self) -> Result<()> {
+        self.subscriptions._clear().await;
+        Ok(())
     }
 }
