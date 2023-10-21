@@ -1675,13 +1675,14 @@ pub struct Route {
     pub topic: TopicFilter,
 }
 
+pub type SessionSubMap = HashMap<TopicFilter, SubscriptionOptions>;
 #[derive(Clone)]
 pub struct SessionSubs {
-    subs: Arc<RwLock<HashMap<TopicFilter, SubscriptionOptions>>>,
+    subs: Arc<RwLock<SessionSubMap>>,
 }
 
 impl Deref for SessionSubs {
-    type Target = Arc<RwLock<HashMap<TopicFilter, SubscriptionOptions>>>;
+    type Target = Arc<RwLock<SessionSubMap>>;
     #[inline]
     fn deref(&self) -> &Self::Target {
         &self.subs
@@ -1691,12 +1692,12 @@ impl Deref for SessionSubs {
 impl SessionSubs {
     #[inline]
     pub(crate) fn new() -> Self {
-        Self::from(HashMap::default())
+        Self::from(SessionSubMap::default())
     }
 
     #[inline]
     #[allow(clippy::mutable_key_type)]
-    pub fn from(subs: HashMap<TopicFilter, SubscriptionOptions>) -> Self {
+    pub fn from(subs: SessionSubMap) -> Self {
         Self { subs: Arc::new(RwLock::new(subs)) }
     }
 
