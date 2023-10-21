@@ -67,7 +67,7 @@ async fn build_result(s: Option<Session>) -> SearchResult {
     let keepalive = connect_info.as_ref().map(|c| c.keep_alive()).unwrap_or_default();
     let clean_start = connect_info.as_ref().map(|c| c.clean_start()).unwrap_or_default();
     let protocol = connect_info.as_ref().map(|c| c.proto_ver()).unwrap_or_default();
-    let id = s.id().clone();
+    let id = s.id.clone();
     SearchResult {
         node_id: id.node_id,
         clientid: id.client_id.clone(),
@@ -118,7 +118,7 @@ async fn _filtering(q: &SearchParams, entry: &dyn Entry) -> Result<bool> {
     } else {
         return Ok(false);
     };
-    let id = s.id();
+    let id = &s.id;
     if let Some(clientid) = &q.clientid {
         if clientid.as_bytes() != id.client_id.as_bytes() {
             return Ok(false);
