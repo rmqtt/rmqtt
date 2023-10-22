@@ -10,3 +10,4 @@ target/
 */*/Cargo.lock
 */*/*.iml
 /Cargo.lock
+/readme.txt
