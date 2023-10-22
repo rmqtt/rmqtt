@@ -71,6 +71,8 @@ pub type IsAdmin = bool;
 pub type LimiterName = u16;
 pub type CleanStart = bool;
 
+pub type IsPing = bool;
+
 pub type Tx = SessionTx; //futures::channel::mpsc::UnboundedSender<Message>;
 pub type Rx = futures::channel::mpsc::UnboundedReceiver<Message>;
 
@@ -1636,7 +1638,7 @@ pub enum Message {
     Kick(oneshot::Sender<()>, Id, CleanStart, IsAdmin),
     Disconnect(Disconnect),
     Closed(Reason),
-    Keepalive,
+    Keepalive(IsPing),
     Subscribe(Subscribe, oneshot::Sender<Result<SubscribeReturn>>),
     Unsubscribe(Unsubscribe, oneshot::Sender<Result<()>>),
 }
@@ -1689,9 +1691,15 @@ impl Deref for SessionSubs {
     }
 }
 
+impl Default for SessionSubs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SessionSubs {
     #[inline]
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self::from(SessionSubMap::default())
     }
 
@@ -1995,6 +2003,7 @@ bitflags! {
         const ByAdminKick = 0b00000010;
         const DisconnectReceived = 0b00000100;
         const CleanStart = 0b00001000;
+        const Ping = 0b00010000;
     }
 }
 
@@ -2262,6 +2271,25 @@ impl ClientTopicAliases {
             )),
             (None, _) => Ok(topic),
         }
+    }
+}
+
+#[derive(Clone, Default, Deserialize, Serialize)]
+pub struct DisconnectInfo {
+    pub disconnected_at: TimestampMillis,
+    pub reasons: Vec<Reason>,
+    pub mqtt_disconnect: Option<Disconnect>, //MQTT Disconnect
+}
+
+impl DisconnectInfo {
+    #[inline]
+    pub fn new(disconnected_at: TimestampMillis) -> Self {
+        Self { disconnected_at, reasons: Vec::new(), mqtt_disconnect: None }
+    }
+
+    #[inline]
+    pub fn is_disconnected(&self) -> bool {
+        self.disconnected_at != 0
     }
 }
 

@@ -190,6 +190,8 @@ async fn _handshake<Io: 'static>(
         superuser,
         true,
         connected_at,
+        SessionSubs::new(),
+        None,
     )
     .await;
 
@@ -287,31 +289,43 @@ pub async fn control_message(
 ) -> Result<v3::ControlResult, MqttError> {
     log::debug!("{:?} incoming control message -> {:?}", state.id, ctrl_msg);
 
-    let _ = state.send(Message::Keepalive);
-
     let crs = match ctrl_msg {
-        v3::ControlMessage::Subscribe(subs) => match subscribes(&state, subs).await {
-            Err(e) => {
-                log::warn!("{:?} Subscribe failed, reason: {}", state.id, e);
-                state
-                    .disconnected_reason_add(Reason::SubscribeFailed(Some(ByteString::from(e.to_string()))))
-                    .await?;
-                return Err(e);
+        v3::ControlMessage::Subscribe(subs) => {
+            let _ = state.send(Message::Keepalive(false));
+            match subscribes(&state, subs).await {
+                Err(e) => {
+                    log::warn!("{:?} Subscribe failed, reason: {}", state.id, e);
+                    state
+                        .disconnected_reason_add(Reason::SubscribeFailed(Some(ByteString::from(
+                            e.to_string(),
+                        ))))
+                        .await?;
+                    return Err(e);
+                }
+                Ok(r) => r,
             }
-            Ok(r) => r,
-        },
-        v3::ControlMessage::Unsubscribe(unsubs) => match unsubscribes(&state, unsubs).await {
-            Err(e) => {
-                log::warn!("{:?} Unsubscribe failed, reason: {}", state.id, e);
-                state
-                    .disconnected_reason_add(Reason::UnsubscribeFailed(Some(ByteString::from(e.to_string()))))
-                    .await?;
-                return Err(e);
+        }
+        v3::ControlMessage::Unsubscribe(unsubs) => {
+            let _ = state.send(Message::Keepalive(false));
+            match unsubscribes(&state, unsubs).await {
+                Err(e) => {
+                    log::warn!("{:?} Unsubscribe failed, reason: {}", state.id, e);
+                    state
+                        .disconnected_reason_add(Reason::UnsubscribeFailed(Some(ByteString::from(
+                            e.to_string(),
+                        ))))
+                        .await?;
+                    return Err(e);
+                }
+                Ok(r) => r,
             }
-            Ok(r) => r,
-        },
-        v3::ControlMessage::Ping(ping) => ping.ack(),
+        }
+        v3::ControlMessage::Ping(ping) => {
+            let _ = state.send(Message::Keepalive(true));
+            ping.ack()
+        }
         v3::ControlMessage::Disconnect(disc) => {
+            //let _ = state.send(Message::Keepalive(false));
             state.send(Message::Disconnect(Disconnect::V3))?;
             disc.ack()
         }
@@ -330,7 +344,7 @@ pub async fn control_message(
 pub async fn publish(state: v3::Session<SessionState>, pub_msg: v3::PublishMessage) -> Result<(), MqttError> {
     log::debug!("{:?} incoming publish message: {:?}", state.id, pub_msg);
 
-    let _ = state.send(Message::Keepalive);
+    let _ = state.send(Message::Keepalive(false));
 
     match pub_msg {
         v3::PublishMessage::Publish(publish) => {

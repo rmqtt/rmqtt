@@ -1711,20 +1711,6 @@ impl Hook for DefaultHook {
     }
 }
 
-#[derive(Clone, Default)]
-pub struct DisconnectInfo {
-    pub disconnected_at: TimestampMillis,
-    pub reasons: Vec<Reason>,
-    pub mqtt_disconnect: Option<Disconnect>, //MQTT Disconnect
-}
-
-impl DisconnectInfo {
-    #[inline]
-    pub fn is_disconnected(&self) -> bool {
-        self.disconnected_at != 0
-    }
-}
-
 pub struct DefaultSessionManager {}
 
 impl DefaultSessionManager {
@@ -1751,6 +1737,7 @@ impl SessionManager for &'static DefaultSessionManager {
         session_present: bool,
         superuser: bool,
         connected: bool,
+        disconnect_info: Option<DisconnectInfo>,
     ) -> Arc<dyn SessionLike> {
         Arc::new(DefaultSession::new(
             id,
@@ -1764,6 +1751,7 @@ impl SessionManager for &'static DefaultSessionManager {
             session_present,
             superuser,
             connected,
+            disconnect_info,
         ))
     }
 }
@@ -1798,6 +1786,7 @@ impl DefaultSession {
         session_present: bool,
         superuser: bool,
         connected: bool,
+        disconnect_info: Option<DisconnectInfo>,
     ) -> Self {
         let mut state_flags = SessionStateFlags::empty();
         if session_present {
@@ -1809,7 +1798,7 @@ impl DefaultSession {
         if connected {
             state_flags.insert(SessionStateFlags::Connected);
         }
-
+        let disconnect_info = disconnect_info.unwrap_or_default();
         Self {
             id,
             listen_cfg,
@@ -1822,7 +1811,7 @@ impl DefaultSession {
             state_flags,
             connected_at,
 
-            disconnect_info: RwLock::new(DisconnectInfo::default()),
+            disconnect_info: RwLock::new(disconnect_info),
         }
     }
 }
