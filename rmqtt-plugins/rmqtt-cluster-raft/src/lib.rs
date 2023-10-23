@@ -16,7 +16,7 @@ use rmqtt::{
     async_trait::async_trait,
     log, rand,
     serde_json::{self, json},
-    tokio,
+    tokio, NodeId,
 };
 use rmqtt::{
     broker::{
@@ -162,22 +162,15 @@ impl ClusterPlugin {
             Some(leader_info) => {
                 log::info!("Specify a leader: {:?}", leader_info);
                 if id == leader_info.id {
-                    //This node is the leader.
-                    None
+                    //First, check if the Leader exists.
+                    let actual_leader_info = find_actual_leader(&raft, peer_addrs, 3).await?;
+                    if actual_leader_info.is_some() {
+                        log::info!("Leader already exists, {:?}", actual_leader_info);
+                    }
+                    actual_leader_info
                 } else {
                     //The other nodes are leader.
-                    let mut actual_leader_info = None;
-                    for i in 0..30 {
-                        actual_leader_info = raft
-                            .find_leader_info(peer_addrs.clone())
-                            .await
-                            .map_err(|e| MqttError::StdError(Box::new(e)))?;
-                        if actual_leader_info.is_some() {
-                            break;
-                        }
-                        log::info!("Leader not found, rounds: {}", i);
-                        sleep(Duration::from_millis(500)).await;
-                    }
+                    let actual_leader_info = find_actual_leader(&raft, peer_addrs, 60).await?;
                     let (actual_leader_id, actual_leader_addr) =
                         actual_leader_info.ok_or_else(|| MqttError::from("Leader does not exist"))?;
                     if actual_leader_id != leader_info.id {
@@ -262,7 +255,7 @@ impl Plugin for ClusterPlugin {
 
         let raft_mailbox = Self::start_raft(self.cfg.clone(), self.router).await?;
 
-        for i in 0..30 {
+        for i in 0..60 {
             match raft_mailbox.status().await {
                 Ok(status) => {
                     if status.is_started() {
@@ -306,11 +299,33 @@ impl Plugin for ClusterPlugin {
         self.register.start().await;
         let status = raft_mailbox.status().await.map_err(anyhow::Error::new)?;
         log::info!("raft status: {:?}", status);
-        if status.is_started() {
-            Ok(())
-        } else {
-            Err(MqttError::from("Raft cluster status is abnormal"))
+        if !status.is_started() {
+            return Err(MqttError::from("Raft cluster status is abnormal"));
         }
+
+        let ping = message::Message::Ping.encode()?;
+        for _ in 0..100 {
+            match raft_mailbox.send_proposal(ping.clone()).await {
+                Ok(reply) => match message::MessageReply::decode(&reply)? {
+                    message::MessageReply::Ping => {
+                        log::info!("ping ok");
+                        return Ok(());
+                    }
+                    message::MessageReply::Error(e) => {
+                        log::warn!("ping error, {:?}", e);
+                    }
+                    _ => {
+                        unreachable!()
+                    }
+                },
+                Err(e) => {
+                    log::warn!("ping error, {:?}", e);
+                }
+            }
+            sleep(Duration::from_millis(500)).await;
+        }
+
+        Err(MqttError::from("Raft cluster status is unavailable"))
     }
 
     #[inline]
@@ -385,6 +400,24 @@ async fn parse_addr(addr: &str) -> Result<SocketAddr> {
         tokio::time::sleep(Duration::from_millis((rand::random::<u64>() % 300) + 500)).await;
     }
     Err(MqttError::from(format!("Parsing address{:?} error", addr)))
+}
+
+async fn find_actual_leader(
+    raft: &Raft<&ClusterRouter>,
+    peer_addrs: Vec<String>,
+    rounds: usize,
+) -> Result<Option<(NodeId, String)>> {
+    let mut actual_leader_info = None;
+    for i in 0..rounds {
+        actual_leader_info =
+            raft.find_leader_info(peer_addrs.clone()).await.map_err(|e| MqttError::StdError(Box::new(e)))?;
+        if actual_leader_info.is_some() {
+            break;
+        }
+        log::info!("Leader not found, rounds: {}", i);
+        sleep(Duration::from_millis(500)).await;
+    }
+    Ok(actual_leader_info)
 }
 
 pub(crate) struct MessageSender {
