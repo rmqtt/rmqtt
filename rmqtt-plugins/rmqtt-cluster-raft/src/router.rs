@@ -310,6 +310,7 @@ impl Store for &'static ClusterRouter {
                 let data = bincode::serialize(&node_id).map_err(|e| Error::Other(e))?;
                 return Ok(data);
             }
+            Message::Ping => return MessageReply::Ping.encode().map_err(|_e| Error::Unknown),
         }
 
         Ok(Vec::new())

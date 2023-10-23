@@ -67,7 +67,8 @@ impl Entry for ClusterLockEntry {
                         self.session().map(|s| s.id.clone()),
                         prev_node_id
                     );
-                } // _ => unreachable!()
+                }
+                _ => unreachable!(),
             }
         }
         Ok(Box::new(ClusterLockEntry::new(self.inner.try_lock().await?, self.cluster_shared, prev_node_id)))
@@ -97,6 +98,7 @@ impl Entry for ClusterLockEntry {
             let reply = RaftMessageReply::decode(&reply)?;
             match reply {
                 RaftMessageReply::Error(e) => {
+                    log::error!("RaftMessage::Connected reply: {:?}", e);
                     return Err(MqttError::Msg(e));
                 }
                 _ => {
