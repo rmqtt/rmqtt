@@ -1652,7 +1652,20 @@ pub struct SubsSearchResult {
     pub clientid: ClientId,
     pub client_addr: Option<SocketAddr>,
     pub topic: TopicFilter,
-    pub opts: serde_json::Value, //SubscriptionOptions
+    pub opts: SubscriptionOptions,
+}
+
+impl SubsSearchResult {
+    #[inline]
+    pub fn to_json(self) -> serde_json::Value {
+        json!({
+            "node_id": self.node_id,
+            "clientid": self.clientid,
+            "client_addr": self.client_addr,
+            "topic": self.topic,
+            "opts": self.opts.to_json(),
+        })
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug, Default, PartialEq, Eq, Hash, Clone)]

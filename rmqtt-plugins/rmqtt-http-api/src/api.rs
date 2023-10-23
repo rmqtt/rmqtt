@@ -611,7 +611,15 @@ async fn query_subscriptions(req: &mut Request, depot: &mut Depot, res: &mut Res
     if q._limit == 0 || q._limit > max_row_limit {
         q._limit = max_row_limit;
     }
-    let replys = Runtime::instance().extends.shared().await.query_subscriptions(q).await;
+    let replys = Runtime::instance()
+        .extends
+        .shared()
+        .await
+        .query_subscriptions(q)
+        .await
+        .into_iter()
+        .map(|res| res.to_json())
+        .collect::<Vec<serde_json::Value>>();
     res.render(Json(replys));
 }
 
@@ -625,6 +633,7 @@ async fn get_client_subscriptions(req: &mut Request, res: &mut Response) {
             .await
             .entry(Id::from(Runtime::instance().node.id(), ClientId::from(clientid)));
         if let Some(subs) = entry.subscriptions().await {
+            let subs = subs.into_iter().map(|res| res.to_json()).collect::<Vec<serde_json::Value>>();
             res.render(Json(subs));
         } else {
             res.set_status_code(StatusCode::NOT_FOUND)
