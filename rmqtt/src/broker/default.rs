@@ -310,11 +310,11 @@ impl super::Entry for LockEntry {
                 .await
                 .iter()
                 .map(|(topic_filter, opts)| SubsSearchResult {
-                    node_id: self.id.node_id,
-                    clientid: self.id.client_id.clone(),
-                    client_addr: self.id.remote_addr,
+                    node_id: s.id.node_id,
+                    clientid: s.id.client_id.clone(),
+                    client_addr: s.id.remote_addr,
                     topic: TopicFilter::from(topic_filter.as_ref()),
-                    opts: opts.clone(),
+                    opts: opts.to_json(),
                 })
                 .collect::<Vec<_>>();
             Some(subs)
@@ -754,7 +754,7 @@ impl DefaultRouter {
                                 clientid: client_id.clone(),
                                 client_addr: id.remote_addr,
                                 topic: topic_filter.clone(),
-                                opts: opts.clone(),
+                                opts: opts.to_json(),
                             })
                         } else {
                             None
@@ -802,7 +802,7 @@ impl DefaultRouter {
                                     clientid: client_id.clone(),
                                     client_addr: id.remote_addr,
                                     topic: topic_filter.clone(),
-                                    opts: opts.clone(),
+                                    opts: opts.to_json(),
                                 })
                             } else {
                                 None
@@ -837,7 +837,7 @@ impl DefaultRouter {
                                 clientid: client_id.clone(),
                                 client_addr: id.remote_addr,
                                 topic: topic_filter.clone(),
-                                opts: opts.clone(),
+                                opts: opts.to_json(),
                             })
                         } else {
                             None

@@ -1668,7 +1668,7 @@ pub struct SubsSearchResult {
     pub clientid: ClientId,
     pub client_addr: Option<SocketAddr>,
     pub topic: TopicFilter,
-    pub opts: SubscriptionOptions,
+    pub opts: serde_json::Value, //SubscriptionOptions,
 }
 
 #[derive(Deserialize, Serialize, Debug, Default, PartialEq, Eq, Hash, Clone)]
