@@ -314,7 +314,7 @@ impl super::Entry for LockEntry {
                     clientid: s.id.client_id.clone(),
                     client_addr: s.id.remote_addr,
                     topic: TopicFilter::from(topic_filter.as_ref()),
-                    opts: opts.to_json(),
+                    opts: opts.clone(),
                 })
                 .collect::<Vec<_>>();
             Some(subs)
@@ -754,7 +754,7 @@ impl DefaultRouter {
                                 clientid: client_id.clone(),
                                 client_addr: id.remote_addr,
                                 topic: topic_filter.clone(),
-                                opts: opts.to_json(),
+                                opts: opts.clone(),
                             })
                         } else {
                             None
@@ -802,7 +802,7 @@ impl DefaultRouter {
                                     clientid: client_id.clone(),
                                     client_addr: id.remote_addr,
                                     topic: topic_filter.clone(),
-                                    opts: opts.to_json(),
+                                    opts: opts.clone(),
                                 })
                             } else {
                                 None
@@ -837,7 +837,7 @@ impl DefaultRouter {
                                 clientid: client_id.clone(),
                                 client_addr: id.remote_addr,
                                 topic: topic_filter.clone(),
-                                opts: opts.to_json(),
+                                opts: opts.clone(),
                             })
                         } else {
                             None
