@@ -59,11 +59,11 @@ async fn main() {
     //init scheduler
     runtime::scheduler_init().await.unwrap();
 
-    //register plugin
-    plugin::registers(plugin::default_startups()).await.unwrap();
-
     //start gRPC server
     Runtime::instance().node.start_grpc_server();
+
+    //register plugin
+    plugin::registers(plugin::default_startups()).await.unwrap();
 
     //hook, before startup
     Runtime::instance().extends.hook_mgr().await.before_startup().await;
