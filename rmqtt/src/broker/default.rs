@@ -900,7 +900,7 @@ impl Router for &'static DefaultRouter {
         let res = if let Some(mut rels) = self.relations.get_mut(topic_filter) {
             let remove_enable = rels.value().get(&id.client_id).map(|(s_id, _)| {
                 if *s_id != id {
-                    log::info!("remove, input id not the same, input id: {:?}, current id: {:?}, topic_filter: {}", id, s_id, topic_filter);
+                    log::debug!("remove, input id not the same, input id: {:?}, current id: {:?}, topic_filter: {}", id, s_id, topic_filter);
                     false
                 } else {
                     true
