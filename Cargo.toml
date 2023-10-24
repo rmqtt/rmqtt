@@ -11,6 +11,7 @@ members = [
     "rmqtt-plugins/rmqtt-http-api",
     "rmqtt-plugins/rmqtt-retainer",
     "rmqtt-plugins/rmqtt-sys-topic",
+    "rmqtt-plugins/rmqtt-storage",
     "rmqtt-bin",
     "rmqtt-macros"
 ]
@@ -27,6 +28,8 @@ rmqtt-counter = { path = "rmqtt-plugins/rmqtt-counter" }
 rmqtt-http-api = { path = "rmqtt-plugins/rmqtt-http-api" }
 rmqtt-retainer = { path = "rmqtt-plugins/rmqtt-retainer" }
 rmqtt-sys-topic = { path = "rmqtt-plugins/rmqtt-sys-topic" }
+rmqtt-storage = { path = "rmqtt-plugins/rmqtt-storage" }
+
 
 [workspace.package]
 version = "0.3.0"
@@ -36,6 +39,11 @@ description = "MQTT Server for v3.1, v3.1.1 and v5.0 protocols"
 repository = "https://github.com/rmqtt/rmqtt.git"
 license = "MIT license, Apache-2.0 License"
 categories = ["network-programming"]
-keywords = ["MQTT", "IoT", "messaging", "MQTT Server", "MQTT Broker"]
+keywords = ["MQTT", "IoT", "messaging", "MQTT-Server", "MQTT-Broker"]
 exclude = [".gitignore", ".cargo/config"]
 rust-version = "1.67"
+
+
+[workspace.dependencies]
+rmqtt = "0.3"
+serde = "1.0"

@@ -49,7 +49,7 @@ rpc.batch_size = 128
 #Client concurrent request limit
 rpc.client_concurrency_limit = 128
 #Connect and send to server timeout
-rpc.client_timeout = "5s"
+rpc.client_timeout = "10s"
 
 
 ##--------------------------------------------------------------------
@@ -76,6 +76,7 @@ plugins.default_startups = [
     #"rmqtt-cluster-raft",
     #"rmqtt-http-api",
     #"rmqtt-sys-topic",
+    "rmqtt-storage",
     "rmqtt-web-hook",
 ]
 

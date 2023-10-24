@@ -43,6 +43,7 @@ plugins.default_startups = [
     "rmqtt-cluster-raft",
     #"rmqtt-auth-http",
     #"rmqtt-sys-topic",
+    "rmqtt-storage",
     "rmqtt-web-hook"
 ]
 
