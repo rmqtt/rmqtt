@@ -376,7 +376,7 @@ impl SessionState {
                                 }
                             },
                             _ => {
-                                log::info!("{:?} offline receive message is {:?}", state.id, msg);
+                                log::debug!("{:?} offline receive message is {:?}", state.id, msg);
                             }
                         }
                     }else{
