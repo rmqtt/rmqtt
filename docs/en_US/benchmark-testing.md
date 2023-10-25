@@ -10,7 +10,7 @@ English | [简体中文](../zh_CN/benchmark-testing.md)
 | Disk        |                                           | 2T                                                              |
 | Container   | podman                                    | v4.4.1                                                          |
 | MQTT Bench  | docker.io/rmqtt/rmqtt-bench:latest        | v0.1.3                                                          |
-| MQTT Broker | docker.io/rmqtt/rmqtt:latest              | v0.2.18                                                         |
+| MQTT Broker | docker.io/rmqtt/rmqtt:latest              | v0.3.0                                                         |
 | Other       | MQTT Bench and MQTT Broker coexistence    |                                                                 |
 
 

@@ -152,16 +152,16 @@ Get the binary package of the corresponding OS from [RMQTT Download](https://git
 ### Benchmark Testing
 
 #### environment
-| Item        | Content                                   |                                                                 |
-|-------------|-------------------------------------------|-----------------------------------------------------------------|
-| System      | x86_64 GNU/Linux                          | Rocky Linux 9.2 (Blue Onyx)                                     |
+| Item        | Content                                   |                                                              |
+|-------------|-------------------------------------------|--------------------------------------------------------------|
+| System      | x86_64 GNU/Linux                          | Rocky Linux 9.2 (Blue Onyx)                                  |
 | CPU         | Intel(R) Xeon(R) CPU E5-2696 v3 @ 2.30GHz | 72(CPU(s)) = 18(Core(s)) * 2(Thread(s) per core) * 2(Socket(s)) |
-| Memory      | DDR3/2333                                 | 128G                                                            |
-| Disk        |                                           | 2T                                                              |
-| Container   | podman                                    | v4.4.1                                                          |
-| MQTT Bench  | docker.io/rmqtt/rmqtt-bench:latest        | v0.1.3                                                          |
-| MQTT Broker | docker.io/rmqtt/rmqtt:latest              | v0.2.18                                                         |
-| Other       | MQTT Bench and MQTT Broker coexistence    |                                                                 |
+| Memory      | DDR3/2333                                 | 128G                                                         |
+| Disk        |                                           | 2T                                                           |
+| Container   | podman                                    | v4.4.1                                                       |
+| MQTT Bench  | docker.io/rmqtt/rmqtt-bench:latest        | v0.1.3                                                       |
+| MQTT Broker | docker.io/rmqtt/rmqtt:latest              | v0.3.0                                                       |
+| Other       | MQTT Bench and MQTT Broker coexistence    |                                                              |
 
 #### Connection Concurrency Performance
 | Item                  | Single Node       | Raft Cluster Mode |
