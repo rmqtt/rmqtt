@@ -1818,6 +1818,11 @@ impl SessionSubs {
     }
 
     #[inline]
+    pub async fn shared_len(&self) -> usize {
+        self.subs.read().await.iter().filter(|(_, opts)| opts.has_shared_group()).count()
+    }
+
+    #[inline]
     pub async fn is_empty(&self) -> bool {
         self.subs.read().await.is_empty()
     }

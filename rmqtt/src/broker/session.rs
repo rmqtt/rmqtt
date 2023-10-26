@@ -1155,6 +1155,8 @@ impl Session {
             });
 
         Runtime::instance().stats.sessions.inc();
+        Runtime::instance().stats.subscriptions.incs(subscriptions.len().await as isize);
+        Runtime::instance().stats.subscriptions_shared.incs(subscriptions.shared_len().await as isize);
 
         let extra_attrs = RwLock::new(ExtraAttrs::new());
         let session_like = Runtime::instance().extends.session_mgr().await.create(
