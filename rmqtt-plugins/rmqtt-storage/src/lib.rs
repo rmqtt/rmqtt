@@ -15,16 +15,18 @@ use rmqtt::{
     serde_json::{self, json},
     tokio,
     tokio::sync::RwLock,
-    SessionSubs,
+    TimestampMillis,
 };
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::types::DisconnectInfo,
     plugin::{DynPlugin, DynPluginResult, Plugin},
-    ClientId, Result, Runtime, Session, SessionState, SessionSubMap,
+    ClientId, Result, Runtime, Session, SessionState, SessionSubMap, SessionSubs,
 };
 
 use config::PluginConfig;
+use rmqtt::anyhow::anyhow;
+use rmqtt::tokio_cron_scheduler::Job;
 use session::{Basic, StorageSessionManager, StoredSessionInfo, StoredSessionInfos};
 use store::{init_store_db, storage::Storage as _, Storage, StorageDb};
 
@@ -65,6 +67,7 @@ struct StoragePlugin {
     session_basic_kv: Storage,
     session_subs_kv: Storage,
     disconnect_info_kv: Storage,
+    session_lasttime_kv: Storage,
     _message_kv: Storage,
     stored_session_infos: StoredSessionInfos,
     register: Box<dyn Register>,
@@ -86,6 +89,8 @@ impl StoragePlugin {
         log::info!("{} StoragePlugin open session subscriptions storage ok", name);
         let disconnect_info_kv = storage_db.open("disconnect_info")?;
         log::info!("{} StoragePlugin open session disconnect info storage ok", name);
+        let session_lasttime_kv = storage_db.open("session_lasttime")?;
+        log::info!("{} StoragePlugin open session last time storage ok", name);
 
         let message_storage = storage_db.open("message")?;
         log::info!("{} StoragePlugin open message storage ok", name);
@@ -97,6 +102,7 @@ impl StoragePlugin {
             session_basic_kv.clone(),
             session_subs_kv.clone(),
             disconnect_info_kv.clone(),
+            session_lasttime_kv.clone(),
             stored_session_infos.clone(),
         );
         let cfg = Arc::new(RwLock::new(cfg));
@@ -110,6 +116,7 @@ impl StoragePlugin {
             session_basic_kv,
             session_subs_kv,
             disconnect_info_kv,
+            session_lasttime_kv,
             _message_kv: message_storage,
             stored_session_infos,
             register,
@@ -166,11 +173,40 @@ impl StoragePlugin {
             }
         }
 
+        for item in self.session_lasttime_kv.iter::<(ClientId, TimestampMillis)>() {
+            match item {
+                Ok((meta, (client_id, last_time))) => {
+                    if let Err(e) = self.stored_session_infos.set_last_time(client_id, meta, last_time) {
+                        log::warn!("{:?}", e);
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Failed to read session last time from the database, {:?}", e);
+                }
+            }
+        }
+
         self.stored_session_infos.retain_latests();
         log::info!("stored_session_infos len: {:?}", self.stored_session_infos.len());
 
         for item in self._message_kv.iter::<SessionSubMap>() {
             log::info!("_message_kv meta: item: {:?}", item);
+        }
+    }
+
+    fn clean_offline_session_infos(
+        session_basic_kv: Storage,
+        session_subs_kv: Storage,
+        disconnect_info_kv: Storage,
+    ) {
+        //Clean offline session information
+        for item in session_basic_kv.iter::<Basic>() {
+            match item {
+                Ok((meta, basic)) => {}
+                Err(e) => {
+                    log::warn!("Failed to clean session basic information from the database, {:?}", e);
+                }
+            }
         }
     }
 
@@ -185,14 +221,14 @@ impl StoragePlugin {
                     match msg {
                         RebuildChanType::Session(session, session_expiry_interval)  => {
 
-                                let (state, tx) =
+                                let (state, msg_tx) =
                                     SessionState::offline_restart(session.clone(), session_expiry_interval).await;
                                 let mut session_entry =
                                     Runtime::instance().extends.shared().await.entry(state.id.clone());
 
                                 let id = session_entry.id().clone();
                                 let task_fut = async move {
-                                    if let Err(e) = session_entry.set(session, tx).await {
+                                    if let Err(e) = session_entry.set(session, msg_tx).await {
                                         log::warn!("{:?} Rebuild offline session error, {:?}", session_entry.id(), e);
                                     }
                                 };
@@ -219,7 +255,6 @@ impl StoragePlugin {
                                 "Rebuild offline session, completed_count: {}, active_count: {}, waiting_count: {}, rate: {:?}",
                                 task_exec.completed_count().await, task_exec.active_count(), task_exec.waiting_count(), task_exec.rate().await
                             );
-                            break
                         }
                     }
                 }
@@ -246,6 +281,26 @@ impl Plugin for StoragePlugin {
             )
             .await;
         self.load_offline_session_infos().await;
+
+        //Periodic Cleanup Tasks
+        let session_basic_kv = self.session_basic_kv.clone();
+        let session_subs_kv = self.session_subs_kv.clone();
+        let disconnect_info_kv = self.disconnect_info_kv.clone();
+        let async_cleans = Job::new_async("*/10 * * * * *", move |_uuid, _l| {
+            log::info!("Cleanup tasks start ...");
+            let session_basic_kv = session_basic_kv.clone();
+            let session_subs_kv = session_subs_kv.clone();
+            let disconnect_info_kv = disconnect_info_kv.clone();
+            Box::pin(async move {
+                Self::clean_offline_session_infos(
+                    session_basic_kv.clone(),
+                    session_subs_kv.clone(),
+                    disconnect_info_kv.clone(),
+                );
+            })
+        })
+        .map_err(|e| anyhow!(e))?;
+        self.runtime.sched.add(async_cleans).await.map_err(|e| anyhow!(e))?;
 
         Ok(())
     }
@@ -341,7 +396,7 @@ impl StorageHandler {
                     .await
                     .as_millis() as i64
                     - (chrono::Local::now().timestamp_millis() - disconnected_at);
-                log::debug!("session_expiry_interval: {:?}", session_expiry_interval);
+                log::debug!("{:?} session_expiry_interval: {:?}", id, session_expiry_interval);
                 if session_expiry_interval <= 0 {
                     //session is expiry
                     continue;

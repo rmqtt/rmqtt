@@ -29,6 +29,7 @@ pub(crate) struct StorageSessionManager {
     basic_kv: Storage,
     subs_kv: Storage,
     disconnect_info_kv: Storage,
+    session_lasttime_kv: Storage,
     _stored_session_infos: StoredSessionInfos,
 }
 
@@ -38,10 +39,17 @@ impl StorageSessionManager {
         basic_kv: Storage,
         subs_kv: Storage,
         disconnect_info_kv: Storage,
+        session_lasttime_kv: Storage,
         _stored_session_infos: StoredSessionInfos,
     ) -> &'static StorageSessionManager {
         static INSTANCE: OnceCell<StorageSessionManager> = OnceCell::new();
-        INSTANCE.get_or_init(|| Self { basic_kv, subs_kv, disconnect_info_kv, _stored_session_infos })
+        INSTANCE.get_or_init(|| Self {
+            basic_kv,
+            subs_kv,
+            disconnect_info_kv,
+            session_lasttime_kv,
+            _stored_session_infos,
+        })
     }
 }
 
@@ -97,6 +105,7 @@ impl SessionManager for &'static StorageSessionManager {
                 self.basic_kv.clone(),
                 self.subs_kv.clone(),
                 self.disconnect_info_kv.clone(),
+                self.session_lasttime_kv.clone(),
             ));
             if connected {
                 let s1 = s.clone();
@@ -158,6 +167,7 @@ pub struct StorageSession {
     basic_kv: Storage,
     subs_kv: Storage,
     disconnect_info_kv: Storage,
+    lasttime_kv: Storage,
     last_time: AtomicI64,
 }
 
@@ -181,6 +191,7 @@ impl StorageSession {
         basic_kv: Storage,
         subs_kv: Storage,
         disconnect_info_kv: Storage,
+        lasttime_kv: Storage,
     ) -> Self {
         let state_flags = AtomicU8::empty();
         if session_present {
@@ -212,13 +223,21 @@ impl StorageSession {
             basic_kv,
             subs_kv,
             disconnect_info_kv,
+            lasttime_kv,
             last_time: AtomicI64::new(chrono::Local::now().timestamp_millis()),
         }
     }
 
     #[inline]
-    fn update_last_time(&self) {
-        self.last_time.store(chrono::Local::now().timestamp_millis(), Ordering::SeqCst);
+    fn update_last_time(&self, save_enable: bool) {
+        let time = chrono::Local::now().timestamp_millis();
+        let old = self.last_time.swap(time, Ordering::SeqCst);
+        if save_enable || (time - old) > (1000 * 60) {
+            if let Err(e) = self.lasttime_kv.insert(self.id.to_string(), &(&self.id.client_id, time)) {
+                log::warn!("save last time to db error, {:?}", e);
+            }
+            log::debug!("{:?} update last time", self.id);
+        }
     }
 
     #[inline]
@@ -243,11 +262,25 @@ impl StorageSession {
 
     #[inline]
     pub(crate) async fn remove_and_save_to_db(&self) -> Result<()> {
+        /*
         if self.state_flags.contains(REMOVE_AND_SAVE) {
             return Ok(());
         }
-        log::debug!("{:?} remove and save to db ...", self.id);
         self.state_flags.insert(REMOVE_AND_SAVE);
+        */
+        log::debug!(
+            "{:?} remove and save to db ..., {:08b} {:08b} {:08b}",
+            self.id,
+            self.state_flags.get(),
+            !REMOVE_AND_SAVE,
+            REMOVE_AND_SAVE
+        );
+        if self.state_flags.equal_exchange(!REMOVE_AND_SAVE, REMOVE_AND_SAVE, REMOVE_AND_SAVE).is_err() {
+            log::debug!("{:?} remove and save to db ..., err: {:08b}", self.id, self.state_flags.get());
+            return Ok(());
+        }
+        log::debug!("{:?} remove and save to db ..., ok: {:08b}", self.id, self.state_flags.get());
+
         self.save_and_remove_basic_info().await?;
         self.save_and_remove_subscriptions().await?;
         self.save_and_remove_disconnect_info().await?;
@@ -256,6 +289,7 @@ impl StorageSession {
 
     #[inline]
     pub(crate) async fn save_to_db(&self) -> Result<()> {
+        self.update_last_time(true);
         self.save_basic_info().await?;
         self.save_subscriptions().await?;
         //self.save_disconnect_info().await?;
@@ -460,6 +494,7 @@ impl SessionLike for StorageSession {
         topic_filter: TopicFilter,
         opts: SubscriptionOptions,
     ) -> Result<Option<SubscriptionOptions>> {
+        log::debug!("{:?} subscriptions_add, topic_filter: {}, opts: {:?}", self.id, topic_filter, opts);
         if let Some(subs) = self.subscriptions.read().await.as_ref() {
             let res = subs._add(topic_filter, opts).await;
             self.save_subscriptions().await?;
@@ -480,6 +515,7 @@ impl SessionLike for StorageSession {
         &self,
         topic_filter: &str,
     ) -> Result<Option<(TopicFilter, SubscriptionOptions)>> {
+        log::debug!("{:?} subscriptions_remove, topic_filter: {}", self.id, topic_filter);
         if let Some(subs) = self.subscriptions.read().await.as_ref() {
             let res = subs._remove(topic_filter).await;
             self.save_subscriptions().await?;
@@ -746,8 +782,9 @@ impl SessionLike for StorageSession {
                     log::error!("remove and save session info to db error, {:?}", e);
                 }
             }
+            self.update_last_time(true);
         } else {
-            self.update_last_time();
+            self.update_last_time(false);
         }
     }
 }
@@ -758,14 +795,18 @@ const CONNECTED: u8 = 0b00000100;
 
 const REMOVE_AND_SAVE: u8 = 0b00001000;
 
+//const EMPTY: u8 = u8::MIN;
+//const ALL: u8 = u8::MAX;
+
 pub trait AtomicFlags {
     type T;
     fn empty() -> Self;
-    fn full() -> Self;
+    fn all() -> Self;
     fn get(&self) -> Self::T;
     fn insert(&self, other: Self::T);
     fn contains(&self, other: Self::T) -> bool;
     fn remove(&self, other: Self::T);
+    fn equal_exchange(&self, current: Self::T, new: Self::T, mask: Self::T) -> Result<Self::T, Self::T>;
     fn difference(&self, other: Self::T) -> Self::T;
 }
 
@@ -778,7 +819,7 @@ impl AtomicFlags for AtomicU8 {
     }
 
     #[inline]
-    fn full() -> Self {
+    fn all() -> Self {
         AtomicU8::new(0xff)
     }
 
@@ -800,6 +841,18 @@ impl AtomicFlags for AtomicU8 {
     #[inline]
     fn remove(&self, other: Self::T) {
         self.store(self.difference(other), Ordering::SeqCst);
+    }
+
+    #[inline]
+    fn equal_exchange(&self, current: Self::T, new: Self::T, mask: Self::T) -> Result<Self::T, Self::T> {
+        self.fetch_update(Ordering::SeqCst, Ordering::SeqCst, move |v| {
+            let flags = current & mask;
+            if (v & mask) == flags {
+                Some((v & !flags) | (new & mask))
+            } else {
+                None
+            }
+        })
     }
 
     #[inline]
@@ -844,6 +897,13 @@ impl StoredSessionInfo {
         self.disconnect_info.replace(disconnect_info);
         if self.last_time < meta.time {
             self.last_time = meta.time;
+        }
+    }
+
+    #[inline]
+    pub fn set_last_time(&mut self, last_time: TimestampMillis) {
+        if self.last_time < last_time {
+            self.last_time = last_time;
         }
     }
 }
@@ -904,6 +964,26 @@ impl StoredSessionInfos {
             for stored in storeds {
                 if stored.stored_key == stored_key {
                     stored.set_disconnect_info(meta, disconnect_info);
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[inline]
+    pub fn set_last_time(
+        &mut self,
+        client_id: ClientId,
+        meta: Metadata,
+        last_time: TimestampMillis,
+    ) -> Result<()> {
+        let stored_key = StoredSessionInfo::stored_key(&meta)?;
+        if let Some(mut entry) = self.0.get_mut(&client_id) {
+            let storeds = entry.value_mut();
+            for stored in storeds {
+                if stored.stored_key == stored_key {
+                    stored.set_last_time(last_time);
                     break;
                 }
             }
