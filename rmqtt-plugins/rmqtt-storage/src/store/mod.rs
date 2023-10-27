@@ -1,5 +1,6 @@
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use std::future::Future;
 
 use rmqtt::async_trait::async_trait;
 use rmqtt::log;
@@ -160,12 +161,25 @@ impl storage::Storage for Storage {
     }
 
     #[inline]
-    fn retain<F>(&self, f: F)
+    async fn retain<'a, F, Out, V>(&'a self, f: F)
     where
-        F: Fn(Result<&Metadata>) -> bool,
+        F: Fn(Result<(Metadata<'a>, V)>) -> Out + Send + Sync,
+        Out: Future<Output = bool> + Send + 'a,
+        V: serde::de::DeserializeOwned + Sync + Send + 'a,
     {
         match self {
-            Storage::Sled(tree) => tree.retain(f),
+            Storage::Sled(tree) => tree.retain(f).await,
+        }
+    }
+
+    #[inline]
+    async fn retain_with_meta<'a, F, Out>(&'a self, f: F)
+    where
+        F: Fn(Result<Metadata<'a>>) -> Out + Send + Sync,
+        Out: Future<Output = bool> + Send + 'a,
+    {
+        match self {
+            Storage::Sled(tree) => tree.retain_with_meta(f).await,
         }
     }
 }

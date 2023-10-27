@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::future::Future;
 
 use rmqtt::{anyhow, async_trait::async_trait, bincode, chrono, log};
 
@@ -51,9 +52,16 @@ pub trait Storage: Sync + Send {
         P: AsRef<[u8]>,
         V: serde::de::DeserializeOwned + Sync + Send + 'a;
 
-    fn retain<F>(&self, f: F)
+    async fn retain<'a, F, Out, V>(&'a self, f: F)
     where
-        F: Fn(Result<&Metadata>) -> bool;
+        F: Fn(Result<(Metadata<'a>, V)>) -> Out + Send + Sync,
+        Out: Future<Output = bool> + Send + 'a,
+        V: serde::de::DeserializeOwned + Sync + Send + 'a;
+
+    async fn retain_with_meta<'a, F, Out>(&'a self, f: F)
+    where
+        F: Fn(Result<Metadata<'a>>) -> Out + Send + Sync,
+        Out: Future<Output = bool> + Send + 'a;
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
@@ -264,24 +272,68 @@ impl Storage for SledStorageTree {
     }
 
     #[inline]
-    fn retain<F>(&self, f: F)
+    async fn retain<'a, F, Out, V>(&'a self, f: F)
     where
-        F: Fn(Result<&Metadata>) -> bool,
+        F: Fn(Result<(Metadata<'a>, V)>) -> Out + Send + Sync,
+        Out: Future<Output = bool> + Send + 'a,
+        V: serde::de::DeserializeOwned + Sync + Send + 'a,
     {
         for item in self.tree.iter() {
             match item {
-                Ok((k, _)) => {
+                Ok((k, v)) => {
+                    let key_len = k[k.len() - 1] as usize;
+                    match bincode::deserialize::<Metadata>(&k[key_len..(k.len() - 1)]) {
+                        Ok(m) => match bincode::deserialize::<V>(v.as_ref()) {
+                            Ok(v) => {
+                                if !f(Ok((m, v))).await {
+                                    if let Err(e) = self.tree.remove(k) {
+                                        log::warn!("{:?}", e);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                if !f(Err(anyhow::Error::new(e))).await {
+                                    if let Err(e) = self.tree.remove(k) {
+                                        log::warn!("{:?}", e);
+                                    }
+                                }
+                            }
+                        },
+                        Err(e) => {
+                            if !f(Err(anyhow::Error::new(e))).await {
+                                if let Err(e) = self.tree.remove(k) {
+                                    log::warn!("{:?}", e);
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::warn!("{:?}", e);
+                }
+            }
+        }
+    }
+
+    async fn retain_with_meta<'a, F, Out>(&'a self, f: F)
+    where
+        F: Fn(Result<Metadata<'a>>) -> Out + Send + Sync,
+        Out: Future<Output = bool> + Send + 'a,
+    {
+        for item in self.tree.iter().keys() {
+            match item {
+                Ok(k) => {
                     let key_len = k[k.len() - 1] as usize;
                     match bincode::deserialize::<Metadata>(&k[key_len..(k.len() - 1)]) {
                         Ok(m) => {
-                            if !f(Ok(&m)) {
+                            if !f(Ok(m)).await {
                                 if let Err(e) = self.tree.remove(k) {
                                     log::warn!("{:?}", e);
                                 }
                             }
                         }
                         Err(e) => {
-                            if !f(Err(anyhow::Error::new(e))) {
+                            if !f(Err(anyhow::Error::new(e))).await {
                                 if let Err(e) = self.tree.remove(k) {
                                     log::warn!("{:?}", e);
                                 }
