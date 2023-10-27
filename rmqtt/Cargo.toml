@@ -65,7 +65,7 @@ tokio-tungstenite = "0.20"
 pin-project-lite = "0.2.13"
 tokio-cron-scheduler = "0.9.4"
 bitflags = "2.4"
-leaky-bucket = "0.12"
+leaky-bucket = "1.0"
 
 [build-dependencies]
 tonic-build = "0.9"
