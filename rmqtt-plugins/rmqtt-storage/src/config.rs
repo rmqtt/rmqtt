@@ -12,11 +12,18 @@ pub struct PluginConfig {
     pub storage_type: StorageType, // = "sled",
     #[serde(default)]
     pub sled: SledConfig,
+    #[serde(default = "PluginConfig::cleanup_cron_default")]
+    pub cleanup_cron: String,
 }
 
 impl PluginConfig {
     fn storage_type_default() -> StorageType {
         StorageType::Sled
+    }
+
+    fn cleanup_cron_default() -> String {
+        //Scheduled to run at 3 AM every day by default.
+        "0 0 3 * * * *".into()
     }
 
     #[inline]

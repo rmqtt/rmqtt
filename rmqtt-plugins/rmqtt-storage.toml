@@ -3,5 +3,10 @@
 ##--------------------------------------------------------------------
 
 storage_type = "sled"
+#sled
 sled.path = "/var/log/rmqtt/.cache"
 sled.cache_capacity = "1G"
+
+#
+#@see https://lib.rs/crates/tokio-cron-scheduler
+cleanup_cron = "0 0 3 * * * *"
