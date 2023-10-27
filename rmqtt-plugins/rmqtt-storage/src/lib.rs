@@ -26,6 +26,7 @@ use rmqtt::{
 
 use config::PluginConfig;
 use rmqtt::anyhow::anyhow;
+use rmqtt::broker::fitter::Fitter;
 use rmqtt::tokio_cron_scheduler::Job;
 use session::{Basic, StorageSessionManager, StoredSessionInfo, StoredSessionInfos};
 use store::{init_store_db, storage::Storage as _, Storage, StorageDb};
@@ -194,20 +195,130 @@ impl StoragePlugin {
         }
     }
 
-    fn clean_offline_session_infos(
-        session_basic_kv: Storage,
-        session_subs_kv: Storage,
-        disconnect_info_kv: Storage,
+    async fn cleanup_offline_session_infos(
+        session_basic_kv: &Storage,
+        session_subs_kv: &Storage,
+        disconnect_info_kv: &Storage,
+        session_lasttime_kv: &Storage,
     ) {
         //Clean offline session information
-        for item in session_basic_kv.iter::<Basic>() {
-            match item {
-                Ok((meta, basic)) => {}
-                Err(e) => {
-                    log::warn!("Failed to clean session basic information from the database, {:?}", e);
+        session_basic_kv
+            .retain::<_, _, Basic>(|item| async move {
+                match item {
+                    Err(e) => {
+                        log::warn!(
+                            "Failed to retain session basic information from the database, {:?}",
+                            e
+                        );
+                        false
+                    },
+                    Ok((meta, basic)) => {
+                        let id = basic.id.clone();
+                        let key = meta.key.to_vec();
+                        let disconnect_info = disconnect_info_kv
+                            .clone()
+                            .get::<_, (ClientId, DisconnectInfo)>(key.as_slice())
+                            .ok()
+                            .flatten()
+                            .map(|(_, d)| d);
+                        let lasttime = session_lasttime_kv
+                            .get::<_, (ClientId, TimestampMillis)>(key.as_slice())
+                            .ok()
+                            .flatten()
+                            .map(|(_, t)| t)
+                            .unwrap_or_else(|| meta.time);
+                        if Self::is_session_expiry(basic, disconnect_info, lasttime).await {
+                            log::debug!("{:?} session expiry", id);
+                            if let Err(e) = session_subs_kv.remove(key.as_slice()) {
+                                log::warn!(
+                                    "Failed to remove session subscription information from the database, {:?}",
+                                    e
+                                );
+                            }
+                            if let Err(e) = disconnect_info_kv.remove(key.as_slice()) {
+                                log::warn!(
+                                    "Failed to remove session disconnect information from the database, {:?}",
+                                    e
+                                );
+                            }
+                            if let Err(e) = session_lasttime_kv.remove(key.as_slice()) {
+                                log::warn!(
+                                    "Failed to remove session last time from the database, {:?}",
+                                    e
+                                );
+                            }
+                            false
+                        }else{
+                            true
+                        }
+                    }
                 }
-            }
+            })
+            .await;
+
+        //Clean up abnormal data
+        async fn cleanup_abnormal_data(kv: &Storage, basic_kv: &Storage, tag: &str) {
+            kv.retain_with_meta(|item| async move {
+                match item {
+                    Err(e) => {
+                        log::warn!("Failed to cleanup abnormal data from the database({}), {:?}", tag, e);
+                        false
+                    }
+                    Ok(meta) => {
+                        if (chrono::Local::now().timestamp() - (meta.time / 1000)) > 24 * 60 * 60 {
+                            if basic_kv.contains_key(meta.key.as_ref()).unwrap_or_default() {
+                                true
+                            } else {
+                                log::info!(
+                                    "{:?} cleanup abnormal data from the database({})",
+                                    String::from_utf8_lossy(meta.key.as_ref()),
+                                    tag
+                                );
+                                false
+                            }
+                        } else {
+                            true
+                        }
+                    }
+                }
+            })
+            .await;
         }
+
+        cleanup_abnormal_data(session_subs_kv, session_basic_kv, "subscription").await;
+        cleanup_abnormal_data(disconnect_info_kv, session_basic_kv, "disconnect info").await;
+        cleanup_abnormal_data(session_lasttime_kv, session_basic_kv, "last time").await;
+
+        let _ = session_subs_kv.flush().await;
+        let _ = disconnect_info_kv.flush().await;
+        let _ = session_lasttime_kv.flush().await;
+        let _ = session_basic_kv.flush().await;
+    }
+
+    #[inline]
+    async fn is_session_expiry(
+        basic: Basic,
+        disconnect_info: Option<DisconnectInfo>,
+        last_time: TimestampMillis,
+    ) -> bool {
+        //get listener config
+        let listen_cfg = if let Some(listen_cfg) =
+            basic.id.local_addr.and_then(|addr| Runtime::instance().settings.listeners.get(addr.port()))
+        {
+            listen_cfg
+        } else {
+            log::warn!("tcp listener config is not found, local addr is {:?}", basic.id.local_addr);
+            return true;
+        };
+
+        //create fitter
+        let fitter =
+            Runtime::instance().extends.fitter_mgr().await.create(basic.conn_info, basic.id, listen_cfg);
+
+        //check session expiry interval
+        let session_expiry_interval =
+            session_expiry_interval(fitter.as_ref(), disconnect_info.as_ref(), last_time).await;
+        session_expiry_interval <= 0
     }
 
     fn start_local_runtime() -> mpsc::Sender<RebuildChanType> {
@@ -286,17 +397,21 @@ impl Plugin for StoragePlugin {
         let session_basic_kv = self.session_basic_kv.clone();
         let session_subs_kv = self.session_subs_kv.clone();
         let disconnect_info_kv = self.disconnect_info_kv.clone();
-        let async_cleans = Job::new_async("*/10 * * * * *", move |_uuid, _l| {
+        let session_lasttime_kv = self.session_lasttime_kv.clone();
+        let async_cleans = Job::new_async(self.cfg.read().await.cleanup_cron.as_str(), move |_uuid, _l| {
             log::info!("Cleanup tasks start ...");
             let session_basic_kv = session_basic_kv.clone();
             let session_subs_kv = session_subs_kv.clone();
             let disconnect_info_kv = disconnect_info_kv.clone();
+            let session_lasttime_kv = session_lasttime_kv.clone();
             Box::pin(async move {
-                Self::clean_offline_session_infos(
-                    session_basic_kv.clone(),
-                    session_subs_kv.clone(),
-                    disconnect_info_kv.clone(),
-                );
+                Self::cleanup_offline_session_infos(
+                    &session_basic_kv,
+                    &session_subs_kv,
+                    &disconnect_info_kv,
+                    &session_lasttime_kv,
+                )
+                .await;
             })
         })
         .map_err(|e| anyhow!(e))?;
@@ -336,10 +451,29 @@ impl Plugin for StoragePlugin {
 
     #[inline]
     async fn attrs(&self) -> serde_json::Value {
+        log::info!("lasttime_kv iter start ...");
+        for item in self.session_lasttime_kv.iter::<(ClientId, TimestampMillis)>() {
+            match item {
+                Ok((meta, (client_id, last_time))) => {
+                    log::info!(
+                        "{} lasttime_kv, client_id: {}, last_time: {}, key: {:?}",
+                        self.name,
+                        client_id,
+                        last_time,
+                        String::from_utf8_lossy(meta.key.as_ref())
+                    );
+                }
+                Err(e) => {
+                    log::warn!("Failed to read session last time from the database, {:?}", e);
+                }
+            }
+        }
+
         json!({
             "storage_session_basic_count": self.session_basic_kv.len(),
             "storage_session_subscriptions_count": self.session_subs_kv.len(),
             "storage_session_disconnect_info_count": self.disconnect_info_kv.len(),
+            "storage_session_lasttime_count": self.session_lasttime_kv.len(),
             "storage_size_on_disk": self._storage_db.size_on_disk().unwrap_or_default(),
         })
     }
@@ -370,7 +504,7 @@ impl StorageHandler {
 
                 //get listener config
                 let listen_cfg = if let Some(listen_cfg) =
-                    id.local_addr.and_then(|addr| Runtime::instance().settings.listeners.tcp(addr.port()))
+                    id.local_addr.and_then(|addr| Runtime::instance().settings.listeners.get(addr.port()))
                 {
                     listen_cfg
                 } else {
@@ -386,16 +520,12 @@ impl StorageHandler {
                 );
 
                 //check session expiry interval
-                let disconnected_at =
-                    stored.disconnect_info.as_ref().map(|d| d.disconnected_at).unwrap_or_default();
-                let disconnected_at = if disconnected_at <= 0 { stored.last_time } else { disconnected_at };
-                let session_expiry_interval = fitter
-                    .session_expiry_interval(
-                        stored.disconnect_info.as_ref().and_then(|d| d.mqtt_disconnect.as_ref()),
-                    )
-                    .await
-                    .as_millis() as i64
-                    - (chrono::Local::now().timestamp_millis() - disconnected_at);
+                let session_expiry_interval = session_expiry_interval(
+                    fitter.as_ref(),
+                    stored.disconnect_info.as_ref(),
+                    stored.last_time,
+                )
+                .await;
                 log::debug!("{:?} session_expiry_interval: {:?}", id, session_expiry_interval);
                 if session_expiry_interval <= 0 {
                     //session is expiry
@@ -465,4 +595,17 @@ impl Handler for StorageHandler {
         }
         (true, acc)
     }
+}
+
+#[inline]
+async fn session_expiry_interval(
+    fitter: &dyn Fitter,
+    disconnect_info: Option<&DisconnectInfo>,
+    last_time: TimestampMillis,
+) -> TimestampMillis {
+    let disconnected_at = disconnect_info.map(|d| d.disconnected_at).unwrap_or_default();
+    let disconnected_at = if disconnected_at <= 0 { last_time } else { disconnected_at };
+    fitter.session_expiry_interval(disconnect_info.and_then(|d| d.mqtt_disconnect.as_ref())).await.as_millis()
+        as i64
+        - (chrono::Local::now().timestamp_millis() - disconnected_at)
 }
