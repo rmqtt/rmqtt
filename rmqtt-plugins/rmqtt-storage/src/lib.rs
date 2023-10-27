@@ -451,24 +451,6 @@ impl Plugin for StoragePlugin {
 
     #[inline]
     async fn attrs(&self) -> serde_json::Value {
-        log::info!("lasttime_kv iter start ...");
-        for item in self.session_lasttime_kv.iter::<(ClientId, TimestampMillis)>() {
-            match item {
-                Ok((meta, (client_id, last_time))) => {
-                    log::info!(
-                        "{} lasttime_kv, client_id: {}, last_time: {}, key: {:?}",
-                        self.name,
-                        client_id,
-                        last_time,
-                        String::from_utf8_lossy(meta.key.as_ref())
-                    );
-                }
-                Err(e) => {
-                    log::warn!("Failed to read session last time from the database, {:?}", e);
-                }
-            }
-        }
-
         json!({
             "storage_session_basic_count": self.session_basic_kv.len(),
             "storage_session_subscriptions_count": self.session_subs_kv.len(),
