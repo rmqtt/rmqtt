@@ -257,6 +257,10 @@ impl StorageSession {
         if let Err(e) = self.disconnect_info_kv.remove(&key) {
             log::error!("remove session disconnect info error from db, {:?}", e);
         }
+        if let Err(e) = self.lasttime_kv.remove(&key) {
+            log::error!("remove session last time error from db, {:?}", e);
+        }
+
         Ok(())
     }
 
