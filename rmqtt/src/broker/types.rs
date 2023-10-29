@@ -1632,6 +1632,15 @@ pub struct Retain {
     pub publish: Publish,
 }
 
+pub type PMsgID = usize;
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PersistedMsg {
+    pub msg_id: PMsgID,
+    pub from: From,
+    pub publish: Publish,
+}
+
 #[derive(Debug)]
 pub enum Message {
     Forward(From, Publish),
