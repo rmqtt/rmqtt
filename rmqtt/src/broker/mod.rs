@@ -1,6 +1,7 @@
 use std::convert::From as _f;
 use std::iter::Iterator;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::broker::session::{Session, SessionOfflineInfo};
 use crate::broker::types::*;
@@ -242,4 +243,19 @@ pub trait RetainStorage: Sync + Send {
 
     ///
     fn max(&self) -> isize;
+}
+
+#[async_trait]
+pub trait MessageManager: Sync + Send {
+    async fn set(&self, from: From, p: &Publish, expiry_interval: Duration) -> Result<()>;
+    async fn get(&self, client_id: &str, topic_filter: &TopicFilter) -> Result<Vec<(Topic, PersistedMsg)>>;
+
+    #[inline]
+    fn count(&self) -> isize {
+        0
+    }
+    #[inline]
+    fn max(&self) -> isize {
+        0
+    }
 }
