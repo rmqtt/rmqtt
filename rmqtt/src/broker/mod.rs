@@ -247,15 +247,9 @@ pub trait RetainStorage: Sync + Send {
 
 #[async_trait]
 pub trait MessageManager: Sync + Send {
-    async fn set(&self, from: From, p: &Publish, expiry_interval: Duration) -> Result<()>;
-    async fn get(&self, client_id: &str, topic_filter: &TopicFilter) -> Result<Vec<(Topic, PersistedMsg)>>;
+    async fn set(&self, from: From, p: Publish, expiry_interval: Duration) -> Result<()>;
+    async fn get(&self, client_id: &str, topic_filter: &str) -> Result<Vec<(From, Publish)>>;
 
-    #[inline]
-    fn count(&self) -> isize {
-        0
-    }
-    #[inline]
-    fn max(&self) -> isize {
-        0
-    }
+    async fn count(&self) -> isize;
+    async fn max(&self) -> isize;
 }

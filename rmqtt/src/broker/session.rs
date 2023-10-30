@@ -573,7 +573,7 @@ impl SessionState {
     }
 
     #[inline]
-    pub async fn send_retain_messages(&self, retains: Vec<(TopicName, Retain)>, qos: QoS) -> Result<()> {
+    async fn send_retain_messages(&self, retains: Vec<(TopicName, Retain)>, qos: QoS) -> Result<()> {
         for (topic, mut retain) in retains {
             log::debug!("{:?} topic:{:?}, retain:{:?}", self.id, topic, retain);
 
@@ -602,6 +602,37 @@ impl SessionState {
                     .await;
             }
         }
+        Ok(())
+    }
+
+    #[inline]
+    async fn send_persistent_messages(
+        &self,
+        persistent_messages: Vec<(From, Publish)>,
+        qos: QoS,
+    ) -> Result<()> {
+        for (from, mut publish) in persistent_messages {
+            log::debug!("{:?} from:{:?}, publish:{:?}", self.id, from, publish);
+
+            publish.dup = false;
+            publish.retain = false;
+            publish.qos = publish.qos.less_value(qos);
+            publish.packet_id = None;
+
+            log::debug!("{:?} persistent.publish: {:?}", self.id, publish);
+
+            if let Err((from, p, reason)) =
+                Runtime::instance().extends.shared().await.entry(self.id.clone()).publish(from, publish).await
+            {
+                Runtime::instance()
+                    .extends
+                    .hook_mgr()
+                    .await
+                    .message_dropped(Some(self.id.clone()), from, p, reason)
+                    .await;
+            }
+        }
+
         Ok(())
     }
 
@@ -741,19 +772,21 @@ impl SessionState {
 
     #[inline]
     async fn _subscribe(&self, mut sub: Subscribe) -> Result<SubscribeReturn> {
-        if self.listen_cfg().max_subscriptions > 0
-            && (self.subscriptions().await?.len().await >= self.listen_cfg().max_subscriptions)
+        let listen_cfg = self.listen_cfg();
+
+        if listen_cfg.max_subscriptions > 0
+            && (self.subscriptions().await?.len().await >= listen_cfg.max_subscriptions)
         {
             return Err(MqttError::TooManySubscriptions);
         }
 
-        if self.listen_cfg().max_topic_levels > 0
-            && Topic::from_str(&sub.topic_filter)?.len() > self.listen_cfg().max_topic_levels
+        if listen_cfg.max_topic_levels > 0
+            && Topic::from_str(&sub.topic_filter)?.len() > listen_cfg.max_topic_levels
         {
             return Err(MqttError::TooManyTopicLevels);
         }
 
-        sub.opts.set_qos(sub.opts.qos().less_value(self.listen_cfg().max_qos_allowed));
+        sub.opts.set_qos(sub.opts.qos().less_value(listen_cfg.max_qos_allowed));
 
         //hook, client_subscribe
         let topic_filter = self.hook.client_subscribe(&sub).await;
@@ -780,7 +813,7 @@ impl SessionState {
 
         if let Some(qos) = sub_ret.success() {
             //send retain messages
-            if self.listen_cfg().retain_available {
+            if listen_cfg.retain_available {
                 //MQTT V5: Retain Handling
                 let send_retain_enable = match sub.opts.retain_handling() {
                     Some(RetainHandling::AtSubscribe) => true,
@@ -799,6 +832,18 @@ impl SessionState {
                     self.send_retain_messages(retain_messages, qos).await?;
                 }
             };
+
+            //Store messages before they expire
+            if listen_cfg.persistent_available {
+                let persistent_messages = Runtime::instance()
+                    .extends
+                    .message_mgr()
+                    .await
+                    .get(&self.id.client_id, &sub.topic_filter)
+                    .await?;
+                self.send_persistent_messages(persistent_messages, qos).await?;
+            }
+
             //hook, session_subscribed
             self.hook.session_subscribed(sub).await;
         }
@@ -894,12 +939,23 @@ impl SessionState {
             };
         }
 
+        //Retain messages
         if self.listen_cfg().retain_available && publish.retain() {
             Runtime::instance()
                 .extends
                 .retain()
                 .await
                 .set(publish.topic(), Retain { from: from.clone(), publish: publish.clone() })
+                .await?;
+        }
+
+        //Store messages before they expire
+        if self.listen_cfg().persistent_available {
+            Runtime::instance()
+                .extends
+                .message_mgr()
+                .await
+                .set(from.clone(), publish.clone(), self.fitter.message_expiry_interval(&publish))
                 .await?;
         }
 
