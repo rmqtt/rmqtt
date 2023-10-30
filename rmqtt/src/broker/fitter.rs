@@ -29,6 +29,9 @@ pub trait Fitter: Sync + Send {
     ///session expiry interval
     async fn session_expiry_interval(&self, d: Option<&Disconnect>) -> Duration;
 
+    ///message expiry interval
+    fn message_expiry_interval(&self, publish: &Publish) -> Duration;
+
     ///client topic alias maximum, C -> S(Max Limit)
     fn max_client_topic_aliases(&self) -> u16;
 
