@@ -196,6 +196,10 @@ pub struct ListenerInner {
 
     #[serde(default = "ListenerInner::retain_available_default")]
     pub retain_available: bool,
+
+    #[serde(default = "ListenerInner::persistent_available_default")]
+    pub persistent_available: bool,
+
     #[serde(
         default = "ListenerInner::session_expiry_interval_default",
         deserialize_with = "deserialize_duration"
@@ -255,6 +259,7 @@ impl Default for ListenerInner {
             max_qos_allowed: ListenerInner::max_qos_allowed_default(),
             max_topic_levels: ListenerInner::max_topic_levels_default(),
             retain_available: ListenerInner::retain_available_default(),
+            persistent_available: ListenerInner::persistent_available_default(),
             session_expiry_interval: ListenerInner::session_expiry_interval_default(),
             message_retry_interval: ListenerInner::message_retry_interval_default(),
             message_expiry_interval: ListenerInner::message_expiry_interval_default(),
@@ -304,10 +309,6 @@ impl ListenerInner {
     fn backlog_default() -> i32 {
         1024
     }
-    //    #[inline]
-    //    fn idle_timeout_default() -> Duration {
-    //        Duration::from_secs(15)
-    //    }
     #[inline]
     fn allow_anonymous_default() -> bool {
         true
@@ -356,10 +357,13 @@ impl ListenerInner {
     fn max_topic_levels_default() -> usize {
         0
     }
-
     #[inline]
     fn retain_available_default() -> bool {
         true
+    }
+    #[inline]
+    fn persistent_available_default() -> bool {
+        false
     }
     #[inline]
     fn session_expiry_interval_default() -> Duration {
