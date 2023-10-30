@@ -131,6 +131,7 @@ pub struct Stats {
     pub out_inflights: Counter,
     pub in_inflights: Counter,
     pub forwards: Counter,
+    pub message_persistents: Counter,
 
     topics_map: HashMap<NodeId, Counter>,
     routes_map: HashMap<NodeId, Counter>,
@@ -168,6 +169,7 @@ impl Stats {
             out_inflights: Counter::new(),
             in_inflights: Counter::new(),
             forwards: Counter::new(),
+            message_persistents: Counter::new(),
 
             topics_map: HashMap::default(),
             routes_map: HashMap::default(),
@@ -191,13 +193,14 @@ impl Stats {
 
     #[inline]
     pub async fn clone(&self) -> Self {
-        let router = Runtime::instance().extends.router().await;
-
         let node_id = Runtime::instance().node.id();
         let mut topics_map = HashMap::default();
-        topics_map.insert(node_id, router.topics());
         let mut routes_map = HashMap::default();
-        routes_map.insert(node_id, router.routes());
+        {
+            let router = Runtime::instance().extends.router().await;
+            topics_map.insert(node_id, router.topics());
+            routes_map.insert(node_id, router.routes());
+        }
 
         self.handshakings.current_set(handshakings());
         self.handshakings_active.current_set(get_active_count());
@@ -206,6 +209,12 @@ impl Stats {
         let (curr, max) = in_inflights();
         self.in_inflights.current_set(curr);
         self.in_inflights.max_max(max);
+
+        {
+            let message_mgr = Runtime::instance().extends.message_mgr().await;
+            self.message_persistents.current_set(message_mgr.count().await);
+            self.message_persistents.max_max(message_mgr.max().await);
+        }
 
         #[cfg(feature = "debug")]
         let shared = Runtime::instance().extends.shared().await;
@@ -217,7 +226,8 @@ impl Stats {
         #[cfg(feature = "debug")]
         {
             debug_client_states_map.insert(node_id, shared.client_states_count().await);
-            debug_topics_tree_map.insert(node_id, router.topics_tree().await);
+            debug_topics_tree_map
+                .insert(node_id, Runtime::instance().extends.router().await.topics_tree().await);
         }
         #[cfg(feature = "debug")]
         self.debug_shared_peers.current_set(shared.sessions_count() as isize);
@@ -241,6 +251,7 @@ impl Stats {
             out_inflights: self.out_inflights.clone(),
             in_inflights: self.in_inflights.clone(),
             forwards: self.forwards.clone(),
+            message_persistents: self.message_persistents.clone(),
 
             topics_map,
             routes_map,
@@ -276,6 +287,7 @@ impl Stats {
         self.out_inflights.add(&other.out_inflights);
         self.in_inflights.add(&other.in_inflights);
         self.forwards.add(&other.forwards);
+        self.message_persistents.add(&other.message_persistents);
 
         self.topics_map.extend(other.topics_map);
         self.routes_map.extend(other.routes_map);
@@ -338,6 +350,8 @@ impl Stats {
             "in_inflights.max": self.in_inflights.max(),
             "forwards.count": self.forwards.count(),
             "forwards.max": self.forwards.max(),
+            "message_persistents.count": self.message_persistents.count(),
+            "message_persistents.max": self.message_persistents.max(),
 
             "topics.count": topics.count(),
             "topics.max": topics.max(),
