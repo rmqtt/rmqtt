@@ -83,7 +83,7 @@ pub type QoS = ntex_mqtt::types::QoS;
 pub type PublishReceiveTime = TimestampMillis;
 pub type Subscriptions = Vec<(TopicFilter, SubscriptionOptions)>;
 pub type TopicFilters = Vec<TopicFilter>;
-pub type SubscriptionSize = usize;
+pub type SubscriptionClientIds = Option<Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>>;
 pub type SubscriptionIdentifier = NonZeroU32;
 
 pub type HookSubscribeResult = Vec<Option<TopicFilter>>;
@@ -373,12 +373,14 @@ pub type SharedSubRelations = HashMap<TopicFilter, Vec<(SharedGroup, NodeId, Cli
 pub type OtherSubRelations = HashMap<NodeId, Vec<TopicFilter>>;
 pub type ClearSubscriptions = bool;
 
+pub type SharedGroupType = (SharedGroup, IsOnline, Vec<ClientId>);
+
 pub type SubRelation = (
     TopicFilter,
     ClientId,
     SubscriptionOptions,
     Option<Vec<SubscriptionIdentifier>>,
-    Option<(SharedGroup, IsOnline)>,
+    Option<SharedGroupType>,
 );
 pub type SubRelations = Vec<SubRelation>;
 pub type SubRelationsMap = HashMap<NodeId, SubRelations>;
@@ -402,12 +404,7 @@ pub struct SubscriptioRelationsCollector {
     v3_rels: Vec<SubRelation>,
     v5_rels: HashMap<
         ClientId,
-        (
-            TopicFilter,
-            SubscriptionOptions,
-            Option<Vec<SubscriptionIdentifier>>,
-            Option<(SharedGroup, IsOnline)>,
-        ),
+        (TopicFilter, SubscriptionOptions, Option<Vec<SubscriptionIdentifier>>, Option<SharedGroupType>),
     >,
 }
 
@@ -418,7 +415,7 @@ impl SubscriptioRelationsCollector {
         topic_filter: &TopicFilter,
         client_id: ClientId,
         opts: SubscriptionOptions,
-        group: Option<(SharedGroup, IsOnline)>,
+        group: Option<SharedGroupType>,
     ) {
         if opts.is_v3() {
             self.v3_rels.push((topic_filter.clone(), client_id, opts, None, group));
@@ -1628,6 +1625,7 @@ pub struct _Id {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Retain {
+    pub msg_id: PMsgID,
     pub from: From,
     pub publish: Publish,
 }

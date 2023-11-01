@@ -6,10 +6,10 @@ use rmqtt::chrono::LocalResult;
 use rmqtt::node::{BrokerInfo, NodeInfo, NodeStatus};
 use rmqtt::plugin::PluginInfo;
 use rmqtt::settings::{deserialize_datetime_option, serialize_datetime_option};
-use rmqtt::Result;
 use rmqtt::{anyhow, bincode, chrono, serde_json, HashMap, MqttError, QoS};
 use rmqtt::{metrics::Metrics, stats::Stats};
 use rmqtt::{ClientId, NodeId, Timestamp, TopicFilter, TopicName, UserName};
+use rmqtt::{PublishProperties, Result};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Message<'a> {
@@ -245,6 +245,8 @@ pub struct PublishParams {
     //Whether it is a retained message, Default: false
     #[serde(default = "PublishParams::retain_default")]
     pub retain: bool,
+    //Publish Properties
+    pub properties: Option<PublishProperties>,
 }
 
 impl PublishParams {

@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::convert::From as _;
 use std::time::Duration;
 
 use rmqtt::{
@@ -12,7 +13,7 @@ use rmqtt::{
         types::{
             From, Id, IsAdmin, NodeId, NodeName, Publish, Reason, SessionStatus, SubRelations,
             SubRelationsMap, SubsSearchParams, SubsSearchResult, Subscribe, SubscribeReturn,
-            SubscriptionSize, To, Tx, Unsubscribe,
+            SubscriptionClientIds, To, Tx, Unsubscribe,
         },
         Entry, Router, Shared,
     },
@@ -293,8 +294,8 @@ impl ClusterShared {
     }
 
     #[inline]
-    pub(crate) fn inner(&self) -> Box<dyn Shared> {
-        Box::new(self.inner)
+    pub(crate) fn inner(&self) -> &'static DefaultShared {
+        self.inner
     }
 
     #[inline]
@@ -320,7 +321,7 @@ impl Shared for &'static ClusterShared {
         &self,
         from: From,
         publish: Publish,
-    ) -> Result<SubscriptionSize, Vec<(To, From, Publish, Reason)>> {
+    ) -> Result<SubscriptionClientIds, Vec<(To, From, Publish, Reason)>> {
         log::debug!("[forwards] from: {:?}, publish: {:?}", from, publish);
 
         let topic = publish.topic();
@@ -338,7 +339,8 @@ impl Shared for &'static ClusterShared {
             }
         };
 
-        let subs_size: SubscriptionSize = relations_map.values().map(|subs| subs.len()).sum();
+        //let subs_size: SubscriptionSize = relations_map.values().map(|subs| subs.len()).sum();
+        let sub_client_ids = self.inner()._collect_subscription_client_ids(&relations_map);
 
         let mut errs = Vec::new();
 
@@ -400,7 +402,7 @@ impl Shared for &'static ClusterShared {
         }
 
         if errs.is_empty() {
-            Ok(subs_size)
+            Ok(sub_client_ids)
         } else {
             Err(errs)
         }
@@ -421,7 +423,7 @@ impl Shared for &'static ClusterShared {
         &self,
         from: From,
         publish: Publish,
-    ) -> Result<(SubRelationsMap, SubscriptionSize), Vec<(To, From, Publish, Reason)>> {
+    ) -> Result<(SubRelationsMap, SubscriptionClientIds), Vec<(To, From, Publish, Reason)>> {
         self.inner.forwards_and_get_shareds(from, publish).await
     }
 

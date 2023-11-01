@@ -8,6 +8,8 @@ use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::Arc;
 
+#[allow(unused_imports)]
+use bitflags::Flags;
 use bytestring::ByteString;
 use futures::StreamExt;
 use tokio::sync::RwLock;
@@ -549,25 +551,15 @@ impl SessionState {
             let from = From::from_lastwill(self.id.clone());
             //hook, message_publish
             let p = self.hook.message_publish(from.clone(), &p).await.unwrap_or(p);
+            log::debug!("process_last_will, publish: {:?}", p);
 
-            match Runtime::instance().extends.shared().await.forwards(from.clone(), p).await {
-                Ok(0) => {
-                    //hook, message_nonsubscribed
-                    Runtime::instance().extends.hook_mgr().await.message_nonsubscribed(from).await;
-                }
-                Ok(_) => {}
-                Err(droppeds) => {
-                    for (to, from, p, r) in droppeds {
-                        //hook, message_dropped
-                        Runtime::instance()
-                            .extends
-                            .hook_mgr()
-                            .await
-                            .message_dropped(Some(to), from, p, r)
-                            .await;
-                    }
-                }
-            }
+            let (retain_available, message_expiry_interval) = if self.listen_cfg().retain_available {
+                (true, Some(self.fitter.message_expiry_interval(&p)))
+            } else {
+                (false, None)
+            };
+
+            Self::forwards(from, p, retain_available, message_expiry_interval).await?;
         }
         Ok(())
     }
@@ -608,11 +600,48 @@ impl SessionState {
     #[inline]
     async fn send_persistent_messages(
         &self,
-        persistent_messages: Vec<(From, Publish)>,
+        topic_filter: &str,
         qos: QoS,
+        group: Option<&SharedGroup>,
+        excludeds: Vec<PMsgID>,
     ) -> Result<()> {
-        for (from, mut publish) in persistent_messages {
-            log::debug!("{:?} from:{:?}, publish:{:?}", self.id, from, publish);
+        let persistent_messages = Runtime::instance()
+            .extends
+            .message_mgr()
+            .await
+            .get(&self.id.client_id, topic_filter, group)
+            .await?;
+        log::debug!(
+            "{:?} persistent_messages: {:?}, topic_filter: {}, group: {:?}, excludeds: {:?}",
+            self.id,
+            persistent_messages.len(),
+            topic_filter,
+            group,
+            excludeds
+        );
+        self._send_persistent_messages(persistent_messages, qos, excludeds).await?;
+        Ok(())
+    }
+
+    #[inline]
+    async fn _send_persistent_messages(
+        &self,
+        persistent_messages: Vec<(PMsgID, From, Publish)>,
+        qos: QoS,
+        excludeds: Vec<PMsgID>,
+    ) -> Result<()> {
+        for (msg_id, from, mut publish) in persistent_messages {
+            log::debug!(
+                "{:?} msg_id: {}, from:{:?}, publish:{:?}, excluded: {}",
+                self.id,
+                msg_id,
+                from,
+                publish,
+                excludeds.contains(&msg_id)
+            );
+            if excludeds.contains(&msg_id) {
+                continue;
+            }
 
             publish.dup = false;
             publish.retain = false;
@@ -826,23 +855,21 @@ impl SessionState {
                     send_retain_enable,
                     sub_ret.prev_opts
                 );
-                if send_retain_enable {
+                let excludeds = if send_retain_enable {
                     let retain_messages =
                         Runtime::instance().extends.retain().await.get(&sub.topic_filter).await?;
+                    let excludeds = retain_messages.iter().map(|(_, r)| r.msg_id).collect::<Vec<_>>();
                     self.send_retain_messages(retain_messages, qos).await?;
-                }
-            };
+                    excludeds
+                } else {
+                    Vec::new()
+                };
 
-            //Store messages before they expire
-            if listen_cfg.persistent_available {
-                let persistent_messages = Runtime::instance()
-                    .extends
-                    .message_mgr()
-                    .await
-                    .get(&self.id.client_id, &sub.topic_filter)
+                log::debug!("{:?} excludeds: {:?}", self.id, excludeds);
+                //Send messages before they expire
+                self.send_persistent_messages(&sub.topic_filter, qos, sub.opts.shared_group(), excludeds)
                     .await?;
-                self.send_persistent_messages(persistent_messages, qos).await?;
-            }
+            };
 
             //hook, session_subscribed
             self.hook.session_subscribed(sub).await;
@@ -939,32 +966,61 @@ impl SessionState {
             };
         }
 
-        //Retain messages
-        if self.listen_cfg().retain_available && publish.retain() {
-            Runtime::instance()
-                .extends
-                .retain()
-                .await
-                .set(publish.topic(), Retain { from: from.clone(), publish: publish.clone() })
-                .await?;
-        }
+        let (retain_available, message_expiry_interval) = if self.listen_cfg().retain_available {
+            (true, Some(self.fitter.message_expiry_interval(&publish)))
+        } else {
+            (false, None)
+        };
 
-        //Store messages before they expire
-        if self.listen_cfg().persistent_available {
-            Runtime::instance()
-                .extends
-                .message_mgr()
-                .await
-                .set(from.clone(), publish.clone(), self.fitter.message_expiry_interval(&publish))
-                .await?;
-        }
+        Self::forwards(from, publish, retain_available, message_expiry_interval).await?;
+
+        Ok(true)
+    }
+
+    #[inline]
+    pub async fn forwards(
+        from: From,
+        publish: Publish,
+        retain_available: bool,
+        message_expiry_interval: Option<Duration>,
+    ) -> Result<()> {
+        //Retain messages
+        let msg_id = if retain_available {
+            //Store messages before they expire
+            let msg_id = if let Some(message_expiry_interval) = message_expiry_interval {
+                Runtime::instance()
+                    .extends
+                    .message_mgr()
+                    .await
+                    .set(from.clone(), publish.clone(), message_expiry_interval)
+                    .await?
+            } else {
+                unreachable!()
+            };
+
+            if publish.retain() {
+                Runtime::instance()
+                    .extends
+                    .retain()
+                    .await
+                    .set(publish.topic(), Retain { msg_id, from: from.clone(), publish: publish.clone() })
+                    .await?;
+            }
+            Some(msg_id)
+        } else {
+            None
+        };
 
         match Runtime::instance().extends.shared().await.forwards(from.clone(), publish).await {
-            Ok(0) => {
+            Ok(None) => {
                 //hook, message_nonsubscribed
                 Runtime::instance().extends.hook_mgr().await.message_nonsubscribed(from).await;
             }
-            Ok(_) => {}
+            Ok(Some(sub_cids)) => {
+                if let Some(msg_id) = msg_id {
+                    Runtime::instance().extends.message_mgr().await.set_forwardeds(msg_id, sub_cids);
+                }
+            }
             Err(errs) => {
                 for (to, from, p, reason) in errs {
                     //Message dropped
@@ -977,7 +1033,7 @@ impl SessionState {
                 }
             }
         }
-        Ok(true)
+        Ok(())
     }
 
     #[inline]
@@ -1055,7 +1111,14 @@ impl SessionState {
                 );
                 if let Err(e) = Runtime::instance().extends.router().await.add(tf, id, opts.clone()).await {
                     log::warn!("transfer_session_state, router.add, {:?}", e);
-                    return Err(e);
+                    //return Err(e);
+                }
+
+                //Send messages before they expire
+                if let Err(e) =
+                    self.send_persistent_messages(tf, opts.qos(), opts.shared_group(), Vec::default()).await
+                {
+                    log::warn!("transfer_session_state, router.add, {:?}", e);
                 }
             }
         }

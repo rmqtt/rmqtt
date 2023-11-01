@@ -1,4 +1,6 @@
+use std::convert::From as _;
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use salvo::affix;
 use salvo::http::header::{HeaderValue, CONTENT_TYPE};
@@ -21,7 +23,7 @@ use rmqtt::{
         MessageSender, MessageType,
     },
     node::NodeStatus,
-    ClientId, From, Id, MqttError, Publish, PublishProperties, QoS, Result, Retain, Runtime,
+    ClientId, From, Id, MqttError, Publish, PublishProperties, QoS, Result, Runtime, SessionState,
     SubsSearchParams, TopicFilter, TopicName, UserName,
 };
 
@@ -677,7 +679,10 @@ async fn get_route(req: &mut Request, res: &mut Response) {
 #[handler]
 async fn publish(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
-    let http_laddr = cfg.read().await.http_laddr;
+    let (http_laddr, retain_available, expiry_interval) = {
+        let cfg_rl = cfg.read().await;
+        (cfg_rl.http_laddr, cfg_rl.message_retain_available, cfg_rl.message_expiry_interval)
+    };
 
     let remote_addr = req.remote_addr().and_then(|addr| {
         if let Some(ipv4) = addr.as_ipv4() {
@@ -691,7 +696,7 @@ async fn publish(req: &mut Request, depot: &mut Depot, res: &mut Response) {
         Ok(p) => p,
         Err(e) => return res.set_status_error(StatusError::bad_request().with_detail(e.to_string())),
     };
-    match _publish(params, remote_addr, http_laddr).await {
+    match _publish(params, remote_addr, http_laddr, retain_available, expiry_interval).await {
         Ok(()) => res.render(Text::Plain("ok")),
         Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
     }
@@ -701,6 +706,8 @@ async fn _publish(
     params: PublishParams,
     remote_addr: Option<SocketAddr>,
     http_laddr: SocketAddr,
+    retain_available: bool,
+    expiry_interval: Duration,
 ) -> Result<()> {
     let mut topics = if let Some(topics) = params.topics {
         topics.split(',').collect::<Vec<_>>().iter().map(|t| TopicName::from(t.trim())).collect()
@@ -741,22 +748,22 @@ async fn _publish(
         create_time: chrono::Local::now().timestamp_millis(),
     };
 
+    let message_expiry_interval = params
+        .properties
+        .as_ref()
+        .and_then(|props| {
+            props.message_expiry_interval.map(|interval| Duration::from_secs(interval.get() as u64))
+        })
+        .unwrap_or_else(|| expiry_interval);
+    log::debug!("message_expiry_interval: {:?}", message_expiry_interval);
+
     let mut futs = Vec::new();
     for topic in topics {
+        let from = from.clone();
         let mut p1 = p.clone();
         p1.topic = topic;
 
-        //self.listen_cfg.retain_available &&
-        if p1.retain() {
-            Runtime::instance()
-                .extends
-                .retain()
-                .await
-                .set(p1.topic(), Retain { from: from.clone(), publish: p1.clone() })
-                .await?;
-        }
-
-        let fut = async {
+        let fut = async move {
             //hook, message_publish
             let p1 = Runtime::instance()
                 .extends
@@ -766,24 +773,10 @@ async fn _publish(
                 .await
                 .unwrap_or(p1);
 
-            let replys = Runtime::instance().extends.shared().await.forwards(from.clone(), p1).await;
-            match replys {
-                Ok(0) => {
-                    //hook, message_nonsubscribed
-                    Runtime::instance().extends.hook_mgr().await.message_nonsubscribed(from.clone()).await;
-                }
-                Ok(_) => {}
-                Err(droppeds) => {
-                    for (to, from, p, reason) in droppeds {
-                        //Message dropped
-                        Runtime::instance()
-                            .extends
-                            .hook_mgr()
-                            .await
-                            .message_dropped(Some(to), from, p, reason)
-                            .await;
-                    }
-                }
+            if let Err(e) =
+                SessionState::forwards(from, p1, retain_available, Some(message_expiry_interval)).await
+            {
+                log::warn!("{:?}", e);
             }
         };
         futs.push(fut);

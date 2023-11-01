@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
+use std::collections::{BTreeMap, BinaryHeap};
 use std::convert::From as _f;
 use std::iter::Iterator;
 use std::num::NonZeroU16;
@@ -9,6 +9,8 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+#[allow(unused_imports)]
+use bitflags::Flags;
 use itertools::Itertools;
 use ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 use ntex_mqtt::TopicLevel;
@@ -357,6 +359,79 @@ impl DefaultShared {
     pub async fn _query_subscriptions(&self, q: &SubsSearchParams) -> Vec<SubsSearchResult> {
         DefaultRouter::instance()._query_subscriptions(q).await
     }
+
+    #[inline]
+    pub fn _collect_subscription_client_ids(&self, relations_map: &SubRelationsMap) -> SubscriptionClientIds {
+        let sub_client_ids = relations_map
+            .values()
+            .map(|subs| {
+                subs.iter().map(|(tf, cid, _, _, group_shared)| {
+                    log::debug!(
+                        "_collect_subscription_client_ids, tf: {:?}, cid {:?}, group_shared: {:?}",
+                        tf,
+                        cid,
+                        group_shared
+                    );
+                    if let Some((group, _, cids)) = group_shared {
+                        cids.iter()
+                            .map(|g_cid| {
+                                if g_cid == cid {
+                                    log::debug!(
+                                        "_collect_subscription_client_ids is group_shared {:?}",
+                                        g_cid
+                                    );
+                                    (g_cid.clone(), Some((tf.clone(), group.clone())))
+                                } else {
+                                    (g_cid.clone(), None)
+                                }
+                            })
+                            .collect()
+                    } else {
+                        vec![(cid.clone(), None)]
+                    }
+                })
+            })
+            .flatten()
+            .flatten()
+            //.sorted()
+            //.dedup()
+            .collect::<Vec<_>>();
+        log::debug!("_collect_subscription_client_ids sub_client_ids: {:?}", sub_client_ids);
+        if sub_client_ids.is_empty() {
+            None
+        } else {
+            Some(sub_client_ids)
+        }
+    }
+
+    #[inline]
+    pub fn _merge_subscription_client_ids(
+        &self,
+        sub_client_ids: SubscriptionClientIds,
+        o_sub_client_ids: SubscriptionClientIds,
+    ) -> SubscriptionClientIds {
+        let sub_client_ids = match (sub_client_ids, o_sub_client_ids) {
+            (Some(sub_client_ids), None) => Some(sub_client_ids),
+            (Some(mut sub_client_ids), Some(o_sub_client_ids)) => {
+                if !o_sub_client_ids.is_empty() {
+                    sub_client_ids.extend(o_sub_client_ids);
+                }
+                Some(sub_client_ids)
+            }
+            (None, Some(o_sub_client_ids)) => Some(o_sub_client_ids),
+            (None, None) => None,
+        };
+        log::debug!("_merge_subscription_client_ids sub_client_ids: {:?}", sub_client_ids);
+        if let Some(sub_client_ids) = sub_client_ids {
+            if sub_client_ids.is_empty() {
+                None
+            } else {
+                Some(sub_client_ids)
+            }
+        } else {
+            None
+        }
+    }
 }
 
 #[async_trait]
@@ -376,7 +451,7 @@ impl Shared for &'static DefaultShared {
         &self,
         from: From,
         publish: Publish,
-    ) -> Result<SubscriptionSize, Vec<(To, From, Publish, Reason)>> {
+    ) -> Result<SubscriptionClientIds, Vec<(To, From, Publish, Reason)>> {
         let topic = publish.topic();
         let mut relations_map = match Runtime::instance()
             .extends
@@ -392,7 +467,7 @@ impl Shared for &'static DefaultShared {
             }
         };
 
-        let subs_size: SubscriptionSize = relations_map.values().map(|subs| subs.len()).sum();
+        let sub_client_ids = self._collect_subscription_client_ids(&relations_map);
 
         let this_node_id = Runtime::instance().node.id();
         if let Some(relations) = relations_map.remove(&this_node_id) {
@@ -401,7 +476,7 @@ impl Shared for &'static DefaultShared {
         if !relations_map.is_empty() {
             log::warn!("forwards, relations_map:{:?}", relations_map);
         }
-        Ok(subs_size)
+        Ok(sub_client_ids)
     }
 
     #[inline]
@@ -409,7 +484,7 @@ impl Shared for &'static DefaultShared {
         &self,
         from: From,
         publish: Publish,
-    ) -> Result<(SubRelationsMap, SubscriptionSize), Vec<(To, From, Publish, Reason)>> {
+    ) -> Result<(SubRelationsMap, SubscriptionClientIds), Vec<(To, From, Publish, Reason)>> {
         let topic = publish.topic();
         log::debug!("forwards_and_get_shareds, from: {:?}, topic: {:?}", from, topic.to_string());
         let relations_map =
@@ -421,7 +496,8 @@ impl Shared for &'static DefaultShared {
                 }
             };
 
-        let subs_size: SubscriptionSize = relations_map.values().map(|subs| subs.len()).sum();
+        //let subs_size: SubscriptionSize = relations_map.values().map(|subs| subs.len()).sum();
+        let sub_client_ids = self._collect_subscription_client_ids(&relations_map);
 
         let mut relations = SubRelations::new();
         let mut sub_relations_map = SubRelationsMap::default();
@@ -444,7 +520,7 @@ impl Shared for &'static DefaultShared {
         if !relations.is_empty() {
             self.forwards_to(from, &publish, relations).await?;
         }
-        Ok((sub_relations_map, subs_size))
+        Ok((sub_relations_map, sub_client_ids))
     }
 
     #[inline]
@@ -680,6 +756,7 @@ impl DefaultRouter {
             //select a subscriber from shared subscribe groups
             for (group, mut s_subs) in groups.drain() {
                 log::debug!("group: {}, s_subs: {:?}", group, s_subs);
+                let group_cids = s_subs.iter().map(|(_, cid, _, _, _)| cid.clone()).collect();
                 if let Some((idx, is_online)) =
                     Runtime::instance().extends.shared_subscription().await.choice(&s_subs).await
                 {
@@ -688,7 +765,7 @@ impl DefaultRouter {
                         &topic_filter,
                         client_id,
                         opts,
-                        Some((group, is_online)),
+                        Some((group, is_online, group_cids)),
                     );
                 }
             }
@@ -1974,7 +2051,7 @@ pub struct DefaultMessageManager {
 struct DefaultMessageManagerInner {
     messages: scc::HashMap<PMsgID, PersistedMsg>,
     subs_tree: RwLock<RetainTree<PMsgID>>,
-    forwardeds: scc::HashMap<PMsgID, BTreeSet<ClientId>>,
+    forwardeds: scc::HashMap<PMsgID, BTreeMap<ClientId, Option<(TopicFilter, SharedGroup)>>>,
     expiries: RwLock<BinaryHeap<(Reverse<Timestamp>, PMsgID)>>,
     id_gen: AtomicUsize,
 }
@@ -2032,11 +2109,16 @@ impl DefaultMessageManager {
     }
 
     #[inline]
-    async fn _set(&self, from: From, publish: Publish, expiry_interval: Duration) -> Result<()> {
+    async fn _set(
+        &self,
+        from: From,
+        publish: Publish,
+        expiry_interval: Duration,
+        msg_id: PMsgID,
+    ) -> Result<()> {
         let mut topic = Topic::from_str(&publish.topic).map_err(|e| anyhow!(format!("{:?}", e)))?;
         let expiry_time = timestamp_secs() + expiry_interval.as_secs() as i64;
         let inner = &self.inner;
-        let msg_id = self.next_id();
         let pmsg = PersistedMsg { msg_id, from, publish };
         topic.push(TopicLevel::Normal(msg_id.to_string()));
         inner.messages.insert_async(msg_id, pmsg).await.map_err(|_| anyhow!("messages insert error"))?;
@@ -2081,20 +2163,26 @@ impl MessageManager for &'static DefaultMessageManager {
     }
 
     #[inline]
-    async fn set(&self, from: From, p: Publish, expiry_interval: Duration) -> Result<()> {
+    async fn set(&self, from: From, p: Publish, expiry_interval: Duration) -> Result<PMsgID> {
+        let msg_id = self.next_id();
         async move {
-            if let Err(e) = DefaultMessageManager::instance()._set(from, p, expiry_interval).await {
+            if let Err(e) = DefaultMessageManager::instance()._set(from, p, expiry_interval, msg_id).await {
                 log::warn!("Persistence of the Publish message failed! {:?}", e);
             }
         }
         .spawn(&self.exec)
         .await
         .map_err(|e| anyhow!(e.to_string()))?;
-        Ok(())
+        Ok(msg_id)
     }
 
     #[inline]
-    async fn get(&self, client_id: &str, topic_filter: &str) -> Result<Vec<(From, Publish)>> {
+    async fn get(
+        &self,
+        client_id: &str,
+        topic_filter: &str,
+        group: Option<&SharedGroup>,
+    ) -> Result<Vec<(PMsgID, From, Publish)>> {
         let inner = &self.inner;
         let mut topic = Topic::from_str(&topic_filter).map_err(|e| anyhow!(format!("{:?}", e)))?;
         if !topic.levels().last().map(|l| matches!(l, TopicLevel::MultiWildcard)).unwrap_or_default() {
@@ -2109,28 +2197,40 @@ impl MessageManager for &'static DefaultMessageManager {
             .into_iter()
             .filter_map(|msg_id| {
                 if let Some(pmsg) = inner.messages.get(&msg_id) {
-                    let mut is_forwarded = false;
-                    inner
-                        .forwardeds
-                        .entry(msg_id)
-                        .and_modify(|clientids| {
-                            if clientids.contains(client_id) {
-                                is_forwarded = true;
-                            } else {
-                                clientids.insert(ClientId::from(client_id));
-                            }
-                        })
-                        .or_insert_with(|| {
-                            let mut clientids = BTreeSet::default();
-                            clientids.insert(ClientId::from(client_id));
+                    let mut clientids = self.inner.forwardeds.entry(msg_id).or_default();
+                    let is_forwarded = if clientids.get().contains_key(client_id) {
+                        true
+                    } else {
+                        if let Some(group) = group {
+                            //Check if subscription is shared
                             clientids
-                        });
-                    //println!("*** is_forwarded: {:?}", is_forwarded);
+                                .get()
+                                .iter()
+                                .filter(|(_, g)| {
+                                    if let Some((tf, g)) = g.as_ref() {
+                                        g == group && tf == topic_filter
+                                    } else {
+                                        false
+                                    }
+                                })
+                                .next()
+                                .is_some()
+                        } else {
+                            false
+                        }
+                    };
+                    if !is_forwarded {
+                        clientids.get_mut().insert(
+                            ClientId::from(client_id),
+                            group.map(|g| (TopicFilter::from(topic_filter), g.clone())),
+                        );
+                    }
+                    log::debug!("is_forwarded: {}", is_forwarded);
                     if is_forwarded {
                         None
                     } else {
                         let pmsg = pmsg.get();
-                        Some((pmsg.from.clone(), pmsg.publish.clone()))
+                        Some((msg_id, pmsg.from.clone(), pmsg.publish.clone()))
                     }
                 } else {
                     None
@@ -2138,6 +2238,16 @@ impl MessageManager for &'static DefaultMessageManager {
             })
             .collect::<Vec<_>>();
         Ok(matcheds)
+    }
+
+    #[inline]
+    fn set_forwardeds(
+        &self,
+        msg_id: PMsgID,
+        sub_client_ids: Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>,
+    ) {
+        let mut clientids = self.inner.forwardeds.entry(msg_id).or_default();
+        clientids.get_mut().extend(sub_client_ids);
     }
 }
 
@@ -2156,7 +2266,7 @@ pub fn timestamp_secs() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|t| t.as_secs() as i64)
-        .unwrap_or_else(|_| chrono::Local::now().timestamp() as i64)
+        .unwrap_or_else(|_| chrono::Local::now().timestamp())
 }
 
 #[inline]
@@ -2165,7 +2275,7 @@ pub fn timestamp_millis() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|t| t.as_millis() as i64)
-        .unwrap_or_else(|_| chrono::Local::now().timestamp_millis() as i64)
+        .unwrap_or_else(|_| chrono::Local::now().timestamp_millis())
 }
 
 #[test]
@@ -2216,7 +2326,7 @@ fn test_message_manager() {
         println!("{}", pmsg_mgr.sprint_status().await);
 
         let tf = TopicFilter::from("/xx/yy/#");
-        let msgs = pmsg_mgr.get("c-id-001", &tf).await.unwrap();
+        let msgs = pmsg_mgr.get("c-id-001", &tf, None).await.unwrap();
         println!("===>>> msgs len: {}", msgs.len());
         assert_eq!(msgs.len(), 20);
         //for (f, p) in msgs {
@@ -2224,12 +2334,12 @@ fn test_message_manager() {
         //}
 
         let tf = TopicFilter::from("/xx/yy/cc");
-        let msgs = pmsg_mgr.get("c-id-002", &tf).await.unwrap();
+        let msgs = pmsg_mgr.get("c-id-002", &tf, None).await.unwrap();
         println!("===>>> msgs len: {}", msgs.len());
         assert_eq!(msgs.len(), 5);
 
         let tf = TopicFilter::from("/foo/yy/ee");
-        let msgs = pmsg_mgr.get("", &tf).await.unwrap();
+        let msgs = pmsg_mgr.get("", &tf, None).await.unwrap();
         assert_eq!(msgs.len(), 5);
         println!("msgs len: {}", msgs.len());
         //for (f, p) in msgs {

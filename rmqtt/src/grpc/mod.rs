@@ -11,7 +11,7 @@ use crate::broker::types::{
     CleanStart, ClearSubscriptions, From, Id, IsAdmin, NodeId, Publish, Retain, Route, SessionStatus,
     SubsSearchParams, SubsSearchResult, TopicFilter, TopicName,
 };
-use crate::{Addr, ClientId, Result, SubRelations, SubRelationsMap, SubscriptionSize};
+use crate::{Addr, ClientId, Result, SubRelations, SubRelationsMap, SubscriptionClientIds};
 
 pub mod client;
 pub mod server;
@@ -55,7 +55,7 @@ impl Message {
 #[derive(Serialize, Deserialize, Debug)]
 pub enum MessageReply {
     Success,
-    Forwards(SubRelationsMap, SubscriptionSize),
+    Forwards(SubRelationsMap, SubscriptionClientIds),
     Error(String),
     Kick(Option<SessionOfflineInfo>),
     GetRetains(Vec<(TopicName, Retain)>),

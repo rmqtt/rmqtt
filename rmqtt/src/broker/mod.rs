@@ -66,14 +66,14 @@ pub trait Shared: Sync + Send {
         &self,
         from: From,
         publish: Publish,
-    ) -> Result<SubscriptionSize, Vec<(To, From, Publish, Reason)>>;
+    ) -> Result<SubscriptionClientIds, Vec<(To, From, Publish, Reason)>>;
 
     ///Route and dispense publish message and return shared subscription relations
     async fn forwards_and_get_shareds(
         &self,
         from: From,
         publish: Publish,
-    ) -> Result<(SubRelationsMap, SubscriptionSize), Vec<(To, From, Publish, Reason)>>;
+    ) -> Result<(SubRelationsMap, SubscriptionClientIds), Vec<(To, From, Publish, Reason)>>;
 
     ///dispense publish message
     async fn forwards_to(
@@ -247,8 +247,18 @@ pub trait RetainStorage: Sync + Send {
 
 #[async_trait]
 pub trait MessageManager: Sync + Send {
-    async fn set(&self, from: From, p: Publish, expiry_interval: Duration) -> Result<()>;
-    async fn get(&self, client_id: &str, topic_filter: &str) -> Result<Vec<(From, Publish)>>;
+    async fn set(&self, from: From, p: Publish, expiry_interval: Duration) -> Result<PMsgID>;
+    async fn get(
+        &self,
+        client_id: &str,
+        topic_filter: &str,
+        group: Option<&SharedGroup>,
+    ) -> Result<Vec<(PMsgID, From, Publish)>>;
+    fn set_forwardeds(
+        &self,
+        pmsg_id: PMsgID,
+        sub_client_ids: Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>,
+    );
 
     async fn count(&self) -> isize;
     async fn max(&self) -> isize;
