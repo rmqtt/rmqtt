@@ -137,10 +137,8 @@ listener.tcp.external.max_qos_allowed = 2
 #The maximum level at which clients are allowed to subscribe to topics.
 #0 means unlimited. default value: 0
 listener.tcp.external.max_topic_levels = 0
-#Whether support retain message, true/false, default value: true
+#Whether support retain message, true/false, default value: false
 listener.tcp.external.retain_available = true
-#Whether support persistent message, true/false, default value: false
-listener.tcp.external.persistent_available = false
 #Session timeout, default value: 2 hours
 listener.tcp.external.session_expiry_interval = "2h"
 #QoS 1/2 message retry interval, 0 means no resend
@@ -176,7 +174,7 @@ listener.tcp.internal.mqueue_rate_limit = "1000,1s"
 listener.tcp.internal.max_clientid_len = 65535
 listener.tcp.internal.max_qos_allowed = 2
 listener.tcp.internal.max_topic_levels = 0
-listener.tcp.internal.retain_available = true
+listener.tcp.internal.retain_available = false
 listener.tcp.internal.session_expiry_interval = "2h"
 listener.tcp.internal.message_retry_interval = "30s"
 listener.tcp.internal.message_expiry_interval = "5m"
