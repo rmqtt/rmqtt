@@ -754,7 +754,7 @@ async fn _publish(
         .and_then(|props| {
             props.message_expiry_interval.map(|interval| Duration::from_secs(interval.get() as u64))
         })
-        .unwrap_or_else(|| expiry_interval);
+        .unwrap_or(expiry_interval);
     log::debug!("message_expiry_interval: {:?}", message_expiry_interval);
 
     let mut futs = Vec::new();

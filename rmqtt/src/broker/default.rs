@@ -364,8 +364,8 @@ impl DefaultShared {
     pub fn _collect_subscription_client_ids(&self, relations_map: &SubRelationsMap) -> SubscriptionClientIds {
         let sub_client_ids = relations_map
             .values()
-            .map(|subs| {
-                subs.iter().map(|(tf, cid, _, _, group_shared)| {
+            .flat_map(|subs| {
+                subs.iter().flat_map(|(tf, cid, _, _, group_shared)| {
                     log::debug!(
                         "_collect_subscription_client_ids, tf: {:?}, cid {:?}, group_shared: {:?}",
                         tf,
@@ -391,10 +391,6 @@ impl DefaultShared {
                     }
                 })
             })
-            .flatten()
-            .flatten()
-            //.sorted()
-            //.dedup()
             .collect::<Vec<_>>();
         log::debug!("_collect_subscription_client_ids sub_client_ids: {:?}", sub_client_ids);
         if sub_client_ids.is_empty() {
@@ -422,15 +418,7 @@ impl DefaultShared {
             (None, None) => None,
         };
         log::debug!("_merge_subscription_client_ids sub_client_ids: {:?}", sub_client_ids);
-        if let Some(sub_client_ids) = sub_client_ids {
-            if sub_client_ids.is_empty() {
-                None
-            } else {
-                Some(sub_client_ids)
-            }
-        } else {
-            None
-        }
+        sub_client_ids.filter(|sub_client_ids| !sub_client_ids.is_empty())
     }
 }
 
@@ -2066,7 +2054,7 @@ impl DefaultMessageManager {
             tokio::spawn(async move {
                 futures::future::join(task_runner, async move {
                     loop {
-                        sleep(Duration::from_secs(30)).await;
+                        sleep(Duration::from_secs(30)).await; //@TODO config enable
                         if let Err(e) = Self::instance().remove_expired_messages().await {
                             log::warn!("Cleanup expired messages failed! {:?}", e);
                         }
@@ -2184,7 +2172,7 @@ impl MessageManager for &'static DefaultMessageManager {
         group: Option<&SharedGroup>,
     ) -> Result<Vec<(PMsgID, From, Publish)>> {
         let inner = &self.inner;
-        let mut topic = Topic::from_str(&topic_filter).map_err(|e| anyhow!(format!("{:?}", e)))?;
+        let mut topic = Topic::from_str(topic_filter).map_err(|e| anyhow!(format!("{:?}", e)))?;
         if !topic.levels().last().map(|l| matches!(l, TopicLevel::MultiWildcard)).unwrap_or_default() {
             topic.push(TopicLevel::SingleWildcard);
         }
@@ -2200,24 +2188,17 @@ impl MessageManager for &'static DefaultMessageManager {
                     let mut clientids = self.inner.forwardeds.entry(msg_id).or_default();
                     let is_forwarded = if clientids.get().contains_key(client_id) {
                         true
+                    } else if let Some(group) = group {
+                        //Check if subscription is shared
+                        clientids.get().iter().any(|(_, tf_g)| {
+                            if let Some((tf, g)) = tf_g.as_ref() {
+                                g == group && tf == topic_filter
+                            } else {
+                                false
+                            }
+                        })
                     } else {
-                        if let Some(group) = group {
-                            //Check if subscription is shared
-                            clientids
-                                .get()
-                                .iter()
-                                .filter(|(_, g)| {
-                                    if let Some((tf, g)) = g.as_ref() {
-                                        g == group && tf == topic_filter
-                                    } else {
-                                        false
-                                    }
-                                })
-                                .next()
-                                .is_some()
-                        } else {
-                            false
-                        }
+                        false
                     };
                     if !is_forwarded {
                         clientids.get_mut().insert(
