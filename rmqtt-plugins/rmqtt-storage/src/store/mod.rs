@@ -5,51 +5,51 @@ use std::future::Future;
 use rmqtt::async_trait::async_trait;
 use rmqtt::log;
 
-use storage::{Metadata, Result, SledStorageDb, SledStorageTree, StorageDb as _};
+use storage::{Metadata, Result, SledStorageDB, SledStorageTree, StorageDB as _};
 
 use super::config::{PluginConfig, StorageType};
 
 pub(crate) mod storage;
 
-pub(crate) fn init_store_db(cfg: &PluginConfig) -> Result<StorageDb> {
+pub(crate) fn init_store_db(cfg: &PluginConfig) -> Result<StorageDB> {
     match cfg.storage_type {
         StorageType::Sled => {
             let sled_cfg = cfg.sled.to_sled_config()?;
-            let db = SledStorageDb::new(sled_cfg)?;
-            Ok(StorageDb::Sled(db))
+            let db = SledStorageDB::new(sled_cfg)?;
+            Ok(StorageDB::Sled(db))
         }
     }
 }
 
 #[derive(Clone)]
-pub(crate) enum StorageDb {
-    Sled(SledStorageDb),
+pub(crate) enum StorageDB {
+    Sled(SledStorageDB),
 }
 
-impl StorageDb {
-    pub(crate) fn open<V: AsRef<[u8]>>(&self, name: V) -> Result<Storage> {
+impl StorageDB {
+    pub(crate) fn open<V: AsRef<[u8]>>(&self, name: V) -> Result<StorageKV> {
         match self {
-            StorageDb::Sled(db) => {
+            StorageDB::Sled(db) => {
                 let s = db.open(name)?;
-                Ok(Storage::Sled(s))
+                Ok(StorageKV::Sled(s))
             }
         }
     }
 
     pub(crate) fn size_on_disk(&self) -> Result<u64> {
         match self {
-            StorageDb::Sled(db) => db.size_on_disk(),
+            StorageDB::Sled(db) => db.size_on_disk(),
         }
     }
 }
 
 #[derive(Clone)]
-pub(crate) enum Storage {
+pub(crate) enum StorageKV {
     Sled(SledStorageTree),
 }
 
 #[async_trait]
-impl storage::Storage for Storage {
+impl storage::Storage for StorageKV {
     #[inline]
     fn insert<K, V>(&self, key: K, val: &V) -> Result<()>
     where
@@ -57,7 +57,7 @@ impl storage::Storage for Storage {
         V: Serialize + Sync + Send + ?Sized,
     {
         let res = match self {
-            Storage::Sled(tree) => tree.insert(key, val),
+            StorageKV::Sled(tree) => tree.insert(key, val),
         };
         if let Err(e) = res {
             log::warn!("Storage::insert error: {:?}", e);
@@ -73,7 +73,7 @@ impl storage::Storage for Storage {
         V: DeserializeOwned + Sync + Send,
     {
         let res = match self {
-            Storage::Sled(tree) => tree.get(key),
+            StorageKV::Sled(tree) => tree.get(key),
         };
         match res {
             Ok(res) => Ok(res),
@@ -86,7 +86,7 @@ impl storage::Storage for Storage {
     #[inline]
     fn metadata<K: AsRef<[u8]> + Sync + Send>(&self, key: K) -> Result<Option<Metadata>> {
         let res = match self {
-            Storage::Sled(tree) => tree.metadata(key),
+            StorageKV::Sled(tree) => tree.metadata(key),
         };
         match res {
             Ok(res) => Ok(res),
@@ -99,25 +99,25 @@ impl storage::Storage for Storage {
     #[inline]
     fn len(&self) -> usize {
         match self {
-            Storage::Sled(tree) => tree.len(),
+            StorageKV::Sled(tree) => tree.len(),
         }
     }
     #[inline]
     fn is_empty(&self) -> bool {
         match self {
-            Storage::Sled(tree) => tree.is_empty(),
+            StorageKV::Sled(tree) => tree.is_empty(),
         }
     }
     #[inline]
     fn contains_key<K: AsRef<[u8]> + Sync + Send>(&self, key: K) -> Result<bool> {
         match self {
-            Storage::Sled(tree) => tree.contains_key(key),
+            StorageKV::Sled(tree) => tree.contains_key(key),
         }
     }
     #[inline]
     fn remove<K: AsRef<[u8]> + Sync + Send>(&self, key: K) -> Result<()> {
         let res = match self {
-            Storage::Sled(tree) => tree.remove(key),
+            StorageKV::Sled(tree) => tree.remove(key),
         };
         match res {
             Ok(res) => Ok(res),
@@ -130,13 +130,13 @@ impl storage::Storage for Storage {
     #[inline]
     fn clear(&self) -> Result<()> {
         match self {
-            Storage::Sled(tree) => tree.clear(),
+            StorageKV::Sled(tree) => tree.clear(),
         }
     }
     #[inline]
     async fn flush(&self) -> Result<usize> {
         match self {
-            Storage::Sled(tree) => tree.flush().await,
+            StorageKV::Sled(tree) => tree.flush().await,
         }
     }
     #[inline]
@@ -145,7 +145,7 @@ impl storage::Storage for Storage {
         V: DeserializeOwned + Sync + Send + 'a,
     {
         match self {
-            Storage::Sled(tree) => tree.iter(),
+            StorageKV::Sled(tree) => tree.iter(),
         }
     }
 
@@ -156,7 +156,7 @@ impl storage::Storage for Storage {
         V: serde::de::DeserializeOwned + Sync + Send + 'a,
     {
         match self {
-            Storage::Sled(tree) => tree.prefix_iter(prefix),
+            StorageKV::Sled(tree) => tree.prefix_iter(prefix),
         }
     }
 
@@ -168,7 +168,7 @@ impl storage::Storage for Storage {
         V: serde::de::DeserializeOwned + Sync + Send + 'a,
     {
         match self {
-            Storage::Sled(tree) => tree.retain(f).await,
+            StorageKV::Sled(tree) => tree.retain(f).await,
         }
     }
 
@@ -179,7 +179,7 @@ impl storage::Storage for Storage {
         Out: Future<Output = bool> + Send + 'a,
     {
         match self {
-            Storage::Sled(tree) => tree.retain_with_meta(f).await,
+            StorageKV::Sled(tree) => tree.retain_with_meta(f).await,
         }
     }
 }

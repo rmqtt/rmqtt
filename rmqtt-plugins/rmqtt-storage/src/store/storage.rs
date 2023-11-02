@@ -7,7 +7,7 @@ pub(crate) type Result<T> = anyhow::Result<T>;
 
 const MAX_KEY_LEN: usize = u8::MAX as usize;
 
-pub trait StorageDb: Send + Sync {
+pub trait StorageDB: Send + Sync {
     type StorageType: Storage;
 
     fn open<V: AsRef<[u8]>>(&self, name: V) -> Result<Self::StorageType>;
@@ -74,11 +74,11 @@ pub struct Metadata<'a> {
 }
 
 #[derive(Clone)]
-pub struct SledStorageDb {
+pub struct SledStorageDB {
     db: sled::Db,
 }
 
-impl SledStorageDb {
+impl SledStorageDB {
     #[inline]
     pub fn new(cfg: sled::Config) -> Result<Self> {
         let db = cfg.open()?;
@@ -86,7 +86,7 @@ impl SledStorageDb {
     }
 }
 
-impl StorageDb for SledStorageDb {
+impl StorageDB for SledStorageDB {
     type StorageType = SledStorageTree;
 
     fn open<V: AsRef<[u8]>>(&self, name: V) -> Result<Self::StorageType> {
