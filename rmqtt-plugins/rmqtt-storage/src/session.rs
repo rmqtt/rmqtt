@@ -1,4 +1,5 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::convert::From as _;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicI64, AtomicU8, Ordering};
 use std::sync::Arc;
@@ -14,32 +15,37 @@ use rmqtt::{
 };
 use rmqtt::{
     broker::default::DefaultSessionManager,
+    broker::inflight::InflightMessage,
     broker::session::{SessionLike, SessionManager},
     broker::types::DisconnectInfo,
     settings::Listener,
-    ClientId, ConnectInfo, ConnectInfoType, Disconnect, Id, InflightType, IsPing, MessageQueueType,
-    MqttError, Password, Reason, Result, SessionSubMap, SessionSubs, SubscriptionOptions, Subscriptions,
-    TimestampMillis, TopicFilter, UserName,
+    ClientId, ConnectInfo, ConnectInfoType, Disconnect, From, Id, InflightType, IsPing, MessageQueueType,
+    MqttError, Password, Publish, Reason, Result, SessionSubMap, SessionSubs, SubscriptionOptions,
+    Subscriptions, TimestampMillis, TopicFilter, UserName,
 };
 
 use crate::store::storage::{Metadata, Storage as _};
-use crate::store::Storage;
+use crate::store::StorageKV;
 
 pub(crate) struct StorageSessionManager {
-    basic_kv: Storage,
-    subs_kv: Storage,
-    disconnect_info_kv: Storage,
-    session_lasttime_kv: Storage,
+    basic_kv: StorageKV,
+    subs_kv: StorageKV,
+    disconnect_info_kv: StorageKV,
+    session_lasttime_kv: StorageKV,
+    session_offline_messages_kv: StorageKV,
+    session_inflight_messages_kv: StorageKV,
     _stored_session_infos: StoredSessionInfos,
 }
 
 impl StorageSessionManager {
     #[inline]
     pub(crate) fn get_or_init(
-        basic_kv: Storage,
-        subs_kv: Storage,
-        disconnect_info_kv: Storage,
-        session_lasttime_kv: Storage,
+        basic_kv: StorageKV,
+        subs_kv: StorageKV,
+        disconnect_info_kv: StorageKV,
+        session_lasttime_kv: StorageKV,
+        session_offline_messages_kv: StorageKV,
+        session_inflight_messages_kv: StorageKV,
         _stored_session_infos: StoredSessionInfos,
     ) -> &'static StorageSessionManager {
         static INSTANCE: OnceCell<StorageSessionManager> = OnceCell::new();
@@ -48,6 +54,8 @@ impl StorageSessionManager {
             subs_kv,
             disconnect_info_kv,
             session_lasttime_kv,
+            session_offline_messages_kv,
+            session_inflight_messages_kv,
             _stored_session_infos,
         })
     }
@@ -106,6 +114,8 @@ impl SessionManager for &'static StorageSessionManager {
                 self.subs_kv.clone(),
                 self.disconnect_info_kv.clone(),
                 self.session_lasttime_kv.clone(),
+                self.session_offline_messages_kv.clone(),
+                self.session_inflight_messages_kv.clone(),
             ));
             if connected {
                 let s1 = s.clone();
@@ -164,10 +174,12 @@ pub struct StorageSession {
     disconnect_info: RwLock<Option<DisconnectInfo>>,
 
     //----------------------------------
-    basic_kv: Storage,
-    subs_kv: Storage,
-    disconnect_info_kv: Storage,
-    lasttime_kv: Storage,
+    basic_kv: StorageKV,
+    subs_kv: StorageKV,
+    disconnect_info_kv: StorageKV,
+    lasttime_kv: StorageKV,
+    offline_messages_kv: StorageKV,
+    inflight_messages_kv: StorageKV,
     last_time: AtomicI64,
 }
 
@@ -188,10 +200,12 @@ impl StorageSession {
         connected: bool,
         disconnect_info: Option<DisconnectInfo>,
 
-        basic_kv: Storage,
-        subs_kv: Storage,
-        disconnect_info_kv: Storage,
-        lasttime_kv: Storage,
+        basic_kv: StorageKV,
+        subs_kv: StorageKV,
+        disconnect_info_kv: StorageKV,
+        lasttime_kv: StorageKV,
+        offline_messages_kv: StorageKV,
+        inflight_messages_kv: StorageKV,
     ) -> Self {
         let state_flags = AtomicU8::empty();
         if session_present {
@@ -224,6 +238,8 @@ impl StorageSession {
             subs_kv,
             disconnect_info_kv,
             lasttime_kv,
+            offline_messages_kv,
+            inflight_messages_kv,
             last_time: AtomicI64::new(chrono::Local::now().timestamp_millis()),
         }
     }
@@ -259,6 +275,12 @@ impl StorageSession {
         }
         if let Err(e) = self.lasttime_kv.remove(&key) {
             log::error!("remove session last time error from db, {:?}", e);
+        }
+        if let Err(e) = self.offline_messages_kv.remove_array(&key) {
+            log::error!("remove session offline messages error from db, {:?}", e);
+        }
+        if let Err(e) = self.inflight_messages_kv.remove(&key) {
+            log::error!("remove session inflight messages error from db, {:?}", e);
         }
 
         Ok(())
@@ -464,6 +486,10 @@ impl StorageSession {
 
 #[async_trait]
 impl SessionLike for StorageSession {
+    fn id(&self) -> &Id {
+        &self.id
+    }
+
     #[inline]
     fn listen_cfg(&self) -> &Listener {
         &self.listen_cfg
@@ -871,20 +897,30 @@ pub(crate) struct StoredSessionInfo {
     pub basic: Basic,
     pub subs: Option<SessionSubMap>,
     pub disconnect_info: Option<DisconnectInfo>,
+    pub offline_messages: Vec<(From, Publish)>,
+    pub inflight_messages: Vec<InflightMessage>,
     pub last_time: TimestampMillis,
 }
 
 impl StoredSessionInfo {
     #[inline]
-    pub fn stored_key(meta: &Metadata) -> Result<ByteString> {
-        ByteString::try_from(meta.key.as_ref())
+    pub fn stored_key(key: &[u8]) -> Result<ByteString> {
+        ByteString::try_from(key)
             .map_err(|e| MqttError::from(format!("Metadata data format error, invalid key, {:?}", e)))
     }
 
     #[inline]
     pub fn from(meta: Metadata, basic: Basic) -> Result<Self> {
-        let stored_key = Self::stored_key(&meta)?;
-        Ok(Self { stored_key, basic, subs: None, disconnect_info: None, last_time: meta.time })
+        let stored_key = Self::stored_key(meta.key.as_ref())?;
+        Ok(Self {
+            stored_key,
+            basic,
+            subs: None,
+            disconnect_info: None,
+            offline_messages: Vec::new(),
+            inflight_messages: Vec::new(),
+            last_time: meta.time,
+        })
     }
 
     #[inline]
@@ -942,7 +978,7 @@ impl StoredSessionInfos {
     #[inline]
     #[allow(clippy::mutable_key_type)]
     pub fn add_subs(&mut self, client_id: ClientId, meta: Metadata, subs: SessionSubMap) -> Result<()> {
-        let stored_key = StoredSessionInfo::stored_key(&meta)?;
+        let stored_key = StoredSessionInfo::stored_key(meta.key.as_ref())?;
         if let Some(mut entry) = self.0.get_mut(&client_id) {
             let storeds = entry.value_mut();
             for stored in storeds {
@@ -962,7 +998,7 @@ impl StoredSessionInfos {
         meta: Metadata,
         disconnect_info: DisconnectInfo,
     ) -> Result<()> {
-        let stored_key = StoredSessionInfo::stored_key(&meta)?;
+        let stored_key = StoredSessionInfo::stored_key(meta.key.as_ref())?;
         if let Some(mut entry) = self.0.get_mut(&client_id) {
             let storeds = entry.value_mut();
             for stored in storeds {
@@ -982,12 +1018,53 @@ impl StoredSessionInfos {
         meta: Metadata,
         last_time: TimestampMillis,
     ) -> Result<()> {
-        let stored_key = StoredSessionInfo::stored_key(&meta)?;
+        let stored_key = StoredSessionInfo::stored_key(meta.key.as_ref())?;
         if let Some(mut entry) = self.0.get_mut(&client_id) {
             let storeds = entry.value_mut();
             for stored in storeds {
                 if stored.stored_key == stored_key {
                     stored.set_last_time(last_time);
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[inline]
+    pub fn set_offline_messages(
+        &mut self,
+        key: Vec<u8>,
+        offline_messages: Vec<(ClientId, From, Publish)>,
+    ) -> Result<()> {
+        let stored_key = StoredSessionInfo::stored_key(key.as_ref())?;
+        for (cid, f, p) in offline_messages {
+            if let Some(mut entry) = self.0.get_mut(&cid) {
+                let storeds = entry.value_mut();
+                for stored in storeds {
+                    if stored.stored_key == stored_key {
+                        stored.offline_messages.push((f, p));
+                        break;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[inline]
+    pub fn set_inflight_messages(
+        &mut self,
+        client_id: ClientId,
+        meta: Metadata,
+        inflight_messages: Vec<InflightMessage>,
+    ) -> Result<()> {
+        let stored_key = StoredSessionInfo::stored_key(meta.key.as_ref())?;
+        if let Some(mut entry) = self.0.get_mut(&client_id) {
+            let storeds = entry.value_mut();
+            for stored in storeds {
+                if stored.stored_key == stored_key {
+                    stored.inflight_messages = inflight_messages;
                     break;
                 }
             }

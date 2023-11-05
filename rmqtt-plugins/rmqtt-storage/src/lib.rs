@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use rmqtt::{
+    anyhow::anyhow,
     async_trait::async_trait,
     chrono, futures,
     futures::channel::mpsc,
@@ -15,21 +16,22 @@ use rmqtt::{
     serde_json::{self, json},
     tokio,
     tokio::sync::RwLock,
-    TimestampMillis,
+    tokio_cron_scheduler::Job,
 };
+
 use rmqtt::{
+    broker::fitter::Fitter,
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::types::DisconnectInfo,
     plugin::{DynPlugin, DynPluginResult, Plugin},
-    ClientId, Result, Runtime, Session, SessionState, SessionSubMap, SessionSubs,
+    ClientId, From, Publish, Result, Runtime, Session, SessionState, SessionSubMap, SessionSubs,
+    TimestampMillis,
 };
 
 use config::PluginConfig;
-use rmqtt::anyhow::anyhow;
-use rmqtt::broker::fitter::Fitter;
-use rmqtt::tokio_cron_scheduler::Job;
+use rmqtt::broker::inflight::InflightMessage;
 use session::{Basic, StorageSessionManager, StoredSessionInfo, StoredSessionInfos};
-use store::{init_store_db, storage::Storage as _, Storage, StorageDb};
+use store::{init_store_db, storage::Storage as _, StorageDB, StorageKV};
 
 mod config;
 mod session;
@@ -64,12 +66,21 @@ struct StoragePlugin {
     name: String,
     descr: String,
     cfg: Arc<RwLock<PluginConfig>>,
-    _storage_db: StorageDb,
-    session_basic_kv: Storage,
-    session_subs_kv: Storage,
-    disconnect_info_kv: Storage,
-    session_lasttime_kv: Storage,
-    _message_kv: Storage,
+    _storage_db: StorageDB,
+    session_basic_kv: StorageKV,
+    session_subs_kv: StorageKV,
+    disconnect_info_kv: StorageKV,
+    session_lasttime_kv: StorageKV,
+    session_offline_messages_kv: StorageKV,
+    session_inflight_messages_kv: StorageKV,
+
+    //All received unexpired messages.
+    #[allow(dead_code)]
+    messages_unexpired_kv: StorageKV,
+    //All forwarded messages
+    #[allow(dead_code)]
+    messages_forwarded_kv: StorageKV,
+
     stored_session_infos: StoredSessionInfos,
     register: Box<dyn Register>,
     session_mgr: &'static StorageSessionManager,
@@ -92,9 +103,15 @@ impl StoragePlugin {
         log::info!("{} StoragePlugin open session disconnect info storage ok", name);
         let session_lasttime_kv = storage_db.open("session_lasttime")?;
         log::info!("{} StoragePlugin open session last time storage ok", name);
+        let session_offline_messages_kv = storage_db.open("session_offline_messages")?;
+        log::info!("{} StoragePlugin open session offline messages storage ok", name);
+        let session_inflight_messages_kv = storage_db.open("session_inflight_messages")?;
+        log::info!("{} StoragePlugin open session inflight messages storage ok", name);
 
-        let message_storage = storage_db.open("message")?;
-        log::info!("{} StoragePlugin open message storage ok", name);
+        let messages_unexpired_kv = storage_db.open("messages_unexpired")?;
+        log::info!("{} StoragePlugin open messages_unexpired storage ok", name);
+        let messages_forwarded_kv = storage_db.open("messages_forwarded")?;
+        log::info!("{} StoragePlugin open messages_forwarded storage ok", name);
 
         let stored_session_infos = StoredSessionInfos::new();
 
@@ -104,6 +121,8 @@ impl StoragePlugin {
             session_subs_kv.clone(),
             disconnect_info_kv.clone(),
             session_lasttime_kv.clone(),
+            session_offline_messages_kv.clone(),
+            session_inflight_messages_kv.clone(),
             stored_session_infos.clone(),
         );
         let cfg = Arc::new(RwLock::new(cfg));
@@ -118,7 +137,10 @@ impl StoragePlugin {
             session_subs_kv,
             disconnect_info_kv,
             session_lasttime_kv,
-            _message_kv: message_storage,
+            session_offline_messages_kv,
+            session_inflight_messages_kv,
+            messages_unexpired_kv,
+            messages_forwarded_kv,
             stored_session_infos,
             register,
             session_mgr,
@@ -187,19 +209,45 @@ impl StoragePlugin {
             }
         }
 
+        for item in self.session_offline_messages_kv.array_iter::<(ClientId, From, Publish)>() {
+            match item {
+                Ok((key, offline_messages)) => {
+                    if let Err(e) = self.stored_session_infos.set_offline_messages(key, offline_messages) {
+                        log::warn!("{:?}", e);
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Failed to read session offline messages from the database, {:?}", e);
+                }
+            }
+        }
+
+        for item in self.session_inflight_messages_kv.iter::<(ClientId, Vec<InflightMessage>)>() {
+            match item {
+                Ok((meta, (client_id, inflights))) => {
+                    if let Err(e) =
+                        self.stored_session_infos.set_inflight_messages(client_id, meta, inflights)
+                    {
+                        log::warn!("{:?}", e);
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Failed to read session inflight messages from the database, {:?}", e);
+                }
+            }
+        }
+
         self.stored_session_infos.retain_latests();
         log::info!("stored_session_infos len: {:?}", self.stored_session_infos.len());
-
-        for item in self._message_kv.iter::<SessionSubMap>() {
-            log::info!("_message_kv meta: item: {:?}", item);
-        }
     }
 
     async fn cleanup_offline_session_infos(
-        session_basic_kv: &Storage,
-        session_subs_kv: &Storage,
-        disconnect_info_kv: &Storage,
-        session_lasttime_kv: &Storage,
+        session_basic_kv: &StorageKV,
+        session_subs_kv: &StorageKV,
+        disconnect_info_kv: &StorageKV,
+        session_lasttime_kv: &StorageKV,
+        offline_messages_kv: &StorageKV,
+        inflight_messages_kv: &StorageKV,
     ) {
         //Clean offline session information
         session_basic_kv
@@ -247,6 +295,19 @@ impl StoragePlugin {
                                     e
                                 );
                             }
+                            if let Err(e) = offline_messages_kv.remove_array(id.to_string()) {
+                                log::warn!(
+                                    "Failed to remove session offline messages from the database, {:?}",
+                                    e
+                                );
+                            }
+                            if let Err(e) = inflight_messages_kv.remove(key.as_slice()) {
+                                log::warn!(
+                                    "Failed to remove session inflight messages from the database, {:?}",
+                                    e
+                                );
+                            }
+
                             false
                         }else{
                             true
@@ -257,7 +318,7 @@ impl StoragePlugin {
             .await;
 
         //Clean up abnormal data
-        async fn cleanup_abnormal_data(kv: &Storage, basic_kv: &Storage, tag: &str) {
+        async fn cleanup_abnormal_data(kv: &StorageKV, basic_kv: &StorageKV, tag: &str) {
             kv.retain_with_meta(|item| async move {
                 match item {
                     Err(e) => {
@@ -288,11 +349,39 @@ impl StoragePlugin {
         cleanup_abnormal_data(session_subs_kv, session_basic_kv, "subscription").await;
         cleanup_abnormal_data(disconnect_info_kv, session_basic_kv, "disconnect info").await;
         cleanup_abnormal_data(session_lasttime_kv, session_basic_kv, "last time").await;
+        cleanup_abnormal_data(inflight_messages_kv, session_basic_kv, "inflight messages").await;
+
+        for key in offline_messages_kv.array_key_iter() {
+            match key {
+                Err(e) => {
+                    log::warn!(
+                        "Failed to cleanup abnormal data from the database(offline messages), {:?}",
+                        e
+                    );
+                }
+                Ok(key) => {
+                    if !session_basic_kv.contains_key::<&[u8]>(key.as_ref()).unwrap_or_default() {
+                        log::info!(
+                            "{:?} cleanup abnormal data from the database(offline messages)",
+                            String::from_utf8_lossy(key.as_ref()),
+                        );
+                        if let Err(e) = offline_messages_kv.remove_array::<&[u8]>(key.as_ref()) {
+                            log::warn!(
+                                "Failed to remove session offline messages from the database, {:?}",
+                                e
+                            );
+                        }
+                    }
+                }
+            }
+        }
 
         let _ = session_subs_kv.flush().await;
         let _ = disconnect_info_kv.flush().await;
         let _ = session_lasttime_kv.flush().await;
         let _ = session_basic_kv.flush().await;
+        let _ = offline_messages_kv.flush().await;
+        let _ = inflight_messages_kv.flush().await;
     }
 
     #[inline]
@@ -391,6 +480,16 @@ impl Plugin for StoragePlugin {
                 )),
             )
             .await;
+        self.register
+            .add(
+                Type::OfflineMessage,
+                Box::new(OfflineMessageHandler::new(
+                    self.cfg.clone(),
+                    self.session_offline_messages_kv.clone(),
+                )),
+            )
+            .await;
+
         self.load_offline_session_infos().await;
 
         //Periodic Cleanup Tasks
@@ -398,18 +497,24 @@ impl Plugin for StoragePlugin {
         let session_subs_kv = self.session_subs_kv.clone();
         let disconnect_info_kv = self.disconnect_info_kv.clone();
         let session_lasttime_kv = self.session_lasttime_kv.clone();
+        let offline_messages_kv = self.session_offline_messages_kv.clone();
+        let inflight_messages_kv = self.session_inflight_messages_kv.clone();
         let async_cleans = Job::new_async(self.cfg.read().await.cleanup_cron.as_str(), move |_uuid, _l| {
             log::info!("Cleanup tasks start ...");
             let session_basic_kv = session_basic_kv.clone();
             let session_subs_kv = session_subs_kv.clone();
             let disconnect_info_kv = disconnect_info_kv.clone();
             let session_lasttime_kv = session_lasttime_kv.clone();
+            let offline_messages_kv = offline_messages_kv.clone();
+            let inflight_messages_kv = inflight_messages_kv.clone();
             Box::pin(async move {
                 Self::cleanup_offline_session_infos(
                     &session_basic_kv,
                     &session_subs_kv,
                     &disconnect_info_kv,
                     &session_lasttime_kv,
+                    &offline_messages_kv,
+                    &inflight_messages_kv,
                 )
                 .await;
             })
@@ -452,12 +557,60 @@ impl Plugin for StoragePlugin {
     #[inline]
     async fn attrs(&self) -> serde_json::Value {
         json!({
-            "storage_session_basic_count": self.session_basic_kv.len(),
-            "storage_session_subscriptions_count": self.session_subs_kv.len(),
-            "storage_session_disconnect_info_count": self.disconnect_info_kv.len(),
-            "storage_session_lasttime_count": self.session_lasttime_kv.len(),
+            "session_basics": self.session_basic_kv.len(),
+            "session_subscriptions": self.session_subs_kv.len(),
+            "session_disconnect_infos": self.disconnect_info_kv.len(),
+            "session_lasttimes": self.session_lasttime_kv.len(),
+            "session_offline_messages": self.session_offline_messages_kv.len(),
+            "session_offline_inflight_messages": self.session_inflight_messages_kv.len(),
+
             "storage_size_on_disk": self._storage_db.size_on_disk().unwrap_or_default(),
         })
+    }
+}
+
+struct OfflineMessageHandler {
+    cfg: Arc<RwLock<PluginConfig>>,
+    offline_messages_kv: StorageKV,
+}
+
+impl OfflineMessageHandler {
+    fn new(cfg: Arc<RwLock<PluginConfig>>, offline_messages_kv: StorageKV) -> Self {
+        Self { cfg, offline_messages_kv }
+    }
+}
+
+#[async_trait]
+impl Handler for OfflineMessageHandler {
+    async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
+        match param {
+            Parameter::OfflineMessage(s, f, p) => {
+                log::debug!(
+                    "OfflineMessage storage_type: {:?}, from: {:?}, p: {:?}",
+                    self.cfg.read().await.storage_type,
+                    f,
+                    p
+                );
+
+                let res = self.offline_messages_kv.push_array_limit(
+                    s.id.to_string(),
+                    &(s.id.client_id.clone(), f.clone(), (*p).clone()),
+                    s.listen_cfg().max_mqueue_len,
+                    true,
+                );
+                match res {
+                    Ok(Some(_)) => {}
+                    Ok(None) => {}
+                    Err(e) => {
+                        log::warn!("save offline messages error, {:?}", e)
+                    }
+                }
+            }
+            _ => {
+                log::error!("unimplemented, {:?}", param)
+            }
+        }
+        (true, acc)
     }
 }
 
@@ -539,6 +692,19 @@ impl StorageHandler {
                     stored.disconnect_info.take(),
                 )
                 .await;
+
+                let deliver_queue = session.deliver_queue();
+                for item in stored.offline_messages.drain(..) {
+                    if let Err((f, p)) = deliver_queue.push(item) {
+                        log::warn!("rebuild session offline message error, deliver queue is full, from: {:?}, publish: {:?}", f, p);
+                    }
+                }
+
+                let inflight_win = session.inflight_win();
+                for item in stored.inflight_messages.drain(..) {
+                    inflight_win.write().await.push_back(item);
+                }
+
                 if let Err(e) = self
                     .rebuild_tx
                     .clone()
