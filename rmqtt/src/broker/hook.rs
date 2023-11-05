@@ -101,13 +101,16 @@ pub trait Hook: Sync + Send {
     ///Publish message received
     async fn message_publish(&self, from: From, p: &Publish) -> Option<Publish>;
 
-    ///message delivered
+    ///Message delivered
     async fn message_delivered(&self, from: From, publish: &Publish) -> Option<Publish>;
 
-    ///message acked
+    ///Message acked
     async fn message_acked(&self, from: From, publish: &Publish);
 
-    ///message expiry check
+    ///Offline publish message
+    async fn offline_message(&self, from: From, publish: &Publish);
+
+    ///Message expiry check
     async fn message_expiry_check(&self, from: From, publish: &Publish) -> MessageExpiryCheckResult;
 }
 
@@ -136,6 +139,8 @@ pub enum Type {
     MessageDropped,
     MessageExpiryCheck,
     MessageNonsubscribed,
+
+    OfflineMessage,
 
     GrpcMessageReceived,
 }
@@ -166,6 +171,8 @@ impl std::convert::From<&str> for Type {
             "message_dropped" => Type::MessageDropped,
             "message_expiry_check" => Type::MessageExpiryCheck,
             "message_nonsubscribed" => Type::MessageNonsubscribed,
+
+            "offline_message" => Type::OfflineMessage,
 
             "grpc_message_received" => Type::GrpcMessageReceived,
 
@@ -200,6 +207,8 @@ pub enum Parameter<'a> {
     MessageExpiryCheck(&'a Session, From, &'a Publish),
     MessageNonsubscribed(From),
 
+    OfflineMessage(&'a Session, From, &'a Publish),
+
     GrpcMessageReceived(grpc::MessageType, grpc::Message),
 }
 
@@ -229,6 +238,8 @@ impl<'a> Parameter<'a> {
             Parameter::MessageDropped(_, _, _, _) => Type::MessageDropped,
             Parameter::MessageExpiryCheck(_, _, _) => Type::MessageExpiryCheck,
             Parameter::MessageNonsubscribed(_) => Type::MessageNonsubscribed,
+
+            Parameter::OfflineMessage(_, _, _) => Type::OfflineMessage,
 
             Parameter::GrpcMessageReceived(_, _) => Type::GrpcMessageReceived,
         }

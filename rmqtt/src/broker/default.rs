@@ -1,4 +1,3 @@
-use anyhow::anyhow;
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap};
 use std::convert::From as _f;
@@ -9,6 +8,7 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use anyhow::anyhow;
 #[allow(unused_imports)]
 use bitflags::Flags;
 use itertools::Itertools;
@@ -1556,16 +1556,19 @@ impl HookManager for &'static DefaultHookManager {
     }
 
     ///Publish message Dropped
+    #[inline]
     async fn message_dropped(&self, to: Option<To>, from: From, publish: Publish, reason: Reason) {
         let _ = self.exec(Type::MessageDropped, Parameter::MessageDropped(to, from, publish, reason)).await;
     }
 
     ///Publish message nonsubscribed
+    #[inline]
     async fn message_nonsubscribed(&self, from: From) {
         let _ = self.exec(Type::MessageNonsubscribed, Parameter::MessageNonsubscribed(from)).await;
     }
 
     ///grpc message received
+    #[inline]
     async fn grpc_message_received(
         &self,
         typ: grpc::MessageType,
@@ -1765,6 +1768,12 @@ impl Hook for DefaultHook {
     }
 
     #[inline]
+    async fn offline_message(&self, from: From, publish: &Publish) {
+        let _ =
+            self.manager.exec(Type::OfflineMessage, Parameter::OfflineMessage(&self.s, from, publish)).await;
+    }
+
+    #[inline]
     async fn message_expiry_check(&self, from: From, publish: &Publish) -> MessageExpiryCheckResult {
         log::debug!("{:?} publish: {:?}", self.s.id, publish);
         let result = self
@@ -1902,6 +1911,10 @@ impl DefaultSession {
 
 #[async_trait]
 impl SessionLike for DefaultSession {
+    fn id(&self) -> &Id {
+        &self.id
+    }
+
     #[inline]
     fn listen_cfg(&self) -> &Listener {
         &self.listen_cfg

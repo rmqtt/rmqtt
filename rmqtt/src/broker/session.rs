@@ -353,7 +353,11 @@ impl SessionState {
                     if let Some(msg) = msg{
                         match msg{
                             Message::Forward(from, p) => {
-                                if let Err((from, p)) = deliver_queue_tx.send((from, p)).await{
+
+                                //hook, offline_message
+                                state.hook.offline_message(from.clone(), &p).await;
+
+                                if let Err((from, p)) = deliver_queue_tx.send((from, p)).await {
                                     log::warn!("{:?} offline deliver_dropped, from: {:?}, {:?}", state.id, from, p);
                                     //hook, message_dropped
                                     Runtime::instance().extends.hook_mgr().await.message_dropped(Some(state.id.clone()), from, p, Reason::MessageQueueFull).await;
@@ -1375,6 +1379,7 @@ pub trait SessionManager: Sync + Send {
 
 #[async_trait]
 pub trait SessionLike: Sync + Send {
+    fn id(&self) -> &Id;
     fn listen_cfg(&self) -> &Listener;
     fn deliver_queue(&self) -> &MessageQueueType;
     fn inflight_win(&self) -> &InflightType;
