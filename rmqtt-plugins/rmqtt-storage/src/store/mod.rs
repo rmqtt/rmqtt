@@ -2,8 +2,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::future::Future;
 
-use rmqtt::async_trait::async_trait;
-use rmqtt::log;
+use rmqtt::{async_trait::async_trait, log};
 
 use storage::{Metadata, Result, SledStorageDB, SledStorageTree, StorageDB as _};
 
@@ -83,6 +82,163 @@ impl storage::Storage for StorageKV {
             }
         }
     }
+
+    #[inline]
+    fn remove<K: AsRef<[u8]> + Sync + Send>(&self, key: K) -> Result<()> {
+        let res = match self {
+            StorageKV::Sled(tree) => tree.remove(key),
+        };
+        match res {
+            Ok(res) => Ok(res),
+            Err(e) => {
+                log::warn!("Storage::remove error: {:?}", e);
+                Err(e)
+            }
+        }
+    }
+
+    #[inline]
+    fn push_array<K, V>(&self, key: K, val: &V) -> Result<()>
+    where
+        K: AsRef<[u8]> + Sync + Send,
+        V: serde::ser::Serialize + Sync + Send + ?Sized,
+    {
+        let res = match self {
+            StorageKV::Sled(tree) => tree.push_array(key, val),
+        };
+        match res {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                log::warn!("Storage::push_array error: {:?}", e);
+                Err(e)
+            }
+        }
+    }
+
+    #[inline]
+    fn push_array_limit<K, V>(
+        &self,
+        key: K,
+        val: &V,
+        limit: usize,
+        pop_front_if_limited: bool,
+    ) -> Result<Option<V>>
+    where
+        K: AsRef<[u8]> + Sync + Send,
+        V: serde::ser::Serialize + Sync + Send + ?Sized,
+        V: serde::de::DeserializeOwned,
+    {
+        let res = match self {
+            StorageKV::Sled(tree) => tree.push_array_limit(key, val, limit, pop_front_if_limited),
+        };
+        match res {
+            Ok(res) => Ok(res),
+            Err(e) => {
+                log::warn!("Storage::push_array_limit error: {:?}", e);
+                Err(e)
+            }
+        }
+    }
+
+    #[inline]
+    fn get_array<K, V>(&self, key: K) -> Result<Vec<V>>
+    where
+        K: AsRef<[u8]> + Sync + Send,
+        V: serde::de::DeserializeOwned + Sync + Send,
+    {
+        let res = match self {
+            StorageKV::Sled(tree) => tree.get_array(key),
+        };
+        match res {
+            Ok(res) => Ok(res),
+            Err(e) => {
+                log::warn!("Storage::get_array error: {:?}", e);
+                Err(e)
+            }
+        }
+    }
+
+    #[inline]
+    fn get_array_item<K, V>(&self, key: K, idx: usize) -> Result<Option<V>>
+    where
+        K: AsRef<[u8]> + Sync + Send,
+        V: serde::de::DeserializeOwned + Sync + Send,
+    {
+        let res = match self {
+            StorageKV::Sled(tree) => tree.get_array_item(key, idx),
+        };
+        match res {
+            Ok(res) => Ok(res),
+            Err(e) => {
+                log::warn!("Storage::get_array_item error: {:?}", e);
+                Err(e)
+            }
+        }
+    }
+
+    #[inline]
+    fn get_array_len<K: AsRef<[u8]> + Sync + Send>(&self, key: K) -> Result<usize> {
+        let res = match self {
+            StorageKV::Sled(tree) => tree.get_array_len(key),
+        };
+        match res {
+            Ok(res) => Ok(res),
+            Err(e) => {
+                log::warn!("Storage::get_array_len error: {:?}", e);
+                Err(e)
+            }
+        }
+    }
+
+    #[inline]
+    fn remove_array<K: AsRef<[u8]> + Sync + Send>(&self, key: K) -> Result<()> {
+        let res = match self {
+            StorageKV::Sled(tree) => tree.remove_array(key),
+        };
+        match res {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                log::warn!("Storage::remove_array error: {:?}", e);
+                Err(e)
+            }
+        }
+    }
+
+    #[inline]
+    fn pop_array<K, V>(&self, key: K) -> Result<Option<V>>
+    where
+        K: AsRef<[u8]> + Sync + Send,
+        V: serde::de::DeserializeOwned + Sync + Send,
+    {
+        let res = match self {
+            StorageKV::Sled(tree) => tree.pop_array(key),
+        };
+        match res {
+            Ok(res) => Ok(res),
+            Err(e) => {
+                log::warn!("Storage::pop_array error: {:?}", e);
+                Err(e)
+            }
+        }
+    }
+
+    #[inline]
+    fn array_iter<'a, V>(&'a self) -> Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<V>)>> + 'a>
+    where
+        V: serde::de::DeserializeOwned + Sync + Send + 'a,
+    {
+        match self {
+            StorageKV::Sled(tree) => tree.array_iter(),
+        }
+    }
+
+    #[inline]
+    fn array_key_iter(&self) -> Box<dyn Iterator<Item = Result<Vec<u8>>>> {
+        match self {
+            StorageKV::Sled(tree) => tree.array_key_iter(),
+        }
+    }
+
     #[inline]
     fn metadata<K: AsRef<[u8]> + Sync + Send>(&self, key: K) -> Result<Option<Metadata>> {
         let res = match self {
@@ -114,19 +270,7 @@ impl storage::Storage for StorageKV {
             StorageKV::Sled(tree) => tree.contains_key(key),
         }
     }
-    #[inline]
-    fn remove<K: AsRef<[u8]> + Sync + Send>(&self, key: K) -> Result<()> {
-        let res = match self {
-            StorageKV::Sled(tree) => tree.remove(key),
-        };
-        match res {
-            Ok(res) => Ok(res),
-            Err(e) => {
-                log::warn!("Storage::remove error: {:?}", e);
-                Err(e)
-            }
-        }
-    }
+
     #[inline]
     fn clear(&self) -> Result<()> {
         match self {
