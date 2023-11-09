@@ -128,9 +128,7 @@ impl NodeService for NodeGrpcService {
     }
 }
 
-pub static ACTIVE_REQUEST_COUNT: Lazy<Arc<AtomicIsize>> = Lazy::new(|| {
-    Arc::new(AtomicIsize::new(0))
-});
+pub static ACTIVE_REQUEST_COUNT: Lazy<Arc<AtomicIsize>> = Lazy::new(|| Arc::new(AtomicIsize::new(0)));
 
 pub fn active_grpc_requests() -> isize {
     ACTIVE_REQUEST_COUNT.load(Ordering::SeqCst)

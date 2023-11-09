@@ -1637,6 +1637,14 @@ pub struct PersistedMsg {
     pub msg_id: PMsgID,
     pub from: From,
     pub publish: Publish,
+    pub expiry_time: Timestamp,
+}
+
+impl PersistedMsg {
+    #[inline]
+    pub fn is_expiry(&self) -> bool {
+        self.expiry_time < timestamp_secs()
+    }
 }
 
 #[derive(Debug)]
@@ -2316,6 +2324,33 @@ impl DisconnectInfo {
     pub fn is_disconnected(&self) -> bool {
         self.disconnected_at != 0
     }
+}
+
+#[inline]
+pub fn timestamp() -> Duration {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_else(|_| {
+        let now = chrono::Local::now();
+        Duration::new(now.timestamp() as u64, now.timestamp_subsec_nanos())
+    })
+}
+
+#[inline]
+pub fn timestamp_secs() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|t| t.as_secs() as i64)
+        .unwrap_or_else(|_| chrono::Local::now().timestamp())
+}
+
+#[inline]
+pub fn timestamp_millis() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|t| t.as_millis() as i64)
+        .unwrap_or_else(|_| chrono::Local::now().timestamp_millis())
 }
 
 #[test]

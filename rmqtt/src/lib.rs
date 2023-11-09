@@ -28,6 +28,7 @@ pub use pin_project_lite;
 pub use rand;
 pub use reqwest;
 pub use rust_box;
+pub use scc;
 pub use structopt;
 pub use tokio;
 pub use tokio_cron_scheduler;

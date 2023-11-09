@@ -944,7 +944,6 @@ impl Router for &'static DefaultRouter {
         let topic = Topic::from_str(topic_filter)?;
         //add to topic tree
         self.topics.write().await.insert(&topic, ());
-
         //add to subscribe relations
         let old = self
             .relations
@@ -954,7 +953,6 @@ impl Router for &'static DefaultRouter {
                 HashMap::default()
             })
             .insert(id.client_id.clone(), (id, opts));
-
         if old.is_none() {
             self.relations_count.inc();
         }
@@ -2065,15 +2063,24 @@ impl DefaultMessageManager {
             let (exec, task_runner) = Builder::default().workers(1000).queue_max(300_000).build();
 
             tokio::spawn(async move {
-                futures::future::join(task_runner, async move {
-                    loop {
-                        sleep(Duration::from_secs(30)).await; //@TODO config enable
-                        if let Err(e) = Self::instance().remove_expired_messages().await {
-                            log::warn!("Cleanup expired messages failed! {:?}", e);
-                        }
-                    }
-                })
-                .await;
+                task_runner.await;
+            });
+
+            tokio::spawn(async move {
+                sleep(Duration::from_secs(60)).await; //@TODO config enable
+                loop {
+                    tokio::task::spawn_blocking(move || {
+                        tokio::runtime::Handle::current().block_on(async move {
+                            if let Some(msg_mgr) = INSTANCE.get() {
+                                let now = std::time::Instant::now();
+                                if let Err(e) = msg_mgr.remove_expired_messages().await {
+                                    log::warn!("remove expired messages error, {:?}", e);
+                                }
+                                log::info!("remove_expired_messages cost time: {:?}", now.elapsed());
+                            }
+                        })
+                    });
+                }
             });
 
             Self { inner: Arc::new(DefaultMessageManagerInner::default()), exec }
@@ -2120,7 +2127,7 @@ impl DefaultMessageManager {
         let mut topic = Topic::from_str(&publish.topic).map_err(|e| anyhow!(format!("{:?}", e)))?;
         let expiry_time = timestamp_secs() + expiry_interval.as_secs() as i64;
         let inner = &self.inner;
-        let pmsg = PersistedMsg { msg_id, from, publish };
+        let pmsg = PersistedMsg { msg_id, from, publish, expiry_time };
         topic.push(TopicLevel::Normal(msg_id.to_string()));
         inner.messages.insert_async(msg_id, pmsg).await.map_err(|_| anyhow!("messages insert error"))?;
         inner.subs_tree.write().await.insert(&topic, msg_id);
@@ -2224,7 +2231,11 @@ impl MessageManager for &'static DefaultMessageManager {
                         None
                     } else {
                         let pmsg = pmsg.get();
-                        Some((msg_id, pmsg.from.clone(), pmsg.publish.clone()))
+                        if pmsg.is_expiry() {
+                            None
+                        } else {
+                            Some((msg_id, pmsg.from.clone(), pmsg.publish.clone()))
+                        }
                     }
                 } else {
                     None
@@ -2243,33 +2254,6 @@ impl MessageManager for &'static DefaultMessageManager {
         let mut clientids = self.inner.forwardeds.entry(msg_id).or_default();
         clientids.get_mut().extend(sub_client_ids);
     }
-}
-
-#[inline]
-pub fn timestamp() -> Duration {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_else(|_| {
-        let now = chrono::Local::now();
-        Duration::new(now.timestamp() as u64, now.timestamp_subsec_nanos())
-    })
-}
-
-#[inline]
-pub fn timestamp_secs() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|t| t.as_secs() as i64)
-        .unwrap_or_else(|_| chrono::Local::now().timestamp())
-}
-
-#[inline]
-pub fn timestamp_millis() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|t| t.as_millis() as i64)
-        .unwrap_or_else(|_| chrono::Local::now().timestamp_millis())
 }
 
 #[test]
