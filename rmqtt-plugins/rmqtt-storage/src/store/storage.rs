@@ -21,6 +21,11 @@ pub trait StorageDB: Send + Sync {
     fn drop<V: AsRef<[u8]>>(&self, name: V) -> Result<bool>;
 
     fn size_on_disk(&self) -> Result<u64>;
+
+    fn generate_id(&self) -> Result<u64>;
+
+    fn counter_inc(&self, key: &str) -> Result<usize>;
+    fn counter_get(&self, key: &str) -> Result<usize>;
 }
 
 #[async_trait]
@@ -35,7 +40,18 @@ pub trait Storage: Sync + Send {
         K: AsRef<[u8]> + Sync + Send,
         V: serde::de::DeserializeOwned + Sync + Send;
 
-    fn remove<K: AsRef<[u8]> + Sync + Send>(&self, key: K) -> Result<()>;
+    fn remove<K>(&self, key: K) -> Result<()>
+    where
+        K: AsRef<[u8]> + Sync + Send;
+
+    fn remove_and_fetch<K, V>(&self, key: K) -> Result<Option<V>>
+    where
+        K: AsRef<[u8]> + Sync + Send,
+        V: serde::de::DeserializeOwned + Sync + Send;
+
+    fn remove_with_prefix<K>(&self, prefix: K) -> Result<()>
+    where
+        K: AsRef<[u8]> + Sync + Send;
 
     fn push_array<K, V>(&self, key: K, val: &V) -> Result<()>
     where
@@ -73,6 +89,7 @@ pub trait Storage: Sync + Send {
         K: AsRef<[u8]> + Sync + Send,
         V: serde::de::DeserializeOwned + Sync + Send;
 
+    #[allow(clippy::type_complexity)]
     fn array_iter<'a, V>(&'a self) -> Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<V>)>> + 'a>
     where
         V: serde::de::DeserializeOwned + Sync + Send + 'a;
@@ -94,6 +111,8 @@ pub trait Storage: Sync + Send {
     fn iter<'a, V>(&'a self) -> Box<dyn Iterator<Item = Result<(Metadata, V)>> + 'a>
     where
         V: serde::de::DeserializeOwned + Sync + Send + 'a;
+
+    fn iter_meta<'a>(&'a self) -> Box<dyn Iterator<Item = Result<Metadata>> + 'a>;
 
     fn prefix_iter<'a, P, V>(&'a self, prefix: P) -> Box<dyn Iterator<Item = Result<(Metadata, V)>> + 'a>
     where
@@ -132,22 +151,66 @@ impl SledStorageDB {
         let db = cfg.open()?;
         Ok(Self { db })
     }
+
+    fn increment(old: Option<&[u8]>) -> Option<Vec<u8>> {
+        let number = match old {
+            Some(bytes) => {
+                if let Ok(array) = bytes.try_into() {
+                    let number = usize::from_be_bytes(array);
+                    number + 1
+                } else {
+                    1
+                }
+            }
+            None => 1,
+        };
+
+        Some(number.to_be_bytes().to_vec())
+    }
 }
 
 impl StorageDB for SledStorageDB {
     type StorageType = SledStorageTree;
 
+    #[inline]
     fn open<V: AsRef<[u8]>>(&self, name: V) -> Result<Self::StorageType> {
         let tree = self.db.open_tree(name)?;
         Ok(SledStorageTree::new(tree))
     }
 
+    #[inline]
     fn drop<V: AsRef<[u8]>>(&self, name: V) -> Result<bool> {
         Ok(self.db.drop_tree(name)?)
     }
 
+    #[inline]
+    fn generate_id(&self) -> Result<u64> {
+        Ok(self.db.generate_id()?)
+    }
+
+    #[inline]
     fn size_on_disk(&self) -> Result<u64> {
         Ok(self.db.size_on_disk()?)
+    }
+
+    #[inline]
+    fn counter_inc(&self, key: &str) -> Result<usize> {
+        let res = if let Some(res) = self.db.update_and_fetch(key.as_bytes(), Self::increment)? {
+            usize::from_be_bytes(res.as_ref().try_into()?)
+        } else {
+            0
+        };
+        Ok(res)
+    }
+
+    #[inline]
+    fn counter_get(&self, key: &str) -> Result<usize> {
+        let res = if let Some(res) = self.db.get(key.as_bytes())? {
+            usize::from_be_bytes(res.as_ref().try_into()?)
+        } else {
+            0
+        };
+        Ok(res)
     }
 }
 
@@ -292,7 +355,10 @@ impl Storage for SledStorageTree {
     }
 
     #[inline]
-    fn remove<K: AsRef<[u8]> + Sync + Send>(&self, key: K) -> Result<()> {
+    fn remove<K>(&self, key: K) -> Result<()>
+    where
+        K: AsRef<[u8]> + Sync + Send,
+    {
         if key.as_ref().len() > MAX_KEY_LEN {
             return Err(anyhow::Error::msg("Key too long"));
         }
@@ -315,6 +381,63 @@ impl Storage for SledStorageTree {
     }
 
     #[inline]
+    fn remove_and_fetch<K, V>(&self, key: K) -> Result<Option<V>>
+    where
+        K: AsRef<[u8]> + Sync + Send,
+        V: serde::de::DeserializeOwned + Sync + Send,
+    {
+        if key.as_ref().len() > MAX_KEY_LEN {
+            return Err(anyhow::Error::msg("Key too long"));
+        }
+
+        for item in self.tree.scan_prefix(key.as_ref()) {
+            match item {
+                Ok((k, _v)) => {
+                    if key.as_ref().len() as u8 == k[k.len() - 1] {
+                        match self.tree.remove(k) {
+                            Err(e) => {
+                                log::warn!("{:?}", e);
+                            }
+                            Ok(Some(v)) => {
+                                return Ok(Some(bincode::deserialize::<V>(v.as_ref())?));
+                            }
+                            Ok(None) => {}
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::warn!("{:?}", e);
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    #[inline]
+    fn remove_with_prefix<K>(&self, prefix: K) -> Result<()>
+    where
+        K: AsRef<[u8]> + Sync + Send,
+    {
+        if prefix.as_ref().len() > MAX_KEY_LEN {
+            return Err(anyhow::Error::msg("Prefix too long"));
+        }
+
+        for item in self.tree.scan_prefix(prefix.as_ref()) {
+            match item {
+                Ok((k, _v)) => {
+                    if let Err(e) = self.tree.remove(k) {
+                        log::warn!("{:?}", e);
+                    }
+                }
+                Err(e) => {
+                    log::warn!("{:?}", e);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[inline]
     fn push_array<K, V>(&self, key: K, val: &V) -> Result<()>
     where
         K: AsRef<[u8]> + Sync + Send,
@@ -323,7 +446,7 @@ impl Storage for SledStorageTree {
         let data = bincode::serialize(val)?;
         let key_count = Self::array_key_count(key.as_ref());
 
-        let _ = (&self.tree).transaction(move |tx| {
+        let _ = self.tree.transaction(move |tx| {
             let (start, mut end) = Self::array_tx_count(tx, key_count.as_slice())?;
             end += 1;
             Self::array_tx_set_count(tx, key_count.as_slice(), start, end)?;
@@ -351,7 +474,7 @@ impl Storage for SledStorageTree {
         let data = bincode::serialize(val)?;
         let key_count = Self::array_key_count(key.as_ref());
 
-        let res = (&self.tree).transaction(move |tx| {
+        let res = self.tree.transaction(move |tx| {
             let (mut start, mut end) = Self::array_tx_count::<_, ConflictableTransactionError<sled::Error>>(
                 tx,
                 key_count.as_slice(),
@@ -419,7 +542,7 @@ impl Storage for SledStorageTree {
                     bincode::deserialize::<V>(v.as_ref())
                         .map_err(|e| sled::Error::Io(io::Error::new(ErrorKind::InvalidData, e)))
                 })
-                .map_err(|e| anyhow::Error::new(e))
+                .map_err(anyhow::Error::new)
             })
             .collect::<Result<Vec<_>>>()?;
         Ok(res)
@@ -495,7 +618,7 @@ impl Storage for SledStorageTree {
     {
         let key_count = Self::array_key_count(key.as_ref());
 
-        let removed = (&self.tree).transaction(move |tx| {
+        let removed = self.tree.transaction(move |tx| {
             let (start, end) = Self::array_tx_count(tx, key_count.as_slice())?;
 
             let mut removed = None;
@@ -587,6 +710,11 @@ impl Storage for SledStorageTree {
         V: serde::de::DeserializeOwned + Sync + Send + 'a,
     {
         Box::new(Iter { _map: self, iter: self.tree.iter(), _m: std::marker::PhantomData })
+    }
+
+    #[inline]
+    fn iter_meta<'a>(&'a self) -> Box<dyn Iterator<Item = Result<Metadata>> + 'a> {
+        Box::new(IterMeta { _map: self, iter: self.tree.iter() })
     }
 
     #[inline]
@@ -723,6 +851,29 @@ where
                 }
                 Err(e) => Some(Err(anyhow::Error::new(e))),
             },
+        }
+    }
+}
+
+pub struct IterMeta<'a> {
+    _map: &'a SledStorageTree,
+    iter: sled::Iter,
+}
+
+impl<'a> Iterator for IterMeta<'a> {
+    type Item = Result<Metadata<'a>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.iter.next() {
+            None => None,
+            Some(Err(e)) => Some(Err(anyhow::Error::new(e))),
+            Some(Ok((k, _))) => {
+                let key_len = k[k.len() - 1] as usize;
+                match bincode::deserialize::<Metadata>(&k[key_len..(k.len() - 1)]) {
+                    Ok(m) => Some(Ok(m)),
+                    Err(e) => Some(Err(anyhow::Error::new(e))),
+                }
+            }
         }
     }
 }

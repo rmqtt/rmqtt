@@ -26,6 +26,7 @@ pub(crate) enum StorageDB {
 }
 
 impl StorageDB {
+    #[inline]
     pub(crate) fn open<V: AsRef<[u8]>>(&self, name: V) -> Result<StorageKV> {
         match self {
             StorageDB::Sled(db) => {
@@ -35,9 +36,31 @@ impl StorageDB {
         }
     }
 
+    #[inline]
     pub(crate) fn size_on_disk(&self) -> Result<u64> {
         match self {
             StorageDB::Sled(db) => db.size_on_disk(),
+        }
+    }
+
+    #[inline]
+    pub(crate) fn generate_id(&self) -> Result<u64> {
+        match self {
+            StorageDB::Sled(db) => db.generate_id(),
+        }
+    }
+
+    #[inline]
+    pub(crate) fn counter_inc(&self, key: &str) -> Result<usize> {
+        match self {
+            StorageDB::Sled(db) => db.counter_inc(key),
+        }
+    }
+
+    #[inline]
+    pub(crate) fn counter_get(&self, key: &str) -> Result<usize> {
+        match self {
+            StorageDB::Sled(db) => db.counter_get(key),
         }
     }
 }
@@ -84,12 +107,50 @@ impl storage::Storage for StorageKV {
     }
 
     #[inline]
-    fn remove<K: AsRef<[u8]> + Sync + Send>(&self, key: K) -> Result<()> {
+    fn remove_and_fetch<K, V>(&self, key: K) -> Result<Option<V>>
+    where
+        K: AsRef<[u8]> + Sync + Send,
+        V: serde::de::DeserializeOwned + Sync + Send,
+    {
+        let res = match self {
+            StorageKV::Sled(tree) => tree.remove_and_fetch(key),
+        };
+        match res {
+            Ok(res) => Ok(res),
+            Err(e) => {
+                log::warn!("Storage::remove error: {:?}", e);
+                Err(e)
+            }
+        }
+    }
+
+    #[inline]
+    fn remove<K>(&self, key: K) -> Result<()>
+    where
+        K: AsRef<[u8]> + Sync + Send,
+    {
         let res = match self {
             StorageKV::Sled(tree) => tree.remove(key),
         };
         match res {
-            Ok(res) => Ok(res),
+            Ok(()) => Ok(()),
+            Err(e) => {
+                log::warn!("Storage::remove error: {:?}", e);
+                Err(e)
+            }
+        }
+    }
+
+    #[inline]
+    fn remove_with_prefix<K>(&self, prefix: K) -> Result<()>
+    where
+        K: AsRef<[u8]> + Sync + Send,
+    {
+        let res = match self {
+            StorageKV::Sled(tree) => tree.remove_with_prefix(prefix),
+        };
+        match res {
+            Ok(()) => Ok(()),
             Err(e) => {
                 log::warn!("Storage::remove error: {:?}", e);
                 Err(e)
@@ -290,6 +351,13 @@ impl storage::Storage for StorageKV {
     {
         match self {
             StorageKV::Sled(tree) => tree.iter(),
+        }
+    }
+
+    #[inline]
+    fn iter_meta<'a>(&'a self) -> Box<dyn Iterator<Item = Result<Metadata>> + 'a> {
+        match self {
+            StorageKV::Sled(tree) => tree.iter_meta(),
         }
     }
 
