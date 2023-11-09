@@ -29,11 +29,13 @@ use rmqtt::{
 };
 
 use config::PluginConfig;
+use message::StorageMessageManager;
 use rmqtt::broker::inflight::InflightMessage;
 use session::{Basic, StorageSessionManager, StoredSessionInfo, StoredSessionInfos};
 use store::{init_store_db, storage::Storage as _, StorageDB, StorageKV};
 
 mod config;
+mod message;
 mod session;
 mod store;
 
@@ -74,8 +76,10 @@ struct StoragePlugin {
     session_offline_messages_kv: StorageKV,
     session_inflight_messages_kv: StorageKV,
 
-    //All received unexpired messages.
+    //All received messages.
     #[allow(dead_code)]
+    messages_received_kv: StorageKV,
+    //All unexpired messages
     messages_unexpired_kv: StorageKV,
     //All forwarded messages
     #[allow(dead_code)]
@@ -84,6 +88,7 @@ struct StoragePlugin {
     stored_session_infos: StoredSessionInfos,
     register: Box<dyn Register>,
     session_mgr: &'static StorageSessionManager,
+    message_mgr: &'static StorageMessageManager,
     rebuild_tx: mpsc::Sender<RebuildChanType>,
 }
 
@@ -108,6 +113,8 @@ impl StoragePlugin {
         let session_inflight_messages_kv = storage_db.open("session_inflight_messages")?;
         log::info!("{} StoragePlugin open session inflight messages storage ok", name);
 
+        let messages_received_kv = storage_db.open("messages_received")?;
+        log::info!("{} StoragePlugin open messages_received storage ok", name);
         let messages_unexpired_kv = storage_db.open("messages_unexpired")?;
         log::info!("{} StoragePlugin open messages_unexpired storage ok", name);
         let messages_forwarded_kv = storage_db.open("messages_forwarded")?;
@@ -125,6 +132,12 @@ impl StoragePlugin {
             session_inflight_messages_kv.clone(),
             stored_session_infos.clone(),
         );
+        let message_mgr = StorageMessageManager::get_or_init(
+            storage_db.clone(),
+            messages_received_kv.clone(),
+            messages_unexpired_kv.clone(),
+            messages_forwarded_kv.clone(),
+        );
         let cfg = Arc::new(RwLock::new(cfg));
         let rebuild_tx = Self::start_local_runtime();
         Ok(Self {
@@ -139,11 +152,13 @@ impl StoragePlugin {
             session_lasttime_kv,
             session_offline_messages_kv,
             session_inflight_messages_kv,
+            messages_received_kv,
             messages_unexpired_kv,
             messages_forwarded_kv,
             stored_session_infos,
             register,
             session_mgr,
+            message_mgr,
             rebuild_tx,
         })
     }
@@ -534,6 +549,8 @@ impl Plugin for StoragePlugin {
     async fn start(&mut self) -> Result<()> {
         log::info!("{} start", self.name);
         *self.runtime.extends.session_mgr_mut().await = Box::new(self.session_mgr);
+        *self.runtime.extends.message_mgr_mut().await = Box::new(self.message_mgr);
+
         self.register.start().await;
         Ok(())
     }
@@ -556,16 +573,43 @@ impl Plugin for StoragePlugin {
 
     #[inline]
     async fn attrs(&self) -> serde_json::Value {
-        json!({
-            "session_basics": self.session_basic_kv.len(),
-            "session_subscriptions": self.session_subs_kv.len(),
-            "session_disconnect_infos": self.disconnect_info_kv.len(),
-            "session_lasttimes": self.session_lasttime_kv.len(),
-            "session_offline_messages": self.session_offline_messages_kv.len(),
-            "session_offline_inflight_messages": self.session_inflight_messages_kv.len(),
+        let session_basic_kv = self.session_basic_kv.clone();
+        let session_subs_kv = self.session_subs_kv.clone();
+        let disconnect_info_kv = self.disconnect_info_kv.clone();
+        let session_lasttime_kv = self.session_lasttime_kv.clone();
+        let offline_messages_kv = self.session_offline_messages_kv.clone();
+        let inflight_messages_kv = self.session_inflight_messages_kv.clone();
 
-            "storage_size_on_disk": self._storage_db.size_on_disk().unwrap_or_default(),
+        let messages_received_kv = self.messages_received_kv.clone();
+        let messages_unexpired_kv = self.messages_unexpired_kv.clone();
+        let messages_forwarded_kv = self.messages_forwarded_kv.clone();
+
+        let storage_db = self._storage_db.clone();
+
+        tokio::task::spawn_blocking(move || {
+            tokio::runtime::Handle::current().block_on(async move {
+                json!(
+                    {
+                        "session": {
+                            "basics": session_basic_kv.len(),
+                            "subscriptions": session_subs_kv.len(),
+                            "disconnect_infos": disconnect_info_kv.len(),
+                            "lasttimes": session_lasttime_kv.len(),
+                            "offline_messages": offline_messages_kv.len(),
+                            "offline_inflight_messages": inflight_messages_kv.len(),
+                        },
+                        "message": {
+                            "receiveds": messages_received_kv.len(),
+                            "unexpireds": messages_unexpired_kv.len(),
+                            "forwardeds": messages_forwarded_kv.len(),
+                        },
+                        "size_on_disk": storage_db.size_on_disk().unwrap_or_default(),
+                    }
+                )
+            })
         })
+        .await
+        .unwrap_or_default()
     }
 }
 
