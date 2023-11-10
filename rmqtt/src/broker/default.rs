@@ -2067,8 +2067,8 @@ impl DefaultMessageManager {
             });
 
             tokio::spawn(async move {
-                sleep(Duration::from_secs(60)).await; //@TODO config enable
                 loop {
+                    sleep(Duration::from_secs(60)).await; //@TODO config enable
                     tokio::task::spawn_blocking(move || {
                         tokio::runtime::Handle::current().block_on(async move {
                             if let Some(msg_mgr) = INSTANCE.get() {
@@ -2076,7 +2076,7 @@ impl DefaultMessageManager {
                                 if let Err(e) = msg_mgr.remove_expired_messages().await {
                                     log::warn!("remove expired messages error, {:?}", e);
                                 }
-                                log::info!("remove_expired_messages cost time: {:?}", now.elapsed());
+                                log::debug!("remove_expired_messages cost time: {:?}", now.elapsed());
                             }
                         })
                     });
