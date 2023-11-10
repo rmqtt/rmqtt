@@ -71,7 +71,7 @@ impl StorageMessageManager {
                     })
                     .await
                     .unwrap_or_default();
-                    log::info!(
+                    log::debug!(
                         "remove_expired_messages, removeds: {} cost time: {:?}",
                         removeds,
                         now.elapsed()
@@ -79,7 +79,7 @@ impl StorageMessageManager {
                     if removeds >= max_limit {
                         continue;
                     }
-                    sleep(Duration::from_secs(10)).await; //@TODO config enable
+                    sleep(Duration::from_secs(60)).await; //@TODO config enable
                 }
             });
 
@@ -174,7 +174,7 @@ impl StorageMessageManagerInner {
             }
         }
 
-        log::info!(
+        log::debug!(
             "removed_topics: {}, messages_received_removed_count: {}, cost time: {:?}",
             removed_topics.len(),
             messages_received_removed_count,
@@ -183,7 +183,7 @@ impl StorageMessageManagerInner {
         for topic in removed_topics {
             self.subs_tree.write().await.remove(&topic);
         }
-        log::info!("remove topics cost time: {:?}", now_inst.elapsed());
+        log::debug!("remove topics cost time: {:?}", now_inst.elapsed());
         Ok(messages_received_removed_count)
     }
 
