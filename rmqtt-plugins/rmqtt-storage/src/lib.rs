@@ -257,6 +257,25 @@ impl StoragePlugin {
     }
 
     async fn cleanup_offline_session_infos(
+        session_basic_kv: StorageKV,
+        session_subs_kv: StorageKV,
+        disconnect_info_kv: StorageKV,
+        session_lasttime_kv: StorageKV,
+        offline_messages_kv: StorageKV,
+        inflight_messages_kv: StorageKV,
+    ) {
+        Self::_cleanup_offline_session_infos(
+            &session_basic_kv,
+            &session_subs_kv,
+            &disconnect_info_kv,
+            &session_lasttime_kv,
+            &offline_messages_kv,
+            &inflight_messages_kv,
+        )
+        .await
+    }
+
+    async fn _cleanup_offline_session_infos(
         session_basic_kv: &StorageKV,
         session_subs_kv: &StorageKV,
         disconnect_info_kv: &StorageKV,
@@ -522,15 +541,21 @@ impl Plugin for StoragePlugin {
             let session_lasttime_kv = session_lasttime_kv.clone();
             let offline_messages_kv = offline_messages_kv.clone();
             let inflight_messages_kv = inflight_messages_kv.clone();
+
             Box::pin(async move {
-                Self::cleanup_offline_session_infos(
-                    &session_basic_kv,
-                    &session_subs_kv,
-                    &disconnect_info_kv,
-                    &session_lasttime_kv,
-                    &offline_messages_kv,
-                    &inflight_messages_kv,
-                )
+                let _ = tokio::task::spawn_blocking(move || {
+                    tokio::runtime::Handle::current().block_on(async move {
+                        Self::cleanup_offline_session_infos(
+                            session_basic_kv,
+                            session_subs_kv,
+                            disconnect_info_kv,
+                            session_lasttime_kv,
+                            offline_messages_kv,
+                            inflight_messages_kv,
+                        )
+                        .await
+                    })
+                })
                 .await;
             })
         })
