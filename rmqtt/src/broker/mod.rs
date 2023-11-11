@@ -254,7 +254,7 @@ pub trait MessageManager: Sync + Send {
         topic_filter: &str,
         group: Option<&SharedGroup>,
     ) -> Result<Vec<(PMsgID, From, Publish)>>;
-    fn set_forwardeds(
+    async fn set_forwardeds(
         &self,
         pmsg_id: PMsgID,
         sub_client_ids: Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>,

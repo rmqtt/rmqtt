@@ -1022,7 +1022,7 @@ impl SessionState {
             }
             Ok(Some(sub_cids)) => {
                 if let Some(msg_id) = msg_id {
-                    Runtime::instance().extends.message_mgr().await.set_forwardeds(msg_id, sub_cids);
+                    Runtime::instance().extends.message_mgr().await.set_forwardeds(msg_id, sub_cids).await;
                 }
             }
             Err(errs) => {
