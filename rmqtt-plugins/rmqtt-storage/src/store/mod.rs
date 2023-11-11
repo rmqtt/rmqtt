@@ -73,6 +73,57 @@ pub(crate) enum StorageKV {
 #[async_trait]
 impl storage::Storage for StorageKV {
     #[inline]
+    fn batch_remove<K>(&self, keys: Vec<K>) -> Result<()>
+    where
+        K: AsRef<[u8]> + Sync + Send,
+    {
+        let res = match self {
+            StorageKV::Sled(tree) => tree.batch_remove(keys),
+        };
+        match res {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                log::warn!("Storage::batch_remove error: {:?}", e);
+                Err(e)
+            }
+        }
+    }
+
+    #[inline]
+    fn batch_remove_with_prefix<K>(&self, prefixs: Vec<K>) -> Result<()>
+    where
+        K: AsRef<[u8]> + Sync + Send,
+    {
+        let res = match self {
+            StorageKV::Sled(tree) => tree.batch_remove_with_prefix(prefixs),
+        };
+        match res {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                log::warn!("Storage::batch_remove_with_prefix error: {:?}", e);
+                Err(e)
+            }
+        }
+    }
+
+    #[inline]
+    fn batch_insert<K, V>(&self, key_vals: Vec<(K, V)>) -> Result<()>
+    where
+        K: AsRef<[u8]> + Sync + Send,
+        V: serde::ser::Serialize + Sync + Send,
+    {
+        let res = match self {
+            StorageKV::Sled(tree) => tree.batch_insert(key_vals),
+        };
+        if let Err(e) = res {
+            log::warn!("Storage::batch_insert error: {:?}", e);
+            Err(e)
+        } else {
+            Ok(())
+        }
+    }
+
+    #[inline]
     fn insert<K, V>(&self, key: K, val: &V) -> Result<()>
     where
         K: AsRef<[u8]> + Sync + Send,

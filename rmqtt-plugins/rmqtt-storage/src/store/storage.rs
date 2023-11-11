@@ -30,6 +30,19 @@ pub trait StorageDB: Send + Sync {
 
 #[async_trait]
 pub trait Storage: Sync + Send {
+    fn batch_remove<K>(&self, keys: Vec<K>) -> Result<()>
+    where
+        K: AsRef<[u8]> + Sync + Send;
+
+    fn batch_remove_with_prefix<K>(&self, prefixs: Vec<K>) -> Result<()>
+    where
+        K: AsRef<[u8]> + Sync + Send;
+
+    fn batch_insert<K, V>(&self, key_vals: Vec<(K, V)>) -> Result<()>
+    where
+        K: AsRef<[u8]> + Sync + Send,
+        V: serde::ser::Serialize + Sync + Send;
+
     fn insert<K, V>(&self, key: K, val: &V) -> Result<()>
     where
         K: AsRef<[u8]> + Sync + Send,
@@ -310,6 +323,80 @@ impl SledStorageTree {
 
 #[async_trait]
 impl Storage for SledStorageTree {
+    #[inline]
+    fn batch_remove<K>(&self, keys: Vec<K>) -> Result<()>
+    where
+        K: AsRef<[u8]> + Sync + Send,
+    {
+        let mut batch = sled::Batch::default();
+        for key in keys {
+            for item in self.tree.scan_prefix(key.as_ref()) {
+                match item {
+                    Ok((k, _v)) => {
+                        if key.as_ref().len() as u8 == k[k.len() - 1] {
+                            batch.remove(k);
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("{:?}", e);
+                    }
+                }
+            }
+        }
+        self.tree.apply_batch(batch)?;
+        Ok(())
+    }
+
+    #[inline]
+    fn batch_remove_with_prefix<K>(&self, prefixs: Vec<K>) -> Result<()>
+    where
+        K: AsRef<[u8]> + Sync + Send,
+    {
+        let mut batch = sled::Batch::default();
+        for prefix in prefixs {
+            for item in self.tree.scan_prefix(prefix.as_ref()) {
+                match item {
+                    Ok((k, _v)) => {
+                        batch.remove(k);
+                    }
+                    Err(e) => {
+                        log::warn!("{:?}", e);
+                    }
+                }
+            }
+        }
+        self.tree.apply_batch(batch)?;
+        Ok(())
+    }
+
+    #[inline]
+    fn batch_insert<K, V>(&self, key_vals: Vec<(K, V)>) -> Result<()>
+    where
+        K: AsRef<[u8]> + Sync + Send,
+        V: serde::ser::Serialize + Sync + Send,
+    {
+        let mut removeds = Vec::new();
+        let mut batch = sled::Batch::default();
+        for (key, val) in key_vals {
+            removeds.push(key.as_ref().to_vec());
+
+            let data = bincode::serialize(&val)?;
+            let m = Metadata {
+                key: Cow::Borrowed(key.as_ref()),
+                time: chrono::Local::now().timestamp_millis(),
+                size: data.len(),
+            };
+            let mut buffer = Vec::with_capacity(key.as_ref().len() * 2 + 8 + 8 + 8 + 1);
+            buffer.extend(key.as_ref());
+            bincode::serialize_into(&mut buffer, &m)?;
+            buffer.push(key.as_ref().len() as u8);
+            batch.insert(buffer, data);
+        }
+        self.batch_remove(removeds)?;
+        self.tree.apply_batch(batch)?;
+        Ok(())
+    }
+
     #[inline]
     fn insert<K, V>(&self, key: K, val: &V) -> Result<()>
     where
