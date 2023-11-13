@@ -25,6 +25,7 @@ pub trait StorageDB: Send + Sync {
     fn generate_id(&self) -> Result<u64>;
 
     fn counter_inc(&self, key: &str) -> Result<usize>;
+    fn counter_set(&self, key: &str, val: usize) -> Result<()>;
     fn counter_get(&self, key: &str) -> Result<usize>;
 }
 
@@ -217,8 +218,14 @@ impl StorageDB for SledStorageDB {
     }
 
     #[inline]
+    fn counter_set(&self, key: &str, val: usize) -> Result<()> {
+        self.db.insert(key, val.to_be_bytes().as_slice())?;
+        Ok(())
+    }
+
+    #[inline]
     fn counter_get(&self, key: &str) -> Result<usize> {
-        let res = if let Some(res) = self.db.get(key.as_bytes())? {
+        let res = if let Some(res) = self.db.get(key)? {
             usize::from_be_bytes(res.as_ref().try_into()?)
         } else {
             0

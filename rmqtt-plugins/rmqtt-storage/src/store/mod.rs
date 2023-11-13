@@ -43,12 +43,14 @@ impl StorageDB {
         }
     }
 
+    /*
     #[inline]
     pub(crate) fn generate_id(&self) -> Result<u64> {
         match self {
             StorageDB::Sled(db) => db.generate_id(),
         }
     }
+    */
 
     #[inline]
     pub(crate) fn counter_inc(&self, key: &str) -> Result<usize> {
@@ -56,11 +58,24 @@ impl StorageDB {
             StorageDB::Sled(db) => db.counter_inc(key),
         }
     }
-
+    #[inline]
+    pub fn counter_set(&self, key: &str, val: usize) -> Result<()> {
+        match self {
+            StorageDB::Sled(db) => db.counter_set(key, val),
+        }
+    }
     #[inline]
     pub(crate) fn counter_get(&self, key: &str) -> Result<usize> {
         match self {
             StorageDB::Sled(db) => db.counter_get(key),
+        }
+    }
+
+    ///When performing a get operation, indicate whether it is necessary to merge data from different nodes in the cluster.
+    #[inline]
+    pub(crate) fn should_merge_on_get(&self) -> bool {
+        match self {
+            StorageDB::Sled(_) => true,
         }
     }
 }
