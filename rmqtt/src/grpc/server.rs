@@ -10,7 +10,7 @@ use super::pb::{
     self,
     node_service_server::{NodeService, NodeServiceServer},
 };
-use super::{Message, MessageReply, MessageType};
+use super::{Message, MessageReply, MessageType, MESSAGE_TYPE_MESSAGE_GET};
 
 pub struct Server {}
 
@@ -80,6 +80,26 @@ impl Server {
 #[derive(Debug, Default)]
 pub struct NodeGrpcService {}
 
+impl NodeGrpcService {
+    async fn grpc_message_received(&self, typ: MessageType, msg: Message) -> Result<MessageReply> {
+        match (typ, msg) {
+            (MESSAGE_TYPE_MESSAGE_GET, Message::MessageGet(client_id, topic_filter, group)) => {
+                match Runtime::instance()
+                    .extends
+                    .message_mgr()
+                    .await
+                    .get(&client_id, &topic_filter, group.as_ref())
+                    .await
+                {
+                    Err(e) => Ok(MessageReply::Error(e.to_string())),
+                    Ok(msgs) => Ok(MessageReply::MessageGet(msgs)),
+                }
+            }
+            (_, msg) => Runtime::instance().extends.hook_mgr().await.grpc_message_received(typ, msg).await,
+        }
+    }
+}
+
 #[tonic::async_trait]
 impl NodeService for NodeGrpcService {
     #[inline]
@@ -91,7 +111,7 @@ impl NodeService for NodeGrpcService {
         let req = request.into_inner();
         let msg = Message::decode(&req.data)?;
         ACTIVE_REQUEST_COUNT.fetch_add(1, Ordering::SeqCst);
-        let reply = Runtime::instance().extends.hook_mgr().await.grpc_message_received(req.typ, msg).await;
+        let reply = self.grpc_message_received(req.typ, msg).await;
         ACTIVE_REQUEST_COUNT.fetch_sub(1, Ordering::SeqCst);
         Ok(Response::new(pb::MessageReply { data: reply?.encode()? }))
     }
@@ -107,11 +127,9 @@ impl NodeService for NodeGrpcService {
             .map_err(|e| tonic::Status::unavailable(e.to_string()))?;
         ACTIVE_REQUEST_COUNT.fetch_add(1, Ordering::SeqCst);
 
-        let hook_mgr = Runtime::instance().extends.hook_mgr().await;
-
         let mut futs = Vec::new();
         for (typ, msg) in msgs {
-            futs.push(hook_mgr.grpc_message_received(typ, msg));
+            futs.push(self.grpc_message_received(typ, msg));
         }
         let reply = futures::future::join_all(futs)
             .await

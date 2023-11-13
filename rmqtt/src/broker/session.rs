@@ -607,13 +607,13 @@ impl SessionState {
         topic_filter: &str,
         qos: QoS,
         group: Option<&SharedGroup>,
-        excludeds: Vec<PMsgID>,
+        excludeds: Vec<(NodeId, PMsgID)>,
     ) -> Result<()> {
         let persistent_messages = Runtime::instance()
             .extends
-            .message_mgr()
+            .shared()
             .await
-            .get(&self.id.client_id, topic_filter, group)
+            .message_load(&self.id.client_id, topic_filter, group)
             .await?;
         log::debug!(
             "{:?} persistent_messages: {:?}, topic_filter: {}, group: {:?}, excludeds: {:?}",
@@ -632,7 +632,7 @@ impl SessionState {
         &self,
         persistent_messages: Vec<(PMsgID, From, Publish)>,
         qos: QoS,
-        excludeds: Vec<PMsgID>,
+        excludeds: Vec<(NodeId, PMsgID)>,
     ) -> Result<()> {
         for (msg_id, from, mut publish) in persistent_messages {
             log::debug!(
@@ -641,9 +641,9 @@ impl SessionState {
                 msg_id,
                 from,
                 publish,
-                excludeds.contains(&msg_id)
+                excludeds.contains(&(from.node_id, msg_id))
             );
-            if excludeds.contains(&msg_id) {
+            if excludeds.contains(&(from.node_id, msg_id)) {
                 continue;
             }
 
@@ -862,7 +862,8 @@ impl SessionState {
                 let excludeds = if send_retain_enable {
                     let retain_messages =
                         Runtime::instance().extends.retain().await.get(&sub.topic_filter).await?;
-                    let excludeds = retain_messages.iter().map(|(_, r)| r.msg_id).collect::<Vec<_>>();
+                    let excludeds =
+                        retain_messages.iter().map(|(_, r)| (r.from.node_id, r.msg_id)).collect::<Vec<_>>();
                     self.send_retain_messages(retain_messages, qos).await?;
                     excludeds
                 } else {
@@ -994,9 +995,9 @@ impl SessionState {
             let msg_id = if let Some(message_expiry_interval) = message_expiry_interval {
                 Runtime::instance()
                     .extends
-                    .message_mgr()
+                    .shared()
                     .await
-                    .set(from.clone(), publish.clone(), message_expiry_interval)
+                    .message_store(from.clone(), publish.clone(), message_expiry_interval)
                     .await?
             } else {
                 unreachable!()
@@ -1022,7 +1023,12 @@ impl SessionState {
             }
             Ok(Some(sub_cids)) => {
                 if let Some(msg_id) = msg_id {
-                    Runtime::instance().extends.message_mgr().await.set_forwardeds(msg_id, sub_cids).await;
+                    Runtime::instance()
+                        .extends
+                        .shared()
+                        .await
+                        .message_forwardeds_store(msg_id, sub_cids)
+                        .await;
                 }
             }
             Err(errs) => {

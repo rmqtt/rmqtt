@@ -5,10 +5,10 @@ use std::time::Duration;
 
 use crate::broker::session::{Session, SessionOfflineInfo};
 use crate::broker::types::*;
-use crate::grpc::GrpcClients;
+use crate::grpc::{GrpcClients, MessageBroadcaster, MessageReply, MESSAGE_TYPE_MESSAGE_GET};
 use crate::settings::listener::Listener;
 use crate::stats::Counter;
-use crate::{ClientId, Id, NodeId, Result, Runtime, TopicFilter};
+use crate::{grpc, ClientId, Id, MqttError, NodeId, Result, Runtime, TopicFilter};
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
@@ -117,6 +117,61 @@ pub trait Shared: Sync + Send {
     #[inline]
     async fn check_health(&self) -> Result<Option<serde_json::Value>> {
         Ok(Some(json!({"status": "Ok", "nodes": []})))
+    }
+
+    #[inline]
+    async fn message_store(&self, from: From, p: Publish, expiry_interval: Duration) -> Result<PMsgID> {
+        Runtime::instance().extends.message_mgr().await.set(from, p, expiry_interval).await
+    }
+
+    #[inline]
+    async fn message_load(
+        &self,
+        client_id: &str,
+        topic_filter: &str,
+        group: Option<&SharedGroup>,
+    ) -> Result<Vec<(PMsgID, From, Publish)>> {
+        let message_mgr = Runtime::instance().extends.message_mgr().await;
+        if message_mgr.should_merge_on_get() {
+            let mut msgs = message_mgr.get(client_id, topic_filter, group).await?;
+            let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
+            if !grpc_clients.is_empty() {
+                let replys = MessageBroadcaster::new(
+                    grpc_clients,
+                    MESSAGE_TYPE_MESSAGE_GET,
+                    grpc::Message::MessageGet(
+                        ClientId::from(client_id),
+                        TopicFilter::from(topic_filter),
+                        group.cloned(),
+                    ),
+                )
+                .join_all()
+                .await;
+                for (_, reply) in replys {
+                    match reply? {
+                        MessageReply::Error(e) => return Err(MqttError::Error(e)),
+                        MessageReply::MessageGet(res) => {
+                            msgs.extend(res.into_iter());
+                        }
+                        _ => {
+                            unreachable!()
+                        }
+                    }
+                }
+            }
+            Ok(msgs)
+        } else {
+            message_mgr.get(client_id, topic_filter, group).await
+        }
+    }
+
+    #[inline]
+    async fn message_forwardeds_store(
+        &self,
+        msg_id: PMsgID,
+        sub_client_ids: Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>,
+    ) {
+        Runtime::instance().extends.message_mgr().await.set_forwardeds(msg_id, sub_client_ids).await
     }
 }
 
@@ -254,11 +309,18 @@ pub trait MessageManager: Sync + Send {
         topic_filter: &str,
         group: Option<&SharedGroup>,
     ) -> Result<Vec<(PMsgID, From, Publish)>>;
+
+    ///Indicate that certain subscribed clients have already forwarded the specified message.
     async fn set_forwardeds(
         &self,
         pmsg_id: PMsgID,
         sub_client_ids: Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>,
     );
+    ///Indicate whether merging data from various nodes is needed during the 'get' operation.
+    #[inline]
+    fn should_merge_on_get(&self) -> bool {
+        false
+    }
 
     async fn count(&self) -> isize;
     async fn max(&self) -> isize;
