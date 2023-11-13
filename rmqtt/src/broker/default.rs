@@ -2066,36 +2066,39 @@ impl DefaultMessageManager {
                 task_runner.await;
             });
 
-            tokio::task::spawn_blocking(move || {
-                tokio::runtime::Handle::current().block_on(async move {
-                    let max_limit = 1000;
-                    sleep(Duration::from_secs(30)).await;
-                    loop {
-                        let now = std::time::Instant::now();
-                        let removeds = if let Some(msg_mgr) = INSTANCE.get() {
-                            match msg_mgr.remove_expired_messages(max_limit).await {
-                                Err(e) => {
-                                    log::warn!("remove expired messages error, {:?}", e);
-                                    0
+            tokio::spawn(async move {
+                let max_limit = 1000;
+                sleep(Duration::from_secs(30)).await;
+                loop {
+                    let now = std::time::Instant::now();
+                    let removeds = if let Some(msg_mgr) = INSTANCE.get() {
+                        tokio::task::spawn_blocking(move || {
+                            tokio::runtime::Handle::current().block_on(async move {
+                                match msg_mgr.remove_expired_messages(max_limit).await {
+                                    Err(e) => {
+                                        log::warn!("remove expired messages error, {:?}", e);
+                                        0
+                                    }
+                                    Ok(removed) => removed,
                                 }
-                                Ok(removed) => removed,
-                            }
-                        } else {
-                            0
-                        };
-                        log::debug!(
-                            "remove_expired_messages, removeds: {} cost time: {:?}",
-                            removeds,
-                            now.elapsed()
-                        );
-                        if removeds >= max_limit {
-                            continue;
-                        }
-                        sleep(Duration::from_secs(30)).await; //@TODO config enable
+                            })
+                        })
+                        .await
+                        .unwrap_or_default()
+                    } else {
+                        0
+                    };
+                    log::debug!(
+                        "remove_expired_messages, removeds: {} cost time: {:?}",
+                        removeds,
+                        now.elapsed()
+                    );
+                    if removeds >= max_limit {
+                        continue;
                     }
-                })
+                    sleep(Duration::from_secs(30)).await; //@TODO config enable
+                }
             });
-
             Self { inner: Arc::new(DefaultMessageManagerInner::default()), exec }
         })
     }
@@ -2183,6 +2186,11 @@ impl MessageManager for &'static DefaultMessageManager {
     #[inline]
     async fn max(&self) -> isize {
         self.exec.completed_count().await
+    }
+
+    #[inline]
+    fn should_merge_on_get(&self) -> bool {
+        true
     }
 
     #[inline]
