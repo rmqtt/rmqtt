@@ -39,7 +39,7 @@ description = "MQTT Server for v3.1, v3.1.1 and v5.0 protocols"
 repository = "https://github.com/rmqtt/rmqtt.git"
 license = "MIT license, Apache-2.0 License"
 categories = ["network-programming"]
-keywords = ["MQTT", "IoT", "messaging", "MQTT-Server", "MQTT-Broker"]
+keywords = ["MQTT", "IoT", "messaging", "MQTT Server", "MQTT Broker"]
 exclude = [".gitignore", ".cargo/config"]
 rust-version = "1.67"
 
