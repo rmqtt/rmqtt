@@ -2,7 +2,7 @@ use std::convert::From as _;
 use std::mem::size_of;
 use std::ops::Deref;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicIsize, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,13 +11,12 @@ use rmqtt::{
     anyhow::anyhow,
     async_trait::async_trait,
     futures::channel::mpsc,
-    futures::channel::oneshot,
     log,
     ntex_mqtt::TopicLevel,
     once_cell::sync::OnceCell,
     rust_box::std_ext::RwLock,
     rust_box::task_exec_queue::{Builder, SpawnExt, TaskExecQueue},
-    tokio, MqttError,
+    tokio,
 };
 
 use rmqtt::futures::{SinkExt, StreamExt};
@@ -30,7 +29,7 @@ use rmqtt::{
 use crate::store::storage::Storage;
 use crate::store::{StorageDB, StorageKV};
 
-type Msg = (From, Publish, Duration, oneshot::Sender<Result<PMsgID>>);
+type Msg = (From, Publish, Duration, PMsgID);
 
 pub struct StorageMessageManager {
     inner: Arc<StorageMessageManagerInner>,
@@ -48,26 +47,25 @@ impl StorageMessageManager {
         static INSTANCE: OnceCell<StorageMessageManager> = OnceCell::new();
         INSTANCE.get_or_init(|| {
             let queue_max = 300_000;
-            //let queue_max_two_thirds = (queue_max / 3 * 2) as isize;
-            let (exec, task_runner) = Builder::default().workers(200).queue_max(queue_max).build();
+            let (exec, task_runner) = Builder::default().workers(1000).queue_max(queue_max).build();
 
             tokio::spawn(async move {
                 task_runner.await;
             });
 
             let exec1 = exec.clone();
-            tokio::task::spawn_blocking(move || {
-                tokio::runtime::Handle::current().block_on(async move {
-                    let max_limit = 1000;
-                    sleep(Duration::from_secs(30)).await;
-                    loop {
-                        if exec1.active_count() > 1 {
-                            sleep(Duration::from_secs(5)).await;
-                            continue;
-                        }
-
-                        let now = std::time::Instant::now();
-                        let removeds = if let Some(msg_mgr) = INSTANCE.get() {
+            tokio::spawn(async move {
+                let max_limit = 1000;
+                sleep(Duration::from_secs(30)).await;
+                loop {
+                    if exec1.active_count() > 1 {
+                        sleep(Duration::from_secs(3)).await;
+                        continue;
+                    }
+                    let exec1 = exec1.clone();
+                    let now = std::time::Instant::now();
+                    let removeds = if let Some(msg_mgr) = INSTANCE.get() {
+                        tokio::task::spawn_blocking(move || {
                             match msg_mgr.remove_expired_messages(max_limit, &exec1) {
                                 Err(e) => {
                                     log::warn!("remove expired messages error, {:?}", e);
@@ -75,70 +73,66 @@ impl StorageMessageManager {
                                 }
                                 Ok(removed) => removed,
                             }
-                        } else {
-                            0
-                        };
-                        log::debug!(
-                            "remove_expired_messages, removeds: {} cost time: {:?}",
-                            removeds,
-                            now.elapsed()
-                        );
-                        if removeds >= max_limit {
-                            continue;
-                        }
-                        sleep(Duration::from_secs(60)).await; //@TODO config enable
+                        })
+                        .await
+                        .unwrap_or_default()
+                    } else {
+                        0
+                    };
+                    log::debug!(
+                        "remove_expired_messages, removeds: {} cost time: {:?}",
+                        removeds,
+                        now.elapsed()
+                    );
+                    if removeds >= max_limit {
+                        continue;
                     }
-                })
+                    sleep(Duration::from_secs(30)).await; //@TODO config enable
+                }
             });
 
+            let msg_queue_count = Arc::new(AtomicIsize::new(0));
+            let msg_queue_count1 = msg_queue_count.clone();
             let (msg_tx, mut msg_rx) = mpsc::channel::<Msg>(300_000);
-            tokio::task::spawn_blocking(move || {
-                tokio::runtime::Handle::current().block_on(async move {
-                    loop {
-                        if INSTANCE.get().is_some() {
-                            break;
-                        }
-                        sleep(Duration::from_millis(10)).await;
+            tokio::spawn(async move {
+                loop {
+                    if INSTANCE.get().is_some() {
+                        break;
                     }
-                    if let Some(msg_mgr) = INSTANCE.get() {
-                        let mut merger_msgs = Vec::new();
-                        while let Some((from, publish, expiry_interval, res_tx)) = msg_rx.next().await {
-                            let msg_id = match msg_mgr.next_id() {
-                                Err(e) => {
-                                    let _ = res_tx.send(Err(e));
-                                    continue;
+                    sleep(Duration::from_millis(10)).await;
+                }
+                if let Some(msg_mgr) = INSTANCE.get() {
+                    let mut merger_msgs = Vec::new();
+                    while let Some((from, publish, expiry_interval, msg_id)) = msg_rx.next().await {
+                        merger_msgs.push((from, publish, expiry_interval, msg_id));
+                        while merger_msgs.len() < 1000 {
+                            match tokio::time::timeout(Duration::from_millis(0), msg_rx.next()).await {
+                                Ok(Some((from, publish, expiry_interval, msg_id))) => {
+                                    merger_msgs.push((from, publish, expiry_interval, msg_id));
                                 }
-                                Ok(msg_id) => msg_id,
-                            };
-                            merger_msgs.push((from, publish, expiry_interval, msg_id, res_tx));
-                            while merger_msgs.len() < 1000 {
-                                match tokio::time::timeout(Duration::from_millis(0), msg_rx.next()).await {
-                                    Ok(Some((from, publish, expiry_interval, res_tx))) => {
-                                        let msg_id = match msg_mgr.next_id() {
-                                            Err(e) => {
-                                                let _ = res_tx.send(Err(e));
-                                                continue;
-                                            }
-                                            Ok(msg_id) => msg_id,
-                                        };
-                                        merger_msgs.push((from, publish, expiry_interval, msg_id, res_tx));
-                                    }
-                                    _ => break,
-                                }
+                                _ => break,
                             }
-                            log::debug!("merger_msgs.len: {}", merger_msgs.len());
-                            //merge and send
-                            let msgs = std::mem::take(&mut merger_msgs);
-                            msg_mgr._batch_set(msgs);
                         }
+                        log::debug!("merger_msgs.len: {}", merger_msgs.len());
+                        //merge and send
+                        let msgs = std::mem::take(&mut merger_msgs);
+                        msg_queue_count1.fetch_sub(msgs.len() as isize, Ordering::SeqCst);
+                        tokio::task::spawn_blocking(move || {
+                            msg_mgr._batch_set(msgs);
+                        });
                     }
-                })
+                    log::error!("Recv failed because receiver is gone");
+                }
             });
 
             let messages_received_count = AtomicIsize::new(messages_received_kv.len() as isize);
+            log::info!("messages_received_count: {}", messages_received_count.load(Ordering::SeqCst));
             let messages_received_max =
                 storage_db.counter_get("messages_received").unwrap_or_default() as isize;
+
             let messages_received_max = AtomicIsize::new(messages_received_max);
+            let id_generater = AtomicUsize::new(storage_db.counter_get("id_generater").unwrap_or(1));
+            log::info!("current msg_id: {}", id_generater.load(Ordering::SeqCst));
             Self {
                 inner: Arc::new(StorageMessageManagerInner {
                     storage_db,
@@ -149,6 +143,8 @@ impl StorageMessageManager {
                     messages_received_count,
                     messages_received_max,
                     msg_tx,
+                    msg_queue_count,
+                    id_generater,
                 }),
                 exec,
             }
@@ -176,12 +172,21 @@ pub struct StorageMessageManagerInner {
     messages_received_max: AtomicIsize,
 
     msg_tx: mpsc::Sender<Msg>,
+    msg_queue_count: Arc<AtomicIsize>,
+
+    id_generater: AtomicUsize,
 }
 
 impl StorageMessageManagerInner {
     #[inline]
-    fn next_id(&self) -> Result<usize> {
-        Ok(self.storage_db.generate_id().map(|id| id as usize)?)
+    fn save_msg_id(&self) -> Result<()> {
+        self.storage_db.counter_set("id_generater", self.id_generater.load(Ordering::SeqCst))?;
+        Ok(())
+    }
+
+    #[inline]
+    fn next_msg_id(&self) -> usize {
+        self.id_generater.fetch_add(1, Ordering::SeqCst)
     }
 
     #[inline]
@@ -222,9 +227,7 @@ impl StorageMessageManagerInner {
                 break;
             }
 
-            //self.messages_unexpired_kv.remove(meta.key.as_ref())?;
             unexpired_removed_keys.push(meta.key.to_vec());
-            //self.messages_forwarded_kv.remove_with_prefix(msg_id_bytes)?;
             forwarded_removed_keys.push(msg_id_bytes.to_vec());
 
             let msg_id = PMsgID::from_be_bytes(msg_id_bytes.try_into().map_err(anyhow::Error::new)?);
@@ -253,6 +256,18 @@ impl StorageMessageManagerInner {
         self.messages_unexpired_kv.batch_remove(unexpired_removed_keys)?;
         self.messages_forwarded_kv.batch_remove_with_prefix(forwarded_removed_keys)?;
         self.messages_received_kv.batch_remove(received_removed_keys)?;
+
+        if messages_received_removed_count == 0 && self.messages_unexpired_kv.is_empty() {
+            for item in self.messages_received_kv.iter_meta() {
+                let item = item?;
+                self.messages_received_kv.remove(item.key.as_ref())?;
+                self.messages_received_count_dec();
+            }
+            for item in self.messages_forwarded_kv.iter_meta() {
+                let item = item?;
+                self.messages_forwarded_kv.remove(item.key.as_ref())?;
+            }
+        }
 
         log::debug!("remove topics cost time: {:?}", now_inst.elapsed());
         Ok(messages_received_removed_count)
@@ -304,15 +319,14 @@ impl StorageMessageManagerInner {
     }
 
     #[inline]
-    fn _batch_set(&self, msgs: Vec<(From, Publish, Duration, PMsgID, oneshot::Sender<Result<PMsgID>>)>) {
+    fn _batch_set(&self, msgs: Vec<(From, Publish, Duration, PMsgID)>) {
         let mut received_key_vals = Vec::new();
         let mut unexpired_key_vals = Vec::new();
-        let mut msg_id_txs = Vec::new();
-        for (from, publish, expiry_interval, msg_id, res_tx) in msgs {
+        let _ = self.save_msg_id();
+        for (from, publish, expiry_interval, msg_id) in msgs {
             let mut topic = match Topic::from_str(&publish.topic) {
                 Err(e) => {
-                    //.map_err(|e| anyhow!(format!("{:?}", e)))
-                    let _ = res_tx.send(Err(MqttError::from(e)));
+                    log::warn!("Topic::from_str error, {:?}", e);
                     continue;
                 }
                 Ok(topic) => topic,
@@ -324,37 +338,25 @@ impl StorageMessageManagerInner {
 
             let msg_id_bytes = msg_id.to_be_bytes();
 
-            //self.messages_received_kv.insert(msg_id_bytes.as_slice(), &pmsg)?;
             received_key_vals.push((msg_id_bytes.to_vec(), pmsg));
             self.messages_received_count_inc();
             self.subs_tree.write().insert(&topic, msg_id);
 
             let mut expiry_time = expiry_time.to_be_bytes().to_vec();
             expiry_time.extend_from_slice(msg_id_bytes.as_slice());
-            //self.messages_unexpired_kv.insert::<_, ()>(expiry_time.as_slice(), &())?;
             unexpired_key_vals.push((expiry_time, ()));
 
             if let Err(e) = self.storage_db.counter_inc("messages_received") {
-                let _ = res_tx.send(Err(MqttError::from(e)));
+                log::warn!("messages_received counter_inc error, {:?}", e);
                 continue;
             }
-            msg_id_txs.push((msg_id, res_tx));
         }
 
         if let Err(e) = self.messages_received_kv.batch_insert::<_, PersistedMsg>(received_key_vals) {
-            for (_, tx) in msg_id_txs {
-                let _ = tx.send(Err(MqttError::from(e.to_string())));
-            }
-            return;
+            log::warn!("messages_received batch_insert error, {:?}", e);
         }
         if let Err(e) = self.messages_unexpired_kv.batch_insert::<_, ()>(unexpired_key_vals) {
-            for (_, tx) in msg_id_txs {
-                let _ = tx.send(Err(MqttError::from(e.to_string())));
-            }
-            return;
-        }
-        for (msg_id, tx) in msg_id_txs {
-            let _ = tx.send(Ok(msg_id));
+            log::warn!("messages_unexpired batch_insert error, {:?}", e);
         }
     }
 
@@ -386,7 +388,7 @@ impl StorageMessageManagerInner {
         client_id: &str,
         topic_filter: &str,
         group: Option<&SharedGroup>,
-    ) -> Result<Vec<(PMsgID, rmqtt::From, Publish)>> {
+    ) -> Result<Vec<(PMsgID, From, Publish)>> {
         let inner = self;
         let mut topic = Topic::from_str(topic_filter).map_err(|e| anyhow!(format!("{:?}", e)))?;
         if !topic.levels().last().map(|l| matches!(l, TopicLevel::MultiWildcard)).unwrap_or_default() {
@@ -434,14 +436,9 @@ impl StorageMessageManagerInner {
 impl MessageManager for &'static StorageMessageManager {
     #[inline]
     async fn set(&self, from: From, p: Publish, expiry_interval: Duration) -> Result<PMsgID> {
-        let now = std::time::Instant::now();
-        let (tx, rx) = oneshot::channel();
-        self.msg_tx.clone().send((from, p, expiry_interval, tx)).await.map_err(|e| anyhow!(e))?;
-        let msg_id = rx.await.map_err(|e| anyhow!(e))??;
-        let now_elapsed = now.elapsed();
-        if now_elapsed.as_millis() > 250 {
-            log::info!("StorageMessageManager::set cost time: {:?}", now_elapsed);
-        }
+        let msg_id = self.next_msg_id();
+        self.msg_tx.clone().send((from, p, expiry_interval, msg_id)).await.map_err(|e| anyhow!(e))?;
+        self.msg_queue_count.fetch_add(1, Ordering::SeqCst);
         Ok(msg_id)
     }
 
@@ -464,8 +461,12 @@ impl MessageManager for &'static StorageMessageManager {
         .result()
         .await
         .map_err(|e| anyhow!(e.to_string()))???;
-        if now.elapsed().as_millis() > 100 {
-            log::info!("StorageMessageManager::get cost time: {:?}", now.elapsed());
+        if now.elapsed().as_millis() > 300 {
+            log::info!(
+                "StorageMessageManager::get cost time: {:?}, waiting_count: {:?}",
+                now.elapsed(),
+                self.exec.waiting_count()
+            );
         }
         Ok(matcheds)
     }
@@ -485,14 +486,22 @@ impl MessageManager for &'static StorageMessageManager {
                         log::warn!("set_forwardeds error, {:?}", e);
                     }
                 }
-            })
-            .await
+            });
         }
         .spawn(&self.exec)
         .await;
-        if now.elapsed().as_millis() > 100 {
-            log::info!("StorageMessageManager::set_forwardeds cost time: {:?}", now.elapsed());
+        if now.elapsed().as_millis() > 200 {
+            log::info!(
+                "StorageMessageManager::set_forwardeds cost time: {:?}, waiting_count: {:?}",
+                now.elapsed(),
+                self.exec.waiting_count()
+            );
         }
+    }
+
+    #[inline]
+    fn should_merge_on_get(&self) -> bool {
+        self.storage_db.should_merge_on_get()
     }
 
     #[inline]
