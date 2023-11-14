@@ -215,6 +215,9 @@ pub struct ListenerInner {
     )]
     pub message_expiry_interval: Duration,
 
+    #[serde(default = "ListenerInner::message_storage_available_default")]
+    pub message_storage_available: bool,
+
     #[serde(default = "ListenerInner::max_subscriptions_default")]
     pub max_subscriptions: usize,
 
@@ -259,6 +262,7 @@ impl Default for ListenerInner {
             session_expiry_interval: ListenerInner::session_expiry_interval_default(),
             message_retry_interval: ListenerInner::message_retry_interval_default(),
             message_expiry_interval: ListenerInner::message_expiry_interval_default(),
+            message_storage_available: ListenerInner::message_storage_available_default(),
             max_subscriptions: ListenerInner::max_subscriptions_default(),
             shared_subscription: ListenerInner::shared_subscription_default(),
             max_topic_aliases: 0,
@@ -355,7 +359,7 @@ impl ListenerInner {
     }
     #[inline]
     fn retain_available_default() -> bool {
-        false
+        true
     }
     #[inline]
     fn session_expiry_interval_default() -> Duration {
@@ -368,6 +372,10 @@ impl ListenerInner {
     #[inline]
     fn message_expiry_interval_default() -> Duration {
         Duration::from_secs(300)
+    }
+    #[inline]
+    fn message_storage_available_default() -> bool {
+        false
     }
     #[inline]
     fn max_subscriptions_default() -> usize {

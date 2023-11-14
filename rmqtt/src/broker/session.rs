@@ -557,13 +557,22 @@ impl SessionState {
             let p = self.hook.message_publish(from.clone(), &p).await.unwrap_or(p);
             log::debug!("process_last_will, publish: {:?}", p);
 
-            let (retain_available, message_expiry_interval) = if self.listen_cfg().retain_available {
+            let listen_cfg = self.listen_cfg();
+            let (message_storage_available, message_expiry_interval) = if listen_cfg.message_storage_available
+            {
                 (true, Some(self.fitter.message_expiry_interval(&p)))
             } else {
                 (false, None)
             };
 
-            Self::forwards(from, p, retain_available, message_expiry_interval).await?;
+            Self::forwards(
+                from,
+                p,
+                listen_cfg.retain_available,
+                message_storage_available,
+                message_expiry_interval,
+            )
+            .await?;
         }
         Ok(())
     }
@@ -602,48 +611,55 @@ impl SessionState {
     }
 
     #[inline]
-    async fn send_persistent_messages(
+    async fn send_storaged_messages(
         &self,
         topic_filter: &str,
         qos: QoS,
         group: Option<&SharedGroup>,
-        excludeds: Vec<(NodeId, PMsgID)>,
+        excludeds: Option<Vec<(NodeId, PMsgID)>>,
     ) -> Result<()> {
-        let persistent_messages = Runtime::instance()
+        let storaged_messages = Runtime::instance()
             .extends
             .shared()
             .await
             .message_load(&self.id.client_id, topic_filter, group)
             .await?;
         log::debug!(
-            "{:?} persistent_messages: {:?}, topic_filter: {}, group: {:?}, excludeds: {:?}",
+            "{:?} storaged_messages: {:?}, topic_filter: {}, group: {:?}, excludeds: {:?}",
             self.id,
-            persistent_messages.len(),
+            storaged_messages.len(),
             topic_filter,
             group,
             excludeds
         );
-        self._send_persistent_messages(persistent_messages, qos, excludeds).await?;
+        self._send_storaged_messages(storaged_messages, qos, excludeds).await?;
         Ok(())
     }
 
     #[inline]
-    async fn _send_persistent_messages(
+    async fn _send_storaged_messages(
         &self,
-        persistent_messages: Vec<(PMsgID, From, Publish)>,
+        storaged_messages: Vec<(PMsgID, From, Publish)>,
         qos: QoS,
-        excludeds: Vec<(NodeId, PMsgID)>,
+        excludeds: Option<Vec<(NodeId, PMsgID)>>,
     ) -> Result<()> {
-        for (msg_id, from, mut publish) in persistent_messages {
+        for (msg_id, from, mut publish) in storaged_messages {
             log::debug!(
                 "{:?} msg_id: {}, from:{:?}, publish:{:?}, excluded: {}",
                 self.id,
                 msg_id,
                 from,
                 publish,
-                excludeds.contains(&(from.node_id, msg_id))
+                excludeds
+                    .as_ref()
+                    .map(|excludeds| excludeds.contains(&(from.node_id, msg_id)))
+                    .unwrap_or_default()
             );
-            if excludeds.contains(&(from.node_id, msg_id)) {
+            if excludeds
+                .as_ref()
+                .map(|excludeds| excludeds.contains(&(from.node_id, msg_id)))
+                .unwrap_or_default()
+            {
                 continue;
             }
 
@@ -846,7 +862,7 @@ impl SessionState {
 
         if let Some(qos) = sub_ret.success() {
             //send retain messages
-            if listen_cfg.retain_available {
+            let excludeds = if listen_cfg.retain_available {
                 //MQTT V5: Retain Handling
                 let send_retain_enable = match sub.opts.retain_handling() {
                     Some(RetainHandling::AtSubscribe) => true,
@@ -862,8 +878,10 @@ impl SessionState {
                 let excludeds = if send_retain_enable {
                     let retain_messages =
                         Runtime::instance().extends.retain().await.get(&sub.topic_filter).await?;
-                    let excludeds =
-                        retain_messages.iter().map(|(_, r)| (r.from.node_id, r.msg_id)).collect::<Vec<_>>();
+                    let excludeds = retain_messages
+                        .iter()
+                        .filter_map(|(_, r)| r.msg_id.map(|msg_id| (r.from.node_id, msg_id)))
+                        .collect::<Vec<_>>();
                     self.send_retain_messages(retain_messages, qos).await?;
                     excludeds
                 } else {
@@ -871,10 +889,16 @@ impl SessionState {
                 };
 
                 log::debug!("{:?} excludeds: {:?}", self.id, excludeds);
-                //Send messages before they expire
-                self.send_persistent_messages(&sub.topic_filter, qos, sub.opts.shared_group(), excludeds)
-                    .await?;
+                Some(excludeds)
+            } else {
+                None
             };
+
+            if listen_cfg.message_storage_available {
+                //Send messages before they expire
+                self.send_storaged_messages(&sub.topic_filter, qos, sub.opts.shared_group(), excludeds)
+                    .await?;
+            }
 
             //hook, session_subscribed
             self.hook.session_subscribed(sub).await;
@@ -971,13 +995,21 @@ impl SessionState {
             };
         }
 
-        let (retain_available, message_expiry_interval) = if self.listen_cfg().retain_available {
+        let listen_cfg = self.listen_cfg();
+        let (message_storage_available, message_expiry_interval) = if listen_cfg.message_storage_available {
             (true, Some(self.fitter.message_expiry_interval(&publish)))
         } else {
             (false, None)
         };
 
-        Self::forwards(from, publish, retain_available, message_expiry_interval).await?;
+        Self::forwards(
+            from,
+            publish,
+            listen_cfg.retain_available,
+            message_storage_available,
+            message_expiry_interval,
+        )
+        .await?;
 
         Ok(true)
     }
@@ -987,10 +1019,11 @@ impl SessionState {
         from: From,
         publish: Publish,
         retain_available: bool,
+        message_storage_available: bool,
         message_expiry_interval: Option<Duration>,
     ) -> Result<()> {
-        //Retain messages
-        let msg_id = if retain_available {
+        //Storage messages
+        let msg_id = if message_storage_available {
             //Store messages before they expire
             let msg_id = if let Some(message_expiry_interval) = message_expiry_interval {
                 Runtime::instance()
@@ -1003,18 +1036,19 @@ impl SessionState {
                 unreachable!()
             };
 
-            if publish.retain() {
-                Runtime::instance()
-                    .extends
-                    .retain()
-                    .await
-                    .set(publish.topic(), Retain { msg_id, from: from.clone(), publish: publish.clone() })
-                    .await?;
-            }
             Some(msg_id)
         } else {
             None
         };
+
+        if retain_available && publish.retain() {
+            Runtime::instance()
+                .extends
+                .retain()
+                .await
+                .set(publish.topic(), Retain { msg_id, from: from.clone(), publish: publish.clone() })
+                .await?;
+        }
 
         match Runtime::instance().extends.shared().await.forwards(from.clone(), publish).await {
             Ok(None) => {
@@ -1125,9 +1159,7 @@ impl SessionState {
                 }
 
                 //Send messages before they expire
-                if let Err(e) =
-                    self.send_persistent_messages(tf, opts.qos(), opts.shared_group(), Vec::default()).await
-                {
+                if let Err(e) = self.send_storaged_messages(tf, opts.qos(), opts.shared_group(), None).await {
                     log::warn!("transfer_session_state, router.add, {:?}", e);
                 }
             }

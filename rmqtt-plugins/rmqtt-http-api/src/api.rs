@@ -679,9 +679,14 @@ async fn get_route(req: &mut Request, res: &mut Response) {
 #[handler]
 async fn publish(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
-    let (http_laddr, retain_available, expiry_interval) = {
+    let (http_laddr, retain_available, storage_available, expiry_interval) = {
         let cfg_rl = cfg.read().await;
-        (cfg_rl.http_laddr, cfg_rl.message_retain_available, cfg_rl.message_expiry_interval)
+        (
+            cfg_rl.http_laddr,
+            cfg_rl.message_retain_available,
+            cfg_rl.message_storage_available,
+            cfg_rl.message_expiry_interval,
+        )
     };
 
     let remote_addr = req.remote_addr().and_then(|addr| {
@@ -696,7 +701,9 @@ async fn publish(req: &mut Request, depot: &mut Depot, res: &mut Response) {
         Ok(p) => p,
         Err(e) => return res.set_status_error(StatusError::bad_request().with_detail(e.to_string())),
     };
-    match _publish(params, remote_addr, http_laddr, retain_available, expiry_interval).await {
+    match _publish(params, remote_addr, http_laddr, retain_available, storage_available, expiry_interval)
+        .await
+    {
         Ok(()) => res.render(Text::Plain("ok")),
         Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
     }
@@ -707,6 +714,7 @@ async fn _publish(
     remote_addr: Option<SocketAddr>,
     http_laddr: SocketAddr,
     retain_available: bool,
+    storage_available: bool,
     expiry_interval: Duration,
 ) -> Result<()> {
     let mut topics = if let Some(topics) = params.topics {
@@ -773,8 +781,14 @@ async fn _publish(
                 .await
                 .unwrap_or(p1);
 
-            if let Err(e) =
-                SessionState::forwards(from, p1, retain_available, Some(message_expiry_interval)).await
+            if let Err(e) = SessionState::forwards(
+                from,
+                p1,
+                retain_available,
+                storage_available,
+                Some(message_expiry_interval),
+            )
+            .await
             {
                 log::warn!("{:?}", e);
             }

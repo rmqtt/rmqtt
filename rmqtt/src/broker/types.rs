@@ -1625,7 +1625,7 @@ pub struct _Id {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Retain {
-    pub msg_id: PMsgID,
+    pub msg_id: Option<PMsgID>,
     pub from: From,
     pub publish: Publish,
 }
