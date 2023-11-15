@@ -612,26 +612,24 @@ impl Plugin for StoragePlugin {
         let storage_db = self._storage_db.clone();
 
         tokio::task::spawn_blocking(move || {
-            tokio::runtime::Handle::current().block_on(async move {
-                json!(
-                    {
-                        "session": {
-                            "basics": session_basic_kv.len(),
-                            "subscriptions": session_subs_kv.len(),
-                            "disconnect_infos": disconnect_info_kv.len(),
-                            "lasttimes": session_lasttime_kv.len(),
-                            "offline_messages": offline_messages_kv.len(),
-                            "offline_inflight_messages": inflight_messages_kv.len(),
-                        },
-                        "message": {
-                            "receiveds": messages_received_kv.len(),
-                            "unexpireds": messages_unexpired_kv.len(),
-                            "forwardeds": messages_forwarded_kv.len(),
-                        },
-                        "size_on_disk": storage_db.size_on_disk().unwrap_or_default(),
-                    }
-                )
-            })
+            json!(
+                {
+                    "session": {
+                        "basics": session_basic_kv.len(),
+                        "subscriptions": session_subs_kv.len(),
+                        "disconnect_infos": disconnect_info_kv.len(),
+                        "lasttimes": session_lasttime_kv.len(),
+                        "offline_messages": offline_messages_kv.len(),
+                        "offline_inflight_messages": inflight_messages_kv.len(),
+                    },
+                    "message": {
+                        "receiveds": messages_received_kv.len(),
+                        "unexpireds": messages_unexpired_kv.len(),
+                        "forwardeds": messages_forwarded_kv.len(),
+                    },
+                    "size_on_disk": storage_db.size_on_disk().unwrap_or_default(),
+                }
+            )
         })
         .await
         .unwrap_or_default()
