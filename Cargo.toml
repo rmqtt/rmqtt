@@ -11,7 +11,6 @@ members = [
     "rmqtt-plugins/rmqtt-http-api",
     "rmqtt-plugins/rmqtt-retainer",
     "rmqtt-plugins/rmqtt-sys-topic",
-    "rmqtt-plugins/rmqtt-storage",
     "rmqtt-plugins/rmqtt-session-storage",
     "rmqtt-bin",
     "rmqtt-macros"
@@ -29,7 +28,6 @@ rmqtt-counter = { path = "rmqtt-plugins/rmqtt-counter" }
 rmqtt-http-api = { path = "rmqtt-plugins/rmqtt-http-api" }
 rmqtt-retainer = { path = "rmqtt-plugins/rmqtt-retainer" }
 rmqtt-sys-topic = { path = "rmqtt-plugins/rmqtt-sys-topic" }
-rmqtt-storage = { path = "rmqtt-plugins/rmqtt-storage" }
 rmqtt-session-storage = { path = "rmqtt-plugins/rmqtt-session-storage" }
 
 [workspace.package]
