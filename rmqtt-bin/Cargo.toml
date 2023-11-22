@@ -43,6 +43,7 @@ rmqtt-http-api = "0.1"
 rmqtt-retainer = "0.1"
 rmqtt-sys-topic = "0.1"
 rmqtt-session-storage = "0.1"
+rmqtt-message-storage = "0.1"
 #rmqtt-plugin-template = "0.1"
 
 [package.metadata.plugins]
@@ -56,6 +57,7 @@ rmqtt-cluster-raft = { immutable = true }
 rmqtt-retainer = { }
 rmqtt-sys-topic = { }
 rmqtt-session-storage = { immutable = true }
+rmqtt-message-storage = { immutable = true }
 #rmqtt-plugin-template = { }
 
 [build-dependencies]

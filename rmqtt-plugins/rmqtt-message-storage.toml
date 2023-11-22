@@ -1,0 +1,9 @@
+##--------------------------------------------------------------------
+## rmqtt-message-storage
+##--------------------------------------------------------------------
+
+storage_type = "sled"
+#sled
+sled.path = "/var/log/rmqtt/.cache/message"
+sled.cache_capacity = "2G"
+
