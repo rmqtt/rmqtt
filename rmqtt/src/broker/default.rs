@@ -24,6 +24,7 @@ use uuid::Uuid;
 
 use crate::broker::fitter::{Fitter, FitterManager};
 use crate::broker::hook::{Handler, Hook, HookManager, HookResult, Parameter, Priority, Register, Type};
+use crate::broker::inflight::InflightMessage;
 use crate::broker::session::{Session, SessionLike, SessionManager, SessionOfflineInfo};
 use crate::broker::topic::{Topic, VecToTopic};
 use crate::broker::types::*;
@@ -1325,7 +1326,7 @@ impl Fitter for DefaultFitter {
     }
 
     #[inline]
-    async fn session_expiry_interval(&self, d: Option<&Disconnect>) -> Duration {
+    fn session_expiry_interval(&self, d: Option<&Disconnect>) -> Duration {
         let expiry_interval = || {
             if let ConnectInfo::V5(_, connect) = self.conn_info.as_ref() {
                 Duration::from_secs(connect.session_expiry_interval_secs.unwrap_or_default() as u64)
@@ -1772,6 +1773,17 @@ impl Hook for DefaultHook {
     }
 
     #[inline]
+    async fn offline_inflight_messages(&self, inflight_messages: Vec<InflightMessage>) {
+        let _ = self
+            .manager
+            .exec(
+                Type::OfflineInflightMessages,
+                Parameter::OfflineInflightMessages(&self.s, inflight_messages),
+            )
+            .await;
+    }
+
+    #[inline]
     async fn message_expiry_check(&self, from: From, publish: &Publish) -> MessageExpiryCheckResult {
         log::debug!("{:?} publish: {:?}", self.s.id, publish);
         let result = self
@@ -1818,6 +1830,7 @@ impl SessionManager for &'static DefaultSessionManager {
         &self,
         id: Id,
         listen_cfg: Listener,
+        _fitter: FitterType,
         subscriptions: SessionSubs,
         deliver_queue: MessageQueueType,
         inflight_win: InflightType,
@@ -1829,6 +1842,8 @@ impl SessionManager for &'static DefaultSessionManager {
         superuser: bool,
         connected: bool,
         disconnect_info: Option<DisconnectInfo>,
+
+        _last_id: Option<Id>,
     ) -> Arc<dyn SessionLike> {
         Arc::new(DefaultSession::new(
             id,
@@ -1890,6 +1905,7 @@ impl DefaultSession {
             state_flags.insert(SessionStateFlags::Connected);
         }
         let disconnect_info = disconnect_info.unwrap_or_default();
+
         Self {
             id,
             listen_cfg,
@@ -2005,6 +2021,13 @@ impl SessionLike for DefaultSession {
     async fn disconnected_reason_has(&self) -> bool {
         !self.disconnect_info.read().await.reasons.is_empty()
     }
+    async fn disconnected_reason_add(&self, r: Reason) -> Result<()> {
+        self.disconnect_info.write().await.reasons.push(r);
+        Ok(())
+    }
+    async fn disconnected_reason_take(&self) -> Result<Reason> {
+        Ok(Reason::Reasons(self.disconnect_info.write().await.reasons.drain(..).collect()))
+    }
     async fn disconnect(&self) -> Result<Option<Disconnect>> {
         Ok(self.disconnect_info.read().await.mqtt_disconnect.clone())
     }
@@ -2025,13 +2048,6 @@ impl SessionLike for DefaultSession {
         }
 
         Ok(())
-    }
-    async fn disconnected_reason_add(&self, r: Reason) -> Result<()> {
-        self.disconnect_info.write().await.reasons.push(r);
-        Ok(())
-    }
-    async fn disconnected_reason_take(&self) -> Result<Reason> {
-        Ok(Reason::Reasons(self.disconnect_info.write().await.reasons.drain(..).collect()))
     }
 
     #[inline]

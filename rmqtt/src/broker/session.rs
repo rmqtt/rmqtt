@@ -301,7 +301,13 @@ impl SessionState {
             } else if clean_session {
                 state.clean(state.disconnected_reason_take().await.unwrap_or_default()).await;
             } else {
-                let session_expiry_interval = state.fitter.session_expiry_interval(disconnect.as_ref()).await;
+                let session_expiry_interval = state.fitter.session_expiry_interval(disconnect.as_ref());
+                //hook, offline_inflight_messages
+                let inflight_messages = state.inflight_win().write().await.to_inflight_messages();
+                if !inflight_messages.is_empty() {
+                    state.hook.offline_inflight_messages(inflight_messages).await;
+                }
+
                 //Start offline event loop
                 Self::offline_start(
                     state.clone(),
@@ -328,7 +334,6 @@ impl SessionState {
         deliver_queue_tx: &MessageSender,
         flags: &mut StateFlags,
         mut will_delay_interval: Option<Duration>,
-        //disconnect: Option<&Disconnect>,
         session_expiry_interval: Duration,
     ) {
         //let session_expiry_interval = state.fitter.session_expiry_interval(disconnect).await;
@@ -1193,7 +1198,7 @@ impl SessionState {
             if let ConnectInfo::V3(_, conn_info) = connect_info.as_ref() {
                 conn_info.clean_session
             } else {
-                self.fitter.session_expiry_interval(d).await.is_zero()
+                self.fitter.session_expiry_interval(d).is_zero()
             }
         } else {
             true
@@ -1296,6 +1301,8 @@ impl Session {
 
         subscriptions: SessionSubs,
         disconnect_info: Option<DisconnectInfo>,
+
+        last_id: Option<Id>,
     ) -> Self {
         let max_inflight = max_inflight.get() as usize;
         let message_retry_interval = listen_cfg.message_retry_interval.as_millis() as TimestampMillis;
@@ -1323,6 +1330,7 @@ impl Session {
         let session_like = Runtime::instance().extends.session_mgr().await.create(
             id.clone(),
             listen_cfg,
+            fitter.clone(),
             subscriptions,
             Arc::new(deliver_queue),
             Arc::new(RwLock::new(out_inflight)),
@@ -1333,6 +1341,7 @@ impl Session {
             superuser,
             connected,
             disconnect_info,
+            last_id,
         );
         Self(Arc::new(_Session { inner: session_like, id, fitter, extra_attrs }))
     }
@@ -1348,12 +1357,8 @@ impl Session {
             //@TODO ..., check message expired
             offline_messages.push(item);
         }
-        let mut inflight_win = self.inflight_win().write().await;
-        let mut inflight_messages = Vec::new();
-        while let Some(msg) = inflight_win.pop_front() {
-            //@TODO ..., check message expired
-            inflight_messages.push(msg);
-        }
+        let inflight_messages = self.inflight_win().write().await.to_inflight_messages();
+
         Ok(SessionOfflineInfo { id, subscriptions, offline_messages, inflight_messages, created_at })
     }
 
@@ -1401,6 +1406,7 @@ pub trait SessionManager: Sync + Send {
         &self,
         id: Id,
         listen_cfg: Listener,
+        fitter: FitterType,
         subscriptions: SessionSubs,
         deliver_queue: MessageQueueType,
         inflight_win: InflightType,
@@ -1412,6 +1418,8 @@ pub trait SessionManager: Sync + Send {
         superuser: bool,
         connected: bool,
         disconnect_info: Option<DisconnectInfo>,
+
+        last_id: Option<Id>,
     ) -> Arc<dyn SessionLike>;
 }
 

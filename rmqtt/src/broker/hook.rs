@@ -1,3 +1,4 @@
+use crate::broker::inflight::InflightMessage;
 use crate::broker::types::*;
 use crate::{grpc, Result, Session};
 
@@ -110,6 +111,9 @@ pub trait Hook: Sync + Send {
     ///Offline publish message
     async fn offline_message(&self, from: From, publish: &Publish);
 
+    ///Offline inflight messages
+    async fn offline_inflight_messages(&self, inflight_messages: Vec<InflightMessage>);
+
     ///Message expiry check
     async fn message_expiry_check(&self, from: From, publish: &Publish) -> MessageExpiryCheckResult;
 }
@@ -141,6 +145,7 @@ pub enum Type {
     MessageNonsubscribed,
 
     OfflineMessage,
+    OfflineInflightMessages,
 
     GrpcMessageReceived,
 }
@@ -173,6 +178,7 @@ impl std::convert::From<&str> for Type {
             "message_nonsubscribed" => Type::MessageNonsubscribed,
 
             "offline_message" => Type::OfflineMessage,
+            "offline_inflight_messages" => Type::OfflineInflightMessages,
 
             "grpc_message_received" => Type::GrpcMessageReceived,
 
@@ -208,6 +214,7 @@ pub enum Parameter<'a> {
     MessageNonsubscribed(From),
 
     OfflineMessage(&'a Session, From, &'a Publish),
+    OfflineInflightMessages(&'a Session, Vec<InflightMessage>),
 
     GrpcMessageReceived(grpc::MessageType, grpc::Message),
 }
@@ -240,6 +247,7 @@ impl<'a> Parameter<'a> {
             Parameter::MessageNonsubscribed(_) => Type::MessageNonsubscribed,
 
             Parameter::OfflineMessage(_, _, _) => Type::OfflineMessage,
+            Parameter::OfflineInflightMessages(_, _) => Type::OfflineInflightMessages,
 
             Parameter::GrpcMessageReceived(_, _) => Type::GrpcMessageReceived,
         }
