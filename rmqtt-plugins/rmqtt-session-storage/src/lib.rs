@@ -1,12 +1,10 @@
 #![deny(unsafe_code)]
-#[macro_use]
-extern crate serde;
 
+use std::convert::From as _;
 use std::sync::Arc;
 use std::time::Duration;
 
 use rmqtt::{
-    anyhow::anyhow,
     async_trait::async_trait,
     chrono, futures,
     futures::channel::mpsc,
@@ -15,8 +13,6 @@ use rmqtt::{
     log,
     serde_json::{self, json},
     tokio,
-    tokio::sync::RwLock,
-    tokio_cron_scheduler::Job,
 };
 
 use rmqtt::{
@@ -28,19 +24,20 @@ use rmqtt::{
     TimestampMillis,
 };
 
-use config::PluginConfig;
+use crate::session::{StoredKey, BASIC, DISCONNECT_INFO, INFLIGHT_MESSAGES, LAST_TIME, SESSION_SUB_MAP};
 use rmqtt::broker::inflight::InflightMessage;
+use rmqtt::bytes::Bytes;
+use rmqtt_storage::{init_db, Config, DefaultStorageDB, List, Map};
 use session::{Basic, StorageSessionManager, StoredSessionInfo, StoredSessionInfos};
-use store::{init_store_db, storage::Storage as _, StorageDB, StorageKV};
 
-mod config;
 mod session;
-mod store;
 
 enum RebuildChanType {
     Session(Session, Duration),
     Done(oneshot::Sender<()>),
 }
+
+type OfflineMessageOptionType = Option<(ClientId, From, Publish)>;
 
 #[inline]
 pub async fn register(
@@ -65,15 +62,8 @@ struct StoragePlugin {
     runtime: &'static Runtime,
     name: String,
     descr: String,
-    cfg: Arc<RwLock<PluginConfig>>,
-    _storage_db: StorageDB,
-    session_basic_kv: StorageKV,
-    session_subs_kv: StorageKV,
-    disconnect_info_kv: StorageKV,
-    session_lasttime_kv: StorageKV,
-    session_offline_messages_kv: StorageKV,
-    session_inflight_messages_kv: StorageKV,
-
+    cfg: Arc<Config>,
+    storage_db: DefaultStorageDB,
     stored_session_infos: StoredSessionInfos,
     register: Box<dyn Register>,
     session_mgr: &'static StorageSessionManager,
@@ -84,50 +74,25 @@ impl StoragePlugin {
     #[inline]
     async fn new<S: Into<String>>(runtime: &'static Runtime, name: S, descr: S) -> Result<Self> {
         let name = name.into();
-        let cfg = runtime.settings.plugins.load_config_default::<PluginConfig>(&name)?;
+        let cfg = runtime.settings.plugins.load_config_default::<Config>(&name)?;
         log::info!("{} StoragePlugin cfg: {:?}", name, cfg);
 
-        let storage_db = init_store_db(&cfg)?;
-        let session_basic_kv = storage_db.open("session_basics")?;
-        log::info!("{} StoragePlugin open session basic storage ok", name);
-        let session_subs_kv = storage_db.open("session_subscriptions")?;
-        log::info!("{} StoragePlugin open session subscriptions storage ok", name);
-        let disconnect_info_kv = storage_db.open("disconnect_info")?;
-        log::info!("{} StoragePlugin open session disconnect info storage ok", name);
-        let session_lasttime_kv = storage_db.open("session_lasttime")?;
-        log::info!("{} StoragePlugin open session last time storage ok", name);
-        let session_offline_messages_kv = storage_db.open("session_offline_messages")?;
-        log::info!("{} StoragePlugin open session offline messages storage ok", name);
-        let session_inflight_messages_kv = storage_db.open("session_inflight_messages")?;
-        log::info!("{} StoragePlugin open session inflight messages storage ok", name);
+        let storage_db = init_db(&cfg).await?;
 
         let stored_session_infos = StoredSessionInfos::new();
 
         let register = runtime.extends.hook_mgr().await.register();
-        let session_mgr = StorageSessionManager::get_or_init(
-            session_basic_kv.clone(),
-            session_subs_kv.clone(),
-            disconnect_info_kv.clone(),
-            session_lasttime_kv.clone(),
-            session_offline_messages_kv.clone(),
-            session_inflight_messages_kv.clone(),
-            stored_session_infos.clone(),
-        );
+        let session_mgr =
+            StorageSessionManager::get_or_init(storage_db.clone(), stored_session_infos.clone());
 
-        let cfg = Arc::new(RwLock::new(cfg));
+        let cfg = Arc::new(cfg);
         let rebuild_tx = Self::start_local_runtime();
         Ok(Self {
             runtime,
             name,
             descr: descr.into(),
             cfg,
-            _storage_db: storage_db,
-            session_basic_kv,
-            session_subs_kv,
-            disconnect_info_kv,
-            session_lasttime_kv,
-            session_offline_messages_kv,
-            session_inflight_messages_kv,
+            storage_db,
             stored_session_infos,
             register,
             session_mgr,
@@ -135,285 +100,135 @@ impl StoragePlugin {
         })
     }
 
-    async fn load_offline_session_infos(&mut self) {
+    async fn load_offline_session_infos(&mut self) -> Result<()> {
+        log::info!("{:?} load_offline_session_infos", self.name);
+        let storage_db = self.storage_db.clone();
+        let mut iter_storage_db = storage_db.clone();
         //Load offline session information from the database
-        for item in self.session_basic_kv.iter::<Basic>() {
-            match item {
-                Ok((meta, basic)) => {
-                    let stored_info = match StoredSessionInfo::from(meta, basic) {
+        let mut map_iter = iter_storage_db.map_iter().await?;
+        while let Some(m) = map_iter.next().await {
+            match m {
+                Ok(m) => {
+                    let id_key = StoredKey::from(map_stored_key_to_id_bytes(m.name()).to_vec());
+                    log::debug!("map_stored_key: {:?}", id_key);
+                    let basic = match m.get::<_, Basic>(BASIC).await {
                         Err(e) => {
-                            log::warn!("{:?}", e);
+                            log::warn!("{:?} load offline session basic info error, {:?}", id_key, e);
+                            if let Err(e) = storage_db.remove(m.name()).await {
+                                log::warn!("{:?} remove offline session info error, {:?}", id_key, e);
+                            }
                             continue;
                         }
-                        Ok(store_info) => store_info,
+                        Ok(None) => {
+                            log::warn!("{:?} offline session basic info is None", id_key);
+                            if let Err(e) = storage_db.remove(m.name()).await {
+                                log::warn!("{:?} remove offline session info error, {:?}", id_key, e);
+                            }
+                            continue;
+                        }
+                        Ok(Some(basic)) => basic,
                     };
-                    self.stored_session_infos.add(stored_info);
-                }
-                Err(e) => {
-                    log::warn!("Failed to read session basic information from the database, {:?}", e);
-                }
-            }
-        }
 
-        for item in self.session_subs_kv.iter::<(ClientId, SessionSubMap)>() {
-            match item {
-                Ok((meta, (client_id, subs))) => {
-                    if let Err(e) = self.stored_session_infos.add_subs(client_id, meta, subs) {
-                        log::warn!("{:?}", e);
-                    }
-                }
-                Err(e) => {
-                    log::warn!("Failed to read session subscription information from the database, {:?}", e);
-                }
-            }
-        }
+                    log::debug!("basic: {:?}", basic);
+                    log::debug!("map key: {:?}", id_key);
+                    let mut s_info = StoredSessionInfo::from(id_key.clone(), basic);
 
-        for item in self.disconnect_info_kv.iter::<(ClientId, DisconnectInfo)>() {
-            match item {
-                Ok((meta, (client_id, disconnect_info))) => {
-                    if let Err(e) =
-                        self.stored_session_infos.add_disconnect_info(client_id, meta, disconnect_info)
-                    {
-                        log::warn!("{:?}", e);
-                    }
-                }
-                Err(e) => {
-                    log::warn!("Failed to read session disconnect information from the database, {:?}", e);
-                }
-            }
-        }
-
-        for item in self.session_lasttime_kv.iter::<(ClientId, TimestampMillis)>() {
-            match item {
-                Ok((meta, (client_id, last_time))) => {
-                    if let Err(e) = self.stored_session_infos.set_last_time(client_id, meta, last_time) {
-                        log::warn!("{:?}", e);
-                    }
-                }
-                Err(e) => {
-                    log::warn!("Failed to read session last time from the database, {:?}", e);
-                }
-            }
-        }
-
-        for item in self.session_offline_messages_kv.array_iter::<(ClientId, From, Publish)>() {
-            match item {
-                Ok((key, offline_messages)) => {
-                    if let Err(e) = self.stored_session_infos.set_offline_messages(key, offline_messages) {
-                        log::warn!("{:?}", e);
-                    }
-                }
-                Err(e) => {
-                    log::warn!("Failed to read session offline messages from the database, {:?}", e);
-                }
-            }
-        }
-
-        for item in self.session_inflight_messages_kv.iter::<(ClientId, Vec<InflightMessage>)>() {
-            match item {
-                Ok((meta, (client_id, inflights))) => {
-                    if let Err(e) =
-                        self.stored_session_infos.set_inflight_messages(client_id, meta, inflights)
-                    {
-                        log::warn!("{:?}", e);
-                    }
-                }
-                Err(e) => {
-                    log::warn!("Failed to read session inflight messages from the database, {:?}", e);
-                }
-            }
-        }
-
-        self.stored_session_infos.retain_latests();
-        log::info!("stored_session_infos len: {:?}", self.stored_session_infos.len());
-    }
-
-    async fn cleanup_offline_session_infos(
-        session_basic_kv: StorageKV,
-        session_subs_kv: StorageKV,
-        disconnect_info_kv: StorageKV,
-        session_lasttime_kv: StorageKV,
-        offline_messages_kv: StorageKV,
-        inflight_messages_kv: StorageKV,
-    ) {
-        Self::_cleanup_offline_session_infos(
-            &session_basic_kv,
-            &session_subs_kv,
-            &disconnect_info_kv,
-            &session_lasttime_kv,
-            &offline_messages_kv,
-            &inflight_messages_kv,
-        )
-        .await
-    }
-
-    async fn _cleanup_offline_session_infos(
-        session_basic_kv: &StorageKV,
-        session_subs_kv: &StorageKV,
-        disconnect_info_kv: &StorageKV,
-        session_lasttime_kv: &StorageKV,
-        offline_messages_kv: &StorageKV,
-        inflight_messages_kv: &StorageKV,
-    ) {
-        //Clean offline session information
-        session_basic_kv
-            .retain::<_, _, Basic>(|item| async move {
-                match item {
-                    Err(e) => {
-                        log::warn!(
-                            "Failed to retain session basic information from the database, {:?}",
-                            e
-                        );
-                        false
-                    },
-                    Ok((meta, basic)) => {
-                        let id = basic.id.clone();
-                        let key = meta.key.to_vec();
-                        let disconnect_info = disconnect_info_kv
-                            .clone()
-                            .get::<_, (ClientId, DisconnectInfo)>(key.as_slice())
-                            .ok()
-                            .flatten()
-                            .map(|(_, d)| d);
-                        let lasttime = session_lasttime_kv
-                            .get::<_, (ClientId, TimestampMillis)>(key.as_slice())
-                            .ok()
-                            .flatten()
-                            .map(|(_, t)| t)
-                            .unwrap_or_else(|| meta.time);
-                        if Self::is_session_expiry(basic, disconnect_info, lasttime).await {
-                            log::debug!("{:?} session expiry", id);
-                            if let Err(e) = session_subs_kv.remove(key.as_slice()) {
-                                log::warn!(
-                                    "Failed to remove session subscription information from the database, {:?}",
-                                    e
-                                );
-                            }
-                            if let Err(e) = disconnect_info_kv.remove(key.as_slice()) {
-                                log::warn!(
-                                    "Failed to remove session disconnect information from the database, {:?}",
-                                    e
-                                );
-                            }
-                            if let Err(e) = session_lasttime_kv.remove(key.as_slice()) {
-                                log::warn!(
-                                    "Failed to remove session last time from the database, {:?}",
-                                    e
-                                );
-                            }
-                            if let Err(e) = offline_messages_kv.remove_array(id.to_string()) {
-                                log::warn!(
-                                    "Failed to remove session offline messages from the database, {:?}",
-                                    e
-                                );
-                            }
-                            if let Err(e) = inflight_messages_kv.remove(key.as_slice()) {
-                                log::warn!(
-                                    "Failed to remove session inflight messages from the database, {:?}",
-                                    e
-                                );
-                            }
-
-                            false
-                        }else{
-                            true
+                    match m.get::<_, TimestampMillis>(LAST_TIME).await {
+                        Ok(Some(last_time)) => {
+                            log::debug!("last_time: {:?}", last_time);
+                            s_info.set_last_time(last_time);
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            log::warn!("{:?} load offline session last time error, {:?}", id_key, e);
                         }
                     }
-                }
-            })
-            .await;
 
-        //Clean up abnormal data
-        async fn cleanup_abnormal_data(kv: &StorageKV, basic_kv: &StorageKV, tag: &str) {
-            kv.retain_with_meta(|item| async move {
-                match item {
-                    Err(e) => {
-                        log::warn!("Failed to cleanup abnormal data from the database({}), {:?}", tag, e);
-                        false
-                    }
-                    Ok(meta) => {
-                        if (chrono::Local::now().timestamp() - (meta.time / 1000)) > 24 * 60 * 60 {
-                            if basic_kv.contains_key(meta.key.as_ref()).unwrap_or_default() {
-                                true
-                            } else {
-                                log::info!(
-                                    "{:?} cleanup abnormal data from the database({})",
-                                    String::from_utf8_lossy(meta.key.as_ref()),
-                                    tag
-                                );
-                                false
-                            }
-                        } else {
-                            true
+                    match m.get::<_, SessionSubMap>(SESSION_SUB_MAP).await {
+                        Ok(Some(subs)) => {
+                            log::debug!("subs: {:?}", subs);
+                            s_info.set_subs(subs);
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            log::warn!("{:?} load offline session subscription info error, {:?}", id_key, e);
                         }
                     }
+
+                    match m.get::<_, DisconnectInfo>(DISCONNECT_INFO).await {
+                        Ok(Some(disc_info)) => {
+                            log::debug!("disc_info: {:?}", disc_info);
+                            s_info.set_disconnect_info(disc_info);
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            log::warn!("{:?} load offline session disconnect info error, {:?}", id_key, e);
+                        }
+                    }
+
+                    match m.get::<_, Vec<InflightMessage>>(INFLIGHT_MESSAGES).await {
+                        Ok(Some(inflights)) => {
+                            log::debug!("inflights len: {:?}", inflights.len());
+                            s_info.inflight_messages = inflights;
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            log::warn!("{:?} load offline session inflight messages error, {:?}", id_key, e);
+                        }
+                    }
+
+                    self.stored_session_infos.add(s_info);
                 }
-            })
-            .await;
-        }
-
-        cleanup_abnormal_data(session_subs_kv, session_basic_kv, "subscription").await;
-        cleanup_abnormal_data(disconnect_info_kv, session_basic_kv, "disconnect info").await;
-        cleanup_abnormal_data(session_lasttime_kv, session_basic_kv, "last time").await;
-        cleanup_abnormal_data(inflight_messages_kv, session_basic_kv, "inflight messages").await;
-
-        for key in offline_messages_kv.array_key_iter() {
-            match key {
                 Err(e) => {
-                    log::warn!(
-                        "Failed to cleanup abnormal data from the database(offline messages), {:?}",
-                        e
-                    );
+                    log::warn!("load offline session info error, {:?}", e);
                 }
-                Ok(key) => {
-                    if !session_basic_kv.contains_key::<&[u8]>(key.as_ref()).unwrap_or_default() {
-                        log::info!(
-                            "{:?} cleanup abnormal data from the database(offline messages)",
-                            String::from_utf8_lossy(key.as_ref()),
-                        );
-                        if let Err(e) = offline_messages_kv.remove_array::<&[u8]>(key.as_ref()) {
-                            log::warn!(
-                                "Failed to remove session offline messages from the database, {:?}",
-                                e
+            }
+        }
+        drop(map_iter);
+
+        let mut list_iter = iter_storage_db.list_iter().await?;
+        while let Some(l) = list_iter.next().await {
+            match l {
+                Ok(l) => {
+                    let id_key = StoredKey::from(list_stored_key_to_id_bytes(l.name()).to_vec());
+                    log::debug!("list_stored_key, id_key: {:?}", id_key);
+                    match l.all::<OfflineMessageOptionType>().await {
+                        Ok(offline_msgs) => {
+                            log::debug!("{:?} offline_msgs len: {}", id_key, offline_msgs.len(),);
+                            let ok =
+                                self.stored_session_infos.set_offline_messages(id_key.clone(), offline_msgs);
+                            log::debug!(
+                                "{:?} stored_session_infos, set_offline_messages res: {}",
+                                id_key,
+                                ok
                             );
+                            if !ok {
+                                if let Err(e) = storage_db.remove(l.name()).await {
+                                    log::warn!("{:?} remove offline messages error, {:?}", id_key, e);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("{:?} load offline messages error, {:?}", id_key, e);
+                            if let Err(e) = storage_db.remove(l.name()).await {
+                                log::warn!("{:?} remove offline messages error, {:?}", id_key, e);
+                            }
                         }
                     }
                 }
+                Err(e) => {
+                    log::warn!("load offline messages error, {:?}", e);
+                }
             }
         }
+        drop(list_iter);
 
-        let _ = session_subs_kv.flush().await;
-        let _ = disconnect_info_kv.flush().await;
-        let _ = session_lasttime_kv.flush().await;
-        let _ = session_basic_kv.flush().await;
-        let _ = offline_messages_kv.flush().await;
-        let _ = inflight_messages_kv.flush().await;
-    }
+        for removed_key in self.stored_session_infos.retain_latests() {
+            storage_db.remove(removed_key).await?;
+        }
+        log::info!("stored_session_infos len: {:?}", self.stored_session_infos.len());
 
-    #[inline]
-    async fn is_session_expiry(
-        basic: Basic,
-        disconnect_info: Option<DisconnectInfo>,
-        last_time: TimestampMillis,
-    ) -> bool {
-        //get listener config
-        let listen_cfg = if let Some(listen_cfg) =
-            basic.id.local_addr.and_then(|addr| Runtime::instance().settings.listeners.get(addr.port()))
-        {
-            listen_cfg
-        } else {
-            log::warn!("tcp listener config is not found, local addr is {:?}", basic.id.local_addr);
-            return true;
-        };
-
-        //create fitter
-        let fitter =
-            Runtime::instance().extends.fitter_mgr().await.create(basic.conn_info, basic.id, listen_cfg);
-
-        //check session expiry interval
-        let session_expiry_interval =
-            session_expiry_interval(fitter.as_ref(), disconnect_info.as_ref(), last_time).await;
-        session_expiry_interval <= 0
+        Ok(())
     }
 
     fn start_local_runtime() -> mpsc::Sender<RebuildChanType> {
@@ -480,6 +295,7 @@ impl Plugin for StoragePlugin {
             .add(
                 Type::BeforeStartup,
                 Box::new(StorageHandler::new(
+                    self.storage_db.clone(),
                     self.cfg.clone(),
                     self.stored_session_infos.clone(),
                     self.rebuild_tx.clone(),
@@ -489,50 +305,17 @@ impl Plugin for StoragePlugin {
         self.register
             .add(
                 Type::OfflineMessage,
-                Box::new(OfflineMessageHandler::new(
-                    self.cfg.clone(),
-                    self.session_offline_messages_kv.clone(),
-                )),
+                Box::new(OfflineMessageHandler::new(self.cfg.clone(), self.storage_db.clone())),
+            )
+            .await;
+        self.register
+            .add(
+                Type::OfflineInflightMessages,
+                Box::new(OfflineMessageHandler::new(self.cfg.clone(), self.storage_db.clone())),
             )
             .await;
 
-        self.load_offline_session_infos().await;
-
-        //Periodic Cleanup Tasks
-        let session_basic_kv = self.session_basic_kv.clone();
-        let session_subs_kv = self.session_subs_kv.clone();
-        let disconnect_info_kv = self.disconnect_info_kv.clone();
-        let session_lasttime_kv = self.session_lasttime_kv.clone();
-        let offline_messages_kv = self.session_offline_messages_kv.clone();
-        let inflight_messages_kv = self.session_inflight_messages_kv.clone();
-        let async_cleans = Job::new_async(self.cfg.read().await.cleanup_cron.as_str(), move |_uuid, _l| {
-            log::info!("Cleanup tasks start ...");
-            let session_basic_kv = session_basic_kv.clone();
-            let session_subs_kv = session_subs_kv.clone();
-            let disconnect_info_kv = disconnect_info_kv.clone();
-            let session_lasttime_kv = session_lasttime_kv.clone();
-            let offline_messages_kv = offline_messages_kv.clone();
-            let inflight_messages_kv = inflight_messages_kv.clone();
-
-            Box::pin(async move {
-                let _ = tokio::task::spawn_blocking(move || {
-                    tokio::runtime::Handle::current().block_on(async move {
-                        Self::cleanup_offline_session_infos(
-                            session_basic_kv,
-                            session_subs_kv,
-                            disconnect_info_kv,
-                            session_lasttime_kv,
-                            offline_messages_kv,
-                            inflight_messages_kv,
-                        )
-                        .await
-                    })
-                })
-                .await;
-            })
-        })
-        .map_err(|e| anyhow!(e))?;
-        self.runtime.sched.add(async_cleans).await.map_err(|e| anyhow!(e))?;
+        self.load_offline_session_infos().await?;
 
         Ok(())
     }
@@ -569,43 +352,50 @@ impl Plugin for StoragePlugin {
 
     #[inline]
     async fn attrs(&self) -> serde_json::Value {
-        let session_basic_kv = self.session_basic_kv.clone();
-        let session_subs_kv = self.session_subs_kv.clone();
-        let disconnect_info_kv = self.disconnect_info_kv.clone();
-        let session_lasttime_kv = self.session_lasttime_kv.clone();
-        let offline_messages_kv = self.session_offline_messages_kv.clone();
-        let inflight_messages_kv = self.session_inflight_messages_kv.clone();
-
-        let storage_db = self._storage_db.clone();
-
-        tokio::task::spawn_blocking(move || {
-            json!(
-                {
-                    "session": {
-                        "basics": session_basic_kv.len(),
-                        "subscriptions": session_subs_kv.len(),
-                        "disconnect_infos": disconnect_info_kv.len(),
-                        "lasttimes": session_lasttime_kv.len(),
-                        "offline_messages": offline_messages_kv.len(),
-                        "offline_inflight_messages": inflight_messages_kv.len(),
-                    },
-                    "size_on_disk": storage_db.size_on_disk().unwrap_or_default(),
+        let mut map_count = 0;
+        {
+            let mut storage_db = self.storage_db.clone();
+            let iter = storage_db.map_iter().await;
+            if let Ok(mut iter) = iter {
+                while let Some(m) = iter.next().await {
+                    if let Ok(m) = m {
+                        log::debug!("map: {:?}", StoredKey::from(m.name().to_vec()));
+                    }
+                    map_count += 1;
                 }
-            )
-        })
-        .await
-        .unwrap_or_default()
+            }
+        }
+
+        let mut list_count = 0;
+        {
+            let mut storage_db = self.storage_db.clone();
+            let iter = storage_db.list_iter().await;
+            if let Ok(mut iter) = iter {
+                while let Some(l) = iter.next().await {
+                    if let Ok(l) = l {
+                        log::debug!("list: {:?}", StoredKey::from(l.name().to_vec()));
+                    }
+                    list_count += 1;
+                }
+            }
+        }
+        json!(
+            {
+                "session_count": map_count,
+                "offline_messages_count": list_count
+            }
+        )
     }
 }
 
 struct OfflineMessageHandler {
-    cfg: Arc<RwLock<PluginConfig>>,
-    offline_messages_kv: StorageKV,
+    cfg: Arc<Config>,
+    storage_db: DefaultStorageDB,
 }
 
 impl OfflineMessageHandler {
-    fn new(cfg: Arc<RwLock<PluginConfig>>, offline_messages_kv: StorageKV) -> Self {
-        Self { cfg, offline_messages_kv }
+    fn new(cfg: Arc<Config>, storage_db: DefaultStorageDB) -> Self {
+        Self { cfg, storage_db }
     }
 }
 
@@ -616,25 +406,38 @@ impl Handler for OfflineMessageHandler {
             Parameter::OfflineMessage(s, f, p) => {
                 log::debug!(
                     "OfflineMessage storage_type: {:?}, from: {:?}, p: {:?}",
-                    self.cfg.read().await.storage_type,
+                    self.cfg.storage_type,
                     f,
                     p
                 );
-
-                let res = self.offline_messages_kv.push_array_limit(
-                    s.id.to_string(),
-                    &(s.id.client_id.clone(), f.clone(), (*p).clone()),
-                    s.listen_cfg().max_mqueue_len,
-                    true,
-                );
-                match res {
-                    Ok(Some(_)) => {}
-                    Ok(None) => {}
-                    Err(e) => {
-                        log::warn!("save offline messages error, {:?}", e)
-                    }
+                let list_stored_key = make_list_stored_key(s.id.to_string());
+                let offlines_list = self.storage_db.list(list_stored_key.as_ref());
+                let res = offlines_list
+                    .push_limit::<OfflineMessageOptionType>(
+                        &Some((s.id.client_id.clone(), f.clone(), (*p).clone())),
+                        s.listen_cfg().max_mqueue_len,
+                        true,
+                    )
+                    .await;
+                if let Err(e) = res {
+                    log::warn!("{:?} save offline messages error, {:?}", s.id, e)
                 }
             }
+
+            Parameter::OfflineInflightMessages(s, inflight_messages) => {
+                log::debug!(
+                    "OfflineInflightMessages storage_type: {:?}, inflight_messages len: {:?}",
+                    self.cfg.storage_type,
+                    inflight_messages.len(),
+                );
+                let map_stored_key = make_map_stored_key(s.id.to_string());
+                log::debug!("{:?} map_stored_key: {:?}", s.id, map_stored_key);
+                let offlines_map = self.storage_db.map(map_stored_key.as_ref());
+                if let Err(e) = offlines_map.insert(INFLIGHT_MESSAGES, inflight_messages).await {
+                    log::warn!("{:?} save offline inflight messages error, {:?}", s.id, e)
+                }
+            }
+
             _ => {
                 log::error!("unimplemented, {:?}", param)
             }
@@ -644,18 +447,20 @@ impl Handler for OfflineMessageHandler {
 }
 
 struct StorageHandler {
-    cfg: Arc<RwLock<PluginConfig>>,
+    storage_db: DefaultStorageDB,
+    cfg: Arc<Config>,
     stored_session_infos: StoredSessionInfos,
     rebuild_tx: mpsc::Sender<RebuildChanType>,
 }
 
 impl StorageHandler {
     fn new(
-        cfg: Arc<RwLock<PluginConfig>>,
+        storage_db: DefaultStorageDB,
+        cfg: Arc<Config>,
         stored_session_infos: StoredSessionInfos,
         rebuild_tx: mpsc::Sender<RebuildChanType>,
     ) -> Self {
-        Self { cfg, stored_session_infos, rebuild_tx }
+        Self { storage_db, cfg, stored_session_infos, rebuild_tx }
     }
 
     //Rebuild offline session.
@@ -692,6 +497,21 @@ impl StorageHandler {
                 .await;
                 log::debug!("{:?} session_expiry_interval: {:?}", id, session_expiry_interval);
                 if session_expiry_interval <= 0 {
+                    log::debug!(
+                        "{:?} session is expiry, {:?}, id_key: {:?}, {:?}, {:?}",
+                        id,
+                        session_expiry_interval,
+                        stored.id_key,
+                        make_map_stored_key(stored.id_key.as_ref()),
+                        make_list_stored_key(stored.id_key.as_ref())
+                    );
+                    let storage_db = self.storage_db.clone();
+                    if let Err(e) = storage_db.remove(make_map_stored_key(stored.id_key.as_ref())).await {
+                        log::warn!("{:?} remove map error, {:?}", id, e);
+                    }
+                    if let Err(e) = storage_db.remove(make_list_stored_key(stored.id_key.as_ref())).await {
+                        log::warn!("{:?} remove list error, {:?}", id, e);
+                    }
                     //session is expiry
                     continue;
                 }
@@ -719,6 +539,7 @@ impl StorageHandler {
                     stored.basic.connected_at,
                     subs,
                     stored.disconnect_info.take(),
+                    None,
                 )
                 .await;
 
@@ -759,7 +580,7 @@ impl Handler for StorageHandler {
             Parameter::BeforeStartup => {
                 log::info!(
                     "BeforeStartup storage_type: {:?}, stored_session_infos len: {}",
-                    self.cfg.read().await.storage_type,
+                    self.cfg.storage_type,
                     self.stored_session_infos.len()
                 );
                 let (rebuild_done_tx, rebuild_done_rx) = oneshot::channel::<()>();
@@ -782,7 +603,39 @@ async fn session_expiry_interval(
 ) -> TimestampMillis {
     let disconnected_at = disconnect_info.map(|d| d.disconnected_at).unwrap_or_default();
     let disconnected_at = if disconnected_at <= 0 { last_time } else { disconnected_at };
-    fitter.session_expiry_interval(disconnect_info.and_then(|d| d.mqtt_disconnect.as_ref())).await.as_millis()
+    fitter.session_expiry_interval(disconnect_info.and_then(|d| d.mqtt_disconnect.as_ref())).as_millis()
         as i64
         - (chrono::Local::now().timestamp_millis() - disconnected_at)
+}
+
+#[inline]
+pub(crate) fn make_map_stored_key<T: AsRef<[u8]>>(id: T) -> StoredKey {
+    let mut key = Vec::from("map-");
+    key.extend_from_slice(id.as_ref());
+    Bytes::from(key)
+}
+
+#[inline]
+pub(crate) fn map_stored_key_to_id_bytes(stored_key: &[u8]) -> &[u8] {
+    if stored_key.starts_with(b"map-") {
+        stored_key[4..].as_ref()
+    } else {
+        stored_key
+    }
+}
+
+#[inline]
+pub(crate) fn make_list_stored_key<T: AsRef<[u8]>>(id: T) -> StoredKey {
+    let mut key = Vec::from("list-");
+    key.extend_from_slice(id.as_ref());
+    Bytes::from(key)
+}
+
+#[inline]
+pub(crate) fn list_stored_key_to_id_bytes(stored_key: &[u8]) -> &[u8] {
+    if stored_key.starts_with(b"list-") {
+        stored_key[5..].as_ref()
+    } else {
+        stored_key
+    }
 }
