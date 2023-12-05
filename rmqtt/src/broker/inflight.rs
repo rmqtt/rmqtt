@@ -254,6 +254,15 @@ impl Inflight {
             }
         }
         Err(MqttError::Msg("no packet_id available, should unreachable!()".into()))
-        //unreachable!()
+    }
+
+    #[inline]
+    pub fn to_inflight_messages(&mut self) -> Vec<InflightMessage> {
+        let mut inflight_messages = Vec::new();
+        while let Some(msg) = self.pop_front() {
+            //@TODO ..., check message expired
+            inflight_messages.push(msg);
+        }
+        inflight_messages
     }
 }
