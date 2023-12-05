@@ -57,7 +57,7 @@ base64 = "0.21"
 bincode = "1.3"
 url = { version = "2.4", default-features = false }
 systemstat = "0.2"
-itertools = "0.11"
+itertools = "0.12"
 reqwest = { version = "0.11", default-features = false, features = ["rustls-tls", "json"] }
 rust-box = { version = "0.10", features = ["task-exec-queue", "task-exec-queue-rate", "std-ext", "dequemap", "stream-ext-leaky-bucket"] }
 structopt = "0.3"
