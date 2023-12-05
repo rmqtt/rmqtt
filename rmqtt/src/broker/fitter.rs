@@ -27,7 +27,7 @@ pub trait Fitter: Sync + Send {
     fn max_inflight(&self) -> std::num::NonZeroU16;
 
     ///session expiry interval
-    async fn session_expiry_interval(&self, d: Option<&Disconnect>) -> Duration;
+    fn session_expiry_interval(&self, d: Option<&Disconnect>) -> Duration;
 
     ///message expiry interval
     fn message_expiry_interval(&self, publish: &Publish) -> Duration;

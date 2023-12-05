@@ -192,6 +192,7 @@ async fn _handshake<Io: 'static>(
         connected_at,
         SessionSubs::new(),
         None,
+        offline_info.as_ref().map(|o| o.id.clone()),
     )
     .await;
 

@@ -1542,12 +1542,13 @@ impl ToString for Id {
     #[inline]
     fn to_string(&self) -> String {
         format!(
-            "{}@{}/{}/{}/{}",
+            "{}@{}/{}/{}/{}/{}",
             self.node_id,
             self.local_addr.map(|addr| addr.to_string()).unwrap_or_default(),
             self.remote_addr.map(|addr| addr.to_string()).unwrap_or_default(),
             self.client_id,
-            self.username_ref()
+            self.username_ref(),
+            self.create_time
         )
     }
 }
@@ -1555,7 +1556,7 @@ impl ToString for Id {
 impl std::fmt::Debug for Id {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}-{}", self.to_string(), self.create_time)
+        write!(f, "{}", self.to_string())
     }
 }
 
@@ -2307,7 +2308,7 @@ impl ClientTopicAliases {
     }
 }
 
-#[derive(Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct DisconnectInfo {
     pub disconnected_at: TimestampMillis,
     pub reasons: Vec<Reason>,
