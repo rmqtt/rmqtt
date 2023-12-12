@@ -4,11 +4,11 @@
 
 storage_type = "sled"
 #sled
-sled.path = "/var/log/rmqtt/.cache/session"
-sled.cache_capacity = "1G"
+sled.path = "/var/log/rmqtt/.cache/session/{node}"
+sled.cache_capacity = "3G"
 sled.gc_at_hour = 2
 sled.gc_at_minute = 30
 
 #redis
 redis.url = "redis://127.0.0.1:6379/"
-redis.prefix = "def"
+redis.prefix = "session-{node}"

@@ -4,6 +4,13 @@
 
 storage_type = "sled"
 #sled
-sled.path = "/var/log/rmqtt/.cache/message"
-sled.cache_capacity = "2G"
+sled.path = "/var/log/rmqtt/.cache/message/{node}"
+sled.cache_capacity = "3G"
+sled.gc_at_hour = 3
+sled.gc_at_minute = 30
+
+#redis
+redis.url = "redis://127.0.0.1:6379/"
+redis.prefix = "message-{node}"
+
 
