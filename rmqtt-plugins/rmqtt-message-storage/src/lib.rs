@@ -1,15 +1,9 @@
 #![deny(unsafe_code)]
-#[macro_use]
-extern crate serde;
-
-use std::sync::Arc;
 
 use rmqtt::{
     async_trait::async_trait,
     log,
     serde_json::{self, json},
-    tokio,
-    tokio::sync::RwLock,
 };
 
 use rmqtt::{
@@ -18,13 +12,11 @@ use rmqtt::{
     Result, Runtime,
 };
 
-use config::PluginConfig;
-use message::StorageMessageManager;
-use store::{init_store_db, storage::Storage as _, StorageDB, StorageKV};
+use rmqtt_storage::{init_db, Config, List, StorageType};
 
-mod config;
+use message::{get_or_init, StorageMessageManager};
+
 mod message;
-mod store;
 
 #[inline]
 pub async fn register(
@@ -49,18 +41,8 @@ struct StoragePlugin {
     runtime: &'static Runtime,
     name: String,
     descr: String,
-    _cfg: Arc<RwLock<PluginConfig>>,
-    _storage_db: StorageDB,
-
-    //All received messages.
-    #[allow(dead_code)]
-    messages_received_kv: StorageKV,
-    //All unexpired messages
-    messages_unexpired_kv: StorageKV,
-    //All forwarded messages
-    #[allow(dead_code)]
-    messages_forwarded_kv: StorageKV,
-
+    // cfg: Arc<Config>,
+    // storage_db: DefaultStorageDB,
     register: Box<dyn Register>,
     message_mgr: &'static StorageMessageManager,
 }
@@ -69,39 +51,23 @@ impl StoragePlugin {
     #[inline]
     async fn new<S: Into<String>>(runtime: &'static Runtime, name: S, descr: S) -> Result<Self> {
         let name = name.into();
-        let cfg = runtime.settings.plugins.load_config_default::<PluginConfig>(&name)?;
+        let mut cfg = runtime.settings.plugins.load_config_default::<Config>(&name)?;
+        match cfg.storage_type {
+            StorageType::Sled => {
+                cfg.sled.path = cfg.sled.path.replace("{node}", &format!("{}", runtime.node.id()));
+            }
+            StorageType::Redis => {
+                cfg.redis.prefix = cfg.redis.prefix.replace("{node}", &format!("{}", runtime.node.id()));
+            }
+        }
         log::info!("{} StoragePlugin cfg: {:?}", name, cfg);
 
-        let storage_db = init_store_db(&cfg)?;
-
-        let messages_received_kv = storage_db.open("messages_received")?;
-        log::info!("{} StoragePlugin open messages_received storage ok", name);
-        let messages_unexpired_kv = storage_db.open("messages_unexpired")?;
-        log::info!("{} StoragePlugin open messages_unexpired storage ok", name);
-        let messages_forwarded_kv = storage_db.open("messages_forwarded")?;
-        log::info!("{} StoragePlugin open messages_forwarded storage ok", name);
+        let storage_db = init_db(&cfg).await?;
 
         let register = runtime.extends.hook_mgr().await.register();
-        let message_mgr = StorageMessageManager::get_or_init(
-            storage_db.clone(),
-            messages_received_kv.clone(),
-            messages_unexpired_kv.clone(),
-            messages_forwarded_kv.clone(),
-        );
-        let cfg = Arc::new(RwLock::new(cfg));
-        Ok(Self {
-            runtime,
-            name,
-            descr: descr.into(),
-            _cfg: cfg,
-            _storage_db: storage_db,
-
-            messages_received_kv,
-            messages_unexpired_kv,
-            messages_forwarded_kv,
-            register,
-            message_mgr,
-        })
+        let message_mgr = get_or_init(storage_db.clone()).await?;
+        // let cfg = Arc::new(cfg);
+        Ok(Self { runtime, name, descr: descr.into(), register, message_mgr })
     }
 }
 
@@ -145,25 +111,18 @@ impl Plugin for StoragePlugin {
 
     #[inline]
     async fn attrs(&self) -> serde_json::Value {
-        let messages_received_kv = self.messages_received_kv.clone();
-        let messages_unexpired_kv = self.messages_unexpired_kv.clone();
-        let messages_forwarded_kv = self.messages_forwarded_kv.clone();
+        // let receiveds = self.message_mgr.messages_received_map.len().await.unwrap_or_default();
+        let unexpireds = self.message_mgr.messages_unexpired_list.len().await.unwrap_or_default();
+        // let forwardeds = self.message_mgr.messages_forwarded_map.len().await.unwrap_or_default();
 
-        let storage_db = self._storage_db.clone();
-
-        tokio::task::spawn_blocking(move || {
-            json!(
-                {
-                    "message": {
-                        "receiveds": messages_received_kv.len(),
-                        "unexpireds": messages_unexpired_kv.len(),
-                        "forwardeds": messages_forwarded_kv.len(),
-                    },
-                    "size_on_disk": storage_db.size_on_disk().unwrap_or_default(),
+        json!(
+            {
+                "message": {
+                    // "receiveds": receiveds,
+                    "unexpireds": unexpireds,
+                    // "forwardeds": forwardeds,
                 }
-            )
-        })
-        .await
-        .unwrap_or_default()
+            }
+        )
     }
 }
