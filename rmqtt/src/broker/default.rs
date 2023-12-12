@@ -2159,13 +2159,13 @@ impl DefaultMessageManager {
         msg_id: PMsgID,
     ) -> Result<()> {
         let mut topic = Topic::from_str(&publish.topic).map_err(|e| anyhow!(format!("{:?}", e)))?;
-        let expiry_time = timestamp_secs() + expiry_interval.as_secs() as i64;
+        let expiry_time_at = timestamp_secs() + expiry_interval.as_secs() as i64;
         let inner = &self.inner;
-        let pmsg = PersistedMsg { msg_id, from, publish, expiry_time };
+        let pmsg = PersistedMsg { msg_id, from, publish, expiry_time_at };
         topic.push(TopicLevel::Normal(msg_id.to_string()));
         inner.messages.insert_async(msg_id, pmsg).await.map_err(|_| anyhow!("messages insert error"))?;
         inner.subs_tree.write().await.insert(&topic, msg_id);
-        inner.expiries.write().await.push((Reverse(expiry_time), msg_id));
+        inner.expiries.write().await.push((Reverse(expiry_time_at), msg_id));
         Ok(())
     }
 

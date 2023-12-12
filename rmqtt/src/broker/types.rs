@@ -1638,13 +1638,13 @@ pub struct PersistedMsg {
     pub msg_id: PMsgID,
     pub from: From,
     pub publish: Publish,
-    pub expiry_time: Timestamp,
+    pub expiry_time_at: Timestamp,
 }
 
 impl PersistedMsg {
     #[inline]
     pub fn is_expiry(&self) -> bool {
-        self.expiry_time < timestamp_secs()
+        self.expiry_time_at < timestamp_secs()
     }
 }
 

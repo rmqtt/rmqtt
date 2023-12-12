@@ -131,7 +131,7 @@ pub struct Stats {
     pub out_inflights: Counter,
     pub in_inflights: Counter,
     pub forwards: Counter,
-    pub message_persistents: Counter,
+    pub message_storages: Counter,
 
     topics_map: HashMap<NodeId, Counter>,
     routes_map: HashMap<NodeId, Counter>,
@@ -169,7 +169,7 @@ impl Stats {
             out_inflights: Counter::new(),
             in_inflights: Counter::new(),
             forwards: Counter::new(),
-            message_persistents: Counter::new(),
+            message_storages: Counter::new(),
 
             topics_map: HashMap::default(),
             routes_map: HashMap::default(),
@@ -212,8 +212,8 @@ impl Stats {
 
         {
             let message_mgr = Runtime::instance().extends.message_mgr().await;
-            self.message_persistents.current_set(message_mgr.count().await);
-            self.message_persistents.max_max(message_mgr.max().await);
+            self.message_storages.current_set(message_mgr.count().await);
+            self.message_storages.max_max(message_mgr.max().await);
         }
 
         #[cfg(feature = "debug")]
@@ -251,7 +251,7 @@ impl Stats {
             out_inflights: self.out_inflights.clone(),
             in_inflights: self.in_inflights.clone(),
             forwards: self.forwards.clone(),
-            message_persistents: self.message_persistents.clone(),
+            message_storages: self.message_storages.clone(),
 
             topics_map,
             routes_map,
@@ -287,7 +287,7 @@ impl Stats {
         self.out_inflights.add(&other.out_inflights);
         self.in_inflights.add(&other.in_inflights);
         self.forwards.add(&other.forwards);
-        self.message_persistents.add(&other.message_persistents);
+        self.message_storages.add(&other.message_storages);
 
         self.topics_map.extend(other.topics_map);
         self.routes_map.extend(other.routes_map);
@@ -350,8 +350,8 @@ impl Stats {
             "in_inflights.max": self.in_inflights.max(),
             "forwards.count": self.forwards.count(),
             "forwards.max": self.forwards.max(),
-            "message_persistents.count": self.message_persistents.count(),
-            "message_persistents.max": self.message_persistents.max(),
+            "message_storages.count": self.message_storages.count(),
+            "message_storages.max": self.message_storages.max(),
 
             "topics.count": topics.count(),
             "topics.max": topics.max(),

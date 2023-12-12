@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use rmqtt::{
     async_trait::async_trait,
+    bytes::Bytes,
     chrono, futures,
     futures::channel::mpsc,
     futures::channel::oneshot,
@@ -18,17 +19,17 @@ use rmqtt::{
 use rmqtt::{
     broker::fitter::Fitter,
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
+    broker::inflight::InflightMessage,
     broker::types::DisconnectInfo,
     plugin::{DynPlugin, DynPluginResult, Plugin},
     ClientId, From, Publish, Result, Runtime, Session, SessionState, SessionSubMap, SessionSubs,
     TimestampMillis,
 };
 
-use crate::session::{StoredKey, BASIC, DISCONNECT_INFO, INFLIGHT_MESSAGES, LAST_TIME, SESSION_SUB_MAP};
-use rmqtt::broker::inflight::InflightMessage;
-use rmqtt::bytes::Bytes;
-use rmqtt_storage::{init_db, Config, DefaultStorageDB, List, Map};
+use rmqtt_storage::{init_db, Config, DefaultStorageDB, List, Map, StorageType};
+
 use session::{Basic, StorageSessionManager, StoredSessionInfo, StoredSessionInfos};
+use session::{StoredKey, BASIC, DISCONNECT_INFO, INFLIGHT_MESSAGES, LAST_TIME, SESSION_SUB_MAP};
 
 mod session;
 
@@ -74,7 +75,16 @@ impl StoragePlugin {
     #[inline]
     async fn new<S: Into<String>>(runtime: &'static Runtime, name: S, descr: S) -> Result<Self> {
         let name = name.into();
-        let cfg = runtime.settings.plugins.load_config_default::<Config>(&name)?;
+        let mut cfg = runtime.settings.plugins.load_config_default::<Config>(&name)?;
+        match cfg.storage_type {
+            StorageType::Sled => {
+                cfg.sled.path = cfg.sled.path.replace("{node}", &format!("{}", runtime.node.id()));
+            }
+            StorageType::Redis => {
+                cfg.redis.prefix = cfg.redis.prefix.replace("{node}", &format!("{}", runtime.node.id()));
+            }
+        }
+
         log::info!("{} StoragePlugin cfg: {:?}", name, cfg);
 
         let storage_db = init_db(&cfg).await?;
@@ -114,14 +124,14 @@ impl StoragePlugin {
                     let basic = match m.get::<_, Basic>(BASIC).await {
                         Err(e) => {
                             log::warn!("{:?} load offline session basic info error, {:?}", id_key, e);
-                            if let Err(e) = storage_db.remove(m.name()).await {
+                            if let Err(e) = storage_db.map_remove(m.name()).await {
                                 log::warn!("{:?} remove offline session info error, {:?}", id_key, e);
                             }
                             continue;
                         }
                         Ok(None) => {
                             log::warn!("{:?} offline session basic info is None", id_key);
-                            if let Err(e) = storage_db.remove(m.name()).await {
+                            if let Err(e) = storage_db.map_remove(m.name()).await {
                                 log::warn!("{:?} remove offline session info error, {:?}", id_key, e);
                             }
                             continue;
@@ -203,14 +213,14 @@ impl StoragePlugin {
                                 ok
                             );
                             if !ok {
-                                if let Err(e) = storage_db.remove(l.name()).await {
+                                if let Err(e) = storage_db.list_remove(l.name()).await {
                                     log::warn!("{:?} remove offline messages error, {:?}", id_key, e);
                                 }
                             }
                         }
                         Err(e) => {
                             log::warn!("{:?} load offline messages error, {:?}", id_key, e);
-                            if let Err(e) = storage_db.remove(l.name()).await {
+                            if let Err(e) = storage_db.list_remove(l.name()).await {
                                 log::warn!("{:?} remove offline messages error, {:?}", id_key, e);
                             }
                         }
@@ -224,7 +234,8 @@ impl StoragePlugin {
         drop(list_iter);
 
         for removed_key in self.stored_session_infos.retain_latests() {
-            storage_db.remove(removed_key).await?;
+            storage_db.map_remove(make_map_stored_key(removed_key.as_ref())).await?;
+            storage_db.list_remove(make_list_stored_key(removed_key.as_ref())).await?;
         }
         log::info!("stored_session_infos len: {:?}", self.stored_session_infos.len());
 
@@ -354,37 +365,48 @@ impl Plugin for StoragePlugin {
     async fn attrs(&self) -> serde_json::Value {
         let mut map_count = 0;
         {
+            let now = std::time::Instant::now();
             let mut storage_db = self.storage_db.clone();
             let iter = storage_db.map_iter().await;
             if let Ok(mut iter) = iter {
                 while let Some(m) = iter.next().await {
                     if let Ok(m) = m {
-                        log::debug!("map: {:?}", StoredKey::from(m.name().to_vec()));
+                        log::info!("map: {:?}", StoredKey::from(m.name().to_vec()));
                     }
                     map_count += 1;
+                    if map_count >= 1000 {
+                        break;
+                    }
                 }
             }
+            log::info!("map_iter cost time: {:?}", now.elapsed());
         }
 
         let mut list_count = 0;
         {
+            let now = std::time::Instant::now();
             let mut storage_db = self.storage_db.clone();
             let iter = storage_db.list_iter().await;
             if let Ok(mut iter) = iter {
                 while let Some(l) = iter.next().await {
                     if let Ok(l) = l {
-                        log::debug!("list: {:?}", StoredKey::from(l.name().to_vec()));
+                        log::info!("list: {:?}", StoredKey::from(l.name().to_vec()));
                     }
                     list_count += 1;
+                    if list_count >= 1000 {
+                        break;
+                    }
                 }
             }
+            log::info!("list_iter cost time: {:?}", now.elapsed());
         }
-        json!(
-            {
-                "session_count": map_count,
-                "offline_messages_count": list_count
-            }
-        )
+        let map_count = if map_count >= 1000 { format!("{}+", map_count) } else { format!("{}", map_count) };
+        let list_count =
+            if list_count >= 1000 { format!("{}+", list_count) } else { format!("{}", list_count) };
+        json!({
+            "session_count": map_count,
+            "offline_messages_count": list_count
+        })
     }
 }
 
@@ -506,10 +528,11 @@ impl StorageHandler {
                         make_list_stored_key(stored.id_key.as_ref())
                     );
                     let storage_db = self.storage_db.clone();
-                    if let Err(e) = storage_db.remove(make_map_stored_key(stored.id_key.as_ref())).await {
+                    if let Err(e) = storage_db.map_remove(make_map_stored_key(stored.id_key.as_ref())).await {
                         log::warn!("{:?} remove map error, {:?}", id, e);
                     }
-                    if let Err(e) = storage_db.remove(make_list_stored_key(stored.id_key.as_ref())).await {
+                    if let Err(e) = storage_db.list_remove(make_list_stored_key(stored.id_key.as_ref())).await
+                    {
                         log::warn!("{:?} remove list error, {:?}", id, e);
                     }
                     //session is expiry

@@ -121,8 +121,12 @@ impl SessionManager for &'static StorageSessionManager {
                     }
                     if let Some(last_id) = last_id {
                         log::debug!(
-                            "last session_info_map.len(): {:?}",
-                            s1.storage_db.clone().map(make_map_stored_key(last_id.to_string())).len().await
+                            "last session_info_map.is_empty(): {:?}",
+                            s1.storage_db
+                                .clone()
+                                .map(make_map_stored_key(last_id.to_string()))
+                                .is_empty()
+                                .await
                         );
                         log::debug!(
                             "last offline_messages_list.len(): {:?}",
@@ -467,7 +471,7 @@ impl StorageSession {
     }
 
     #[inline]
-    async fn set_map_stored_key_ttl(&self, session_expiry_interval_millis: usize) {
+    async fn set_map_stored_key_ttl(&self, session_expiry_interval_millis: i64) {
         match self
             .storage_db
             .clone()
@@ -489,7 +493,7 @@ impl StorageSession {
     }
 
     #[inline]
-    async fn set_list_stored_key_ttl(&self, session_expiry_interval_millis: usize) {
+    async fn set_list_stored_key_ttl(&self, session_expiry_interval_millis: i64) {
         match self
             .storage_db
             .clone()
@@ -814,7 +818,7 @@ impl SessionLike for StorageSession {
 
                 let session_expiry_interval =
                     self.fitter.session_expiry_interval(disconnect_info.mqtt_disconnect.as_ref()).as_millis()
-                        as usize;
+                        as i64;
                 log::debug!(
                     "{:?} disconnected_set session_expiry_interval: {:?}",
                     self.id,
