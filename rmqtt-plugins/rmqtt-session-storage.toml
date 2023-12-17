@@ -2,13 +2,14 @@
 ## rmqtt-session-storage
 ##--------------------------------------------------------------------
 
-storage_type = "sled"
-#sled
-sled.path = "/var/log/rmqtt/.cache/session/{node}"
-sled.cache_capacity = "3G"
-sled.gc_at_hour = 2
-sled.gc_at_minute = 30
 
+
+storage.type = "sled"
+#sled
+storage.sled.path = "/var/log/rmqtt/.cache/session/{node}"
+storage.sled.cache_capacity = "3G"
+storage.sled.gc_at_hour = 2
+storage.sled.gc_at_minute = 30
 #redis
-redis.url = "redis://127.0.0.1:6379/"
-redis.prefix = "session-{node}"
+storage.redis.url = "redis://127.0.0.1:6379/"
+storage.redis.prefix = "session-{node}"

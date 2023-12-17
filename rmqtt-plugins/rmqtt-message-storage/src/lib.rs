@@ -1,21 +1,25 @@
 #![deny(unsafe_code)]
+#[macro_use]
+extern crate serde;
 
 use rmqtt::{
     async_trait::async_trait,
     log,
     serde_json::{self, json},
 };
+use std::sync::Arc;
 
 use rmqtt::{
     broker::hook::Register,
     plugin::{DynPlugin, DynPluginResult, Plugin},
     Result, Runtime,
 };
+use rmqtt_storage::{init_db, List, StorageType};
 
-use rmqtt_storage::{init_db, Config, List, StorageType};
-
+use config::PluginConfig;
 use message::{get_or_init, StorageMessageManager};
 
+mod config;
 mod message;
 
 #[inline]
@@ -41,8 +45,7 @@ struct StoragePlugin {
     runtime: &'static Runtime,
     name: String,
     descr: String,
-    // cfg: Arc<Config>,
-    // storage_db: DefaultStorageDB,
+    cfg: Arc<PluginConfig>,
     register: Box<dyn Register>,
     message_mgr: &'static StorageMessageManager,
 }
@@ -51,23 +54,27 @@ impl StoragePlugin {
     #[inline]
     async fn new<S: Into<String>>(runtime: &'static Runtime, name: S, descr: S) -> Result<Self> {
         let name = name.into();
-        let mut cfg = runtime.settings.plugins.load_config_default::<Config>(&name)?;
-        match cfg.storage_type {
+        let mut cfg = runtime.settings.plugins.load_config_default::<PluginConfig>(&name)?;
+        let should_merge_on_get = match cfg.storage.typ {
             StorageType::Sled => {
-                cfg.sled.path = cfg.sled.path.replace("{node}", &format!("{}", runtime.node.id()));
+                cfg.storage.sled.path =
+                    cfg.storage.sled.path.replace("{node}", &format!("{}", runtime.node.id()));
+                true
             }
             StorageType::Redis => {
-                cfg.redis.prefix = cfg.redis.prefix.replace("{node}", &format!("{}", runtime.node.id()));
+                cfg.storage.redis.prefix =
+                    cfg.storage.redis.prefix.replace("{node}", &format!("{}", runtime.node.id()));
+                false
             }
-        }
+        };
         log::info!("{} StoragePlugin cfg: {:?}", name, cfg);
 
-        let storage_db = init_db(&cfg).await?;
+        let storage_db = init_db(&cfg.storage).await?;
 
         let register = runtime.extends.hook_mgr().await.register();
-        let message_mgr = get_or_init(storage_db.clone()).await?;
-        // let cfg = Arc::new(cfg);
-        Ok(Self { runtime, name, descr: descr.into(), register, message_mgr })
+        let message_mgr = get_or_init(storage_db.clone(), should_merge_on_get).await?;
+        let cfg = Arc::new(cfg);
+        Ok(Self { runtime, name, descr: descr.into(), cfg, register, message_mgr })
     }
 }
 
@@ -82,6 +89,11 @@ impl Plugin for StoragePlugin {
     #[inline]
     fn name(&self) -> &str {
         &self.name
+    }
+
+    #[inline]
+    async fn get_config(&self) -> Result<serde_json::Value> {
+        Ok(self.cfg.to_json())
     }
 
     #[inline]

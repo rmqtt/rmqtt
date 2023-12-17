@@ -8,6 +8,7 @@ rust-version.workspace = true
 
 [dependencies]
 rmqtt.workspace = true
-rmqtt-storage = "0.2"
-#rmqtt-storage = { path = "../../../rmqtt-storage"}
+#rmqtt-storage = "0.2"
+rmqtt-storage = { path = "../../../rmqtt-storage"}
 serde = { workspace = true, features = ["derive"] }
+futures-time = "3.0.0"

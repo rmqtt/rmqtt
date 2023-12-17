@@ -1,4 +1,6 @@
 #![deny(unsafe_code)]
+#[macro_use]
+extern crate serde;
 
 use std::convert::From as _;
 use std::sync::Arc;
@@ -26,11 +28,13 @@ use rmqtt::{
     TimestampMillis,
 };
 
-use rmqtt_storage::{init_db, Config, DefaultStorageDB, List, Map, StorageType};
+use rmqtt_storage::{init_db, DefaultStorageDB, List, Map, StorageType};
 
+use config::PluginConfig;
 use session::{Basic, StorageSessionManager, StoredSessionInfo, StoredSessionInfos};
 use session::{StoredKey, BASIC, DISCONNECT_INFO, INFLIGHT_MESSAGES, LAST_TIME, SESSION_SUB_MAP};
 
+mod config;
 mod session;
 
 enum RebuildChanType {
@@ -63,7 +67,7 @@ struct StoragePlugin {
     runtime: &'static Runtime,
     name: String,
     descr: String,
-    cfg: Arc<Config>,
+    cfg: Arc<PluginConfig>,
     storage_db: DefaultStorageDB,
     stored_session_infos: StoredSessionInfos,
     register: Box<dyn Register>,
@@ -75,19 +79,21 @@ impl StoragePlugin {
     #[inline]
     async fn new<S: Into<String>>(runtime: &'static Runtime, name: S, descr: S) -> Result<Self> {
         let name = name.into();
-        let mut cfg = runtime.settings.plugins.load_config_default::<Config>(&name)?;
-        match cfg.storage_type {
+        let mut cfg = runtime.settings.plugins.load_config_default::<PluginConfig>(&name)?;
+        match cfg.storage.typ {
             StorageType::Sled => {
-                cfg.sled.path = cfg.sled.path.replace("{node}", &format!("{}", runtime.node.id()));
+                cfg.storage.sled.path =
+                    cfg.storage.sled.path.replace("{node}", &format!("{}", runtime.node.id()));
             }
             StorageType::Redis => {
-                cfg.redis.prefix = cfg.redis.prefix.replace("{node}", &format!("{}", runtime.node.id()));
+                cfg.storage.redis.prefix =
+                    cfg.storage.redis.prefix.replace("{node}", &format!("{}", runtime.node.id()));
             }
         }
 
         log::info!("{} StoragePlugin cfg: {:?}", name, cfg);
 
-        let storage_db = init_db(&cfg).await?;
+        let storage_db = init_db(&cfg.storage).await?;
 
         let stored_session_infos = StoredSessionInfos::new();
 
@@ -362,6 +368,11 @@ impl Plugin for StoragePlugin {
     }
 
     #[inline]
+    async fn get_config(&self) -> Result<serde_json::Value> {
+        Ok(self.cfg.to_json())
+    }
+
+    #[inline]
     async fn attrs(&self) -> serde_json::Value {
         let mut map_count = 0;
         {
@@ -411,12 +422,12 @@ impl Plugin for StoragePlugin {
 }
 
 struct OfflineMessageHandler {
-    cfg: Arc<Config>,
+    cfg: Arc<PluginConfig>,
     storage_db: DefaultStorageDB,
 }
 
 impl OfflineMessageHandler {
-    fn new(cfg: Arc<Config>, storage_db: DefaultStorageDB) -> Self {
+    fn new(cfg: Arc<PluginConfig>, storage_db: DefaultStorageDB) -> Self {
         Self { cfg, storage_db }
     }
 }
@@ -428,7 +439,7 @@ impl Handler for OfflineMessageHandler {
             Parameter::OfflineMessage(s, f, p) => {
                 log::debug!(
                     "OfflineMessage storage_type: {:?}, from: {:?}, p: {:?}",
-                    self.cfg.storage_type,
+                    self.cfg.storage.typ,
                     f,
                     p
                 );
@@ -449,7 +460,7 @@ impl Handler for OfflineMessageHandler {
             Parameter::OfflineInflightMessages(s, inflight_messages) => {
                 log::debug!(
                     "OfflineInflightMessages storage_type: {:?}, inflight_messages len: {:?}",
-                    self.cfg.storage_type,
+                    self.cfg.storage.typ,
                     inflight_messages.len(),
                 );
                 let map_stored_key = make_map_stored_key(s.id.to_string());
@@ -470,7 +481,7 @@ impl Handler for OfflineMessageHandler {
 
 struct StorageHandler {
     storage_db: DefaultStorageDB,
-    cfg: Arc<Config>,
+    cfg: Arc<PluginConfig>,
     stored_session_infos: StoredSessionInfos,
     rebuild_tx: mpsc::Sender<RebuildChanType>,
 }
@@ -478,7 +489,7 @@ struct StorageHandler {
 impl StorageHandler {
     fn new(
         storage_db: DefaultStorageDB,
-        cfg: Arc<Config>,
+        cfg: Arc<PluginConfig>,
         stored_session_infos: StoredSessionInfos,
         rebuild_tx: mpsc::Sender<RebuildChanType>,
     ) -> Self {
@@ -603,7 +614,7 @@ impl Handler for StorageHandler {
             Parameter::BeforeStartup => {
                 log::info!(
                     "BeforeStartup storage_type: {:?}, stored_session_infos len: {}",
-                    self.cfg.storage_type,
+                    self.cfg.storage.typ,
                     self.stored_session_infos.len()
                 );
                 let (rebuild_done_tx, rebuild_done_rx) = oneshot::channel::<()>();
