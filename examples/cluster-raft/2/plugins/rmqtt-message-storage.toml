@@ -1,0 +1,16 @@
+##--------------------------------------------------------------------
+## rmqtt-message-storage
+##--------------------------------------------------------------------
+
+storage.type = "redis"
+#sled
+storage.sled.path = "/var/log/rmqtt/.cache/message/{node}"
+storage.sled.cache_capacity = "3G"
+storage.sled.gc_at_hour = 3
+storage.sled.gc_at_minute = 30
+
+#redis
+storage.redis.url = "redis://127.0.0.1:6379/"
+storage.redis.prefix = "message-{node}"
+
+

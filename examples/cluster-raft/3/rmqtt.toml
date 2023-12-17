@@ -43,7 +43,8 @@ plugins.default_startups = [
     "rmqtt-cluster-raft",
     #"rmqtt-auth-http",
     #"rmqtt-sys-topic",
-    "rmqtt-storage",
+    "rmqtt-message-storage",
+    "rmqtt-session-storage",
     "rmqtt-web-hook"
 ]
 
@@ -96,6 +97,8 @@ listener.tcp.external.session_expiry_interval = "5m"
 listener.tcp.external.message_retry_interval = "20s"
 #Message expiration time, 0 means no expiration
 listener.tcp.external.message_expiry_interval = "5m"
+#Whether support storage of received messages, true/false, default value: false
+listener.tcp.external.message_storage_available = true
 #The maximum number of topics that a single client is allowed to subscribe to
 #0 means unlimited, default value: 0
 listener.tcp.external.max_subscriptions = 0
