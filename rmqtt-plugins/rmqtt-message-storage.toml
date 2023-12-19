@@ -14,4 +14,5 @@ storage.redis.url = "redis://127.0.0.1:6379/"
 #storage.redis.url = "redis://zzfir.tpddns.cn:16379/"
 storage.redis.prefix = "message-{node}"
 
-#zzfir.tpddns.cn -p 16379
+##cleanup
+cleanup_count = 1000

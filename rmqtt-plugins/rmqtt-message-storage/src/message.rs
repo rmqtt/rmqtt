@@ -19,6 +19,7 @@ use rmqtt::{
     rust_box::std_ext::RwLock,
     rust_box::task_exec_queue::{Builder, SpawnExt, TaskExecQueue},
     tokio,
+    tokio::task::spawn_blocking,
     tokio::time::sleep,
 };
 
@@ -27,7 +28,10 @@ use rmqtt::{
     PersistedMsg, Publish, Result, SharedGroup, Timestamp, Topic, TopicFilter,
 };
 
+use rmqtt::tokio::runtime::Handle;
 use rmqtt_storage::{DefaultStorageDB, List, Map, StorageList, StorageMap};
+
+use crate::config::PluginConfig;
 
 type Msg = (From, Publish, Duration, PMsgID);
 
@@ -39,13 +43,14 @@ static INSTANCE: OnceCell<StorageMessageManager> = OnceCell::new();
 
 #[inline]
 pub(crate) async fn get_or_init(
+    cfg: Arc<PluginConfig>,
     storage_db: DefaultStorageDB,
     should_merge_on_get: bool,
 ) -> Result<&'static StorageMessageManager> {
     if let Some(msg_mgr) = INSTANCE.get() {
         return Ok(msg_mgr);
     }
-    let msg_mgr = StorageMessageManager::new(storage_db, should_merge_on_get).await?;
+    let msg_mgr = StorageMessageManager::new(cfg, storage_db, should_merge_on_get).await?;
     INSTANCE.set(msg_mgr).map_err(|_| anyhow!("init error!"))?;
     if let Some(msg_mgr) = INSTANCE.get() {
         Ok(msg_mgr)
@@ -56,22 +61,27 @@ pub(crate) async fn get_or_init(
 
 pub struct StorageMessageManager {
     inner: Arc<StorageMessageManagerInner>,
-    exec: TaskExecQueue,
+    pub(crate) exec: TaskExecQueue,
 }
 
 impl StorageMessageManager {
     #[inline]
-    async fn new(storage_db: DefaultStorageDB, should_merge_on_get: bool) -> Result<StorageMessageManager> {
+    async fn new(
+        cfg: Arc<PluginConfig>,
+        storage_db: DefaultStorageDB,
+        should_merge_on_get: bool,
+    ) -> Result<StorageMessageManager> {
         let messages_unexpired_list = storage_db.list(MSG_STORE_UNEXPIREDS);
-        let messages_received_map = storage_db.map(MSG_STORE_RECEIVEDS);
+        let mut messages_received_map = storage_db.map(MSG_STORE_RECEIVEDS);
         let messages_forwarded_map = storage_db.map(MSG_STORE_FORWARDEDS);
         let id_generater = StorageMessageManagerInner::storage_new_msg_id_generater(&storage_db).await?;
         log::info!("current msg_id: {}", id_generater.load(Ordering::SeqCst));
         let (messages_received_count, messages_received_max) =
-            StorageMessageManagerInner::storage_new_messages_counter(&storage_db).await?;
+            StorageMessageManagerInner::storage_new_messages_counter(&storage_db, &mut messages_received_map)
+                .await?;
         log::info!("messages_received_count: {}", messages_received_count.load(Ordering::SeqCst));
         log::info!("messages_received_max: {}", messages_received_max.load(Ordering::SeqCst));
-        let (exec, msg_tx, msg_queue_count) = Self::serve()?;
+        let (exec, msg_tx, msg_queue_count) = Self::serve(cfg)?;
         Ok(Self {
             inner: Arc::new(StorageMessageManagerInner {
                 storage_db,
@@ -90,7 +100,7 @@ impl StorageMessageManager {
         })
     }
 
-    fn serve() -> Result<(TaskExecQueue, mpsc::Sender<Msg>, Arc<AtomicIsize>)> {
+    fn serve(cfg: Arc<PluginConfig>) -> Result<(TaskExecQueue, mpsc::Sender<Msg>, Arc<AtomicIsize>)> {
         let queue_max = 300_000;
         let (exec, task_runner) = Builder::default().workers(1000).queue_max(queue_max).build();
 
@@ -131,33 +141,30 @@ impl StorageMessageManager {
         });
 
         //cleanup ...
-        //let exec1 = exec.clone();
         tokio::spawn(async move {
-            let max_limit = 1000;
-            sleep(Duration::from_secs(30)).await;
-            //let mut busy_sleep_count = 0;
+            let max_limit = cfg.cleanup_count;
+            sleep(Duration::from_secs(20)).await;
             loop {
-                // if exec1.active_count() > 1 && busy_sleep_count < 50 {
-                //     log::info!(
-                //         "busy_sleep_count: {:?}, exec1.active_count(): {}",
-                //         busy_sleep_count,
-                //         exec1.active_count()
-                //     );
-                //     sleep(Duration::from_secs(3)).await;
-                //     busy_sleep_count += 1;
-                //     continue;
-                // }
-                // busy_sleep_count = 0;
-
-                log::info!("remove_expired_messages start ...");
                 let now = std::time::Instant::now();
                 let removeds = if let Some(msg_mgr) = INSTANCE.get() {
-                    match msg_mgr.remove_expired_messages(max_limit).await {
+                    match spawn_blocking(move || {
+                        Handle::current().block_on(async move {
+                            match msg_mgr.remove_expired_messages(max_limit).await {
+                                Err(e) => {
+                                    log::warn!("remove expired messages error, {:?}", e);
+                                    0
+                                }
+                                Ok(removeds) => removeds,
+                            }
+                        })
+                    })
+                    .await
+                    {
+                        Ok(removeds) => removeds,
                         Err(e) => {
                             log::warn!("remove expired messages error, {:?}", e);
                             0
                         }
-                        Ok(removed) => removed,
                     }
                 } else {
                     0
@@ -166,7 +173,7 @@ impl StorageMessageManager {
                 if removeds >= max_limit {
                     continue;
                 }
-                sleep(Duration::from_secs(30)).await; //@TODO config enable
+                sleep(Duration::from_secs(20)).await; //@TODO config enable
             }
         });
 
@@ -398,7 +405,6 @@ impl StorageMessageManagerInner {
 
     #[inline]
     async fn storage_messages_counter_add(&self, vals: isize) -> Result<()> {
-        self.storage_db.counter_incr("messages_received_count", vals).await?;
         self.storage_db.counter_incr("messages_received_max", vals).await?;
         Ok(())
     }
@@ -406,9 +412,21 @@ impl StorageMessageManagerInner {
     #[inline]
     async fn storage_new_messages_counter(
         storage_db: &DefaultStorageDB,
+        messages_received_map: &mut StorageMap,
     ) -> Result<(AtomicIsize, AtomicIsize)> {
-        let count = storage_db.counter_get("messages_received_count").await?.unwrap_or_default();
+        let now = std::time::Instant::now();
+        let mut count = 0;
+        let mut iter = messages_received_map.key_iter().await?;
+        while let Some(_) = iter.next().await {
+            count += 1;
+        }
         let max = storage_db.counter_get("messages_received_max").await?.unwrap_or_default();
+        log::info!(
+            "messages_received_count: {}, messages_received_max: {}, cost time: {:?}",
+            count,
+            max,
+            now.elapsed()
+        );
         Ok((AtomicIsize::new(count), AtomicIsize::new(max)))
     }
 

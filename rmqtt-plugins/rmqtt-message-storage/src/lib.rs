@@ -72,8 +72,10 @@ impl StoragePlugin {
         let storage_db = init_db(&cfg.storage).await?;
 
         let register = runtime.extends.hook_mgr().await.register();
-        let message_mgr = get_or_init(storage_db.clone(), should_merge_on_get).await?;
+
         let cfg = Arc::new(cfg);
+        let message_mgr = get_or_init(cfg.clone(), storage_db.clone(), should_merge_on_get).await?;
+
         Ok(Self { runtime, name, descr: descr.into(), cfg, register, message_mgr })
     }
 }
@@ -127,13 +129,18 @@ impl Plugin for StoragePlugin {
         let unexpireds = self.message_mgr.messages_unexpired_list.len().await.unwrap_or_default();
         // let forwardeds = self.message_mgr.messages_forwarded_map.len().await.unwrap_or_default();
 
+        let exec_active_count = self.message_mgr.exec.active_count();
+        let exec_waiting_count = self.message_mgr.exec.waiting_count();
+
         json!(
             {
                 "message": {
                     // "receiveds": receiveds,
                     "unexpireds": unexpireds,
                     // "forwardeds": forwardeds,
-                }
+                },
+                "exec_active_count": exec_active_count,
+                "exec_waiting_count": exec_waiting_count,
             }
         )
     }
