@@ -7,4 +7,4 @@ edition = "2021"
 [dependencies]
 rmqtt = "0.3"
 serde = { version = "1.0", features = ["derive"] }
-salvo = { version = "0.37.9", features = ["affix"] }
+salvo = { version = "0.63", features = ["affix"] }
