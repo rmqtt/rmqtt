@@ -1,16 +1,19 @@
+use std::convert::From as _;
+use std::io::ErrorKind;
 use std::net::SocketAddr;
 
 use salvo::affix;
+use salvo::conn::tcp::TcpAcceptor;
 use salvo::http::header::{HeaderValue, CONTENT_TYPE};
 use salvo::http::mime;
-use salvo::hyper::server::conn::AddrIncoming;
 use salvo::prelude::*;
 
 use rmqtt::{
-    anyhow,
+    anyhow::{self, anyhow},
     base64::{engine::general_purpose, Engine as _},
     bytes, chrono, futures, log,
     serde_json::{self, json},
+    tokio,
     tokio::sync::oneshot,
     HashMap,
 };
@@ -97,13 +100,15 @@ pub(crate) async fn listen_and_serve(
     let listen = rmqtt::tokio::net::TcpListener::from_std(rmqtt::grpc::server::Server::bind(
         laddr, 128, reuseaddr, reuseport,
     )?)?;
-    let incoming = AddrIncoming::from_listener(listen).map_err(anyhow::Error::new)?;
-    Server::new(TcpListener::bind(incoming))
-        .try_serve_with_graceful_shutdown(route(cfg), async {
-            rx.await.ok();
-        })
-        .await
-        .map_err(anyhow::Error::new)?;
+
+    let acceptor = TcpAcceptor::try_from(listen)?;
+    let server = Server::new(acceptor);
+    let handler = server.handle();
+    tokio::task::spawn(async move {
+        rx.await.ok();
+        handler.stop_graceful(None);
+    });
+    server.try_serve(route(cfg)).await?;
     Ok(())
 }
 
@@ -271,17 +276,23 @@ async fn list_apis(res: &mut Response) {
     res.render(Json(data));
 }
 
+fn get_cfg(depot: &mut Depot) -> Result<&PluginConfigType, salvo::Error> {
+    let cfg = depot.obtain::<PluginConfigType>().map_err(|e| match e {
+        None => salvo::Error::Io(std::io::Error::new(ErrorKind::NotFound, anyhow!("None"))),
+        Some(e) => salvo::Error::Io(std::io::Error::new(ErrorKind::NotFound, format!("{:?}", e))),
+    })?;
+    Ok(cfg)
+}
+
 #[handler]
-async fn api_logger(req: &mut Request, depot: &mut Depot) {
-    if let Some(cfg) = depot.obtain::<PluginConfigType>() {
-        if !cfg.read().await.http_request_log {
-            return;
-        }
+async fn api_logger(req: &mut Request, depot: &mut Depot) -> Result<(), salvo::Error> {
+    if !get_cfg(depot)?.read().await.http_request_log {
+        return Ok(());
     }
 
     let log_data = format!(
         "Request {}, {:?}, {}, {}",
-        req.remote_addr().map(|addr| addr.to_string()).unwrap_or_else(|| "[Unknown]".into()),
+        req.remote_addr().to_string(),
         req.version(),
         req.method(),
         req.uri()
@@ -304,26 +315,32 @@ async fn api_logger(req: &mut Request, depot: &mut Depot) {
     } else {
         log::info!("{}", log_data);
     }
+    Ok(())
 }
 
 #[handler]
-async fn get_brokers(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+async fn get_brokers(req: &mut Request, depot: &mut Depot, res: &mut Response) -> Result<(), salvo::Error> {
+    let cfg = get_cfg(depot)?;
     let message_type = cfg.read().await.message_type;
 
     let id = req.param::<NodeId>("id");
     if let Some(id) = id {
         match _get_broker(message_type, id).await {
             Ok(Some(broker_info)) => res.render(Json(broker_info)),
-            Ok(None) | Err(MqttError::None) => res.set_status_code(StatusCode::NOT_FOUND),
-            Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+            Ok(None) | Err(MqttError::None) => {
+                res.status_code(StatusCode::NOT_FOUND);
+            }
+            Err(e) => {
+                res.render(StatusError::service_unavailable().detail(e.to_string()));
+            }
         }
     } else {
         match _get_brokers(message_type).await {
             Ok(brokers) => res.render(Json(brokers)),
-            Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
         }
     }
+    Ok(())
 }
 
 #[inline]
@@ -382,23 +399,26 @@ async fn _get_brokers(message_type: MessageType) -> Result<Vec<serde_json::Value
 }
 
 #[handler]
-async fn get_nodes(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+async fn get_nodes(req: &mut Request, depot: &mut Depot, res: &mut Response) -> Result<(), salvo::Error> {
+    let cfg = get_cfg(depot)?;
     let message_type = cfg.read().await.message_type;
 
     let id = req.param::<NodeId>("id");
     if let Some(id) = id {
         match _get_node(message_type, id).await {
             Ok(Some(node_info)) => res.render(Json(node_info)),
-            Ok(None) => res.set_status_code(StatusCode::NOT_FOUND),
-            Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+            Ok(None) => {
+                res.status_code(StatusCode::NOT_FOUND);
+            }
+            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
         }
     } else {
         match _get_nodes(message_type).await {
             Ok(node_infos) => res.render(Json(node_infos)),
-            Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
         }
     }
+    Ok(())
 }
 
 #[inline]
@@ -460,25 +480,30 @@ async fn _get_nodes(message_type: MessageType) -> Result<Vec<serde_json::Value>>
 async fn check_health(_req: &mut Request, _depot: &mut Depot, res: &mut Response) {
     match Runtime::instance().extends.shared().await.check_health().await {
         Ok(Some(health_info)) => res.render(Json(health_info)),
-        Ok(None) => res.set_status_code(StatusCode::NOT_FOUND),
-        Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+        Ok(None) => {
+            res.status_code(StatusCode::NOT_FOUND);
+        }
+        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
     }
 }
 
 #[handler]
-async fn get_client(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+async fn get_client(req: &mut Request, depot: &mut Depot, res: &mut Response) -> Result<(), salvo::Error> {
+    let cfg = get_cfg(depot)?;
     let message_type = cfg.read().await.message_type;
     let clientid = req.param::<String>("clientid");
     if let Some(clientid) = clientid {
         match _get_client(message_type, &clientid).await {
             Ok(Some(reply)) => res.render(Json(reply)),
-            Ok(None) | Err(MqttError::None) => res.set_status_code(StatusCode::NOT_FOUND),
-            Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+            Ok(None) | Err(MqttError::None) => {
+                res.status_code(StatusCode::NOT_FOUND);
+            }
+            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
         }
     } else {
-        res.set_status_error(StatusError::bad_request())
+        res.render(StatusError::bad_request())
     }
+    Ok(())
 }
 
 async fn _get_client(message_type: MessageType, clientid: &str) -> Result<Option<serde_json::Value>> {
@@ -512,13 +537,20 @@ async fn _get_client(message_type: MessageType, clientid: &str) -> Result<Option
 }
 
 #[handler]
-async fn search_clients(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+async fn search_clients(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> Result<(), salvo::Error> {
+    let cfg = get_cfg(depot)?;
     let message_type = cfg.read().await.message_type;
     let max_row_limit = cfg.read().await.max_row_limit;
     let mut q = match req.parse_queries::<ClientSearchParams>() {
         Ok(q) => q,
-        Err(e) => return res.set_status_error(StatusError::bad_request().with_detail(e.to_string())),
+        Err(e) => {
+            res.render(StatusError::bad_request().detail(e.to_string()));
+            return Ok(());
+        }
     };
 
     if q._limit == 0 || q._limit > max_row_limit {
@@ -526,8 +558,9 @@ async fn search_clients(req: &mut Request, depot: &mut Depot, res: &mut Response
     }
     match _search_clients(message_type, q).await {
         Ok(replys) => res.render(Json(replys)),
-        Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
     }
+    Ok(())
 }
 
 async fn _search_clients(
@@ -574,12 +607,14 @@ async fn kick_client(req: &mut Request, res: &mut Response) {
             .entry(Id::from(Runtime::instance().node.id(), ClientId::from(clientid)));
 
         match entry.kick(true, true, true).await {
-            Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
-            Ok(None) => res.set_status_code(StatusCode::NOT_FOUND),
+            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+            Ok(None) => {
+                res.status_code(StatusCode::NOT_FOUND);
+            }
             Ok(Some(offline_info)) => res.render(Text::Plain(offline_info.id.to_string())),
         }
     } else {
-        res.set_status_error(StatusError::bad_request())
+        res.render(StatusError::bad_request())
     }
 }
 
@@ -596,17 +631,24 @@ async fn check_online(req: &mut Request, res: &mut Response) {
         let online = entry.online().await;
         res.render(Json(online));
     } else {
-        res.set_status_error(StatusError::bad_request())
+        res.render(StatusError::bad_request())
     }
 }
 
 #[handler]
-async fn query_subscriptions(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+async fn query_subscriptions(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> Result<(), salvo::Error> {
+    let cfg = get_cfg(depot)?;
     let max_row_limit = cfg.read().await.max_row_limit;
     let mut q = match req.parse_queries::<SubsSearchParams>() {
         Ok(q) => q,
-        Err(e) => return res.set_status_error(StatusError::bad_request().with_detail(e.to_string())),
+        Err(e) => {
+            res.render(StatusError::bad_request().detail(e.to_string()));
+            return Ok(());
+        }
     };
     if q._limit == 0 || q._limit > max_row_limit {
         q._limit = max_row_limit;
@@ -621,6 +663,7 @@ async fn query_subscriptions(req: &mut Request, depot: &mut Depot, res: &mut Res
         .map(|res| res.to_json())
         .collect::<Vec<serde_json::Value>>();
     res.render(Json(replys));
+    Ok(())
 }
 
 #[handler]
@@ -636,16 +679,16 @@ async fn get_client_subscriptions(req: &mut Request, res: &mut Response) {
             let subs = subs.into_iter().map(|res| res.to_json()).collect::<Vec<serde_json::Value>>();
             res.render(Json(subs));
         } else {
-            res.set_status_code(StatusCode::NOT_FOUND)
+            res.status_code(StatusCode::NOT_FOUND);
         }
     } else {
-        res.set_status_error(StatusError::bad_request())
+        res.render(StatusError::bad_request());
     }
 }
 
 #[handler]
-async fn get_routes(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+async fn get_routes(req: &mut Request, depot: &mut Depot, res: &mut Response) -> Result<(), salvo::Error> {
+    let cfg = get_cfg(depot)?;
     let max_row_limit = cfg.read().await.max_row_limit;
     let limit = req.query::<usize>("_limit");
     let limit = if let Some(limit) = limit {
@@ -659,6 +702,7 @@ async fn get_routes(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     };
     let replys = Runtime::instance().extends.router().await.gets(limit).await;
     res.render(Json(replys));
+    Ok(())
 }
 
 #[handler]
@@ -667,34 +711,37 @@ async fn get_route(req: &mut Request, res: &mut Response) {
     if let Some(topic) = topic {
         match Runtime::instance().extends.router().await.get(&topic).await {
             Ok(replys) => res.render(Json(replys)),
-            Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
         }
     } else {
-        res.set_status_error(StatusError::bad_request())
+        res.render(StatusError::bad_request())
     }
 }
 
 #[handler]
-async fn publish(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+async fn publish(req: &mut Request, depot: &mut Depot, res: &mut Response) -> Result<(), salvo::Error> {
+    let cfg = get_cfg(depot)?;
     let http_laddr = cfg.read().await.http_laddr;
 
-    let remote_addr = req.remote_addr().and_then(|addr| {
-        if let Some(ipv4) = addr.as_ipv4() {
-            Some(SocketAddr::V4(*ipv4))
-        } else {
-            addr.as_ipv6().map(|ipv6| SocketAddr::V6(*ipv6))
-        }
-    });
+    let addr = req.remote_addr();
+    let remote_addr = if let Some(ipv4) = addr.as_ipv4() {
+        Some(SocketAddr::V4(*ipv4))
+    } else {
+        addr.as_ipv6().map(|ipv6| SocketAddr::V6(*ipv6))
+    };
 
     let params = match req.parse_json::<PublishParams>().await {
         Ok(p) => p,
-        Err(e) => return res.set_status_error(StatusError::bad_request().with_detail(e.to_string())),
+        Err(e) => {
+            res.render(StatusError::bad_request().detail(e.to_string()));
+            return Ok(());
+        }
     };
     match _publish(params, remote_addr, http_laddr).await {
         Ok(()) => res.render(Text::Plain("ok")),
-        Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
     }
+    Ok(())
 }
 
 async fn _publish(
@@ -793,10 +840,13 @@ async fn _publish(
 }
 
 #[handler]
-async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response) -> Result<(), salvo::Error> {
     let params = match req.parse_json::<SubscribeParams>().await {
         Ok(p) => p,
-        Err(e) => return res.set_status_error(StatusError::bad_request().with_detail(e.to_string())),
+        Err(e) => {
+            res.render(StatusError::bad_request().detail(e.to_string()));
+            return Ok(());
+        }
     };
 
     let node_id = if let Some(status) =
@@ -805,12 +855,12 @@ async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response) {
         if status.online {
             status.id.node_id
         } else {
-            res.set_status_error(StatusError::service_unavailable().with_detail("the session is offline"));
-            return;
+            res.render(StatusError::service_unavailable().detail("the session is offline"));
+            return Ok(());
         }
     } else {
-        res.set_status_error(StatusError::not_found().with_detail("session does not exist"));
-        return;
+        res.render(StatusError::not_found().detail("session does not exist"));
+        return Ok(());
     };
 
     if node_id == Runtime::instance().node.id() {
@@ -829,10 +879,10 @@ async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response) {
                     .collect::<HashMap<_, _>>();
                 res.render(Json(replys))
             }
-            Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
         }
     } else {
-        let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+        let cfg = get_cfg(depot)?;
         let message_type = cfg.read().await.message_type;
         //The session is on another node
         #[allow(clippy::mutable_key_type)]
@@ -851,9 +901,10 @@ async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response) {
                     .collect::<HashMap<_, _>>();
                 res.render(Json(replys))
             }
-            Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
         }
     }
+    Ok(())
 }
 
 #[inline]
@@ -875,10 +926,13 @@ async fn _subscribe_on_other_node(
 }
 
 #[handler]
-async fn unsubscribe(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+async fn unsubscribe(req: &mut Request, depot: &mut Depot, res: &mut Response) -> Result<(), salvo::Error> {
     let params = match req.parse_json::<UnsubscribeParams>().await {
         Ok(p) => p,
-        Err(e) => return res.set_status_error(StatusError::bad_request().with_detail(e.to_string())),
+        Err(e) => {
+            res.render(StatusError::bad_request().detail(e.to_string()));
+            return Ok(());
+        }
     };
 
     let node_id = if let Some(status) =
@@ -887,28 +941,29 @@ async fn unsubscribe(req: &mut Request, depot: &mut Depot, res: &mut Response) {
         if status.online {
             status.id.node_id
         } else {
-            res.set_status_error(StatusError::service_unavailable().with_detail("the session is offline"));
-            return;
+            res.render(StatusError::service_unavailable().detail("the session is offline"));
+            return Ok(());
         }
     } else {
-        res.set_status_error(StatusError::not_found().with_detail("session does not exist"));
-        return;
+        res.render(StatusError::not_found().detail("session does not exist"));
+        return Ok(());
     };
 
     if node_id == Runtime::instance().node.id() {
         match subs::unsubscribe(params).await {
             Ok(()) => res.render(Json(true)),
-            Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
         }
     } else {
-        let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+        let cfg = get_cfg(depot)?;
         let message_type = cfg.read().await.message_type;
         //The session is on another node
         match _unsubscribe_on_other_node(message_type, node_id, params).await {
             Ok(()) => res.render(Text::Plain("ok")),
-            Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
         }
     }
+    Ok(())
 }
 
 #[inline]
@@ -930,14 +985,15 @@ async fn _unsubscribe_on_other_node(
 }
 
 #[handler]
-async fn all_plugins(depot: &mut Depot, res: &mut Response) {
-    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+async fn all_plugins(depot: &mut Depot, res: &mut Response) -> Result<(), salvo::Error> {
+    let cfg = get_cfg(depot)?;
     let message_type = cfg.read().await.message_type;
 
     match _all_plugins(message_type).await {
         Ok(pluginss) => res.render(Json(pluginss)),
-        Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
     }
+    Ok(())
 }
 
 #[inline]
@@ -985,18 +1041,20 @@ async fn _all_plugins(message_type: MessageType) -> Result<Vec<serde_json::Value
 }
 
 #[handler]
-async fn node_plugins(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+async fn node_plugins(req: &mut Request, depot: &mut Depot, res: &mut Response) -> Result<(), salvo::Error> {
+    let cfg = get_cfg(depot)?;
     let message_type = cfg.read().await.message_type;
     let node_id = if let Some(node_id) = req.param::<NodeId>("node") {
         node_id
     } else {
-        return res.set_status_code(StatusCode::NOT_FOUND);
+        res.status_code(StatusCode::NOT_FOUND);
+        return Ok(());
     };
     match _node_plugins(node_id, message_type).await {
         Ok(plugins) => res.render(Json(plugins)),
-        Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
     }
+    Ok(())
 }
 
 async fn _node_plugins(node_id: NodeId, message_type: MessageType) -> Result<Vec<serde_json::Value>> {
@@ -1018,24 +1076,32 @@ async fn _node_plugins(node_id: NodeId, message_type: MessageType) -> Result<Vec
 }
 
 #[handler]
-async fn node_plugin_info(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+async fn node_plugin_info(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> Result<(), salvo::Error> {
+    let cfg = get_cfg(depot)?;
     let message_type = cfg.read().await.message_type;
     let node_id = if let Some(node_id) = req.param::<NodeId>("node") {
         node_id
     } else {
-        return res.set_status_code(StatusCode::NOT_FOUND);
+        res.status_code(StatusCode::NOT_FOUND);
+        return Ok(());
     };
     let name = if let Some(name) = req.param::<String>("plugin") {
         name
     } else {
-        return res.set_status_code(StatusCode::NOT_FOUND);
+        res.status_code(StatusCode::NOT_FOUND);
+        return Ok(());
     };
 
     match _node_plugin_info(node_id, &name, message_type).await {
         Ok(plugin) => res.render(Json(plugin)),
-        Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
     }
+
+    Ok(())
 }
 
 async fn _node_plugin_info(
@@ -1065,18 +1131,24 @@ async fn _node_plugin_info(
 }
 
 #[handler]
-async fn node_plugin_config(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+async fn node_plugin_config(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> Result<(), salvo::Error> {
+    let cfg = get_cfg(depot)?;
     let message_type = cfg.read().await.message_type;
     let node_id = if let Some(node_id) = req.param::<NodeId>("node") {
         node_id
     } else {
-        return res.set_status_code(StatusCode::NOT_FOUND);
+        res.status_code(StatusCode::NOT_FOUND);
+        return Ok(());
     };
     let name = if let Some(name) = req.param::<String>("plugin") {
         name
     } else {
-        return res.set_status_code(StatusCode::NOT_FOUND);
+        res.status_code(StatusCode::NOT_FOUND);
+        return Ok(());
     };
 
     match _node_plugin_config(node_id, &name, message_type).await {
@@ -1085,8 +1157,9 @@ async fn node_plugin_config(req: &mut Request, depot: &mut Depot, res: &mut Resp
                 .insert(CONTENT_TYPE, HeaderValue::from_static("application/json; charset=utf-8"));
             res.write_body(cfg).ok();
         }
-        Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
     }
+    Ok(())
 }
 
 async fn _node_plugin_config(node_id: NodeId, name: &str, message_type: MessageType) -> Result<Vec<u8>> {
@@ -1108,24 +1181,31 @@ async fn _node_plugin_config(node_id: NodeId, name: &str, message_type: MessageT
 }
 
 #[handler]
-async fn node_plugin_config_reload(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+async fn node_plugin_config_reload(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> Result<(), salvo::Error> {
+    let cfg = get_cfg(depot)?;
     let message_type = cfg.read().await.message_type;
     let node_id = if let Some(node_id) = req.param::<NodeId>("node") {
         node_id
     } else {
-        return res.set_status_code(StatusCode::NOT_FOUND);
+        res.status_code(StatusCode::NOT_FOUND);
+        return Ok(());
     };
     let name = if let Some(name) = req.param::<String>("plugin") {
         name
     } else {
-        return res.set_status_code(StatusCode::NOT_FOUND);
+        res.status_code(StatusCode::NOT_FOUND);
+        return Ok(());
     };
 
     match _node_plugin_config_reload(node_id, &name, message_type).await {
         Ok(()) => res.render(Text::Plain("ok")),
-        Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
     }
+    Ok(())
 }
 
 async fn _node_plugin_config_reload(node_id: NodeId, name: &str, message_type: MessageType) -> Result<()> {
@@ -1146,24 +1226,31 @@ async fn _node_plugin_config_reload(node_id: NodeId, name: &str, message_type: M
 }
 
 #[handler]
-async fn node_plugin_load(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+async fn node_plugin_load(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> Result<(), salvo::Error> {
+    let cfg = get_cfg(depot)?;
     let message_type = cfg.read().await.message_type;
     let node_id = if let Some(node_id) = req.param::<NodeId>("node") {
         node_id
     } else {
-        return res.set_status_code(StatusCode::NOT_FOUND);
+        res.status_code(StatusCode::NOT_FOUND);
+        return Ok(());
     };
     let name = if let Some(name) = req.param::<String>("plugin") {
         name
     } else {
-        return res.set_status_code(StatusCode::NOT_FOUND);
+        res.status_code(StatusCode::NOT_FOUND);
+        return Ok(());
     };
 
     match _node_plugin_load(node_id, &name, message_type).await {
         Ok(()) => res.render(Text::Plain("ok")),
-        Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
     }
+    Ok(())
 }
 
 async fn _node_plugin_load(node_id: NodeId, name: &str, message_type: MessageType) -> Result<()> {
@@ -1184,24 +1271,31 @@ async fn _node_plugin_load(node_id: NodeId, name: &str, message_type: MessageTyp
 }
 
 #[handler]
-async fn node_plugin_unload(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+async fn node_plugin_unload(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> Result<(), salvo::Error> {
+    let cfg = get_cfg(depot)?;
     let message_type = cfg.read().await.message_type;
     let node_id = if let Some(node_id) = req.param::<NodeId>("node") {
         node_id
     } else {
-        return res.set_status_code(StatusCode::NOT_FOUND);
+        res.status_code(StatusCode::NOT_FOUND);
+        return Ok(());
     };
     let name = if let Some(name) = req.param::<String>("plugin") {
         name
     } else {
-        return res.set_status_code(StatusCode::NOT_FOUND);
+        res.status_code(StatusCode::NOT_FOUND);
+        return Ok(());
     };
 
     match _node_plugin_unload(node_id, &name, message_type).await {
         Ok(r) => res.render(Json(r)),
-        Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
     }
+    Ok(())
 }
 
 async fn _node_plugin_unload(node_id: NodeId, name: &str, message_type: MessageType) -> Result<bool> {
@@ -1222,14 +1316,15 @@ async fn _node_plugin_unload(node_id: NodeId, name: &str, message_type: MessageT
 }
 
 #[handler]
-async fn get_stats_sum(depot: &mut Depot, res: &mut Response) {
-    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+async fn get_stats_sum(depot: &mut Depot, res: &mut Response) -> Result<(), salvo::Error> {
+    let cfg = get_cfg(depot)?;
     let message_type = cfg.read().await.message_type;
 
     match _get_stats_sum(message_type).await {
         Ok(stats_sum) => res.render(Json(stats_sum)),
-        Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
     }
+    Ok(())
 }
 
 async fn _get_stats_sum(message_type: MessageType) -> Result<serde_json::Value> {
@@ -1282,23 +1377,26 @@ async fn _get_stats_sum(message_type: MessageType) -> Result<serde_json::Value> 
 }
 
 #[handler]
-async fn get_stats(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+async fn get_stats(req: &mut Request, depot: &mut Depot, res: &mut Response) -> Result<(), salvo::Error> {
+    let cfg = get_cfg(depot)?;
     let message_type = cfg.read().await.message_type;
 
     let id = req.param::<NodeId>("id");
     if let Some(id) = id {
         match _get_stats_one(message_type, id).await {
             Ok(Some(stat_info)) => res.render(Json(stat_info)),
-            Ok(None) | Err(MqttError::None) => res.set_status_code(StatusCode::NOT_FOUND),
-            Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+            Ok(None) | Err(MqttError::None) => {
+                res.status_code(StatusCode::NOT_FOUND);
+            }
+            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
         }
     } else {
         match _get_stats_all(message_type).await {
             Ok(stat_infos) => res.render(Json(stat_infos)),
-            Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
         }
     }
+    Ok(())
 }
 
 #[inline]
@@ -1379,23 +1477,26 @@ async fn _build_stats(id: NodeId, node_status: NodeStatus, stats: serde_json::Va
 }
 
 #[handler]
-async fn get_metrics(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+async fn get_metrics(req: &mut Request, depot: &mut Depot, res: &mut Response) -> Result<(), salvo::Error> {
+    let cfg = get_cfg(depot)?;
     let message_type = cfg.read().await.message_type;
 
     let id = req.param::<NodeId>("id");
     if let Some(id) = id {
         match _get_metrics_one(message_type, id).await {
             Ok(Some(metrics)) => res.render(Json(metrics)),
-            Ok(None) | Err(MqttError::None) => res.set_status_code(StatusCode::NOT_FOUND),
-            Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+            Ok(None) | Err(MqttError::None) => {
+                res.status_code(StatusCode::NOT_FOUND);
+            }
+            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
         }
     } else {
         match _get_metrics_all(message_type).await {
             Ok(metricses) => res.render(Json(metricses)),
-            Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
         }
     }
+    Ok(())
 }
 
 #[inline]
@@ -1456,14 +1557,15 @@ async fn _get_metrics_all(message_type: MessageType) -> Result<Vec<serde_json::V
 }
 
 #[handler]
-async fn get_metrics_sum(depot: &mut Depot, res: &mut Response) {
-    let cfg = depot.obtain::<PluginConfigType>().cloned().unwrap();
+async fn get_metrics_sum(depot: &mut Depot, res: &mut Response) -> Result<(), salvo::Error> {
+    let cfg = get_cfg(depot)?;
     let message_type = cfg.read().await.message_type;
 
     match _get_metrics_sum(message_type).await {
         Ok(metrics_sum) => res.render(Json(metrics_sum)),
-        Err(e) => res.set_status_error(StatusError::service_unavailable().with_detail(e.to_string())),
+        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
     }
+    Ok(())
 }
 
 async fn _get_metrics_sum(message_type: MessageType) -> Result<serde_json::Value> {
