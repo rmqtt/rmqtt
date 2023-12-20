@@ -290,13 +290,8 @@ async fn api_logger(req: &mut Request, depot: &mut Depot) -> Result<(), salvo::E
         return Ok(());
     }
 
-    let log_data = format!(
-        "Request {}, {:?}, {}, {}",
-        req.remote_addr().to_string(),
-        req.version(),
-        req.method(),
-        req.uri()
-    );
+    let log_data =
+        format!("Request {}, {:?}, {}, {}", req.remote_addr(), req.version(), req.method(), req.uri());
     let txt_body = if let Some(m) = req.content_type() {
         if let mime::PLAIN | mime::JSON | mime::TEXT = m.subtype() {
             if let Ok(body) = req.payload().await {
