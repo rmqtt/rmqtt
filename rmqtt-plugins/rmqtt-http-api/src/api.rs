@@ -13,6 +13,7 @@ use rmqtt::{
     base64::{engine::general_purpose, Engine as _},
     bytes, chrono, futures, log,
     serde_json::{self, json},
+    tokio,
     tokio::sync::oneshot,
     HashMap,
 };
@@ -101,14 +102,13 @@ pub(crate) async fn listen_and_serve(
     )?)?;
 
     let acceptor = TcpAcceptor::try_from(listen)?;
-    Server::new(acceptor).try_serve(route(cfg)).await?;
-
-    // Server::new(acceptor)
-    //     .try_serve_with_graceful_shutdown(route(cfg), async {
-    //         rx.await.ok();
-    //     })
-    //     .await
-    //     .map_err(anyhow::Error::new)?;
+    let server = Server::new(acceptor);
+    let handler = server.handle();
+    tokio::task::spawn(async move {
+        rx.await.ok();
+        handler.stop_graceful(None);
+    });
+    server.try_serve(route(cfg)).await?;
     Ok(())
 }
 
