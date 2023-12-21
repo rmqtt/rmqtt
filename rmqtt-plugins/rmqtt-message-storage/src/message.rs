@@ -18,31 +18,32 @@ use rmqtt::{
     once_cell::sync::OnceCell,
     rust_box::std_ext::RwLock,
     rust_box::task_exec_queue::{Builder, SpawnExt, TaskExecQueue},
-    tokio,
-    tokio::task::spawn_blocking,
+    timestamp_millis, tokio,
     tokio::time::sleep,
+    NodeId, TimestampMillis,
 };
 
 use rmqtt::{
-    broker::retain::RetainTree, broker::MessageManager, timestamp_secs, ClientId, From, MqttError, PMsgID,
-    PersistedMsg, Publish, Result, SharedGroup, Timestamp, Topic, TopicFilter,
+    broker::retain::RetainTree, broker::MessageManager, ClientId, From, MqttError, MsgID, Publish, Result,
+    SharedGroup, StoredMessage, Topic, TopicFilter,
 };
 
-use rmqtt::tokio::runtime::Handle;
-use rmqtt_storage::{DefaultStorageDB, List, Map, StorageList, StorageMap};
+use rmqtt::tokio::task::spawn_blocking;
+use rmqtt_storage::{DefaultStorageDB, Map, StorageMap};
 
 use crate::config::PluginConfig;
 
-type Msg = (From, Publish, Duration, PMsgID);
+type Msg = (From, Publish, Duration, MsgID);
+type TopicTreeType = Arc<RwLock<RetainTree<(MsgID, TimestampMillis)>>>;
 
-const MSG_STORE_RECEIVEDS: &str = "received_msgs";
-const MSG_STORE_UNEXPIREDS: &str = "unexpired_msgs";
-const MSG_STORE_FORWARDEDS: &str = "forwarded_msgs";
+const DATA: &[u8] = b"data";
+const FORWARDED_PREFIX: &[u8] = b"fwd_";
 
 static INSTANCE: OnceCell<StorageMessageManager> = OnceCell::new();
 
 #[inline]
 pub(crate) async fn get_or_init(
+    node_id: NodeId,
     cfg: Arc<PluginConfig>,
     storage_db: DefaultStorageDB,
     should_merge_on_get: bool,
@@ -50,7 +51,7 @@ pub(crate) async fn get_or_init(
     if let Some(msg_mgr) = INSTANCE.get() {
         return Ok(msg_mgr);
     }
-    let msg_mgr = StorageMessageManager::new(cfg, storage_db, should_merge_on_get).await?;
+    let msg_mgr = StorageMessageManager::new(node_id, cfg, storage_db, should_merge_on_get).await?;
     INSTANCE.set(msg_mgr).map_err(|_| anyhow!("init error!"))?;
     if let Some(msg_mgr) = INSTANCE.get() {
         Ok(msg_mgr)
@@ -67,28 +68,22 @@ pub struct StorageMessageManager {
 impl StorageMessageManager {
     #[inline]
     async fn new(
-        cfg: Arc<PluginConfig>,
+        _node_id: NodeId,
+        _cfg: Arc<PluginConfig>,
         storage_db: DefaultStorageDB,
         should_merge_on_get: bool,
     ) -> Result<StorageMessageManager> {
-        let messages_unexpired_list = storage_db.list(MSG_STORE_UNEXPIREDS);
-        let mut messages_received_map = storage_db.map(MSG_STORE_RECEIVEDS);
-        let messages_forwarded_map = storage_db.map(MSG_STORE_FORWARDEDS);
         let id_generater = StorageMessageManagerInner::storage_new_msg_id_generater(&storage_db).await?;
         log::info!("current msg_id: {}", id_generater.load(Ordering::SeqCst));
         let (messages_received_count, messages_received_max) =
-            StorageMessageManagerInner::storage_new_messages_counter(&storage_db, &mut messages_received_map)
-                .await?;
+            StorageMessageManagerInner::storage_new_messages_counter(&storage_db).await?;
         log::info!("messages_received_count: {}", messages_received_count.load(Ordering::SeqCst));
         log::info!("messages_received_max: {}", messages_received_max.load(Ordering::SeqCst));
-        let (exec, msg_tx, msg_queue_count) = Self::serve(cfg)?;
+        let (exec, msg_tx, msg_queue_count) = Self::serve()?;
         Ok(Self {
             inner: Arc::new(StorageMessageManagerInner {
                 storage_db,
-                messages_received_map,
-                messages_unexpired_list,
-                messages_forwarded_map,
-                subs_tree: Default::default(),
+                topic_tree: Default::default(),
                 messages_received_count,
                 messages_received_max,
                 msg_tx,
@@ -100,7 +95,7 @@ impl StorageMessageManager {
         })
     }
 
-    fn serve(cfg: Arc<PluginConfig>) -> Result<(TaskExecQueue, mpsc::Sender<Msg>, Arc<AtomicIsize>)> {
+    fn serve() -> Result<(TaskExecQueue, mpsc::Sender<Msg>, Arc<AtomicIsize>)> {
         let queue_max = 300_000;
         let (exec, task_runner) = Builder::default().workers(1000).queue_max(queue_max).build();
 
@@ -134,7 +129,7 @@ impl StorageMessageManager {
                     //merge and send
                     let msgs = std::mem::take(&mut merger_msgs);
                     msg_queue_count1.fetch_sub(msgs.len() as isize, Ordering::SeqCst);
-                    tokio::spawn(msg_mgr._batch_set(msgs));
+                    tokio::spawn(msg_mgr._batch_set_v2(msgs));
                 }
                 log::error!("Recv failed because receiver is gone");
             }
@@ -142,35 +137,25 @@ impl StorageMessageManager {
 
         //cleanup ...
         tokio::spawn(async move {
-            let max_limit = cfg.cleanup_count;
+            let max_limit = 1000; //cfg.cleanup_count;
             sleep(Duration::from_secs(20)).await;
             loop {
                 let now = std::time::Instant::now();
                 let removeds = if let Some(msg_mgr) = INSTANCE.get() {
-                    match spawn_blocking(move || {
-                        Handle::current().block_on(async move {
-                            match msg_mgr.remove_expired_messages(max_limit).await {
-                                Err(e) => {
-                                    log::warn!("remove expired messages error, {:?}", e);
-                                    0
-                                }
-                                Ok(removeds) => removeds,
-                            }
-                        })
+                    spawn_blocking(move || {
+                        let curr_time = timestamp_millis();
+                        msg_mgr.topic_tree.write().retain(|(_, expiry_time_at)| curr_time < *expiry_time_at)
                     })
                     .await
-                    {
-                        Ok(removeds) => removeds,
-                        Err(e) => {
-                            log::warn!("remove expired messages error, {:?}", e);
-                            0
-                        }
-                    }
                 } else {
-                    0
+                    Ok(0)
                 };
-                log::info!("remove_expired_messages, removeds: {} cost time: {:?}", removeds, now.elapsed());
-                if removeds >= max_limit {
+                log::info!(
+                    "remove_expired_messages, removeds: {:?} cost time: {:?}",
+                    removeds,
+                    now.elapsed()
+                );
+                if removeds.unwrap_or_default() >= max_limit {
                     continue;
                 }
                 sleep(Duration::from_secs(20)).await; //@TODO config enable
@@ -191,11 +176,7 @@ impl Deref for StorageMessageManager {
 
 pub struct StorageMessageManagerInner {
     pub(crate) storage_db: DefaultStorageDB,
-    pub(crate) messages_received_map: StorageMap,
-    pub(crate) messages_unexpired_list: StorageList,
-    pub(crate) messages_forwarded_map: StorageMap, //key: PMsgID + ClientId, val: Option<(TopicFilter, SharedGroup)>
-
-    subs_tree: RwLock<RetainTree<PMsgID>>,
+    pub(crate) topic_tree: TopicTreeType,
 
     messages_received_count: AtomicIsize,
     messages_received_max: AtomicIsize,
@@ -208,180 +189,6 @@ pub struct StorageMessageManagerInner {
 }
 
 impl StorageMessageManagerInner {
-    #[inline]
-    async fn _batch_set(&self, msgs: Vec<(From, Publish, Duration, PMsgID)>) {
-        let mut received_key_vals = Vec::new();
-        let mut unexpired_key_vals = Vec::new();
-        if let Err(e) = self.storage_save_msg_id().await {
-            log::warn!("save message id error, {:?}", e);
-            return;
-        }
-
-        for (from, publish, expiry_interval, msg_id) in msgs {
-            let mut topic = match Topic::from_str(&publish.topic) {
-                Err(e) => {
-                    log::warn!("Topic::from_str error, {:?}", e);
-                    continue;
-                }
-                Ok(topic) => topic,
-            };
-            let expiry_time_at = timestamp_secs() + expiry_interval.as_secs() as i64;
-
-            let pmsg = PersistedMsg { msg_id, from, publish, expiry_time_at };
-            topic.push(TopicLevel::Normal(msg_id.to_string()));
-
-            //topic
-            self.subs_tree.write().insert(&topic, msg_id);
-
-            //received messages
-            let msg_id_bytes = msg_id.to_be_bytes();
-            received_key_vals.push((msg_id_bytes.to_vec(), pmsg));
-
-            //unexpired key vals
-            unexpired_key_vals.push((msg_id, expiry_time_at));
-        }
-
-        self.messages_received_count_add(received_key_vals.len() as isize);
-        if let Err(e) = self.storage_messages_counter_add(received_key_vals.len() as isize).await {
-            log::warn!("messages_received_counter add error, {:?}", e);
-        }
-        if let Err(e) = self.messages_received_map.batch_insert::<PersistedMsg>(received_key_vals).await {
-            log::warn!("messages_received batch_insert error, {:?}", e);
-        }
-        if let Err(e) = self.messages_unexpired_list.pushs(unexpired_key_vals).await {
-            log::warn!("messages_unexpired pushs error, {:?}", e);
-        }
-    }
-
-    #[inline]
-    pub(crate) async fn remove_expired_messages(&self, max_limit: usize) -> Result<usize> {
-        let now_inst = std::time::Instant::now();
-        let now = timestamp_secs();
-        let mut removed_topics = Vec::new();
-        let mut messages_received_removed_count = 0;
-        let mut forwarded_removed_keys = Vec::new();
-        let mut received_removed_keys = Vec::new();
-
-        let mut expired_count = 0;
-        log::debug!("remove_expired_messages max_limit: {}", max_limit);
-        while let Some((msg_id, _)) = self
-            .messages_unexpired_list
-            .pop_f::<_, (PMsgID, Timestamp)>(move |(_, expiry_time_at)| *expiry_time_at <= now)
-            .await?
-        {
-            log::debug!(
-                "remove_expired_messages is_expiry, msg_id: {}, expired_count: {}",
-                msg_id,
-                expired_count
-            );
-
-            forwarded_removed_keys.push(msg_id);
-            received_removed_keys.push(msg_id.to_be_bytes().to_vec());
-            if let Some(pmsg) = self._get_message(msg_id).await? {
-                let mut topic =
-                    Topic::from_str(&pmsg.publish.topic).map_err(|e| anyhow!(format!("{:?}", e)))?;
-                topic.push(TopicLevel::Normal(msg_id.to_string()));
-                removed_topics.push(topic);
-                self.messages_received_count_dec();
-                messages_received_removed_count += 1;
-            }
-
-            expired_count += 1;
-            if expired_count > max_limit {
-                break;
-            }
-        }
-
-        log::debug!(
-            "removed_topics: {}, messages_received_removed_count: {}, cost time: {:?}",
-            removed_topics.len(),
-            messages_received_removed_count,
-            now_inst.elapsed()
-        );
-
-        for topic in removed_topics {
-            self.subs_tree.write().remove(&topic);
-        }
-
-        if let Err(e) = self.messages_forwarded_batch_removes(forwarded_removed_keys).await {
-            log::warn!("messages_forwarded_batch_removes error, {:?}", e);
-            return Err(e);
-        }
-
-        if let Err(e) = self.messages_received_map.batch_remove(received_removed_keys).await {
-            log::warn!("messages_received_map.batch_remove error, {:?}", e);
-            return Err(MqttError::from(e));
-        }
-
-        log::debug!(
-            "remove_expired_messages messages_received_removed_count: {}",
-            messages_received_removed_count
-        );
-        if messages_received_removed_count == 0
-            && self.messages_unexpired_list.is_empty().await.unwrap_or_default()
-        {
-            let mut messages_received_map = self.messages_received_map.clone();
-            let mut iter = messages_received_map.key_iter().await?;
-            let mut removes = Vec::new();
-            while let Some(key) = iter.next().await {
-                let key = key?;
-                removes.push(key);
-            }
-            drop(iter);
-            let removes_count = removes.len() as isize;
-            if let Err(e) = messages_received_map.batch_remove(removes).await {
-                log::warn!("messages_received_map.batch_remove error, {:?}", e);
-                return Err(MqttError::from(e));
-            }
-
-            self.messages_received_count_sub(removes_count);
-
-            let mut messages_forwarded_map = self.messages_forwarded_map.clone();
-            let mut iter = messages_forwarded_map.key_iter().await?;
-            let mut removes = Vec::new();
-            while let Some(key) = iter.next().await {
-                let key = key?;
-                removes.push(key);
-            }
-            drop(iter);
-            if let Err(e) = messages_forwarded_map.batch_remove(removes).await {
-                log::warn!("messages_forwarded_map.batch_remove error, {:?}", e);
-                return Err(MqttError::from(e));
-            }
-        }
-
-        Ok(messages_received_removed_count)
-    }
-
-    #[inline]
-    async fn messages_forwarded_batch_removes(&self, msg_ids: Vec<PMsgID>) -> Result<()> {
-        let mut batch = Vec::new();
-        let mut messages_forwarded_map = self.messages_forwarded_map.clone();
-        for msg_id in msg_ids {
-            let mut iter = messages_forwarded_map
-                .prefix_iter::<_, Option<(TopicFilter, SharedGroup)>>(msg_id.to_be_bytes())
-                .await?;
-            while let Some(item) = iter.next().await {
-                match item {
-                    Ok((key, _)) => {
-                        log::debug!(
-                            "messages_forwarded_batch_removes, key: {:?}",
-                            String::from_utf8_lossy(key.as_slice())
-                        );
-                        batch.push(key);
-                    }
-                    Err(e) => {
-                        log::error!("traverse forwardeds error, {:?}", e);
-                        continue;
-                    }
-                }
-            }
-        }
-        log::debug!("messages_forwarded_batch_removes batch len: {}", batch.len());
-        messages_forwarded_map.batch_remove(batch).await?;
-        Ok(())
-    }
-
     #[inline]
     async fn storage_save_msg_id(&self) -> Result<()> {
         let curr_msg_id = self.id_generater.load(Ordering::SeqCst);
@@ -412,22 +219,10 @@ impl StorageMessageManagerInner {
     #[inline]
     async fn storage_new_messages_counter(
         storage_db: &DefaultStorageDB,
-        messages_received_map: &mut StorageMap,
     ) -> Result<(AtomicIsize, AtomicIsize)> {
-        let now = std::time::Instant::now();
-        let mut count = 0;
-        let mut iter = messages_received_map.key_iter().await?;
-        while let Some(_) = iter.next().await {
-            count += 1;
-        }
         let max = storage_db.counter_get("messages_received_max").await?.unwrap_or_default();
-        log::info!(
-            "messages_received_count: {}, messages_received_max: {}, cost time: {:?}",
-            count,
-            max,
-            now.elapsed()
-        );
-        Ok((AtomicIsize::new(count), AtomicIsize::new(max)))
+        log::info!("messages_received_max: {}", max,);
+        Ok((AtomicIsize::new(0), AtomicIsize::new(max)))
     }
 
     #[inline]
@@ -437,49 +232,164 @@ impl StorageMessageManagerInner {
     }
 
     #[inline]
-    fn messages_received_count_dec(&self) {
-        self.messages_received_count.fetch_sub(1, Ordering::SeqCst);
+    fn make_forwarded_key_v2(client_id: &str) -> Vec<u8> {
+        [FORWARDED_PREFIX, client_id.as_bytes()].concat()
+    }
+
+    // #[inline]
+    // fn make_msg_key(&self, msg_id: MsgID) -> Vec<u8> {
+    //     [self.node_id.to_be_bytes(), msg_id.to_be_bytes()].concat()
+    // }
+
+    #[inline]
+    async fn _batch_set_v2(&self, msgs: Vec<(From, Publish, Duration, MsgID)>) {
+        if let Err(e) = self.storage_save_msg_id().await {
+            log::warn!("save message id error, {:?}", e);
+            return;
+        }
+        let mut count = 0;
+        for (from, publish, expiry_interval, msg_id) in msgs {
+            let mut topic = match Topic::from_str(&publish.topic) {
+                Err(e) => {
+                    log::warn!("Topic::from_str error, {:?}", e);
+                    continue;
+                }
+                Ok(topic) => topic,
+            };
+            let expiry_time_at = timestamp_millis() + expiry_interval.as_millis() as i64;
+
+            let smsg = StoredMessage { msg_id, from, publish, expiry_time_at };
+
+            //received messages
+            let msg_key = msg_id.to_be_bytes(); //self.make_msg_key(msg_id);
+            let msg_map = self.storage_db.map(msg_key);
+            if let Err(e) = msg_map.insert(DATA, &smsg).await {
+                log::warn!("store to db error, {:?}, message: {:?}", e, smsg);
+                continue;
+            }
+            //set ttl
+            match msg_map.expire_at(expiry_time_at).await {
+                Err(e) => {
+                    log::warn!("set map ttl to db error, {:?}, message: {:?}", e, smsg);
+                }
+                Ok(res) => {
+                    log::debug!(
+                        "set map ttl to db ok, {:?}, {}",
+                        Duration::from_millis(expiry_time_at as u64),
+                        res
+                    );
+                }
+            }
+
+            //topic
+            topic.push(TopicLevel::Normal(msg_id.to_string()));
+            self.topic_tree.write().insert(&topic, (msg_id, expiry_time_at));
+
+            count += 1;
+        }
+        self.messages_received_count_add(count);
+        if let Err(e) = self.storage_messages_counter_add(count).await {
+            log::warn!("messages_received_counter add error, {:?}", e);
+        }
     }
 
     #[inline]
-    fn messages_received_count_sub(&self, c: isize) {
-        self.messages_received_count.fetch_sub(c, Ordering::SeqCst);
-    }
-
-    #[inline]
-    fn make_forwarded_key(msg_id: PMsgID, client_id: &str) -> Vec<u8> {
-        [msg_id.to_be_bytes().as_slice(), client_id.as_bytes()].concat()
-    }
-
-    #[inline]
-    async fn _forwarded_set(
+    async fn _get_v2(
         &self,
-        msg_id: PMsgID,
         client_id: &str,
-        opts: Option<(TopicFilter, SharedGroup)>,
-    ) -> Result<()> {
-        self.messages_forwarded_map.insert(Self::make_forwarded_key(msg_id, client_id), &opts).await?;
-        Ok(())
+        topic_filter: &str,
+        group: Option<&SharedGroup>,
+    ) -> Result<Vec<(MsgID, From, Publish)>> {
+        let inner = self;
+        let mut topic = Topic::from_str(topic_filter).map_err(|e| anyhow!(format!("{:?}", e)))?;
+        if !topic.levels().last().map(|l| matches!(l, TopicLevel::MultiWildcard)).unwrap_or_default() {
+            topic.push(TopicLevel::SingleWildcard);
+        }
+        let now = timestamp_millis();
+        let (expireds, matcheds): (Vec<Option<Topic>>, Vec<Option<MsgID>>) = {
+            inner
+                .topic_tree
+                .read()
+                .matches(&topic)
+                .into_iter()
+                .map(|(t, (msg_id, expiry_time_at))| {
+                    if now > expiry_time_at {
+                        //is expiry
+                        (Some(t), None)
+                    } else {
+                        (None, Some(msg_id))
+                    }
+                })
+                .unzip()
+        };
+
+        let expireds = expireds.into_iter().flatten().collect::<Vec<_>>();
+        let matcheds = matcheds.into_iter().flatten().collect::<Vec<_>>();
+
+        log::debug!("_get_v2 expireds: {:?}", expireds);
+        log::debug!("_get_v2 matcheds msg_ids: {:?}", matcheds);
+        let matcheds = futures::future::join_all(matcheds.into_iter().map(|msg_id| async move {
+            let msg_key = msg_id.to_be_bytes(); //self.make_msg_key(msg_id);
+            let mut msg_map = self.storage_db.map(msg_key);
+
+            let is_forwarded =
+                self._is_forwarded_v2(&mut msg_map, client_id, topic_filter, group).await.unwrap_or_default();
+            if !is_forwarded {
+                if let Err(e) = inner
+                    ._forwarded_set_v2(
+                        &msg_map,
+                        client_id,
+                        group.map(|g| (TopicFilter::from(topic_filter), g.clone())),
+                    )
+                    .await
+                {
+                    log::warn!("_get_v2 error, {:?}", e);
+                }
+            }
+
+            if is_forwarded {
+                None
+            } else if let Ok(Some(msg)) = inner._get_message_v2(&msg_map).await {
+                log::debug!("_get_v2 msg: {:?}", msg);
+                if msg.is_expiry() {
+                    None
+                } else {
+                    Some((msg_id, msg.from, msg.publish))
+                }
+            } else {
+                None
+            }
+        }))
+        .await
+        .into_iter()
+        .flatten()
+        .collect();
+
+        if !expireds.is_empty() {
+            self.remove_expireds(expireds).await;
+        }
+
+        Ok(matcheds)
     }
 
     #[inline]
-    async fn _is_forwarded(
+    async fn _is_forwarded_v2(
         &self,
-        msg_id: PMsgID,
+        msg_map: &mut StorageMap,
         client_id: &str,
         topic_filter: &str,
         group: Option<&SharedGroup>,
     ) -> Result<bool> {
-        let key = Self::make_forwarded_key(msg_id, client_id);
-        if self.messages_forwarded_map.contains_key(key).await? {
+        let key = Self::make_forwarded_key_v2(client_id);
+        if msg_map.contains_key(key).await? {
+            log::debug!("_is_forwarded_v2 contains_key client_id: {:?}", client_id);
             return Ok(true);
         }
-        let mut messages_forwarded_map = self.messages_forwarded_map.clone();
         if let Some(group) = group {
-            let mut iter = messages_forwarded_map
-                .prefix_iter::<_, Option<(TopicFilter, SharedGroup)>>(msg_id.to_be_bytes())
-                .await?;
+            let mut iter =
+                msg_map.prefix_iter::<_, Option<(TopicFilter, SharedGroup)>>(FORWARDED_PREFIX).await?;
             while let Some(item) = iter.next().await {
+                log::debug!("_is_forwarded_v2 item: {:?}", item);
                 match item {
                     Ok((_, Some((tf, g)))) => {
                         if &g == group && tf == topic_filter {
@@ -498,66 +408,47 @@ impl StorageMessageManagerInner {
     }
 
     #[inline]
-    async fn _get_message(&self, msg_id: PMsgID) -> Result<Option<PersistedMsg>> {
-        Ok(self.messages_received_map.get::<_, PersistedMsg>(msg_id.to_be_bytes().as_slice()).await?)
+    async fn _forwarded_set_v2(
+        &self,
+        msg_map: &StorageMap,
+        client_id: &str,
+        opts: Option<(TopicFilter, SharedGroup)>,
+    ) -> Result<()> {
+        log::debug!(
+            "_forwarded_set_v2 client_id: {:?}, msg_map name: {:?}",
+            client_id,
+            String::from_utf8_lossy(msg_map.name())
+        );
+        msg_map.insert(Self::make_forwarded_key_v2(client_id), &opts).await?;
+        Ok(())
     }
 
     #[inline]
-    async fn _get(
-        &self,
-        client_id: &str,
-        topic_filter: &str,
-        group: Option<&SharedGroup>,
-    ) -> Result<Vec<(PMsgID, From, Publish)>> {
-        let inner = self;
-        let mut topic = Topic::from_str(topic_filter).map_err(|e| anyhow!(format!("{:?}", e)))?;
-        if !topic.levels().last().map(|l| matches!(l, TopicLevel::MultiWildcard)).unwrap_or_default() {
-            topic.push(TopicLevel::SingleWildcard);
+    async fn _get_message_v2(&self, msg_map: &StorageMap) -> Result<Option<StoredMessage>> {
+        Ok(msg_map.get::<_, StoredMessage>(DATA).await?)
+    }
+
+    #[inline]
+    async fn remove_expireds(&self, expireds: Vec<Topic>) {
+        if expireds.len() > 10 {
+            let topic_tree = self.topic_tree.clone();
+            tokio::spawn(async move {
+                for t in expireds {
+                    topic_tree.write().remove(&t);
+                }
+            });
+        } else {
+            for t in expireds {
+                self.topic_tree.write().remove(&t);
+            }
         }
-
-        let matcheds =
-            { inner.subs_tree.read().matches(&topic).iter().map(|(_, msg_id)| *msg_id).collect::<Vec<_>>() };
-
-        let matcheds = futures::future::join_all(matcheds.into_iter().map(|msg_id| async move {
-            let is_forwarded =
-                self._is_forwarded(msg_id, client_id, topic_filter, group).await.unwrap_or_default();
-            if !is_forwarded {
-                if let Err(e) = inner
-                    ._forwarded_set(
-                        msg_id,
-                        client_id,
-                        group.map(|g| (TopicFilter::from(topic_filter), g.clone())),
-                    )
-                    .await
-                {
-                    log::warn!("_get error, {:?}", e);
-                }
-            }
-
-            if is_forwarded {
-                None
-            } else if let Ok(Some(pmsg)) = inner._get_message(msg_id).await {
-                if pmsg.is_expiry() {
-                    None
-                } else {
-                    Some((msg_id, pmsg.from, pmsg.publish))
-                }
-            } else {
-                None
-            }
-        }))
-        .await
-        .into_iter()
-        .flatten()
-        .collect();
-        Ok(matcheds)
     }
 }
 
 #[async_trait]
 impl MessageManager for &'static StorageMessageManager {
     #[inline]
-    async fn set(&self, from: From, p: Publish, expiry_interval: Duration) -> Result<PMsgID> {
+    async fn set(&self, from: From, p: Publish, expiry_interval: Duration) -> Result<MsgID> {
         let msg_id = self.storage_next_msg_id();
         log::debug!("StorageMessageManager set msg_id: {}", msg_id);
         match self
@@ -586,13 +477,13 @@ impl MessageManager for &'static StorageMessageManager {
         client_id: &str,
         topic_filter: &str,
         group: Option<&SharedGroup>,
-    ) -> Result<Vec<(PMsgID, From, Publish)>> {
+    ) -> Result<Vec<(MsgID, From, Publish)>> {
         let now = std::time::Instant::now();
         let inner = self.inner.clone();
         let client_id = ClientId::from(client_id);
         let topic_filter = TopicFilter::from(topic_filter);
         let group = group.cloned();
-        let matcheds = async move { inner._get(&client_id, &topic_filter, group.as_ref()).await }
+        let matcheds = async move { inner._get_v2(&client_id, &topic_filter, group.as_ref()).await }
             .spawn(&self.exec)
             .result()
             .timeout(futures_time::time::Duration::from_millis(3000))
@@ -626,19 +517,21 @@ impl MessageManager for &'static StorageMessageManager {
     #[inline]
     async fn set_forwardeds(
         &self,
-        msg_id: PMsgID,
+        msg_id: MsgID,
         sub_client_ids: Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>,
     ) {
-        log::debug!(
+        log::info!(
             "StorageMessageManager set_forwardeds msg_id: {:?}, sub_client_ids: {:?}",
             msg_id,
             sub_client_ids
         );
         let now = std::time::Instant::now();
         let inner = self.inner.clone();
+        //self.make_msg_key(msg_id)
+        let msg_map = self.storage_db.map(msg_id.to_be_bytes());
         let _ = async move {
             for (client_id, opts) in sub_client_ids {
-                if let Err(e) = inner._forwarded_set(msg_id, &client_id, opts).await {
+                if let Err(e) = inner._forwarded_set_v2(&msg_map, &client_id, opts).await {
                     log::warn!(
                         "set_forwardeds error, msg_id: {}, client_id: {}, opts: {:?}",
                         msg_id,

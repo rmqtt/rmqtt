@@ -14,7 +14,7 @@ use rmqtt::{
     plugin::{DynPlugin, DynPluginResult, Plugin},
     Result, Runtime,
 };
-use rmqtt_storage::{init_db, List, StorageType};
+use rmqtt_storage::{init_db, StorageType};
 
 use config::PluginConfig;
 use message::{get_or_init, StorageMessageManager};
@@ -54,16 +54,16 @@ impl StoragePlugin {
     #[inline]
     async fn new<S: Into<String>>(runtime: &'static Runtime, name: S, descr: S) -> Result<Self> {
         let name = name.into();
+        let node_id = runtime.node.id();
         let mut cfg = runtime.settings.plugins.load_config_default::<PluginConfig>(&name)?;
         let should_merge_on_get = match cfg.storage.typ {
             StorageType::Sled => {
-                cfg.storage.sled.path =
-                    cfg.storage.sled.path.replace("{node}", &format!("{}", runtime.node.id()));
+                cfg.storage.sled.path = cfg.storage.sled.path.replace("{node}", &format!("{}", node_id));
                 true
             }
             StorageType::Redis => {
                 cfg.storage.redis.prefix =
-                    cfg.storage.redis.prefix.replace("{node}", &format!("{}", runtime.node.id()));
+                    cfg.storage.redis.prefix.replace("{node}", &format!("{}", node_id));
                 false
             }
         };
@@ -74,7 +74,7 @@ impl StoragePlugin {
         let register = runtime.extends.hook_mgr().await.register();
 
         let cfg = Arc::new(cfg);
-        let message_mgr = get_or_init(cfg.clone(), storage_db.clone(), should_merge_on_get).await?;
+        let message_mgr = get_or_init(node_id, cfg.clone(), storage_db.clone(), should_merge_on_get).await?;
 
         Ok(Self { runtime, name, descr: descr.into(), cfg, register, message_mgr })
     }
@@ -125,19 +125,16 @@ impl Plugin for StoragePlugin {
 
     #[inline]
     async fn attrs(&self) -> serde_json::Value {
-        // let receiveds = self.message_mgr.messages_received_map.len().await.unwrap_or_default();
-        let unexpireds = self.message_mgr.messages_unexpired_list.len().await.unwrap_or_default();
-        // let forwardeds = self.message_mgr.messages_forwarded_map.len().await.unwrap_or_default();
-
+        let topics_nodes = self.message_mgr.topic_tree.read().nodes_size();
+        let receiveds = self.message_mgr.topic_tree.read().values_size();
         let exec_active_count = self.message_mgr.exec.active_count();
         let exec_waiting_count = self.message_mgr.exec.waiting_count();
 
         json!(
             {
                 "message": {
-                    // "receiveds": receiveds,
-                    "unexpireds": unexpireds,
-                    // "forwardeds": forwardeds,
+                    "topics_nodes": topics_nodes,
+                    "receiveds": receiveds,
                 },
                 "exec_active_count": exec_active_count,
                 "exec_waiting_count": exec_waiting_count,

@@ -472,12 +472,7 @@ impl StorageSession {
 
     #[inline]
     async fn set_map_stored_key_ttl(&self, session_expiry_interval_millis: i64) {
-        match self
-            .storage_db
-            .clone()
-            .expire(make_map_stored_key(self.id.to_string()), session_expiry_interval_millis)
-            .await
-        {
+        match self.session_info_map.expire(session_expiry_interval_millis).await {
             Err(e) => {
                 log::warn!("{:?} set map ttl to db error, {:?}", self.id, e);
             }
@@ -494,12 +489,7 @@ impl StorageSession {
 
     #[inline]
     async fn set_list_stored_key_ttl(&self, session_expiry_interval_millis: i64) {
-        match self
-            .storage_db
-            .clone()
-            .expire(make_list_stored_key(self.id.to_string()), session_expiry_interval_millis)
-            .await
-        {
+        match self.offline_messages_list.expire(session_expiry_interval_millis).await {
             Err(e) => {
                 log::warn!("{:?} set list ttl to db error, {:?}", self.id, e);
             }

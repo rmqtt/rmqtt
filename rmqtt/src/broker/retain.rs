@@ -61,23 +61,26 @@ where
 
     //remove all pairs `v` for which `f(&mut v)` returns `false`.
     #[inline]
-    pub fn retain<F>(&mut self, mut f: F)
+    pub fn retain<F>(&mut self, mut f: F) -> usize
     where
         F: FnMut(&mut V) -> bool,
     {
-        self._retain(&mut f);
+        let mut removeds = 0;
+        self._retain(&mut f, &mut removeds);
+        removeds
     }
 
     #[inline]
-    fn _retain<F>(&mut self, f: &mut F)
+    fn _retain<F>(&mut self, f: &mut F, removeds: &mut usize)
     where
         F: FnMut(&mut V) -> bool,
     {
         self.branches.retain(|_, child_node| {
-            child_node._retain(f);
+            child_node._retain(f, removeds);
             if let Some(v) = child_node.value_mut() {
                 if !f(v) {
                     let _ = child_node.value.take();
+                    *removeds += 1;
                 }
             }
             !(child_node.value.is_none() && child_node.branches.is_empty())

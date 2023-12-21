@@ -120,7 +120,7 @@ pub trait Shared: Sync + Send {
     }
 
     #[inline]
-    async fn message_store(&self, from: From, p: Publish, expiry_interval: Duration) -> Result<PMsgID> {
+    async fn message_store(&self, from: From, p: Publish, expiry_interval: Duration) -> Result<MsgID> {
         Runtime::instance().extends.message_mgr().await.set(from, p, expiry_interval).await
     }
 
@@ -130,7 +130,7 @@ pub trait Shared: Sync + Send {
         client_id: &str,
         topic_filter: &str,
         group: Option<&SharedGroup>,
-    ) -> Result<Vec<(PMsgID, From, Publish)>> {
+    ) -> Result<Vec<(MsgID, From, Publish)>> {
         let message_mgr = Runtime::instance().extends.message_mgr().await;
         if message_mgr.should_merge_on_get() {
             let mut msgs = message_mgr.get(client_id, topic_filter, group).await?;
@@ -168,7 +168,7 @@ pub trait Shared: Sync + Send {
     #[inline]
     async fn message_forwardeds_store(
         &self,
-        msg_id: PMsgID,
+        msg_id: MsgID,
         sub_client_ids: Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>,
     ) {
         Runtime::instance().extends.message_mgr().await.set_forwardeds(msg_id, sub_client_ids).await
@@ -302,18 +302,18 @@ pub trait RetainStorage: Sync + Send {
 
 #[async_trait]
 pub trait MessageManager: Sync + Send {
-    async fn set(&self, from: From, p: Publish, expiry_interval: Duration) -> Result<PMsgID>;
+    async fn set(&self, from: From, p: Publish, expiry_interval: Duration) -> Result<MsgID>;
     async fn get(
         &self,
         client_id: &str,
         topic_filter: &str,
         group: Option<&SharedGroup>,
-    ) -> Result<Vec<(PMsgID, From, Publish)>>;
+    ) -> Result<Vec<(MsgID, From, Publish)>>;
 
     ///Indicate that certain subscribed clients have already forwarded the specified message.
     async fn set_forwardeds(
         &self,
-        pmsg_id: PMsgID,
+        pmsg_id: MsgID,
         sub_client_ids: Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>,
     );
     ///Indicate whether merging data from various nodes is needed during the 'get' operation.

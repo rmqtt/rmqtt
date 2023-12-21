@@ -621,7 +621,7 @@ impl SessionState {
         topic_filter: &str,
         qos: QoS,
         group: Option<&SharedGroup>,
-        excludeds: Option<Vec<(NodeId, PMsgID)>>,
+        excludeds: Option<Vec<(NodeId, MsgID)>>,
     ) -> Result<()> {
         let storaged_messages = Runtime::instance()
             .extends
@@ -644,9 +644,9 @@ impl SessionState {
     #[inline]
     async fn _send_storaged_messages(
         &self,
-        storaged_messages: Vec<(PMsgID, From, Publish)>,
+        storaged_messages: Vec<(MsgID, From, Publish)>,
         qos: QoS,
-        excludeds: Option<Vec<(NodeId, PMsgID)>>,
+        excludeds: Option<Vec<(NodeId, MsgID)>>,
     ) -> Result<()> {
         for (msg_id, from, mut publish) in storaged_messages {
             log::debug!(

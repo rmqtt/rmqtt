@@ -12,7 +12,7 @@ use crate::broker::types::{
     SubsSearchParams, SubsSearchResult, TopicFilter, TopicName,
 };
 use crate::{
-    Addr, ClientId, PMsgID, Result, SharedGroup, SubRelations, SubRelationsMap, SubscriptionClientIds,
+    Addr, ClientId, MsgID, Result, SharedGroup, SubRelations, SubRelationsMap, SubscriptionClientIds,
 };
 
 pub mod client;
@@ -72,7 +72,7 @@ pub enum MessageReply {
     NumberOfSessions(usize),
     Online(bool),
     SessionStatus(Option<SessionStatus>),
-    MessageGet(Vec<(PMsgID, From, Publish)>),
+    MessageGet(Vec<(MsgID, From, Publish)>),
     Data(Vec<u8>),
 }
 

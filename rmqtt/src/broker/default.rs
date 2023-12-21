@@ -2064,10 +2064,10 @@ pub struct DefaultMessageManager {
 
 #[derive(Default)]
 struct DefaultMessageManagerInner {
-    messages: scc::HashMap<PMsgID, PersistedMsg>,
-    subs_tree: RwLock<RetainTree<PMsgID>>,
-    forwardeds: scc::HashMap<PMsgID, BTreeMap<ClientId, Option<(TopicFilter, SharedGroup)>>>,
-    expiries: RwLock<BinaryHeap<(Reverse<Timestamp>, PMsgID)>>,
+    messages: scc::HashMap<MsgID, StoredMessage>,
+    subs_tree: RwLock<RetainTree<MsgID>>,
+    forwardeds: scc::HashMap<MsgID, BTreeMap<ClientId, Option<(TopicFilter, SharedGroup)>>>,
+    expiries: RwLock<BinaryHeap<(Reverse<Timestamp>, MsgID)>>,
     id_gen: AtomicUsize,
 }
 
@@ -2156,12 +2156,12 @@ impl DefaultMessageManager {
         from: From,
         publish: Publish,
         expiry_interval: Duration,
-        msg_id: PMsgID,
+        msg_id: MsgID,
     ) -> Result<()> {
         let mut topic = Topic::from_str(&publish.topic).map_err(|e| anyhow!(format!("{:?}", e)))?;
         let expiry_time_at = timestamp_secs() + expiry_interval.as_secs() as i64;
         let inner = &self.inner;
-        let pmsg = PersistedMsg { msg_id, from, publish, expiry_time_at };
+        let pmsg = StoredMessage { msg_id, from, publish, expiry_time_at };
         topic.push(TopicLevel::Normal(msg_id.to_string()));
         inner.messages.insert_async(msg_id, pmsg).await.map_err(|_| anyhow!("messages insert error"))?;
         inner.subs_tree.write().await.insert(&topic, msg_id);
@@ -2210,7 +2210,7 @@ impl MessageManager for &'static DefaultMessageManager {
     }
 
     #[inline]
-    async fn set(&self, from: From, p: Publish, expiry_interval: Duration) -> Result<PMsgID> {
+    async fn set(&self, from: From, p: Publish, expiry_interval: Duration) -> Result<MsgID> {
         let msg_id = self.next_id();
         async move {
             if let Err(e) = DefaultMessageManager::instance()._set(from, p, expiry_interval, msg_id).await {
@@ -2229,7 +2229,7 @@ impl MessageManager for &'static DefaultMessageManager {
         client_id: &str,
         topic_filter: &str,
         group: Option<&SharedGroup>,
-    ) -> Result<Vec<(PMsgID, From, Publish)>> {
+    ) -> Result<Vec<(MsgID, From, Publish)>> {
         let inner = &self.inner;
         let mut topic = Topic::from_str(topic_filter).map_err(|e| anyhow!(format!("{:?}", e)))?;
         if !topic.levels().last().map(|l| matches!(l, TopicLevel::MultiWildcard)).unwrap_or_default() {
@@ -2287,7 +2287,7 @@ impl MessageManager for &'static DefaultMessageManager {
     #[inline]
     async fn set_forwardeds(
         &self,
-        msg_id: PMsgID,
+        msg_id: MsgID,
         sub_client_ids: Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>,
     ) {
         let mut clientids = self.inner.forwardeds.entry(msg_id).or_default();

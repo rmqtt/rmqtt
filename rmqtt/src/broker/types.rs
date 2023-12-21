@@ -1626,25 +1626,25 @@ pub struct _Id {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Retain {
-    pub msg_id: Option<PMsgID>,
+    pub msg_id: Option<MsgID>,
     pub from: From,
     pub publish: Publish,
 }
 
-pub type PMsgID = usize;
+pub type MsgID = usize;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct PersistedMsg {
-    pub msg_id: PMsgID,
+pub struct StoredMessage {
+    pub msg_id: MsgID,
     pub from: From,
     pub publish: Publish,
-    pub expiry_time_at: Timestamp,
+    pub expiry_time_at: TimestampMillis,
 }
 
-impl PersistedMsg {
+impl StoredMessage {
     #[inline]
     pub fn is_expiry(&self) -> bool {
-        self.expiry_time_at < timestamp_secs()
+        self.expiry_time_at < timestamp_millis()
     }
 }
 
