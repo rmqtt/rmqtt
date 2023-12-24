@@ -611,4 +611,9 @@ impl MessageManager for &'static StorageMessageManager {
     async fn max(&self) -> isize {
         self.messages_received_max.load(Ordering::SeqCst)
     }
+
+    #[inline]
+    fn enable(&self) -> bool {
+        true
+    }
 }
