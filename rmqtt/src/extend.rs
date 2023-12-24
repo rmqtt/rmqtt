@@ -2,13 +2,13 @@ use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::broker::{
     default::{
-        DefaultFitterManager, DefaultHookManager, DefaultMessageManager, DefaultRetainStorage, DefaultRouter,
-        DefaultSessionManager, DefaultShared, DefaultSharedSubscription,
+        DefaultFitterManager, DefaultHookManager, DefaultRetainStorage, DefaultRouter, DefaultSessionManager,
+        DefaultShared, DefaultSharedSubscription,
     },
     fitter::FitterManager,
     hook::HookManager,
     session::SessionManager,
-    MessageManager, RetainStorage, Router, Shared, SharedSubscription,
+    DefaultMessageManager, MessageManager, RetainStorage, Router, Shared, SharedSubscription,
 };
 
 // Defines a struct that manages a number of lock objects to different components that are

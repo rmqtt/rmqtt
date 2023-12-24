@@ -61,22 +61,25 @@ where
 
     //remove all pairs `v` for which `f(&mut v)` returns `false`.
     #[inline]
-    pub fn retain<F>(&mut self, mut f: F) -> usize
+    pub fn retain<F>(&mut self, max_limit: usize, mut f: F) -> usize
     where
         F: FnMut(&mut V) -> bool,
     {
         let mut removeds = 0;
-        self._retain(&mut f, &mut removeds);
+        self._retain(&mut f, &mut removeds, max_limit);
         removeds
     }
 
     #[inline]
-    fn _retain<F>(&mut self, f: &mut F, removeds: &mut usize)
+    fn _retain<F>(&mut self, f: &mut F, removeds: &mut usize, max_limit: usize)
     where
         F: FnMut(&mut V) -> bool,
     {
+        if *removeds >= max_limit {
+            return;
+        }
         self.branches.retain(|_, child_node| {
-            child_node._retain(f, removeds);
+            child_node._retain(f, removeds, max_limit);
             if let Some(v) = child_node.value_mut() {
                 if !f(v) {
                     let _ = child_node.value.take();

@@ -4,7 +4,7 @@
 
 
 
-storage.type = "sled"
+storage.type = "redis"
 #sled
 storage.sled.path = "/var/log/rmqtt/.cache/session/{node}"
 storage.sled.cache_capacity = "3G"

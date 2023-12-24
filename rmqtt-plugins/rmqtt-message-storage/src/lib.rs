@@ -64,7 +64,7 @@ impl StoragePlugin {
             StorageType::Redis => {
                 cfg.storage.redis.prefix =
                     cfg.storage.redis.prefix.replace("{node}", &format!("{}", node_id));
-                false
+                true
             }
         };
         log::info!("{} StoragePlugin cfg: {:?}", name, cfg);
@@ -85,6 +85,7 @@ impl Plugin for StoragePlugin {
     #[inline]
     async fn init(&mut self) -> Result<()> {
         log::info!("{} init", self.name);
+        self.message_mgr.restore_topic_tree().await?;
         Ok(())
     }
 
@@ -125,8 +126,8 @@ impl Plugin for StoragePlugin {
 
     #[inline]
     async fn attrs(&self) -> serde_json::Value {
-        let topics_nodes = self.message_mgr.topic_tree.read().nodes_size();
-        let receiveds = self.message_mgr.topic_tree.read().values_size();
+        let topics_nodes = self.message_mgr.topic_tree.read().await.nodes_size();
+        let receiveds = self.message_mgr.topic_tree.read().await.values_size();
         let exec_active_count = self.message_mgr.exec.active_count();
         let exec_waiting_count = self.message_mgr.exec.waiting_count();
 

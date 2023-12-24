@@ -3,6 +3,8 @@ use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
 
+use once_cell::sync::OnceCell;
+
 use crate::broker::session::{Session, SessionOfflineInfo};
 use crate::broker::types::*;
 use crate::grpc::{GrpcClients, MessageBroadcaster, MessageReply, MESSAGE_TYPE_MESSAGE_GET};
@@ -302,26 +304,60 @@ pub trait RetainStorage: Sync + Send {
 
 #[async_trait]
 pub trait MessageManager: Sync + Send {
-    async fn set(&self, from: From, p: Publish, expiry_interval: Duration) -> Result<MsgID>;
+    #[inline]
+    async fn set(&self, _from: From, _p: Publish, _expiry_interval: Duration) -> Result<MsgID> {
+        Ok(0)
+    }
+
+    #[inline]
     async fn get(
         &self,
-        client_id: &str,
-        topic_filter: &str,
-        group: Option<&SharedGroup>,
-    ) -> Result<Vec<(MsgID, From, Publish)>>;
+        _client_id: &str,
+        _topic_filter: &str,
+        _group: Option<&SharedGroup>,
+    ) -> Result<Vec<(MsgID, From, Publish)>> {
+        Ok(Vec::new())
+    }
 
     ///Indicate that certain subscribed clients have already forwarded the specified message.
+    #[inline]
     async fn set_forwardeds(
         &self,
-        pmsg_id: MsgID,
-        sub_client_ids: Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>,
-    );
+        _pmsg_id: MsgID,
+        _sub_client_ids: Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>,
+    ) {
+    }
+
     ///Indicate whether merging data from various nodes is needed during the 'get' operation.
     #[inline]
     fn should_merge_on_get(&self) -> bool {
         false
     }
 
-    async fn count(&self) -> isize;
-    async fn max(&self) -> isize;
+    #[inline]
+    async fn count(&self) -> isize {
+        -1
+    }
+
+    #[inline]
+    async fn max(&self) -> isize {
+        -1
+    }
+
+    #[inline]
+    fn enable(&self) -> bool {
+        false
+    }
 }
+
+pub struct DefaultMessageManager {}
+
+impl DefaultMessageManager {
+    #[inline]
+    pub fn instance() -> &'static DefaultMessageManager {
+        static INSTANCE: OnceCell<DefaultMessageManager> = OnceCell::new();
+        INSTANCE.get_or_init(|| Self {})
+    }
+}
+
+impl MessageManager for &'static DefaultMessageManager {}

@@ -1,25 +1,20 @@
-use std::cmp::Reverse;
-use std::collections::{BTreeMap, BinaryHeap};
+use std::collections::BTreeMap;
 use std::convert::From as _f;
 use std::iter::Iterator;
 use std::num::NonZeroU16;
 use std::num::NonZeroU32;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use anyhow::anyhow;
 #[allow(unused_imports)]
 use bitflags::Flags;
 use itertools::Itertools;
 use ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
-use ntex_mqtt::TopicLevel;
 use once_cell::sync::OnceCell;
-use rust_box::task_exec_queue::{Builder, SpawnExt, TaskExecQueue};
 use tokio::sync::oneshot;
 use tokio::sync::RwLock;
 use tokio::sync::{self, Mutex, OwnedMutexGuard};
-use tokio::time::{sleep, Duration};
+use tokio::time::Duration;
 use uuid::Uuid;
 
 use crate::broker::fitter::{Fitter, FitterManager};
@@ -28,7 +23,6 @@ use crate::broker::inflight::InflightMessage;
 use crate::broker::session::{Session, SessionLike, SessionManager, SessionOfflineInfo};
 use crate::broker::topic::{Topic, VecToTopic};
 use crate::broker::types::*;
-use crate::broker::MessageManager;
 use crate::settings::listener::Listener;
 use crate::stats::Counter;
 use crate::{grpc, ClientId, Id, MqttError, NodeId, Result, Runtime, TopicFilter};
@@ -1159,7 +1153,7 @@ impl DefaultRetainStorage {
     #[inline]
     pub async fn remove_expired_messages(&self) {
         let mut messages = self.messages.write().await;
-        messages.retain(|tv| {
+        messages.retain(usize::MAX, |tv| {
             if tv.is_expired() {
                 Runtime::instance().stats.retaineds.dec();
                 false
@@ -2055,317 +2049,4 @@ impl SessionLike for DefaultSession {
         self.subscriptions._clear().await;
         Ok(())
     }
-}
-
-pub struct DefaultMessageManager {
-    inner: Arc<DefaultMessageManagerInner>,
-    exec: TaskExecQueue,
-}
-
-#[derive(Default)]
-struct DefaultMessageManagerInner {
-    messages: scc::HashMap<MsgID, StoredMessage>,
-    subs_tree: RwLock<RetainTree<MsgID>>,
-    forwardeds: scc::HashMap<MsgID, BTreeMap<ClientId, Option<(TopicFilter, SharedGroup)>>>,
-    expiries: RwLock<BinaryHeap<(Reverse<Timestamp>, MsgID)>>,
-    id_gen: AtomicUsize,
-}
-
-impl DefaultMessageManager {
-    #[inline]
-    pub fn instance() -> &'static DefaultMessageManager {
-        static INSTANCE: OnceCell<DefaultMessageManager> = OnceCell::new();
-        INSTANCE.get_or_init(|| {
-            let (exec, task_runner) = Builder::default().workers(1000).queue_max(300_000).build();
-
-            tokio::spawn(async move {
-                task_runner.await;
-            });
-
-            tokio::spawn(async move {
-                let max_limit = 1000;
-                sleep(Duration::from_secs(30)).await;
-                loop {
-                    let now = std::time::Instant::now();
-                    let removeds = if let Some(msg_mgr) = INSTANCE.get() {
-                        tokio::task::spawn_blocking(move || {
-                            tokio::runtime::Handle::current().block_on(async move {
-                                match msg_mgr.remove_expired_messages(max_limit).await {
-                                    Err(e) => {
-                                        log::warn!("remove expired messages error, {:?}", e);
-                                        0
-                                    }
-                                    Ok(removed) => removed,
-                                }
-                            })
-                        })
-                        .await
-                        .unwrap_or_default()
-                    } else {
-                        0
-                    };
-                    log::debug!(
-                        "remove_expired_messages, removeds: {} cost time: {:?}",
-                        removeds,
-                        now.elapsed()
-                    );
-                    if removeds >= max_limit {
-                        continue;
-                    }
-                    sleep(Duration::from_secs(30)).await; //@TODO config enable
-                }
-            });
-            Self { inner: Arc::new(DefaultMessageManagerInner::default()), exec }
-        })
-    }
-
-    #[inline]
-    fn next_id(&self) -> usize {
-        self.inner.id_gen.fetch_add(1, Ordering::SeqCst)
-    }
-
-    #[inline]
-    async fn remove_expired_messages(&self, max_limit: usize) -> Result<usize> {
-        let now = timestamp_secs();
-        let inner = self.inner.as_ref();
-        let mut expiries = inner.expiries.write().await;
-        let mut subs_tree = inner.subs_tree.write().await;
-        let mut expired_count = 0;
-        while let Some((expiry_time, _)) = expiries.peek() {
-            let expiry_time = expiry_time.0;
-            if expiry_time > now || expired_count > max_limit {
-                break;
-            }
-            expired_count += 1;
-            if let Some((_, msg_id)) = expiries.pop() {
-                if let Some((_, pmsg)) = inner.messages.remove_async(&msg_id).await {
-                    let mut topic =
-                        Topic::from_str(&pmsg.publish.topic).map_err(|e| anyhow!(format!("{:?}", e)))?;
-                    topic.push(TopicLevel::Normal(msg_id.to_string()));
-                    let _ = subs_tree.remove(&topic);
-                    inner.forwardeds.remove(&msg_id);
-                }
-            }
-        }
-        Ok(expired_count)
-    }
-
-    #[inline]
-    async fn _set(
-        &self,
-        from: From,
-        publish: Publish,
-        expiry_interval: Duration,
-        msg_id: MsgID,
-    ) -> Result<()> {
-        let mut topic = Topic::from_str(&publish.topic).map_err(|e| anyhow!(format!("{:?}", e)))?;
-        let expiry_time_at = timestamp_secs() + expiry_interval.as_secs() as i64;
-        let inner = &self.inner;
-        let pmsg = StoredMessage { msg_id, from, publish, expiry_time_at };
-        topic.push(TopicLevel::Normal(msg_id.to_string()));
-        inner.messages.insert_async(msg_id, pmsg).await.map_err(|_| anyhow!("messages insert error"))?;
-        inner.subs_tree.write().await.insert(&topic, msg_id);
-        inner.expiries.write().await.push((Reverse(expiry_time_at), msg_id));
-        Ok(())
-    }
-
-    #[allow(dead_code)]
-    async fn sprint_status(&self) -> String {
-        let inner = self.inner.as_ref();
-        let (vals_size, nodes_size) = {
-            let subs_tree = inner.subs_tree.read().await;
-            (subs_tree.values_size(), subs_tree.nodes_size())
-        };
-        format!(
-            "vals_size: {}, nodes_size: {}, messages.len(): {}, expiries.len(): {}, \
-         forwardeds.len(): {}, id_gen: {}, waittings: {}, active_count: {}, rate: {:?}",
-            vals_size,
-            nodes_size,
-            inner.messages.len(),
-            inner.expiries.read().await.len(),
-            inner.forwardeds.len(),
-            inner.id_gen.load(Ordering::Relaxed),
-            self.exec.waiting_count(),
-            self.exec.active_count(),
-            self.exec.rate().await
-        )
-    }
-}
-
-#[async_trait]
-impl MessageManager for &'static DefaultMessageManager {
-    #[inline]
-    async fn count(&self) -> isize {
-        self.inner.messages.len() as isize
-    }
-
-    #[inline]
-    async fn max(&self) -> isize {
-        self.exec.completed_count().await
-    }
-
-    #[inline]
-    fn should_merge_on_get(&self) -> bool {
-        true
-    }
-
-    #[inline]
-    async fn set(&self, from: From, p: Publish, expiry_interval: Duration) -> Result<MsgID> {
-        let msg_id = self.next_id();
-        async move {
-            if let Err(e) = DefaultMessageManager::instance()._set(from, p, expiry_interval, msg_id).await {
-                log::warn!("Persistence of the Publish message failed! {:?}", e);
-            }
-        }
-        .spawn(&self.exec)
-        .await
-        .map_err(|e| anyhow!(e.to_string()))?;
-        Ok(msg_id)
-    }
-
-    #[inline]
-    async fn get(
-        &self,
-        client_id: &str,
-        topic_filter: &str,
-        group: Option<&SharedGroup>,
-    ) -> Result<Vec<(MsgID, From, Publish)>> {
-        let inner = &self.inner;
-        let mut topic = Topic::from_str(topic_filter).map_err(|e| anyhow!(format!("{:?}", e)))?;
-        if !topic.levels().last().map(|l| matches!(l, TopicLevel::MultiWildcard)).unwrap_or_default() {
-            topic.push(TopicLevel::SingleWildcard);
-        }
-
-        let matcheds = {
-            inner.subs_tree.read().await.matches(&topic).iter().map(|(_, msg_id)| *msg_id).collect::<Vec<_>>()
-        };
-
-        let matcheds = matcheds
-            .into_iter()
-            .filter_map(|msg_id| {
-                if let Some(pmsg) = inner.messages.get(&msg_id) {
-                    let mut clientids = self.inner.forwardeds.entry(msg_id).or_default();
-                    let is_forwarded = if clientids.get().contains_key(client_id) {
-                        true
-                    } else if let Some(group) = group {
-                        //Check if subscription is shared
-                        clientids.get().iter().any(|(_, tf_g)| {
-                            if let Some((tf, g)) = tf_g.as_ref() {
-                                g == group && tf == topic_filter
-                            } else {
-                                false
-                            }
-                        })
-                    } else {
-                        false
-                    };
-                    if !is_forwarded {
-                        clientids.get_mut().insert(
-                            ClientId::from(client_id),
-                            group.map(|g| (TopicFilter::from(topic_filter), g.clone())),
-                        );
-                    }
-                    log::debug!("is_forwarded: {}", is_forwarded);
-                    if is_forwarded {
-                        None
-                    } else {
-                        let pmsg = pmsg.get();
-                        if pmsg.is_expiry() {
-                            None
-                        } else {
-                            Some((msg_id, pmsg.from.clone(), pmsg.publish.clone()))
-                        }
-                    }
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-        Ok(matcheds)
-    }
-
-    #[inline]
-    async fn set_forwardeds(
-        &self,
-        msg_id: MsgID,
-        sub_client_ids: Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>,
-    ) {
-        let mut clientids = self.inner.forwardeds.entry(msg_id).or_default();
-        clientids.get_mut().extend(sub_client_ids);
-    }
-}
-
-#[test]
-fn test_message_manager() {
-    let runner = async move {
-        let pmsg_mgr = DefaultMessageManager::instance();
-        sleep(Duration::from_millis(10)).await;
-        let f = From::from_custom(Id::from(1, ClientId::from("test-001")));
-        let mut p = Publish {
-            dup: false,
-            retain: false,
-            qos: QoS::try_from(1).unwrap(),
-            topic: TopicName::from(""),
-            packet_id: Some(NonZeroU16::try_from(1).unwrap()),
-            payload: bytes::Bytes::from("test ..."),
-            properties: PublishProperties::default(),
-            create_time: chrono::Local::now().timestamp_millis(),
-        };
-
-        let now = std::time::Instant::now();
-        for i in 0..5 {
-            p.topic = TopicName::from("/xx/yy/zz");
-            pmsg_mgr.set(f.clone(), p.clone(), Duration::from_secs(i + 2)).await.unwrap();
-        }
-
-        for i in 0..5 {
-            p.topic = TopicName::from("/xx/yy/cc");
-            pmsg_mgr.set(f.clone(), p.clone(), Duration::from_secs(i + 2)).await.unwrap();
-        }
-
-        for i in 0..5 {
-            p.topic = TopicName::from("/xx/yy/");
-            pmsg_mgr.set(f.clone(), p.clone(), Duration::from_secs(i + 2)).await.unwrap();
-        }
-
-        for i in 0..5 {
-            p.topic = TopicName::from("/xx/yy/ee/ff");
-            pmsg_mgr.set(f.clone(), p.clone(), Duration::from_secs(i + 2)).await.unwrap();
-        }
-
-        for i in 0..5 {
-            p.topic = TopicName::from("/foo/yy/ee");
-            pmsg_mgr.set(f.clone(), p.clone(), Duration::from_secs(i + 2)).await.unwrap();
-        }
-
-        println!("cost time: {:?}", now.elapsed());
-        sleep(Duration::from_millis(10)).await;
-        println!("{}", pmsg_mgr.sprint_status().await);
-
-        let tf = TopicFilter::from("/xx/yy/#");
-        let msgs = pmsg_mgr.get("c-id-001", &tf, None).await.unwrap();
-        println!("===>>> msgs len: {}", msgs.len());
-        assert_eq!(msgs.len(), 20);
-        //for (f, p) in msgs {
-        //    println!("> from: {:?}, publish: {:?}", f, p);
-        //}
-
-        let tf = TopicFilter::from("/xx/yy/cc");
-        let msgs = pmsg_mgr.get("c-id-002", &tf, None).await.unwrap();
-        println!("===>>> msgs len: {}", msgs.len());
-        assert_eq!(msgs.len(), 5);
-
-        let tf = TopicFilter::from("/foo/yy/ee");
-        let msgs = pmsg_mgr.get("", &tf, None).await.unwrap();
-        assert_eq!(msgs.len(), 5);
-        println!("msgs len: {}", msgs.len());
-        //for (f, p) in msgs {
-        //    println!("from: {:?}, publish: {:?}", f, p);
-        //}
-
-        sleep(Duration::from_millis(1000 * 5)).await;
-        println!("{}", pmsg_mgr.sprint_status().await);
-    };
-
-    tokio::runtime::Runtime::new().unwrap().block_on(runner);
 }

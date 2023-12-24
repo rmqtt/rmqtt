@@ -563,12 +563,12 @@ impl SessionState {
             log::debug!("process_last_will, publish: {:?}", p);
 
             let listen_cfg = self.listen_cfg();
-            let (message_storage_available, message_expiry_interval) = if listen_cfg.message_storage_available
-            {
-                (true, Some(self.fitter.message_expiry_interval(&p)))
-            } else {
-                (false, None)
-            };
+            let (message_storage_available, message_expiry_interval) =
+                if Runtime::instance().extends.message_mgr().await.enable() {
+                    (true, Some(self.fitter.message_expiry_interval(&p)))
+                } else {
+                    (false, None)
+                };
 
             Self::forwards(
                 from,
@@ -899,7 +899,7 @@ impl SessionState {
                 None
             };
 
-            if listen_cfg.message_storage_available {
+            if Runtime::instance().extends.message_mgr().await.enable() {
                 //Send messages before they expire
                 self.send_storaged_messages(&sub.topic_filter, qos, sub.opts.shared_group(), excludeds)
                     .await?;
@@ -1001,11 +1001,12 @@ impl SessionState {
         }
 
         let listen_cfg = self.listen_cfg();
-        let (message_storage_available, message_expiry_interval) = if listen_cfg.message_storage_available {
-            (true, Some(self.fitter.message_expiry_interval(&publish)))
-        } else {
-            (false, None)
-        };
+        let (message_storage_available, message_expiry_interval) =
+            if Runtime::instance().extends.message_mgr().await.enable() {
+                (true, Some(self.fitter.message_expiry_interval(&publish)))
+            } else {
+                (false, None)
+            };
 
         Self::forwards(
             from,

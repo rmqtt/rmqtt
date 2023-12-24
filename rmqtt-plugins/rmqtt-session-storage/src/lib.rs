@@ -343,6 +343,11 @@ impl Plugin for StoragePlugin {
     }
 
     #[inline]
+    async fn get_config(&self) -> Result<serde_json::Value> {
+        Ok(self.cfg.to_json())
+    }
+
+    #[inline]
     async fn start(&mut self) -> Result<()> {
         log::info!("{} start", self.name);
         *self.runtime.extends.session_mgr_mut().await = Box::new(self.session_mgr);
@@ -368,56 +373,53 @@ impl Plugin for StoragePlugin {
     }
 
     #[inline]
-    async fn get_config(&self) -> Result<serde_json::Value> {
-        Ok(self.cfg.to_json())
-    }
-
-    #[inline]
     async fn attrs(&self) -> serde_json::Value {
-        let mut map_count = 0;
-        {
-            let now = std::time::Instant::now();
-            let mut storage_db = self.storage_db.clone();
-            let iter = storage_db.map_iter().await;
-            if let Ok(mut iter) = iter {
-                while let Some(m) = iter.next().await {
-                    if let Ok(m) = m {
-                        log::info!("map: {:?}", StoredKey::from(m.name().to_vec()));
-                    }
-                    map_count += 1;
-                    if map_count >= 1000 {
-                        break;
-                    }
-                }
-            }
-            log::info!("map_iter cost time: {:?}", now.elapsed());
-        }
+        // let mut map_count = 0;
+        // {
+        //     let now = std::time::Instant::now();
+        //     let mut storage_db = self.storage_db.clone();
+        //     let iter = storage_db.map_iter().await;
+        //     if let Ok(mut iter) = iter {
+        //         while let Some(m) = iter.next().await {
+        //             if let Ok(m) = m {
+        //                 log::info!("map: {:?}", StoredKey::from(m.name().to_vec()));
+        //             }
+        //             map_count += 1;
+        //             if map_count >= 1000 {
+        //                 break;
+        //             }
+        //         }
+        //     }
+        //     log::info!("map_iter cost time: {:?}", now.elapsed());
+        // }
+        //
+        // let mut list_count = 0;
+        // {
+        //     let now = std::time::Instant::now();
+        //     let mut storage_db = self.storage_db.clone();
+        //     let iter = storage_db.list_iter().await;
+        //     if let Ok(mut iter) = iter {
+        //         while let Some(l) = iter.next().await {
+        //             if let Ok(l) = l {
+        //                 log::info!("list: {:?}", StoredKey::from(l.name().to_vec()));
+        //             }
+        //             list_count += 1;
+        //             if list_count >= 1000 {
+        //                 break;
+        //             }
+        //         }
+        //     }
+        //     log::info!("list_iter cost time: {:?}", now.elapsed());
+        // }
+        // let map_count = if map_count >= 1000 { format!("{}+", map_count) } else { format!("{}", map_count) };
+        // let list_count =
+        //     if list_count >= 1000 { format!("{}+", list_count) } else { format!("{}", list_count) };
+        // json!({
+        //     "session_count": map_count,
+        //     "offline_messages_count": list_count
+        // })
 
-        let mut list_count = 0;
-        {
-            let now = std::time::Instant::now();
-            let mut storage_db = self.storage_db.clone();
-            let iter = storage_db.list_iter().await;
-            if let Ok(mut iter) = iter {
-                while let Some(l) = iter.next().await {
-                    if let Ok(l) = l {
-                        log::info!("list: {:?}", StoredKey::from(l.name().to_vec()));
-                    }
-                    list_count += 1;
-                    if list_count >= 1000 {
-                        break;
-                    }
-                }
-            }
-            log::info!("list_iter cost time: {:?}", now.elapsed());
-        }
-        let map_count = if map_count >= 1000 { format!("{}+", map_count) } else { format!("{}", map_count) };
-        let list_count =
-            if list_count >= 1000 { format!("{}+", list_count) } else { format!("{}", list_count) };
-        json!({
-            "session_count": map_count,
-            "offline_messages_count": list_count
-        })
+        json!({})
     }
 }
 
