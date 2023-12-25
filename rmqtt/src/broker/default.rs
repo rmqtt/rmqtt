@@ -204,7 +204,13 @@ impl super::Entry for LockEntry {
             if clean_start {
                 Ok(None)
             } else {
-                Ok(Some(s.to_offline_info().await?))
+                match s.to_offline_info().await {
+                    Ok(offline_info) => Ok(Some(offline_info)),
+                    Err(e) => {
+                        log::error!("get offline info error, {:?}", e);
+                        Ok(None)
+                    }
+                }
             }
         } else {
             Ok(None)
@@ -1859,7 +1865,7 @@ impl SessionManager for &'static DefaultSessionManager {
 pub struct DefaultSession {
     id: Id,
     listen_cfg: Listener,
-    subscriptions: SessionSubs,
+    pub subscriptions: SessionSubs,
     deliver_queue: MessageQueueType,
     inflight_win: InflightType,
     conn_info: ConnectInfoType,
@@ -1868,12 +1874,12 @@ pub struct DefaultSession {
     state_flags: SessionStateFlags,
     connected_at: TimestampMillis,
 
-    disconnect_info: RwLock<DisconnectInfo>,
+    pub disconnect_info: RwLock<DisconnectInfo>,
 }
 
 impl DefaultSession {
     #[allow(clippy::too_many_arguments)]
-    fn new(
+    pub fn new(
         id: Id,
         listen_cfg: Listener,
         subscriptions: SessionSubs,

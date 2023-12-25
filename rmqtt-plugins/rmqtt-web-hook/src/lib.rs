@@ -39,7 +39,7 @@ use rmqtt::{
     broker::error::MqttError,
     broker::hook::{self, Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::stats::Counter,
-    broker::types::{ConnectInfo, QoSEx, MQTT_LEVEL_5},
+    broker::types::QoSEx,
     plugin::{DynPlugin, DynPluginResult, Plugin},
     Result, Runtime, Topic, TopicFilter,
 };
@@ -528,39 +528,6 @@ impl WebHookHandler {
     }
 }
 
-trait ToBody {
-    fn to_body(&self) -> serde_json::Value;
-}
-
-impl ToBody for ConnectInfo {
-    fn to_body(&self) -> serde_json::Value {
-        match self {
-            ConnectInfo::V3(id, conn_info) => {
-                json!({
-                    "node": id.node(),
-                    "ipaddress": id.remote_addr,
-                    "clientid": id.client_id,
-                    "username": id.username_ref(),
-                    "keepalive": conn_info.keep_alive,
-                    "proto_ver": conn_info.protocol.level(),
-                    "clean_session": conn_info.clean_session,
-                })
-            }
-            ConnectInfo::V5(id, conn_info) => {
-                json!({
-                    "node": id.node(),
-                    "ipaddress": id.remote_addr,
-                    "clientid": id.client_id,
-                    "username": id.username_ref(),
-                    "keepalive": conn_info.keep_alive,
-                    "proto_ver": MQTT_LEVEL_5,
-                    "clean_start": conn_info.clean_start,
-                })
-            }
-        }
-    }
-}
-
 #[async_trait]
 impl Handler for WebHookHandler {
     async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
@@ -569,14 +536,14 @@ impl Handler for WebHookHandler {
         let now_time = now.format("%Y-%m-%d %H:%M:%S%.3f").to_string();
         let bodys = match param {
             Parameter::ClientConnect(conn_info) => {
-                let mut body = conn_info.to_body();
+                let mut body = conn_info.to_hook_body();
                 if let Some(obj) = body.as_object_mut() {
                     obj.insert("time".into(), serde_json::Value::String(now_time));
                 }
                 Some((None, body))
             }
             Parameter::ClientConnack(conn_info, conn_ack) => {
-                let mut body = conn_info.to_body();
+                let mut body = conn_info.to_hook_body();
                 if let Some(obj) = body.as_object_mut() {
                     obj.insert("conn_ack".into(), serde_json::Value::String(conn_ack.reason().to_string()));
                     obj.insert("time".into(), serde_json::Value::String(now_time));
@@ -585,7 +552,7 @@ impl Handler for WebHookHandler {
             }
 
             Parameter::ClientConnected(session) => {
-                let mut body = session.connect_info().await.map(|c| c.to_body()).unwrap_or_default();
+                let mut body = session.connect_info().await.map(|c| c.to_hook_body()).unwrap_or_default();
                 if let Some(obj) = body.as_object_mut() {
                     obj.insert(
                         "connected_at".into(),

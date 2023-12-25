@@ -1,5 +1,8 @@
-use rmqtt::{broker::Entry, log, tokio, ClientId, Id, Result, Runtime, Session, TimestampMillis};
+use rmqtt::{
+    broker::Entry, log, tokio, ClientId, ConnectInfo, Id, Result, Runtime, Session, TimestampMillis,
+};
 use rmqtt::{chrono, futures, serde_json};
+use std::sync::Arc;
 
 use super::types::{ClientSearchParams as SearchParams, ClientSearchResult as SearchResult};
 
@@ -142,18 +145,18 @@ async fn _filtering(q: &SearchParams, entry: &dyn Entry) -> Result<bool> {
     }
 
     if let Some(connected) = &q.connected {
-        if *connected != s.connected().await? {
+        if *connected != s.connected().await.unwrap_or_default() {
             return Ok(false);
         }
     }
 
     if let Some(session_present) = &q.session_present {
-        if *session_present != s.session_present().await? {
+        if *session_present != s.session_present().await.unwrap_or_default() {
             return Ok(false);
         }
     }
 
-    let connect_info = s.connect_info().await?;
+    let connect_info = s.connect_info().await.unwrap_or_else(|_| Arc::new(ConnectInfo::from(id.clone())));
 
     if let Some(clean_start) = &q.clean_start {
         if *clean_start != connect_info.clean_start() {
@@ -179,7 +182,7 @@ async fn _filtering(q: &SearchParams, entry: &dyn Entry) -> Result<bool> {
         }
     }
 
-    let created_at = s.created_at().await?;
+    let created_at = s.created_at().await.unwrap_or_default();
 
     if let Some(_gte_created_at) = &q._gte_created_at {
         if created_at < _gte_created_at.as_millis() as TimestampMillis {
@@ -193,7 +196,7 @@ async fn _filtering(q: &SearchParams, entry: &dyn Entry) -> Result<bool> {
         }
     }
 
-    let connected_at = s.connected_at().await?;
+    let connected_at = s.connected_at().await.unwrap_or_default();
 
     if let Some(_gte_connected_at) = &q._gte_connected_at {
         if connected_at < _gte_connected_at.as_millis() as TimestampMillis {

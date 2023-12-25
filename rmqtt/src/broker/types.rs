@@ -136,6 +136,12 @@ pub enum ConnectInfo {
     V5(Id, Box<ConnectV5>),
 }
 
+impl std::convert::From<Id> for ConnectInfo {
+    fn from(id: Id) -> Self {
+        ConnectInfo::V3(id, ConnectV3::default())
+    }
+}
+
 impl ConnectInfo {
     #[inline]
     pub fn id(&self) -> &Id {
@@ -148,46 +154,46 @@ impl ConnectInfo {
     #[inline]
     pub fn client_id(&self) -> &ClientId {
         match self {
-            ConnectInfo::V3(_, c) => &c.client_id,
-            ConnectInfo::V5(_, c) => &c.client_id,
+            ConnectInfo::V3(id, _) => &id.client_id,
+            ConnectInfo::V5(id, _) => &id.client_id,
         }
     }
 
     #[inline]
     pub fn to_json(&self) -> serde_json::Value {
         match self {
-            ConnectInfo::V3(id, conn_info) => {
+            ConnectInfo::V3(id, c) => {
                 json!({
                     "node": id.node(),
                     "ipaddress": id.remote_addr,
                     "clientid": id.client_id,
                     "username": id.username_ref(),
-                    "keepalive": conn_info.keep_alive,
-                    "proto_ver": conn_info.protocol.level(),
-                    "clean_session": conn_info.clean_session,
+                    "keepalive": c.keep_alive,
+                    "proto_ver": c.protocol.level(),
+                    "clean_session": c.clean_session,
                     "last_will": self.last_will().map(|lw|lw.to_json())
                 })
             }
-            ConnectInfo::V5(id, conn_info) => {
+            ConnectInfo::V5(id, c) => {
                 json!({
                     "node": id.node(),
                     "ipaddress": id.remote_addr,
                     "clientid": id.client_id,
                     "username": id.username_ref(),
-                    "keepalive": conn_info.keep_alive,
+                    "keepalive": c.keep_alive,
                     "proto_ver": ntex_mqtt::types::MQTT_LEVEL_5,
-                    "clean_start": conn_info.clean_start,
+                    "clean_start": c.clean_start,
                     "last_will": self.last_will().map(|lw|lw.to_json()),
 
-                    "session_expiry_interval_secs": conn_info.session_expiry_interval_secs,
-                    "auth_method": conn_info.auth_method,
-                    "auth_data": conn_info.auth_data,
-                    "request_problem_info": conn_info.request_problem_info,
-                    "request_response_info": conn_info.request_response_info,
-                    "receive_max": conn_info.receive_max,
-                    "topic_alias_max": conn_info.topic_alias_max,
-                    "user_properties": conn_info.user_properties,
-                    "max_packet_size": conn_info.max_packet_size,
+                    "session_expiry_interval_secs": c.session_expiry_interval_secs,
+                    "auth_method": c.auth_method,
+                    "auth_data": c.auth_data,
+                    "request_problem_info": c.request_problem_info,
+                    "request_response_info": c.request_response_info,
+                    "receive_max": c.receive_max,
+                    "topic_alias_max": c.topic_alias_max,
+                    "user_properties": c.user_properties,
+                    "max_packet_size": c.max_packet_size,
                 })
             }
         }
@@ -196,26 +202,26 @@ impl ConnectInfo {
     #[inline]
     pub fn to_hook_body(&self) -> serde_json::Value {
         match self {
-            ConnectInfo::V3(id, conn_info) => {
+            ConnectInfo::V3(id, c) => {
                 json!({
                     "node": id.node(),
                     "ipaddress": id.remote_addr,
                     "clientid": id.client_id,
                     "username": id.username_ref(),
-                    "keepalive": conn_info.keep_alive,
-                    "proto_ver": conn_info.protocol.level(),
-                    "clean_session": conn_info.clean_session,
+                    "keepalive": c.keep_alive,
+                    "proto_ver": c.protocol.level(),
+                    "clean_session": c.clean_session,
                 })
             }
-            ConnectInfo::V5(id, conn_info) => {
+            ConnectInfo::V5(id, c) => {
                 json!({
                     "node": id.node(),
                     "ipaddress": id.remote_addr,
                     "clientid": id.client_id,
                     "username": id.username_ref(),
-                    "keepalive": conn_info.keep_alive,
+                    "keepalive": c.keep_alive,
                     "proto_ver": ntex_mqtt::types::MQTT_LEVEL_5,
-                    "clean_start": conn_info.clean_start,
+                    "clean_start": c.clean_start,
                 })
             }
         }

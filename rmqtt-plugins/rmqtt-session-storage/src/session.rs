@@ -1,31 +1,23 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use std::convert::From as _;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use std::sync::atomic::{AtomicI64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use rmqtt::{async_trait::async_trait, chrono, log, once_cell::sync::OnceCell, tokio, DashMap};
 use rmqtt::{
-    async_trait::async_trait,
-    chrono, log,
-    once_cell::sync::OnceCell,
-    tokio,
-    tokio::sync::{RwLock, RwLockWriteGuard},
-    DashMap,
-};
-use rmqtt::{
-    broker::default::DefaultSessionManager,
     broker::inflight::InflightMessage,
     broker::session::{SessionLike, SessionManager},
     broker::types::DisconnectInfo,
     settings::Listener,
     ClientId, ConnectInfo, ConnectInfoType, Disconnect, FitterType, From, Id, InflightType, IsPing,
-    MessageQueueType, MqttError, Password, Publish, Reason, Result, SessionSubMap, SessionSubs,
-    SubscriptionOptions, Subscriptions, TimestampMillis, TopicFilter, UserName,
+    MessageQueueType, Password, Publish, Reason, Result, SessionSubMap, SessionSubs, SubscriptionOptions,
+    Subscriptions, TimestampMillis, TopicFilter, UserName,
 };
 
 use crate::{make_list_stored_key, make_map_stored_key, OfflineMessageOptionType};
+use rmqtt::broker::default::DefaultSession;
 use rmqtt::bytes::Bytes;
 use rmqtt_storage::{DefaultStorageDB, List, Map, StorageList, StorageMap};
 
@@ -72,43 +64,34 @@ impl SessionManager for &'static StorageSessionManager {
 
         last_id: Option<Id>,
     ) -> Arc<dyn SessionLike> {
-        if conn_info.clean_start() {
-            DefaultSessionManager::instance().create(
-                id,
-                listen_cfg,
-                fitter,
-                subscriptions,
-                deliver_queue,
-                inflight_win,
-                conn_info,
-                created_at,
-                connected_at,
-                session_present,
-                superuser,
-                connected,
-                disconnect_info,
-                last_id,
-            )
+        let clean_start = conn_info.clean_start();
+        let inner = DefaultSession::new(
+            id,
+            listen_cfg,
+            subscriptions,
+            deliver_queue,
+            inflight_win,
+            conn_info,
+            created_at,
+            connected_at,
+            session_present,
+            superuser,
+            connected,
+            disconnect_info,
+        );
+
+        if clean_start {
+            Arc::new(inner)
         } else {
-            let session_info_map = self.storage_db.map(make_map_stored_key(id.to_string()));
-            let offline_messages_list = self.storage_db.list(make_list_stored_key(id.to_string()));
+            let id_str = inner.id().to_string();
+            let session_info_map = self.storage_db.map(make_map_stored_key(id_str.as_str()));
+            let offline_messages_list = self.storage_db.list(make_list_stored_key(id_str.as_str()));
 
             //Only when 'clean_session' is equal to false or 'clean_start' is equal to false, the
             // session information persistence feature will be initiated.
             let s = Arc::new(StorageSession::new(
-                id,
-                listen_cfg,
+                inner,
                 fitter,
-                subscriptions,
-                deliver_queue,
-                inflight_win,
-                conn_info,
-                created_at,
-                connected_at,
-                session_present,
-                superuser,
-                connected,
-                disconnect_info,
                 self.storage_db.clone(),
                 session_info_map,
                 offline_messages_list,
@@ -180,19 +163,8 @@ impl Basic {
 }
 
 pub struct StorageSession {
-    id: Id,
-    listen_cfg: Listener,
+    inner: DefaultSession,
     fitter: FitterType,
-    deliver_queue: MessageQueueType,
-    inflight_win: InflightType,
-
-    basic: RwLock<Option<Basic>>,
-    subscriptions: RwLock<Option<SessionSubs>>,
-
-    state_flags: AtomicU8,
-    password: Option<Password>,
-    disconnect_info: RwLock<Option<DisconnectInfo>>,
-
     //----------------------------------
     storage_db: DefaultStorageDB,
     session_info_map: StorageMap,
@@ -203,54 +175,15 @@ pub struct StorageSession {
 impl StorageSession {
     #[allow(clippy::too_many_arguments)]
     fn new(
-        id: Id,
-        listen_cfg: Listener,
+        inner: DefaultSession,
         fitter: FitterType,
-        subscriptions: SessionSubs,
-        deliver_queue: MessageQueueType,
-        inflight_win: InflightType,
-        conn_info: ConnectInfoType,
-
-        created_at: TimestampMillis,
-        connected_at: TimestampMillis,
-        session_present: bool,
-        superuser: bool,
-        connected: bool,
-        disconnect_info: Option<DisconnectInfo>,
-
         storage_db: DefaultStorageDB,
         session_info_map: StorageMap,
         offline_messages_list: StorageList,
     ) -> Self {
-        let state_flags = AtomicU8::empty();
-        if session_present {
-            state_flags.insert(SESSION_PRESENT);
-        }
-        if superuser {
-            state_flags.insert(SUPERUSER);
-        }
-        if connected {
-            state_flags.insert(CONNECTED);
-        }
-
-        let basic = Basic { id: id.clone(), conn_info, created_at, connected_at };
-        let password = basic.conn_info.password().cloned();
-        let disconnect_info = disconnect_info.unwrap_or_default();
-
         Self {
-            id,
-            listen_cfg,
+            inner,
             fitter,
-            deliver_queue,
-            inflight_win,
-
-            basic: RwLock::new(Some(basic)),
-            subscriptions: RwLock::new(Some(subscriptions)),
-
-            state_flags,
-            password,
-            disconnect_info: RwLock::new(Some(disconnect_info)),
-
             storage_db,
             session_info_map,
             offline_messages_list,
@@ -264,222 +197,96 @@ impl StorageSession {
         let old = self.last_time.swap(now, Ordering::SeqCst);
         if save_enable || (now - old) > (1000 * 60) {
             if let Err(e) = self.session_info_map.insert(LAST_TIME, &now).await {
-                log::warn!("{:?} save last time to db error, {:?}", self.id, e);
+                log::warn!("{:?} save last time to db error, {:?}", self.id(), e);
             }
-            log::debug!("{:?} update last time", self.id);
+            log::debug!("{:?} update last time", self.id());
         }
-    }
-
-    #[inline]
-    fn is_inactive(&self) -> bool {
-        (chrono::Local::now().timestamp_millis() - self.last_time.load(Ordering::SeqCst)) > 1000 * 60 * 3
     }
 
     #[inline]
     pub(crate) async fn delete_from_db(&self) -> Result<()> {
         if let Err(e) = self.session_info_map.clear().await {
-            log::error!("{:?} remove session info error from db, {:?}", self.id, e);
+            log::error!("{:?} remove session info error from db, {:?}", self.id(), e);
         }
         if let Err(e) = self.offline_messages_list.clear().await {
-            log::error!("{:?} remove session offline messages error from db, {:?}", self.id, e);
+            log::error!("{:?} remove session offline messages error from db, {:?}", self.id(), e);
         }
-        Ok(())
-    }
-
-    #[inline]
-    pub(crate) async fn remove_and_save_to_db(&self) -> Result<()> {
-        log::debug!(
-            "{:?} remove and save to db ..., {:08b} {:08b} {:08b}",
-            self.id,
-            self.state_flags.get(),
-            !REMOVE_AND_SAVE,
-            REMOVE_AND_SAVE
-        );
-        if self.state_flags.equal_exchange(!REMOVE_AND_SAVE, REMOVE_AND_SAVE, REMOVE_AND_SAVE).is_err() {
-            log::debug!("{:?} remove and save to db ..., err: {:08b}", self.id, self.state_flags.get());
-            return Ok(());
-        }
-        log::debug!("{:?} remove and save to db ..., ok: {:08b}", self.id, self.state_flags.get());
-
-        self.save_and_remove_basic_info().await?;
-        self.save_and_remove_subscriptions().await?;
-        self.save_and_remove_disconnect_info().await?;
         Ok(())
     }
 
     #[inline]
     pub(crate) async fn save_to_db(&self) -> Result<()> {
         self.update_last_time(true).await;
-        self.save_basic_info().await?;
-        self.save_subscriptions().await?;
-        log::debug!("{:?} save to db ...", self.id);
+        self.save_basic_info().await;
+        self.save_subscriptions().await;
+        log::debug!("{:?} save to db ...", self.id());
         Ok(())
     }
 
     #[inline]
-    async fn save_basic_info(&self) -> Result<bool> {
-        self.state_flags.remove(REMOVE_AND_SAVE);
-        self._save_basic_info().await
+    async fn save_basic_info(&self) {
+        if let Err(e) = self._save_basic_info().await {
+            log::error!("save basic info error, {:?}", e);
+        }
     }
 
     #[inline]
-    async fn _save_basic_info(&self) -> Result<bool> {
-        let res = if let Some(basic) = self.basic.read().await.as_ref() {
-            log::debug!("{:?} save basic info to db", self.id);
-            self.session_info_map.insert(BASIC, basic).await?;
-            true
-        } else {
-            false
+    async fn _save_basic_info(&self) -> Result<()> {
+        let basic = Basic {
+            id: self.id().clone(),
+            conn_info: self.connect_info().await?,
+            created_at: self.created_at().await?,
+            connected_at: self.connected_at().await?,
         };
-        Ok(res)
+        self.session_info_map.insert(BASIC, &basic).await?;
+        Ok(())
     }
 
     #[inline]
-    async fn save_and_remove_basic_info(&self) -> Result<bool> {
-        let res = self._save_basic_info().await?;
-        if res {
-            self.basic.write().await.take();
-        }
-        Ok(res)
-    }
-
-    #[inline]
-    async fn _load_basic_info(&self, tag: &str) -> Result<Option<Basic>> {
-        log::debug!("{:?} read basic info from storage ..., {}", self.id, tag);
-        if let Some(basic) = self.session_info_map.get::<_, Basic>(BASIC).await? {
-            self.basic.write().await.replace(basic.clone());
-            Ok(Some(basic))
-        } else {
-            Ok(None)
+    async fn save_subscriptions(&self) {
+        if let Err(e) = self._save_subscriptions().await {
+            log::error!("save subscriptions error, {:?}", e);
         }
     }
 
     #[inline]
-    async fn save_subscriptions(&self) -> Result<bool> {
-        self.state_flags.remove(REMOVE_AND_SAVE);
-        self._save_subscriptions().await
-    }
-
-    #[inline]
-    async fn _save_subscriptions(&self) -> Result<bool> {
-        let res = if let Some(subscriptions) = self.subscriptions.read().await.as_ref() {
-            log::debug!("{:?} save subscriptions to db", self.id);
-            let subs = subscriptions.read().await;
-            self.session_info_map.insert(SESSION_SUB_MAP, subs.deref()).await?;
-            true
-        } else {
-            false
-        };
-        Ok(res)
-    }
-
-    #[inline]
-    async fn save_and_remove_subscriptions(&self) -> Result<bool> {
-        let res = self._save_subscriptions().await?;
-        if res {
-            self.subscriptions.write().await.take();
-        }
-        Ok(res)
+    async fn _save_subscriptions(&self) -> Result<()> {
+        let subs = self.inner.subscriptions.read().await;
+        self.session_info_map.insert(SESSION_SUB_MAP, subs.deref()).await?;
+        Ok(())
     }
 
     #[inline]
     async fn _subscriptions_clear(&self) -> Result<()> {
-        if let Some(subs) = self.subscriptions.read().await.as_ref() {
-            subs._clear().await;
-            return Ok(());
-        }
-
-        if let Some(subs) = self._load_subscriptions("_subscriptions_clear").await? {
-            subs._clear().await;
-            return Ok(());
-        }
-
-        Err(Self::not_found_error())
+        self.inner.subscriptions._clear().await;
+        Ok(())
     }
 
     #[inline]
-    async fn _load_subscriptions(&self, tag: &str) -> Result<Option<SessionSubs>> {
-        log::debug!("{:?} read subscriptions info from storage ..., {}", self.id, tag);
-        if let Some(subs) = self.session_info_map.get::<_, SessionSubMap>(SESSION_SUB_MAP).await? {
-            let subs = SessionSubs::from(subs);
-            self.subscriptions.write().await.replace(subs.clone());
-            Ok(Some(subs))
-        } else {
-            Ok(None)
+    async fn save_disconnect_info(&self) {
+        if let Err(e) = self._save_disconnect_info().await {
+            log::error!("save disconnect info error, {:?}", e);
         }
     }
 
     #[inline]
-    async fn save_disconnect_info(&self) -> Result<bool> {
-        self.state_flags.remove(REMOVE_AND_SAVE);
-        self._save_disconnect_info().await
-    }
-
-    #[inline]
-    async fn _save_disconnect_info(&self) -> Result<bool> {
-        let res = if let Some(disconnect_info) = self.disconnect_info.read().await.as_ref() {
-            log::debug!("{:?} save disconnect info to db", self.id);
-            self.session_info_map.insert(DISCONNECT_INFO, disconnect_info).await?;
-            true
-        } else {
-            false
-        };
-        Ok(res)
-    }
-
-    #[inline]
-    async fn save_and_remove_disconnect_info(&self) -> Result<bool> {
-        let res = self._save_disconnect_info().await?;
-        if res {
-            self.disconnect_info.write().await.take();
-        }
-        Ok(res)
-    }
-
-    #[inline]
-    async fn _load_disconnect_info(
-        &self,
-        tag: &str,
-    ) -> Result<Option<RwLockWriteGuard<'_, Option<DisconnectInfo>>>> {
-        log::debug!("{:?} read disconnect info from storage ..., {}", self.id, tag);
-        if let Some(disconnect_info) = self.session_info_map.get::<_, DisconnectInfo>(DISCONNECT_INFO).await?
-        {
-            let mut disconnect_info_wl = self.disconnect_info.write().await;
-            disconnect_info_wl.replace(disconnect_info);
-            Ok(Some(disconnect_info_wl))
-        } else {
-            Ok(None)
-        }
-    }
-
-    #[inline]
-    async fn disconnect_info_wl(&self, tag: &str) -> Result<RwLockWriteGuard<'_, Option<DisconnectInfo>>> {
-        {
-            let disconnect_info_wl = self.disconnect_info.write().await;
-            if disconnect_info_wl.is_some() {
-                return Ok(disconnect_info_wl);
-            }
-            drop(disconnect_info_wl);
-        }
-        {
-            if let Some(wl) = self._load_disconnect_info(tag).await? {
-                return Ok(wl);
-            }
-        }
-        let wl = self.disconnect_info.write().await;
-        Ok(wl)
+    async fn _save_disconnect_info(&self) -> Result<()> {
+        self.session_info_map
+            .insert(DISCONNECT_INFO, self.inner.disconnect_info.read().await.deref())
+            .await?;
+        Ok(())
     }
 
     #[inline]
     async fn set_map_stored_key_ttl(&self, session_expiry_interval_millis: i64) {
         match self.session_info_map.expire(session_expiry_interval_millis).await {
             Err(e) => {
-                log::warn!("{:?} set map ttl to db error, {:?}", self.id, e);
+                log::warn!("{:?} set map ttl to db error, {:?}", self.id(), e);
             }
             Ok(res) => {
                 log::debug!(
                     "{:?} set map ttl to db ok, {:?}, {}",
-                    self.id,
+                    self.id(),
                     Duration::from_millis(session_expiry_interval_millis as u64),
                     res
                 );
@@ -491,57 +298,45 @@ impl StorageSession {
     async fn set_list_stored_key_ttl(&self, session_expiry_interval_millis: i64) {
         match self.offline_messages_list.expire(session_expiry_interval_millis).await {
             Err(e) => {
-                log::warn!("{:?} set list ttl to db error, {:?}", self.id, e);
+                log::warn!("{:?} set list ttl to db error, {:?}", self.id(), e);
             }
             Ok(res) => {
                 log::debug!(
                     "{:?} set list ttl to db ok, {:?}, {}",
-                    self.id,
+                    self.id(),
                     Duration::from_millis(session_expiry_interval_millis as u64),
                     res
                 );
             }
         }
     }
-
-    #[inline]
-    fn not_found_error() -> MqttError {
-        MqttError::from("not found from storage")
-    }
 }
 
 #[async_trait]
 impl SessionLike for StorageSession {
+    #[inline]
     fn id(&self) -> &Id {
-        &self.id
+        self.inner.id()
     }
 
     #[inline]
     fn listen_cfg(&self) -> &Listener {
-        &self.listen_cfg
+        self.inner.listen_cfg()
     }
 
     #[inline]
     fn deliver_queue(&self) -> &MessageQueueType {
-        &self.deliver_queue
+        self.inner.deliver_queue()
     }
 
     #[inline]
     fn inflight_win(&self) -> &InflightType {
-        &self.inflight_win
+        self.inner.inflight_win()
     }
 
     #[inline]
     async fn subscriptions(&self) -> Result<SessionSubs> {
-        if let Some(subscriptions) = self.subscriptions.read().await.as_ref() {
-            return Ok(subscriptions.clone());
-        }
-
-        if let Some(subs) = self._load_subscriptions("subscriptions").await? {
-            return Ok(subs);
-        }
-
-        Err(Self::not_found_error())
+        self.inner.subscriptions().await
     }
 
     #[inline]
@@ -550,20 +345,9 @@ impl SessionLike for StorageSession {
         topic_filter: TopicFilter,
         opts: SubscriptionOptions,
     ) -> Result<Option<SubscriptionOptions>> {
-        log::debug!("{:?} subscriptions_add, topic_filter: {}, opts: {:?}", self.id, topic_filter, opts);
-        if let Some(subs) = self.subscriptions.read().await.as_ref() {
-            let res = subs._add(topic_filter, opts).await;
-            self.save_subscriptions().await?;
-            return Ok(res);
-        }
-
-        if let Some(subs) = self._load_subscriptions("subscriptions_add").await? {
-            let res = subs._add(topic_filter, opts).await;
-            self.save_subscriptions().await?;
-            return Ok(res);
-        }
-
-        Err(Self::not_found_error())
+        let opts = self.inner.subscriptions_add(topic_filter, opts).await?;
+        self.save_subscriptions().await;
+        Ok(opts)
     }
 
     #[inline]
@@ -571,278 +355,134 @@ impl SessionLike for StorageSession {
         &self,
         topic_filter: &str,
     ) -> Result<Option<(TopicFilter, SubscriptionOptions)>> {
-        log::debug!("{:?} subscriptions_remove, topic_filter: {}", self.id, topic_filter);
-        if let Some(subs) = self.subscriptions.read().await.as_ref() {
-            let res = subs._remove(topic_filter).await;
-            self.save_subscriptions().await?;
-            return Ok(res);
-        }
-
-        if let Some(subs) = self._load_subscriptions("subscriptions_remove").await? {
-            let res = subs._remove(topic_filter).await;
-            self.save_subscriptions().await?;
-            return Ok(res);
-        }
-
-        Err(Self::not_found_error())
+        let sub = self.inner.subscriptions_remove(topic_filter).await?;
+        self.save_subscriptions().await;
+        Ok(sub)
     }
 
     #[inline]
     async fn subscriptions_drain(&self) -> Result<Subscriptions> {
-        if let Some(subs) = self.subscriptions.read().await.as_ref() {
-            let res = subs._drain().await;
-            self.save_subscriptions().await?;
-            return Ok(res);
-        }
-
-        if let Some(subs) = self._load_subscriptions("subscriptions_drain").await? {
-            let res = subs._drain().await;
-            self.save_subscriptions().await?;
-            return Ok(res);
-        }
-
-        Err(Self::not_found_error())
+        let subs = self.inner.subscriptions_drain().await?;
+        self.save_subscriptions().await;
+        Ok(subs)
     }
 
     #[inline]
     async fn subscriptions_extend(&self, other: Subscriptions) -> Result<()> {
-        if let Some(subs) = self.subscriptions.read().await.as_ref() {
-            subs._extend(other).await;
-            self.save_subscriptions().await?;
-            return Ok(());
-        }
-
-        if let Some(subs) = self._load_subscriptions("subscriptions_extend").await? {
-            subs._extend(other).await;
-            self.save_subscriptions().await?;
-            return Ok(());
-        }
-
-        Err(Self::not_found_error())
+        self.inner.subscriptions_extend(other).await?;
+        self.save_subscriptions().await;
+        Ok(())
     }
 
     #[inline]
     async fn created_at(&self) -> Result<TimestampMillis> {
-        if let Some(basic) = self.basic.read().await.as_ref() {
-            return Ok(basic.created_at);
-        }
-
-        if let Some(basic) = self._load_basic_info("basic(created_at)").await? {
-            return Ok(basic.created_at);
-        }
-
-        Err(Self::not_found_error())
+        self.inner.created_at().await
     }
 
     #[inline]
     async fn session_present(&self) -> Result<bool> {
-        Ok(self.state_flags.contains(SESSION_PRESENT))
+        self.inner.session_present().await
     }
 
     #[inline]
     async fn connect_info(&self) -> Result<Arc<ConnectInfo>> {
-        if let Some(basic) = self.basic.read().await.as_ref() {
-            return Ok(basic.conn_info.clone());
-        }
-
-        if let Some(basic) = self._load_basic_info("basic(connect_info)").await? {
-            return Ok(basic.conn_info);
-        }
-
-        Err(Self::not_found_error())
+        self.inner.connect_info().await
     }
 
     #[inline]
     fn username(&self) -> Option<&UserName> {
-        self.id.username.as_ref()
+        self.inner.username()
     }
 
     #[inline]
     fn password(&self) -> Option<&Password> {
-        self.password.as_ref()
+        self.inner.password()
     }
 
     #[inline]
     async fn protocol(&self) -> Result<u8> {
-        Ok(self.connect_info().await.ok().map(|c| c.proto_ver()).unwrap_or_default())
+        self.inner.protocol().await
     }
 
     #[inline]
     async fn superuser(&self) -> Result<bool> {
-        Ok(self.state_flags.contains(SUPERUSER))
+        self.inner.superuser().await
     }
 
     #[inline]
     async fn connected(&self) -> Result<bool> {
-        Ok(self.state_flags.contains(CONNECTED))
+        self.inner.connected().await
     }
 
     #[inline]
     async fn connected_at(&self) -> Result<TimestampMillis> {
-        if let Some(basic) = self.basic.read().await.as_ref() {
-            return Ok(basic.connected_at);
-        }
-
-        if let Some(basic) = self._load_basic_info("basic(connected_at)").await? {
-            return Ok(basic.connected_at);
-        }
-
-        Err(Self::not_found_error())
+        self.inner.connected_at().await
     }
 
     #[inline]
     async fn disconnected_at(&self) -> Result<TimestampMillis> {
-        if let Some(disconnect_info) = self.disconnect_info.read().await.as_ref() {
-            return Ok(disconnect_info.disconnected_at);
-        }
-
-        if let Some(wl) = self._load_disconnect_info("disconnect_info(disconnected_at)").await? {
-            if let Some(disconnect_info) = wl.as_ref() {
-                return Ok(disconnect_info.disconnected_at);
-            }
-        }
-
-        Err(Self::not_found_error())
+        self.inner.disconnected_at().await
     }
     #[inline]
     async fn disconnected_reasons(&self) -> Result<Vec<Reason>> {
-        if let Some(disconnect_info) = self.disconnect_info.read().await.as_ref() {
-            return Ok(disconnect_info.reasons.clone());
-        }
-
-        if let Some(wl) = self._load_disconnect_info("disconnect_info(disconnected_reasons)").await? {
-            if let Some(disconnect_info) = wl.as_ref() {
-                return Ok(disconnect_info.reasons.clone());
-            }
-        }
-
-        Err(Self::not_found_error())
+        self.inner.disconnected_reasons().await
     }
     #[inline]
     async fn disconnected_reason(&self) -> Result<Reason> {
-        Ok(Reason::Reasons(self.disconnected_reasons().await?))
+        self.inner.disconnected_reason().await
     }
     #[inline]
     async fn disconnected_reason_has(&self) -> bool {
-        if let Some(disconnect_info) = self.disconnect_info.read().await.as_ref() {
-            return !disconnect_info.reasons.is_empty();
-        }
-
-        if let Some(wl) =
-            self._load_disconnect_info("disconnect_info(disconnected_reason_has)").await.unwrap_or_default()
-        {
-            if let Some(disconnect_info) = wl.as_ref() {
-                return !disconnect_info.reasons.is_empty();
-            }
-        }
-
-        false
+        self.inner.disconnected_reason_has().await
     }
     #[inline]
     async fn disconnected_reason_add(&self, r: Reason) -> Result<()> {
-        {
-            let mut disconnect_info_wl =
-                self.disconnect_info_wl("disconnect_info(disconnected_reason_add)").await?;
-            let disconnect_info = if let Some(disconnect_info) = disconnect_info_wl.deref_mut() {
-                disconnect_info
-            } else {
-                return Err(Self::not_found_error());
-            };
-            disconnect_info.reasons.push(r);
-            drop(disconnect_info_wl);
-        }
-        self.save_disconnect_info().await?;
-        log::debug!("{:?} disconnected_reason_add ... ", self.id);
+        self.inner.disconnected_reason_add(r).await?;
+        self.save_disconnect_info().await;
+        log::debug!("{:?} disconnected_reason_add ... ", self.id());
         Ok(())
     }
     #[inline]
     async fn disconnected_reason_take(&self) -> Result<Reason> {
-        let r = {
-            let mut disconnect_info_wl =
-                self.disconnect_info_wl("disconnect_info(disconnected_reason_take)").await?;
-            let disconnect_info = if let Some(disconnect_info) = disconnect_info_wl.deref_mut() {
-                disconnect_info
-            } else {
-                return Err(Self::not_found_error());
-            };
-            let r = Reason::Reasons(disconnect_info.reasons.drain(..).collect());
-            drop(disconnect_info_wl);
-            r
-        };
-        self.save_disconnect_info().await?;
-        log::debug!("{:?} disconnected_reason_take ... ", self.id);
-        Ok(r)
+        let r = self.inner.disconnected_reason_take().await;
+        // self.save_disconnect_info().await?;
+        log::debug!("{:?} disconnected_reason_take ... ", self.id());
+        r
     }
     #[inline]
     async fn disconnect(&self) -> Result<Option<Disconnect>> {
-        if let Some(disconnect_info) = self.disconnect_info.read().await.as_ref() {
-            return Ok(disconnect_info.mqtt_disconnect.clone());
-        }
-
-        if let Some(wl) = self._load_disconnect_info("disconnect_info(disconnect)").await? {
-            if let Some(disconnect_info) = wl.as_ref() {
-                return Ok(disconnect_info.mqtt_disconnect.clone());
-            }
-        }
-
-        Err(Self::not_found_error())
+        self.inner.disconnect().await
     }
     #[inline]
     async fn disconnected_set(&self, d: Option<Disconnect>, reason: Option<Reason>) -> Result<()> {
-        {
-            let mut disconnect_info_wl = self.disconnect_info_wl("disconnect_info(disconnected_set)").await?;
-            let disconnect_info = if let Some(disconnect_info) = disconnect_info_wl.deref_mut() {
-                disconnect_info
-            } else {
-                return Err(Self::not_found_error());
-            };
-
-            if self.state_flags.contains(CONNECTED) {
-                disconnect_info.disconnected_at = chrono::Local::now().timestamp_millis();
-                self.state_flags.remove(CONNECTED);
+        let session_expiry_interval = self.fitter.session_expiry_interval(d.as_ref()).as_millis() as i64;
+        log::info!("{:?} disconnected_set session_expiry_interval: {:?}", self.id(), session_expiry_interval);
+        self.set_map_stored_key_ttl(session_expiry_interval).await;
+        match self.offline_messages_list.push::<OfflineMessageOptionType>(&None).await {
+            Ok(()) => {
+                self.set_list_stored_key_ttl(session_expiry_interval).await;
             }
-
-            if let Some(d) = d {
-                disconnect_info.reasons.push(d.reason());
-                disconnect_info.mqtt_disconnect.replace(d);
-
-                let session_expiry_interval =
-                    self.fitter.session_expiry_interval(disconnect_info.mqtt_disconnect.as_ref()).as_millis()
-                        as i64;
-                log::debug!(
-                    "{:?} disconnected_set session_expiry_interval: {:?}",
-                    self.id,
-                    session_expiry_interval
-                );
-                self.set_map_stored_key_ttl(session_expiry_interval).await;
-                match self.offline_messages_list.push::<OfflineMessageOptionType>(&None).await {
-                    Ok(()) => {
-                        self.set_list_stored_key_ttl(session_expiry_interval).await;
-                    }
-                    Err(e) => {
-                        log::warn!("{:?} save offline messages error, {:?}", self.id, e)
-                    }
-                }
+            Err(e) => {
+                log::warn!("{:?} save offline messages error, {:?}", self.id(), e)
             }
-
-            if let Some(reason) = reason {
-                disconnect_info.reasons.push(reason);
-            }
-            drop(disconnect_info_wl);
         }
-        self.save_disconnect_info().await?;
-        log::debug!("{:?} disconnected_set ... ", self.id);
+
+        self.inner.disconnected_set(d, reason).await?;
+
+        self.save_disconnect_info().await;
+
+        log::debug!("{:?} disconnected_set ... ", self.id());
         Ok(())
     }
 
     #[inline]
     async fn on_drop(&self) -> Result<()> {
-        log::debug!("{:?} StorageSession on_drop ...", self.id);
+        log::debug!("{:?} StorageSession on_drop ...", self.id());
         if let Err(e) = self._subscriptions_clear().await {
-            log::error!("{:?} subscriptions clear error, {:?}", self.id, e);
+            log::error!("{:?} subscriptions clear error, {:?}", self.id(), e);
         }
         if let Err(e) = self.delete_from_db().await {
-            log::error!("{:?} subscriptions clear error, {:?}", self.id, e);
+            log::error!("{:?} subscriptions clear error, {:?}", self.id(), e);
         }
         Ok(())
     }
@@ -851,11 +491,12 @@ impl SessionLike for StorageSession {
     async fn keepalive(&self, ping: IsPing) {
         log::debug!("ping: {}", ping);
         if ping {
-            if self.is_inactive() {
-                if let Err(e) = self.remove_and_save_to_db().await {
-                    log::error!("{:?} remove and save session info to db error, {:?}", self.id, e);
-                }
-            }
+            // if self.is_inactive() {
+            //     if let Err(e) = self.remove_and_save_to_db().await {
+            //         log::error!("{:?} remove and save session info to db error, {:?}", self.id(), e);
+            //     }
+            // }
+            // self.save_subscriptions().await?;
             self.update_last_time(true).await;
         } else {
             self.update_last_time(false).await;
@@ -863,11 +504,10 @@ impl SessionLike for StorageSession {
     }
 }
 
-const SESSION_PRESENT: u8 = 0b00000001;
-const SUPERUSER: u8 = 0b00000010;
-const CONNECTED: u8 = 0b00000100;
-
-const REMOVE_AND_SAVE: u8 = 0b00001000;
+// const SESSION_PRESENT: u8 = 0b00000001;
+// const SUPERUSER: u8 = 0b00000010;
+// const CONNECTED: u8 = 0b00000100;
+// const REMOVE_AND_SAVE: u8 = 0b00001000;
 
 //const EMPTY: u8 = u8::MIN;
 //const ALL: u8 = u8::MAX;
