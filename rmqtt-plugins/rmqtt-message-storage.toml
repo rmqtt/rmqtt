@@ -2,7 +2,7 @@
 ## rmqtt-message-storage
 ##--------------------------------------------------------------------
 
-storage.type = "redis"
+storage.type = "sled"
 #sled
 storage.sled.path = "/var/log/rmqtt/.cache/message/{node}"
 storage.sled.cache_capacity = "3G"
@@ -15,4 +15,4 @@ storage.redis.url = "redis://127.0.0.1:6379/"
 storage.redis.prefix = "message-{node}"
 
 ##cleanup
-cleanup_count = 1000
+cleanup_count = 5000
