@@ -117,7 +117,7 @@ impl StoragePlugin {
     }
 
     async fn load_offline_session_infos(&mut self) -> Result<()> {
-        log::info!("{:?} load_offline_session_infos", self.name);
+        log::info!("{:?} load_offline_session_infos ...", self.name);
         let storage_db = self.storage_db.clone();
         let mut iter_storage_db = storage_db.clone();
         //Load offline session information from the database
@@ -374,52 +374,58 @@ impl Plugin for StoragePlugin {
 
     #[inline]
     async fn attrs(&self) -> serde_json::Value {
-        // let mut map_count = 0;
-        // {
-        //     let now = std::time::Instant::now();
-        //     let mut storage_db = self.storage_db.clone();
-        //     let iter = storage_db.map_iter().await;
-        //     if let Ok(mut iter) = iter {
-        //         while let Some(m) = iter.next().await {
-        //             if let Ok(m) = m {
-        //                 log::info!("map: {:?}", StoredKey::from(m.name().to_vec()));
-        //             }
-        //             map_count += 1;
-        //             if map_count >= 1000 {
-        //                 break;
-        //             }
-        //         }
-        //     }
-        //     log::info!("map_iter cost time: {:?}", now.elapsed());
-        // }
-        //
-        // let mut list_count = 0;
-        // {
-        //     let now = std::time::Instant::now();
-        //     let mut storage_db = self.storage_db.clone();
-        //     let iter = storage_db.list_iter().await;
-        //     if let Ok(mut iter) = iter {
-        //         while let Some(l) = iter.next().await {
-        //             if let Ok(l) = l {
-        //                 log::info!("list: {:?}", StoredKey::from(l.name().to_vec()));
-        //             }
-        //             list_count += 1;
-        //             if list_count >= 1000 {
-        //                 break;
-        //             }
-        //         }
-        //     }
-        //     log::info!("list_iter cost time: {:?}", now.elapsed());
-        // }
-        // let map_count = if map_count >= 1000 { format!("{}+", map_count) } else { format!("{}", map_count) };
-        // let list_count =
-        //     if list_count >= 1000 { format!("{}+", list_count) } else { format!("{}", list_count) };
-        // json!({
-        //     "session_count": map_count,
-        //     "offline_messages_count": list_count
-        // })
+        let max_limit = 100;
+        let mut map_count = 0;
+        {
+            let now = std::time::Instant::now();
+            let mut storage_db = self.storage_db.clone();
+            let iter = storage_db.map_iter().await;
+            if let Ok(mut iter) = iter {
+                while let Some(m) = iter.next().await {
+                    if let Ok(m) = m {
+                        log::debug!("map: {:?}", StoredKey::from(m.name().to_vec()));
+                    }
+                    map_count += 1;
+                    if map_count >= max_limit {
+                        break;
+                    }
+                }
+            }
+            log::info!("map_iter cost time: {:?}", now.elapsed());
+        }
 
-        json!({})
+        let mut list_count = 0;
+        {
+            let now = std::time::Instant::now();
+            let mut storage_db = self.storage_db.clone();
+            let iter = storage_db.list_iter().await;
+            if let Ok(mut iter) = iter {
+                while let Some(l) = iter.next().await {
+                    if let Ok(l) = l {
+                        log::debug!("list: {:?}", StoredKey::from(l.name().to_vec()));
+                    }
+                    list_count += 1;
+                    if list_count >= max_limit {
+                        break;
+                    }
+                }
+            }
+            log::info!("list_iter cost time: {:?}", now.elapsed());
+        }
+        let map_count =
+            if map_count >= max_limit { format!("{}+", map_count) } else { format!("{}", map_count) };
+        let list_count =
+            if list_count >= max_limit { format!("{}+", list_count) } else { format!("{}", list_count) };
+
+        let storage_info = self.storage_db.info().await.unwrap_or_default();
+
+        json!({
+            "session_count": map_count,
+            "offline_messages_count": list_count,
+            "storage_info": storage_info
+        })
+
+        // json!({})
     }
 }
 

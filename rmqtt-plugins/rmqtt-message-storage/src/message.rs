@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::convert::From as _;
 use std::ops::Deref;
 use std::str::FromStr;
@@ -16,14 +17,11 @@ use rmqtt::{
     log,
     ntex_mqtt::TopicLevel,
     once_cell::sync::OnceCell,
-    //rust_box::std_ext::RwLock,
     rust_box::task_exec_queue::{Builder, SpawnExt, TaskExecQueue},
-    timestamp_millis,
-    tokio,
+    timestamp_millis, tokio,
     tokio::sync::RwLock,
     tokio::time::sleep,
-    NodeId,
-    TimestampMillis,
+    NodeId, TimestampMillis,
 };
 
 use rmqtt::{
@@ -38,7 +36,8 @@ use rmqtt_storage::{DefaultStorageDB, Map, StorageMap};
 use crate::config::PluginConfig;
 
 type Msg = (From, Publish, Duration, MsgID);
-type TopicTreeType = Arc<RwLock<RetainTree<(MsgID, TimestampMillis)>>>;
+type TopicTreeType = Arc<RwLock<RetainTree<MsgID>>>;
+type TopicListType = Arc<RwLock<BTreeSet<(TimestampMillis, Topic)>>>;
 
 const DATA: &[u8] = b"data";
 const FORWARDED_PREFIX: &[u8] = b"fwd_";
@@ -87,6 +86,7 @@ impl StorageMessageManager {
         let inner = Arc::new(StorageMessageManagerInner {
             storage_db,
             topic_tree: Default::default(),
+            topic_list: Default::default(),
             messages_received_max,
             msg_tx,
             msg_queue_count,
@@ -146,26 +146,47 @@ impl StorageMessageManager {
                     spawn_blocking(move || {
                         let curr_time = timestamp_millis();
                         Handle::current().block_on(async move {
-                            msg_mgr
-                                .topic_tree
-                                .write()
-                                .await
-                                .retain(max_limit, |(_, expiry_time_at)| curr_time < *expiry_time_at)
+                            let removed_topics = {
+                                let mut topic_list = msg_mgr.topic_list.write().await;
+                                let mut removeds = Vec::new();
+                                loop {
+                                    if let Some((expiry_time_at, _)) = topic_list.first() {
+                                        if *expiry_time_at > curr_time || removeds.len() > max_limit {
+                                            break;
+                                        }
+                                        if let Some((_, t)) = topic_list.pop_first() {
+                                            removeds.push(t)
+                                        } else {
+                                            break;
+                                        }
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                removeds
+                            };
+                            for t in removed_topics.iter() {
+                                msg_mgr.topic_tree.write().await.remove(t);
+                            }
+                            removed_topics.len()
                         })
                     })
                     .await
                 } else {
                     Ok(0)
-                };
-                log::info!(
-                    "remove_expired_messages, removeds: {:?} cost time: {:?}",
-                    removeds,
-                    now.elapsed()
-                );
-                if removeds.unwrap_or_default() >= max_limit {
+                }
+                .unwrap_or_default();
+                if removeds > 0 {
+                    log::info!(
+                        "remove_expired_messages, removeds: {:?} cost time: {:?}",
+                        removeds,
+                        now.elapsed()
+                    );
+                }
+                if removeds >= max_limit {
                     continue;
                 }
-                sleep(Duration::from_secs(20)).await; //@TODO config enable
+                sleep(Duration::from_secs(30)).await; //@TODO config enable
             }
         });
 
@@ -184,6 +205,7 @@ impl Deref for StorageMessageManager {
 pub struct StorageMessageManagerInner {
     pub(crate) storage_db: DefaultStorageDB,
     pub(crate) topic_tree: TopicTreeType,
+    topic_list: TopicListType,
 
     messages_received_max: AtomicIsize,
 
@@ -198,6 +220,7 @@ impl StorageMessageManagerInner {
     #[inline]
     pub(crate) async fn restore_topic_tree(&self) -> Result<()> {
         let mut topic_tree = self.topic_tree.write().await;
+        let mut topic_list = self.topic_list.write().await;
         let mut storage_db = self.storage_db.clone();
         let mut map_iter = storage_db.map_iter().await?;
         while let Some(map) = map_iter.next().await {
@@ -220,8 +243,8 @@ impl StorageMessageManagerInner {
                                     topic
                                 }
                             };
-
-                            topic_tree.insert(&topic, (smsg.msg_id, smsg.expiry_time_at));
+                            topic_tree.insert(&topic, smsg.msg_id);
+                            topic_list.insert((smsg.expiry_time_at, topic));
                         }
                     }
                     Ok(None) => {}
@@ -325,7 +348,8 @@ impl StorageMessageManagerInner {
 
             //topic
             topic.push(TopicLevel::Normal(msg_id.to_string()));
-            self.topic_tree.write().await.insert(&topic, (msg_id, expiry_time_at));
+            self.topic_tree.write().await.insert(&topic, msg_id);
+            self.topic_list.write().await.insert((expiry_time_at, topic));
 
             count += 1;
         }
@@ -347,7 +371,7 @@ impl StorageMessageManagerInner {
         if !topic.levels().last().map(|l| matches!(l, TopicLevel::MultiWildcard)).unwrap_or_default() {
             topic.push(TopicLevel::SingleWildcard);
         }
-        let now = timestamp_millis();
+        // let now = timestamp_millis();
         let (expireds, matcheds): (Vec<Option<Topic>>, Vec<Option<MsgID>>) = {
             inner
                 .topic_tree
@@ -355,14 +379,7 @@ impl StorageMessageManagerInner {
                 .await
                 .matches(&topic)
                 .into_iter()
-                .map(|(t, (msg_id, expiry_time_at))| {
-                    if now > expiry_time_at {
-                        //is expiry
-                        (Some(t), None)
-                    } else {
-                        (None, Some(msg_id))
-                    }
-                })
+                .map(|(_t, msg_id)| (None, Some(msg_id)))
                 .unzip()
         };
 
@@ -547,7 +564,7 @@ impl MessageManager for &'static StorageMessageManager {
                 vec![]
             }
         };
-        if now.elapsed().as_millis() > 300 {
+        if now.elapsed().as_millis() > 500 {
             log::info!(
                 "StorageMessageManager::get cost time: {:?}, waiting_count: {:?}",
                 now.elapsed(),
@@ -588,7 +605,7 @@ impl MessageManager for &'static StorageMessageManager {
         .spawn(&self.exec)
         .timeout(futures_time::time::Duration::from_millis(3000))
         .await;
-        if now.elapsed().as_millis() > 200 {
+        if now.elapsed().as_millis() > 500 {
             log::info!(
                 "StorageMessageManager::set_forwardeds cost time: {:?}, waiting_count: {:?}",
                 now.elapsed(),
@@ -604,7 +621,7 @@ impl MessageManager for &'static StorageMessageManager {
 
     #[inline]
     async fn count(&self) -> isize {
-        self.topic_tree.read().await.values_size() as isize
+        self.topic_list.read().await.len() as isize
     }
 
     #[inline]

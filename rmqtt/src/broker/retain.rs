@@ -279,7 +279,7 @@ mod tests {
 
         println!("1 tree.values_size: {}", tree.values_size());
         println!("1 tree.nodes_size: {}", tree.nodes_size());
-        tree.retain(|_| false);
+        tree.retain(usize::MAX, |_| false);
         println!("2 tree.values_size: {}", tree.values_size());
         println!("2 tree.nodes_size: {}", tree.nodes_size());
     }

@@ -126,16 +126,20 @@ impl Plugin for StoragePlugin {
 
     #[inline]
     async fn attrs(&self) -> serde_json::Value {
+        let now = std::time::Instant::now();
         let topics_nodes = self.message_mgr.topic_tree.read().await.nodes_size();
         let receiveds = self.message_mgr.topic_tree.read().await.values_size();
         let exec_active_count = self.message_mgr.exec.active_count();
         let exec_waiting_count = self.message_mgr.exec.waiting_count();
-
+        let storage_info = self.message_mgr.storage_db.info().await.unwrap_or_default();
+        let cost_time = format!("{:?}", now.elapsed());
         json!(
             {
+                "storage_info": storage_info,
                 "message": {
                     "topics_nodes": topics_nodes,
                     "receiveds": receiveds,
+                    "cost_time":cost_time,
                 },
                 "exec_active_count": exec_active_count,
                 "exec_waiting_count": exec_waiting_count,

@@ -103,27 +103,30 @@ impl SessionManager for &'static StorageSessionManager {
                         log::error!("Save session info error to db, {:?}", e);
                     }
                     if let Some(last_id) = last_id {
-                        log::debug!(
-                            "last session_info_map.is_empty(): {:?}",
-                            s1.storage_db
-                                .clone()
-                                .map(make_map_stored_key(last_id.to_string()))
-                                .is_empty()
-                                .await
-                        );
-                        log::debug!(
-                            "last offline_messages_list.len(): {:?}",
-                            s1.storage_db.clone().list(make_list_stored_key(last_id.to_string())).len().await
-                        );
-
                         log::debug!("Remove last offline session info from db, last_id: {:?}", last_id,);
-                        if let Err(e) = s1.storage_db.clone().remove(last_id.to_string().as_bytes()).await {
+
+                        let map = s1.storage_db.map(make_map_stored_key(last_id.to_string()));
+                        let list = s1.storage_db.list(make_list_stored_key(last_id.to_string()));
+
+                        log::debug!("last session_info_map.is_empty(): {:?}", map.is_empty().await);
+                        log::debug!("last offline_messages_list.len(): {:?}", list.len().await);
+
+                        if let Err(e) = map.clear().await {
                             log::warn!(
                                 "Remove last offline session info error from db, last_id: {:?}, {:?}",
                                 last_id,
                                 e
                             );
                         }
+                        if let Err(e) = list.clear().await {
+                            log::warn!(
+                                "Remove last offline session info error from db, last_id: {:?}, {:?}",
+                                last_id,
+                                e
+                            );
+                        }
+                        log::debug!("last session_info_map.is_empty(): {:?}", map.is_empty().await);
+                        log::debug!("last offline_messages_list.len(): {:?}", list.len().await);
                     }
                 });
             }
@@ -445,7 +448,6 @@ impl SessionLike for StorageSession {
     #[inline]
     async fn disconnected_reason_take(&self) -> Result<Reason> {
         let r = self.inner.disconnected_reason_take().await;
-        // self.save_disconnect_info().await?;
         log::debug!("{:?} disconnected_reason_take ... ", self.id());
         r
     }
@@ -456,7 +458,11 @@ impl SessionLike for StorageSession {
     #[inline]
     async fn disconnected_set(&self, d: Option<Disconnect>, reason: Option<Reason>) -> Result<()> {
         let session_expiry_interval = self.fitter.session_expiry_interval(d.as_ref()).as_millis() as i64;
-        log::info!("{:?} disconnected_set session_expiry_interval: {:?}", self.id(), session_expiry_interval);
+        log::debug!(
+            "{:?} disconnected_set session_expiry_interval: {:?}",
+            self.id(),
+            session_expiry_interval
+        );
         self.set_map_stored_key_ttl(session_expiry_interval).await;
         match self.offline_messages_list.push::<OfflineMessageOptionType>(&None).await {
             Ok(()) => {
@@ -491,12 +497,6 @@ impl SessionLike for StorageSession {
     async fn keepalive(&self, ping: IsPing) {
         log::debug!("ping: {}", ping);
         if ping {
-            // if self.is_inactive() {
-            //     if let Err(e) = self.remove_and_save_to_db().await {
-            //         log::error!("{:?} remove and save session info to db error, {:?}", self.id(), e);
-            //     }
-            // }
-            // self.save_subscriptions().await?;
             self.update_last_time(true).await;
         } else {
             self.update_last_time(false).await;
