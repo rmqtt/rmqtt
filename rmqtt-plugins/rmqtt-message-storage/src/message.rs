@@ -35,12 +35,19 @@ use rmqtt_storage::{DefaultStorageDB, Map, StorageMap};
 
 use crate::config::PluginConfig;
 
-type Msg = (From, Publish, Duration, MsgID);
 type TopicTreeType = Arc<RwLock<RetainTree<MsgID>>>;
 type TopicListType = Arc<RwLock<BTreeSet<(TimestampMillis, Topic)>>>;
 
 const DATA: &[u8] = b"data";
 const FORWARDED_PREFIX: &[u8] = b"fwd_";
+
+enum Msg {
+    Data(DataType),
+    Forwarded(ForwardedType),
+}
+
+type ForwardedType = (MsgID, ClientId, Option<(TopicFilter, SharedGroup)>);
+type DataType = (From, Publish, Duration, MsgID);
 
 static INSTANCE: OnceCell<StorageMessageManager> = OnceCell::new();
 
@@ -116,21 +123,48 @@ impl StorageMessageManager {
             }
             if let Some(msg_mgr) = INSTANCE.get() {
                 let mut merger_msgs = Vec::new();
-                while let Some((from, publish, expiry_interval, msg_id)) = msg_rx.next().await {
-                    merger_msgs.push((from, publish, expiry_interval, msg_id));
+                // let mut merger_forwardeds = Vec::new();
+                while let Some(msg) = msg_rx.next().await {
+                    merger_msgs.push(msg);
                     while merger_msgs.len() < 1000 {
                         match tokio::time::timeout(Duration::from_millis(0), msg_rx.next()).await {
-                            Ok(Some((from, publish, expiry_interval, msg_id))) => {
-                                merger_msgs.push((from, publish, expiry_interval, msg_id));
+                            Ok(Some(msg)) => {
+                                merger_msgs.push(msg);
                             }
                             _ => break,
                         }
                     }
+
                     log::debug!("merger_msgs.len: {}", merger_msgs.len());
                     //merge and send
                     let msgs = std::mem::take(&mut merger_msgs);
+
                     msg_queue_count1.fetch_sub(msgs.len() as isize, Ordering::SeqCst);
-                    tokio::spawn(msg_mgr._batch_set_v2(msgs));
+                    tokio::spawn(async move {
+                        // let data_forwardeds: Vec<_> = msgs
+                        //     .into_iter()
+                        //     .map(|msg| match msg {
+                        //         Msg::Data(from, publish, expiry_interval, msg_id) => {
+                        //             (Some((from, publish, expiry_interval, msg_id)), None)
+                        //         }
+                        //         Msg::Forwarded(client_id, opts) => (None, Some((client_id, opts))),
+                        //     })
+                        //     .collect();
+                        let mut data = Vec::new();
+                        let mut forwardeds = Vec::new();
+                        for msg in msgs {
+                            match msg {
+                                Msg::Data(m) => {
+                                    data.push(m);
+                                }
+                                Msg::Forwarded(fwd) => {
+                                    forwardeds.push(fwd);
+                                }
+                            }
+                        }
+                        msg_mgr._batch_set_v2(data).await;
+                        msg_mgr._batch_forwarded_v2(forwardeds).await;
+                    });
                 }
                 log::error!("Recv failed because receiver is gone");
             }
@@ -140,8 +174,9 @@ impl StorageMessageManager {
         tokio::spawn(async move {
             let max_limit = cfg.cleanup_count;
             sleep(Duration::from_secs(20)).await;
+            let mut now = std::time::Instant::now();
+            let mut total_removeds = 0;
             loop {
-                let now = std::time::Instant::now();
                 let removeds = if let Some(msg_mgr) = INSTANCE.get() {
                     spawn_blocking(move || {
                         let curr_time = timestamp_millis();
@@ -176,17 +211,20 @@ impl StorageMessageManager {
                     Ok(0)
                 }
                 .unwrap_or_default();
-                if removeds > 0 {
-                    log::info!(
-                        "remove_expired_messages, removeds: {:?} cost time: {:?}",
-                        removeds,
-                        now.elapsed()
-                    );
-                }
+                total_removeds += removeds;
                 if removeds >= max_limit {
                     continue;
                 }
+                if removeds > 0 {
+                    log::info!(
+                        "remove expired messages from topic tree, removeds: {:?} cost time: {:?}",
+                        total_removeds,
+                        now.elapsed()
+                    );
+                }
                 sleep(Duration::from_secs(30)).await; //@TODO config enable
+                now = std::time::Instant::now();
+                total_removeds = 0;
             }
         });
 
@@ -223,10 +261,15 @@ impl StorageMessageManagerInner {
         let mut topic_list = self.topic_list.write().await;
         let mut storage_db = self.storage_db.clone();
         let mut map_iter = storage_db.map_iter().await?;
+        log::info!("restore topic tree ... ");
+        let mut count = 0;
+        let mut count_all = 0;
         while let Some(map) = map_iter.next().await {
+            count_all += 1;
             match map {
                 Ok(m) => match m.get::<_, StoredMessage>(DATA).await {
                     Ok(Some(smsg)) => {
+                        count += 1;
                         log::debug!(
                             "Restore topic tree, smsg.msg_id: {:?}, smsg.is_expiry(): {}",
                             smsg.msg_id,
@@ -257,6 +300,7 @@ impl StorageMessageManagerInner {
                 }
             }
         }
+        log::info!("restore count_all: {}, count: {}", count_all, count);
         Ok(())
     }
 
@@ -304,7 +348,23 @@ impl StorageMessageManagerInner {
     }
 
     #[inline]
-    async fn _batch_set_v2(&self, msgs: Vec<(From, Publish, Duration, MsgID)>) {
+    async fn _batch_forwarded_v2(&self, forwardeds: Vec<ForwardedType>) {
+        for (msg_id, client_id, opts) in forwardeds {
+            let msg_key = msg_id.to_be_bytes(); //self.make_msg_key(msg_id);
+            let msg_map = self.storage_db.map(msg_key);
+            if let Err(e) = self._forwarded_set_v2(&msg_map, &client_id, opts).await {
+                log::warn!(
+                    "_batch_forwarded_v2 error, client_id: {:?}, msg_map name: {:?}, error: {:?}",
+                    client_id,
+                    String::from_utf8_lossy(msg_map.name()),
+                    e,
+                );
+            }
+        }
+    }
+
+    #[inline]
+    async fn _batch_set_v2(&self, msgs: Vec<DataType>) {
         if let Err(e) = self.storage_save_msg_id().await {
             log::warn!("save message id error, {:?}", e);
             return;
@@ -396,8 +456,8 @@ impl StorageMessageManagerInner {
                 self._is_forwarded_v2(&mut msg_map, client_id, topic_filter, group).await.unwrap_or_default();
             if !is_forwarded {
                 if let Err(e) = inner
-                    ._forwarded_set_v2(
-                        &msg_map,
+                    ._forwarded_send_v2(
+                        msg_id,
                         client_id,
                         group.map(|g| (TopicFilter::from(topic_filter), g.clone())),
                     )
@@ -468,6 +528,21 @@ impl StorageMessageManagerInner {
     }
 
     #[inline]
+    async fn _forwarded_send_v2(
+        &self,
+        msg_id: MsgID,
+        client_id: &str,
+        opts: Option<(TopicFilter, SharedGroup)>,
+    ) -> Result<()> {
+        self.msg_tx
+            .clone()
+            .send(Msg::Forwarded((msg_id, ClientId::from(client_id), opts)))
+            .await
+            .map_err(|e| anyhow!(e))?;
+        Ok(())
+    }
+
+    #[inline]
     async fn _forwarded_set_v2(
         &self,
         msg_map: &StorageMap,
@@ -515,8 +590,8 @@ impl MessageManager for &'static StorageMessageManager {
         match self
             .msg_tx
             .clone()
-            .send((from, p, expiry_interval, msg_id))
-            .timeout(futures_time::time::Duration::from_millis(1500))
+            .send(Msg::Data((from, p, expiry_interval, msg_id)))
+            .timeout(futures_time::time::Duration::from_millis(3000))
             .await
         {
             Ok(Ok(())) => {}
@@ -588,11 +663,9 @@ impl MessageManager for &'static StorageMessageManager {
         );
         let now = std::time::Instant::now();
         let inner = self.inner.clone();
-        //self.make_msg_key(msg_id)
-        let msg_map = self.storage_db.map(msg_id.to_be_bytes());
         let _ = async move {
             for (client_id, opts) in sub_client_ids {
-                if let Err(e) = inner._forwarded_set_v2(&msg_map, &client_id, opts).await {
+                if let Err(e) = inner._forwarded_send_v2(msg_id, &client_id, opts).await {
                     log::warn!(
                         "set_forwardeds error, msg_id: {}, client_id: {}, opts: {:?}",
                         msg_id,
