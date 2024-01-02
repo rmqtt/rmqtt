@@ -2,16 +2,12 @@
 ## rmqtt-message-storage
 ##--------------------------------------------------------------------
 
-storage.type = "sled"
-#sled
-storage.sled.path = "/var/log/rmqtt/.cache/message/{node}"
-storage.sled.cache_capacity = "3G"
-storage.sled.gc_at_hour = 3
-storage.sled.gc_at_minute = 30
+##ram, sled, redis
+#ram and sled not supported yet.
+storage.type = "redis"
 
 #redis
 storage.redis.url = "redis://127.0.0.1:6379/"
-#storage.redis.url = "redis://zzfir.tpddns.cn:16379/"
 storage.redis.prefix = "message-{node}"
 
 ##cleanup
