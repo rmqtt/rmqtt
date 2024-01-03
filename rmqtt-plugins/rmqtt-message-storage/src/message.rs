@@ -350,7 +350,7 @@ impl StorageMessageManagerInner {
     #[inline]
     async fn _batch_forwarded_v2(&self, forwardeds: Vec<ForwardedType>) {
         for (msg_id, client_id, opts) in forwardeds {
-            let msg_key = msg_id.to_be_bytes(); //self.make_msg_key(msg_id);
+            let msg_key = msg_id.to_be_bytes();
             let msg_map = self.storage_db.map(msg_key);
             if let Err(e) = self._forwarded_set_v2(&msg_map, &client_id, opts).await {
                 log::warn!(
@@ -383,22 +383,32 @@ impl StorageMessageManagerInner {
             let smsg = StoredMessage { msg_id, from, publish, expiry_time_at };
 
             //received messages
-            let msg_key = msg_id.to_be_bytes(); //self.make_msg_key(msg_id);
-            let msg_map = self.storage_db.map(msg_key);
+            let msg_key = msg_id.to_be_bytes();
+            let msg_map = match self
+                .storage_db
+                .map_expire(msg_key, Some(expiry_interval.as_millis() as TimestampMillis))
+                .await
+            {
+                Ok(map) => map,
+                Err(e) => {
+                    log::warn!("store to db error, map_expire(..), {:?}, message: {:?}", e, smsg);
+                    continue;
+                }
+            };
             if let Err(e) = msg_map.insert(DATA, &smsg).await {
                 log::warn!("store to db error, {:?}, message: {:?}", e, smsg);
                 continue;
             }
-            //set ttl
-            match msg_map.expire(expiry_interval.as_millis() as TimestampMillis).await {
-                Err(e) => {
-                    log::warn!("set map ttl to db error, {:?}, message: {:?}", e, smsg);
-                }
-                Ok(false) => {
-                    log::warn!("set map ttl to db fail, message: {:?}", smsg);
-                }
-                Ok(true) => {}
-            }
+            // //set ttl
+            // match msg_map.expire(expiry_interval.as_millis() as TimestampMillis).await {
+            //     Err(e) => {
+            //         log::warn!("set map ttl to db error, {:?}, message: {:?}", e, smsg);
+            //     }
+            //     Ok(false) => {
+            //         log::warn!("set map ttl to db fail, message: {:?}", smsg);
+            //     }
+            //     Ok(true) => {}
+            // }
 
             log::debug!(
                 "expiry_time: {:?} {:?}",
@@ -449,7 +459,7 @@ impl StorageMessageManagerInner {
         log::debug!("_get_v2 expireds: {:?}", expireds);
         log::debug!("_get_v2 matcheds msg_ids: {:?}", matcheds);
         let matcheds = futures::future::join_all(matcheds.into_iter().map(|msg_id| async move {
-            let msg_key = msg_id.to_be_bytes(); //self.make_msg_key(msg_id);
+            let msg_key = msg_id.to_be_bytes();
             let mut msg_map = self.storage_db.map(msg_key);
 
             let is_forwarded =

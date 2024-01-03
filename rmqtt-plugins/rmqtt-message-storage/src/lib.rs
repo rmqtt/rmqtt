@@ -12,7 +12,7 @@ use std::sync::Arc;
 use rmqtt::{
     broker::hook::Register,
     plugin::{DynPlugin, DynPluginResult, Plugin},
-    MqttError, Result, Runtime,
+    Result, Runtime,
 };
 use rmqtt_storage::{init_db, StorageType};
 
@@ -57,13 +57,14 @@ impl StoragePlugin {
         let node_id = runtime.node.id();
         let mut cfg = runtime.settings.plugins.load_config_default::<PluginConfig>(&name)?;
         let should_merge_on_get = match cfg.storage.typ {
+            StorageType::Sled => {
+                cfg.storage.sled.path = cfg.storage.sled.path.replace("{node}", &format!("{}", node_id));
+                true
+            }
             StorageType::Redis => {
                 cfg.storage.redis.prefix =
                     cfg.storage.redis.prefix.replace("{node}", &format!("{}", node_id));
                 true
-            }
-            _ => {
-                return Err(MqttError::from("Not Supported"));
             }
         };
         log::info!("{} StoragePlugin cfg: {:?}", name, cfg);
