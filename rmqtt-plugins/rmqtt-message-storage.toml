@@ -2,9 +2,12 @@
 ## rmqtt-message-storage
 ##--------------------------------------------------------------------
 
-##ram, sled, redis
-#ram and sled not supported yet.
+##sled, redis
 storage.type = "redis"
+
+#sled
+storage.sled.path = "/var/log/rmqtt/.cache/message/{node}"
+storage.sled.cache_capacity = "3G"
 
 #redis
 storage.redis.url = "redis://127.0.0.1:6379/"
