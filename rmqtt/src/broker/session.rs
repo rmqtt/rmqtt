@@ -1055,21 +1055,9 @@ impl SessionState {
         message_storage_available: bool,
         message_expiry_interval: Option<Duration>,
     ) -> Result<()> {
-        //Storage messages
+        //make message id
         let msg_id = if message_storage_available {
-            //Store messages before they expire
-            let msg_id = if let Some(message_expiry_interval) = message_expiry_interval {
-                Runtime::instance()
-                    .extends
-                    .shared()
-                    .await
-                    .message_store(from.clone(), publish.clone(), message_expiry_interval)
-                    .await?
-            } else {
-                unreachable!()
-            };
-
-            Some(msg_id)
+            Some(Runtime::instance().extends.message_mgr().await.next_msg_id())
         } else {
             None
         };
@@ -1083,19 +1071,30 @@ impl SessionState {
                 .await?;
         }
 
+        let stored_msg =
+            if let (Some(msg_id), Some(message_expiry_interval)) = (msg_id, message_expiry_interval) {
+                Some((msg_id, from.clone(), publish.clone(), message_expiry_interval))
+            } else {
+                None
+            };
+
         match Runtime::instance().extends.shared().await.forwards(from.clone(), publish).await {
             Ok(None) => {
                 //hook, message_nonsubscribed
                 Runtime::instance().extends.hook_mgr().await.message_nonsubscribed(from).await;
             }
             Ok(Some(sub_cids)) => {
-                if let Some(msg_id) = msg_id {
-                    Runtime::instance()
+                if let Some((msg_id, from, p, expiry_interval)) = stored_msg {
+                    //Store messages before they expire
+                    if let Err(e) = Runtime::instance()
                         .extends
-                        .shared()
+                        .message_mgr()
                         .await
-                        .message_forwardeds_store(msg_id, sub_cids)
-                        .await;
+                        .store(msg_id, from, p, expiry_interval, sub_cids)
+                        .await
+                    {
+                        log::warn!("Failed to storage messages, {:?}", e);
+                    }
                 }
             }
             Err(errs) => {
@@ -1157,7 +1156,7 @@ impl SessionState {
         let mut entry = Runtime::instance().extends.shared().await.entry(self.id.clone());
         if let Some(true) = entry.id_same() {
             if let Err(e) = entry.remove_with(&self.id).await {
-                log::warn!("{:?} failed to remove the session from the broker, {:?}", self.id, e);
+                log::warn!("{:?} Failed to remove the session from the broker, {:?}", self.id, e);
             }
         }
     }

@@ -122,11 +122,6 @@ pub trait Shared: Sync + Send {
     }
 
     #[inline]
-    async fn message_store(&self, from: From, p: Publish, expiry_interval: Duration) -> Result<MsgID> {
-        Runtime::instance().extends.message_mgr().await.set(from, p, expiry_interval).await
-    }
-
-    #[inline]
     async fn message_load(
         &self,
         client_id: &str,
@@ -165,15 +160,6 @@ pub trait Shared: Sync + Send {
         } else {
             message_mgr.get(client_id, topic_filter, group).await
         }
-    }
-
-    #[inline]
-    async fn message_forwardeds_store(
-        &self,
-        msg_id: MsgID,
-        sub_client_ids: Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>,
-    ) {
-        Runtime::instance().extends.message_mgr().await.set_forwardeds(msg_id, sub_client_ids).await
     }
 }
 
@@ -305,8 +291,27 @@ pub trait RetainStorage: Sync + Send {
 #[async_trait]
 pub trait MessageManager: Sync + Send {
     #[inline]
-    async fn set(&self, _from: From, _p: Publish, _expiry_interval: Duration) -> Result<MsgID> {
-        Ok(0)
+    fn next_msg_id(&self) -> MsgID {
+        0
+    }
+
+    ///Store messages
+    ///
+    ///_msg_id           - MsgID <br>
+    ///_from             - From <br>
+    ///_p                - Message <br>
+    ///_expiry_interval  - Message expiration time <br>
+    ///_sub_client_ids   - Indicate that certain subscribed clients have already forwarded the specified message.
+    #[inline]
+    async fn store(
+        &self,
+        _msg_id: MsgID,
+        _from: From,
+        _p: Publish,
+        _expiry_interval: Duration,
+        _sub_client_ids: Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>,
+    ) -> Result<()> {
+        Ok(())
     }
 
     #[inline]
@@ -317,15 +322,6 @@ pub trait MessageManager: Sync + Send {
         _group: Option<&SharedGroup>,
     ) -> Result<Vec<(MsgID, From, Publish)>> {
         Ok(Vec::new())
-    }
-
-    ///Indicate that certain subscribed clients have already forwarded the specified message.
-    #[inline]
-    async fn set_forwardeds(
-        &self,
-        _pmsg_id: MsgID,
-        _sub_client_ids: Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>,
-    ) {
     }
 
     ///Indicate whether merging data from various nodes is needed during the 'get' operation.
