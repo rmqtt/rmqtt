@@ -41,14 +41,7 @@ type TopicListType = Arc<RwLock<BTreeSet<(TimestampMillis, Topic)>>>;
 const DATA: &[u8] = b"data";
 const FORWARDED_PREFIX: &[u8] = b"fwd_";
 
-enum Msg {
-    Forwarded(ForwardedType),
-    StoreAndForwardeds(StoreAndForwardedsType),
-}
-
-type ForwardedType = (MsgID, ClientId, Option<(TopicFilter, SharedGroup)>);
-type DataType = (From, Publish, Duration, MsgID);
-type StoreAndForwardedsType = (DataType, Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>);
+type Msg = ((From, Publish, Duration, MsgID), Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>);
 
 static INSTANCE: OnceCell<StorageMessageManager> = OnceCell::new();
 
@@ -141,29 +134,7 @@ impl StorageMessageManager {
 
                     msg_queue_count1.fetch_sub(msgs.len() as isize, Ordering::SeqCst);
                     tokio::spawn(async move {
-                        // let data_forwardeds: Vec<_> = msgs
-                        //     .into_iter()
-                        //     .map(|msg| match msg {
-                        //         Msg::Data(from, publish, expiry_interval, msg_id) => {
-                        //             (Some((from, publish, expiry_interval, msg_id)), None)
-                        //         }
-                        //         Msg::Forwarded(client_id, opts) => (None, Some((client_id, opts))),
-                        //     })
-                        //     .collect();
-                        let mut forwardeds = Vec::new();
-                        let mut msg_fwds = Vec::new();
-                        for msg in msgs {
-                            match msg {
-                                Msg::Forwarded(fwd) => {
-                                    forwardeds.push(fwd);
-                                }
-                                Msg::StoreAndForwardeds(m) => {
-                                    msg_fwds.push(m);
-                                }
-                            }
-                        }
-                        msg_mgr._batch_forwarded(forwardeds).await;
-                        msg_mgr._batch_msg_forwardeds(msg_fwds).await;
+                        msg_mgr._batch_msg_forwardeds(msgs).await;
                     });
                 }
                 log::error!("Recv failed because receiver is gone");
@@ -184,16 +155,12 @@ impl StorageMessageManager {
                             let removed_topics = {
                                 let mut topic_list = msg_mgr.topic_list.write().await;
                                 let mut removeds = Vec::new();
-                                loop {
-                                    if let Some((expiry_time_at, _)) = topic_list.first() {
-                                        if *expiry_time_at > curr_time || removeds.len() > max_limit {
-                                            break;
-                                        }
-                                        if let Some((_, t)) = topic_list.pop_first() {
-                                            removeds.push(t)
-                                        } else {
-                                            break;
-                                        }
+                                while let Some((expiry_time_at, _)) = topic_list.first() {
+                                    if *expiry_time_at > curr_time || removeds.len() > max_limit {
+                                        break;
+                                    }
+                                    if let Some((_, t)) = topic_list.pop_first() {
+                                        removeds.push(t)
                                     } else {
                                         break;
                                     }
@@ -348,7 +315,7 @@ impl StorageMessageManagerInner {
     }
 
     #[inline]
-    async fn _batch_msg_forwardeds(&self, msgs: Vec<StoreAndForwardedsType>) {
+    async fn _batch_msg_forwardeds(&self, msgs: Vec<Msg>) {
         if let Err(e) = self.storage_save_msg_id().await {
             log::warn!("save message id error, {:?}", e);
             return;
@@ -425,22 +392,6 @@ impl StorageMessageManagerInner {
     }
 
     #[inline]
-    async fn _batch_forwarded(&self, forwardeds: Vec<ForwardedType>) {
-        for (msg_id, client_id, opts) in forwardeds {
-            let msg_key = msg_id.to_be_bytes();
-            let msg_map = self.storage_db.map(msg_key);
-            if let Err(e) = self._forwarded_set(&msg_map, &client_id, opts).await {
-                log::warn!(
-                    "_batch_forwarded error, client_id: {:?}, msg_map name: {:?}, error: {:?}",
-                    client_id,
-                    String::from_utf8_lossy(msg_map.name()),
-                    e,
-                );
-            }
-        }
-    }
-
-    #[inline]
     async fn _get(
         &self,
         client_id: &str,
@@ -463,26 +414,18 @@ impl StorageMessageManagerInner {
 
             let is_forwarded =
                 self._is_forwarded(&mut msg_map, client_id, topic_filter, group).await.unwrap_or_default();
-            if !is_forwarded {
-                if let Err(e) = inner
-                    ._forwarded_send(
-                        msg_id,
-                        client_id,
-                        group.map(|g| (TopicFilter::from(topic_filter), g.clone())),
-                    )
-                    .await
-                {
-                    log::warn!("_get error, {:?}", e);
-                }
-            }
 
             if is_forwarded {
                 None
             } else if let Ok(Some(msg)) = inner._get_message(&msg_map).await {
-                log::debug!("_get msg: {:?}", msg);
+                log::debug!("_get msg: {:?}, msg.is_expiry(): {}", msg, msg.is_expiry());
                 if msg.is_expiry() {
                     None
                 } else {
+                    let opts = group.map(|g| (TopicFilter::from(topic_filter), g.clone()));
+                    if let Err(e) = msg_map.insert(Self::make_forwarded_key(client_id), &opts).await {
+                        log::warn!("_get::insert error, {:?}", e);
+                    }
                     Some((msg_id, msg.from, msg.publish))
                 }
             } else {
@@ -530,22 +473,6 @@ impl StorageMessageManagerInner {
             }
         }
         Ok(false)
-    }
-
-    #[inline]
-    async fn _forwarded_send(
-        &self,
-        msg_id: MsgID,
-        client_id: &str,
-        opts: Option<(TopicFilter, SharedGroup)>,
-    ) -> Result<()> {
-        self.msg_tx
-            .clone()
-            .send(Msg::Forwarded((msg_id, ClientId::from(client_id), opts)))
-            .await
-            .map_err(|e| anyhow!(e))?;
-        self.msg_queue_count.fetch_add(1, Ordering::SeqCst);
-        Ok(())
     }
 
     #[inline]
@@ -601,12 +528,7 @@ impl MessageManager for &'static StorageMessageManager {
             msg_id,
             expiry_interval
         );
-        match self
-            .msg_tx
-            .clone()
-            .send(Msg::StoreAndForwardeds(((from, p, expiry_interval, msg_id), sub_client_ids)))
-            .await
-        {
+        match self.msg_tx.clone().send(((from, p, expiry_interval, msg_id), sub_client_ids)).await {
             Ok(()) => {
                 self.msg_queue_count.fetch_add(1, Ordering::SeqCst);
                 Ok(())
