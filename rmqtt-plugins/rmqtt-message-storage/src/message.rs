@@ -116,6 +116,8 @@ impl StorageMessageManager {
                 sleep(Duration::from_millis(10)).await;
             }
             if let Some(msg_mgr) = INSTANCE.get() {
+                let msg_fwds_count = Arc::new(AtomicIsize::new(0));
+
                 let mut merger_msgs = Vec::new();
                 while let Some(msg) = msg_rx.next().await {
                     merger_msgs.push(msg);
@@ -132,9 +134,17 @@ impl StorageMessageManager {
                     //merge and send
                     let msgs = std::mem::take(&mut merger_msgs);
 
-                    msg_queue_count1.fetch_sub(msgs.len() as isize, Ordering::SeqCst);
+                    msg_queue_count1.fetch_sub(msgs.len() as isize, Ordering::Relaxed);
+                    msg_fwds_count.fetch_add(1, Ordering::SeqCst);
+                    while msg_fwds_count.load(Ordering::SeqCst) > 100 {
+                        log::info!("msg_fwds_count: {}", msg_fwds_count.load(Ordering::SeqCst));
+                        tokio::time::sleep(Duration::from_millis(1000)).await;
+                    }
+
+                    let msg_fwds_count1 = msg_fwds_count.clone();
                     tokio::spawn(async move {
                         msg_mgr._batch_msg_forwardeds(msgs).await;
+                        msg_fwds_count1.fetch_sub(1, Ordering::SeqCst);
                     });
                 }
                 log::error!("Recv failed because receiver is gone");
@@ -215,7 +225,7 @@ pub struct StorageMessageManagerInner {
     messages_received_max: AtomicIsize,
 
     msg_tx: mpsc::Sender<Msg>,
-    msg_queue_count: Arc<AtomicIsize>,
+    pub(crate) msg_queue_count: Arc<AtomicIsize>,
 
     id_generater: AtomicUsize,
     should_merge_on_get: bool,
@@ -380,7 +390,7 @@ impl StorageMessageManagerInner {
         forwardeds: Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>,
     ) {
         for (client_id, opts) in forwardeds {
-            if let Err(e) = self._forwarded_set(msg_map, &client_id, opts).await {
+            if let Err(e) = msg_map.insert(Self::make_forwarded_key(&client_id), &opts).await {
                 log::warn!(
                     "_forwardeds error, client_id: {:?}, msg_map name: {:?}, error: {:?}",
                     client_id,
@@ -476,32 +486,6 @@ impl StorageMessageManagerInner {
     }
 
     #[inline]
-    async fn _forwarded_set(
-        &self,
-        msg_map: &StorageMap,
-        client_id: &str,
-        opts: Option<(TopicFilter, SharedGroup)>,
-    ) -> Result<()> {
-        log::debug!(
-            "_forwarded_set client_id: {:?}, msg_map name: {:?}, ttl: {:?}",
-            client_id,
-            String::from_utf8_lossy(msg_map.name()),
-            msg_map.ttl().await
-        );
-        match msg_map.ttl().await? {
-            Some(TimestampMillis::MAX) => {
-                log::info!("client_id: {:?}, ttl is MAX", client_id);
-            }
-            Some(_) => {}
-            None => {
-                log::info!("client_id: {:?}, ttl is None", client_id);
-            }
-        }
-        msg_map.insert(Self::make_forwarded_key(client_id), &opts).await?;
-        Ok(())
-    }
-
-    #[inline]
     async fn _get_message(&self, msg_map: &StorageMap) -> Result<Option<StoredMessage>> {
         Ok(msg_map.get::<_, StoredMessage>(DATA).await?)
     }
@@ -528,16 +512,36 @@ impl MessageManager for &'static StorageMessageManager {
             msg_id,
             expiry_interval
         );
-        match self.msg_tx.clone().send(((from, p, expiry_interval, msg_id), sub_client_ids)).await {
-            Ok(()) => {
-                self.msg_queue_count.fetch_add(1, Ordering::SeqCst);
+        let now = std::time::Instant::now();
+        let res = self
+            .msg_tx
+            .clone()
+            .send(((from, p, expiry_interval, msg_id), sub_client_ids))
+            .timeout(futures_time::time::Duration::from_millis(5000))
+            .await;
+
+        let res = match res {
+            Ok(Ok(())) => {
+                self.msg_queue_count.fetch_add(1, Ordering::Relaxed);
                 Ok(())
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 log::error!("StorageMessageManager set error, {:?}", e);
                 Err(MqttError::from(e.to_string()))
             }
+            Err(e) => {
+                log::warn!("StorageMessageManager store timeout, {:?}", e);
+                Err(MqttError::from(e.to_string()))
+            }
+        };
+        if now.elapsed().as_millis() > 500 {
+            log::info!(
+                "StorageMessageManager::store cost time: {:?}, msg_queue_count: {:?}",
+                now.elapsed(),
+                self.msg_queue_count.load(Ordering::Relaxed)
+            );
         }
+        res
     }
 
     #[inline]
@@ -579,7 +583,6 @@ impl MessageManager for &'static StorageMessageManager {
                 self.exec.waiting_count()
             );
         }
-        log::debug!("StorageMessageManager get matcheds: {:?}", matcheds.len());
         Ok(matcheds)
     }
 
