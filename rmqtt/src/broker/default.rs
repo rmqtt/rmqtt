@@ -1824,9 +1824,10 @@ impl DefaultSessionManager {
     }
 }
 
+#[async_trait]
 impl SessionManager for &'static DefaultSessionManager {
     #[allow(clippy::too_many_arguments)]
-    fn create(
+    async fn create(
         &self,
         id: Id,
         listen_cfg: Listener,
@@ -1844,8 +1845,8 @@ impl SessionManager for &'static DefaultSessionManager {
         disconnect_info: Option<DisconnectInfo>,
 
         _last_id: Option<Id>,
-    ) -> Arc<dyn SessionLike> {
-        Arc::new(DefaultSession::new(
+    ) -> Result<Arc<dyn SessionLike>> {
+        Ok(Arc::new(DefaultSession::new(
             id,
             listen_cfg,
             subscriptions,
@@ -1858,7 +1859,7 @@ impl SessionManager for &'static DefaultSessionManager {
             superuser,
             connected,
             disconnect_info,
-        ))
+        )))
     }
 }
 

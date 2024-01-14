@@ -43,9 +43,10 @@ impl StorageSessionManager {
     }
 }
 
+#[async_trait]
 impl SessionManager for &'static StorageSessionManager {
     #[allow(clippy::too_many_arguments)]
-    fn create(
+    async fn create(
         &self,
         id: Id,
         listen_cfg: Listener,
@@ -63,7 +64,7 @@ impl SessionManager for &'static StorageSessionManager {
         disconnect_info: Option<DisconnectInfo>,
 
         last_id: Option<Id>,
-    ) -> Arc<dyn SessionLike> {
+    ) -> Result<Arc<dyn SessionLike>> {
         let clean_start = conn_info.clean_start();
         let inner = DefaultSession::new(
             id,
@@ -81,11 +82,12 @@ impl SessionManager for &'static StorageSessionManager {
         );
 
         if clean_start {
-            Arc::new(inner)
+            Ok(Arc::new(inner))
         } else {
             let id_str = inner.id().to_string();
-            let session_info_map = self.storage_db.map(make_map_stored_key(id_str.as_str()));
-            let offline_messages_list = self.storage_db.list(make_list_stored_key(id_str.as_str()));
+            let session_info_map = self.storage_db.map(make_map_stored_key(id_str.as_str()), None).await?;
+            let offline_messages_list =
+                self.storage_db.list(make_list_stored_key(id_str.as_str()), None).await?;
 
             //Only when 'clean_session' is equal to false or 'clean_start' is equal to false, the
             // session information persistence feature will be initiated.
@@ -105,32 +107,32 @@ impl SessionManager for &'static StorageSessionManager {
                     if let Some(last_id) = last_id {
                         log::debug!("Remove last offline session info from db, last_id: {:?}", last_id,);
 
-                        let map = s1.storage_db.map(make_map_stored_key(last_id.to_string()));
-                        let list = s1.storage_db.list(make_list_stored_key(last_id.to_string()));
+                        let map = s1.storage_db.map(make_map_stored_key(last_id.to_string()), None).await;
+                        let list = s1.storage_db.list(make_list_stored_key(last_id.to_string()), None).await;
 
-                        log::debug!("last session_info_map.is_empty(): {:?}", map.is_empty().await);
-                        log::debug!("last offline_messages_list.len(): {:?}", list.len().await);
+                        if let Ok(map) = map {
+                            if let Err(e) = map.clear().await {
+                                log::warn!(
+                                    "Remove last offline session info error from db, last_id: {:?}, {:?}",
+                                    last_id,
+                                    e
+                                );
+                            }
+                        }
 
-                        if let Err(e) = map.clear().await {
-                            log::warn!(
-                                "Remove last offline session info error from db, last_id: {:?}, {:?}",
-                                last_id,
-                                e
-                            );
+                        if let Ok(list) = list {
+                            if let Err(e) = list.clear().await {
+                                log::warn!(
+                                    "Remove last offline session info error from db, last_id: {:?}, {:?}",
+                                    last_id,
+                                    e
+                                );
+                            }
                         }
-                        if let Err(e) = list.clear().await {
-                            log::warn!(
-                                "Remove last offline session info error from db, last_id: {:?}, {:?}",
-                                last_id,
-                                e
-                            );
-                        }
-                        log::debug!("last session_info_map.is_empty(): {:?}", map.is_empty().await);
-                        log::debug!("last offline_messages_list.len(): {:?}", list.len().await);
                     }
                 });
             }
-            s
+            Ok(s)
         }
     }
 }

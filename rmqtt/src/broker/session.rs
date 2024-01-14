@@ -1330,7 +1330,7 @@ impl Session {
         disconnect_info: Option<DisconnectInfo>,
 
         last_id: Option<Id>,
-    ) -> Self {
+    ) -> Result<Self> {
         let max_inflight = max_inflight.get() as usize;
         let message_retry_interval = listen_cfg.message_retry_interval.as_millis() as TimestampMillis;
         let message_expiry_interval = listen_cfg.message_expiry_interval.as_millis() as TimestampMillis;
@@ -1354,23 +1354,28 @@ impl Session {
         Runtime::instance().stats.subscriptions_shared.incs(subscriptions.shared_len().await as isize);
 
         let extra_attrs = RwLock::new(ExtraAttrs::new());
-        let session_like = Runtime::instance().extends.session_mgr().await.create(
-            id.clone(),
-            listen_cfg,
-            fitter.clone(),
-            subscriptions,
-            Arc::new(deliver_queue),
-            Arc::new(RwLock::new(out_inflight)),
-            conn_info,
-            created_at,
-            connected_at,
-            session_present,
-            superuser,
-            connected,
-            disconnect_info,
-            last_id,
-        );
-        Self(Arc::new(_Session { inner: session_like, id, fitter, extra_attrs }))
+        let session_like = Runtime::instance()
+            .extends
+            .session_mgr()
+            .await
+            .create(
+                id.clone(),
+                listen_cfg,
+                fitter.clone(),
+                subscriptions,
+                Arc::new(deliver_queue),
+                Arc::new(RwLock::new(out_inflight)),
+                conn_info,
+                created_at,
+                connected_at,
+                session_present,
+                superuser,
+                connected,
+                disconnect_info,
+                last_id,
+            )
+            .await?;
+        Ok(Self(Arc::new(_Session { inner: session_like, id, fitter, extra_attrs })))
     }
 
     #[inline]
@@ -1427,9 +1432,10 @@ impl Session {
     }
 }
 
+#[async_trait]
 pub trait SessionManager: Sync + Send {
     #[allow(clippy::too_many_arguments)]
-    fn create(
+    async fn create(
         &self,
         id: Id,
         listen_cfg: Listener,
@@ -1447,7 +1453,7 @@ pub trait SessionManager: Sync + Send {
         disconnect_info: Option<DisconnectInfo>,
 
         last_id: Option<Id>,
-    ) -> Arc<dyn SessionLike>;
+    ) -> Result<Arc<dyn SessionLike>>;
 }
 
 #[async_trait]

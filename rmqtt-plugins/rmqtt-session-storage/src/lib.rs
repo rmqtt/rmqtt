@@ -24,7 +24,7 @@ use rmqtt::{
     broker::inflight::InflightMessage,
     broker::types::DisconnectInfo,
     plugin::{DynPlugin, DynPluginResult, Plugin},
-    ClientId, From, Publish, Result, Runtime, Session, SessionState, SessionSubMap, SessionSubs,
+    ClientId, From, MqttError, Publish, Result, Runtime, Session, SessionState, SessionSubMap, SessionSubs,
     TimestampMillis,
 };
 
@@ -89,6 +89,7 @@ impl StoragePlugin {
                 cfg.storage.redis.prefix =
                     cfg.storage.redis.prefix.replace("{node}", &format!("{}", runtime.node.id()));
             }
+            _ => return Err(MqttError::from("Unsupported storage type")),
         }
 
         log::info!("{} StoragePlugin cfg: {:?}", name, cfg);
@@ -452,16 +453,22 @@ impl Handler for OfflineMessageHandler {
                     p
                 );
                 let list_stored_key = make_list_stored_key(s.id.to_string());
-                let offlines_list = self.storage_db.list(list_stored_key.as_ref());
-                let res = offlines_list
-                    .push_limit::<OfflineMessageOptionType>(
-                        &Some((s.id.client_id.clone(), f.clone(), (*p).clone())),
-                        s.listen_cfg().max_mqueue_len,
-                        true,
-                    )
-                    .await;
-                if let Err(e) = res {
-                    log::warn!("{:?} save offline messages error, {:?}", s.id, e)
+                match self.storage_db.list(list_stored_key.as_ref(), None).await {
+                    Ok(offlines_list) => {
+                        let res = offlines_list
+                            .push_limit::<OfflineMessageOptionType>(
+                                &Some((s.id.client_id.clone(), f.clone(), (*p).clone())),
+                                s.listen_cfg().max_mqueue_len,
+                                true,
+                            )
+                            .await;
+                        if let Err(e) = res {
+                            log::warn!("{:?} save offline messages error, {:?}", s.id, e)
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("{:?} save offline messages error, {:?}", s.id, e)
+                    }
                 }
             }
 
@@ -473,9 +480,15 @@ impl Handler for OfflineMessageHandler {
                 );
                 let map_stored_key = make_map_stored_key(s.id.to_string());
                 log::debug!("{:?} map_stored_key: {:?}", s.id, map_stored_key);
-                let offlines_map = self.storage_db.map(map_stored_key.as_ref());
-                if let Err(e) = offlines_map.insert(INFLIGHT_MESSAGES, inflight_messages).await {
-                    log::warn!("{:?} save offline inflight messages error, {:?}", s.id, e)
+                match self.storage_db.map(map_stored_key.as_ref(), None).await {
+                    Ok(m) => {
+                        if let Err(e) = m.insert(INFLIGHT_MESSAGES, inflight_messages).await {
+                            log::warn!("{:?} save offline inflight messages error, {:?}", s.id, e)
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("{:?} save offline inflight messages error, {:?}", s.id, e)
+                    }
                 }
             }
 
@@ -567,7 +580,7 @@ impl StorageHandler {
                 let max_mqueue_len = fitter.max_mqueue_len();
                 let subs = stored.subs.take().map(SessionSubs::from).unwrap_or_else(SessionSubs::new);
 
-                let session = Session::new(
+                let session = match Session::new(
                     id.clone(),
                     max_mqueue_len,
                     listen_cfg,
@@ -583,7 +596,14 @@ impl StorageHandler {
                     stored.disconnect_info.take(),
                     None,
                 )
-                .await;
+                .await
+                {
+                    Ok(s) => s,
+                    Err(e) => {
+                        log::warn!("rebuild session offline message error, create session error, {:?}", e);
+                        continue;
+                    }
+                };
 
                 let deliver_queue = session.deliver_queue();
                 for item in stored.offline_messages.drain(..) {

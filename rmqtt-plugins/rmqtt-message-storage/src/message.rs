@@ -121,7 +121,7 @@ impl StorageMessageManager {
                 let mut merger_msgs = Vec::new();
                 while let Some(msg) = msg_rx.next().await {
                     merger_msgs.push(msg);
-                    while merger_msgs.len() < 1000 {
+                    while merger_msgs.len() < 500 {
                         match tokio::time::timeout(Duration::from_millis(0), msg_rx.next()).await {
                             Ok(Some(msg)) => {
                                 merger_msgs.push(msg);
@@ -136,14 +136,16 @@ impl StorageMessageManager {
 
                     msg_queue_count1.fetch_sub(msgs.len() as isize, Ordering::Relaxed);
                     msg_fwds_count.fetch_add(1, Ordering::SeqCst);
-                    while msg_fwds_count.load(Ordering::SeqCst) > 100 {
-                        log::info!("msg_fwds_count: {}", msg_fwds_count.load(Ordering::SeqCst));
-                        tokio::time::sleep(Duration::from_millis(1000)).await;
+                    while msg_fwds_count.load(Ordering::SeqCst) > 500 {
+                        // log::info!("msg_fwds_count: {}", msg_fwds_count.load(Ordering::SeqCst));
+                        tokio::time::sleep(Duration::from_millis(1)).await;
                     }
 
                     let msg_fwds_count1 = msg_fwds_count.clone();
                     tokio::spawn(async move {
-                        msg_mgr._batch_msg_forwardeds(msgs).await;
+                        if let Err(e) = msg_mgr._batch_msg_forwardeds(msgs).await {
+                            log::warn!("{:?}", e);
+                        }
                         msg_fwds_count1.fetch_sub(1, Ordering::SeqCst);
                     });
                 }
@@ -193,7 +195,7 @@ impl StorageMessageManager {
                     continue;
                 }
                 if removeds > 0 {
-                    log::info!(
+                    log::debug!(
                         "remove expired messages from topic tree, removeds: {:?} cost time: {:?}",
                         total_removeds,
                         now.elapsed()
@@ -325,10 +327,15 @@ impl StorageMessageManagerInner {
     }
 
     #[inline]
-    async fn _batch_msg_forwardeds(&self, msgs: Vec<Msg>) {
-        if let Err(e) = self.storage_save_msg_id().await {
+    async fn _batch_msg_forwardeds(&self, msgs: Vec<Msg>) -> Result<()> {
+        if let Err(e) = self
+            .storage_save_msg_id()
+            .timeout(futures_time::time::Duration::from_millis(5000))
+            .await
+            .map_err(|_e| MqttError::from("storage_save_msg_id timeout"))?
+        {
             log::warn!("save message id error, {:?}", e);
-            return;
+            return Ok(());
         }
 
         let mut count = 0;
@@ -348,8 +355,10 @@ impl StorageMessageManagerInner {
             let msg_key = msg_id.to_be_bytes();
             let msg_map = match self
                 .storage_db
-                .map_expire(msg_key, Some(expiry_interval.as_millis() as TimestampMillis))
+                .map(msg_key, Some(expiry_interval.as_millis() as TimestampMillis))
+                .timeout(futures_time::time::Duration::from_millis(5000))
                 .await
+                .map_err(|_e| MqttError::from("storage_db.map timeout"))?
             {
                 Ok(map) => map,
                 Err(e) => {
@@ -357,18 +366,17 @@ impl StorageMessageManagerInner {
                     continue;
                 }
             };
-            if let Err(e) = msg_map.insert(DATA, &smsg).await {
+            if let Err(e) = msg_map
+                .insert(DATA, &smsg)
+                .timeout(futures_time::time::Duration::from_millis(5000))
+                .await
+                .map_err(|_e| MqttError::from("map.insert timeout"))?
+            {
                 log::warn!("store to db error, {:?}, message: {:?}", e, smsg);
                 continue;
             }
 
-            self._forwardeds(&msg_map, forwardeds).await;
-
-            log::debug!(
-                "expiry_time: {:?} {:?}",
-                msg_map.ttl().await.map(|t| t.map(|t| Duration::from_millis(t as u64))),
-                rmqtt::broker::types::format_timestamp_millis(expiry_time_at)
-            );
+            self._forwardeds(&msg_map, forwardeds).await?;
 
             //topic
             topic.push(TopicLevel::Normal(msg_id.to_string()));
@@ -378,9 +386,16 @@ impl StorageMessageManagerInner {
             count += 1;
         }
         self.messages_received_count_add(count);
-        if let Err(e) = self.storage_messages_counter_add(count).await {
+        if let Err(e) = self
+            .storage_messages_counter_add(count)
+            .timeout(futures_time::time::Duration::from_millis(5000))
+            .await
+            .map_err(|_e| MqttError::from("storage_messages_counter_add timeout"))?
+        {
             log::warn!("messages_received_counter add error, {:?}", e);
         }
+
+        Ok(())
     }
 
     #[inline]
@@ -388,9 +403,14 @@ impl StorageMessageManagerInner {
         &self,
         msg_map: &StorageMap,
         forwardeds: Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>,
-    ) {
+    ) -> Result<()> {
         for (client_id, opts) in forwardeds {
-            if let Err(e) = msg_map.insert(Self::make_forwarded_key(&client_id), &opts).await {
+            if let Err(e) = msg_map
+                .insert(Self::make_forwarded_key(&client_id), &opts)
+                .timeout(futures_time::time::Duration::from_millis(5000))
+                .await
+                .map_err(|_e| MqttError::from("_forwardeds insert timeout"))?
+            {
                 log::warn!(
                     "_forwardeds error, client_id: {:?}, msg_map name: {:?}, error: {:?}",
                     client_id,
@@ -399,6 +419,7 @@ impl StorageMessageManagerInner {
                 );
             }
         }
+        Ok(())
     }
 
     #[inline]
@@ -420,26 +441,35 @@ impl StorageMessageManagerInner {
         log::debug!("_get matcheds msg_ids: {:?}", matcheds);
         let matcheds = futures::future::join_all(matcheds.into_iter().map(|msg_id| async move {
             let msg_key = msg_id.to_be_bytes();
-            let mut msg_map = self.storage_db.map(msg_key);
+            let msg_map = self.storage_db.map(msg_key, None).await;
+            match msg_map {
+                Ok(mut msg_map) => {
+                    let is_forwarded = self
+                        ._is_forwarded(&mut msg_map, client_id, topic_filter, group)
+                        .await
+                        .unwrap_or_default();
 
-            let is_forwarded =
-                self._is_forwarded(&mut msg_map, client_id, topic_filter, group).await.unwrap_or_default();
-
-            if is_forwarded {
-                None
-            } else if let Ok(Some(msg)) = inner._get_message(&msg_map).await {
-                log::debug!("_get msg: {:?}, msg.is_expiry(): {}", msg, msg.is_expiry());
-                if msg.is_expiry() {
-                    None
-                } else {
-                    let opts = group.map(|g| (TopicFilter::from(topic_filter), g.clone()));
-                    if let Err(e) = msg_map.insert(Self::make_forwarded_key(client_id), &opts).await {
-                        log::warn!("_get::insert error, {:?}", e);
+                    if is_forwarded {
+                        None
+                    } else if let Ok(Some(msg)) = inner._get_message(&msg_map).await {
+                        log::debug!("_get msg: {:?}, msg.is_expiry(): {}", msg, msg.is_expiry());
+                        if msg.is_expiry() {
+                            None
+                        } else {
+                            let opts = group.map(|g| (TopicFilter::from(topic_filter), g.clone()));
+                            if let Err(e) = msg_map.insert(Self::make_forwarded_key(client_id), &opts).await {
+                                log::warn!("_get::insert error, {:?}", e);
+                            }
+                            Some((msg_id, msg.from, msg.publish))
+                        }
+                    } else {
+                        None
                     }
-                    Some((msg_id, msg.from, msg.publish))
                 }
-            } else {
-                None
+                Err(e) => {
+                    log::warn!("_get new map error, {:?}", e);
+                    None
+                }
             }
         }))
         .await
@@ -517,7 +547,7 @@ impl MessageManager for &'static StorageMessageManager {
             .msg_tx
             .clone()
             .send(((from, p, expiry_interval, msg_id), sub_client_ids))
-            .timeout(futures_time::time::Duration::from_millis(5000))
+            .timeout(futures_time::time::Duration::from_millis(3500))
             .await;
 
         let res = match res {
@@ -534,7 +564,7 @@ impl MessageManager for &'static StorageMessageManager {
                 Err(MqttError::from(e.to_string()))
             }
         };
-        if now.elapsed().as_millis() > 500 {
+        if now.elapsed().as_millis() > 900 {
             log::info!(
                 "StorageMessageManager::store cost time: {:?}, msg_queue_count: {:?}",
                 now.elapsed(),
@@ -576,7 +606,7 @@ impl MessageManager for &'static StorageMessageManager {
                 vec![]
             }
         };
-        if now.elapsed().as_millis() > 500 {
+        if now.elapsed().as_millis() > 900 {
             log::info!(
                 "StorageMessageManager::get cost time: {:?}, waiting_count: {:?}",
                 now.elapsed(),

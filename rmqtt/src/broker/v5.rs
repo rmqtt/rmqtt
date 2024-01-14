@@ -181,7 +181,7 @@ pub async fn _handshake<Io: 'static>(
 
     let max_inflight = fitter.max_inflight();
     let max_mqueue_len = fitter.max_mqueue_len();
-    let session = Session::new(
+    let session = match Session::new(
         id,
         max_mqueue_len,
         listen_cfg,
@@ -197,7 +197,19 @@ pub async fn _handshake<Io: 'static>(
         None,
         offline_info.as_ref().map(|o| o.id.clone()),
     )
-    .await;
+    .await
+    {
+        Ok(s) => s,
+        Err(e) => {
+            return Ok(refused_ack(
+                handshake,
+                connect_info.as_ref(),
+                ConnectAckReasonV5::ServerUnavailable,
+                format!("{}", e),
+            )
+            .await);
+        }
+    };
 
     let keep_alive = match session.fitter.keep_alive(&mut packet.keep_alive) {
         Ok(keep_alive) => keep_alive,

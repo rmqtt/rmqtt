@@ -13,9 +13,9 @@ use std::sync::Arc;
 use rmqtt::{
     broker::hook::Register,
     plugin::{DynPlugin, DynPluginResult, Plugin},
-    Result, Runtime,
+    MqttError, Result, Runtime,
 };
-use rmqtt_storage::{init_db, StorageType};
+use rmqtt_storage::{init_db, SledStorageDB, StorageType};
 
 use config::PluginConfig;
 use message::{get_or_init, StorageMessageManager};
@@ -51,6 +51,48 @@ struct StoragePlugin {
     message_mgr: &'static StorageMessageManager,
 }
 
+fn db_cleanup(_db: &SledStorageDB) {
+    {
+        log::info!("*** db_cleanup start ...");
+        let db = _db.clone();
+        std::thread::spawn(move || {
+            let limit = 100;
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(10));
+                let mut total_cleanups = 0;
+                let now = std::time::Instant::now();
+                loop {
+                    // log::info!("cleanup start ...");
+                    let now = std::time::Instant::now();
+                    let count = db.cleanup(limit);
+                    // log::info!("cleanup end ... cost time: {:?}", now.elapsed());
+                    total_cleanups += count;
+                    if count > 0 {
+                        log::info!(
+                            "def_cleanup: {}, total cleanups: {}, active_count(): {}, cost time: {:?}",
+                            count,
+                            total_cleanups,
+                            db.active_count(),
+                            now.elapsed()
+                        );
+                    }
+                    if count < limit {
+                        break;
+                    }
+                    if db.active_count() > 50 {
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                    } else {
+                        std::thread::sleep(std::time::Duration::from_millis(0));
+                    }
+                }
+                if now.elapsed().as_secs() > 3 {
+                    log::info!("total cleanups: {}, cost time: {:?}", total_cleanups, now.elapsed());
+                }
+            }
+        });
+    }
+}
+
 impl StoragePlugin {
     #[inline]
     async fn new<S: Into<String>>(runtime: &'static Runtime, name: S, descr: S) -> Result<Self> {
@@ -60,6 +102,7 @@ impl StoragePlugin {
         let should_merge_on_get = match cfg.storage.typ {
             StorageType::Sled => {
                 cfg.storage.sled.path = cfg.storage.sled.path.replace("{node}", &format!("{}", node_id));
+                cfg.storage.sled.cleanup_f = db_cleanup;
                 true
             }
             StorageType::Redis => {
@@ -67,6 +110,7 @@ impl StoragePlugin {
                     cfg.storage.redis.prefix.replace("{node}", &format!("{}", node_id));
                 true
             }
+            _ => return Err(MqttError::from("Unsupported storage type")),
         };
         log::info!("{} StoragePlugin cfg: {:?}", name, cfg);
 
@@ -133,11 +177,11 @@ impl Plugin for StoragePlugin {
         let receiveds = self.message_mgr.topic_tree.read().await.values_size();
         let exec_active_count = self.message_mgr.exec.active_count();
         let exec_waiting_count = self.message_mgr.exec.waiting_count();
-        //let storage_info = self.message_mgr.storage_db.info().await.unwrap_or_default();
+        let storage_info = self.message_mgr.storage_db.info().await.unwrap_or_default();
         let cost_time = format!("{:?}", now.elapsed());
         json!(
             {
-                //"storage_info": storage_info,
+                "storage_info": storage_info,
                 "msg_queue_count": msg_queue_count,
                 "message": {
                     "topics_nodes": topics_nodes,
