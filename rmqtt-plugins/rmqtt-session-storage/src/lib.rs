@@ -89,7 +89,8 @@ impl StoragePlugin {
                 cfg.storage.redis.prefix =
                     cfg.storage.redis.prefix.replace("{node}", &format!("{}", runtime.node.id()));
             }
-            _ => return Err(MqttError::from("Unsupported storage type")),
+            #[allow(unreachable_patterns)]
+            _ => return Err(MqttError::from("unsupported storage type")),
         }
 
         log::info!("{} StoragePlugin cfg: {:?}", name, cfg);
@@ -392,7 +393,7 @@ impl Plugin for StoragePlugin {
                     }
                 }
             }
-            log::info!("map_iter cost time: {:?}", now.elapsed());
+            log::debug!("map_iter cost time: {:?}", now.elapsed());
         }
 
         let mut list_count = 0;
@@ -411,7 +412,7 @@ impl Plugin for StoragePlugin {
                     }
                 }
             }
-            log::info!("list_iter cost time: {:?}", now.elapsed());
+            log::debug!("list_iter cost time: {:?}", now.elapsed());
         }
         let map_count =
             if map_count >= max_limit { format!("{}+", map_count) } else { format!("{}", map_count) };
@@ -425,8 +426,6 @@ impl Plugin for StoragePlugin {
             "offline_messages_count": list_count,
             "storage_info": storage_info
         })
-
-        // json!({})
     }
 }
 

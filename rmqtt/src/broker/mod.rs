@@ -309,7 +309,7 @@ pub trait MessageManager: Sync + Send {
         _from: From,
         _p: Publish,
         _expiry_interval: Duration,
-        _sub_client_ids: Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>,
+        _sub_client_ids: Option<Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>>,
     ) -> Result<()> {
         Ok(())
     }

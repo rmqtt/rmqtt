@@ -13,15 +13,19 @@ use std::sync::Arc;
 use rmqtt::{
     broker::hook::Register,
     plugin::{DynPlugin, DynPluginResult, Plugin},
-    MqttError, Result, Runtime,
+    Result, Runtime,
 };
-use rmqtt_storage::{init_db, SledStorageDB, StorageType};
+use rmqtt_storage::init_db;
 
+use config::Config;
 use config::PluginConfig;
-use message::{get_or_init, StorageMessageManager};
+use ram::RamMessageManager;
+use rmqtt::broker::MessageManager;
+use storage::StorageMessageManager;
 
 mod config;
-mod message;
+mod ram;
+mod storage;
 
 #[inline]
 pub async fn register(
@@ -48,49 +52,7 @@ struct StoragePlugin {
     descr: String,
     cfg: Arc<PluginConfig>,
     register: Box<dyn Register>,
-    message_mgr: &'static StorageMessageManager,
-}
-
-fn db_cleanup(_db: &SledStorageDB) {
-    {
-        log::info!("*** db_cleanup start ...");
-        let db = _db.clone();
-        std::thread::spawn(move || {
-            let limit = 100;
-            loop {
-                std::thread::sleep(std::time::Duration::from_secs(10));
-                let mut total_cleanups = 0;
-                let now = std::time::Instant::now();
-                loop {
-                    // log::info!("cleanup start ...");
-                    let now = std::time::Instant::now();
-                    let count = db.cleanup(limit);
-                    // log::info!("cleanup end ... cost time: {:?}", now.elapsed());
-                    total_cleanups += count;
-                    if count > 0 {
-                        log::info!(
-                            "def_cleanup: {}, total cleanups: {}, active_count(): {}, cost time: {:?}",
-                            count,
-                            total_cleanups,
-                            db.active_count(),
-                            now.elapsed()
-                        );
-                    }
-                    if count < limit {
-                        break;
-                    }
-                    if db.active_count() > 50 {
-                        std::thread::sleep(std::time::Duration::from_millis(500));
-                    } else {
-                        std::thread::sleep(std::time::Duration::from_millis(0));
-                    }
-                }
-                if now.elapsed().as_secs() > 3 {
-                    log::info!("total cleanups: {}, cost time: {:?}", total_cleanups, now.elapsed());
-                }
-            }
-        });
-    }
+    message_mgr: MessageMgr,
 }
 
 impl StoragePlugin {
@@ -99,28 +61,23 @@ impl StoragePlugin {
         let name = name.into();
         let node_id = runtime.node.id();
         let mut cfg = runtime.settings.plugins.load_config_default::<PluginConfig>(&name)?;
-        let should_merge_on_get = match cfg.storage.typ {
-            StorageType::Sled => {
-                cfg.storage.sled.path = cfg.storage.sled.path.replace("{node}", &format!("{}", node_id));
-                cfg.storage.sled.cleanup_f = db_cleanup;
-                true
+
+        let (message_mgr, cfg) = match &mut cfg.storage {
+            Config::Ram(ram_cfg) => {
+                let message_mgr = ram::get_or_init(ram_cfg.clone(), cfg.cleanup_count).await?;
+                (MessageMgr::Ram(message_mgr), Arc::new(cfg))
             }
-            StorageType::Redis => {
-                cfg.storage.redis.prefix =
-                    cfg.storage.redis.prefix.replace("{node}", &format!("{}", node_id));
-                true
-            }
-            _ => return Err(MqttError::from("Unsupported storage type")),
+            Config::Storage(s_cfg) => {
+                s_cfg.redis.prefix = s_cfg.redis.prefix.replace("{node}", &format!("{}", node_id));
+                let storage_db = init_db(s_cfg).await?;
+                let cfg = Arc::new(cfg);
+                let message_mgr =
+                    storage::get_or_init(node_id, cfg.clone(), storage_db.clone(), true).await?;
+                (MessageMgr::Storage(message_mgr), cfg)
+            } // _ => return Err(MqttError::from(format!("unsupported storage type({:?})", cfg.storage.typ()))),
         };
         log::info!("{} StoragePlugin cfg: {:?}", name, cfg);
-
-        let storage_db = init_db(&cfg.storage).await?;
-
         let register = runtime.extends.hook_mgr().await.register();
-
-        let cfg = Arc::new(cfg);
-        let message_mgr = get_or_init(node_id, cfg.clone(), storage_db.clone(), should_merge_on_get).await?;
-
         Ok(Self { runtime, name, descr: descr.into(), cfg, register, message_mgr })
     }
 }
@@ -147,8 +104,11 @@ impl Plugin for StoragePlugin {
     #[inline]
     async fn start(&mut self) -> Result<()> {
         log::info!("{} start", self.name);
-        *self.runtime.extends.message_mgr_mut().await = Box::new(self.message_mgr);
-
+        let mgr: Box<dyn MessageManager> = match self.message_mgr {
+            MessageMgr::Storage(mgr) => Box::new(mgr),
+            MessageMgr::Ram(mgr) => Box::new(mgr),
+        };
+        *self.runtime.extends.message_mgr_mut().await = mgr;
         self.register.start().await;
         Ok(())
     }
@@ -171,26 +131,73 @@ impl Plugin for StoragePlugin {
 
     #[inline]
     async fn attrs(&self) -> serde_json::Value {
-        let now = std::time::Instant::now();
-        let msg_queue_count = self.message_mgr.msg_queue_count.load(Ordering::Relaxed);
-        let topics_nodes = self.message_mgr.topic_tree.read().await.nodes_size();
-        let receiveds = self.message_mgr.topic_tree.read().await.values_size();
-        let exec_active_count = self.message_mgr.exec.active_count();
-        let exec_waiting_count = self.message_mgr.exec.waiting_count();
-        let storage_info = self.message_mgr.storage_db.info().await.unwrap_or_default();
-        let cost_time = format!("{:?}", now.elapsed());
-        json!(
-            {
-                "storage_info": storage_info,
-                "msg_queue_count": msg_queue_count,
-                "message": {
-                    "topics_nodes": topics_nodes,
-                    "receiveds": receiveds,
-                    "cost_time":cost_time,
-                },
-                "exec_active_count": exec_active_count,
-                "exec_waiting_count": exec_waiting_count,
+        self.message_mgr.info().await
+    }
+}
+
+enum MessageMgr {
+    Ram(&'static RamMessageManager),
+    Storage(&'static StorageMessageManager),
+}
+
+impl MessageMgr {
+    async fn restore_topic_tree(&self) -> Result<()> {
+        match self {
+            MessageMgr::Storage(mgr) => {
+                mgr.restore_topic_tree().await?;
             }
-        )
+            MessageMgr::Ram(_) => {}
+        }
+        Ok(())
+    }
+
+    async fn info(&self) -> serde_json::Value {
+        match self {
+            MessageMgr::Ram(mgr) => {
+                let msg_max = mgr.max().await;
+                let msg_count = mgr.count().await;
+                let topic_nodes = mgr.topic_tree.read().await.nodes_size();
+                let topic_values = mgr.topic_tree.read().await.values_size();
+                let forwardeds = mgr.forwardeds.len();
+                let expiries = mgr.expiries.read().await.len();
+                let exec_active_count = mgr.exec.active_count();
+                let exec_waiting_count = mgr.exec.waiting_count();
+
+                json!({
+                    "storage_engine": "Ram",
+                    "message": {
+                        "topic_nodes": topic_nodes,
+                        "topic_values": topic_values,
+                        "receiveds": msg_count,
+                        "msg_max":msg_max,
+                        "forwardeds": forwardeds,
+                        "expiries:": expiries,
+                    },
+                    "exec_active_count": exec_active_count,
+                    "exec_waiting_count": exec_waiting_count,
+                })
+            }
+            MessageMgr::Storage(mgr) => {
+                let now = std::time::Instant::now();
+                let msg_queue_count = mgr.msg_queue_count.load(Ordering::Relaxed);
+                let topic_nodes = mgr.topic_tree.read().await.nodes_size();
+                let receiveds = mgr.topic_tree.read().await.values_size();
+                let exec_active_count = mgr.exec.active_count();
+                let exec_waiting_count = mgr.exec.waiting_count();
+                let storage_info = mgr.storage_db.info().await.unwrap_or_default();
+                let cost_time = format!("{:?}", now.elapsed());
+                json!({
+                    "storage_info": storage_info,
+                    "msg_queue_count": msg_queue_count,
+                    "message": {
+                        "topic_nodes": topic_nodes,
+                        "receiveds": receiveds,
+                        "cost_time":cost_time,
+                    },
+                    "exec_active_count": exec_active_count,
+                    "exec_waiting_count": exec_waiting_count
+                })
+            }
+        }
     }
 }

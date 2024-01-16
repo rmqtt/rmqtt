@@ -1078,28 +1078,17 @@ impl SessionState {
                 None
             };
 
-        match Runtime::instance().extends.shared().await.forwards(from.clone(), publish).await {
+        let sub_cids = match Runtime::instance().extends.shared().await.forwards(from.clone(), publish).await
+        {
             Ok(None) => {
                 //hook, message_nonsubscribed
                 Runtime::instance().extends.hook_mgr().await.message_nonsubscribed(from).await;
+                None
             }
-            Ok(Some(sub_cids)) => {
-                if let Some((msg_id, from, p, expiry_interval)) = stored_msg {
-                    //Store messages before they expire
-                    if let Err(e) = Runtime::instance()
-                        .extends
-                        .message_mgr()
-                        .await
-                        .store(msg_id, from, p, expiry_interval, sub_cids)
-                        .await
-                    {
-                        log::warn!("Failed to storage messages, {:?}", e);
-                    }
-                }
-            }
+            Ok(Some(sub_cids)) => Some(sub_cids),
             Err(errs) => {
                 for (to, from, p, reason) in errs {
-                    //Message dropped
+                    //hook, Message dropped
                     Runtime::instance()
                         .extends
                         .hook_mgr()
@@ -1107,8 +1096,23 @@ impl SessionState {
                         .message_dropped(Some(to), from, p, reason)
                         .await;
                 }
+                None
+            }
+        };
+
+        if let Some((msg_id, from, p, expiry_interval)) = stored_msg {
+            //Store messages before they expire
+            if let Err(e) = Runtime::instance()
+                .extends
+                .message_mgr()
+                .await
+                .store(msg_id, from, p, expiry_interval, sub_cids)
+                .await
+            {
+                log::warn!("Failed to storage messages, {:?}", e);
             }
         }
+
         Ok(())
     }
 

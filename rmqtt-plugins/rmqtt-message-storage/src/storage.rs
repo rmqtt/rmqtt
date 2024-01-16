@@ -41,7 +41,7 @@ type TopicListType = Arc<RwLock<BTreeSet<(TimestampMillis, Topic)>>>;
 const DATA: &[u8] = b"data";
 const FORWARDED_PREFIX: &[u8] = b"fwd_";
 
-type Msg = ((From, Publish, Duration, MsgID), Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>);
+type Msg = ((From, Publish, Duration, MsgID), Option<Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>>);
 
 static INSTANCE: OnceCell<StorageMessageManager> = OnceCell::new();
 
@@ -376,7 +376,9 @@ impl StorageMessageManagerInner {
                 continue;
             }
 
-            self._forwardeds(&msg_map, forwardeds).await?;
+            if let Some(forwardeds) = forwardeds {
+                self._forwardeds(&msg_map, forwardeds).await?;
+            }
 
             //topic
             topic.push(TopicLevel::Normal(msg_id.to_string()));
@@ -535,21 +537,15 @@ impl MessageManager for &'static StorageMessageManager {
         from: From,
         p: Publish,
         expiry_interval: Duration,
-        sub_client_ids: Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>,
+        sub_client_ids: Option<Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>>,
     ) -> Result<()> {
-        log::debug!(
-            "StorageMessageManager forwardeds msg_id: {}, expiry_interval: {:?}",
-            msg_id,
-            expiry_interval
-        );
-        let now = std::time::Instant::now();
         let res = self
             .msg_tx
             .clone()
             .send(((from, p, expiry_interval, msg_id), sub_client_ids))
             .timeout(futures_time::time::Duration::from_millis(3500))
-            .await;
-
+            .await
+            .map_err(|e| anyhow!(e));
         let res = match res {
             Ok(Ok(())) => {
                 self.msg_queue_count.fetch_add(1, Ordering::Relaxed);
@@ -564,13 +560,6 @@ impl MessageManager for &'static StorageMessageManager {
                 Err(MqttError::from(e.to_string()))
             }
         };
-        if now.elapsed().as_millis() > 900 {
-            log::info!(
-                "StorageMessageManager::store cost time: {:?}, msg_queue_count: {:?}",
-                now.elapsed(),
-                self.msg_queue_count.load(Ordering::Relaxed)
-            );
-        }
         res
     }
 
