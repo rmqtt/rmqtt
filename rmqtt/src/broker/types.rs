@@ -3,6 +3,7 @@ use std::convert::From as _f;
 use std::fmt;
 use std::fmt::Display;
 use std::hash::Hash;
+use std::mem::{size_of, size_of_val};
 use std::net::SocketAddr;
 use std::num::{NonZeroU16, NonZeroU32};
 use std::ops::Deref;
@@ -17,6 +18,7 @@ use tokio::sync::{oneshot, RwLock};
 use base64::{engine::general_purpose, Engine as _};
 use bitflags::{self, *};
 use bytestring::ByteString;
+use get_size::GetSize;
 use itertools::Itertools;
 
 use ntex::util::Bytes;
@@ -1367,7 +1369,7 @@ impl Publish {
     }
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[derive(GetSize, Debug, Clone, Copy, Deserialize, Serialize)]
 pub enum FromType {
     Custom,
     Admin,
@@ -1388,7 +1390,7 @@ impl std::fmt::Display for FromType {
     }
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(GetSize, Clone, Deserialize, Serialize)]
 pub struct From {
     typ: FromType,
     pub id: Id,
@@ -1460,6 +1462,12 @@ pub type To = Id;
 
 #[derive(Clone)]
 pub struct Id(Arc<_Id>);
+
+impl get_size::GetSize for Id {
+    fn get_heap_size(&self) -> usize {
+        self.0.get_heap_size()
+    }
+}
 
 impl Id {
     #[inline]
@@ -1620,14 +1628,42 @@ impl<'de> Deserialize<'de> for Id {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, GetSize, Deserialize, Serialize)]
 pub struct _Id {
     pub node_id: NodeId,
+    #[get_size(size_fn = get_option_addr_size_helper)]
     pub local_addr: Option<SocketAddr>,
+    #[get_size(size_fn = get_option_addr_size_helper)]
     pub remote_addr: Option<SocketAddr>,
+    #[get_size(size_fn = get_bytestring_size_helper)]
     pub client_id: ClientId,
+    #[get_size(size_fn = get_option_bytestring_size_helper)]
     pub username: Option<UserName>,
     pub create_time: TimestampMillis,
+}
+
+fn get_bytestring_size_helper(s: &ByteString) -> usize {
+    s.len()
+}
+
+fn get_option_bytestring_size_helper(s: &Option<ByteString>) -> usize {
+    if let Some(s) = s {
+        s.len()
+    } else {
+        0
+    }
+}
+
+fn get_option_addr_size_helper(s: &Option<SocketAddr>) -> usize {
+    let len = if let Some(s) = s {
+        match s {
+            SocketAddr::V4(s) => size_of_val(s),
+            SocketAddr::V6(s) => size_of_val(s),
+        }
+    } else {
+        0
+    };
+    len
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -1639,12 +1675,36 @@ pub struct Retain {
 
 pub type MsgID = usize;
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, GetSize)]
 pub struct StoredMessage {
     pub msg_id: MsgID,
     pub from: From,
+    #[get_size(size_fn = get_publish_size_helper)]
     pub publish: Publish,
     pub expiry_time_at: TimestampMillis,
+}
+
+fn get_bytes_size_helper(s: &Bytes) -> usize {
+    s.len()
+}
+
+fn get_properties_size_helper(s: &PublishProperties) -> usize {
+    s.content_type.as_ref().map(|ct| ct.len()).unwrap_or_default()
+        + s.correlation_data.as_ref().map(|cd| cd.len()).unwrap_or_default()
+        + s.user_properties.len() * size_of::<UserProperty>()
+        + s.response_topic.as_ref().map(|rt| rt.len()).unwrap_or_default()
+        + s.subscription_ids.as_ref().map(|si| si.len() * size_of::<NonZeroU32>()).unwrap_or_default()
+}
+
+fn get_publish_size_helper(p: &Publish) -> usize {
+    p.create_time.get_heap_size()
+        + p.packet_id.get_heap_size()
+        + p.dup.get_heap_size()
+        + get_bytes_size_helper(&p.payload)
+        + p.retain.get_heap_size()
+        + get_bytestring_size_helper(&p.topic)
+        + size_of_val(&p.qos)
+        + get_properties_size_helper(&p.properties)
 }
 
 impl StoredMessage {

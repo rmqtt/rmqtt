@@ -19,6 +19,7 @@ pub use chrono;
 pub use crossbeam;
 pub use dashmap;
 pub use futures;
+pub use get_size;
 pub use itertools;
 pub use log;
 pub use ntex;

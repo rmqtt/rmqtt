@@ -137,7 +137,6 @@ impl StorageMessageManager {
                     msg_queue_count1.fetch_sub(msgs.len() as isize, Ordering::Relaxed);
                     msg_fwds_count.fetch_add(1, Ordering::SeqCst);
                     while msg_fwds_count.load(Ordering::SeqCst) > 500 {
-                        // log::info!("msg_fwds_count: {}", msg_fwds_count.load(Ordering::SeqCst));
                         tokio::time::sleep(Duration::from_millis(1)).await;
                     }
 

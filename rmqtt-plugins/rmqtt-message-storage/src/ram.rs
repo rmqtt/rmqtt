@@ -4,7 +4,7 @@ use std::convert::From as _f;
 use std::iter::Iterator;
 use std::ops::Deref;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicIsize, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -16,13 +16,14 @@ use tokio::sync::RwLock;
 use tokio::time::sleep;
 
 use rmqtt::{
-    anyhow::anyhow, async_trait, log, ntex_mqtt, once_cell, rust_box, scc, timestamp_millis, tokio, Publish,
+    anyhow::anyhow, async_trait, get_size::GetSize, log, ntex_mqtt, once_cell, rust_box, scc,
+    timestamp_millis, tokio,
 };
 
 use crate::config::RamConfig;
 use rmqtt::{
-    broker::retain::RetainTree, broker::topic::Topic, broker::MessageManager, ClientId, From, MsgID, Result,
-    SharedGroup, StoredMessage, TimestampMillis, TopicFilter,
+    broker::retain::RetainTree, broker::topic::Topic, broker::MessageManager, ClientId, From, MsgID, Publish,
+    Result, SharedGroup, StoredMessage, TimestampMillis, TopicFilter,
 };
 
 static INSTANCE: OnceCell<RamMessageManager> = OnceCell::new();
@@ -112,9 +113,25 @@ pub struct RamMessageManagerInner {
     pub(crate) forwardeds: scc::HashMap<MsgID, BTreeMap<ClientId, Option<(TopicFilter, SharedGroup)>>>,
     pub(crate) expiries: RwLock<BinaryHeap<(Reverse<TimestampMillis>, MsgID)>>,
     pub(crate) id_gen: AtomicUsize,
+    messages_bytes_size: AtomicIsize,
 }
 
 impl RamMessageManager {
+    #[inline]
+    fn messages_bytes_size_add(&self, n: isize) {
+        self.messages_bytes_size.fetch_add(n, Ordering::SeqCst);
+    }
+
+    #[inline]
+    fn messages_bytes_size_sub(&self, n: isize) {
+        self.messages_bytes_size.fetch_sub(n, Ordering::SeqCst);
+    }
+
+    #[inline]
+    fn messages_bytes_size_get(&self, n: isize) {
+        self.messages_bytes_size.load(Ordering::SeqCst);
+    }
+
     #[inline]
     async fn remove_expired_messages(&self, max_limit: usize) -> Result<usize> {
         let now = timestamp_millis();
@@ -197,6 +214,8 @@ impl RamMessageManager {
         let expiry_time_at = timestamp_millis() + expiry_interval.as_millis() as i64;
         let inner = &self.inner;
         let msg = StoredMessage { msg_id, from, publish, expiry_time_at };
+        let msg_len = msg.get_heap_size();
+        log::info!("msg_len: {}", msg_len);
         topic.push(TopicLevel::Normal(msg_id.to_string()));
         inner.messages.insert_async(msg_id, msg).await.map_err(|_| anyhow!("messages insert error"))?;
         inner.topic_tree.write().await.insert(&topic, msg_id);

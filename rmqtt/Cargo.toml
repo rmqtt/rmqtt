@@ -59,7 +59,7 @@ url = { version = "2.4", default-features = false }
 systemstat = "0.2"
 itertools = "0.12"
 reqwest = { version = "0.11", default-features = false, features = ["rustls-tls", "json"] }
-rust-box = { version = "0.10", features = ["task-exec-queue", "task-exec-queue-rate", "std-ext", "dequemap", "stream-ext-leaky-bucket"] }
+rust-box = { version = "0.11", features = ["task-exec-queue", "task-exec-queue-rate", "std-ext", "dequemap", "stream-ext-leaky-bucket"] }
 structopt = "0.3"
 tokio-tungstenite = "0.20"
 pin-project-lite = "0.2.13"
@@ -67,8 +67,9 @@ tokio-cron-scheduler = "0.9.4"
 bitflags = "2.4"
 leaky-bucket = "1.0"
 scc = "2.0"
+get_size = { package = "get-size", version = "0.1", features = ["derive"] }
 
 [build-dependencies]
 tonic-build = "0.9"
-toml = "0.7"
+toml = "0.8"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
