@@ -8,6 +8,7 @@ storage.type = "ram"
 #ram
 storage.ram.cache_capacity = "3G"
 storage.ram.cache_max_count = 1_000_000
+storage.ram.encode = true
 
 #redis
 storage.redis.url = "redis://127.0.0.1:6379/"

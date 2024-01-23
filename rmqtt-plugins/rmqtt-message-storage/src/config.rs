@@ -66,11 +66,17 @@ impl Default for Config {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RamConfig {
     pub cache_capacity: Bytesize,
+    pub cache_max_count: usize,
+    pub encode: bool,
 }
 
 impl Default for RamConfig {
     #[inline]
     fn default() -> Self {
-        RamConfig { cache_capacity: Bytesize::from(1024 * 1024 * 1024) }
+        RamConfig {
+            cache_capacity: Bytesize::from(1024 * 1024 * 1024 * 2),
+            cache_max_count: usize::MAX,
+            encode: false,
+        }
     }
 }
