@@ -1,8 +1,10 @@
+use anyhow::anyhow;
 use std::any::Any;
 use std::convert::From as _f;
 use std::fmt;
 use std::fmt::Display;
 use std::hash::Hash;
+use std::iter::Iterator;
 use std::mem::{size_of, size_of_val};
 use std::net::SocketAddr;
 use std::num::{NonZeroU16, NonZeroU32};
@@ -42,6 +44,7 @@ pub use ntex_mqtt::v5::{
     codec::UnsubscribeAck as UnsubscribeAckV5, codec::UserProperties, codec::UserProperty,
     HandshakeAck as HandshakeAckV5, MqttSink as MqttSinkV5,
 };
+use ntex_mqtt::TopicLevel;
 
 use crate::broker::fitter::Fitter;
 use crate::broker::inflight::Inflight;
@@ -1697,11 +1700,11 @@ fn get_properties_size_helper(s: &PublishProperties) -> usize {
 }
 
 fn get_publish_size_helper(p: &Publish) -> usize {
-    p.create_time.get_heap_size()
-        + p.packet_id.get_heap_size()
-        + p.dup.get_heap_size()
+    // p.create_time.get_heap_size()
+    p.packet_id.get_heap_size()
+        // + p.dup.get_heap_size()
         + get_bytes_size_helper(&p.payload)
-        + p.retain.get_heap_size()
+        // + p.retain.get_heap_size()
         + get_bytestring_size_helper(&p.topic)
         + size_of_val(&p.qos)
         + get_properties_size_helper(&p.properties)
@@ -1711,6 +1714,16 @@ impl StoredMessage {
     #[inline]
     pub fn is_expiry(&self) -> bool {
         self.expiry_time_at < timestamp_millis()
+    }
+
+    #[inline]
+    pub fn encode(&self) -> Result<Vec<u8>> {
+        Ok(bincode::serialize(&self).map_err(|e| anyhow!(e))?)
+    }
+
+    #[inline]
+    pub fn decode(data: &[u8]) -> Result<Self> {
+        Ok(bincode::deserialize(data).map_err(|e| anyhow!(e))?)
     }
 }
 
@@ -2391,6 +2404,21 @@ impl DisconnectInfo {
     pub fn is_disconnected(&self) -> bool {
         self.disconnected_at != 0
     }
+}
+
+#[inline]
+pub fn topic_size(topic: &Topic) -> usize {
+    topic
+        .iter()
+        .map(|l| {
+            let data_len = match l {
+                TopicLevel::Normal(s) => s.len(),
+                TopicLevel::Metadata(s) => s.len(),
+                _ => 0,
+            };
+            size_of::<TopicLevel>() + data_len
+        })
+        .sum::<usize>()
 }
 
 #[inline]
