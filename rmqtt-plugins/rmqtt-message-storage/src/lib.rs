@@ -162,7 +162,7 @@ impl MessageMgr {
                 let expiries = mgr.expiries.read().await.len();
                 let exec_active_count = mgr.exec.active_count();
                 let exec_waiting_count = mgr.exec.waiting_count();
-
+                let messages_bytes_size = mgr.messages_bytes_size_get();
                 json!({
                     "storage_engine": "Ram",
                     "message": {
@@ -171,7 +171,8 @@ impl MessageMgr {
                         "receiveds": msg_count,
                         "msg_max":msg_max,
                         "forwardeds": forwardeds,
-                        "expiries:": expiries,
+                        "expiries": expiries,
+                        "bytes_size": messages_bytes_size,
                     },
                     "exec_active_count": exec_active_count,
                     "exec_waiting_count": exec_waiting_count,
