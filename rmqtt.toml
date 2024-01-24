@@ -74,11 +74,11 @@ plugins.default_startups = [
     #"rmqtt-auth-http",
     #"rmqtt-cluster-broadcast",
     #"rmqtt-cluster-raft",
-    #"rmqtt-http-api",
     #"rmqtt-sys-topic",
-    "rmqtt-message-storage",
-    "rmqtt-session-storage",
+    #"rmqtt-message-storage",
+    #"rmqtt-session-storage",
     "rmqtt-web-hook",
+    "rmqtt-http-api"
 ]
 
 
@@ -184,7 +184,7 @@ listener.tcp.internal.shared_subscription = true
 listener.tcp.internal.max_topic_aliases = 0
 
 ##--------------------------------------------------------------------
-## MQTT/TLS - External TLS Listener for MQTT Protocol
+## MQTT/TLS - External TLS Listener for MQTT Protocol, (TLSv1.2)
 listener.tls.external.addr = "0.0.0.0:8883"
 #listener.tls.external.cross_certificate = true
 #listener.tls.external.cert = "./rmqtt-bin/rmqtt.fullchain.pem"
@@ -197,7 +197,7 @@ listener.tls.external.key = "./rmqtt-bin/rmqtt.key"
 listener.ws.external.addr = "0.0.0.0:8080"
 
 ##--------------------------------------------------------------------
-## MQTT/TLS-WebSocket - External TLS-WebSocket Listener for MQTT Protocol
+## MQTT/TLS-WebSocket - External TLS-WebSocket Listener for MQTT Protocol, (TLSv1.2)
 listener.wss.external.addr = "0.0.0.0:8443"
 #listener.wss.external.cross_certificate = true
 #listener.wss.external.cert = "./rmqtt-bin/rmqtt.fullchain.pem"
