@@ -2,6 +2,7 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap};
 use std::convert::From as _f;
 use std::iter::Iterator;
+use std::mem::size_of;
 use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicIsize, AtomicUsize, Ordering};
@@ -17,10 +18,11 @@ use tokio::time::sleep;
 
 use rmqtt::{
     anyhow::anyhow, async_trait, get_size::GetSize, log, ntex_mqtt, once_cell, rust_box, scc,
-    timestamp_millis, tokio,
+    timestamp_millis, tokio, topic_size,
 };
 
 use crate::config::RamConfig;
+use rmqtt::settings::Bytesize;
 use rmqtt::{
     broker::retain::RetainTree, broker::topic::Topic, broker::MessageManager, ClientId, From, MsgID, Publish,
     Result, SharedGroup, StoredMessage, TimestampMillis, TopicFilter,
@@ -42,6 +44,21 @@ pub(crate) async fn get_or_init(cfg: RamConfig, cleanup_count: usize) -> Result<
     }
 }
 
+enum MessageEntry<'h> {
+    StoredMessage(StoredMessage),
+    OccupiedEntry(scc::hash_map::OccupiedEntry<'h, MsgID, (StoredMessage, usize)>),
+}
+
+impl<'h> MessageEntry<'h> {
+    #[inline]
+    pub fn get(&self) -> &StoredMessage {
+        match self {
+            MessageEntry::StoredMessage(msg) => msg,
+            MessageEntry::OccupiedEntry(msg) => &msg.get().0,
+        }
+    }
+}
+
 pub struct RamMessageManager {
     inner: Arc<RamMessageManagerInner>,
     pub(crate) exec: TaskExecQueue,
@@ -50,11 +67,11 @@ pub struct RamMessageManager {
 impl RamMessageManager {
     #[inline]
     async fn new(cfg: RamConfig, cleanup_count: usize) -> Result<RamMessageManager> {
-        let exec = Self::serve(cfg, cleanup_count)?;
-        Ok(Self { inner: Arc::new(RamMessageManagerInner::default()), exec })
+        let exec = Self::serve(cfg.clone(), cleanup_count)?;
+        Ok(Self { inner: Arc::new(RamMessageManagerInner { cfg, ..Default::default() }), exec })
     }
 
-    fn serve(cfg: RamConfig, max_limit: usize) -> Result<TaskExecQueue> {
+    fn serve(_cfg: RamConfig, max_limit: usize) -> Result<TaskExecQueue> {
         let (exec, task_runner) = Builder::default().workers(1000).queue_max(300_000).build();
 
         tokio::spawn(async move {
@@ -63,6 +80,7 @@ impl RamMessageManager {
 
         tokio::spawn(async move {
             sleep(Duration::from_secs(30)).await;
+            let mut total_removeds = 0;
             loop {
                 let now = std::time::Instant::now();
                 let removeds = if let Some(msg_mgr) = INSTANCE.get() {
@@ -82,17 +100,19 @@ impl RamMessageManager {
                 } else {
                     0
                 };
+                total_removeds += removeds;
                 if removeds >= max_limit {
                     continue;
                 }
-                if removeds > 0 {
-                    log::info!(
-                        "remove_expired_messages, removeds: {} cost time: {:?}",
-                        removeds,
+                if total_removeds > 0 {
+                    log::debug!(
+                        "remove_expired_messages, total removeds: {} cost time: {:?}",
+                        total_removeds,
                         now.elapsed()
                     );
                 }
-                sleep(Duration::from_secs(30)).await; //@TODO config enable
+                total_removeds = 0;
+                sleep(Duration::from_secs(3)).await; //@TODO config enable
             }
         });
         Ok(exec)
@@ -108,7 +128,9 @@ impl Deref for RamMessageManager {
 
 #[derive(Default)]
 pub struct RamMessageManagerInner {
-    pub(crate) messages: scc::HashMap<MsgID, StoredMessage>,
+    cfg: RamConfig,
+    pub(crate) messages: scc::HashMap<MsgID, (StoredMessage, usize)>,
+    pub(crate) messages_encode: scc::HashMap<MsgID, (Vec<u8>, usize)>,
     pub(crate) topic_tree: RwLock<RetainTree<MsgID>>,
     pub(crate) forwardeds: scc::HashMap<MsgID, BTreeMap<ClientId, Option<(TopicFilter, SharedGroup)>>>,
     pub(crate) expiries: RwLock<BinaryHeap<(Reverse<TimestampMillis>, MsgID)>>,
@@ -128,8 +150,8 @@ impl RamMessageManager {
     }
 
     #[inline]
-    fn messages_bytes_size_get(&self, n: isize) {
-        self.messages_bytes_size.load(Ordering::SeqCst);
+    pub(crate) fn messages_bytes_size_get(&self) -> usize {
+        self.messages_bytes_size.load(Ordering::SeqCst) as usize
     }
 
     #[inline]
@@ -141,9 +163,28 @@ impl RamMessageManager {
             let mut expiries = inner.expiries.write().await;
             let mut removeds = Vec::new();
             while let Some((expiry_time_at, _)) = expiries.peek() {
-                if expiry_time_at.0 > now || removeds.len() > max_limit {
+                if removeds.len() > max_limit {
                     break;
                 }
+
+                if expiry_time_at.0 > now {
+                    let messages_count = self.messages_count();
+                    let messages_bytes = self.messages_bytes_size_get();
+                    if messages_count > self.cfg.cache_max_count {
+                        log::warn!(
+                            "The number of messages exceeds the maximum limit, the number of messages is: {}, the limit is: {}",
+                            messages_count, self.cfg.cache_max_count
+                        );
+                    } else if messages_bytes > self.cfg.cache_capacity.as_usize() {
+                        log::warn!(
+                            "The total number of bytes in the message exceeds the limit, total message bytes are: {:?}, the limit is: {:?}",
+                            Bytesize::from(messages_bytes), self.cfg.cache_capacity
+                        );
+                    } else {
+                        break;
+                    }
+                }
+
                 if let Some((_, msg_id)) = expiries.pop() {
                     removeds.push(msg_id);
                 }
@@ -152,7 +193,7 @@ impl RamMessageManager {
         };
 
         for msg_id in removed_msg_ids.iter() {
-            if let Some((_, msg)) = inner.messages.remove_async(&msg_id).await {
+            if let Ok(Some(msg)) = self.messages_remove(&msg_id).await {
                 let mut topic =
                     Topic::from_str(&msg.publish.topic).map_err(|e| anyhow!(format!("{:?}", e)))?;
                 topic.push(TopicLevel::Normal(msg_id.to_string()));
@@ -164,29 +205,50 @@ impl RamMessageManager {
     }
 
     #[inline]
-    async fn remove_expired_messages_old(&self, max_limit: usize) -> Result<usize> {
-        let now = timestamp_millis();
-        let inner = self.inner.as_ref();
-        let mut expiries = inner.expiries.write().await;
-        let mut topic_tree = inner.topic_tree.write().await;
-        let mut expired_count = 0;
-        while let Some((expiry_time, _)) = expiries.peek() {
-            let expiry_time = expiry_time.0;
-            if expiry_time > now || expired_count > max_limit {
-                break;
+    fn messages_count(&self) -> usize {
+        if self.cfg.encode {
+            self.messages_encode.len()
+        } else {
+            self.messages.len()
+        }
+    }
+
+    #[inline]
+    async fn messages_remove(&self, msg_id: &MsgID) -> Result<Option<StoredMessage>> {
+        if self.cfg.encode {
+            if let Some((_, (msg, msg_size))) = self.messages_encode.remove_async(msg_id).await {
+                self.messages_bytes_size_sub(msg_size as isize);
+                Ok(Some(StoredMessage::decode(&msg).map_err(|e| anyhow!(e))?))
+            } else {
+                Ok(None)
             }
-            expired_count += 1;
-            if let Some((_, msg_id)) = expiries.pop() {
-                if let Some((_, msg)) = inner.messages.remove_async(&msg_id).await {
-                    let mut topic =
-                        Topic::from_str(&msg.publish.topic).map_err(|e| anyhow!(format!("{:?}", e)))?;
-                    topic.push(TopicLevel::Normal(msg_id.to_string()));
-                    let _ = topic_tree.remove(&topic);
-                    inner.forwardeds.remove(&msg_id);
-                }
+        } else {
+            if let Some((_, (msg, msg_size))) = self.messages.remove_async(msg_id).await {
+                self.messages_bytes_size_sub(msg_size as isize);
+                Ok(Some(msg))
+            } else {
+                Ok(None)
             }
         }
-        Ok(expired_count)
+    }
+
+    #[inline]
+    fn messages_get(&self, msg_id: &MsgID) -> Result<Option<MessageEntry<'_>>> {
+        if self.cfg.encode {
+            if let Some(msg) = self.messages_encode.get(msg_id) {
+                Ok(Some(MessageEntry::StoredMessage(
+                    StoredMessage::decode(&msg.get().0).map_err(|e| anyhow!(e))?,
+                )))
+            } else {
+                Ok(None)
+            }
+        } else {
+            if let Some(msg) = self.messages.get(msg_id) {
+                Ok(Some(MessageEntry::OccupiedEntry(msg)))
+            } else {
+                Ok(None)
+            }
+        }
     }
 
     #[inline]
@@ -211,13 +273,32 @@ impl RamMessageManager {
         sub_client_ids: Option<Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>>,
     ) -> Result<()> {
         let mut topic = Topic::from_str(&publish.topic).map_err(|e| anyhow!(format!("{:?}", e)))?;
+        topic.push(TopicLevel::Normal(msg_id.to_string()));
         let expiry_time_at = timestamp_millis() + expiry_interval.as_millis() as i64;
         let inner = &self.inner;
         let msg = StoredMessage { msg_id, from, publish, expiry_time_at };
-        let msg_len = msg.get_heap_size();
-        log::info!("msg_len: {}", msg_len);
-        topic.push(TopicLevel::Normal(msg_id.to_string()));
-        inner.messages.insert_async(msg_id, msg).await.map_err(|_| anyhow!("messages insert error"))?;
+
+        let msg_len =
+            topic_size(&topic) + size_of::<MsgID>() * 2 + size_of::<(Reverse<TimestampMillis>, MsgID)>();
+        if self.cfg.encode {
+            let msg = msg.encode()?;
+            let msg_len = msg.len() + msg_len;
+            inner
+                .messages_encode
+                .insert_async(msg_id, (msg, msg_len))
+                .await
+                .map_err(|_| anyhow!("messages insert error"))?;
+            self.messages_bytes_size_add(msg_len as isize);
+        } else {
+            let msg_len = msg.get_size() + msg_len;
+            inner
+                .messages
+                .insert_async(msg_id, (msg, msg_len))
+                .await
+                .map_err(|_| anyhow!("messages insert error"))?;
+            self.messages_bytes_size_add(msg_len as isize);
+        };
+
         inner.topic_tree.write().await.insert(&topic, msg_id);
         inner.expiries.write().await.push((Reverse(expiry_time_at), msg_id));
         if let Some(sub_client_ids) = sub_client_ids {
@@ -253,7 +334,7 @@ impl RamMessageManager {
         let matcheds = matcheds
             .into_iter()
             .filter_map(|msg_id| {
-                if let Some(msg) = inner.messages.get(&msg_id) {
+                if let Ok(Some(msg)) = self.messages_get(&msg_id) {
                     let mut clientids = self.inner.forwardeds.entry(msg_id).or_default();
                     let is_forwarded = if clientids.get().contains_key(client_id) {
                         true
@@ -300,14 +381,16 @@ impl RamMessageManager {
             let topic_tree = inner.topic_tree.read().await;
             (topic_tree.values_size(), topic_tree.nodes_size())
         };
+
         format!(
             "vals_size: {}, nodes_size: {}, messages.len(): {}, expiries.len(): {}, \
-         forwardeds.len(): {}, id_gen: {}, waittings: {}, active_count: {}, rate: {:?}",
+         forwardeds.len(): {}, messages_bytes_size:{}, id_gen: {}, waittings: {}, active_count: {}, rate: {:?}",
             vals_size,
             nodes_size,
             inner.messages.len(),
             inner.expiries.read().await.len(),
             inner.forwardeds.len(),
+            self.messages_bytes_size_get(),
             inner.id_gen.load(Ordering::Relaxed),
             self.exec.waiting_count(),
             self.exec.active_count(),
@@ -361,7 +444,11 @@ impl MessageManager for &'static RamMessageManager {
 
     #[inline]
     async fn count(&self) -> isize {
-        self.inner.messages.len() as isize
+        if self.cfg.encode {
+            self.inner.messages_encode.len() as isize
+        } else {
+            self.inner.messages.len() as isize
+        }
     }
 
     #[inline]
