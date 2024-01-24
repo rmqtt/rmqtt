@@ -169,7 +169,7 @@ impl MessageMgr {
                         "topic_nodes": topic_nodes,
                         "topic_values": topic_values,
                         "receiveds": msg_count,
-                        "msg_max":msg_max,
+                        "receiveds_max":msg_max,
                         "forwardeds": forwardeds,
                         "expiries": expiries,
                         "bytes_size": messages_bytes_size,
