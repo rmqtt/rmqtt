@@ -545,7 +545,7 @@ impl MessageManager for &'static StorageMessageManager {
             .timeout(futures_time::time::Duration::from_millis(3500))
             .await
             .map_err(|e| anyhow!(e));
-        let res = match res {
+        match res {
             Ok(Ok(())) => {
                 self.msg_queue_count.fetch_add(1, Ordering::Relaxed);
                 Ok(())
@@ -558,8 +558,7 @@ impl MessageManager for &'static StorageMessageManager {
                 log::warn!("StorageMessageManager store timeout, {:?}", e);
                 Err(MqttError::from(e.to_string()))
             }
-        };
-        res
+        }
     }
 
     #[inline]

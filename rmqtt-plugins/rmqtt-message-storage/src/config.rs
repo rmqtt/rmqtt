@@ -22,8 +22,7 @@ impl PluginConfig {
         D: Deserializer<'de>,
     {
         let storage = serde_json::Value::deserialize(deserializer)?;
-        let typ =
-            storage.as_object().and_then(|obj| obj.get("type").and_then(|typ| typ.as_str().map(|typ| typ)));
+        let typ = storage.as_object().and_then(|obj| obj.get("type").and_then(|typ| typ.as_str()));
         match typ {
             Some("ram") => {
                 match storage

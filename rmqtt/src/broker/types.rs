@@ -1658,15 +1658,14 @@ fn get_option_bytestring_size_helper(s: &Option<ByteString>) -> usize {
 }
 
 fn get_option_addr_size_helper(s: &Option<SocketAddr>) -> usize {
-    let len = if let Some(s) = s {
+    if let Some(s) = s {
         match s {
             SocketAddr::V4(s) => size_of_val(s),
             SocketAddr::V6(s) => size_of_val(s),
         }
     } else {
         0
-    };
-    len
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

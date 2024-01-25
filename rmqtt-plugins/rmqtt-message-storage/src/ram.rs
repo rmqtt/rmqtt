@@ -59,6 +59,8 @@ impl<'h> MessageEntry<'h> {
     }
 }
 
+type SubClientIds = Option<Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>>;
+
 pub struct RamMessageManager {
     inner: Arc<RamMessageManagerInner>,
     pub(crate) exec: TaskExecQueue,
@@ -193,12 +195,12 @@ impl RamMessageManager {
         };
 
         for msg_id in removed_msg_ids.iter() {
-            if let Ok(Some(msg)) = self.messages_remove(&msg_id).await {
+            if let Ok(Some(msg)) = self.messages_remove(msg_id).await {
                 let mut topic =
                     Topic::from_str(&msg.publish.topic).map_err(|e| anyhow!(format!("{:?}", e)))?;
                 topic.push(TopicLevel::Normal(msg_id.to_string()));
                 inner.topic_tree.write().await.remove(&topic);
-                inner.forwardeds.remove(&msg_id);
+                inner.forwardeds.remove(msg_id);
             }
         }
         Ok(removed_msg_ids.len())
@@ -222,13 +224,11 @@ impl RamMessageManager {
             } else {
                 Ok(None)
             }
+        } else if let Some((_, (msg, msg_size))) = self.messages.remove_async(msg_id).await {
+            self.messages_bytes_size_sub(msg_size as isize);
+            Ok(Some(msg))
         } else {
-            if let Some((_, (msg, msg_size))) = self.messages.remove_async(msg_id).await {
-                self.messages_bytes_size_sub(msg_size as isize);
-                Ok(Some(msg))
-            } else {
-                Ok(None)
-            }
+            Ok(None)
         }
     }
 
@@ -242,12 +242,10 @@ impl RamMessageManager {
             } else {
                 Ok(None)
             }
+        } else if let Some(msg) = self.messages.get(msg_id) {
+            Ok(Some(MessageEntry::OccupiedEntry(msg)))
         } else {
-            if let Some(msg) = self.messages.get(msg_id) {
-                Ok(Some(MessageEntry::OccupiedEntry(msg)))
-            } else {
-                Ok(None)
-            }
+            Ok(None)
         }
     }
 
@@ -270,7 +268,7 @@ impl RamMessageManager {
         publish: Publish,
         expiry_interval: Duration,
         msg_id: MsgID,
-        sub_client_ids: Option<Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>>,
+        sub_client_ids: SubClientIds,
     ) -> Result<()> {
         let mut topic = Topic::from_str(&publish.topic).map_err(|e| anyhow!(format!("{:?}", e)))?;
         topic.push(TopicLevel::Normal(msg_id.to_string()));
@@ -413,7 +411,7 @@ impl MessageManager for &'static RamMessageManager {
         from: From,
         p: Publish,
         expiry_interval: Duration,
-        sub_client_ids: Option<Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>>,
+        sub_client_ids: SubClientIds,
     ) -> Result<()> {
         let this: &'static RamMessageManager = self;
         async move {
