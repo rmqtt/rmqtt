@@ -319,6 +319,7 @@ impl Shared for &'static ClusterShared {
                             Some(is_online),
                         ));
                     } else {
+                        #[allow(clippy::mutable_key_type)]
                         let mut groups = HashMap::default();
                         groups.insert(group, vec![(node_id, client_id, opts, sub_ids, Some(is_online))]);
                         shared_groups.insert(topic_filter, groups);

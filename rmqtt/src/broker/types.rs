@@ -66,7 +66,7 @@ pub type TopicName = bytestring::ByteString;
 pub type Topic = ntex_mqtt::Topic;
 ///topic filter
 pub type TopicFilter = bytestring::ByteString;
-pub type SharedGroup = String;
+pub type SharedGroup = bytestring::ByteString;
 pub type IsDisconnect = bool;
 pub type MessageExpiry = bool;
 pub type TimestampMillis = i64;
@@ -625,7 +625,7 @@ impl SubOptionsV3 {
         });
         if let Some(g) = &self.shared_group {
             if let Some(obj) = obj.as_object_mut() {
-                obj.insert("group".into(), serde_json::Value::String(g.clone()));
+                obj.insert("group".into(), serde_json::Value::String(g.to_string()));
             }
         }
         obj
@@ -671,7 +671,7 @@ impl SubOptionsV5 {
         });
         if let Some(obj) = obj.as_object_mut() {
             if let Some(g) = &self.shared_group {
-                obj.insert("group".into(), serde_json::Value::String(g.clone()));
+                obj.insert("group".into(), serde_json::Value::String(g.to_string()));
             }
             if let Some(id) = &self.id {
                 obj.insert("id".into(), serde_json::Value::Number(serde_json::Number::from(id.get())));

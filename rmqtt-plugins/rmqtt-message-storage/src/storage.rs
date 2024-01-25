@@ -501,7 +501,7 @@ impl StorageMessageManagerInner {
                 log::debug!("_is_forwarded item: {:?}", item);
                 match item {
                     Ok((_, Some((tf, g)))) => {
-                        if &g == group && tf == topic_filter {
+                        if g == group && tf == topic_filter {
                             return Ok(true);
                         }
                     }

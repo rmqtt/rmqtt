@@ -702,7 +702,7 @@ impl DefaultRouter {
         let topic = Topic::from_str(topic_name)?;
         for (topic_filter, _node_ids) in self.topics.read().await.matches(&topic).iter() {
             let topic_filter = topic_filter.to_topic_filter();
-
+            #[allow(clippy::mutable_key_type)]
             let mut groups: HashMap<
                 SharedGroup,
                 Vec<(
