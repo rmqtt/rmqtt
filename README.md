@@ -23,7 +23,7 @@ and mobile applications that can handle millions of concurrent clients on a sing
 - [WebHook](./docs/en_US/web-hook.md);
 - [HTTP APIs](./docs/en_US/http-api.md);
 - [$SYS System Topics](./docs/en_US/sys-topic.md)
-- [Store session information](./docs/zh_CN/store-session.md)
+- [Store session information](./docs/en_US/store-session.md)
 - Store unexpired messages
 - Distributed cluster;
 - Hooks;
