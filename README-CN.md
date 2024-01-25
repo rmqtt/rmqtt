@@ -22,6 +22,8 @@
 - [WebHook](./docs/zh_CN/web-hook.md);
 - [HTTP APIs](./docs/zh_CN/http-api.md);
 - [$SYS 系统主题](./docs/zh_CN/sys-topic.md)
+- [存储会话信息](./docs/zh_CN/store-session.md)
+- 存储未过期消息
 - 分布式集群;
 - 钩子(Hooks);
 - TLS支持;
