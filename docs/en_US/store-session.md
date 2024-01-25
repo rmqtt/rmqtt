@@ -42,3 +42,31 @@ Currently, two storage engines are supported: "sled" and "redis." "sled" stores 
 of storage location and cache capacity in memory. An appropriate size can improve read/write efficiency. "redis" storage 
 currently only supports single node configuration. The prefix configuration facilitates the use of the same set of Redis 
 storage services by different RMQTT nodes. {node} will be replaced with the current node identifier.
+
+
+By default, this plugin is not enabled. To activate the session storage plugin, you must add the "rmqtt-session-storage" 
+entry to the "plugins.default_startups" configuration in the main configuration file "rmqtt.toml", like so:
+```bash
+##--------------------------------------------------------------------
+## Plugins
+##--------------------------------------------------------------------
+#Plug in configuration file directory
+plugins.dir = "rmqtt-plugins/"
+#Plug in started by default, when the mqtt server is started
+plugins.default_startups = [
+    #"rmqtt-retainer",
+    #"rmqtt-auth-http",
+    #"rmqtt-cluster-broadcast",
+    #"rmqtt-cluster-raft",
+    #"rmqtt-sys-topic",
+    #"rmqtt-message-storage",
+    "rmqtt-session-storage",
+    "rmqtt-web-hook",
+    "rmqtt-http-api"
+]
+```
+
+
+
+
+

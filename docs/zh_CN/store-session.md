@@ -37,6 +37,26 @@ storage.redis.prefix = "session-{node}"
 当前支持“sled”和“redis”两种存储引擎。“sled”是存储在本地，需要配置存储位置和在内存中的缓存容量，适当大小可以提高读写效率。“redis”存储当前仅支持单节点，
 前缀配置方便不同rmqtt节点使用同一套redis存储服务。{node}将被替换为当前节点标识。
 
+默认情况下并没有启动此插件，如果要开启会话存储插件，必须在主配置文件“rmqtt.toml”中的“plugins.default_startups”配置中添加“rmqtt-session-storage”项，如：
+```bash
+##--------------------------------------------------------------------
+## Plugins
+##--------------------------------------------------------------------
+#Plug in configuration file directory
+plugins.dir = "rmqtt-plugins/"
+#Plug in started by default, when the mqtt server is started
+plugins.default_startups = [
+    #"rmqtt-retainer",
+    #"rmqtt-auth-http",
+    #"rmqtt-cluster-broadcast",
+    #"rmqtt-cluster-raft",
+    #"rmqtt-sys-topic",
+    #"rmqtt-message-storage",
+    "rmqtt-session-storage",
+    "rmqtt-web-hook",
+    "rmqtt-http-api"
+]
+```
 
 
 
