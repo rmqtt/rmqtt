@@ -11,6 +11,8 @@ use std::time::Duration;
 use config::PluginConfig;
 use handler::HookHandler;
 use retainer::ClusterRetainer;
+
+use rmqtt::anyhow::anyhow;
 use rmqtt::{
     ahash, anyhow,
     async_trait::async_trait,
@@ -409,8 +411,7 @@ async fn find_actual_leader(
 ) -> Result<Option<(NodeId, String)>> {
     let mut actual_leader_info = None;
     for i in 0..rounds {
-        actual_leader_info =
-            raft.find_leader_info(peer_addrs.clone()).await.map_err(|e| MqttError::StdError(Box::new(e)))?;
+        actual_leader_info = raft.find_leader_info(peer_addrs.clone()).await.map_err(|e| anyhow!(e))?;
         if actual_leader_info.is_some() {
             break;
         }

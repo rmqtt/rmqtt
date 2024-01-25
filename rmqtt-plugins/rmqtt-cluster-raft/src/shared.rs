@@ -184,6 +184,7 @@ impl Entry for ClusterLockEntry {
                         }
                     }
                 };
+
                 let reply = kick_fut
                     .spawn(task_exec_queue())
                     .result()
