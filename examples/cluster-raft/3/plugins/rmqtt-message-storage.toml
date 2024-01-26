@@ -2,15 +2,19 @@
 ## rmqtt-message-storage
 ##--------------------------------------------------------------------
 
-storage.type = "redis"
-#sled
-storage.sled.path = "/var/log/rmqtt/.cache/message/{node}"
-storage.sled.cache_capacity = "3G"
-storage.sled.gc_at_hour = 3
-storage.sled.gc_at_minute = 30
+##ram, redis
+storage.type = "ram"
+
+#ram
+storage.ram.cache_capacity = "3G"
+storage.ram.cache_max_count = 1_000_000
+storage.ram.encode = true
 
 #redis
 storage.redis.url = "redis://127.0.0.1:6379/"
 storage.redis.prefix = "message-{node}"
+
+##cleanup
+cleanup_count = 5000
 
 
