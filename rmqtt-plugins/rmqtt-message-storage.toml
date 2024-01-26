@@ -5,14 +5,14 @@
 ##ram, redis
 storage.type = "ram"
 
-#ram
+##ram
 storage.ram.cache_capacity = "3G"
 storage.ram.cache_max_count = 1_000_000
 storage.ram.encode = true
 
-#redis
+##redis
 storage.redis.url = "redis://127.0.0.1:6379/"
 storage.redis.prefix = "message-{node}"
 
-##cleanup
+##Quantity of expired messages cleared during each cleanup cycle.
 cleanup_count = 5000
