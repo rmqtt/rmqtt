@@ -24,7 +24,7 @@ and mobile applications that can handle millions of concurrent clients on a sing
 - [HTTP APIs](./docs/en_US/http-api.md);
 - [$SYS System Topics](./docs/en_US/sys-topic.md)
 - [Store session information](./docs/en_US/store-session.md)
-- Store unexpired messages
+- [Store unexpired messages](./docs/en_US/store-message.md)
 - Distributed cluster;
 - Hooks;
 - TLS support;
