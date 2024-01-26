@@ -158,7 +158,7 @@ impl MessageMgr {
                 let msg_count = mgr.count().await;
                 let topic_nodes = mgr.topic_tree.read().await.nodes_size();
                 let topic_values = mgr.topic_tree.read().await.values_size();
-                let forwardeds = mgr.forwardeds.len();
+                let forwardeds = mgr.forwardeds_count().await;
                 let expiries = mgr.expiries.read().await.len();
                 let exec_active_count = mgr.exec.active_count();
                 let exec_waiting_count = mgr.exec.waiting_count();

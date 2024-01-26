@@ -207,6 +207,17 @@ impl RamMessageManager {
     }
 
     #[inline]
+    pub(crate) async fn forwardeds_count(&self) -> usize {
+        let mut c = 0;
+        self.forwardeds
+            .scan_async(|_, v| {
+                c += v.len();
+            })
+            .await;
+        c
+    }
+
+    #[inline]
     fn messages_count(&self) -> usize {
         if self.cfg.encode {
             self.messages_encode.len()
