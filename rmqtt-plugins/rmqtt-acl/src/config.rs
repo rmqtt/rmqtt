@@ -117,7 +117,7 @@ impl std::convert::TryFrom<&serde_json::Value> for Rule {
     fn try_from(rule_cfg: &serde_json::Value) -> Result<Self, Self::Error> {
         let err_msg = format!("ACL Rule config error, rule config is {:?}", rule_cfg);
         if let Some(cfg_items) = rule_cfg.as_array() {
-            let access_cfg = cfg_items.get(0).ok_or_else(|| MqttError::from(err_msg.as_str()))?;
+            let access_cfg = cfg_items.first().ok_or_else(|| MqttError::from(err_msg.as_str()))?;
             let user_cfg = cfg_items.get(1).ok_or_else(|| MqttError::from(err_msg))?;
             let control_cfg = cfg_items.get(2);
             let topics_cfg = cfg_items.get(3);

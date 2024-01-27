@@ -2284,7 +2284,7 @@ impl Display for Reason {
             Reason::ProtocolError(r) => return write!(f, "ProtocolError({})", r),
             Reason::Reasons(reasons) => match reasons.len() {
                 0 => "",
-                1 => return write!(f, "{}", reasons.get(0).map(|r| r.to_string()).unwrap_or_default()),
+                1 => return write!(f, "{}", reasons.first().map(|r| r.to_string()).unwrap_or_default()),
                 _ => return write!(f, "{}", reasons.iter().map(|r| r.to_string()).join(",")),
             },
             Reason::Unknown => {

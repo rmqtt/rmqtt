@@ -162,7 +162,7 @@ impl Inflight {
 
     #[inline]
     pub fn front(&self) -> Option<(&PacketId, &InflightMessage)> {
-        self.queues.front().map(|(packet_id, m)| (packet_id, m))
+        self.queues.front()
     }
 
     #[inline]
