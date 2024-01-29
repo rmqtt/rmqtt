@@ -31,7 +31,7 @@ tikv-jemallocator = "0.5"
 rustls = "0.19"
 
 ##mqtt broker
-rmqtt = "0.3"
+rmqtt.workspace = true
 ##plugins
 rmqtt-acl = "0.1"
 rmqtt-web-hook = "0.1"

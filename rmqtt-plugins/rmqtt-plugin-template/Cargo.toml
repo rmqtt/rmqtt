@@ -5,7 +5,7 @@ authors = ["rmqtt <rmqttd@126.com>"]
 edition = "2021"
 
 [dependencies]
-rmqtt = "0.3"
+rmqtt.workspace = true
 log = "0.4"
 async-trait = "0.1.36"
 tokio = "1.5"
