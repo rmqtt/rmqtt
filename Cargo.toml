@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "rmqtt",
+    "rmqtt-plugins/rmqtt-plugin-template",
     "rmqtt-plugins/rmqtt-acl",
     "rmqtt-plugins/rmqtt-web-hook",
     "rmqtt-plugins/rmqtt-auth-http",
@@ -20,6 +21,7 @@ members = [
 [patch.crates-io]
 rmqtt = { path = "rmqtt" }
 rmqtt-macros = { path = "rmqtt-macros" }
+rmqtt-plugin-template = { path = "rmqtt-plugins/rmqtt-plugin-template" }
 rmqtt-acl = { path = "rmqtt-plugins/rmqtt-acl" }
 rmqtt-web-hook = { path = "rmqtt-plugins/rmqtt-web-hook" }
 rmqtt-auth-http = { path = "rmqtt-plugins/rmqtt-auth-http" }

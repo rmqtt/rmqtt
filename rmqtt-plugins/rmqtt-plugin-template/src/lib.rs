@@ -100,26 +100,26 @@ impl Handler for HookHandler {
             Parameter::ClientConnack(connect_info, r) => {
                 log::debug!("client connack, {:?}, {:?}", connect_info, r);
             }
-            Parameter::ClientSubscribe(_session, c, subscribe) => {
-                log::debug!("{:?} client subscribe, {:?}", c.id, subscribe);
+            Parameter::ClientSubscribe(s, subscribe) => {
+                log::debug!("{:?} client subscribe, {:?}", s.id, subscribe);
                 //let mut topic_filter = subscribe.topic_filter.clone();
                 //topic_filter.insert(0, Level::Normal("PPP".into()));
                 //return (true, Some(HookResult::TopicFilter(Some(topic_filter))))
             }
-            Parameter::ClientUnsubscribe(_session, c, unsubscribe) => {
-                log::debug!("{:?} client unsubscribe, {:?}", c.id, unsubscribe);
+            Parameter::ClientUnsubscribe(s, unsubscribe) => {
+                log::debug!("{:?} client unsubscribe, {:?}", s.id, unsubscribe);
                 //let mut topic_filter = (*unsubscribe).clone();
                 //topic_filter.insert(0, Level::Normal("PPP".into()));
                 //return (true, Some(HookResult::TopicFilter(Some(topic_filter))))
             }
-            Parameter::MessagePublish(_session, c, publish) => {
-                log::debug!("{:?} message publish, {:?}", c.id, publish);
+            Parameter::MessagePublish(s, _f, publish) => {
+                log::debug!("{:?} message publish, {:?}", s.map(|s| &s.id), publish);
             }
-            Parameter::MessageDelivered(_session, c, from, _publish) => {
-                log::debug!("{:?} MessageDelivered, {:?}", c.id, from);
+            Parameter::MessageDelivered(s, f, _publish) => {
+                log::debug!("{:?} MessageDelivered, {:?}", s.id, f);
             }
-            Parameter::ClientSubscribeCheckAcl(_s, _c, subscribe) => {
-                log::debug!("{:?} ClientSubscribeCheckAcl, {:?}", _c.id, subscribe);
+            Parameter::ClientSubscribeCheckAcl(s, subscribe) => {
+                log::debug!("{:?} ClientSubscribeCheckAcl, {:?}", s.id, subscribe);
             }
             _ => {
                 log::error!("unimplemented, {:?}", param)
