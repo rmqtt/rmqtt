@@ -95,7 +95,7 @@ pub async fn _handshake<Io: 'static>(
     is_assigned_client_id: bool,
 ) -> Result<v5::HandshakeAck<Io, SessionState>, MqttError> {
     let connect_info = Arc::new(ConnectInfo::V5(id.clone(), Box::new(handshake.packet().clone())));
-
+    log::debug!("handshake.packet(): {:?}", handshake.packet());
     //hook, client connect
     let _user_props = Runtime::instance().extends.hook_mgr().await.client_connect(&connect_info).await;
 
@@ -274,7 +274,11 @@ pub async fn _handshake<Io: 'static>(
     let id = state.id.clone();
     let session_expiry_interval_secs = packet.session_expiry_interval_secs;
     let server_keepalive_sec = packet.keep_alive;
-    let max_qos = state.listen_cfg().max_qos_allowed;
+    let max_qos = if state.listen_cfg().max_qos_allowed == QoS::ExactlyOnce {
+        None
+    } else {
+        Some(state.listen_cfg().max_qos_allowed)
+    };
     let retain_available = Runtime::instance().extends.retain().await.is_supported(state.listen_cfg());
     let max_server_packet_size = state.listen_cfg().max_packet_size.as_u32();
     let shared_subscription_available =
@@ -285,7 +289,7 @@ pub async fn _handshake<Io: 'static>(
         ack.server_keepalive_sec = Some(server_keepalive_sec);
         ack.session_expiry_interval_secs = session_expiry_interval_secs;
         ack.receive_max = Some(max_inflight);
-        ack.max_qos = Some(max_qos);
+        ack.max_qos = max_qos;
         ack.retain_available = Some(retain_available);
         ack.max_packet_size = Some(max_server_packet_size);
         ack.assigned_client_id = assigned_client_id;
