@@ -2,6 +2,8 @@
 name = "rmqtt-plugin-template"
 version = "0.1.1"
 authors = ["rmqtt <rmqttd@126.com>"]
+description = "RMQTT plugin template"
+license = "MIT license, Apache-2.0 License"
 edition = "2021"
 
 [dependencies]
