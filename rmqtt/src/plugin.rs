@@ -19,11 +19,6 @@ pub trait Plugin: Send + Sync {
     }
 
     #[inline]
-    fn name(&self) -> &str {
-        ""
-    }
-
-    #[inline]
     async fn get_config(&self) -> Result<serde_json::Value> {
         Ok(json!({}))
     }
@@ -44,12 +39,37 @@ pub trait Plugin: Send + Sync {
     }
 
     #[inline]
+    fn name(&self) -> &str {
+        ""
+    }
+
+    #[inline]
     fn version(&self) -> &str {
         "0.0.0"
     }
 
     #[inline]
     fn descr(&self) -> &str {
+        ""
+    }
+
+    #[inline]
+    fn authors(&self) -> &str {
+        ""
+    }
+
+    #[inline]
+    fn homepage(&self) -> &str {
+        ""
+    }
+
+    #[inline]
+    fn license(&self) -> &str {
+        ""
+    }
+
+    #[inline]
+    fn repository(&self) -> &str {
         ""
     }
 

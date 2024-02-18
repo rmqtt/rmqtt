@@ -13,6 +13,8 @@ pub async fn register(
     default_startup: bool,
     immutable: bool,
 ) -> Result<()> {
+    let name = if name.is_empty() { env!("CARGO_PKG_NAME") } else { name };
+    let descr = if descr.is_empty() { env!("CARGO_PKG_DESCRIPTION") } else { descr };
     runtime
         .plugins
         .register(name, default_startup, immutable, move || -> DynPluginResult {
@@ -56,11 +58,6 @@ impl Plugin for Template {
     }
 
     #[inline]
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    #[inline]
     async fn start(&mut self) -> Result<()> {
         log::info!("{} start", self.name);
         self.register.start().await;
@@ -75,13 +72,38 @@ impl Plugin for Template {
     }
 
     #[inline]
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    #[inline]
     fn version(&self) -> &str {
-        "0.1.1"
+        env!("CARGO_PKG_VERSION")
     }
 
     #[inline]
     fn descr(&self) -> &str {
         &self.descr
+    }
+
+    #[inline]
+    fn authors(&self) -> &str {
+        env!("CARGO_PKG_AUTHORS")
+    }
+
+    #[inline]
+    fn homepage(&self) -> &str {
+        env!("CARGO_PKG_HOMEPAGE")
+    }
+
+    #[inline]
+    fn license(&self) -> &str {
+        env!("CARGO_PKG_LICENSE")
+    }
+
+    #[inline]
+    fn repository(&self) -> &str {
+        env!("CARGO_PKG_REPOSITORY")
     }
 }
 
