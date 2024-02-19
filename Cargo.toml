@@ -49,4 +49,5 @@ rust-version = "1.71.1"
 
 [workspace.dependencies]
 rmqtt = "0.4"
+rmqtt-macros = "0.1"
 serde = "1.0"

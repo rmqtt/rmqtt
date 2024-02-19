@@ -2,6 +2,9 @@
 #[macro_use]
 extern crate serde;
 
+#[macro_use]
+extern crate rmqtt_macros;
+
 use std::convert::From as _;
 use std::sync::Arc;
 use std::time::Duration;
@@ -23,7 +26,7 @@ use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::inflight::InflightMessage,
     broker::types::DisconnectInfo,
-    plugin::{DynPlugin, DynPluginResult, Plugin},
+    plugin::{DynPlugin, DynPluginResult, PackageInfo, Plugin},
     ClientId, From, MqttError, Publish, Result, Runtime, Session, SessionState, SessionSubMap, SessionSubs,
     TimestampMillis,
 };
@@ -48,25 +51,23 @@ type OfflineMessageOptionType = Option<(ClientId, From, Publish)>;
 pub async fn register(
     runtime: &'static Runtime,
     name: &'static str,
-    descr: &'static str,
     default_startup: bool,
     immutable: bool,
 ) -> Result<()> {
     runtime
         .plugins
         .register(name, default_startup, immutable, move || -> DynPluginResult {
-            Box::pin(async move {
-                StoragePlugin::new(runtime, name, descr).await.map(|p| -> DynPlugin { Box::new(p) })
-            })
+            Box::pin(
+                async move { StoragePlugin::new(runtime, name).await.map(|p| -> DynPlugin { Box::new(p) }) },
+            )
         })
         .await?;
     Ok(())
 }
 
+#[derive(Plugin)]
 struct StoragePlugin {
     runtime: &'static Runtime,
-    name: String,
-    descr: String,
     cfg: Arc<PluginConfig>,
     storage_db: DefaultStorageDB,
     stored_session_infos: StoredSessionInfos,
@@ -77,7 +78,7 @@ struct StoragePlugin {
 
 impl StoragePlugin {
     #[inline]
-    async fn new<S: Into<String>>(runtime: &'static Runtime, name: S, descr: S) -> Result<Self> {
+    async fn new<S: Into<String>>(runtime: &'static Runtime, name: S) -> Result<Self> {
         let name = name.into();
         let mut cfg = runtime.settings.plugins.load_config_default::<PluginConfig>(&name)?;
         match cfg.storage.typ {
@@ -105,21 +106,11 @@ impl StoragePlugin {
 
         let cfg = Arc::new(cfg);
         let rebuild_tx = Self::start_local_runtime();
-        Ok(Self {
-            runtime,
-            name,
-            descr: descr.into(),
-            cfg,
-            storage_db,
-            stored_session_infos,
-            register,
-            session_mgr,
-            rebuild_tx,
-        })
+        Ok(Self { runtime, cfg, storage_db, stored_session_infos, register, session_mgr, rebuild_tx })
     }
 
     async fn load_offline_session_infos(&mut self) -> Result<()> {
-        log::info!("{:?} load_offline_session_infos ...", self.name);
+        log::info!("{:?} load_offline_session_infos ...", self.name());
         let storage_db = self.storage_db.clone();
         let mut iter_storage_db = storage_db.clone();
         //Load offline session information from the database
@@ -309,7 +300,7 @@ impl StoragePlugin {
 impl Plugin for StoragePlugin {
     #[inline]
     async fn init(&mut self) -> Result<()> {
-        log::info!("{} init", self.name);
+        log::info!("{} init", self.name());
         self.register
             .add(
                 Type::BeforeStartup,
@@ -340,18 +331,13 @@ impl Plugin for StoragePlugin {
     }
 
     #[inline]
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    #[inline]
     async fn get_config(&self) -> Result<serde_json::Value> {
         Ok(self.cfg.to_json())
     }
 
     #[inline]
     async fn start(&mut self) -> Result<()> {
-        log::info!("{} start", self.name);
+        log::info!("{} start", self.name());
         *self.runtime.extends.session_mgr_mut().await = Box::new(self.session_mgr);
 
         self.register.start().await;
@@ -360,18 +346,8 @@ impl Plugin for StoragePlugin {
 
     #[inline]
     async fn stop(&mut self) -> Result<bool> {
-        log::warn!("{} stop, if the storage plugin is started, it cannot be stopped", self.name);
+        log::warn!("{} stop, if the storage plugin is started, it cannot be stopped", self.name());
         Ok(false)
-    }
-
-    #[inline]
-    fn version(&self) -> &str {
-        "0.1.0"
-    }
-
-    #[inline]
-    fn descr(&self) -> &str {
-        &self.descr
     }
 
     #[inline]

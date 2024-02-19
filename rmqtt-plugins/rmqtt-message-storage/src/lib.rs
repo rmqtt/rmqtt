@@ -2,6 +2,9 @@
 #[macro_use]
 extern crate serde;
 
+#[macro_use]
+extern crate rmqtt_macros;
+
 use rmqtt::{
     async_trait::async_trait,
     log,
@@ -12,7 +15,7 @@ use std::sync::Arc;
 
 use rmqtt::{
     broker::hook::Register,
-    plugin::{DynPlugin, DynPluginResult, Plugin},
+    plugin::{DynPlugin, DynPluginResult, PackageInfo, Plugin},
     Result, Runtime,
 };
 use rmqtt_storage::init_db;
@@ -31,25 +34,23 @@ mod storage;
 pub async fn register(
     runtime: &'static Runtime,
     name: &'static str,
-    descr: &'static str,
     default_startup: bool,
     immutable: bool,
 ) -> Result<()> {
     runtime
         .plugins
         .register(name, default_startup, immutable, move || -> DynPluginResult {
-            Box::pin(async move {
-                StoragePlugin::new(runtime, name, descr).await.map(|p| -> DynPlugin { Box::new(p) })
-            })
+            Box::pin(
+                async move { StoragePlugin::new(runtime, name).await.map(|p| -> DynPlugin { Box::new(p) }) },
+            )
         })
         .await?;
     Ok(())
 }
 
+#[derive(Plugin)]
 struct StoragePlugin {
     runtime: &'static Runtime,
-    name: String,
-    descr: String,
     cfg: Arc<PluginConfig>,
     register: Box<dyn Register>,
     message_mgr: MessageMgr,
@@ -57,7 +58,7 @@ struct StoragePlugin {
 
 impl StoragePlugin {
     #[inline]
-    async fn new<S: Into<String>>(runtime: &'static Runtime, name: S, descr: S) -> Result<Self> {
+    async fn new<S: Into<String>>(runtime: &'static Runtime, name: S) -> Result<Self> {
         let name = name.into();
         let node_id = runtime.node.id();
         let mut cfg = runtime.settings.plugins.load_config_default::<PluginConfig>(&name)?;
@@ -78,7 +79,7 @@ impl StoragePlugin {
         };
         log::info!("{} StoragePlugin cfg: {:?}", name, cfg);
         let register = runtime.extends.hook_mgr().await.register();
-        Ok(Self { runtime, name, descr: descr.into(), cfg, register, message_mgr })
+        Ok(Self { runtime, cfg, register, message_mgr })
     }
 }
 
@@ -86,14 +87,9 @@ impl StoragePlugin {
 impl Plugin for StoragePlugin {
     #[inline]
     async fn init(&mut self) -> Result<()> {
-        log::info!("{} init", self.name);
+        log::info!("{} init", self.name());
         self.message_mgr.restore_topic_tree().await?;
         Ok(())
-    }
-
-    #[inline]
-    fn name(&self) -> &str {
-        &self.name
     }
 
     #[inline]
@@ -103,7 +99,7 @@ impl Plugin for StoragePlugin {
 
     #[inline]
     async fn start(&mut self) -> Result<()> {
-        log::info!("{} start", self.name);
+        log::info!("{} start", self.name());
         let mgr: Box<dyn MessageManager> = match self.message_mgr {
             MessageMgr::Storage(mgr) => Box::new(mgr),
             MessageMgr::Ram(mgr) => Box::new(mgr),
@@ -115,18 +111,8 @@ impl Plugin for StoragePlugin {
 
     #[inline]
     async fn stop(&mut self) -> Result<bool> {
-        log::warn!("{} stop, if the message-storage plugin is started, it cannot be stopped", self.name);
+        log::warn!("{} stop, if the message-storage plugin is started, it cannot be stopped", self.name());
         Ok(false)
-    }
-
-    #[inline]
-    fn version(&self) -> &str {
-        "0.1.0"
-    }
-
-    #[inline]
-    fn descr(&self) -> &str {
-        &self.descr
     }
 
     #[inline]

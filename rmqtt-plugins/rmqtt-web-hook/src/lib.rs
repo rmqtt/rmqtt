@@ -2,6 +2,9 @@
 #[macro_use]
 extern crate serde;
 
+#[macro_use]
+extern crate rmqtt_macros;
+
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicIsize, Ordering};
@@ -40,7 +43,7 @@ use rmqtt::{
     broker::hook::{self, Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::stats::Counter,
     broker::types::QoSEx,
-    plugin::{DynPlugin, DynPluginResult, Plugin},
+    plugin::{DynPlugin, DynPluginResult, PackageInfo, Plugin},
     Result, Runtime, Topic, TopicFilter,
 };
 
@@ -52,27 +55,24 @@ type HookWriters = Arc<DashMap<ByteString, Arc<RwLock<HookWriter>>>>;
 pub async fn register(
     runtime: &'static Runtime,
     name: &'static str,
-    descr: &'static str,
     default_startup: bool,
     immutable: bool,
 ) -> Result<()> {
     runtime
         .plugins
         .register(name, default_startup, immutable, move || -> DynPluginResult {
-            Box::pin(async move {
-                WebHookPlugin::new(runtime, name, descr).await.map(|p| -> DynPlugin { Box::new(p) })
-            })
+            Box::pin(
+                async move { WebHookPlugin::new(runtime, name).await.map(|p| -> DynPlugin { Box::new(p) }) },
+            )
         })
         .await?;
     Ok(())
 }
 
+#[derive(Plugin)]
 struct WebHookPlugin {
     runtime: &'static Runtime,
-    name: String,
-    descr: String,
     register: Box<dyn Register>,
-
     cfg: Arc<RwLock<PluginConfig>>,
     chan_queue_count: Arc<AtomicIsize>,
     tx: Arc<RwLock<Sender<Message>>>,
@@ -82,7 +82,7 @@ struct WebHookPlugin {
 
 impl WebHookPlugin {
     #[inline]
-    async fn new<S: Into<String>>(runtime: &'static Runtime, name: S, descr: S) -> Result<Self> {
+    async fn new<S: Into<String>>(runtime: &'static Runtime, name: S) -> Result<Self> {
         let name = name.into();
         let cfg = Arc::new(RwLock::new(Self::load_config(runtime, &name)?));
         log::debug!("{} WebHookPlugin cfg: {:?}", name, cfg.read().await);
@@ -91,7 +91,7 @@ impl WebHookPlugin {
         let (tx, exec) = Self::start(runtime, cfg.clone(), writers.clone(), chan_queue_count.clone()).await;
         let tx = Arc::new(RwLock::new(tx));
         let register = runtime.extends.hook_mgr().await.register();
-        Ok(Self { runtime, name, descr: descr.into(), register, cfg, chan_queue_count, tx, writers, exec })
+        Ok(Self { runtime, register, cfg, chan_queue_count, tx, writers, exec })
     }
 
     async fn start(
@@ -183,7 +183,7 @@ impl WebHookPlugin {
 impl Plugin for WebHookPlugin {
     #[inline]
     async fn init(&mut self) -> Result<()> {
-        log::info!("{} init", self.name);
+        log::info!("{} init", self.name());
         let tx = self.tx.clone();
         let chan_queue_count = self.chan_queue_count.clone();
         self.register
@@ -277,18 +277,13 @@ impl Plugin for WebHookPlugin {
     }
 
     #[inline]
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    #[inline]
     async fn get_config(&self) -> Result<serde_json::Value> {
         self.cfg.read().await.to_json()
     }
 
     #[inline]
     async fn load_config(&mut self) -> Result<()> {
-        let new_cfg = Self::load_config(self.runtime, &self.name)?;
+        let new_cfg = Self::load_config(self.runtime, self.name())?;
         let cfg = { self.cfg.read().await.clone() };
         if cfg.worker_threads != new_cfg.worker_threads
             || cfg.queue_capacity != new_cfg.queue_capacity
@@ -315,26 +310,16 @@ impl Plugin for WebHookPlugin {
 
     #[inline]
     async fn start(&mut self) -> Result<()> {
-        log::info!("{} start", self.name);
+        log::info!("{} start", self.name());
         self.register.start().await;
         Ok(())
     }
 
     #[inline]
     async fn stop(&mut self) -> Result<bool> {
-        log::info!("{} stop", self.name);
+        log::info!("{} stop", self.name());
         self.register.stop().await;
         Ok(true)
-    }
-
-    #[inline]
-    fn version(&self) -> &str {
-        "0.1.1"
-    }
-
-    #[inline]
-    fn descr(&self) -> &str {
-        &self.descr
     }
 
     #[inline]

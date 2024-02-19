@@ -2,6 +2,9 @@
 #[macro_use]
 extern crate serde;
 
+#[macro_use]
+extern crate rmqtt_macros;
+
 use config::PluginConfig;
 use retainer::Retainer;
 use rmqtt::broker::RetainStorage;
@@ -10,7 +13,7 @@ use rmqtt::{async_trait::async_trait, log, serde_json, tokio::sync::RwLock, toki
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     grpc::{Message, MessageReply},
-    plugin::{DynPlugin, DynPluginResult, Plugin},
+    plugin::{DynPlugin, DynPluginResult, PackageInfo, Plugin},
     Result, Runtime,
 };
 use std::sync::Arc;
@@ -22,25 +25,23 @@ mod retainer;
 pub async fn register(
     runtime: &'static Runtime,
     name: &'static str,
-    descr: &'static str,
     default_startup: bool,
     immutable: bool,
 ) -> Result<()> {
     runtime
         .plugins
         .register(name, default_startup, immutable, move || -> DynPluginResult {
-            Box::pin(async move {
-                RetainerPlugin::new(runtime, name, descr).await.map(|p| -> DynPlugin { Box::new(p) })
-            })
+            Box::pin(
+                async move { RetainerPlugin::new(runtime, name).await.map(|p| -> DynPlugin { Box::new(p) }) },
+            )
         })
         .await?;
     Ok(())
 }
 
+#[derive(Plugin)]
 struct RetainerPlugin {
     runtime: &'static Runtime,
-    name: String,
-    descr: String,
     register: Box<dyn Register>,
     cfg: Arc<RwLock<PluginConfig>>,
     retainer: &'static Retainer,
@@ -48,11 +49,7 @@ struct RetainerPlugin {
 
 impl RetainerPlugin {
     #[inline]
-    async fn new<N: Into<String>, D: Into<String>>(
-        runtime: &'static Runtime,
-        name: N,
-        descr: D,
-    ) -> Result<Self> {
+    async fn new<N: Into<String>>(runtime: &'static Runtime, name: N) -> Result<Self> {
         let name = name.into();
         let cfg = runtime.settings.plugins.load_config::<PluginConfig>(&name)?;
         log::info!("{} RetainerPlugin cfg: {:?}", name, cfg);
@@ -61,7 +58,7 @@ impl RetainerPlugin {
         let cfg = Arc::new(RwLock::new(cfg));
         let retainer = Retainer::get_or_init(cfg.clone(), message_type);
 
-        Ok(Self { runtime, name, descr: descr.into(), register, cfg, retainer })
+        Ok(Self { runtime, register, cfg, retainer })
     }
 }
 
@@ -69,7 +66,7 @@ impl RetainerPlugin {
 impl Plugin for RetainerPlugin {
     #[inline]
     async fn init(&mut self) -> Result<()> {
-        log::info!("{} init", self.name);
+        log::info!("{} init", self.name());
         let cfg = &self.cfg;
         let message_type = cfg.read().await.message_type;
         self.register
@@ -98,18 +95,13 @@ impl Plugin for RetainerPlugin {
     }
 
     #[inline]
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    #[inline]
     async fn get_config(&self) -> Result<serde_json::Value> {
         self.cfg.read().await.to_json()
     }
 
     #[inline]
     async fn load_config(&mut self) -> Result<()> {
-        let new_cfg = self.runtime.settings.plugins.load_config::<PluginConfig>(&self.name)?;
+        let new_cfg = self.runtime.settings.plugins.load_config::<PluginConfig>(self.name())?;
         *self.cfg.write().await = new_cfg;
         log::debug!("load_config ok,  {:?}", self.cfg);
         Ok(())
@@ -117,7 +109,7 @@ impl Plugin for RetainerPlugin {
 
     #[inline]
     async fn start(&mut self) -> Result<()> {
-        log::info!("{} start", self.name);
+        log::info!("{} start", self.name());
         *self.runtime.extends.retain_mut().await = Box::new(self.retainer);
         self.register.start().await;
         Ok(())
@@ -125,19 +117,9 @@ impl Plugin for RetainerPlugin {
 
     #[inline]
     async fn stop(&mut self) -> Result<bool> {
-        log::warn!("{} stop, the default Retainer plug-in, it cannot be stopped", self.name);
+        log::warn!("{} stop, the default Retainer plug-in, it cannot be stopped", self.name());
         //self.register.stop().await;
         Ok(false)
-    }
-
-    #[inline]
-    fn version(&self) -> &str {
-        "0.1.0"
-    }
-
-    #[inline]
-    fn descr(&self) -> &str {
-        &self.descr
     }
 }
 

@@ -1,7 +1,10 @@
+#[macro_use]
+extern crate rmqtt_macros;
+
 use async_trait::async_trait;
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
-    plugin::{DynPlugin, DynPluginResult, Plugin},
+    plugin::{DynPlugin, DynPluginResult, PackageInfo, Plugin},
     Result, Runtime,
 };
 
@@ -9,35 +12,29 @@ use rmqtt::{
 pub async fn register(
     runtime: &'static Runtime,
     name: &'static str,
-    descr: &'static str,
     default_startup: bool,
     immutable: bool,
 ) -> Result<()> {
-    let name = if name.is_empty() { env!("CARGO_PKG_NAME") } else { name };
-    let descr = if descr.is_empty() { env!("CARGO_PKG_DESCRIPTION") } else { descr };
     runtime
         .plugins
         .register(name, default_startup, immutable, move || -> DynPluginResult {
-            Box::pin(async move {
-                Template::new(runtime, name, descr).await.map(|p| -> DynPlugin { Box::new(p) })
-            })
+            Box::pin(async move { Template::new(runtime).await.map(|p| -> DynPlugin { Box::new(p) }) })
         })
         .await?;
     Ok(())
 }
 
+#[derive(Plugin)]
 struct Template {
     _runtime: &'static Runtime,
-    name: String,
-    descr: String,
     register: Box<dyn Register>,
 }
 
 impl Template {
     #[inline]
-    async fn new<S: Into<String>>(runtime: &'static Runtime, name: S, descr: S) -> Result<Self> {
+    async fn new(runtime: &'static Runtime) -> Result<Self> {
         let register = runtime.extends.hook_mgr().await.register();
-        Ok(Self { _runtime: runtime, name: name.into(), descr: descr.into(), register })
+        Ok(Self { _runtime: runtime, register })
     }
 }
 
@@ -45,7 +42,7 @@ impl Template {
 impl Plugin for Template {
     #[inline]
     async fn init(&mut self) -> Result<()> {
-        log::debug!("{} init", self.name);
+        log::debug!("{} init", self.name());
         self.register.add(Type::ClientConnack, Box::new(HookHandler::new())).await;
         self.register.add(Type::ClientSubscribe, Box::new(HookHandler::new())).await;
         self.register.add(Type::ClientUnsubscribe, Box::new(HookHandler::new())).await;
@@ -59,51 +56,16 @@ impl Plugin for Template {
 
     #[inline]
     async fn start(&mut self) -> Result<()> {
-        log::info!("{} start", self.name);
+        log::info!("{} start", self.name());
         self.register.start().await;
         Ok(())
     }
 
     #[inline]
     async fn stop(&mut self) -> Result<bool> {
-        log::info!("{} stop", self.name);
+        log::info!("{} stop", self.name());
         self.register.stop().await;
         Ok(true)
-    }
-
-    #[inline]
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    #[inline]
-    fn version(&self) -> &str {
-        env!("CARGO_PKG_VERSION")
-    }
-
-    #[inline]
-    fn descr(&self) -> &str {
-        &self.descr
-    }
-
-    #[inline]
-    fn authors(&self) -> &str {
-        env!("CARGO_PKG_AUTHORS")
-    }
-
-    #[inline]
-    fn homepage(&self) -> &str {
-        env!("CARGO_PKG_HOMEPAGE")
-    }
-
-    #[inline]
-    fn license(&self) -> &str {
-        env!("CARGO_PKG_LICENSE")
-    }
-
-    #[inline]
-    fn repository(&self) -> &str {
-        env!("CARGO_PKG_REPOSITORY")
     }
 }
 

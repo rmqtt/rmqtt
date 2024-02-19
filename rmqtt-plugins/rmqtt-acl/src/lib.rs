@@ -2,6 +2,9 @@
 #[macro_use]
 extern crate serde;
 
+#[macro_use]
+extern crate rmqtt_macros;
+
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -14,7 +17,7 @@ use rmqtt::{
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::types::{AuthResult, PublishAclResult, SubscribeAckReason, SubscribeAclResult, Topic},
-    plugin::{DynPlugin, DynPluginResult, Plugin},
+    plugin::{DynPlugin, DynPluginResult, PackageInfo, Plugin},
     Result, Runtime,
 };
 
@@ -24,41 +27,33 @@ mod config;
 pub async fn register(
     runtime: &'static Runtime,
     name: &'static str,
-    descr: &'static str,
     default_startup: bool,
     immutable: bool,
 ) -> Result<()> {
     runtime
         .plugins
         .register(name, default_startup, immutable, move || -> DynPluginResult {
-            Box::pin(async move {
-                AclPlugin::new(runtime, name, descr).await.map(|p| -> DynPlugin { Box::new(p) })
-            })
+            Box::pin(async move { AclPlugin::new(runtime, name).await.map(|p| -> DynPlugin { Box::new(p) }) })
         })
         .await?;
     Ok(())
 }
 
+#[derive(Plugin)]
 struct AclPlugin {
     runtime: &'static Runtime,
-    name: String,
-    descr: String,
     register: Box<dyn Register>,
     cfg: Arc<RwLock<PluginConfig>>,
 }
 
 impl AclPlugin {
     #[inline]
-    async fn new<N: Into<String>, D: Into<String>>(
-        runtime: &'static Runtime,
-        name: N,
-        descr: D,
-    ) -> Result<Self> {
+    async fn new<N: Into<String>>(runtime: &'static Runtime, name: N) -> Result<Self> {
         let name = name.into();
         let cfg = Arc::new(RwLock::new(runtime.settings.plugins.load_config::<PluginConfig>(&name)?));
         log::debug!("{} AclPlugin cfg: {:?}", name, cfg.read().await);
         let register = runtime.extends.hook_mgr().await.register();
-        Ok(Self { runtime, name, descr: descr.into(), register, cfg })
+        Ok(Self { runtime, register, cfg })
     }
 }
 
@@ -66,7 +61,7 @@ impl AclPlugin {
 impl Plugin for AclPlugin {
     #[inline]
     async fn init(&mut self) -> Result<()> {
-        log::info!("{} init", self.name);
+        log::info!("{} init", self.name());
         let cfg = &self.cfg;
         let priority = cfg.read().await.priority;
         self.register.add_priority(Type::ClientConnected, priority, Box::new(AclHandler::new(cfg))).await;
@@ -81,18 +76,13 @@ impl Plugin for AclPlugin {
     }
 
     #[inline]
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    #[inline]
     async fn get_config(&self) -> Result<serde_json::Value> {
         self.cfg.read().await.to_json()
     }
 
     #[inline]
     async fn load_config(&mut self) -> Result<()> {
-        let new_cfg = self.runtime.settings.plugins.load_config::<PluginConfig>(&self.name)?;
+        let new_cfg = self.runtime.settings.plugins.load_config::<PluginConfig>(self.name())?;
         *self.cfg.write().await = new_cfg;
         log::debug!("load_config ok,  {:?}", self.cfg);
         Ok(())
@@ -100,26 +90,16 @@ impl Plugin for AclPlugin {
 
     #[inline]
     async fn start(&mut self) -> Result<()> {
-        log::info!("{} start", self.name);
+        log::info!("{} start", self.name());
         self.register.start().await;
         Ok(())
     }
 
     #[inline]
     async fn stop(&mut self) -> Result<bool> {
-        log::warn!("{} stop, the default ACL plug-in, it cannot be stopped", self.name);
+        log::warn!("{} stop, the default ACL plug-in, it cannot be stopped", self.name());
         //self.register.stop().await;
         Ok(false)
-    }
-
-    #[inline]
-    fn version(&self) -> &str {
-        "0.1.1"
-    }
-
-    #[inline]
-    fn descr(&self) -> &str {
-        &self.descr
     }
 }
 

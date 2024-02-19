@@ -8,6 +8,7 @@ edition = "2021"
 
 [dependencies]
 rmqtt.workspace = true
+rmqtt-macros.workspace = true
 log = "0.4"
 async-trait = "0.1.36"
 tokio = "1.5"

@@ -2,6 +2,9 @@
 #[macro_use]
 extern crate serde;
 
+#[macro_use]
+extern crate rmqtt_macros;
+
 use std::sync::Arc;
 
 use config::PluginConfig;
@@ -12,7 +15,7 @@ use rmqtt::{
 };
 use rmqtt::{
     broker::hook::{Register, Type},
-    plugin::{DynPlugin, DynPluginResult, Plugin},
+    plugin::{DynPlugin, DynPluginResult, PackageInfo, Plugin},
     Result, Runtime,
 };
 
@@ -31,25 +34,23 @@ type PluginConfigType = Arc<RwLock<PluginConfig>>;
 pub async fn register(
     runtime: &'static Runtime,
     name: &'static str,
-    descr: &'static str,
     default_startup: bool,
     immutable: bool,
 ) -> Result<()> {
     runtime
         .plugins
         .register(name, default_startup, immutable, move || -> DynPluginResult {
-            Box::pin(async move {
-                HttpApiPlugin::new(runtime, name, descr).await.map(|p| -> DynPlugin { Box::new(p) })
-            })
+            Box::pin(
+                async move { HttpApiPlugin::new(runtime, name).await.map(|p| -> DynPlugin { Box::new(p) }) },
+            )
         })
         .await?;
     Ok(())
 }
 
+#[derive(Plugin)]
 struct HttpApiPlugin {
     runtime: &'static Runtime,
-    name: String,
-    descr: String,
     register: Box<dyn Register>,
     cfg: PluginConfigType,
     shutdown_tx: Option<ShutdownTX>,
@@ -57,13 +58,13 @@ struct HttpApiPlugin {
 
 impl HttpApiPlugin {
     #[inline]
-    async fn new<S: Into<String>>(runtime: &'static Runtime, name: S, descr: S) -> Result<Self> {
+    async fn new<S: Into<String>>(runtime: &'static Runtime, name: S) -> Result<Self> {
         let name = name.into();
         let cfg = Arc::new(RwLock::new(runtime.settings.plugins.load_config::<PluginConfig>(&name)?));
         log::debug!("{} HttpApiPlugin cfg: {:?}", name, cfg.read().await);
         let register = runtime.extends.hook_mgr().await.register();
         let shutdown_tx = Some(Self::start(runtime, cfg.clone()).await);
-        Ok(Self { runtime, name, descr: descr.into(), register, cfg, shutdown_tx })
+        Ok(Self { runtime, register, cfg, shutdown_tx })
     }
 
     async fn start(_runtime: &'static Runtime, cfg: PluginConfigType) -> ShutdownTX {
@@ -97,15 +98,10 @@ impl HttpApiPlugin {
 impl Plugin for HttpApiPlugin {
     #[inline]
     async fn init(&mut self) -> Result<()> {
-        log::info!("{} init", self.name);
+        log::info!("{} init", self.name());
         let mgs_type = self.cfg.read().await.message_type;
         self.register.add(Type::GrpcMessageReceived, Box::new(handler::HookHandler::new(mgs_type))).await;
         Ok(())
-    }
-
-    #[inline]
-    fn name(&self) -> &str {
-        &self.name
     }
 
     #[inline]
@@ -115,7 +111,7 @@ impl Plugin for HttpApiPlugin {
 
     #[inline]
     async fn load_config(&mut self) -> Result<()> {
-        let new_cfg = self.runtime.settings.plugins.load_config::<PluginConfig>(&self.name)?;
+        let new_cfg = self.runtime.settings.plugins.load_config::<PluginConfig>(self.name())?;
         if !self.cfg.read().await.changed(&new_cfg) {
             return Ok(());
         }
@@ -139,25 +135,15 @@ impl Plugin for HttpApiPlugin {
 
     #[inline]
     async fn start(&mut self) -> Result<()> {
-        log::info!("{} start", self.name);
+        log::info!("{} start", self.name());
         self.register.start().await;
         Ok(())
     }
 
     #[inline]
     async fn stop(&mut self) -> Result<bool> {
-        log::info!("{} stop", self.name);
+        log::info!("{} stop", self.name());
         //self.register.stop().await;
         Ok(false)
-    }
-
-    #[inline]
-    fn version(&self) -> &str {
-        "0.1.1"
-    }
-
-    #[inline]
-    fn descr(&self) -> &str {
-        &self.descr
     }
 }

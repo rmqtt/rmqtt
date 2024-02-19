@@ -2,6 +2,9 @@
 #[macro_use]
 extern crate serde;
 
+#[macro_use]
+extern crate rmqtt_macros;
+
 use config::PluginConfig;
 use rmqtt::{
     async_trait::async_trait,
@@ -16,7 +19,7 @@ use rmqtt::{
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::types::{From, Id, QoSEx},
-    plugin::{DynPlugin, DynPluginResult, Plugin},
+    plugin::{DynPlugin, DynPluginResult, PackageInfo, Plugin},
     ClientId, NodeId, Publish, PublishProperties, QoS, Result, Runtime, SessionState, TopicName, UserName,
 };
 use std::convert::From as _;
@@ -30,7 +33,6 @@ mod config;
 pub async fn register(
     runtime: &'static Runtime,
     name: &'static str,
-    descr: &'static str,
     default_startup: bool,
     immutable: bool,
 ) -> Result<()> {
@@ -38,17 +40,16 @@ pub async fn register(
         .plugins
         .register(name, default_startup, immutable, move || -> DynPluginResult {
             Box::pin(async move {
-                SystemTopicPlugin::new(runtime, name, descr).await.map(|p| -> DynPlugin { Box::new(p) })
+                SystemTopicPlugin::new(runtime, name).await.map(|p| -> DynPlugin { Box::new(p) })
             })
         })
         .await?;
     Ok(())
 }
 
+#[derive(Plugin)]
 struct SystemTopicPlugin {
     runtime: &'static Runtime,
-    name: String,
-    descr: String,
     register: Box<dyn Register>,
     cfg: Arc<RwLock<PluginConfig>>,
     running: Arc<AtomicBool>,
@@ -56,18 +57,14 @@ struct SystemTopicPlugin {
 
 impl SystemTopicPlugin {
     #[inline]
-    async fn new<N: Into<String>, D: Into<String>>(
-        runtime: &'static Runtime,
-        name: N,
-        descr: D,
-    ) -> Result<Self> {
+    async fn new<N: Into<String>>(runtime: &'static Runtime, name: N) -> Result<Self> {
         let name = name.into();
         let cfg = runtime.settings.plugins.load_config_default::<PluginConfig>(&name)?;
         log::debug!("{} SystemTopicPlugin cfg: {:?}", name, cfg);
         let register = runtime.extends.hook_mgr().await.register();
         let cfg = Arc::new(RwLock::new(cfg));
         let running = Arc::new(AtomicBool::new(false));
-        Ok(Self { runtime, name, descr: descr.into(), register, cfg, running })
+        Ok(Self { runtime, register, cfg, running })
     }
 
     fn start(runtime: &'static Runtime, cfg: Arc<RwLock<PluginConfig>>, running: Arc<AtomicBool>) {
@@ -162,7 +159,7 @@ impl SystemTopicPlugin {
 impl Plugin for SystemTopicPlugin {
     #[inline]
     async fn init(&mut self) -> Result<()> {
-        log::info!("{} init", self.name);
+        log::info!("{} init", self.name());
         let cfg = &self.cfg;
 
         self.register.add(Type::SessionCreated, Box::new(SystemTopicHandler::new(cfg))).await;
@@ -178,18 +175,13 @@ impl Plugin for SystemTopicPlugin {
     }
 
     #[inline]
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    #[inline]
     async fn get_config(&self) -> Result<serde_json::Value> {
         self.cfg.read().await.to_json()
     }
 
     #[inline]
     async fn load_config(&mut self) -> Result<()> {
-        let new_cfg = self.runtime.settings.plugins.load_config::<PluginConfig>(&self.name)?;
+        let new_cfg = self.runtime.settings.plugins.load_config::<PluginConfig>(self.name())?;
         *self.cfg.write().await = new_cfg;
         log::debug!("load_config ok,  {:?}", self.cfg);
         Ok(())
@@ -197,7 +189,7 @@ impl Plugin for SystemTopicPlugin {
 
     #[inline]
     async fn start(&mut self) -> Result<()> {
-        log::info!("{} start", self.name);
+        log::info!("{} start", self.name());
         self.register.start().await;
         self.running.store(true, Ordering::SeqCst);
         Ok(())
@@ -205,20 +197,10 @@ impl Plugin for SystemTopicPlugin {
 
     #[inline]
     async fn stop(&mut self) -> Result<bool> {
-        log::info!("{} stop", self.name);
+        log::info!("{} stop", self.name());
         self.register.stop().await;
         self.running.store(false, Ordering::SeqCst);
         Ok(false)
-    }
-
-    #[inline]
-    fn version(&self) -> &str {
-        "0.1.0"
-    }
-
-    #[inline]
-    fn descr(&self) -> &str {
-        &self.descr
     }
 }
 
