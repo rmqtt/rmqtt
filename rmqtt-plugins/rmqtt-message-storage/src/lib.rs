@@ -15,8 +15,8 @@ use std::sync::Arc;
 
 use rmqtt::{
     broker::hook::Register,
-    plugin::{DynPlugin, DynPluginResult, PackageInfo, Plugin},
-    Result, Runtime,
+    plugin::{PackageInfo, Plugin},
+    register, Result, Runtime,
 };
 use rmqtt_storage::init_db;
 
@@ -30,23 +30,7 @@ mod config;
 mod ram;
 mod storage;
 
-#[inline]
-pub async fn register(
-    runtime: &'static Runtime,
-    name: &'static str,
-    default_startup: bool,
-    immutable: bool,
-) -> Result<()> {
-    runtime
-        .plugins
-        .register(name, default_startup, immutable, move || -> DynPluginResult {
-            Box::pin(
-                async move { StoragePlugin::new(runtime, name).await.map(|p| -> DynPlugin { Box::new(p) }) },
-            )
-        })
-        .await?;
-    Ok(())
-}
+register!(StoragePlugin::new);
 
 #[derive(Plugin)]
 struct StoragePlugin {

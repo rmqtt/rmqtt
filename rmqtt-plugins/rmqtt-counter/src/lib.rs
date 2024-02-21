@@ -8,25 +8,11 @@ use rmqtt::{async_trait::async_trait, log, FromType};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::metrics::Metrics,
-    plugin::{DynPlugin, DynPluginResult, PackageInfo, Plugin},
-    Result, Runtime,
+    plugin::{PackageInfo, Plugin},
+    register, Result, Runtime,
 };
 
-#[inline]
-pub async fn register(
-    runtime: &'static Runtime,
-    name: &'static str,
-    default_startup: bool,
-    immutable: bool,
-) -> Result<()> {
-    runtime
-        .plugins
-        .register(name, default_startup, immutable, move || -> DynPluginResult {
-            Box::pin(async move { CounterPlugin::new(runtime).await.map(|p| -> DynPlugin { Box::new(p) }) })
-        })
-        .await?;
-    Ok(())
-}
+register!(CounterPlugin::new);
 
 #[derive(Plugin)]
 struct CounterPlugin {
@@ -35,7 +21,7 @@ struct CounterPlugin {
 
 impl CounterPlugin {
     #[inline]
-    async fn new(runtime: &'static Runtime) -> Result<Self> {
+    async fn new<S: Into<String>>(runtime: &'static Runtime, _name: S) -> Result<Self> {
         let register = runtime.extends.hook_mgr().await.register();
         Ok(Self { register })
     }

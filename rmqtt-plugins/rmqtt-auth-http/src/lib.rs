@@ -23,8 +23,8 @@ use rmqtt::{
     broker::types::{
         AuthResult, Password, PublishAclResult, SubscribeAckReason, SubscribeAclResult, Superuser,
     },
-    plugin::{DynPlugin, DynPluginResult, PackageInfo, Plugin},
-    MqttError, Result, Runtime, TopicName,
+    plugin::{PackageInfo, Plugin},
+    register, MqttError, Result, Runtime, TopicName,
 };
 
 mod config;
@@ -72,23 +72,7 @@ impl ACLType {
     }
 }
 
-#[inline]
-pub async fn register(
-    runtime: &'static Runtime,
-    name: &'static str,
-    default_startup: bool,
-    immutable: bool,
-) -> Result<()> {
-    runtime
-        .plugins
-        .register(name, default_startup, immutable, move || -> DynPluginResult {
-            Box::pin(
-                async move { AuthHttpPlugin::new(runtime, name).await.map(|p| -> DynPlugin { Box::new(p) }) },
-            )
-        })
-        .await?;
-    Ok(())
-}
+register!(AuthHttpPlugin::new);
 
 #[derive(Plugin)]
 struct AuthHttpPlugin {

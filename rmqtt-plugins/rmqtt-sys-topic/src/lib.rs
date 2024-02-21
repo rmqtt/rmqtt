@@ -19,8 +19,9 @@ use rmqtt::{
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::types::{From, Id, QoSEx},
-    plugin::{DynPlugin, DynPluginResult, PackageInfo, Plugin},
-    ClientId, NodeId, Publish, PublishProperties, QoS, Result, Runtime, SessionState, TopicName, UserName,
+    plugin::{PackageInfo, Plugin},
+    register, ClientId, NodeId, Publish, PublishProperties, QoS, Result, Runtime, SessionState, TopicName,
+    UserName,
 };
 use std::convert::From as _;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -29,23 +30,7 @@ use std::time::Duration;
 
 mod config;
 
-#[inline]
-pub async fn register(
-    runtime: &'static Runtime,
-    name: &'static str,
-    default_startup: bool,
-    immutable: bool,
-) -> Result<()> {
-    runtime
-        .plugins
-        .register(name, default_startup, immutable, move || -> DynPluginResult {
-            Box::pin(async move {
-                SystemTopicPlugin::new(runtime, name).await.map(|p| -> DynPlugin { Box::new(p) })
-            })
-        })
-        .await?;
-    Ok(())
-}
+register!(SystemTopicPlugin::new);
 
 #[derive(Plugin)]
 struct SystemTopicPlugin {

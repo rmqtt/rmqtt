@@ -13,31 +13,15 @@ use rmqtt::{async_trait::async_trait, log, serde_json, tokio::sync::RwLock, toki
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     grpc::{Message, MessageReply},
-    plugin::{DynPlugin, DynPluginResult, PackageInfo, Plugin},
-    Result, Runtime,
+    plugin::{PackageInfo, Plugin},
+    register, Result, Runtime,
 };
 use std::sync::Arc;
 
 mod config;
 mod retainer;
 
-#[inline]
-pub async fn register(
-    runtime: &'static Runtime,
-    name: &'static str,
-    default_startup: bool,
-    immutable: bool,
-) -> Result<()> {
-    runtime
-        .plugins
-        .register(name, default_startup, immutable, move || -> DynPluginResult {
-            Box::pin(
-                async move { RetainerPlugin::new(runtime, name).await.map(|p| -> DynPlugin { Box::new(p) }) },
-            )
-        })
-        .await?;
-    Ok(())
-}
+register!(RetainerPlugin::new);
 
 #[derive(Plugin)]
 struct RetainerPlugin {

@@ -17,27 +17,13 @@ use rmqtt::{
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::types::{AuthResult, PublishAclResult, SubscribeAckReason, SubscribeAclResult, Topic},
-    plugin::{DynPlugin, DynPluginResult, PackageInfo, Plugin},
-    Result, Runtime,
+    plugin::{PackageInfo, Plugin},
+    register, Result, Runtime,
 };
 
 mod config;
 
-#[inline]
-pub async fn register(
-    runtime: &'static Runtime,
-    name: &'static str,
-    default_startup: bool,
-    immutable: bool,
-) -> Result<()> {
-    runtime
-        .plugins
-        .register(name, default_startup, immutable, move || -> DynPluginResult {
-            Box::pin(async move { AclPlugin::new(runtime, name).await.map(|p| -> DynPlugin { Box::new(p) }) })
-        })
-        .await?;
-    Ok(())
-}
+register!(AclPlugin::new);
 
 #[derive(Plugin)]
 struct AclPlugin {

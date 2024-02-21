@@ -26,9 +26,9 @@ use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::inflight::InflightMessage,
     broker::types::DisconnectInfo,
-    plugin::{DynPlugin, DynPluginResult, PackageInfo, Plugin},
-    ClientId, From, MqttError, Publish, Result, Runtime, Session, SessionState, SessionSubMap, SessionSubs,
-    TimestampMillis,
+    plugin::{PackageInfo, Plugin},
+    register, ClientId, From, MqttError, Publish, Result, Runtime, Session, SessionState, SessionSubMap,
+    SessionSubs, TimestampMillis,
 };
 
 use rmqtt_storage::{init_db, DefaultStorageDB, List, Map, StorageType};
@@ -47,23 +47,7 @@ enum RebuildChanType {
 
 type OfflineMessageOptionType = Option<(ClientId, From, Publish)>;
 
-#[inline]
-pub async fn register(
-    runtime: &'static Runtime,
-    name: &'static str,
-    default_startup: bool,
-    immutable: bool,
-) -> Result<()> {
-    runtime
-        .plugins
-        .register(name, default_startup, immutable, move || -> DynPluginResult {
-            Box::pin(
-                async move { StoragePlugin::new(runtime, name).await.map(|p| -> DynPlugin { Box::new(p) }) },
-            )
-        })
-        .await?;
-    Ok(())
-}
+register!(StoragePlugin::new);
 
 #[derive(Plugin)]
 struct StoragePlugin {

@@ -43,31 +43,15 @@ use rmqtt::{
     broker::hook::{self, Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::stats::Counter,
     broker::types::QoSEx,
-    plugin::{DynPlugin, DynPluginResult, PackageInfo, Plugin},
-    Result, Runtime, Topic, TopicFilter,
+    plugin::{PackageInfo, Plugin},
+    register, Result, Runtime, Topic, TopicFilter,
 };
 
 mod config;
 
 type HookWriters = Arc<DashMap<ByteString, Arc<RwLock<HookWriter>>>>;
 
-#[inline]
-pub async fn register(
-    runtime: &'static Runtime,
-    name: &'static str,
-    default_startup: bool,
-    immutable: bool,
-) -> Result<()> {
-    runtime
-        .plugins
-        .register(name, default_startup, immutable, move || -> DynPluginResult {
-            Box::pin(
-                async move { WebHookPlugin::new(runtime, name).await.map(|p| -> DynPlugin { Box::new(p) }) },
-            )
-        })
-        .await?;
-    Ok(())
-}
+register!(WebHookPlugin::new);
 
 #[derive(Plugin)]
 struct WebHookPlugin {

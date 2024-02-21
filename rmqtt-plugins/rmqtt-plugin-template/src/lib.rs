@@ -4,25 +4,11 @@ extern crate rmqtt_macros;
 use async_trait::async_trait;
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
-    plugin::{DynPlugin, DynPluginResult, PackageInfo, Plugin},
-    Result, Runtime,
+    plugin::{PackageInfo, Plugin},
+    register, Result, Runtime,
 };
 
-#[inline]
-pub async fn register(
-    runtime: &'static Runtime,
-    name: &'static str,
-    default_startup: bool,
-    immutable: bool,
-) -> Result<()> {
-    runtime
-        .plugins
-        .register(name, default_startup, immutable, move || -> DynPluginResult {
-            Box::pin(async move { Template::new(runtime).await.map(|p| -> DynPlugin { Box::new(p) }) })
-        })
-        .await?;
-    Ok(())
-}
+register!(Template::new);
 
 #[derive(Plugin)]
 struct Template {
@@ -32,7 +18,7 @@ struct Template {
 
 impl Template {
     #[inline]
-    async fn new(runtime: &'static Runtime) -> Result<Self> {
+    async fn new(runtime: &'static Runtime, _name: &'static str) -> Result<Self> {
         let register = runtime.extends.hook_mgr().await.register();
         Ok(Self { _runtime: runtime, register })
     }

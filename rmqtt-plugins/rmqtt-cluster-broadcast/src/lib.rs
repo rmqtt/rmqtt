@@ -25,8 +25,8 @@ use rmqtt::{
         types::{From, Publish, Reason, To},
     },
     grpc::{GrpcClients, Message, MessageReply, MessageType},
-    plugin::{DynPlugin, DynPluginResult, PackageInfo, Plugin},
-    Result, Runtime,
+    plugin::{PackageInfo, Plugin},
+    register, Result, Runtime,
 };
 use router::ClusterRouter;
 use shared::ClusterShared;
@@ -39,23 +39,7 @@ mod shared;
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
-#[inline]
-pub async fn register(
-    runtime: &'static Runtime,
-    name: &'static str,
-    default_startup: bool,
-    immutable: bool,
-) -> Result<()> {
-    runtime
-        .plugins
-        .register(name, default_startup, immutable, move || -> DynPluginResult {
-            Box::pin(
-                async move { ClusterPlugin::new(runtime, name).await.map(|p| -> DynPlugin { Box::new(p) }) },
-            )
-        })
-        .await?;
-    Ok(())
-}
+register!(ClusterPlugin::new);
 
 #[derive(Plugin)]
 struct ClusterPlugin {

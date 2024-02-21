@@ -11,6 +11,29 @@ pub type EntryRef<'a> = Ref<'a, String, Entry, ahash::RandomState>;
 pub type EntryRefMut<'a> = RefMut<'a, String, Entry, ahash::RandomState>;
 pub type EntryIter<'a> = Iter<'a, String, Entry, ahash::RandomState, DashMap<String, Entry>>;
 
+#[macro_export]
+macro_rules! register {
+    ($name:path) => {
+        #[inline]
+        pub async fn register(
+            runtime: &'static rmqtt::Runtime,
+            name: &'static str,
+            default_startup: bool,
+            immutable: bool,
+        ) -> Result<()> {
+            runtime
+                .plugins
+                .register(name, default_startup, immutable, move || -> rmqtt::plugin::DynPluginResult {
+                    Box::pin(async move {
+                        $name(runtime, name).await.map(|p| -> rmqtt::plugin::DynPlugin { Box::new(p) })
+                    })
+                })
+                .await?;
+            Ok(())
+        }
+    };
+}
+
 #[async_trait]
 pub trait Plugin: PackageInfo + Send + Sync {
     #[inline]
