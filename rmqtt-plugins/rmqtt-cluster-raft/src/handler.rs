@@ -11,21 +11,16 @@ use rmqtt::{
 
 use super::config::{retry, BACKOFF_STRATEGY};
 use super::message::{Message, RaftGrpcMessage, RaftGrpcMessageReply};
-use super::{hook_message_dropped, retainer::ClusterRetainer, shared::ClusterShared, task_exec_queue};
+use super::{hook_message_dropped, shared::ClusterShared, task_exec_queue};
 
 pub(crate) struct HookHandler {
     shared: &'static ClusterShared,
-    retainer: &'static ClusterRetainer,
     raft_mailbox: Mailbox,
 }
 
 impl HookHandler {
-    pub(crate) fn new(
-        shared: &'static ClusterShared,
-        retainer: &'static ClusterRetainer,
-        raft_mailbox: Mailbox,
-    ) -> Self {
-        Self { shared, retainer, raft_mailbox }
+    pub(crate) fn new(shared: &'static ClusterShared, raft_mailbox: Mailbox) -> Self {
+        Self { shared, raft_mailbox }
     }
 }
 
@@ -120,13 +115,7 @@ impl Handler for HookHandler {
                     }
                     GrpcMessage::GetRetains(topic_filter) => {
                         log::debug!("[GrpcMessage::GetRetains] topic_filter: {:?}", topic_filter);
-                        let new_acc = match self.retainer.inner().get(topic_filter).await {
-                            Ok(retains) => {
-                                HookResult::GrpcMessageReply(Ok(MessageReply::GetRetains(retains)))
-                            }
-                            Err(e) => HookResult::GrpcMessageReply(Err(e)),
-                        };
-                        return (false, Some(new_acc));
+                        unreachable!()
                     }
                     GrpcMessage::SubscriptionsGet(clientid) => {
                         let id = Id::from(Runtime::instance().node.id(), clientid.clone());

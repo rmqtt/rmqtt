@@ -13,7 +13,6 @@ use std::time::Duration;
 
 use config::PluginConfig;
 use handler::HookHandler;
-use retainer::ClusterRetainer;
 
 use rmqtt::anyhow::anyhow;
 use rmqtt::{
@@ -45,7 +44,6 @@ use shared::ClusterShared;
 mod config;
 mod handler;
 mod message;
-mod retainer;
 mod router;
 mod shared;
 
@@ -60,7 +58,6 @@ struct ClusterPlugin {
     cfg: Arc<PluginConfig>,
     grpc_clients: GrpcClients,
     shared: &'static ClusterShared,
-    retainer: &'static ClusterRetainer,
 
     router: &'static ClusterRouter,
     raft_mailbox: Option<Mailbox>,
@@ -95,10 +92,9 @@ impl ClusterPlugin {
         let grpc_clients = Arc::new(grpc_clients);
         let router = ClusterRouter::get_or_init(cfg.try_lock_timeout);
         let shared = ClusterShared::get_or_init(router, grpc_clients.clone(), node_names, cfg.message_type);
-        let retainer = ClusterRetainer::get_or_init(grpc_clients.clone(), cfg.message_type);
         let raft_mailbox = None;
         let cfg = Arc::new(cfg);
-        Ok(Self { runtime, register, cfg, grpc_clients, shared, retainer, router, raft_mailbox })
+        Ok(Self { runtime, register, cfg, grpc_clients, shared, router, raft_mailbox })
     }
 
     //raft init ...
@@ -210,9 +206,7 @@ impl ClusterPlugin {
 
     #[inline]
     async fn hook_register(&self, typ: Type) {
-        self.register
-            .add(typ, Box::new(HookHandler::new(self.shared, self.retainer, self.raft_mailbox())))
-            .await;
+        self.register.add(typ, Box::new(HookHandler::new(self.shared, self.raft_mailbox()))).await;
     }
 
     fn raft_mailbox(&self) -> Mailbox {
