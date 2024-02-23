@@ -39,7 +39,7 @@ log.file = "rmqtt_2.log"
 plugins.dir = "./plugins"
 #Plug in started by default, when the mqtt server is started
 plugins.default_startups = [
-    "rmqtt-retainer",
+    #"rmqtt-retainer",
     "rmqtt-cluster-broadcast",
     #"rmqtt-auth-http",
     "rmqtt-web-hook"
@@ -86,8 +86,8 @@ listener.tcp.external.max_qos_allowed = 2
 #The maximum level at which clients are allowed to subscribe to topics.
 #0 means unlimited. default value: 0
 listener.tcp.external.max_topic_levels = 0
-#Whether support retain message, true/false, default value: true
-listener.tcp.external.retain_available = true
+#Whether support retain message, true/false, default value: false
+listener.tcp.external.retain_available = false
 #Session timeout, default value: 2 hours
 listener.tcp.external.session_expiry_interval = "5m"
 #QoS 1/2 message retry interval, 0 means no resend
