@@ -9,7 +9,6 @@ use std::sync::Arc;
 
 use config::PluginConfig;
 use handler::HookHandler;
-use retainer::ClusterRetainer;
 use rmqtt::{
     ahash,
     async_trait::async_trait,
@@ -33,7 +32,6 @@ use shared::ClusterShared;
 
 mod config;
 mod handler;
-mod retainer;
 mod router;
 mod shared;
 
@@ -48,7 +46,6 @@ struct ClusterPlugin {
     cfg: Arc<RwLock<PluginConfig>>,
     grpc_clients: GrpcClients,
     shared: &'static ClusterShared,
-    retainer: &'static ClusterRetainer,
     router: &'static ClusterRouter,
 }
 
@@ -76,8 +73,7 @@ impl ClusterPlugin {
         let message_type = cfg.read().await.message_type;
         let router = ClusterRouter::get_or_init(grpc_clients.clone(), message_type);
         let shared = ClusterShared::get_or_init(grpc_clients.clone(), message_type);
-        let retainer = ClusterRetainer::get_or_init(grpc_clients.clone(), message_type);
-        Ok(Self { runtime, register, cfg, grpc_clients, shared, retainer, router })
+        Ok(Self { runtime, register, cfg, grpc_clients, shared, router })
     }
 }
 
@@ -87,10 +83,7 @@ impl Plugin for ClusterPlugin {
     async fn init(&mut self) -> Result<()> {
         log::info!("{} init", self.name());
         self.register
-            .add(
-                Type::GrpcMessageReceived,
-                Box::new(HookHandler::new(self.shared, self.router, self.retainer)),
-            )
+            .add(Type::GrpcMessageReceived, Box::new(HookHandler::new(self.shared, self.router)))
             .await;
         Ok(())
     }

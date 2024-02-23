@@ -9,21 +9,16 @@ use rmqtt::{
     Id, Runtime,
 };
 
-use super::{hook_message_dropped, retainer::ClusterRetainer, router::ClusterRouter, shared::ClusterShared};
+use super::{hook_message_dropped, router::ClusterRouter, shared::ClusterShared};
 
 pub(crate) struct HookHandler {
     shared: &'static ClusterShared,
     router: &'static ClusterRouter,
-    retainer: &'static ClusterRetainer,
 }
 
 impl HookHandler {
-    pub(crate) fn new(
-        shared: &'static ClusterShared,
-        router: &'static ClusterRouter,
-        retainer: &'static ClusterRetainer,
-    ) -> Self {
-        Self { shared, router, retainer }
+    pub(crate) fn new(shared: &'static ClusterShared, router: &'static ClusterRouter) -> Self {
+        Self { shared, router }
     }
 }
 
@@ -85,14 +80,8 @@ impl Handler for HookHandler {
                         )));
                         return (false, Some(new_acc));
                     }
-                    Message::GetRetains(topic_filter) => {
-                        let new_acc = match self.retainer.inner().get(topic_filter).await {
-                            Ok(retains) => {
-                                HookResult::GrpcMessageReply(Ok(MessageReply::GetRetains(retains)))
-                            }
-                            Err(e) => HookResult::GrpcMessageReply(Err(e)),
-                        };
-                        return (false, Some(new_acc));
+                    Message::GetRetains(_topic_filter) => {
+                        unreachable!()
                     }
                     Message::Online(clientid) => {
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::Online(
