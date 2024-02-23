@@ -1189,17 +1189,9 @@ impl DefaultRetainStorage {
         }
         Ok(())
     }
-}
-
-#[async_trait]
-impl RetainStorage for &'static DefaultRetainStorage {
-    #[inline]
-    async fn set(&self, topic: &TopicName, retain: Retain) -> Result<()> {
-        self.set_with_timeout(topic, retain, None).await
-    }
 
     #[inline]
-    async fn get(&self, topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>> {
+    pub async fn get_message(&self, topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>> {
         let topic = Topic::from_str(topic_filter)?;
         let retains = self
             .messages
@@ -1216,6 +1208,21 @@ impl RetainStorage for &'static DefaultRetainStorage {
             })
             .collect::<Vec<(TopicName, Retain)>>();
         Ok(retains)
+    }
+}
+
+#[async_trait]
+impl RetainStorage for &'static DefaultRetainStorage {
+    #[inline]
+    async fn set(&self, _topic: &TopicName, _retain: Retain) -> Result<()> {
+        log::warn!("Please use the \"rmqtt-retainer\" plugin as the main program no longer supports retain messages.");
+        Ok(())
+    }
+
+    #[inline]
+    async fn get(&self, _topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>> {
+        log::warn!("Please use the \"rmqtt-retainer\" plugin as the main program no longer supports retain messages.");
+        Ok(Vec::new())
     }
 
     #[inline]

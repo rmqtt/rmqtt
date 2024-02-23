@@ -29,8 +29,8 @@ impl Retainer {
     }
 
     #[inline]
-    pub(crate) fn inner(&self) -> Box<dyn RetainStorage> {
-        Box::new(self.inner)
+    pub(crate) fn inner(&self) -> &'static DefaultRetainStorage {
+        self.inner
     }
 
     #[inline]
@@ -70,7 +70,7 @@ impl RetainStorage for &'static Retainer {
 
     ///topic_filter - Topic filter
     async fn get(&self, topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>> {
-        let mut retains = self.inner.get(topic_filter).await?;
+        let mut retains = self.inner.get_message(topic_filter).await?;
         let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
         if grpc_clients.is_empty() {
             return Ok(retains);

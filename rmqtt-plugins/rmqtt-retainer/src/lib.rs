@@ -130,7 +130,7 @@ impl Handler for RetainHandler {
                 }
                 match msg {
                     Message::GetRetains(topic_filter) => {
-                        let new_acc = match self.retainer.inner().get(topic_filter).await {
+                        let new_acc = match self.retainer.inner().get_message(topic_filter).await {
                             Ok(retains) => {
                                 HookResult::GrpcMessageReply(Ok(MessageReply::GetRetains(retains)))
                             }
