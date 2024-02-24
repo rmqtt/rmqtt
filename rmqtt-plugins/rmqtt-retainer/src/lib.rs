@@ -9,7 +9,13 @@ use config::PluginConfig;
 use retainer::Retainer;
 use rmqtt::broker::RetainStorage;
 use rmqtt::grpc::MessageType;
-use rmqtt::{async_trait::async_trait, log, serde_json, tokio::sync::RwLock, tokio_cron_scheduler::Job};
+use rmqtt::{
+    async_trait::async_trait,
+    log,
+    serde_json::{self, json},
+    tokio::sync::RwLock,
+    tokio_cron_scheduler::Job,
+};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     grpc::{Message, MessageReply},
@@ -104,6 +110,16 @@ impl Plugin for RetainerPlugin {
         log::warn!("{} stop, the default Retainer plug-in, it cannot be stopped", self.name());
         //self.register.stop().await;
         Ok(false)
+    }
+
+    #[inline]
+    async fn attrs(&self) -> serde_json::Value {
+        let count = self.retainer.count();
+        let max = self.retainer.max();
+        json!({
+            "count": count,
+            "max": max,
+        })
     }
 }
 
