@@ -216,6 +216,12 @@ impl Stats {
             self.message_storages.max_max(message_mgr.max().await);
         }
 
+        {
+            let retain = Runtime::instance().extends.retain().await;
+            self.retaineds.current_set(retain.count().await);
+            self.retaineds.max_max(retain.max().await);
+        }
+
         #[cfg(feature = "debug")]
         let shared = Runtime::instance().extends.shared().await;
 

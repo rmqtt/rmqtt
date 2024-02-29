@@ -1146,7 +1146,7 @@ impl DefaultSharedSubscription {
 impl SharedSubscription for &'static DefaultSharedSubscription {}
 
 pub struct DefaultRetainStorage {
-    messages: RwLock<RetainTree<TimedValue<Retain>>>,
+    pub messages: RwLock<RetainTree<TimedValue<Retain>>>,
 }
 
 impl DefaultRetainStorage {
@@ -1157,7 +1157,7 @@ impl DefaultRetainStorage {
     }
 
     #[inline]
-    pub async fn remove_expired_messages(&self) {
+    pub async fn remove_expired_messages(&self) -> usize {
         let mut messages = self.messages.write().await;
         messages.retain(usize::MAX, |tv| {
             if tv.is_expired() {
@@ -1166,7 +1166,7 @@ impl DefaultRetainStorage {
             } else {
                 true
             }
-        });
+        })
     }
 
     #[inline]
@@ -1226,12 +1226,12 @@ impl RetainStorage for &'static DefaultRetainStorage {
     }
 
     #[inline]
-    fn count(&self) -> isize {
+    async fn count(&self) -> isize {
         Runtime::instance().stats.retaineds.count()
     }
 
     #[inline]
-    fn max(&self) -> isize {
+    async fn max(&self) -> isize {
         Runtime::instance().stats.retaineds.max()
     }
 }

@@ -51,7 +51,11 @@ impl Node {
                 .unwrap();
             let runner = async {
                 if let Err(e) = Server::new().listen_and_serve().await {
-                    log::error!("listen and serve failure, {:?}", e);
+                    log::error!(
+                        "listen and serve failure, {:?}, laddr: {:?}",
+                        e,
+                        Runtime::instance().settings.rpc.server_addr
+                    );
                 }
             };
             rt.block_on(runner)

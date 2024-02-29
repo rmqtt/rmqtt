@@ -282,10 +282,10 @@ pub trait RetainStorage: Sync + Send {
     async fn get(&self, topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>>;
 
     ///
-    fn count(&self) -> isize;
+    async fn count(&self) -> isize;
 
     ///
-    fn max(&self) -> isize;
+    async fn max(&self) -> isize;
 }
 
 #[async_trait]
