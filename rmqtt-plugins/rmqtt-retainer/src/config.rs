@@ -1,20 +1,16 @@
 use std::time::Duration;
 
-use serde::de::{Deserialize, Deserializer};
+use serde::de::{self, Deserialize, Deserializer};
 
-use rmqtt::grpc::MessageType;
 use rmqtt::serde_json;
 use rmqtt::settings::{deserialize_duration, Bytesize};
 use rmqtt::Result;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
-    #[serde(default = "PluginConfig::message_type_default")]
-    pub message_type: MessageType,
-
-    // ram: only stored in memory;
-    #[serde(default = "PluginConfig::storage_type_default")]
-    pub storage_type: StorageType, // = "ram",
+    #[serde(default)]
+    #[serde(deserialize_with = "PluginConfig::deserialize_storage")]
+    pub storage: Config,
 
     // The maximum number of retained messages, where 0 indicates no limit. After the number of reserved messages exceeds
     // the maximum limit, existing reserved messages can be replaced, but reserved messages cannot be stored for new topics.
@@ -33,14 +29,6 @@ pub struct PluginConfig {
 }
 
 impl PluginConfig {
-    fn message_type_default() -> MessageType {
-        69
-    }
-
-    fn storage_type_default() -> StorageType {
-        StorageType::Ram
-    }
-
     fn max_retained_messages_default() -> isize {
         0
     }
@@ -54,33 +42,50 @@ impl PluginConfig {
     }
 
     #[inline]
+    fn deserialize_storage<'de, D>(deserializer: D) -> std::result::Result<Config, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let storage = serde_json::Value::deserialize(deserializer)?;
+        let typ = storage.as_object().and_then(|obj| obj.get("type").and_then(|typ| typ.as_str()));
+        match typ {
+            Some("ram") => {
+                match storage
+                    .as_object()
+                    .and_then(|obj| {
+                        obj.get("ram").map(|ram| serde_json::from_value::<RamConfig>(ram.clone()))
+                    })
+                    .unwrap_or_else(|| Ok(RamConfig::default()))
+                {
+                    Err(e) => Err(de::Error::custom(e.to_string())),
+                    Ok(_) => Ok(Config::Ram),
+                }
+            }
+            _ => match serde_json::from_value::<rmqtt_storage::Config>(storage) {
+                Err(e) => Err(de::Error::custom(e.to_string())),
+                Ok(s_cfg) => Ok(Config::Storage(s_cfg)),
+            },
+        }
+    }
+
+    #[inline]
     pub fn to_json(&self) -> Result<serde_json::Value> {
         Ok(serde_json::to_value(self)?)
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub enum StorageType {
-    //ram: only stored in memory;
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub enum Config {
     Ram,
-    //disc: stored in memory and hard drive;
-    Disc,
-    //disc_only: Only stored on the hard drive.
-    DiscOnly,
+    Storage(rmqtt_storage::Config),
 }
 
-impl<'de> Deserialize<'de> for StorageType {
+impl Default for Config {
     #[inline]
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let t = match (String::deserialize(deserializer)?).to_ascii_lowercase().as_str() {
-            "ram" => StorageType::Ram,
-            "disc" => StorageType::Disc,
-            "disc_only" => StorageType::DiscOnly,
-            _ => StorageType::Ram,
-        };
-        Ok(t)
+    fn default() -> Self {
+        Config::Ram
     }
 }
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RamConfig {}
