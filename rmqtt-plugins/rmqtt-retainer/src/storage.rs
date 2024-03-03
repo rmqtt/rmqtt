@@ -285,7 +285,6 @@ impl RetainerInner {
             retain_count
         };
         let retain_count = if retain_count > 0 { retain_count - 1 } else { retain_count };
-        log::info!("retain_count: {}", retain_count);
         Ok(retain_count)
     }
 
@@ -407,7 +406,7 @@ impl RetainStorage for &'static Retainer {
 
     #[inline]
     async fn count(&self) -> isize {
-        -1
+        self.get_retain_count().await.unwrap_or_default() as isize
     }
 
     #[inline]
