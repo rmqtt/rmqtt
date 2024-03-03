@@ -10,5 +10,5 @@ rust-version.workspace = true
 rmqtt.workspace = true
 rmqtt-macros.workspace = true
 serde = { workspace = true, features = ["derive"] }
-rmqtt-storage = { version = "0.4", default-features = false, features = ["ttl"]}
+rmqtt-storage = { version = "0.5", default-features = false, features = ["ttl"]}
 #rmqtt-storage = { path = "../../../rmqtt-storage", default-features = false, features = ["ttl"]}
