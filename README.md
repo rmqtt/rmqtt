@@ -16,15 +16,15 @@ and mobile applications that can handle millions of concurrent clients on a sing
 - MQTT v3.1, v3.1.1 and v5.0 protocols support;
     - QoS0, QoS1, QoS2 message support;
     - Offline message support;
-    - Retained message support;
+    - [Retained message support](./docs/en_US/retainer.md);
     - Last Will message support;
 - [Built-in AUTH/ACL](./docs/en_US/acl.md);
 - [HTTP AUTH/ACL](./docs/en_US/auth-http.md);
 - [WebHook](./docs/en_US/web-hook.md);
 - [HTTP APIs](./docs/en_US/http-api.md);
-- [$SYS System Topics](./docs/en_US/sys-topic.md)
-- [Store session information](./docs/en_US/store-session.md)
-- [Store unexpired messages](./docs/en_US/store-message.md)
+- [$SYS System Topics](./docs/en_US/sys-topic.md);
+- [Store session information](./docs/en_US/store-session.md);
+- [Store unexpired messages](./docs/en_US/store-message.md);
 - Distributed cluster;
 - Hooks;
 - TLS support;
