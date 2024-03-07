@@ -22,8 +22,19 @@ With the help of WebHook, various business tasks can be accomplished, such as re
 </font>
 </div>
 
+#### Plugins:
 
-## Configuration Options
+```bash
+rmqtt-web-hook
+```
+
+#### Plugin configuration file:
+
+```bash
+plugins/rmqtt-web-hook.toml
+```
+
+#### Plugin configuration options:
 
 The configuration file for WebHook is located at [etc/plugins/rmqtt-web-hook.toml](https://github.com/rmqtt/rmqtt/blob/master/rmqtt-plugins/rmqtt-web-hook.toml).
 

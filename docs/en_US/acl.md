@@ -5,7 +5,14 @@ English | [简体中文](../zh_CN/acl.md)
 The built-in ACL sets rules through files, which is simple and lightweight to use. It is suitable for projects with a
 predictable number of rules, no change, or small change requirements.
 
-ACL rules file:
+
+#### Plugins:
+
+```bash
+rmqtt-acl
+```
+
+#### Plugin configuration file:
 
 ```bash
 plugins/rmqtt-acl.toml

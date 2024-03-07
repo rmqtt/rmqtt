@@ -22,8 +22,19 @@ WebHook 对于事件的处理是单向的，**它仅支持将 RMQTT 中的事件
 </font>
 </div>
 
+#### 插件：
 
-## 配置项
+```bash
+rmqtt-web-hook
+```
+
+#### 插件配置文件：
+
+```bash
+plugins/rmqtt-web-hook.toml
+```
+
+#### 插件配置项：
 
 Webhook 的配置文件位于 `etc/plugins/rmqtt-web-hook.toml` 。
 

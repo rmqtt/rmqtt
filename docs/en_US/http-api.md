@@ -8,6 +8,44 @@ messages.
 RMQTT Broker's HTTP API service listens on port 6060 by default. You can modify the listening port through the
 configuration file of etc/plugins/rmqtt-http-api.toml. All API calls start with api/v1.
 
+#### Plugins:
+
+```bash
+rmqtt-http-api
+```
+
+#### Plugin configuration file:
+
+```bash
+plugins/rmqtt-http-api.toml
+```
+
+#### Plugin configuration options:
+
+```bash
+##--------------------------------------------------------------------
+## rmqtt-http-api
+##--------------------------------------------------------------------
+
+# See more keys and their definitions at https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/http-api.md
+
+##Number of worker threads
+workers = 1
+## Max Row Limit
+max_row_limit = 10_000
+## HTTP Listener
+http_laddr = "0.0.0.0:6060"
+## Indicates whether to print HTTP request logs
+http_request_log = false
+
+##Whether support retain message, true/false, default value: true
+message_retain_available = true
+##Whether support storage messages, true/false, default value: false
+message_storage_available = false
+##Message expiration time, 0 means no expiration
+message_expiry_interval = "5m"
+```
+
 ## Response code
 
 ### HTTP status codes

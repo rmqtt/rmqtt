@@ -11,13 +11,19 @@ $SYS/brokers/1/stats
 $SYS/brokers/1/metrics
 ```
 
-插件：
+#### 插件：
 
 ```bash
 rmqtt-sys-topic
 ```
 
-$SYS 系统消息插件配置项：
+#### 插件配置文件：
+
+```bash
+plugins/rmqtt-sys-topic.toml
+```
+
+#### 插件配置项：
 
 ```bash
 #$SYS system message publish QoS

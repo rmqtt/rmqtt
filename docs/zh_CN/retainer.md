@@ -6,13 +6,19 @@
 
 **RMQTT 0.4.0**及之后版本默认将关闭**保留消息**功能。开始**保留消息**功能需要打开**rmqtt-retainer**插件和**listener.tcp.\<xxxx\>.retain_available**配置项。
 
-插件：
+#### 插件：
 
 ```bash
 rmqtt-retainer
 ```
 
-保留消息插件配置项：
+#### 插件配置文件：
+
+```bash
+plugins/rmqtt-retainer.toml
+```
+
+#### 插件配置项：
 
 ```bash
 ##--------------------------------------------------------------------

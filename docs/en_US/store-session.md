@@ -13,13 +13,19 @@ Upon restart of the RMQTT service node, non-expired session basic information an
 loaded, and non-expired offline messages and inflight messages will be forwarded. If the session has already expired, 
 all information will be discarded.
 
-Plugins:
+#### Plugins:
 
 ```bash
 rmqtt-session-storage
 ```
 
-Configuration options for session information storage plugin:
+#### Plugin configuration file:
+
+```bash
+plugins/rmqtt-session-storage.toml
+```
+
+#### Plugin configuration options:
 
 ```bash
 ##--------------------------------------------------------------------

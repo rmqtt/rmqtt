@@ -6,6 +6,44 @@ RMQTT 提供了 HTTP API 以实现与外部系统的集成，例如查询客户�
 
 RMQTT 的 HTTP API 服务默认监听 6060 端口，可通过 `etc/plugins/rmqtt-http-api.toml` 配置文件修改监听端口。所有 API 调用均以 `api/v1` 开头。
 
+#### 插件：
+
+```bash
+rmqtt-http-api
+```
+
+#### 插件配置文件：
+
+```bash
+plugins/rmqtt-http-api.toml
+```
+
+#### 插件配置项：
+
+```bash
+##--------------------------------------------------------------------
+## rmqtt-http-api
+##--------------------------------------------------------------------
+
+# See more keys and their definitions at https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/http-api.md
+
+##Number of worker threads
+workers = 1
+## Max Row Limit
+max_row_limit = 10_000
+## HTTP Listener
+http_laddr = "0.0.0.0:6060"
+## Indicates whether to print HTTP request logs
+http_request_log = false
+
+##Whether support retain message, true/false, default value: true
+message_retain_available = true
+##Whether support storage messages, true/false, default value: false
+message_storage_available = false
+##Message expiration time, 0 means no expiration
+message_expiry_interval = "5m"
+```
+
 ## 响应码
 
 ### HTTP 状态码 (status codes)

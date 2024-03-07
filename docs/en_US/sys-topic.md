@@ -12,13 +12,20 @@ $SYS/brokers/1/stats
 $SYS/brokers/1/metrics
 ```
 
-Plugin:
+#### Plugin:
 
 ```bash
 rmqtt-sys-topic
 ```
 
-$SYS System Message Plugin Configuration:
+#### Plugin configuration file:
+
+```bash
+plugins/rmqtt-sys-topic.toml
+```
+
+#### Plugin configuration options:
+
 
 ```bash
 #$SYS system message publish QoS

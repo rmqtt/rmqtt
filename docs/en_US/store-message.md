@@ -5,13 +5,19 @@ English | [简体中文](../zh_CN/store-message.md)
 
 Messages that are published will be stored until they expire. As long as a message remains unexpired, any subscriptions made to the corresponding topic after the message is published will be forwarded. Messages will be automatically cleared once they expire.
 
-Plugin:
+#### Plugin:
 
 ```bash
 rmqtt-message-storage
 ```
 
-Configuration options for the message storage plugin:
+#### Plugin configuration file:
+
+```bash
+plugins/rmqtt-message-storage.toml
+```
+
+#### Plugin configuration options:
 
 ```bash
 ##--------------------------------------------------------------------
