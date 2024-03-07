@@ -92,9 +92,11 @@ Get the binary package of the corresponding OS from [RMQTT Download](https://git
 
 ## Experience
 
-- MQTT Broker: 47.103.110.134:1883
-- Account:
-- HTTP APIs: http://47.103.110.134:6080/api/v1/
+[//]: # (- MQTT Broker: 47.103.110.134:1883)
+
+[//]: # (- Account:)
+
+[//]: # (- HTTP APIs: http://47.103.110.134:6080/api/v1/)
 
 ## Test
 
