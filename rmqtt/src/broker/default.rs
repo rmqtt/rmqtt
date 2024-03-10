@@ -1147,13 +1147,15 @@ impl SharedSubscription for &'static DefaultSharedSubscription {}
 
 pub struct DefaultRetainStorage {
     pub messages: RwLock<RetainTree<TimedValue<Retain>>>,
+    retaineds: Counter,
 }
 
 impl DefaultRetainStorage {
     #[inline]
     pub fn instance() -> &'static DefaultRetainStorage {
         static INSTANCE: OnceCell<DefaultRetainStorage> = OnceCell::new();
-        INSTANCE.get_or_init(|| Self { messages: RwLock::new(RetainTree::default()) })
+        INSTANCE
+            .get_or_init(|| Self { messages: RwLock::new(RetainTree::default()), retaineds: Counter::new() })
     }
 
     #[inline]
@@ -1161,7 +1163,7 @@ impl DefaultRetainStorage {
         let mut messages = self.messages.write().await;
         messages.retain(usize::MAX, |tv| {
             if tv.is_expired() {
-                Runtime::instance().stats.retaineds.dec();
+                self.retaineds.dec();
                 false
             } else {
                 true
@@ -1182,10 +1184,10 @@ impl DefaultRetainStorage {
         if !retain.publish.is_empty() {
             messages.insert(&topic, TimedValue::new(retain, timeout));
             if old.is_none() {
-                Runtime::instance().stats.retaineds.inc();
+                self.retaineds.inc();
             }
         } else if old.is_some() {
-            Runtime::instance().stats.retaineds.dec();
+            self.retaineds.dec();
         }
         Ok(())
     }
@@ -1227,12 +1229,12 @@ impl RetainStorage for &'static DefaultRetainStorage {
 
     #[inline]
     async fn count(&self) -> isize {
-        Runtime::instance().stats.retaineds.count()
+        self.retaineds.count()
     }
 
     #[inline]
     async fn max(&self) -> isize {
-        Runtime::instance().stats.retaineds.max()
+        self.retaineds.max()
     }
 }
 

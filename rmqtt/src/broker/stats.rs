@@ -115,6 +115,14 @@ impl Counter {
         self.0.store(other.0.load(Ordering::SeqCst), Ordering::SeqCst);
         self.1.store(other.1.load(Ordering::SeqCst), Ordering::SeqCst);
     }
+
+    #[inline]
+    pub fn to_json(&self) -> serde_json::Value {
+        json!({
+            "count": self.count(),
+            "max": self.max()
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -126,13 +134,13 @@ pub struct Stats {
     pub sessions: Counter,
     pub subscriptions: Counter,
     pub subscriptions_shared: Counter,
-    pub retaineds: Counter,
     pub message_queues: Counter,
     pub out_inflights: Counter,
     pub in_inflights: Counter,
     pub forwards: Counter,
     pub message_storages: Counter,
 
+    retaineds_map: HashMap<NodeId, Counter>,
     topics_map: HashMap<NodeId, Counter>,
     routes_map: HashMap<NodeId, Counter>,
 
@@ -164,13 +172,13 @@ impl Stats {
             sessions: Counter::new(),
             subscriptions: Counter::new(),
             subscriptions_shared: Counter::new(),
-            retaineds: Counter::new(),
             message_queues: Counter::new(),
             out_inflights: Counter::new(),
             in_inflights: Counter::new(),
             forwards: Counter::new(),
             message_storages: Counter::new(),
 
+            retaineds_map: HashMap::default(),
             topics_map: HashMap::default(),
             routes_map: HashMap::default(),
 
@@ -216,10 +224,13 @@ impl Stats {
             self.message_storages.max_max(message_mgr.max().await);
         }
 
+        let mut retaineds_map = HashMap::default();
         {
             let retain = Runtime::instance().extends.retain().await;
-            self.retaineds.current_set(retain.count().await);
-            self.retaineds.max_max(retain.max().await);
+            let c = Counter::new();
+            c.current_set(retain.count().await);
+            c.max_max(retain.max().await);
+            retaineds_map.insert(node_id, c);
         }
 
         #[cfg(feature = "debug")]
@@ -252,13 +263,13 @@ impl Stats {
             sessions: self.sessions.clone(),
             subscriptions: self.subscriptions.clone(),
             subscriptions_shared: self.subscriptions_shared.clone(),
-            retaineds: self.retaineds.clone(), //retained messages
             message_queues: self.message_queues.clone(),
             out_inflights: self.out_inflights.clone(),
             in_inflights: self.in_inflights.clone(),
             forwards: self.forwards.clone(),
             message_storages: self.message_storages.clone(),
 
+            retaineds_map,
             topics_map,
             routes_map,
 
@@ -288,13 +299,13 @@ impl Stats {
         self.sessions.add(&other.sessions);
         self.subscriptions.add(&other.subscriptions);
         self.subscriptions_shared.add(&other.subscriptions_shared);
-        self.retaineds.add(&other.retaineds);
         self.message_queues.add(&other.message_queues);
         self.out_inflights.add(&other.out_inflights);
         self.in_inflights.add(&other.in_inflights);
         self.forwards.add(&other.forwards);
         self.message_storages.add(&other.message_storages);
 
+        self.retaineds_map.extend(other.retaineds_map);
         self.topics_map.extend(other.topics_map);
         self.routes_map.extend(other.routes_map);
 
@@ -331,6 +342,13 @@ impl Stats {
         let topics = router.merge_topics(&self.topics_map);
         let routes = router.merge_routes(&self.routes_map);
 
+        let retaineds = self
+            .retaineds_map
+            .iter()
+            .max_by(|(_, c1), (_, c2)| c1.count().cmp(&c2.count()))
+            .map(|(_, c)| c.clone())
+            .unwrap_or_default();
+
         let mut json_val = json!({
             "handshakings.count": self.handshakings.count(),
             "handshakings.max": self.handshakings.max(),
@@ -345,8 +363,8 @@ impl Stats {
             "subscriptions.max": self.subscriptions.max(),
             "subscriptions_shared.count": self.subscriptions_shared.count(),
             "subscriptions_shared.max": self.subscriptions_shared.max(),
-            "retained.count": self.retaineds.count(),
-            "retained.max": self.retaineds.max(),
+            "retaineds.count": retaineds.count(),
+            "retaineds.max": retaineds.max(),
 
             "message_queues.count": self.message_queues.count(),
             "message_queues.max": self.message_queues.max(),
@@ -376,6 +394,7 @@ impl Stats {
                 obj.insert("debug_session_channels.max".into(), json!(self.debug_session_channels.max()));
                 obj.insert("debug_task_exec_stats".into(), json!(self.debug_task_exec_stats));
                 obj.insert("debug_task_local_exec_stats".into(), json!(self.debug_task_local_exec_stats));
+                obj.insert("debug_retaineds_map".into(), json!(self.retaineds_map));
             }
         }
 
