@@ -2475,6 +2475,15 @@ pub fn format_timestamp_millis(t: TimestampMillis) -> String {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum StatsMergeMode {
+    None,    // Represents no merging;
+    Sum,     // Represents summing the data;
+    Average, // Represents averaging the data;
+    Max,     // Represents taking the maximum value of the data;
+    Min,     // Represents taking the minimum value of the data;
+}
+
 #[test]
 fn test_reason() {
     assert_eq!(Reason::ConnectKicked(false).is_kicked(false), true);

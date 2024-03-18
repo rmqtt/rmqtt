@@ -286,6 +286,11 @@ pub trait RetainStorage: Sync + Send {
 
     ///
     async fn max(&self) -> isize;
+
+    #[inline]
+    fn stats_merge_mode(&self) -> StatsMergeMode {
+        StatsMergeMode::None
+    }
 }
 
 #[async_trait]

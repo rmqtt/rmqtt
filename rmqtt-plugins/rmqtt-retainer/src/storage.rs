@@ -19,7 +19,7 @@ use rmqtt::{
     timestamp_millis, tokio,
     tokio::sync::RwLock,
     tokio::time::sleep,
-    NodeId, Retain, TimestampMillis, TopicName,
+    NodeId, Retain, StatsMergeMode, TimestampMillis, TopicName,
 };
 
 use rmqtt::{MqttError, Result, Topic, TopicFilter};
@@ -429,6 +429,11 @@ impl RetainStorage for &'static Retainer {
             .get()
             .map(|v| *v)
             .unwrap_or(-1)
+    }
+
+    #[inline]
+    fn stats_merge_mode(&self) -> StatsMergeMode {
+        StatsMergeMode::Max
     }
 }
 
