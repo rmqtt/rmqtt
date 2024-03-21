@@ -89,7 +89,7 @@ impl Settings {
             }
         }
         if let Some(plugins_default_startups) = opts.plugins_default_startups.as_ref() {
-            inner.plugins.default_startups = plugins_default_startups.clone()
+            inner.plugins.default_startups.clone_from(plugins_default_startups)
         }
 
         inner.opts = opts;

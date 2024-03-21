@@ -1,7 +1,6 @@
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap};
 use std::convert::From as _f;
-use std::iter::Iterator;
 use std::mem::size_of;
 use std::ops::Deref;
 use std::str::FromStr;

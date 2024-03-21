@@ -1554,10 +1554,10 @@ impl Id {
     }
 }
 
-impl ToString for Id {
-    #[inline]
-    fn to_string(&self) -> String {
-        format!(
+impl Display for Id {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
             "{}@{}/{}/{}/{}/{}",
             self.node_id,
             self.local_addr.map(|addr| addr.to_string()).unwrap_or_default(),
@@ -2356,7 +2356,7 @@ impl ClientTopicAliases {
                             "implementation specific error, the ‘topic‘ associated with the ‘alias‘ was not found",
                         ),
                     )
-                }).map(|topic|topic.clone())
+                }).cloned()
             }
             (Some(alias), _) => {
                 let mut aliases = self.aliases.write().await;

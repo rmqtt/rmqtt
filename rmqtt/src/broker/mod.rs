@@ -56,13 +56,13 @@ pub trait Entry: Sync + Send {
 
 #[async_trait]
 pub trait Shared: Sync + Send {
-    ///
+    /// Entry of the id
     fn entry(&self, id: Id) -> Box<dyn Entry>;
 
-    ///
+    /// Check if client_id exist
     fn exist(&self, client_id: &str) -> bool;
 
-    ///Route and dispense publish message
+    /// Route and dispense publish message
     async fn forwards(
         &self,
         from: From,
@@ -76,7 +76,7 @@ pub trait Shared: Sync + Send {
         publish: Publish,
     ) -> Result<(SubRelationsMap, SubscriptionClientIds), Vec<(To, From, Publish, Reason)>>;
 
-    ///dispense publish message
+    /// dispense publish message
     async fn forwards_to(
         &self,
         from: From,
@@ -84,22 +84,22 @@ pub trait Shared: Sync + Send {
         relations: SubRelations,
     ) -> Result<(), Vec<(To, From, Publish, Reason)>>;
 
-    ///
+    /// Iter
     fn iter(&self) -> Box<dyn Iterator<Item = Box<dyn Entry>> + Sync + Send>;
 
-    ///
+    /// choose a session if exist
     fn random_session(&self) -> Option<Session>;
 
-    ///
+    /// Get session status with client id specific
     async fn session_status(&self, client_id: &str) -> Option<SessionStatus>;
 
-    ///
+    /// Count of th client States
     async fn client_states_count(&self) -> usize;
 
-    ///
+    /// Sessions count
     fn sessions_count(&self) -> usize;
 
-    ///
+    /// Subscriptions from SubSearchParams
     async fn query_subscriptions(&self, q: SubsSearchParams) -> Vec<SubsSearchResult>;
 
     async fn subscriptions_count(&self) -> usize;
@@ -164,13 +164,13 @@ pub trait Shared: Sync + Send {
 
 #[async_trait]
 pub trait Router: Sync + Send {
-    ///
+    /// Id add with topic filter
     async fn add(&self, topic_filter: &str, id: Id, opts: SubscriptionOptions) -> Result<()>;
 
-    ///
+    /// Remove with id topic filter
     async fn remove(&self, topic_filter: &str, id: Id) -> Result<bool>;
 
-    ///
+    /// Match with id and topic
     async fn matches(&self, id: Id, topic: &TopicName) -> Result<SubRelationsMap>;
 
     ///Check online or offline
@@ -185,13 +185,13 @@ pub trait Router: Sync + Send {
             .await
     }
 
-    ///
+    /// Gets by limit
     async fn gets(&self, limit: usize) -> Vec<Route>;
 
-    ///
+    /// Get by topic
     async fn get(&self, topic: &str) -> Result<Vec<Route>>;
 
-    ///
+    /// Topics tree
     async fn topics_tree(&self) -> usize;
 
     ///Return number of subscribed topics
@@ -200,10 +200,10 @@ pub trait Router: Sync + Send {
     ///Returns the number of Subscription relationship
     fn routes(&self) -> Counter;
 
-    ///
+    /// merge Topics with another
     fn merge_topics(&self, topics_map: &HashMap<NodeId, Counter>) -> Counter;
 
-    ///
+    /// merge routes with another
     fn merge_routes(&self, routes_map: &HashMap<NodeId, Counter>) -> Counter;
 
     ///get topic tree
@@ -280,10 +280,8 @@ pub trait RetainStorage: Sync + Send {
     ///topic_filter - Topic filter
     async fn get(&self, topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>>;
 
-    ///
     async fn count(&self) -> isize;
 
-    ///
     async fn max(&self) -> isize;
 
     #[inline]
