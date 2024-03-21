@@ -1,5 +1,4 @@
 use std::convert::From as _f;
-use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -10,7 +9,7 @@ use crate::broker::types::*;
 use crate::grpc::{GrpcClients, MessageBroadcaster, MessageReply, MESSAGE_TYPE_MESSAGE_GET};
 use crate::settings::listener::Listener;
 use crate::stats::Counter;
-use crate::{grpc, ClientId, Id, MqttError, NodeId, Result, Runtime, TopicFilter};
+use crate::{grpc, MqttError, Result, Runtime};
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 

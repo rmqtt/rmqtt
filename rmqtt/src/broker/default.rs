@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 use std::convert::From as _f;
-use std::iter::Iterator;
 use std::num::NonZeroU16;
 use std::num::NonZeroU32;
 use std::str::FromStr;
@@ -25,12 +24,9 @@ use crate::broker::topic::{Topic, VecToTopic};
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
 use crate::stats::Counter;
-use crate::{grpc, ClientId, Id, MqttError, NodeId, Result, Runtime, TopicFilter};
+use crate::{grpc, MqttError, Result, Runtime};
 
-use super::{
-    retain::RetainTree, topic::TopicTree, Entry, IsOnline, RetainStorage, Router, Shared, SharedSubscription,
-    SubRelations, SubRelationsMap,
-};
+use super::{retain::RetainTree, topic::TopicTree, Entry, RetainStorage, Router, Shared, SharedSubscription};
 
 type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
 type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;

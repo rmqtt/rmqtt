@@ -3,8 +3,7 @@ use std::convert::From as _f;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use ntex_mqtt::v5;
-use ntex_mqtt::v5::codec::{Auth, DisconnectReasonCode, PublishAckReason};
+use ntex_mqtt::v5::codec::{Auth, PublishAckReason};
 use ntex_mqtt::v5::PublishAck;
 use ntex_mqtt::v5::PublishResult;
 use rust_box::task_exec_queue::LocalSpawnExt;

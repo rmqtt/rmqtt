@@ -477,7 +477,8 @@ fn test_message_manager() {
 
     let runner = async move {
         let cfg = RamConfig::default();
-        let msg_mgr = RamMessageManager::instance(cfg);
+        let msg_mgr = Box::leak(Box::new(RamMessageManager::new(cfg, usize::MAX).await.unwrap()))
+            as &'static RamMessageManager;
         sleep(Duration::from_millis(10)).await;
         let f = From::from_custom(Id::from(1, ClientId::from("test-001")));
         let mut p = Publish {
@@ -498,7 +499,7 @@ fn test_message_manager() {
             p.topic = TopicName::from("/xx/yy/zz");
             let msg_id = msg_mgr.next_msg_id();
             msg_mgr
-                .store(msg_id, f.clone(), p.clone(), Duration::from_secs(i + 2), Vec::new())
+                .store(msg_id, f.clone(), p.clone(), Duration::from_secs(i + 2), Some(Vec::new()))
                 .await
                 .unwrap();
         }
@@ -507,7 +508,7 @@ fn test_message_manager() {
             p.topic = TopicName::from("/xx/yy/cc");
             let msg_id = msg_mgr.next_msg_id();
             msg_mgr
-                .store(msg_id, f.clone(), p.clone(), Duration::from_secs(i + 2), Vec::new())
+                .store(msg_id, f.clone(), p.clone(), Duration::from_secs(i + 2), Some(Vec::new()))
                 .await
                 .unwrap();
         }
@@ -516,7 +517,7 @@ fn test_message_manager() {
             p.topic = TopicName::from("/xx/yy/");
             let msg_id = msg_mgr.next_msg_id();
             msg_mgr
-                .store(msg_id, f.clone(), p.clone(), Duration::from_secs(i + 2), Vec::new())
+                .store(msg_id, f.clone(), p.clone(), Duration::from_secs(i + 2), Some(Vec::new()))
                 .await
                 .unwrap();
         }
@@ -525,7 +526,7 @@ fn test_message_manager() {
             p.topic = TopicName::from("/xx/yy/ee/ff");
             let msg_id = msg_mgr.next_msg_id();
             msg_mgr
-                .store(msg_id, f.clone(), p.clone(), Duration::from_secs(i + 2), Vec::new())
+                .store(msg_id, f.clone(), p.clone(), Duration::from_secs(i + 2), Some(Vec::new()))
                 .await
                 .unwrap();
         }
@@ -534,7 +535,7 @@ fn test_message_manager() {
             p.topic = TopicName::from("/foo/yy/ee");
             let msg_id = msg_mgr.next_msg_id();
             msg_mgr
-                .store(msg_id, f.clone(), p.clone(), Duration::from_secs(i + 2), Vec::new())
+                .store(msg_id, f.clone(), p.clone(), Duration::from_secs(i + 2), Some(Vec::new()))
                 .await
                 .unwrap();
         }

@@ -4,7 +4,6 @@ use std::convert::From as _f;
 use std::fmt;
 use std::fmt::Display;
 use std::hash::Hash;
-use std::iter::Iterator;
 use std::mem::{size_of, size_of_val};
 use std::net::SocketAddr;
 use std::num::{NonZeroU16, NonZeroU32};
@@ -18,7 +17,7 @@ use serde::ser::{Serialize, SerializeStruct, Serializer};
 use tokio::sync::{oneshot, RwLock};
 
 use base64::{engine::general_purpose, Engine as _};
-use bitflags::{self, *};
+use bitflags::*;
 use bytestring::ByteString;
 use get_size::GetSize;
 use itertools::Itertools;

@@ -1,7 +1,3 @@
-use std::clone::Clone;
-use std::cmp::Eq;
-use std::cmp::Ord;
-use std::default::Default;
 use std::fmt;
 use std::fmt::Debug;
 use std::hash::Hash;
