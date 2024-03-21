@@ -3,7 +3,6 @@ use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use salvo::affix;
 use salvo::conn::tcp::TcpAcceptor;
 use salvo::http::header::{HeaderValue, CONTENT_TYPE};
 use salvo::http::mime;

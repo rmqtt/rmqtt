@@ -1,7 +1,3 @@
-use std::clone::Clone;
-use std::cmp::Eq;
-use std::cmp::Ord;
-use std::default::Default;
 use std::fmt;
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -402,11 +398,7 @@ mod tests {
         let mut matcheds = 0;
         let t = Topic::from_str(topic).unwrap();
         for (i, (topic_filter, matched)) in topics.matches(&t).iter().enumerate() {
-            let matched_len = matched
-                .iter()
-                .filter_map(|v| if vs.contains(v) { Some(v) } else { None })
-                .collect::<Vec<&&NodeId>>()
-                .len();
+            let matched_len = matched.iter().filter(|v| vs.contains(v)).collect::<Vec<&&NodeId>>().len();
 
             println!(
                 "{} [topic] {}({}) => {:?}({},{}), {:?}",

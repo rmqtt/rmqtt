@@ -51,3 +51,11 @@ rust-version = "1.71.1"
 rmqtt = "0.4"
 rmqtt-macros = "0.1"
 serde = "1.0"
+
+[profile.dev]
+opt-level = 0
+
+[profile.release]
+lto = true
+opt-level = 's'
+codegen-units = 1

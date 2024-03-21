@@ -1,8 +1,6 @@
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput};
 
-use super::proc_macro;
-
 pub(crate) fn build(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 

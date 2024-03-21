@@ -516,12 +516,18 @@ impl SessionLike for StorageSession {
 
 pub trait AtomicFlags {
     type T;
+    #[allow(dead_code)]
     fn empty() -> Self;
+    #[allow(dead_code)]
     fn all() -> Self;
     fn get(&self) -> Self::T;
+    #[allow(dead_code)]
     fn insert(&self, other: Self::T);
+    #[allow(dead_code)]
     fn contains(&self, other: Self::T) -> bool;
+    #[allow(dead_code)]
     fn remove(&self, other: Self::T);
+    #[allow(dead_code)]
     fn equal_exchange(&self, current: Self::T, new: Self::T, mask: Self::T) -> Result<Self::T, Self::T>;
     fn difference(&self, other: Self::T) -> Self::T;
 }

@@ -122,7 +122,6 @@ pub fn config_logger(filename: String, to: To, level: Level) -> slog::Logger {
 fn open_file(filename: &str) -> Result<File> {
     OpenOptions::new()
         .create(true)
-        .write(true)
         .append(true)
         .open(filename)
         .map_err(|e| MqttError::from(format!("logger file config error, filename: {}, {:?}", filename, e)))

@@ -404,7 +404,6 @@ impl Stats {
                 obj.insert("debug_session_channels.max".into(), json!(self.debug_session_channels.max()));
                 obj.insert("debug_task_exec_stats".into(), json!(self.debug_task_exec_stats));
                 obj.insert("debug_task_local_exec_stats".into(), json!(self.debug_task_local_exec_stats));
-                obj.insert("debug_retaineds_map".into(), json!(self.retaineds_map));
             }
         }
 

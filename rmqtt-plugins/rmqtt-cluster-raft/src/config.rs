@@ -96,10 +96,10 @@ impl PluginConfig {
 
     pub fn merge(&mut self, opts: &Options) {
         if let Some(node_grpc_addrs) = opts.node_grpc_addrs.as_ref() {
-            self.node_grpc_addrs = node_grpc_addrs.clone();
+            self.node_grpc_addrs.clone_from(node_grpc_addrs);
         }
         if let Some(raft_peer_addrs) = opts.raft_peer_addrs.as_ref() {
-            self.raft_peer_addrs = raft_peer_addrs.clone();
+            self.raft_peer_addrs.clone_from(raft_peer_addrs);
         }
         if let Some(raft_leader_id) = opts.raft_leader_id.as_ref() {
             self.leader_id = *raft_leader_id;

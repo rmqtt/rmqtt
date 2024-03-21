@@ -3,7 +3,6 @@ use std::convert::From as _f;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use ntex_mqtt::v3::{self};
 use rust_box::task_exec_queue::LocalSpawnExt;
 use uuid::Uuid;
 

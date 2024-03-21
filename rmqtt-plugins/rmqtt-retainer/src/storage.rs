@@ -284,7 +284,7 @@ impl RetainerInner {
             .call_timeout(async move { db.len().await.map_err(MqttError::from) }, Duration::from_millis(3000))
             .await
             .get()
-            .map(|v| *v)
+            .copied()
             .unwrap_or_default();
         if count > 0 {
             count - 1
@@ -427,7 +427,7 @@ impl RetainStorage for &'static Retainer {
             .call_timeout(self.storage_messages_max_get(), Duration::from_millis(3000))
             .await
             .get()
-            .map(|v| *v)
+            .copied()
             .unwrap_or(-1)
     }
 
