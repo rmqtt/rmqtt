@@ -2485,14 +2485,14 @@ pub enum StatsMergeMode {
 
 #[test]
 fn test_reason() {
-    assert_eq!(Reason::ConnectKicked(false).is_kicked(false), true);
-    assert_eq!(Reason::ConnectKicked(false).is_kicked(true), false);
-    assert_eq!(Reason::ConnectKicked(true).is_kicked(true), true);
-    assert_eq!(Reason::ConnectKicked(true).is_kicked(false), false);
-    assert_eq!(Reason::ConnectKicked(true).is_kicked_by_admin(), true);
-    assert_eq!(Reason::ConnectKicked(false).is_kicked_by_admin(), false);
-    assert_eq!(Reason::ConnectDisconnect(None).is_kicked(false), false);
-    assert_eq!(Reason::ConnectDisconnect(None).is_kicked_by_admin(), false);
+    assert!(Reason::ConnectKicked(false).is_kicked(false));
+    assert!(!Reason::ConnectKicked(false).is_kicked(true));
+    assert!(Reason::ConnectKicked(true).is_kicked(true));
+    assert!(!Reason::ConnectKicked(true).is_kicked(false));
+    assert!(Reason::ConnectKicked(true).is_kicked_by_admin());
+    assert!(!Reason::ConnectKicked(false).is_kicked_by_admin());
+    assert!(!Reason::ConnectDisconnect(None).is_kicked(false));
+    assert!(!Reason::ConnectDisconnect(None).is_kicked_by_admin());
 
     let reasons = Reason::Reasons(vec![
         Reason::PublishRefused,

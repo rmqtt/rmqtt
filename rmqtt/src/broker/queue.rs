@@ -257,7 +257,7 @@ mod test {
         });
 
         while let Some(v) = rx.next().await {
-            println!("{} queue recv: {:?}", Local::now().format("%Y-%m-%d %H:%M:%S%.3f %z").to_string(), v);
+            println!("{} queue recv: {:?}", Local::now().format("%Y-%m-%d %H:%M:%S%.3f %z"), v);
         }
     }
 }

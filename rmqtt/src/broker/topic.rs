@@ -400,7 +400,7 @@ mod tests {
         for (i, (topic_filter, matched)) in topics.matches(&t).iter().enumerate() {
             let matched_len = matched
                 .iter()
-                .filter_map(|v| if vs.contains(v) { Some(v) } else { None })
+                .filter(|v| vs.contains(v))
                 .collect::<Vec<&&NodeId>>()
                 .len();
 
