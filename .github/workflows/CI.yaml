@@ -25,6 +25,7 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt
+      - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
 
   clippy:
@@ -45,6 +46,7 @@ jobs:
         with:
           toolchain: nightly
           components: clippy
+      - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --all-targets --all-features
 
   tests:
@@ -71,6 +73,7 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: protoc@${{ env.PROTOC_VERSION }}
+      - uses: Swatinem/rust-cache@v2
       - name: Execute tests
         run: cargo test --workspace --all-features --all-targets
         env:

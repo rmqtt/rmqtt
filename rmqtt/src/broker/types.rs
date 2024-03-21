@@ -1455,7 +1455,7 @@ impl Deref for From {
 impl std::fmt::Debug for From {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}-{:?}", self.id.to_string(), self.typ)
+        write!(f, "{}-{:?}", self.id, self.typ)
     }
 }
 
@@ -1572,7 +1572,7 @@ impl Display for Id {
 impl std::fmt::Debug for Id {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_string())
+        write!(f, "{}", self)
     }
 }
 
