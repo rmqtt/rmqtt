@@ -275,7 +275,7 @@ pub trait RetainStorage: Sync + Send {
     }
 
     ///topic - concrete topic
-    async fn set(&self, topic: &TopicName, retain: Retain) -> Result<()>;
+    async fn set(&self, topic: &TopicName, retain: Retain, expiry_interval: Option<Duration>) -> Result<()>;
 
     ///topic_filter - Topic filter
     async fn get(&self, topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>>;

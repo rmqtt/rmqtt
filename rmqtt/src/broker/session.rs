@@ -578,11 +578,14 @@ impl SessionState {
                 log::debug!("process_last_will, publish: {:?}", p);
 
                 let listen_cfg = self.listen_cfg();
-                let (message_storage_available, message_expiry_interval) =
-                    if Runtime::instance().extends.message_mgr().await.enable() {
-                        (true, Some(self.fitter.message_expiry_interval(&p)))
+
+                let message_storage_available = Runtime::instance().extends.message_mgr().await.enable();
+
+                let message_expiry_interval =
+                    if message_storage_available || (listen_cfg.retain_available && p.retain()) {
+                        Some(self.fitter.message_expiry_interval(&p))
                     } else {
-                        (false, None)
+                        None
                     };
 
                 Self::forwards(
@@ -1026,11 +1029,14 @@ impl SessionState {
         }
 
         let listen_cfg = self.listen_cfg();
-        let (message_storage_available, message_expiry_interval) =
-            if Runtime::instance().extends.message_mgr().await.enable() {
-                (true, Some(self.fitter.message_expiry_interval(&publish)))
+
+        let message_storage_available = Runtime::instance().extends.message_mgr().await.enable();
+
+        let message_expiry_interval =
+            if message_storage_available || (listen_cfg.retain_available && publish.retain()) {
+                Some(self.fitter.message_expiry_interval(&publish))
             } else {
-                (false, None)
+                None
             };
 
         Self::forwards(
@@ -1065,7 +1071,11 @@ impl SessionState {
                 .extends
                 .retain()
                 .await
-                .set(publish.topic(), Retain { msg_id, from: from.clone(), publish: publish.clone() })
+                .set(
+                    publish.topic(),
+                    Retain { msg_id, from: from.clone(), publish: publish.clone() },
+                    message_expiry_interval,
+                )
                 .await?;
         }
 

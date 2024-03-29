@@ -1212,7 +1212,12 @@ impl DefaultRetainStorage {
 #[async_trait]
 impl RetainStorage for &'static DefaultRetainStorage {
     #[inline]
-    async fn set(&self, _topic: &TopicName, _retain: Retain) -> Result<()> {
+    async fn set(
+        &self,
+        _topic: &TopicName,
+        _retain: Retain,
+        _expiry_interval: Option<Duration>,
+    ) -> Result<()> {
         log::warn!("Please use the \"rmqtt-retainer\" plugin as the main program no longer supports retain messages.");
         Ok(())
     }

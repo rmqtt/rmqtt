@@ -11,6 +11,7 @@ use rmqtt::{
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 pub(crate) struct RamRetainer {
     pub(crate) inner: &'static DefaultRetainStorage,
@@ -37,17 +38,15 @@ impl RamRetainer {
 #[async_trait]
 impl RetainStorage for &'static RamRetainer {
     ///topic - concrete topic
-    async fn set(&self, topic: &TopicName, retain: Retain) -> Result<()> {
+    async fn set(&self, topic: &TopicName, retain: Retain, expiry_interval: Option<Duration>) -> Result<()> {
         if !self.retain_enable.load(Ordering::SeqCst) {
             log::error!("{}", ERR_NOT_SUPPORTED);
             return Ok(());
         }
 
-        let (max_retained_messages, max_payload_size, expiry_interval) = {
+        let (max_retained_messages, max_payload_size) = {
             let cfg = self.cfg.read().await;
-            let expiry_interval =
-                if cfg.expiry_interval.is_zero() { None } else { Some(cfg.expiry_interval) };
-            (cfg.max_retained_messages, *cfg.max_payload_size, expiry_interval)
+            (cfg.max_retained_messages, *cfg.max_payload_size)
         };
 
         if retain.publish.payload.len() > max_payload_size {

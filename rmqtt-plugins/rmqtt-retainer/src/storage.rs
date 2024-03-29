@@ -161,14 +161,9 @@ pub struct RetainerInner {
 impl RetainerInner {
     #[inline]
     async fn _batch_store(&self, msgs: Vec<Msg>) -> Result<()> {
-        let (max_retained_messages, max_payload_size, cfg_expiry_interval) = {
+        let (max_retained_messages, max_payload_size) = {
             let cfg = self.cfg.read().await;
-            let expiry_interval = if cfg.expiry_interval.is_zero() {
-                None
-            } else {
-                Some(cfg.expiry_interval.as_millis() as i64)
-            };
-            (cfg.max_retained_messages as usize, *cfg.max_payload_size, expiry_interval)
+            (cfg.max_retained_messages as usize, *cfg.max_payload_size)
         };
 
         let mut count = 0;
@@ -205,11 +200,8 @@ impl RetainerInner {
                 }
 
                 //add retain messagge
-                let expiry_interval_millis = if let Some(expiry_interval) = expiry_interval {
-                    Some(expiry_interval.as_millis() as i64)
-                } else {
-                    cfg_expiry_interval
-                };
+                let expiry_interval_millis =
+                    expiry_interval.map(|expiry_interval| expiry_interval.as_millis() as i64);
 
                 let expiry_time_at = expiry_interval_millis
                     .map(|expiry_interval_millis| timestamp_millis() + expiry_interval_millis);
@@ -378,15 +370,16 @@ impl RetainerInner {
 #[async_trait]
 impl RetainStorage for &'static Retainer {
     ///topic - concrete topic
-    async fn set(&self, topic: &TopicName, retain: Retain) -> Result<()> {
+    async fn set(&self, topic: &TopicName, retain: Retain, expiry_interval: Option<Duration>) -> Result<()> {
         if !self.retain_enable.load(Ordering::SeqCst) {
             log::error!("{}", ERR_NOT_SUPPORTED);
             return Ok(());
         }
+
         let res = self
             .msg_tx
             .clone()
-            .send((topic.clone(), retain, None))
+            .send((topic.clone(), retain, expiry_interval))
             .timeout(futures_time::time::Duration::from_millis(3500))
             .await
             .map_err(|e| anyhow!(e));
