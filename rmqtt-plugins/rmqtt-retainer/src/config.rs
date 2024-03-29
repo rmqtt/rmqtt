@@ -1,9 +1,7 @@
-use std::time::Duration;
-
 use serde::de::{self, Deserialize, Deserializer};
 
 use rmqtt::serde_json;
-use rmqtt::settings::{deserialize_duration, Bytesize};
+use rmqtt::settings::Bytesize;
 use rmqtt::Result;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -21,11 +19,6 @@ pub struct PluginConfig {
     // message server will process the received reserved message as a regular message.
     #[serde(default = "PluginConfig::max_payload_size_default")]
     pub max_payload_size: Bytesize, // = "1MB"
-
-    // The expiration time of the retention message, where 0 means it will never expire. If the message expiration interval is set in
-    // the PUBLISH message, the message expiration interval in the PUBLISH message shall prevail.
-    #[serde(default = "PluginConfig::expiry_interval_default", deserialize_with = "deserialize_duration")]
-    pub expiry_interval: Duration, // = "10m"
 }
 
 impl PluginConfig {
@@ -35,10 +28,6 @@ impl PluginConfig {
 
     fn max_payload_size_default() -> Bytesize {
         Bytesize::from(1024 * 1024)
-    }
-
-    fn expiry_interval_default() -> Duration {
-        Duration::ZERO
     }
 
     #[inline]
