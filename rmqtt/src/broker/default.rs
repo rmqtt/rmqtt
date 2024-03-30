@@ -1716,8 +1716,8 @@ impl Hook for DefaultHook {
     async fn client_subscribe(&self, sub: &Subscribe) -> Option<TopicFilter> {
         let reply = self.manager.exec(Type::ClientSubscribe, Parameter::ClientSubscribe(&self.s, sub)).await;
         log::debug!("{:?} result: {:?}", self.s.id, reply);
-        if let Some(HookResult::TopicFilter(tf)) = reply {
-            tf
+        if let Some(HookResult::TopicFilter(Some(tf))) = reply {
+            Some(tf)
         } else {
             None
         }
@@ -1736,9 +1736,8 @@ impl Hook for DefaultHook {
         let reply =
             self.manager.exec(Type::ClientUnsubscribe, Parameter::ClientUnsubscribe(&self.s, unsub)).await;
         log::debug!("{:?} result: {:?}", self.s.id, reply);
-
-        if let Some(HookResult::TopicFilter(topic_filter)) = reply {
-            topic_filter
+        if let Some(HookResult::TopicFilter(Some(tf))) = reply {
+            Some(tf)
         } else {
             None
         }
