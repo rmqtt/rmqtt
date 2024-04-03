@@ -53,5 +53,5 @@ rmqtt-message-storage = { immutable = true }
 rmqtt-plugin-template = { }
 
 [build-dependencies]
-toml = "0.7"
+toml = "0.8"
 
