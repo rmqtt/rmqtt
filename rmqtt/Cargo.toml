@@ -61,7 +61,7 @@ itertools = "0.12"
 reqwest = { version = "0.11", default-features = false, features = ["rustls-tls", "json"] }
 rust-box = { version = "0.11", features = ["task-exec-queue", "task-exec-queue-rate", "std-ext", "dequemap", "stream-ext-leaky-bucket"] }
 structopt = "0.3"
-tokio-tungstenite = "0.20"
+tokio-tungstenite = "0.21"
 pin-project-lite = "0.2.13"
 tokio-cron-scheduler = "0.9.4"
 bitflags = "2.4"
