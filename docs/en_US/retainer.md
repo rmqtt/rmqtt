@@ -51,10 +51,6 @@ max_retained_messages = 0
 # The maximum Payload value for retaining messages. After the Payload size exceeds the maximum value, the RMQTT
 # message server will process the received reserved message as a regular message.
 max_payload_size = "1MB"
-
-# The expiration time of the retention message, where 0 means it will never expire. If the message expiration interval is set in
-# the PUBLISH message, the message expiration interval in the PUBLISH message shall prevail.
-expiry_interval = "0s"
 ```
 
 Currently, three storage modes are supported: "ram", "sled", and "redis".
@@ -64,8 +60,7 @@ currently supports only single node. {node} will be replaced with the current no
 
 
 Additionally, "max_retained_messages" can be configured to set the maximum number of retained messages, where 0 indicates 
-no limit; "max_payload_size" limits the size of message payloads; and "expiry_interval" configures the expiration time for 
-retained messages, where 0 means they never expire.
+no limit; "max_payload_size" limits the size of message payloads.
 
 
 If RMQTT is deployed in single-node mode, then "ram", "sled", and "redis" are all supported storage modes. However, 

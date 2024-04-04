@@ -47,16 +47,12 @@ max_retained_messages = 0
 # The maximum Payload value for retaining messages. After the Payload size exceeds the maximum value, the RMQTT
 # message server will process the received reserved message as a regular message.
 max_payload_size = "1MB"
-
-# The expiration time of the retention message, where 0 means it will never expire. If the message expiration interval is set in
-# the PUBLISH message, the message expiration interval in the PUBLISH message shall prevail.
-expiry_interval = "0s"
 ```
 
 当前支持“ram”、“sled”和“redis”三种存储模式。“ram”是存储在内存。“sled”是存储在本地磁盘，需要配置存储位置和在内存中的缓存容量，适当大小可以提高读写效率。
 “redis”存储当前仅支持单节点。{node}将被替换为当前节点标识。
 
-另外，“max_retained_messages”：可以配置最大保留消息数量，0表示无限制；“max_payload_size”：限制消息负载大小；“expiry_interval”：配置保留消息过期时间，0表示永不过期。
+另外，“max_retained_messages”：可以配置最大保留消息数量，0表示无限制；“max_payload_size”：限制消息负载大小。
 
 如果RMQTT部署为单机模式，那么“ram”、“sled”和“redis”都是支持的。如果RMQTT部署为集群模式，就只支持“redis”。
 
