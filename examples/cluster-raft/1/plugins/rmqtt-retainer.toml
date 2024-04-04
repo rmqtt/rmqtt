@@ -20,7 +20,3 @@ max_retained_messages = 0
 # The maximum Payload value for retaining messages. After the Payload size exceeds the maximum value, the RMQTT
 # message server will process the received reserved message as a regular message.
 max_payload_size = "1MB"
-
-# The expiration time of the retention message, where 0 means it will never expire. If the message expiration interval is set in
-# the PUBLISH message, the message expiration interval in the PUBLISH message shall prevail.
-expiry_interval = "0s"
