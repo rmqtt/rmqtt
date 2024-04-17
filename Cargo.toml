@@ -35,7 +35,7 @@ rmqtt-session-storage = { path = "rmqtt-plugins/rmqtt-session-storage" }
 rmqtt-message-storage = { path = "rmqtt-plugins/rmqtt-message-storage" }
 
 [workspace.package]
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 authors = ["rmqtt <rmqttd@126.com>"]
 description = "MQTT Server for v3.1, v3.1.1 and v5.0 protocols"
@@ -48,7 +48,7 @@ rust-version = "1.71.1"
 
 
 [workspace.dependencies]
-rmqtt = "0.4"
+rmqtt = "0.5"
 rmqtt-macros = "0.1"
 serde = "1.0"
 
