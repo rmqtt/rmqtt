@@ -1,8 +1,10 @@
 [package]
 name = "rmqtt-web-hook"
 version = "0.1.2"
-authors = ["rmqtt <rmqttd@126.com>"]
-edition = "2021"
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+license.workspace = true
 
 [dependencies]
 rmqtt.workspace = true
