@@ -1,9 +1,16 @@
-FROM alpine:3.18.3
+FROM rust:1-alpine3.18 as builder
+RUN apk add --no-cache musl-dev protoc make
+WORKDIR /rmqtt
+COPY . .
+RUN cargo build --release
+
+
+FROM alpine:3.18
 LABEL maintainer="rmqtt <rmqttd@126.com>"
 
 RUN mkdir -p /app/rmqtt/rmqtt-bin
 RUN mkdir -p /app/rmqtt/rmqtt-plugins
-COPY target/x86_64-unknown-linux-musl/release/rmqttd /app/rmqtt/rmqtt-bin/
+COPY --from=builder /rmqtt/target/release/rmqttd /app/rmqtt/rmqtt-bin/
 COPY rmqtt.toml /app/rmqtt/
 COPY rmqtt-plugins/*.toml /app/rmqtt/rmqtt-plugins/
 COPY rmqtt-bin/rmqtt.pem  /app/rmqtt/rmqtt-bin/
