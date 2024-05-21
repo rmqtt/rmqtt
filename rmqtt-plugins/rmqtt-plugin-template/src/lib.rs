@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate rmqtt_macros;
 
-use async_trait::async_trait;
+use rmqtt::{async_trait::async_trait, log};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     plugin::{PackageInfo, Plugin},

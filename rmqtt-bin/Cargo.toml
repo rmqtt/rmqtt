@@ -36,6 +36,7 @@ rmqtt-retainer = "0.1"
 rmqtt-sys-topic = "0.1"
 rmqtt-session-storage = "0.1"
 rmqtt-message-storage = "0.1"
+rmqtt-bridge-ingress-mqtt = "0.1"
 rmqtt-plugin-template = "0.1"
 
 [package.metadata.plugins]
@@ -50,6 +51,7 @@ rmqtt-retainer = { }
 rmqtt-sys-topic = { }
 rmqtt-session-storage = { immutable = true }
 rmqtt-message-storage = { immutable = true }
+rmqtt-bridge-ingress-mqtt = { }
 rmqtt-plugin-template = { }
 
 [build-dependencies]

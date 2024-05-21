@@ -437,7 +437,7 @@ const BYTESIZE_K: usize = 1024;
 const BYTESIZE_M: usize = 1048576;
 const BYTESIZE_G: usize = 1073741824;
 
-#[derive(Clone)]
+#[derive(Clone, Copy, Default)]
 pub struct Bytesize(usize);
 
 impl Bytesize {

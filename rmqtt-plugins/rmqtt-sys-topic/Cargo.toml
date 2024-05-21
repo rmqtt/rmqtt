@@ -1,8 +1,10 @@
 [package]
 name = "rmqtt-sys-topic"
 version = "0.1.0"
-authors = ["rmqtt <rmqttd@126.com>"]
-edition = "2021"
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+license.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

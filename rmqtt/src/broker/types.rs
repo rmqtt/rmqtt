@@ -1377,6 +1377,7 @@ pub enum FromType {
     Admin,
     System,
     LastWill,
+    Bridge,
 }
 
 impl std::fmt::Display for FromType {
@@ -1387,6 +1388,7 @@ impl std::fmt::Display for FromType {
             FromType::Admin => "admin",
             FromType::System => "system",
             FromType::LastWill => "lastwill",
+            FromType::Bridge => "bridge",
         };
         write!(f, "{}", typ)
     }
@@ -1407,6 +1409,11 @@ impl From {
     #[inline]
     pub fn from_admin(id: Id) -> From {
         From { typ: FromType::Admin, id }
+    }
+
+    #[inline]
+    pub fn from_bridge(id: Id) -> From {
+        From { typ: FromType::Bridge, id }
     }
 
     #[inline]

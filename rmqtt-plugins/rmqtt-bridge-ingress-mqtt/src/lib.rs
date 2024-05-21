@@ -1,0 +1,116 @@
+#![deny(unsafe_code)]
+#[macro_use]
+extern crate serde;
+
+#[macro_use]
+extern crate rmqtt_macros;
+
+use rmqtt::{
+    async_trait::async_trait,
+    log,
+    serde_json::{self, json},
+    tokio::sync::mpsc,
+    tokio::sync::RwLock,
+};
+use rmqtt::{
+    broker::hook::Register,
+    plugin::{PackageInfo, Plugin},
+    register, Result, Runtime,
+};
+use std::sync::Arc;
+
+use bridge::{BridgeManager, Command};
+use config::PluginConfig;
+
+mod bridge;
+mod config;
+mod v4;
+mod v5;
+
+register!(BridgeMqttIngressPlugin::new);
+
+#[derive(Plugin)]
+struct BridgeMqttIngressPlugin {
+    _runtime: &'static Runtime,
+    register: Box<dyn Register>,
+    bridge_mgr: BridgeManager,
+    bridge_mgr_cmd_tx: mpsc::Sender<Command>,
+}
+
+impl BridgeMqttIngressPlugin {
+    #[inline]
+    async fn new(runtime: &'static Runtime, name: &'static str) -> Result<Self> {
+        let cfg = Arc::new(RwLock::new(runtime.settings.plugins.load_config::<PluginConfig>(name)?));
+        log::info!("{} BridgeMqttIngressPlugin cfg: {:?}", name, cfg.read().await);
+        let register = runtime.extends.hook_mgr().await.register();
+        let bridge_mgr = BridgeManager::new(runtime.node.id(), cfg);
+
+        let (bridge_mgr_cmd_tx, mut bridge_mgr_cmd_rx) = mpsc::channel(10);
+        let name = name.to_owned();
+        let mut bridge_mgr1 = bridge_mgr.clone();
+        std::thread::spawn(move || {
+            let runner = async move {
+                while let Some(cmd) = bridge_mgr_cmd_rx.recv().await {
+                    match cmd {
+                        Command::Connect => {
+                            if let Err(e) = bridge_mgr1.start().await {
+                                log::error!("start bridge error, {:?}", e);
+                            }
+                        }
+                        Command::Close => {
+                            bridge_mgr1.stop().await;
+                        }
+                    }
+                }
+            };
+            ntex::rt::System::new(&name).block_on(runner);
+        });
+        Ok(Self { _runtime: runtime, register, bridge_mgr, bridge_mgr_cmd_tx })
+    }
+}
+
+#[async_trait]
+impl Plugin for BridgeMqttIngressPlugin {
+    #[inline]
+    async fn init(&mut self) -> Result<()> {
+        log::debug!("{} init", self.name());
+        Ok(())
+    }
+
+    #[inline]
+    async fn start(&mut self) -> Result<()> {
+        log::info!("{} start", self.name());
+        self.register.start().await;
+        self.bridge_mgr_cmd_tx.send(Command::Connect).await?;
+        Ok(())
+    }
+
+    #[inline]
+    async fn stop(&mut self) -> Result<bool> {
+        log::info!("{} stop", self.name());
+        self.register.stop().await;
+        self.bridge_mgr_cmd_tx.send(Command::Close).await?;
+        Ok(true)
+    }
+
+    #[inline]
+    async fn attrs(&self) -> serde_json::Value {
+        let bridges = self
+            .bridge_mgr
+            .sources()
+            .iter()
+            .map(|entry| {
+                let ((bridge_name, entry_idx, client_no), mailbox) = entry.pair();
+                json!({
+                    "client_id": mailbox.client_id,
+                    "name": bridge_name,
+                    "entry_idx": entry_idx,
+                    "client_no": client_no,
+                })
+            })
+            .collect::<Vec<serde_json::Value>>();
+        json!({
+            "bridges": bridges
+        })
+    }
+}
