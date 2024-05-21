@@ -1,0 +1,16 @@
+[package]
+name = "rmqtt-bridge-ingress-mqtt"
+version = "0.1.0"
+description = "Bridge remote MQTT in ingress mode."
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+rmqtt.workspace = true
+rmqtt-macros.workspace = true
+serde = { workspace = true, features = ["derive"] }
+ntex-mqtt = "0.12"
+ntex = { version = "0.7", features = ["tokio", "rustls"] }
+event-notify = "0.1.1"
