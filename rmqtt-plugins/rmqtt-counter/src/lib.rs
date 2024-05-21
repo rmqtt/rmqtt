@@ -192,6 +192,7 @@ impl Handler for CounterHandler {
                     FromType::Admin => self.metrics.messages_publish_admin_inc(),
                     FromType::System => self.metrics.messages_publish_system_inc(),
                     FromType::LastWill => self.metrics.messages_publish_lastwill_inc(),
+                    FromType::Bridge => self.metrics.messages_publish_bridge_inc(),
                 }
             }
             Parameter::MessageDelivered(_session, from, p) => {
@@ -204,6 +205,7 @@ impl Handler for CounterHandler {
                     FromType::Admin => self.metrics.messages_delivered_admin_inc(),
                     FromType::System => self.metrics.messages_delivered_system_inc(),
                     FromType::LastWill => self.metrics.messages_delivered_lastwill_inc(),
+                    FromType::Bridge => self.metrics.messages_delivered_bridge_inc(),
                 }
             }
             Parameter::MessageAcked(_session, from, p) => {
@@ -216,6 +218,7 @@ impl Handler for CounterHandler {
                     FromType::Admin => self.metrics.messages_acked_admin_inc(),
                     FromType::System => self.metrics.messages_acked_system_inc(),
                     FromType::LastWill => self.metrics.messages_acked_lastwill_inc(),
+                    FromType::Bridge => self.metrics.messages_acked_bridge_inc(),
                 }
             }
             Parameter::MessageDropped(_to, _from, _p, _r) => {
@@ -228,6 +231,7 @@ impl Handler for CounterHandler {
                     FromType::Admin => self.metrics.messages_nonsubscribed_admin_inc(),
                     FromType::System => self.metrics.messages_nonsubscribed_system_inc(),
                     FromType::LastWill => self.metrics.messages_nonsubscribed_lastwill_inc(),
+                    FromType::Bridge => self.metrics.messages_nonsubscribed_bridge_inc(),
                 }
             }
 
