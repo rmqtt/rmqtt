@@ -3,6 +3,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use serde::de::{self, Deserialize, Deserializer};
+use serde::ser::{Serialize, Serializer};
 
 use ntex::util::{ByteString, Bytes};
 use ntex_mqtt::v3::codec::LastWill as LastWillV3;
@@ -17,6 +18,7 @@ use rmqtt::{
     serde_json::{self, Map, Value},
 };
 
+use rmqtt::serde_json::json;
 use rmqtt::{
     settings::{deserialize_duration, to_duration, Bytesize},
     MqttError, Result, TopicName,
@@ -38,13 +40,13 @@ impl FromStr for Encoding {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
     #[serde(default)]
     pub bridges: Vec<Bridge>,
 }
 
-#[derive(Default, Debug, Clone, Deserialize)]
+#[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Bridge {
     #[serde(default)]
     pub enable: bool,
@@ -69,8 +71,6 @@ pub struct Bridge {
     pub reconnect_interval: Duration,
     #[serde(default = "Bridge::mqtt_ver_default", deserialize_with = "Bridge::deserialize_mqtt_ver")]
     pub mqtt_ver: Protocol,
-    #[serde(default)]
-    pub v3: MoreV3,
     #[serde(default)]
     pub v4: MoreV3,
     #[serde(default)]
@@ -117,17 +117,39 @@ impl Bridge {
     }
 }
 
-#[derive(Default, Debug, Clone, Deserialize)]
+#[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct MoreV3 {
     #[serde(default = "MoreV3::clean_session_default")]
     pub clean_session: bool,
-    #[serde(default, deserialize_with = "MoreV3::deserialize_last_will")]
+    #[serde(
+        default,
+        deserialize_with = "MoreV3::deserialize_last_will",
+        serialize_with = "MoreV3::serialize_last_will"
+    )]
     pub last_will: Option<LastWillV3>,
 }
 
 impl MoreV3 {
     fn clean_session_default() -> bool {
         true
+    }
+
+    #[inline]
+    pub fn serialize_last_will<S>(v: &Option<LastWillV3>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let josn_val = if let Some(v) = v {
+            json!({
+                "qos": v.qos,
+                "retain": v.retain,
+                "topic": v.topic,
+                "message": v.message,
+            })
+        } else {
+            serde_json::Value::Null
+        };
+        josn_val.serialize(serializer)
     }
 
     #[inline]
@@ -145,7 +167,7 @@ impl MoreV3 {
     }
 }
 
-#[derive(Default, Debug, Clone, Deserialize)]
+#[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct MoreV5 {
     #[serde(default = "MoreV5::clean_start_default")]
     pub clean_start: bool,
@@ -157,7 +179,11 @@ pub struct MoreV5 {
     pub maximum_packet_size: Bytesize,
     #[serde(default)]
     pub topic_alias_maximum: u16,
-    #[serde(default, deserialize_with = "MoreV5::deserialize_last_will")]
+    #[serde(
+        default,
+        deserialize_with = "MoreV5::deserialize_last_will",
+        serialize_with = "MoreV5::serialize_last_will"
+    )]
     pub last_will: Option<LastWillV5>,
 }
 
@@ -172,6 +198,31 @@ impl MoreV5 {
 
     fn maximum_packet_size_default() -> Bytesize {
         Bytesize::from(1024 * 1024)
+    }
+
+    #[inline]
+    pub fn serialize_last_will<S>(v: &Option<LastWillV5>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let josn_val = if let Some(v) = v {
+            json!({
+                "qos": v.qos,
+                "retain": v.retain,
+                "topic": v.topic,
+                "message": v.message,
+                "will_delay_interval_sec": v.will_delay_interval_sec,
+                "correlation_data": v.correlation_data,
+                "message_expiry_interval": v.message_expiry_interval,
+                "content_type": v.content_type,
+                "user_properties": v.user_properties,
+                "is_utf8_payload": v.is_utf8_payload,
+                "response_topic": v.response_topic,
+            })
+        } else {
+            serde_json::Value::Null
+        };
+        josn_val.serialize(serializer)
     }
 
     #[inline]
@@ -227,7 +278,7 @@ impl MoreV5 {
     }
 }
 
-#[derive(Default, Debug, Clone, Deserialize)]
+#[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Entry {
     #[serde(default)]
     pub remote: Remote,
@@ -262,7 +313,7 @@ impl Entry {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Remote {
     #[serde(default = "Remote::qos_default", deserialize_with = "Remote::deserialize_qos")]
     pub qos: QoS,
@@ -297,7 +348,7 @@ impl Remote {
 
 type HasPattern = bool; //${remote.topic}
 
-#[derive(Default, Debug, Clone, Deserialize)]
+#[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Local {
     #[serde(default, deserialize_with = "Local::deserialize_qos")]
     pub qos: Option<QoS>,
