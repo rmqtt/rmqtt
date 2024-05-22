@@ -111,6 +111,9 @@ impl BridgeManager {
     pub async fn start(&mut self) -> Result<()> {
         let bridges = self.cfg.read().await.bridges.clone();
         for b_cfg in &bridges {
+            if !b_cfg.enable {
+                continue;
+            }
             for (entry_idx, entry) in b_cfg.entries.iter().enumerate() {
                 let concurrent_client_limit =
                     if entry.remote.topic.starts_with("$share/") { b_cfg.concurrent_client_limit } else { 1 };
