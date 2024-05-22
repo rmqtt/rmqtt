@@ -102,7 +102,7 @@ impl Client {
             builder = builder.packet(|pkt| {
                 pkt.session_expiry_interval_secs = client.cfg.v5.session_expiry_interval.as_secs() as u32;
                 pkt.topic_alias_max = client.cfg.v5.topic_alias_maximum;
-                pkt.last_will = client.cfg.v5.last_will.clone();
+                pkt.last_will.clone_from(&client.cfg.v5.last_will)
             });
 
             ntex::rt::spawn(client.clone().start(builder));
