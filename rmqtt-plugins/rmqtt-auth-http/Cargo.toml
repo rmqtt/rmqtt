@@ -1,9 +1,12 @@
 [package]
 name = "rmqtt-auth-http"
 version = "0.1.1"
-authors = ["rmqtt <rmqttd@126.com>"]
-edition = "2021"
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+license.workspace = true
 
 [dependencies]
-rmqtt = "0.2"
-serde = { version = "1.0", features = ["derive"] }
+rmqtt.workspace = true
+rmqtt-macros.workspace = true
+serde = { workspace = true, features = ["derive"] }

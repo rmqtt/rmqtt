@@ -16,14 +16,6 @@ build = "build.rs"
 name = "rmqttd"
 path = "src/server.rs"
 
-[profile.dev]
-opt-level = 0
-
-[profile.release]
-lto = true
-opt-level = 's'
-codegen-units = 1
-
 [target.'cfg(target_os = "linux")'.dependencies]
 tikv-jemallocator = "0.5"
 
@@ -31,7 +23,7 @@ tikv-jemallocator = "0.5"
 rustls = "0.19"
 
 ##mqtt broker
-rmqtt = "0.2"
+rmqtt.workspace = true
 ##plugins
 rmqtt-acl = "0.1"
 rmqtt-web-hook = "0.1"
@@ -41,7 +33,11 @@ rmqtt-cluster-raft = "0.1"
 rmqtt-counter = "0.1"
 rmqtt-http-api = "0.1"
 rmqtt-retainer = "0.1"
-#rmqtt-plugin-template = "0.1"
+rmqtt-sys-topic = "0.1"
+rmqtt-session-storage = "0.1"
+rmqtt-message-storage = "0.1"
+rmqtt-bridge-ingress-mqtt = "0.1"
+rmqtt-plugin-template = "0.1"
 
 [package.metadata.plugins]
 rmqtt-acl = { default_startup = true }
@@ -52,9 +48,12 @@ rmqtt-auth-http = { }
 rmqtt-cluster-broadcast = { immutable = true }
 rmqtt-cluster-raft = { immutable = true }
 rmqtt-retainer = { }
-#rmqtt-plugin-template = { }
+rmqtt-sys-topic = { }
+rmqtt-session-storage = { immutable = true }
+rmqtt-message-storage = { immutable = true }
+rmqtt-bridge-ingress-mqtt = { }
+rmqtt-plugin-template = { }
 
 [build-dependencies]
-toml = "0.5"
-chrono = { version = "0.4", default-features = false, features = [] }
+toml = "0.8"
 

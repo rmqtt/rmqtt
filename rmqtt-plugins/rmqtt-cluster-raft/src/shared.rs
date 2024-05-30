@@ -1,24 +1,23 @@
 use std::collections::HashSet;
+use std::convert::From as _;
 use std::time::Duration;
 
-use futures::future::FutureExt;
-use once_cell::sync::OnceCell;
-
-use rmqtt::anyhow::Error;
-use rmqtt::broker::Router;
-use rmqtt::grpc::MessageBroadcaster;
-use rmqtt::serde_json::json;
-use rmqtt::{anyhow, async_trait::async_trait, futures, log, once_cell, serde_json, tokio};
+use rmqtt::{
+    anyhow, anyhow::Error, async_trait::async_trait, futures, futures::future::FutureExt, log,
+    once_cell::sync::OnceCell, rust_box::task_exec_queue::SpawnExt, serde_json, serde_json::json,
+};
 use rmqtt::{
     broker::{
         default::DefaultShared,
-        session::{ClientInfo, Session, SessionOfflineInfo},
+        session::{Session, SessionOfflineInfo},
         types::{
-            From, Id, IsAdmin, NodeId, NodeName, Publish, Reason, SessionStatus, SubsSearchParams,
-            SubsSearchResult, Subscribe, SubscribeReturn, To, Tx, Unsubscribe,
+            From, Id, IsAdmin, NodeId, NodeName, Publish, Reason, SessionStatus, SubRelations,
+            SubRelationsMap, SubsSearchParams, SubsSearchResult, Subscribe, SubscribeReturn,
+            SubscriptionClientIds, To, Tx, Unsubscribe,
         },
-        Entry, Shared, SubRelations, SubRelationsMap,
+        Entry, Router, Shared,
     },
+    grpc::MessageBroadcaster,
     grpc::{Message, MessageReply, MessageType},
     MqttError, Result, Runtime,
 };
@@ -27,7 +26,7 @@ use super::message::{
     get_client_node_id, Message as RaftMessage, MessageReply as RaftMessageReply, RaftGrpcMessage,
     RaftGrpcMessageReply,
 };
-use super::{ClusterRouter, GrpcClients, HashMap, MessageSender, NodeGrpcClient};
+use super::{task_exec_queue, ClusterRouter, GrpcClients, HashMap, MessageSender, NodeGrpcClient};
 
 pub struct ClusterLockEntry {
     inner: Box<dyn Entry>,
@@ -52,7 +51,7 @@ impl Entry for ClusterLockEntry {
     async fn try_lock(&self) -> Result<Box<dyn Entry>> {
         let msg = RaftMessage::HandshakeTryLock { id: self.id() }.encode()?;
         let raft_mailbox = self.cluster_shared.router.raft_mailbox().await;
-        let reply = raft_mailbox.send(msg).await.map_err(anyhow::Error::new)?;
+        let reply = raft_mailbox.send_proposal(msg).await.map_err(anyhow::Error::new)?;
         let mut prev_node_id = None;
         if !reply.is_empty() {
             match RaftMessageReply::decode(&reply)? {
@@ -63,10 +62,11 @@ impl Entry for ClusterLockEntry {
                     prev_node_id = prev_id.map(|id| id.node_id);
                     log::debug!(
                         "{:?} ClusterLockEntry try_lock prev_node_id: {:?}",
-                        self.client().map(|c| c.id.clone()),
+                        self.session().map(|s| s.id.clone()),
                         prev_node_id
                     );
-                } // _ => unreachable!()
+                }
+                _ => unreachable!(),
             }
         }
         Ok(Box::new(ClusterLockEntry::new(self.inner.try_lock().await?, self.cluster_shared, prev_node_id)))
@@ -88,14 +88,15 @@ impl Entry for ClusterLockEntry {
     }
 
     #[inline]
-    async fn set(&mut self, session: Session, tx: Tx, conn: ClientInfo) -> Result<()> {
+    async fn set(&mut self, session: Session, tx: Tx) -> Result<()> {
         let msg = RaftMessage::Connected { id: session.id.clone() }.encode()?;
         let raft_mailbox = self.cluster_shared.router.raft_mailbox().await;
-        let reply = raft_mailbox.send(msg).await.map_err(anyhow::Error::new)?;
+        let reply = raft_mailbox.send_proposal(msg).await.map_err(anyhow::Error::new)?;
         if !reply.is_empty() {
             let reply = RaftMessageReply::decode(&reply)?;
             match reply {
                 RaftMessageReply::Error(e) => {
+                    log::error!("RaftMessage::Connected reply: {:?}", e);
                     return Err(MqttError::Msg(e));
                 }
                 _ => {
@@ -104,16 +105,16 @@ impl Entry for ClusterLockEntry {
                 }
             }
         }
-        self.inner.set(session, tx, conn).await
+        self.inner.set(session, tx).await
     }
 
     #[inline]
-    async fn remove(&mut self) -> Result<Option<(Session, Tx, ClientInfo)>> {
+    async fn remove(&mut self) -> Result<Option<(Session, Tx)>> {
         self.inner.remove().await
     }
 
     #[inline]
-    async fn remove_with(&mut self, id: &Id) -> Result<Option<(Session, Tx, ClientInfo)>> {
+    async fn remove_with(&mut self, id: &Id) -> Result<Option<(Session, Tx)>> {
         self.inner.remove_with(id).await
     }
 
@@ -126,7 +127,7 @@ impl Entry for ClusterLockEntry {
     ) -> Result<Option<SessionOfflineInfo>> {
         log::debug!(
             "{:?} ClusterLockEntry kick ..., clean_start: {}, clear_subscriptions: {}, is_admin: {}",
-            self.client().map(|c| c.id.clone()),
+            self.session().map(|s| s.id.clone()),
             clean_start,
             clear_subscriptions,
             is_admin
@@ -147,38 +148,49 @@ impl Entry for ClusterLockEntry {
         } else {
             //kicked from other node
             if let Some(client) = self.cluster_shared.grpc_client(prev_node_id) {
-                let mut msg_sender = MessageSender {
-                    client,
-                    msg_type: self.cluster_shared.message_type,
-                    msg: Message::Kick(id.clone(), clean_start, true, is_admin), //clear_subscriptions
-                    max_retries: 0,
-                    retry_interval: Duration::from_millis(500),
-                };
-                match msg_sender.send().await {
-                    Ok(reply) => {
-                        if let MessageReply::Kick(Some(kicked)) = reply {
-                            log::debug!("{:?} kicked: {:?}", id, kicked);
-                            Ok(Some(kicked))
-                        } else {
-                            log::info!(
-                                "{:?} Message::Kick from other node, prev_node_id: {:?}, reply: {:?}",
+                let message_type = self.cluster_shared.message_type;
+                let id1 = id.clone();
+                let kick_fut = async move {
+                    let mut msg_sender = MessageSender {
+                        client,
+                        msg_type: message_type,
+                        msg: Message::Kick(id1, clean_start, true, is_admin), //clear_subscriptions
+                        max_retries: 0,
+                        retry_interval: Duration::from_millis(500),
+                    };
+                    match msg_sender.send().await {
+                        Ok(reply) => {
+                            if let MessageReply::Kick(Some(kicked)) = reply {
+                                log::debug!("{:?} kicked: {:?}", id, kicked);
+                                Some(kicked)
+                            } else {
+                                log::info!(
+                                    "{:?} Message::Kick from other node, prev_node_id: {:?}, reply: {:?}",
+                                    id,
+                                    prev_node_id,
+                                    reply
+                                );
+                                None
+                            }
+                        }
+                        Err(e) => {
+                            log::error!(
+                                "{:?} Message::Kick from other node, prev_node_id: {:?}, error: {:?}",
                                 id,
                                 prev_node_id,
-                                reply
+                                e
                             );
-                            Ok(None)
+                            None
                         }
                     }
-                    Err(e) => {
-                        log::error!(
-                            "{:?} Message::Kick from other node, prev_node_id: {:?}, error: {:?}",
-                            id,
-                            prev_node_id,
-                            e
-                        );
-                        Ok(None)
-                    }
-                }
+                };
+
+                let reply = kick_fut
+                    .spawn(task_exec_queue())
+                    .result()
+                    .await
+                    .map_err(|e| MqttError::from(e.to_string()))?;
+                Ok(reply)
             } else {
                 return Err(MqttError::Msg(format!(
                     "kick error, grpc_client is not exist, prev_node_id: {:?}",
@@ -194,18 +206,13 @@ impl Entry for ClusterLockEntry {
     }
 
     #[inline]
-    fn is_connected(&self) -> bool {
-        self.inner.is_connected()
+    async fn is_connected(&self) -> bool {
+        self.inner.is_connected().await
     }
 
     #[inline]
     fn session(&self) -> Option<Session> {
         self.inner.session()
-    }
-
-    #[inline]
-    fn client(&self) -> Option<ClientInfo> {
-        self.inner.client()
     }
 
     #[inline]
@@ -288,8 +295,8 @@ impl ClusterShared {
     }
 
     #[inline]
-    pub(crate) fn inner(&self) -> Box<dyn Shared> {
-        Box::new(self.inner)
+    pub(crate) fn inner(&self) -> &'static DefaultShared {
+        self.inner
     }
 
     #[inline]
@@ -311,18 +318,30 @@ impl Shared for &'static ClusterShared {
     }
 
     #[inline]
-    async fn forwards(&self, from: From, publish: Publish) -> Result<(), Vec<(To, From, Publish, Reason)>> {
+    async fn forwards(
+        &self,
+        from: From,
+        publish: Publish,
+    ) -> Result<SubscriptionClientIds, Vec<(To, From, Publish, Reason)>> {
         log::debug!("[forwards] from: {:?}, publish: {:?}", from, publish);
 
         let topic = publish.topic();
-        let mut relations_map =
-            match Runtime::instance().extends.router().await.matches(publish.topic()).await {
-                Ok(relations_map) => relations_map,
-                Err(e) => {
-                    log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
-                    SubRelationsMap::default()
-                }
-            };
+        let mut relations_map = match Runtime::instance()
+            .extends
+            .router()
+            .await
+            .matches(from.id.clone(), publish.topic())
+            .await
+        {
+            Ok(relations_map) => relations_map,
+            Err(e) => {
+                log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
+                SubRelationsMap::default()
+            }
+        };
+
+        //let subs_size: SubscriptionSize = relations_map.values().map(|subs| subs.len()).sum();
+        let sub_client_ids = self.inner()._collect_subscription_client_ids(&relations_map);
 
         let mut errs = Vec::new();
 
@@ -362,23 +381,29 @@ impl Shared for &'static ClusterShared {
                 }
             }
 
-            tokio::spawn(async move {
-                let replys = futures::future::join_all(fut_senders).await;
-                for (node_id, reply) in replys {
-                    if let Err(e) = reply {
-                        log::error!(
+            //@TODO ... If the received message is greater than the sending rate, it is necessary to control the message receiving rate
+            if !fut_senders.is_empty() {
+                Runtime::instance().stats.forwards.inc();
+                let forwards_fut = async move {
+                    let replys = futures::future::join_all(fut_senders).await;
+                    for (node_id, reply) in replys {
+                        if let Err(e) = reply {
+                            log::error!(
                             "forwards Message::ForwardsTo to other node, from: {:?}, to: {:?}, error: {:?}",
                             from,
                             node_id,
                             e
                         );
+                        }
                     }
-                }
-            });
+                    Runtime::instance().stats.forwards.dec();
+                };
+                let _reply = Runtime::instance().exec.spawn(forwards_fut).await;
+            }
         }
 
         if errs.is_empty() {
-            Ok(())
+            Ok(sub_client_ids)
         } else {
             Err(errs)
         }
@@ -399,7 +424,7 @@ impl Shared for &'static ClusterShared {
         &self,
         from: From,
         publish: Publish,
-    ) -> Result<SubRelationsMap, Vec<(To, From, Publish, Reason)>> {
+    ) -> Result<(SubRelationsMap, SubscriptionClientIds), Vec<(To, From, Publish, Reason)>> {
         self.inner.forwards_and_get_shareds(from, publish).await
     }
 
@@ -409,7 +434,7 @@ impl Shared for &'static ClusterShared {
     }
 
     #[inline]
-    fn random_session(&self) -> Option<(Session, ClientInfo)> {
+    fn random_session(&self) -> Option<Session> {
         self.inner.random_session()
     }
 
@@ -438,6 +463,10 @@ impl Shared for &'static ClusterShared {
         self.inner.query_subscriptions(q).await
     }
 
+    #[inline]
+    async fn subscriptions_count(&self) -> usize {
+        self.inner.subscriptions_count().await
+    }
     #[inline]
     fn get_grpc_clients(&self) -> GrpcClients {
         self.grpc_clients.clone()

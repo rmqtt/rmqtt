@@ -7,7 +7,7 @@
 http_timeout = "5s"
 http_headers.accept = "*/*"
 http_headers.Cache-Control = "no-cache"
-http_headers.User-Agent = "RMQTT/0.2.11"
+http_headers.User-Agent = "RMQTT/0.4.0"
 http_headers.Connection = "keep-alive"
 
 #Disconnect if publishing is rejected
@@ -47,7 +47,6 @@ http_auth_req.params = { clientid = "%c", username = "%u", password = "%P" }
 ##  - %c: clientid
 ##  - %a: ipaddress
 ##  - %r: protocol
-##  - %m: mountpoint - Not for the time being
 ##  - %t: topic
 ##
 ## Value: URL

@@ -3,28 +3,22 @@ use rmqtt::{async_trait::async_trait, log};
 use rmqtt::{
     broker::{
         hook::{Handler, HookResult, Parameter, ReturnType},
-        types::{From, Publish},
-        SubRelationsMap,
+        types::{From, Publish, SubRelationsMap, SubscriptionClientIds},
     },
     grpc::{Message, MessageReply},
     Id, Runtime,
 };
 
-use super::{hook_message_dropped, retainer::ClusterRetainer, router::ClusterRouter, shared::ClusterShared};
+use super::{hook_message_dropped, router::ClusterRouter, shared::ClusterShared};
 
 pub(crate) struct HookHandler {
     shared: &'static ClusterShared,
     router: &'static ClusterRouter,
-    retainer: &'static ClusterRetainer,
 }
 
 impl HookHandler {
-    pub(crate) fn new(
-        shared: &'static ClusterShared,
-        router: &'static ClusterRouter,
-        retainer: &'static ClusterRetainer,
-    ) -> Self {
-        Self { shared, router, retainer }
+    pub(crate) fn new(shared: &'static ClusterShared, router: &'static ClusterRouter) -> Self {
+        Self { shared, router }
     }
 }
 
@@ -39,8 +33,9 @@ impl Handler for HookHandler {
                 }
                 match msg {
                     Message::Forwards(from, publish) => {
-                        let shared_subs = forwards(from.clone(), publish.clone()).await;
-                        let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::Forwards(shared_subs)));
+                        let (shared_subs, subs_size) = forwards(from.clone(), publish.clone()).await;
+                        let new_acc =
+                            HookResult::GrpcMessageReply(Ok(MessageReply::Forwards(shared_subs, subs_size)));
                         return (false, Some(new_acc));
                     }
                     Message::ForwardsTo(from, publish, sub_rels) => {
@@ -85,14 +80,8 @@ impl Handler for HookHandler {
                         )));
                         return (false, Some(new_acc));
                     }
-                    Message::GetRetains(topic_filter) => {
-                        let new_acc = match self.retainer.inner().get(topic_filter).await {
-                            Ok(retains) => {
-                                HookResult::GrpcMessageReply(Ok(MessageReply::GetRetains(retains)))
-                            }
-                            Err(e) => HookResult::GrpcMessageReply(Err(e)),
-                        };
-                        return (false, Some(new_acc));
+                    Message::GetRetains(_topic_filter) => {
+                        unreachable!()
                     }
                     Message::Online(clientid) => {
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::Online(
@@ -152,12 +141,12 @@ impl Handler for HookHandler {
     }
 }
 
-async fn forwards(from: From, publish: Publish) -> SubRelationsMap {
+async fn forwards(from: From, publish: Publish) -> (SubRelationsMap, SubscriptionClientIds) {
     log::debug!("forwards, From: {:?}, publish: {:?}", from, publish);
     match Runtime::instance().extends.shared().await.forwards_and_get_shareds(from, publish).await {
         Err(droppeds) => {
             hook_message_dropped(droppeds).await;
-            SubRelationsMap::default()
+            (SubRelationsMap::default(), None)
         }
         Ok(relations_map) => relations_map,
     }

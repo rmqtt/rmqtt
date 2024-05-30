@@ -9,36 +9,69 @@ use serde::Serialize;
 
 use rmqtt::grpc::MessageType;
 use rmqtt::settings::{deserialize_duration, deserialize_duration_option, NodeAddr, Options};
-use rmqtt::Result;
-use rmqtt::{lazy_static, serde_json};
+use rmqtt::{once_cell::sync::Lazy, serde_json};
+use rmqtt::{MqttError, NodeId, Result};
 
-lazy_static::lazy_static! {
-    pub static ref BACKOFF_STRATEGY: ExponentialBackoff = ExponentialBackoffBuilder::new()
+pub(crate) static BACKOFF_STRATEGY: Lazy<ExponentialBackoff> = Lazy::new(|| {
+    ExponentialBackoffBuilder::new()
         .with_max_elapsed_time(Some(Duration::from_secs(60)))
-        .with_multiplier(2.5).build();
-}
+        .with_multiplier(2.5)
+        .build()
+});
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
+    #[serde(default = "PluginConfig::worker_threads_default")]
+    pub worker_threads: usize,
+
     #[serde(default = "PluginConfig::message_type_default")]
     pub message_type: MessageType,
+
     pub node_grpc_addrs: Vec<NodeAddr>,
+
     pub raft_peer_addrs: Vec<NodeAddr>,
+
+    #[serde(default)]
+    pub leader_id: NodeId,
+
     #[serde(default = "PluginConfig::try_lock_timeout_default", deserialize_with = "deserialize_duration")]
     pub try_lock_timeout: Duration, //Message::HandshakeTryLock
 
     #[serde(default = "PluginConfig::task_exec_queue_workers_default")]
     pub task_exec_queue_workers: usize,
+
     #[serde(default = "PluginConfig::task_exec_queue_max_default")]
     pub task_exec_queue_max: usize,
+
+    #[serde(default)]
+    pub verify_addr: bool,
+
     #[serde(default = "PluginConfig::raft_default")]
     pub raft: RaftConfig,
 }
 
 impl PluginConfig {
     #[inline]
+    pub fn leader(&self) -> Result<Option<&NodeAddr>> {
+        if self.leader_id == 0 {
+            Ok(None)
+        } else {
+            let leader = self
+                .raft_peer_addrs
+                .iter()
+                .find(|leader| leader.id == self.leader_id)
+                .ok_or_else(|| MqttError::from("Leader does not exist"))?;
+            Ok(Some(leader))
+        }
+    }
+
+    #[inline]
     pub fn to_json(&self) -> Result<serde_json::Value> {
         Ok(serde_json::to_value(self)?)
+    }
+
+    fn worker_threads_default() -> usize {
+        6
     }
 
     fn message_type_default() -> MessageType {
@@ -63,10 +96,13 @@ impl PluginConfig {
 
     pub fn merge(&mut self, opts: &Options) {
         if let Some(node_grpc_addrs) = opts.node_grpc_addrs.as_ref() {
-            self.node_grpc_addrs = node_grpc_addrs.clone();
+            self.node_grpc_addrs.clone_from(node_grpc_addrs);
         }
         if let Some(raft_peer_addrs) = opts.raft_peer_addrs.as_ref() {
-            self.raft_peer_addrs = raft_peer_addrs.clone();
+            self.raft_peer_addrs.clone_from(raft_peer_addrs);
+        }
+        if let Some(raft_leader_id) = opts.raft_leader_id.as_ref() {
+            self.leader_id = *raft_leader_id;
         }
     }
 }

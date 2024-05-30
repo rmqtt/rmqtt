@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 use std::convert::From as _f;
-use std::iter::Iterator;
 use std::num::NonZeroU16;
 use std::num::NonZeroU32;
 use std::str::FromStr;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
+#[allow(unused_imports)]
+use bitflags::Flags;
 use itertools::Itertools;
 use ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 use once_cell::sync::OnceCell;
@@ -18,17 +18,15 @@ use uuid::Uuid;
 
 use crate::broker::fitter::{Fitter, FitterManager};
 use crate::broker::hook::{Handler, Hook, HookManager, HookResult, Parameter, Priority, Register, Type};
-use crate::broker::session::{ClientInfo, Session, SessionOfflineInfo};
+use crate::broker::inflight::InflightMessage;
+use crate::broker::session::{Session, SessionLike, SessionManager, SessionOfflineInfo};
 use crate::broker::topic::{Topic, VecToTopic};
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
 use crate::stats::Counter;
-use crate::{grpc, ClientId, Id, MqttError, NodeId, QoS, Result, Runtime, TopicFilter};
+use crate::{grpc, MqttError, Result, Runtime};
 
-use super::{
-    retain::RetainTree, topic::TopicTree, Entry, IsOnline, RetainStorage, Router, Shared, SharedSubscription,
-    SubRelations, SubRelationsMap,
-};
+use super::{retain::RetainTree, topic::TopicTree, Entry, RetainStorage, Router, Shared, SharedSubscription};
 
 type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
 type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
@@ -60,23 +58,20 @@ impl LockEntry {
     async fn _unsubscribe(&self, id: Id, topic_filter: &str) -> Result<()> {
         Runtime::instance().extends.router().await.remove(topic_filter, id).await?;
         if let Some(s) = self.session() {
-            s.subscriptions.remove(topic_filter);
+            s.subscriptions_remove(topic_filter).await?;
         }
         Ok(())
     }
 
     #[inline]
-    pub async fn _remove_with(
-        &mut self,
-        clear_subscriptions: bool,
-        with_id: &Id,
-    ) -> Option<(Session, Tx, ClientInfo)> {
+    pub async fn _remove_with(&mut self, clear_subscriptions: bool, with_id: &Id) -> Option<(Session, Tx)> {
         if let Some((_, peer)) =
-            { self.shared.peers.remove_if(&self.id.client_id, |_, entry| &entry.c.id == with_id) }
+            { self.shared.peers.remove_if(&self.id.client_id, |_, entry| &entry.s.id == with_id) }
         {
             if clear_subscriptions {
-                for topic_filter in peer.s.subscriptions.to_topic_filters() {
-                    if let Err(e) = self._unsubscribe(peer.c.id.clone(), &topic_filter).await {
+                let topic_filters = peer.s.subscriptions().await.ok()?.to_topic_filters().await;
+                for topic_filter in topic_filters {
+                    if let Err(e) = self._unsubscribe(peer.s.id.clone(), &topic_filter).await {
                         log::warn!(
                             "{:?} remove._unsubscribe, topic_filter: {}, {:?}",
                             self.id,
@@ -87,18 +82,19 @@ impl LockEntry {
                 }
             }
             log::debug!("{:?} remove ...", self.id);
-            Some((peer.s, peer.tx, peer.c))
+            Some((peer.s, peer.tx))
         } else {
             None
         }
     }
 
     #[inline]
-    pub async fn _remove(&mut self, clear_subscriptions: bool) -> Option<(Session, Tx, ClientInfo)> {
+    pub async fn _remove(&mut self, clear_subscriptions: bool) -> Option<(Session, Tx)> {
         if let Some((_, peer)) = { self.shared.peers.remove(&self.id.client_id) } {
             if clear_subscriptions {
-                for topic_filter in peer.s.subscriptions.to_topic_filters() {
-                    if let Err(e) = self._unsubscribe(peer.c.id.clone(), &topic_filter).await {
+                let topic_filters = peer.s.subscriptions().await.ok()?.to_topic_filters().await;
+                for topic_filter in topic_filters {
+                    if let Err(e) = self._unsubscribe(peer.s.id.clone(), &topic_filter).await {
                         log::warn!(
                             "{:?} remove._unsubscribe, topic_filter: {}, {:?}",
                             self.id,
@@ -109,7 +105,7 @@ impl LockEntry {
                 }
             }
             log::debug!("{:?} remove ...", self.id);
-            Some((peer.s, peer.tx, peer.c))
+            Some((peer.s, peer.tx))
         } else {
             None
         }
@@ -138,22 +134,22 @@ impl super::Entry for LockEntry {
 
     #[inline]
     fn id_same(&self) -> Option<bool> {
-        self.shared.peers.get(&self.id.client_id).map(|peer| peer.c.id == self.id)
+        self.shared.peers.get(&self.id.client_id).map(|peer| peer.s.id == self.id)
     }
 
     #[inline]
-    async fn set(&mut self, s: Session, tx: Tx, c: ClientInfo) -> Result<()> {
-        self.shared.peers.insert(self.id.client_id.clone(), EntryItem { s, tx, c });
+    async fn set(&mut self, s: Session, tx: Tx) -> Result<()> {
+        self.shared.peers.insert(self.id.client_id.clone(), EntryItem { s, tx });
         Ok(())
     }
 
     #[inline]
-    async fn remove(&mut self) -> Result<Option<(Session, Tx, ClientInfo)>> {
+    async fn remove(&mut self) -> Result<Option<(Session, Tx)>> {
         Ok(self._remove(true).await)
     }
 
     #[inline]
-    async fn remove_with(&mut self, id: &Id) -> Result<Option<(Session, Tx, ClientInfo)>> {
+    async fn remove_with(&mut self, id: &Id) -> Result<Option<(Session, Tx)>> {
         Ok(self._remove_with(true, id).await)
     }
 
@@ -166,7 +162,7 @@ impl super::Entry for LockEntry {
     ) -> Result<Option<SessionOfflineInfo>> {
         log::debug!(
             "{:?} LockEntry kick ..., clean_start: {}, clear_subscriptions: {}, is_admin: {}",
-            self.client().map(|c| c.id.clone()),
+            self.session().map(|s| s.id.clone()),
             clean_start,
             clear_subscriptions,
             is_admin
@@ -178,14 +174,14 @@ impl super::Entry for LockEntry {
             {
                 match tokio::time::timeout(Duration::from_secs(5), rx).await {
                     Ok(Ok(())) => {
-                        log::debug!("{:?} kicked, from {:?}", self.id, self.client().map(|c| c.id.clone()));
+                        log::debug!("{:?} kicked, from {:?}", self.id, self.session().map(|s| s.id.clone()));
                     }
                     Ok(Err(e)) => {
                         log::warn!(
                             "{:?} kick, recv result is {:?}, from {:?}",
                             self.id,
                             e,
-                            self.client().map(|c| c.id.clone())
+                            self.session().map(|s| s.id.clone())
                         );
                         return Err(MqttError::Msg(format!("recv kick result is {:?}", e)));
                     }
@@ -193,15 +189,25 @@ impl super::Entry for LockEntry {
                         log::warn!(
                             "{:?} kick, recv result is Timeout, from {:?}",
                             self.id,
-                            self.client().map(|c| c.id.clone())
+                            self.session().map(|s| s.id.clone())
                         );
                     }
                 }
             }
         }
 
-        if let Some((s, _, _)) = self._remove(clear_subscriptions).await {
-            Ok(Some(s.to_offline_info().await))
+        if let Some((s, _)) = self._remove(clear_subscriptions).await {
+            if clean_start {
+                Ok(None)
+            } else {
+                match s.to_offline_info().await {
+                    Ok(offline_info) => Ok(Some(offline_info)),
+                    Err(e) => {
+                        log::error!("get offline info error, {:?}", e);
+                        Ok(None)
+                    }
+                }
+            }
         } else {
             Ok(None)
         }
@@ -209,13 +215,13 @@ impl super::Entry for LockEntry {
 
     #[inline]
     async fn online(&self) -> bool {
-        self.is_connected()
+        self.is_connected().await
     }
 
     #[inline]
-    fn is_connected(&self) -> bool {
+    async fn is_connected(&self) -> bool {
         if let Some(entry) = self.shared.peers.get(&self.id.client_id) {
-            entry.c.connected.load(Ordering::SeqCst)
+            entry.s.connected().await.unwrap_or_default()
         } else {
             false
         }
@@ -224,11 +230,6 @@ impl super::Entry for LockEntry {
     #[inline]
     fn session(&self) -> Option<Session> {
         self.shared.peers.get(&self.id.client_id).map(|peer| peer.s.clone())
-    }
-
-    #[inline]
-    fn client(&self) -> Option<ClientInfo> {
-        self.shared.peers.get(&self.id.client_id).map(|peer| peer.c.clone())
     }
 
     #[inline]
@@ -251,7 +252,7 @@ impl super::Entry for LockEntry {
             .ok_or_else(|| MqttError::from("session is not exist"))?;
 
         let this_node_id = Runtime::instance().node.id();
-        let node_id = peer.c.id.node_id;
+        let node_id = peer.s.id.node_id;
         assert_eq!(
             node_id, this_node_id,
             "session node exception, session node id is {}, this node id is {}",
@@ -262,10 +263,10 @@ impl super::Entry for LockEntry {
             .extends
             .router()
             .await
-            .add(&sub.topic_filter, self.id(), sub.qos, sub.shared_group.clone())
+            .add(&sub.topic_filter, self.id.clone(), sub.opts.clone())
             .await?;
-        peer.s.subscriptions.add(sub.topic_filter.clone(), sub.qos, sub.shared_group.clone());
-        Ok(SubscribeReturn::new_success(sub.qos))
+        let prev_opts = peer.s.subscriptions_add(sub.topic_filter.clone(), sub.opts.clone()).await?;
+        Ok(SubscribeReturn::new_success(sub.opts.qos(), prev_opts))
     }
 
     #[inline]
@@ -282,7 +283,7 @@ impl super::Entry for LockEntry {
         {
             log::warn!("{:?} unsubscribe, error:{:?}", self.id, e);
         }
-        let remove_ok = peer.s.subscriptions.remove(&unsubscribe.topic_filter).is_some();
+        let remove_ok = peer.s.subscriptions_remove(&unsubscribe.topic_filter).await?.is_some();
         Ok(remove_ok)
     }
 
@@ -307,18 +308,18 @@ impl super::Entry for LockEntry {
     async fn subscriptions(&self) -> Option<Vec<SubsSearchResult>> {
         if let Some(s) = self.session() {
             let subs = s
-                .subscriptions
+                .subscriptions()
+                .await
+                .ok()?
+                .read()
+                .await
                 .iter()
-                .map(|entry| {
-                    let (topic_filter, (qos, group)) = entry.pair();
-                    SubsSearchResult {
-                        node_id: self.id.node_id,
-                        clientid: self.id.client_id.clone(),
-                        client_addr: self.id.remote_addr,
-                        topic: TopicFilter::from(topic_filter.as_ref()),
-                        qos: qos.value(),
-                        share: group.as_ref().cloned(),
-                    }
+                .map(|(topic_filter, opts)| SubsSearchResult {
+                    node_id: s.id.node_id,
+                    clientid: s.id.client_id.clone(),
+                    client_addr: s.id.remote_addr,
+                    topic: TopicFilter::from(topic_filter.as_ref()),
+                    opts: opts.clone(),
                 })
                 .collect::<Vec<_>>();
             Some(subs)
@@ -332,7 +333,6 @@ impl super::Entry for LockEntry {
 struct EntryItem {
     s: Session,
     tx: Tx,
-    c: ClientInfo,
 }
 
 pub struct DefaultShared {
@@ -349,12 +349,73 @@ impl DefaultShared {
 
     #[inline]
     pub fn tx(&self, client_id: &str) -> Option<(Tx, To)> {
-        self.peers.get(client_id).map(|peer| (peer.tx.clone(), peer.c.id.clone()))
+        self.peers.get(client_id).map(|peer| (peer.tx.clone(), peer.s.id.clone()))
     }
 
     #[inline]
     pub async fn _query_subscriptions(&self, q: &SubsSearchParams) -> Vec<SubsSearchResult> {
         DefaultRouter::instance()._query_subscriptions(q).await
+    }
+
+    #[inline]
+    pub fn _collect_subscription_client_ids(&self, relations_map: &SubRelationsMap) -> SubscriptionClientIds {
+        let sub_client_ids = relations_map
+            .values()
+            .flat_map(|subs| {
+                subs.iter().flat_map(|(tf, cid, _, _, group_shared)| {
+                    log::debug!(
+                        "_collect_subscription_client_ids, tf: {:?}, cid {:?}, group_shared: {:?}",
+                        tf,
+                        cid,
+                        group_shared
+                    );
+                    if let Some((group, _, cids)) = group_shared {
+                        cids.iter()
+                            .map(|g_cid| {
+                                if g_cid == cid {
+                                    log::debug!(
+                                        "_collect_subscription_client_ids is group_shared {:?}",
+                                        g_cid
+                                    );
+                                    (g_cid.clone(), Some((tf.clone(), group.clone())))
+                                } else {
+                                    (g_cid.clone(), None)
+                                }
+                            })
+                            .collect()
+                    } else {
+                        vec![(cid.clone(), None)]
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        log::debug!("_collect_subscription_client_ids sub_client_ids: {:?}", sub_client_ids);
+        if sub_client_ids.is_empty() {
+            None
+        } else {
+            Some(sub_client_ids)
+        }
+    }
+
+    #[inline]
+    pub fn _merge_subscription_client_ids(
+        &self,
+        sub_client_ids: SubscriptionClientIds,
+        o_sub_client_ids: SubscriptionClientIds,
+    ) -> SubscriptionClientIds {
+        let sub_client_ids = match (sub_client_ids, o_sub_client_ids) {
+            (Some(sub_client_ids), None) => Some(sub_client_ids),
+            (Some(mut sub_client_ids), Some(o_sub_client_ids)) => {
+                if !o_sub_client_ids.is_empty() {
+                    sub_client_ids.extend(o_sub_client_ids);
+                }
+                Some(sub_client_ids)
+            }
+            (None, Some(o_sub_client_ids)) => Some(o_sub_client_ids),
+            (None, None) => None,
+        };
+        log::debug!("_merge_subscription_client_ids sub_client_ids: {:?}", sub_client_ids);
+        sub_client_ids.filter(|sub_client_ids| !sub_client_ids.is_empty())
     }
 }
 
@@ -371,16 +432,27 @@ impl Shared for &'static DefaultShared {
     }
 
     #[inline]
-    async fn forwards(&self, from: From, publish: Publish) -> Result<(), Vec<(To, From, Publish, Reason)>> {
+    async fn forwards(
+        &self,
+        from: From,
+        publish: Publish,
+    ) -> Result<SubscriptionClientIds, Vec<(To, From, Publish, Reason)>> {
         let topic = publish.topic();
-        let mut relations_map =
-            match Runtime::instance().extends.router().await.matches(publish.topic()).await {
-                Ok(relations_map) => relations_map,
-                Err(e) => {
-                    log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
-                    SubRelationsMap::default()
-                }
-            };
+        let mut relations_map = match Runtime::instance()
+            .extends
+            .router()
+            .await
+            .matches(from.id.clone(), publish.topic())
+            .await
+        {
+            Ok(relations_map) => relations_map,
+            Err(e) => {
+                log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
+                SubRelationsMap::default()
+            }
+        };
+
+        let sub_client_ids = self._collect_subscription_client_ids(&relations_map);
 
         let this_node_id = Runtime::instance().node.id();
         if let Some(relations) = relations_map.remove(&this_node_id) {
@@ -389,7 +461,7 @@ impl Shared for &'static DefaultShared {
         if !relations_map.is_empty() {
             log::warn!("forwards, relations_map:{:?}", relations_map);
         }
-        Ok(())
+        Ok(sub_client_ids)
     }
 
     #[inline]
@@ -397,30 +469,35 @@ impl Shared for &'static DefaultShared {
         &self,
         from: From,
         publish: Publish,
-    ) -> Result<SubRelationsMap, Vec<(To, From, Publish, Reason)>> {
+    ) -> Result<(SubRelationsMap, SubscriptionClientIds), Vec<(To, From, Publish, Reason)>> {
         let topic = publish.topic();
         log::debug!("forwards_and_get_shareds, from: {:?}, topic: {:?}", from, topic.to_string());
-        let relations_map = match Runtime::instance().extends.router().await.matches(topic).await {
-            Ok(relations_map) => relations_map,
-            Err(e) => {
-                log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
-                SubRelationsMap::default()
-            }
-        };
+        let relations_map =
+            match Runtime::instance().extends.router().await.matches(from.id.clone(), topic).await {
+                Ok(relations_map) => relations_map,
+                Err(e) => {
+                    log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
+                    SubRelationsMap::default()
+                }
+            };
+
+        //let subs_size: SubscriptionSize = relations_map.values().map(|subs| subs.len()).sum();
+        let sub_client_ids = self._collect_subscription_client_ids(&relations_map);
 
         let mut relations = SubRelations::new();
         let mut sub_relations_map = SubRelationsMap::default();
         for (node_id, rels) in relations_map {
-            for (topic_filter, client_id, qos, group) in rels {
+            for (topic_filter, client_id, opts, sub_ids, group) in rels {
                 if let Some(group) = group {
                     sub_relations_map.entry(node_id).or_default().push((
                         topic_filter,
                         client_id,
-                        qos,
+                        opts,
+                        sub_ids,
                         Some(group),
                     ));
                 } else {
-                    relations.push((topic_filter, client_id, qos, None));
+                    relations.push((topic_filter, client_id, opts, sub_ids, None));
                 }
             }
         }
@@ -428,7 +505,7 @@ impl Shared for &'static DefaultShared {
         if !relations.is_empty() {
             self.forwards_to(from, &publish, relations).await?;
         }
-        Ok(sub_relations_map)
+        Ok((sub_relations_map, sub_client_ids))
     }
 
     #[inline]
@@ -440,12 +517,24 @@ impl Shared for &'static DefaultShared {
     ) -> Result<(), Vec<(To, From, Publish, Reason)>> {
         let mut errs = Vec::new();
 
-        for (topic_filter, client_id, qos, _) in relations.drain(..) {
+        for (topic_filter, client_id, opts, sub_ids, _) in relations.drain(..) {
+            let retain = if let Some(retain_as_published) = opts.retain_as_published() {
+                //MQTT V5: Retain As Publish
+                if retain_as_published {
+                    publish.retain
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
             let mut p = publish.clone();
             p.dup = false;
-            p.retain = false;
-            p.qos = p.qos.less_value(qos);
+            p.retain = retain;
+            p.qos = p.qos.less_value(opts.qos());
             p.packet_id = None;
+            p.properties.subscription_ids = sub_ids;
             let (tx, to) = if let Some((tx, to)) = self.tx(&client_id) {
                 (tx, to)
             } else {
@@ -488,9 +577,8 @@ impl Shared for &'static DefaultShared {
     }
 
     #[inline]
-    fn random_session(&self) -> Option<(Session, ClientInfo)> {
-        let mut sessions =
-            self.peers.iter().map(|p| (p.s.clone(), p.c.clone())).collect::<Vec<(Session, ClientInfo)>>();
+    fn random_session(&self) -> Option<Session> {
+        let mut sessions = self.peers.iter().map(|p| (p.s.clone())).collect::<Vec<Session>>();
         let len = self.peers.len();
         if len > 0 {
             let idx = rand::prelude::random::<usize>() % len;
@@ -502,11 +590,15 @@ impl Shared for &'static DefaultShared {
 
     #[inline]
     async fn session_status(&self, client_id: &str) -> Option<SessionStatus> {
-        self.peers.get(client_id).map(|entry| SessionStatus {
-            id: entry.c.id.clone(),
-            online: entry.c.is_connected(),
-            handshaking: false,
-        })
+        if let Some(entry) = self.peers.get(client_id) {
+            Some(SessionStatus {
+                id: entry.s.id.clone(),
+                online: entry.s.connected().await.unwrap_or_default(),
+                handshaking: false,
+            })
+        } else {
+            None
+        }
     }
 
     #[inline]
@@ -523,6 +615,20 @@ impl Shared for &'static DefaultShared {
     async fn query_subscriptions(&self, q: SubsSearchParams) -> Vec<SubsSearchResult> {
         self._query_subscriptions(&q).await
     }
+
+    #[inline]
+    async fn subscriptions_count(&self) -> usize {
+        futures::future::join_all(self.peers.iter().map(|entry| async move {
+            if let Ok(subs) = entry.s.subscriptions().await {
+                subs.len().await
+            } else {
+                0
+            }
+        }))
+        .await
+        .iter()
+        .sum()
+    }
 }
 
 pub struct DefaultIter<'a> {
@@ -536,7 +642,7 @@ impl Iterator for DefaultIter<'_> {
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(item) = self.ptr.next() {
-            Some(Box::new(LockEntry::new(item.c.id.clone(), self.shared, None)))
+            Some(Box::new(LockEntry::new(item.s.id.clone(), self.shared, None)))
         } else {
             None
         }
@@ -547,7 +653,7 @@ impl Iterator for DefaultIter<'_> {
 pub struct DefaultRouter {
     pub topics: RwLock<TopicTree<()>>,
     pub topics_count: Counter,
-    pub relations: DashMap<TopicFilter, HashMap<ClientId, (Id, QoS, Option<SharedGroup>)>>,
+    pub relations: DashMap<TopicFilter, HashMap<ClientId, (Id, SubscriptionOptions)>>,
     pub relations_count: Counter,
 }
 
@@ -587,32 +693,47 @@ impl DefaultRouter {
 
     #[allow(clippy::type_complexity)]
     #[inline]
-    pub async fn _matches(&self, topic_name: &TopicName) -> Result<SubRelationsMap> {
-        let mut subs: SubRelationsMap = HashMap::default();
+    pub async fn _matches(&self, this_id: Id, topic_name: &TopicName) -> Result<SubRelationsMap> {
+        let mut collector_map: SubscriptioRelationsCollectorMap = HashMap::default();
         let topic = Topic::from_str(topic_name)?;
         for (topic_filter, _node_ids) in self.topics.read().await.matches(&topic).iter() {
             let topic_filter = topic_filter.to_topic_filter();
-
-            let mut groups: HashMap<SharedGroup, Vec<(NodeId, ClientId, QoS, Option<IsOnline>)>> =
-                HashMap::default();
+            #[allow(clippy::mutable_key_type)]
+            let mut groups: HashMap<
+                SharedGroup,
+                Vec<(
+                    NodeId,
+                    ClientId,
+                    SubscriptionOptions,
+                    Option<Vec<SubscriptionIdentifier>>,
+                    Option<IsOnline>,
+                )>,
+            > = HashMap::default();
 
             if let Some(rels) = self.relations.get(&topic_filter) {
-                for (client_id, (id, qos, group)) in rels.iter() {
-                    if let Some(group) = group {
+                for (client_id, (id, opts)) in rels.iter() {
+                    if let Some(no_local) = opts.no_local() {
+                        //MQTT V5: No Local
+                        if no_local && &this_id == id {
+                            continue;
+                        }
+                    }
+                    if let Some(group) = opts.shared_group() {
                         let router = Runtime::instance().extends.router().await;
                         groups.entry(group.clone()).or_default().push((
                             id.node_id,
                             client_id.clone(),
-                            *qos,
+                            opts.clone(),
+                            None,
                             Some(router.is_online(id.node_id, client_id).await),
                         ));
                     } else {
-                        subs.entry(id.node_id).or_default().push((
-                            topic_filter.clone(),
+                        collector_map.entry(id.node_id).or_default().add(
+                            &topic_filter,
                             client_id.clone(),
-                            *qos,
+                            opts.clone(),
                             None,
-                        ))
+                        );
                     }
                 }
             }
@@ -620,30 +741,35 @@ impl DefaultRouter {
             //select a subscriber from shared subscribe groups
             for (group, mut s_subs) in groups.drain() {
                 log::debug!("group: {}, s_subs: {:?}", group, s_subs);
+                let group_cids = s_subs.iter().map(|(_, cid, _, _, _)| cid.clone()).collect();
                 if let Some((idx, is_online)) =
                     Runtime::instance().extends.shared_subscription().await.choice(&s_subs).await
                 {
-                    let (node_id, client_id, qos, _) = s_subs.remove(idx);
-                    subs.entry(node_id).or_default().push((
-                        topic_filter.clone(),
-                        client_id.clone(),
-                        qos,
-                        Some((group, is_online)),
-                    ))
+                    let (node_id, client_id, opts, _, _) = s_subs.remove(idx);
+                    collector_map.entry(node_id).or_default().add(
+                        &topic_filter,
+                        client_id,
+                        opts,
+                        Some((group, is_online, group_cids)),
+                    );
                 }
             }
         }
 
-        log::debug!("{:?} this_subs: {:?}", topic_name, subs);
-        Ok(subs)
+        let mut rels_map: SubRelationsMap = HashMap::default();
+        for (node_id, collector) in collector_map {
+            rels_map.insert(node_id, collector.into());
+        }
+
+        log::debug!("{:?} this_subs: {:?}", topic_name, rels_map);
+        Ok(rels_map)
     }
 
     #[inline]
     fn _query_subscriptions_filter(
         q: &SubsSearchParams,
         client_id: &str,
-        qos: &QoS,
-        group: &Option<SharedGroup>,
+        opts: &SubscriptionOptions,
     ) -> bool {
         if let Some(ref q_clientid) = q.clientid {
             if q_clientid.as_bytes() != client_id.as_bytes() {
@@ -652,12 +778,12 @@ impl DefaultRouter {
         }
 
         if let Some(ref q_qos) = q.qos {
-            if *q_qos != qos.value() {
+            if *q_qos != opts.qos_value() {
                 return false;
             }
         }
 
-        match (&q.share, group) {
+        match (&q.share, opts.shared_group()) {
             (Some(q_group), Some(group)) => {
                 if q_group != group {
                     return false;
@@ -685,10 +811,10 @@ impl DefaultRouter {
             .map(|e| {
                 e.value()
                     .iter()
-                    .filter(|(client_id, (_id, qos, group))| {
-                        Self::_query_subscriptions_filter(q, client_id.as_ref(), qos, group)
+                    .filter(|(client_id, (_id, opts))| {
+                        Self::_query_subscriptions_filter(q, client_id.as_ref(), opts)
                     })
-                    .filter_map(|(client_id, (id, qos, group))| {
+                    .filter_map(|(client_id, (id, opts))| {
                         if curr < limit {
                             curr += 1;
                             Some(SubsSearchResult {
@@ -696,8 +822,7 @@ impl DefaultRouter {
                                 clientid: client_id.clone(),
                                 client_addr: id.remote_addr,
                                 topic: topic_filter.clone(),
-                                qos: qos.value(),
-                                share: group.as_ref().cloned(),
+                                opts: opts.clone(),
                             })
                         } else {
                             None
@@ -734,10 +859,10 @@ impl DefaultRouter {
                 if let Some(entry) = self.relations.get(&topic_filter) {
                     entry
                         .iter()
-                        .filter(|(client_id, (_id, qos, group))| {
-                            Self::_query_subscriptions_filter(q, client_id.as_ref(), qos, group)
+                        .filter(|(client_id, (_id, opts))| {
+                            Self::_query_subscriptions_filter(q, client_id.as_ref(), opts)
                         })
-                        .filter_map(|(client_id, (id, qos, group))| {
+                        .filter_map(|(client_id, (id, opts))| {
                             if curr < limit {
                                 curr += 1;
                                 Some(SubsSearchResult {
@@ -745,8 +870,7 @@ impl DefaultRouter {
                                     clientid: client_id.clone(),
                                     client_addr: id.remote_addr,
                                     topic: topic_filter.clone(),
-                                    qos: qos.value(),
-                                    share: group.as_ref().cloned(),
+                                    opts: opts.clone(),
                                 })
                             } else {
                                 None
@@ -770,10 +894,10 @@ impl DefaultRouter {
                 let topic_filter = e.key();
                 e.value()
                     .iter()
-                    .filter(|(client_id, (_id, qos, group))| {
-                        Self::_query_subscriptions_filter(q, client_id.as_ref(), qos, group)
+                    .filter(|(client_id, (_id, opts))| {
+                        Self::_query_subscriptions_filter(q, client_id.as_ref(), opts)
                     })
-                    .filter_map(|(client_id, (id, qos, group))| {
+                    .filter_map(|(client_id, (id, opts))| {
                         if curr < limit {
                             curr += 1;
                             Some(SubsSearchResult {
@@ -781,8 +905,7 @@ impl DefaultRouter {
                                 clientid: client_id.clone(),
                                 client_addr: id.remote_addr,
                                 topic: topic_filter.clone(),
-                                qos: qos.value(),
-                                share: group.as_ref().cloned(),
+                                opts: opts.clone(),
                             })
                         } else {
                             None
@@ -813,18 +936,11 @@ impl DefaultRouter {
 #[async_trait]
 impl Router for &'static DefaultRouter {
     #[inline]
-    async fn add(
-        &self,
-        topic_filter: &str,
-        id: Id,
-        qos: QoS,
-        shared_group: Option<SharedGroup>,
-    ) -> Result<()> {
+    async fn add(&self, topic_filter: &str, id: Id, opts: SubscriptionOptions) -> Result<()> {
         log::debug!("{:?} add, topic_filter: {:?}", id, topic_filter);
         let topic = Topic::from_str(topic_filter)?;
         //add to topic tree
         self.topics.write().await.insert(&topic, ());
-
         //add to subscribe relations
         let old = self
             .relations
@@ -833,8 +949,7 @@ impl Router for &'static DefaultRouter {
                 self.topics_count.inc();
                 HashMap::default()
             })
-            .insert(id.client_id.clone(), (id, qos, shared_group));
-
+            .insert(id.client_id.clone(), (id, opts));
         if old.is_none() {
             self.relations_count.inc();
         }
@@ -847,9 +962,9 @@ impl Router for &'static DefaultRouter {
         log::debug!("{:?} remove, topic_filter: {:?}", id, topic_filter);
         //Remove subscription relationship from local
         let res = if let Some(mut rels) = self.relations.get_mut(topic_filter) {
-            let remove_enable = rels.value().get(&id.client_id).map(|(s_id, _, _)| {
+            let remove_enable = rels.value().get(&id.client_id).map(|(s_id, _)| {
                 if *s_id != id {
-                    log::info!("remove, input id not the same, input id: {:?}, current id: {:?}, topic_filter: {}", id, s_id, topic_filter);
+                    log::debug!("remove, input id not the same, input id: {:?}, current id: {:?}, topic_filter: {}", id, s_id, topic_filter);
                     false
                 } else {
                     true
@@ -886,8 +1001,8 @@ impl Router for &'static DefaultRouter {
     }
 
     #[inline]
-    async fn matches(&self, topic: &TopicName) -> Result<SubRelationsMap> {
-        Ok(self._matches(topic).await?)
+    async fn matches(&self, id: Id, topic: &TopicName) -> Result<SubRelationsMap> {
+        Ok(self._matches(id, topic).await?)
     }
 
     #[inline]
@@ -899,7 +1014,7 @@ impl Router for &'static DefaultRouter {
                 let topic_filter = e.key();
                 e.value()
                     .iter()
-                    .map(|(_, (id, _, _))| (id.node_id, topic_filter))
+                    .map(|(_, (id, _))| (id.node_id, topic_filter))
                     .unique()
                     .filter_map(|(node_id, topic_filter)| {
                         if curr < limit {
@@ -929,7 +1044,7 @@ impl Router for &'static DefaultRouter {
                 if let Some(entry) = self.relations.get(&topic_filter) {
                     entry
                         .iter()
-                        .map(|(_, (id, _, _))| id.node_id)
+                        .map(|(_, (id, _))| id.node_id)
                         .unique()
                         .map(|node_id| Route { node_id, topic: topic_filter.clone() })
                         .collect::<Vec<_>>()
@@ -995,13 +1110,12 @@ impl Router for &'static DefaultRouter {
         let mut rels = Vec::new();
         for entry in self.relations.iter() {
             let topic_filter = entry.key();
-            for (client_id, (id, qos, group)) in entry.iter() {
+            for (client_id, (id, opts)) in entry.iter() {
                 let item = json!({
                     "topic_filter": topic_filter,
                     "client_id": client_id,
                     "node_id": id.node_id,
-                    "qos": qos.value(),
-                    "group": group,
+                    "opts": opts.to_json(),
                 });
                 rels.push(item);
                 count += 1;
@@ -1028,27 +1142,29 @@ impl DefaultSharedSubscription {
 impl SharedSubscription for &'static DefaultSharedSubscription {}
 
 pub struct DefaultRetainStorage {
-    messages: RwLock<RetainTree<TimedValue<Retain>>>,
+    pub messages: RwLock<RetainTree<TimedValue<Retain>>>,
+    retaineds: Counter,
 }
 
 impl DefaultRetainStorage {
     #[inline]
     pub fn instance() -> &'static DefaultRetainStorage {
         static INSTANCE: OnceCell<DefaultRetainStorage> = OnceCell::new();
-        INSTANCE.get_or_init(|| Self { messages: RwLock::new(RetainTree::default()) })
+        INSTANCE
+            .get_or_init(|| Self { messages: RwLock::new(RetainTree::default()), retaineds: Counter::new() })
     }
 
     #[inline]
-    pub async fn remove_expired_messages(&self) {
+    pub async fn remove_expired_messages(&self) -> usize {
         let mut messages = self.messages.write().await;
-        messages.retain(|tv| {
+        messages.retain(usize::MAX, |tv| {
             if tv.is_expired() {
-                Runtime::instance().stats.retaineds.dec();
+                self.retaineds.dec();
                 false
             } else {
                 true
             }
-        });
+        })
     }
 
     #[inline]
@@ -1064,24 +1180,16 @@ impl DefaultRetainStorage {
         if !retain.publish.is_empty() {
             messages.insert(&topic, TimedValue::new(retain, timeout));
             if old.is_none() {
-                Runtime::instance().stats.retaineds.inc();
+                self.retaineds.inc();
             }
         } else if old.is_some() {
-            Runtime::instance().stats.retaineds.dec();
+            self.retaineds.dec();
         }
         Ok(())
     }
-}
-
-#[async_trait]
-impl RetainStorage for &'static DefaultRetainStorage {
-    #[inline]
-    async fn set(&self, topic: &TopicName, retain: Retain) -> Result<()> {
-        self.set_with_timeout(topic, retain, None).await
-    }
 
     #[inline]
-    async fn get(&self, topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>> {
+    pub async fn get_message(&self, topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>> {
         let topic = Topic::from_str(topic_filter)?;
         let retains = self
             .messages
@@ -1099,15 +1207,35 @@ impl RetainStorage for &'static DefaultRetainStorage {
             .collect::<Vec<(TopicName, Retain)>>();
         Ok(retains)
     }
+}
 
+#[async_trait]
+impl RetainStorage for &'static DefaultRetainStorage {
     #[inline]
-    fn count(&self) -> isize {
-        Runtime::instance().stats.retaineds.count()
+    async fn set(
+        &self,
+        _topic: &TopicName,
+        _retain: Retain,
+        _expiry_interval: Option<Duration>,
+    ) -> Result<()> {
+        log::warn!("Please use the \"rmqtt-retainer\" plugin as the main program no longer supports retain messages.");
+        Ok(())
     }
 
     #[inline]
-    fn max(&self) -> isize {
-        Runtime::instance().stats.retaineds.max()
+    async fn get(&self, _topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>> {
+        log::warn!("Please use the \"rmqtt-retainer\" plugin as the main program no longer supports retain messages.");
+        Ok(Vec::new())
+    }
+
+    #[inline]
+    async fn count(&self) -> isize {
+        self.retaineds.count()
+    }
+
+    #[inline]
+    async fn max(&self) -> isize {
+        self.retaineds.max()
     }
 }
 
@@ -1123,21 +1251,21 @@ impl DefaultFitterManager {
 
 impl FitterManager for &'static DefaultFitterManager {
     #[inline]
-    fn get(&self, client: ClientInfo, id: Id, listen_cfg: Listener) -> Box<dyn Fitter> {
-        Box::new(DefaultFitter::new(client, id, listen_cfg))
+    fn create(&self, conn_info: Arc<ConnectInfo>, id: Id, listen_cfg: Listener) -> FitterType {
+        Arc::new(DefaultFitter::new(conn_info, id, listen_cfg))
     }
 }
 
 #[derive(Clone)]
 pub struct DefaultFitter {
-    client: ClientInfo,
+    conn_info: Arc<ConnectInfo>,
     listen_cfg: Listener,
 }
 
 impl DefaultFitter {
     #[inline]
-    pub fn new(client: ClientInfo, _id: Id, listen_cfg: Listener) -> Self {
-        Self { client, listen_cfg }
+    pub fn new(conn_info: Arc<ConnectInfo>, _id: Id, listen_cfg: Listener) -> Self {
+        Self { conn_info, listen_cfg }
     }
 }
 
@@ -1145,20 +1273,41 @@ impl DefaultFitter {
 impl Fitter for DefaultFitter {
     #[inline]
     fn keep_alive(&self, keep_alive: &mut u16) -> Result<u16> {
-        if *keep_alive == 0 {
-            return Err(MqttError::from("Keepalive must be greater than 0"));
-        }
-        if *keep_alive < self.listen_cfg.min_keepalive {
-            if self.client.protocol() == MQTT_LEVEL_5 {
+        if self.conn_info.proto_ver() == MQTT_LEVEL_5 {
+            if *keep_alive == 0 {
+                return if self.listen_cfg.allow_zero_keepalive {
+                    Ok(0)
+                } else {
+                    Err(MqttError::from("Keepalive must be greater than 0"))
+                };
+            } else if *keep_alive < self.listen_cfg.min_keepalive {
                 *keep_alive = self.listen_cfg.min_keepalive;
-            } else {
-                return Err(MqttError::from(format!(
-                    "Keepalive is too small, cannot be less than {}",
-                    self.listen_cfg.min_keepalive
-                )));
+            } else if *keep_alive > self.listen_cfg.max_keepalive {
+                *keep_alive = self.listen_cfg.max_keepalive;
             }
+        } else if *keep_alive == 0 {
+            return if self.listen_cfg.allow_zero_keepalive {
+                Ok(0)
+            } else {
+                Err(MqttError::from("Keepalive must be greater than 0"))
+            };
+        } else if *keep_alive < self.listen_cfg.min_keepalive {
+            return Err(MqttError::from(format!(
+                "Keepalive is too small and cannot be less than {}",
+                self.listen_cfg.min_keepalive
+            )));
+        } else if *keep_alive > self.listen_cfg.max_keepalive {
+            return Err(MqttError::from(format!(
+                "Keepalive is too large and cannot be greater than {}",
+                self.listen_cfg.max_keepalive
+            )));
         }
-        Ok(((*keep_alive as f32 * self.listen_cfg.keepalive_backoff) * 2.0) as u16)
+
+        if *keep_alive < 6 {
+            Ok(*keep_alive + 3)
+        } else {
+            Ok(((*keep_alive as f32 * self.listen_cfg.keepalive_backoff) * 2.0) as u16)
+        }
     }
 
     #[inline]
@@ -1173,30 +1322,30 @@ impl Fitter for DefaultFitter {
 
     #[inline]
     fn max_inflight(&self) -> NonZeroU16 {
-        let receive_max = if let ConnectInfo::V5(_, connect) = &self.client.connect_info {
+        let receive_max = if let ConnectInfo::V5(_, connect) = self.conn_info.as_ref() {
             connect.receive_max
         } else {
             None
         };
 
-        receive_max.unwrap_or_else(|| {
-            let max_inflight =
-                if self.listen_cfg.max_inflight == 0 { 16 } else { self.listen_cfg.max_inflight };
-            NonZeroU16::new(max_inflight as u16).unwrap()
-        })
+        if let Some(receive_max) = receive_max {
+            self.listen_cfg.max_inflight.min(receive_max)
+        } else {
+            self.listen_cfg.max_inflight
+        }
     }
 
     #[inline]
-    async fn session_expiry_interval(&self) -> Duration {
+    fn session_expiry_interval(&self, d: Option<&Disconnect>) -> Duration {
         let expiry_interval = || {
-            if let ConnectInfo::V5(_, connect) = &self.client.connect_info {
+            if let ConnectInfo::V5(_, connect) = self.conn_info.as_ref() {
                 Duration::from_secs(connect.session_expiry_interval_secs.unwrap_or_default() as u64)
             } else {
                 self.listen_cfg.session_expiry_interval
             }
         };
 
-        if let Some(Disconnect::V5(d)) = self.client.disconnect.read().await.as_ref() {
+        if let Some(Disconnect::V5(d)) = d {
             if let Some(interval_secs) = d.session_expiry_interval_secs {
                 Duration::from_secs(interval_secs as u64)
             } else {
@@ -1208,23 +1357,31 @@ impl Fitter for DefaultFitter {
     }
 
     #[inline]
-    fn max_packet_size(&self) -> u32 {
-        let max_packet_size = if let ConnectInfo::V5(_, connect) = &self.client.connect_info {
-            connect.max_packet_size
-        } else {
-            None
-        };
+    fn message_expiry_interval(&self, publish: &Publish) -> Duration {
+        let expiry_interval = publish
+            .properties
+            .message_expiry_interval
+            .map(|i| Duration::from_secs(i.get() as u64))
+            .unwrap_or_else(|| self.listen_cfg.message_expiry_interval);
+        log::debug!("{:?} message_expiry_interval: {:?}", self.conn_info.id(), expiry_interval);
+        expiry_interval
+    }
 
-        if let Some(max_packet_size) = max_packet_size {
-            let cfg_max_packet_size = self.listen_cfg.max_packet_size.as_u32();
-            let max_packet_size = max_packet_size.get();
-            if max_packet_size < cfg_max_packet_size {
-                max_packet_size
-            } else {
-                cfg_max_packet_size
-            }
+    #[inline]
+    fn max_client_topic_aliases(&self) -> u16 {
+        if let ConnectInfo::V5(_, _connect) = self.conn_info.as_ref() {
+            self.listen_cfg.max_topic_aliases
         } else {
-            self.listen_cfg.max_packet_size.as_u32()
+            0
+        }
+    }
+
+    #[inline]
+    fn max_server_topic_aliases(&self) -> u16 {
+        if let ConnectInfo::V5(_, connect) = self.conn_info.as_ref() {
+            connect.topic_alias_max.min(self.listen_cfg.max_topic_aliases)
+        } else {
+            0
         }
     }
 }
@@ -1294,8 +1451,8 @@ impl DefaultHookManager {
 #[async_trait]
 impl HookManager for &'static DefaultHookManager {
     #[inline]
-    fn hook(&self, s: &Session, c: &ClientInfo) -> std::rc::Rc<dyn Hook> {
-        std::rc::Rc::new(DefaultHook::new(self, s, c))
+    fn hook(&self, s: &Session) -> std::rc::Rc<dyn Hook> {
+        std::rc::Rc::new(DefaultHook::new(self, s))
     }
 
     #[inline]
@@ -1397,12 +1554,30 @@ impl HookManager for &'static DefaultHookManager {
         }
     }
 
+    #[inline]
+    async fn message_publish(&self, s: Option<&Session>, from: From, publish: &Publish) -> Option<Publish> {
+        let result = self.exec(Type::MessagePublish, Parameter::MessagePublish(s, from, publish)).await;
+        if let Some(HookResult::Publish(publish)) = result {
+            Some(publish)
+        } else {
+            None
+        }
+    }
+
     ///Publish message Dropped
+    #[inline]
     async fn message_dropped(&self, to: Option<To>, from: From, publish: Publish, reason: Reason) {
         let _ = self.exec(Type::MessageDropped, Parameter::MessageDropped(to, from, publish, reason)).await;
     }
 
+    ///Publish message nonsubscribed
+    #[inline]
+    async fn message_nonsubscribed(&self, from: From) {
+        let _ = self.exec(Type::MessageNonsubscribed, Parameter::MessageNonsubscribed(from)).await;
+    }
+
     ///grpc message received
+    #[inline]
     async fn grpc_message_received(
         &self,
         typ: grpc::MessageType,
@@ -1472,13 +1647,12 @@ impl Register for DefaultHookRegister {
 pub struct DefaultHook {
     manager: &'static DefaultHookManager,
     s: Session,
-    c: ClientInfo,
 }
 
 impl DefaultHook {
     #[inline]
-    pub fn new(manager: &'static DefaultHookManager, s: &Session, c: &ClientInfo) -> Self {
-        Self { manager, s: s.clone(), c: c.clone() }
+    pub fn new(manager: &'static DefaultHookManager, s: &Session) -> Self {
+        Self { manager, s: s.clone() }
     }
 }
 
@@ -1486,38 +1660,32 @@ impl DefaultHook {
 impl Hook for DefaultHook {
     #[inline]
     async fn session_created(&self) {
-        self.manager.exec(Type::SessionCreated, Parameter::SessionCreated(&self.s, &self.c)).await;
+        self.manager.exec(Type::SessionCreated, Parameter::SessionCreated(&self.s)).await;
     }
 
     #[inline]
     async fn client_connected(&self) {
-        let _ = self.manager.exec(Type::ClientConnected, Parameter::ClientConnected(&self.s, &self.c)).await;
+        let _ = self.manager.exec(Type::ClientConnected, Parameter::ClientConnected(&self.s)).await;
     }
 
     #[inline]
     async fn client_disconnected(&self, r: Reason) {
-        let _ = self
-            .manager
-            .exec(Type::ClientDisconnected, Parameter::ClientDisconnected(&self.s, &self.c, r))
-            .await;
+        let _ = self.manager.exec(Type::ClientDisconnected, Parameter::ClientDisconnected(&self.s, r)).await;
     }
 
     #[inline]
     async fn session_terminated(&self, r: Reason) {
-        let _ = self
-            .manager
-            .exec(Type::SessionTerminated, Parameter::SessionTerminated(&self.s, &self.c, r))
-            .await;
+        let _ = self.manager.exec(Type::SessionTerminated, Parameter::SessionTerminated(&self.s, r)).await;
     }
 
     #[inline]
     async fn client_subscribe_check_acl(&self, sub: &Subscribe) -> Option<SubscribeAclResult> {
-        if self.c.superuser {
-            return Some(SubscribeAclResult::new_success(sub.qos));
+        if self.s.superuser().await.unwrap_or_default() {
+            return Some(SubscribeAclResult::new_success(sub.opts.qos(), None));
         }
         let reply = self
             .manager
-            .exec(Type::ClientSubscribeCheckAcl, Parameter::ClientSubscribeCheckAcl(&self.s, &self.c, sub))
+            .exec(Type::ClientSubscribeCheckAcl, Parameter::ClientSubscribeCheckAcl(&self.s, sub))
             .await;
         log::debug!("{:?} result: {:?}", self.s.id, reply);
         if let Some(HookResult::SubscribeAclResult(r)) = reply {
@@ -1529,12 +1697,12 @@ impl Hook for DefaultHook {
 
     #[inline]
     async fn message_publish_check_acl(&self, publish: &Publish) -> PublishAclResult {
-        if self.c.superuser {
+        if self.s.superuser().await.unwrap_or_default() {
             return PublishAclResult::Allow;
         }
         let result = self
             .manager
-            .exec(Type::MessagePublishCheckAcl, Parameter::MessagePublishCheckAcl(&self.s, &self.c, publish))
+            .exec(Type::MessagePublishCheckAcl, Parameter::MessagePublishCheckAcl(&self.s, publish))
             .await;
         log::debug!("{:?} result: {:?}", self.s.id, result);
         if let Some(HookResult::PublishAclResult(acl_result)) = result {
@@ -1546,11 +1714,10 @@ impl Hook for DefaultHook {
 
     #[inline]
     async fn client_subscribe(&self, sub: &Subscribe) -> Option<TopicFilter> {
-        let reply =
-            self.manager.exec(Type::ClientSubscribe, Parameter::ClientSubscribe(&self.s, &self.c, sub)).await;
+        let reply = self.manager.exec(Type::ClientSubscribe, Parameter::ClientSubscribe(&self.s, sub)).await;
         log::debug!("{:?} result: {:?}", self.s.id, reply);
-        if let Some(HookResult::TopicFilter(tf)) = reply {
-            tf
+        if let Some(HookResult::TopicFilter(Some(tf))) = reply {
+            Some(tf)
         } else {
             None
         }
@@ -1560,20 +1727,17 @@ impl Hook for DefaultHook {
     async fn session_subscribed(&self, subscribe: Subscribe) {
         let _ = self
             .manager
-            .exec(Type::SessionSubscribed, Parameter::SessionSubscribed(&self.s, &self.c, subscribe))
+            .exec(Type::SessionSubscribed, Parameter::SessionSubscribed(&self.s, subscribe))
             .await;
     }
 
     #[inline]
     async fn client_unsubscribe(&self, unsub: &Unsubscribe) -> Option<TopicFilter> {
-        let reply = self
-            .manager
-            .exec(Type::ClientUnsubscribe, Parameter::ClientUnsubscribe(&self.s, &self.c, unsub))
-            .await;
+        let reply =
+            self.manager.exec(Type::ClientUnsubscribe, Parameter::ClientUnsubscribe(&self.s, unsub)).await;
         log::debug!("{:?} result: {:?}", self.s.id, reply);
-
-        if let Some(HookResult::TopicFilter(topic_filter)) = reply {
-            topic_filter
+        if let Some(HookResult::TopicFilter(Some(tf))) = reply {
+            Some(tf)
         } else {
             None
         }
@@ -1583,29 +1747,20 @@ impl Hook for DefaultHook {
     async fn session_unsubscribed(&self, unsubscribe: Unsubscribe) {
         let _ = self
             .manager
-            .exec(Type::SessionUnsubscribed, Parameter::SessionUnsubscribed(&self.s, &self.c, unsubscribe))
+            .exec(Type::SessionUnsubscribed, Parameter::SessionUnsubscribed(&self.s, unsubscribe))
             .await;
     }
 
     #[inline]
-    async fn message_publish(&self, publish: &Publish) -> Option<Publish> {
-        let result = self
-            .manager
-            .exec(Type::MessagePublish, Parameter::MessagePublish(&self.s, &self.c, publish))
-            .await;
-        log::debug!("{:?} result: {:?}", self.s.id, result);
-        if let Some(HookResult::Publish(publish)) = result {
-            Some(publish)
-        } else {
-            None
-        }
+    async fn message_publish(&self, from: From, publish: &Publish) -> Option<Publish> {
+        self.manager.message_publish(Some(&self.s), from, publish).await
     }
 
     #[inline]
     async fn message_delivered(&self, from: From, publish: &Publish) -> Option<Publish> {
         let result = self
             .manager
-            .exec(Type::MessageDelivered, Parameter::MessageDelivered(&self.s, &self.c, from, publish))
+            .exec(Type::MessageDelivered, Parameter::MessageDelivered(&self.s, from, publish))
             .await;
         log::debug!("{:?} result: {:?}", self.s.id, result);
         if let Some(HookResult::Publish(publish)) = result {
@@ -1617,30 +1772,297 @@ impl Hook for DefaultHook {
 
     #[inline]
     async fn message_acked(&self, from: From, publish: &Publish) {
+        let _ = self.manager.exec(Type::MessageAcked, Parameter::MessageAcked(&self.s, from, publish)).await;
+    }
+
+    #[inline]
+    async fn offline_message(&self, from: From, publish: &Publish) {
+        let _ =
+            self.manager.exec(Type::OfflineMessage, Parameter::OfflineMessage(&self.s, from, publish)).await;
+    }
+
+    #[inline]
+    async fn offline_inflight_messages(&self, inflight_messages: Vec<InflightMessage>) {
         let _ = self
             .manager
-            .exec(Type::MessageAcked, Parameter::MessageAcked(&self.s, &self.c, from, publish))
+            .exec(
+                Type::OfflineInflightMessages,
+                Parameter::OfflineInflightMessages(&self.s, inflight_messages),
+            )
             .await;
     }
 
     #[inline]
-    async fn message_expiry_check(&self, from: From, publish: &Publish) -> MessageExpiry {
+    async fn message_expiry_check(&self, from: From, publish: &Publish) -> MessageExpiryCheckResult {
+        log::debug!("{:?} publish: {:?}", self.s.id, publish);
         let result = self
             .manager
-            .exec(Type::MessageExpiryCheck, Parameter::MessageExpiryCheck(&self.s, &self.c, from, publish))
+            .exec(Type::MessageExpiryCheck, Parameter::MessageExpiryCheck(&self.s, from, publish))
             .await;
         log::debug!("{:?} result: {:?}", self.s.id, result);
         if let Some(HookResult::MessageExpiry) = result {
-            return true;
+            return MessageExpiryCheckResult::Expiry;
         }
 
-        let expiry_interval = self.s.listen_cfg.message_expiry_interval.as_millis() as i64;
+        let expiry_interval = publish
+            .properties
+            .message_expiry_interval
+            .map(|i| (i.get() * 1000) as i64)
+            .unwrap_or_else(|| self.s.listen_cfg().message_expiry_interval.as_millis() as i64);
+        log::debug!("{:?} expiry_interval: {:?}", self.s.id, expiry_interval);
         if expiry_interval == 0 {
-            return false;
+            return MessageExpiryCheckResult::Remaining(None);
         }
-        if (chrono::Local::now().timestamp_millis() - publish.create_time()) < expiry_interval {
-            return false;
+        let remaining = chrono::Local::now().timestamp_millis() - publish.create_time();
+        if remaining < expiry_interval {
+            return MessageExpiryCheckResult::Remaining(NonZeroU32::new(
+                ((expiry_interval - remaining) / 1000) as u32,
+            ));
         }
-        true
+        MessageExpiryCheckResult::Expiry
+    }
+}
+
+pub struct DefaultSessionManager {}
+
+impl DefaultSessionManager {
+    #[inline]
+    pub fn instance() -> &'static DefaultSessionManager {
+        static INSTANCE: OnceCell<DefaultSessionManager> = OnceCell::new();
+        INSTANCE.get_or_init(|| Self {})
+    }
+}
+
+#[async_trait]
+impl SessionManager for &'static DefaultSessionManager {
+    #[allow(clippy::too_many_arguments)]
+    async fn create(
+        &self,
+        id: Id,
+        listen_cfg: Listener,
+        _fitter: FitterType,
+        subscriptions: SessionSubs,
+        deliver_queue: MessageQueueType,
+        inflight_win: InflightType,
+        conn_info: ConnectInfoType,
+
+        created_at: TimestampMillis,
+        connected_at: TimestampMillis,
+        session_present: bool,
+        superuser: bool,
+        connected: bool,
+        disconnect_info: Option<DisconnectInfo>,
+
+        _last_id: Option<Id>,
+    ) -> Result<Arc<dyn SessionLike>> {
+        Ok(Arc::new(DefaultSession::new(
+            id,
+            listen_cfg,
+            subscriptions,
+            deliver_queue,
+            inflight_win,
+            conn_info,
+            created_at,
+            connected_at,
+            session_present,
+            superuser,
+            connected,
+            disconnect_info,
+        )))
+    }
+}
+
+pub struct DefaultSession {
+    id: Id,
+    listen_cfg: Listener,
+    pub subscriptions: SessionSubs,
+    deliver_queue: MessageQueueType,
+    inflight_win: InflightType,
+    conn_info: ConnectInfoType,
+
+    created_at: TimestampMillis,
+    state_flags: SessionStateFlags,
+    connected_at: TimestampMillis,
+
+    pub disconnect_info: RwLock<DisconnectInfo>,
+}
+
+impl DefaultSession {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        id: Id,
+        listen_cfg: Listener,
+        subscriptions: SessionSubs,
+        deliver_queue: MessageQueueType,
+        inflight_win: InflightType,
+        conn_info: ConnectInfoType,
+
+        created_at: TimestampMillis,
+        connected_at: TimestampMillis,
+        session_present: bool,
+        superuser: bool,
+        connected: bool,
+        disconnect_info: Option<DisconnectInfo>,
+    ) -> Self {
+        let mut state_flags = SessionStateFlags::empty();
+        if session_present {
+            state_flags.insert(SessionStateFlags::SessionPresent);
+        }
+        if superuser {
+            state_flags.insert(SessionStateFlags::Superuser);
+        }
+        if connected {
+            state_flags.insert(SessionStateFlags::Connected);
+        }
+        let disconnect_info = disconnect_info.unwrap_or_default();
+
+        Self {
+            id,
+            listen_cfg,
+            subscriptions,
+            deliver_queue,
+            inflight_win,
+            conn_info,
+
+            created_at,
+            state_flags,
+            connected_at,
+
+            disconnect_info: RwLock::new(disconnect_info),
+        }
+    }
+}
+
+#[async_trait]
+impl SessionLike for DefaultSession {
+    fn id(&self) -> &Id {
+        &self.id
+    }
+
+    #[inline]
+    fn listen_cfg(&self) -> &Listener {
+        &self.listen_cfg
+    }
+
+    #[inline]
+    fn deliver_queue(&self) -> &MessageQueueType {
+        &self.deliver_queue
+    }
+
+    #[inline]
+    fn inflight_win(&self) -> &InflightType {
+        &self.inflight_win
+    }
+
+    #[inline]
+    async fn subscriptions(&self) -> Result<SessionSubs> {
+        Ok(self.subscriptions.clone())
+    }
+
+    #[inline]
+    async fn subscriptions_add(
+        &self,
+        topic_filter: TopicFilter,
+        opts: SubscriptionOptions,
+    ) -> Result<Option<SubscriptionOptions>> {
+        Ok(self.subscriptions._add(topic_filter, opts).await)
+    }
+
+    #[inline]
+    async fn subscriptions_remove(
+        &self,
+        topic_filter: &str,
+    ) -> Result<Option<(TopicFilter, SubscriptionOptions)>> {
+        Ok(self.subscriptions._remove(topic_filter).await)
+    }
+
+    #[inline]
+    async fn subscriptions_drain(&self) -> Result<Subscriptions> {
+        Ok(self.subscriptions._drain().await)
+    }
+
+    #[inline]
+    async fn subscriptions_extend(&self, other: Subscriptions) -> Result<()> {
+        self.subscriptions._extend(other).await;
+        Ok(())
+    }
+
+    #[inline]
+    async fn created_at(&self) -> Result<TimestampMillis> {
+        Ok(self.created_at)
+    }
+
+    #[inline]
+    async fn session_present(&self) -> Result<bool> {
+        Ok(self.state_flags.contains(SessionStateFlags::SessionPresent))
+    }
+
+    async fn connect_info(&self) -> Result<Arc<ConnectInfo>> {
+        Ok(self.conn_info.clone())
+    }
+    fn username(&self) -> Option<&UserName> {
+        self.id.username.as_ref()
+    }
+    fn password(&self) -> Option<&Password> {
+        self.conn_info.password()
+    }
+    async fn protocol(&self) -> Result<u8> {
+        Ok(self.conn_info.proto_ver())
+    }
+    async fn superuser(&self) -> Result<bool> {
+        Ok(self.state_flags.contains(SessionStateFlags::Superuser))
+    }
+    async fn connected(&self) -> Result<bool> {
+        Ok(self.state_flags.contains(SessionStateFlags::Connected)
+            && !self.disconnect_info.read().await.is_disconnected())
+    }
+    async fn connected_at(&self) -> Result<TimestampMillis> {
+        Ok(self.connected_at)
+    }
+    async fn disconnected_at(&self) -> Result<TimestampMillis> {
+        Ok(self.disconnect_info.read().await.disconnected_at)
+    }
+    async fn disconnected_reasons(&self) -> Result<Vec<Reason>> {
+        Ok(self.disconnect_info.read().await.reasons.clone())
+    }
+    async fn disconnected_reason(&self) -> Result<Reason> {
+        Ok(Reason::Reasons(self.disconnect_info.read().await.reasons.clone()))
+    }
+    async fn disconnected_reason_has(&self) -> bool {
+        !self.disconnect_info.read().await.reasons.is_empty()
+    }
+    async fn disconnected_reason_add(&self, r: Reason) -> Result<()> {
+        self.disconnect_info.write().await.reasons.push(r);
+        Ok(())
+    }
+    async fn disconnected_reason_take(&self) -> Result<Reason> {
+        Ok(Reason::Reasons(self.disconnect_info.write().await.reasons.drain(..).collect()))
+    }
+    async fn disconnect(&self) -> Result<Option<Disconnect>> {
+        Ok(self.disconnect_info.read().await.mqtt_disconnect.clone())
+    }
+    async fn disconnected_set(&self, d: Option<Disconnect>, reason: Option<Reason>) -> Result<()> {
+        let mut disconnect_info = self.disconnect_info.write().await;
+
+        if !disconnect_info.is_disconnected() {
+            disconnect_info.disconnected_at = chrono::Local::now().timestamp_millis();
+        }
+
+        if let Some(d) = d {
+            disconnect_info.reasons.push(d.reason());
+            disconnect_info.mqtt_disconnect.replace(d);
+        }
+
+        if let Some(reason) = reason {
+            disconnect_info.reasons.push(reason);
+        }
+
+        Ok(())
+    }
+
+    #[inline]
+    async fn on_drop(&self) -> Result<()> {
+        self.subscriptions._clear().await;
+        Ok(())
     }
 }

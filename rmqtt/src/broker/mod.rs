@@ -1,13 +1,15 @@
 use std::convert::From as _f;
-use std::iter::Iterator;
 use std::sync::Arc;
+use std::time::Duration;
 
-use crate::broker::session::{ClientInfo, Session, SessionOfflineInfo};
+use once_cell::sync::OnceCell;
+
+use crate::broker::session::{Session, SessionOfflineInfo};
 use crate::broker::types::*;
-use crate::grpc::GrpcClients;
+use crate::grpc::{GrpcClients, MessageBroadcaster, MessageReply, MESSAGE_TYPE_MESSAGE_GET};
 use crate::settings::listener::Listener;
 use crate::stats::Counter;
-use crate::{ClientId, Id, NodeId, QoS, Result, Runtime, TopicFilter};
+use crate::{grpc, MqttError, Result, Runtime};
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
@@ -32,9 +34,9 @@ pub trait Entry: Sync + Send {
     async fn try_lock(&self) -> Result<Box<dyn Entry>>;
     fn id(&self) -> Id;
     fn id_same(&self) -> Option<bool>;
-    async fn set(&mut self, session: Session, tx: Tx, conn: ClientInfo) -> Result<()>;
-    async fn remove(&mut self) -> Result<Option<(Session, Tx, ClientInfo)>>;
-    async fn remove_with(&mut self, id: &Id) -> Result<Option<(Session, Tx, ClientInfo)>>;
+    async fn set(&mut self, session: Session, tx: Tx) -> Result<()>;
+    async fn remove(&mut self) -> Result<Option<(Session, Tx)>>;
+    async fn remove_with(&mut self, id: &Id) -> Result<Option<(Session, Tx)>>;
     async fn kick(
         &mut self,
         clean_start: bool,
@@ -42,9 +44,8 @@ pub trait Entry: Sync + Send {
         is_admin: IsAdmin,
     ) -> Result<Option<SessionOfflineInfo>>;
     async fn online(&self) -> bool;
-    fn is_connected(&self) -> bool;
+    async fn is_connected(&self) -> bool;
     fn session(&self) -> Option<Session>;
-    fn client(&self) -> Option<ClientInfo>;
     fn exist(&self) -> bool;
     fn tx(&self) -> Option<Tx>;
     async fn subscribe(&self, subscribe: &Subscribe) -> Result<SubscribeReturn>;
@@ -55,23 +56,27 @@ pub trait Entry: Sync + Send {
 
 #[async_trait]
 pub trait Shared: Sync + Send {
-    ///
+    /// Entry of the id
     fn entry(&self, id: Id) -> Box<dyn Entry>;
 
-    ///
+    /// Check if client_id exist
     fn exist(&self, client_id: &str) -> bool;
 
-    ///Route and dispense publish message
-    async fn forwards(&self, from: From, publish: Publish) -> Result<(), Vec<(To, From, Publish, Reason)>>;
+    /// Route and dispense publish message
+    async fn forwards(
+        &self,
+        from: From,
+        publish: Publish,
+    ) -> Result<SubscriptionClientIds, Vec<(To, From, Publish, Reason)>>;
 
     ///Route and dispense publish message and return shared subscription relations
     async fn forwards_and_get_shareds(
         &self,
         from: From,
         publish: Publish,
-    ) -> Result<SubRelationsMap, Vec<(To, From, Publish, Reason)>>;
+    ) -> Result<(SubRelationsMap, SubscriptionClientIds), Vec<(To, From, Publish, Reason)>>;
 
-    ///dispense publish message
+    /// dispense publish message
     async fn forwards_to(
         &self,
         from: From,
@@ -79,23 +84,25 @@ pub trait Shared: Sync + Send {
         relations: SubRelations,
     ) -> Result<(), Vec<(To, From, Publish, Reason)>>;
 
-    ///
+    /// Iter
     fn iter(&self) -> Box<dyn Iterator<Item = Box<dyn Entry>> + Sync + Send>;
 
-    ///
-    fn random_session(&self) -> Option<(Session, ClientInfo)>;
+    /// choose a session if exist
+    fn random_session(&self) -> Option<Session>;
 
-    ///
+    /// Get session status with client id specific
     async fn session_status(&self, client_id: &str) -> Option<SessionStatus>;
 
-    ///
+    /// Count of th client States
     async fn client_states_count(&self) -> usize;
 
-    ///
+    /// Sessions count
     fn sessions_count(&self) -> usize;
 
-    ///
+    /// Subscriptions from SubSearchParams
     async fn query_subscriptions(&self, q: SubsSearchParams) -> Vec<SubsSearchResult>;
+
+    async fn subscriptions_count(&self) -> usize;
 
     ///This node is not included
     #[inline]
@@ -112,33 +119,59 @@ pub trait Shared: Sync + Send {
     async fn check_health(&self) -> Result<Option<serde_json::Value>> {
         Ok(Some(json!({"status": "Ok", "nodes": []})))
     }
+
+    #[inline]
+    async fn message_load(
+        &self,
+        client_id: &str,
+        topic_filter: &str,
+        group: Option<&SharedGroup>,
+    ) -> Result<Vec<(MsgID, From, Publish)>> {
+        let message_mgr = Runtime::instance().extends.message_mgr().await;
+        if message_mgr.should_merge_on_get() {
+            let mut msgs = message_mgr.get(client_id, topic_filter, group).await?;
+            let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
+            if !grpc_clients.is_empty() {
+                let replys = MessageBroadcaster::new(
+                    grpc_clients,
+                    MESSAGE_TYPE_MESSAGE_GET,
+                    grpc::Message::MessageGet(
+                        ClientId::from(client_id),
+                        TopicFilter::from(topic_filter),
+                        group.cloned(),
+                    ),
+                )
+                .join_all()
+                .await;
+                for (_, reply) in replys {
+                    match reply? {
+                        MessageReply::Error(e) => return Err(MqttError::Error(e)),
+                        MessageReply::MessageGet(res) => {
+                            msgs.extend(res.into_iter());
+                        }
+                        _ => {
+                            unreachable!()
+                        }
+                    }
+                }
+            }
+            Ok(msgs)
+        } else {
+            message_mgr.get(client_id, topic_filter, group).await
+        }
+    }
 }
-
-//key is TopicFilter
-pub type SharedSubRelations = HashMap<TopicFilter, Vec<(SharedGroup, NodeId, ClientId, QoS, IsOnline)>>;
-//In other nodes
-pub type OtherSubRelations = HashMap<NodeId, Vec<TopicFilter>>;
-
-pub type SubRelations = Vec<(TopicFilter, ClientId, QoS, Option<(SharedGroup, IsOnline)>)>;
-pub type SubRelationsMap = HashMap<NodeId, SubRelations>;
-pub type ClearSubscriptions = bool;
 
 #[async_trait]
 pub trait Router: Sync + Send {
-    ///
-    async fn add(
-        &self,
-        topic_filter: &str,
-        id: Id,
-        qos: QoS,
-        shared_group: Option<SharedGroup>,
-    ) -> Result<()>;
+    /// Id add with topic filter
+    async fn add(&self, topic_filter: &str, id: Id, opts: SubscriptionOptions) -> Result<()>;
 
-    ///
+    /// Remove with id topic filter
     async fn remove(&self, topic_filter: &str, id: Id) -> Result<bool>;
 
-    ///
-    async fn matches(&self, topic: &TopicName) -> Result<SubRelationsMap>;
+    /// Match with id and topic
+    async fn matches(&self, id: Id, topic: &TopicName) -> Result<SubRelationsMap>;
 
     ///Check online or offline
     #[inline]
@@ -149,15 +182,16 @@ pub trait Router: Sync + Send {
             .await
             .entry(Id::from(node_id, ClientId::from(client_id)))
             .is_connected()
+            .await
     }
 
-    ///
+    /// Gets by limit
     async fn gets(&self, limit: usize) -> Vec<Route>;
 
-    ///
+    /// Get by topic
     async fn get(&self, topic: &str) -> Result<Vec<Route>>;
 
-    ///
+    /// Topics tree
     async fn topics_tree(&self) -> usize;
 
     ///Return number of subscribed topics
@@ -166,10 +200,10 @@ pub trait Router: Sync + Send {
     ///Returns the number of Subscription relationship
     fn routes(&self) -> Counter;
 
-    ///
+    /// merge Topics with another
     fn merge_topics(&self, topics_map: &HashMap<NodeId, Counter>) -> Counter;
 
-    ///
+    /// merge routes with another
     fn merge_routes(&self, routes_map: &HashMap<NodeId, Counter>) -> Counter;
 
     ///get topic tree
@@ -189,7 +223,16 @@ pub trait SharedSubscription: Sync + Send {
 
     ///Shared subscription strategy, select a subscriber, default is "random"
     #[inline]
-    async fn choice(&self, ncs: &[(NodeId, ClientId, QoS, Option<IsOnline>)]) -> Option<(usize, IsOnline)> {
+    async fn choice(
+        &self,
+        ncs: &[(
+            NodeId,
+            ClientId,
+            SubscriptionOptions,
+            Option<Vec<SubscriptionIdentifier>>,
+            Option<IsOnline>,
+        )],
+    ) -> Option<(usize, IsOnline)> {
         if ncs.is_empty() {
             return None;
         }
@@ -197,7 +240,7 @@ pub trait SharedSubscription: Sync + Send {
         let mut tmp_ncs = ncs
             .iter()
             .enumerate()
-            .map(|(idx, (node_id, client_id, _, is_online))| (idx, node_id, client_id, is_online))
+            .map(|(idx, (node_id, client_id, _, _, is_online))| (idx, node_id, client_id, is_online))
             .collect::<Vec<_>>();
 
         while !tmp_ncs.is_empty() {
@@ -232,14 +275,87 @@ pub trait RetainStorage: Sync + Send {
     }
 
     ///topic - concrete topic
-    async fn set(&self, topic: &TopicName, retain: Retain) -> Result<()>;
+    async fn set(&self, topic: &TopicName, retain: Retain, expiry_interval: Option<Duration>) -> Result<()>;
 
     ///topic_filter - Topic filter
     async fn get(&self, topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>>;
 
-    ///
-    fn count(&self) -> isize;
+    async fn count(&self) -> isize;
 
-    ///
-    fn max(&self) -> isize;
+    async fn max(&self) -> isize;
+
+    #[inline]
+    fn stats_merge_mode(&self) -> StatsMergeMode {
+        StatsMergeMode::None
+    }
 }
+
+#[async_trait]
+pub trait MessageManager: Sync + Send {
+    #[inline]
+    fn next_msg_id(&self) -> MsgID {
+        0
+    }
+
+    ///Store messages
+    ///
+    ///_msg_id           - MsgID <br>
+    ///_from             - From <br>
+    ///_p                - Message <br>
+    ///_expiry_interval  - Message expiration time <br>
+    ///_sub_client_ids   - Indicate that certain subscribed clients have already forwarded the specified message.
+    #[inline]
+    async fn store(
+        &self,
+        _msg_id: MsgID,
+        _from: From,
+        _p: Publish,
+        _expiry_interval: Duration,
+        _sub_client_ids: Option<Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>>,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    #[inline]
+    async fn get(
+        &self,
+        _client_id: &str,
+        _topic_filter: &str,
+        _group: Option<&SharedGroup>,
+    ) -> Result<Vec<(MsgID, From, Publish)>> {
+        Ok(Vec::new())
+    }
+
+    ///Indicate whether merging data from various nodes is needed during the 'get' operation.
+    #[inline]
+    fn should_merge_on_get(&self) -> bool {
+        false
+    }
+
+    #[inline]
+    async fn count(&self) -> isize {
+        -1
+    }
+
+    #[inline]
+    async fn max(&self) -> isize {
+        -1
+    }
+
+    #[inline]
+    fn enable(&self) -> bool {
+        false
+    }
+}
+
+pub struct DefaultMessageManager {}
+
+impl DefaultMessageManager {
+    #[inline]
+    pub fn instance() -> &'static DefaultMessageManager {
+        static INSTANCE: OnceCell<DefaultMessageManager> = OnceCell::new();
+        INSTANCE.get_or_init(|| Self {})
+    }
+}
+
+impl MessageManager for &'static DefaultMessageManager {}

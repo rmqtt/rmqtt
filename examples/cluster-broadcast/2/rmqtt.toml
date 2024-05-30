@@ -39,7 +39,7 @@ log.file = "rmqtt_2.log"
 plugins.dir = "./plugins"
 #Plug in started by default, when the mqtt server is started
 plugins.default_startups = [
-    "rmqtt-retainer",
+    #"rmqtt-retainer",
     "rmqtt-cluster-broadcast",
     #"rmqtt-auth-http",
     "rmqtt-web-hook"
@@ -65,9 +65,6 @@ listener.tcp.external.max_packet_size = "1m"
 #The maximum length of the TCP connection queue.
 #It indicates the maximum number of TCP connection queues that are being handshaked three times in the system
 listener.tcp.external.backlog = 1024
-#The Daze time after the TCP connection is established. If no message is received during this period,
-#the connection will be closed. (temporarily not used)
-listener.tcp.external.idle_timeout = "20s"
 #Whether anonymous login is allowed. Default: true
 listener.tcp.external.allow_anonymous = false
 #Minimum allowable keepalive value for mqtt connection,
@@ -89,22 +86,14 @@ listener.tcp.external.max_qos_allowed = 2
 #The maximum level at which clients are allowed to subscribe to topics.
 #0 means unlimited. default value: 0
 listener.tcp.external.max_topic_levels = 0
-#Whether support retain message, true/false, default value: true
-listener.tcp.external.retain_available = true
+#Whether support retain message, true/false, default value: false
+listener.tcp.external.retain_available = false
 #Session timeout, default value: 2 hours
 listener.tcp.external.session_expiry_interval = "5m"
 #QoS 1/2 message retry interval, 0 means no resend
 listener.tcp.external.message_retry_interval = "20s"
 #Message expiration time, 0 means no expiration
 listener.tcp.external.message_expiry_interval = "5m"
-#QoS 2, Maximum flight window waiting for client to send pubrel message,
-#When the window is full, the oldest will be removed.
-#0 means unlimited
-listener.tcp.external.max_awaiting_rel = 100
-#QoS 2, The timeout of waiting for client to send pubrel message,
-#The pubrel message of this message will be ignored after timeout.
-#0 means unlimited
-listener.tcp.external.await_rel_timeout = "5m"
 #The maximum number of topics that a single client is allowed to subscribe to
 #0 means unlimited, default value: 0
 listener.tcp.external.max_subscriptions = 0

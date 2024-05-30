@@ -1,7 +1,3 @@
-use std::clone::Clone;
-use std::cmp::Eq;
-use std::cmp::Ord;
-use std::default::Default;
 use std::fmt;
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -103,69 +99,69 @@ where
     //     out
     // }
 
-    #[inline]
-    fn _matches(&self, path: &[Level], mut sub_path: Vec<Level>, out: &mut HashMap<Topic, Vec<V>>) {
-        let mut add_to_out = |levels: Vec<Level>, v_set: &ValueSet<V>| {
-            if !v_set.is_empty() {
-                out.entry(Topic::from(levels))
-                    .or_default()
-                    .extend(v_set.iter().map(|v| (*v).clone()).collect::<Vec<V>>().into_iter());
-            }
-        };
-
-        if path.is_empty() {
-            //Match parent #
-            if let Some(n) = self.branches.get(&Level::MultiWildcard) {
-                if !n.values.is_empty() {
-                    let mut sub_path = sub_path.clone();
-                    sub_path.push(Level::MultiWildcard);
-                    add_to_out(sub_path, &n.values);
-                }
-            }
-            add_to_out(sub_path, &self.values);
-        } else {
-            //Topic names starting with the $character cannot be matched with topic
-            //filters starting with wildcards (# or +)
-            if !(sub_path.is_empty()
-                && !matches!(path[0], Level::Blank)
-                && path[0].is_metadata()
-                && (self.branches.contains_key(&Level::MultiWildcard)
-                    || self.branches.contains_key(&Level::SingleWildcard)))
-            {
-                //Multilayer matching
-                if let Some(n) = self.branches.get(&Level::MultiWildcard) {
-                    if !n.values.is_empty() {
-                        let mut sub_path = sub_path.clone();
-                        sub_path.push(Level::MultiWildcard);
-                        add_to_out(sub_path, &n.values);
-                    }
-                }
-
-                //Single layer matching
-                if let Some(n) = self.branches.get(&Level::SingleWildcard) {
-                    let mut sub_path = sub_path.clone();
-                    sub_path.push(Level::SingleWildcard);
-                    n._matches(&path[1..], sub_path, out);
-                }
-            }
-
-            //Precise matching
-            if let Some(n) = self.branches.get(&path[0]) {
-                sub_path.push(path[0].clone());
-                n._matches(&path[1..], sub_path, out);
-            }
-        }
-    }
+    // #[inline]
+    // fn _matches(&self, path: &[Level], mut sub_path: Vec<Level>, out: &mut HashMap<Topic, Vec<V>>) {
+    //     let mut add_to_out = |levels: Vec<Level>, v_set: &ValueSet<V>| {
+    //         if !v_set.is_empty() {
+    //             out.entry(Topic::from(levels))
+    //                 .or_default()
+    //                 .extend(v_set.iter().map(|v| (*v).clone()).collect::<Vec<V>>().into_iter());
+    //         }
+    //     };
+    //
+    //     if path.is_empty() {
+    //         //Match parent #
+    //         if let Some(n) = self.branches.get(&Level::MultiWildcard) {
+    //             if !n.values.is_empty() {
+    //                 let mut sub_path = sub_path.clone();
+    //                 sub_path.push(Level::MultiWildcard);
+    //                 add_to_out(sub_path, &n.values);
+    //             }
+    //         }
+    //         add_to_out(sub_path, &self.values);
+    //     } else {
+    //         //Topic names starting with the $character cannot be matched with topic
+    //         //filters starting with wildcards (# or +)
+    //         if !(sub_path.is_empty()
+    //             && !matches!(path[0], Level::Blank)
+    //             && path[0].is_metadata()
+    //             && (self.branches.contains_key(&Level::MultiWildcard)
+    //                 || self.branches.contains_key(&Level::SingleWildcard)))
+    //         {
+    //             //Multilayer matching
+    //             if let Some(n) = self.branches.get(&Level::MultiWildcard) {
+    //                 if !n.values.is_empty() {
+    //                     let mut sub_path = sub_path.clone();
+    //                     sub_path.push(Level::MultiWildcard);
+    //                     add_to_out(sub_path, &n.values);
+    //                 }
+    //             }
+    //
+    //             //Single layer matching
+    //             if let Some(n) = self.branches.get(&Level::SingleWildcard) {
+    //                 let mut sub_path = sub_path.clone();
+    //                 sub_path.push(Level::SingleWildcard);
+    //                 n._matches(&path[1..], sub_path, out);
+    //             }
+    //         }
+    //
+    //         //Precise matching
+    //         if let Some(n) = self.branches.get(&path[0]) {
+    //             sub_path.push(path[0].clone());
+    //             n._matches(&path[1..], sub_path, out);
+    //         }
+    //     }
+    // }
 
     #[inline]
     pub fn values_size(&self) -> usize {
-        let len: usize = self.branches.iter().map(|(_, n)| n.values_size()).sum();
+        let len: usize = self.branches.values().map(|n| n.values_size()).sum();
         self.values.len() + len
     }
 
     #[inline]
     pub fn nodes_size(&self) -> usize {
-        let len: usize = self.branches.iter().map(|(_, n)| n.nodes_size()).sum();
+        let len: usize = self.branches.values().map(|n| n.nodes_size()).sum();
         self.branches.len() + len
     }
 
@@ -402,11 +398,7 @@ mod tests {
         let mut matcheds = 0;
         let t = Topic::from_str(topic).unwrap();
         for (i, (topic_filter, matched)) in topics.matches(&t).iter().enumerate() {
-            let matched_len = matched
-                .iter()
-                .filter_map(|v| if vs.contains(v) { Some(v) } else { None })
-                .collect::<Vec<&&NodeId>>()
-                .len();
+            let matched_len = matched.iter().filter(|v| vs.contains(v)).collect::<Vec<&&NodeId>>().len();
 
             println!(
                 "{} [topic] {}({}) => {:?}({},{}), {:?}",

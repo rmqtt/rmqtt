@@ -11,16 +11,34 @@ pub type EntryRef<'a> = Ref<'a, String, Entry, ahash::RandomState>;
 pub type EntryRefMut<'a> = RefMut<'a, String, Entry, ahash::RandomState>;
 pub type EntryIter<'a> = Iter<'a, String, Entry, ahash::RandomState, DashMap<String, Entry>>;
 
+#[macro_export]
+macro_rules! register {
+    ($name:path) => {
+        #[inline]
+        pub async fn register(
+            runtime: &'static rmqtt::Runtime,
+            name: &'static str,
+            default_startup: bool,
+            immutable: bool,
+        ) -> Result<()> {
+            runtime
+                .plugins
+                .register(name, default_startup, immutable, move || -> rmqtt::plugin::DynPluginResult {
+                    Box::pin(async move {
+                        $name(runtime, name).await.map(|p| -> rmqtt::plugin::DynPlugin { Box::new(p) })
+                    })
+                })
+                .await?;
+            Ok(())
+        }
+    };
+}
+
 #[async_trait]
-pub trait Plugin: Send + Sync {
+pub trait Plugin: PackageInfo + Send + Sync {
     #[inline]
     async fn init(&mut self) -> Result<()> {
         Ok(())
-    }
-
-    #[inline]
-    fn name(&self) -> &str {
-        ""
     }
 
     #[inline]
@@ -44,16 +62,6 @@ pub trait Plugin: Send + Sync {
     }
 
     #[inline]
-    fn version(&self) -> &str {
-        "0.0.0"
-    }
-
-    #[inline]
-    fn descr(&self) -> &str {
-        ""
-    }
-
-    #[inline]
     async fn attrs(&self) -> serde_json::Value {
         serde_json::Value::Null
     }
@@ -61,6 +69,40 @@ pub trait Plugin: Send + Sync {
     #[inline]
     async fn send(&self, _msg: serde_json::Value) -> Result<serde_json::Value> {
         Ok(serde_json::Value::Null)
+    }
+}
+
+pub trait PackageInfo {
+    fn name(&self) -> &str;
+
+    #[inline]
+    fn version(&self) -> &str {
+        "0.0.0"
+    }
+
+    #[inline]
+    fn descr(&self) -> Option<&str> {
+        None
+    }
+
+    #[inline]
+    fn authors(&self) -> Option<Vec<&str>> {
+        None
+    }
+
+    #[inline]
+    fn homepage(&self) -> Option<&str> {
+        None
+    }
+
+    #[inline]
+    fn license(&self) -> Option<&str> {
+        None
+    }
+
+    #[inline]
+    fn repository(&self) -> Option<&str> {
+        None
     }
 }
 
@@ -123,35 +165,18 @@ impl Entry {
     }
 
     #[inline]
-    pub async fn to_json(&self, name: &str) -> Result<serde_json::Value> {
-        if let Ok(plugin) = self.plugin().await {
-            Ok(json!({
-                "name": plugin.name(),
-                "version": plugin.version(),
-                "descr": plugin.descr(),
-                "inited": self.inited,
-                "active": self.active,
-                "immutable": self.immutable,
-                "attrs": plugin.attrs().await,
-            }))
-        } else {
-            Ok(json!({
-                "name": name,
-                "inited": self.inited,
-                "active": self.active,
-                "immutable": self.immutable,
-            }))
-        }
-    }
-
-    #[inline]
     pub async fn to_info(&self, name: &str) -> Result<PluginInfo> {
         if let Ok(plugin) = self.plugin().await {
             let attrs = serde_json::to_vec(&plugin.attrs().await)?;
             Ok(PluginInfo {
                 name: plugin.name().to_owned(),
                 version: Some(plugin.version().to_owned()),
-                descr: Some(plugin.descr().to_owned()),
+                descr: plugin.descr().map(String::from),
+                authors: plugin.authors().map(|authors| authors.into_iter().map(String::from).collect()),
+                homepage: plugin.homepage().map(String::from),
+                license: plugin.license().map(String::from),
+                repository: plugin.repository().map(String::from),
+
                 inited: self.inited,
                 active: self.active,
                 immutable: self.immutable,
@@ -174,6 +199,11 @@ pub struct PluginInfo {
     pub name: String,
     pub version: Option<String>,
     pub descr: Option<String>,
+    pub authors: Option<Vec<String>>,
+    pub homepage: Option<String>,
+    pub license: Option<String>,
+    pub repository: Option<String>,
+
     pub inited: bool,
     pub active: bool,
     pub immutable: bool,
@@ -192,6 +222,11 @@ impl PluginInfo {
             "name": self.name,
             "version": self.version,
             "descr": self.descr,
+            "authors": self.authors,
+            "homepage": self.homepage,
+            "license": self.license,
+            "repository": self.repository,
+
             "inited": self.inited,
             "active": self.active,
             "immutable": self.immutable,

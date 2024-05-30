@@ -1,3 +1,9 @@
+use std::ops::Deref;
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::time::{Duration, Instant};
+
+use once_cell::sync::Lazy;
+use rust_box::std_ext::RwLock;
 use systemstat::Platform;
 
 use crate::grpc::client::NodeGrpcClient;
@@ -11,11 +17,12 @@ mod version {
 
 pub struct Node {
     pub start_time: chrono::DateTime<chrono::Local>,
+    cpuload: AtomicI64,
 }
 
 impl Node {
     pub(crate) fn new() -> Self {
-        Self { start_time: chrono::Local::now() }
+        Self { start_time: chrono::Local::now(), cpuload: AtomicI64::new(0) }
     }
 
     #[inline]
@@ -44,7 +51,11 @@ impl Node {
                 .unwrap();
             let runner = async {
                 if let Err(e) = Server::new().listen_and_serve().await {
-                    log::error!("listen and serve failure, {:?}", e);
+                    log::error!(
+                        "listen and serve failure, {:?}, laddr: {:?}",
+                        e,
+                        Runtime::instance().settings.rpc.server_addr
+                    );
                 }
             };
             rt.block_on(runner)
@@ -112,6 +123,61 @@ impl Node {
             uptime: self.uptime(),
             version: version::VERSION.to_string(),
         }
+    }
+
+    #[inline]
+    fn _is_busy(&self) -> bool {
+        let sys = systemstat::System::new();
+        let cpuload = self.cpuload();
+
+        let loadavg = sys.load_average();
+        let load1 = loadavg.as_ref().map(|l| l.one).unwrap_or_default();
+
+        load1 > Runtime::instance().settings.node.busy.loadavg
+            || cpuload > Runtime::instance().settings.node.busy.cpuloadavg
+    }
+
+    #[inline]
+    pub fn sys_is_busy(&self) -> bool {
+        static CACHED: Lazy<RwLock<(bool, Instant)>> = Lazy::new(|| RwLock::new((false, Instant::now())));
+        {
+            let cached = CACHED.read();
+            let (busy, inst) = cached.deref();
+            if inst.elapsed() < Runtime::instance().settings.node.busy.update_interval {
+                return *busy;
+            }
+        }
+        let busy = self._is_busy();
+        *CACHED.write() = (busy, Instant::now());
+        busy
+    }
+
+    #[inline]
+    pub fn cpuload(&self) -> f32 {
+        //0.0 - 100.0
+        self.cpuload.load(Ordering::SeqCst) as f32 / 100.0
+    }
+
+    pub async fn update_cpuload(&self) {
+        let sys = systemstat::System::new();
+        let cpuload_aggr = sys.cpu_load_aggregate().ok();
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let cpuload_aggr = cpuload_aggr.and_then(|dm| dm.done().ok());
+        let cpuload = cpuload_aggr
+            .map(|cpuload_aggr| {
+                let aggregate1 =
+                    cpuload_aggr.user + cpuload_aggr.nice + cpuload_aggr.system + cpuload_aggr.interrupt;
+                let aggregate2 = aggregate1 + cpuload_aggr.idle;
+                if aggregate2 <= 0.0 {
+                    1.0
+                } else {
+                    aggregate2
+                };
+                aggregate1 / aggregate2 * 10_000.0
+            })
+            .unwrap_or_default();
+
+        self.cpuload.store(cpuload as i64, Ordering::SeqCst);
     }
 }
 
@@ -193,17 +259,12 @@ impl NodeInfo {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Default, Serialize, Deserialize, Clone, Debug)]
 pub enum NodeStatus {
+    #[default]
     Running,
     Stop,
     Error(String),
-}
-
-impl Default for NodeStatus {
-    fn default() -> Self {
-        NodeStatus::Running
-    }
 }
 
 #[inline]

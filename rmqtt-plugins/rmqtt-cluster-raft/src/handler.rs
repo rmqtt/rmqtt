@@ -11,21 +11,16 @@ use rmqtt::{
 
 use super::config::{retry, BACKOFF_STRATEGY};
 use super::message::{Message, RaftGrpcMessage, RaftGrpcMessageReply};
-use super::{hook_message_dropped, retainer::ClusterRetainer, shared::ClusterShared, task_exec_queue};
+use super::{hook_message_dropped, shared::ClusterShared, task_exec_queue};
 
 pub(crate) struct HookHandler {
     shared: &'static ClusterShared,
-    retainer: &'static ClusterRetainer,
     raft_mailbox: Mailbox,
 }
 
 impl HookHandler {
-    pub(crate) fn new(
-        shared: &'static ClusterShared,
-        retainer: &'static ClusterRetainer,
-        raft_mailbox: Mailbox,
-    ) -> Self {
-        Self { shared, retainer, raft_mailbox }
+    pub(crate) fn new(shared: &'static ClusterShared, raft_mailbox: Mailbox) -> Self {
+        Self { shared, raft_mailbox }
     }
 }
 
@@ -34,16 +29,16 @@ impl Handler for HookHandler {
     async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
         log::debug!("hook, Parameter type: {:?}", param.get_type());
         match param {
-            Parameter::ClientDisconnected(_s, c, r) => {
-                log::debug!("{:?} hook::ClientDisconnected reason: {:?}", c.id, r);
+            Parameter::ClientDisconnected(s, r) => {
+                log::debug!("{:?} hook::ClientDisconnected reason: {:?}", s.id, r);
                 if !r.is_kicked(false) {
-                    let msg = Message::Disconnected { id: c.id.clone() }.encode().unwrap();
+                    let msg = Message::Disconnected { id: s.id.clone() }.encode().unwrap();
                     let raft_mailbox = self.raft_mailbox.clone();
                     tokio::spawn(async move {
                         if let Err(e) = retry(BACKOFF_STRATEGY.clone(), || async {
                             let msg = msg.clone();
                             let mailbox = raft_mailbox.clone();
-                            let res = async move { mailbox.send(msg).await }
+                            let res = async move { mailbox.send_proposal(msg).await }
                                 .spawn(task_exec_queue())
                                 .result()
                                 .await
@@ -66,14 +61,14 @@ impl Handler for HookHandler {
                 }
             }
 
-            Parameter::SessionTerminated(_s, c, _r) => {
-                let msg = Message::SessionTerminated { id: c.id.clone() }.encode().unwrap();
+            Parameter::SessionTerminated(s, _r) => {
+                let msg = Message::SessionTerminated { id: s.id.clone() }.encode().unwrap();
                 let raft_mailbox = self.raft_mailbox.clone();
                 tokio::spawn(async move {
                     if let Err(e) = retry(BACKOFF_STRATEGY.clone(), || async {
                         let msg = msg.clone();
                         let mailbox = raft_mailbox.clone();
-                        let res = async move { mailbox.send(msg).await }
+                        let res = async move { mailbox.send_proposal(msg).await }
                             .spawn(task_exec_queue())
                             .result()
                             .await
@@ -120,13 +115,7 @@ impl Handler for HookHandler {
                     }
                     GrpcMessage::GetRetains(topic_filter) => {
                         log::debug!("[GrpcMessage::GetRetains] topic_filter: {:?}", topic_filter);
-                        let new_acc = match self.retainer.inner().get(topic_filter).await {
-                            Ok(retains) => {
-                                HookResult::GrpcMessageReply(Ok(MessageReply::GetRetains(retains)))
-                            }
-                            Err(e) => HookResult::GrpcMessageReply(Err(e)),
-                        };
-                        return (false, Some(new_acc));
+                        unreachable!()
                     }
                     GrpcMessage::SubscriptionsGet(clientid) => {
                         let id = Id::from(Runtime::instance().node.id(), clientid.clone());

@@ -6,6 +6,44 @@ RMQTT 提供了 HTTP API 以实现与外部系统的集成，例如查询客户�
 
 RMQTT 的 HTTP API 服务默认监听 6060 端口，可通过 `etc/plugins/rmqtt-http-api.toml` 配置文件修改监听端口。所有 API 调用均以 `api/v1` 开头。
 
+#### 插件：
+
+```bash
+rmqtt-http-api
+```
+
+#### 插件配置文件：
+
+```bash
+plugins/rmqtt-http-api.toml
+```
+
+#### 插件配置项：
+
+```bash
+##--------------------------------------------------------------------
+## rmqtt-http-api
+##--------------------------------------------------------------------
+
+# See more keys and their definitions at https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/http-api.md
+
+##Number of worker threads
+workers = 1
+## Max Row Limit
+max_row_limit = 10_000
+## HTTP Listener
+http_laddr = "0.0.0.0:6060"
+## Indicates whether to print HTTP request logs
+http_request_log = false
+
+##Whether support retain message, true/false, default value: true
+message_retain_available = true
+##Whether support storage messages, true/false, default value: false
+message_storage_available = false
+##Message expiration time, 0 means no expiration
+message_expiry_interval = "5m"
+```
+
 ## 响应码
 
 ### HTTP 状态码 (status codes)
@@ -202,6 +240,9 @@ $ curl -i -X GET "http://localhost:6060/api/v1/nodes/1"
 | [0].max_inflight        | Integer          | 飞行队列最大长度                                                                   |
 | [0].mqueue_len          | Integer          | 消息队列当前长度                                                                   |
 | [0].max_mqueue          | Integer          | 消息队列最大长度                                                                   |
+| [0].extra_attrs         | Integer          | 扩展属性数量                                                                     |
+| [0].last_will           | Json             | 遗嘱消息, 例如：{ "message": "dGVzdCAvdGVzdC9sd3QgLi4u", "qos": 1, "retain": false, "topic": "/test/lwt" } |
+
 
 **Examples:**
 
@@ -730,22 +771,27 @@ true
 
 **stats:**
 
-| Name                       | Type | Description                |
-|----------------------------| --------- | -------------------------- |
-| connections.count          | Integer   | 当前连接数量               |
-| connections.max            | Integer   | 连接数量的历史最大值       |
-| sessions.count             | Integer   | 当前会话数量               |
-| sessions.max               | Integer   | 会话数量的历史最大值       |
-| topics.count               | Integer   | 当前主题数量               |
-| topics.max                 | Integer   | 主题数量的历史最大值       |
+| Name                       | Type | Description            |
+|----------------------------| --------- | ---------------------- |
+| connections.count          | Integer   | 当前连接数量           |
+| connections.max            | Integer   | 连接数量的历史最大值     |
+| handshakings.count         | Integer   | 当前握手的连接数量     |
+| handshakings.max           | Integer   | 当前握手的连接数量的历史最大值   |
+| handshakings_active.count  | Integer   | 当前正在执行握手操作的连接数量   |
+| handshakings_rate.count    | Integer   | 连接握手速率       |
+| handshakings_rate.max      | Integer   | 连接握手速率的历史最大值     |
+| sessions.count             | Integer   | 当前会话数量           |
+| sessions.max               | Integer   | 会话数量的历史最大值     |
+| topics.count               | Integer   | 当前主题数量           |
+| topics.max                 | Integer   | 主题数量的历史最大值     |
 | subscriptions.count        | Integer   | 当前订阅数量，包含共享订阅 |
-| subscriptions.max          | Integer   | 订阅数量的历史最大值       |
-| subscriptions_shared.count | Integer   | 当前共享订阅数量           |
-| subscriptions_shared.max   | Integer   | 共享订阅数量的历史最大值   |
-| routes.count               | Integer   | 当前路由数量               |
-| routes.max                 | Integer   | 路由数量的历史最大值       |
-| retained.count             | Integer   | 当前保留消息数量           |
-| retained.max               | Integer   | 保留消息的历史最大值       |
+| subscriptions.max          | Integer   | 订阅数量的历史最大值     |
+| subscriptions_shared.count | Integer   | 当前共享订阅数量         |
+| subscriptions_shared.max   | Integer   | 共享订阅数量的历史最大值 |
+| routes.count               | Integer   | 当前路由数量           |
+| routes.max                 | Integer   | 路由数量的历史最大值     |
+| retained.count             | Integer   | 当前保留消息数量         |
+| retained.max               | Integer   | 保留消息的历史最大值     |
 
 **Examples:**
 
@@ -858,27 +904,55 @@ $ curl -i -X GET "http://localhost:6060/api/v1/stats/sum"
 
 **metrics:**
 
-| Name | Type | Description |
-| ----------------| --------- | -------------------- |
-| client.auth.anonymous           | Integer   | 匿名登录的客户端数量 |
-| client.authenticate             | Integer   | 客户端认证次数 |
-| client.connack                  | Integer   | 发送 CONNACK 报文的次数 |
-| client.connect                  | Integer   | 客户端连接次数 |
-| client.connected                | Integer   | 客户端成功连接次数 |
-| client.disconnected             | Integer   | 客户端断开连接次数 |
-| client.publish.check.acl        | Integer   | 发布，ACL 规则检查次数 |
-| client.subscribe.check.acl      | Integer   | 订阅，ACL 规则检查次数 |
-| client.subscribe                | Integer   | 客户端订阅次数 |
-| client.unsubscribe              | Integer   | 客户端取消订阅次数 |
-| messages.publish                | Integer   | 接收到PUBLISH消息数量 |
-| messages.delivered              | Integer   | 除系统消息外已发布的消息数 |
-| messages.acked                  | Integer   | 接收的 PUBACK 和 PUBREC 报文数量 |
-| messages.dropped                | Integer   | 丢弃的消息总数 |
-| session.created                 | Integer   | 创建的会话数量 |
+| Name                            | Type | Description                      |
+|---------------------------------| --------- |----------------------------------|
+| client.auth.anonymous           | Integer   | 匿名登录的客户端数量                       |
+| client.auth.anonymous.error     | Integer   | 匿名登录失败的客户端数量                     |
+| client.authenticate             | Integer   | 客户端认证次数                          |
+| client.connack                  | Integer   | 发送 CONNACK 报文的次数                 |
+| client.connack.auth.error       | Integer   | 发送连接认证失败的 CONNACK 报文的次数          |
+| client.connack.error            | Integer   | 发送连接失败的 CONNACK 报文的次数            |
+| client.connect                  | Integer   | 客户端连接次数                          |
+| client.connected                | Integer   | 客户端成功连接次数                        |
+| client.disconnected             | Integer   | 客户端断开连接次数                        |
+| client.handshaking.timeout      | Integer   | 连接握手超时次数                         |
+| client.publish.auth.error       | Integer   | 发布，ACL 规则检查失败次数                  |
+| client.publish.check.acl        | Integer   | 发布，ACL 规则检查次数                    |
+| client.publish.error            | Integer   | 发布，失败次数                          |
+| client.subscribe.auth.error     | Integer   | 订阅，ACL 规则检查失败次数                  |
+| client.subscribe.error          | Integer   | 订阅，失败次数                          |
+| client.subscribe.check.acl      | Integer   | 订阅，ACL 规则检查次数                    |
+| client.subscribe                | Integer   | 客户端订阅次数                          |
+| client.unsubscribe              | Integer   | 客户端取消订阅次数                        |
+| messages.publish                | Integer   | 接收到PUBLISH消息数量                   |
+| messages.publish.admin          | Integer   | 接收到PUBLISH消息数量, 通过HTTP-API发布的消息  |
+| messages.publish.custom         | Integer   | 接收到PUBLISH消息数量, 通过MQTT客户端发布的消息   |
+| messages.publish.lastwill       | Integer   | 接收到PUBLISH消息数量, 遗嘱消息             |
+| messages.publish.retain         | Integer   | 接收到PUBLISH消息数量, 转发的保留消息          |
+| messages.publish.system         | Integer   | 接收到PUBLISH消息数量, 系统主题消息($SYS/#)   |
+| messages.delivered              | Integer   | 向订阅端转发的消息数              |
+| messages.delivered.admin        | Integer   | 向订阅端转发的消息数, 通过HTTP-API发布的消息 |
+| messages.delivered.custom       | Integer   | 向订阅端转发的消息数, 通过MQTT客户端发布的消息  |
+| messages.delivered.lastwill     | Integer   | 向订阅端转发的消息数, 遗嘱消息            |
+| messages.delivered.retain       | Integer   | 向订阅端转发的消息数, 转发的保留消息         |
+| messages.delivered.system       | Integer   | 向订阅端转发的消息数, 系统主题消息($SYS/#)  |
+| messages.acked                  | Integer   | 接收的 PUBACK 和 PUBREC 报文数量                 |
+| messages.acked.admin            | Integer   | 接收的 PUBACK 和 PUBREC 报文数量, 通过HTTP-API发布的消息 |
+| messages.acked.custom           | Integer   | 接收的 PUBACK 和 PUBREC 报文数量, 通过MQTT客户端发布的消息  |
+| messages.acked.lastwill         | Integer   | 接收的 PUBACK 和 PUBREC 报文数量, 遗嘱消息            |
+| messages.acked.retain           | Integer   | 接收的 PUBACK 和 PUBREC 报文数量, 转发的保留消息         |
+| messages.acked.system           | Integer   | 接收的 PUBACK 和 PUBREC 报文数量, 系统主题消息($SYS/#)  |
+| messages.nonsubscribed          | Integer   | 未找到订阅关系的PUBLISH消息数量          |
+| messages.nonsubscribed.admin    | Integer   | 未找到订阅关系的PUBLISH消息数量, 通过HTTP-API发布的消息 |
+| messages.nonsubscribed.custom   | Integer   | 未找到订阅关系的PUBLISH消息数量, 通过MQTT客户端发布的消息  |
+| messages.nonsubscribed.lastwill | Integer   | 未找到订阅关系的PUBLISH消息数量, 遗嘱消息            |
+| messages.nonsubscribed.system   | Integer   | 未找到订阅关系的PUBLISH消息数量, 系统主题消息($SYS/#)  |
+| messages.dropped                | Integer   | 丢弃的消息总数                                               |
+| session.created                 | Integer   | 创建的会话数量                                               |
 | session.resumed                 | Integer   | 由于 `Clean Session` 或 `Clean Start` 为 `false` 而恢复的会话数量 |
-| session.subscribed              | Integer   | 客户端成功订阅次数 |
-| session.unsubscribed            | Integer   | 客户端成功取消订阅次数 |
-| session.terminated              | Integer   | 终结的会话数量 |
+| session.subscribed              | Integer   | 客户端成功订阅次数                                             |
+| session.unsubscribed            | Integer   | 客户端成功取消订阅次数                                           |
+| session.terminated              | Integer   | 终结的会话数量                                               |
 
 **Examples:**
 

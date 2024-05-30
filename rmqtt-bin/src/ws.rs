@@ -10,7 +10,6 @@ use std::{
 use rmqtt::futures::{ready, FutureExt, Sink, Stream};
 use rmqtt::ntex::codec::ReadBuf;
 use rmqtt::ntex::codec::{AsyncRead, AsyncWrite};
-use rmqtt::ntex::http::header::HeaderValue;
 use rmqtt::ntex::rt::time::{sleep, Sleep};
 use rmqtt::ntex::util::Ready;
 use rmqtt::ntex::{Service, ServiceFactory};
@@ -199,6 +198,9 @@ fn on_handshake(req: &Request, mut response: Response) -> std::result::Result<Re
     if mqtt_protocol != "mqtt" {
         return Err(ErrorResponse::new(Some(PROTOCOL_ERROR.into())));
     }
-    response.headers_mut().append("Sec-WebSocket-Protocol", HeaderValue::from_static("mqtt"));
+    response.headers_mut().append(
+        "Sec-WebSocket-Protocol",
+        "mqtt".parse().map_err(|_| ErrorResponse::new(Some("InvalidHeaderValue".into())))?,
+    );
     Ok(response)
 }

@@ -1,10 +1,13 @@
 [package]
 name = "rmqtt-http-api"
-version = "0.1.0"
-authors = ["rmqtt <rmqttd@126.com>"]
-edition = "2021"
+version = "0.1.1"
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+license.workspace = true
 
 [dependencies]
-rmqtt = "0.2"
-serde = { version = "1.0", features = ["derive"] }
-salvo = { version = "0.37.9", features = ["affix"] }
+rmqtt.workspace = true
+rmqtt-macros.workspace = true
+serde = { workspace = true, features = ["derive"] }
+salvo = { version = "0.63", features = ["affix"] }

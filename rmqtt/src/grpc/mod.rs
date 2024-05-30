@@ -8,11 +8,12 @@ use client::NodeGrpcClient;
 
 use crate::broker::session::SessionOfflineInfo;
 use crate::broker::types::{
-    CleanStart, From, Id, IsAdmin, NodeId, Publish, Retain, Route, SessionStatus, SubsSearchParams,
-    SubsSearchResult, TopicFilter, TopicName,
+    CleanStart, ClearSubscriptions, From, Id, IsAdmin, NodeId, Publish, Retain, Route, SessionStatus,
+    SubsSearchParams, SubsSearchResult, TopicFilter, TopicName,
 };
-use crate::broker::{ClearSubscriptions, SubRelations, SubRelationsMap};
-use crate::{Addr, ClientId, Result};
+use crate::{
+    Addr, ClientId, MsgID, Result, SharedGroup, SubRelations, SubRelationsMap, SubscriptionClientIds,
+};
 
 pub mod client;
 pub mod server;
@@ -24,6 +25,8 @@ pub(crate) mod pb {
 
 ///Reserved within 1000
 pub type MessageType = u64;
+
+pub const MESSAGE_TYPE_MESSAGE_GET: u64 = 22;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Message {
@@ -39,6 +42,7 @@ pub enum Message {
     NumberOfSessions,
     Online(ClientId),
     SessionStatus(ClientId),
+    MessageGet(ClientId, TopicFilter, Option<SharedGroup>),
     Data(Vec<u8>),
 }
 
@@ -56,7 +60,7 @@ impl Message {
 #[derive(Serialize, Deserialize, Debug)]
 pub enum MessageReply {
     Success,
-    Forwards(SubRelationsMap),
+    Forwards(SubRelationsMap, SubscriptionClientIds),
     Error(String),
     Kick(Option<SessionOfflineInfo>),
     GetRetains(Vec<(TopicName, Retain)>),
@@ -68,6 +72,7 @@ pub enum MessageReply {
     NumberOfSessions(usize),
     Online(bool),
     SessionStatus(Option<SessionStatus>),
+    MessageGet(Vec<(MsgID, From, Publish)>),
     Data(Vec<u8>),
 }
 

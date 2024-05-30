@@ -61,23 +61,29 @@ where
 
     //remove all pairs `v` for which `f(&mut v)` returns `false`.
     #[inline]
-    pub fn retain<F>(&mut self, mut f: F)
+    pub fn retain<F>(&mut self, max_limit: usize, mut f: F) -> usize
     where
         F: FnMut(&mut V) -> bool,
     {
-        self._retain(&mut f);
+        let mut removeds = 0;
+        self._retain(&mut f, &mut removeds, max_limit);
+        removeds
     }
 
     #[inline]
-    fn _retain<F>(&mut self, f: &mut F)
+    fn _retain<F>(&mut self, f: &mut F, removeds: &mut usize, max_limit: usize)
     where
         F: FnMut(&mut V) -> bool,
     {
+        if *removeds >= max_limit {
+            return;
+        }
         self.branches.retain(|_, child_node| {
-            child_node._retain(f);
+            child_node._retain(f, removeds, max_limit);
             if let Some(v) = child_node.value_mut() {
                 if !f(v) {
                     let _ = child_node.value.take();
+                    *removeds += 1;
                 }
             }
             !(child_node.value.is_none() && child_node.branches.is_empty())
@@ -185,7 +191,7 @@ where
 
     #[inline]
     pub fn values_size(&self) -> usize {
-        let len: usize = self.branches.iter().map(|(_, n)| n.values_size()).sum();
+        let len: usize = self.branches.values().map(|n| n.values_size()).sum();
         if self.value.is_some() {
             len + 1
         } else {
@@ -195,8 +201,31 @@ where
 
     #[inline]
     pub fn nodes_size(&self) -> usize {
-        let len: usize = self.branches.iter().map(|(_, n)| n.nodes_size()).sum();
+        let len: usize = self.branches.values().map(|n| n.nodes_size()).sum();
         self.branches.len() + len
+    }
+
+    #[inline]
+    pub fn list(&self, mut top: usize) -> Vec<String> {
+        let mut out = Vec::new();
+        let parent = Level::Blank;
+        self._list(&mut out, &parent, &mut top, 0);
+        out
+    }
+
+    #[inline]
+    fn _list(&self, out: &mut Vec<String>, _parent: &Level, top: &mut usize, depth: usize) {
+        if *top == 0 {
+            return;
+        }
+        for (l, n) in self.branches.iter() {
+            out.push(format!("{} {:?}", " ".repeat(depth * 3), l));
+            *top -= 1;
+            n._list(out, l, top, depth + 1);
+            if *top == 0 {
+                return;
+            }
+        }
     }
 }
 
@@ -209,8 +238,9 @@ mod tests {
     fn match_one(tree: &RetainTree<i32>, topic_filter: &str, vs: &[i32]) -> bool {
         let mut matcheds = 0;
         let t = Topic::from_str(topic_filter).unwrap();
+        //println!("[retain] {} ===> {:?}", topic_filter, tree.matches(&t));
         for (topic, v) in tree.matches(&t).iter() {
-            println!("[retain] {}({}) => {:?}, {:?}", topic_filter, topic.to_string(), v, vs);
+            println!("[retain] {}({}) => {:?}, {:?}", topic_filter, topic, v, vs);
             if !vs.contains(v) {
                 return false;
             }
@@ -233,9 +263,23 @@ mod tests {
         assert!(match_one(&tree, "/x/y/z", &[4]));
         assert!(!match_one(&tree, "/x/y/z", &[1]));
 
+        tree.insert(&Topic::from_str("/xx/yy").unwrap(), -1);
+        tree.insert(&Topic::from_str("/xx/yy/").unwrap(), 0);
+        tree.insert(&Topic::from_str("/xx/yy/1").unwrap(), 1);
+        tree.insert(&Topic::from_str("/xx/yy/2").unwrap(), 2);
+        tree.insert(&Topic::from_str("/xx/yy/3").unwrap(), 3);
+
+        tree.insert(&Topic::from_str("/xx/yy/3/4").unwrap(), 4);
+        tree.insert(&Topic::from_str("/xx/yy/3/4/5").unwrap(), 5);
+
+        assert!(match_one(&tree, "/xx/yy/+", &[0, 1, 2, 3]));
+        assert!(match_one(&tree, "/xx/yy/3/+", &[4]));
+        assert!(match_one(&tree, "/xx/yy/3/4/+", &[5]));
+        assert!(match_one(&tree, "/xx/yy/1/+", &[]));
+
         println!("1 tree.values_size: {}", tree.values_size());
         println!("1 tree.nodes_size: {}", tree.nodes_size());
-        tree.retain(|_| false);
+        tree.retain(usize::MAX, |_| false);
         println!("2 tree.values_size: {}", tree.values_size());
         println!("2 tree.nodes_size: {}", tree.nodes_size());
     }

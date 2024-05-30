@@ -1,10 +1,12 @@
+use bytestring::ByteString;
 use std::net::AddrParseError;
-use std::num::ParseIntError;
+use std::num::{ParseIntError, TryFromIntError};
 use std::str::Utf8Error;
 
 use config::ConfigError;
 use ntex_mqtt::error::SendPacketError;
 use ntex_mqtt::v5;
+use ntex_mqtt::v5::codec::PublishAckReason;
 use ntex_mqtt::TopicError;
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
@@ -13,9 +15,10 @@ use tokio::time::Duration;
 
 use super::types::Reason;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Default)]
 pub enum MqttError {
     #[error("service unavailable")]
+    #[default]
     ServiceUnavailable,
     #[error("read/write timeout")]
     Timeout(Duration),
@@ -49,6 +52,8 @@ pub enum MqttError {
     Utf8Error(#[from] Utf8Error),
     #[error("too many subscriptions")]
     TooManySubscriptions,
+    #[error("too many topic levels")]
+    TooManyTopicLevels,
     #[error("{0}")]
     ConfigError(#[from] ConfigError),
     #[error("{0}")]
@@ -59,15 +64,12 @@ pub enum MqttError {
     ListenerConfigError,
     #[error("{0}")]
     Reason(Reason),
+    #[error("{1}")]
+    PublishAckReason(PublishAckReason, ByteString),
+    #[error("{0}")]
+    TryFromIntError(#[from] TryFromIntError),
     #[error("None")]
     None,
-}
-
-impl Default for MqttError {
-    #[inline]
-    fn default() -> Self {
-        MqttError::ServiceUnavailable
-    }
 }
 
 impl From<()> for MqttError {

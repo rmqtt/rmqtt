@@ -24,17 +24,16 @@ fn plugins(decoded: &toml::Value) {
         for (id, cfg) in plugins {
             let plugin_id = id.replace('-', "_");
             let name = cfg.get("name").and_then(|v| v.as_str()).unwrap_or(id);
-            let descr = cfg.get("description").and_then(|v| v.as_str()).unwrap_or_default();
             let default_startup = cfg.get("default_startup").and_then(|v| v.as_bool()).unwrap_or(false);
             let immutable = cfg.get("immutable").and_then(|v| v.as_bool()).unwrap_or(false);
             println!(
-                "plugin_id: {}, default_startup: {}, immutable: {}, name: {}, descr: {}",
-                plugin_id, default_startup, immutable, name, descr
+                "plugin_id: {}, default_startup: {}, immutable: {}, name: {}",
+                plugin_id, default_startup, immutable, name
             );
             // Use the extracted data to generate Rust code and add it to the inits vector
             inits.push(format!(
-                "    {}::register(rmqtt::Runtime::instance(), r#\"{}\"#, r#\"{}\"#, {} || default_startups.contains(&String::from(r#\"{}\"#)), {}).await.map_err(|e| format!(r#\"Failed to register '{}' plug-in, {{}} \"#, e.to_string()))?;",
-                plugin_id, name, descr, default_startup, name, immutable, name
+                "    {}::register(rmqtt::Runtime::instance(), r#\"{}\"#, {} || default_startups.contains(&String::from(r#\"{}\"#)), {}).await.map_err(|e| format!(r#\"Failed to register '{}' plug-in, {{}} \"#, e.to_string()))?;",
+                plugin_id, name, default_startup, name, immutable, name
             ));
         }
     }

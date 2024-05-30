@@ -1,4 +1,3 @@
-use std::convert::TryFrom;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -11,8 +10,9 @@ use rmqtt::{
     ahash, dashmap, log,
     serde_json::{self, Value},
     tokio::sync::RwLock,
+    Id,
 };
-use rmqtt::{ClientId, ConnectInfo, MqttError, Password, Result, Superuser, Topic, UserName};
+use rmqtt::{ClientId, MqttError, Password, Result, Superuser, Topic, UserName};
 
 type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
 
@@ -116,7 +116,7 @@ impl std::convert::TryFrom<&serde_json::Value> for Rule {
     fn try_from(rule_cfg: &serde_json::Value) -> Result<Self, Self::Error> {
         let err_msg = format!("ACL Rule config error, rule config is {:?}", rule_cfg);
         if let Some(cfg_items) = rule_cfg.as_array() {
-            let access_cfg = cfg_items.get(0).ok_or_else(|| MqttError::from(err_msg.as_str()))?;
+            let access_cfg = cfg_items.first().ok_or_else(|| MqttError::from(err_msg.as_str()))?;
             let user_cfg = cfg_items.get(1).ok_or_else(|| MqttError::from(err_msg))?;
             let control_cfg = cfg_items.get(2);
             let topics_cfg = cfg_items.get(3);
@@ -151,11 +151,11 @@ pub enum User {
 
 impl User {
     #[inline]
-    pub fn hit(&self, connect_info: &ConnectInfo, allow: bool) -> (bool, Superuser) {
+    pub fn hit(&self, id: &Id, password: Option<&Password>, allow: bool) -> (bool, Superuser) {
         match self {
             User::All => (true, false),
             User::Username(name1, password1, superuser) => {
-                match (connect_info.username(), connect_info.password(), password1, allow) {
+                match (id.username.as_ref(), password, password1, allow) {
                     (Some(name2), Some(password2), Some(password1), true) => {
                         (name1 == name2 && password1 == password2, *superuser)
                     }
@@ -166,10 +166,10 @@ impl User {
                     (None, _, _, _) => (false, false),
                 }
             }
-            User::Clientid(clientid) => (connect_info.client_id() == clientid, false),
+            User::Clientid(clientid) => (id.client_id == clientid, false),
             User::Ipaddr(ipaddr) => {
-                if let Some(remote_addr) = connect_info.id().remote_addr {
-                    (ipaddr == remote_addr.ip().to_string().as_str(), false)
+                if let Some(remote_addr) = id.remote_addr {
+                    (ipaddr == remote_addr.ip().to_string().as_str(), false) //@TODO Consider using integer representation of IP addresses
                 } else {
                     (false, false)
                 }

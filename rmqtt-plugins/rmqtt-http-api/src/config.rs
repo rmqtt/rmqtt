@@ -36,39 +36,74 @@ pub struct PluginConfig {
 
     #[serde(default = "PluginConfig::http_request_log_default")]
     pub http_request_log: bool,
+
+    #[serde(default = "PluginConfig::message_retain_available_default")]
+    pub message_retain_available: bool,
+
+    #[serde(default = "PluginConfig::message_storage_available_default")]
+    pub message_storage_available: bool,
+
+    #[serde(
+        default = "PluginConfig::message_expiry_interval_default",
+        deserialize_with = "deserialize_duration"
+    )]
+    pub message_expiry_interval: Duration,
 }
 
 impl PluginConfig {
+    #[inline]
     fn workers_default() -> usize {
         1
     }
 
+    #[inline]
     fn max_row_limit_default() -> usize {
         10_000
     }
 
+    #[inline]
     fn http_laddr_default() -> SocketAddr {
         "0.0.0.0:6060".parse::<std::net::SocketAddr>().unwrap()
     }
 
+    #[inline]
     fn metrics_sample_interval_default() -> Duration {
         Duration::from_secs(5)
     }
 
+    #[inline]
     fn message_type_default() -> MessageType {
         99
     }
 
+    #[inline]
     fn http_reuseaddr_default() -> bool {
         true
     }
 
+    #[inline]
     fn http_reuseport_default() -> bool {
         false
     }
 
+    #[inline]
     fn http_request_log_default() -> bool {
         false
+    }
+
+    #[inline]
+    fn message_retain_available_default() -> bool {
+        false
+    }
+
+    #[inline]
+    fn message_storage_available_default() -> bool {
+        false
+    }
+
+    #[inline]
+    fn message_expiry_interval_default() -> Duration {
+        Duration::from_secs(300)
     }
 
     #[inline]

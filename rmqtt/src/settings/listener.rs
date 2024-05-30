@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use std::num::NonZeroU32;
+use std::num::{NonZeroU16, NonZeroU32};
 use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -144,7 +144,7 @@ pub struct ListenerInner {
     pub name: String,
     #[serde(default = "ListenerInner::enable_default")]
     pub enable: bool,
-    #[serde(default = "ListenerInner::addr_default", deserialize_with = "deserialize_addr")]
+    #[serde(deserialize_with = "deserialize_addr")]
     pub addr: SocketAddr,
     #[serde(default = "ListenerInner::workers_default")]
     pub workers: usize,
@@ -160,19 +160,18 @@ pub struct ListenerInner {
     pub reuseaddr: Option<bool>,
     #[serde(default = "ListenerInner::reuseport_default")]
     pub reuseport: Option<bool>,
-    #[serde(default = "ListenerInner::idle_timeout_default", deserialize_with = "deserialize_duration")]
-    pub idle_timeout: Duration,
     #[serde(default = "ListenerInner::allow_anonymous_default")]
     pub allow_anonymous: bool,
-    #[serde(
-    default = "ListenerInner::min_keepalive_default",
-    //deserialize_with = "deserialize_duration"
-    )]
+    #[serde(default = "ListenerInner::min_keepalive_default")]
     pub min_keepalive: u16,
+    #[serde(default = "ListenerInner::max_keepalive_default")]
+    pub max_keepalive: u16,
+    #[serde(default = "ListenerInner::allow_zero_keepalive_default")]
+    pub allow_zero_keepalive: bool,
     #[serde(default = "ListenerInner::keepalive_backoff_default")]
     pub keepalive_backoff: f32,
     #[serde(default = "ListenerInner::max_inflight_default")]
-    pub max_inflight: usize,
+    pub max_inflight: NonZeroU16,
     #[serde(default = "ListenerInner::handshake_timeout_default", deserialize_with = "deserialize_duration")]
     pub handshake_timeout: Duration,
     #[serde(default = "ListenerInner::max_mqueue_len_default")]
@@ -197,6 +196,7 @@ pub struct ListenerInner {
 
     #[serde(default = "ListenerInner::retain_available_default")]
     pub retain_available: bool,
+
     #[serde(
         default = "ListenerInner::session_expiry_interval_default",
         deserialize_with = "deserialize_duration"
@@ -215,17 +215,17 @@ pub struct ListenerInner {
     )]
     pub message_expiry_interval: Duration,
 
-    #[serde(default = "ListenerInner::max_awaiting_rel_default")]
-    pub max_awaiting_rel: usize,
-    #[serde(default = "ListenerInner::await_rel_timeout_default", deserialize_with = "deserialize_duration")]
-    pub await_rel_timeout: Duration,
-
     #[serde(default = "ListenerInner::max_subscriptions_default")]
     pub max_subscriptions: usize,
 
     #[serde(default = "ListenerInner::shared_subscription_default")]
     pub shared_subscription: bool,
 
+    #[serde(default)]
+    pub max_topic_aliases: u16,
+
+    #[serde(default = "ListenerInner::cross_certificate_default")]
+    pub cross_certificate: bool,
     pub cert: Option<String>,
     pub key: Option<String>,
 }
@@ -243,9 +243,10 @@ impl Default for ListenerInner {
             reuseaddr: ListenerInner::reuseaddr_default(),
             reuseport: ListenerInner::reuseport_default(),
             backlog: ListenerInner::backlog_default(),
-            idle_timeout: ListenerInner::idle_timeout_default(),
             allow_anonymous: ListenerInner::allow_anonymous_default(),
             min_keepalive: ListenerInner::min_keepalive_default(),
+            max_keepalive: ListenerInner::max_keepalive_default(),
+            allow_zero_keepalive: ListenerInner::allow_zero_keepalive_default(),
             keepalive_backoff: ListenerInner::keepalive_backoff_default(),
             max_inflight: ListenerInner::max_inflight_default(),
             handshake_timeout: ListenerInner::handshake_timeout_default(),
@@ -258,10 +259,10 @@ impl Default for ListenerInner {
             session_expiry_interval: ListenerInner::session_expiry_interval_default(),
             message_retry_interval: ListenerInner::message_retry_interval_default(),
             message_expiry_interval: ListenerInner::message_expiry_interval_default(),
-            max_awaiting_rel: ListenerInner::max_awaiting_rel_default(),
-            await_rel_timeout: ListenerInner::await_rel_timeout_default(),
             max_subscriptions: ListenerInner::max_subscriptions_default(),
             shared_subscription: ListenerInner::shared_subscription_default(),
+            max_topic_aliases: 0,
+            cross_certificate: ListenerInner::cross_certificate_default(),
             cert: None,
             key: None,
         }
@@ -305,10 +306,6 @@ impl ListenerInner {
         1024
     }
     #[inline]
-    fn idle_timeout_default() -> Duration {
-        Duration::from_secs(15)
-    }
-    #[inline]
     fn allow_anonymous_default() -> bool {
         true
     }
@@ -317,12 +314,20 @@ impl ListenerInner {
         0
     }
     #[inline]
+    fn max_keepalive_default() -> u16 {
+        u16::MAX
+    }
+    #[inline]
+    fn allow_zero_keepalive_default() -> bool {
+        true
+    }
+    #[inline]
     fn keepalive_backoff_default() -> f32 {
         0.75
     }
     #[inline]
-    fn max_inflight_default() -> usize {
-        16
+    fn max_inflight_default() -> NonZeroU16 {
+        NonZeroU16::new(16).unwrap()
     }
     #[inline]
     fn handshake_timeout_default() -> Duration {
@@ -334,7 +339,7 @@ impl ListenerInner {
     }
     #[inline]
     fn mqueue_rate_limit_default() -> (NonZeroU32, Duration) {
-        (NonZeroU32::new(u32::max_value()).unwrap(), Duration::from_secs(1))
+        (NonZeroU32::new(u32::MAX).unwrap(), Duration::from_secs(1))
     }
     #[inline]
     fn max_clientid_len_default() -> usize {
@@ -348,7 +353,6 @@ impl ListenerInner {
     fn max_topic_levels_default() -> usize {
         0
     }
-
     #[inline]
     fn retain_available_default() -> bool {
         true
@@ -363,14 +367,6 @@ impl ListenerInner {
     }
     #[inline]
     fn message_expiry_interval_default() -> Duration {
-        Duration::from_secs(30)
-    }
-    #[inline]
-    fn max_awaiting_rel_default() -> usize {
-        100
-    }
-    #[inline]
-    fn await_rel_timeout_default() -> Duration {
         Duration::from_secs(300)
     }
     #[inline]
@@ -426,5 +422,9 @@ impl ListenerInner {
             _ => return Err(de::Error::custom("QoS configuration error, only values (0,1,2) are supported")),
         };
         Ok(qos)
+    }
+    #[inline]
+    fn cross_certificate_default() -> bool {
+        false
     }
 }

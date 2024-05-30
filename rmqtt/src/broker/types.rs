@@ -1,17 +1,29 @@
+use anyhow::anyhow;
 use std::any::Any;
 use std::convert::From as _f;
 use std::fmt;
 use std::fmt::Display;
+use std::hash::Hash;
+use std::mem::{size_of, size_of_val};
 use std::net::SocketAddr;
 use std::num::{NonZeroU16, NonZeroU32};
 use std::ops::Deref;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use bitflags::bitflags;
+use serde::de::{self, Deserialize, Deserializer};
+use serde::ser::{Serialize, SerializeStruct, Serializer};
+use tokio::sync::{oneshot, RwLock};
+
+use base64::{engine::general_purpose, Engine as _};
+use bitflags::*;
 use bytestring::ByteString;
+use get_size::GetSize;
 use itertools::Itertools;
+
 use ntex::util::Bytes;
+
 use ntex_mqtt::error::SendPacketError;
 pub use ntex_mqtt::types::{Protocol, MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 pub use ntex_mqtt::v3::{
@@ -20,19 +32,22 @@ pub use ntex_mqtt::v3::{
     codec::SubscribeReturnCode as SubscribeReturnCodeV3, HandshakeAck as HandshakeAckV3,
     MqttSink as MqttSinkV3,
 };
+use ntex_mqtt::v5::codec::{PublishAckReason, RetainHandling};
 pub use ntex_mqtt::v5::{
     self, codec::Connect as ConnectV5, codec::ConnectAckReason as ConnectAckReasonV5,
     codec::Disconnect as DisconnectV5, codec::DisconnectReasonCode, codec::LastWill as LastWillV5,
     codec::Packet as PacketV5, codec::PublishAck2, codec::PublishAck2Reason,
     codec::PublishProperties as PublishPropertiesV5, codec::Subscribe as SubscribeV5,
-    codec::SubscribeAck as SubscribeAckV5, codec::SubscribeAckReason, codec::SubscriptionOptions,
-    codec::Unsubscribe as UnsubscribeV5, codec::UnsubscribeAck as UnsubscribeAckV5, codec::UserProperties,
-    codec::UserProperty, HandshakeAck as HandshakeAckV5, MqttSink as MqttSinkV5,
+    codec::SubscribeAck as SubscribeAckV5, codec::SubscribeAckReason,
+    codec::SubscriptionOptions as SubscriptionOptionsV5, codec::Unsubscribe as UnsubscribeV5,
+    codec::UnsubscribeAck as UnsubscribeAckV5, codec::UserProperties, codec::UserProperty,
+    HandshakeAck as HandshakeAckV5, MqttSink as MqttSinkV5,
 };
-use serde::de::{Deserialize, Deserializer};
-use serde::ser::{Serialize, SerializeStruct, Serializer};
-use tokio::sync::oneshot;
+use ntex_mqtt::TopicLevel;
 
+use crate::broker::fitter::Fitter;
+use crate::broker::inflight::Inflight;
+use crate::broker::queue::{Queue, Sender};
 use crate::{MqttError, Result, Runtime};
 
 pub type NodeId = u64;
@@ -50,7 +65,7 @@ pub type TopicName = bytestring::ByteString;
 pub type Topic = ntex_mqtt::Topic;
 ///topic filter
 pub type TopicFilter = bytestring::ByteString;
-pub type SharedGroup = String;
+pub type SharedGroup = bytestring::ByteString;
 pub type IsDisconnect = bool;
 pub type MessageExpiry = bool;
 pub type TimestampMillis = i64;
@@ -60,7 +75,9 @@ pub type IsAdmin = bool;
 pub type LimiterName = u16;
 pub type CleanStart = bool;
 
-pub type Tx = futures::channel::mpsc::UnboundedSender<Message>;
+pub type IsPing = bool;
+
+pub type Tx = SessionTx; //futures::channel::mpsc::UnboundedSender<Message>;
 pub type Rx = futures::channel::mpsc::UnboundedReceiver<Message>;
 
 pub type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
@@ -68,19 +85,65 @@ pub type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
 pub type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 pub type QoS = ntex_mqtt::types::QoS;
 pub type PublishReceiveTime = TimestampMillis;
-pub type Subscriptions = Vec<(TopicFilter, SubscriptionValue)>;
+pub type Subscriptions = Vec<(TopicFilter, SubscriptionOptions)>;
 pub type TopicFilters = Vec<TopicFilter>;
-pub type SubscriptionValue = (QoS, Option<SharedGroup>);
+pub type SubscriptionClientIds = Option<Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>>;
+pub type SubscriptionIdentifier = NonZeroU32;
 
 pub type HookSubscribeResult = Vec<Option<TopicFilter>>;
 pub type HookUnsubscribeResult = Vec<Option<TopicFilter>>;
 
+pub type MessageSender = Sender<(From, Publish)>;
+pub type MessageQueue = Queue<(From, Publish)>;
+pub type MessageQueueType = Arc<MessageQueue>;
+pub type InflightType = Arc<RwLock<Inflight>>;
+
+pub type ConnectInfoType = Arc<ConnectInfo>;
+pub type FitterType = Arc<dyn Fitter>;
+
 pub(crate) const UNDEFINED: &str = "undefined";
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Clone)]
+pub struct SessionTx {
+    tx: futures::channel::mpsc::UnboundedSender<Message>,
+}
+
+impl SessionTx {
+    pub fn new(tx: futures::channel::mpsc::UnboundedSender<Message>) -> Self {
+        Self { tx }
+    }
+
+    #[inline]
+    pub fn is_closed(&self) -> bool {
+        self.tx.is_closed()
+    }
+
+    #[inline]
+    pub fn unbounded_send(
+        &self,
+        msg: Message,
+    ) -> std::result::Result<(), futures::channel::mpsc::TrySendError<Message>> {
+        match self.tx.unbounded_send(msg) {
+            Ok(()) => {
+                #[cfg(feature = "debug")]
+                Runtime::instance().stats.debug_session_channels.inc();
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 pub enum ConnectInfo {
     V3(Id, ConnectV3),
     V5(Id, Box<ConnectV5>),
+}
+
+impl std::convert::From<Id> for ConnectInfo {
+    fn from(id: Id) -> Self {
+        ConnectInfo::V3(id, ConnectV3::default())
+    }
 }
 
 impl ConnectInfo {
@@ -95,46 +158,74 @@ impl ConnectInfo {
     #[inline]
     pub fn client_id(&self) -> &ClientId {
         match self {
-            ConnectInfo::V3(_, c) => &c.client_id,
-            ConnectInfo::V5(_, c) => &c.client_id,
+            ConnectInfo::V3(id, _) => &id.client_id,
+            ConnectInfo::V5(id, _) => &id.client_id,
         }
     }
 
     #[inline]
     pub fn to_json(&self) -> serde_json::Value {
         match self {
-            ConnectInfo::V3(id, conn_info) => {
+            ConnectInfo::V3(id, c) => {
                 json!({
                     "node": id.node(),
                     "ipaddress": id.remote_addr,
                     "clientid": id.client_id,
                     "username": id.username_ref(),
-                    "keepalive": conn_info.keep_alive,
-                    "proto_ver": conn_info.protocol.level(),
-                    "clean_session": conn_info.clean_session,
+                    "keepalive": c.keep_alive,
+                    "proto_ver": c.protocol.level(),
+                    "clean_session": c.clean_session,
                     "last_will": self.last_will().map(|lw|lw.to_json())
                 })
             }
-            ConnectInfo::V5(id, conn_info) => {
+            ConnectInfo::V5(id, c) => {
                 json!({
                     "node": id.node(),
                     "ipaddress": id.remote_addr,
                     "clientid": id.client_id,
                     "username": id.username_ref(),
-                    "keepalive": conn_info.keep_alive,
+                    "keepalive": c.keep_alive,
                     "proto_ver": ntex_mqtt::types::MQTT_LEVEL_5,
-                    "clean_start": conn_info.clean_start,
+                    "clean_start": c.clean_start,
                     "last_will": self.last_will().map(|lw|lw.to_json()),
 
-                    "session_expiry_interval_secs": conn_info.session_expiry_interval_secs,
-                    "auth_method": conn_info.auth_method,
-                    "auth_data": conn_info.auth_data,
-                    "request_problem_info": conn_info.request_problem_info,
-                    "request_response_info": conn_info.request_response_info,
-                    "receive_max": conn_info.receive_max,
-                    "topic_alias_max": conn_info.topic_alias_max,
-                    "user_properties": conn_info.user_properties,
-                    "max_packet_size": conn_info.max_packet_size,
+                    "session_expiry_interval_secs": c.session_expiry_interval_secs,
+                    "auth_method": c.auth_method,
+                    "auth_data": c.auth_data,
+                    "request_problem_info": c.request_problem_info,
+                    "request_response_info": c.request_response_info,
+                    "receive_max": c.receive_max,
+                    "topic_alias_max": c.topic_alias_max,
+                    "user_properties": c.user_properties,
+                    "max_packet_size": c.max_packet_size,
+                })
+            }
+        }
+    }
+
+    #[inline]
+    pub fn to_hook_body(&self) -> serde_json::Value {
+        match self {
+            ConnectInfo::V3(id, c) => {
+                json!({
+                    "node": id.node(),
+                    "ipaddress": id.remote_addr,
+                    "clientid": id.client_id,
+                    "username": id.username_ref(),
+                    "keepalive": c.keep_alive,
+                    "proto_ver": c.protocol.level(),
+                    "clean_session": c.clean_session,
+                })
+            }
+            ConnectInfo::V5(id, c) => {
+                json!({
+                    "node": id.node(),
+                    "ipaddress": id.remote_addr,
+                    "clientid": id.client_id,
+                    "username": id.username_ref(),
+                    "keepalive": c.keep_alive,
+                    "proto_ver": ntex_mqtt::types::MQTT_LEVEL_5,
+                    "clean_start": c.clean_start,
                 })
             }
         }
@@ -187,9 +278,19 @@ impl ConnectInfo {
             ConnectInfo::V5(_, _) => MQTT_LEVEL_5,
         }
     }
+
+    ///client max packet size, S(Max Limit) -> C
+    #[inline]
+    pub fn max_packet_size(&self) -> Option<NonZeroU32> {
+        if let ConnectInfo::V5(_, connect) = self {
+            connect.max_packet_size
+        } else {
+            None
+        }
+    }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub enum Disconnect {
     V3,
     V5(DisconnectV5),
@@ -255,6 +356,101 @@ pub enum AuthResult {
     NotAuthorized,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MessageExpiryCheckResult {
+    Expiry,
+    Remaining(Option<NonZeroU32>),
+}
+
+impl MessageExpiryCheckResult {
+    #[inline]
+    pub fn is_expiry(&self) -> bool {
+        matches!(self, Self::Expiry)
+    }
+
+    #[inline]
+    pub fn message_expiry_interval(&self) -> Option<NonZeroU32> {
+        match self {
+            Self::Expiry => None,
+            Self::Remaining(i) => *i,
+        }
+    }
+}
+
+//key is TopicFilter
+pub type SharedSubRelations = HashMap<TopicFilter, Vec<(SharedGroup, NodeId, ClientId, QoS, IsOnline)>>;
+//In other nodes
+pub type OtherSubRelations = HashMap<NodeId, Vec<TopicFilter>>;
+pub type ClearSubscriptions = bool;
+
+pub type SharedGroupType = (SharedGroup, IsOnline, Vec<ClientId>);
+
+pub type SubRelation = (
+    TopicFilter,
+    ClientId,
+    SubscriptionOptions,
+    Option<Vec<SubscriptionIdentifier>>,
+    Option<SharedGroupType>,
+);
+pub type SubRelations = Vec<SubRelation>;
+pub type SubRelationsMap = HashMap<NodeId, SubRelations>;
+
+impl std::convert::From<SubscriptioRelationsCollector> for SubRelations {
+    #[inline]
+    fn from(collector: SubscriptioRelationsCollector) -> Self {
+        let mut subs = collector.v3_rels;
+        subs.extend(collector.v5_rels.into_iter().map(|(clientid, (topic_filter, opts, sub_ids, group))| {
+            (topic_filter, clientid, opts, sub_ids, group)
+        }));
+        subs
+    }
+}
+
+pub type SubscriptioRelationsCollectorMap = HashMap<NodeId, SubscriptioRelationsCollector>;
+
+#[allow(clippy::type_complexity)]
+#[derive(Debug, Default)]
+pub struct SubscriptioRelationsCollector {
+    v3_rels: Vec<SubRelation>,
+    v5_rels: HashMap<
+        ClientId,
+        (TopicFilter, SubscriptionOptions, Option<Vec<SubscriptionIdentifier>>, Option<SharedGroupType>),
+    >,
+}
+
+impl SubscriptioRelationsCollector {
+    #[inline]
+    pub fn add(
+        &mut self,
+        topic_filter: &TopicFilter,
+        client_id: ClientId,
+        opts: SubscriptionOptions,
+        group: Option<SharedGroupType>,
+    ) {
+        if opts.is_v3() {
+            self.v3_rels.push((topic_filter.clone(), client_id, opts, None, group));
+        } else {
+            //MQTT V5: Subscription Identifiers
+            self.v5_rels
+                .entry(client_id)
+                .and_modify(|(_, _, sub_ids, _)| {
+                    if let Some(sub_id) = opts.subscription_identifier() {
+                        if let Some(sub_ids) = sub_ids {
+                            sub_ids.push(sub_id)
+                        } else {
+                            *sub_ids = Some(vec![sub_id]);
+                        }
+                    }
+                })
+                .or_insert_with(|| {
+                    let sub_ids = opts.subscription_identifier().map(|id| vec![id]);
+                    (topic_filter.clone(), opts, sub_ids, group)
+                });
+        }
+    }
+}
+
+#[inline]
 pub fn parse_topic_filter(
     topic_filter: &ByteString,
     shared_subscription_supported: bool,
@@ -284,55 +480,313 @@ pub fn parse_topic_filter(
     Ok((topic, shared_group))
 }
 
-#[derive(Clone, Debug)]
-pub struct Subscribe {
-    pub topic_filter: TopicFilter,
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub enum SubscriptionOptions {
+    V3(SubOptionsV3),
+    V5(SubOptionsV5),
+}
+
+impl Default for SubscriptionOptions {
+    fn default() -> Self {
+        SubscriptionOptions::V3(SubOptionsV3 { qos: QoS::AtMostOnce, shared_group: None })
+    }
+}
+
+impl SubscriptionOptions {
+    #[inline]
+    pub fn no_local(&self) -> Option<bool> {
+        match self {
+            SubscriptionOptions::V3(_) => None,
+            SubscriptionOptions::V5(opts) => Some(opts.no_local),
+        }
+    }
+
+    #[inline]
+    pub fn retain_as_published(&self) -> Option<bool> {
+        match self {
+            SubscriptionOptions::V3(_) => None,
+            SubscriptionOptions::V5(opts) => Some(opts.retain_as_published),
+        }
+    }
+
+    #[inline]
+    pub fn retain_handling(&self) -> Option<RetainHandling> {
+        match self {
+            SubscriptionOptions::V3(_) => None,
+            SubscriptionOptions::V5(opts) => Some(opts.retain_handling),
+        }
+    }
+
+    #[inline]
+    pub fn subscription_identifier(&self) -> Option<NonZeroU32> {
+        match self {
+            SubscriptionOptions::V3(_) => None,
+            SubscriptionOptions::V5(opts) => opts.id,
+        }
+    }
+
+    #[inline]
+    pub fn qos(&self) -> QoS {
+        match self {
+            SubscriptionOptions::V3(opts) => opts.qos,
+            SubscriptionOptions::V5(opts) => opts.qos,
+        }
+    }
+
+    #[inline]
+    pub fn qos_value(&self) -> u8 {
+        match self {
+            SubscriptionOptions::V3(opts) => opts.qos.value(),
+            SubscriptionOptions::V5(opts) => opts.qos.value(),
+        }
+    }
+
+    #[inline]
+    pub fn set_qos(&mut self, qos: QoS) {
+        match self {
+            SubscriptionOptions::V3(opts) => opts.qos = qos,
+            SubscriptionOptions::V5(opts) => opts.qos = qos,
+        }
+    }
+
+    #[inline]
+    pub fn shared_group(&self) -> Option<&SharedGroup> {
+        match self {
+            SubscriptionOptions::V3(opts) => opts.shared_group.as_ref(),
+            SubscriptionOptions::V5(opts) => opts.shared_group.as_ref(),
+        }
+    }
+
+    #[inline]
+    pub fn has_shared_group(&self) -> bool {
+        match self {
+            SubscriptionOptions::V3(opts) => opts.shared_group.is_some(),
+            SubscriptionOptions::V5(opts) => opts.shared_group.is_some(),
+        }
+    }
+
+    #[inline]
+    pub fn is_v3(&self) -> bool {
+        matches!(self, SubscriptionOptions::V3(_))
+    }
+
+    #[inline]
+    pub fn is_v5(&self) -> bool {
+        matches!(self, SubscriptionOptions::V5(_))
+    }
+
+    #[inline]
+    pub fn to_json(&self) -> serde_json::Value {
+        match self {
+            SubscriptionOptions::V3(opts) => opts.to_json(),
+            SubscriptionOptions::V5(opts) => opts.to_json(),
+        }
+    }
+
+    #[inline]
+    pub fn deserialize_qos<'de, D>(deserializer: D) -> Result<QoS, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let v = u8::deserialize(deserializer)?;
+        Ok(match v {
+            0 => QoS::AtMostOnce,
+            1 => QoS::AtLeastOnce,
+            2 => QoS::ExactlyOnce,
+            _ => return Err(de::Error::custom(format!("invalid QoS value, {}", v))),
+        })
+    }
+
+    #[inline]
+    pub fn serialize_qos<S>(qos: &QoS, s: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        qos.value().serialize(s)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct SubOptionsV3 {
+    #[serde(
+        serialize_with = "SubscriptionOptions::serialize_qos",
+        deserialize_with = "SubscriptionOptions::deserialize_qos"
+    )]
     pub qos: QoS,
     pub shared_group: Option<SharedGroup>,
 }
 
-impl Subscribe {
-    pub fn from_v3(topic_filter: &ByteString, qos: QoS, shared_subscription_supported: bool) -> Result<Self> {
-        let (topic_filter, shared_group) = parse_topic_filter(topic_filter, shared_subscription_supported)?;
-        Ok(Subscribe { topic_filter, qos, shared_group })
+impl SubOptionsV3 {
+    #[inline]
+    pub fn to_json(&self) -> serde_json::Value {
+        let mut obj = json!({
+            "qos": self.qos.value(),
+        });
+        if let Some(g) = &self.shared_group {
+            if let Some(obj) = obj.as_object_mut() {
+                obj.insert("group".into(), serde_json::Value::String(g.to_string()));
+            }
+        }
+        obj
     }
+}
 
-    pub fn from_v5(
-        topic_filter: &ByteString,
-        opt: &SubscriptionOptions,
-        shared_subscription_supported: bool,
-    ) -> Result<Self> {
-        Subscribe::from_v3(topic_filter, opt.qos, shared_subscription_supported)
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct SubOptionsV5 {
+    #[serde(
+        serialize_with = "SubscriptionOptions::serialize_qos",
+        deserialize_with = "SubscriptionOptions::deserialize_qos"
+    )]
+    pub qos: QoS,
+    pub shared_group: Option<SharedGroup>,
+    pub no_local: bool,
+    pub retain_as_published: bool,
+    #[serde(
+        serialize_with = "SubOptionsV5::serialize_retain_handling",
+        deserialize_with = "SubOptionsV5::deserialize_retain_handling"
+    )]
+    pub retain_handling: RetainHandling,
+    //Subscription Identifier
+    pub id: Option<SubscriptionIdentifier>,
+}
+
+impl SubOptionsV5 {
+    #[inline]
+    pub fn retain_handling_value(&self) -> u8 {
+        match self.retain_handling {
+            RetainHandling::AtSubscribe => 0u8,
+            RetainHandling::AtSubscribeNew => 1u8,
+            RetainHandling::NoAtSubscribe => 2u8,
+        }
     }
 
     #[inline]
-    pub fn is_shared(&self) -> bool {
-        self.shared_group.is_some()
+    pub fn to_json(&self) -> serde_json::Value {
+        let mut obj = json!({
+            "qos": self.qos.value(),
+            "no_local": self.no_local,
+            "retain_as_published": self.retain_as_published,
+            "retain_handling": self.retain_handling_value(),
+        });
+        if let Some(obj) = obj.as_object_mut() {
+            if let Some(g) = &self.shared_group {
+                obj.insert("group".into(), serde_json::Value::String(g.to_string()));
+            }
+            if let Some(id) = &self.id {
+                obj.insert("id".into(), serde_json::Value::Number(serde_json::Number::from(id.get())));
+            }
+        }
+        obj
+    }
+
+    #[inline]
+    pub fn deserialize_retain_handling<'de, D>(deserializer: D) -> Result<RetainHandling, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let v = u8::deserialize(deserializer)?;
+        Ok(match v {
+            0 => RetainHandling::AtSubscribe,
+            1 => RetainHandling::AtSubscribeNew,
+            2 => RetainHandling::NoAtSubscribe,
+            _ => return Err(de::Error::custom(format!("invalid RetainHandling value, {}", v))),
+        })
+    }
+
+    #[inline]
+    pub fn serialize_retain_handling<S>(rh: &RetainHandling, s: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let v = match rh {
+            RetainHandling::AtSubscribe => 0u8,
+            RetainHandling::AtSubscribeNew => 1u8,
+            RetainHandling::NoAtSubscribe => 2u8,
+        };
+        v.serialize(s)
+    }
+}
+
+impl std::convert::From<(QoS, Option<SharedGroup>)> for SubscriptionOptions {
+    #[inline]
+    fn from(opts: (QoS, Option<SharedGroup>)) -> Self {
+        SubscriptionOptions::V3(SubOptionsV3 { qos: opts.0, shared_group: opts.1 })
+    }
+}
+
+impl std::convert::From<(&SubscriptionOptionsV5, Option<SharedGroup>, Option<NonZeroU32>)>
+    for SubscriptionOptions
+{
+    #[inline]
+    fn from(opts: (&SubscriptionOptionsV5, Option<SharedGroup>, Option<NonZeroU32>)) -> Self {
+        SubscriptionOptions::V5(SubOptionsV5 {
+            qos: opts.0.qos,
+            shared_group: opts.1,
+            no_local: opts.0.no_local,
+            retain_as_published: opts.0.retain_as_published,
+            retain_handling: opts.0.retain_handling,
+            id: opts.2,
+        })
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct SubscribeReturn(pub SubscribeAckReason);
+pub struct Subscribe {
+    pub topic_filter: TopicFilter,
+    pub opts: SubscriptionOptions,
+}
+
+impl Subscribe {
+    #[inline]
+    pub fn from_v3(topic_filter: &ByteString, qos: QoS, shared_subscription_supported: bool) -> Result<Self> {
+        let (topic_filter, shared_group) = parse_topic_filter(topic_filter, shared_subscription_supported)?;
+        let opts = (qos, shared_group).into();
+        Ok(Subscribe { topic_filter, opts })
+    }
+
+    #[inline]
+    pub fn from_v5(
+        topic_filter: &ByteString,
+        opts: &SubscriptionOptionsV5,
+        shared_subscription_supported: bool,
+        sub_id: Option<NonZeroU32>,
+    ) -> Result<Self> {
+        let (topic_filter, shared_group) = parse_topic_filter(topic_filter, shared_subscription_supported)?;
+        let opts = (opts, shared_group, sub_id).into();
+        Ok(Subscribe { topic_filter, opts })
+    }
+
+    #[inline]
+    pub fn is_shared(&self) -> bool {
+        self.opts.has_shared_group()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct SubscribeReturn {
+    pub ack_reason: SubscribeAckReason,
+    pub prev_opts: Option<SubscriptionOptions>,
+}
 
 impl SubscribeReturn {
     #[inline]
-    pub fn new_success(qos: QoS) -> Self {
-        let status = match qos {
+    pub fn new_success(qos: QoS, prev_opts: Option<SubscriptionOptions>) -> Self {
+        let ack_reason = match qos {
             QoS::AtMostOnce => SubscribeAckReason::GrantedQos0,
             QoS::AtLeastOnce => SubscribeAckReason::GrantedQos1,
             QoS::ExactlyOnce => SubscribeAckReason::GrantedQos2,
         };
-        Self(status)
+        Self { ack_reason, prev_opts }
     }
 
     #[inline]
-    pub fn new_failure(status: SubscribeAckReason) -> Self {
-        Self(status)
+    pub fn new_failure(ack_reason: SubscribeAckReason) -> Self {
+        Self { ack_reason, prev_opts: None }
     }
 
     #[inline]
     pub fn success(&self) -> Option<QoS> {
-        match self.0 {
+        match self.ack_reason {
             SubscribeAckReason::GrantedQos0 => Some(QoS::AtMostOnce),
             SubscribeAckReason::GrantedQos1 => Some(QoS::AtLeastOnce),
             SubscribeAckReason::GrantedQos2 => Some(QoS::ExactlyOnce),
@@ -343,7 +797,7 @@ impl SubscribeReturn {
     #[inline]
     pub fn failure(&self) -> bool {
         !matches!(
-            self.0,
+            self.ack_reason,
             SubscribeAckReason::GrantedQos0
                 | SubscribeAckReason::GrantedQos1
                 | SubscribeAckReason::GrantedQos2
@@ -352,7 +806,7 @@ impl SubscribeReturn {
 
     #[inline]
     pub fn into_inner(self) -> SubscribeAckReason {
-        self.0
+        self.ack_reason
     }
 }
 
@@ -364,7 +818,7 @@ pub struct SubscribedV5 {
     pub id: Option<NonZeroU32>,
     pub user_properties: UserProperties,
     /// the list of Topic Filters and QoS to which the Client wants to subscribe.
-    pub topic_filter: (ByteString, SubscriptionOptions),
+    pub topic_filter: (ByteString, SubscriptionOptionsV5),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -503,6 +957,14 @@ impl<'a> fmt::Debug for LastWill<'a> {
 
 impl<'a> LastWill<'a> {
     #[inline]
+    pub fn will_delay_interval(&self) -> Option<Duration> {
+        match self {
+            LastWill::V3(_) => None,
+            LastWill::V5(lw) => lw.will_delay_interval_sec.map(|i| Duration::from_secs(i as u64)),
+        }
+    }
+
+    #[inline]
     pub fn to_json(&self) -> serde_json::Value {
         match self {
             LastWill::V3(lw) => {
@@ -510,7 +972,7 @@ impl<'a> LastWill<'a> {
                     "qos": lw.qos.value(),
                     "retain": lw.retain,
                     "topic": lw.topic,
-                    "message": base64::encode(lw.message.as_ref()),
+                    "message": general_purpose::STANDARD.encode(lw.message.as_ref()),
                 })
             }
             LastWill::V5(lw) => {
@@ -518,7 +980,7 @@ impl<'a> LastWill<'a> {
                     "qos": lw.qos.value(),
                     "retain": lw.retain,
                     "topic": lw.topic,
-                    "message": base64::encode(lw.message.as_ref()),
+                    "message": general_purpose::STANDARD.encode(lw.message.as_ref()),
 
                     "will_delay_interval_sec": lw.will_delay_interval_sec,
                     "correlation_data": lw.correlation_data,
@@ -587,10 +1049,15 @@ impl Sink {
     }
 
     #[inline]
-    pub(crate) fn publish(&self, p: Publish) -> Result<()> {
+    pub(crate) async fn publish(
+        &self,
+        p: &Publish,
+        message_expiry_interval: Option<NonZeroU32>,
+        server_topic_aliases: Option<&Rc<ServerTopicAliases>>,
+    ) -> Result<()> {
         let pkt = match self {
             Sink::V3(_) => p.into_v3(),
-            Sink::V5(_) => p.into_v5(),
+            Sink::V5(_) => p.into_v5(message_expiry_interval, server_topic_aliases).await,
         };
         self.send(pkt)
     }
@@ -704,9 +1171,9 @@ impl<'a> std::convert::TryFrom<LastWill<'a>> for Publish {
 
     #[inline]
     fn try_from(lw: LastWill<'a>) -> std::result::Result<Self, Self::Error> {
-        let (retain, qos, topic, payload, user_props) = match lw {
+        let (retain, qos, topic, payload, props) = match lw {
             LastWill::V3(lw) => {
-                let (topic, user_props) = if let Some(pos) = lw.topic.find('?') {
+                let (topic, user_properties) = if let Some(pos) = lw.topic.find('?') {
                     let topic = lw.topic.clone();
                     let query = lw.topic.as_bytes().slice(pos + 1..lw.topic.len());
                     let user_props = url::form_urlencoded::parse(query.as_ref())
@@ -718,12 +1185,21 @@ impl<'a> std::convert::TryFrom<LastWill<'a>> for Publish {
                     let topic = lw.topic.clone();
                     (topic, UserProperties::default())
                 };
-
-                (lw.retain, lw.qos, topic, lw.message.clone(), user_props)
+                let props = PublishProperties { user_properties, ..Default::default() };
+                (lw.retain, lw.qos, topic, lw.message.clone(), props)
             }
             LastWill::V5(lw) => {
                 let topic = lw.topic.clone();
-                (lw.retain, lw.qos, topic, lw.message.clone(), lw.user_properties.clone())
+                let props = PublishProperties {
+                    correlation_data: lw.correlation_data.clone(),
+                    message_expiry_interval: lw.message_expiry_interval,
+                    content_type: lw.content_type.clone(),
+                    user_properties: lw.user_properties.clone(),
+                    is_utf8_payload: lw.is_utf8_payload,
+                    response_topic: lw.response_topic.clone(),
+                    ..Default::default()
+                };
+                (lw.retain, lw.qos, topic, lw.message.clone(), props)
             }
         };
 
@@ -735,17 +1211,15 @@ impl<'a> std::convert::TryFrom<LastWill<'a>> for Publish {
             packet_id: None,
             payload,
 
-            properties: PublishProperties::from(user_props),
+            properties: props,
             create_time: chrono::Local::now().timestamp_millis(),
         })
     }
 }
 
-impl std::convert::TryFrom<&v3::Publish> for Publish {
-    type Error = MqttError;
-
+impl std::convert::From<&v3::Publish> for Publish {
     #[inline]
-    fn try_from(p: &v3::Publish) -> std::result::Result<Self, Self::Error> {
+    fn from(p: &v3::Publish) -> Self {
         let query = p.query();
         let p_props = if !query.is_empty() {
             let user_props = url::form_urlencoded::parse(query.as_bytes())
@@ -757,7 +1231,7 @@ impl std::convert::TryFrom<&v3::Publish> for Publish {
             PublishProperties::default()
         };
 
-        Ok(Self {
+        Self {
             dup: p.dup(),
             retain: p.retain(),
             qos: p.qos(),
@@ -767,16 +1241,14 @@ impl std::convert::TryFrom<&v3::Publish> for Publish {
 
             properties: p_props,
             create_time: chrono::Local::now().timestamp_millis(),
-        })
+        }
     }
 }
 
-impl std::convert::TryFrom<&v5::Publish> for Publish {
-    type Error = MqttError;
-
+impl std::convert::From<&v5::Publish> for Publish {
     #[inline]
-    fn try_from(p: &v5::Publish) -> std::result::Result<Self, Self::Error> {
-        Ok(Self {
+    fn from(p: &v5::Publish) -> Self {
+        Self {
             dup: p.dup(),
             retain: p.retain(),
             qos: p.qos(),
@@ -786,35 +1258,50 @@ impl std::convert::TryFrom<&v5::Publish> for Publish {
 
             properties: PublishProperties::from(p.packet().properties.clone()),
             create_time: chrono::Local::now().timestamp_millis(),
-        })
+        }
     }
 }
 
 impl Publish {
     #[inline]
-    pub fn into_v3(self) -> Packet {
+    pub fn into_v3(&self) -> Packet {
         let p = v3::codec::Publish {
             dup: self.dup,
             retain: self.retain,
             qos: self.qos,
-            topic: self.topic,
+            topic: self.topic.clone(),
             packet_id: self.packet_id,
-            payload: self.payload,
+            payload: self.payload.clone(),
         };
         Packet::V3(v3::codec::Packet::Publish(p))
     }
 
     #[inline]
-    pub fn into_v5(self) -> Packet {
-        let p = v5::codec::Publish {
+    pub async fn into_v5(
+        &self,
+        message_expiry_interval: Option<NonZeroU32>,
+        server_topic_aliases: Option<&Rc<ServerTopicAliases>>,
+    ) -> Packet {
+        let (topic, alias) = {
+            if let Some(server_topic_aliases) = server_topic_aliases {
+                server_topic_aliases.get(self.topic.clone()).await
+            } else {
+                (Some(self.topic.clone()), None)
+            }
+        };
+        log::debug!("topic: {:?}, alias: {:?}", topic, alias);
+        let mut p = v5::codec::Publish {
             dup: self.dup,
             retain: self.retain,
             qos: self.qos,
-            topic: self.topic,
+            topic: topic.unwrap_or_default(),
             packet_id: self.packet_id,
-            payload: self.payload,
-            properties: self.properties.into(),
+            payload: self.payload.clone(),
+            properties: self.properties.clone().into(),
         };
+        p.properties.message_expiry_interval = message_expiry_interval;
+        p.properties.topic_alias = alias;
+        log::debug!("p.properties: {:?}", p.properties);
         Packet::V5(v5::codec::Packet::Publish(p))
     }
 
@@ -884,11 +1371,112 @@ impl Publish {
     }
 }
 
-pub type From = Id;
+#[derive(GetSize, Debug, Clone, Copy, Deserialize, Serialize)]
+pub enum FromType {
+    Custom,
+    Admin,
+    System,
+    LastWill,
+    Bridge,
+}
+
+impl std::fmt::Display for FromType {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let typ = match self {
+            FromType::Custom => "custom",
+            FromType::Admin => "admin",
+            FromType::System => "system",
+            FromType::LastWill => "lastwill",
+            FromType::Bridge => "bridge",
+        };
+        write!(f, "{}", typ)
+    }
+}
+
+#[derive(GetSize, Clone, Deserialize, Serialize)]
+pub struct From {
+    typ: FromType,
+    pub id: Id,
+}
+
+impl From {
+    #[inline]
+    pub fn from_custom(id: Id) -> From {
+        From { typ: FromType::Custom, id }
+    }
+
+    #[inline]
+    pub fn from_admin(id: Id) -> From {
+        From { typ: FromType::Admin, id }
+    }
+
+    #[inline]
+    pub fn from_bridge(id: Id) -> From {
+        From { typ: FromType::Bridge, id }
+    }
+
+    #[inline]
+    pub fn from_system(id: Id) -> From {
+        From { typ: FromType::System, id }
+    }
+
+    #[inline]
+    pub fn from_lastwill(id: Id) -> From {
+        From { typ: FromType::LastWill, id }
+    }
+
+    #[inline]
+    pub fn typ(&self) -> FromType {
+        self.typ
+    }
+
+    #[inline]
+    pub fn is_system(&self) -> bool {
+        matches!(self.typ, FromType::System)
+    }
+
+    #[inline]
+    pub fn is_custom(&self) -> bool {
+        matches!(self.typ, FromType::Custom)
+    }
+
+    #[inline]
+    pub fn to_from_json(&self, json: serde_json::Value) -> serde_json::Value {
+        let mut json = self.id.to_from_json(json);
+        if let Some(obj) = json.as_object_mut() {
+            obj.insert("from_type".into(), serde_json::Value::String(self.typ.to_string()));
+        }
+        json
+    }
+}
+
+impl Deref for From {
+    type Target = Id;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.id
+    }
+}
+
+impl std::fmt::Debug for From {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}-{:?}", self.id, self.typ)
+    }
+}
+
+//pub type From = Id;
 pub type To = Id;
 
 #[derive(Clone)]
 pub struct Id(Arc<_Id>);
+
+impl get_size::GetSize for Id {
+    fn get_heap_size(&self) -> usize {
+        self.0.get_heap_size()
+    }
+}
 
 impl Id {
     #[inline]
@@ -921,6 +1509,38 @@ impl Id {
     }
 
     #[inline]
+    pub fn to_from_json(&self, mut json: serde_json::Value) -> serde_json::Value {
+        if let Some(obj) = json.as_object_mut() {
+            obj.insert("from_node".into(), serde_json::Value::Number(serde_json::Number::from(self.node())));
+            obj.insert(
+                "from_ipaddress".into(),
+                self.remote_addr
+                    .map(|a| serde_json::Value::String(a.to_string()))
+                    .unwrap_or(serde_json::Value::Null),
+            );
+            obj.insert("from_clientid".into(), serde_json::Value::String(self.client_id.to_string()));
+            obj.insert("from_username".into(), serde_json::Value::String(self.username_ref().into()));
+        }
+        json
+    }
+
+    #[inline]
+    pub fn to_to_json(&self, mut json: serde_json::Value) -> serde_json::Value {
+        if let Some(obj) = json.as_object_mut() {
+            obj.insert("node".into(), serde_json::Value::Number(serde_json::Number::from(self.node())));
+            obj.insert(
+                "ipaddress".into(),
+                self.remote_addr
+                    .map(|a| serde_json::Value::String(a.to_string()))
+                    .unwrap_or(serde_json::Value::Null),
+            );
+            obj.insert("clientid".into(), serde_json::Value::String(self.client_id.to_string()));
+            obj.insert("username".into(), serde_json::Value::String(self.username_ref().into()));
+        }
+        json
+    }
+
+    #[inline]
     pub fn from(node_id: NodeId, client_id: ClientId) -> Self {
         Self::new(node_id, None, None, client_id, None)
     }
@@ -941,16 +1561,17 @@ impl Id {
     }
 }
 
-impl ToString for Id {
-    #[inline]
-    fn to_string(&self) -> String {
-        format!(
-            "{}@{}/{}/{}/{}",
+impl Display for Id {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}@{}/{}/{}/{}/{}",
             self.node_id,
             self.local_addr.map(|addr| addr.to_string()).unwrap_or_default(),
             self.remote_addr.map(|addr| addr.to_string()).unwrap_or_default(),
             self.client_id,
-            self.username_ref()
+            self.username_ref(),
+            self.create_time
         )
     }
 }
@@ -958,7 +1579,7 @@ impl ToString for Id {
 impl std::fmt::Debug for Id {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}-{}", self.to_string(), self.create_time)
+        write!(f, "{}", self)
     }
 }
 
@@ -1016,20 +1637,99 @@ impl<'de> Deserialize<'de> for Id {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, GetSize, Deserialize, Serialize)]
 pub struct _Id {
     pub node_id: NodeId,
+    #[get_size(size_fn = get_option_addr_size_helper)]
     pub local_addr: Option<SocketAddr>,
+    #[get_size(size_fn = get_option_addr_size_helper)]
     pub remote_addr: Option<SocketAddr>,
+    #[get_size(size_fn = get_bytestring_size_helper)]
     pub client_id: ClientId,
+    #[get_size(size_fn = get_option_bytestring_size_helper)]
     pub username: Option<UserName>,
     pub create_time: TimestampMillis,
 }
 
+fn get_bytestring_size_helper(s: &ByteString) -> usize {
+    s.len()
+}
+
+fn get_option_bytestring_size_helper(s: &Option<ByteString>) -> usize {
+    if let Some(s) = s {
+        s.len()
+    } else {
+        0
+    }
+}
+
+fn get_option_addr_size_helper(s: &Option<SocketAddr>) -> usize {
+    if let Some(s) = s {
+        match s {
+            SocketAddr::V4(s) => size_of_val(s),
+            SocketAddr::V6(s) => size_of_val(s),
+        }
+    } else {
+        0
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Retain {
+    pub msg_id: Option<MsgID>,
     pub from: From,
     pub publish: Publish,
+}
+
+pub type MsgID = usize;
+
+#[derive(Debug, Clone, Deserialize, Serialize, GetSize)]
+pub struct StoredMessage {
+    pub msg_id: MsgID,
+    pub from: From,
+    #[get_size(size_fn = get_publish_size_helper)]
+    pub publish: Publish,
+    pub expiry_time_at: TimestampMillis,
+}
+
+fn get_bytes_size_helper(s: &Bytes) -> usize {
+    s.len()
+}
+
+fn get_properties_size_helper(s: &PublishProperties) -> usize {
+    s.content_type.as_ref().map(|ct| ct.len()).unwrap_or_default()
+        + s.correlation_data.as_ref().map(|cd| cd.len()).unwrap_or_default()
+        + s.user_properties.len() * size_of::<UserProperty>()
+        + s.response_topic.as_ref().map(|rt| rt.len()).unwrap_or_default()
+        + s.subscription_ids.as_ref().map(|si| si.len() * size_of::<NonZeroU32>()).unwrap_or_default()
+}
+
+fn get_publish_size_helper(p: &Publish) -> usize {
+    // p.create_time.get_heap_size()
+    p.packet_id.get_heap_size()
+        // + p.dup.get_heap_size()
+        + get_bytes_size_helper(&p.payload)
+        // + p.retain.get_heap_size()
+        + get_bytestring_size_helper(&p.topic)
+        + size_of_val(&p.qos)
+        + get_properties_size_helper(&p.properties)
+}
+
+impl StoredMessage {
+    #[inline]
+    pub fn is_expiry(&self) -> bool {
+        self.expiry_time_at < timestamp_millis()
+    }
+
+    #[inline]
+    pub fn encode(&self) -> Result<Vec<u8>> {
+        Ok(bincode::serialize(&self).map_err(|e| anyhow!(e))?)
+    }
+
+    #[inline]
+    pub fn decode(data: &[u8]) -> Result<Self> {
+        Ok(bincode::deserialize(data).map_err(|e| anyhow!(e))?)
+    }
 }
 
 #[derive(Debug)]
@@ -1038,7 +1738,7 @@ pub enum Message {
     Kick(oneshot::Sender<()>, Id, CleanStart, IsAdmin),
     Disconnect(Disconnect),
     Closed(Reason),
-    Keepalive,
+    Keepalive(IsPing),
     Subscribe(Subscribe, oneshot::Sender<Result<SubscribeReturn>>),
     Unsubscribe(Unsubscribe, oneshot::Sender<Result<()>>),
 }
@@ -1068,8 +1768,20 @@ pub struct SubsSearchResult {
     pub clientid: ClientId,
     pub client_addr: Option<SocketAddr>,
     pub topic: TopicFilter,
-    pub qos: u8,
-    pub share: Option<SharedGroup>,
+    pub opts: SubscriptionOptions,
+}
+
+impl SubsSearchResult {
+    #[inline]
+    pub fn to_json(self) -> serde_json::Value {
+        json!({
+            "node_id": self.node_id,
+            "clientid": self.clientid,
+            "client_addr": self.client_addr,
+            "topic": self.topic,
+            "opts": self.opts.to_json(),
+        })
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug, Default, PartialEq, Eq, Hash, Clone)]
@@ -1078,40 +1790,55 @@ pub struct Route {
     pub topic: TopicFilter,
 }
 
-pub struct SessionSubs(Arc<_SessionSubs>);
-
-impl SessionSubs {
-    #[inline]
-    pub(crate) fn new() -> Self {
-        Self(Arc::new(_SessionSubs::new()))
-    }
+pub type SessionSubMap = HashMap<TopicFilter, SubscriptionOptions>;
+#[derive(Clone)]
+pub struct SessionSubs {
+    subs: Arc<RwLock<SessionSubMap>>,
 }
 
 impl Deref for SessionSubs {
-    type Target = _SessionSubs;
+    type Target = Arc<RwLock<SessionSubMap>>;
     #[inline]
     fn deref(&self) -> &Self::Target {
-        self.0.as_ref()
+        &self.subs
     }
 }
 
-pub struct _SessionSubs {
-    subs: DashMap<TopicFilter, SubscriptionValue>,
+impl Default for SessionSubs {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
-impl _SessionSubs {
+impl SessionSubs {
     #[inline]
-    pub(crate) fn new() -> Self {
-        Self { subs: DashMap::default() }
+    pub fn new() -> Self {
+        Self::from(SessionSubMap::default())
     }
 
     #[inline]
-    pub fn add(&self, topic_filter: TopicFilter, qos: QoS, shared_group: Option<SharedGroup>) {
-        let is_shared = shared_group.is_some();
-        let prev = self.subs.insert(topic_filter, (qos, shared_group));
+    #[allow(clippy::mutable_key_type)]
+    pub fn from(subs: SessionSubMap) -> Self {
+        Self { subs: Arc::new(RwLock::new(subs)) }
+    }
 
-        if let Some((_, prev_group)) = prev {
-            match (prev_group.is_some(), is_shared) {
+    #[inline]
+    pub async fn _add(
+        &self,
+        topic_filter: TopicFilter,
+        opts: SubscriptionOptions,
+    ) -> Option<SubscriptionOptions> {
+        let is_shared = opts.has_shared_group();
+
+        let prev = {
+            let mut subs = self.subs.write().await;
+            let prev = subs.insert(topic_filter, opts);
+            subs.shrink_to_fit();
+            prev
+        };
+
+        if let Some(prev_opts) = &prev {
+            match (prev_opts.has_shared_group(), is_shared) {
                 (true, false) => {
                     Runtime::instance().stats.subscriptions_shared.dec();
                 }
@@ -1127,71 +1854,162 @@ impl _SessionSubs {
                 Runtime::instance().stats.subscriptions_shared.inc();
             }
         }
+
+        prev
     }
 
     #[inline]
-    pub fn remove(&self, topic_filter: &str) -> Option<(TopicFilter, SubscriptionValue)> {
-        let removed = self.subs.remove(topic_filter);
-        if let Some((_, (_, group))) = &removed {
+    pub async fn _remove(&self, topic_filter: &str) -> Option<(TopicFilter, SubscriptionOptions)> {
+        let removed = {
+            let mut subs = self.subs.write().await;
+            let removed = subs.remove_entry(topic_filter);
+            subs.shrink_to_fit();
+            removed
+        };
+
+        if let Some((_, opts)) = &removed {
             Runtime::instance().stats.subscriptions.dec();
-            if group.is_some() {
+            if opts.has_shared_group() {
                 Runtime::instance().stats.subscriptions_shared.dec();
             }
         }
+
         removed
     }
 
     #[inline]
-    pub fn drain(&self) -> Subscriptions {
-        let topic_filters = self.subs.iter().map(|entry| entry.key().clone()).collect::<Vec<_>>();
-        let subs = topic_filters.iter().filter_map(|tf| self.remove(tf)).collect();
+    pub async fn _drain(&self) -> Subscriptions {
+        let topic_filters = self.subs.read().await.iter().map(|(key, _)| key.clone()).collect::<Vec<_>>();
+        let mut subs = Vec::new();
+        for tf in topic_filters {
+            if let Some(sub) = self._remove(&tf).await {
+                subs.push(sub);
+            }
+        }
         subs
     }
 
     #[inline]
-    pub fn extend(&self, subs: Subscriptions) {
-        for (topic_filter, (qos, group)) in subs {
-            self.add(topic_filter, qos, group);
+    pub async fn _extend(&self, subs: Subscriptions) {
+        for (topic_filter, opts) in subs {
+            self._add(topic_filter, opts).await;
         }
     }
 
     #[inline]
-    pub fn clear(&self) {
-        for entry in self.subs.iter() {
-            Runtime::instance().stats.subscriptions.dec();
-            let (_, group) = entry.value();
-            if group.is_some() {
-                Runtime::instance().stats.subscriptions_shared.dec();
+    pub async fn _clear(&self) {
+        {
+            let subs = self.subs.read().await;
+            for (_, opts) in subs.iter() {
+                Runtime::instance().stats.subscriptions.dec();
+                if opts.has_shared_group() {
+                    Runtime::instance().stats.subscriptions_shared.dec();
+                }
             }
         }
-        self.subs.clear();
+        let mut subs = self.subs.write().await;
+        subs.clear();
+        subs.shrink_to_fit();
+    }
+
+    #[inline]
+    pub async fn len(&self) -> usize {
+        self.subs.read().await.len()
+    }
+
+    #[inline]
+    pub async fn shared_len(&self) -> usize {
+        self.subs.read().await.iter().filter(|(_, opts)| opts.has_shared_group()).count()
+    }
+
+    #[inline]
+    pub async fn is_empty(&self) -> bool {
+        self.subs.read().await.is_empty()
+    }
+
+    #[inline]
+    pub async fn to_topic_filters(&self) -> TopicFilters {
+        self.subs.read().await.iter().map(|(key, _)| key.clone()).collect()
+    }
+}
+
+pub struct ExtraData<K, T> {
+    attrs: Arc<rust_box::std_ext::RwLock<HashMap<K, T>>>,
+}
+
+impl<K, T> Deref for ExtraData<K, T> {
+    type Target = Arc<rust_box::std_ext::RwLock<HashMap<K, T>>>;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.attrs
+    }
+}
+
+impl<K, T> Serialize for ExtraData<K, T>
+where
+    K: serde::Serialize,
+    T: serde::Serialize,
+{
+    #[inline]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.attrs.read().deref().serialize(serializer)
+    }
+}
+
+impl<'de, K, T> Deserialize<'de> for ExtraData<K, T>
+where
+    K: Eq + Hash,
+    K: serde::de::DeserializeOwned,
+    T: serde::de::DeserializeOwned,
+{
+    #[inline]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let v = HashMap::deserialize(deserializer)?;
+        Ok(Self { attrs: Arc::new(rust_box::std_ext::RwLock::new(v)) })
+    }
+}
+
+impl<K, T> Default for ExtraData<K, T>
+where
+    K: Eq + Hash,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl<K, T> ExtraData<K, T>
+where
+    K: Eq + Hash,
+{
+    #[inline]
+    pub fn new() -> Self {
+        Self { attrs: Arc::new(rust_box::std_ext::RwLock::new(HashMap::default())) }
     }
 
     #[inline]
     pub fn len(&self) -> usize {
-        self.subs.len()
+        self.attrs.read().len()
     }
 
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.attrs.read().is_empty()
     }
 
     #[inline]
-    pub fn to_topic_filters(&self) -> TopicFilters {
-        self.subs.iter().map(|entry| TopicFilter::from(entry.key().as_ref())).collect()
+    pub fn clear(&self) {
+        self.attrs.write().clear()
     }
 
     #[inline]
-    pub fn iter(
-        &self,
-    ) -> dashmap::iter::Iter<
-        TopicFilter,
-        SubscriptionValue,
-        ahash::RandomState,
-        DashMap<TopicFilter, SubscriptionValue>,
-    > {
-        self.subs.iter()
+    pub fn insert(&self, key: K, value: T) {
+        self.attrs.write().insert(key, value);
     }
 }
 
@@ -1249,6 +2067,15 @@ impl ExtraAttrs {
     ) -> Option<&mut T> {
         self.attrs.entry(key).or_insert_with(|| Box::new(def_fn())).downcast_mut::<T>()
     }
+
+    #[inline]
+    pub fn serialize_key<S, T>(&self, key: &str, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        T: Any + Sync + Send + serde::ser::Serialize,
+        S: Serializer,
+    {
+        self.get::<T>(key).serialize(serializer)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -1294,10 +2121,42 @@ bitflags! {
         const ByAdminKick = 0b00000010;
         const DisconnectReceived = 0b00000100;
         const CleanStart = 0b00001000;
+        const Ping = 0b00010000;
     }
 }
 
-#[derive(Deserialize, Serialize, Clone, Debug)]
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct SessionStateFlags: u8 {
+        const SessionPresent = 0b00000001;
+        const Superuser = 0b00000010;
+        const Connected = 0b00000100;
+    }
+}
+
+impl Serialize for SessionStateFlags {
+    #[inline]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let v: u8 = self.0 .0;
+        v.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for SessionStateFlags {
+    #[inline]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let v = u8::deserialize(deserializer)?;
+        Ok(SessionStateFlags::from_bits_retain(v))
+    }
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
 pub enum Reason {
     ConnectDisconnect(Option<ByteString>),
     ConnectReadWriteTimeout,
@@ -1316,14 +2175,8 @@ pub enum Reason {
     ProtocolError(ByteString),
     Error(ByteString),
     Reasons(Vec<Reason>),
+    #[default]
     Unknown,
-}
-
-impl Default for Reason {
-    #[inline]
-    fn default() -> Self {
-        Reason::Unknown
-    }
 }
 
 impl Reason {
@@ -1437,7 +2290,7 @@ impl Display for Reason {
             Reason::ProtocolError(r) => return write!(f, "ProtocolError({})", r),
             Reason::Reasons(reasons) => match reasons.len() {
                 0 => "",
-                1 => return write!(f, "{}", reasons.get(0).map(|r| r.to_string()).unwrap_or_default()),
+                1 => return write!(f, "{}", reasons.first().map(|r| r.to_string()).unwrap_or_default()),
                 _ => return write!(f, "{}", reasons.iter().map(|r| r.to_string()).join(",")),
             },
             Reason::Unknown => {
@@ -1448,16 +2301,205 @@ impl Display for Reason {
     }
 }
 
+#[derive(Debug)]
+pub struct ServerTopicAliases {
+    max_topic_aliases: usize,
+    aliases: RwLock<HashMap<TopicName, NonZeroU16>>,
+}
+
+impl ServerTopicAliases {
+    #[inline]
+    pub fn new(max_topic_aliases: usize) -> Self {
+        ServerTopicAliases { max_topic_aliases, aliases: RwLock::new(HashMap::default()) }
+    }
+
+    #[inline]
+    pub async fn get(&self, topic: TopicName) -> (Option<TopicName>, Option<NonZeroU16>) {
+        if self.max_topic_aliases == 0 {
+            return (Some(topic), None);
+        }
+        let alias = {
+            let aliases = self.aliases.read().await;
+            if let Some(alias) = aliases.get(&topic) {
+                return (None, Some(*alias));
+            }
+            let len = aliases.len();
+            if len >= self.max_topic_aliases {
+                return (Some(topic), None);
+            }
+
+            match NonZeroU16::try_from((len + 1) as u16) {
+                Ok(alias) => alias,
+                Err(_) => {
+                    unreachable!()
+                }
+            }
+        };
+        self.aliases.write().await.insert(topic.clone(), alias);
+        (Some(topic), Some(alias))
+    }
+}
+
+#[derive(Debug)]
+pub struct ClientTopicAliases {
+    max_topic_aliases: usize,
+    aliases: RwLock<HashMap<NonZeroU16, TopicName>>,
+}
+
+impl ClientTopicAliases {
+    #[inline]
+    pub fn new(max_topic_aliases: usize) -> Self {
+        ClientTopicAliases { max_topic_aliases, aliases: RwLock::new(HashMap::default()) }
+    }
+
+    #[inline]
+    pub async fn set_and_get(&self, alias: Option<NonZeroU16>, topic: TopicName) -> Result<TopicName> {
+        match (alias, topic.len()) {
+            (Some(alias), 0) => {
+                self.aliases.read().await.get(&alias).ok_or_else(|| {
+                    MqttError::PublishAckReason(
+                        PublishAckReason::ImplementationSpecificError,
+                        ByteString::from(
+                            "implementation specific error, the ‘topic‘ associated with the ‘alias‘ was not found",
+                        ),
+                    )
+                }).cloned()
+            }
+            (Some(alias), _) => {
+                let mut aliases = self.aliases.write().await;
+                let len = aliases.len();
+                if let Some(topic_mut) = aliases.get_mut(&alias) {
+                    *topic_mut = topic.clone()
+                }else{
+                    if len >= self.max_topic_aliases {
+                        return Err(MqttError::PublishAckReason(
+                            PublishAckReason::ImplementationSpecificError,
+                            ByteString::from(
+                                format!("implementation specific error, the number of topic aliases exceeds the limit ({})", self.max_topic_aliases),
+                            ),
+                        ))
+                    }
+                    aliases.insert(alias, topic.clone());
+                }
+                Ok(topic)
+            }
+            (None, 0) => Err(MqttError::PublishAckReason(
+                PublishAckReason::ImplementationSpecificError,
+                ByteString::from("implementation specific error, ‘alias’ and ‘topic’ are both empty"),
+            )),
+            (None, _) => Ok(topic),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct DisconnectInfo {
+    pub disconnected_at: TimestampMillis,
+    pub reasons: Vec<Reason>,
+    pub mqtt_disconnect: Option<Disconnect>, //MQTT Disconnect
+}
+
+impl DisconnectInfo {
+    #[inline]
+    pub fn new(disconnected_at: TimestampMillis) -> Self {
+        Self { disconnected_at, reasons: Vec::new(), mqtt_disconnect: None }
+    }
+
+    #[inline]
+    pub fn is_disconnected(&self) -> bool {
+        self.disconnected_at != 0
+    }
+}
+
+#[inline]
+pub fn topic_size(topic: &Topic) -> usize {
+    topic
+        .iter()
+        .map(|l| {
+            let data_len = match l {
+                TopicLevel::Normal(s) => s.len(),
+                TopicLevel::Metadata(s) => s.len(),
+                _ => 0,
+            };
+            size_of::<TopicLevel>() + data_len
+        })
+        .sum::<usize>()
+}
+
+#[inline]
+pub fn timestamp() -> Duration {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_else(|_| {
+        let now = chrono::Local::now();
+        Duration::new(now.timestamp() as u64, now.timestamp_subsec_nanos())
+    })
+}
+
+#[inline]
+pub fn timestamp_secs() -> Timestamp {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|t| t.as_secs() as i64)
+        .unwrap_or_else(|_| chrono::Local::now().timestamp())
+}
+
+#[inline]
+pub fn timestamp_millis() -> TimestampMillis {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|t| t.as_millis() as i64)
+        .unwrap_or_else(|_| chrono::Local::now().timestamp_millis())
+}
+
+#[inline]
+pub fn format_timestamp(t: Timestamp) -> String {
+    if t <= 0 {
+        "".into()
+    } else {
+        use chrono::TimeZone;
+        if let chrono::LocalResult::Single(t) = chrono::Local.timestamp_opt(t, 0) {
+            t.format("%Y-%m-%d %H:%M:%S").to_string()
+        } else {
+            "".into()
+        }
+    }
+}
+
+#[inline]
+pub fn format_timestamp_millis(t: TimestampMillis) -> String {
+    if t <= 0 {
+        "".into()
+    } else {
+        use chrono::TimeZone;
+        if let chrono::LocalResult::Single(t) = chrono::Local.timestamp_millis_opt(t) {
+            t.format("%Y-%m-%d %H:%M:%S%.3f").to_string()
+        } else {
+            "".into()
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum StatsMergeMode {
+    None,    // Represents no merging;
+    Sum,     // Represents summing the data;
+    Average, // Represents averaging the data;
+    Max,     // Represents taking the maximum value of the data;
+    Min,     // Represents taking the minimum value of the data;
+}
+
 #[test]
 fn test_reason() {
-    assert_eq!(Reason::ConnectKicked(false).is_kicked(false), true);
-    assert_eq!(Reason::ConnectKicked(false).is_kicked(true), false);
-    assert_eq!(Reason::ConnectKicked(true).is_kicked(true), true);
-    assert_eq!(Reason::ConnectKicked(true).is_kicked(false), false);
-    assert_eq!(Reason::ConnectKicked(true).is_kicked_by_admin(), true);
-    assert_eq!(Reason::ConnectKicked(false).is_kicked_by_admin(), false);
-    assert_eq!(Reason::ConnectDisconnect(None).is_kicked(false), false);
-    assert_eq!(Reason::ConnectDisconnect(None).is_kicked_by_admin(), false);
+    assert!(Reason::ConnectKicked(false).is_kicked(false));
+    assert!(!Reason::ConnectKicked(false).is_kicked(true));
+    assert!(Reason::ConnectKicked(true).is_kicked(true));
+    assert!(!Reason::ConnectKicked(true).is_kicked(false));
+    assert!(Reason::ConnectKicked(true).is_kicked_by_admin());
+    assert!(!Reason::ConnectKicked(false).is_kicked_by_admin());
+    assert!(!Reason::ConnectDisconnect(None).is_kicked(false));
+    assert!(!Reason::ConnectDisconnect(None).is_kicked_by_admin());
 
     let reasons = Reason::Reasons(vec![
         Reason::PublishRefused,

@@ -2,6 +2,9 @@
 #[macro_use]
 extern crate serde;
 
+#[macro_use]
+extern crate rmqtt_macros;
+
 use rmqtt_raft::{Mailbox, Raft};
 use std::convert::From as _f;
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -10,13 +13,14 @@ use std::time::Duration;
 
 use config::PluginConfig;
 use handler::HookHandler;
-use retainer::ClusterRetainer;
+
+use rmqtt::anyhow::anyhow;
 use rmqtt::{
     ahash, anyhow,
     async_trait::async_trait,
     log, rand,
     serde_json::{self, json},
-    tokio, RwLock,
+    tokio, NodeId,
 };
 use rmqtt::{
     broker::{
@@ -25,7 +29,8 @@ use rmqtt::{
         types::{From, Publish, Reason, To},
     },
     grpc::{client::NodeGrpcClient, GrpcClients, Message, MessageReply, MessageType},
-    plugin::{DynPlugin, DynPluginResult, Plugin},
+    plugin::{PackageInfo, Plugin},
+    register,
     tokio::time::sleep,
     Result, Runtime,
 };
@@ -39,40 +44,20 @@ use shared::ClusterShared;
 mod config;
 mod handler;
 mod message;
-mod retainer;
 mod router;
 mod shared;
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
-#[inline]
-pub async fn register(
-    runtime: &'static Runtime,
-    name: &'static str,
-    descr: &'static str,
-    default_startup: bool,
-    immutable: bool,
-) -> Result<()> {
-    runtime
-        .plugins
-        .register(name, default_startup, immutable, move || -> DynPluginResult {
-            Box::pin(async move {
-                ClusterPlugin::new(runtime, name, descr).await.map(|p| -> DynPlugin { Box::new(p) })
-            })
-        })
-        .await?;
-    Ok(())
-}
+register!(ClusterPlugin::new);
 
+#[derive(Plugin)]
 struct ClusterPlugin {
     runtime: &'static Runtime,
-    name: String,
-    descr: String,
     register: Box<dyn Register>,
-    cfg: Arc<RwLock<PluginConfig>>,
+    cfg: Arc<PluginConfig>,
     grpc_clients: GrpcClients,
     shared: &'static ClusterShared,
-    retainer: &'static ClusterRetainer,
 
     router: &'static ClusterRouter,
     raft_mailbox: Option<Mailbox>,
@@ -80,11 +65,12 @@ struct ClusterPlugin {
 
 impl ClusterPlugin {
     #[inline]
-    async fn new<S: Into<String>>(runtime: &'static Runtime, name: S, descr: S) -> Result<Self> {
+    async fn new<S: Into<String>>(runtime: &'static Runtime, name: S) -> Result<Self> {
         let name = name.into();
-        let mut cfg = runtime.settings.plugins.load_config::<PluginConfig>(&name)?;
-        log::info!("{} ClusterPlugin cfg: {:?}", name, cfg);
+        let env_list_keys = ["node_grpc_addrs", "raft_peer_addrs"];
+        let mut cfg = runtime.settings.plugins.load_config_with::<PluginConfig>(&name, &env_list_keys)?;
         cfg.merge(&runtime.settings.opts);
+        log::info!("{} ClusterPlugin cfg: {:?}", name, cfg);
 
         init_task_exec_queue(cfg.task_exec_queue_workers, cfg.task_exec_queue_max);
 
@@ -106,26 +92,14 @@ impl ClusterPlugin {
         let grpc_clients = Arc::new(grpc_clients);
         let router = ClusterRouter::get_or_init(cfg.try_lock_timeout);
         let shared = ClusterShared::get_or_init(router, grpc_clients.clone(), node_names, cfg.message_type);
-        let retainer = ClusterRetainer::get_or_init(grpc_clients.clone(), cfg.message_type);
         let raft_mailbox = None;
-        let cfg = Arc::new(RwLock::new(cfg));
-        Ok(Self {
-            runtime,
-            name,
-            descr: descr.into(),
-            register,
-            cfg,
-            grpc_clients,
-            shared,
-            retainer,
-            router,
-            raft_mailbox,
-        })
+        let cfg = Arc::new(cfg);
+        Ok(Self { runtime, register, cfg, grpc_clients, shared, router, raft_mailbox })
     }
 
     //raft init ...
-    async fn start_raft(cfg: Arc<RwLock<PluginConfig>>, router: &'static ClusterRouter) -> Result<Mailbox> {
-        let raft_peer_addrs = cfg.read().raft_peer_addrs.clone();
+    async fn start_raft(cfg: Arc<PluginConfig>, router: &'static ClusterRouter) -> Result<Mailbox> {
+        let raft_peer_addrs = cfg.raft_peer_addrs.clone();
 
         let id = Runtime::instance().node.id();
         let raft_laddr = raft_peer_addrs
@@ -137,35 +111,70 @@ impl ClusterPlugin {
         log::info!("raft_laddr: {:?}", raft_laddr);
 
         //verify the listening address
-        parse_addr(&raft_laddr).await?;
+        if cfg.verify_addr {
+            parse_addr(&raft_laddr).await?;
+        }
 
-        let raft = Raft::new(raft_laddr, router, logger, cfg.read().raft.to_raft_config())
+        let raft = Raft::new(raft_laddr, router, logger, cfg.raft.to_raft_config())
             .map_err(|e| MqttError::StdError(Box::new(e)))?;
         let mailbox = raft.mailbox();
 
         let mut peer_addrs = Vec::new();
         for peer in raft_peer_addrs.iter() {
             if peer.id != id {
-                peer_addrs.push(parse_addr(&peer.addr).await?.to_string())
+                if cfg.verify_addr {
+                    peer_addrs.push(parse_addr(&peer.addr).await?.to_string());
+                } else {
+                    peer_addrs.push(peer.addr.to_string());
+                }
             }
         }
         log::info!("peer_addrs: {:?}", peer_addrs);
 
-        let leader_info =
-            raft.find_leader_info(peer_addrs).await.map_err(|e| MqttError::StdError(Box::new(e)))?;
+        let leader_info = match cfg.leader()? {
+            Some(leader_info) => {
+                log::info!("Specify a leader: {:?}", leader_info);
+                if id == leader_info.id {
+                    //First, check if the Leader exists.
+                    let actual_leader_info = find_actual_leader(&raft, peer_addrs, 3).await?;
+                    if actual_leader_info.is_some() {
+                        log::info!("Leader already exists, {:?}", actual_leader_info);
+                    }
+                    actual_leader_info
+                } else {
+                    //The other nodes are leader.
+                    let actual_leader_info = find_actual_leader(&raft, peer_addrs, 60).await?;
+                    let (actual_leader_id, actual_leader_addr) =
+                        actual_leader_info.ok_or_else(|| MqttError::from("Leader does not exist"))?;
+                    if actual_leader_id != leader_info.id {
+                        return Err(MqttError::from(format!(
+                            "Not the expected Leader, the expected one is {:?}",
+                            leader_info
+                        )));
+                    }
+                    Some((actual_leader_id, actual_leader_addr))
+                }
+            }
+            None => {
+                log::info!("Search for the existing leader ... ");
+                let leader_info =
+                    raft.find_leader_info(peer_addrs).await.map_err(|e| MqttError::StdError(Box::new(e)))?;
+                log::info!("The information about the located leader: {:?}", leader_info);
+                leader_info
+            }
+        };
 
-        //        let (status_tx, status_rx) = futures::channel::oneshot::channel::<Result<Status>>();
+        //let (status_tx, status_rx) = futures::channel::oneshot::channel::<Result<Status>>();
         let _child = std::thread::Builder::new().name("cluster-raft".to_string()).spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
+            let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
-                .worker_threads(8)
+                .worker_threads(cfg.worker_threads)
                 .thread_name("cluster-raft-worker")
                 .thread_stack_size(4 * 1024 * 1024)
                 .build()
                 .unwrap();
 
             let runner = async move {
-                let id = Runtime::instance().node.id();
                 log::info!("leader_info: {:?}", leader_info);
                 let raft_handle = match leader_info {
                     Some((leader_id, leader_addr)) => {
@@ -197,9 +206,7 @@ impl ClusterPlugin {
 
     #[inline]
     async fn hook_register(&self, typ: Type) {
-        self.register
-            .add(typ, Box::new(HookHandler::new(self.shared, self.retainer, self.raft_mailbox())))
-            .await;
+        self.register.add(typ, Box::new(HookHandler::new(self.shared, self.raft_mailbox()))).await;
     }
 
     fn raft_mailbox(&self) -> Mailbox {
@@ -215,20 +222,20 @@ impl ClusterPlugin {
 impl Plugin for ClusterPlugin {
     #[inline]
     async fn init(&mut self) -> Result<()> {
-        log::info!("{} init", self.name);
+        log::info!("{} init", self.name());
 
         let raft_mailbox = Self::start_raft(self.cfg.clone(), self.router).await?;
 
-        for i in 0..30 {
+        for i in 0..60 {
             match raft_mailbox.status().await {
                 Ok(status) => {
                     if status.is_started() {
                         break;
                     }
-                    log::info!("{} Initializing cluster, raft status({}): {:?}", self.name, i, status);
+                    log::info!("{} Initializing cluster, raft status({}): {:?}", self.name(), i, status);
                 }
                 Err(e) => {
-                    log::info!("{} init error, {:?}", self.name, e);
+                    log::info!("{} init error, {:?}", self.name(), e);
                 }
             }
             sleep(Duration::from_millis(500)).await;
@@ -245,45 +252,52 @@ impl Plugin for ClusterPlugin {
     }
 
     #[inline]
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    #[inline]
     async fn get_config(&self) -> Result<serde_json::Value> {
-        self.cfg.read().to_json()
+        self.cfg.to_json()
     }
 
     #[inline]
     async fn start(&mut self) -> Result<()> {
-        log::info!("{} start", self.name);
+        log::info!("{} start", self.name());
         let raft_mailbox = self.raft_mailbox();
         *self.runtime.extends.router_mut().await = Box::new(self.router);
         *self.runtime.extends.shared_mut().await = Box::new(self.shared);
         self.register.start().await;
         let status = raft_mailbox.status().await.map_err(anyhow::Error::new)?;
         log::info!("raft status: {:?}", status);
-        if status.is_started() {
-            Ok(())
-        } else {
-            Err(MqttError::from("Raft cluster status is abnormal"))
+        if !status.is_started() {
+            return Err(MqttError::from("Raft cluster status is abnormal"));
         }
+
+        let ping = message::Message::Ping.encode()?;
+        for _ in 0..100 {
+            match raft_mailbox.send_proposal(ping.clone()).await {
+                Ok(reply) => match message::MessageReply::decode(&reply)? {
+                    message::MessageReply::Ping => {
+                        log::info!("ping ok");
+                        return Ok(());
+                    }
+                    message::MessageReply::Error(e) => {
+                        log::warn!("ping error, {:?}", e);
+                    }
+                    _ => {
+                        unreachable!()
+                    }
+                },
+                Err(e) => {
+                    log::warn!("ping error, {:?}", e);
+                }
+            }
+            sleep(Duration::from_millis(500)).await;
+        }
+
+        Err(MqttError::from("Raft cluster status is unavailable"))
     }
 
     #[inline]
     async fn stop(&mut self) -> Result<bool> {
-        log::warn!("{} stop, once the cluster is started, it cannot be stopped", self.name);
+        log::warn!("{} stop, once the cluster is started, it cannot be stopped", self.name());
         Ok(false)
-    }
-
-    #[inline]
-    fn version(&self) -> &str {
-        "0.1.1"
-    }
-
-    #[inline]
-    fn descr(&self) -> &str {
-        &self.descr
     }
 
     #[inline]
@@ -318,7 +332,7 @@ impl Plugin for ClusterPlugin {
             "task_exec_queue": {
                 "waiting_count": exec.waiting_count(),
                 "active_count": exec.active_count(),
-                "completed_count": exec.completed_count(),
+                "completed_count": exec.completed_count().await,
             }
         })
     }
@@ -342,6 +356,23 @@ async fn parse_addr(addr: &str) -> Result<SocketAddr> {
         tokio::time::sleep(Duration::from_millis((rand::random::<u64>() % 300) + 500)).await;
     }
     Err(MqttError::from(format!("Parsing address{:?} error", addr)))
+}
+
+async fn find_actual_leader(
+    raft: &Raft<&ClusterRouter>,
+    peer_addrs: Vec<String>,
+    rounds: usize,
+) -> Result<Option<(NodeId, String)>> {
+    let mut actual_leader_info = None;
+    for i in 0..rounds {
+        actual_leader_info = raft.find_leader_info(peer_addrs.clone()).await.map_err(|e| anyhow!(e))?;
+        if actual_leader_info.is_some() {
+            break;
+        }
+        log::info!("Leader not found, rounds: {}", i);
+        sleep(Duration::from_millis(500)).await;
+    }
+    Ok(actual_leader_info)
 }
 
 pub(crate) struct MessageSender {

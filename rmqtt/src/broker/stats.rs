@@ -1,23 +1,26 @@
 use std::fmt;
 use std::sync::atomic::{AtomicIsize, Ordering};
 
-use ntex_mqtt::handshakings;
+use ntex_mqtt::{handshakings, in_inflights};
 use once_cell::sync::OnceCell;
 
 use crate::broker::executor::{get_active_count, get_rate};
-use crate::{HashMap, NodeId, Runtime};
+#[cfg(feature = "debug")]
+use crate::runtime::TaskExecStats;
+use crate::{HashMap, NodeId, Runtime, StatsMergeMode};
 
 type Current = AtomicIsize;
 type Max = AtomicIsize;
 
 #[derive(Serialize, Deserialize)]
-pub struct Counter(Current, Max);
+pub struct Counter(Current, Max, StatsMergeMode);
 
 impl Clone for Counter {
     fn clone(&self) -> Self {
         Counter(
             AtomicIsize::new(self.0.load(Ordering::SeqCst)),
             AtomicIsize::new(self.1.load(Ordering::SeqCst)),
+            self.2.clone(),
         )
     }
 }
@@ -37,7 +40,12 @@ impl Default for Counter {
 impl Counter {
     #[inline]
     pub fn new() -> Self {
-        Counter(AtomicIsize::new(0), AtomicIsize::new(0))
+        Counter(AtomicIsize::new(0), AtomicIsize::new(0), StatsMergeMode::None)
+    }
+
+    #[inline]
+    pub fn new_with(c: isize, max: isize, m: StatsMergeMode) -> Self {
+        Counter(AtomicIsize::new(c), AtomicIsize::new(max), m)
     }
 
     #[inline]
@@ -88,8 +96,18 @@ impl Counter {
     }
 
     #[inline]
+    pub fn count_max(&self, count: isize) {
+        self.0.fetch_max(count, Ordering::SeqCst);
+    }
+
+    #[inline]
     pub fn max_max(&self, max: isize) {
         self.1.fetch_max(max, Ordering::SeqCst);
+    }
+
+    #[inline]
+    pub fn max_min(&self, max: isize) {
+        self.1.fetch_min(max, Ordering::SeqCst);
     }
 
     #[inline]
@@ -113,6 +131,19 @@ impl Counter {
         self.0.store(other.0.load(Ordering::SeqCst), Ordering::SeqCst);
         self.1.store(other.1.load(Ordering::SeqCst), Ordering::SeqCst);
     }
+
+    #[inline]
+    pub fn merge(&self, other: &Self) {
+        stats_merge(&self.2, self, other);
+    }
+
+    #[inline]
+    pub fn to_json(&self) -> serde_json::Value {
+        json!({
+            "count": self.count(),
+            "max": self.max()
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -124,6 +155,11 @@ pub struct Stats {
     pub sessions: Counter,
     pub subscriptions: Counter,
     pub subscriptions_shared: Counter,
+    pub message_queues: Counter,
+    pub out_inflights: Counter,
+    pub in_inflights: Counter,
+    pub forwards: Counter,
+    pub message_storages: Counter,
     pub retaineds: Counter,
 
     topics_map: HashMap<NodeId, Counter>,
@@ -135,6 +171,14 @@ pub struct Stats {
     debug_topics_tree_map: HashMap<NodeId, usize>,
     #[cfg(feature = "debug")]
     debug_shared_peers: Counter,
+    #[cfg(feature = "debug")]
+    debug_subscriptions: usize,
+    #[cfg(feature = "debug")]
+    pub debug_session_channels: Counter,
+    #[cfg(feature = "debug")]
+    debug_task_exec_stats: Option<TaskExecStats>,
+    #[cfg(feature = "debug")]
+    debug_task_local_exec_stats: Option<TaskExecStats>,
 }
 
 impl Stats {
@@ -149,6 +193,11 @@ impl Stats {
             sessions: Counter::new(),
             subscriptions: Counter::new(),
             subscriptions_shared: Counter::new(),
+            message_queues: Counter::new(),
+            out_inflights: Counter::new(),
+            in_inflights: Counter::new(),
+            forwards: Counter::new(),
+            message_storages: Counter::new(),
             retaineds: Counter::new(),
 
             topics_map: HashMap::default(),
@@ -160,22 +209,46 @@ impl Stats {
             debug_topics_tree_map: HashMap::default(),
             #[cfg(feature = "debug")]
             debug_shared_peers: Counter::new(),
+            #[cfg(feature = "debug")]
+            debug_subscriptions: 0,
+            #[cfg(feature = "debug")]
+            debug_session_channels: Counter::new(),
+            #[cfg(feature = "debug")]
+            debug_task_exec_stats: None,
+            #[cfg(feature = "debug")]
+            debug_task_local_exec_stats: None,
         })
     }
 
     #[inline]
     pub async fn clone(&self) -> Self {
-        let router = Runtime::instance().extends.router().await;
-
         let node_id = Runtime::instance().node.id();
         let mut topics_map = HashMap::default();
-        topics_map.insert(node_id, router.topics());
         let mut routes_map = HashMap::default();
-        routes_map.insert(node_id, router.routes());
+        {
+            let router = Runtime::instance().extends.router().await;
+            topics_map.insert(node_id, router.topics());
+            routes_map.insert(node_id, router.routes());
+        }
 
         self.handshakings.current_set(handshakings());
         self.handshakings_active.current_set(get_active_count());
         self.handshakings_rate.sets((get_rate() * 100.0) as isize);
+
+        let (curr, max) = in_inflights();
+        self.in_inflights.current_set(curr);
+        self.in_inflights.max_max(max);
+
+        {
+            let message_mgr = Runtime::instance().extends.message_mgr().await;
+            self.message_storages.current_set(message_mgr.count().await);
+            self.message_storages.max_max(message_mgr.max().await);
+        }
+
+        let retaineds = {
+            let retain = Runtime::instance().extends.retain().await;
+            Counter::new_with(retain.count().await, retain.max().await, retain.stats_merge_mode())
+        };
 
         #[cfg(feature = "debug")]
         let shared = Runtime::instance().extends.shared().await;
@@ -187,10 +260,17 @@ impl Stats {
         #[cfg(feature = "debug")]
         {
             debug_client_states_map.insert(node_id, shared.client_states_count().await);
-            debug_topics_tree_map.insert(node_id, router.topics_tree().await);
+            debug_topics_tree_map
+                .insert(node_id, Runtime::instance().extends.router().await.topics_tree().await);
         }
         #[cfg(feature = "debug")]
         self.debug_shared_peers.current_set(shared.sessions_count() as isize);
+        #[cfg(feature = "debug")]
+        let debug_subscriptions = shared.subscriptions_count().await;
+        #[cfg(feature = "debug")]
+        let debug_task_exec_stats = Some(TaskExecStats::from_exec().await);
+        #[cfg(feature = "debug")]
+        let debug_task_local_exec_stats = Some(TaskExecStats::from_local_exec());
 
         Self {
             handshakings: self.handshakings.clone(),
@@ -200,8 +280,13 @@ impl Stats {
             sessions: self.sessions.clone(),
             subscriptions: self.subscriptions.clone(),
             subscriptions_shared: self.subscriptions_shared.clone(),
-            retaineds: self.retaineds.clone(), //retained messages
+            message_queues: self.message_queues.clone(),
+            out_inflights: self.out_inflights.clone(),
+            in_inflights: self.in_inflights.clone(),
+            forwards: self.forwards.clone(),
+            message_storages: self.message_storages.clone(),
 
+            retaineds,
             topics_map,
             routes_map,
 
@@ -211,6 +296,14 @@ impl Stats {
             debug_topics_tree_map,
             #[cfg(feature = "debug")]
             debug_shared_peers: self.debug_shared_peers.clone(),
+            #[cfg(feature = "debug")]
+            debug_subscriptions,
+            #[cfg(feature = "debug")]
+            debug_session_channels: self.debug_session_channels.clone(),
+            #[cfg(feature = "debug")]
+            debug_task_exec_stats,
+            #[cfg(feature = "debug")]
+            debug_task_local_exec_stats,
         }
     }
 
@@ -223,7 +316,12 @@ impl Stats {
         self.sessions.add(&other.sessions);
         self.subscriptions.add(&other.subscriptions);
         self.subscriptions_shared.add(&other.subscriptions_shared);
-        self.retaineds.add(&other.retaineds);
+        self.message_queues.add(&other.message_queues);
+        self.out_inflights.add(&other.out_inflights);
+        self.in_inflights.add(&other.in_inflights);
+        self.forwards.add(&other.forwards);
+        self.message_storages.add(&other.message_storages);
+        self.retaineds.merge(&other.retaineds);
 
         self.topics_map.extend(other.topics_map);
         self.routes_map.extend(other.routes_map);
@@ -232,7 +330,25 @@ impl Stats {
         {
             self.debug_client_states_map.extend(other.debug_client_states_map);
             self.debug_topics_tree_map.extend(other.debug_topics_tree_map);
-            self.debug_shared_peers.add(&other.debug_shared_peers)
+            self.debug_shared_peers.add(&other.debug_shared_peers);
+            self.debug_subscriptions += other.debug_subscriptions;
+            self.debug_session_channels.add(&other.debug_session_channels);
+
+            if let Some(other) = other.debug_task_exec_stats.as_ref() {
+                if let Some(stats) = self.debug_task_exec_stats.as_mut() {
+                    stats.add(other);
+                } else {
+                    self.debug_task_exec_stats.replace(other.clone());
+                }
+            }
+
+            if let Some(other) = other.debug_task_local_exec_stats.as_ref() {
+                if let Some(stats) = self.debug_task_local_exec_stats.as_mut() {
+                    stats.add(other);
+                } else {
+                    self.debug_task_local_exec_stats.replace(other.clone());
+                }
+            }
         }
     }
 
@@ -257,8 +373,19 @@ impl Stats {
             "subscriptions.max": self.subscriptions.max(),
             "subscriptions_shared.count": self.subscriptions_shared.count(),
             "subscriptions_shared.max": self.subscriptions_shared.max(),
-            "retained.count": self.retaineds.count(),
-            "retained.max": self.retaineds.max(),
+            "retaineds.count": self.retaineds.count(),
+            "retaineds.max": self.retaineds.max(),
+
+            "message_queues.count": self.message_queues.count(),
+            "message_queues.max": self.message_queues.max(),
+            "out_inflights.count": self.out_inflights.count(),
+            "out_inflights.max": self.out_inflights.max(),
+            "in_inflights.count": self.in_inflights.count(),
+            "in_inflights.max": self.in_inflights.max(),
+            "forwards.count": self.forwards.count(),
+            "forwards.max": self.forwards.max(),
+            "message_storages.count": self.message_storages.count(),
+            "message_storages.max": self.message_storages.max(),
 
             "topics.count": topics.count(),
             "topics.max": topics.max(),
@@ -271,10 +398,37 @@ impl Stats {
             if let Some(obj) = json_val.as_object_mut() {
                 obj.insert("debug_client_states_map".into(), json!(self.debug_client_states_map));
                 obj.insert("debug_topics_tree_map".into(), json!(self.debug_topics_tree_map));
-                obj.insert("debug_shared_peers".into(), json!(self.debug_shared_peers.count()));
+                obj.insert("debug_shared_peers.count".into(), json!(self.debug_shared_peers.count()));
+                obj.insert("debug_subscriptions.count".into(), json!(self.debug_subscriptions));
+                obj.insert("debug_session_channels.count".into(), json!(self.debug_session_channels.count()));
+                obj.insert("debug_session_channels.max".into(), json!(self.debug_session_channels.max()));
+                obj.insert("debug_task_exec_stats".into(), json!(self.debug_task_exec_stats));
+                obj.insert("debug_task_local_exec_stats".into(), json!(self.debug_task_local_exec_stats));
             }
         }
 
         json_val
     }
+}
+
+#[inline]
+fn stats_merge<'a>(mode: &StatsMergeMode, c: &'a Counter, o: &Counter) -> &'a Counter {
+    match mode {
+        StatsMergeMode::None => {}
+        StatsMergeMode::Sum => {
+            c.add(o);
+        }
+        StatsMergeMode::Max => {
+            c.count_max(o.count());
+            c.max_max(o.max());
+        }
+        StatsMergeMode::Min => {
+            c.count_min(o.count());
+            c.max_min(o.max());
+        }
+        _ => {
+            log::info!("unimplemented!");
+        }
+    }
+    c
 }

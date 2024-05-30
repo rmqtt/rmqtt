@@ -2,18 +2,21 @@
 ## rmqtt-retainer
 ##--------------------------------------------------------------------
 
-# ram: only stored in memory;
-storage_type = "ram"
+##ram, sled, redis
+storage.type = "redis"
+
+##sled
+storage.sled.path = "/var/log/rmqtt/.cache/retain/{node}"
+storage.sled.cache_capacity = "3G"
+
+##redis
+storage.redis.url = "redis://127.0.0.1:6379/"
+storage.redis.prefix = "retain"
 
 # The maximum number of retained messages, where 0 indicates no limit. After the number of reserved messages exceeds
 # the maximum limit, existing reserved messages can be replaced, but reserved messages cannot be stored for new topics.
 max_retained_messages = 0
 
-
 # The maximum Payload value for retaining messages. After the Payload size exceeds the maximum value, the RMQTT
 # message server will process the received reserved message as a regular message.
 max_payload_size = "1MB"
-
-# The expiration time of the retention message, where 0 means it will never expire. If the message expiration interval is set in
-# the PUBLISH message, the message expiration interval in the PUBLISH message shall prevail.
-expiry_interval = "0s"

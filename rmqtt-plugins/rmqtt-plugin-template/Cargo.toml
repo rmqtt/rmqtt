@@ -1,12 +1,12 @@
 [package]
 name = "rmqtt-plugin-template"
 version = "0.1.1"
-authors = ["rmqtt <rmqttd@126.com>"]
-edition = "2021"
+description = "RMQTT plugin template"
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+license.workspace = true
 
 [dependencies]
-rmqtt = "0.2"
-log = "0.4"
-async-trait = "0.1.36"
-tokio = "1.5"
-bytestring = "1.0"
+rmqtt.workspace = true
+rmqtt-macros.workspace = true

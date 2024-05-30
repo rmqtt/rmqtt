@@ -5,10 +5,78 @@
 HTTP 认证使用外部自建 HTTP 应用认证数据源，根据 HTTP API 返回的数据判定认证结果，能够实现复杂的认证鉴权逻辑。
 
 
-插件：
+#### 插件：
 
 ```bash
 rmqtt-auth-http
+```
+
+#### 插件配置文件：
+
+```bash
+plugins/rmqtt-auth-http.toml
+```
+
+#### 插件配置项：
+
+```bash
+##--------------------------------------------------------------------
+## rmqtt-auth-http
+##--------------------------------------------------------------------
+
+# See more keys and their definitions at https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/auth-http.md
+
+http_timeout = "5s"
+http_headers.accept = "*/*"
+http_headers.Cache-Control = "no-cache"
+http_headers.User-Agent = "RMQTT/0.4.0"
+http_headers.Connection = "keep-alive"
+
+#Disconnect if publishing is rejected
+disconnect_if_pub_rejected = true
+
+#Return 'Deny' if http request error otherwise 'Ignore'
+deny_if_error = true
+
+##--------------------------------------------------------------------
+## Authentication request.
+##
+## Variables:
+##  - %u: username
+##  - %c: clientid
+##  - %a: ipaddress
+##  - %r: protocol
+##  - %P: password
+##
+## Value: URL
+http_auth_req.url = "http://127.0.0.1:9090/mqtt/auth"
+## Value: post | get | put
+http_auth_req.method = "post"
+## HTTP request header of authentication request
+## Content-Type Currently supported values: application/x-www-form-urlencoded, application/json
+http_auth_req.headers = { content-type = "application/x-www-form-urlencoded" }
+#http_auth_req.headers.content-type="application/json"
+## Value: Params
+http_auth_req.params = { clientid = "%c", username = "%u", password = "%P" }
+
+
+##--------------------------------------------------------------------
+## ACL request.
+##
+## Variables:
+##  - %A: 1 | 2, 1 = sub, 2 = pub
+##  - %u: username
+##  - %c: clientid
+##  - %a: ipaddress
+##  - %r: protocol
+##  - %t: topic
+##
+## Value: URL
+http_acl_req.url = "http://127.0.0.1:9090/mqtt/acl"
+## Value: post | get | put
+http_acl_req.method = "post"
+## Value: Params
+http_acl_req.params = { access = "%A", username = "%u", clientid = "%c", ipaddr = "%a", topic = "%t" }
 ```
 
 <div style="width:100%;padding:15px;border-left:10px solid #1cc68b;background-color: #d1e3dd; color: #00b173;">

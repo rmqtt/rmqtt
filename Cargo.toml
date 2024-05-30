@@ -1,6 +1,8 @@
 [workspace]
+resolver = "2"
 members = [
     "rmqtt",
+    "rmqtt-plugins/rmqtt-plugin-template",
     "rmqtt-plugins/rmqtt-acl",
     "rmqtt-plugins/rmqtt-web-hook",
     "rmqtt-plugins/rmqtt-auth-http",
@@ -9,6 +11,10 @@ members = [
     "rmqtt-plugins/rmqtt-counter",
     "rmqtt-plugins/rmqtt-http-api",
     "rmqtt-plugins/rmqtt-retainer",
+    "rmqtt-plugins/rmqtt-sys-topic",
+    "rmqtt-plugins/rmqtt-session-storage",
+    "rmqtt-plugins/rmqtt-message-storage",
+    "rmqtt-plugins/rmqtt-bridge-ingress-mqtt",
     "rmqtt-bin",
     "rmqtt-macros"
 ]
@@ -16,6 +22,7 @@ members = [
 [patch.crates-io]
 rmqtt = { path = "rmqtt" }
 rmqtt-macros = { path = "rmqtt-macros" }
+rmqtt-plugin-template = { path = "rmqtt-plugins/rmqtt-plugin-template" }
 rmqtt-acl = { path = "rmqtt-plugins/rmqtt-acl" }
 rmqtt-web-hook = { path = "rmqtt-plugins/rmqtt-web-hook" }
 rmqtt-auth-http = { path = "rmqtt-plugins/rmqtt-auth-http" }
@@ -24,15 +31,33 @@ rmqtt-cluster-raft = { path = "rmqtt-plugins/rmqtt-cluster-raft" }
 rmqtt-counter = { path = "rmqtt-plugins/rmqtt-counter" }
 rmqtt-http-api = { path = "rmqtt-plugins/rmqtt-http-api" }
 rmqtt-retainer = { path = "rmqtt-plugins/rmqtt-retainer" }
+rmqtt-sys-topic = { path = "rmqtt-plugins/rmqtt-sys-topic" }
+rmqtt-session-storage = { path = "rmqtt-plugins/rmqtt-session-storage" }
+rmqtt-message-storage = { path = "rmqtt-plugins/rmqtt-message-storage" }
+rmqtt-bridge-ingress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-ingress-mqtt" }
 
 [workspace.package]
-version = "0.2.14"
+version = "0.5.0"
 edition = "2021"
 authors = ["rmqtt <rmqttd@126.com>"]
 description = "MQTT Server for v3.1, v3.1.1 and v5.0 protocols"
 repository = "https://github.com/rmqtt/rmqtt.git"
 license = "MIT license, Apache-2.0 License"
 categories = ["network-programming"]
-keywords = ["MQTT", "IoT", "messaging", "MQTT Server", "MQTT Broker"]
+keywords = ["MQTT", "IoT", "messaging", "MQTT-Server", "MQTT-Broker"]
 exclude = [".gitignore", ".cargo/config"]
-rust-version = "1.64"
+rust-version = "1.71.1"
+
+
+[workspace.dependencies]
+rmqtt = "0.5"
+rmqtt-macros = "0.1"
+serde = "1.0"
+
+[profile.dev]
+opt-level = 0
+
+[profile.release]
+lto = true
+opt-level = 's'
+codegen-units = 1

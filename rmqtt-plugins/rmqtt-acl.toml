@@ -8,6 +8,7 @@
 disconnect_if_pub_rejected = true
 
 rules = [
+    #["deny", "all", "subscribe", ["test/nosubscribe"]],
     ["allow", { user = "dashboard" }, "subscribe", ["$SYS/#"]],
     ["allow", { ipaddr = "127.0.0.1" }, "pubsub", ["$SYS/#", "#"]],
     ["deny", "all", "subscribe", ["$SYS/#", { eq = "#" }]],

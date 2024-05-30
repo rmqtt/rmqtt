@@ -76,44 +76,52 @@ pub fn config_logger(filename: String, to: To, level: Level) -> slog::Logger {
     };
 
     //Console
-    let plain = slog_term::PlainSyncDecorator::new(std::io::stdout());
-    let stdout_drain = slog_term::FullFormat::new(plain)
-        .use_custom_timestamp(custom_timestamp)
-        .use_custom_header_print(print_msg_header)
-        .build()
-        .fuse();
-
-    let stdout_drain = stdout_drain.filter_level(level.inner()).fuse();
+    let stdout_drain = if to.console() {
+        let plain = slog_term::PlainSyncDecorator::new(std::io::stdout());
+        let stdout_drain = slog_term::FullFormat::new(plain)
+            .use_custom_timestamp(custom_timestamp)
+            .use_custom_header_print(print_msg_header)
+            .build()
+            .fuse();
+        Some(stdout_drain.filter_level(level.inner()).fuse())
+    } else {
+        None
+    };
 
     //File
-    let decorator = slog_term::PlainSyncDecorator::new(open_file(&filename).unwrap());
-    let file_drain = slog_term::FullFormat::new(decorator)
-        .use_custom_timestamp(custom_timestamp)
-        .use_custom_header_print(print_msg_header)
-        .build()
-        .fuse();
+    let file_drain = if to.file() {
+        let decorator = slog_term::PlainSyncDecorator::new(open_file(&filename).unwrap());
+        let file_drain = slog_term::FullFormat::new(decorator)
+            .use_custom_timestamp(custom_timestamp)
+            .use_custom_header_print(print_msg_header)
+            .build()
+            .fuse();
 
-    //@TODO config ...
-    let file_drain = slog_async::Async::new(file_drain)
-        .chan_size(100_000)
-        .overflow_strategy(slog_async::OverflowStrategy::DropAndReport)
-        .build()
-        .fuse();
+        //@TODO config ...
+        let file_drain = slog_async::Async::new(file_drain)
+            .chan_size(100_000)
+            .overflow_strategy(slog_async::OverflowStrategy::DropAndReport)
+            .build()
+            .fuse();
 
-    let file_drain = file_drain.filter_level(level.inner()).fuse();
+        Some(file_drain.filter_level(level.inner()).fuse())
+    } else {
+        None
+    };
 
-    match to {
-        To::Console => slog::Logger::root(stdout_drain, o!()),
-        To::File => slog::Logger::root(file_drain, o!()),
-        To::Both => slog::Logger::root(slog::Duplicate::new(stdout_drain, file_drain).fuse(), o!()),
-        To::Off => slog::Logger::root(slog::Discard, o!()),
+    match (stdout_drain, file_drain) {
+        (Some(stdout_drain), None) => slog::Logger::root(stdout_drain, o!()),
+        (None, Some(file_drain)) => slog::Logger::root(file_drain, o!()),
+        (Some(stdout_drain), Some(file_drain)) => {
+            slog::Logger::root(slog::Duplicate::new(stdout_drain, file_drain).fuse(), o!())
+        }
+        (None, None) => slog::Logger::root(slog::Discard, o!()),
     }
 }
 
 fn open_file(filename: &str) -> Result<File> {
     OpenOptions::new()
         .create(true)
-        .write(true)
         .append(true)
         .open(filename)
         .map_err(|e| MqttError::from(format!("logger file config error, filename: {}, {:?}", filename, e)))

@@ -1,12 +1,13 @@
 use std::fmt;
 use std::net::SocketAddr;
+use std::num::NonZeroU32;
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::TimeZone;
-use config::{Config, File};
+use chrono::LocalResult;
+use config::{Config, File, Source};
 use once_cell::sync::OnceCell;
 use serde::de::{self, Deserialize, Deserializer};
 use serde::ser::Serializer;
@@ -30,6 +31,8 @@ pub struct Settings(Arc<Inner>);
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Inner {
+    #[serde(default)]
+    pub task: Task,
     #[serde(default)]
     pub node: Node,
     #[serde(default)]
@@ -56,19 +59,22 @@ impl Deref for Settings {
 
 impl Settings {
     fn new(opts: Options) -> Result<Self> {
-        let mut s = Config::new();
+        let mut builder = Config::builder()
+            .add_source(File::with_name("/etc/rmqtt/rmqtt").required(false))
+            .add_source(File::with_name("/etc/rmqtt").required(false))
+            .add_source(File::with_name("rmqtt").required(false))
+            .add_source(
+                config::Environment::with_prefix("rmqtt")
+                    .try_parsing(true)
+                    .list_separator(" ")
+                    .with_list_parse_key("plugins.default_startups"),
+            );
 
-        // if let Ok(cfg_filename) = std::env::var("RMQTT-CONFIG-FILENAME") {
-        //     s.merge(File::with_name(&cfg_filename).required(false))?;
-        // }
-        s.merge(File::with_name("/etc/rmqtt/rmqtt").required(false))?;
-        s.merge(File::with_name("/etc/rmqtt").required(false))?;
-        s.merge(File::with_name("rmqtt").required(false))?;
         if let Some(cfg) = opts.cfg_name.as_ref() {
-            s.merge(File::with_name(cfg).required(false))?;
+            builder = builder.add_source(File::with_name(cfg).required(false));
         }
 
-        let mut inner: Inner = s.try_into()?;
+        let mut inner: Inner = builder.build()?.try_deserialize()?;
 
         inner.listeners.init();
         if inner.listeners.tcps.is_empty() && inner.listeners.tlss.is_empty() {
@@ -83,7 +89,7 @@ impl Settings {
             }
         }
         if let Some(plugins_default_startups) = opts.plugins_default_startups.as_ref() {
-            inner.plugins.default_startups = plugins_default_startups.clone()
+            inner.plugins.default_startups.clone_from(plugins_default_startups)
         }
 
         inner.opts = opts;
@@ -106,11 +112,21 @@ impl Settings {
         let cfg = Self::instance();
         crate::log::debug!("Config info is {:?}", cfg.0);
         crate::log::info!("node_id is {}", cfg.node.id);
+        crate::log::info!("exec_workers is {}", cfg.task.exec_workers);
+        crate::log::info!("exec_queue_max is {}", cfg.task.exec_queue_max);
+        crate::log::info!("local_exec_workers is {}", cfg.task.local_exec_workers);
+        crate::log::info!("local_exec_queue_max is {}", cfg.task.local_exec_queue_max);
+        crate::log::info!("local_exec_rate_limit is {:?}", cfg.task.local_exec_rate_limit);
+        crate::log::info!("node.busy config is: {:?}", cfg.node.busy);
+
         if cfg.opts.node_grpc_addrs.is_some() {
             crate::log::info!("node_grpc_addrs is {:?}", cfg.opts.node_grpc_addrs);
         }
         if cfg.opts.raft_peer_addrs.is_some() {
             crate::log::info!("raft_peer_addrs is {:?}", cfg.opts.raft_peer_addrs);
+        }
+        if cfg.opts.raft_leader_id.is_some() {
+            crate::log::info!("raft_leader_id is {:?}", cfg.opts.raft_leader_id);
         }
     }
 }
@@ -122,6 +138,87 @@ impl fmt::Debug for Settings {
     }
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct Task {
+    //Concurrent task count for global task executor.
+    #[serde(default = "Task::exec_workers_default")]
+    pub exec_workers: usize,
+
+    //Queue capacity for global task executor.
+    #[serde(default = "Task::exec_queue_max_default")]
+    pub exec_queue_max: usize,
+
+    //Concurrent task count for global local task executor, per worker thread.
+    #[serde(default = "Task::local_exec_workers_default")]
+    pub local_exec_workers: usize,
+
+    //Queue capacity for global local task executor, per worker thread.
+    #[serde(default = "Task::local_exec_queue_max_default")]
+    pub local_exec_queue_max: usize,
+
+    //The rate at which messages are dequeued from the 'LocalTaskExecQueue' message queue.
+    #[serde(
+        default = "Task::local_exec_rate_limit_default",
+        deserialize_with = "Task::deserialize_local_exec_rate_limit"
+    )]
+    pub local_exec_rate_limit: (NonZeroU32, Duration),
+}
+
+impl Default for Task {
+    #[inline]
+    fn default() -> Self {
+        Self {
+            exec_workers: Self::exec_workers_default(),
+            exec_queue_max: Self::exec_queue_max_default(),
+            local_exec_workers: Self::local_exec_workers_default(),
+            local_exec_queue_max: Self::local_exec_queue_max_default(),
+            local_exec_rate_limit: Self::local_exec_rate_limit_default(),
+        }
+    }
+}
+
+impl Task {
+    fn exec_workers_default() -> usize {
+        1000
+    }
+    fn exec_queue_max_default() -> usize {
+        300_000
+    }
+    fn local_exec_workers_default() -> usize {
+        50
+    }
+    fn local_exec_queue_max_default() -> usize {
+        10_000
+    }
+    fn local_exec_rate_limit_default() -> (NonZeroU32, Duration) {
+        (NonZeroU32::new(u32::MAX).unwrap(), Duration::from_secs(1))
+    }
+
+    #[inline]
+    fn deserialize_local_exec_rate_limit<'de, D>(deserializer: D) -> Result<(NonZeroU32, Duration), D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let v = String::deserialize(deserializer)?;
+        let pair: Vec<&str> = v.split(',').collect();
+        if pair.len() == 2 {
+            let burst = NonZeroU32::from_str(pair[0]).map_err(|e| {
+                de::Error::custom(format!("local_exec_rate_limit, burst format error, {:?}", e))
+            })?;
+            let replenish_n_per = to_duration(pair[1]);
+            if replenish_n_per.as_millis() == 0 {
+                return Err(de::Error::custom(format!(
+                    "local_exec_rate_limit, value format error, {}",
+                    pair.join(",")
+                )));
+            }
+            Ok((burst, replenish_n_per))
+        } else {
+            Err(de::Error::custom(format!("local_exec_rate_limit, value format error, {}", pair.join(","))))
+        }
+    }
+}
+
 #[derive(Default, Debug, Clone, Deserialize)]
 pub struct Node {
     #[serde(default)]
@@ -130,6 +227,8 @@ pub struct Node {
     pub cookie: String,
     // #[serde(default = "Node::crash_dump_default")]
     // pub crash_dump: String,
+    #[serde(default)]
+    pub busy: Busy,
 }
 
 impl Node {
@@ -139,6 +238,54 @@ impl Node {
     // fn crash_dump_default() -> String {
     //     "/var/log/rmqtt/crash.dump".into()
     // }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Busy {
+    //Busy status check switch
+    #[serde(default = "Busy::check_enable_default")]
+    pub check_enable: bool,
+    //Busy status update interval
+    #[serde(default = "Busy::update_interval_default", deserialize_with = "deserialize_duration")]
+    pub update_interval: Duration,
+    //The threshold for the 1-minute average system load used to determine system busyness.
+    #[serde(default = "Busy::loadavg_default")]
+    pub loadavg: f32, //70.0
+    //The threshold for average CPU load used to determine system busyness.
+    #[serde(default = "Busy::cpuloadavg_default")]
+    pub cpuloadavg: f32, //80.0
+    //The threshold for determining high-concurrency connection handshakes in progress.
+    #[serde(default)]
+    pub handshaking: usize, //0
+}
+
+impl Default for Busy {
+    #[inline]
+    fn default() -> Self {
+        Self {
+            check_enable: Self::check_enable_default(),
+            update_interval: Self::update_interval_default(),
+            loadavg: Self::loadavg_default(),
+            cpuloadavg: Self::cpuloadavg_default(),
+            handshaking: 0,
+        }
+    }
+}
+
+impl Busy {
+    fn check_enable_default() -> bool {
+        true
+    }
+    fn update_interval_default() -> Duration {
+        Duration::from_secs(2)
+    }
+    fn loadavg_default() -> f32 {
+        80.0
+    }
+
+    fn cpuloadavg_default() -> f32 {
+        90.0
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -219,10 +366,67 @@ impl Plugins {
     }
 
     pub fn load_config<'de, T: serde::Deserialize<'de>>(&self, name: &str) -> Result<T> {
+        let (cfg, _) = self.load_config_with_required(name, true, &[])?;
+        Ok(cfg)
+    }
+
+    pub fn load_config_default<'de, T: serde::Deserialize<'de>>(&self, name: &str) -> Result<T> {
+        let (cfg, def) = self.load_config_with_required(name, false, &[])?;
+        if def {
+            crate::log::warn!(
+                "The configuration for plugin '{}' does not exist, default values will be used!",
+                name
+            );
+        }
+        Ok(cfg)
+    }
+
+    pub fn load_config_with<'de, T: serde::Deserialize<'de>>(
+        &self,
+        name: &str,
+        env_list_keys: &[&str],
+    ) -> Result<T> {
+        let (cfg, _) = self.load_config_with_required(name, true, env_list_keys)?;
+        Ok(cfg)
+    }
+
+    pub fn load_config_default_with<'de, T: serde::Deserialize<'de>>(
+        &self,
+        name: &str,
+        env_list_keys: &[&str],
+    ) -> Result<T> {
+        let (cfg, def) = self.load_config_with_required(name, false, env_list_keys)?;
+        if def {
+            crate::log::warn!(
+                "The configuration for plugin '{}' does not exist, default values will be used!",
+                name
+            );
+        }
+        Ok(cfg)
+    }
+
+    fn load_config_with_required<'de, T: serde::Deserialize<'de>>(
+        &self,
+        name: &str,
+        required: bool,
+        env_list_keys: &[&str],
+    ) -> Result<(T, bool)> {
         let dir = self.dir.trim_end_matches(|c| c == '/' || c == '\\');
-        let mut s = Config::new();
-        s.merge(File::with_name(&format!("{}/{}", dir, name)).required(true))?;
-        Ok(s.try_into::<T>()?)
+        let mut builder =
+            Config::builder().add_source(File::with_name(&format!("{}/{}", dir, name)).required(required));
+
+        let mut env = config::Environment::with_prefix(&format!("rmqtt_plugin_{}", name.replace('-', "_")));
+        if !env_list_keys.is_empty() {
+            env = env.try_parsing(true).list_separator(" ");
+            for key in env_list_keys {
+                env = env.with_list_parse_key(key);
+            }
+        }
+        builder = builder.add_source(env);
+
+        let s = builder.build()?;
+        let count = s.collect()?.len();
+        Ok((s.try_deserialize::<T>()?, count == 0))
     }
 }
 
@@ -233,13 +437,23 @@ const BYTESIZE_K: usize = 1024;
 const BYTESIZE_M: usize = 1048576;
 const BYTESIZE_G: usize = 1073741824;
 
-#[derive(Clone)]
+#[derive(Clone, Copy, Default)]
 pub struct Bytesize(usize);
 
 impl Bytesize {
     #[inline]
     pub fn as_u32(&self) -> u32 {
         self.0 as u32
+    }
+
+    #[inline]
+    pub fn as_u64(&self) -> u64 {
+        self.0 as u64
+    }
+
+    #[inline]
+    pub fn as_usize(&self) -> usize {
+        self.0
     }
 
     #[inline]
@@ -440,8 +654,8 @@ where
     if t_str.is_empty() {
         Ok(None)
     } else {
-        let t = if let Ok(d) = chrono::Local.datetime_from_str(&t_str, "%Y-%m-%d %H:%M:%S") {
-            Duration::from_secs(d.timestamp() as u64)
+        let t = if let Ok(d) = timestamp_parse_from_str(&t_str, "%Y-%m-%d %H:%M:%S") {
+            Duration::from_secs(d as u64)
         } else {
             let d = t_str.parse::<u64>().map_err(serde::de::Error::custom)?;
             Duration::from_secs(d)
@@ -494,5 +708,16 @@ impl<'de> de::Deserialize<'de> for NodeAddr {
         D: de::Deserializer<'de>,
     {
         NodeAddr::from_str(&String::deserialize(deserializer)?).map_err(de::Error::custom)
+    }
+}
+
+#[inline]
+fn timestamp_parse_from_str(ts: &str, fmt: &str) -> anyhow::Result<i64> {
+    let ndt = chrono::NaiveDateTime::parse_from_str(ts, fmt)?;
+    let ndt = ndt.and_local_timezone(*chrono::Local::now().offset());
+    match ndt {
+        LocalResult::None => Err(anyhow::Error::msg("Impossible")),
+        LocalResult::Single(d) => Ok(d.timestamp()),
+        LocalResult::Ambiguous(d, _tz) => Ok(d.timestamp()),
     }
 }
