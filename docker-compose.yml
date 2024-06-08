@@ -1,0 +1,19 @@
+version: "3.8"
+
+services:
+  rmqtt:
+    build: .
+    container_name: rmqtt
+    ports:
+      - 1883:1883 # - 1883 port for MQTT
+      - 8883:8883 # - 8883 port for MQTT(TLS)
+      - 11883:11883 # - 11883 port for internal MQTT/TCP
+      - 6060:6060 # - 6060 for APIs
+      - 6003:6003 # - 6003 default raft port
+      - 5363:5363 # - 5363 for rpc
+
+  web:
+    build: ./web
+    container_name: rmqtt_web
+    ports:
+     - 3000:8080
