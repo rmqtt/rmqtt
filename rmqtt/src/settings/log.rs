@@ -53,7 +53,7 @@ impl Log {
         if self.dir.is_empty() {
             return file.to_owned();
         }
-        let dir = self.dir.trim_end_matches(|c| c == '/' || c == '\\');
+        let dir = self.dir.trim_end_matches(['/', '\\']);
         format!("{}/{}", dir, file)
     }
 }
