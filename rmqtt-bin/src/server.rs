@@ -1,10 +1,12 @@
 #![deny(unsafe_code)]
 
+use std::sync::Arc;
 use std::time::Duration;
 use std::{fs::File, io::BufReader};
 
-use rustls::internal::pemfile::{certs, rsa_private_keys};
-use rustls::{AllowAnyAuthenticatedClient, NoClientAuth, RootCertStore, ServerConfig};
+use rustls::crypto::aws_lc_rs as provider;
+use rustls::server::WebPkiClientVerifier;
+use rustls::{RootCertStore, ServerConfig};
 
 use rmqtt::broker::{
     v3::control_message as control_message_v3, v3::handshake as handshake_v3, v3::publish as publish_v3,
@@ -196,21 +198,29 @@ async fn listen_tls(name: String, listen_cfg: &Listener) -> Result<()> {
         let cert_file = &mut BufReader::new(File::open(listen_cfg.cert.as_ref().unwrap())?);
         let key_file = &mut BufReader::new(File::open(listen_cfg.key.as_ref().unwrap())?);
 
-        let cert_chain = certs(cert_file).unwrap();
-        let mut keys = rsa_private_keys(key_file).unwrap();
+        let cert_chain = rustls_pemfile::certs(cert_file).collect::<Result<Vec<_>, _>>()?;
+        let key = rustls_pemfile::private_key(key_file).unwrap().unwrap();
 
-        let mut tls_config = if listen_cfg.cross_certificate {
+        let provider = Arc::new(provider::default_provider());
+        let client_auth = if listen_cfg.cross_certificate {
             let root_chain = cert_chain.clone();
             let mut client_auth_roots = RootCertStore::empty();
             for root in root_chain {
-                client_auth_roots.add(&root).unwrap();
+                client_auth_roots.add(root).unwrap();
             }
-            ServerConfig::new(AllowAnyAuthenticatedClient::new(client_auth_roots))
+            WebPkiClientVerifier::builder_with_provider(client_auth_roots.into(), provider.clone())
+                .build()
+                .unwrap()
         } else {
-            ServerConfig::new(NoClientAuth::new())
+            WebPkiClientVerifier::no_client_auth()
         };
 
-        tls_config.set_single_cert(cert_chain, keys.remove(0)).map_err(|e| MqttError::from(e.to_string()))?;
+        let tls_config = ServerConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_client_cert_verifier(client_auth)
+            .with_single_cert(cert_chain, key)
+            .expect("bad certs/private key?");
 
         let tls_acceptor = Acceptor::new(tls_config);
 
@@ -417,21 +427,29 @@ async fn listen_wss(name: String, listen_cfg: &Listener) -> Result<()> {
         let cert_file = &mut BufReader::new(File::open(listen_cfg.cert.as_ref().unwrap())?);
         let key_file = &mut BufReader::new(File::open(listen_cfg.key.as_ref().unwrap())?);
 
-        let cert_chain = certs(cert_file).unwrap();
-        let mut keys = rsa_private_keys(key_file).unwrap();
+        let cert_chain = rustls_pemfile::certs(cert_file).collect::<Result<Vec<_>, _>>()?;
+        let key = rustls_pemfile::private_key(key_file).unwrap().unwrap();
 
-        let mut tls_config = if listen_cfg.cross_certificate {
+        let provider = Arc::new(provider::default_provider());
+        let client_auth = if listen_cfg.cross_certificate {
             let root_chain = cert_chain.clone();
             let mut client_auth_roots = RootCertStore::empty();
             for root in root_chain {
-                client_auth_roots.add(&root).unwrap();
+                client_auth_roots.add(root).unwrap();
             }
-            ServerConfig::new(AllowAnyAuthenticatedClient::new(client_auth_roots))
+            WebPkiClientVerifier::builder_with_provider(client_auth_roots.into(), provider.clone())
+                .build()
+                .unwrap()
         } else {
-            ServerConfig::new(NoClientAuth::new())
+            WebPkiClientVerifier::no_client_auth()
         };
 
-        tls_config.set_single_cert(cert_chain, keys.remove(0)).map_err(|e| MqttError::from(e.to_string()))?;
+        let tls_config = ServerConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_client_cert_verifier(client_auth)
+            .with_single_cert(cert_chain, key)
+            .expect("bad certs/private key?");
 
         let tls_acceptor = Acceptor::new(tls_config);
 
