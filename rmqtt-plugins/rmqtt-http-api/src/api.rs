@@ -10,7 +10,7 @@ use salvo::prelude::*;
 
 use rmqtt::{
     anyhow::{self, anyhow},
-    base64::{engine::general_purpose, Engine as _},
+    base64::prelude::{Engine, BASE64_STANDARD},
     bytes, chrono, futures, log,
     serde_json::{self, json},
     tokio,
@@ -773,7 +773,7 @@ async fn _publish(
     let payload = if encoding == "plain" {
         bytes::Bytes::from(params.payload)
     } else if encoding == "base64" {
-        bytes::Bytes::from(general_purpose::STANDARD.decode(params.payload).map_err(anyhow::Error::new)?)
+        bytes::Bytes::from(BASE64_STANDARD.decode(params.payload).map_err(anyhow::Error::new)?)
     } else {
         return Err(MqttError::Msg("encoding error, currently only plain and base64 are supported".into()));
     };

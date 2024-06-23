@@ -13,7 +13,7 @@ use ntex_mqtt::QoS;
 
 use rmqtt::{
     anyhow::{self, anyhow},
-    base64::{engine::general_purpose, Engine as _},
+    base64::prelude::{Engine, BASE64_STANDARD},
     ntex_mqtt::types::{Protocol, MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5},
     serde_json::{self, Map, Value},
 };
@@ -432,7 +432,7 @@ fn last_will_basic(obj: &Map<String, Value>) -> Result<(QoS, bool, ByteString, B
     let message = if encoding.eq_ignore_ascii_case("plain") {
         Bytes::from(String::from(message))
     } else if encoding.eq_ignore_ascii_case("base64") {
-        Bytes::from(general_purpose::STANDARD.decode(message).map_err(anyhow::Error::new)?)
+        Bytes::from(BASE64_STANDARD.decode(message).map_err(anyhow::Error::new)?)
     } else {
         Bytes::from(String::from(message))
     };

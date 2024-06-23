@@ -21,7 +21,7 @@ use config::PluginConfig;
 use rmqtt::{
     anyhow::anyhow,
     async_trait::async_trait,
-    base64::{engine::general_purpose, Engine as _},
+    base64::prelude::{Engine, BASE64_STANDARD},
     bytestring::ByteString,
     chrono, futures, log,
     once_cell::sync::{Lazy, OnceCell},
@@ -634,7 +634,7 @@ impl Handler for WebHookHandler {
                     "qos": publish.qos().value(),
                     "topic": topic,
                     "packet_id": publish.packet_id(),
-                    "payload": general_purpose::STANDARD.encode(publish.payload()),
+                    "payload": BASE64_STANDARD.encode(publish.payload()),
                     "ts": publish.create_time(),
                     "time": now_time
                 });
@@ -653,7 +653,7 @@ impl Handler for WebHookHandler {
                         "qos": publish.qos().value(),
                         "topic": topic,
                         "packet_id": publish.packet_id(),
-                        "payload": general_purpose::STANDARD.encode(publish.payload()),
+                        "payload": BASE64_STANDARD.encode(publish.payload()),
                         "pts": publish.create_time(),
                         "ts": now.timestamp_millis(),
                         "time": now_time
@@ -675,7 +675,7 @@ impl Handler for WebHookHandler {
                         "qos": publish.qos().value(),
                         "topic": topic,
                         "packet_id": publish.packet_id(),
-                        "payload": general_purpose::STANDARD.encode(publish.payload()),
+                        "payload": BASE64_STANDARD.encode(publish.payload()),
                         "pts": publish.create_time(),
                         "ts": now.timestamp_millis(),
                         "time": now_time
@@ -696,7 +696,7 @@ impl Handler for WebHookHandler {
                         "qos": publish.qos().value(),
                         "topic": publish.topic(),
                         "packet_id": publish.packet_id(),
-                        "payload": general_purpose::STANDARD.encode(publish.payload()),
+                        "payload": BASE64_STANDARD.encode(publish.payload()),
                         "reason": reason.to_string(),
                         "pts": publish.create_time(),
                         "ts": now.timestamp_millis(),
