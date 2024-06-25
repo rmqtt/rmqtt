@@ -37,6 +37,8 @@ max_row_limit = 10_000
 http_laddr = "0.0.0.0:6060"
 ## Indicates whether to print HTTP request logs
 http_request_log = false
+## If set, will check request header Authorization value == Bearer $http_bearer_token, default value is undefined
+#http_bearer_token = bearer_token
 
 ##Whether support retain message, true/false, default value: true
 message_retain_available = true
