@@ -25,6 +25,8 @@ pub struct PluginConfig {
     )]
     pub metrics_sample_interval: Duration,
 
+    pub http_bearer_token: Option<String>,
+
     #[serde(default = "PluginConfig::message_type_default")]
     pub message_type: MessageType,
 

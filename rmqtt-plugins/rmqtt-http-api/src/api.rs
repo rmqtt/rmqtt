@@ -34,10 +34,37 @@ use super::types::{
 use super::PluginConfigType;
 use super::{clients, plugin, subs};
 
-fn route(cfg: PluginConfigType) -> Router {
-    Router::with_path("api/v1")
+struct BearerValidator {
+    token: String
+}
+impl BearerValidator {
+    pub fn new(token: &str) -> Self {
+        Self {
+            token: format!("Bearer {token}")
+        }
+    }
+}
+
+#[async_trait]
+impl Handler for BearerValidator {
+    async fn handle(&self, req: &mut Request, depot: &mut Depot, res: &mut Response, ctrl: &mut FlowCtrl) {
+        if req.headers().get("authorization").is_some_and(|token|  token == &self.token) {
+            ctrl.call_next(req, depot, res).await;
+        } else {
+            res.status_code(StatusCode::UNAUTHORIZED);
+            ctrl.skip_rest()
+        }
+    }
+}
+
+fn route(cfg: PluginConfigType, token: Option<String>) -> Router {
+    let mut router = Router::with_path("api/v1")
         .hoop(affix::inject(cfg))
-        .hoop(api_logger)
+        .hoop(api_logger);
+    if let Some(token) = token {
+        router = router.hoop(BearerValidator::new(&token));
+    }
+    router
         .get(list_apis)
         .push(Router::with_path("brokers").get(get_brokers).push(Router::with_path("<id>").get(get_brokers)))
         .push(Router::with_path("nodes").get(get_nodes).push(Router::with_path("<id>").get(get_nodes)))
@@ -91,9 +118,9 @@ pub(crate) async fn listen_and_serve(
     cfg: PluginConfigType,
     rx: oneshot::Receiver<()>,
 ) -> Result<()> {
-    let (reuseaddr, reuseport) = {
+    let (reuseaddr, reuseport, http_bearer_token) = {
         let cfg = cfg.read().await;
-        (cfg.http_reuseaddr, cfg.http_reuseport)
+        (cfg.http_reuseaddr, cfg.http_reuseport, cfg.http_bearer_token.clone())
     };
     log::info!("HTTP API Listening on {}, reuseaddr: {}, reuseport: {}", laddr, reuseaddr, reuseport);
 
@@ -108,7 +135,7 @@ pub(crate) async fn listen_and_serve(
         rx.await.ok();
         handler.stop_graceful(None);
     });
-    server.try_serve(route(cfg)).await?;
+    server.try_serve(route(cfg, http_bearer_token)).await?;
     Ok(())
 }
 
