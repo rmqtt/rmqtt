@@ -35,20 +35,18 @@ use super::PluginConfigType;
 use super::{clients, plugin, subs};
 
 struct BearerValidator {
-    token: String
+    token: String,
 }
 impl BearerValidator {
     pub fn new(token: &str) -> Self {
-        Self {
-            token: format!("Bearer {token}")
-        }
+        Self { token: format!("Bearer {token}") }
     }
 }
 
 #[async_trait]
 impl Handler for BearerValidator {
     async fn handle(&self, req: &mut Request, depot: &mut Depot, res: &mut Response, ctrl: &mut FlowCtrl) {
-        if req.headers().get("authorization").is_some_and(|token|  token == &self.token) {
+        if req.headers().get("authorization").is_some_and(|token| token == &self.token) {
             ctrl.call_next(req, depot, res).await;
         } else {
             res.status_code(StatusCode::UNAUTHORIZED);
@@ -58,9 +56,7 @@ impl Handler for BearerValidator {
 }
 
 fn route(cfg: PluginConfigType, token: Option<String>) -> Router {
-    let mut router = Router::with_path("api/v1")
-        .hoop(affix::inject(cfg))
-        .hoop(api_logger);
+    let mut router = Router::with_path("api/v1").hoop(affix::inject(cfg)).hoop(api_logger);
     if let Some(token) = token {
         router = router.hoop(BearerValidator::new(&token));
     }
