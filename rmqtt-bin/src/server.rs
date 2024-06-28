@@ -11,7 +11,7 @@ use rmqtt::broker::{
     v3::control_message as control_message_v3, v3::handshake as handshake_v3, v3::publish as publish_v3,
     v5::control_message as control_message_v5, v5::handshake as handshake_v5, v5::publish as publish_v5,
 };
-use rmqtt::futures::{self, future::ok};
+use rmqtt::futures::future::ok;
 use rmqtt::ntex::{
     self,
     rt::net::TcpStream,
