@@ -7,8 +7,8 @@ use dashmap::mapref::one::{Ref, RefMut};
 use crate::{MqttError, Result};
 
 type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
-pub type EntryRef<'a> = Ref<'a, String, Entry, ahash::RandomState>;
-pub type EntryRefMut<'a> = RefMut<'a, String, Entry, ahash::RandomState>;
+pub type EntryRef<'a> = Ref<'a, String, Entry>;
+pub type EntryRefMut<'a> = RefMut<'a, String, Entry>;
 pub type EntryIter<'a> = Iter<'a, String, Entry, ahash::RandomState, DashMap<String, Entry>>;
 
 #[macro_export]
