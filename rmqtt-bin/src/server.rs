@@ -1,8 +1,6 @@
 #![deny(unsafe_code)]
 
-use std::sync::Arc;
-use std::time::Duration;
-use std::{fs::File, io::BufReader};
+use std::{fs::File, io::BufReader, process, sync::Arc, time::Duration};
 
 use rustls::crypto::aws_lc_rs as provider;
 use rustls::server::WebPkiClientVerifier;
@@ -12,7 +10,7 @@ use rmqtt::broker::{
     v3::control_message as control_message_v3, v3::handshake as handshake_v3, v3::publish as publish_v3,
     v5::control_message as control_message_v5, v5::handshake as handshake_v5, v5::publish as publish_v5,
 };
-use rmqtt::futures::{self, future::ok};
+use rmqtt::futures::future::ok;
 use rmqtt::ntex::{
     self,
     rt::net::TcpStream,
@@ -71,40 +69,50 @@ async fn main() {
     Runtime::instance().extends.hook_mgr().await.before_startup().await;
 
     //tcp
-    let mut tcp_listens = Vec::new();
     for (_, listen_cfg) in Runtime::instance().settings.listeners.tcps.iter() {
         let name = format!("{}/{:?}", &listen_cfg.name, &listen_cfg.addr);
-        tcp_listens.push(listen(name, listen_cfg));
+        ntex::rt::spawn(async {
+            if let Err(err) = listen(name, listen_cfg).await {
+                log::error!("listen mqtt failed: {}", err);
+                process::exit(1);
+            }
+        });
     }
 
     //tls
-    let mut tls_listens = Vec::new();
     for (_, listen_cfg) in Runtime::instance().settings.listeners.tlss.iter() {
         let name = format!("{}/{:?}", &listen_cfg.name, &listen_cfg.addr);
-        tls_listens.push(listen_tls(name, listen_cfg));
+        ntex::rt::spawn(async {
+            if let Err(err) = listen_tls(name, listen_cfg).await {
+                log::error!("listen mqtt tls failed: {}", err);
+                process::exit(1);
+            }
+        });
     }
 
     //websocket
-    let mut ws_listens = Vec::new();
     for (_, listen_cfg) in Runtime::instance().settings.listeners.wss.iter() {
         let name = format!("{}/{:?}", &listen_cfg.name, &listen_cfg.addr);
-        ws_listens.push(listen_ws(name, listen_cfg));
+        ntex::rt::spawn(async {
+            if let Err(err) = listen_ws(name, listen_cfg).await {
+                log::error!("listen websocket failed: {}", err);
+                process::exit(1);
+            }
+        });
     }
 
     //tls-websocket
-    let mut wss_listens = Vec::new();
     for (_, listen_cfg) in Runtime::instance().settings.listeners.wsss.iter() {
         let name = format!("{}/{:?}", &listen_cfg.name, &listen_cfg.addr);
-        wss_listens.push(listen_wss(name, listen_cfg));
+        ntex::rt::spawn(async {
+            if let Err(err) = listen_wss(name, listen_cfg).await {
+                log::error!("listen websocket tls failed: {}", err);
+                process::exit(1);
+            }
+        });
     }
 
-    let _ = futures::future::join4(
-        futures::future::join_all(tcp_listens),
-        futures::future::join_all(tls_listens),
-        futures::future::join_all(ws_listens),
-        futures::future::join_all(wss_listens),
-    )
-    .await;
+    ntex::rt::signal::ctrl_c().await.expect("signal ctrl c");
     tokio::time::sleep(Duration::from_secs(1)).await;
 }
 
