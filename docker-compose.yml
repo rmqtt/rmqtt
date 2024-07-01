@@ -12,6 +12,12 @@ services:
       - 6003:6003 # - 6003 default raft port
       - 5363:5363 # - 5363 for rpc
 
+  http_api_gateway:
+    build: ./http-api-gateway
+    container_name: http_api_gateway
+    ports:
+      - 3001:8080
+
   web:
     build: ./web
     container_name: rmqtt_web
