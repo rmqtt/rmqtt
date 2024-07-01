@@ -1,11 +1,13 @@
 import axios from "axios";
 
-const API = "http://localhost:6060/api/v1/";
+const API = "http://localhost:3001/api/v1/";
 
 export const axionsInstance = axios.create({
     baseURL: API,
+    maxRedirects: 5, // Number of redirects to follow automatically
     headers: {
-        "Accept": "*/*",
-        "Content-Type": "application/json; charset=utf-8",
-    }
+        "Accept": "*",
+        "Access-Control-Allow-Headers" : "Content-Type",
+        "Access-Control-Allow-Origin": "Origin",
+    },
 })
