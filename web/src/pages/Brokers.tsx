@@ -9,7 +9,7 @@ const Brokers: React.FC = ()=> {
 
     useEffect(()=> {
 
-        const fetchBokers = () => {
+        const fetchBokers = async () => {
 
             axionsInstance.get("brokers").then(response => {
                 console.log("response", response)
@@ -18,6 +18,7 @@ const Brokers: React.FC = ()=> {
             }).catch(error=> {
                 console.log(error)
             })
+
         }
 
         const interval = setInterval(fetchBokers, 2000)
@@ -53,7 +54,7 @@ const Brokers: React.FC = ()=> {
         },
 
         {
-            title: 'Systeme Description',
+            title: 'System Description',
             dataIndex: 'sysdescr',
             key: 'sysdescr',
         },
