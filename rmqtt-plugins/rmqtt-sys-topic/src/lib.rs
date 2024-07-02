@@ -8,7 +8,7 @@ extern crate rmqtt_macros;
 use config::PluginConfig;
 use rmqtt::{
     async_trait::async_trait,
-    base64::{engine::general_purpose, Engine as _},
+    base64::prelude::{Engine, BASE64_STANDARD},
     bytes::Bytes,
     chrono, log,
     serde_json::{self, json},
@@ -310,7 +310,7 @@ impl Handler for SystemTopicHandler {
                     "qos": publish.qos().value(),
                     "topic": publish.topic(),
                     "packet_id": publish.packet_id(),
-                    "payload": general_purpose::STANDARD.encode(publish.payload()),
+                    "payload": BASE64_STANDARD.encode(publish.payload()),
                     "reason": reason.to_string(),
                     "pts": publish.create_time(),
                     "ts": now.timestamp_millis(),

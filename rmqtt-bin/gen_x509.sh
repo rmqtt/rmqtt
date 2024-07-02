@@ -98,9 +98,6 @@ gen_root(){
         -sha256 \
         -batch \
         -config ${ROOT_CA_CONFIG_FILE}
-
-    sed -i 's/BEGIN PRIVATE KEY/BEGIN RSA PRIVATE KEY/' ${ROOT_KEY_FILE}
-    sed -i 's/END PRIVATE KEY/END RSA PRIVATE KEY/' ${ROOT_KEY_FILE}
 }
 
 gen_server(){
@@ -145,9 +142,6 @@ gen_server(){
         -days ${SERVER_CERT_DAYS} \
         -set_serial 456 \
         -extensions v3_server -extfile ${ROOT_CA_EXT_FILE}
-
-    sed -i 's/BEGIN PRIVATE KEY/BEGIN RSA PRIVATE KEY/' ${SERVER_KEY_FILE}
-    sed -i 's/END PRIVATE KEY/END RSA PRIVATE KEY/' ${SERVER_KEY_FILE}
 
     # fullchain
     cat ${SERVER_CERT_FILE} ${ROOT_CERT_FILE} > ${SERVER_CERT_FULL_CHAIN_FILE}
@@ -198,9 +192,6 @@ gen_client(){
         -days ${CLIENT_CERT_DAYS} \
         -set_serial 789 \
         -extensions v3_client -extfile ${ROOT_CA_EXT_FILE}
-
-    sed -i 's/BEGIN PRIVATE KEY/BEGIN RSA PRIVATE KEY/' ${CLIENT_KEY_FILE}
-    sed -i 's/END PRIVATE KEY/END RSA PRIVATE KEY/' ${CLIENT_KEY_FILE}
 
     openssl verify -verbose -CAfile ${ROOT_CERT_FILE} ${CLIENT_CERT_FILE}
 }
