@@ -21,8 +21,8 @@ debug = []
 
 [dependencies]
 rmqtt-macros = "0.1"
-ntex = { git = "https://github.com/rmqtt/ntex.git", branch = "0.3.22", features = ["rustls"] }
-ntex-mqtt = { git = "https://github.com/rmqtt/ntex-mqtt", branch = "0.6.23" }
+ntex = { git = "https://github.com/rmqtt/ntex.git", branch = "0.4.0", features = ["rustls"] }
+ntex-mqtt = { git = "https://github.com/rmqtt/ntex-mqtt", branch = "0.7.0" }
 #ntex = { path = "../../ntex/ntex", features = ["rustls"]}
 #ntex-mqtt = { path = "../../ntex-mqtt" }
 futures = "0.3"
