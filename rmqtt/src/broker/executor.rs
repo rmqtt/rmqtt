@@ -75,7 +75,7 @@ pub fn is_busy() -> bool {
             .get()
             .map(|m| {
                 m.iter()
-                    .group_by(|item| (item.key().0, item.value().1))
+                    .chunk_by(|item| (item.key().0, item.value().1))
                     .into_iter()
                     .map(|(k, g)| {
                         (
