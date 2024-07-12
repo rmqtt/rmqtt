@@ -78,18 +78,12 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: |
           choco install nasm -y
-          #choco info nasm
-          #more C:\ProgramData\chocolatey\logs\chocolatey.log
-          echo "C:\Program Files\NASM" >> $GITHUB_PATH
-          dir C:\ProgramData\chocolatey\lib\nasm
-          dir C:\ProgramData\chocolatey\lib\nasm\tools
+          echo "C:\Program%20Files\NASM" >> $GITHUB_PATH
           dir "C:\Program Files\NASM"
-          dir "C:\Program Files"
-          echo "GITHUB_PATH:" $GITHUB_PATH
       - name: Configure nasm on Windows
         if: matrix.os == 'windows-latest'
         run: |
-          nasm -v
+          nasm.exe -v
       - uses: Swatinem/rust-cache@v2
       - name: Execute tests
         run: cargo test --workspace --all-features --all-targets
