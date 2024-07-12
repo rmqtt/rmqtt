@@ -79,10 +79,14 @@ jobs:
         run: |
           choco install nasm -y
           #echo "C:\Program%20Files\NASM" >> $GITHUB_PATH
-          echo "C:\Program Files\NASM" >> $PATH
+          #echo "C:\Program Files\NASM" >> $PATH
           echo "PATH is now: $PATH"
           dir "C:\Program Files\NASM"
           icacls "C:\Program Files\NASM\nasm.exe"
+          echo "C:\Program Files\NASM" >> $GITHUB_PATH
+          echo $PATH
+        env:
+          PATH: $GITHUB_PATH
       - name: Configure nasm on Windows
         if: matrix.os == 'windows-latest'
         run: |
