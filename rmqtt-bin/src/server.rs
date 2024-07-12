@@ -1,5 +1,6 @@
 #![deny(unsafe_code)]
 
+use std::process;
 use std::time::Duration;
 use std::{fs::File, io::BufReader};
 
@@ -10,7 +11,7 @@ use rmqtt::broker::{
     v3::control_message as control_message_v3, v3::handshake as handshake_v3, v3::publish as publish_v3,
     v5::control_message as control_message_v5, v5::handshake as handshake_v5, v5::publish as publish_v5,
 };
-use rmqtt::futures::{self, future::ok};
+use rmqtt::futures::future::ok;
 use rmqtt::ntex::{
     self,
     rt::net::TcpStream,
@@ -69,40 +70,50 @@ async fn main() {
     Runtime::instance().extends.hook_mgr().await.before_startup().await;
 
     //tcp
-    let mut tcp_listens = Vec::new();
     for (_, listen_cfg) in Runtime::instance().settings.listeners.tcps.iter() {
         let name = format!("{}/{:?}", &listen_cfg.name, &listen_cfg.addr);
-        tcp_listens.push(listen(name, listen_cfg));
+        ntex::rt::spawn(async {
+            if let Err(err) = listen(name, listen_cfg).await {
+                log::error!("listen mqtt failed: {}", err);
+                process::exit(1);
+            }
+        });
     }
 
     //tls
-    let mut tls_listens = Vec::new();
     for (_, listen_cfg) in Runtime::instance().settings.listeners.tlss.iter() {
         let name = format!("{}/{:?}", &listen_cfg.name, &listen_cfg.addr);
-        tls_listens.push(listen_tls(name, listen_cfg));
+        ntex::rt::spawn(async {
+            if let Err(err) = listen_tls(name, listen_cfg).await {
+                log::error!("listen mqtt tls failed: {}", err);
+                process::exit(1);
+            }
+        });
     }
 
     //websocket
-    let mut ws_listens = Vec::new();
     for (_, listen_cfg) in Runtime::instance().settings.listeners.wss.iter() {
         let name = format!("{}/{:?}", &listen_cfg.name, &listen_cfg.addr);
-        ws_listens.push(listen_ws(name, listen_cfg));
+        ntex::rt::spawn(async {
+            if let Err(err) = listen_ws(name, listen_cfg).await {
+                log::error!("listen websocket failed: {}", err);
+                process::exit(1);
+            }
+        });
     }
 
     //tls-websocket
-    let mut wss_listens = Vec::new();
     for (_, listen_cfg) in Runtime::instance().settings.listeners.wsss.iter() {
         let name = format!("{}/{:?}", &listen_cfg.name, &listen_cfg.addr);
-        wss_listens.push(listen_wss(name, listen_cfg));
+        ntex::rt::spawn(async {
+            if let Err(err) = listen_wss(name, listen_cfg).await {
+                log::error!("listen websocket tls failed: {}", err);
+                process::exit(1);
+            }
+        });
     }
 
-    let _ = futures::future::join4(
-        futures::future::join_all(tcp_listens),
-        futures::future::join_all(tls_listens),
-        futures::future::join_all(ws_listens),
-        futures::future::join_all(wss_listens),
-    )
-    .await;
+    ntex::rt::signal::ctrl_c().await.expect("signal ctrl c");
     tokio::time::sleep(Duration::from_secs(1)).await;
 }
 
@@ -112,6 +123,9 @@ async fn listen(name: String, listen_cfg: &Listener) -> Result<()> {
         let handshake_timeout = listen_cfg.handshake_timeout();
         let max_size = listen_cfg.max_packet_size.as_u32();
         ntex::server::Server::build()
+            .backlog(listen_cfg.backlog)
+            .reuseaddr(listen_cfg.reuseaddr)
+            .reuseport(listen_cfg.reuseport)
             .bind(name, listen_cfg.addr, move || {
                 MqttServer::new()
                     .v3(v3::MqttServer::new(move |mut handshake: HandshakeV3<TcpStream>| async {
@@ -177,9 +191,6 @@ async fn listen(name: String, listen_cfg: &Listener) -> Result<()> {
             })?
             .workers(listen_cfg.workers)
             .maxconn(listen_cfg.max_connections / listen_cfg.workers)
-            .backlog(listen_cfg.backlog)
-            .reuseaddr(listen_cfg.reuseaddr)
-            .reuseport(listen_cfg.reuseport)
             .run()
             .await?;
         Ok(())
@@ -218,6 +229,9 @@ async fn listen_tls(name: String, listen_cfg: &Listener) -> Result<()> {
         let handshake_timeout = listen_cfg.handshake_timeout();
         let max_size = listen_cfg.max_packet_size.as_u32();
         ntex::server::Server::build()
+            .backlog(listen_cfg.backlog)
+            .reuseaddr(listen_cfg.reuseaddr)
+            .reuseport(listen_cfg.reuseport)
             .bind(name, listen_cfg.addr, move || {
                 pipeline_factory(tls_acceptor.clone())
                     .map_err(|e| ntex_mqtt::MqttError::Service(MqttError::from(e)))
@@ -300,9 +314,6 @@ async fn listen_tls(name: String, listen_cfg: &Listener) -> Result<()> {
             })?
             .workers(listen_cfg.workers)
             .maxconn(listen_cfg.max_connections / listen_cfg.workers)
-            .backlog(listen_cfg.backlog)
-            .reuseaddr(listen_cfg.reuseaddr)
-            .reuseport(listen_cfg.reuseport)
             .run()
             .await?;
         Ok(())
@@ -327,6 +338,9 @@ async fn listen_ws(name: String, listen_cfg: &Listener) -> Result<()> {
         let handshake_timeout = listen_cfg.handshake_timeout();
         let max_size = listen_cfg.max_packet_size.as_u32();
         ntex::server::Server::build()
+            .backlog(listen_cfg.backlog)
+            .reuseaddr(listen_cfg.reuseaddr)
+            .reuseport(listen_cfg.reuseport)
             .bind(name, listen_cfg.addr, move || {
                 pipeline_factory(ws::WSServer::new(Duration::from_secs(handshake_timeout as u64))).and_then(
                     MqttServer::new()
@@ -398,9 +412,6 @@ async fn listen_ws(name: String, listen_cfg: &Listener) -> Result<()> {
             })?
             .workers(listen_cfg.workers)
             .maxconn(listen_cfg.max_connections / listen_cfg.workers)
-            .backlog(listen_cfg.backlog)
-            .reuseaddr(listen_cfg.reuseaddr)
-            .reuseport(listen_cfg.reuseport)
             .run()
             .await?;
         Ok(())
@@ -439,6 +450,9 @@ async fn listen_wss(name: String, listen_cfg: &Listener) -> Result<()> {
         let handshake_timeout = listen_cfg.handshake_timeout();
         let max_size = listen_cfg.max_packet_size.as_u32();
         ntex::server::Server::build()
+            .backlog(listen_cfg.backlog)
+            .reuseaddr(listen_cfg.reuseaddr)
+            .reuseport(listen_cfg.reuseport)
             .bind(name, listen_cfg.addr, move || {
                 pipeline_factory(tls_acceptor.clone())
                     .map_err(|e| ntex_mqtt::MqttError::Service(MqttError::from(e)))
@@ -516,9 +530,6 @@ async fn listen_wss(name: String, listen_cfg: &Listener) -> Result<()> {
             })?
             .workers(listen_cfg.workers)
             .maxconn(listen_cfg.max_connections / listen_cfg.workers)
-            .backlog(listen_cfg.backlog)
-            .reuseaddr(listen_cfg.reuseaddr)
-            .reuseport(listen_cfg.reuseport)
             .run()
             .await?;
         Ok(())

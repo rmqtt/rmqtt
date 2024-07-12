@@ -15,6 +15,7 @@ members = [
     "rmqtt-plugins/rmqtt-session-storage",
     "rmqtt-plugins/rmqtt-message-storage",
     "rmqtt-plugins/rmqtt-bridge-ingress-mqtt",
+    "rmqtt-plugins/rmqtt-bridge-egress-mqtt",
     "rmqtt-bin",
     "rmqtt-macros"
 ]
@@ -35,6 +36,7 @@ rmqtt-sys-topic = { path = "rmqtt-plugins/rmqtt-sys-topic" }
 rmqtt-session-storage = { path = "rmqtt-plugins/rmqtt-session-storage" }
 rmqtt-message-storage = { path = "rmqtt-plugins/rmqtt-message-storage" }
 rmqtt-bridge-ingress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-ingress-mqtt" }
+rmqtt-bridge-egress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-egress-mqtt" }
 
 [workspace.package]
 version = "0.5.0"

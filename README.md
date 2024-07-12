@@ -26,6 +26,7 @@ and mobile applications that can handle millions of concurrent clients on a sing
 - [Store session information](./docs/en_US/store-session.md);
 - [Store unexpired messages](./docs/en_US/store-message.md);
 - [MQTT Bridging - Ingress Mode](./docs/en_US/bridge-ingress-mqtt.md)
+- [MQTT Bridging - Egress Mode](./docs/en_US/bridge-egress-mqtt.md)
 - Distributed cluster;
 - Hooks;
 - TLS support;
