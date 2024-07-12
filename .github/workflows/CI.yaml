@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - dev/*
   pull_request:
 
 # If a new push on the PR is done, cancel the build
@@ -73,6 +74,9 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: protoc@${{ env.PROTOC_VERSION }}
+      - name: Install nasm on Windows
+        if: matrix.os == 'windows-latest'
+        run: choco install nasm -y
       - uses: Swatinem/rust-cache@v2
       - name: Execute tests
         run: cargo test --workspace --all-features --all-targets
