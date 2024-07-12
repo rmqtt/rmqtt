@@ -43,6 +43,11 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: protoc@${{ env.PROTOC_VERSION }}
+      - name: Install nasm on Windows
+        if: matrix.os == 'windows-latest'
+        run: |
+          choco install nasm -y
+          echo "C:\Program Files\NASM" >> $env:GITHUB_PATH
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: nightly
