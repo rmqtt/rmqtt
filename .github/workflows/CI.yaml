@@ -73,6 +73,12 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: protoc@${{ env.PROTOC_VERSION }}
+      - name: Install nasm on Windows
+        uses: actions/setup-buildbot@v2
+        with:
+          toolchain: 'gnu'
+          architecture: 'x64'
+          buildbot-version: 'latest'
       - uses: Swatinem/rust-cache@v2
       - name: Execute tests
         run: cargo test --workspace --all-features --all-targets
