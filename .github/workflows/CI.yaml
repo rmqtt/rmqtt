@@ -78,7 +78,8 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: |
           choco install nasm -y
-          echo "C:\Program%20Files\NASM" >> $GITHUB_PATH
+          #echo "C:\Program%20Files\NASM" >> $GITHUB_PATH
+          echo "C:\Program Files\NASM" >> $PATH
           dir "C:\Program Files\NASM"
       - name: Configure nasm on Windows
         if: matrix.os == 'windows-latest'
