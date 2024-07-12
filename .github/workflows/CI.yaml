@@ -76,11 +76,9 @@ jobs:
           tool: protoc@${{ env.PROTOC_VERSION }}
       - name: Install nasm on Windows
         if: matrix.os == 'windows-latest'
-        shell: cmd
         run: |
           choco install nasm -y
-          call RefreshEnv.cmd
-          setx PATH "%PATH%;C:\ProgramData\chocolatey\lib\nasm\tools\nasm"
+          echo "C:\ProgramData\chocolatey\lib\nasm\tools\nasm" >> $GITHUB_PATH
       - uses: Swatinem/rust-cache@v2
       - name: Execute tests
         run: cargo test --workspace --all-features --all-targets
