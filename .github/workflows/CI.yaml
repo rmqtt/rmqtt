@@ -80,6 +80,7 @@ jobs:
           choco install nasm -y
           #echo "C:\Program%20Files\NASM" >> $GITHUB_PATH
           echo "C:\Program Files\NASM" >> $PATH
+          echo "PATH is now: $PATH"
           dir "C:\Program Files\NASM"
           icacls "C:\Program Files\NASM\nasm.exe"
       - name: Configure nasm on Windows
