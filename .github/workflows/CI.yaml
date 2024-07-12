@@ -78,10 +78,10 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: |
           choco install nasm -y
-          choco info nasm
-          more C:\ProgramData\chocolatey\logs\chocolatey.log
-          echo ";C:\Program Files\NASM" >> $GITHUB_PATH
-          echo $GITHUB_PATH
+          #choco info nasm
+          #more C:\ProgramData\chocolatey\logs\chocolatey.log
+          echo ";C:\ProgramData\chocolatey\lib\nasm\tools\nasm;" >> $GITHUB_PATH
+          echo "GITHUB_PATH:" $GITHUB_PATH
       - name: Configure nasm on Windows
         if: matrix.os == 'windows-latest'
         run: |
