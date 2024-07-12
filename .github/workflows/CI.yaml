@@ -80,7 +80,8 @@ jobs:
           choco install nasm -y
           #choco info nasm
           #more C:\ProgramData\chocolatey\logs\chocolatey.log
-          echo ";C:\ProgramData\chocolatey\lib\nasm\tools\nasm;" >> $GITHUB_PATH
+          echo "C:\ProgramData\chocolatey\lib\nasm\tools\nasm" >> $GITHUB_PATH
+          dir C:\ProgramData\chocolatey\lib\nasm\tools\nasm
           echo "GITHUB_PATH:" $GITHUB_PATH
       - name: Configure nasm on Windows
         if: matrix.os == 'windows-latest'
