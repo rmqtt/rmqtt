@@ -79,8 +79,9 @@ jobs:
         run: |
           choco install nasm -y
           echo "C:\ProgramData\chocolatey\lib\nasm\tools\nasm" >> $GITHUB_PATH
-      - name: Set AWS_LC_SYS_NO_ASM environment variable
-        run: echo "AWS_LC_SYS_NO_ASM=1" >> $GITHUB_ENV
+      - name: Configure nasm
+        run: |
+          nasm -v
       - uses: Swatinem/rust-cache@v2
       - name: Execute tests
         run: cargo test --workspace --all-features --all-targets
