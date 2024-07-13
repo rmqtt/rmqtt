@@ -135,7 +135,7 @@ impl Handler for AclHandler {
                         }
 
                         log::debug!("rule.access: {:?}", rule.access);
-                        log::debug!("rule.user: {:?}", rule.user);
+                        log::debug!("rule.users: {:?}", rule.users);
                         log::debug!("rule.control: {:?}", rule.control);
                         log::debug!("rule.topics.eqs: {:?}", rule.topics.eqs);
                         log::debug!("rule.topics.tree: {:?}", rule.topics.tree.read().await.list(100));
@@ -160,7 +160,12 @@ impl Handler for AclHandler {
                     }
 
                     let allow = matches!(rule.access, Access::Allow);
-                    let (hit, superuser) = rule.user.hit(connect_info.id(), connect_info.password(), allow);
+                    let (hit, superuser) = rule.hit(
+                        connect_info.id(),
+                        connect_info.password(),
+                        Some(connect_info.proto_ver()),
+                        allow,
+                    );
                     if hit {
                         log::debug!("{:?} ClientAuthenticate, rule: {:?}", connect_info.id(), rule);
                         return if allow {
@@ -188,7 +193,8 @@ impl Handler for AclHandler {
                     }
 
                     let allow = matches!(rule.access, Access::Allow);
-                    let (hit, _) = rule.user.hit(&session.id, session.password(), allow);
+                    let (hit, _) =
+                        rule.hit(&session.id, session.password(), session.protocol().await.ok(), allow);
                     if !hit {
                         continue;
                     }
@@ -239,7 +245,8 @@ impl Handler for AclHandler {
                     }
 
                     let allow = matches!(rule.access, Access::Allow);
-                    let (hit, _) = rule.user.hit(&session.id, session.password(), allow);
+                    let (hit, _) =
+                        rule.hit(&session.id, session.password(), session.protocol().await.ok(), allow);
                     if !hit {
                         continue;
                     }

@@ -91,7 +91,7 @@ impl PluginConfig {
 #[derive(Debug, Clone)]
 pub struct Rule {
     pub access: Access,
-    pub user: User,
+    pub users: Vec<User>,
     pub control: Control,
     pub topics: Topics,
 }
@@ -108,6 +108,25 @@ impl Rule {
     pub fn add_topic_to_eqs(&self, topic: String) {
         self.topics.eqs.insert(topic);
     }
+
+    #[inline]
+    pub fn hit(
+        &self,
+        id: &Id,
+        password: Option<&Password>,
+        protocol: Option<u8>,
+        allow: bool,
+    ) -> (bool, Superuser) {
+        let mut superuser: Superuser = false;
+        for user in &self.users {
+            let (hit, _superuser) = user.hit(id, password, protocol, allow);
+            if !hit {
+                return (false, false);
+            }
+            superuser = _superuser;
+        }
+        (true, superuser)
+    }
 }
 
 impl std::convert::TryFrom<&serde_json::Value> for Rule {
@@ -122,13 +141,13 @@ impl std::convert::TryFrom<&serde_json::Value> for Rule {
             let topics_cfg = cfg_items.get(3);
 
             let access = Access::try_from(access_cfg)?;
-            let user = User::try_from((user_cfg, access))?;
+            let users = users_try_from(user_cfg, access)?;
             let control = Control::try_from(control_cfg)?;
             let topics = Topics::try_from(topics_cfg)?;
             if topics_cfg.is_some() && matches!(control, Control::Connect) {
                 log::warn!("ACL Rule config, the third column of a quadruple is Connect, but the fourth column is not empty! topics config is {:?}", topics_cfg);
             }
-            Ok(Rule { access, user, control, topics })
+            Ok(Rule { access, users, control, topics })
         } else {
             Err(MqttError::from(err_msg))
         }
@@ -146,12 +165,19 @@ pub enum User {
     Username(UserName, Option<Password>, Superuser),
     Clientid(ClientId),
     Ipaddr(String),
+    Protocol(u8), //MQTT Protocol Ver, 3=MQTT 3.1, 4=MQTT 3.11, 5=MQTT 5.0
     All,
 }
 
 impl User {
     #[inline]
-    pub fn hit(&self, id: &Id, password: Option<&Password>, allow: bool) -> (bool, Superuser) {
+    pub fn hit(
+        &self,
+        id: &Id,
+        password: Option<&Password>,
+        protocol: Option<u8>,
+        allow: bool,
+    ) -> (bool, Superuser) {
         match self {
             User::All => (true, false),
             User::Username(name1, password1, superuser) => {
@@ -170,6 +196,13 @@ impl User {
             User::Ipaddr(ipaddr) => {
                 if let Some(remote_addr) = id.remote_addr {
                     (ipaddr == remote_addr.ip().to_string().as_str(), false) //@TODO Consider using integer representation of IP addresses
+                } else {
+                    (false, false)
+                }
+            }
+            User::Protocol(protocol1) => {
+                if let Some(protocol) = protocol {
+                    (protocol == *protocol1, false)
                 } else {
                     (false, false)
                 }
@@ -227,70 +260,58 @@ impl std::convert::TryFrom<&serde_json::Value> for Access {
     }
 }
 
-impl std::convert::TryFrom<(&serde_json::Value, Access)> for User {
-    type Error = MqttError;
-    #[inline]
-    fn try_from(user_cfg_access: (&serde_json::Value, Access)) -> Result<Self, Self::Error> {
-        let (user_cfg, access) = user_cfg_access;
-        let err_msg = format!("ACL Rule config error, user config is {:?}", user_cfg);
-        let user = match user_cfg {
-            Value::String(all) => {
-                if all.to_lowercase() == "all" {
-                    Ok(User::All)
-                } else {
-                    Err(MqttError::from(err_msg))
+fn users_try_from(user_cfg: &Value, access: Access) -> Result<Vec<User>> {
+    let err_msg = format!("ACL Rule config error, user config is {:?}", user_cfg);
+    let users = match user_cfg {
+        Value::String(all) => {
+            if all.to_lowercase() == "all" {
+                Ok(vec![User::All])
+            } else {
+                Err(MqttError::from(err_msg))
+            }
+        }
+        Value::Object(map) => {
+            let name = map.get("user").and_then(|v| v.as_str());
+            let password = map.get("password");
+            let superuser = map.get("superuser").and_then(|v| v.as_bool());
+            let clientid = map.get("clientid").and_then(|v| v.as_str());
+            let ipaddr = map.get("ipaddr").and_then(|v| v.as_str());
+            let mqtt_protocol = map.get("protocol").and_then(|v| v.as_u64());
+
+            let mut users = Vec::new();
+            if let Some(name) = name {
+                match access {
+                    Access::Allow => {
+                        let password = match password {
+                            Some(Value::String(p)) => Some(Password::from(p.to_owned())),
+                            None => None,
+                            _ => return Err(MqttError::from(err_msg)),
+                        };
+                        let superuser = superuser.unwrap_or_default();
+                        users.push(User::Username(UserName::from(name), password, superuser));
+                    }
+                    Access::Deny => {
+                        users.push(User::Username(UserName::from(name), None, false));
+                    }
                 }
             }
-            Value::Object(map) => {
-                match (
-                    access,
-                    map.get("user"),
-                    map.get("password"),
-                    map.get("superuser"),
-                    map.get("clientid"),
-                    map.get("ipaddr"),
-                ) {
-                    (Access::Allow, Some(Value::String(name)), password, superuser, _, _) => {
-                        if name.is_empty() {
-                            Err(MqttError::from(err_msg))
-                        } else {
-                            let password = match password {
-                                Some(Value::String(p)) => Some(Password::from(p.to_owned())),
-                                None => None,
-                                _ => return Err(MqttError::from(err_msg)),
-                            };
-                            let superuser = superuser.and_then(|s| s.as_bool()).unwrap_or_default();
-                            Ok(User::Username(UserName::from(name.as_str()), password, superuser))
-                        }
-                    }
-                    (Access::Deny, Some(Value::String(name)), None, None, _, _) => {
-                        if name.is_empty() {
-                            Err(MqttError::from(err_msg))
-                        } else {
-                            Ok(User::Username(UserName::from(name.as_str()), None, false))
-                        }
-                    }
-                    (_, _, _, _, Some(Value::String(clientid)), _) => {
-                        if clientid.is_empty() {
-                            Err(MqttError::from(err_msg))
-                        } else {
-                            Ok(User::Clientid(ClientId::from(clientid.as_str())))
-                        }
-                    }
-                    (_, _, _, _, _, Some(Value::String(ipaddr))) => {
-                        if ipaddr.is_empty() {
-                            Err(MqttError::from(err_msg))
-                        } else {
-                            Ok(User::Ipaddr(ipaddr.clone()))
-                        }
-                    }
-                    _ => Err(MqttError::from(err_msg)),
-                }
+
+            if let Some(clientid) = clientid {
+                users.push(User::Clientid(ClientId::from(clientid)));
             }
-            _ => Err(MqttError::from(err_msg)),
-        };
-        user
-    }
+
+            if let Some(ipaddr) = ipaddr {
+                users.push(User::Ipaddr(String::from(ipaddr)));
+            }
+
+            if let Some(mqtt_protocol) = mqtt_protocol {
+                users.push(User::Protocol(mqtt_protocol as u8));
+            }
+            Ok(users)
+        }
+        _ => Err(MqttError::from(err_msg)),
+    };
+    users
 }
 
 impl std::convert::TryFrom<Option<&serde_json::Value>> for Control {
