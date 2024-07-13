@@ -65,7 +65,7 @@ listener.tcp.external.max_packet_size = "1m"
 #The maximum length of the TCP connection queue.
 #It indicates the maximum number of TCP connection queues that are being handshaked three times in the system
 listener.tcp.external.backlog = 1024
-#Whether anonymous login is allowed. Default: true
+#Whether anonymous login is allowed. Default: false
 listener.tcp.external.allow_anonymous = false
 #Minimum allowable keepalive value for mqtt connection,
 #less than this value will reject the connection, default: 0, unit: seconds

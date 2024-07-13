@@ -307,7 +307,7 @@ impl ListenerInner {
     }
     #[inline]
     fn allow_anonymous_default() -> bool {
-        true
+        false
     }
     #[inline]
     fn min_keepalive_default() -> u16 {
