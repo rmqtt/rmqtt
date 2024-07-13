@@ -76,6 +76,8 @@ The rules in the `rmqtt-acl.toml` file are matched from top to bottom in writing
       and will skip authentication when publish/subscribe to messages.
     * `{ clientid = "dashboard" }`: The rule only takes effect for users whose ClientId is dashboard
     * `{ ipaddr = "127.0.0.1" }`: The rule only takes effect for users whose Source Address is "127.0.0.1"
+    * `{ protocol = 4 }`: The rule only takes effect for users of MQTT protocol version 4 (3.1.1). MQTT protocol version: 3 = 3.1, 4 = 3.1.1, or 5 = 5.0
+    * `{ user = "dashboard", protocol = 4 }`: The rule only takes effect for users with username "dashboard" and MQTT protocol version 4 (3.1.1)
     * `all`: The rule takes effect for all users
 - The third position of the tuple indicates the operation controlled by the rule with the possible value:
     * `connect`：The rule applies to CONNECT operations
