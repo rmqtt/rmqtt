@@ -218,7 +218,7 @@ HTTP 请求方法为 GET 时，请求参数将以 URL 查询字符串的形式�
 - %u：客户端用户名
 - %c：Client ID
 - %a：客户端 IP 地址
-- %r：客户端接入协议
+- %r：客户端接入的MQTT协议版本，值有：3=3.1、4=3.1.1 或 5=5.0
 - %t：主题
 
 <div style="width:100%;padding:15px;border-left:10px solid #1cc68b;background-color: #d1e3dd; color: #00b173;">
