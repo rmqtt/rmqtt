@@ -246,6 +246,7 @@ impl AuthHandler {
         params: &mut HashMap<String, String>,
         id: &Id,
         password: Option<&Password>,
+        protocol: Option<u8>,
         sub_or_pub: Option<(ACLType, &TopicName)>,
     ) -> Result<()> {
         let password =
@@ -257,8 +258,11 @@ impl AuthHandler {
             *v = v.replace("%u", username);
             *v = v.replace("%c", client_id);
             *v = v.replace("%a", &remote_addr);
-            *v = v.replace("%r", "mqtt");
             *v = v.replace("%P", &password);
+            if let Some(protocol) = protocol {
+                let mut buffer = rmqtt::itoa::Buffer::new();
+                *v = v.replace("%r", buffer.format(protocol));
+            }
             if let Some((ref acl_type, topic)) = sub_or_pub {
                 *v = v.replace("%A", acl_type.as_str());
                 *v = v.replace("%t", topic);
@@ -275,6 +279,7 @@ impl AuthHandler {
         id: &Id,
         mut req_cfg: config::Req,
         password: Option<&Password>,
+        protocol: Option<u8>,
         sub_or_pub: Option<(ACLType, &TopicName)>,
     ) -> Result<(ResponseResult, Cacheable)> {
         log::debug!("{:?} req_cfg.url.path(): {:?}", id, req_cfg.url.path());
@@ -295,25 +300,25 @@ impl AuthHandler {
 
         let (auth_result, superuser, cacheable) = if req_cfg.is_get() {
             let body = &mut req_cfg.params;
-            Self::replaces(body, id, password, sub_or_pub)?;
+            Self::replaces(body, id, password, protocol, sub_or_pub)?;
             Self::http_get_request(req_cfg.url, body, headers, timeout).await?
         } else if req_cfg.json_body() {
             let body = &mut req_cfg.params;
-            Self::replaces(body, id, password, sub_or_pub)?;
+            Self::replaces(body, id, password, protocol, sub_or_pub)?;
             Self::http_json_request(req_cfg.url, req_cfg.method, body, headers, timeout).await?
         } else {
             //form body
             let body = &mut req_cfg.params;
-            Self::replaces(body, id, password, sub_or_pub)?;
+            Self::replaces(body, id, password, protocol, sub_or_pub)?;
             Self::http_form_request(req_cfg.url, req_cfg.method, body, headers, timeout).await?
         };
         log::debug!("auth_result: {:?}, superuser: {}, cacheable: {:?}", auth_result, superuser, cacheable);
         Ok((auth_result, cacheable))
     }
 
-    async fn auth(&self, id: &Id, password: Option<&Password>) -> ResponseResult {
+    async fn auth(&self, id: &Id, password: Option<&Password>, protocol: Option<u8>) -> ResponseResult {
         if let Some(req) = { self.cfg.read().await.http_auth_req.clone() } {
-            match self.request(id, req.clone(), password, None).await {
+            match self.request(id, req, password, protocol, None).await {
                 Ok((auth_res, _)) => {
                     log::debug!("auth result: {:?}", auth_res);
                     auth_res
@@ -332,9 +337,14 @@ impl AuthHandler {
         }
     }
 
-    async fn acl(&self, id: &Id, sub_or_pub: Option<(ACLType, &TopicName)>) -> (ResponseResult, Cacheable) {
+    async fn acl(
+        &self,
+        id: &Id,
+        protocol: Option<u8>,
+        sub_or_pub: Option<(ACLType, &TopicName)>,
+    ) -> (ResponseResult, Cacheable) {
         if let Some(req) = { self.cfg.read().await.http_acl_req.clone() } {
-            match self.request(id, req.clone(), None, sub_or_pub).await {
+            match self.request(id, req, None, protocol, sub_or_pub).await {
                 Ok(acl_res) => {
                     log::debug!("acl result: {:?}", acl_res);
                     acl_res
@@ -368,7 +378,10 @@ impl Handler for AuthHandler {
                     return (false, acc);
                 }
 
-                return match self.auth(connect_info.id(), connect_info.password()).await {
+                return match self
+                    .auth(connect_info.id(), connect_info.password(), Some(connect_info.proto_ver()))
+                    .await
+                {
                     ResponseResult::Allow(superuser) => {
                         (false, Some(HookResult::AuthResult(AuthResult::Allow(superuser))))
                     }
@@ -387,7 +400,13 @@ impl Handler for AuthHandler {
                 }
 
                 //ResponseResult, Cacheable
-                let (acl_res, _) = self.acl(&session.id, Some((ACLType::Sub, &subscribe.topic_filter))).await;
+                let (acl_res, _) = self
+                    .acl(
+                        &session.id,
+                        session.protocol().await.ok(),
+                        Some((ACLType::Sub, &subscribe.topic_filter)),
+                    )
+                    .await;
                 return match acl_res {
                     ResponseResult::Allow(_) => (
                         false,
@@ -432,8 +451,13 @@ impl Handler for AuthHandler {
                     acl_res
                 } else {
                     //ResponseResult, Cacheable
-                    let (acl_res, cacheable) =
-                        self.acl(&session.id, Some((ACLType::Pub, publish.topic()))).await;
+                    let (acl_res, cacheable) = self
+                        .acl(
+                            &session.id,
+                            session.protocol().await.ok(),
+                            Some((ACLType::Pub, publish.topic())),
+                        )
+                        .await;
                     if let Some(tm) = cacheable {
                         let expire = if tm < 0 { tm } else { chrono::Local::now().timestamp_millis() + tm };
                         if let Some(cache_map) = session
