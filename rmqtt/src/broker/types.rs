@@ -16,7 +16,7 @@ use serde::de::{self, Deserialize, Deserializer};
 use serde::ser::{Serialize, SerializeStruct, Serializer};
 use tokio::sync::{oneshot, RwLock};
 
-use base64::{engine::general_purpose, Engine as _};
+use base64::prelude::{Engine, BASE64_STANDARD};
 use bitflags::*;
 use bytestring::ByteString;
 use get_size::GetSize;
@@ -972,7 +972,7 @@ impl<'a> LastWill<'a> {
                     "qos": lw.qos.value(),
                     "retain": lw.retain,
                     "topic": lw.topic,
-                    "message": general_purpose::STANDARD.encode(lw.message.as_ref()),
+                    "message": BASE64_STANDARD.encode(lw.message.as_ref()),
                 })
             }
             LastWill::V5(lw) => {
@@ -980,7 +980,7 @@ impl<'a> LastWill<'a> {
                     "qos": lw.qos.value(),
                     "retain": lw.retain,
                     "topic": lw.topic,
-                    "message": general_purpose::STANDARD.encode(lw.message.as_ref()),
+                    "message": BASE64_STANDARD.encode(lw.message.as_ref()),
 
                     "will_delay_interval_sec": lw.will_delay_interval_sec,
                     "correlation_data": lw.correlation_data,

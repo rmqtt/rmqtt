@@ -20,7 +20,8 @@ path = "src/server.rs"
 tikv-jemallocator = "0.5"
 
 [dependencies]
-rustls = "0.19"
+rustls = "0.23"
+rustls-pemfile = "2"
 aws-lc-rs = "1.8"
 
 ##mqtt broker
