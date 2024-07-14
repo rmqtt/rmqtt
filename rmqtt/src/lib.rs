@@ -21,6 +21,7 @@ pub use dashmap;
 pub use futures;
 pub use get_size;
 pub use itertools;
+pub use itoa;
 pub use log;
 pub use ntex;
 pub use ntex_mqtt;

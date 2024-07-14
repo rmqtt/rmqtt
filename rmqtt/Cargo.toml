@@ -68,6 +68,7 @@ bitflags = "2.4"
 leaky-bucket = "1.0"
 scc = "2.0"
 get_size = { package = "get-size", version = "0.1", features = ["derive"] }
+itoa = "1.0"
 
 [build-dependencies]
 tonic-build = "0.9"
