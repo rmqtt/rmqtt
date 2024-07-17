@@ -3,7 +3,7 @@
 ##--------------------------------------------------------------------
 
 ##ram, sled, redis
-storage.type = "redis"
+storage.type = "sled"
 
 ##sled
 storage.sled.path = "/var/log/rmqtt/.cache/retain/{node}"
