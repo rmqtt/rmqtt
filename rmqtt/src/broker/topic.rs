@@ -305,22 +305,22 @@ where
     }
 
     #[inline]
-    fn prepare(&mut self) {
+    fn prepare(&mut self) -> Option<()> {
         if self.path.is_empty() {
             //Match parent #
             if let Some(b_node) = self.node.branches.get(&Level::MultiWildcard) {
                 if !b_node.values.is_empty() {
-                    let mut sub_path = self.sub_path.clone().unwrap();
+                    let mut sub_path = self.sub_path.clone()?;
                     sub_path.push(&Level::MultiWildcard);
                     self.add_to_items(sub_path, &b_node.values);
                 }
             }
-            let sub_path = self.sub_path.take().unwrap();
+            let sub_path = self.sub_path.take()?;
             self.add_to_items(sub_path, &self.node.values);
         } else {
             //Topic names starting with the $character cannot be matched with topic
             //filters starting with wildcards (# or +)
-            if !(self.sub_path.as_ref().unwrap().is_empty()
+            if !(self.sub_path.as_ref()?.is_empty()
                 && !matches!(self.path[0], Level::Blank)
                 && self.path[0].is_metadata()
                 && (self.node.branches.contains_key(&Level::MultiWildcard)
@@ -329,7 +329,7 @@ where
                 //Multilayer matching
                 if let Some(b_node) = self.node.branches.get(&Level::MultiWildcard) {
                     if !b_node.values.is_empty() {
-                        let mut sub_path = self.sub_path.clone().unwrap();
+                        let mut sub_path = self.sub_path.clone()?;
                         sub_path.push(&Level::MultiWildcard);
                         self.add_to_items(sub_path, &b_node.values);
                     }
@@ -337,7 +337,7 @@ where
 
                 //Single layer matching
                 if let Some(b_node) = self.node.branches.get(&Level::SingleWildcard) {
-                    let mut sub_path = self.sub_path.clone().unwrap();
+                    let mut sub_path = self.sub_path.clone()?;
                     sub_path.push(&Level::SingleWildcard);
                     self.sub_iters.push(MatchedIter::new(b_node, &self.path[1..], sub_path));
                 }
@@ -345,12 +345,14 @@ where
 
             //Precise matching
             if let Some(b_node) = self.node.branches.get(&self.path[0]) {
-                let mut sub_path = self.sub_path.take().unwrap();
+                let mut sub_path = self.sub_path.take()?;
                 sub_path.push(&self.path[0]);
                 self.sub_iters.push(MatchedIter::new(b_node, &self.path[1..], sub_path));
             }
         }
         self.sub_path.take();
+
+        Some(())
     }
 
     fn _debug(&self, tag: &str) {
@@ -378,7 +380,7 @@ where
         }
         self.sub_path.as_ref()?;
 
-        self.prepare();
+        self.prepare()?;
 
         if let Some(item) = self.next_item() {
             return Some(item);

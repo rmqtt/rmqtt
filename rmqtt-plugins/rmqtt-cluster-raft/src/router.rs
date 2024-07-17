@@ -82,7 +82,11 @@ impl ClusterRouter {
 
     #[inline]
     pub(crate) async fn raft_mailbox(&self) -> Mailbox {
-        self.raft_mailbox.read().await.as_ref().unwrap().clone()
+        if let Some(mailbox) = self.raft_mailbox.read().await.as_ref() {
+            mailbox.clone()
+        } else {
+            unreachable!()
+        }
     }
 
     #[inline]

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use crossbeam::queue::SegQueue;
 use futures::channel::mpsc;
 use futures::SinkExt;
@@ -123,19 +123,16 @@ pub struct Limiter {
 
 impl Limiter {
     #[inline]
-    pub fn new(burst: NonZeroU32, replenish_n_per: Duration) -> Self {
-        assert!(
-            replenish_n_per.as_nanos() > 0,
-            "illegal parameter, replenish_n_per is {:?}",
-            replenish_n_per
-        );
-
+    pub fn new(burst: NonZeroU32, replenish_n_per: Duration) -> Result<Self> {
+        if replenish_n_per.as_nanos() == 0 {
+            return Err(anyhow!("illegal parameter, replenish_n_per is 0"));
+        }
         let period = replenish_n_per.as_nanos() as u64 / burst.get() as u64;
         let period = if period > 0 { Duration::from_nanos(period) } else { Duration::from_nanos(1) };
         log::debug!("burst: {:?}, {:?}, {:?}", burst, replenish_n_per, period);
-        let q = Quota::with_period(period).unwrap().allow_burst(burst);
+        let q = Quota::with_period(period).ok_or_else(|| anyhow!("period is 0"))?.allow_burst(burst);
         let l = RateLimiter::direct(q);
-        Self { l }
+        Ok(Self { l })
     }
 
     #[inline]

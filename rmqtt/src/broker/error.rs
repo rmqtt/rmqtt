@@ -93,6 +93,13 @@ impl From<&str> for MqttError {
     }
 }
 
+impl From<&MqttError> for MqttError {
+    #[inline]
+    fn from(e: &MqttError) -> Self {
+        MqttError::Msg(e.to_string())
+    }
+}
+
 impl From<SendPacketError> for MqttError {
     #[inline]
     fn from(e: SendPacketError) -> Self {

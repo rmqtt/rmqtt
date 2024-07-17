@@ -96,11 +96,13 @@ impl WebHookPlugin {
                 .thread_name("web-hook-worker")
                 .thread_stack_size(4 * 1024 * 1024)
                 .build()
-                .unwrap();
+                .expect("tokio runtime build failed");
             let runner = async {
                 let exec =
                     init_task_exec_queue(cfg.read().await.concurrency_limit, cfg.read().await.queue_capacity);
-                exec_tx.send(exec.clone()).ok().unwrap();
+                if let Err(_) = exec_tx.send(exec.clone()) {
+                    log::error!("tokio oneshot channel send failed");
+                }
                 let backoff_strategy = cfg.read().await.get_backoff_strategy().arc();
                 loop {
                     let cfg = cfg.clone();
@@ -130,7 +132,7 @@ impl WebHookPlugin {
             rt.block_on(runner);
             log::info!("exit web-hook async worker.");
         });
-        let exec = exec_rx.await.unwrap();
+        let exec = exec_rx.await.expect("tokio oneshot channel recv failed");
         (tx, exec)
     }
 
@@ -322,12 +324,12 @@ impl Plugin for WebHookPlugin {
     }
 }
 
-static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
+static HTTP_CLIENT: Lazy<Result<reqwest::Client>> = Lazy::new(|| {
     reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(8))
         .timeout(Duration::from_secs(15))
         .build()
-        .unwrap()
+        .map_err(|e| MqttError::from(anyhow!(e)))
 });
 
 type Message = (hook::Type, Option<TopicFilter>, serde_json::Value);
@@ -481,6 +483,7 @@ impl WebHookHandler {
         log::debug!("http_request, timeout: {:?}, url: {}, body: {}", timeout, url, body);
 
         let resp = HTTP_CLIENT
+            .as_ref()?
             .clone()
             .request(reqwest::Method::POST, url)
             .timeout(timeout)

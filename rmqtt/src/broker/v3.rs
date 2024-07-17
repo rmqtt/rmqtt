@@ -227,7 +227,7 @@ async fn _handshake<Io: 'static>(
         hook.session_created().await;
     }
 
-    let (state, tx) = SessionState::new(session, Sink::V3(sink), hook, 0, 0).start(keep_alive).await;
+    let (state, tx) = SessionState::new(session, Sink::V3(sink), hook, 0, 0).start(keep_alive).await?;
     if let Err(e) = entry.set(state.session.clone(), tx).await {
         return Ok(refused_ack(
             handshake,

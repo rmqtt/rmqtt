@@ -228,39 +228,45 @@ impl StoragePlugin {
     fn start_local_runtime() -> mpsc::Sender<RebuildChanType> {
         let (tx, mut rx) = futures::channel::mpsc::channel::<RebuildChanType>(100_000);
         std::thread::spawn(move || {
-            let local_rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            let local_rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("tokio runtime build failed");
             let local_set = tokio::task::LocalSet::new();
 
             local_set.block_on(&local_rt, async {
                 while let Some(msg) = rx.next().await {
                     match msg {
                         RebuildChanType::Session(session, session_expiry_interval)  => {
+                            match SessionState::offline_restart(session.clone(), session_expiry_interval).await {
+                                Err(e) => {
+                                    log::warn!("Rebuild offline session error, {:?}", e);
+                                },
+                                Ok((state, msg_tx)) => {
+                                    let mut session_entry =
+                                        Runtime::instance().extends.shared().await.entry(state.id.clone());
 
-                                let (state, msg_tx) =
-                                    SessionState::offline_restart(session.clone(), session_expiry_interval).await;
-                                let mut session_entry =
-                                    Runtime::instance().extends.shared().await.entry(state.id.clone());
-
-                                let id = session_entry.id().clone();
-                                let task_fut = async move {
-                                    if let Err(e) = session_entry.set(session, msg_tx).await {
-                                        log::warn!("{:?} Rebuild offline session error, {:?}", session_entry.id(), e);
+                                    let id = session_entry.id().clone();
+                                    let task_fut = async move {
+                                        if let Err(e) = session_entry.set(session, msg_tx).await {
+                                            log::warn!("{:?} Rebuild offline session error, {:?}", session_entry.id(), e);
+                                        }
+                                    };
+                                    let task_exec = &Runtime::instance().exec;
+                                    if let Err(e) = task_exec.spawn(task_fut).await {
+                                        log::warn!("{:?} Rebuild offline session error, {:?}", id, e.to_string());
                                     }
-                                };
 
-                                let task_exec = &Runtime::instance().exec;
-                                if let Err(e) = task_exec.spawn(task_fut).await {
-                                    log::warn!("{:?} Rebuild offline session error, {:?}", id, e.to_string());
-                                }
-
-                                let completed_count = task_exec.completed_count().await;
-                                if completed_count > 0 && completed_count % 5000 == 0 {
-                                    log::info!(
+                                    let completed_count = task_exec.completed_count().await;
+                                    if completed_count > 0 && completed_count % 5000 == 0 {
+                                        log::info!(
                                         "{:?} Rebuild offline session, completed_count: {}, active_count: {}, waiting_count: {}, rate: {:?}",
                                         id,
                                         task_exec.completed_count().await, task_exec.active_count(), task_exec.waiting_count(), task_exec.rate().await
                                     );
+                                    }
                                 }
+                            }
                         },
                         RebuildChanType::Done(done_tx) => {
                             let task_exec = &Runtime::instance().exec;

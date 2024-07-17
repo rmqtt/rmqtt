@@ -79,7 +79,7 @@ impl SessionState {
     }
 
     #[inline]
-    pub(crate) async fn start(mut self, keep_alive: u16) -> (Self, Tx) {
+    pub(crate) async fn start(mut self, keep_alive: u16) -> Result<(Self, Tx)> {
         log::debug!("{:?} start online event loop", self.id);
         let (msg_tx, mut msg_rx) = futures::channel::mpsc::unbounded();
         let msg_tx = SessionTx::new(msg_tx);
@@ -98,7 +98,7 @@ impl SessionState {
 
         let limiter = {
             let (burst, replenish_n_per) = state.fitter.mqueue_rate_limit();
-            Limiter::new(burst, replenish_n_per)
+            Limiter::new(burst, replenish_n_per)?
         };
 
         let mut flags = StateFlags::empty();
@@ -338,7 +338,7 @@ impl SessionState {
                 }
             }
         });
-        (self, msg_tx)
+        Ok((self, msg_tx))
     }
 
     #[inline]
@@ -436,7 +436,10 @@ impl SessionState {
     }
 
     #[inline]
-    pub async fn offline_restart(session: Session, session_expiry_interval: Duration) -> (SessionState, Tx) {
+    pub async fn offline_restart(
+        session: Session,
+        session_expiry_interval: Duration,
+    ) -> Result<(SessionState, Tx)> {
         let hook = Runtime::instance().extends.hook_mgr().await.hook(&session);
 
         let (msg_tx, mut msg_rx) = futures::channel::mpsc::unbounded();
@@ -454,7 +457,7 @@ impl SessionState {
 
         let limiter = {
             let (burst, replenish_n_per) = state.fitter.mqueue_rate_limit();
-            Limiter::new(burst, replenish_n_per)
+            Limiter::new(burst, replenish_n_per)?
         };
 
         let state1 = state.clone();
@@ -495,7 +498,7 @@ impl SessionState {
             }
         });
 
-        (state1, msg_tx)
+        Ok((state1, msg_tx))
     }
 
     #[inline]

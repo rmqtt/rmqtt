@@ -327,7 +327,11 @@ impl ListenerInner {
     }
     #[inline]
     fn max_inflight_default() -> NonZeroU16 {
-        NonZeroU16::new(16).unwrap()
+        if let Some(max_inflight) = NonZeroU16::new(16) {
+            max_inflight
+        } else {
+            unreachable!()
+        }
     }
     #[inline]
     fn handshake_timeout_default() -> Duration {
@@ -339,7 +343,7 @@ impl ListenerInner {
     }
     #[inline]
     fn mqueue_rate_limit_default() -> (NonZeroU32, Duration) {
-        (NonZeroU32::new(u32::MAX).unwrap(), Duration::from_secs(1))
+        (NonZeroU32::MAX, Duration::from_secs(1))
     }
     #[inline]
     fn max_clientid_len_default() -> usize {

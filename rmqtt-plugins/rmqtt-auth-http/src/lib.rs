@@ -15,6 +15,7 @@ use serde::ser::Serialize;
 use tokio::sync::RwLock;
 
 use config::PluginConfig;
+use rmqtt::anyhow::anyhow;
 use rmqtt::ntex::util::ByteString;
 use rmqtt::reqwest::Response;
 use rmqtt::{ahash, async_trait, chrono, log, once_cell::sync::Lazy, reqwest, serde_json, tokio, Id};
@@ -183,7 +184,16 @@ impl AuthHandler {
         timeout: Duration,
     ) -> Result<(ResponseResult, Superuser, Cacheable)> {
         log::debug!("http_get_request, timeout: {:?}, url: {}", timeout, url);
-        match HTTP_CLIENT.clone().get(url).headers(headers).timeout(timeout).query(body).send().await {
+        match HTTP_CLIENT
+            .as_ref()?
+            .clone()
+            .get(url)
+            .headers(headers)
+            .timeout(timeout)
+            .query(body)
+            .send()
+            .await
+        {
             Err(e) => {
                 log::error!("error:{:?}", e);
                 Err(MqttError::Msg(e.to_string()))
@@ -201,6 +211,7 @@ impl AuthHandler {
     ) -> Result<(ResponseResult, Superuser, Cacheable)> {
         log::debug!("http_form_request, method: {:?}, timeout: {:?}, url: {}", method, timeout, url);
         match HTTP_CLIENT
+            .as_ref()?
             .clone()
             .request(method, url)
             .headers(headers)
@@ -226,6 +237,7 @@ impl AuthHandler {
     ) -> Result<(ResponseResult, Superuser, Cacheable)> {
         log::debug!("http_json_request, method: {:?}, timeout: {:?}, url: {}", method, timeout, url);
         match HTTP_CLIENT
+            .as_ref()?
             .clone()
             .request(method, url)
             .headers(headers)
@@ -493,10 +505,10 @@ impl Handler for AuthHandler {
     }
 }
 
-static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
+static HTTP_CLIENT: Lazy<Result<reqwest::Client>> = Lazy::new(|| {
     reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(5))
         .build()
-        .unwrap()
+        .map_err(|e| MqttError::from(anyhow!(e)))
 });

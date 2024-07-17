@@ -32,62 +32,76 @@ impl Handler for HookHandler {
             Parameter::ClientDisconnected(s, r) => {
                 log::debug!("{:?} hook::ClientDisconnected reason: {:?}", s.id, r);
                 if !r.is_kicked(false) {
-                    let msg = Message::Disconnected { id: s.id.clone() }.encode().unwrap();
-                    let raft_mailbox = self.raft_mailbox.clone();
-                    tokio::spawn(async move {
-                        if let Err(e) = retry(BACKOFF_STRATEGY.clone(), || async {
-                            let msg = msg.clone();
-                            let mailbox = raft_mailbox.clone();
-                            let res = async move { mailbox.send_proposal(msg).await }
-                                .spawn(task_exec_queue())
-                                .result()
-                                .await
-                                .map_err(|_| {
-                                    MqttError::from(
-                                        "Handler::hook(Message::Disconnected), task execution failure",
-                                    )
-                                })?
-                                .map_err(|e| MqttError::from(e.to_string()))?;
-                            Ok(res)
-                        })
-                        .await
-                        {
-                            log::warn!(
-                                "HookHandler, Message::Disconnected, raft mailbox send error, {:?}",
-                                e
-                            );
+                    let msg = Message::Disconnected { id: s.id.clone() }.encode();
+                    match msg {
+                        Err(e) => {
+                            log::warn!("HookHandler, Message::Disconnected, message encode error, {:?}", e);
                         }
-                    });
+                        Ok(msg) => {
+                            let raft_mailbox = self.raft_mailbox.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = retry(BACKOFF_STRATEGY.clone(), || async {
+                                    let msg = msg.clone();
+                                    let mailbox = raft_mailbox.clone();
+                                    let res = async move { mailbox.send_proposal(msg).await }
+                                        .spawn(task_exec_queue())
+                                        .result()
+                                        .await
+                                        .map_err(|_| {
+                                            MqttError::from(
+                                                "Handler::hook(Message::Disconnected), task execution failure",
+                                            )
+                                        })?
+                                        .map_err(|e| MqttError::from(e.to_string()))?;
+                                    Ok(res)
+                                })
+                                    .await
+                                {
+                                    log::warn!(
+                                        "HookHandler, Message::Disconnected, raft mailbox send error, {:?}",
+                                        e
+                                    );
+                                }
+                            });
+                        }
+                    };
                 }
             }
 
             Parameter::SessionTerminated(s, _r) => {
-                let msg = Message::SessionTerminated { id: s.id.clone() }.encode().unwrap();
-                let raft_mailbox = self.raft_mailbox.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = retry(BACKOFF_STRATEGY.clone(), || async {
-                        let msg = msg.clone();
-                        let mailbox = raft_mailbox.clone();
-                        let res = async move { mailbox.send_proposal(msg).await }
-                            .spawn(task_exec_queue())
-                            .result()
-                            .await
-                            .map_err(|_| {
-                                MqttError::from(
-                                    "Handler::hook(Message::SessionTerminated), task execution failure",
-                                )
-                            })?
-                            .map_err(|e| MqttError::from(e.to_string()))?;
-                        Ok(res)
-                    })
-                    .await
-                    {
-                        log::warn!(
-                            "HookHandler, Message::SessionTerminated, raft mailbox send error, {:?}",
-                            e
-                        );
+                let msg = Message::SessionTerminated { id: s.id.clone() }.encode();
+                match msg {
+                    Err(e) => {
+                        log::warn!("HookHandler, Message::SessionTerminated, message encode error, {:?}", e);
                     }
-                });
+                    Ok(msg) => {
+                        let raft_mailbox = self.raft_mailbox.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = retry(BACKOFF_STRATEGY.clone(), || async {
+                                let msg = msg.clone();
+                                let mailbox = raft_mailbox.clone();
+                                let res = async move { mailbox.send_proposal(msg).await }
+                                    .spawn(task_exec_queue())
+                                    .result()
+                                    .await
+                                    .map_err(|_| {
+                                        MqttError::from(
+                                            "Handler::hook(Message::SessionTerminated), task execution failure",
+                                        )
+                                    })?
+                                    .map_err(|e| MqttError::from(e.to_string()))?;
+                                Ok(res)
+                            })
+                                .await
+                            {
+                                log::warn!(
+                                    "HookHandler, Message::SessionTerminated, raft mailbox send error, {:?}",
+                                    e
+                                );
+                            }
+                        });
+                    }
+                }
             }
 
             Parameter::GrpcMessageReceived(typ, msg) => {

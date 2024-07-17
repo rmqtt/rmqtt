@@ -11,6 +11,7 @@ use std::sync::Arc;
 use crate::config::Config;
 use crate::ram::RamRetainer;
 use config::PluginConfig;
+use rmqtt::anyhow::anyhow;
 use rmqtt::{
     async_trait::async_trait,
     log,
@@ -113,8 +114,8 @@ impl Plugin for RetainerPlugin {
                 }
             })
         })
-        .unwrap();
-        self.runtime.sched.add(async_jj).await.unwrap();
+        .map_err(|e| anyhow!(e))?;
+        self.runtime.sched.add(async_jj).await.map_err(|e| anyhow!(e))?;
 
         Ok(())
     }
