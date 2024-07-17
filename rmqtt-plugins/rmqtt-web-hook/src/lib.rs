@@ -100,7 +100,7 @@ impl WebHookPlugin {
             let runner = async {
                 let exec =
                     init_task_exec_queue(cfg.read().await.concurrency_limit, cfg.read().await.queue_capacity);
-                if let Err(_) = exec_tx.send(exec.clone()) {
+                if exec_tx.send(exec.clone()).is_err() {
                     log::error!("tokio oneshot channel send failed");
                 }
                 let backoff_strategy = cfg.read().await.get_backoff_strategy().arc();

@@ -237,7 +237,7 @@ mod test {
         use std::sync::Arc;
         use std::time::Duration;
 
-        let limiter = super::Limiter::new(NonZeroU32::new(1).unwrap(), Duration::from_millis(100));
+        let limiter = super::Limiter::new(NonZeroU32::new(1).unwrap(), Duration::from_millis(100)).unwrap();
         let (tx, mut rx) = limiter.channel::<u64>(Arc::new(Queue::new(100)));
 
         let tx = tx.policy(|_v: &u64| -> Policy { Policy::Early });
