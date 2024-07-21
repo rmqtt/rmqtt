@@ -1380,17 +1380,23 @@ pub enum FromType {
     Bridge,
 }
 
-impl std::fmt::Display for FromType {
+impl FromType {
     #[inline]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let typ = match self {
+    pub fn as_str(&self) -> &str {
+        match self {
             FromType::Custom => "custom",
             FromType::Admin => "admin",
             FromType::System => "system",
             FromType::LastWill => "lastwill",
             FromType::Bridge => "bridge",
-        };
-        write!(f, "{}", typ)
+        }
+    }
+}
+
+impl std::fmt::Display for FromType {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
     }
 }
 

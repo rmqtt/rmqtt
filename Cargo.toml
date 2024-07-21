@@ -16,6 +16,7 @@ members = [
     "rmqtt-plugins/rmqtt-message-storage",
     "rmqtt-plugins/rmqtt-bridge-ingress-mqtt",
     "rmqtt-plugins/rmqtt-bridge-egress-mqtt",
+    "rmqtt-plugins/rmqtt-bridge-egress-kafka",
     "rmqtt-bin",
     "rmqtt-macros"
 ]
@@ -37,6 +38,7 @@ rmqtt-session-storage = { path = "rmqtt-plugins/rmqtt-session-storage" }
 rmqtt-message-storage = { path = "rmqtt-plugins/rmqtt-message-storage" }
 rmqtt-bridge-ingress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-ingress-mqtt" }
 rmqtt-bridge-egress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-egress-mqtt" }
+rmqtt-bridge-egress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-egress-kafka" }
 
 [workspace.package]
 version = "0.6.0"
