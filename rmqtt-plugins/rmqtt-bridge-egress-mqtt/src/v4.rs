@@ -120,7 +120,7 @@ impl Client {
                             log::warn!("{}", e);
                         }
                     } else {
-                        log::error!("unreachable!(), mqtt sink is None");
+                        log::error!("mqtt sink is None");
                     }
                 }
                 Some(Command::Publish(BridgePublish::V5(_))) => {
