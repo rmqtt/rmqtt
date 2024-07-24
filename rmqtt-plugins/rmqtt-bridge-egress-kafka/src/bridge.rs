@@ -95,6 +95,7 @@ impl Producer {
             headers.insert(Header { key: "ts", value: Some(itoa::Buffer::new().format(p.create_time())) });
         headers = headers
             .insert(Header { key: "time", value: Some(itoa::Buffer::new().format(timestamp_millis())) });
+        headers = headers.insert(Header { key: "topic", value: Some(p.topic().as_str()) });
 
         let topic = self.cfg_entry.remote.make_topic(&p.topic);
         let payload = p.payload().clone();
@@ -236,7 +237,6 @@ impl BridgeManager {
                 if let Some(producers) = self.sinks.get(&(name.clone(), *entry_idx)) {
                     let client_no = rnd % producers.len();
                     if let Some(producer) = producers.get(client_no) {
-                        let producer = producer.clone();
                         if let Err(e) = producer.send(&self.exec, f, p).await {
                             log::warn!("{}", e);
                         }
