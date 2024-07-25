@@ -70,7 +70,7 @@ impl HttpApiPlugin {
                 .thread_name("http-api-worker")
                 .thread_stack_size(4 * 1024 * 1024)
                 .build()
-                .unwrap();
+                .expect("tokio runtime build failed");
             rt.block_on(runner);
             log::info!("Exit HTTP API Server, ..., http://{:?}", http_laddr);
         });

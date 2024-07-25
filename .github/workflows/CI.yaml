@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - master
-      - pr/0.6.0-rustls-0.23
+      - dev/*
   pull_request:
 
 # If a new push on the PR is done, cancel the build
@@ -43,6 +43,11 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: protoc@${{ env.PROTOC_VERSION }}
+      - name: Install nasm on Windows
+        if: matrix.os == 'windows-latest'
+        run: |
+          choco install nasm -y
+          echo "C:\Program Files\NASM" >> $env:GITHUB_PATH
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: nightly
@@ -76,7 +81,9 @@ jobs:
           tool: protoc@${{ env.PROTOC_VERSION }}
       - name: Install nasm on Windows
         if: matrix.os == 'windows-latest'
-        run: choco install nasm -y
+        run: |
+          choco install nasm -y
+          echo "C:\Program Files\NASM" >> $env:GITHUB_PATH
       - uses: Swatinem/rust-cache@v2
       - name: Execute tests
         run: cargo test --workspace --all-features --all-targets

@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use std::fmt;
 use std::net::SocketAddr;
 use std::num::NonZeroU32;
@@ -97,19 +98,19 @@ impl Settings {
     }
 
     #[inline]
-    pub fn instance() -> &'static Self {
-        SETTINGS.get().unwrap()
+    pub fn instance() -> Result<&'static Self> {
+        Ok(SETTINGS.get().ok_or_else(|| anyhow!("Settings not initialized"))?)
     }
 
     #[inline]
-    pub fn init(opts: Options) -> &'static Self {
-        SETTINGS.set(Settings::new(opts).unwrap()).unwrap();
-        SETTINGS.get().unwrap()
+    pub fn init(opts: Options) -> Result<&'static Self> {
+        SETTINGS.set(Settings::new(opts)?).map_err(|_| anyhow!("Settings init failed"))?;
+        Ok(SETTINGS.get().ok_or_else(|| anyhow!("Settings init failed"))?)
     }
 
     #[inline]
-    pub fn logs() {
-        let cfg = Self::instance();
+    pub fn logs() -> Result<()> {
+        let cfg = Self::instance()?;
         crate::log::debug!("Config info is {:?}", cfg.0);
         crate::log::info!("node_id is {}", cfg.node.id);
         crate::log::info!("exec_workers is {}", cfg.task.exec_workers);
@@ -128,6 +129,7 @@ impl Settings {
         if cfg.opts.raft_leader_id.is_some() {
             crate::log::info!("raft_leader_id is {:?}", cfg.opts.raft_leader_id);
         }
+        Ok(())
     }
 }
 
@@ -191,7 +193,7 @@ impl Task {
         10_000
     }
     fn local_exec_rate_limit_default() -> (NonZeroU32, Duration) {
-        (NonZeroU32::new(u32::MAX).unwrap(), Duration::from_secs(1))
+        (NonZeroU32::MAX, Duration::from_secs(1))
     }
 
     #[inline]

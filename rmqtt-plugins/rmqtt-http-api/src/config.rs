@@ -65,7 +65,7 @@ impl PluginConfig {
 
     #[inline]
     fn http_laddr_default() -> SocketAddr {
-        "0.0.0.0:6060".parse::<std::net::SocketAddr>().unwrap()
+        ([0, 0, 0, 0], 6060).into()
     }
 
     #[inline]

@@ -1,4 +1,4 @@
-all: release docker
+all: release-docker
 
 debug:
 	git checkout $$(git describe --tags $$(git rev-list --tags --max-count=1))
@@ -9,6 +9,10 @@ release:
 	cargo build --release --target x86_64-unknown-linux-musl
 
 docker:
+	podman build --no-cache -t rmqtt/rmqtt:$$(git describe --tags $$(git rev-list --tags --max-count=1)) -f Dockerfile.local ./
+	podman build --no-cache -t rmqtt/rmqtt:latest  -f Dockerfile.local ./
+
+release-docker:
 	podman build --no-cache -t rmqtt/rmqtt:$$(git describe --tags $$(git rev-list --tags --max-count=1)) ./
 	podman build --no-cache -t rmqtt/rmqtt:latest ./
 

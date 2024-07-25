@@ -172,7 +172,7 @@ impl ClusterPlugin {
                 .thread_name("cluster-raft-worker")
                 .thread_stack_size(4 * 1024 * 1024)
                 .build()
-                .unwrap();
+                .expect("tokio runtime build failed");
 
             let runner = async move {
                 log::info!("leader_info: {:?}", leader_info);
@@ -199,7 +199,6 @@ impl ClusterPlugin {
             };
 
             rt.block_on(runner);
-            log::info!("exit cluster raft worker");
         })?;
         Ok(mailbox)
     }

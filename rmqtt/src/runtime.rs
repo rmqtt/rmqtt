@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use std::fmt;
 use std::iter::Sum;
 use std::rc::Rc;
@@ -37,8 +38,8 @@ static INSTANCE: OnceCell<Runtime> = OnceCell::new();
 
 impl Runtime {
     #[inline]
-    pub async fn init() -> &'static Self {
-        let settings = Settings::instance();
+    pub async fn init() -> Result<&'static Self> {
+        let settings = Settings::instance()?;
 
         let (exec, task_runner) = Builder::default()
             .workers(settings.task.exec_workers)
@@ -49,11 +50,11 @@ impl Runtime {
             task_runner.await;
         });
 
-        let sched = JobScheduler::new().await.unwrap();
-        sched.start().await.unwrap();
+        let sched = JobScheduler::new().await.map_err(|e| anyhow!(e))?;
+        sched.start().await.map_err(|e| anyhow!(e))?;
 
         let r = Self {
-            logger: config_logger(settings.log.filename(), settings.log.to, settings.log.level),
+            logger: config_logger(settings.log.filename(), settings.log.to, settings.log.level)?,
             settings: settings.clone(),
             extends: extend::Manager::new(),
             plugins: plugin::Manager::new(),
@@ -63,13 +64,17 @@ impl Runtime {
             exec,
             sched,
         };
-        INSTANCE.set(r).unwrap();
-        return INSTANCE.get().unwrap();
+        INSTANCE.set(r).map_err(|_| anyhow!("set runtime failed"))?;
+        Ok(INSTANCE.get().ok_or_else(|| anyhow!("runtime is None"))?)
     }
 
     #[inline]
     pub fn instance() -> &'static Self {
-        INSTANCE.get().unwrap()
+        if let Some(r) = INSTANCE.get() {
+            r
+        } else {
+            unreachable!()
+        }
     }
 
     #[inline]

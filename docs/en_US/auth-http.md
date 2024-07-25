@@ -234,7 +234,7 @@ You can use the following placeholders in the authentication request, and RMQTT 
 - %u：User name
 - %c：Client ID
 - %a：Client IP address
-- %r：Client Access Protocol
+- %r：The MQTT protocol version accessed by the client. The values are: 3=3.1, 4=3.1.1 or 5=5.0
 - %t：Topic
 
 <div style="width:100%;padding:15px;border-left:10px solid #1cc68b;background-color: #d1e3dd; color: #00b173;">

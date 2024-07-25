@@ -15,14 +15,14 @@ use super::settings::log::{Level, To};
 /// This function creates a `GlobalLoggerGuard` and sets the global logger to the `logger` passed
 /// in the `Runtime` instance. It also initializes `slog_stdlog` with the log level specified in
 /// the `Runtime` settings.
-pub fn logger_init() -> GlobalLoggerGuard {
+pub fn logger_init() -> Result<GlobalLoggerGuard, log::SetLoggerError> {
     let level = slog_log_to_level(Runtime::instance().settings.log.level.inner());
     let logger = Runtime::instance().logger.clone();
     // Make sure to save the guard, see documentation for more information
     let guard = slog_scope::set_global_logger(logger.clone());
     // register slog_stdlog as the log handler with the log crate
-    slog_stdlog::init_with_level(level).unwrap();
-    guard
+    slog_stdlog::init_with_level(level)?;
+    Ok(guard)
 }
 
 fn slog_log_to_level(level: slog::Level) -> log::Level {
@@ -44,7 +44,7 @@ fn slog_log_to_level(level: slog::Level) -> log::Level {
 /// which specifies the minimum log level to print. The function sets the format for the logs and
 /// creates the two `Drain`s using the provided parameters. It then combines the two `Drain`s using a
 /// `Tee` and returns the resulting `Logger`.
-pub fn config_logger(filename: String, to: To, level: Level) -> slog::Logger {
+pub fn config_logger(filename: String, to: To, level: Level) -> Result<slog::Logger> {
     let custom_timestamp =
         |io: &mut dyn io::Write| write!(io, "{}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f"));
 
@@ -90,7 +90,7 @@ pub fn config_logger(filename: String, to: To, level: Level) -> slog::Logger {
 
     //File
     let file_drain = if to.file() {
-        let decorator = slog_term::PlainSyncDecorator::new(open_file(&filename).unwrap());
+        let decorator = slog_term::PlainSyncDecorator::new(open_file(&filename)?);
         let file_drain = slog_term::FullFormat::new(decorator)
             .use_custom_timestamp(custom_timestamp)
             .use_custom_header_print(print_msg_header)
@@ -109,14 +109,14 @@ pub fn config_logger(filename: String, to: To, level: Level) -> slog::Logger {
         None
     };
 
-    match (stdout_drain, file_drain) {
+    Ok(match (stdout_drain, file_drain) {
         (Some(stdout_drain), None) => slog::Logger::root(stdout_drain, o!()),
         (None, Some(file_drain)) => slog::Logger::root(file_drain, o!()),
         (Some(stdout_drain), Some(file_drain)) => {
             slog::Logger::root(slog::Duplicate::new(stdout_drain, file_drain).fuse(), o!())
         }
         (None, None) => slog::Logger::root(slog::Discard, o!()),
-    }
+    })
 }
 
 fn open_file(filename: &str) -> Result<File> {

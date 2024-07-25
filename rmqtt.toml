@@ -80,6 +80,7 @@ plugins.default_startups = [
     #"rmqtt-session-storage",
     #"rmqtt-bridge-ingress-mqtt",
     #"rmqtt-bridge-egress-mqtt",
+    #"rmqtt-bridge-egress-kafka",
     "rmqtt-web-hook",
     "rmqtt-http-api"
 ]
@@ -110,8 +111,8 @@ listener.tcp.external.max_packet_size = "1m"
 #The maximum length of the TCP connection queue.
 #It indicates the maximum number of TCP connection queues that are being handshaked three times in the system
 listener.tcp.external.backlog = 1024
-#Whether anonymous login is allowed. Default: true
-listener.tcp.external.allow_anonymous = true
+#Whether anonymous login is allowed. Default: false
+listener.tcp.external.allow_anonymous = false
 #A value of zero indicates disabling the keep-alive feature, where the server
 #doesn't need to disconnect due to client inactivity, default: true
 listener.tcp.external.allow_zero_keepalive = true
@@ -167,7 +168,7 @@ listener.tcp.internal.max_handshaking_limit = 500
 listener.tcp.internal.handshake_timeout = "30s"
 listener.tcp.internal.max_packet_size = "1M"
 listener.tcp.internal.backlog = 512
-listener.tcp.internal.allow_anonymous = true
+listener.tcp.internal.allow_anonymous = false
 listener.tcp.internal.allow_zero_keepalive = true
 listener.tcp.internal.min_keepalive = 0
 listener.tcp.internal.max_keepalive = 65535

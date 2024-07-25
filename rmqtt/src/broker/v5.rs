@@ -235,7 +235,7 @@ pub async fn _handshake<Io: 'static>(
     let (state, tx) =
         SessionState::new(session, Sink::V5(sink), hook, server_topic_alias_max, client_topic_alias_max)
             .start(keep_alive)
-            .await;
+            .await?;
 
     if let Err(e) = entry.set(state.session.clone(), tx).await {
         return Ok(refused_ack(

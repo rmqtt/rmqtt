@@ -69,6 +69,8 @@ rules = [
       Username)* 为 "dashboard" 且 *密码(Password)* 为 "123456" 的用户生效; superuser指示此用户为超级用户，在之后发布/订阅消息时将跳过认证直接允许操作。
     * `{ clientid = "dashboard" }`：表明规则仅对 *客户端标识 (ClientId)* 为 "dashboard" 的用户生效
     * `{ ipaddr = "127.0.0.1" }`：表明规则仅对 *源地址* 为 "127.0.0.1" 的用户生效
+    * `{ protocol = 4 }`：表明规则仅对 *MQTT协议版本* 为 3.1.1 的用户生效. MQTT协议版本：3=3.1、4=3.1.1 或 5=5.0
+    * `{ user = "dashboard", protocol = 4 }`：表明规则仅对 *用户名 (Username)* 为 "dashboard" 并且 *MQTT协议版本* 为 3.1.1  的用户生效
     * `all`：表明规则对所有的用户都生效
 
 - 元组第三位：表示规则所控制的操作，可取值为：

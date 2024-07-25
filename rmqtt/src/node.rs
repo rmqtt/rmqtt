@@ -48,7 +48,7 @@ impl Node {
                 .thread_name("grpc-server-worker")
                 .thread_stack_size(4 * 1024 * 1024)
                 .build()
-                .unwrap();
+                .expect("tokio runtime build failed");
             let runner = async {
                 if let Err(e) = Server::new().listen_and_serve().await {
                     log::error!(
