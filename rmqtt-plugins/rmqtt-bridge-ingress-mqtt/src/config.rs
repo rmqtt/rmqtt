@@ -52,6 +52,14 @@ pub struct Bridge {
     pub keepalive: Duration,
     #[serde(default = "Bridge::reconnect_interval_default", deserialize_with = "deserialize_duration")]
     pub reconnect_interval: Duration,
+
+    #[serde(default = "Bridge::retain_available_default")]
+    pub retain_available: bool,
+    #[serde(default = "Bridge::storage_available_default")]
+    pub storage_available: bool,
+    #[serde(default = "Bridge::expiry_interval_default", deserialize_with = "deserialize_duration")]
+    pub expiry_interval: Duration,
+
     #[serde(default = "Bridge::mqtt_ver_default", deserialize_with = "Bridge::deserialize_mqtt_ver")]
     pub mqtt_ver: Protocol,
     #[serde(default)]
@@ -82,6 +90,18 @@ impl Bridge {
 
     fn mqtt_ver_default() -> Protocol {
         Protocol::MQTT(MQTT_LEVEL_311)
+    }
+
+    fn retain_available_default() -> bool {
+        false
+    }
+
+    fn storage_available_default() -> bool {
+        false
+    }
+
+    fn expiry_interval_default() -> Duration {
+        Duration::from_secs(300)
     }
 
     #[inline]
@@ -268,32 +288,6 @@ pub struct Entry {
 
     #[serde(default)]
     pub local: Local,
-
-    #[serde(default = "Entry::retain_available_default")]
-    pub retain_available: bool,
-
-    #[serde(default = "Entry::storage_available_default")]
-    pub storage_available: bool,
-
-    #[serde(default = "Entry::expiry_interval_default", deserialize_with = "deserialize_duration")]
-    pub expiry_interval: Duration,
-}
-
-impl Entry {
-    #[inline]
-    fn retain_available_default() -> bool {
-        false
-    }
-
-    #[inline]
-    fn storage_available_default() -> bool {
-        false
-    }
-
-    #[inline]
-    fn expiry_interval_default() -> Duration {
-        Duration::from_secs(300)
-    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
