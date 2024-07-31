@@ -44,6 +44,8 @@ plugins.default_startups = [
     #"rmqtt-sys-topic",
     "rmqtt-message-storage",
     "rmqtt-session-storage",
+    "rmqtt-bridge-ingress-kafka",
+    "rmqtt-bridge-egress-kafka",
     "rmqtt-web-hook"
 ]
 
