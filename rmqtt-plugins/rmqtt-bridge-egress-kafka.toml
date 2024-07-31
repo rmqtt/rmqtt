@@ -22,14 +22,15 @@ concurrent_client_limit = 3
 # See more properties and their definitions at https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md
 [bridges.properties]
 "message.timeout.ms" = "5000"
-#"allow.auto.create.topics" = "true"
 
 [[bridges.entries]]
 #Local topic filter: All messages matching this topic filter will be forwarded.
 local.topic_filter = "local/topic1/egress/#"
 
 remote.topic = "remote-topic1-egress-${local.topic}"
+#The queue_timeout parameter controls how long to retry for if the librdkafka producer queue is full. 0 to never block.
 remote.queue_timeout = "0m"
+#Sets the destination partition of the record.
 #remote.partition = 0
 
 [[bridges.entries]]
