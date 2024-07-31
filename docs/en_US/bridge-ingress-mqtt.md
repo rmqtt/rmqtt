@@ -97,6 +97,12 @@ connect_timeout = "20s"
 keepalive = "60s"
 # Auto-reconnect interval
 reconnect_interval = "5s"
+# Support retain messages, values: true/false, default: false
+retain_available = false
+# Support message storage, values: true/false, default: false
+storage_available = false
+# Message expiry interval, 0 means no expiry
+expiry_interval = "5m"
 # MQTT protocol version, values: v4, v5, corresponding to MQTT 3.1.1, 5.0
 mqtt_ver = "v4"
 
@@ -133,14 +139,6 @@ local.topic = "local/topic1/ingress/${remote.topic}"
 # Retain message, values: true/false, default: false
 local.retain = true
 
-## Other configuration items
-# Support retain messages, values: true/false, default: false
-retain_available = false
-# Support message storage, values: true/false, default: false
-storage_available = false
-# Message expiry interval, 0 means no expiry
-expiry_interval = "5m"
-
 [[bridges.entries]]
 # Subscription QoS, values: 0,1,2, default: 0
 remote.qos = 1
@@ -153,14 +151,6 @@ remote.topic = "$share/g/remote/topic2/ingress"
 local.topic = "local/topic2/ingress"
 # Retain message, values: true/false, default: false
 local.retain = false
-
-## Other configuration items
-# Support retain messages, values: true/false, default: false
-retain_available = false
-# Support message storage, values: true/false, default: false
-storage_available = false
-# Message expiry interval, 0 means no expiry
-expiry_interval = "5m"
 
 ```
 
