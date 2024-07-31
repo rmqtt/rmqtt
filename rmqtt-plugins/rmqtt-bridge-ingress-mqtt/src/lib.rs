@@ -78,7 +78,7 @@ impl BridgeMqttIngressPlugin {
 impl Plugin for BridgeMqttIngressPlugin {
     #[inline]
     async fn init(&mut self) -> Result<()> {
-        log::debug!("{} init", self.name());
+        log::info!("{} init", self.name());
         Ok(())
     }
 
