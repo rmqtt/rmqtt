@@ -80,6 +80,7 @@ plugins.default_startups = [
     #"rmqtt-session-storage",
     #"rmqtt-bridge-ingress-mqtt",
     #"rmqtt-bridge-egress-mqtt",
+    #"rmqtt-bridge-ingress-kafka",
     #"rmqtt-bridge-egress-kafka",
     "rmqtt-web-hook",
     "rmqtt-http-api"

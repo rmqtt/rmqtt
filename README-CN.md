@@ -26,6 +26,8 @@
 - [存储未过期消息](./docs/zh_CN/store-message.md);
 - [MQTT桥接-入口模式](./docs/zh_CN/bridge-ingress-mqtt.md)
 - [MQTT桥接-出口模式](./docs/zh_CN/bridge-egress-mqtt.md)
+- [Kafka桥接-入口模式](./docs/zh_CN/bridge-ingress-kafka.md)
+- [kafka桥接-出口模式](./docs/zh_CN/bridge-egress-kafka.md)
 - 分布式集群;
 - 钩子(Hooks);
 - TLS支持;
