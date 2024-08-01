@@ -2,7 +2,10 @@
 
 use std::{fs::File, io::BufReader, process, sync::Arc, time::Duration};
 
+#[cfg(not(target_os = "windows"))]
 use rustls::crypto::aws_lc_rs as provider;
+#[cfg(target_os = "windows")]
+use rustls::crypto::ring as provider;
 use rustls::server::WebPkiClientVerifier;
 use rustls::{RootCertStore, ServerConfig};
 

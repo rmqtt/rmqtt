@@ -20,9 +20,13 @@ path = "src/server.rs"
 tikv-jemallocator = "0.5"
 
 [dependencies]
-rustls = "0.23"
 rustls-pemfile = "2"
-aws-lc-rs = "1.8"
+
+[target.'cfg(not(windows))'.dependencies]
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "logging", "std", "tls12"] }
+
+[target.'cfg(windows)'.dependencies]
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
 
 ##mqtt broker
 rmqtt.workspace = true
