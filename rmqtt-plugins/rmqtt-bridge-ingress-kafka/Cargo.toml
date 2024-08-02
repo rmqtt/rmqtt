@@ -12,9 +12,4 @@ rmqtt.workspace = true
 rmqtt-macros.workspace = true
 serde = { workspace = true, features = ["derive"] }
 event-notify = "0.1.1"
-
-[target.'cfg(not(windows))'.dependencies]
-rdkafka = { version = "0.36" }
-
-[target.'cfg(windows)'.dependencies]
 rdkafka = { version = "0.36", features = ["cmake-build"] }
