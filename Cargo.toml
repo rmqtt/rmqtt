@@ -43,7 +43,7 @@ rmqtt-bridge-ingress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-ingress-kafka"
 rmqtt-bridge-egress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-egress-kafka" }
 
 [workspace.package]
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 authors = ["rmqtt <rmqttd@126.com>"]
 description = "MQTT Server for v3.1, v3.1.1 and v5.0 protocols"
@@ -56,7 +56,7 @@ rust-version = "1.71.1"
 
 
 [workspace.dependencies]
-rmqtt = "0.6"
+rmqtt = "0.7"
 rmqtt-macros = "0.1"
 serde = "1.0"
 
