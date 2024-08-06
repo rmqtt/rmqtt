@@ -14,6 +14,7 @@ members = [
     "rmqtt-plugins/rmqtt-sys-topic",
     "rmqtt-plugins/rmqtt-session-storage",
     "rmqtt-plugins/rmqtt-message-storage",
+    "rmqtt-plugins/rmqtt-topic-rewrite",
     "rmqtt-plugins/rmqtt-bridge-ingress-mqtt",
     "rmqtt-plugins/rmqtt-bridge-egress-mqtt",
     "rmqtt-plugins/rmqtt-bridge-ingress-kafka",
@@ -37,6 +38,7 @@ rmqtt-retainer = { path = "rmqtt-plugins/rmqtt-retainer" }
 rmqtt-sys-topic = { path = "rmqtt-plugins/rmqtt-sys-topic" }
 rmqtt-session-storage = { path = "rmqtt-plugins/rmqtt-session-storage" }
 rmqtt-message-storage = { path = "rmqtt-plugins/rmqtt-message-storage" }
+rmqtt-topic-rewrite = { path = "rmqtt-plugins/rmqtt-topic-rewrite" }
 rmqtt-bridge-ingress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-ingress-mqtt" }
 rmqtt-bridge-egress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-egress-mqtt" }
 rmqtt-bridge-ingress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-ingress-kafka" }

@@ -42,6 +42,7 @@ rmqtt-retainer = "0.1"
 rmqtt-sys-topic = "0.1"
 rmqtt-session-storage = "0.1"
 rmqtt-message-storage = "0.1"
+rmqtt-topic-rewrite = "0.1"
 rmqtt-bridge-ingress-mqtt = "0.1"
 rmqtt-bridge-egress-mqtt = "0.1"
 rmqtt-bridge-egress-kafka = "0.1"
@@ -60,6 +61,7 @@ rmqtt-retainer = { }
 rmqtt-sys-topic = { }
 rmqtt-session-storage = { immutable = true }
 rmqtt-message-storage = { immutable = true }
+rmqtt-topic-rewrite = { }
 rmqtt-bridge-ingress-mqtt = { }
 rmqtt-bridge-egress-mqtt = { }
 rmqtt-bridge-egress-kafka = { }
