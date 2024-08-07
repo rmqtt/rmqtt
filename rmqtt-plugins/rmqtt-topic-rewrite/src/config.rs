@@ -13,7 +13,7 @@ use rmqtt::{
     serde_json::{self},
     tokio::sync::RwLock,
 };
-use rmqtt::{broker::topic::TopicTree, MqttError, Result, Session, Topic, TopicFilter, TopicName};
+use rmqtt::{broker::topic::TopicTree, MqttError, Result, Topic, TopicFilter, TopicName};
 
 type Rules = Arc<RwLock<TopicTree<Rule>>>;
 
@@ -32,108 +32,6 @@ impl PluginConfig {
     pub fn rules(&self) -> &Rules {
         let (_rules, _) = &self.rules;
         _rules
-    }
-
-    #[inline]
-    pub async fn rewrite_topic(
-        &self,
-        action: Action,
-        s: Option<&Session>,
-        topic: &str,
-    ) -> Result<Option<TopicName>> {
-        let t = Topic::from_str(topic)?;
-        //Take only the best match.
-        if let Some(r) = self
-            .rules()
-            .read()
-            .await
-            .matches(&t)
-            .iter()
-            .flat_map(|(_, rs)| rs)
-            .filter(|r| match (r.action, action) {
-                (Action::All, _) => true,
-                (Action::Subscribe, Action::Subscribe) => true,
-                (Action::Publish, Action::Publish) => true,
-                (_, _) => false,
-            })
-            .collect::<Vec<_>>()
-            .last()
-        {
-            log::debug!("rule: {:?}", r);
-            Ok(self.make_new_topic(r, s, topic))
-        } else {
-            Ok(None)
-        }
-    }
-
-    #[inline]
-    fn make_new_topic(&self, r: &Rule, s: Option<&Session>, topic: &str) -> Option<TopicName> {
-        let mut matcheds = Vec::new();
-        if let Some(re) = r.re.get() {
-            if let Some(caps) = re.captures(topic) {
-                for i in 1..caps.len() {
-                    if let Some(matched) = caps.get(i) {
-                        matcheds.push((i, matched.as_str()));
-                    }
-                }
-            }
-        }
-        log::debug!("matcheds: {:?}", matcheds);
-        let mut new_topic = String::new();
-        for item in &r.dest_topic_items {
-            match item {
-                DestTopicItem::Normal(normal) => new_topic.push_str(normal),
-                DestTopicItem::Clientid => {
-                    if let Some(s) = s {
-                        new_topic.push_str(s.id.client_id.as_ref())
-                    } else {
-                        log::info!(
-                            "session is not exist, source_topic_filter: {}, dest_topic: {}",
-                            r.source_topic_filter,
-                            r.dest_topic
-                        );
-                        return None;
-                    }
-                }
-                DestTopicItem::Username => {
-                    if let Some(s) = s {
-                        if let Some(name) = s.username() {
-                            new_topic.push_str(name)
-                        } else {
-                            log::warn!(
-                                "{} username is not exist, source_topic_filter: {}, dest_topic: {}",
-                                s.id,
-                                r.source_topic_filter,
-                                r.dest_topic
-                            );
-                            return None;
-                        }
-                    } else {
-                        log::info!(
-                            "session is not exist, source_topic_filter: {}, dest_topic: {}",
-                            r.source_topic_filter,
-                            r.dest_topic
-                        );
-                        return None;
-                    }
-                }
-                DestTopicItem::Place(idx) => {
-                    if let Some((_, matched)) = matcheds.iter().find(|(p, _)| *p == *idx) {
-                        new_topic.push_str(matched)
-                    } else {
-                        log::warn!(
-                            "{:?} placeholders(${}) is not exist, source_topic_filter: {}, dest_topic: {}",
-                            s.map(|s| &s.id),
-                            idx,
-                            r.source_topic_filter,
-                            r.dest_topic
-                        );
-                        return None;
-                    }
-                }
-            }
-        }
-        Some(TopicName::from(new_topic))
     }
 
     #[inline]
@@ -312,7 +210,7 @@ impl Regex {
     }
 
     #[inline]
-    fn get(&self) -> Option<&regex::Regex> {
+    pub fn get(&self) -> Option<&regex::Regex> {
         self.0.as_ref()
     }
 }

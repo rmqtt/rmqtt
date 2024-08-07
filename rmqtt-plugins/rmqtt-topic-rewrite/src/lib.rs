@@ -5,15 +5,17 @@ extern crate serde;
 #[macro_use]
 extern crate rmqtt_macros;
 
+use std::str::FromStr;
 use std::sync::Arc;
 
 use rmqtt::{async_trait::async_trait, log, serde_json, tokio::sync::RwLock};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     plugin::{PackageInfo, Plugin},
-    register, Publish, Result, Runtime, Session, TopicFilter,
+    register, Publish, Result, Runtime, Session, Topic, TopicFilter, TopicName,
 };
 
+use crate::config::{DestTopicItem, Rule};
 use config::{Action, PluginConfig};
 
 mod config;
@@ -90,7 +92,7 @@ impl TopicRewriteHandler {
 
     #[inline]
     pub async fn rewrite_publish_topic(&self, s: Option<&Session>, p: &Publish) -> Result<Option<Publish>> {
-        match self.cfg.read().await.rewrite_topic(Action::Publish, s, &p.topic).await? {
+        match self.rewrite_topic(Action::Publish, s, &p.topic).await? {
             Some(topic) => {
                 log::debug!("new_topic: {}", topic);
                 let new_p = Publish {
@@ -115,13 +117,124 @@ impl TopicRewriteHandler {
         s: Option<&Session>,
         topic_filter: &str,
     ) -> Result<Option<TopicFilter>> {
-        match self.cfg.read().await.rewrite_topic(Action::Subscribe, s, topic_filter).await? {
+        match self.rewrite_topic(Action::Subscribe, s, topic_filter).await? {
             Some(new_tf) => {
                 log::debug!("new_tf: {}", new_tf);
                 Ok(Some(new_tf))
             }
             None => Ok(None),
         }
+    }
+
+    #[inline]
+    pub async fn rewrite_topic(
+        &self,
+        action: Action,
+        s: Option<&Session>,
+        topic: &str,
+    ) -> Result<Option<TopicName>> {
+        let t = Topic::from_str(topic)?;
+        //Take only the best match.
+        if let Some(r) = self
+            .cfg
+            .read()
+            .await
+            .rules()
+            .read()
+            .await
+            .matches(&t)
+            .iter()
+            .flat_map(|(_, rs)| rs)
+            .filter(|r| match (r.action, action) {
+                (Action::All, _) => true,
+                (Action::Subscribe, Action::Subscribe) => true,
+                (Action::Publish, Action::Publish) => true,
+                (_, _) => false,
+            })
+            .collect::<Vec<_>>()
+            .last()
+        {
+            log::debug!("rule: {:?}, input topic: {}", r, topic);
+            Ok(self.make_new_topic(r, s, topic))
+        } else {
+            Ok(None)
+        }
+    }
+
+    #[inline]
+    fn make_new_topic(&self, r: &Rule, s: Option<&Session>, topic: &str) -> Option<TopicName> {
+        let mut matcheds = Vec::new();
+        if let Some(re) = r.re.get() {
+            if let Some(caps) = re.captures(topic) {
+                for i in 1..caps.len() {
+                    if let Some(matched) = caps.get(i) {
+                        matcheds.push((i, matched.as_str()));
+                    }
+                }
+            }
+        }
+        log::debug!("matcheds: {:?}", matcheds);
+        let mut new_topic = String::new();
+        for item in &r.dest_topic_items {
+            match item {
+                DestTopicItem::Normal(normal) => new_topic.push_str(normal),
+                DestTopicItem::Clientid => {
+                    if let Some(s) = s {
+                        new_topic.push_str(s.id.client_id.as_ref())
+                    } else {
+                        log::info!(
+                            "session is not exist, source_topic_filter: {}, dest_topic: {}, input topic: {}",
+                            r.source_topic_filter,
+                            r.dest_topic,
+                            topic
+                        );
+                        return None;
+                    }
+                }
+                DestTopicItem::Username => {
+                    if let Some(s) = s {
+                        if let Some(name) = s.username() {
+                            new_topic.push_str(name)
+                        } else {
+                            log::warn!(
+                                "{} username is not exist, source_topic_filter: {}, dest_topic: {}, input topic: {}",
+                                s.id,
+                                r.source_topic_filter,
+                                r.dest_topic,
+                                topic
+                            );
+                            return None;
+                        }
+                    } else {
+                        log::info!(
+                            "session is not exist, source_topic_filter: {}, dest_topic: {}, input topic: {}",
+                            r.source_topic_filter,
+                            r.dest_topic,
+                            topic
+                        );
+                        return None;
+                    }
+                }
+                DestTopicItem::Place(idx) => {
+                    if let Some((_, matched)) = matcheds.iter().find(|(p, _)| *p == *idx) {
+                        new_topic.push_str(matched)
+                    } else {
+                        log::warn!(
+                            "{:?} placeholders(${}) is not exist, source_topic_filter: {}, dest_topic: {}, regex: {:?}, input topic: {}, matcheds: {:?}",
+                            s.map(|s| &s.id),
+                            idx,
+                            r.source_topic_filter,
+                            r.dest_topic,
+                            r.re.get(),
+                            topic,
+                            matcheds
+                        );
+                        return None;
+                    }
+                }
+            }
+        }
+        Some(TopicName::from(new_topic))
     }
 }
 
