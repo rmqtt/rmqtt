@@ -82,7 +82,7 @@ plugins.default_startups = [
     #"rmqtt-bridge-egress-mqtt",
     #"rmqtt-bridge-ingress-kafka",
     #"rmqtt-bridge-egress-kafka",
-    "rmqtt-topic-rewrite",
+    #"rmqtt-topic-rewrite",
     "rmqtt-web-hook",
     "rmqtt-http-api"
 ]
