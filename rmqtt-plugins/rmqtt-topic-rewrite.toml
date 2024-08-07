@@ -12,7 +12,7 @@
 # Expressions can use ${clientid} to represent the client ID and ${username} to represent the client username.
 
 rules = [
-#    { action = "all", source_topic_filter = "x/#", dest_topic = "xx/$1", regex = "^x/(.+)$" },
+#    { action = "all", source_topic_filter = "x/+/#", dest_topic = "xx/$1/$2", regex = "^x/(.+)/(.+)$" },
 #    { action = "all", source_topic_filter = "x/y/1", dest_topic = "xx/y/1" },
 #    { action = "all", source_topic_filter = "x/y/#", dest_topic = "xx/y/$1", regex = "^x/y/(.+)$" },
 #    { action = "all", source_topic_filter = "iot/cid/#", dest_topic = "iot/${clientid}/$1", regex = "^iot/cid/(.+)$" },
