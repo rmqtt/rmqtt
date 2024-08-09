@@ -14,7 +14,7 @@ the rewritten topics pass the ACL check.
 
 * Topic rewriting, when applied to a client's subscription or unsubscription of shared subscription topics, only 
 affects the actual topic. This means it only rewrites the portion of the shared subscription topic after removing 
-the $share/<group-name>/ prefix. For example, when a client subscribes to or unsubscribes from the shared subscription 
+the $share/group-name/ prefix. For example, when a client subscribes to or unsubscribes from the shared subscription 
 topic filter $share/group/x/y/z, only x/y/z will be matched and rewritten, while $share/group/ will be ignored.
 
 
