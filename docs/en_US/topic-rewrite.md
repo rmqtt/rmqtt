@@ -31,11 +31,6 @@ rules = [
 
 Each rewriting rule consists of a topic filter, a target expression, and a regular expression.
 
-Here’s the refined English translation:
-
----
-
-**Topic Rewriting Rules**
 
 Topic rewriting rules are divided into `publish`, `subscribe`, and `all` rules. `publish` rules match the topics 
 carried in PUBLISH packets, while `subscribe` rules match the topics carried in SUBSCRIBE and UNSUBSCRIBE packets. 
