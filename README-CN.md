@@ -28,6 +28,7 @@
 - [MQTT桥接-出口模式](./docs/zh_CN/bridge-egress-mqtt.md)
 - [Kafka桥接-入口模式](./docs/zh_CN/bridge-ingress-kafka.md)
 - [kafka桥接-出口模式](./docs/zh_CN/bridge-egress-kafka.md)
+- [主题重写](./docs/zh_CN/topic-rewrite.md)
 - 分布式集群;
 - 钩子(Hooks);
 - TLS支持;

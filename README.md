@@ -29,6 +29,7 @@ and mobile applications that can handle millions of concurrent clients on a sing
 - [MQTT Bridging - Egress Mode](./docs/en_US/bridge-egress-mqtt.md)
 - [Kafka Bridging - Ingress Mode](./docs/en_US/bridge-ingress-kafka.md)
 - [Kafka Bridging - Egress Mode](./docs/en_US/bridge-egress-kafka.md)
+- [Topic Rewrite](./docs/en_US/topic-rewrite.md)
 - Distributed cluster;
 - Hooks;
 - TLS support;
