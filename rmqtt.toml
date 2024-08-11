@@ -159,6 +159,8 @@ listener.tcp.external.max_subscriptions = 0
 listener.tcp.external.shared_subscription = true
 #topic alias maximum, default value: 0, topic aliases not enabled. (MQTT 5.0)
 listener.tcp.external.max_topic_aliases = 32
+#Limit subscription switch, default value: false
+listener.tcp.external.limit_subscription = false
 
 ##--------------------------------------------------------------------
 ## Internal TCP Listener for MQTT Protocol
@@ -188,6 +190,7 @@ listener.tcp.internal.message_expiry_interval = "5m"
 listener.tcp.internal.max_subscriptions = 0
 listener.tcp.internal.shared_subscription = true
 listener.tcp.internal.max_topic_aliases = 0
+listener.tcp.internal.limit_subscription = false
 
 ##--------------------------------------------------------------------
 ## MQTT/TLS - External TLS Listener for MQTT Protocol, (TLSv1.2)
