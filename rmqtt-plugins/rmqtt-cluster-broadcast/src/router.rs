@@ -5,7 +5,7 @@ use rmqtt::{async_trait::async_trait, itertools, log, once_cell, serde_json};
 use rmqtt::{
     broker::{
         default::DefaultRouter,
-        types::{Id, NodeId, Route, SubRelationsMap, SubscriptionOptions, TopicName},
+        types::{AllRelationsMap, Id, NodeId, Route, SubRelationsMap, SubscriptionOptions, TopicName},
         Router,
     },
     grpc::{GrpcClients, Message, MessageBroadcaster, MessageReply, MessageSender, MessageType},
@@ -145,5 +145,10 @@ impl Router for &'static ClusterRouter {
     #[inline]
     async fn list_relations(&self, top: usize) -> Vec<serde_json::Value> {
         self.inner.list_relations(top).await
+    }
+
+    #[inline]
+    fn relations(&self) -> &AllRelationsMap {
+        &self.inner.relations
     }
 }

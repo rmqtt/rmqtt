@@ -653,7 +653,7 @@ impl Iterator for DefaultIter<'_> {
 pub struct DefaultRouter {
     pub topics: RwLock<TopicTree<()>>,
     pub topics_count: Counter,
-    pub relations: DashMap<TopicFilter, HashMap<ClientId, (Id, SubscriptionOptions)>>,
+    pub relations: AllRelationsMap,
     pub relations_count: Counter,
 }
 
@@ -1125,6 +1125,11 @@ impl Router for &'static DefaultRouter {
             }
         }
         rels
+    }
+
+    #[inline]
+    fn relations(&self) -> &AllRelationsMap {
+        &self.relations
     }
 }
 

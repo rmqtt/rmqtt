@@ -14,8 +14,8 @@ use rmqtt::{
         default::DefaultRouter,
         topic::TopicTree,
         types::{
-            ClientId, Id, IsOnline, NodeId, Route, SubRelationsMap, SubscriptionOptions, TimestampMillis,
-            TopicFilter, TopicName,
+            AllRelationsMap, ClientId, Id, IsOnline, NodeId, Route, SubRelationsMap, SubscriptionOptions,
+            TimestampMillis, TopicFilter, TopicName,
         },
         Router,
     },
@@ -210,6 +210,11 @@ impl Router for &'static ClusterRouter {
     #[inline]
     async fn list_relations(&self, top: usize) -> Vec<serde_json::Value> {
         self.inner.list_relations(top).await
+    }
+
+    #[inline]
+    fn relations(&self) -> &AllRelationsMap {
+        &self.inner.relations
     }
 }
 

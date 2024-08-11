@@ -211,6 +211,9 @@ pub trait Router: Sync + Send {
 
     ///get subscription relations
     async fn list_relations(&self, top: usize) -> Vec<serde_json::Value>;
+
+    ///all relations
+    fn relations(&self) -> &AllRelationsMap;
 }
 
 #[async_trait]
