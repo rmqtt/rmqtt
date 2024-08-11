@@ -66,6 +66,7 @@ pub type Topic = ntex_mqtt::Topic;
 ///topic filter
 pub type TopicFilter = bytestring::ByteString;
 pub type SharedGroup = bytestring::ByteString;
+pub type LimitSubsCount = Option<usize>;
 pub type IsDisconnect = bool;
 pub type MessageExpiry = bool;
 pub type TimestampMillis = i64;
@@ -385,6 +386,8 @@ pub type ClearSubscriptions = bool;
 
 pub type SharedGroupType = (SharedGroup, IsOnline, Vec<ClientId>);
 
+pub type AllRelationsMap = DashMap<TopicFilter, HashMap<ClientId, (Id, SubscriptionOptions)>>;
+
 pub type SubRelation = (
     TopicFilter,
     ClientId,
@@ -451,7 +454,7 @@ impl SubscriptioRelationsCollector {
 }
 
 #[inline]
-pub fn parse_topic_filter(
+pub fn parse_topic_filter_old(
     topic_filter: &ByteString,
     shared_subscription_supported: bool,
 ) -> Result<(TopicFilter, Option<SharedGroup>)> {
@@ -480,6 +483,69 @@ pub fn parse_topic_filter(
     Ok((topic, shared_group))
 }
 
+#[inline]
+pub fn parse_topic_filter(
+    topic_filter: &ByteString,
+    shared_subscription: bool,
+    limit_subscription: bool,
+) -> Result<(TopicFilter, Option<SharedGroup>, LimitSubsCount)> {
+    let invalid_filter = || MqttError::TopicError(format!("Illegal topic filter, {:?}", topic_filter));
+    let (topic, shared_group, limit_subs) = if shared_subscription || limit_subscription {
+        let levels = topic_filter.splitn(3, '/').collect::<Vec<_>>();
+        match (levels.first(), levels.get(1), levels.get(2)) {
+            (Some(&"$share"), group, tf) => match (shared_subscription, group, tf) {
+                (true, Some(group), Some(tf)) => {
+                    let tf = TopicFilter::from(*tf);
+                    (tf, Some(SharedGroup::from(*group)), None)
+                }
+                (true, _, _) => {
+                    return Err(invalid_filter());
+                }
+                (false, _, _) => {
+                    return Err(MqttError::TopicError(format!(
+                        "Shared subscription is not enabled, {:?}",
+                        topic_filter
+                    )));
+                }
+            },
+            (Some(&"$limit"), limit, tf) => match (limit_subscription, limit, tf) {
+                (true, Some(limit), Some(tf)) => {
+                    let tf = TopicFilter::from(*tf);
+                    let limit = limit.parse::<usize>().map_err(|_| invalid_filter())?;
+                    (tf, None, Some(limit))
+                }
+                (true, _, _) => {
+                    return Err(invalid_filter());
+                }
+                (false, _, _) => {
+                    return Err(MqttError::TopicError(format!(
+                        "Limit subscription is not enabled, {:?}",
+                        topic_filter
+                    )));
+                }
+            },
+            (Some(&"$exclusive"), _, _) => {
+                if limit_subscription {
+                    let tf = TopicFilter::from(topic_filter.trim_start_matches("$exclusive/"));
+                    (tf, None, Some(1))
+                } else {
+                    return Err(MqttError::TopicError(format!(
+                        "Limit subscription is not enabled, {:?}",
+                        topic_filter
+                    )));
+                }
+            }
+            _ => (topic_filter.clone(), None, None),
+        }
+    } else {
+        (topic_filter.clone(), None, None)
+    };
+    if topic.is_empty() {
+        return Err(invalid_filter());
+    }
+    Ok((topic, shared_group, limit_subs))
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub enum SubscriptionOptions {
     V3(SubOptionsV3),
@@ -488,7 +554,7 @@ pub enum SubscriptionOptions {
 
 impl Default for SubscriptionOptions {
     fn default() -> Self {
-        SubscriptionOptions::V3(SubOptionsV3 { qos: QoS::AtMostOnce, shared_group: None })
+        SubscriptionOptions::V3(SubOptionsV3 { qos: QoS::AtMostOnce, shared_group: None, limit_subs: None })
     }
 }
 
@@ -566,6 +632,22 @@ impl SubscriptionOptions {
     }
 
     #[inline]
+    pub fn limit_subs(&self) -> Option<usize> {
+        match self {
+            SubscriptionOptions::V3(opts) => opts.limit_subs,
+            SubscriptionOptions::V5(opts) => opts.limit_subs,
+        }
+    }
+
+    #[inline]
+    pub fn has_limit_subs(&self) -> bool {
+        match self {
+            SubscriptionOptions::V3(opts) => opts.limit_subs.is_some(),
+            SubscriptionOptions::V5(opts) => opts.limit_subs.is_some(),
+        }
+    }
+
+    #[inline]
     pub fn is_v3(&self) -> bool {
         matches!(self, SubscriptionOptions::V3(_))
     }
@@ -614,6 +696,7 @@ pub struct SubOptionsV3 {
     )]
     pub qos: QoS,
     pub shared_group: Option<SharedGroup>,
+    pub limit_subs: LimitSubsCount,
 }
 
 impl SubOptionsV3 {
@@ -622,9 +705,12 @@ impl SubOptionsV3 {
         let mut obj = json!({
             "qos": self.qos.value(),
         });
-        if let Some(g) = &self.shared_group {
-            if let Some(obj) = obj.as_object_mut() {
+        if let Some(obj) = obj.as_object_mut() {
+            if let Some(g) = &self.shared_group {
                 obj.insert("group".into(), serde_json::Value::String(g.to_string()));
+            }
+            if let Some(limit_subs) = &self.limit_subs {
+                obj.insert("limit_subs".into(), serde_json::Value::from(*limit_subs));
             }
         }
         obj
@@ -639,6 +725,7 @@ pub struct SubOptionsV5 {
     )]
     pub qos: QoS,
     pub shared_group: Option<SharedGroup>,
+    pub limit_subs: LimitSubsCount,
     pub no_local: bool,
     pub retain_as_published: bool,
     #[serde(
@@ -671,6 +758,9 @@ impl SubOptionsV5 {
         if let Some(obj) = obj.as_object_mut() {
             if let Some(g) = &self.shared_group {
                 obj.insert("group".into(), serde_json::Value::String(g.to_string()));
+            }
+            if let Some(limit_subs) = &self.limit_subs {
+                obj.insert("limit_subs".into(), serde_json::Value::from(*limit_subs));
             }
             if let Some(id) = &self.id {
                 obj.insert("id".into(), serde_json::Value::Number(serde_json::Number::from(id.get())));
@@ -707,25 +797,26 @@ impl SubOptionsV5 {
     }
 }
 
-impl std::convert::From<(QoS, Option<SharedGroup>)> for SubscriptionOptions {
+impl std::convert::From<(QoS, Option<SharedGroup>, LimitSubsCount)> for SubscriptionOptions {
     #[inline]
-    fn from(opts: (QoS, Option<SharedGroup>)) -> Self {
-        SubscriptionOptions::V3(SubOptionsV3 { qos: opts.0, shared_group: opts.1 })
+    fn from(opts: (QoS, Option<SharedGroup>, LimitSubsCount)) -> Self {
+        SubscriptionOptions::V3(SubOptionsV3 { qos: opts.0, shared_group: opts.1, limit_subs: opts.2 })
     }
 }
 
-impl std::convert::From<(&SubscriptionOptionsV5, Option<SharedGroup>, Option<NonZeroU32>)>
+impl std::convert::From<(&SubscriptionOptionsV5, Option<SharedGroup>, LimitSubsCount, Option<NonZeroU32>)>
     for SubscriptionOptions
 {
     #[inline]
-    fn from(opts: (&SubscriptionOptionsV5, Option<SharedGroup>, Option<NonZeroU32>)) -> Self {
+    fn from(opts: (&SubscriptionOptionsV5, Option<SharedGroup>, LimitSubsCount, Option<NonZeroU32>)) -> Self {
         SubscriptionOptions::V5(SubOptionsV5 {
             qos: opts.0.qos,
             shared_group: opts.1,
+            limit_subs: opts.2,
             no_local: opts.0.no_local,
             retain_as_published: opts.0.retain_as_published,
             retain_handling: opts.0.retain_handling,
-            id: opts.2,
+            id: opts.3,
         })
     }
 }
@@ -738,9 +829,15 @@ pub struct Subscribe {
 
 impl Subscribe {
     #[inline]
-    pub fn from_v3(topic_filter: &ByteString, qos: QoS, shared_subscription_supported: bool) -> Result<Self> {
-        let (topic_filter, shared_group) = parse_topic_filter(topic_filter, shared_subscription_supported)?;
-        let opts = (qos, shared_group).into();
+    pub fn from_v3(
+        topic_filter: &ByteString,
+        qos: QoS,
+        shared_subscription: bool,
+        limit_subscription: bool,
+    ) -> Result<Self> {
+        let (topic_filter, shared_group, limit_subs) =
+            parse_topic_filter(topic_filter, shared_subscription, limit_subscription)?;
+        let opts = (qos, shared_group, limit_subs).into();
         Ok(Subscribe { topic_filter, opts })
     }
 
@@ -748,11 +845,13 @@ impl Subscribe {
     pub fn from_v5(
         topic_filter: &ByteString,
         opts: &SubscriptionOptionsV5,
-        shared_subscription_supported: bool,
+        shared_subscription: bool,
+        limit_subscription: bool,
         sub_id: Option<NonZeroU32>,
     ) -> Result<Self> {
-        let (topic_filter, shared_group) = parse_topic_filter(topic_filter, shared_subscription_supported)?;
-        let opts = (opts, shared_group, sub_id).into();
+        let (topic_filter, shared_group, limit_subs) =
+            parse_topic_filter(topic_filter, shared_subscription, limit_subscription)?;
+        let opts = (opts, shared_group, limit_subs, sub_id).into();
         Ok(Subscribe { topic_filter, opts })
     }
 
@@ -903,8 +1002,13 @@ pub struct Unsubscribe {
 
 impl Unsubscribe {
     #[inline]
-    pub fn from(topic_filter: &ByteString, shared_subscription_supported: bool) -> Result<Self> {
-        let (topic_filter, shared_group) = parse_topic_filter(topic_filter, shared_subscription_supported)?;
+    pub fn from(
+        topic_filter: &ByteString,
+        shared_subscription: bool,
+        limit_subscription: bool,
+    ) -> Result<Self> {
+        let (topic_filter, shared_group, _) =
+            parse_topic_filter(topic_filter, shared_subscription, limit_subscription)?;
         Ok(Unsubscribe { topic_filter, shared_group })
     }
 

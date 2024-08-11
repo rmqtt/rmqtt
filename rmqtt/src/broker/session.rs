@@ -863,6 +863,30 @@ impl SessionState {
             return Err(MqttError::TooManyTopicLevels);
         }
 
+        if let Some(limit) = sub.opts.limit_subs() {
+            let (allow, count) = Runtime::instance()
+                .extends
+                .router()
+                .await
+                .relations()
+                .get(&sub.topic_filter)
+                .map(|rels| {
+                    if rels.value().contains_key(&self.id.client_id) {
+                        (true, rels.value().len() - 1)
+                    } else {
+                        let c = rels.value().len();
+                        (c < limit, c)
+                    }
+                })
+                .unwrap_or((true, 0));
+            if !allow {
+                return Err(MqttError::SubscribeLimited(format!(
+                    "limited: {}, current count: {}, topic_filter: {}",
+                    limit, count, sub.topic_filter
+                )));
+            }
+        }
+
         sub.opts.set_qos(sub.opts.qos().less_value(listen_cfg.max_qos_allowed));
 
         //hook, client_subscribe
