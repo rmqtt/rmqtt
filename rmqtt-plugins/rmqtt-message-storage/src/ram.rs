@@ -488,6 +488,7 @@ fn test_message_manager() {
             packet_id: Some(std::num::NonZeroU16::try_from(1).unwrap()),
             payload: bytes::Bytes::from("test ..."),
             properties: PublishProperties::default(),
+            delay_interval: None,
             create_time: timestamp_millis(),
         };
 
