@@ -91,7 +91,13 @@ plugins.default_startups = [
 ##--------------------------------------------------------------------
 ## MQTT
 ##--------------------------------------------------------------------
-
+#Delayed message send limit
+mqtt.delayed_publish_max = 100_000
+#Send immediately when limit exceeded, true/false,
+#true -  message will be sent immediately,
+#false - message will be discarded,
+#default: true
+mqtt.delayed_publish_immediate = true
 
 ##--------------------------------------------------------------------
 ## Listeners
@@ -161,6 +167,8 @@ listener.tcp.external.shared_subscription = true
 listener.tcp.external.max_topic_aliases = 32
 #Limit subscription switch, default value: false
 listener.tcp.external.limit_subscription = false
+#Delayed publish switch, default value: false
+listener.tcp.external.delayed_publish = true
 
 ##--------------------------------------------------------------------
 ## Internal TCP Listener for MQTT Protocol

@@ -2,13 +2,13 @@ use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::broker::{
     default::{
-        DefaultFitterManager, DefaultHookManager, DefaultRetainStorage, DefaultRouter, DefaultSessionManager,
-        DefaultShared, DefaultSharedSubscription,
+        DefaultDelayedSender, DefaultFitterManager, DefaultHookManager, DefaultRetainStorage, DefaultRouter,
+        DefaultSessionManager, DefaultShared, DefaultSharedSubscription,
     },
     fitter::FitterManager,
     hook::HookManager,
     session::SessionManager,
-    DefaultMessageManager, MessageManager, RetainStorage, Router, Shared, SharedSubscription,
+    DefaultMessageManager, DelayedSender, MessageManager, RetainStorage, Router, Shared, SharedSubscription,
 };
 
 // Defines a struct that manages a number of lock objects to different components that are
@@ -22,6 +22,7 @@ pub struct Manager {
     shared_subscription: RwLock<Box<dyn SharedSubscription>>,
     session_mgr: RwLock<Box<dyn SessionManager>>,
     message_mgr: RwLock<Box<dyn MessageManager>>,
+    delayed_sender: RwLock<Box<dyn DelayedSender>>,
 }
 
 impl Manager {
@@ -36,6 +37,7 @@ impl Manager {
             shared_subscription: RwLock::new(Box::new(DefaultSharedSubscription::instance())),
             session_mgr: RwLock::new(Box::new(DefaultSessionManager::instance())),
             message_mgr: RwLock::new(Box::new(DefaultMessageManager::instance())),
+            delayed_sender: RwLock::new(Box::new(DefaultDelayedSender::instance())),
         }
     }
 
@@ -112,5 +114,15 @@ impl Manager {
     #[inline]
     pub async fn message_mgr_mut(&self) -> RwLockWriteGuard<'_, Box<dyn MessageManager>> {
         self.message_mgr.write().await
+    }
+
+    #[inline]
+    pub async fn delayed_sender(&self) -> RwLockReadGuard<'_, Box<dyn DelayedSender>> {
+        self.delayed_sender.read().await
+    }
+
+    #[inline]
+    pub async fn delayed_sender_mut(&self) -> RwLockWriteGuard<'_, Box<dyn DelayedSender>> {
+        self.delayed_sender.write().await
     }
 }

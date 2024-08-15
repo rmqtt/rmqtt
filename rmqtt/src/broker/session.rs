@@ -1028,8 +1028,13 @@ impl SessionState {
     }
 
     #[inline]
-    async fn publish(&self, publish: Publish) -> Result<bool> {
+    async fn publish(&self, mut publish: Publish) -> Result<bool> {
         let from = From::from_custom(self.id.clone());
+
+        let listen_cfg = self.listen_cfg();
+        if self.listen_cfg().delayed_publish {
+            publish = Runtime::instance().extends.delayed_sender().await.parse(publish)?;
+        }
 
         //hook, message_publish
         let publish = self.hook.message_publish(from.clone(), &publish).await.unwrap_or(publish);
@@ -1055,8 +1060,6 @@ impl SessionState {
             };
         }
 
-        let listen_cfg = self.listen_cfg();
-
         let message_storage_available = Runtime::instance().extends.message_mgr().await.enable();
 
         let message_expiry_interval =
@@ -1065,6 +1068,44 @@ impl SessionState {
             } else {
                 None
             };
+
+        //delayed publish
+        if publish.delay_interval.is_some() {
+            if let Some((f, p)) = Runtime::instance()
+                .extends
+                .delayed_sender()
+                .await
+                .delay_publish(
+                    from,
+                    publish,
+                    listen_cfg.retain_available,
+                    message_storage_available,
+                    message_expiry_interval,
+                )
+                .await?
+            {
+                if Runtime::instance().settings.mqtt.delayed_publish_immediate {
+                    Self::forwards(
+                        f,
+                        p,
+                        listen_cfg.retain_available,
+                        message_storage_available,
+                        message_expiry_interval,
+                    )
+                    .await?;
+                } else {
+                    //hook, Message dropped
+                    Runtime::instance()
+                        .extends
+                        .hook_mgr()
+                        .await
+                        .message_dropped(None, f, p, Reason::DelayedPublishRefused)
+                        .await;
+                    return Ok(false);
+                }
+            }
+            return Ok(true);
+        }
 
         Self::forwards(
             from,

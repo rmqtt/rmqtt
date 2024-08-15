@@ -11,11 +11,11 @@ use salvo::prelude::*;
 use rmqtt::{
     anyhow::{self, anyhow},
     base64::prelude::{Engine, BASE64_STANDARD},
-    bytes, chrono, futures, log,
+    bytes, futures, log,
     serde_json::{self, json},
     tokio,
     tokio::sync::oneshot,
-    HashMap, SessionState,
+    HashMap,
 };
 use rmqtt::{
     broker::types::NodeId,
@@ -24,8 +24,8 @@ use rmqtt::{
         MessageSender, MessageType,
     },
     node::NodeStatus,
-    ClientId, From, Id, MqttError, Publish, PublishProperties, QoS, Result, Runtime, SubsSearchParams,
-    TopicFilter, TopicName, UserName,
+    timestamp_millis, ClientId, From, Id, MqttError, Publish, PublishProperties, QoS, Result, Runtime,
+    SessionState, SubsSearchParams, TopicFilter, TopicName, UserName,
 };
 
 use super::types::{
@@ -816,7 +816,8 @@ async fn _publish(
         packet_id: None,
         payload,
         properties: PublishProperties::default(),
-        create_time: chrono::Local::now().timestamp_millis(),
+        delay_interval: None,
+        create_time: timestamp_millis(),
     };
 
     let message_expiry_interval = params

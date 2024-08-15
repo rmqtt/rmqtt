@@ -362,3 +362,27 @@ impl DefaultMessageManager {
 }
 
 impl MessageManager for &'static DefaultMessageManager {}
+
+#[async_trait]
+pub trait DelayedSender: Sync + Send {
+    ///Parse the topic and extract the delayed sending parameters.
+    fn parse(&self, publish: Publish) -> Result<Publish>;
+
+    ///Delayed publish
+    async fn delay_publish(
+        &self,
+        from: From,
+        publish: Publish,
+        retain_available: bool,
+        message_storage_available: bool,
+        message_expiry_interval: Option<Duration>,
+    ) -> Result<Option<(From, Publish)>>;
+
+    ///Delayed message count
+    async fn len(&self) -> usize;
+
+    #[inline]
+    async fn is_empty(&self) -> bool {
+        self.len().await == 0
+    }
+}

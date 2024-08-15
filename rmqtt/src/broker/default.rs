@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BinaryHeap};
 use std::convert::From as _f;
 use std::num::NonZeroU16;
 use std::num::NonZeroU32;
@@ -24,9 +24,12 @@ use crate::broker::topic::{Topic, VecToTopic};
 use crate::broker::types::*;
 use crate::settings::listener::Listener;
 use crate::stats::Counter;
-use crate::{grpc, MqttError, Result, Runtime};
+use crate::{grpc, MqttError, Result, Runtime, SessionState};
 
-use super::{retain::RetainTree, topic::TopicTree, Entry, RetainStorage, Router, Shared, SharedSubscription};
+use super::{
+    retain::RetainTree, topic::TopicTree, DelayedSender, Entry, RetainStorage, Router, Shared,
+    SharedSubscription,
+};
 
 type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
 type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
@@ -2069,5 +2072,113 @@ impl SessionLike for DefaultSession {
     async fn on_drop(&self) -> Result<()> {
         self.subscriptions._clear().await;
         Ok(())
+    }
+}
+
+pub struct DefaultDelayedSender {
+    msgs: RwLock<BinaryHeap<DelayedPublish>>,
+}
+
+impl DefaultDelayedSender {
+    #[inline]
+    pub fn instance() -> &'static DefaultDelayedSender {
+        static INSTANCE: OnceCell<DefaultDelayedSender> = OnceCell::new();
+        INSTANCE.get_or_init(|| {
+            let s = Self { msgs: RwLock::new(BinaryHeap::default()) };
+            tokio::spawn(Self::start());
+            s
+        })
+    }
+
+    async fn start() {
+        loop {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            loop {
+                let is_expired = if let Some(is_expired) =
+                    Self::instance().msgs.read().await.peek().map(|p| p.is_expired())
+                {
+                    is_expired
+                } else {
+                    break;
+                };
+                if is_expired {
+                    if let Some(dp) = Self::instance().msgs.write().await.pop() {
+                        log::debug!("pop {:?} {:?}", dp.expired_time, dp.publish.topic);
+                        Self::send(dp).await;
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    #[inline]
+    async fn send(dp: DelayedPublish) {
+        if let Err(e) = SessionState::forwards(
+            dp.from,
+            dp.publish,
+            dp.retain_available,
+            dp.message_storage_available,
+            dp.message_expiry_interval,
+        )
+        .await
+        {
+            log::warn!("delayed forwards error, {:?}", e);
+        }
+    }
+}
+
+#[async_trait]
+impl DelayedSender for &'static DefaultDelayedSender {
+    #[inline]
+    fn parse(&self, mut publish: Publish) -> Result<Publish> {
+        let items = publish.topic.splitn(3, '/').collect::<Vec<_>>();
+        if let (Some(&"$delayed"), Some(delay_interval), Some(topic)) =
+            (items.first(), items.get(1), items.get(2))
+        {
+            let interval_s = delay_interval.parse().map_err(|e| {
+                MqttError::from(format!(
+                    "the delay time of $delayed must be an integer, topic: {}, {}",
+                    publish.topic(),
+                    e
+                ))
+            })?;
+            publish.delay_interval = Some(interval_s);
+            publish.topic = TopicName::from(*topic);
+        }
+        Ok(publish)
+    }
+
+    #[inline]
+    async fn delay_publish(
+        &self,
+        from: From,
+        publish: Publish,
+        retain_available: bool,
+        message_storage_available: bool,
+        message_expiry_interval: Option<Duration>,
+    ) -> Result<Option<(From, Publish)>> {
+        let mut msgs = self.msgs.write().await;
+        if msgs.len() < Runtime::instance().settings.mqtt.delayed_publish_max {
+            msgs.push(DelayedPublish::new(
+                from,
+                publish,
+                retain_available,
+                message_storage_available,
+                message_expiry_interval,
+            ));
+            Runtime::instance().stats.delayed_publishs.max_max(msgs.len() as isize);
+            Ok(None)
+        } else {
+            Ok(Some((from, publish)))
+        }
+    }
+
+    #[inline]
+    async fn len(&self) -> usize {
+        self.msgs.read().await.len()
     }
 }

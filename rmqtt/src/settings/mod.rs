@@ -433,7 +433,22 @@ impl Plugins {
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
-pub struct Mqtt {}
+pub struct Mqtt {
+    #[serde(default = "Mqtt::delayed_publish_max_default")]
+    pub delayed_publish_max: usize,
+    #[serde(default = "Mqtt::delayed_publish_immediate_default")]
+    pub delayed_publish_immediate: bool,
+}
+
+impl Mqtt {
+    fn delayed_publish_max_default() -> usize {
+        100_000
+    }
+
+    fn delayed_publish_immediate_default() -> bool {
+        true
+    }
+}
 
 const BYTESIZE_K: usize = 1024;
 const BYTESIZE_M: usize = 1048576;

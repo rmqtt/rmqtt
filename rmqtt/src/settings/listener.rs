@@ -231,6 +231,8 @@ pub struct ListenerInner {
 
     #[serde(default)]
     pub limit_subscription: bool,
+    #[serde(default)]
+    pub delayed_publish: bool,
 }
 
 impl Default for ListenerInner {
@@ -269,6 +271,7 @@ impl Default for ListenerInner {
             cert: None,
             key: None,
             limit_subscription: false,
+            delayed_publish: false,
         }
     }
 }

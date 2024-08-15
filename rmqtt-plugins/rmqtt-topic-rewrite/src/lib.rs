@@ -103,6 +103,7 @@ impl TopicRewriteHandler {
                     packet_id: p.packet_id,
                     payload: p.payload.clone(),
                     properties: p.properties.clone(),
+                    delay_interval: None,
                     create_time: p.create_time,
                 };
                 Ok(Some(new_p))

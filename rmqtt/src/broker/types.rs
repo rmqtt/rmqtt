@@ -1267,6 +1267,8 @@ pub struct Publish {
     pub payload: Bytes,
 
     pub properties: PublishProperties,
+    /// delay publish interval, unit: seconds
+    pub delay_interval: Option<u32>,
     pub create_time: TimestampMillis,
 }
 
@@ -1316,6 +1318,7 @@ impl<'a> std::convert::TryFrom<LastWill<'a>> for Publish {
             payload,
 
             properties: props,
+            delay_interval: None,
             create_time: chrono::Local::now().timestamp_millis(),
         })
     }
@@ -1344,6 +1347,7 @@ impl std::convert::From<&v3::Publish> for Publish {
             payload: p.take_payload(),
 
             properties: p_props,
+            delay_interval: None,
             create_time: chrono::Local::now().timestamp_millis(),
         }
     }
@@ -1361,6 +1365,7 @@ impl std::convert::From<&v5::Publish> for Publish {
             payload: p.take_payload(),
 
             properties: PublishProperties::from(p.packet().properties.clone()),
+            delay_interval: None,
             create_time: chrono::Local::now().timestamp_millis(),
         }
     }
@@ -2279,6 +2284,7 @@ pub enum Reason {
     UnsubscribeFailed(Option<ByteString>),
     SubscribeRefused,
     PublishRefused,
+    DelayedPublishRefused,
     MessageExpiration,
     MessageQueueFull,
     PublishFailed(ByteString),
@@ -2388,6 +2394,9 @@ impl Display for Reason {
             }
             Reason::PublishRefused => {
                 "PublishRefused" //publish refused
+            }
+            Reason::DelayedPublishRefused => {
+                "DelayedPublishRefused" //delayed publish refused
             }
             Reason::MessageExpiration => {
                 "MessageExpiration" //message expiration
@@ -2598,6 +2607,65 @@ pub enum StatsMergeMode {
     Average, // Represents averaging the data;
     Max,     // Represents taking the maximum value of the data;
     Min,     // Represents taking the minimum value of the data;
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DelayedPublish {
+    pub expired_time: TimestampMillis,
+    pub from: From,
+    pub publish: Publish,
+    pub retain_available: bool,
+    pub message_storage_available: bool,
+    pub message_expiry_interval: Option<Duration>,
+}
+
+impl DelayedPublish {
+    #[inline]
+    pub fn new(
+        from: From,
+        publish: Publish,
+        retain_available: bool,
+        message_storage_available: bool,
+        message_expiry_interval: Option<Duration>,
+    ) -> Self {
+        let expired_time = publish
+            .delay_interval
+            .map(|di| timestamp_millis() + (di as TimestampMillis * 1000))
+            .unwrap_or_else(timestamp_millis);
+        Self {
+            expired_time,
+            from,
+            publish,
+            retain_available,
+            message_storage_available,
+            message_expiry_interval,
+        }
+    }
+
+    #[inline]
+    pub fn is_expired(&self) -> bool {
+        timestamp_millis() > self.expired_time
+    }
+}
+
+impl std::cmp::Eq for DelayedPublish {}
+
+impl PartialEq for DelayedPublish {
+    fn eq(&self, other: &Self) -> bool {
+        other.expired_time.eq(&self.expired_time)
+    }
+}
+
+impl std::cmp::Ord for DelayedPublish {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other.expired_time.cmp(&self.expired_time)
+    }
+}
+
+impl PartialOrd for DelayedPublish {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 #[test]

@@ -343,6 +343,7 @@ impl Consumer {
             packet_id: None,
             payload,
             properties,
+            delay_interval: None,
             create_time: timestamp_millis(),
         };
 
