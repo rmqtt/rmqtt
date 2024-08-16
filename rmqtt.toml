@@ -168,7 +168,7 @@ listener.tcp.external.max_topic_aliases = 32
 #Limit subscription switch, default value: false
 listener.tcp.external.limit_subscription = false
 #Delayed publish switch, default value: false
-listener.tcp.external.delayed_publish = true
+listener.tcp.external.delayed_publish = false
 
 ##--------------------------------------------------------------------
 ## Internal TCP Listener for MQTT Protocol
