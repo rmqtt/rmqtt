@@ -30,8 +30,8 @@ and mobile applications that can handle millions of concurrent clients on a sing
 - [Kafka Bridging - Ingress Mode](./docs/en_US/bridge-ingress-kafka.md)
 - [Kafka Bridging - Egress Mode](./docs/en_US/bridge-egress-kafka.md)
 - [Topic Rewrite](./docs/en_US/topic-rewrite.md)
-- Shared subscription($share/{group}/TopicFilter);
-- Exclusive subscription($exclusive/TopicFilter);
+- Shared subscription($share/{Group}/{TopicFilter});
+- Exclusive subscription($exclusive/{TopicFilter});
 - Limit subscription($limit/{LimitQuantity}/{TopicFilter});
 - Delayed publish($delayed/{DelayInterval}/{TopicName});
 - Distributed cluster;
