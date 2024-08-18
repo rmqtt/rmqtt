@@ -623,13 +623,14 @@ async fn kick_client(req: &mut Request, res: &mut Response) {
             .shared()
             .await
             .entry(Id::from(Runtime::instance().node.id(), ClientId::from(clientid)));
-
-        match entry.kick(true, true, true).await {
-            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
-            Ok(None) => {
-                res.status_code(StatusCode::NOT_FOUND);
+        let s = entry.session();
+        if let Some(s) = s {
+            match entry.kick(true, true, true).await {
+                Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+                Ok(_) => res.render(Json(s.id.to_json())),
             }
-            Ok(Some(offline_info)) => res.render(Text::Plain(offline_info.id.to_string())),
+        } else {
+            res.status_code(StatusCode::NOT_FOUND);
         }
     } else {
         res.render(StatusError::bad_request())
