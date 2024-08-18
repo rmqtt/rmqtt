@@ -260,6 +260,14 @@ async fn _handshake<Io: 'static>(
         });
     }
 
+    //automatic subscription
+    let auto_subscription = Runtime::instance().extends.auto_subscription().await;
+    if auto_subscription.enable() {
+        if let Some(tx) = &state.tx {
+            auto_subscription.subscribe(state.id(), tx).await?;
+        }
+    }
+
     Ok(handshake.ack(state, session_present).idle_timeout(keep_alive))
 }
 

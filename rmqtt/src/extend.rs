@@ -2,13 +2,14 @@ use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::broker::{
     default::{
-        DefaultDelayedSender, DefaultFitterManager, DefaultHookManager, DefaultRetainStorage, DefaultRouter,
-        DefaultSessionManager, DefaultShared, DefaultSharedSubscription,
+        DefaultAutoSubscription, DefaultDelayedSender, DefaultFitterManager, DefaultHookManager,
+        DefaultRetainStorage, DefaultRouter, DefaultSessionManager, DefaultShared, DefaultSharedSubscription,
     },
     fitter::FitterManager,
     hook::HookManager,
     session::SessionManager,
-    DefaultMessageManager, DelayedSender, MessageManager, RetainStorage, Router, Shared, SharedSubscription,
+    AutoSubscription, DefaultMessageManager, DelayedSender, MessageManager, RetainStorage, Router, Shared,
+    SharedSubscription,
 };
 
 // Defines a struct that manages a number of lock objects to different components that are
@@ -23,6 +24,7 @@ pub struct Manager {
     session_mgr: RwLock<Box<dyn SessionManager>>,
     message_mgr: RwLock<Box<dyn MessageManager>>,
     delayed_sender: RwLock<Box<dyn DelayedSender>>,
+    auto_subscription: RwLock<Box<dyn AutoSubscription>>,
 }
 
 impl Manager {
@@ -38,6 +40,7 @@ impl Manager {
             session_mgr: RwLock::new(Box::new(DefaultSessionManager::instance())),
             message_mgr: RwLock::new(Box::new(DefaultMessageManager::instance())),
             delayed_sender: RwLock::new(Box::new(DefaultDelayedSender::instance())),
+            auto_subscription: RwLock::new(Box::new(DefaultAutoSubscription::instance())),
         }
     }
 
@@ -124,5 +127,15 @@ impl Manager {
     #[inline]
     pub async fn delayed_sender_mut(&self) -> RwLockWriteGuard<'_, Box<dyn DelayedSender>> {
         self.delayed_sender.write().await
+    }
+
+    #[inline]
+    pub async fn auto_subscription(&self) -> RwLockReadGuard<'_, Box<dyn AutoSubscription>> {
+        self.auto_subscription.read().await
+    }
+
+    #[inline]
+    pub async fn auto_subscription_mut(&self) -> RwLockWriteGuard<'_, Box<dyn AutoSubscription>> {
+        self.auto_subscription.write().await
     }
 }

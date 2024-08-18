@@ -2,23 +2,7 @@
 resolver = "2"
 members = [
     "rmqtt",
-    "rmqtt-plugins/rmqtt-plugin-template",
-    "rmqtt-plugins/rmqtt-acl",
-    "rmqtt-plugins/rmqtt-web-hook",
-    "rmqtt-plugins/rmqtt-auth-http",
-    "rmqtt-plugins/rmqtt-cluster-broadcast",
-    "rmqtt-plugins/rmqtt-cluster-raft",
-    "rmqtt-plugins/rmqtt-counter",
-    "rmqtt-plugins/rmqtt-http-api",
-    "rmqtt-plugins/rmqtt-retainer",
-    "rmqtt-plugins/rmqtt-sys-topic",
-    "rmqtt-plugins/rmqtt-session-storage",
-    "rmqtt-plugins/rmqtt-message-storage",
-    "rmqtt-plugins/rmqtt-topic-rewrite",
-    "rmqtt-plugins/rmqtt-bridge-ingress-mqtt",
-    "rmqtt-plugins/rmqtt-bridge-egress-mqtt",
-    "rmqtt-plugins/rmqtt-bridge-ingress-kafka",
-    "rmqtt-plugins/rmqtt-bridge-egress-kafka",
+    "rmqtt-plugins/*",
     "rmqtt-bin",
     "rmqtt-macros"
 ]
@@ -43,6 +27,7 @@ rmqtt-bridge-ingress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-ingress-mqtt" }
 rmqtt-bridge-egress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-egress-mqtt" }
 rmqtt-bridge-ingress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-ingress-kafka" }
 rmqtt-bridge-egress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-egress-kafka" }
+rmqtt-auto-subscription = { path = "rmqtt-plugins/rmqtt-auto-subscription"}
 
 [workspace.package]
 version = "0.7.0"

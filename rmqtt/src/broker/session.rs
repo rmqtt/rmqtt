@@ -826,7 +826,7 @@ impl SessionState {
     }
 
     #[inline]
-    pub(crate) async fn subscribe(&self, sub: Subscribe) -> Result<SubscribeReturn> {
+    pub async fn subscribe(&self, sub: Subscribe) -> Result<SubscribeReturn> {
         let ret = self._subscribe(sub).await;
         match &ret {
             Ok(sub_ret) => match sub_ret.ack_reason {

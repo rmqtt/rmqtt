@@ -386,3 +386,17 @@ pub trait DelayedSender: Sync + Send {
         self.len().await == 0
     }
 }
+
+//Automatic subscription
+#[async_trait]
+pub trait AutoSubscription: Sync + Send {
+    #[inline]
+    fn enable(&self) -> bool {
+        false
+    }
+
+    #[inline]
+    async fn subscribe(&self, _id: &Id, _msg_tx: &Tx) -> Result<()> {
+        Ok(())
+    }
+}

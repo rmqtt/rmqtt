@@ -27,8 +27,8 @@ use crate::stats::Counter;
 use crate::{grpc, MqttError, Result, Runtime, SessionState};
 
 use super::{
-    retain::RetainTree, topic::TopicTree, DelayedSender, Entry, RetainStorage, Router, Shared,
-    SharedSubscription,
+    retain::RetainTree, topic::TopicTree, AutoSubscription, DelayedSender, Entry, RetainStorage, Router,
+    Shared, SharedSubscription,
 };
 
 type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
@@ -2182,3 +2182,16 @@ impl DelayedSender for &'static DefaultDelayedSender {
         self.msgs.read().await.len()
     }
 }
+
+pub struct DefaultAutoSubscription {}
+
+impl DefaultAutoSubscription {
+    #[inline]
+    pub fn instance() -> &'static DefaultAutoSubscription {
+        static INSTANCE: OnceCell<DefaultAutoSubscription> = OnceCell::new();
+        INSTANCE.get_or_init(|| Self {})
+    }
+}
+
+#[async_trait]
+impl AutoSubscription for &'static DefaultAutoSubscription {}

@@ -821,7 +821,7 @@ impl std::convert::From<(&SubscriptionOptionsV5, Option<SharedGroup>, LimitSubsC
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Subscribe {
     pub topic_filter: TopicFilter,
     pub opts: SubscriptionOptions,

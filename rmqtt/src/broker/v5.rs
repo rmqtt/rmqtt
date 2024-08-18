@@ -269,6 +269,14 @@ pub async fn _handshake<Io: 'static>(
         });
     }
 
+    //automatic subscription
+    let auto_subscription = Runtime::instance().extends.auto_subscription().await;
+    if auto_subscription.enable() {
+        if let Some(tx) = &state.tx {
+            auto_subscription.subscribe(state.id(), tx).await?;
+        }
+    }
+
     log::debug!("{:?} keep_alive: {}, server_keepalive_sec: {}", state.id, keep_alive, packet.keep_alive);
     let id = state.id.clone();
     let session_expiry_interval = state.fitter.session_expiry_interval(None).as_secs() as u32;
