@@ -63,10 +63,10 @@ impl<'a> SerializeMessage for Message<'a> {
         properties.insert("topic".into(), p.topic().to_string());
         let payload = p.payload.to_vec();
         let event_time = Some(p.create_time() as u64);
-        let partition_key = cfg.partition_key.as_ref().map(|key| key.clone());
-        let ordering_key = cfg.ordering_key.as_ref().map(|key| key.clone());
+        let partition_key = cfg.partition_key.clone();
+        let ordering_key = cfg.ordering_key.clone();
         let replicate_to = cfg.replicate_to.clone();
-        let schema_version = cfg.schema_version.as_ref().map(|ver| ver.clone());
+        let schema_version = cfg.schema_version.clone();
 
         Ok(producer::Message {
             payload,
