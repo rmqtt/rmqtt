@@ -238,6 +238,12 @@ impl BridgeManager {
             None => {}
         }
 
+        if let Some(cert_chain_file) = cfg.cert_chain_file.as_ref() {
+            builder = builder.with_certificate_chain_file(cert_chain_file)?;
+        }
+        builder = builder.with_tls_hostname_verification_enabled(cfg.tls_hostname_verification_enabled);
+        builder = builder.with_allow_insecure_connection(cfg.allow_insecure_connection);
+
         let pulsar: Pulsar<_> = builder.build().await.map_err(|e| anyhow!(e))?;
         Ok(pulsar)
     }

@@ -11,9 +11,17 @@ enable = true
 name = "bridge_pulsar_1"
 
 servers = "pulsar://127.0.0.1:6650"
+#servers = "pulsar+ssl://127.0.0.1:6651"
 
 # producer name prefix
 producer_name_prefix = "producer_1"
+
+# add a custom certificate chain from a file to authenticate the server in TLS connections
+#cert_chain_file = "./rmqtt-bin/rmqtt.fullchain.pem"
+#allow insecure TLS connection if set to true, defaults to false
+#allow_insecure_connection = false
+#whether hostname verification is enabled when insecure TLS connection is allowed, defaults to true
+#tls_hostname_verification_enabled = true
 
 #token(JWT, Biscuit)/ or oauth2
 #auth.name = "token"
@@ -30,7 +38,7 @@ remote.topic = "non-persistent://public/default/test1"
 #remote.forward_all_publish = false
 
 #key to decide partition for the message
-remote.partition_key = "key-001"
+#remote.partition_key = ""
 #key to decide partition for the message
 #remote.ordering_key = ""
 #Override namespace's replication
