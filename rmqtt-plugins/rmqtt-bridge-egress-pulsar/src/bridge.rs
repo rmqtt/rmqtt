@@ -88,6 +88,7 @@ pub enum Command {
 }
 
 pub struct Producer {
+    pub(crate) name: String,
     tx: mpsc::Sender<Command>,
 }
 
@@ -99,14 +100,14 @@ impl Producer {
         entry_idx: usize,
         node_id: NodeId,
     ) -> Result<Self> {
-        log::info!("entry_idx: {}, node_id: {}", entry_idx, node_id);
+        log::debug!("entry_idx: {}, node_id: {}", entry_idx, node_id);
 
         let producer_name = if let Some(prefix) = &cfg.producer_name_prefix {
             format!("{}:{}:egress:{}:{}", prefix, cfg.name, node_id, entry_idx)
         } else {
             format!("{}:egress:{}:{}", cfg.name, node_id, entry_idx)
         };
-        log::info!("producer_name: {}", producer_name);
+        log::debug!("producer_name: {}", producer_name);
 
         let topic = cfg_entry.remote.topic.as_str();
         log::debug!("topic: {}", topic);
@@ -122,7 +123,7 @@ impl Producer {
         let producer = pulsar
             .producer()
             .with_topic(topic)
-            .with_name(producer_name)
+            .with_name(&producer_name)
             .with_options(producer::ProducerOptions {
                 metadata,
                 compression,
@@ -140,7 +141,7 @@ impl Producer {
         tokio::spawn(async move {
             Self::start(cfg_entry, producer, rx).await;
         });
-        Ok(Producer { tx })
+        Ok(Producer { name: producer_name, tx })
     }
 
     async fn start(
@@ -151,7 +152,12 @@ impl Producer {
         let metadata = producer.options().metadata.clone();
         while let Some(cmd) = rx.recv().await {
             match cmd {
-                Command::Close => break,
+                Command::Close => {
+                    if let Err(e) = producer.close().await {
+                        log::warn!("{}", e);
+                    }
+                    break;
+                }
                 Command::Start => {}
                 Command::Message(f, p) => {
                     match producer
@@ -163,7 +169,7 @@ impl Producer {
                         }
                         Ok(fut) => match fut.await {
                             Ok(receipt) => {
-                                log::info!(
+                                log::debug!(
                             "highest_sequence_id: {:?}, sequence_id: {}, producer_id: {}, message_id.ack_set: {:?}",
                             receipt.highest_sequence_id,
                             receipt.sequence_id,
@@ -252,7 +258,7 @@ impl BridgeManager {
 
             bridge_names.insert(&b_cfg.name);
             for (entry_idx, entry) in b_cfg.entries.iter().enumerate() {
-                log::info!("entry.local.topic_filter: {}", entry.local.topic_filter);
+                log::debug!("entry.local.topic_filter: {}", entry.local.topic_filter);
                 topics.insert(
                     &Topic::from_str(entry.local.topic_filter.as_str())?,
                     (b_cfg.name.clone(), entry_idx),

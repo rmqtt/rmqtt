@@ -112,36 +112,23 @@ impl Plugin for BridgePulsarEgressPlugin {
 
     #[inline]
     async fn attrs(&self) -> serde_json::Value {
-        // let bridges = self
-        //     .bridge_mgr
-        //     .sinks()
-        //     .iter()
-        //     .flat_map(|entry| {
-        //         let ((bridge_name, entry_idx), producers) = entry.pair();
-        //         producers
-        //             .iter()
-        //             .enumerate()
-        //             .map(|(client_no, producer)| {
-        //                 json!({
-        //                     "client_id": producer.client_id,
-        //                     "name": bridge_name,
-        //                     "entry_idx": entry_idx,
-        //                     "client_no": client_no,
-        //                 })
-        //             })
-        //             .collect::<Vec<_>>()
-        //     })
-        //     .collect::<Vec<serde_json::Value>>();
-        // let exec = &self.bridge_mgr.exec;
-        // json!({
-        //     "bridges": bridges,
-        //     "task_exec_queue": {
-        //         "active_count": exec.active_count(),
-        //         "waiting_count": exec.waiting_count(),
-        //         "completed_count": exec.completed_count().await,
-        //     }
-        // })
-        json!({})
+        let bridges = self
+            .bridge_mgr
+            .sinks()
+            .iter()
+            .map(|entry| {
+                let ((bridge_name, entry_idx), producer) = entry.pair();
+
+                json!({
+                    "producer_name": producer.name,
+                    "bridge_name": bridge_name,
+                    "entry_idx": entry_idx,
+                })
+            })
+            .collect::<Vec<serde_json::Value>>();
+        json!({
+            "bridges": bridges,
+        })
     }
 }
 
@@ -160,7 +147,7 @@ impl Handler for HookHandler {
     async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
         match param {
             Parameter::MessagePublish(s, f, publish) => {
-                log::info!("{:?} message publish, {:?}", s.map(|s| &s.id), publish);
+                log::debug!("{:?} message publish, {:?}", s.map(|s| &s.id), publish);
                 if let Err(e) = self.bridge_mgr.send(f, publish).await {
                     log::error!("{:?}", e);
                 }
