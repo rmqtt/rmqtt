@@ -28,6 +28,7 @@ rmqtt-bridge-egress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-egress-mqtt" }
 rmqtt-bridge-ingress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-ingress-kafka" }
 rmqtt-bridge-egress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-egress-kafka" }
 rmqtt-auto-subscription = { path = "rmqtt-plugins/rmqtt-auto-subscription"}
+rmqtt-bridge-egress-pulsar = { path = "rmqtt-plugins/rmqtt-bridge-egress-pulsar"}
 
 [workspace.package]
 version = "0.7.0"
