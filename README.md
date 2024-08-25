@@ -29,6 +29,7 @@ and mobile applications that can handle millions of concurrent clients on a sing
 - [MQTT Bridging - Egress Mode](./docs/en_US/bridge-egress-mqtt.md)
 - [Kafka Bridging - Ingress Mode](./docs/en_US/bridge-ingress-kafka.md)
 - [Kafka Bridging - Egress Mode](./docs/en_US/bridge-egress-kafka.md)
+- Apache Pulsar Bridging - Egress Mode
 - [Topic Rewrite](./docs/en_US/topic-rewrite.md)
 - Shared subscription($share/{Group}/{TopicFilter});
 - Exclusive subscription($exclusive/{TopicFilter});
