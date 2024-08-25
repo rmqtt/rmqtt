@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use pulsar::compression::{Compression, CompressionLz4, CompressionSnappy, CompressionZlib, CompressionZstd};
 use serde::de::{Deserialize, Deserializer};
 
-use rmqtt::{HashMap, Result};
+use rmqtt::Result;
 
 use crate::bridge::BridgeName;
 
@@ -26,11 +26,26 @@ pub struct Bridge {
     #[serde(default)]
     pub auth: Auth,
 
+    // contains a list of PEM encoded certificates
     #[serde(default)]
-    pub properties: HashMap<String, String>,
+    pub cert_chain_file: Option<String>,
+    // allow insecure TLS connection if set to true
+    // defaults to *false*
+    #[serde(default)]
+    pub allow_insecure_connection: bool,
+    // whether hostname verification is enabled when insecure TLS connection is allowed
+    // defaults to *true*
+    #[serde(default = "Bridge::tls_hostname_verification_enabled_default")]
+    pub tls_hostname_verification_enabled: bool,
 
     #[serde(default)]
     pub entries: Vec<Entry>,
+}
+
+impl Bridge {
+    fn tls_hostname_verification_enabled_default() -> bool {
+        true
+    }
 }
 
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
