@@ -1,0 +1,54 @@
+##--------------------------------------------------------------------
+## rmqtt-bridge-egress-pulsar
+##--------------------------------------------------------------------
+
+# See more keys and their definitions at https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/bridge-egress-pulsar.md
+
+[[bridges]]
+# Whether to enable
+enable = true
+# Bridge name
+name = "bridge_pulsar_1"
+
+servers = "pulsar://127.0.0.1:6650"
+
+# producer name prefix
+producer_name_prefix = "producer_1"
+
+#token(JWT, Biscuit)/ or oauth2
+#auth.name = "token"
+#auth.data = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyX2lkIiwiZXhwIjoxNjI2NzY5MjAwLCJpYXQiOjE2MjY3NjU2MDB9.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+#auth.name = "oauth2"
+#auth.data = "{\"issuer_url\":\"https://example.com/oauth2/issuer\", \"credentials_url\":\"file:///path/to/credentials/file.json\"}"
+
+[[bridges.entries]]
+#Local topic filter: All messages matching this topic filter will be forwarded.
+local.topic_filter = "local/topic1/egress/#"
+
+remote.topic = "non-persistent://public/default/test1"
+#remote.forward_all_from = false
+#remote.forward_all_publish = false
+
+#key to decide partition for the message
+remote.partition_key = "key-001"
+#key to decide partition for the message
+#remote.ordering_key = ""
+#Override namespace's replication
+#remote.replicate_to = []
+#current version of the schema
+#remote.schema_version = ""
+
+#user defined properties added to all messages
+#remote.options.metadata = {}
+#algorithm used to compress the messages, value: lz4,zlib,zstd,snappy
+#remote.options.compression = "lz4"
+#producer access mode: shared = 0, exclusive = 1, waitforexclusive =2, exclusivewithoutfencing =3
+#remote.options.access_mode = 0
+
+[[bridges.entries]]
+#Local topic filter: All messages matching this topic filter will be forwarded.
+local.topic_filter = "local/topic2/egress/#"
+
+remote.topic = "non-persistent://public/default/test2"
+
+

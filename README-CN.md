@@ -28,6 +28,7 @@
 - [MQTT桥接-出口模式](./docs/zh_CN/bridge-egress-mqtt.md)
 - [Kafka桥接-入口模式](./docs/zh_CN/bridge-ingress-kafka.md)
 - [kafka桥接-出口模式](./docs/zh_CN/bridge-egress-kafka.md)
+- Apache Pulsar桥接-出口模式
 - [主题重写](./docs/zh_CN/topic-rewrite.md)
 - 共享订阅($share/{Group}/{TopicFilter});
 - 排它订阅($exclusive/{TopicFilter});
