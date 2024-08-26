@@ -1,14 +1,14 @@
 [English](../en_US/bridge-ingress-kafka.md)  | 简体中文
 
-# Kafka桥接-入口模式
+# Apache-Kafka桥接-入口模式
 
-在入口模式下，本地的 *RMQTT* 从桥接的远程 *Kafka* 服务器消费主题，并在当前集群内分发接收到的消息。
+在入口模式下，本地的 *RMQTT* 从桥接的远程 *Apache-Kafka* 服务器消费主题，并在当前集群内分发接收到的消息。
 
-在入口模式下，当您拥有多个节点的 *RMQTT* 集群并配置了一个入口 *Kafka* 桥接并消费主题时，如果所有节点桥接客户端都消费相同的主题，
-并且*remote.group_id*不同的情况下，它们将从远程 *Kafka* 服务器接收到重复的消息。反之，需要将各节点的*remote.group_id*设置
+在入口模式下，当您拥有多个节点的 *RMQTT* 集群并配置了一个入口 *Apache-Kafka* 桥接并消费主题时，如果所有节点桥接客户端都消费相同的主题，
+并且*remote.group_id*不同的情况下，它们将从远程 *Apache-Kafka* 服务器接收到重复的消息。反之，需要将各节点的*remote.group_id*设置
 为相同的组。
 
-*Kafka* 客户端ID生成规则：
+*Apache-Kafka* 客户端ID生成规则：
 ```
 ${client_id_prefix}:${bridge_name}:ingress:${node_id}:${topic_entry_index}
 ```
@@ -49,7 +49,7 @@ name = "bridge_kafka_2"
 [[bridges.entries]]
 消费主题配置
 ```
-通过配置文件结构可以看出，我们能够配置多个桥接，用于连接到不同的远程*Kafka*服务器。每个桥接连接，也可以配置多组消费主题。
+通过配置文件结构可以看出，我们能够配置多个桥接，用于连接到不同的远程*Apache-Kafka*服务器。每个桥接连接，也可以配置多组消费主题。
 
 
 #### 插件配置项：
@@ -107,7 +107,7 @@ local.topic = "local/topic2/ingress"
 
 ```
 
-默认情况下并没有启动此插件，如果要开启会话存储插件，必须在主配置文件“rmqtt.toml”中的“plugins.default_startups”配置中添加“rmqtt-bridge-ingress-kafka”项，如：
+默认情况下并没有启动此插件，如果要开启此插件，必须在主配置文件“rmqtt.toml”中的“plugins.default_startups”配置中添加“rmqtt-bridge-ingress-kafka”项，如：
 ```bash
 ##--------------------------------------------------------------------
 ## Plugins

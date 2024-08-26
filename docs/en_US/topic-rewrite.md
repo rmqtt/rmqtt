@@ -104,8 +104,8 @@ Six topic rewriting rules have been configured: `x/+/#`, `x/y/1`, `x/y/#`, `iot/
 - `a/1/2/3/4` does not match any topic rewriting rules.
 
 
-By default, this plugin is not activated. To enable the session storage plugin, you must add the "rmqtt-topic-rewrite"
-entry to the "plugins.default_startups" configuration in the main configuration file "rmqtt.toml", for example:
+By default, this plugin is not enabled. To activate it, you must add the `rmqtt-topic-rewrite` entry to the
+`plugins.default_startups` configuration in the main configuration file `rmqtt.toml`, as shown below:
 ```bash
 ##--------------------------------------------------------------------
 ## Plugins

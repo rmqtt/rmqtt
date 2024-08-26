@@ -1,19 +1,19 @@
 English | [简体中文](../zh_CN/bridge-egress-kafka.md)
 
-# Kafka Bridging - Egress Mode
+# Apache-Kafka Bridging - Egress Mode
 
-Kafka data bridging facilitates connectivity between our local MQTT environment and external Kafka clusters. 
-In egress mode, the local MQTT broker is configured to forward messages to the designated remote Kafka server.
+*Apache-Kafka* data bridging facilitates connectivity between our local MQTT environment and external *Apache-Kafka* clusters. 
+In egress mode, the local MQTT broker is configured to forward messages to the designated remote *Apache-Kafka* server.
 
 ### Concurrent Connections:
 
-MQTT provides the capability for multiple clients to establish concurrent connections to the bridged Kafka server. 
-The number of concurrent Kafka client connections can be customized during bridge configuration. By fine-tuning 
+MQTT provides the capability for multiple clients to establish concurrent connections to the bridged *Apache-Kafka* server. 
+The number of concurrent *Apache-Kafka* client connections can be customized during bridge configuration. By fine-tuning 
 this parameter, it is possible to maximize server resource utilization, leading to elevated message throughput and 
 enhanced concurrent performance. This feature is particularly valuable for applications that demand high-load and 
 high-concurrency processing.
 
-*Kafka* client ID generation rules:
+*Apache-Kafka* client ID generation rules:
 ```
 ${client_id_prefix}:${bridge_name}:egress:${node_id}:${entry_index}:${client_no}
 ```
@@ -21,9 +21,9 @@ ${client_id_prefix}:${bridge_name}:egress:${node_id}:${entry_index}:${client_no}
 | ---- |------------------------------------------------------------------------------------------------------------|
 | ${client_id_prefix} | Configured client ID prefix                                                                                |
 | ${bridge_name} | Name of the bridge                                                                                         |
-| ${node_id}  | Node ID running the Kafka client                                                                           |
+| ${node_id}  | Node ID running the *Apache-Kafka* client                                                                           |
 | ${entry_index} | Topic entry index                                                                                          |
-| ${client_no} | Number from 1 to the configured limit of concurrent *Kafka* client connections |
+| ${client_no} | Number from 1 to the configured limit of concurrent *Apache-Kafka* client connections |
 
 
 #### Plugin:
@@ -58,7 +58,7 @@ topic filter configuration
 ```
 
 The configuration file structure provides the capability to configure multiple bridges, each of which can connect 
-to a distinct remote Kafka server. Furthermore, multiple topic filter sets can be specified for each bridge connection.
+to a distinct remote *Apache-Kafka* server. Furthermore, multiple topic filter sets can be specified for each bridge connection.
 
 #### Plugin Configuration Options:
 ```bash
@@ -99,8 +99,8 @@ remote.topic = "remote-topic2-egress"
 #remote.partition = 0
 ```
 
-By default, this plugin is not activated. To enable the session storage plugin, you must add the "rmqtt-bridge-egress-kafka"
-entry to the "plugins.default_startups" configuration in the main configuration file "rmqtt.toml", for example:
+By default, this plugin is not enabled. To activate it, you must add the `rmqtt-bridge-egress-kafka` entry to the
+`plugins.default_startups` configuration in the main configuration file `rmqtt.toml`, as shown below:
 ```bash
 ##--------------------------------------------------------------------
 ## Plugins

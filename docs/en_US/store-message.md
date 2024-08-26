@@ -47,8 +47,8 @@ facilitates multiple RMQTT nodes using the same Redis storage service. {node} wi
 the current node.
 
 
-By default, this plugin is not enabled. To activate the message storage plugin, you must add the "rmqtt-message-storage" 
-item to the "plugins.default_startups" configuration in the main configuration file "rmqtt.toml", like this:
+By default, this plugin is not enabled. To activate it, you must add the `rmqtt-message-storage` entry to the
+`plugins.default_startups` configuration in the main configuration file `rmqtt.toml`, as shown below:
 ```bash
 ##--------------------------------------------------------------------
 ## Plugins

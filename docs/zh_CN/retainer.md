@@ -57,7 +57,7 @@ max_payload_size = "1MB"
 如果RMQTT部署为单机模式，那么“ram”、“sled”和“redis”都是支持的。如果RMQTT部署为集群模式，就只支持“redis”。
 
 
-默认情况下并没有启动此插件，如果要开启会话存储插件，必须在主配置文件“rmqtt.toml”中的“plugins.default_startups”配置中添加“rmqtt-retainer”项，如：
+默认情况下并没有启动此插件，如果要开启此插件，必须在主配置文件“rmqtt.toml”中的“plugins.default_startups”配置中添加“rmqtt-retainer”项，如：
 ```bash
 ##--------------------------------------------------------------------
 ## Plugins
