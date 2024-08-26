@@ -88,7 +88,7 @@ rules = [
 * a/1/2/3 匹配 a/+/+/+ 主题过滤器，通过正则替换，实际上订阅或发布主题为：aa/1/2/3
 * a/1/2/3/4 没能匹配上任何主题重写规则
 
-默认情况下并没有启动此插件，如果要开启会话存储插件，必须在主配置文件“rmqtt.toml”中的“plugins.default_startups”配置中添加“rmqtt-topic-rewrite”项，如：
+默认情况下并没有启动此插件，如果要开启此插件，必须在主配置文件“rmqtt.toml”中的“plugins.default_startups”配置中添加“rmqtt-topic-rewrite”项，如：
 ```bash
 ##--------------------------------------------------------------------
 ## Plugins

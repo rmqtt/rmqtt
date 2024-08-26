@@ -1,15 +1,15 @@
 English | [简体中文](../zh_CN/bridge-ingress-kafka.md)
 
-# Kafka Bridging - Ingress Mode
+# Apache-Kafka Bridging - Ingress Mode
 
-In ingress mode, the local RMQTT consumes topics from the bridged remote Kafka server and distributes the received 
+In ingress mode, the local RMQTT consumes topics from the bridged remote *Apache-Kafka* server and distributes the received 
 messages within the current cluster.
 
-If multiple nodes in an ingress RMQTT cluster consume the same Kafka topic with different remote.group_id values, 
+If multiple nodes in an ingress RMQTT cluster consume the same *Apache-Kafka* topic with different remote.group_id values, 
 they will receive duplicate messages. To prevent this, all nodes should use the same remote.group_id.
 
 
-Kafka client ID generation rules:
+*Apache-Kafka* client ID generation rules:
 ```
 ${client_id_prefix}:${bridge_name}:ingress:${node_id}:${topic_entry_index}
 ```
@@ -51,7 +51,7 @@ Consumer topic configuration
 Consumer topic configuration
 ```
 The configuration file structure indicates that we can configure multiple bridges to connect to different remote 
-Kafka servers. Each bridge connection can also be configured with multiple consumer topics.
+*Apache-Kafka* servers. Each bridge connection can also be configured with multiple consumer topics.
 
 #### Plugin Configuration Options:
 ```bash
@@ -106,9 +106,8 @@ local.topic = "local/topic2/ingress"
 #local.retain = false
 ```
 
-By default, this plugin is not activated. To enable the session storage plugin, you must add the "rmqtt-bridge-ingress-kafka"
-entry to the "plugins.default_startups" configuration in the main configuration file "rmqtt.toml", for example:
-
+By default, this plugin is not enabled. To activate it, you must add the `rmqtt-bridge-ingress-kafka` entry to the
+`plugins.default_startups` configuration in the main configuration file `rmqtt.toml`, as shown below:
 ```bash
 ##--------------------------------------------------------------------
 ## Plugins

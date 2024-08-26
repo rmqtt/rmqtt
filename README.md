@@ -27,9 +27,9 @@ and mobile applications that can handle millions of concurrent clients on a sing
 - [Store unexpired messages](./docs/en_US/store-message.md);
 - [MQTT Bridging - Ingress Mode](./docs/en_US/bridge-ingress-mqtt.md)
 - [MQTT Bridging - Egress Mode](./docs/en_US/bridge-egress-mqtt.md)
-- [Kafka Bridging - Ingress Mode](./docs/en_US/bridge-ingress-kafka.md)
-- [Kafka Bridging - Egress Mode](./docs/en_US/bridge-egress-kafka.md)
-- Apache Pulsar Bridging - Egress Mode
+- [Apache Kafka Bridging - Ingress Mode](./docs/en_US/bridge-ingress-kafka.md)
+- [Apache Kafka Bridging - Egress Mode](./docs/en_US/bridge-egress-kafka.md)
+- [Apache Pulsar Bridging - Egress Mode](./docs/en_US/bridge-egress-pulsar.md)
 - [Topic Rewrite](./docs/en_US/topic-rewrite.md)
 - Shared subscription($share/{Group}/{TopicFilter});
 - Exclusive subscription($exclusive/{TopicFilter});

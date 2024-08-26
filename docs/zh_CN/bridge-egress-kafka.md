@@ -1,15 +1,15 @@
 [English](../en_US/bridge-egress-kafka.md)  | 简体中文
 
-# Kafka桥接-出口模式
+# Apache-Kafka桥接-出口模式
 
-*Kafka*数据桥接是一种连接其他 *Kafka* 服务的方式。在出口模式下，本地的 RMQTT 将当前集群中的消息转发给桥接的远程 *Kafka* 服务器。
+*Apache-Kafka*数据桥接是一种连接其他 *Apache-Kafka* 服务的方式。在出口模式下，本地的 RMQTT 将当前集群中的消息转发给桥接的远程 *Apache-Kafka* 服务器。
 
 ### 并发连接：
 
-*RMQTT* 允许多个客户端同时连接到桥接的 *Kafka* 服务器。在创建桥接时您可以设置一个 *Kafka* 客户端并发连接数。合适的 *Kafka* 客户端并发连
+*RMQTT* 允许多个客户端同时连接到桥接的 *Apache-Kafka* 服务器。在创建桥接时您可以设置一个 *Apache-Kafka* 客户端并发连接数。合适的 *Apache-Kafka* 客户端并发连
 接数，可以充分利用服务器资源，以实现更大的消息吞吐和更好的并发性能。这对于处理高负载、高并发的场景非常重要。
 
-*Kafka* 客户端ID生成规则：
+*Apache-Kafka* 客户端ID生成规则：
 ```
 ${client_id_prefix}:${bridge_name}:egress:${node_id}:${entry_index}:${client_no}
 ```
@@ -19,7 +19,7 @@ ${client_id_prefix}:${bridge_name}:egress:${node_id}:${entry_index}:${client_no}
 | ${bridge_name} | 桥接的名称                           |
 | ${node_id}  | 运行 Kafka 客户端的节点ID               |
 | ${entry_index} | 主题配置项索引                         |
-| ${client_no} | 从 1 到配置的 *Kafka* 客户端并发连接限制大小的数字 |
+| ${client_no} | 从 1 到配置的 *Apache-Kafka* 客户端并发连接限制大小的数字 |
 
 #### 插件：
 
@@ -51,7 +51,7 @@ name = "bridge_name_2"
 [[bridges.entries]]
 主题过滤器配置
 ```
-通过配置文件结构可以看出，我们能够配置多个桥接，用于连接到不同的远程*Kafka*服务器。每个桥接连接，也可以配置多组主题过滤项。
+通过配置文件结构可以看出，我们能够配置多个桥接，用于连接到不同的远程*Apache-Kafka*服务器。每个桥接连接，也可以配置多组主题过滤项。
 
 #### 插件配置项：
 ```bash
@@ -92,7 +92,7 @@ remote.topic = "remote-topic2-egress"
 #remote.partition = 0
 ```
 
-默认情况下并没有启动此插件，如果要开启会话存储插件，必须在主配置文件“rmqtt.toml”中的“plugins.default_startups”配置中添加“rmqtt-bridge-egress-kafka”项，如：
+默认情况下并没有启动此插件，如果要开启此插件，必须在主配置文件“rmqtt.toml”中的“plugins.default_startups”配置中添加“rmqtt-bridge-egress-kafka”项，如：
 ```bash
 ##--------------------------------------------------------------------
 ## Plugins
