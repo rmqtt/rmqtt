@@ -1,8 +1,8 @@
-use bytestring::ByteString;
 use std::net::AddrParseError;
 use std::num::{ParseIntError, TryFromIntError};
 use std::str::Utf8Error;
 
+use bytestring::ByteString;
 use config::ConfigError;
 use ntex_mqtt::error::SendPacketError;
 use ntex_mqtt::v5;
@@ -54,6 +54,8 @@ pub enum MqttError {
     TooManySubscriptions,
     #[error("too many topic levels")]
     TooManyTopicLevels,
+    #[error("subscription limit reached, {0}")]
+    SubscribeLimited(String),
     #[error("{0}")]
     ConfigError(#[from] ConfigError),
     #[error("{0}")]

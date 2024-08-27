@@ -137,8 +137,8 @@ remote.retain = false
 remote.topic = "remote/topic/egress/a/a/${local.topic}"
 ```
 
-By default, this plugin is not activated. To enable the session storage plugin, you must add the "rmqtt-bridge-egress-mqtt"
-entry to the "plugins.default_startups" configuration in the main configuration file "rmqtt.toml", for example:
+By default, this plugin is not enabled. To activate it, you must add the `rmqtt-bridge-egress-mqtt` entry to the
+`plugins.default_startups` configuration in the main configuration file `rmqtt.toml`, as shown below:
 ```bash
 ##--------------------------------------------------------------------
 ## Plugins

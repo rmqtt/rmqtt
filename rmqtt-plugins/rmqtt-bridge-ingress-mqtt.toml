@@ -26,6 +26,14 @@ connect_timeout = "20s"
 keepalive = "60s"
 # Automatic reconnection interval
 reconnect_interval = "5s"
+
+## Whether to support retain message, true/false, default value: false
+retain_available = false
+## Whether to support storage messages, true/false, default value: false
+storage_available = false
+## Message expiration time, 0 means no expiration
+expiry_interval = "5m"
+
 # MQTT protocol version to use: v4, v5 corresponding to MQTT 3.1.1, 5.0
 mqtt_ver = "v4"
 
@@ -44,13 +52,6 @@ local.topic = "local/topic1/ingress/${remote.topic}"
 # true/false, default: false
 local.retain = true
 
-## Whether to support retain message, true/false, default value: false
-retain_available = false
-## Whether to support storage messages, true/false, default value: false
-storage_available = false
-## Message expiration time, 0 means no expiration
-expiry_interval = "5m"
-
 [[bridges.entries]]
 # Choose 0, 1, 2
 remote.qos = 1
@@ -60,13 +61,6 @@ remote.topic = "$share/g/remote/topic2/ingress"
 # local.qos = 0
 local.topic = "local/topic2/ingress"
 local.retain = false
-
-## Whether to support retain message, true/false, default value: false
-retain_available = false
-## Whether to support storage messages, true/false, default value: false
-storage_available = false
-## Message expiration time, 0 means no expiration
-expiry_interval = "5m"
 
 [[bridges]]
 # Whether to enable
@@ -90,6 +84,14 @@ connect_timeout = "20s"
 keepalive = "60s"
 # Automatic reconnection interval
 reconnect_interval = "5s"
+
+## Whether to support retain message, true/false, default value: false
+retain_available = false
+## Whether to support storage messages, true/false, default value: false
+storage_available = false
+## Message expiration time, 0 means no expiration
+expiry_interval = "5m"
+
 # MQTT protocol version to use: v4, v5 corresponding to MQTT 3.1.1, 5.0
 mqtt_ver = "v5"
 
@@ -116,13 +118,6 @@ local.topic = "local/topic3/ingress/${remote.topic}"
 # true/false, default: false
 local.retain = true
 
-## Whether to support retain message, true/false, default value: false
-retain_available = false
-## Whether to support storage messages, true/false, default value: false
-storage_available = false
-## Message expiration time, 0 means no expiration
-expiry_interval = "5m"
-
 [[bridges.entries]]
 # Choose 0, 1, 2
 remote.qos = 1
@@ -133,9 +128,3 @@ remote.topic = "$share/g/remote/topic4/ingress"
 local.topic = "local/topic4/ingress"
 local.retain = false
 
-## Whether to support retain message, true/false, default value: false
-retain_available = false
-## Whether to support storage messages, true/false, default value: false
-storage_available = false
-## Message expiration time, 0 means no expiration
-expiry_interval = "5m"

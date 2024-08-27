@@ -211,6 +211,9 @@ pub trait Router: Sync + Send {
 
     ///get subscription relations
     async fn list_relations(&self, top: usize) -> Vec<serde_json::Value>;
+
+    ///all relations
+    fn relations(&self) -> &AllRelationsMap;
 }
 
 #[async_trait]
@@ -359,3 +362,41 @@ impl DefaultMessageManager {
 }
 
 impl MessageManager for &'static DefaultMessageManager {}
+
+#[async_trait]
+pub trait DelayedSender: Sync + Send {
+    ///Parse the topic and extract the delayed sending parameters.
+    fn parse(&self, publish: Publish) -> Result<Publish>;
+
+    ///Delayed publish
+    async fn delay_publish(
+        &self,
+        from: From,
+        publish: Publish,
+        retain_available: bool,
+        message_storage_available: bool,
+        message_expiry_interval: Option<Duration>,
+    ) -> Result<Option<(From, Publish)>>;
+
+    ///Delayed message count
+    async fn len(&self) -> usize;
+
+    #[inline]
+    async fn is_empty(&self) -> bool {
+        self.len().await == 0
+    }
+}
+
+//Automatic subscription
+#[async_trait]
+pub trait AutoSubscription: Sync + Send {
+    #[inline]
+    fn enable(&self) -> bool {
+        false
+    }
+
+    #[inline]
+    async fn subscribe(&self, _id: &Id, _msg_tx: &Tx) -> Result<()> {
+        Ok(())
+    }
+}

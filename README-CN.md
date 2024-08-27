@@ -26,12 +26,19 @@
 - [存储未过期消息](./docs/zh_CN/store-message.md);
 - [MQTT桥接-入口模式](./docs/zh_CN/bridge-ingress-mqtt.md)
 - [MQTT桥接-出口模式](./docs/zh_CN/bridge-egress-mqtt.md)
+- [Apache Kafka桥接-入口模式](./docs/zh_CN/bridge-ingress-kafka.md)
+- [Apache kafka桥接-出口模式](./docs/zh_CN/bridge-egress-kafka.md)
+- [Apache Pulsar桥接-出口模式](./docs/zh_CN/bridge-egress-pulsar.md)
+- [主题重写](./docs/zh_CN/topic-rewrite.md)
+- 共享订阅($share/{Group}/{TopicFilter});
+- 排它订阅($exclusive/{TopicFilter});
+- 限制订阅($limit/{LimitQuantity}/{TopicFilter});
+- 延迟发布($delayed/{DelayInterval}/{TopicName});
 - 分布式集群;
 - 钩子(Hooks);
 - TLS支持;
 - WebSocket支持;
 - WebSocket-TLS支持;
-- 共享订阅($share/{group}/topic);
 - 内置可扩展功能;
 - 支持扩展插件;
 - 指标监控;

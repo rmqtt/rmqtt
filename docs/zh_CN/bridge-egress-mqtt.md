@@ -23,7 +23,7 @@ ${client_id_prefix}:${bridge_name}:egress:${node_id}:${entry_index}:${client_no}
 | ${client_id_prefix} | 配置的客户端 ID 前缀               |
 | ${bridge_name} | 桥接的名称                      |
 | ${node_id}  | 运行 MQTT 客户端的节点ID           |
-| ${subscribe_entry_index} | 订阅项索引                      |
+| ${entry_index} | 订阅项索引                      |
 | ${client_no} | 从 1 到配置的 MQTT 客户端并发连接限制大小的数字 |
 
 #### 插件：
@@ -41,7 +41,7 @@ plugins/rmqtt-bridge-egress-mqtt.toml
 #### 插件配置结构：
 ```bash
 [[bridges]]
-name = "bridge_name_1"
+name = "bridge_kafka_1"
 连接配置
 [[bridges.entries]]
 主题过滤器配置
@@ -49,7 +49,7 @@ name = "bridge_name_1"
 主题过滤器配置
 
 [[bridges]]
-name = "bridge_name_2"
+name = "bridge_kafka_2"
 连接配置
 [[bridges.entries]]
 主题过滤器配置
@@ -133,7 +133,7 @@ remote.retain = false
 remote.topic = "remote/topic/egress/a/a/${local.topic}"
 ```
 
-默认情况下并没有启动此插件，如果要开启会话存储插件，必须在主配置文件“rmqtt.toml”中的“plugins.default_startups”配置中添加“rmqtt-bridge-egress-mqtt”项，如：
+默认情况下并没有启动此插件，如果要开启此插件，必须在主配置文件“rmqtt.toml”中的“plugins.default_startups”配置中添加“rmqtt-bridge-egress-mqtt”项，如：
 ```bash
 ##--------------------------------------------------------------------
 ## Plugins

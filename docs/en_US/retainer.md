@@ -66,8 +66,9 @@ no limit; "max_payload_size" limits the size of message payloads.
 If RMQTT is deployed in single-node mode, then "ram", "sled", and "redis" are all supported storage modes. However, 
 if RMQTT is deployed in cluster mode, only "redis" is supported.
 
-By default, this plugin is not activated. To enable the session storage plugin, you must add the "rmqtt-retainer" item to 
-the "plugins.default_startups" configuration in the main configuration file "rmqtt.toml", like this:
+
+By default, this plugin is not enabled. To activate it, you must add the `rmqtt-retainer` entry to the
+`plugins.default_startups` configuration in the main configuration file `rmqtt.toml`, as shown below:
 ```bash
 ##--------------------------------------------------------------------
 ## Plugins

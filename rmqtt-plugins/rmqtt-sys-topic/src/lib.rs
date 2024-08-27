@@ -20,8 +20,8 @@ use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::types::{From, Id, QoSEx},
     plugin::{PackageInfo, Plugin},
-    register, ClientId, NodeId, Publish, PublishProperties, QoS, Result, Runtime, SessionState, TopicName,
-    UserName,
+    register, timestamp_millis, ClientId, NodeId, Publish, PublishProperties, QoS, Result, Runtime,
+    SessionState, TopicName, UserName,
 };
 use std::convert::From as _;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -382,7 +382,8 @@ async fn sys_publish(
                 packet_id: None,
                 payload: Bytes::from(payload),
                 properties: PublishProperties::default(),
-                create_time: chrono::Local::now().timestamp_millis(),
+                delay_interval: None,
+                create_time: timestamp_millis(),
             };
 
             //hook, message_publish

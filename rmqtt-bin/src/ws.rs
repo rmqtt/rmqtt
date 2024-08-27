@@ -189,6 +189,7 @@ fn to_error(e: WSError) -> io::Error {
     }
 }
 
+#[allow(clippy::result_large_err)]
 fn on_handshake(req: &Request, mut response: Response) -> std::result::Result<Response, ErrorResponse> {
     const PROTOCOL_ERROR: &str = "No \"Sec-WebSocket-Protocol: mqtt\" in client request";
     let mqtt_protocol = req

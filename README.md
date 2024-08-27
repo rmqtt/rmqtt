@@ -27,12 +27,19 @@ and mobile applications that can handle millions of concurrent clients on a sing
 - [Store unexpired messages](./docs/en_US/store-message.md);
 - [MQTT Bridging - Ingress Mode](./docs/en_US/bridge-ingress-mqtt.md)
 - [MQTT Bridging - Egress Mode](./docs/en_US/bridge-egress-mqtt.md)
+- [Apache Kafka Bridging - Ingress Mode](./docs/en_US/bridge-ingress-kafka.md)
+- [Apache Kafka Bridging - Egress Mode](./docs/en_US/bridge-egress-kafka.md)
+- [Apache Pulsar Bridging - Egress Mode](./docs/en_US/bridge-egress-pulsar.md)
+- [Topic Rewrite](./docs/en_US/topic-rewrite.md)
+- Shared subscription($share/{Group}/{TopicFilter});
+- Exclusive subscription($exclusive/{TopicFilter});
+- Limit subscription($limit/{LimitQuantity}/{TopicFilter});
+- Delayed publish($delayed/{DelayInterval}/{TopicName});
 - Distributed cluster;
 - Hooks;
 - TLS support;
 - WebSocket support;
 - WebSocket-TLS support;
-- Shared subscription($share/{group}/topic);
 - Built-in extensible components;
 - Extensible plug-in support;
 - Metrics & Stats;

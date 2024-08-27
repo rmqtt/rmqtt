@@ -826,7 +826,7 @@ impl SessionState {
     }
 
     #[inline]
-    pub(crate) async fn subscribe(&self, sub: Subscribe) -> Result<SubscribeReturn> {
+    pub async fn subscribe(&self, sub: Subscribe) -> Result<SubscribeReturn> {
         let ret = self._subscribe(sub).await;
         match &ret {
             Ok(sub_ret) => match sub_ret.ack_reason {
@@ -861,6 +861,30 @@ impl SessionState {
             && Topic::from_str(&sub.topic_filter)?.len() > listen_cfg.max_topic_levels
         {
             return Err(MqttError::TooManyTopicLevels);
+        }
+
+        if let Some(limit) = sub.opts.limit_subs() {
+            let (allow, count) = Runtime::instance()
+                .extends
+                .router()
+                .await
+                .relations()
+                .get(&sub.topic_filter)
+                .map(|rels| {
+                    if rels.value().contains_key(&self.id.client_id) {
+                        (true, rels.value().len() - 1)
+                    } else {
+                        let c = rels.value().len();
+                        (c < limit, c)
+                    }
+                })
+                .unwrap_or((true, 0));
+            if !allow {
+                return Err(MqttError::SubscribeLimited(format!(
+                    "limited: {}, current count: {}, topic_filter: {}",
+                    limit, count, sub.topic_filter
+                )));
+            }
         }
 
         sub.opts.set_qos(sub.opts.qos().less_value(listen_cfg.max_qos_allowed));
@@ -1004,8 +1028,13 @@ impl SessionState {
     }
 
     #[inline]
-    async fn publish(&self, publish: Publish) -> Result<bool> {
+    async fn publish(&self, mut publish: Publish) -> Result<bool> {
         let from = From::from_custom(self.id.clone());
+
+        let listen_cfg = self.listen_cfg();
+        if self.listen_cfg().delayed_publish {
+            publish = Runtime::instance().extends.delayed_sender().await.parse(publish)?;
+        }
 
         //hook, message_publish
         let publish = self.hook.message_publish(from.clone(), &publish).await.unwrap_or(publish);
@@ -1031,8 +1060,6 @@ impl SessionState {
             };
         }
 
-        let listen_cfg = self.listen_cfg();
-
         let message_storage_available = Runtime::instance().extends.message_mgr().await.enable();
 
         let message_expiry_interval =
@@ -1041,6 +1068,44 @@ impl SessionState {
             } else {
                 None
             };
+
+        //delayed publish
+        if publish.delay_interval.is_some() {
+            if let Some((f, p)) = Runtime::instance()
+                .extends
+                .delayed_sender()
+                .await
+                .delay_publish(
+                    from,
+                    publish,
+                    listen_cfg.retain_available,
+                    message_storage_available,
+                    message_expiry_interval,
+                )
+                .await?
+            {
+                if Runtime::instance().settings.mqtt.delayed_publish_immediate {
+                    Self::forwards(
+                        f,
+                        p,
+                        listen_cfg.retain_available,
+                        message_storage_available,
+                        message_expiry_interval,
+                    )
+                    .await?;
+                } else {
+                    //hook, Message dropped
+                    Runtime::instance()
+                        .extends
+                        .hook_mgr()
+                        .await
+                        .message_dropped(None, f, p, Reason::DelayedPublishRefused)
+                        .await;
+                    return Ok(false);
+                }
+            }
+            return Ok(true);
+        }
 
         Self::forwards(
             from,

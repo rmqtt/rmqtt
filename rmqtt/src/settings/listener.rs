@@ -228,6 +228,11 @@ pub struct ListenerInner {
     pub cross_certificate: bool,
     pub cert: Option<String>,
     pub key: Option<String>,
+
+    #[serde(default)]
+    pub limit_subscription: bool,
+    #[serde(default)]
+    pub delayed_publish: bool,
 }
 
 impl Default for ListenerInner {
@@ -265,6 +270,8 @@ impl Default for ListenerInner {
             cross_certificate: ListenerInner::cross_certificate_default(),
             cert: None,
             key: None,
+            limit_subscription: false,
+            delayed_publish: false,
         }
     }
 }
@@ -359,7 +366,7 @@ impl ListenerInner {
     }
     #[inline]
     fn retain_available_default() -> bool {
-        true
+        false
     }
     #[inline]
     fn session_expiry_interval_default() -> Duration {

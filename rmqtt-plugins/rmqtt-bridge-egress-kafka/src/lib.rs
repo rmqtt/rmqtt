@@ -76,7 +76,7 @@ impl BridgeKafkaEgressPlugin {
 impl Plugin for BridgeKafkaEgressPlugin {
     #[inline]
     async fn init(&mut self) -> Result<()> {
-        log::debug!("{} init", self.name());
+        log::info!("{} init", self.name());
         self.register.add(Type::MessagePublish, Box::new(HookHandler::new(self.bridge_mgr.clone()))).await;
         Ok(())
     }

@@ -19,10 +19,14 @@ path = "src/server.rs"
 [target.'cfg(target_os = "linux")'.dependencies]
 tikv-jemallocator = "0.5"
 
+[target.'cfg(not(windows))'.dependencies]
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "logging", "std", "tls12"] }
+
+[target.'cfg(windows)'.dependencies]
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
+
 [dependencies]
-rustls = "0.23"
 rustls-pemfile = "2"
-aws-lc-rs = "1.8"
 
 ##mqtt broker
 rmqtt.workspace = true
@@ -38,9 +42,13 @@ rmqtt-retainer = "0.1"
 rmqtt-sys-topic = "0.1"
 rmqtt-session-storage = "0.1"
 rmqtt-message-storage = "0.1"
+rmqtt-topic-rewrite = "0.1"
 rmqtt-bridge-ingress-mqtt = "0.1"
 rmqtt-bridge-egress-mqtt = "0.1"
 rmqtt-bridge-egress-kafka = "0.1"
+rmqtt-bridge-ingress-kafka = "0.1"
+rmqtt-bridge-egress-pulsar = "0.1"
+rmqtt-auto-subscription = "0.1"
 rmqtt-plugin-template = "0.1"
 
 [package.metadata.plugins]
@@ -55,9 +63,13 @@ rmqtt-retainer = { }
 rmqtt-sys-topic = { }
 rmqtt-session-storage = { immutable = true }
 rmqtt-message-storage = { immutable = true }
+rmqtt-topic-rewrite = { }
 rmqtt-bridge-ingress-mqtt = { }
 rmqtt-bridge-egress-mqtt = { }
 rmqtt-bridge-egress-kafka = { }
+rmqtt-bridge-ingress-kafka = { }
+rmqtt-bridge-egress-pulsar = { }
+rmqtt-auto-subscription = { }
 rmqtt-plugin-template = { }
 
 [build-dependencies]

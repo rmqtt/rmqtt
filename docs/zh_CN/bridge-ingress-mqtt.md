@@ -90,6 +90,12 @@ connect_timeout = "20s"
 keepalive = "60s"
 #自动重连间隔
 reconnect_interval = "5s"
+#是否支持保持消息, 值：true/false, 默认: false
+retain_available = false
+#是否支持存储消息, 值：true/false, 默认: false
+storage_available = false
+#消息过期时间, 0 表示不过期
+expiry_interval = "5m"
 #使用的MQTT协议版本号，有：v4,v5, 分别对应MQTT 3.1.1, 5.0
 mqtt_ver = "v4"
 
@@ -126,14 +132,6 @@ local.topic = "local/topic1/ingress/${remote.topic}"
 #保持消息，值：true/false, 默认: false
 local.retain = true
 
-##其它配置项
-# 是否支持保持消息, 值：true/false, 默认: false
-retain_available = false
-# 是否支持存储消息, 值：true/false, 默认: false
-storage_available = false
-# 消息过期时间, 0 表示不过期
-expiry_interval = "5m"
-
 [[bridges.entries]]
 #订阅QoS, 值：0,1,2, 默认: 0
 remote.qos = 1
@@ -147,17 +145,9 @@ local.topic = "local/topic2/ingress"
 #保持消息，值：true/false, 默认: false
 local.retain = false
 
-##其它配置项
-# 是否支持保持消息, 值：true/false, 默认: false
-retain_available = false
-# 是否支持存储消息, 值：true/false, 默认: false
-storage_available = false
-# 消息过期时间, 0 表示不过期
-expiry_interval = "5m"
-
 ```
 
-默认情况下并没有启动此插件，如果要开启会话存储插件，必须在主配置文件“rmqtt.toml”中的“plugins.default_startups”配置中添加“rmqtt-bridge-ingress-mqtt”项，如：
+默认情况下并没有启动此插件，如果要开启此插件，必须在主配置文件“rmqtt.toml”中的“plugins.default_startups”配置中添加“rmqtt-bridge-ingress-mqtt”项，如：
 ```bash
 ##--------------------------------------------------------------------
 ## Plugins

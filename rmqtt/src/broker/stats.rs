@@ -161,6 +161,7 @@ pub struct Stats {
     pub forwards: Counter,
     pub message_storages: Counter,
     pub retaineds: Counter,
+    pub delayed_publishs: Counter,
 
     topics_map: HashMap<NodeId, Counter>,
     routes_map: HashMap<NodeId, Counter>,
@@ -199,6 +200,7 @@ impl Stats {
             forwards: Counter::new(),
             message_storages: Counter::new(),
             retaineds: Counter::new(),
+            delayed_publishs: Counter::new(),
 
             topics_map: HashMap::default(),
             routes_map: HashMap::default(),
@@ -250,6 +252,12 @@ impl Stats {
             Counter::new_with(retain.count().await, retain.max().await, retain.stats_merge_mode())
         };
 
+        {
+            let delayed_sender = Runtime::instance().extends.delayed_sender().await;
+            self.delayed_publishs.current_set(delayed_sender.len().await as isize);
+            // self.delayed_publishs.max_max(message_mgr.max().await);
+        }
+
         #[cfg(feature = "debug")]
         let shared = Runtime::instance().extends.shared().await;
 
@@ -285,6 +293,7 @@ impl Stats {
             in_inflights: self.in_inflights.clone(),
             forwards: self.forwards.clone(),
             message_storages: self.message_storages.clone(),
+            delayed_publishs: self.delayed_publishs.clone(),
 
             retaineds,
             topics_map,
@@ -322,6 +331,7 @@ impl Stats {
         self.forwards.add(&other.forwards);
         self.message_storages.add(&other.message_storages);
         self.retaineds.merge(&other.retaineds);
+        self.delayed_publishs.merge(&other.delayed_publishs);
 
         self.topics_map.extend(other.topics_map);
         self.routes_map.extend(other.routes_map);
@@ -386,6 +396,8 @@ impl Stats {
             "forwards.max": self.forwards.max(),
             "message_storages.count": self.message_storages.count(),
             "message_storages.max": self.message_storages.max(),
+            "delayed_publishs.count": self.delayed_publishs.count(),
+            "delayed_publishs.max": self.delayed_publishs.max(),
 
             "topics.count": topics.count(),
             "topics.max": topics.max(),

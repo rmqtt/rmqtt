@@ -260,6 +260,14 @@ async fn _handshake<Io: 'static>(
         });
     }
 
+    //automatic subscription
+    let auto_subscription = Runtime::instance().extends.auto_subscription().await;
+    if auto_subscription.enable() {
+        if let Some(tx) = &state.tx {
+            auto_subscription.subscribe(state.id(), tx).await?;
+        }
+    }
+
     Ok(handshake.ack(state, session_present).idle_timeout(keep_alive))
 }
 
@@ -267,10 +275,11 @@ async fn subscribes(
     state: &v3::Session<SessionState>,
     mut subs: v3::control::Subscribe,
 ) -> Result<v3::ControlResult> {
-    let shared_subscription_supported =
+    let shared_subscription =
         Runtime::instance().extends.shared_subscription().await.is_supported(state.listen_cfg());
+    let limit_subscription = state.listen_cfg().limit_subscription;
     for mut sub in subs.iter_mut() {
-        let s = Subscribe::from_v3(sub.topic(), sub.qos(), shared_subscription_supported)?;
+        let s = Subscribe::from_v3(sub.topic(), sub.qos(), shared_subscription, limit_subscription)?;
         let sub_ret = state.subscribe(s).await?;
         if let Some(qos) = sub_ret.success() {
             sub.confirm(qos)
@@ -285,10 +294,11 @@ async fn unsubscribes(
     state: &v3::Session<SessionState>,
     unsubs: v3::control::Unsubscribe,
 ) -> Result<v3::ControlResult> {
-    let shared_subscription_supported =
+    let shared_subscription =
         Runtime::instance().extends.shared_subscription().await.is_supported(state.listen_cfg());
+    let limit_subscription = state.listen_cfg().limit_subscription;
     for topic_filter in unsubs.iter() {
-        let unsub = Unsubscribe::from(topic_filter, shared_subscription_supported)?;
+        let unsub = Unsubscribe::from(topic_filter, shared_subscription, limit_subscription)?;
         state.unsubscribe(unsub).await?;
     }
     Ok(unsubs.ack())

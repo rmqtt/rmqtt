@@ -2,21 +2,7 @@
 resolver = "2"
 members = [
     "rmqtt",
-    "rmqtt-plugins/rmqtt-plugin-template",
-    "rmqtt-plugins/rmqtt-acl",
-    "rmqtt-plugins/rmqtt-web-hook",
-    "rmqtt-plugins/rmqtt-auth-http",
-    "rmqtt-plugins/rmqtt-cluster-broadcast",
-    "rmqtt-plugins/rmqtt-cluster-raft",
-    "rmqtt-plugins/rmqtt-counter",
-    "rmqtt-plugins/rmqtt-http-api",
-    "rmqtt-plugins/rmqtt-retainer",
-    "rmqtt-plugins/rmqtt-sys-topic",
-    "rmqtt-plugins/rmqtt-session-storage",
-    "rmqtt-plugins/rmqtt-message-storage",
-    "rmqtt-plugins/rmqtt-bridge-ingress-mqtt",
-    "rmqtt-plugins/rmqtt-bridge-egress-mqtt",
-    "rmqtt-plugins/rmqtt-bridge-egress-kafka",
+    "rmqtt-plugins/*",
     "rmqtt-bin",
     "rmqtt-macros"
 ]
@@ -36,12 +22,16 @@ rmqtt-retainer = { path = "rmqtt-plugins/rmqtt-retainer" }
 rmqtt-sys-topic = { path = "rmqtt-plugins/rmqtt-sys-topic" }
 rmqtt-session-storage = { path = "rmqtt-plugins/rmqtt-session-storage" }
 rmqtt-message-storage = { path = "rmqtt-plugins/rmqtt-message-storage" }
+rmqtt-topic-rewrite = { path = "rmqtt-plugins/rmqtt-topic-rewrite" }
 rmqtt-bridge-ingress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-ingress-mqtt" }
 rmqtt-bridge-egress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-egress-mqtt" }
+rmqtt-bridge-ingress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-ingress-kafka" }
 rmqtt-bridge-egress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-egress-kafka" }
+rmqtt-auto-subscription = { path = "rmqtt-plugins/rmqtt-auto-subscription"}
+rmqtt-bridge-egress-pulsar = { path = "rmqtt-plugins/rmqtt-bridge-egress-pulsar"}
 
 [workspace.package]
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 authors = ["rmqtt <rmqttd@126.com>"]
 description = "MQTT Server for v3.1, v3.1.1 and v5.0 protocols"
@@ -54,7 +44,7 @@ rust-version = "1.71.1"
 
 
 [workspace.dependencies]
-rmqtt = "0.6"
+rmqtt = "0.7"
 rmqtt-macros = "0.1"
 serde = "1.0"
 

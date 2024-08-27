@@ -50,8 +50,8 @@ currently only supports single node configuration. The prefix configuration faci
 storage services by different RMQTT nodes. {node} will be replaced with the current node identifier.
 
 
-By default, this plugin is not enabled. To activate the session storage plugin, you must add the "rmqtt-session-storage" 
-entry to the "plugins.default_startups" configuration in the main configuration file "rmqtt.toml", like so:
+By default, this plugin is not enabled. To activate it, you must add the `rmqtt-session-storage` entry to the
+`plugins.default_startups` configuration in the main configuration file `rmqtt.toml`, as shown below:
 ```bash
 ##--------------------------------------------------------------------
 ## Plugins

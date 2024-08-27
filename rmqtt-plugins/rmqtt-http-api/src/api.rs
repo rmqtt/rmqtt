@@ -11,11 +11,11 @@ use salvo::prelude::*;
 use rmqtt::{
     anyhow::{self, anyhow},
     base64::prelude::{Engine, BASE64_STANDARD},
-    bytes, chrono, futures, log,
+    bytes, futures, log,
     serde_json::{self, json},
     tokio,
     tokio::sync::oneshot,
-    HashMap, SessionState,
+    HashMap,
 };
 use rmqtt::{
     broker::types::NodeId,
@@ -24,8 +24,8 @@ use rmqtt::{
         MessageSender, MessageType,
     },
     node::NodeStatus,
-    ClientId, From, Id, MqttError, Publish, PublishProperties, QoS, Result, Runtime, SubsSearchParams,
-    TopicFilter, TopicName, UserName,
+    timestamp_millis, ClientId, From, Id, MqttError, Publish, PublishProperties, QoS, Result, Runtime,
+    SessionState, SubsSearchParams, TopicFilter, TopicName, UserName,
 };
 
 use super::types::{
@@ -623,13 +623,14 @@ async fn kick_client(req: &mut Request, res: &mut Response) {
             .shared()
             .await
             .entry(Id::from(Runtime::instance().node.id(), ClientId::from(clientid)));
-
-        match entry.kick(true, true, true).await {
-            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
-            Ok(None) => {
-                res.status_code(StatusCode::NOT_FOUND);
+        let s = entry.session();
+        if let Some(s) = s {
+            match entry.kick(true, true, true).await {
+                Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+                Ok(_) => res.render(Json(s.id.to_json())),
             }
-            Ok(Some(offline_info)) => res.render(Text::Plain(offline_info.id.to_string())),
+        } else {
+            res.status_code(StatusCode::NOT_FOUND);
         }
     } else {
         res.render(StatusError::bad_request())
@@ -816,7 +817,8 @@ async fn _publish(
         packet_id: None,
         payload,
         properties: PublishProperties::default(),
-        create_time: chrono::Local::now().timestamp_millis(),
+        delay_interval: None,
+        create_time: timestamp_millis(),
     };
 
     let message_expiry_interval = params

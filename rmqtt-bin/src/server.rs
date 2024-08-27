@@ -2,7 +2,10 @@
 
 use std::{fs::File, io::BufReader, process, sync::Arc, time::Duration};
 
+#[cfg(not(target_os = "windows"))]
 use rustls::crypto::aws_lc_rs as provider;
+#[cfg(target_os = "windows")]
+use rustls::crypto::ring as provider;
 use rustls::server::WebPkiClientVerifier;
 use rustls::{RootCertStore, ServerConfig};
 
@@ -212,7 +215,7 @@ async fn listen_tls(name: String, listen_cfg: &Listener) -> Result<()> {
         )?);
 
         let cert_chain = rustls_pemfile::certs(cert_file).collect::<Result<Vec<_>, _>>()?;
-        let key = rustls_pemfile::private_key(key_file)?.ok_or::<MqttError>("cert_file is None".into())?;
+        let key = rustls_pemfile::private_key(key_file)?.ok_or::<MqttError>("key_file is None".into())?;
 
         let provider = Arc::new(provider::default_provider());
         let client_auth = if listen_cfg.cross_certificate {
@@ -445,7 +448,7 @@ async fn listen_wss(name: String, listen_cfg: &Listener) -> Result<()> {
         )?);
 
         let cert_chain = rustls_pemfile::certs(cert_file).collect::<Result<Vec<_>, _>>()?;
-        let key = rustls_pemfile::private_key(key_file)?.ok_or::<MqttError>("cert_file is None".into())?;
+        let key = rustls_pemfile::private_key(key_file)?.ok_or::<MqttError>("key_file is None".into())?;
 
         let provider = Arc::new(provider::default_provider());
         let client_auth = if listen_cfg.cross_certificate {
