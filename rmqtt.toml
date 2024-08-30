@@ -56,7 +56,7 @@ rpc.client_timeout = "10s"
 ## Log
 ##--------------------------------------------------------------------
 # Value: off | file | console | both
-log.to = "console"
+log.to = "both"
 # Value: trace, debug, info, warn, error
 log.level = "info"
 log.dir = "/var/log/rmqtt"
