@@ -99,16 +99,21 @@ impl ClusterPlugin {
 
     //raft init ...
     async fn start_raft(cfg: Arc<PluginConfig>, router: &'static ClusterRouter) -> Result<Mailbox> {
+        let logger = Runtime::instance().logger.clone();
         let raft_peer_addrs = cfg.raft_peer_addrs.clone();
 
         let id = Runtime::instance().node.id();
-        let raft_laddr = raft_peer_addrs
+
+        let raft_node_addr = raft_peer_addrs
             .iter()
             .find(|peer| peer.id == id)
             .map(|peer| peer.addr.to_string())
             .ok_or_else(|| MqttError::from("raft listening address does not exist"))?;
-        let logger = Runtime::instance().logger.clone();
-        log::info!("raft_laddr: {:?}", raft_laddr);
+
+        let raft_laddr =
+            if let Some(laddr) = cfg.laddr.as_ref() { laddr.to_string() } else { raft_node_addr.clone() };
+
+        log::info!("raft_laddr: {:?}, raft_node_addr: {:?}", raft_laddr, raft_node_addr);
 
         //verify the listening address
         if cfg.verify_addr {
@@ -183,7 +188,7 @@ impl ClusterPlugin {
                             leader_id,
                             leader_addr
                         );
-                        tokio::spawn(raft.join(id, Some(leader_id), leader_addr)).await
+                        tokio::spawn(raft.join(id, raft_node_addr, Some(leader_id), leader_addr)).await
                     }
                     None => {
                         log::info!("running in leader mode");
