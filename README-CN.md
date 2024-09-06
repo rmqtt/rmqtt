@@ -30,6 +30,7 @@
 - [Apache kafka桥接-出口模式](./docs/zh_CN/bridge-egress-kafka.md)
 - [Apache Pulsar桥接-出口模式](./docs/zh_CN/bridge-egress-pulsar.md)
 - [主题重写](./docs/zh_CN/topic-rewrite.md)
+- [自动订阅](./docs/zh_CN/auto-subscription.md)
 - 共享订阅($share/{Group}/{TopicFilter});
 - 排它订阅($exclusive/{TopicFilter});
 - 限制订阅($limit/{LimitQuantity}/{TopicFilter});

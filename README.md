@@ -31,6 +31,7 @@ and mobile applications that can handle millions of concurrent clients on a sing
 - [Apache Kafka Bridging - Egress Mode](./docs/en_US/bridge-egress-kafka.md)
 - [Apache Pulsar Bridging - Egress Mode](./docs/en_US/bridge-egress-pulsar.md)
 - [Topic Rewrite](./docs/en_US/topic-rewrite.md)
+- [Auto Subscription](./docs/en_US/auto-subscription.md)
 - Shared subscription($share/{Group}/{TopicFilter});
 - Exclusive subscription($exclusive/{TopicFilter});
 - Limit subscription($limit/{LimitQuantity}/{TopicFilter});
