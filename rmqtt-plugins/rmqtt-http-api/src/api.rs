@@ -56,7 +56,7 @@ impl Handler for BearerValidator {
 }
 
 fn route(cfg: PluginConfigType, token: Option<String>) -> Router {
-    let mut router = Router::with_path("api/v1").hoop(affix::inject(cfg)).hoop(api_logger);
+    let mut router = Router::with_path("api/v1").hoop(affix_state::inject(cfg)).hoop(api_logger);
     if let Some(token) = token {
         router = router.hoop(BearerValidator::new(&token));
     }

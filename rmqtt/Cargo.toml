@@ -63,7 +63,7 @@ rust-box = { version = "0.11", features = ["task-exec-queue", "task-exec-queue-r
 structopt = "0.3"
 tokio-tungstenite = "0.23"
 pin-project-lite = "0.2"
-tokio-cron-scheduler = "0.10"
+tokio-cron-scheduler = "0.11"
 bitflags = "2.6"
 leaky-bucket = "1.1"
 scc = "2.1"

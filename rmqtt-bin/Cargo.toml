@@ -17,7 +17,7 @@ name = "rmqttd"
 path = "src/server.rs"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-tikv-jemallocator = "0.5"
+tikv-jemallocator = "0.6"
 
 [target.'cfg(not(windows))'.dependencies]
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "logging", "std", "tls12"] }
