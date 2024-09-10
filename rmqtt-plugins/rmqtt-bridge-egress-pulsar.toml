@@ -9,8 +9,11 @@
 enable = true
 # Bridge name
 name = "bridge_pulsar_1"
-
+# The address of the Pulsar broker that the client will connect to using plain TCP.
+# In this case, it's connecting to the local broker at port 6650.
 servers = "pulsar://127.0.0.1:6650"
+# The address of the Pulsar broker that the client would connect to using SSL/TLS.
+# Uncomment this line to enable a secure connection to the local broker at port 6651.
 #servers = "pulsar+ssl://127.0.0.1:6651"
 
 # producer name prefix
