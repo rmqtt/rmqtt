@@ -10,7 +10,7 @@ enable = true
 # Bridge name
 name = "bridge_kafka_1"
 
-# bootstrap.servers
+# The list of broker (server) addresses for the Kafka cluster.
 #servers = "127.0.0.1:9092,127.0.0.1:9093,127.0.0.1:9094"
 servers = "127.0.0.1:9092"
 # client.id

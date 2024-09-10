@@ -8,7 +8,7 @@
 workers = 1
 ## Max Row Limit
 max_row_limit = 10_000
-## HTTP Listener
+## HTTP Listener address
 http_laddr = "0.0.0.0:6060"
 ## Indicates whether to print HTTP request logs
 http_request_log = false
