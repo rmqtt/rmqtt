@@ -67,8 +67,6 @@ client_id_prefix = "kafka_001"
 
 #是否支持保持消息, 值：true/false, 默认: false
 retain_available = false
-#是否支持存储消息, 值：true/false, 默认: false
-storage_available = false
 #消息过期时间, 0 表示不过期
 expiry_interval = "5m"
 

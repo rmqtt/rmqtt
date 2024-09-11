@@ -92,8 +92,6 @@ keepalive = "60s"
 reconnect_interval = "5s"
 #是否支持保持消息, 值：true/false, 默认: false
 retain_available = false
-#是否支持存储消息, 值：true/false, 默认: false
-storage_available = false
 #消息过期时间, 0 表示不过期
 expiry_interval = "5m"
 #使用的MQTT协议版本号，有：v4,v5, 分别对应MQTT 3.1.1, 5.0
