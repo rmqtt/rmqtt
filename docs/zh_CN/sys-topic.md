@@ -31,6 +31,11 @@ publish_qos = 1
 
 #$SYS system message publish period
 publish_interval = "1m"
+
+##Whether support retain message, true/false, default value: false
+message_retain_available = false
+##Message expiration time, 0 means no expiration
+message_expiry_interval = "5m"
 ```
 
 <div style="width:100%;padding:15px;border-left:10px solid #1cc68b;background-color: #d1e3dd; color: #00b173;">

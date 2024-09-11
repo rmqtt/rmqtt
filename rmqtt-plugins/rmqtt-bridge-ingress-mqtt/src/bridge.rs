@@ -258,8 +258,10 @@ async fn send_publish(
         .await
         .unwrap_or(msg);
 
+    let storage_available = Runtime::instance().extends.message_mgr().await.enable();
+
     if let Err(e) =
-        SessionState::forwards(from, msg, cfg.retain_available, cfg.storage_available, Some(expiry_interval))
+        SessionState::forwards(from, msg, cfg.retain_available, storage_available, Some(expiry_interval))
             .await
     {
         log::warn!("{:?}", e);

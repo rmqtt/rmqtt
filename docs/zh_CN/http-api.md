@@ -40,8 +40,6 @@ http_request_log = false
 
 ##Whether support retain message, true/false, default value: true
 message_retain_available = true
-##Whether support storage messages, true/false, default value: false
-message_storage_available = false
 ##Message expiration time, 0 means no expiration
 message_expiry_interval = "5m"
 ```

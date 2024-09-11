@@ -37,9 +37,6 @@ pub struct Bridge {
     #[serde(default = "Bridge::retain_available_default")]
     pub retain_available: bool,
 
-    #[serde(default = "Bridge::storage_available_default")]
-    pub storage_available: bool,
-
     #[serde(default = "Bridge::expiry_interval_default", deserialize_with = "deserialize_duration")]
     pub expiry_interval: Duration,
 }
@@ -47,11 +44,6 @@ pub struct Bridge {
 impl Bridge {
     #[inline]
     fn retain_available_default() -> bool {
-        false
-    }
-
-    #[inline]
-    fn storage_available_default() -> bool {
         false
     }
 

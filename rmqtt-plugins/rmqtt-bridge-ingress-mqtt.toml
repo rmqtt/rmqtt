@@ -29,8 +29,6 @@ reconnect_interval = "5s"
 
 ## Whether to support retain message, true/false, default value: false
 retain_available = false
-## Whether to support storage messages, true/false, default value: false
-storage_available = false
 ## Message expiration time, 0 means no expiration
 expiry_interval = "5m"
 
@@ -87,8 +85,6 @@ reconnect_interval = "5s"
 
 ## Whether to support retain message, true/false, default value: false
 retain_available = false
-## Whether to support storage messages, true/false, default value: false
-storage_available = false
 ## Message expiration time, 0 means no expiration
 expiry_interval = "5m"
 

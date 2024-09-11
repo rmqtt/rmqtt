@@ -56,13 +56,12 @@ impl SystemTopicPlugin {
         spawn(async move {
             let min = Duration::from_secs(1);
             loop {
-                let (publish_interval, publish_qos, retain_available, storage_available, expiry_interval) = {
+                let (publish_interval, publish_qos, retain_available, expiry_interval) = {
                     let cfg_rl = cfg.read().await;
                     (
                         cfg_rl.publish_interval,
                         cfg_rl.publish_qos,
                         cfg_rl.message_retain_available,
-                        cfg_rl.message_storage_available,
                         cfg_rl.message_expiry_interval,
                     )
                 };
@@ -70,22 +69,8 @@ impl SystemTopicPlugin {
                 let publish_interval = if publish_interval < min { min } else { publish_interval };
                 sleep(publish_interval).await;
                 if running.load(Ordering::SeqCst) {
-                    Self::send_stats(
-                        runtime,
-                        publish_qos,
-                        retain_available,
-                        storage_available,
-                        expiry_interval,
-                    )
-                    .await;
-                    Self::send_metrics(
-                        runtime,
-                        publish_qos,
-                        retain_available,
-                        storage_available,
-                        expiry_interval,
-                    )
-                    .await;
+                    Self::send_stats(runtime, publish_qos, retain_available, expiry_interval).await;
+                    Self::send_metrics(runtime, publish_qos, retain_available, expiry_interval).await;
                 }
             }
         });
@@ -97,22 +82,12 @@ impl SystemTopicPlugin {
         runtime: &'static Runtime,
         publish_qos: QoS,
         retain_available: bool,
-        storage_available: bool,
         expiry_interval: Duration,
     ) {
         let payload = runtime.stats.clone().await.to_json().await;
         let nodeid = runtime.node.id();
         let topic = format!("$SYS/brokers/{}/stats", nodeid);
-        sys_publish(
-            nodeid,
-            topic,
-            publish_qos,
-            payload,
-            retain_available,
-            storage_available,
-            expiry_interval,
-        )
-        .await;
+        sys_publish(nodeid, topic, publish_qos, payload, retain_available, expiry_interval).await;
     }
 
     //Metrics
@@ -121,22 +96,12 @@ impl SystemTopicPlugin {
         runtime: &'static Runtime,
         publish_qos: QoS,
         retain_available: bool,
-        storage_available: bool,
         expiry_interval: Duration,
     ) {
         let payload = Runtime::instance().metrics.to_json();
         let nodeid = runtime.node.id();
         let topic = format!("$SYS/brokers/{}/metrics", nodeid);
-        sys_publish(
-            nodeid,
-            topic,
-            publish_qos,
-            payload,
-            retain_available,
-            storage_available,
-            expiry_interval,
-        )
-        .await;
+        sys_publish(nodeid, topic, publish_qos, payload, retain_available, expiry_interval).await;
     }
 }
 
@@ -330,25 +295,12 @@ impl Handler for SystemTopicHandler {
             }
         } {
             let nodeid = self.nodeid;
-            let (publish_qos, retain_available, storage_available, expiry_interval) = {
+            let (publish_qos, retain_available, expiry_interval) = {
                 let cfg_rl = self.cfg.read().await;
-                (
-                    cfg_rl.publish_qos,
-                    cfg_rl.message_retain_available,
-                    cfg_rl.message_storage_available,
-                    cfg_rl.message_expiry_interval,
-                )
+                (cfg_rl.publish_qos, cfg_rl.message_retain_available, cfg_rl.message_expiry_interval)
             };
 
-            spawn(sys_publish(
-                nodeid,
-                topic,
-                publish_qos,
-                payload,
-                retain_available,
-                storage_available,
-                expiry_interval,
-            ));
+            spawn(sys_publish(nodeid, topic, publish_qos, payload, retain_available, expiry_interval));
         }
         (true, acc)
     }
@@ -361,7 +313,6 @@ async fn sys_publish(
     publish_qos: QoS,
     payload: serde_json::Value,
     retain_available: bool,
-    storage_available: bool,
     message_expiry_interval: Duration,
 ) {
     match serde_json::to_string(&payload) {
@@ -394,6 +345,8 @@ async fn sys_publish(
                 .message_publish(None, from.clone(), &p)
                 .await
                 .unwrap_or(p);
+
+            let storage_available = Runtime::instance().extends.message_mgr().await.enable();
 
             if let Err(e) = SessionState::forwards(
                 from,
