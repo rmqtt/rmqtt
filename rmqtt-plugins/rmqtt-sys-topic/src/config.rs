@@ -25,9 +25,6 @@ pub struct PluginConfig {
     #[serde(default = "PluginConfig::message_retain_available_default")]
     pub message_retain_available: bool,
 
-    #[serde(default = "PluginConfig::message_storage_available_default")]
-    pub message_storage_available: bool,
-
     #[serde(
         default = "PluginConfig::message_expiry_interval_default",
         deserialize_with = "deserialize_duration"
@@ -48,11 +45,6 @@ impl PluginConfig {
 
     #[inline]
     fn message_retain_available_default() -> bool {
-        false
-    }
-
-    #[inline]
-    fn message_storage_available_default() -> bool {
         false
     }
 
