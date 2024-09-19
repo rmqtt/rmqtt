@@ -191,6 +191,8 @@ impl SessionState {
                                     if ping {
                                         flags.insert(StateFlags::Ping);
                                     }
+                                    //hook, keepalive
+                                    state.hook.keepalive(ping).await
                                 },
                                 Message::Subscribe(sub, reply_tx) => {
                                     let sub_reply = state.subscribe(sub).await;
