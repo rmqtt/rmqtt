@@ -34,6 +34,7 @@ rmqtt.workspace = true
 rmqtt-acl = "0.1"
 rmqtt-web-hook = "0.1"
 rmqtt-auth-http = "0.1"
+rmqtt-auth-jwt = "0.1"
 rmqtt-cluster-broadcast = "0.1"
 rmqtt-cluster-raft = "0.1"
 rmqtt-counter = "0.1"
@@ -57,6 +58,7 @@ rmqtt-http-api = { default_startup = true }
 rmqtt-counter = { default_startup = true }
 rmqtt-web-hook = { }
 rmqtt-auth-http = { }
+rmqtt-auth-jwt = { }
 rmqtt-cluster-broadcast = { immutable = true }
 rmqtt-cluster-raft = { immutable = true }
 rmqtt-retainer = { }

@@ -265,6 +265,14 @@ impl ConnectInfo {
     }
 
     #[inline]
+    pub fn ipaddress(&self) -> Option<SocketAddr> {
+        match self {
+            ConnectInfo::V3(id, _) => id.remote_addr,
+            ConnectInfo::V5(id, _) => id.remote_addr,
+        }
+    }
+
+    #[inline]
     pub fn clean_start(&self) -> bool {
         match self {
             ConnectInfo::V3(_, conn_info) => conn_info.clean_session,
