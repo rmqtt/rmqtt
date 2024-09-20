@@ -1821,13 +1821,18 @@ impl Hook for DefaultHook {
         if expiry_interval == 0 {
             return MessageExpiryCheckResult::Remaining(None);
         }
-        let remaining = chrono::Local::now().timestamp_millis() - publish.create_time();
+        let remaining = timestamp_millis() - publish.create_time();
         if remaining < expiry_interval {
             return MessageExpiryCheckResult::Remaining(NonZeroU32::new(
                 ((expiry_interval - remaining) / 1000) as u32,
             ));
         }
         MessageExpiryCheckResult::Expiry
+    }
+
+    #[inline]
+    async fn keepalive(&self, ping: IsPing) {
+        let _ = self.manager.exec(Type::Keepalive, Parameter::Keepalive(&self.s, ping)).await;
     }
 }
 
