@@ -19,7 +19,7 @@ use rmqtt::{
 };
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
-    broker::types::{AuthResult, Id, PublishAclResult, QoSEx, SubscribeAckReason, SubscribeAclResult},
+    broker::types::{AuthResult, Id, PublishAclResult, SubscribeAckReason, SubscribeAclResult},
     plugin::{PackageInfo, Plugin},
     register, ConnectInfo, MqttError, Result, Runtime,
 };
@@ -368,6 +368,11 @@ impl Handler for AuthHandler {
                         if !matches!(rule.action, Action::Subscribe | Action::All) {
                             continue;
                         }
+
+                        if !rule.qos.as_ref().map(|qos| qos.contains(&subscribe.opts.qos())).unwrap_or(true) {
+                            continue;
+                        }
+
                         if !rule.topic.is_match(&subscribe.topic_filter).await {
                             continue;
                         }
@@ -376,7 +381,7 @@ impl Handler for AuthHandler {
                             Permission::Allow => (
                                 false,
                                 Some(HookResult::SubscribeAclResult(SubscribeAclResult::new_success(
-                                    rule.qos.unwrap_or(subscribe.opts.qos()),
+                                    subscribe.opts.qos(),
                                     None,
                                 ))),
                             ),
@@ -415,16 +420,17 @@ impl Handler for AuthHandler {
                         if !matches!(rule.action, Action::Publish | Action::All) {
                             continue;
                         }
+
                         if let Some(retain) = rule.retain {
-                            if publish.retain != retain {
+                            if !retain && publish.retain {
                                 continue;
                             }
                         }
-                        if let Some(qos) = rule.qos {
-                            if publish.qos.value() > qos.value() {
-                                continue;
-                            }
+
+                        if !rule.qos.as_ref().map(|qos| qos.contains(&publish.qos)).unwrap_or(true) {
+                            continue;
                         }
+
                         if !rule.topic.is_match(&publish.topic).await {
                             continue;
                         }

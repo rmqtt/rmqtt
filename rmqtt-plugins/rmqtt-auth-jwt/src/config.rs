@@ -283,7 +283,7 @@ fn parse(name: &str, val: &serde_json::Value) -> (ValidateExpEnable, ValidateNbf
 pub(crate) struct Rule {
     pub permission: Permission,
     pub action: Action,
-    pub qos: Option<QoS>,
+    pub qos: Option<Vec<QoS>>,
     pub retain: Option<bool>,
     pub topic: Topic,
 }
@@ -305,9 +305,25 @@ impl std::convert::TryFrom<(&serde_json::Value, &ConnectInfo)> for Rule {
                 .ok_or_else(|| MqttError::from(err_msg.as_str()))??;
             let qos = obj
                 .get("qos")
-                .and_then(|qos| qos.as_u64().map(|qos| QoS::try_from(qos as u8)))
-                .transpose()
-                .map_err(|_| anyhow!(format!("Unknown QoS, {}", err_msg)))?;
+                .map(|qos| {
+                    if let Some(qos) = qos.as_array() {
+                        qos.iter()
+                            .flat_map(|q| {
+                                q.as_u64()
+                                    .map(|q| QoS::try_from(q as u8).map_err(|e| MqttError::from(anyhow!(e))))
+                                    .ok_or_else(|| MqttError::from("Unknown QoS"))
+                            })
+                            .collect::<Result<Vec<QoS>>>()
+                    } else if let Some(qos) = qos.as_u64() {
+                        match QoS::try_from(qos as u8) {
+                            Ok(q) => Ok(vec![q]),
+                            Err(e) => Err(MqttError::from(anyhow!(e))),
+                        }
+                    } else {
+                        Err(MqttError::from("Unknown QoS"))
+                    }
+                })
+                .transpose()?;
             let retain = obj.get("retain").and_then(|retain| retain.as_bool());
             let topic = obj
                 .get("topic")
