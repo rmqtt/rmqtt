@@ -20,6 +20,7 @@ and mobile applications that can handle millions of concurrent clients on a sing
     - Last Will message support;
 - [Built-in AUTH/ACL](./docs/en_US/acl.md);
 - [HTTP AUTH/ACL](./docs/en_US/auth-http.md);
+- [JWT AUTH/ACL](./docs/en_US/auth-jwt.md);
 - [WebHook](./docs/en_US/web-hook.md);
 - [HTTP APIs](./docs/en_US/http-api.md);
 - [$SYS System Topics](./docs/en_US/sys-topic.md);

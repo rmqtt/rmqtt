@@ -73,8 +73,15 @@ impl PluginConfig {
                 };
             }
             JWTEncrypt::PublicKey => {
-                self.decoded_key = DecodingKey::from_rsa_pem(&std::fs::read(&self.public_key)?)
-                    .map_err(anyhow::Error::new)?;
+                self.decoded_key = if let Ok(key) =
+                    DecodingKey::from_rsa_pem(&std::fs::read(&self.public_key)?)
+                {
+                    key
+                } else if let Ok(key) = DecodingKey::from_ec_pem(&std::fs::read(&self.public_key)?) {
+                    key
+                } else {
+                    DecodingKey::from_ed_pem(&std::fs::read(&self.public_key)?).map_err(anyhow::Error::new)?
+                };
             }
         }
         Ok(())
