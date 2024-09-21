@@ -2058,7 +2058,7 @@ impl SessionLike for DefaultSession {
         let mut disconnect_info = self.disconnect_info.write().await;
 
         if !disconnect_info.is_disconnected() {
-            disconnect_info.disconnected_at = chrono::Local::now().timestamp_millis();
+            disconnect_info.disconnected_at = timestamp_millis();
         }
 
         if let Some(d) = d {

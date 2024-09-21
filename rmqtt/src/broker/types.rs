@@ -1327,7 +1327,7 @@ impl<'a> std::convert::TryFrom<LastWill<'a>> for Publish {
 
             properties: props,
             delay_interval: None,
-            create_time: chrono::Local::now().timestamp_millis(),
+            create_time: timestamp_millis(),
         })
     }
 }
@@ -1356,7 +1356,7 @@ impl std::convert::From<&v3::Publish> for Publish {
 
             properties: p_props,
             delay_interval: None,
-            create_time: chrono::Local::now().timestamp_millis(),
+            create_time: timestamp_millis(),
         }
     }
 }
@@ -1374,7 +1374,7 @@ impl std::convert::From<&v5::Publish> for Publish {
 
             properties: PublishProperties::from(p.packet().properties.clone()),
             delay_interval: None,
-            create_time: chrono::Local::now().timestamp_millis(),
+            create_time: timestamp_millis(),
         }
     }
 }
@@ -1616,7 +1616,7 @@ impl Id {
             remote_addr,
             client_id,
             username,
-            create_time: chrono::Local::now().timestamp_millis(),
+            create_time: timestamp_millis(),
         }))
     }
 

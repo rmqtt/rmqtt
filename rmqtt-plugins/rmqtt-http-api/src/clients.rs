@@ -1,7 +1,7 @@
 use rmqtt::{
     broker::Entry, log, tokio, ClientId, ConnectInfo, Id, Result, Runtime, Session, TimestampMillis,
 };
-use rmqtt::{chrono, futures, serde_json};
+use rmqtt::{futures, serde_json, timestamp_secs};
 use std::sync::Arc;
 
 use super::types::{ClientSearchParams as SearchParams, ClientSearchResult as SearchResult};
@@ -54,8 +54,7 @@ async fn build_result(s: Option<Session>) -> SearchResult {
     let expiry_interval = if connected {
         s.fitter.session_expiry_interval(d.as_ref()).as_secs() as i64
     } else {
-        s.fitter.session_expiry_interval(d.as_ref()).as_secs() as i64
-            - (chrono::Local::now().timestamp() - disconnected_at)
+        s.fitter.session_expiry_interval(d.as_ref()).as_secs() as i64 - (timestamp_secs() - disconnected_at)
     };
     let inflight = s.inflight_win().read().await.len();
     let created_at = s.created_at().await.map(|at| at / 1000).unwrap_or_default();

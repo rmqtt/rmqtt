@@ -166,7 +166,7 @@ pub async fn _handshake<Io: 'static>(
             Ok(None) => (false, None),
         };
 
-    let connected_at = chrono::Local::now().timestamp_millis();
+    let connected_at = timestamp_millis();
 
     let fitter = Runtime::instance().extends.fitter_mgr().await.create(
         connect_info.clone(),

@@ -14,19 +14,20 @@ use reqwest::{Method, Url};
 use serde::ser::Serialize;
 use tokio::sync::RwLock;
 
-use config::PluginConfig;
-use rmqtt::anyhow::anyhow;
-use rmqtt::ntex::util::ByteString;
-use rmqtt::reqwest::Response;
-use rmqtt::{ahash, async_trait, chrono, log, once_cell::sync::Lazy, reqwest, serde_json, tokio, Id};
+use rmqtt::{
+    ahash, anyhow::anyhow, async_trait, log, ntex::util::ByteString, once_cell::sync::Lazy, reqwest,
+    reqwest::Response, serde_json, tokio,
+};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::types::{
         AuthResult, Password, PublishAclResult, SubscribeAckReason, SubscribeAclResult, Superuser,
     },
     plugin::{PackageInfo, Plugin},
-    register, MqttError, Result, Runtime, TopicName,
+    register, timestamp_millis, Id, MqttError, Result, Runtime, TopicName,
 };
+
+use config::PluginConfig;
 
 mod config;
 
@@ -450,7 +451,7 @@ impl Handler for AuthHandler {
                     .get::<HashMap<TopicName, (ResponseResult, i64)>>(CACHE_KEY)
                     .and_then(|cache_map| cache_map.get(publish.topic()))
                 {
-                    if *expire < 0 || chrono::Local::now().timestamp_millis() < *expire {
+                    if *expire < 0 || timestamp_millis() < *expire {
                         Some(*acl_res)
                     } else {
                         None
@@ -471,7 +472,7 @@ impl Handler for AuthHandler {
                         )
                         .await;
                     if let Some(tm) = cacheable {
-                        let expire = if tm < 0 { tm } else { chrono::Local::now().timestamp_millis() + tm };
+                        let expire = if tm < 0 { tm } else { timestamp_millis() + tm };
                         if let Some(cache_map) = session
                             .extra_attrs
                             .write()

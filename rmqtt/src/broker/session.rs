@@ -617,7 +617,7 @@ impl SessionState {
             retain.publish.qos = retain.publish.qos.less_value(qos);
             retain.publish.topic = topic;
             retain.publish.packet_id = None;
-            retain.publish.create_time = chrono::Local::now().timestamp_millis();
+            retain.publish.create_time = timestamp_millis();
 
             log::debug!("{:?} retain.publish: {:?}", self.id, retain.publish);
 
