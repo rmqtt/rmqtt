@@ -25,7 +25,7 @@ use rmqtt::{
 };
 
 use crate::config::{
-    Action, AuthInfo, JWTFrom, Permission, PluginConfig, Rule, ValidateClaims, PLACEHOLDER_CLIENTID,
+    AuthInfo, JWTFrom, Permission, PluginConfig, Rule, ValidateClaims, PLACEHOLDER_CLIENTID,
     PLACEHOLDER_IPADDR, PLACEHOLDER_PROTOCOL, PLACEHOLDER_USERNAME,
 };
 
@@ -365,15 +365,7 @@ impl Handler for AuthHandler {
                         );
                     }
                     for rule in &auth.rules {
-                        if !matches!(rule.action, Action::Subscribe | Action::All) {
-                            continue;
-                        }
-
-                        if !rule.qos.as_ref().map(|qos| qos.contains(&subscribe.opts.qos())).unwrap_or(true) {
-                            continue;
-                        }
-
-                        if !rule.topic.is_match(&subscribe.topic_filter).await {
+                        if !rule.subscribe_hit(subscribe).await {
                             continue;
                         }
 
@@ -391,17 +383,10 @@ impl Handler for AuthHandler {
                                     SubscribeAckReason::NotAuthorized,
                                 ))),
                             ),
-                            Permission::Ignore => (true, acc),
                         };
                     }
                 }
-
-                return (
-                    false,
-                    Some(HookResult::SubscribeAclResult(SubscribeAclResult::new_failure(
-                        SubscribeAckReason::NotAuthorized,
-                    ))),
-                );
+                //If none of the rules match, continue executing the subsequent authentication chain.
             }
 
             Parameter::MessagePublishCheckAcl(session, publish) => {
@@ -409,7 +394,6 @@ impl Handler for AuthHandler {
                 if let Some(HookResult::PublishAclResult(PublishAclResult::Rejected(_))) = &acc {
                     return (false, acc);
                 }
-                let disconnect_if_pub_rejected = self.cfg.read().await.disconnect_if_pub_rejected;
 
                 if let Some(auth) = self.auth.get(session.id()) {
                     if auth.superuser {
@@ -417,45 +401,30 @@ impl Handler for AuthHandler {
                     }
 
                     for rule in &auth.rules {
-                        if !matches!(rule.action, Action::Publish | Action::All) {
-                            continue;
-                        }
-
-                        if let Some(retain) = rule.retain {
-                            if !retain && publish.retain {
-                                continue;
-                            }
-                        }
-
-                        if !rule.qos.as_ref().map(|qos| qos.contains(&publish.qos)).unwrap_or(true) {
-                            continue;
-                        }
-
-                        if !rule.topic.is_match(&publish.topic).await {
-                            continue;
-                        }
-
                         return match rule.permission {
                             Permission::Allow => {
-                                (false, Some(HookResult::PublishAclResult(PublishAclResult::Allow)))
+                                if rule.publish_allow_hit(publish).await {
+                                    (false, Some(HookResult::PublishAclResult(PublishAclResult::Allow)))
+                                } else {
+                                    continue;
+                                }
                             }
-                            Permission::Deny => (
-                                false,
-                                Some(HookResult::PublishAclResult(PublishAclResult::Rejected(
-                                    self.cfg.read().await.disconnect_if_pub_rejected,
-                                ))),
-                            ),
-                            Permission::Ignore => (true, acc),
+                            Permission::Deny => {
+                                if rule.publish_deny_hit(publish).await {
+                                    (
+                                        false,
+                                        Some(HookResult::PublishAclResult(PublishAclResult::Rejected(
+                                            self.cfg.read().await.disconnect_if_pub_rejected,
+                                        ))),
+                                    )
+                                } else {
+                                    continue;
+                                }
+                            }
                         };
                     }
                 }
-
-                return (
-                    false,
-                    Some(HookResult::PublishAclResult(PublishAclResult::Rejected(
-                        disconnect_if_pub_rejected,
-                    ))),
-                );
+                //If none of the rules match, continue executing the subsequent authentication chain.
             }
             Parameter::ClientDisconnected(s, _) => {
                 log::debug!("ClientDisconnected auth-jwt");

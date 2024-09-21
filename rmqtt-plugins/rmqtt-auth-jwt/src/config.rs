@@ -7,11 +7,8 @@ use jsonwebtoken::DecodingKey;
 use serde::de::{self, Deserialize, Deserializer};
 use serde::ser::{self, Serialize, Serializer};
 
-use rmqtt::anyhow::anyhow;
-use rmqtt::broker::hook::Priority;
-use rmqtt::itertools::Itertools;
-use rmqtt::{ahash, anyhow, serde_json, timestamp, ConnectInfo, QoS};
-use rmqtt::{MqttError, Result};
+use rmqtt::{ahash, anyhow, anyhow::anyhow, itertools::Itertools, serde_json, timestamp};
+use rmqtt::{broker::hook::Priority, ConnectInfo, MqttError, Publish, QoS, Result, Subscribe};
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
@@ -288,6 +285,62 @@ pub(crate) struct Rule {
     pub topic: Topic,
 }
 
+impl Rule {
+    #[inline]
+    pub async fn subscribe_hit(&self, subscribe: &Subscribe) -> bool {
+        if !matches!(self.action, Action::Subscribe | Action::All) {
+            return false;
+        }
+
+        if !self.qos.as_ref().map(|qos| qos.contains(&subscribe.opts.qos())).unwrap_or(true) {
+            return false;
+        }
+
+        if !self.topic.is_match(&subscribe.topic_filter).await {
+            return false;
+        }
+
+        true
+    }
+
+    #[inline]
+    pub async fn publish_allow_hit(&self, publish: &Publish) -> bool {
+        if let Some(retain) = self.retain {
+            if !retain && publish.retain {
+                return false;
+            }
+        }
+        self.publish_hit(publish).await
+    }
+
+    #[inline]
+    pub async fn publish_deny_hit(&self, publish: &Publish) -> bool {
+        if let Some(retain) = self.retain {
+            if retain != publish.retain {
+                return false;
+            }
+        }
+        self.publish_hit(publish).await
+    }
+
+    #[inline]
+    async fn publish_hit(&self, publish: &Publish) -> bool {
+        if !matches!(self.action, Action::Publish | Action::All) {
+            return false;
+        }
+
+        if !self.qos.as_ref().map(|qos| qos.contains(&publish.qos)).unwrap_or(true) {
+            return false;
+        }
+
+        if !self.topic.is_match(&publish.topic).await {
+            return false;
+        }
+
+        true
+    }
+}
+
 impl std::convert::TryFrom<(&serde_json::Value, &ConnectInfo)> for Rule {
     type Error = MqttError;
     #[inline]
@@ -341,7 +394,6 @@ impl std::convert::TryFrom<(&serde_json::Value, &ConnectInfo)> for Rule {
 pub(crate) enum Permission {
     Allow,
     Deny,
-    Ignore,
 }
 
 impl std::convert::TryFrom<&str> for Permission {
@@ -351,7 +403,6 @@ impl std::convert::TryFrom<&str> for Permission {
         match s {
             "allow" => Ok(Permission::Allow),
             "deny" => Ok(Permission::Deny),
-            "ignore" => Ok(Permission::Ignore),
             _ => Err(MqttError::from("Unknown Permission")),
         }
     }
