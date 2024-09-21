@@ -13,5 +13,6 @@ rules = [
     ["allow", { ipaddr = "127.0.0.1" }, "pubsub", ["$SYS/#", "#"]],
     ["deny", "all", "subscribe", ["$SYS/#", { eq = "#" }]],
     ["allow", "all"]
+#    ["deny", "all"]
 ]
 
