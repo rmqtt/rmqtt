@@ -32,7 +32,9 @@ hmac_base64 = false
 ## RSA or ECDSA public key file.
 ##
 ## Value: File
-public_key = "./rmqtt-bin/jwt_public_key_rsa.pem"
+#public_key = "./rmqtt-bin/jwt_public_key_rsa.pem"
+#public_key = "./rmqtt-bin/jwt_public_key_es256.pem"
+#public_key = "./rmqtt-bin/jwt_public_key_es384.pem"
 
 ## Disconnect After Expiration
 ##
