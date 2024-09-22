@@ -21,6 +21,7 @@ use self::listener::Listeners;
 use self::log::Log;
 pub use self::options::Options;
 
+pub mod acl;
 pub mod listener;
 pub mod log;
 pub mod options;

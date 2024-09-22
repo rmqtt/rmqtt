@@ -14,20 +14,20 @@ use async_trait::async_trait;
 use jsonwebtoken::{decode, TokenData, Validation};
 use tokio::sync::RwLock;
 
-use rmqtt::{
-    ahash, anyhow::anyhow, async_trait, itoa::Buffer, log, serde_json, tokio, DashMap, Message, Reason,
-};
+use rmqtt::{ahash, anyhow::anyhow, async_trait, itoa::Buffer, log, serde_json, tokio, DashMap};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::types::{AuthResult, Id, PublishAclResult, SubscribeAckReason, SubscribeAclResult},
     plugin::{PackageInfo, Plugin},
-    register, ConnectInfo, MqttError, Result, Runtime,
+    register,
+    settings::acl::{
+        Permission, Rule, PLACEHOLDER_CLIENTID, PLACEHOLDER_IPADDR, PLACEHOLDER_PROTOCOL,
+        PLACEHOLDER_USERNAME,
+    },
+    ConnectInfo, Message, MqttError, Reason, Result, Runtime,
 };
 
-use crate::config::{
-    AuthInfo, JWTFrom, Permission, PluginConfig, Rule, ValidateClaims, PLACEHOLDER_CLIENTID,
-    PLACEHOLDER_IPADDR, PLACEHOLDER_PROTOCOL, PLACEHOLDER_USERNAME,
-};
+use crate::config::{AuthInfo, JWTFrom, PluginConfig, ValidateClaims};
 
 mod config;
 
