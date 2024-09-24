@@ -22,6 +22,7 @@ use crate::broker::inflight::InflightMessage;
 use crate::broker::session::{Session, SessionLike, SessionManager, SessionOfflineInfo};
 use crate::broker::topic::{Topic, VecToTopic};
 use crate::broker::types::*;
+use crate::settings::acl::AuthInfo;
 use crate::settings::listener::Listener;
 use crate::stats::Counter;
 use crate::{grpc, MqttError, Result, Runtime, SessionState};
@@ -1489,7 +1490,7 @@ impl HookManager for &'static DefaultHookManager {
         &self,
         connect_info: &ConnectInfo,
         allow_anonymous: bool,
-    ) -> (ConnectAckReason, Superuser) {
+    ) -> (ConnectAckReason, Superuser, Option<AuthInfo>) {
         let proto_ver = connect_info.proto_ver();
         let ok = || match proto_ver {
             MQTT_LEVEL_31 => ConnectAckReason::V3(ConnectAckReasonV3::ConnectionAccepted),
@@ -1500,7 +1501,7 @@ impl HookManager for &'static DefaultHookManager {
 
         log::debug!("{:?} username: {:?}", connect_info.id(), connect_info.username());
         if connect_info.username().is_none() && allow_anonymous {
-            return (ok(), false);
+            return (ok(), false, None);
         }
 
         let result = self.exec(Type::ClientAuthenticate, Parameter::ClientAuthenticate(connect_info)).await;
@@ -1508,11 +1509,13 @@ impl HookManager for &'static DefaultHookManager {
         let (bad_user_or_pass, not_auth) = match result {
             Some(HookResult::AuthResult(AuthResult::BadUsernameOrPassword)) => (true, false),
             Some(HookResult::AuthResult(AuthResult::NotAuthorized)) => (false, true),
-            Some(HookResult::AuthResult(AuthResult::Allow(superuser))) => return (ok(), superuser),
+            Some(HookResult::AuthResult(AuthResult::Allow(superuser, auth_info))) => {
+                return (ok(), superuser, auth_info)
+            }
             _ => {
                 //or AuthResult::NotFound
                 if allow_anonymous {
-                    return (ok(), false);
+                    return (ok(), false, None);
                 } else {
                     (false, true)
                 }
@@ -1528,6 +1531,7 @@ impl HookManager for &'static DefaultHookManager {
                     _ => ConnectAckReason::V3(ConnectAckReasonV3::BadUserNameOrPassword),
                 },
                 false,
+                None,
             );
         }
 
@@ -1540,10 +1544,11 @@ impl HookManager for &'static DefaultHookManager {
                     _ => ConnectAckReason::V3(ConnectAckReasonV3::NotAuthorized),
                 },
                 false,
+                None,
             );
         }
 
-        (ok(), false)
+        (ok(), false, None)
     }
 
     ///When sending mqtt:: connectack message
@@ -1831,8 +1836,8 @@ impl Hook for DefaultHook {
     }
 
     #[inline]
-    async fn keepalive(&self, ping: IsPing) {
-        let _ = self.manager.exec(Type::Keepalive, Parameter::Keepalive(&self.s, ping)).await;
+    async fn client_keepalive(&self, ping: IsPing) {
+        let _ = self.manager.exec(Type::ClientKeepalive, Parameter::ClientKeepalive(&self.s, ping)).await;
     }
 }
 
@@ -2058,7 +2063,7 @@ impl SessionLike for DefaultSession {
         let mut disconnect_info = self.disconnect_info.write().await;
 
         if !disconnect_info.is_disconnected() {
-            disconnect_info.disconnected_at = chrono::Local::now().timestamp_millis();
+            disconnect_info.disconnected_at = timestamp_millis();
         }
 
         if let Some(d) = d {

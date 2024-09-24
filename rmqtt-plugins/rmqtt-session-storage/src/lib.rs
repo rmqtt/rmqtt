@@ -12,7 +12,7 @@ use std::time::Duration;
 use rmqtt::{
     async_trait::async_trait,
     bytes::Bytes,
-    chrono, futures,
+    futures,
     futures::channel::mpsc,
     futures::channel::oneshot,
     futures::{SinkExt, StreamExt},
@@ -27,8 +27,8 @@ use rmqtt::{
     broker::inflight::InflightMessage,
     broker::types::DisconnectInfo,
     plugin::{PackageInfo, Plugin},
-    register, ClientId, From, MqttError, Publish, Result, Runtime, Session, SessionState, SessionSubMap,
-    SessionSubs, TimestampMillis,
+    register, timestamp_millis, ClientId, From, MqttError, Publish, Result, Runtime, Session, SessionState,
+    SessionSubMap, SessionSubs, TimestampMillis,
 };
 
 use rmqtt_storage::{init_db, DefaultStorageDB, List, Map, StorageType};
@@ -550,6 +550,7 @@ impl StorageHandler {
                     max_mqueue_len,
                     listen_cfg,
                     fitter,
+                    None,
                     max_inflight,
                     stored.basic.created_at,
                     stored.basic.conn_info.clone(),
@@ -632,7 +633,7 @@ async fn session_expiry_interval(
     let disconnected_at = if disconnected_at <= 0 { last_time } else { disconnected_at };
     fitter.session_expiry_interval(disconnect_info.and_then(|d| d.mqtt_disconnect.as_ref())).as_millis()
         as i64
-        - (chrono::Local::now().timestamp_millis() - disconnected_at)
+        - (timestamp_millis() - disconnected_at)
 }
 
 #[inline]

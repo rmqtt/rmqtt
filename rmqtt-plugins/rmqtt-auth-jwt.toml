@@ -4,8 +4,17 @@
 
 # See more keys and their definitions at https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/auth-jwt.md
 
-#Disconnect if publishing is rejected
+## Disconnect if publishing is rejected
+##
+## Value: true | false
+## Default: true
 disconnect_if_pub_rejected = true
+
+## Disconnect After Expiration
+##
+## Value: true | false
+## Default: false
+disconnect_if_expiry = false
 
 ## From where the JWT string can be got
 ## Value: username | password
@@ -36,11 +45,6 @@ hmac_base64 = false
 #public_key = "./rmqtt-bin/jwt_public_key_es256.pem"
 #public_key = "./rmqtt-bin/jwt_public_key_es384.pem"
 
-## Disconnect After Expiration
-##
-## Value: true | false
-## Default: false
-disconnect_if_expiry = false
 
 ## The checklist of claims to validate
 ##

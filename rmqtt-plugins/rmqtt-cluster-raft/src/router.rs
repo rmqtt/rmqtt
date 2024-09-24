@@ -7,7 +7,8 @@ use tokio::sync::RwLock;
 
 use rmqtt::rust_box::task_exec_queue::SpawnExt;
 use rmqtt::{
-    ahash, anyhow, async_trait::async_trait, bincode, chrono, dashmap, log, once_cell, serde_json, tokio,
+    ahash, anyhow, async_trait::async_trait, bincode, dashmap, log, once_cell, serde_json, timestamp_millis,
+    tokio,
 };
 use rmqtt::{
     broker::{
@@ -41,12 +42,12 @@ pub(crate) struct ClientStatus {
 
 impl ClientStatus {
     fn new(id: Id, online: IsOnline, handshaking: bool) -> Self {
-        Self { id, online, handshaking, handshak_duration: chrono::Local::now().timestamp_millis() }
+        Self { id, online, handshaking, handshak_duration: timestamp_millis() }
     }
 
     pub fn handshaking(&self, try_lock_timeout: Duration) -> bool {
         self.handshaking
-            && (chrono::Local::now().timestamp_millis()
+            && (timestamp_millis()
                 < (self.handshak_duration + try_lock_timeout.as_millis() as TimestampMillis))
     }
 }

@@ -48,6 +48,7 @@ use ntex_mqtt::TopicLevel;
 use crate::broker::fitter::Fitter;
 use crate::broker::inflight::Inflight;
 use crate::broker::queue::{Queue, Sender};
+use crate::settings::acl::AuthInfo;
 use crate::{MqttError, Result, Runtime};
 
 pub type NodeId = u64;
@@ -356,9 +357,9 @@ pub enum PublishAclResult {
     Rejected(IsDisconnect),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum AuthResult {
-    Allow(Superuser),
+    Allow(Superuser, Option<AuthInfo>),
     ///User is not found
     NotFound,
     BadUsernameOrPassword,
@@ -1327,7 +1328,7 @@ impl<'a> std::convert::TryFrom<LastWill<'a>> for Publish {
 
             properties: props,
             delay_interval: None,
-            create_time: chrono::Local::now().timestamp_millis(),
+            create_time: timestamp_millis(),
         })
     }
 }
@@ -1356,7 +1357,7 @@ impl std::convert::From<&v3::Publish> for Publish {
 
             properties: p_props,
             delay_interval: None,
-            create_time: chrono::Local::now().timestamp_millis(),
+            create_time: timestamp_millis(),
         }
     }
 }
@@ -1374,7 +1375,7 @@ impl std::convert::From<&v5::Publish> for Publish {
 
             properties: PublishProperties::from(p.packet().properties.clone()),
             delay_interval: None,
-            create_time: chrono::Local::now().timestamp_millis(),
+            create_time: timestamp_millis(),
         }
     }
 }
@@ -1616,7 +1617,7 @@ impl Id {
             remote_addr,
             client_id,
             username,
-            create_time: chrono::Local::now().timestamp_millis(),
+            create_time: timestamp_millis(),
         }))
     }
 

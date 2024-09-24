@@ -472,7 +472,7 @@ impl MessageManager for &'static RamMessageManager {
 
 #[test]
 fn test_message_manager() {
-    use rmqtt::{bytes, chrono, From, Id, PublishProperties, QoS, TopicName};
+    use rmqtt::{bytes, From, Id, PublishProperties, QoS, TopicName};
 
     let runner = async move {
         let cfg = RamConfig::default();
@@ -491,8 +491,6 @@ fn test_message_manager() {
             delay_interval: None,
             create_time: timestamp_millis(),
         };
-
-        assert_eq!(timestamp_millis(), chrono::Local::now().timestamp_millis());
 
         let now = std::time::Instant::now();
         for i in 0..5 {

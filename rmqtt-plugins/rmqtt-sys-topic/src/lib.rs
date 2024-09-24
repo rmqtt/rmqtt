@@ -156,7 +156,6 @@ impl Plugin for SystemTopicPlugin {
 
 struct SystemTopicHandler {
     cfg: Arc<RwLock<PluginConfig>>,
-    //    message_type: MessageType,
     nodeid: NodeId,
 }
 

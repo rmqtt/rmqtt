@@ -14,20 +14,19 @@ use async_trait::async_trait;
 use jsonwebtoken::{decode, TokenData, Validation};
 use tokio::sync::RwLock;
 
-use rmqtt::{
-    ahash, anyhow::anyhow, async_trait, itoa::Buffer, log, serde_json, tokio, DashMap, Message, Reason,
-};
+use rmqtt::{ahash, anyhow::anyhow, async_trait, itoa::Buffer, log, serde_json, tokio};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
-    broker::types::{AuthResult, Id, PublishAclResult, SubscribeAckReason, SubscribeAclResult},
+    broker::types::{AuthResult, PublishAclResult},
     plugin::{PackageInfo, Plugin},
-    register, ConnectInfo, MqttError, Result, Runtime,
+    register,
+    settings::acl::{
+        AuthInfo, Rule, PLACEHOLDER_CLIENTID, PLACEHOLDER_IPADDR, PLACEHOLDER_PROTOCOL, PLACEHOLDER_USERNAME,
+    },
+    ConnectInfo, Message, MqttError, Reason, Result, Runtime,
 };
 
-use crate::config::{
-    AuthInfo, JWTFrom, Permission, PluginConfig, Rule, ValidateClaims, PLACEHOLDER_CLIENTID,
-    PLACEHOLDER_IPADDR, PLACEHOLDER_PROTOCOL, PLACEHOLDER_USERNAME,
-};
+use crate::config::{JWTFrom, PluginConfig, ValidateClaims};
 
 mod config;
 
@@ -40,7 +39,6 @@ struct AuthJwtPlugin {
     runtime: &'static Runtime,
     register: Box<dyn Register>,
     cfg: Arc<RwLock<PluginConfig>>,
-    auth: Arc<DashMap<Id, AuthInfo>>,
 }
 
 impl AuthJwtPlugin {
@@ -52,8 +50,7 @@ impl AuthJwtPlugin {
         let cfg = Arc::new(RwLock::new(cfg));
         log::info!("{} AuthJwtPlugin cfg: {:?}", name, cfg.read().await);
         let register = runtime.extends.hook_mgr().await.register();
-        let auth = Arc::new(DashMap::default());
-        Ok(Self { runtime, register, cfg, auth })
+        Ok(Self { runtime, register, cfg })
     }
 }
 
@@ -64,19 +61,15 @@ impl Plugin for AuthJwtPlugin {
         log::info!("{} init", self.name());
         let cfg = &self.cfg;
 
-        let auth = &self.auth;
         let priority = cfg.read().await.priority;
+        self.register.add_priority(Type::ClientAuthenticate, priority, Box::new(AuthHandler::new(cfg))).await;
         self.register
-            .add_priority(Type::ClientAuthenticate, priority, Box::new(AuthHandler::new(cfg, auth)))
+            .add_priority(Type::ClientSubscribeCheckAcl, priority, Box::new(AuthHandler::new(cfg)))
             .await;
         self.register
-            .add_priority(Type::ClientSubscribeCheckAcl, priority, Box::new(AuthHandler::new(cfg, auth)))
+            .add_priority(Type::MessagePublishCheckAcl, priority, Box::new(AuthHandler::new(cfg)))
             .await;
-        self.register
-            .add_priority(Type::MessagePublishCheckAcl, priority, Box::new(AuthHandler::new(cfg, auth)))
-            .await;
-        self.register.add(Type::ClientDisconnected, Box::new(AuthHandler::new(cfg, auth))).await;
-        self.register.add(Type::Keepalive, Box::new(AuthHandler::new(cfg, auth))).await;
+        self.register.add(Type::ClientKeepalive, Box::new(AuthHandler::new(cfg))).await;
         Ok(())
     }
 
@@ -109,20 +102,17 @@ impl Plugin for AuthJwtPlugin {
 
     #[inline]
     async fn attrs(&self) -> serde_json::Value {
-        serde_json::json!({
-            "auths_count": self.auth.len()
-        })
+        serde_json::json!({})
     }
 }
 
 struct AuthHandler {
     cfg: Arc<RwLock<PluginConfig>>,
-    auth: Arc<DashMap<Id, AuthInfo>>,
 }
 
 impl AuthHandler {
-    fn new(cfg: &Arc<RwLock<PluginConfig>>, auth: &Arc<DashMap<Id, AuthInfo>>) -> Self {
-        Self { cfg: cfg.clone(), auth: auth.clone() }
+    fn new(cfg: &Arc<RwLock<PluginConfig>>) -> Self {
+        Self { cfg: cfg.clone() }
     }
 
     #[inline]
@@ -341,9 +331,10 @@ impl Handler for AuthHandler {
                     Vec::new()
                 };
                 log::debug!("rules: {:?}", rules);
-                let exp = token_data.claims.get("exp").and_then(|exp| exp.as_u64().map(Duration::from_secs));
-                self.auth.insert(connect_info.id().clone(), AuthInfo { superuser, exp, rules });
-                return (false, Some(HookResult::AuthResult(AuthResult::Allow(superuser))));
+                let expire_at =
+                    token_data.claims.get("exp").and_then(|exp| exp.as_u64().map(Duration::from_secs));
+                let auth_info = AuthInfo { superuser, expire_at, rules };
+                return (false, Some(HookResult::AuthResult(AuthResult::Allow(superuser, Some(auth_info)))));
             }
 
             Parameter::ClientSubscribeCheckAcl(session, subscribe) => {
@@ -354,36 +345,9 @@ impl Handler for AuthHandler {
                     }
                 }
 
-                if let Some(auth) = self.auth.get(session.id()) {
-                    if auth.superuser {
-                        return (
-                            false,
-                            Some(HookResult::SubscribeAclResult(SubscribeAclResult::new_success(
-                                subscribe.opts.qos(),
-                                None,
-                            ))),
-                        );
-                    }
-                    for rule in &auth.rules {
-                        if !rule.subscribe_hit(subscribe).await {
-                            continue;
-                        }
-
-                        return match rule.permission {
-                            Permission::Allow => (
-                                false,
-                                Some(HookResult::SubscribeAclResult(SubscribeAclResult::new_success(
-                                    subscribe.opts.qos(),
-                                    None,
-                                ))),
-                            ),
-                            Permission::Deny => (
-                                false,
-                                Some(HookResult::SubscribeAclResult(SubscribeAclResult::new_failure(
-                                    SubscribeAckReason::NotAuthorized,
-                                ))),
-                            ),
-                        };
+                if let Some(auth_info) = &session.auth_info {
+                    if let Some(acl_res) = auth_info.subscribe_acl(subscribe).await {
+                        return acl_res;
                     }
                 }
                 //If none of the rules match, continue executing the subsequent authentication chain.
@@ -395,43 +359,18 @@ impl Handler for AuthHandler {
                     return (false, acc);
                 }
 
-                if let Some(auth) = self.auth.get(session.id()) {
-                    if auth.superuser {
-                        return (false, Some(HookResult::PublishAclResult(PublishAclResult::Allow)));
-                    }
-
-                    for rule in &auth.rules {
-                        return match rule.permission {
-                            Permission::Allow => {
-                                if rule.publish_allow_hit(publish).await {
-                                    (false, Some(HookResult::PublishAclResult(PublishAclResult::Allow)))
-                                } else {
-                                    continue;
-                                }
-                            }
-                            Permission::Deny => {
-                                if rule.publish_deny_hit(publish).await {
-                                    (
-                                        false,
-                                        Some(HookResult::PublishAclResult(PublishAclResult::Rejected(
-                                            self.cfg.read().await.disconnect_if_pub_rejected,
-                                        ))),
-                                    )
-                                } else {
-                                    continue;
-                                }
-                            }
-                        };
+                if let Some(auth_info) = &session.auth_info {
+                    if let Some(acl_res) =
+                        auth_info.publish_acl(publish, self.cfg.read().await.disconnect_if_pub_rejected).await
+                    {
+                        return acl_res;
                     }
                 }
                 //If none of the rules match, continue executing the subsequent authentication chain.
             }
-            Parameter::ClientDisconnected(s, _) => {
-                log::debug!("ClientDisconnected auth-jwt");
-                self.auth.remove(s.id());
-            }
-            Parameter::Keepalive(s, _) => {
-                if let Some(auth) = self.auth.get(s.id()) {
+
+            Parameter::ClientKeepalive(s, _) => {
+                if let Some(auth) = &s.auth_info {
                     log::debug!("Keepalive auth-jwt, is_expired: {:?}", auth.is_expired());
                     if auth.is_expired() && self.cfg.read().await.disconnect_if_expiry {
                         if let Some(tx) =

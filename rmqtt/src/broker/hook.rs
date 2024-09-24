@@ -1,5 +1,6 @@
 use crate::broker::inflight::InflightMessage;
 use crate::broker::types::*;
+use crate::settings::acl::AuthInfo;
 use crate::{grpc, Result, Session};
 
 pub type Priority = u32;
@@ -23,7 +24,7 @@ pub trait HookManager: Sync + Send {
         &self,
         connect_info: &ConnectInfo,
         allow_anonymous: bool,
-    ) -> (ConnectAckReason, Superuser);
+    ) -> (ConnectAckReason, Superuser, Option<AuthInfo>);
 
     ///When sending mqtt:: connectack message
     async fn client_connack(
@@ -117,8 +118,8 @@ pub trait Hook: Sync + Send {
     ///Message expiry check
     async fn message_expiry_check(&self, from: From, publish: &Publish) -> MessageExpiryCheckResult;
 
-    ///Keepalive
-    async fn keepalive(&self, ping: IsPing);
+    ///Client Keepalive
+    async fn client_keepalive(&self, ping: IsPing);
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Deserialize, Serialize)]
@@ -138,6 +139,7 @@ pub enum Type {
     ClientSubscribe,
     ClientUnsubscribe,
     ClientSubscribeCheckAcl,
+    ClientKeepalive,
 
     MessagePublishCheckAcl,
     MessagePublish,
@@ -151,8 +153,6 @@ pub enum Type {
     OfflineInflightMessages,
 
     GrpcMessageReceived,
-
-    Keepalive,
 }
 
 impl std::convert::From<&str> for Type {
@@ -173,6 +173,7 @@ impl std::convert::From<&str> for Type {
             "client_subscribe" => Type::ClientSubscribe,
             "client_unsubscribe" => Type::ClientUnsubscribe,
             "client_subscribe_check_acl" => Type::ClientSubscribeCheckAcl,
+            "client_keepalive" => Type::ClientKeepalive,
 
             "message_publish_check_acl" => Type::MessagePublishCheckAcl,
             "message_publish" => Type::MessagePublish,
@@ -184,7 +185,6 @@ impl std::convert::From<&str> for Type {
 
             "offline_message" => Type::OfflineMessage,
             "offline_inflight_messages" => Type::OfflineInflightMessages,
-            "keepalive" => Type::Keepalive,
 
             "grpc_message_received" => Type::GrpcMessageReceived,
 
@@ -210,6 +210,7 @@ pub enum Parameter<'a> {
     ClientSubscribe(&'a Session, &'a Subscribe),
     ClientUnsubscribe(&'a Session, &'a Unsubscribe),
     ClientSubscribeCheckAcl(&'a Session, &'a Subscribe),
+    ClientKeepalive(&'a Session, IsPing),
 
     MessagePublishCheckAcl(&'a Session, &'a Publish),
     MessagePublish(Option<&'a Session>, From, &'a Publish),
@@ -221,7 +222,6 @@ pub enum Parameter<'a> {
 
     OfflineMessage(&'a Session, From, &'a Publish),
     OfflineInflightMessages(&'a Session, Vec<InflightMessage>),
-    Keepalive(&'a Session, IsPing),
 
     GrpcMessageReceived(grpc::MessageType, grpc::Message),
 }
@@ -244,6 +244,7 @@ impl<'a> Parameter<'a> {
             Parameter::ClientSubscribe(_, _) => Type::ClientSubscribe,
             Parameter::ClientUnsubscribe(_, _) => Type::ClientUnsubscribe,
             Parameter::ClientSubscribeCheckAcl(_, _) => Type::ClientSubscribeCheckAcl,
+            Parameter::ClientKeepalive(_, _) => Type::ClientKeepalive,
 
             Parameter::MessagePublishCheckAcl(_, _) => Type::MessagePublishCheckAcl,
             Parameter::MessagePublish(_, _, _) => Type::MessagePublish,
@@ -255,7 +256,6 @@ impl<'a> Parameter<'a> {
 
             Parameter::OfflineMessage(_, _, _) => Type::OfflineMessage,
             Parameter::OfflineInflightMessages(_, _) => Type::OfflineInflightMessages,
-            Parameter::Keepalive(_, _) => Type::Keepalive,
 
             Parameter::GrpcMessageReceived(_, _) => Type::GrpcMessageReceived,
         }
