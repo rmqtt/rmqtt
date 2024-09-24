@@ -472,7 +472,7 @@ impl MessageManager for &'static RamMessageManager {
 
 #[test]
 fn test_message_manager() {
-    use rmqtt::{bytes, chrono, From, Id, PublishProperties, QoS, TopicName};
+    use rmqtt::{bytes, From, Id, PublishProperties, QoS, TopicName};
 
     let runner = async move {
         let cfg = RamConfig::default();
