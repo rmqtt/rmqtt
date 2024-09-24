@@ -19,6 +19,9 @@ pub struct PluginConfig {
     #[serde(default = "PluginConfig::disconnect_if_pub_rejected_default")]
     pub disconnect_if_pub_rejected: bool,
 
+    #[serde(default = "PluginConfig::disconnect_if_expiry_default")]
+    pub disconnect_if_expiry: bool,
+
     ///Hook priority
     #[serde(default = "PluginConfig::priority_default")]
     pub priority: Priority,
@@ -54,6 +57,10 @@ impl PluginConfig {
 
     fn disconnect_if_pub_rejected_default() -> bool {
         true
+    }
+
+    fn disconnect_if_expiry_default() -> bool {
+        false
     }
 
     fn priority_default() -> Priority {
