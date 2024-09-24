@@ -1,5 +1,4 @@
 use std::fmt;
-use std::time::Duration;
 
 use jsonwebtoken::DecodingKey;
 use serde::de::{self, Deserialize, Deserializer};
@@ -8,10 +7,8 @@ use serde::ser::{self, Serialize, Serializer};
 use rmqtt::{ahash, anyhow, itertools::Itertools, serde_json};
 use rmqtt::{
     broker::hook::Priority,
-    settings::acl::{
-        Rule, PLACEHOLDER_CLIENTID, PLACEHOLDER_IPADDR, PLACEHOLDER_PROTOCOL, PLACEHOLDER_USERNAME,
-    },
-    timestamp, Result,
+    settings::acl::{PLACEHOLDER_CLIENTID, PLACEHOLDER_IPADDR, PLACEHOLDER_PROTOCOL, PLACEHOLDER_USERNAME},
+    Result,
 };
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
@@ -21,6 +18,9 @@ pub struct PluginConfig {
     ///Disconnect if publishing is rejected
     #[serde(default = "PluginConfig::disconnect_if_pub_rejected_default")]
     pub disconnect_if_pub_rejected: bool,
+
+    #[serde(default = "PluginConfig::disconnect_if_expiry_default")]
+    pub disconnect_if_expiry: bool,
 
     ///Hook priority
     #[serde(default = "PluginConfig::priority_default")]
@@ -41,9 +41,6 @@ pub struct PluginConfig {
     pub hmac_base64: bool,
     #[serde(default)]
     pub public_key: String,
-
-    #[serde(default = "PluginConfig::disconnect_if_expiry_default")]
-    pub disconnect_if_expiry: bool,
 
     #[serde(
         default,
@@ -281,18 +278,4 @@ fn parse(name: &str, val: &serde_json::Value) -> (ValidateExpEnable, ValidateNbf
         }
     }
     (false, false, None)
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct AuthInfo {
-    pub superuser: bool,
-    pub exp: Option<Duration>,
-    pub rules: Vec<Rule>,
-}
-
-impl AuthInfo {
-    #[inline]
-    pub fn is_expired(&self) -> bool {
-        self.exp.map(|exp| exp < timestamp()).unwrap_or_default()
-    }
 }
