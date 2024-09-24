@@ -1,13 +1,102 @@
 use std::borrow::Cow;
 use std::str::FromStr;
+use std::time::Duration;
 
-use crate::{anyhow::anyhow, serde_json};
-use crate::{ConnectInfo, MqttError, Publish, QoS, Result, Subscribe};
+use ntex_mqtt::v5::codec::SubscribeAckReason;
+
+use crate::broker::hook::{HookResult, ReturnType};
+use crate::{anyhow::anyhow, serde_json, PublishAclResult, SubscribeAclResult};
+use crate::{timestamp, ConnectInfo, MqttError, Publish, QoS, Result, Subscribe};
 
 pub const PLACEHOLDER_USERNAME: &str = "${username}";
 pub const PLACEHOLDER_CLIENTID: &str = "${clientid}";
 pub const PLACEHOLDER_IPADDR: &str = "${ipaddr}";
 pub const PLACEHOLDER_PROTOCOL: &str = "${protocol}";
+
+#[derive(Debug, Clone)]
+pub struct AuthInfo {
+    pub superuser: bool,
+    pub expire_at: Option<Duration>,
+    pub rules: Vec<Rule>,
+}
+
+impl AuthInfo {
+    #[inline]
+    pub fn is_expired(&self) -> bool {
+        self.expire_at.map(|exp| exp < timestamp()).unwrap_or_default()
+    }
+
+    #[inline]
+    pub async fn subscribe_acl(&self, subscribe: &Subscribe) -> Option<ReturnType> {
+        if self.superuser {
+            return Some((
+                false,
+                Some(HookResult::SubscribeAclResult(SubscribeAclResult::new_success(
+                    subscribe.opts.qos(),
+                    None,
+                ))),
+            ));
+        }
+        for rule in &self.rules {
+            if !rule.subscribe_hit(subscribe).await {
+                continue;
+            }
+
+            return match rule.permission {
+                Permission::Allow => Some((
+                    false,
+                    Some(HookResult::SubscribeAclResult(SubscribeAclResult::new_success(
+                        subscribe.opts.qos(),
+                        None,
+                    ))),
+                )),
+                Permission::Deny => Some((
+                    false,
+                    Some(HookResult::SubscribeAclResult(SubscribeAclResult::new_failure(
+                        SubscribeAckReason::NotAuthorized,
+                    ))),
+                )),
+            };
+        }
+        None
+    }
+
+    #[inline]
+    pub async fn publish_acl(
+        &self,
+        publish: &Publish,
+        disconnect_if_pub_rejected: bool,
+    ) -> Option<ReturnType> {
+        if self.superuser {
+            return Some((false, Some(HookResult::PublishAclResult(PublishAclResult::Allow))));
+        }
+
+        for rule in &self.rules {
+            return match rule.permission {
+                Permission::Allow => {
+                    if rule.publish_allow_hit(publish).await {
+                        Some((false, Some(HookResult::PublishAclResult(PublishAclResult::Allow))))
+                    } else {
+                        continue;
+                    }
+                }
+                Permission::Deny => {
+                    if rule.publish_deny_hit(publish).await {
+                        Some((
+                            false,
+                            Some(HookResult::PublishAclResult(PublishAclResult::Rejected(
+                                disconnect_if_pub_rejected,
+                            ))),
+                        ))
+                    } else {
+                        continue;
+                    }
+                }
+            };
+        }
+        None
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Rule {

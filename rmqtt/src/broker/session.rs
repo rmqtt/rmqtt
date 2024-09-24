@@ -20,6 +20,7 @@ use crate::broker::inflight::{Inflight, InflightMessage, MomentStatus};
 use crate::broker::queue::{self, Limiter, Policy};
 use crate::broker::types::*;
 use crate::metrics::Metrics;
+use crate::settings::acl::AuthInfo;
 use crate::settings::listener::Listener;
 use crate::{MqttError, Result, Runtime};
 
@@ -192,7 +193,7 @@ impl SessionState {
                                         flags.insert(StateFlags::Ping);
                                     }
                                     //hook, keepalive
-                                    state.hook.keepalive(ping).await
+                                    state.hook.client_keepalive(ping).await
                                 },
                                 Message::Subscribe(sub, reply_tx) => {
                                     let sub_reply = state.subscribe(sub).await;
@@ -1360,6 +1361,7 @@ pub struct _Session {
     inner: Arc<dyn SessionLike>,
     pub id: Id,
     pub fitter: FitterType,
+    pub auth_info: Option<AuthInfo>,
     pub extra_attrs: RwLock<ExtraAttrs>,
 }
 
@@ -1399,6 +1401,7 @@ impl Session {
         max_mqueue_len: usize,
         listen_cfg: Listener,
         fitter: FitterType,
+        auth_info: Option<AuthInfo>,
         max_inflight: NonZeroU16,
         created_at: TimestampMillis,
 
@@ -1457,7 +1460,7 @@ impl Session {
                 last_id,
             )
             .await?;
-        Ok(Self(Arc::new(_Session { inner: session_like, id, fitter, extra_attrs })))
+        Ok(Self(Arc::new(_Session { inner: session_like, id, fitter, auth_info, extra_attrs })))
     }
 
     #[inline]

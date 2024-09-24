@@ -550,6 +550,7 @@ impl StorageHandler {
                     max_mqueue_len,
                     listen_cfg,
                     fitter,
+                    None,
                     max_inflight,
                     stored.basic.created_at,
                     stored.basic.conn_info.clone(),

@@ -48,6 +48,7 @@ use ntex_mqtt::TopicLevel;
 use crate::broker::fitter::Fitter;
 use crate::broker::inflight::Inflight;
 use crate::broker::queue::{Queue, Sender};
+use crate::settings::acl::AuthInfo;
 use crate::{MqttError, Result, Runtime};
 
 pub type NodeId = u64;
@@ -356,9 +357,9 @@ pub enum PublishAclResult {
     Rejected(IsDisconnect),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum AuthResult {
-    Allow(Superuser),
+    Allow(Superuser, Option<AuthInfo>),
     ///User is not found
     NotFound,
     BadUsernameOrPassword,
