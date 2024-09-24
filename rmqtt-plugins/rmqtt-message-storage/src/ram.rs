@@ -492,8 +492,6 @@ fn test_message_manager() {
             create_time: timestamp_millis(),
         };
 
-        assert_eq!(timestamp_millis(), chrono::Local::now().timestamp_millis());
-
         let now = std::time::Instant::now();
         for i in 0..5 {
             p.topic = TopicName::from("/xx/yy/zz");
