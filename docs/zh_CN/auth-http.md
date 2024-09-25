@@ -29,13 +29,25 @@ plugins/rmqtt-auth-http.toml
 http_timeout = "5s"
 http_headers.accept = "*/*"
 http_headers.Cache-Control = "no-cache"
-http_headers.User-Agent = "RMQTT/0.4.0"
+http_headers.User-Agent = "RMQTT/0.8.0"
 http_headers.Connection = "keep-alive"
 
-#Disconnect if publishing is rejected
+## Disconnect if publishing is rejected
+##
+## Value: true | false
+## Default: true
 disconnect_if_pub_rejected = true
 
-#Return 'Deny' if http request error otherwise 'Ignore'
+## Disconnect After Expiration
+##
+## Value: true | false
+## Default: false
+disconnect_if_expiry = false
+
+##Return 'Deny' if http request error otherwise 'Ignore'
+##
+## Value: true | false
+## Default: true
 deny_if_error = true
 
 ##--------------------------------------------------------------------
@@ -79,14 +91,14 @@ http_acl_req.method = "post"
 http_acl_req.params = { access = "%A", username = "%u", clientid = "%c", ipaddr = "%a", topic = "%t" }
 ```
 
-<div style="width:100%;padding:15px;border-left:10px solid #1cc68b;background-color: #d1e3dd; color: #00b173;">
-<div style="font-size:1.3em;">提示<br></div>
-<font style="color:#435364;font-size:1.1em;">rmqtt-auth-http 插件同时包含 ACL 功能，可通过注释禁用。</font>
-</div>
+
+> **提示**    
+> rmqtt-auth-http 插件同时包含 ACL 功能，可通过注释禁用。
+
 
 ## 认证原理
 
-RMQTT 在设备连接事件中使用当前客户端相关信息作为参数，向用户自定义的认证服务发起请求查询权限，通过返回的 HTTP 响应信息来处理认证请求。
+*RMQTT* 在设备连接事件中使用当前客户端相关信息作为参数，向用户自定义的认证服务发起请求查询权限，通过返回的 HTTP 响应信息来处理认证请求。
 
 - 认证成功：
   - API 返回 2xx 状态码且消息体为:allow
@@ -101,7 +113,7 @@ RMQTT 在设备连接事件中使用当前客户端相关信息作为参数，�
   - 认证成功 且 响应头返回“X-Superuser: true”, 超级用户将跳过ACL授权。
   
 响应示例：
-```json
+```
 HTTP/1.1 200 OK
 X-Superuser: true
 Content-Type: text/plain
@@ -110,6 +122,47 @@ Date: Wed, 07 Jun 2023 01:29:23 GMT
 
 allow
 ```
+
+从 *RMQTT* v0.8.0 版本开始，您可以在响应体中设置一个可选的 acl 字段，用于指定客户端的权限。有关更多信息，请参阅[权限列表（ACL）](./perm-list.md)。
+
+从 *RMQTT* v0.8.0 版本开始，您可以在响应体中设置一个可选的 expire_at 字段，用于指定客户端的认证到期时间，并强制客户端断开连接以便重新认证。该值为 Unix 时间戳（秒）。
+
+响应示例：
+```json
+HTTP/1.1 200 OK
+Content-Length: 565
+Content-Type: application/json; charset=utf-8
+Date: Wed, 25 Sep 2024 01:54:37 GMT
+
+{
+  "result": "allow",  // "allow" | "deny" | "ignore"
+  "superuser": false,  // true | false，该项为空时默认为 false
+  "expire_at": 1827143027,  // 可选, 认证到期时间
+  "acl": [
+    {
+      "action": "all",
+      "permission": "allow",
+      "topic": "foo/${clientid}"
+    },
+    {
+      "action": "subscribe",
+      "permission": "allow",
+      "qos": [1, 2],
+      "topic": "eq foo/1/#"
+    },
+    {
+      "action": "publish",
+      "permission": "deny",
+      "retain": true,
+      "topic": "foo/4"
+    }
+  ]
+}
+```
+
+> **提示**    
+> 要支持预设ACL权限，*Content-Type* 必须设置为 'application/json' 格式。
+
 
 ## 认证请求
 
@@ -143,12 +196,9 @@ HTTP 请求方法为 GET 时，请求参数将以 URL 查询字符串的形式�
 - %r：客户端接入协议
 - %P：明文密码
 
-<div style="width:100%;padding:15px;border-left:10px solid #1cc68b;background-color: #d1e3dd; color: #00b173;">
-<div style="font-size:1.3em;">提示<br></div>
-<font style="color:#435364;font-size:1.1em;">
-推荐使用 POST 与 PUT 方法，使用 GET 方法时明文密码可能会随 URL 被记录到传输过程中的服务器日志中。
-</font>
-</div>
+
+> **提示<br>**
+> 推荐使用 POST 与 PUT 方法，使用 GET 方法时明文密码可能会随 URL 被记录到传输过程中的服务器日志中。
 
 
 # HTTP ACL
@@ -161,12 +211,8 @@ HTTP 认证使用外部自建 HTTP 应用认证授权数据源，根据 HTTP API
 rmqtt-auth-http
 ```
 
-<div style="width:100%;padding:15px;border-left:10px solid #1cc68b;background-color: #d1e3dd; color: #00b173;">
-<div style="font-size:1.3em;">提示<br></div>
-<font style="color:#435364;font-size:1.1em;">
-rmqtt-auth-http 插件同时包含认证功能，可通过注释禁用。
-</font>
-</div>
+> **提示<br>**
+> rmqtt-auth-http 插件同时包含认证功能，可通过注释禁用。
 
 
 要启用 HTTP ACL，需要在 `etc/plugins/rmqtt-auth-http.toml` 中配置以下内容：
@@ -221,13 +267,9 @@ HTTP 请求方法为 GET 时，请求参数将以 URL 查询字符串的形式�
 - %r：客户端接入的MQTT协议版本，值有：3=3.1、4=3.1.1 或 5=5.0
 - %t：主题
 
-<div style="width:100%;padding:15px;border-left:10px solid #1cc68b;background-color: #d1e3dd; color: #00b173;">
-<div style="font-size:1.3em;">提示<br></div>
-<font style="color:#435364;font-size:1.1em;">
-推荐使用 POST 与 PUT 方法，使用 GET 方法时明文密码可能会随 URL 被记录到传输过程中的服务器日志中。
-</font>
-</div>
 
+> **提示<br>**
+> 推荐使用 POST 与 PUT 方法，使用 GET 方法时明文密码可能会随 URL 被记录到传输过程中的服务器日志中。
 
 # HTTP 基础请求信息
 
@@ -240,7 +282,7 @@ HTTP API 基础请求信息，请求头。
 http_timeout = "5s"
 http_headers.accept = "*/*"
 http_headers.Cache-Control = "no-cache"
-http_headers.User-Agent = "RMQTT/0.2.11"
+http_headers.User-Agent = "RMQTT/0.8.0"
 http_headers.Connection = "keep-alive"
 
 # 如果发布消息被拒绝，则断开连接
