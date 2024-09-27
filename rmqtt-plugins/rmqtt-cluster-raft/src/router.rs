@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+use std::io::{Read, Write};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -26,7 +28,7 @@ use rmqtt::{
 
 use crate::task_exec_queue;
 
-use super::config::{retry, BACKOFF_STRATEGY};
+use super::config::{retry, Compression, BACKOFF_STRATEGY};
 use super::message::{Message, MessageReply};
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
@@ -57,17 +59,19 @@ pub(crate) struct ClusterRouter {
     raft_mailbox: Arc<RwLock<Option<Mailbox>>>,
     client_states: DashMap<ClientId, ClientStatus>,
     pub try_lock_timeout: Duration,
+    compression: Option<Compression>,
 }
 
 impl ClusterRouter {
     #[inline]
-    pub(crate) fn get_or_init(try_lock_timeout: Duration) -> &'static Self {
+    pub(crate) fn get_or_init(try_lock_timeout: Duration, compression: Option<Compression>) -> &'static Self {
         static INSTANCE: OnceCell<ClusterRouter> = OnceCell::new();
         INSTANCE.get_or_init(|| Self {
             inner: DefaultRouter::instance(),
             raft_mailbox: Arc::new(RwLock::new(None)),
             client_states: DashMap::default(),
             try_lock_timeout,
+            compression,
         })
     }
 
@@ -344,6 +348,7 @@ impl Store for &'static ClusterRouter {
 
     async fn snapshot(&self) -> RaftResult<Vec<u8>> {
         log::debug!("create snapshot ...");
+        let now = std::time::Instant::now();
         let relations = &self
             .inner
             .relations
@@ -367,20 +372,85 @@ impl Store for &'static ClusterRouter {
             relations_count,
         ))
         .map_err(|e| Error::Other(e))?;
-        log::info!("create snapshot, len: {}", snapshot.len());
-        Ok(snapshot)
+        log::info!("create snapshot, len: {}, cost time: {:?}", snapshot.len(), now.elapsed());
+
+        let now = std::time::Instant::now();
+        let compressed = match self.compression {
+            Some(Compression::Zstd) => zstd::encode_all(&*snapshot, 1)?,
+            Some(Compression::Lz4) => {
+                use lz4_flex::block::compress_prepend_size;
+                compress_prepend_size(&snapshot)
+            }
+            Some(Compression::Zlib) => {
+                use flate2::write::ZlibEncoder;
+                let mut e = ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
+                e.write_all(&snapshot)?;
+                e.finish()?
+            }
+            Some(Compression::Snappy) => {
+                use snap::write;
+                let mut wtr = write::FrameEncoder::new(vec![]);
+                wtr.write_all(&snapshot)?;
+                wtr.into_inner().map_err(|e| Error::Anyhow(e.into()))?
+            }
+            None => snapshot,
+        };
+
+        if self.compression.is_some() {
+            log::info!(
+                "create snapshot, compressed({:?}) len: {}, cost time: {:?}",
+                self.compression,
+                compressed.len(),
+                now.elapsed()
+            );
+        }
+
+        Ok(compressed)
     }
 
     async fn restore(&mut self, snapshot: &[u8]) -> RaftResult<()> {
         log::info!("restore, snapshot.len: {}", snapshot.len());
+        let now = std::time::Instant::now();
 
+        let uncompressed = match self.compression {
+            Some(Compression::Zstd) => Cow::Owned(zstd::decode_all(snapshot)?),
+            Some(Compression::Lz4) => {
+                use lz4_flex::block::decompress_size_prepended;
+                let buf = decompress_size_prepended(snapshot).map_err(|e| Error::Other(Box::new(e)))?;
+                Cow::Owned(buf)
+            }
+            Some(Compression::Zlib) => {
+                use flate2::bufread::ZlibDecoder;
+                let mut z = ZlibDecoder::new(snapshot);
+                let mut buf = Vec::new();
+                z.read_to_end(&mut buf)?;
+                Cow::Owned(buf)
+            }
+            Some(Compression::Snappy) => {
+                let mut buf = Vec::new();
+                snap::read::FrameDecoder::new(snapshot).read_to_end(&mut buf)?;
+                Cow::Owned(buf)
+            }
+            None => Cow::Borrowed(snapshot),
+        };
+
+        if self.compression.is_some() {
+            log::info!(
+                "restore, uncompressed({:?}) len: {}, cost time: {:?}",
+                self.compression,
+                uncompressed.len(),
+                now.elapsed()
+            );
+        }
+
+        let now = std::time::Instant::now();
         let (topics, relations, client_states, topics_count, relations_count): (
             TopicTree<()>,
             Vec<(TopicFilter, HashMap<ClientId, (Id, SubscriptionOptions)>)>,
             Vec<(ClientId, ClientStatus)>,
             Counter,
             Counter,
-        ) = bincode::deserialize(snapshot).map_err(|e| Error::Other(e))?;
+        ) = bincode::deserialize(uncompressed.as_ref()).map_err(|e| Error::Other(e))?;
 
         *self.inner.topics.write().await = topics;
         self.inner.topics_count.set(&topics_count);
@@ -395,7 +465,7 @@ impl Store for &'static ClusterRouter {
         for (client_id, content) in client_states {
             self.client_states.insert(client_id, content);
         }
-
+        log::info!("restore, cost time: {:?}", now.elapsed());
         Ok(())
     }
 }

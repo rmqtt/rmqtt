@@ -90,7 +90,7 @@ impl ClusterPlugin {
             node_names.insert(node_addr.id, format!("{}@{}", node_addr.id, node_addr.addr));
         }
         let grpc_clients = Arc::new(grpc_clients);
-        let router = ClusterRouter::get_or_init(cfg.try_lock_timeout);
+        let router = ClusterRouter::get_or_init(cfg.try_lock_timeout, cfg.compression);
         let shared = ClusterShared::get_or_init(router, grpc_clients.clone(), node_names, cfg.message_type);
         let raft_mailbox = None;
         let cfg = Arc::new(cfg);
