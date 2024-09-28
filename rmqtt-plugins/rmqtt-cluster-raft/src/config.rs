@@ -48,6 +48,9 @@ pub struct PluginConfig {
     #[serde(default)]
     pub verify_addr: bool,
 
+    #[serde(default)]
+    pub compression: Option<Compression>,
+
     #[serde(default = "PluginConfig::raft_default")]
     pub raft: RaftConfig,
 }
@@ -314,4 +317,12 @@ impl RaftConfig {
         };
         rop_str.serialize(s)
     }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+pub enum Compression {
+    Zstd,
+    Lz4,
+    Zlib,
+    Snappy,
 }

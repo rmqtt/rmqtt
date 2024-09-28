@@ -13,3 +13,8 @@ serde = { workspace = true, features = ["derive"] }
 rmqtt-raft = { version = "0.4", features = ["reuse"] }
 #rmqtt-raft = { path = "../../../rmqtt-raft", features = ["reuse"] }
 backoff = { version = "0.4", features = ["futures", "tokio"] }
+lz4_flex = { version = "0.11" }
+lz4 = "1.27.0"
+zstd = "0.13"
+flate2 = { version = "1.0.30"}
+snap = { version = "1.1.1" }
