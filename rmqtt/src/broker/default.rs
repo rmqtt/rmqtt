@@ -809,8 +809,7 @@ impl DefaultRouter {
         let limit = q._limit;
         let mut curr: usize = 0;
         let topic_filter = TopicFilter::from(topic);
-        return self
-            .relations
+        self.relations
             .get(topic)
             .map(|e| {
                 e.value()
@@ -834,7 +833,7 @@ impl DefaultRouter {
                     })
                     .collect::<Vec<_>>()
             })
-            .unwrap_or_default();
+            .unwrap_or_default()
     }
 
     #[inline]
