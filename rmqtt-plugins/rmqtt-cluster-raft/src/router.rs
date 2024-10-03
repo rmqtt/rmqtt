@@ -1,24 +1,23 @@
 use std::borrow::Cow;
 use std::io::{Read, Write};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use once_cell::sync::OnceCell;
 use rmqtt_raft::{Error, Mailbox, Result as RaftResult, Store};
-use tokio::sync::RwLock;
 
 use rmqtt::rust_box::task_exec_queue::SpawnExt;
 use rmqtt::{
     ahash, anyhow, async_trait::async_trait, bincode, dashmap, log, once_cell, serde_json, timestamp_millis,
-    tokio,
+    tokio, tokio::sync::RwLock,
 };
 use rmqtt::{
     broker::{
         default::DefaultRouter,
-        topic::TopicTree,
         types::{
             AllRelationsMap, ClientId, Id, IsOnline, NodeId, Route, SubRelationsMap, SubscriptionOptions,
-            TimestampMillis, TopicFilter, TopicName,
+            TimestampMillis, Topic, TopicFilter, TopicName,
         },
         Router,
     },
@@ -364,15 +363,15 @@ impl Store for &'static ClusterRouter {
         let topics_count = &self.inner.topics_count;
         let relations_count = &self.inner.relations_count;
 
-        let snapshot = bincode::serialize(&(
-            self.inner.topics.read().await.as_ref(),
-            relations,
-            client_states,
+        let snapshot = bincode::serialize(&(relations, client_states, topics_count, relations_count))
+            .map_err(|e| Error::Other(e))?;
+        log::info!(
+            "create snapshot, len: {},  topics_count: {:?}, relations_count: {:?}, cost time: {:?}",
+            snapshot.len(),
             topics_count,
             relations_count,
-        ))
-        .map_err(|e| Error::Other(e))?;
-        log::info!("create snapshot, len: {}, cost time: {:?}", snapshot.len(), now.elapsed());
+            now.elapsed()
+        );
 
         let now = std::time::Instant::now();
         let compressed = match self.compression {
@@ -444,20 +443,21 @@ impl Store for &'static ClusterRouter {
         }
 
         let now = std::time::Instant::now();
-        let (topics, relations, client_states, topics_count, relations_count): (
-            TopicTree<()>,
+        let (relations, client_states, topics_count, relations_count): (
             Vec<(TopicFilter, HashMap<ClientId, (Id, SubscriptionOptions)>)>,
             Vec<(ClientId, ClientStatus)>,
             Counter,
             Counter,
         ) = bincode::deserialize(uncompressed.as_ref()).map_err(|e| Error::Other(e))?;
 
-        *self.inner.topics.write().await = topics;
         self.inner.topics_count.set(&topics_count);
 
+        let mut topics = self.inner.topics.write().await;
         self.inner.relations.clear();
         for (topic_filter, relation) in relations {
+            let topic = Topic::from_str(&topic_filter).map_err(|e| Error::Msg(format!("{:?}", e)))?;
             self.inner.relations.insert(topic_filter, relation);
+            topics.insert(&topic, ());
         }
         self.inner.relations_count.set(&relations_count);
 
@@ -465,7 +465,13 @@ impl Store for &'static ClusterRouter {
         for (client_id, content) in client_states {
             self.client_states.insert(client_id, content);
         }
-        log::info!("restore, cost time: {:?}", now.elapsed());
+
+        log::info!(
+            "restore, topics_count: {:?}, relations_count: {:?}, cost time: {:?}",
+            topics_count,
+            relations_count,
+            now.elapsed()
+        );
         Ok(())
     }
 }
