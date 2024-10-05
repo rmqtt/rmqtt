@@ -48,7 +48,7 @@ enum MessageEntry<'h> {
     OccupiedEntry(scc::hash_map::OccupiedEntry<'h, MsgID, (StoredMessage, usize)>),
 }
 
-impl<'h> MessageEntry<'h> {
+impl MessageEntry<'_> {
     #[inline]
     pub fn get(&self) -> &StoredMessage {
         match self {

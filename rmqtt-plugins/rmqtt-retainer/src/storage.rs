@@ -561,7 +561,7 @@ pub struct ValueRef<'a, T> {
     updating: bool,
 }
 
-impl<'a, T> ValueRef<'a, T> {
+impl<T> ValueRef<'_, T> {
     #[inline]
     pub fn get(&self) -> Result<&T> {
         if let Some(val) = self.val_guard.cached_val.as_ref() {
