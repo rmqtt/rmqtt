@@ -21,8 +21,10 @@ release-aarch64:
 	cargo build --release --target aarch64-unknown-linux-musl
 
 docker-aarch64:
-	docker buildx build --platform linux/arm64 -t rmqtt/rmqtt:$$(git describe --tags $$(git rev-list --tags --max-count=1))-arm64 -f Dockerfile.aarch64 --load ./
-	docker buildx build --platform linux/arm64 -t rmqtt/rmqtt:latest-arm64 -f Dockerfile.aarch64 --load ./
+	#docker buildx build --platform linux/arm64 -t rmqtt/rmqtt:$$(git describe --tags $$(git rev-list --tags --max-count=1))-arm64 -f Dockerfile.aarch64 --load ./
+	#docker buildx build --platform linux/arm64 -t rmqtt/rmqtt:latest-arm64 -f Dockerfile.aarch64 --load ./
+	docker build --no-cache -t rmqtt/rmqtt:$$(git describe --tags $$(git rev-list --tags --max-count=1))-arm64 -f Dockerfile.aarch64 ./
+	docker build --no-cache -t rmqtt/rmqtt:latest-arm64  -f Dockerfile.aarch64 ./
 
 publish-aarch64:
 	docker push rmqtt/rmqtt:$$(git describe --tags $$(git rev-list --tags --max-count=1))-arm64

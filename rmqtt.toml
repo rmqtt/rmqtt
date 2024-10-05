@@ -88,6 +88,7 @@ plugins.default_startups = [
     #"rmqtt-auto-subscription",
     #"rmqtt-bridge-egress-pulsar",
     #"rmqtt-auth-jwt",
+    #"rmqtt-bridge-egress-nats",
     "rmqtt-web-hook",
     "rmqtt-http-api"
 ]
