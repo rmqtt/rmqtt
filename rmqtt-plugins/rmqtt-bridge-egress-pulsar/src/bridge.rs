@@ -27,7 +27,7 @@ struct Message<'a> {
     metadata: &'a BTreeMap<String, String>,
 }
 
-impl<'a> SerializeMessage for Message<'a> {
+impl SerializeMessage for Message<'_> {
     fn serialize_message(input: Self) -> Result<producer::Message, PulsarError> {
         let f = input.f;
         let p = input.p;
