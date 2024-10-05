@@ -235,14 +235,14 @@ pub trait VecToString {
     fn to_string(&self) -> String;
 }
 
-impl<'a> VecToString for Vec<&'a Level> {
+impl VecToString for Vec<&Level> {
     #[inline]
     fn to_string(&self) -> String {
         self.iter().map(|l| l.to_string()).collect::<Vec<String>>().join("/")
     }
 }
 
-impl<'a> VecToString for &'a [Level] {
+impl VecToString for &[Level] {
     #[inline]
     fn to_string(&self) -> String {
         self.iter().map(|l| l.to_string()).collect::<Vec<String>>().join("/")
@@ -254,7 +254,7 @@ pub trait VecToTopic {
     fn to_topic_filter(&self) -> TopicFilter;
 }
 
-impl<'a> VecToTopic for Vec<&'a Level> {
+impl VecToTopic for Vec<&Level> {
     #[inline]
     fn to_topic(&self) -> Topic {
         Topic::from(self.iter().map(|l| (*l).clone()).collect::<Vec<Level>>())

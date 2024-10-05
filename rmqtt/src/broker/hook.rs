@@ -226,7 +226,7 @@ pub enum Parameter<'a> {
     GrpcMessageReceived(grpc::MessageType, grpc::Message),
 }
 
-impl<'a> Parameter<'a> {
+impl Parameter<'_> {
     pub fn get_type(&self) -> Type {
         match self {
             Parameter::BeforeStartup => Type::BeforeStartup,

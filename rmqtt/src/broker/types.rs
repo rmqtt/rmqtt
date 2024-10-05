@@ -1039,7 +1039,7 @@ pub enum LastWill<'a> {
     V5(&'a LastWillV5),
 }
 
-impl<'a> fmt::Debug for LastWill<'a> {
+impl fmt::Debug for LastWill<'_> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -1068,7 +1068,7 @@ impl<'a> fmt::Debug for LastWill<'a> {
     }
 }
 
-impl<'a> LastWill<'a> {
+impl LastWill<'_> {
     #[inline]
     pub fn will_delay_interval(&self) -> Option<Duration> {
         match self {
@@ -1108,7 +1108,7 @@ impl<'a> LastWill<'a> {
     }
 }
 
-impl<'a> Serialize for LastWill<'a> {
+impl Serialize for LastWill<'_> {
     #[inline]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
