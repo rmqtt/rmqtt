@@ -1,7 +1,7 @@
 # RMQTT Broker
 
 [![GitHub Release](https://img.shields.io/github/release/rmqtt/rmqtt?color=brightgreen)](https://github.com/rmqtt/rmqtt/releases)
-<a href="https://blog.rust-lang.org/2023/08/03/Rust-1.71.1.html"><img alt="Rust Version" src="https://img.shields.io/badge/rust-1.71.1%2B-blue" /></a>
+<a href="https://blog.rust-lang.org/2024/08/08/Rust-1.80.1.html"><img alt="Rust Version" src="https://img.shields.io/badge/rust-1.80.1%2B-blue" /></a>
 
 English | [简体中文](./README-CN.md)
 
@@ -32,6 +32,7 @@ and mobile applications that can handle millions of concurrent clients on a sing
 - [Apache Kafka Bridging - Egress Mode](./docs/en_US/bridge-egress-kafka.md)
 - [Apache Pulsar Bridging - Egress Mode](./docs/en_US/bridge-egress-pulsar.md)
 - [NATS Bridging - Egress Mode](./docs/en_US/bridge-egress-nats.md)
+- [Reductstore Bridging - Egress Mode](./docs/en_US/bridge-egress-reductstore.md)
 - [Topic Rewrite](./docs/en_US/topic-rewrite.md)
 - [Auto Subscription](./docs/en_US/auto-subscription.md)
 - Shared subscription($share/{Group}/{TopicFilter});
