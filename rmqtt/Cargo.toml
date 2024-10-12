@@ -69,6 +69,7 @@ leaky-bucket = "1.1"
 scc = "2.1"
 get_size = { package = "get-size", version = "0.1", features = ["derive"] }
 itoa = "1.0"
+prometheus = "0.13"
 
 [build-dependencies]
 tonic-build = "0.11"

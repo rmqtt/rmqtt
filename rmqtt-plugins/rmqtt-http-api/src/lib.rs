@@ -24,6 +24,7 @@ mod clients;
 mod config;
 mod handler;
 mod plugin;
+mod prome;
 mod subs;
 mod types;
 
