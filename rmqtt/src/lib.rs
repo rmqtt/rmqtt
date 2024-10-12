@@ -27,6 +27,7 @@ pub use ntex;
 pub use ntex_mqtt;
 pub use once_cell;
 pub use pin_project_lite;
+pub use prometheus;
 pub use rand;
 pub use reqwest;
 pub use rust_box;

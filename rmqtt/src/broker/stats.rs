@@ -146,7 +146,7 @@ impl Counter {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Stats {
     pub handshakings: Counter,
     pub handshakings_active: Counter,
@@ -163,8 +163,8 @@ pub struct Stats {
     pub retaineds: Counter,
     pub delayed_publishs: Counter,
 
-    topics_map: HashMap<NodeId, Counter>,
-    routes_map: HashMap<NodeId, Counter>,
+    pub topics_map: HashMap<NodeId, Counter>,
+    pub routes_map: HashMap<NodeId, Counter>,
 
     #[cfg(feature = "debug")]
     debug_client_states_map: HashMap<NodeId, usize>,
