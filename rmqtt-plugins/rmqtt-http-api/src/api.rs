@@ -12,6 +12,7 @@ use crate::prome;
 use rmqtt::metrics::Metrics;
 use rmqtt::node::NodeInfo;
 use rmqtt::stats::Stats;
+
 use rmqtt::{
     anyhow::{self, anyhow},
     base64::prelude::{Engine, BASE64_STANDARD},
@@ -33,10 +34,10 @@ use rmqtt::{
 };
 
 use super::types::{
-    ClientSearchParams, Message, MessageReply, PublishParams, SubscribeParams, UnsubscribeParams,
+    ClientSearchParams, ClientSearchResult, Message, MessageReply, PublishParams, SubscribeParams,
+    UnsubscribeParams,
 };
-use super::PluginConfigType;
-use super::{clients, plugin, subs};
+use super::{clients, plugin, subs, PluginConfigType};
 
 struct BearerValidator {
     token: String,
@@ -70,12 +71,15 @@ fn route(cfg: PluginConfigType, token: Option<String>) -> Router {
         .push(Router::with_path("nodes").get(get_nodes).push(Router::with_path("<id>").get(get_nodes)))
         .push(Router::with_path("health/check").get(check_health))
         .push(
-            Router::with_path("clients").get(search_clients).push(
-                Router::with_path("<clientid>")
-                    .get(get_client)
-                    .delete(kick_client)
-                    .push(Router::with_path("online").get(check_online)),
-            ),
+            Router::with_path("clients")
+                .push(Router::with_path("offlines").get(search_offlines).delete(kick_offlines))
+                .get(search_clients)
+                .push(
+                    Router::with_path("<clientid>")
+                        .get(get_client)
+                        .delete(kick_client)
+                        .push(Router::with_path("online").get(check_online)),
+                ),
         )
         .push(
             Router::with_path("subscriptions")
@@ -185,7 +189,18 @@ async fn list_apis(res: &mut Response) {
             "path": "/clients/{clientid}/online",
             "descr": "Check a client whether online from the cluster"
         },
-
+        {
+            "name": "search_offlines",
+            "method": "GET",
+            "path": "/clients/offlines",
+            "descr": "Search offlines clients information from the cluster"
+        },
+        {
+            "name": "kick_offlines",
+            "method": "DELETE",
+            "path": "/clients/offlines",
+            "descr": "Kick offlines clients from the cluster"
+        },
         {
             "name": "query_subscriptions",
             "method": "GET",
@@ -647,7 +662,41 @@ async fn search_clients(
         q._limit = max_row_limit;
     }
     match _search_clients(message_type, q).await {
-        Ok(replys) => res.render(Json(replys)),
+        Ok(replys) => {
+            let replys = replys.iter().map(|res| res.to_json()).collect::<Vec<_>>();
+            res.render(Json(replys))
+        }
+        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+    }
+    Ok(())
+}
+
+#[handler]
+async fn search_offlines(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> Result<(), salvo::Error> {
+    let cfg = get_cfg(depot)?;
+    let message_type = cfg.read().await.message_type;
+    let max_row_limit = cfg.read().await.max_row_limit;
+    let mut q = match req.parse_queries::<ClientSearchParams>() {
+        Ok(q) => q,
+        Err(e) => {
+            res.render(StatusError::bad_request().detail(e.to_string()));
+            return Ok(());
+        }
+    };
+    q.connected = Some(false);
+
+    if q._limit == 0 || q._limit > max_row_limit {
+        q._limit = max_row_limit;
+    }
+    match _search_clients(message_type, q).await {
+        Ok(replys) => {
+            let replys = replys.iter().map(|res| res.to_json()).collect::<Vec<_>>();
+            res.render(Json(replys))
+        }
         Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
     }
     Ok(())
@@ -656,7 +705,7 @@ async fn search_clients(
 async fn _search_clients(
     message_type: MessageType,
     mut q: ClientSearchParams,
-) -> Result<Vec<serde_json::Value>> {
+) -> Result<Vec<ClientSearchResult>> {
     let mut replys = clients::search(&q).await;
     let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
     for (id, (_addr, c)) in grpc_clients.iter() {
@@ -684,7 +733,6 @@ async fn _search_clients(
         }
     }
 
-    let replys = replys.iter().map(|res| res.to_json()).collect::<Vec<_>>();
     Ok(replys)
 }
 
@@ -709,6 +757,61 @@ async fn kick_client(req: &mut Request, res: &mut Response) {
     } else {
         res.render(StatusError::bad_request())
     }
+}
+
+#[handler]
+async fn kick_offlines(req: &mut Request, depot: &mut Depot, res: &mut Response) -> Result<(), salvo::Error> {
+    let cfg = get_cfg(depot)?;
+    let message_type = cfg.read().await.message_type;
+    let max_row_limit = cfg.read().await.max_row_limit;
+    let mut q = match req.parse_queries::<ClientSearchParams>() {
+        Ok(q) => q,
+        Err(e) => {
+            res.render(StatusError::bad_request().detail(e.to_string()));
+            return Ok(());
+        }
+    };
+    q.connected = Some(false);
+
+    if q._limit == 0 || q._limit > max_row_limit {
+        q._limit = max_row_limit;
+    }
+
+    let mut count = 0;
+    match _search_clients(message_type, q).await {
+        Ok(replys) => {
+            for reply in replys.iter() {
+                log::debug!("node_id: {}, clientid: {}", reply.node_id, reply.clientid);
+                let mut entry = Runtime::instance()
+                    .extends
+                    .shared()
+                    .await
+                    .entry(Id::from(reply.node_id, ClientId::from(reply.clientid.clone())));
+                let s = entry.session();
+                if s.is_some() {
+                    match entry.kick(true, true, true).await {
+                        Err(e) => {
+                            log::warn!("{}", e);
+                        }
+                        Ok(_) => {
+                            count += 1;
+                        }
+                    }
+                } else {
+                    log::warn!(
+                        "session is not found, node_id: {}, clientid: {}",
+                        reply.node_id,
+                        reply.clientid
+                    );
+                }
+            }
+        }
+        Err(e) => {
+            log::warn!("{}", e);
+        }
+    }
+    res.render(Json(json!({"count": count})));
+    Ok(())
 }
 
 #[handler]
