@@ -29,7 +29,7 @@ pub enum Message<'a> {
     UnloadPlugin { name: &'a str },
 }
 
-impl<'a> Message<'a> {
+impl Message<'_> {
     #[inline]
     pub fn encode(&self) -> Result<Vec<u8>> {
         Ok(bincode::serialize(self).map_err(anyhow::Error::new)?)

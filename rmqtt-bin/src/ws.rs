@@ -107,14 +107,24 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Future for WSServiceFut<T> {
             }
         }
         match Pin::new(&mut this.fut).poll(cx) {
-            Poll::Ready(Ok(io)) => Poll::Ready(Ok(WsStream(io))),
+            Poll::Ready(Ok(io)) => Poll::Ready(Ok(WsStream::new(io))),
             Poll::Ready(Err(e)) => Poll::Ready(Err(ntex_mqtt::MqttError::Service(MqttError::from(e)))),
             Poll::Pending => Poll::Pending,
         }
     }
 }
 
-pub struct WsStream<S>(WebSocketStream<S>);
+pub struct WsStream<S> {
+    s: WebSocketStream<S>,
+    cached_data: Option<Vec<u8>>,
+    idx: usize,
+}
+
+impl<S> WsStream<S> {
+    pub fn new(s: WebSocketStream<S>) -> Self {
+        Self { s, cached_data: None, idx: 0 }
+    }
+}
 
 impl<S> WsStream<S>
 where
@@ -122,7 +132,7 @@ where
 {
     #[inline]
     pub fn get_ref(&self) -> &S {
-        self.0.get_ref()
+        self.s.get_ref()
     }
 }
 
@@ -135,14 +145,35 @@ where
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        match ready!(Pin::new(&mut self.0).poll_next(cx)) {
+        if let Some(cached_data) = &self.cached_data {
+            let cached_buf = &cached_data[self.idx..];
+            if cached_buf.len() <= buf.remaining() {
+                buf.put_slice(cached_buf);
+                self.idx = 0;
+                self.cached_data = None;
+            } else {
+                let cached_buf = &cached_buf[0..buf.remaining()];
+                buf.put_slice(cached_buf);
+                self.idx += cached_buf.len();
+            }
+            return Poll::Ready(Ok(()));
+        }
+
+        match ready!(Pin::new(&mut self.s).poll_next(cx)) {
             Some(Ok(msg)) => {
                 let data = msg.into_data();
-                buf.put_slice(data.as_slice());
+                if data.len() <= buf.remaining() {
+                    buf.put_slice(data.as_slice());
+                } else {
+                    let enable_buf = &data[0..buf.remaining()];
+                    buf.put_slice(enable_buf);
+                    self.idx = enable_buf.len();
+                    self.cached_data = Some(data)
+                }
                 Poll::Ready(Ok(()))
             }
             Some(Err(e)) => {
-                log::warn!("{:?}", e);
+                log::debug!("{:?}", e);
                 Poll::Ready(Err(to_error(e)))
             }
             None => Poll::Ready(Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))),
@@ -159,21 +190,21 @@ where
         _cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, io::Error>> {
-        if let Err(e) = Pin::new(&mut self.0).start_send(Message::Binary(buf.to_vec())) {
+        if let Err(e) = Pin::new(&mut self.s).start_send(Message::Binary(buf.to_vec())) {
             return Poll::Ready(Err(to_error(e)));
         }
         Poll::Ready(Ok(buf.len()))
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-        if let Err(e) = ready!(Pin::new(&mut self.0).poll_flush(cx)) {
+        if let Err(e) = ready!(Pin::new(&mut self.s).poll_flush(cx)) {
             return Poll::Ready(Err(to_error(e)));
         }
         Poll::Ready(Ok(()))
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-        if let Err(e) = ready!(Pin::new(&mut self.0).poll_close(cx)) {
+        if let Err(e) = ready!(Pin::new(&mut self.s).poll_close(cx)) {
             return Poll::Ready(Err(to_error(e)));
         }
         Poll::Ready(Ok(()))

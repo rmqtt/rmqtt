@@ -43,6 +43,21 @@ pub(crate) fn build(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         })
         .collect::<Vec<_>>();
 
+    let get_items = get_fields_named(&input.data)
+        .named
+        .iter()
+        .map(|f| {
+            let name = &f.ident;
+            let fn_name = name.as_ref().map(|ref i| Ident::new(&format!("{}", i), i.span()));
+            quote! {
+                #[inline]
+                pub fn #fn_name(&self) -> usize {
+                    self.#name.load(Ordering::SeqCst)
+                }
+            }
+        })
+        .collect::<Vec<_>>();
+
     let json_items = get_fields_named(&input.data)
         .named
         .iter()
@@ -62,6 +77,20 @@ pub(crate) fn build(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             let name = &f.ident;
             quote!(
                 self.#name.fetch_add(other.#name.load(Ordering::SeqCst), Ordering::SeqCst);
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let prometheus_items = get_fields_named(&input.data)
+        .named
+        .iter()
+        .map(|f| {
+            let name = &f.ident;
+            let attr_name = f.ident.as_ref().map(|i| i.to_string().replace('_', "."));
+            quote!(
+                metrics_gauge_vec
+                    .with_label_values(&[&label, #attr_name])
+                    .set(self.#name.load(Ordering::SeqCst) as i64);
             )
         })
         .collect::<Vec<_>>();
@@ -86,6 +115,8 @@ pub(crate) fn build(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
             #(#inc_items)*
 
+            #(#get_items)*
+
             #[inline]
             pub fn to_json(&self) -> serde_json::Value {
                 serde_json::json!({
@@ -97,9 +128,14 @@ pub(crate) fn build(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             pub fn add(&mut self, other: &Self) {
                 #(#add_items)*
             }
+
+            #[inline]
+            pub fn build_prometheus_metrics(&self, label: &str, metrics_gauge_vec: &prometheus::IntGaugeVec) {
+                #(#prometheus_items)*
+            }
+
         }
     };
-    //eprintln!("{}", expanded);
     proc_macro::TokenStream::from(expanded)
 }
 

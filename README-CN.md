@@ -1,7 +1,7 @@
 # RMQTT Broker
 
 [![GitHub Release](https://img.shields.io/github/release/rmqtt/rmqtt?color=brightgreen)](https://github.com/rmqtt/rmqtt/releases)
-<a href="https://blog.rust-lang.org/2023/08/03/Rust-1.71.1.html"><img alt="Rust Version" src="https://img.shields.io/badge/rust-1.71.1%2B-blue" /></a>
+<a href="https://blog.rust-lang.org/2024/08/08/Rust-1.80.1.html"><img alt="Rust Version" src="https://img.shields.io/badge/rust-1.80.1%2B-blue" /></a>
 
 [English](./README.md)  | 简体中文
 
@@ -30,6 +30,8 @@
 - [Apache Kafka桥接-入口模式](./docs/zh_CN/bridge-ingress-kafka.md)
 - [Apache kafka桥接-出口模式](./docs/zh_CN/bridge-egress-kafka.md)
 - [Apache Pulsar桥接-出口模式](./docs/zh_CN/bridge-egress-pulsar.md)
+- [NATS桥接-出口模式](./docs/zh_CN/bridge-egress-nats.md)
+- [Reductstore桥接-出口模式](./docs/zh_CN/bridge-egress-reductstore.md)
 - [主题重写](./docs/zh_CN/topic-rewrite.md)
 - [自动订阅](./docs/zh_CN/auto-subscription.md)
 - 共享订阅($share/{Group}/{TopicFilter});

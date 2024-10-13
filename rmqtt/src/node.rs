@@ -64,7 +64,7 @@ impl Node {
 
     #[inline]
     pub async fn status(&self) -> NodeStatus {
-        NodeStatus::Running
+        NodeStatus::Running(1)
     }
 
     #[inline]
@@ -198,7 +198,7 @@ impl BrokerInfo {
             "version": self.version,
             "uptime": self.uptime,
             "sysdescr": self.sysdescr,
-            "node_status": self.node_status,
+            "running": self.node_status.running(),
             "node_id": self.node_id,
             "node_name": self.node_name,
             "datetime": self.datetime
@@ -232,6 +232,7 @@ pub struct NodeInfo {
 }
 
 impl NodeInfo {
+    #[inline]
     pub fn to_json(&self) -> serde_json::Value {
         json!({
             "connections":  self.connections,
@@ -250,21 +251,60 @@ impl NodeInfo {
             // "os_release":  self.os_release,
             // "os_type":  self.os_type,
             // "proc_total":  self.proc_total,
-            "node_status":  self.node_status,
+            "running":  self.node_status.running(),
             "node_id":  self.node_id,
             "node_name":  self.node_name,
             "uptime":  self.uptime,
             "version":  self.version
         })
     }
+
+    #[inline]
+    pub fn add(&mut self, other: &NodeInfo) {
+        self.load1 += other.load1;
+        self.load5 += other.load5;
+        self.load15 += other.load15;
+        self.memory_total += other.memory_total;
+        self.memory_used += other.memory_used;
+        self.memory_free += other.memory_free;
+        self.disk_total += other.disk_total;
+        self.disk_free += other.disk_free;
+        self.node_status = {
+            let c = match (&self.node_status, &other.node_status) {
+                (NodeStatus::Running(c1), NodeStatus::Running(c2)) => *c1 + *c2,
+                (NodeStatus::Running(c1), _) => *c1,
+                (_, NodeStatus::Running(c2)) => *c2,
+                (_, _) => 0,
+            };
+            NodeStatus::Running(c)
+        };
+    }
 }
 
-#[derive(Default, Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "lowercase")]
 pub enum NodeStatus {
-    #[default]
-    Running,
+    Running(usize),
     Stop,
     Error(String),
+}
+
+impl NodeStatus {
+    #[inline]
+    pub fn running(&self) -> usize {
+        if let NodeStatus::Running(c) = self {
+            *c
+        } else {
+            0
+        }
+    }
+}
+
+impl Default for NodeStatus {
+    #[inline]
+    fn default() -> Self {
+        NodeStatus::Stop
+    }
 }
 
 #[inline]
