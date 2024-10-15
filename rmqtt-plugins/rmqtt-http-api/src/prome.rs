@@ -70,7 +70,6 @@ impl Monitor {
 
     #[inline]
     async fn refresh_data(&self, message_type: MessageType, refresh_interval: Duration) -> Result<()> {
-
         if !self.refresh_enable(refresh_interval) {
             return Ok(());
         }
