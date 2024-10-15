@@ -1,16 +1,18 @@
 all: release-docker
 
 release-docker:
-	podman build --no-cache -t rmqtt/rmqtt:$$(git describe --tags $$(git rev-list --tags --max-count=1)) ./
-	podman build --no-cache -t rmqtt/rmqtt:latest ./
+	docker build --no-cache -t rmqtt/rmqtt:$$(git describe --tags $$(git rev-list --tags --max-count=1)) ./
+	docker build --no-cache -t rmqtt/rmqtt:latest ./
 
 release-amd64:
 	git checkout $$(git describe --tags $$(git rev-list --tags --max-count=1))
 	cargo build --release --target x86_64-unknown-linux-musl
 
 docker-amd64:
-	docker buildx build --platform linux/amd64 -t rmqtt/rmqtt:$$(git describe --tags $$(git rev-list --tags --max-count=1))-amd64 -f Dockerfile.amd64 --load ./
-	docker buildx build --platform linux/amd64 -t rmqtt/rmqtt:latest-amd64 -f Dockerfile.amd64 --load ./
+	#docker buildx build --platform linux/amd64 -t rmqtt/rmqtt:$$(git describe --tags $$(git rev-list --tags --max-count=1))-amd64 -f Dockerfile.amd64 --load ./
+	#docker buildx build --platform linux/amd64 -t rmqtt/rmqtt:latest-amd64 -f Dockerfile.amd64 --load ./
+	docker build --no-cache -t rmqtt/rmqtt:$$(git describe --tags $$(git rev-list --tags --max-count=1))-amd64 -f Dockerfile.amd64 ./
+	docker build --no-cache -t rmqtt/rmqtt:latest-amd64  -f Dockerfile.amd64 ./
 
 publish-amd64:
 	docker push rmqtt/rmqtt:$$(git describe --tags $$(git rev-list --tags --max-count=1))-amd64
