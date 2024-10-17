@@ -9,10 +9,10 @@ use rmqtt::{
 use rmqtt::{
     broker::{
         default::DefaultShared,
-        session::{Session, SessionOfflineInfo},
+        session::Session,
         types::{
-            From, Id, IsAdmin, NodeId, NodeName, Publish, Reason, SessionStatus, SubRelations,
-            SubRelationsMap, SubsSearchParams, SubsSearchResult, Subscribe, SubscribeReturn,
+            From, Id, IsAdmin, NodeId, NodeName, OfflineSession, Publish, Reason, SessionStatus,
+            SubRelations, SubRelationsMap, SubsSearchParams, SubsSearchResult, Subscribe, SubscribeReturn,
             SubscriptionClientIds, To, Tx, Unsubscribe,
         },
         Entry, Router, Shared,
@@ -124,7 +124,7 @@ impl Entry for ClusterLockEntry {
         clean_start: bool,
         clear_subscriptions: bool,
         is_admin: IsAdmin,
-    ) -> Result<Option<SessionOfflineInfo>> {
+    ) -> Result<OfflineSession> {
         log::debug!(
             "{:?} ClusterLockEntry kick ..., clean_start: {}, clear_subscriptions: {}, is_admin: {}",
             self.session().map(|s| s.id.clone()),
@@ -160,9 +160,9 @@ impl Entry for ClusterLockEntry {
                     };
                     match msg_sender.send().await {
                         Ok(reply) => {
-                            if let MessageReply::Kick(Some(kicked)) = reply {
+                            if let MessageReply::Kick(kicked) = reply {
                                 log::debug!("{:?} kicked: {:?}", id, kicked);
-                                Some(kicked)
+                                kicked
                             } else {
                                 log::info!(
                                     "{:?} Message::Kick from other node, prev_node_id: {:?}, reply: {:?}",
@@ -170,7 +170,7 @@ impl Entry for ClusterLockEntry {
                                     prev_node_id,
                                     reply
                                 );
-                                None
+                                OfflineSession::NotExist
                             }
                         }
                         Err(e) => {
@@ -180,7 +180,7 @@ impl Entry for ClusterLockEntry {
                                 prev_node_id,
                                 e
                             );
-                            None
+                            OfflineSession::NotExist
                         }
                     }
                 };

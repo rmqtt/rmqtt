@@ -6,13 +6,13 @@ use futures::FutureExt;
 
 use client::NodeGrpcClient;
 
-use crate::broker::session::SessionOfflineInfo;
 use crate::broker::types::{
     CleanStart, ClearSubscriptions, From, Id, IsAdmin, NodeId, Publish, Retain, Route, SessionStatus,
     SubsSearchParams, SubsSearchResult, TopicFilter, TopicName,
 };
 use crate::{
-    Addr, ClientId, MsgID, Result, SharedGroup, SubRelations, SubRelationsMap, SubscriptionClientIds,
+    Addr, ClientId, MsgID, OfflineSession, Result, SharedGroup, SubRelations, SubRelationsMap,
+    SubscriptionClientIds,
 };
 
 pub mod client;
@@ -62,7 +62,7 @@ pub enum MessageReply {
     Success,
     Forwards(SubRelationsMap, SubscriptionClientIds),
     Error(String),
-    Kick(Option<SessionOfflineInfo>),
+    Kick(OfflineSession),
     GetRetains(Vec<(TopicName, Retain)>),
     SubscriptionsSearch(Vec<SubsSearchResult>),
     SubscriptionsGet(Option<Vec<SubsSearchResult>>),

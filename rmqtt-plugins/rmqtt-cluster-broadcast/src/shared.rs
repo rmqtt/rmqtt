@@ -7,12 +7,12 @@ use rmqtt::{ahash, async_trait::async_trait, futures, log, once_cell, tokio};
 use rmqtt::{
     broker::{
         default::DefaultShared,
-        session::{Session, SessionOfflineInfo},
+        session::Session,
         types::{
-            ClientId, From, Id, IsAdmin, IsOnline, NodeId, Publish, Reason, SessionStatus, SharedGroup,
-            SharedGroupType, SubRelations, SubRelationsMap, SubsSearchParams, SubsSearchResult, Subscribe,
-            SubscribeReturn, SubscriptionClientIds, SubscriptionIdentifier, SubscriptionOptions, To,
-            TopicFilter, Tx, Unsubscribe,
+            ClientId, From, Id, IsAdmin, IsOnline, NodeId, OfflineSession, Publish, Reason, SessionStatus,
+            SharedGroup, SharedGroupType, SubRelations, SubRelationsMap, SubsSearchParams, SubsSearchResult,
+            Subscribe, SubscribeReturn, SubscriptionClientIds, SubscriptionIdentifier, SubscriptionOptions,
+            To, TopicFilter, Tx, Unsubscribe,
         },
         Entry, Shared,
     },
@@ -79,11 +79,13 @@ impl Entry for ClusterLockEntry {
         clean_start: bool,
         clear_subscriptions: bool,
         is_admin: IsAdmin,
-    ) -> Result<Option<SessionOfflineInfo>> {
+    ) -> Result<OfflineSession> {
         log::debug!("{:?} ClusterLockEntry kick 1 ...", self.session().map(|s| s.id.clone()));
-        if let Some(kicked) = self.inner.kick(clean_start, clear_subscriptions, is_admin).await? {
+        if let OfflineSession::Exist(kicked) =
+            self.inner.kick(clean_start, clear_subscriptions, is_admin).await?
+        {
             log::debug!("{:?} broadcast kick reply kicked: {:?}", self.id(), kicked);
-            return Ok(Some(kicked));
+            return Ok(OfflineSession::Exist(kicked));
         }
 
         match kick(
@@ -95,18 +97,11 @@ impl Entry for ClusterLockEntry {
         {
             Ok(kicked) => {
                 log::debug!("{:?} broadcast kick reply kicked: {:?}", self.id(), kicked);
-                log::debug!(
-                    "{:?} clear_subscriptions: {}, {}, {}",
-                    self.id(),
-                    clear_subscriptions,
-                    kicked.subscriptions.is_empty(),
-                    !clear_subscriptions && !kicked.subscriptions.is_empty()
-                );
-                Ok(Some(kicked))
+                Ok(kicked)
             }
             Err(e) => {
                 log::debug!("{:?}, broadcast Message::Kick reply: {:?}", self.id(), e);
-                Ok(None)
+                Ok(OfflineSession::NotExist)
             }
         }
     }

@@ -19,7 +19,7 @@ use uuid::Uuid;
 use crate::broker::fitter::{Fitter, FitterManager};
 use crate::broker::hook::{Handler, Hook, HookManager, HookResult, Parameter, Priority, Register, Type};
 use crate::broker::inflight::InflightMessage;
-use crate::broker::session::{Session, SessionLike, SessionManager, SessionOfflineInfo};
+use crate::broker::session::{Session, SessionLike, SessionManager};
 use crate::broker::topic::{Topic, VecToTopic};
 use crate::broker::types::*;
 use crate::settings::acl::AuthInfo;
@@ -163,7 +163,7 @@ impl super::Entry for LockEntry {
         clean_start: bool,
         clear_subscriptions: bool,
         is_admin: IsAdmin,
-    ) -> Result<Option<SessionOfflineInfo>> {
+    ) -> Result<OfflineSession> {
         log::debug!(
             "{:?} LockEntry kick ..., clean_start: {}, clear_subscriptions: {}, is_admin: {}",
             self.session().map(|s| s.id.clone()),
@@ -202,18 +202,18 @@ impl super::Entry for LockEntry {
 
         if let Some((s, _)) = self._remove(clear_subscriptions).await {
             if clean_start {
-                Ok(None)
+                Ok(OfflineSession::Exist(None))
             } else {
                 match s.to_offline_info().await {
-                    Ok(offline_info) => Ok(Some(offline_info)),
+                    Ok(offline_info) => Ok(OfflineSession::Exist(Some(offline_info))),
                     Err(e) => {
                         log::error!("get offline info error, {:?}", e);
-                        Ok(None)
+                        Ok(OfflineSession::Exist(None))
                     }
                 }
             }
         } else {
-            Ok(None)
+            Ok(OfflineSession::NotExist)
         }
     }
 

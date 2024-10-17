@@ -106,6 +106,10 @@ mqtt.delayed_publish_max = 100_000
 #default: true
 mqtt.delayed_publish_immediate = true
 
+#Maximum session limit, 0: no limit, default value: 0.
+mqtt.max_sessions = 0
+
+
 ##--------------------------------------------------------------------
 ## Listeners
 ##--------------------------------------------------------------------

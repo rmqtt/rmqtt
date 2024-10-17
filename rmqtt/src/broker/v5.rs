@@ -119,6 +119,17 @@ pub async fn _handshake<Io: 'static>(
         .await);
     }
 
+    let entry = Runtime::instance().extends.shared().await.entry(id.clone());
+    let max_sessions = Runtime::instance().settings.mqtt.max_sessions;
+    if max_sessions > 0 && Runtime::instance().stats.sessions.count() >= max_sessions && !entry.exist() {
+        return Ok(refused_ack(
+                    handshake,
+                    &connect_info,
+                    ConnectAckReasonV5::ServerUnavailable,
+                    format!("the number of sessions on the current node exceeds the limit, with a maximum of {} sessions allowed", max_sessions),
+                ).await);
+    }
+
     //hook, client authenticate
     let (ack, superuser, auth_info) = Runtime::instance()
         .extends
@@ -151,7 +162,7 @@ pub async fn _handshake<Io: 'static>(
     };
 
     // Kick out the current session, if it exists
-    let (session_present, offline_info) =
+    let (session_present, has_offline_session, offline_info) =
         match entry.kick(packet.clean_start, packet.clean_start, false).await {
             Err(e) => {
                 return Ok(refused_ack(
@@ -162,9 +173,12 @@ pub async fn _handshake<Io: 'static>(
                 )
                 .await);
             }
-            Ok(Some(offline_info)) => (!packet.clean_start, Some(offline_info)),
-            Ok(None) => (false, None),
+            Ok(OfflineSession::NotExist) => (false, false, None),
+            Ok(OfflineSession::Exist(Some(offline_info))) => (!packet.clean_start, true, Some(offline_info)),
+            Ok(OfflineSession::Exist(None)) => (false, true, None),
         };
+
+    log::debug!("has_offline_session: {}", has_offline_session);
 
     let connected_at = timestamp_millis();
 
