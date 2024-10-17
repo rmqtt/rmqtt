@@ -20,8 +20,7 @@ use rmqtt::{
     broker::{
         error::MqttError,
         hook::{Register, Type},
-        session::SessionOfflineInfo,
-        types::{From, Publish, Reason, To},
+        types::{From, OfflineSession, Publish, Reason, To},
     },
     grpc::{GrpcClients, Message, MessageReply, MessageType},
     plugin::{PackageInfo, Plugin},
@@ -129,18 +128,18 @@ pub(crate) async fn kick(
     grpc_clients: GrpcClients,
     msg_type: MessageType,
     msg: Message,
-) -> Result<SessionOfflineInfo> {
+) -> Result<OfflineSession> {
     let reply = rmqtt::grpc::MessageBroadcaster::new(grpc_clients, msg_type, msg)
         .select_ok(|reply: MessageReply| -> Result<MessageReply> {
             log::debug!("reply: {:?}", reply);
-            if let MessageReply::Kick(Some(o)) = reply {
-                Ok(MessageReply::Kick(Some(o)))
+            if let MessageReply::Kick(o) = reply {
+                Ok(MessageReply::Kick(o))
             } else {
                 Err(MqttError::None)
             }
         })
         .await?;
-    if let MessageReply::Kick(Some(kicked)) = reply {
+    if let MessageReply::Kick(kicked) = reply {
         Ok(kicked)
     } else {
         Err(MqttError::None)
