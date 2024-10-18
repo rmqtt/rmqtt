@@ -1402,4 +1402,4 @@ rmqtt_stats{item="topics.max",node="3"} 0
 rmqtt_stats{item="topics.max",node="all"} 0
 ```
 
-
+![示例图](../imgs/prometheus_demo1.jpg)
