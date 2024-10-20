@@ -313,6 +313,13 @@ pub struct UnsubscribeParams {
     pub clientid: ClientId,
 }
 
+#[derive(Deserialize, Serialize, Debug, Copy, Clone, Hash, Eq, PartialEq)]
+pub enum PrometheusDataType {
+    All,
+    Node(NodeId),
+    Sum,
+}
+
 #[inline]
 fn format_timestamp(t: i64) -> String {
     if t <= 0 {

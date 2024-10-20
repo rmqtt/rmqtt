@@ -8,23 +8,28 @@ use rmqtt::prometheus::{
 };
 
 use rmqtt::metrics::Metrics;
-use rmqtt::{anyhow::anyhow, once_cell::sync::OnceCell};
+use rmqtt::{anyhow::anyhow, once_cell::sync::OnceCell, DashMap, MqttError, NodeId};
 use rmqtt::{grpc::MessageType, node::NodeInfo, stats::Stats, timestamp_secs, Result, Runtime};
 
-use crate::api::{get_metrics_all, get_nodes_all, get_stats_all};
+use crate::api::{get_metrics_all, get_metrics_one, get_node, get_nodes_all, get_stats_all, get_stats_one};
+use crate::types::PrometheusDataType;
 
 #[inline]
-pub async fn to_metrics(message_type: MessageType, cache_interval: Duration) -> Result<Vec<u8>> {
+pub async fn to_metrics(
+    message_type: MessageType,
+    cache_interval: Duration,
+    typ: PrometheusDataType,
+) -> Result<Vec<u8>> {
     static INSTANCE: OnceCell<PromeResult<Monitor>> = OnceCell::new();
     let monitor = INSTANCE.get_or_init(Monitor::new).as_ref().map_err(|e| anyhow!(format!("{:?}", e)))?;
-    monitor.refresh_data(message_type, cache_interval).await?;
-    monitor.to_metrics()
+    monitor.refresh_data(message_type, cache_interval, typ).await?;
+    monitor.to_metrics(typ)
 }
 
 #[derive(Clone)]
-pub struct Monitor {
+struct MonitorData {
+    typ: PrometheusDataType,
     reg: Registry,
-    last_refresh_time: Arc<AtomicI64>,
     //Node Status Data
     nodes_gauge_vec: GaugeVec,
     //Node Status Data
@@ -33,30 +38,22 @@ pub struct Monitor {
     metrics_gauge_vec: IntGaugeVec,
 }
 
-impl Monitor {
-    fn new() -> PromeResult<Monitor> {
+impl MonitorData {
+    fn new(typ: PrometheusDataType) -> Option<Self> {
         let reg = Registry::new();
 
         let nodes_gauge_vec =
-            register_gauge_vec_with_registry!("rmqtt_nodes", "All nodes status", &["node", "item"], reg)?;
+            register_gauge_vec_with_registry!("rmqtt_nodes", "nodes status", &["node", "item"], reg).ok()?;
 
         let stats_gauge_vec =
-            register_int_gauge_vec_with_registry!("rmqtt_stats", "All status data", &["node", "item"], reg)?;
+            register_int_gauge_vec_with_registry!("rmqtt_stats", "status data", &["node", "item"], reg)
+                .ok()?;
 
-        let metrics_gauge_vec = register_int_gauge_vec_with_registry!(
-            "rmqtt_metrics",
-            "All metrics data",
-            &["node", "item"],
-            reg
-        )?;
+        let metrics_gauge_vec =
+            register_int_gauge_vec_with_registry!("rmqtt_metrics", "metrics data", &["node", "item"], reg)
+                .ok()?;
 
-        Ok(Self {
-            reg,
-            last_refresh_time: Arc::new(AtomicI64::new(0)),
-            nodes_gauge_vec,
-            stats_gauge_vec,
-            metrics_gauge_vec,
-        })
+        Some(Self { typ, reg, nodes_gauge_vec, stats_gauge_vec, metrics_gauge_vec })
     }
 
     #[inline]
@@ -69,30 +66,71 @@ impl Monitor {
     }
 
     #[inline]
-    async fn refresh_data(&self, message_type: MessageType, refresh_interval: Duration) -> Result<()> {
-        if !self.refresh_enable(refresh_interval) {
-            return Ok(());
+    async fn refresh_data(&self, message_type: MessageType) -> Result<()> {
+        match self.typ {
+            PrometheusDataType::All => {
+                self.refresh_data_all(message_type, false).await?;
+            }
+            PrometheusDataType::Sum => {
+                self.refresh_data_all(message_type, true).await?;
+            }
+            PrometheusDataType::Node(node_id) => {
+                self.refresh_data_one(message_type, node_id).await?;
+            }
         }
 
+        Ok(())
+    }
+
+    #[inline]
+    async fn refresh_data_one(&self, message_type: MessageType, node_id: NodeId) -> Result<()> {
+        let node = node_id.to_string();
+
+        let node_info = get_node(message_type, node_id)
+            .await?
+            .ok_or_else(|| MqttError::from(format!("node({}) does not exist", node_id)))?;
+        self.nodes_gauge_vec_sets(&node, &node_info).await;
+
+        let (_, stats) = get_stats_one(message_type, node_id)
+            .await?
+            .ok_or_else(|| MqttError::from(format!("node({}) does not exist", node_id)))?;
+        self.stats_gauge_vec_sets(&node, &stats).await;
+
+        let metrics = get_metrics_one(message_type, node_id)
+            .await?
+            .ok_or_else(|| MqttError::from(format!("node({}) does not exist", node_id)))?;
+        metrics.build_prometheus_metrics(&node, &self.metrics_gauge_vec);
+
+        Ok(())
+    }
+
+    #[inline]
+    async fn refresh_data_all(&self, message_type: MessageType, only_sum: bool) -> Result<()> {
         let mut node_info_all = NodeInfo::default();
         let mut stats_all = Stats::default();
         let mut metrics_all = Metrics::default();
 
         for node_info in get_nodes_all(message_type).await?.into_iter().flatten() {
             let node = node_info.node_id.to_string();
-            self.nodes_gauge_vec_sets(&node, &node_info).await;
+            if !only_sum {
+                self.nodes_gauge_vec_sets(&node, &node_info).await;
+            }
             node_info_all.add(&node_info);
         }
 
         for (node_id, _, stats) in get_stats_all(message_type).await?.into_iter().flatten() {
             let node = node_id.to_string();
-            self.stats_gauge_vec_sets(&node, &stats).await;
+            if !only_sum {
+                self.stats_gauge_vec_sets(&node, &stats).await;
+            }
             stats_all.add(*stats);
         }
 
         for (node_id, metrics) in get_metrics_all(message_type).await?.into_iter().flatten() {
             let node = node_id.to_string();
-            metrics.build_prometheus_metrics(&node, &self.metrics_gauge_vec);
+            if !only_sum {
+                metrics.build_prometheus_metrics(&node, &self.metrics_gauge_vec);
+            }
             metrics_all.add(&metrics);
         }
 
@@ -213,6 +251,47 @@ impl Monitor {
 
         self.stats_gauge_vec.with_label_values(&[label, "routes.count"]).set(routes.count() as i64);
         self.stats_gauge_vec.with_label_values(&[label, "routes.max"]).set(routes.max() as i64);
+    }
+}
+
+#[derive(Clone)]
+pub struct Monitor {
+    last_refresh_time: Arc<AtomicI64>,
+    catcheds: DashMap<PrometheusDataType, Option<MonitorData>>,
+}
+
+impl Monitor {
+    fn new() -> PromeResult<Monitor> {
+        Ok(Self { last_refresh_time: Arc::new(AtomicI64::new(0)), catcheds: DashMap::default() })
+    }
+
+    #[inline]
+    fn to_metrics(&self, typ: PrometheusDataType) -> Result<Vec<u8>> {
+        if let Some(md) = self.catcheds.entry(typ).or_insert_with(|| MonitorData::new(typ)).value() {
+            md.to_metrics()
+        } else {
+            Err(MqttError::from("monitor data is not initialized"))
+        }
+    }
+
+    #[inline]
+    async fn refresh_data(
+        &self,
+        message_type: MessageType,
+        refresh_interval: Duration,
+        typ: PrometheusDataType,
+    ) -> Result<()> {
+        if !self.refresh_enable(refresh_interval) {
+            return Ok(());
+        }
+
+        if let Some(md) = self.catcheds.entry(typ).or_insert_with(|| MonitorData::new(typ)).value() {
+            md.refresh_data(message_type).await?;
+        } else {
+            return Err(MqttError::from("monitor data is not initialized"));
+        }
+
+        Ok(())
     }
 
     #[inline]
