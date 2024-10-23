@@ -72,7 +72,7 @@ impl Handler for HookHandler {
                             }
                             Ok(Message::MetricsInfo) => {
                                 let metrics = Runtime::instance().metrics.clone();
-                                match MessageReply::MetricsInfo(metrics).encode() {
+                                match MessageReply::MetricsInfo(Box::new(metrics)).encode() {
                                     Ok(ress) => {
                                         HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
                                     }

@@ -45,7 +45,7 @@ pub enum MessageReply {
     BrokerInfo(BrokerInfo),
     NodeInfo(NodeInfo),
     StatsInfo(NodeStatus, Box<Stats>),
-    MetricsInfo(Metrics),
+    MetricsInfo(Box<Metrics>),
     ClientSearch(Vec<ClientSearchResult>),
     ClientGet(Option<ClientSearchResult>),
     Subscribe(HashMap<TopicFilter, (bool, Option<String>)>),

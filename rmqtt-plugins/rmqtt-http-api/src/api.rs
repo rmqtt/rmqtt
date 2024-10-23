@@ -1784,10 +1784,10 @@ async fn get_metrics(req: &mut Request, depot: &mut Depot, res: &mut Response) -
 }
 
 #[inline]
-pub(crate) async fn get_metrics_one(message_type: MessageType, id: NodeId) -> Result<Option<Metrics>> {
+pub(crate) async fn get_metrics_one(message_type: MessageType, id: NodeId) -> Result<Option<Box<Metrics>>> {
     if id == Runtime::instance().node.id() {
         let metrics = Runtime::instance().metrics;
-        Ok(Some(metrics.clone()))
+        Ok(Some(Box::new(metrics.clone())))
     } else {
         let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
         if let Some(c) = grpc_clients.get(&id).map(|(_, c)| c.clone()) {
@@ -1814,9 +1814,11 @@ pub(crate) async fn get_metrics_one(message_type: MessageType, id: NodeId) -> Re
 }
 
 #[inline]
-pub(crate) async fn get_metrics_all(message_type: MessageType) -> Result<Vec<Result<(NodeId, Metrics)>>> {
+pub(crate) async fn get_metrics_all(
+    message_type: MessageType,
+) -> Result<Vec<Result<(NodeId, Box<Metrics>)>>> {
     let id = Runtime::instance().node.id();
-    let mut metricses = vec![Ok((id, Runtime::instance().metrics.clone()))];
+    let mut metricses = vec![Ok((id, Box::new(Runtime::instance().metrics.clone())))];
 
     let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
