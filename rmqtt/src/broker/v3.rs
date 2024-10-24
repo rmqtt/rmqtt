@@ -6,7 +6,7 @@ use std::sync::Arc;
 use rust_box::task_exec_queue::LocalSpawnExt;
 use uuid::Uuid;
 
-use crate::broker::executor::get_handshake_exec;
+use crate::broker::executor::{get_handshake_exec, is_too_many_unavailable, unavailable_stats};
 use crate::broker::{inflight::MomentStatus, types::*};
 use crate::runtime::Runtime;
 use crate::settings::listener::Listener;
@@ -19,6 +19,9 @@ async fn refused_ack<Io>(
     ack_code: ConnectAckReasonV3,
     reason: String,
 ) -> v3::HandshakeAck<Io, SessionState> {
+    if matches!(ack_code, ConnectAckReasonV3::ServiceUnavailable) {
+        unavailable_stats().inc();
+    }
     let new_ack_code = Runtime::instance()
         .extends
         .hook_mgr()
@@ -30,7 +33,7 @@ async fn refused_ack<Io>(
         connect_info.id(),
         ack_code,
         new_ack_code,
-        reason,
+        reason
     );
     new_ack_code.v3_error_ack(handshake)
 }
@@ -47,8 +50,24 @@ pub async fn handshake<Io: 'static>(
         local_addr,
         remote_addr,
         handshake,
-        listen_cfg
+        listen_cfg,
     );
+
+    //RReject the service if the connection handshake too many unavailable.
+    if is_too_many_unavailable().await {
+        log::warn!(
+            "{:?} Connection Refused, handshake fail, reason: too busy, fails rate: {}",
+            Id::new(
+                Runtime::instance().node.id(),
+                Some(local_addr),
+                Some(remote_addr),
+                ClientId::default(),
+                handshake.packet().username.clone(),
+            ),
+            unavailable_stats().rate()
+        );
+        return Ok(ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable).v3_error_ack(handshake));
+    }
 
     if handshake.packet().client_id.is_empty() {
         if handshake.packet().clean_session {
@@ -83,13 +102,20 @@ pub async fn handshake<Io: 'static>(
     match _handshake(id.clone(), listen_cfg, handshake).spawn(&exec).result().await {
         Ok(Ok(res)) => Ok(res),
         Ok(Err(e)) => {
-            log::warn!("{:?} Connection Refused, handshake error, reason: {:?}", id, e.to_string());
+            unavailable_stats().inc();
+            log::warn!(
+                "{:?} Connection Refused, handshake error, reason: {:?}, fails rate: {}",
+                id,
+                e.to_string(),
+                unavailable_stats().rate()
+            );
             Err(e)
         }
         Err(e) => {
             Runtime::instance().metrics.client_handshaking_timeout_inc();
+            unavailable_stats().inc();
             let err = MqttError::from("Connection Refused, execute handshake timeout");
-            log::warn!("{:?} {:?}, reason: {:?}", id, err, e.to_string());
+            log::warn!("{:?} {:?}, reason: {:?}", id, err, e.to_string(),);
             Err(err)
         }
     }
@@ -399,7 +425,7 @@ pub async fn publish(state: v3::Session<SessionState>, pub_msg: v3::PublishMessa
                     Ok(())
                 }
             };
-            if Runtime::instance().is_busy() {
+            if Runtime::instance().is_busy().await {
                 Runtime::local_exec()
                     .spawn(publish_fut)
                     .result()

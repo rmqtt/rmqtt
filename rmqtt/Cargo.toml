@@ -60,6 +60,7 @@ systemstat = "0.2"
 itertools = "0.13"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 rust-box = { version = "0.11", features = ["task-exec-queue", "task-exec-queue-rate", "std-ext", "dequemap", "stream-ext-leaky-bucket"] }
+counter-rater = { package = "box-counter", version = "0.3", features = ["rate"] }
 structopt = "0.3"
 tokio-tungstenite = "0.23"
 pin-project-lite = "0.2"
