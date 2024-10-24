@@ -11,6 +11,7 @@ pub struct Metrics {
     client_connect: AtomicUsize,
     client_connack: AtomicUsize,
     client_connack_auth_error: AtomicUsize,
+    client_connack_unavailable_error: AtomicUsize,
     client_connack_error: AtomicUsize,
     client_connected: AtomicUsize,
     client_disconnected: AtomicUsize,

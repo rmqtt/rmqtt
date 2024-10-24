@@ -14,6 +14,7 @@ node_grpc_addrs = ["1@127.0.0.1:5363", "2@127.0.0.1:5364", "3@127.0.0.1:5365"]
 raft_peer_addrs = ["1@127.0.0.1:6003", "2@127.0.0.1:6004", "3@127.0.0.1:6005"]
 
 #Raft cluster listening address
+#If this listening address is not specified, the address of the node corresponding to `raft_peer_addrs` will be used.
 #laddr = "0.0.0.0:6003"
 
 #Specify a leader id, when the value is 0 or not specified, the first node
@@ -26,13 +27,13 @@ task_exec_queue_workers = 500
 task_exec_queue_max = 100_000
 
 #algorithm used to compress the snapshot, value: zstd,lz4,zlib,snappy
-#compression = "zstd"
+compression = "zstd"
 
 raft.grpc_timeout = "6s"
 raft.grpc_concurrency_limit = 200
 raft.grpc_breaker_threshold = 5
 raft.grpc_breaker_retry_interval = "2500ms"
-raft.proposal_batch_size = 100
+raft.proposal_batch_size = 60
 raft.proposal_batch_timeout = "200ms"
 raft.snapshot_interval = "600s"
 raft.heartbeat = "100ms"

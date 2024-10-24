@@ -121,6 +121,11 @@ pub trait Shared: Sync + Send {
     }
 
     #[inline]
+    fn operation_is_busy(&self) -> bool {
+        false
+    }
+
+    #[inline]
     async fn message_load(
         &self,
         client_id: &str,

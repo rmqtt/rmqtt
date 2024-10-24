@@ -91,7 +91,14 @@ impl ClusterPlugin {
         }
         let grpc_clients = Arc::new(grpc_clients);
         let router = ClusterRouter::get_or_init(cfg.try_lock_timeout, cfg.compression);
-        let shared = ClusterShared::get_or_init(router, grpc_clients.clone(), node_names, cfg.message_type);
+        let shared = ClusterShared::get_or_init(
+            router,
+            grpc_clients.clone(),
+            node_names,
+            cfg.message_type,
+            cfg.task_exec_queue_max,
+            cfg.task_exec_queue_workers,
+        );
         let raft_mailbox = None;
         let cfg = Arc::new(cfg);
         Ok(Self { runtime, register, cfg, grpc_clients, shared, router, raft_mailbox })
