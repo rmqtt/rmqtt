@@ -24,7 +24,7 @@ plugins/rmqtt-message-storage.toml
 ## rmqtt-message-storage
 ##--------------------------------------------------------------------
 
-##ram, redis
+##ram, redis, redis-cluster
 storage.type = "ram"
 
 ##ram
@@ -36,15 +36,18 @@ storage.ram.encode = true
 storage.redis.url = "redis://127.0.0.1:6379/"
 storage.redis.prefix = "message-{node}"
 
+##redis-cluster
+storage.redis-cluster.urls = ["redis://127.0.0.1:6380/", "redis://127.0.0.1:6381/", "redis://127.0.0.1:6382/"]
+storage.redis-cluster.prefix = "message-{node}"
+
 ##Quantity of expired messages cleared during each cleanup cycle.
 cleanup_count = 5000
 ```
 
-Currently, there are two supported storage engines: "ram" and "redis." "ram" stores data in local memory and allows 
-configuration of maximum memory usage or maximum number of messages. It also supports indicating whether messages 
-should be encoded before storage. "redis" storage currently only supports single-node configurations. Prefix configuration 
-facilitates multiple RMQTT nodes using the same Redis storage service. {node} will be replaced with the identifier for 
-the current node.
+Currently, three storage engines are supported: "ram," "redis," and "redis-cluster." "ram" is stored in local memory and 
+can be configured with maximum memory usage or maximum message count, and it can specify whether messages should be encoded 
+before storage. Prefix configuration allows different rmqtt nodes to use the same Redis storage service. `{node}` will be 
+replaced by the identifier of the current node.
 
 
 By default, this plugin is not enabled. To activate it, you must add the `rmqtt-message-storage` entry to the

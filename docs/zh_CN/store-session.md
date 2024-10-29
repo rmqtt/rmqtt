@@ -28,7 +28,7 @@ plugins/rmqtt-session-storage.toml
 ## rmqtt-session-storage
 ##--------------------------------------------------------------------
 
-##sled, redis
+##sled, redis, redis-cluster
 storage.type = "sled"
 
 ##sled
@@ -38,9 +38,13 @@ storage.sled.cache_capacity = "3G"
 ##redis
 storage.redis.url = "redis://127.0.0.1:6379/"
 storage.redis.prefix = "session-{node}"
+
+##redis-cluster
+storage.redis-cluster.urls = ["redis://127.0.0.1:6380/", "redis://127.0.0.1:6381/", "redis://127.0.0.1:6382/"]
+storage.redis-cluster.prefix = "session-{node}"
 ```
 
-当前支持“sled”和“redis”两种存储引擎。“sled”是存储在本地，需要配置存储位置和在内存中的缓存容量，适当大小可以提高读写效率。“redis”存储当前仅支持单节点，
+当前支持“sled”、“redis”和“redis-cluster”三种存储引擎。“sled”是存储在本地，需要配置存储位置和在内存中的缓存容量，适当大小可以提高读写效率。
 前缀配置方便不同rmqtt节点使用同一套redis存储服务。{node}将被替换为当前节点标识。
 
 默认情况下并没有启动此插件，如果要开启此插件，必须在主配置文件“rmqtt.toml”中的“plugins.default_startups”配置中添加“rmqtt-session-storage”项，如：

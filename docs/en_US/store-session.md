@@ -32,7 +32,7 @@ plugins/rmqtt-session-storage.toml
 ## rmqtt-session-storage
 ##--------------------------------------------------------------------
 
-##sled, redis
+##sled, redis, redis-cluster
 storage.type = "sled"
 
 ##sled
@@ -42,12 +42,16 @@ storage.sled.cache_capacity = "3G"
 ##redis
 storage.redis.url = "redis://127.0.0.1:6379/"
 storage.redis.prefix = "session-{node}"
+
+##redis-cluster
+storage.redis-cluster.urls = ["redis://127.0.0.1:6380/", "redis://127.0.0.1:6381/", "redis://127.0.0.1:6382/"]
+storage.redis-cluster.prefix = "session-{node}"
 ```
 
-Currently, two storage engines are supported: "sled" and "redis." "sled" stores data locally and requires configuration 
-of storage location and cache capacity in memory. An appropriate size can improve read/write efficiency. "redis" storage 
-currently only supports single node configuration. The prefix configuration facilitates the use of the same set of Redis 
-storage services by different RMQTT nodes. {node} will be replaced with the current node identifier.
+Currently, three storage engines are supported: "sled," "redis," and "redis-cluster." "sled" is stored locally, requiring 
+configuration for the storage location and in-memory cache size, with an appropriate size improving read and write efficiency.
+Prefix configuration enables different rmqtt nodes to use the same Redis storage service. `{node}` will be replaced with 
+the current node identifier.
 
 
 By default, this plugin is not enabled. To activate it, you must add the `rmqtt-session-storage` entry to the
