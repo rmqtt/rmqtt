@@ -1,6 +1,6 @@
 [package]
 name = "rmqtt-message-storage"
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
 authors.workspace = true
 rust-version.workspace = true
@@ -10,6 +10,6 @@ license.workspace = true
 rmqtt.workspace = true
 rmqtt-macros.workspace = true
 serde = { workspace = true, features = ["derive"] }
-rmqtt-storage = { version = "0.5.1", default-features = false, features = ["ttl"]}
+rmqtt-storage = { version = "0.6", default-features = false, features = ["ttl"]}
 #rmqtt-storage = { path = "../../../rmqtt-storage", default-features = false, features = ["ttl"]}
 futures-time = "3.0.0"

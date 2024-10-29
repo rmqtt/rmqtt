@@ -27,7 +27,7 @@ use rmqtt::{
     broker::inflight::InflightMessage,
     broker::types::DisconnectInfo,
     plugin::{PackageInfo, Plugin},
-    register, timestamp_millis, ClientId, From, MqttError, Publish, Result, Runtime, Session, SessionState,
+    register, timestamp_millis, ClientId, From, Publish, Result, Runtime, Session, SessionState,
     SessionSubMap, SessionSubs, TimestampMillis,
 };
 
@@ -74,8 +74,10 @@ impl StoragePlugin {
                 cfg.storage.redis.prefix =
                     cfg.storage.redis.prefix.replace("{node}", &format!("{}", runtime.node.id()));
             }
-            #[allow(unreachable_patterns)]
-            _ => return Err(MqttError::from("unsupported storage type")),
+            StorageType::RedisCluster => {
+                cfg.storage.redis_cluster.prefix =
+                    cfg.storage.redis_cluster.prefix.replace("{node}", &format!("{}", runtime.node.id()));
+            }
         }
 
         log::info!("{} StoragePlugin cfg: {:?}", name, cfg);
