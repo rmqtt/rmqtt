@@ -54,12 +54,15 @@ impl StoragePlugin {
             }
             Config::Storage(s_cfg) => {
                 s_cfg.redis.prefix = s_cfg.redis.prefix.replace("{node}", &format!("{}", node_id));
+                s_cfg.redis_cluster.prefix =
+                    s_cfg.redis_cluster.prefix.replace("{node}", &format!("{}", node_id));
+
                 let storage_db = init_db(s_cfg).await?;
                 let cfg = Arc::new(cfg);
                 let message_mgr =
                     storage::get_or_init(node_id, cfg.clone(), storage_db.clone(), true).await?;
                 (MessageMgr::Storage(message_mgr), cfg)
-            } // _ => return Err(MqttError::from(format!("unsupported storage type({:?})", cfg.storage.typ()))),
+            }
         };
         log::info!("{} StoragePlugin cfg: {:?}", name, cfg);
         let register = runtime.extends.hook_mgr().await.register();
