@@ -7,22 +7,23 @@ use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use futures_time::future::FutureExt;
-
 use rmqtt::{
     anyhow::anyhow,
     async_trait::async_trait,
     futures::channel::mpsc,
     futures::{SinkExt, StreamExt},
+    futures_time::{self, future::FutureExt},
     log,
     once_cell::sync::OnceCell,
-    timestamp_millis, tokio,
+    tokio,
     tokio::sync::RwLock,
     tokio::time::sleep,
-    NodeId, Retain, StatsMergeMode, TimestampMillis, TopicName,
 };
 
-use rmqtt::{MqttError, Result, Topic, TopicFilter};
+use rmqtt::{
+    timestamp_millis, MqttError, NodeId, Result, Retain, StatsMergeMode, TimestampMillis, Topic, TopicFilter,
+    TopicName,
+};
 
 use rmqtt::broker::RetainStorage;
 use rmqtt_storage::DefaultStorageDB;

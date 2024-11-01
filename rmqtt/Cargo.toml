@@ -29,8 +29,8 @@ futures = "0.3"
 tokio = { version = "1", features = ["sync", "time", "macros", "rt", "rt-multi-thread", "fs"] }
 socket2 = { version = "0.5", features = ["all"] }
 tokio-stream = { version = "0.1", features = ["net"] }
-tonic = "0.11"
-prost = "0.12"
+tonic = "0.12"
+prost = "0.13"
 once_cell = "1.19"
 dashmap = "6.0"
 ahash = "0.8"
@@ -45,7 +45,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 uuid = { version = "1.9", features = ["v4"] }
 rand = "0.8"
 crossbeam = "0.8"
-governor = "0.6"
+governor = "0.7"
 config = { version = "0.14", default-features = false, features = ["toml"] }
 log = { version = "0.4", features = ["std"] }
 slog = "2.7"
@@ -62,17 +62,20 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 rust-box = { version = "0.11", features = ["task-exec-queue", "task-exec-queue-rate", "std-ext", "dequemap", "stream-ext-leaky-bucket"] }
 counter-rater = { package = "box-counter", version = "0.3", features = ["rate"] }
 structopt = "0.3"
-tokio-tungstenite = "0.23"
+tokio-tungstenite = "0.24"
 pin-project-lite = "0.2"
-tokio-cron-scheduler = "0.11"
+tokio-cron-scheduler = "0.13"
 bitflags = "2.6"
 leaky-bucket = "1.1"
 scc = "2.1"
 get_size = { package = "get-size", version = "0.1", features = ["derive"] }
 itoa = "1.0"
 prometheus = "0.13"
+regex = "1.10"
+futures-time = "3.0"
+backoff = { version = "0.4", features = ["futures", "tokio"] }
 
 [build-dependencies]
-tonic-build = "0.11"
+tonic-build = "0.12"
 toml = "0.8"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }

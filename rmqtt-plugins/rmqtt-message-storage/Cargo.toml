@@ -12,4 +12,3 @@ rmqtt-macros.workspace = true
 serde = { workspace = true, features = ["derive"] }
 rmqtt-storage = { version = "0.6", default-features = false, features = ["ttl"]}
 #rmqtt-storage = { path = "../../../rmqtt-storage", default-features = false, features = ["ttl"]}
-futures-time = "3.0.0"
