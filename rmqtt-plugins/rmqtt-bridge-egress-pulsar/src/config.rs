@@ -4,7 +4,12 @@ use pulsar::compression::{Compression, CompressionLz4, CompressionSnappy, Compre
 use serde::de::{self, Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 
-use rmqtt::{rand::{Rng, distributions::Uniform, thread_rng}, log, serde_json, uuid::Uuid};
+use rmqtt::{
+    log,
+    rand::{distributions::Uniform, thread_rng, Rng},
+    serde_json,
+    uuid::Uuid,
+};
 
 use rmqtt::{ClientId, Result};
 
@@ -109,7 +114,11 @@ pub struct Remote {
     pub forward_all_publish: bool,
 
     pub partition_key: Option<String>,
-    #[serde(default, deserialize_with = "Remote::deserialize_ordering_key", serialize_with = "Remote::serialize_ordering_key")]
+    #[serde(
+        default,
+        deserialize_with = "Remote::deserialize_ordering_key",
+        serialize_with = "Remote::serialize_ordering_key"
+    )]
     pub ordering_key: Option<OrderingKey>,
     #[serde(default)]
     pub replicate_to: Vec<String>,
@@ -120,10 +129,9 @@ pub struct Remote {
 }
 
 impl Remote {
-
     pub fn deserialize_ordering_key<'de, D>(deserializer: D) -> Result<Option<OrderingKey>, D::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         let json_cfg: serde_json::Value = serde_json::Value::deserialize(deserializer)?;
         log::debug!("json_cfg: {:?}", json_cfg);
@@ -135,38 +143,45 @@ impl Remote {
                     let uniform = Uniform::new_inclusive(b'a', b'z');
                     OrderingKey::Random(uniform, ORDERINGKEY_RANDOM_DEF_LEN)
                 }
-                _ => return Err(de::Error::custom(format!("Invalid OrderingKey, {:?}", key)))
+                _ => return Err(de::Error::custom(format!("Invalid OrderingKey, {:?}", key))),
             };
             Some(ordering_key)
         } else if let Some(obj) = json_cfg.as_object() {
-            let ordering_key = match obj.get("type").and_then(|t|t.as_str()) {
+            let ordering_key = match obj.get("type").and_then(|t| t.as_str()) {
                 Some("clientid") => OrderingKey::Clientid,
                 Some("uuid") => OrderingKey::Uuid,
                 Some("random") => {
-                    let n = obj.get("len").and_then(|l|l.as_u64().map(|l|l as u8)).unwrap_or(ORDERINGKEY_RANDOM_DEF_LEN);
+                    let n = obj
+                        .get("len")
+                        .and_then(|l| l.as_u64().map(|l| l as u8))
+                        .unwrap_or(ORDERINGKEY_RANDOM_DEF_LEN);
                     let uniform = Uniform::new_inclusive(b'a', b'z');
                     OrderingKey::Random(uniform, if n > 0 { n } else { ORDERINGKEY_RANDOM_DEF_LEN })
-                },
-                _ => return Err(de::Error::custom(format!("Invalid OrderingKey, {:?}", obj)))
+                }
+                _ => return Err(de::Error::custom(format!("Invalid OrderingKey, {:?}", obj))),
             };
             Some(ordering_key)
-        }else{
+        } else {
             None
         };
         Ok(ordering_key)
     }
 
     #[inline]
-    pub fn serialize_ordering_key<S>(ordering_key: &Option<OrderingKey>, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
+    pub fn serialize_ordering_key<S>(
+        ordering_key: &Option<OrderingKey>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
     {
         match ordering_key {
             Some(OrderingKey::Clientid) => "clientid",
             Some(OrderingKey::Uuid) => "uuid",
             Some(OrderingKey::Random(_, _)) => "random",
-            None => ""
-        }.serialize(serializer)
+            None => "",
+        }
+        .serialize(serializer)
     }
 
     pub fn deserialize_string_bytes<'de, D>(deserializer: D) -> Result<Option<Vec<u8>>, D::Error>
@@ -184,22 +199,20 @@ pub struct Local {
     pub topic_filter: String,
 }
 
-
 #[derive(Default, Debug, Clone)]
 pub(crate) enum OrderingKey {
     #[default]
     Clientid,
     Random(Uniform<u8>, u8),
-    Uuid
+    Uuid,
 }
 
 impl OrderingKey {
-
     #[inline]
     pub(crate) fn generate(&self, clientid: &ClientId) -> Vec<u8> {
         match self {
             OrderingKey::Clientid => clientid.as_bytes().to_vec(),
-            OrderingKey::Random(uniform, n)  => Self::gen_random_key(uniform, *n),
+            OrderingKey::Random(uniform, n) => Self::gen_random_key(uniform, *n),
             OrderingKey::Uuid => {
                 Uuid::new_v4().as_simple().encode_lower(&mut Uuid::encode_buffer()).as_bytes().to_vec()
             }
@@ -209,11 +222,8 @@ impl OrderingKey {
     #[inline]
     fn gen_random_key(uniform: &Uniform<u8>, n: u8) -> Vec<u8> {
         let mut rng = thread_rng();
-        (0..n)
-            .map(|_| rng.sample(uniform))
-            .collect()
+        (0..n).map(|_| rng.sample(uniform)).collect()
     }
-
 }
 
-const ORDERINGKEY_RANDOM_DEF_LEN:u8 = 10;
+const ORDERINGKEY_RANDOM_DEF_LEN: u8 = 10;
