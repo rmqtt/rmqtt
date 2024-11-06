@@ -82,8 +82,15 @@ remote.forward_all_publish = false
 
 #determines the target partition of the message. Messages with the same partition_key will be sent to the same partition.
 remote.partition_key = ""
+
 #this affects the order of messages within a specific partition, not across partitions. If messages have the same ordering_key, they will be consumed in the order they were sent.
-remote.ordering_key = ""
+#Values: clientid, uuid, random or {type="random", len=10}
+# clientid - use mqtt clientid
+# uuid - uuid
+# random - randomly generated
+#remote.ordering_key = "clientid"
+#remote.ordering_key = {type="random", len=10}
+
 #Override namespace's replication
 remote.replicate_to = []
 #current version of the schema

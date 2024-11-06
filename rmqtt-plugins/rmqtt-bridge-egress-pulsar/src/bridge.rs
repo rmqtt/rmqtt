@@ -64,10 +64,10 @@ impl SerializeMessage for Message<'_> {
         let payload = p.payload.to_vec();
         let event_time = Some(p.create_time() as u64);
         let partition_key = cfg.partition_key.clone();
-        let ordering_key = cfg.ordering_key.clone();
+        let ordering_key = cfg.ordering_key.as_ref().map(|okey| okey.generate(&f.client_id));
         let replicate_to = cfg.replicate_to.clone();
         let schema_version = cfg.schema_version.clone();
-
+        log::debug!("ordering_key: {:?}", ordering_key);
         Ok(producer::Message {
             payload,
             properties,
@@ -175,7 +175,7 @@ impl Producer {
                             receipt.sequence_id,
                             receipt.producer_id,
                             receipt.message_id.map(|m| m.ack_set)
-                        )
+                        );
                             }
                             Err(e) => {
                                 log::warn!("{}", e);

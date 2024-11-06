@@ -40,6 +40,7 @@ pub use tokio;
 pub use tokio_cron_scheduler;
 pub use tokio_tungstenite;
 pub use url;
+pub use uuid;
 
 pub use crate::broker::{
     error::MqttError,
