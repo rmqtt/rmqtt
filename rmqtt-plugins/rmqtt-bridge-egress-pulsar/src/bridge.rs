@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use pulsar::{
     authentication::oauth2::OAuth2Authentication, producer, Authentication, Error as PulsarError,
@@ -248,7 +249,15 @@ impl BridgeManager {
         Ok(pulsar)
     }
 
-    pub async fn start(&mut self) -> Result<()> {
+    pub async fn start(&mut self) {
+        while let Err(e) = self._start().await {
+            log::error!("start bridge-egress-pulsar error, {:?}", e);
+            self.stop().await;
+            tokio::time::sleep(Duration::from_millis(3000)).await;
+        }
+    }
+
+    async fn _start(&mut self) -> Result<()> {
         let mut topics = self.topics.write().await;
         let bridges = self.cfg.read().await.bridges.clone();
         let mut bridge_names: HashSet<&str> = HashSet::default();
