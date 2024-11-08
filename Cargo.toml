@@ -29,6 +29,7 @@ rmqtt-bridge-ingress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-ingress-mqtt" }
 rmqtt-bridge-egress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-egress-mqtt" }
 rmqtt-bridge-ingress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-ingress-kafka" }
 rmqtt-bridge-egress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-egress-kafka" }
+rmqtt-bridge-ingress-pulsar = { path = "rmqtt-plugins/rmqtt-bridge-ingress-pulsar"}
 rmqtt-bridge-egress-pulsar = { path = "rmqtt-plugins/rmqtt-bridge-egress-pulsar"}
 rmqtt-bridge-egress-nats = { path = "rmqtt-plugins/rmqtt-bridge-egress-nats"}
 rmqtt-bridge-egress-reductstore = { path = "rmqtt-plugins/rmqtt-bridge-egress-reductstore"}

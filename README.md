@@ -30,6 +30,7 @@ and mobile applications that can handle millions of concurrent clients on a sing
 - [MQTT Bridging - Egress Mode](./docs/en_US/bridge-egress-mqtt.md)
 - [Apache Kafka Bridging - Ingress Mode](./docs/en_US/bridge-ingress-kafka.md)
 - [Apache Kafka Bridging - Egress Mode](./docs/en_US/bridge-egress-kafka.md)
+- [Apache Pulsar Bridging - Ingress Mode](./docs/en_US/bridge-ingress-pulsar.md)
 - [Apache Pulsar Bridging - Egress Mode](./docs/en_US/bridge-egress-pulsar.md)
 - [NATS Bridging - Egress Mode](./docs/en_US/bridge-egress-nats.md)
 - [Reductstore Bridging - Egress Mode](./docs/en_US/bridge-egress-reductstore.md)
