@@ -11,4 +11,3 @@ license.workspace = true
 rmqtt.workspace = true
 rmqtt-macros.workspace = true
 serde = { workspace = true, features = ["derive"] }
-regex = "1.10"

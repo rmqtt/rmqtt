@@ -10,4 +10,3 @@ license.workspace = true
 rmqtt.workspace = true
 rmqtt-macros.workspace = true
 serde = { workspace = true, features = ["derive"] }
-backoff = { version = "0.4", features = ["futures", "tokio"] }

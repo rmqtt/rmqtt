@@ -439,6 +439,8 @@ pub struct Mqtt {
     pub delayed_publish_max: usize,
     #[serde(default = "Mqtt::delayed_publish_immediate_default")]
     pub delayed_publish_immediate: bool,
+    #[serde(default = "Mqtt::max_sessions_default")]
+    pub max_sessions: isize,
 }
 
 impl Mqtt {
@@ -448,6 +450,10 @@ impl Mqtt {
 
     fn delayed_publish_immediate_default() -> bool {
         true
+    }
+
+    fn max_sessions_default() -> isize {
+        0
     }
 }
 

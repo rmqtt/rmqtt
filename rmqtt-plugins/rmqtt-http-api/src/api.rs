@@ -8,7 +8,6 @@ use salvo::http::header::{HeaderValue, CONTENT_TYPE};
 use salvo::http::mime;
 use salvo::prelude::*;
 
-use crate::prome;
 use rmqtt::metrics::Metrics;
 use rmqtt::node::NodeInfo;
 use rmqtt::stats::Stats;
@@ -33,9 +32,10 @@ use rmqtt::{
     SessionState, SubsSearchParams, TopicFilter, TopicName, UserName,
 };
 
+use super::prome;
 use super::types::{
-    ClientSearchParams, ClientSearchResult, Message, MessageReply, PublishParams, SubscribeParams,
-    UnsubscribeParams,
+    ClientSearchParams, ClientSearchResult, Message, MessageReply, PrometheusDataType, PublishParams,
+    SubscribeParams, UnsubscribeParams,
 };
 use super::{clients, plugin, subs, PluginConfigType};
 
@@ -112,7 +112,12 @@ fn route(cfg: PluginConfigType, token: Option<String>) -> Router {
         .push(
             Router::with_path("metrics")
                 .get(get_metrics)
-                .push(Router::with_path("prometheus").get(get_prometheus_metrics))
+                .push(
+                    Router::with_path("prometheus")
+                        .get(get_prometheus_metrics)
+                        .push(Router::with_path("sum").get(get_prometheus_metrics_sum))
+                        .push(Router::with_path("<id>").get(get_prometheus_metrics)),
+                )
                 .push(Router::with_path("sum").get(get_metrics_sum))
                 .push(Router::with_path("<id>").get(get_metrics)),
         )
@@ -457,8 +462,8 @@ async fn get_nodes(req: &mut Request, depot: &mut Depot, res: &mut Response) -> 
 
     let id = req.param::<NodeId>("id");
     if let Some(id) = id {
-        match _get_node(message_type, id).await {
-            Ok(Some(node_info)) => res.render(Json(node_info)),
+        match get_node(message_type, id).await {
+            Ok(Some(node_info)) => res.render(Json(node_info.to_json())),
             Ok(None) => {
                 res.status_code(StatusCode::NOT_FOUND);
             }
@@ -484,36 +489,6 @@ async fn get_nodes(req: &mut Request, depot: &mut Depot, res: &mut Response) -> 
         }
     }
     Ok(())
-}
-
-#[inline]
-async fn _get_node(message_type: MessageType, id: NodeId) -> Result<Option<serde_json::Value>> {
-    if id == Runtime::instance().node.id() {
-        Ok(Some(Runtime::instance().node.node_info().await.to_json()))
-    } else {
-        let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
-        if let Some((_, c)) = grpc_clients.get(&id) {
-            let msg = Message::NodeInfo.encode()?;
-            let reply = MessageSender::new(c.clone(), message_type, GrpcMessage::Data(msg)).send().await;
-            let node_info = match reply {
-                Ok(GrpcMessageReply::Data(msg)) => match MessageReply::decode(&msg)? {
-                    MessageReply::NodeInfo(node_info) => node_info.to_json(),
-                    _ => unreachable!(),
-                },
-                Ok(reply) => {
-                    log::info!("Get GrpcMessage::NodeInfo from other node({}), reply: {:?}", id, reply);
-                    serde_json::Value::String("Invalid Result".into())
-                }
-                Err(e) => {
-                    log::warn!("Get GrpcMessage::NodeInfo from other node, error: {:?}", e);
-                    serde_json::Value::String(e.to_string())
-                }
-            };
-            Ok(Some(node_info))
-        } else {
-            Ok(None)
-        }
-    }
 }
 
 #[inline]
@@ -545,6 +520,35 @@ async fn _get_nodes(message_type: MessageType) -> Result<Vec<serde_json::Value>>
         nodes.extend(replys);
     }
     Ok(nodes)
+}
+
+#[inline]
+pub(crate) async fn get_node(message_type: MessageType, id: NodeId) -> Result<Option<NodeInfo>> {
+    if id == Runtime::instance().node.id() {
+        Ok(Some(Runtime::instance().node.node_info().await))
+    } else {
+        let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
+        if let Some((_, c)) = grpc_clients.get(&id) {
+            let msg = Message::NodeInfo.encode()?;
+            let reply = MessageSender::new(c.clone(), message_type, GrpcMessage::Data(msg)).send().await;
+            match reply {
+                Ok(GrpcMessageReply::Data(msg)) => match MessageReply::decode(&msg)? {
+                    MessageReply::NodeInfo(node_info) => Ok(Some(node_info)),
+                    _ => unreachable!(),
+                },
+                Ok(reply) => {
+                    log::info!("Get GrpcMessage::NodeInfo from other node({}), reply: {:?}", id, reply);
+                    Err(MqttError::from("Invalid Result"))
+                }
+                Err(e) => {
+                    log::warn!("Get GrpcMessage::NodeInfo from other node, error: {:?}", e);
+                    Err(e)
+                }
+            }
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 #[inline]
@@ -1624,8 +1628,11 @@ async fn get_stats(req: &mut Request, depot: &mut Depot, res: &mut Response) -> 
 
     let id = req.param::<NodeId>("id");
     if let Some(id) = id {
-        match _get_stats_one(message_type, id).await {
-            Ok(Some(stat_info)) => res.render(Json(stat_info)),
+        match get_stats_one(message_type, id).await {
+            Ok(Some((node_status, stats))) => {
+                let stat_info = _build_stats(id, node_status, stats.to_json().await).await;
+                res.render(Json(stat_info))
+            }
             Ok(None) | Err(MqttError::None) => {
                 res.status_code(StatusCode::NOT_FOUND);
             }
@@ -1654,33 +1661,33 @@ async fn get_stats(req: &mut Request, depot: &mut Depot, res: &mut Response) -> 
 }
 
 #[inline]
-async fn _get_stats_one(message_type: MessageType, id: NodeId) -> Result<Option<serde_json::Value>> {
+pub(crate) async fn get_stats_one(
+    message_type: MessageType,
+    id: NodeId,
+) -> Result<Option<(NodeStatus, Box<Stats>)>> {
     if id == Runtime::instance().node.id() {
         let node_status = Runtime::instance().node.status().await;
         let stats = Runtime::instance().stats.clone().await;
-        Ok(Some(_build_stats(id, node_status, stats.to_json().await).await))
+        Ok(Some((node_status, Box::new(stats))))
     } else {
         let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
         if let Some(c) = grpc_clients.get(&id).map(|(_, c)| c.clone()) {
             let msg = Message::StatsInfo.encode()?;
             let reply = MessageSender::new(c, message_type, GrpcMessage::Data(msg)).send().await;
-            let stats = match reply {
+            match reply {
                 Ok(GrpcMessageReply::Data(msg)) => match MessageReply::decode(&msg)? {
-                    MessageReply::StatsInfo(node_status, stats) => {
-                        _build_stats(id, node_status, stats.to_json().await).await
-                    }
+                    MessageReply::StatsInfo(node_status, stats) => Ok(Some((node_status, stats))),
                     _ => unreachable!(),
                 },
                 Ok(reply) => {
                     log::info!("Get GrpcMessage::StateInfo from other node, reply: {:?}", reply);
-                    serde_json::to_value(reply)?
+                    Err(MqttError::from("Invalid Result"))
                 }
                 Err(e) => {
                     log::warn!("Get GrpcMessage::StateInfo from other node, error: {:?}", e);
-                    serde_json::Value::String(e.to_string())
+                    Err(e)
                 }
-            };
-            Ok(Some(stats))
+            }
         } else {
             Ok(None)
         }
@@ -1744,8 +1751,11 @@ async fn get_metrics(req: &mut Request, depot: &mut Depot, res: &mut Response) -
 
     let id = req.param::<NodeId>("id");
     if let Some(id) = id {
-        match _get_metrics_one(message_type, id).await {
-            Ok(Some(metrics)) => res.render(Json(metrics)),
+        match get_metrics_one(message_type, id).await {
+            Ok(Some(metrics)) => {
+                let metrics = _build_metrics(id, metrics.to_json()).await;
+                res.render(Json(metrics))
+            }
             Ok(None) | Err(MqttError::None) => {
                 res.status_code(StatusCode::NOT_FOUND);
             }
@@ -1774,30 +1784,29 @@ async fn get_metrics(req: &mut Request, depot: &mut Depot, res: &mut Response) -
 }
 
 #[inline]
-async fn _get_metrics_one(message_type: MessageType, id: NodeId) -> Result<Option<serde_json::Value>> {
+pub(crate) async fn get_metrics_one(message_type: MessageType, id: NodeId) -> Result<Option<Box<Metrics>>> {
     if id == Runtime::instance().node.id() {
-        let metrics = Runtime::instance().metrics.to_json();
-        Ok(Some(_build_metrics(id, metrics).await))
+        let metrics = Runtime::instance().metrics;
+        Ok(Some(Box::new(metrics.clone())))
     } else {
         let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
         if let Some(c) = grpc_clients.get(&id).map(|(_, c)| c.clone()) {
             let msg = Message::MetricsInfo.encode()?;
             let reply = MessageSender::new(c, message_type, GrpcMessage::Data(msg)).send().await;
-            let metrics = match reply {
+            match reply {
                 Ok(GrpcMessageReply::Data(msg)) => match MessageReply::decode(&msg)? {
-                    MessageReply::MetricsInfo(metrics) => _build_metrics(id, metrics.to_json()).await,
+                    MessageReply::MetricsInfo(metrics) => Ok(Some(metrics)),
                     _ => unreachable!(),
                 },
                 Ok(reply) => {
                     log::info!("Get GrpcMessage::MetricsInfo from other node, reply: {:?}", reply);
-                    serde_json::to_value(reply)?
+                    Err(MqttError::from("Invalid Result"))
                 }
                 Err(e) => {
                     log::warn!("Get GrpcMessage::MetricsInfo from other node, error: {:?}", e);
-                    serde_json::Value::String(e.to_string())
+                    Err(e)
                 }
-            };
-            Ok(Some(metrics))
+            }
         } else {
             Ok(None)
         }
@@ -1805,9 +1814,11 @@ async fn _get_metrics_one(message_type: MessageType, id: NodeId) -> Result<Optio
 }
 
 #[inline]
-pub(crate) async fn get_metrics_all(message_type: MessageType) -> Result<Vec<Result<(NodeId, Metrics)>>> {
+pub(crate) async fn get_metrics_all(
+    message_type: MessageType,
+) -> Result<Vec<Result<(NodeId, Box<Metrics>)>>> {
     let id = Runtime::instance().node.id();
-    let mut metricses = vec![Ok((id, Runtime::instance().metrics.clone()))];
+    let mut metricses = vec![Ok((id, Box::new(Runtime::instance().metrics.clone())))];
 
     let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
@@ -1887,14 +1898,45 @@ async fn _build_metrics(id: NodeId, metrics: serde_json::Value) -> serde_json::V
 }
 
 #[handler]
-async fn get_prometheus_metrics(depot: &mut Depot, res: &mut Response) -> Result<(), salvo::Error> {
+async fn get_prometheus_metrics(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> Result<(), salvo::Error> {
     let cfg = get_cfg(depot)?;
     let (message_type, cache_interval) = {
         let cfg_rl = cfg.read().await;
         (cfg_rl.message_type, cfg_rl.prometheus_metrics_cache_interval)
     };
+    let id = req.param::<NodeId>("id");
+    if let Some(id) = id {
+        match prome::to_metrics(message_type, cache_interval, PrometheusDataType::Node(id)).await {
+            Ok(metrics) => {
+                res.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("text/plain; charset=utf-8"));
+                res.write_body(metrics).ok();
+            }
+            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+        }
+    } else {
+        match prome::to_metrics(message_type, cache_interval, PrometheusDataType::All).await {
+            Ok(metrics) => {
+                res.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("text/plain; charset=utf-8"));
+                res.write_body(metrics).ok();
+            }
+            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+        }
+    }
+    Ok(())
+}
 
-    match prome::to_metrics(message_type, cache_interval).await {
+#[handler]
+async fn get_prometheus_metrics_sum(depot: &mut Depot, res: &mut Response) -> Result<(), salvo::Error> {
+    let cfg = get_cfg(depot)?;
+    let (message_type, cache_interval) = {
+        let cfg_rl = cfg.read().await;
+        (cfg_rl.message_type, cfg_rl.prometheus_metrics_cache_interval)
+    };
+    match prome::to_metrics(message_type, cache_interval, PrometheusDataType::Sum).await {
         Ok(metrics) => {
             res.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("text/plain; charset=utf-8"));
             res.write_body(metrics).ok();

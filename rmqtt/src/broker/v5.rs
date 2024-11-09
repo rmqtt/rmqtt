@@ -9,7 +9,7 @@ use ntex_mqtt::v5::PublishResult;
 use rust_box::task_exec_queue::LocalSpawnExt;
 use uuid::Uuid;
 
-use crate::broker::executor::get_handshake_exec;
+use crate::broker::executor::{get_handshake_exec, is_too_many_unavailable, unavailable_stats};
 use crate::broker::{inflight::MomentStatus, types::*};
 use crate::settings::listener::Listener;
 use crate::{MqttError, Result, Runtime, Session, SessionState};
@@ -21,6 +21,9 @@ async fn refused_ack<Io>(
     ack_code: ConnectAckReasonV5,
     reason: String,
 ) -> v5::HandshakeAck<Io, SessionState> {
+    if matches!(ack_code, ConnectAckReasonV5::ServerUnavailable) {
+        unavailable_stats().inc();
+    }
     let new_ack_code = Runtime::instance()
         .extends
         .hook_mgr()
@@ -52,6 +55,22 @@ pub async fn handshake<Io: 'static>(
         listen_cfg
     );
 
+    //Reject the service if the connection handshake too many unavailable.
+    if is_too_many_unavailable().await {
+        log::warn!(
+            "{:?} Connection Refused, handshake fail, reason: too busy, fails rate: {}",
+            Id::new(
+                Runtime::instance().node.id(),
+                Some(local_addr),
+                Some(remote_addr),
+                ClientId::default(),
+                handshake.packet().username.clone(),
+            ),
+            unavailable_stats().rate()
+        );
+        return Ok(ConnectAckReason::V5(ConnectAckReasonV5::ServerUnavailable).v5_error_ack(handshake));
+    }
+
     let assigned_client_id = if handshake.packet().client_id.is_empty() {
         handshake.packet_mut().client_id =
             ClientId::from(Uuid::new_v4().as_simple().encode_lower(&mut Uuid::encode_buffer()).to_owned());
@@ -74,11 +93,13 @@ pub async fn handshake<Io: 'static>(
     match _handshake(id.clone(), listen_cfg, handshake, assigned_client_id).spawn(&exec).result().await {
         Ok(Ok(res)) => Ok(res),
         Ok(Err(e)) => {
+            unavailable_stats().inc();
             log::warn!("{:?} Connection Refused, handshake error, reason: {:?}", id, e.to_string());
             Err(e)
         }
         Err(e) => {
             Runtime::instance().metrics.client_handshaking_timeout_inc();
+            unavailable_stats().inc();
             let err = MqttError::from("Connection Refused, execute handshake timeout");
             log::warn!("{:?} {:?}, reason: {:?}", id, err, e.to_string());
             Err(err)
@@ -119,6 +140,17 @@ pub async fn _handshake<Io: 'static>(
         .await);
     }
 
+    let entry = Runtime::instance().extends.shared().await.entry(id.clone());
+    let max_sessions = Runtime::instance().settings.mqtt.max_sessions;
+    if max_sessions > 0 && Runtime::instance().stats.sessions.count() >= max_sessions && !entry.exist() {
+        return Ok(refused_ack(
+                    handshake,
+                    &connect_info,
+                    ConnectAckReasonV5::ServerUnavailable,
+                    format!("the number of sessions on the current node exceeds the limit, with a maximum of {} sessions allowed", max_sessions),
+                ).await);
+    }
+
     //hook, client authenticate
     let (ack, superuser, auth_info) = Runtime::instance()
         .extends
@@ -151,7 +183,7 @@ pub async fn _handshake<Io: 'static>(
     };
 
     // Kick out the current session, if it exists
-    let (session_present, offline_info) =
+    let (session_present, has_offline_session, offline_info) =
         match entry.kick(packet.clean_start, packet.clean_start, false).await {
             Err(e) => {
                 return Ok(refused_ack(
@@ -162,9 +194,12 @@ pub async fn _handshake<Io: 'static>(
                 )
                 .await);
             }
-            Ok(Some(offline_info)) => (!packet.clean_start, Some(offline_info)),
-            Ok(None) => (false, None),
+            Ok(OfflineSession::NotExist) => (false, false, None),
+            Ok(OfflineSession::Exist(Some(offline_info))) => (!packet.clean_start, true, Some(offline_info)),
+            Ok(OfflineSession::Exist(None)) => (false, true, None),
         };
+
+    log::debug!("has_offline_session: {}", has_offline_session);
 
     let connected_at = timestamp_millis();
 
@@ -447,7 +482,7 @@ pub async fn publish(
                     Ok(())
                 }
             };
-            if Runtime::instance().is_busy() {
+            if Runtime::instance().is_busy().await {
                 Runtime::local_exec()
                     .spawn(publish_fut)
                     .result()

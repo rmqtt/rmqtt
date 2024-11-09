@@ -1,6 +1,7 @@
 [package]
-name = "rmqtt-http-api"
-version = "0.1.1"
+name = "rmqtt-bridge-ingress-pulsar"
+version = "0.1.0"
+description = "Bridge remote Apache-Pulsar in ingress mode."
 edition.workspace = true
 authors.workspace = true
 rust-version.workspace = true
@@ -10,4 +11,5 @@ license.workspace = true
 rmqtt.workspace = true
 rmqtt-macros.workspace = true
 serde = { workspace = true, features = ["derive"] }
-salvo = { version = "0.74", features = ["affix-state"] }
+pulsar = "6"
+event-notify = "0.1.1"

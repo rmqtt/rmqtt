@@ -9,10 +9,10 @@ use rmqtt::{
 use rmqtt::{
     broker::{
         default::DefaultShared,
-        session::{Session, SessionOfflineInfo},
+        session::Session,
         types::{
-            From, Id, IsAdmin, NodeId, NodeName, Publish, Reason, SessionStatus, SubRelations,
-            SubRelationsMap, SubsSearchParams, SubsSearchResult, Subscribe, SubscribeReturn,
+            From, Id, IsAdmin, NodeId, NodeName, OfflineSession, Publish, Reason, SessionStatus,
+            SubRelations, SubRelationsMap, SubsSearchParams, SubsSearchResult, Subscribe, SubscribeReturn,
             SubscriptionClientIds, To, Tx, Unsubscribe,
         },
         Entry, Router, Shared,
@@ -51,7 +51,11 @@ impl Entry for ClusterLockEntry {
     async fn try_lock(&self) -> Result<Box<dyn Entry>> {
         let msg = RaftMessage::HandshakeTryLock { id: self.id() }.encode()?;
         let raft_mailbox = self.cluster_shared.router.raft_mailbox().await;
-        let reply = raft_mailbox.send_proposal(msg).await.map_err(anyhow::Error::new)?;
+        let reply = async move { raft_mailbox.send_proposal(msg).await.map_err(anyhow::Error::new) }
+            .spawn(task_exec_queue())
+            .result()
+            .await
+            .map_err(|_| MqttError::from("ClusterLockEntry::try_lock(..), task execution failure"))??;
         let mut prev_node_id = None;
         if !reply.is_empty() {
             match RaftMessageReply::decode(&reply)? {
@@ -91,7 +95,11 @@ impl Entry for ClusterLockEntry {
     async fn set(&mut self, session: Session, tx: Tx) -> Result<()> {
         let msg = RaftMessage::Connected { id: session.id.clone() }.encode()?;
         let raft_mailbox = self.cluster_shared.router.raft_mailbox().await;
-        let reply = raft_mailbox.send_proposal(msg).await.map_err(anyhow::Error::new)?;
+        let reply = async move { raft_mailbox.send_proposal(msg).await.map_err(anyhow::Error::new) }
+            .spawn(task_exec_queue())
+            .result()
+            .await
+            .map_err(|_| MqttError::from("ClusterLockEntry::set(..), task execution failure"))??;
         if !reply.is_empty() {
             let reply = RaftMessageReply::decode(&reply)?;
             match reply {
@@ -124,7 +132,7 @@ impl Entry for ClusterLockEntry {
         clean_start: bool,
         clear_subscriptions: bool,
         is_admin: IsAdmin,
-    ) -> Result<Option<SessionOfflineInfo>> {
+    ) -> Result<OfflineSession> {
         log::debug!(
             "{:?} ClusterLockEntry kick ..., clean_start: {}, clear_subscriptions: {}, is_admin: {}",
             self.session().map(|s| s.id.clone()),
@@ -160,9 +168,9 @@ impl Entry for ClusterLockEntry {
                     };
                     match msg_sender.send().await {
                         Ok(reply) => {
-                            if let MessageReply::Kick(Some(kicked)) = reply {
+                            if let MessageReply::Kick(kicked) = reply {
                                 log::debug!("{:?} kicked: {:?}", id, kicked);
-                                Some(kicked)
+                                kicked
                             } else {
                                 log::info!(
                                     "{:?} Message::Kick from other node, prev_node_id: {:?}, reply: {:?}",
@@ -170,7 +178,7 @@ impl Entry for ClusterLockEntry {
                                     prev_node_id,
                                     reply
                                 );
-                                None
+                                OfflineSession::NotExist
                             }
                         }
                         Err(e) => {
@@ -180,7 +188,7 @@ impl Entry for ClusterLockEntry {
                                 prev_node_id,
                                 e
                             );
-                            None
+                            OfflineSession::NotExist
                         }
                     }
                 };
@@ -273,7 +281,9 @@ pub struct ClusterShared {
     router: &'static ClusterRouter,
     grpc_clients: GrpcClients,
     node_names: HashMap<NodeId, NodeName>,
-    pub message_type: MessageType,
+    pub(crate) message_type: MessageType,
+    exec_queue_busy_limit: isize,
+    exec_queue_workers_busy_limit: isize,
 }
 
 impl ClusterShared {
@@ -283,6 +293,8 @@ impl ClusterShared {
         grpc_clients: GrpcClients,
         node_names: HashMap<NodeId, NodeName>,
         message_type: MessageType,
+        exec_queue_max: usize,
+        exec_queue_workers: usize,
     ) -> &'static ClusterShared {
         static INSTANCE: OnceCell<ClusterShared> = OnceCell::new();
         INSTANCE.get_or_init(|| Self {
@@ -291,6 +303,8 @@ impl ClusterShared {
             grpc_clients,
             node_names,
             message_type,
+            exec_queue_busy_limit: (exec_queue_max as f64 * 0.7) as isize,
+            exec_queue_workers_busy_limit: (exec_queue_workers as f64 * 0.9) as isize,
         })
     }
 
@@ -532,5 +546,12 @@ impl Shared for &'static ClusterShared {
             "status": status,
             "nodes": node_statuses,
         })))
+    }
+
+    #[inline]
+    fn operation_is_busy(&self) -> bool {
+        let exec = task_exec_queue();
+        exec.active_count() > self.exec_queue_workers_busy_limit
+            || exec.waiting_count() > self.exec_queue_busy_limit
     }
 }

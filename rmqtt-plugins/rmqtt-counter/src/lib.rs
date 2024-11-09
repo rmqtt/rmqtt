@@ -4,7 +4,9 @@
 extern crate rmqtt_macros;
 
 use rmqtt::broker::hook::Priority;
-use rmqtt::{async_trait::async_trait, log, FromType};
+use rmqtt::{
+    async_trait::async_trait, log, ConnectAckReason, ConnectAckReasonV3, ConnectAckReasonV5, FromType,
+};
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     broker::metrics::Metrics,
@@ -131,16 +133,26 @@ impl Handler for CounterHandler {
             }
             Parameter::ClientConnack(connect_info, reason) => {
                 self.metrics.client_connack_inc();
-                match reason.success_or_auth_error() {
-                    (true, _) => {}
-                    (false, not_authorized) => {
+                match **reason {
+                    ConnectAckReason::V3(ConnectAckReasonV3::ConnectionAccepted)
+                    | ConnectAckReason::V5(ConnectAckReasonV5::Success) => {}
+                    ConnectAckReason::V3(ConnectAckReasonV3::NotAuthorized)
+                    | ConnectAckReason::V3(ConnectAckReasonV3::BadUserNameOrPassword)
+                    | ConnectAckReason::V5(ConnectAckReasonV5::NotAuthorized)
+                    | ConnectAckReason::V5(ConnectAckReasonV5::BadUserNameOrPassword) => {
                         self.metrics.client_connack_error_inc();
-                        if not_authorized {
-                            self.metrics.client_connack_auth_error_inc();
-                        }
+                        self.metrics.client_connack_auth_error_inc();
                         if connect_info.username().is_none() {
                             self.metrics.client_auth_anonymous_error_inc();
                         }
+                    }
+                    ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable)
+                    | ConnectAckReason::V5(ConnectAckReasonV5::ServerUnavailable) => {
+                        self.metrics.client_connack_error_inc();
+                        self.metrics.client_connack_unavailable_error_inc();
+                    }
+                    _ => {
+                        self.metrics.client_connack_error_inc();
                     }
                 }
             }

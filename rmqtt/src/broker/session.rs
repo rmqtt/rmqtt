@@ -1248,7 +1248,7 @@ impl SessionState {
     pub async fn transfer_session_state(
         &self,
         clear_subscriptions: bool,
-        mut offline_info: SessionOfflineInfo,
+        mut offline_info: OfflineInfo,
     ) -> Result<()> {
         log::debug!(
             "{:?} transfer session state, form: {:?}, subscriptions: {}, inflight_messages: {}, offline_messages: {}, clear_subscriptions: {}",
@@ -1325,7 +1325,7 @@ impl Deref for SessionState {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct SessionOfflineInfo {
+pub struct OfflineInfo {
     pub id: Id,
     pub subscriptions: Subscriptions,
     pub offline_messages: Vec<(From, Publish)>,
@@ -1333,7 +1333,7 @@ pub struct SessionOfflineInfo {
     pub created_at: TimestampMillis,
 }
 
-impl std::fmt::Debug for SessionOfflineInfo {
+impl std::fmt::Debug for OfflineInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -1464,7 +1464,7 @@ impl Session {
     }
 
     #[inline]
-    pub async fn to_offline_info(&self) -> Result<SessionOfflineInfo> {
+    pub async fn to_offline_info(&self) -> Result<OfflineInfo> {
         let id = self.id.clone();
         let created_at = self.created_at().await?;
         let subscriptions = self.subscriptions_drain().await?;
@@ -1476,7 +1476,7 @@ impl Session {
         }
         let inflight_messages = self.inflight_win().write().await.to_inflight_messages();
 
-        Ok(SessionOfflineInfo { id, subscriptions, offline_messages, inflight_messages, created_at })
+        Ok(OfflineInfo { id, subscriptions, offline_messages, inflight_messages, created_at })
     }
 
     #[inline]

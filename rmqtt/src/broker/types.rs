@@ -48,6 +48,7 @@ use ntex_mqtt::TopicLevel;
 use crate::broker::fitter::Fitter;
 use crate::broker::inflight::Inflight;
 use crate::broker::queue::{Queue, Sender};
+use crate::broker::session::OfflineInfo;
 use crate::settings::acl::AuthInfo;
 use crate::{MqttError, Result, Runtime};
 
@@ -2675,6 +2676,12 @@ impl PartialOrd for DelayedPublish {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum OfflineSession {
+    Exist(Option<OfflineInfo>),
+    NotExist,
 }
 
 #[test]

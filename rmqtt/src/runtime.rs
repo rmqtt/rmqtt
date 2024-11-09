@@ -88,9 +88,9 @@ impl Runtime {
     }
 
     #[inline]
-    pub fn is_busy(&self) -> bool {
+    pub async fn is_busy(&self) -> bool {
         if self.settings.node.busy.check_enable {
-            handshake_is_busy() || self.node.sys_is_busy()
+            handshake_is_busy().await || self.node.sys_is_busy()
         } else {
             false
         }

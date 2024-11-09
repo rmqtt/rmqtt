@@ -1023,6 +1023,8 @@ $ curl -i -X GET "http://localhost:6060/api/v1/metrics/sum"
 
 ### GET /api/v1/metrics/prometheus
 
+<span id = "get-prometheus" />
+
 以 *prometheus* 格式返回集群中所有节点的状态数据和统计指标数据。
 
 **Path Parameters:** 无
@@ -1402,4 +1404,30 @@ rmqtt_stats{item="topics.max",node="3"} 0
 rmqtt_stats{item="topics.max",node="all"} 0
 ```
 
+![示例图](../imgs/prometheus_demo1.jpg)
+
+### GET /api/v1/metrics/prometheus/{node}
+
+以 *prometheus* 格式返回集群中指定节点的状态数据和统计指标数据。
+
+**Path Parameters:**
+
+| Name | Type | Required | Description |
+| ---- | --------- | ------------|-------------|
+| node | Integer    | True       | Node ID, Such as: 1    |
+
+**Success Response Body (TEXT):**
+
+see [GET /api/v1/metrics/prometheus](#get-prometheus) 
+
+
+### GET /api/v1/metrics/prometheus/sum
+
+以 *prometheus* 格式返回集群中所有节点的状态数据和统计指标数据总和。
+
+**Path Parameters:** 无
+
+**Success Response Body (TEXT):**
+
+see [GET /api/v1/metrics/prometheus](#get-prometheus) 
 

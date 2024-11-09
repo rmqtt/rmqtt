@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use once_cell::sync::OnceCell;
 
-use crate::broker::session::{Session, SessionOfflineInfo};
+use crate::broker::session::Session;
 use crate::broker::types::*;
 use crate::grpc::{GrpcClients, MessageBroadcaster, MessageReply, MESSAGE_TYPE_MESSAGE_GET};
 use crate::settings::listener::Listener;
@@ -42,7 +42,7 @@ pub trait Entry: Sync + Send {
         clean_start: bool,
         clear_subscriptions: bool,
         is_admin: IsAdmin,
-    ) -> Result<Option<SessionOfflineInfo>>;
+    ) -> Result<OfflineSession>;
     async fn online(&self) -> bool;
     async fn is_connected(&self) -> bool;
     fn session(&self) -> Option<Session>;
@@ -118,6 +118,11 @@ pub trait Shared: Sync + Send {
     #[inline]
     async fn check_health(&self) -> Result<Option<serde_json::Value>> {
         Ok(Some(json!({"status": "Ok", "nodes": []})))
+    }
+
+    #[inline]
+    fn operation_is_busy(&self) -> bool {
+        false
     }
 
     #[inline]

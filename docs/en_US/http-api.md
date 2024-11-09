@@ -1025,6 +1025,8 @@ $ curl -i -X GET "http://localhost:6060/api/v1/metrics/sum"
 
 ### GET /api/v1/metrics/prometheus
 
+<span id = "get-prometheus" />
+
 Return the status data and statistical metrics of all nodes in the cluster in *prometheus* format.
 
 **Path Parameters:** None
@@ -1403,9 +1405,31 @@ rmqtt_stats{item="topics.max",node="2"} 0
 rmqtt_stats{item="topics.max",node="3"} 0
 rmqtt_stats{item="topics.max",node="all"} 0
 ```
+![Example Image](../imgs/prometheus_demo1.jpg)
 
 
+### GET /api/v1/metrics/prometheus/{node}
+
+Returns the status data and statistical metrics of the specified node in the cluster in Prometheus format.
+
+**Path Parameters:**
+
+| Name | Type | Required | Description |
+| ---- | --------- | ------------|-------------|
+| node | Integer    | True       | Node ID, Such as: 1    |
+
+**Success Response Body (TEXT):**
+
+see [GET /api/v1/metrics/prometheus](#get-prometheus) 
 
 
+### GET /api/v1/metrics/prometheus/sum
 
+Returns the total of the status data and statistical metrics of all nodes in the cluster in Prometheus format.
+
+**Path Parameters:** 无
+
+**Success Response Body (TEXT):**
+
+see [GET /api/v1/metrics/prometheus](#get-prometheus) 
 

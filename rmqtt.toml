@@ -87,6 +87,7 @@ plugins.default_startups = [
     #"rmqtt-topic-rewrite",
     #"rmqtt-auto-subscription",
     #"rmqtt-bridge-egress-pulsar",
+    #"rmqtt-bridge-ingress-pulsar",
     #"rmqtt-auth-jwt",
     #"rmqtt-bridge-egress-nats",
     #"rmqtt-bridge-egress-reductstore",
@@ -105,6 +106,10 @@ mqtt.delayed_publish_max = 100_000
 #false - message will be discarded,
 #default: true
 mqtt.delayed_publish_immediate = true
+
+#Maximum session limit, 0: no limit, default value: 0.
+mqtt.max_sessions = 0
+
 
 ##--------------------------------------------------------------------
 ## Listeners

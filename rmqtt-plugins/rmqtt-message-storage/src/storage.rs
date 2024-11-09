@@ -6,27 +6,25 @@ use std::sync::atomic::{AtomicIsize, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures_time::future::FutureExt;
-
 use rmqtt::{
     anyhow::anyhow,
     async_trait::async_trait,
     futures,
     futures::channel::mpsc,
     futures::{SinkExt, StreamExt},
+    futures_time::{self, future::FutureExt},
     log,
     ntex_mqtt::TopicLevel,
     once_cell::sync::OnceCell,
     rust_box::task_exec_queue::{Builder, SpawnExt, TaskExecQueue},
-    timestamp_millis, tokio,
+    tokio,
     tokio::sync::RwLock,
     tokio::time::sleep,
-    NodeId, TimestampMillis,
 };
 
 use rmqtt::{
-    broker::retain::RetainTree, broker::MessageManager, ClientId, From, MqttError, MsgID, Publish, Result,
-    SharedGroup, StoredMessage, Topic, TopicFilter,
+    broker::retain::RetainTree, broker::MessageManager, timestamp_millis, ClientId, From, MqttError, MsgID,
+    NodeId, Publish, Result, SharedGroup, StoredMessage, TimestampMillis, Topic, TopicFilter,
 };
 
 use rmqtt::tokio::runtime::Handle;
