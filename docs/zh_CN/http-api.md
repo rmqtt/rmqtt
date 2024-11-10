@@ -103,16 +103,18 @@ $ curl -i -X GET "http://localhost:6060/api/v1"
 
 **Success Response Body (JSON):**
 
-| Name         | Type | Description                                           |
-|--------------| --------- |-------------------------------------------------------|
-| {}/[]        | Object/Array of Objects | node 参数存在时返回指定节点信息，<br/>不存在时返回所有节点的信息                 |
-| .datetime    | String    | 当前时间，格式为 "YYYY-MM-DD HH:mm:ss"                        |
-| .node_id     | Integer    | 节点ID                                                  |
-| .node_name   | String    | 节点名称                                                  |
-| .node_status | String    | 节点状态                                                  |
-| .sysdescr    | String    | 软件描述                                                  |
+| Name         | Type | Description                                            |
+|--------------| --------- |--------------------------------------------------------|
+| {}/[]        | Object/Array of Objects | node 参数存在时返回指定节点信息，<br/>不存在时返回所有节点的信息                  |
+| .datetime    | String    | 当前时间，格式为 "YYYY-MM-DD HH:mm:ss"                         |
+| .node_id     | Integer    | 节点ID                                                   |
+| .node_name   | String    | 节点名称                                                   |
+| .node_status | String    | 节点状态                                                   |
+| .sysdescr    | String    | 软件描述                                                   |
 | .uptime      | String    | RMQTT 运行时间，格式为 "D days, H hours, m minutes, s seconds" |
 | .version     | String    | RMQTT 版本                                               |
+| .rustc_version | String    | RUSTC 版本                                               |
+
 
 **Examples:**
 
@@ -146,24 +148,25 @@ $ curl -i -X GET "http://localhost:6060/api/v1/brokers/1"
 
 **Success Response Body (JSON):**
 
-| Name                    | Type                    | Description                                      |
-|-------------------------|-------------------------|--------------------------------------------------|
-| {}/[]                   | Object/Array of Objects | node 参数存在时返回指定节点信息，<br/>不存在时以 Array 形式返回所有节点的信息  |
-| .boottime           | String                  | 操作系统启动时间                                         |
-| .connections        | Integer                 | 当前接入此节点的客户端数量                                    |
-| .disk_free          | Integer                 | 磁盘可用容量（字节）                                       |
-| .disk_total         | Integer                 | 磁盘总容量（字节）                                        |
-| .load1              | Float                   | 1 分钟内的 CPU 平均负载                                  |
-| .load5              | Float                   | 5 分钟内的 CPU 平均负载                                  |
-| .load15             | Float                   | 15 分钟内的 CPU 平均负载                                 |
-| .memory_free        | Integer                 | 系统可用内存大小（字节）                                     |
-| .memory_total       | Integer                 | 系统总内存大小（字节）                                      |
-| .memory_used        | Integer                 | 系统已占用的内存大小 （字节）                                |
-| .node_id            | Integer                 | 节点ID                                             |
-| .node_name          | String                  | 节点名称                                             |
-| .node_status        | String                  | 节点状态                                             |
-| .uptime             | String                  | RMQTT 运行时间                                        |
-| .version            | String                  | RMQTT 版本                                          |
+| Name             | Type                    | Description                                      |
+|------------------|-------------------------|--------------------------------------------------|
+| {}/[]            | Object/Array of Objects | node 参数存在时返回指定节点信息，<br/>不存在时以 Array 形式返回所有节点的信息  |
+| .boottime        | String                  | 操作系统启动时间                                         |
+| .connections     | Integer                 | 当前接入此节点的客户端数量                                    |
+| .disk_free       | Integer                 | 磁盘可用容量（字节）                                       |
+| .disk_total      | Integer                 | 磁盘总容量（字节）                                        |
+| .load1           | Float                   | 1 分钟内的 CPU 平均负载                                  |
+| .load5           | Float                   | 5 分钟内的 CPU 平均负载                                  |
+| .load15          | Float                   | 15 分钟内的 CPU 平均负载                                 |
+| .memory_free     | Integer                 | 系统可用内存大小（字节）                                     |
+| .memory_total    | Integer                 | 系统总内存大小（字节）                                      |
+| .memory_used     | Integer                 | 系统已占用的内存大小 （字节）                                |
+| .node_id         | Integer                 | 节点ID                                             |
+| .node_name       | String                  | 节点名称                                             |
+| .node_status     | String                  | 节点状态                                             |
+| .uptime          | String                  | RMQTT 运行时间                                        |
+| .version         | String                  | RMQTT 版本                                          |
+| .rustc_version   | String                  | RUSTC 版本                                         |
 
 **Examples:**
 

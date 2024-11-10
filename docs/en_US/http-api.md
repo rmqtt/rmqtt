@@ -106,16 +106,17 @@ Return basic information of all nodes in the cluster.
 
 **Success Response Body (JSON):**
 
-| Name         | Type | Description                                                                                                                   |
-|--------------| --------- |-------------------------------------------------------------------------------------------------------------------------------|
-| {}/[]        | Object/Array of Objects | Returns the information of the specified node when the parameter exists, <br/>otherwise, returns the information of all nodes |
-| .datetime    | String    | Current time, in the format of "YYYY-MM-DD HH:mm:ss"                                                                          |
-| .node_id     | Integer    | Node ID                                                                                                                       |
-| .node_name   | String    | Node name                                                                                                                     |
-| .node_status | String    | Node status                                                                                                                          |
-| .sysdescr    | String    | Software description                                                                                                                         |
-| .uptime      | String    | RMQTT Broker runtime, in the format of "D days, H hours, m minutes, s seconds"                                                                       |
-| .version     | String    | RMQTT Broker version                                                                                                                      |
+| Name           | Type | Description                                                                                                                   |
+|----------------| --------- |-------------------------------------------------------------------------------------------------------------------------------|
+| {}/[]          | Object/Array of Objects | Returns the information of the specified node when the parameter exists, <br/>otherwise, returns the information of all nodes |
+| .datetime      | String    | Current time, in the format of "YYYY-MM-DD HH:mm:ss"                        |
+| .node_id       | Integer    | Node ID                                                                      |
+| .node_name     | String    | Node name                                                                        |
+| .node_status   | String    | Node status                                                                 |
+| .sysdescr      | String    | Software description                                                               |
+| .uptime        | String    | RMQTT Broker runtime, in the format of "D days, H hours, m minutes, s seconds"     |
+| .version       | String    | RMQTT Broker version                                                 |
+| .rustc_version | String    | RUSTC version                                         |
 
 **Examples:**
 
@@ -149,24 +150,25 @@ Return the status of the node.
 
 **Success Response Body (JSON):**
 
-| Name                    | Type                    | Description                                                                                                         |
-|-------------------------|-------------------------|---------------------------------------------------------------------------------------------------------------------|
-| {}/[]                   | Object/Array of Objects | Returns node information when node parameter exists,<br/>otherwise, returns information about all nodes in an Array |
-| .boottime           | String                  | OS startup time                                                                                                     |
-| .connections        | Integer                 | Number of clients currently connected to this node                                                                  |
-| .disk_free          | Integer                 | Disk usable capacity (bytes)                                                                                        |
-| .disk_total         | Integer                 | Total disk capacity (bytes)                                                                                         |
-| .load1              | Float                   | CPU average load in 1 minute                                                                                        |
-| .load5              | Float                   | CPU average load in 5 minute                                                                                        |
-| .load15             | Float                   | CPU average load in 15 minute                                                                                       |
-| .memory_free        | Integer                 | System free memory size (bytes)                                                                                     |
-| .memory_total       | Integer                 | Total system memory size (bytes)                                                                                    |
-| .memory_used        | Integer                 | Used system memory size (bytes)                                                                                     |
-| .node_id            | Integer                 | Node ID                                                                                                             |
-| .node_name          | String                  | Node name                                                                                                           |
-| .node_status        | String                  | Node status                                                                                                         |
-| .uptime             | String                  | RMQTT Broker runtime, in the format of "D days, H hours, m minutes, s seconds"                                                                                                               |
-| .version            | String                  | RMQTT Broker version                                                                                                            |
+| Name             | Type                    | Description                                                                                                         |
+|------------------|-------------------------|---------------------------------------------------------------------------------------------------------------------|
+| {}/[]            | Object/Array of Objects | Returns node information when node parameter exists,<br/>otherwise, returns information about all nodes in an Array |
+| .boottime        | String                  | OS startup time                                                                                                     |
+| .connections     | Integer                 | Number of clients currently connected to this node                                                                  |
+| .disk_free       | Integer                 | Disk usable capacity (bytes)                                                                                        |
+| .disk_total      | Integer                 | Total disk capacity (bytes)                                                                                         |
+| .load1           | Float                   | CPU average load in 1 minute                                                                                        |
+| .load5           | Float                   | CPU average load in 5 minute                                                                                        |
+| .load15          | Float                   | CPU average load in 15 minute                                                                                       |
+| .memory_free     | Integer                 | System free memory size (bytes)                                                                                     |
+| .memory_total    | Integer                 | Total system memory size (bytes)                                                                                    |
+| .memory_used     | Integer                 | Used system memory size (bytes)                                                                                     |
+| .node_id         | Integer                 | Node ID                                                                                                             |
+| .node_name       | String                  | Node name                                                                                                           |
+| .node_status     | String                  | Node status                                                                                                         |
+| .uptime          | String                  | RMQTT Broker runtime, in the format of "D days, H hours, m minutes, s seconds"                                                                                                               |
+| .version         | String                  | RMQTT Broker version                                                                                                            |
+| .rustc_version   | String                  | RUSTC version                                         |
 
 **Examples:**
 

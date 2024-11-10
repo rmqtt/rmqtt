@@ -77,6 +77,7 @@ impl Node {
         let node_id = self.id();
         BrokerInfo {
             version: version::VERSION.to_string(),
+            rustc_version: version::RUSTC_VERSION.to_string(),
             uptime: self.uptime(),
             sysdescr: "RMQTT Broker".into(),
             node_status: self.status().await,
@@ -122,6 +123,7 @@ impl Node {
             node_name: Runtime::instance().extends.shared().await.node_name(node_id),
             uptime: self.uptime(),
             version: version::VERSION.to_string(),
+            rustc_version: version::RUSTC_VERSION.to_string(),
         }
     }
 
@@ -184,6 +186,7 @@ impl Node {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BrokerInfo {
     pub version: String,
+    pub rustc_version: String,
     pub uptime: String,
     pub sysdescr: String,
     pub node_status: NodeStatus,
@@ -196,6 +199,7 @@ impl BrokerInfo {
     pub fn to_json(&self) -> serde_json::Value {
         json!({
             "version": self.version,
+            "rustc_version": self.rustc_version,
             "uptime": self.uptime,
             "sysdescr": self.sysdescr,
             "running": self.node_status.running(),
@@ -229,6 +233,7 @@ pub struct NodeInfo {
     pub node_name: String,
     pub uptime: String,
     pub version: String,
+    pub rustc_version: String,
 }
 
 impl NodeInfo {
@@ -255,7 +260,8 @@ impl NodeInfo {
             "node_id":  self.node_id,
             "node_name":  self.node_name,
             "uptime":  self.uptime,
-            "version":  self.version
+            "version":  self.version,
+            "rustc_version": self.rustc_version,
         })
     }
 

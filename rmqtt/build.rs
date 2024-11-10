@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::io::prelude::*;
+use std::process::Command;
 
 fn main() {
     proto();
@@ -29,4 +30,13 @@ fn version() {
     version_file
         .write_all(format!("\npub const VERSION: &str = \"{}\";", server_version).as_bytes())
         .unwrap();
+
+    let rustc_version_out = Command::new("rustc").arg("--version").output().expect("Failed to execute rustc");
+    let rustc_version = String::from_utf8_lossy(&rustc_version_out.stdout);
+    version_file.write_all(b"\n/// rustc version").unwrap();
+    version_file
+        .write_all(format!("\npub const RUSTC_VERSION: &str = \"{}\";", rustc_version.trim()).as_bytes())
+        .unwrap();
+
+    println!("cargo:rerun-if-changed=build.rs");
 }
