@@ -17,7 +17,7 @@ subscribes = [
 ]
 ```
 
-Each override rule consists of a topic filter, QoS, No Local, Retain As Published, and Retain Handling.
+Each auto subscription rule consists of a topic filter, QoS, No Local, Retain As Published, and Retain Handling.
 
 Placeholders can be used in the topic filter, where `${clientid}` represents the client ID and `${username}` represents
 the client username. For example: `foo/${clientid}/#`.

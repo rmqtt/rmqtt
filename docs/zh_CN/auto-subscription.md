@@ -15,7 +15,7 @@ subscribes = [
 ]
 ```
 
-每个重写规则由主题过滤器(topic_filter)、服务质量(qos)、No local、保留发布(retain_as_published)、保留处理(retain_handling)组成。
+每条自动订阅规则由主题过滤器(topic_filter)、服务质量(qos)、No local、保留发布(retain_as_published)、保留处理(retain_handling)组成。
 
 主题过滤器中可以使用占位符， ${clientid} 代表 客户端Id, 使用 ${username} 代表 客户端用户名。例如：foo/${clientid}/#
 
