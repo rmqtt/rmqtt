@@ -8,7 +8,7 @@ use rmqtt::prometheus::{
 };
 
 use rmqtt::metrics::Metrics;
-use rmqtt::{anyhow::anyhow, once_cell::sync::OnceCell, DashMap, MqttError, NodeId};
+use rmqtt::{anyhow::anyhow, log, once_cell::sync::OnceCell, DashMap, MqttError, NodeId};
 use rmqtt::{grpc::MessageType, node::NodeInfo, stats::Stats, timestamp_secs, Result, Runtime};
 
 use crate::api::{get_metrics_all, get_metrics_one, get_node, get_nodes_all, get_stats_all, get_stats_one};
@@ -286,7 +286,12 @@ impl Monitor {
         }
 
         if let Some(md) = self.catcheds.entry(typ).or_insert_with(|| MonitorData::new(typ)).value() {
-            md.refresh_data(message_type).await?;
+            md.nodes_gauge_vec.reset();
+            md.stats_gauge_vec.reset();
+            md.metrics_gauge_vec.reset();
+            if let Err(e) = md.refresh_data(message_type).await {
+                log::warn!("refresh data error, {:?}", e)
+            }
         } else {
             return Err(MqttError::from("monitor data is not initialized"));
         }
