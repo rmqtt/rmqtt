@@ -1,10 +1,10 @@
-use std::collections::HashSet;
 use std::convert::From as _;
 use std::time::Duration;
 
+use rmqtt::ahash::HashSet;
 use rmqtt::{
     anyhow, anyhow::Error, async_trait::async_trait, futures, futures::future::FutureExt, log,
-    once_cell::sync::OnceCell, rust_box::task_exec_queue::SpawnExt, serde_json, serde_json::json,
+    once_cell::sync::OnceCell, rust_box::task_exec_queue::SpawnExt, HealthInfo, NodeHealthStatus,
 };
 use rmqtt::{
     broker::{
@@ -492,15 +492,17 @@ impl Shared for &'static ClusterShared {
     }
 
     #[inline]
-    async fn check_health(&self) -> Result<Option<serde_json::Value>> {
-        let mut node_statuses = Vec::new();
+    async fn check_health(&self) -> Result<HealthInfo> {
+        let mut nodes_health_infos = Vec::new();
         let mailbox = self.router.raft_mailbox().await;
         let status = mailbox.status().await.map_err(Error::new)?;
-        let mut leader_ids = HashSet::new();
-        node_statuses.push(json!({
-            "node_id": status.id,
-            "leader_id": status.leader_id,
-        }));
+        let mut leader_ids = HashSet::default();
+        nodes_health_infos.push(NodeHealthStatus {
+            node_id: status.id,
+            running: status.leader_id > 0,
+            leader_id: Some(status.leader_id),
+            descr: None,
+        });
         leader_ids.insert(status.leader_id);
 
         let data = RaftGrpcMessage::GetRaftStatus.encode()?;
@@ -515,10 +517,12 @@ impl Shared for &'static ClusterShared {
                     if let MessageReply::Data(data) = reply {
                         let RaftGrpcMessageReply::GetRaftStatus(o_status) =
                             RaftGrpcMessageReply::decode(&data)?;
-                        node_statuses.push(json!({
-                            "node_id": o_status.id,
-                            "leader_id": o_status.leader_id,
-                        }));
+                        nodes_health_infos.push(NodeHealthStatus {
+                            node_id: o_status.id,
+                            running: o_status.leader_id > 0,
+                            leader_id: Some(o_status.leader_id),
+                            descr: None,
+                        });
                         leader_ids.insert(o_status.leader_id);
                     } else {
                         unreachable!()
@@ -526,26 +530,36 @@ impl Shared for &'static ClusterShared {
                 }
                 Err(e) => {
                     log::error!("Get RaftGrpcMessage::GetRaftStatus from other node, error: {:?}", e);
-                    node_statuses.push(json!({
-                        "node_id": node_id,
-                        "error": e.to_string(),
-                    }));
+                    nodes_health_infos.push(NodeHealthStatus {
+                        node_id,
+                        running: false,
+                        leader_id: None,
+                        descr: Some(e.to_string()),
+                    });
                 }
             }
         }
-
-        let status = if leader_ids.len() != 1 {
-            "Leader ID exception"
+        let (running, descr) = if leader_ids.len() != 1 {
+            (false, "Leader ID exception")
         } else if leader_ids.into_iter().next() == Some(0) {
-            "Leader does not exist"
+            (false, "Leader does not exist")
         } else {
-            "Ok"
+            (true, "Ok")
         };
 
-        Ok(Some(json!({
-            "status": status,
-            "nodes": node_statuses,
-        })))
+        Ok(HealthInfo { running, descr: Some(descr.into()), nodes: nodes_health_infos })
+    }
+
+    #[inline]
+    async fn health_status(&self) -> Result<NodeHealthStatus> {
+        let mailbox = self.router.raft_mailbox().await;
+        let status = mailbox.status().await.map_err(Error::new)?;
+        Ok(NodeHealthStatus {
+            node_id: status.id,
+            running: status.leader_id > 0,
+            leader_id: Some(status.leader_id),
+            descr: None,
+        })
     }
 
     #[inline]

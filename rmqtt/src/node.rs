@@ -64,7 +64,16 @@ impl Node {
 
     #[inline]
     pub async fn status(&self) -> NodeStatus {
-        NodeStatus::Running(1)
+        match Runtime::instance().extends.shared().await.health_status().await {
+            Ok(status) => {
+                if status.running {
+                    NodeStatus::Running(1)
+                } else {
+                    NodeStatus::Stop
+                }
+            }
+            Err(e) => NodeStatus::Error(e.to_string()),
+        }
     }
 
     #[inline]
@@ -202,7 +211,7 @@ impl BrokerInfo {
             "rustc_version": self.rustc_version,
             "uptime": self.uptime,
             "sysdescr": self.sysdescr,
-            "running": self.node_status.running(),
+            "running": self.node_status.is_running(),
             "node_id": self.node_id,
             "node_name": self.node_name,
             "datetime": self.datetime
@@ -256,7 +265,7 @@ impl NodeInfo {
             // "os_release":  self.os_release,
             // "os_type":  self.os_type,
             // "proc_total":  self.proc_total,
-            "running":  self.node_status.running(),
+            "running":  self.node_status.is_running(),
             "node_id":  self.node_id,
             "node_name":  self.node_name,
             "uptime":  self.uptime,
@@ -303,6 +312,11 @@ impl NodeStatus {
         } else {
             0
         }
+    }
+
+    #[inline]
+    pub fn is_running(&self) -> bool {
+        matches!(self, NodeStatus::Running(_))
     }
 }
 

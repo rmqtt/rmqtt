@@ -116,8 +116,13 @@ pub trait Shared: Sync + Send {
     }
 
     #[inline]
-    async fn check_health(&self) -> Result<Option<serde_json::Value>> {
-        Ok(Some(json!({"status": "Ok", "nodes": []})))
+    async fn check_health(&self) -> Result<HealthInfo> {
+        Ok(HealthInfo::default())
+    }
+
+    #[inline]
+    async fn health_status(&self) -> Result<NodeHealthStatus> {
+        Ok(NodeHealthStatus::default())
     }
 
     #[inline]
