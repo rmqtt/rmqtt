@@ -2684,6 +2684,36 @@ pub enum OfflineSession {
     NotExist,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct HealthInfo {
+    pub running: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub descr: Option<String>,
+    pub nodes: Vec<NodeHealthStatus>,
+}
+
+impl Default for HealthInfo {
+    fn default() -> Self {
+        Self { running: true, descr: None, nodes: vec![NodeHealthStatus::default()] }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct NodeHealthStatus {
+    pub node_id: NodeId,
+    pub running: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub leader_id: Option<NodeId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub descr: Option<String>,
+}
+
+impl Default for NodeHealthStatus {
+    fn default() -> Self {
+        Self { node_id: Runtime::instance().node.id(), running: true, leader_id: None, descr: None }
+    }
+}
+
 #[test]
 fn test_reason() {
     assert!(Reason::ConnectKicked(false).is_kicked(false));

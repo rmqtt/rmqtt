@@ -585,11 +585,8 @@ pub(crate) async fn get_nodes_all(message_type: MessageType) -> Result<Vec<Resul
 #[handler]
 async fn check_health(_req: &mut Request, _depot: &mut Depot, res: &mut Response) {
     match Runtime::instance().extends.shared().await.check_health().await {
-        Ok(Some(health_info)) => res.render(Json(health_info)),
-        Ok(None) => {
-            res.status_code(StatusCode::NOT_FOUND);
-        }
         Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+        Ok(health_info) => res.render(Json(health_info)),
     }
 }
 
