@@ -220,12 +220,53 @@ impl ClusterPlugin {
         self.register.add(typ, Box::new(HookHandler::new(self.shared, self.raft_mailbox()))).await;
     }
 
+    #[inline]
     fn raft_mailbox(&self) -> Mailbox {
         if let Some(raft_mailbox) = &self.raft_mailbox {
             raft_mailbox.clone()
         } else {
             unreachable!()
         }
+    }
+
+    fn start_check_health(&self) {
+        let exit_on_node_unavailable = self.cfg.health.exit_on_node_unavailable;
+        let exit_code = self.cfg.health.exit_code;
+        let unavailable_check_interval = self.cfg.health.unavailable_check_interval;
+        let max_continuous_unavailable_count = self.cfg.health.max_continuous_unavailable_count;
+
+        let mut continuous_unavailable_count = 0;
+        let raft_mailbox = self.raft_mailbox();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(unavailable_check_interval).await;
+                match raft_mailbox.status().await {
+                    Err(e) => {
+                        log::error!("Error retrieving cluster status, {}", e);
+                    }
+                    Ok(s) => {
+                        if s.available() {
+                            if continuous_unavailable_count > 0 {
+                                continuous_unavailable_count = 0;
+                            }
+                        } else {
+                            continuous_unavailable_count += 1;
+                            log::error!(
+                                "cluster node unavailable({}), node status: {:?}",
+                                continuous_unavailable_count,
+                                s
+                            );
+                            if exit_on_node_unavailable
+                                && continuous_unavailable_count >= max_continuous_unavailable_count
+                            {
+                                std::thread::sleep(Duration::from_secs(2));
+                                std::process::exit(exit_code);
+                            }
+                        }
+                    }
+                }
+            }
+        });
     }
 }
 
@@ -258,6 +299,8 @@ impl Plugin for ClusterPlugin {
         self.hook_register(Type::ClientDisconnected).await;
         self.hook_register(Type::SessionTerminated).await;
         self.hook_register(Type::GrpcMessageReceived).await;
+
+        self.start_check_health();
 
         Ok(())
     }

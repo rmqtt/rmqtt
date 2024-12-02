@@ -51,6 +51,9 @@ pub struct PluginConfig {
     #[serde(default)]
     pub compression: Option<Compression>,
 
+    #[serde(default)]
+    pub health: Health,
+
     #[serde(default = "PluginConfig::raft_default")]
     pub raft: RaftConfig,
 }
@@ -109,6 +112,50 @@ impl PluginConfig {
         if let Some(raft_leader_id) = opts.raft_leader_id.as_ref() {
             self.leader_id = *raft_leader_id;
         }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Health {
+    #[serde(default = "Health::exit_on_node_unavailable_default")]
+    pub exit_on_node_unavailable: bool,
+    #[serde(default = "Health::exit_code_default")]
+    pub exit_code: i32,
+    #[serde(default = "Health::max_continuous_unavailable_count_default")]
+    pub max_continuous_unavailable_count: usize,
+    #[serde(
+        default = "Health::unavailable_check_interval_default",
+        deserialize_with = "deserialize_duration"
+    )]
+    pub unavailable_check_interval: Duration,
+}
+
+impl Default for Health {
+    fn default() -> Self {
+        Self {
+            exit_on_node_unavailable: Self::exit_on_node_unavailable_default(),
+            exit_code: Self::exit_code_default(),
+            max_continuous_unavailable_count: Self::max_continuous_unavailable_count_default(),
+            unavailable_check_interval: Self::unavailable_check_interval_default(),
+        }
+    }
+}
+
+impl Health {
+    fn exit_on_node_unavailable_default() -> bool {
+        false
+    }
+
+    fn exit_code_default() -> i32 {
+        -1
+    }
+
+    fn max_continuous_unavailable_count_default() -> usize {
+        2
+    }
+
+    fn unavailable_check_interval_default() -> Duration {
+        Duration::from_secs(2)
     }
 }
 
