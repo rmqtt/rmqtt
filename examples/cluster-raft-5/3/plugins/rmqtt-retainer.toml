@@ -1,0 +1,22 @@
+##--------------------------------------------------------------------
+## rmqtt-retainer
+##--------------------------------------------------------------------
+
+##ram, sled, redis
+storage.type = "sled"
+
+##sled
+storage.sled.path = "/var/log/rmqtt/.cache/retain/{node}"
+storage.sled.cache_capacity = "3G"
+
+##redis
+storage.redis.url = "redis://127.0.0.1:6379/"
+storage.redis.prefix = "retain"
+
+# The maximum number of retained messages, where 0 indicates no limit. After the number of reserved messages exceeds
+# the maximum limit, existing reserved messages can be replaced, but reserved messages cannot be stored for new topics.
+max_retained_messages = 0
+
+# The maximum Payload value for retaining messages. After the Payload size exceeds the maximum value, the RMQTT
+# message server will process the received reserved message as a regular message.
+max_payload_size = "1MB"
