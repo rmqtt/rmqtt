@@ -497,13 +497,14 @@ impl Shared for &'static ClusterShared {
         let mailbox = self.router.raft_mailbox().await;
         let status = mailbox.status().await.map_err(Error::new)?;
         let mut leader_ids = HashSet::default();
+        let (running, leader_id) = if status.available() { (true, status.leader_id) } else { (false, 0) };
         nodes_health_infos.push(NodeHealthStatus {
             node_id: status.id,
-            running: status.leader_id > 0,
-            leader_id: Some(status.leader_id),
+            running,
+            leader_id: Some(leader_id),
             descr: None,
         });
-        leader_ids.insert(status.leader_id);
+        leader_ids.insert(leader_id);
 
         let data = RaftGrpcMessage::GetRaftStatus.encode()?;
         let replys =
@@ -517,13 +518,15 @@ impl Shared for &'static ClusterShared {
                     if let MessageReply::Data(data) = reply {
                         let RaftGrpcMessageReply::GetRaftStatus(o_status) =
                             RaftGrpcMessageReply::decode(&data)?;
+                        let (running, leader_id) =
+                            if o_status.available() { (true, o_status.leader_id) } else { (false, 0) };
                         nodes_health_infos.push(NodeHealthStatus {
                             node_id: o_status.id,
-                            running: o_status.leader_id > 0,
-                            leader_id: Some(o_status.leader_id),
+                            running,
+                            leader_id: Some(leader_id),
                             descr: None,
                         });
-                        leader_ids.insert(o_status.leader_id);
+                        leader_ids.insert(leader_id);
                     } else {
                         unreachable!()
                     }

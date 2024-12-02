@@ -29,6 +29,19 @@ task_exec_queue_max = 100_000
 #algorithm used to compress the snapshot, value: zstd,lz4,zlib,snappy
 compression = "zstd"
 
+#Check the health of the node, and automatically terminate the program if the node is abnormal.
+#Default value: false
+health.exit_on_node_unavailable = true
+#Exit code on program termination.
+#Default value: -1
+health.exit_code = -1
+#When exit_on_node_unavailable is enabled, the program will terminate after a specified number of consecutive node failures.
+#Default value: 2
+health.max_continuous_unavailable_count = 2
+#Cluster node unavailability check interval.
+#Default value: 2 seconds
+health.unavailable_check_interval = "2s"
+
 raft.grpc_timeout = "6s"
 raft.grpc_concurrency_limit = 200
 raft.grpc_breaker_threshold = 5
