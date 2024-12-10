@@ -11,4 +11,4 @@ license.workspace = true
 rmqtt.workspace = true
 rmqtt-macros.workspace = true
 serde = { workspace = true, features = ["derive"] }
-reduct-rs = "1.12.0"
+reduct-rs = "=1.12.1"
