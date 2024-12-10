@@ -17,6 +17,7 @@
     - 离线消息支持;
     - [Retained 消息支持](./docs/zh_CN/retainer.md);
     - Last Will 消息支持;
+- [分布式集群](./docs/zh_CN/cluster-raft.md);
 - [内置 AUTH/ACL](./docs/zh_CN/acl.md);
 - [HTTP AUTH/ACL](./docs/zh_CN/auth-http.md);
 - [JWT AUTH/ACL](./docs/zh_CN/auth-jwt.md);
@@ -39,7 +40,6 @@
 - 排它订阅($exclusive/{TopicFilter});
 - 限制订阅($limit/{LimitQuantity}/{TopicFilter});
 - 延迟发布($delayed/{DelayInterval}/{TopicName});
-- 分布式集群;
 - 钩子(Hooks);
 - TLS支持;
 - WebSocket支持;

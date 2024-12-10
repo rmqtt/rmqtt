@@ -31,7 +31,7 @@ compression = "zstd"
 
 #Check the health of the node, and automatically terminate the program if the node is abnormal.
 #Default value: false
-health.exit_on_node_unavailable = true
+health.exit_on_node_unavailable = false
 #Exit code on program termination.
 #Default value: -1
 health.exit_code = -1

@@ -18,6 +18,7 @@ and mobile applications that can handle millions of concurrent clients on a sing
     - Offline message support;
     - [Retained message support](./docs/en_US/retainer.md);
     - Last Will message support;
+- [Distributed cluster](./docs/en_US/cluster-raft.md);
 - [Built-in AUTH/ACL](./docs/en_US/acl.md);
 - [HTTP AUTH/ACL](./docs/en_US/auth-http.md);
 - [JWT AUTH/ACL](./docs/en_US/auth-jwt.md);
@@ -40,7 +41,6 @@ and mobile applications that can handle millions of concurrent clients on a sing
 - Exclusive subscription($exclusive/{TopicFilter});
 - Limit subscription($limit/{LimitQuantity}/{TopicFilter});
 - Delayed publish($delayed/{DelayInterval}/{TopicName});
-- Distributed cluster;
 - Hooks;
 - TLS support;
 - WebSocket support;
