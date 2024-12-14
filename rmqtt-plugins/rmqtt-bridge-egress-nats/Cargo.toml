@@ -11,5 +11,5 @@ license.workspace = true
 rmqtt.workspace = true
 rmqtt-macros.workspace = true
 serde = { workspace = true, features = ["derive"] }
-async-nats = "0.37"
+async-nats = "0.38"
 nkeys = "0.4.4"
