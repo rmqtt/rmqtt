@@ -3,7 +3,6 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::{Duration, Instant};
 
 use once_cell::sync::Lazy;
-use rust_box::std_ext::RwLock;
 use systemstat::Platform;
 
 use crate::grpc::client::NodeGrpcClient;
@@ -150,7 +149,8 @@ impl Node {
 
     #[inline]
     pub fn sys_is_busy(&self) -> bool {
-        static CACHED: Lazy<RwLock<(bool, Instant)>> = Lazy::new(|| RwLock::new((false, Instant::now())));
+        static CACHED: Lazy<parking_lot::RwLock<(bool, Instant)>> =
+            Lazy::new(|| parking_lot::RwLock::new((false, Instant::now())));
         {
             let cached = CACHED.read();
             let (busy, inst) = cached.deref();

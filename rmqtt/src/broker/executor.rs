@@ -97,8 +97,8 @@ pub async fn is_busy() -> bool {
         busies > 0
     }
 
-    use rust_box::std_ext::RwLock;
-    static CACHED: Lazy<RwLock<(bool, Instant)>> = Lazy::new(|| RwLock::new((false, Instant::now())));
+    static CACHED: Lazy<parking_lot::RwLock<(bool, Instant)>> =
+        Lazy::new(|| parking_lot::RwLock::new((false, Instant::now())));
     {
         let cached = CACHED.read();
         let (busy, inst) = cached.deref();

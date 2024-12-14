@@ -2059,11 +2059,11 @@ impl SessionSubs {
 }
 
 pub struct ExtraData<K, T> {
-    attrs: Arc<rust_box::std_ext::RwLock<HashMap<K, T>>>,
+    attrs: Arc<parking_lot::RwLock<HashMap<K, T>>>,
 }
 
 impl<K, T> Deref for ExtraData<K, T> {
-    type Target = Arc<rust_box::std_ext::RwLock<HashMap<K, T>>>;
+    type Target = Arc<parking_lot::RwLock<HashMap<K, T>>>;
     #[inline]
     fn deref(&self) -> &Self::Target {
         &self.attrs
@@ -2096,7 +2096,7 @@ where
         D: Deserializer<'de>,
     {
         let v = HashMap::deserialize(deserializer)?;
-        Ok(Self { attrs: Arc::new(rust_box::std_ext::RwLock::new(v)) })
+        Ok(Self { attrs: Arc::new(parking_lot::RwLock::new(v)) })
     }
 }
 
@@ -2114,7 +2114,7 @@ where
 {
     #[inline]
     pub fn new() -> Self {
-        Self { attrs: Arc::new(rust_box::std_ext::RwLock::new(HashMap::default())) }
+        Self { attrs: Arc::new(parking_lot::RwLock::new(HashMap::default())) }
     }
 
     #[inline]
