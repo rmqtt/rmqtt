@@ -9,7 +9,7 @@ use rdkafka::client::ClientContext as KafkaClientContext;
 use rdkafka::config::{ClientConfig as KafkaClientConfig, RDKafkaLogLevel};
 use rdkafka::consumer::stream_consumer::StreamConsumer as KafkaStreamConsumer;
 use rdkafka::consumer::{
-    CommitMode, Consumer as KafkaConsumer, ConsumerContext as KafkaConsumerContext, Rebalance,
+    BaseConsumer, CommitMode, Consumer as KafkaConsumer, ConsumerContext as KafkaConsumerContext, Rebalance,
 };
 use rdkafka::error::KafkaResult;
 use rdkafka::message::{BorrowedMessage, Headers, Message};
@@ -65,10 +65,10 @@ struct SourceContext {}
 
 impl KafkaClientContext for SourceContext {}
 impl KafkaConsumerContext for SourceContext {
-    fn pre_rebalance(&self, rebalance: &Rebalance) {
+    fn pre_rebalance(&self, _base_consumer: &BaseConsumer<Self>, rebalance: &Rebalance<'_>) {
         log::debug!("Pre rebalance {:?}", rebalance);
     }
-    fn post_rebalance(&self, rebalance: &Rebalance) {
+    fn post_rebalance(&self, _base_consumer: &BaseConsumer<Self>, rebalance: &Rebalance<'_>) {
         log::debug!("Post rebalance {:?}", rebalance);
     }
     fn commit_callback(&self, result: KafkaResult<()>, _offsets: &TopicPartitionList) {
