@@ -50,7 +50,7 @@ rust-version = "1.80.0"
 [workspace.dependencies]
 rmqtt = "0.11"
 rmqtt-macros = "0.1"
-serde = "=1.0"
+serde = { version = "1.0", features = ["derive"] }
 
 [profile.dev]
 opt-level = 0

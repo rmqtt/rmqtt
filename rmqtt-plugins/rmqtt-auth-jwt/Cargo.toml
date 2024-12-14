@@ -10,4 +10,4 @@ license.workspace = true
 rmqtt.workspace = true
 rmqtt-macros.workspace = true
 serde = { workspace = true, features = ["derive"] }
-jsonwebtoken = "=9.3"
+jsonwebtoken = "=9.3.0"
