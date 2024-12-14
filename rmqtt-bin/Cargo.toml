@@ -26,7 +26,7 @@ rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", 
 rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
 
 [dependencies]
-rustls-pemfile = "2"
+rustls-pemfile = "=2.2.0"
 
 ##mqtt broker
 rmqtt.workspace = true

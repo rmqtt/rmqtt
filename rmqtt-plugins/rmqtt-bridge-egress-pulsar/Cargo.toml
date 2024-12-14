@@ -11,4 +11,4 @@ license.workspace = true
 rmqtt.workspace = true
 rmqtt-macros.workspace = true
 serde = { workspace = true, features = ["derive"] }
-pulsar = "6"
+pulsar = "=6.3.0"

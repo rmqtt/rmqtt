@@ -11,4 +11,4 @@ license.workspace = true
 rmqtt.workspace = true
 rmqtt-macros.workspace = true
 serde = { workspace = true, features = ["derive"] }
-rdkafka = { version = "0.36", features = ["cmake-build"] }
+rdkafka = { version = "0.37", features = ["cmake-build"] }

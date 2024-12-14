@@ -99,26 +99,26 @@ impl Producer {
                     //Not required to forward
                     if forward_all_from {
                         sender = sender.add_label("from_type", f.typ().as_str());
-                        sender = sender.add_label("from_node", &f.node().to_string());
+                        sender = sender.add_label("from_node", f.node().to_string());
                         if let Some(addr) = f.remote_addr {
-                            sender = sender.add_label("from_ipaddress", &addr.to_string());
+                            sender = sender.add_label("from_ipaddress", addr.to_string());
                         }
-                        sender = sender.add_label("from_clientid", f.client_id.as_ref());
-                        sender = sender.add_label("from_username", f.username().as_ref());
+                        sender = sender.add_label("from_clientid", f.client_id.clone());
+                        sender = sender.add_label("from_username", f.username());
                     }
 
                     //Not required to forward
                     if forward_all_publish {
                         sender = sender.add_label("dup", if p.dup() { "true" } else { "false" });
                         sender = sender.add_label("retain", if p.retain() { "true" } else { "false" });
-                        sender = sender.add_label("qos", &p.qos().value().to_string());
+                        sender = sender.add_label("qos", p.qos().value().to_string());
                         if let Some(packet_id) = p.packet_id() {
-                            sender = sender.add_label("packet_id", &packet_id.to_string());
+                            sender = sender.add_label("packet_id", packet_id.to_string());
                         }
                     }
 
                     //Must forward
-                    sender = sender.add_label("topic", p.topic().as_ref());
+                    sender = sender.add_label("topic", p.topic());
 
                     if let Err(e) = sender.data(p.payload).send().await {
                         log::warn!("{}", e);
