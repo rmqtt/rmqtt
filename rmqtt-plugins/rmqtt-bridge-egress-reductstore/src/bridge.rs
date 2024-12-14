@@ -103,8 +103,8 @@ impl Producer {
                         if let Some(addr) = f.remote_addr {
                             sender = sender.add_label("from_ipaddress", &addr.to_string());
                         }
-                        sender = sender.add_label("from_clientid", f.client_id.as_ref());
-                        sender = sender.add_label("from_username", f.username().as_ref());
+                        sender = sender.add_label("from_clientid", f.client_id.clone());
+                        sender = sender.add_label("from_username", f.username());
                     }
 
                     //Not required to forward
@@ -118,7 +118,7 @@ impl Producer {
                     }
 
                     //Must forward
-                    sender = sender.add_label("topic", p.topic().as_ref());
+                    sender = sender.add_label("topic", p.topic());
 
                     if let Err(e) = sender.data(p.payload).send().await {
                         log::warn!("{}", e);
