@@ -44,9 +44,9 @@ impl RetainStorage for &'static RamRetainer {
             return Ok(());
         }
 
-        let (max_retained_messages, max_payload_size) = {
+        let (max_retained_messages, max_payload_size, retained_message_ttl) = {
             let cfg = self.cfg.read().await;
-            (cfg.max_retained_messages, *cfg.max_payload_size)
+            (cfg.max_retained_messages, *cfg.max_payload_size, cfg.retained_message_ttl)
         };
 
         if retain.publish.payload.len() > max_payload_size {
@@ -63,6 +63,10 @@ impl RetainStorage for &'static RamRetainer {
             );
             return Ok(());
         }
+
+        let expiry_interval = retained_message_ttl
+            .map(|ttl| if ttl.is_zero() { None } else { Some(ttl) })
+            .unwrap_or(expiry_interval);
 
         self.inner.set_with_timeout(topic, retain, expiry_interval).await
     }

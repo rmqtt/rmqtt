@@ -7,7 +7,7 @@
 #
 
 ##ram, sled, redis
-storage.type = "sled"
+storage.type = "ram"
 
 ##sled
 storage.sled.path = "/var/log/rmqtt/.cache/retain/{node}"
@@ -25,3 +25,6 @@ max_retained_messages = 0
 # message server will process the received reserved message as a regular message.
 max_payload_size = "1MB"
 
+# TTL for retained messages. Set to 0 for no expiration.
+# If not specified, the message expiration time will be used by default.
+#retained_message_ttl = "0m"
