@@ -53,8 +53,6 @@ pub struct Bridge {
     #[serde(default = "Bridge::reconnect_interval_default", deserialize_with = "deserialize_duration")]
     pub reconnect_interval: Duration,
 
-    #[serde(default = "Bridge::retain_available_default")]
-    pub retain_available: bool,
     #[serde(default = "Bridge::expiry_interval_default", deserialize_with = "deserialize_duration")]
     pub expiry_interval: Duration,
 
@@ -88,10 +86,6 @@ impl Bridge {
 
     fn mqtt_ver_default() -> Protocol {
         Protocol::MQTT(MQTT_LEVEL_311)
-    }
-
-    fn retain_available_default() -> bool {
-        false
     }
 
     fn expiry_interval_default() -> Duration {

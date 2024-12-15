@@ -100,12 +100,6 @@ consumer_name_prefix = "consumer_1"
 #auth.name = "oauth2"
 #auth.data = "{\"issuer_url\":\"https://example.com/oauth2/issuer\", \"credentials_url\":\"file:///path/to/credentials/file.json\"}"
 
-## Whether to support retain message, true/false, default value: false
-##
-## Value: true | false
-## Default: false
-retain_available = false
-
 ## Message expiration time, 0 means no expiration
 ##
 ## Value: Duration

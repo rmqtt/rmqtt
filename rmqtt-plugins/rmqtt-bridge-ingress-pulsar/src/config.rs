@@ -65,9 +65,6 @@ pub struct Bridge {
     #[serde(default)]
     pub entries: Vec<Entry>,
 
-    #[serde(default = "Bridge::retain_available_default")]
-    pub retain_available: bool,
-
     #[serde(default = "Bridge::expiry_interval_default", deserialize_with = "deserialize_duration")]
     pub expiry_interval: Duration,
 }
@@ -75,10 +72,6 @@ pub struct Bridge {
 impl Bridge {
     fn tls_hostname_verification_enabled_default() -> bool {
         true
-    }
-
-    fn retain_available_default() -> bool {
-        false
     }
 
     fn expiry_interval_default() -> Duration {
