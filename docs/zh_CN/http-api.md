@@ -38,8 +38,6 @@ http_request_log = false
 ## If set, will check request header Authorization value == Bearer $http_bearer_token, default value is undefined
 #http_bearer_token = bearer_token
 
-##Whether support retain message, true/false, default value: true
-message_retain_available = true
 ##Message expiration time, 0 means no expiration
 message_expiry_interval = "5m"
 ```

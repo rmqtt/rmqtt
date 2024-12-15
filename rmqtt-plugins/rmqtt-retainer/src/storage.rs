@@ -373,6 +373,11 @@ impl RetainerInner {
 
 #[async_trait]
 impl RetainStorage for &'static Retainer {
+    #[inline]
+    fn enable(&self) -> bool {
+        true
+    }
+
     ///topic - concrete topic
     async fn set(&self, topic: &TopicName, retain: Retain, expiry_interval: Option<Duration>) -> Result<()> {
         if !self.retain_enable.load(Ordering::SeqCst) {

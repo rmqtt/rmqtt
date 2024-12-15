@@ -34,8 +34,6 @@ publish_qos = 1
 #$SYS system message publish period
 publish_interval = "1m"
 
-##Whether support retain message, true/false, default value: false
-message_retain_available = false
 ##Message expiration time, 0 means no expiration
 message_expiry_interval = "5m"
 ```

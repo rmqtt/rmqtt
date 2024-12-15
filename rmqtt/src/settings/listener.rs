@@ -194,9 +194,6 @@ pub struct ListenerInner {
     #[serde(default = "ListenerInner::max_topic_levels_default")]
     pub max_topic_levels: usize,
 
-    #[serde(default = "ListenerInner::retain_available_default")]
-    pub retain_available: bool,
-
     #[serde(
         default = "ListenerInner::session_expiry_interval_default",
         deserialize_with = "deserialize_duration"
@@ -260,7 +257,6 @@ impl Default for ListenerInner {
             max_clientid_len: ListenerInner::max_clientid_len_default(),
             max_qos_allowed: ListenerInner::max_qos_allowed_default(),
             max_topic_levels: ListenerInner::max_topic_levels_default(),
-            retain_available: ListenerInner::retain_available_default(),
             session_expiry_interval: ListenerInner::session_expiry_interval_default(),
             message_retry_interval: ListenerInner::message_retry_interval_default(),
             message_expiry_interval: ListenerInner::message_expiry_interval_default(),
@@ -363,10 +359,6 @@ impl ListenerInner {
     #[inline]
     fn max_topic_levels_default() -> usize {
         0
-    }
-    #[inline]
-    fn retain_available_default() -> bool {
-        false
     }
     #[inline]
     fn session_expiry_interval_default() -> Duration {

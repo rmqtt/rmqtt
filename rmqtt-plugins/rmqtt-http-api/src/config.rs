@@ -39,9 +39,6 @@ pub struct PluginConfig {
     #[serde(default = "PluginConfig::http_request_log_default")]
     pub http_request_log: bool,
 
-    #[serde(default = "PluginConfig::message_retain_available_default")]
-    pub message_retain_available: bool,
-
     #[serde(
         default = "PluginConfig::message_expiry_interval_default",
         deserialize_with = "deserialize_duration"
@@ -90,11 +87,6 @@ impl PluginConfig {
 
     #[inline]
     fn http_request_log_default() -> bool {
-        false
-    }
-
-    #[inline]
-    fn message_retain_available_default() -> bool {
         false
     }
 

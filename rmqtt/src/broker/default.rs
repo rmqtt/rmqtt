@@ -2129,7 +2129,6 @@ impl DefaultDelayedSender {
         if let Err(e) = SessionState::forwards(
             dp.from,
             dp.publish,
-            dp.retain_available,
             dp.message_storage_available,
             dp.message_expiry_interval,
         )
@@ -2166,19 +2165,12 @@ impl DelayedSender for &'static DefaultDelayedSender {
         &self,
         from: From,
         publish: Publish,
-        retain_available: bool,
         message_storage_available: bool,
         message_expiry_interval: Option<Duration>,
     ) -> Result<Option<(From, Publish)>> {
         let mut msgs = self.msgs.write().await;
         if msgs.len() < Runtime::instance().settings.mqtt.delayed_publish_max {
-            msgs.push(DelayedPublish::new(
-                from,
-                publish,
-                retain_available,
-                message_storage_available,
-                message_expiry_interval,
-            ));
+            msgs.push(DelayedPublish::new(from, publish, message_storage_available, message_expiry_interval));
             Runtime::instance().stats.delayed_publishs.max_max(msgs.len() as isize);
             Ok(None)
         } else {

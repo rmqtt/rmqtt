@@ -2624,7 +2624,6 @@ pub struct DelayedPublish {
     pub expired_time: TimestampMillis,
     pub from: From,
     pub publish: Publish,
-    pub retain_available: bool,
     pub message_storage_available: bool,
     pub message_expiry_interval: Option<Duration>,
 }
@@ -2634,7 +2633,6 @@ impl DelayedPublish {
     pub fn new(
         from: From,
         publish: Publish,
-        retain_available: bool,
         message_storage_available: bool,
         message_expiry_interval: Option<Duration>,
     ) -> Self {
@@ -2642,14 +2640,7 @@ impl DelayedPublish {
             .delay_interval
             .map(|di| timestamp_millis() + (di as TimestampMillis * 1000))
             .unwrap_or_else(timestamp_millis);
-        Self {
-            expired_time,
-            from,
-            publish,
-            retain_available,
-            message_storage_available,
-            message_expiry_interval,
-        }
+        Self { expired_time, from, publish, message_storage_available, message_expiry_interval }
     }
 
     #[inline]

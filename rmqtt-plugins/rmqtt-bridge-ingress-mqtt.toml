@@ -27,8 +27,6 @@ keepalive = "60s"
 # Automatic reconnection interval
 reconnect_interval = "5s"
 
-## Whether to support retain message, true/false, default value: false
-retain_available = false
 ## Message expiration time, 0 means no expiration
 expiry_interval = "5m"
 
@@ -83,8 +81,6 @@ keepalive = "60s"
 # Automatic reconnection interval
 reconnect_interval = "5s"
 
-## Whether to support retain message, true/false, default value: false
-retain_available = false
 ## Message expiration time, 0 means no expiration
 expiry_interval = "5m"
 

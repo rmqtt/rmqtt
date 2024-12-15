@@ -26,10 +26,9 @@ use rmqtt::{
 
 use crate::config::{Bridge, Entry, PluginConfig, MESSAGE_KEY, PARTITION_UNASSIGNED};
 
-type RetainAvailable = bool;
 type ExpiryInterval = Duration;
 
-pub type MessageType = (From, Publish, RetainAvailable, ExpiryInterval);
+pub type MessageType = (From, Publish, ExpiryInterval);
 pub type OnMessageEvent = Arc<Event<MessageType, ()>>;
 
 #[derive(Debug)]
@@ -346,7 +345,7 @@ impl Consumer {
             create_time: timestamp_millis(),
         };
 
-        on_message.fire((from, p, cfg.retain_available, cfg.expiry_interval));
+        on_message.fire((from, p, cfg.expiry_interval));
     }
 }
 
@@ -396,9 +395,9 @@ impl BridgeManager {
 
     fn on_message(&self) -> OnMessageEvent {
         Arc::new(
-            Event::listen(|(f, p, retain_available, expiry_interval): MessageType, _next| {
+            Event::listen(|(f, p, expiry_interval): MessageType, _next| {
                 tokio::spawn(async move {
-                    send_publish(f, p, retain_available, expiry_interval).await;
+                    send_publish(f, p, expiry_interval).await;
                 });
             })
             .finish(),
@@ -427,7 +426,7 @@ impl BridgeManager {
     }
 }
 
-async fn send_publish(from: From, msg: Publish, retain_available: bool, expiry_interval: Duration) {
+async fn send_publish(from: From, msg: Publish, expiry_interval: Duration) {
     log::debug!("from {:?}, message: {:?}", from, msg);
 
     let expiry_interval = msg
@@ -447,9 +446,7 @@ async fn send_publish(from: From, msg: Publish, retain_available: bool, expiry_i
 
     let storage_available = Runtime::instance().extends.message_mgr().await.enable();
 
-    if let Err(e) =
-        SessionState::forwards(from, msg, retain_available, storage_available, Some(expiry_interval)).await
-    {
+    if let Err(e) = SessionState::forwards(from, msg, storage_available, Some(expiry_interval)).await {
         log::warn!("{:?}", e);
     }
 }

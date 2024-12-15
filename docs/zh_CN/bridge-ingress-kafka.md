@@ -65,8 +65,6 @@ servers = "127.0.0.1:9092,127.0.0.1:9093,127.0.0.1:9094"
 #客户端ID前缀
 client_id_prefix = "kafka_001"
 
-#是否支持保持消息, 值：true/false, 默认: false
-retain_available = false
 #消息过期时间, 0 表示不过期
 expiry_interval = "5m"
 

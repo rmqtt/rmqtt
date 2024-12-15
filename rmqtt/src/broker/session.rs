@@ -583,25 +583,17 @@ impl SessionState {
                 let p = self.hook.message_publish(from.clone(), &p).await.unwrap_or(p);
                 log::debug!("process_last_will, publish: {:?}", p);
 
-                let listen_cfg = self.listen_cfg();
-
                 let message_storage_available = Runtime::instance().extends.message_mgr().await.enable();
 
-                let message_expiry_interval =
-                    if message_storage_available || (listen_cfg.retain_available && p.retain()) {
-                        Some(self.fitter.message_expiry_interval(&p))
-                    } else {
-                        None
-                    };
+                let message_expiry_interval = if message_storage_available
+                    || (p.retain() && Runtime::instance().extends.retain().await.enable())
+                {
+                    Some(self.fitter.message_expiry_interval(&p))
+                } else {
+                    None
+                };
 
-                Self::forwards(
-                    from,
-                    p,
-                    listen_cfg.retain_available,
-                    message_storage_available,
-                    message_expiry_interval,
-                )
-                .await?;
+                Self::forwards(from, p, message_storage_available, message_expiry_interval).await?;
             }
         }
 
@@ -917,7 +909,7 @@ impl SessionState {
 
         if let Some(qos) = sub_ret.success() {
             //send retain messages
-            let excludeds = if listen_cfg.retain_available {
+            let excludeds = if Runtime::instance().extends.retain().await.enable() {
                 //MQTT V5: Retain Handling
                 let send_retain_enable = match sub.opts.retain_handling() {
                     Some(RetainHandling::AtSubscribe) => true,
@@ -1034,7 +1026,6 @@ impl SessionState {
     async fn publish(&self, mut publish: Publish) -> Result<bool> {
         let from = From::from_custom(self.id.clone());
 
-        let listen_cfg = self.listen_cfg();
         if self.listen_cfg().delayed_publish {
             publish = Runtime::instance().extends.delayed_sender().await.parse(publish)?;
         }
@@ -1065,12 +1056,13 @@ impl SessionState {
 
         let message_storage_available = Runtime::instance().extends.message_mgr().await.enable();
 
-        let message_expiry_interval =
-            if message_storage_available || (listen_cfg.retain_available && publish.retain()) {
-                Some(self.fitter.message_expiry_interval(&publish))
-            } else {
-                None
-            };
+        let message_expiry_interval = if message_storage_available
+            || (publish.retain() && Runtime::instance().extends.retain().await.enable())
+        {
+            Some(self.fitter.message_expiry_interval(&publish))
+        } else {
+            None
+        };
 
         //delayed publish
         if publish.delay_interval.is_some() {
@@ -1078,24 +1070,11 @@ impl SessionState {
                 .extends
                 .delayed_sender()
                 .await
-                .delay_publish(
-                    from,
-                    publish,
-                    listen_cfg.retain_available,
-                    message_storage_available,
-                    message_expiry_interval,
-                )
+                .delay_publish(from, publish, message_storage_available, message_expiry_interval)
                 .await?
             {
                 if Runtime::instance().settings.mqtt.delayed_publish_immediate {
-                    Self::forwards(
-                        f,
-                        p,
-                        listen_cfg.retain_available,
-                        message_storage_available,
-                        message_expiry_interval,
-                    )
-                    .await?;
+                    Self::forwards(f, p, message_storage_available, message_expiry_interval).await?;
                 } else {
                     //hook, Message dropped
                     Runtime::instance()
@@ -1110,14 +1089,7 @@ impl SessionState {
             return Ok(true);
         }
 
-        Self::forwards(
-            from,
-            publish,
-            listen_cfg.retain_available,
-            message_storage_available,
-            message_expiry_interval,
-        )
-        .await?;
+        Self::forwards(from, publish, message_storage_available, message_expiry_interval).await?;
 
         Ok(true)
     }
@@ -1126,7 +1098,6 @@ impl SessionState {
     pub async fn forwards(
         from: From,
         publish: Publish,
-        retain_available: bool,
         message_storage_available: bool,
         message_expiry_interval: Option<Duration>,
     ) -> Result<()> {
@@ -1137,11 +1108,9 @@ impl SessionState {
             None
         };
 
-        if retain_available && publish.retain() {
-            Runtime::instance()
-                .extends
-                .retain()
-                .await
+        let retain = Runtime::instance().extends.retain().await;
+        if retain.enable() && publish.retain() {
+            retain
                 .set(
                     publish.topic(),
                     Retain { msg_id, from: from.clone(), publish: publish.clone() },
@@ -1149,6 +1118,7 @@ impl SessionState {
                 )
                 .await?;
         }
+        drop(retain);
 
         let stored_msg =
             if let (Some(msg_id), Some(message_expiry_interval)) = (msg_id, message_expiry_interval) {

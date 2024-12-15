@@ -324,7 +324,7 @@ pub async fn _handshake<Io: 'static>(
     } else {
         Some(state.listen_cfg().max_qos_allowed)
     };
-    let retain_available = Runtime::instance().extends.retain().await.is_supported(state.listen_cfg());
+    let retain_available = Runtime::instance().extends.retain().await.enable();
     let max_server_packet_size = state.listen_cfg().max_packet_size.as_u32();
     let shared_subscription_available =
         Runtime::instance().extends.shared_subscription().await.is_supported(state.listen_cfg());

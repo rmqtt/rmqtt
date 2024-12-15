@@ -283,8 +283,8 @@ pub trait SharedSubscription: Sync + Send {
 pub trait RetainStorage: Sync + Send {
     ///Whether retain is supported
     #[inline]
-    fn is_supported(&self, listen_cfg: &Listener) -> bool {
-        listen_cfg.retain_available
+    fn enable(&self) -> bool {
+        false
     }
 
     ///topic - concrete topic
@@ -383,7 +383,6 @@ pub trait DelayedSender: Sync + Send {
         &self,
         from: From,
         publish: Publish,
-        retain_available: bool,
         message_storage_available: bool,
         message_expiry_interval: Option<Duration>,
     ) -> Result<Option<(From, Publish)>>;

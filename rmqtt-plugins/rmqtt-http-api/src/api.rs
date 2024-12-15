@@ -918,9 +918,9 @@ async fn get_route(req: &mut Request, res: &mut Response) {
 #[handler]
 async fn publish(req: &mut Request, depot: &mut Depot, res: &mut Response) -> Result<(), salvo::Error> {
     let cfg = get_cfg(depot)?;
-    let (http_laddr, retain_available, expiry_interval) = {
+    let (http_laddr, expiry_interval) = {
         let cfg_rl = cfg.read().await;
-        (cfg_rl.http_laddr, cfg_rl.message_retain_available, cfg_rl.message_expiry_interval)
+        (cfg_rl.http_laddr, cfg_rl.message_expiry_interval)
     };
 
     let addr = req.remote_addr();
@@ -937,7 +937,7 @@ async fn publish(req: &mut Request, depot: &mut Depot, res: &mut Response) -> Re
             return Ok(());
         }
     };
-    match _publish(params, remote_addr, http_laddr, retain_available, expiry_interval).await {
+    match _publish(params, remote_addr, http_laddr, expiry_interval).await {
         Ok(()) => res.render(Text::Plain("ok")),
         Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
     }
@@ -948,7 +948,6 @@ async fn _publish(
     params: PublishParams,
     remote_addr: Option<SocketAddr>,
     http_laddr: SocketAddr,
-    retain_available: bool,
     expiry_interval: Duration,
 ) -> Result<()> {
     let mut topics = if let Some(topics) = params.topics {
@@ -1018,14 +1017,8 @@ async fn _publish(
                 .await
                 .unwrap_or(p1);
 
-            if let Err(e) = SessionState::forwards(
-                from,
-                p1,
-                retain_available,
-                storage_available,
-                Some(message_expiry_interval),
-            )
-            .await
+            if let Err(e) =
+                SessionState::forwards(from, p1, storage_available, Some(message_expiry_interval)).await
             {
                 log::warn!("{:?}", e);
             }
