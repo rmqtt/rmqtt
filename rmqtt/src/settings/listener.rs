@@ -208,7 +208,7 @@ pub struct ListenerInner {
 
     #[serde(
         default = "ListenerInner::message_expiry_interval_default",
-        deserialize_with = "deserialize_duration"
+        deserialize_with = "ListenerInner::deserialize_message_expiry_interval"
     )]
     pub message_expiry_interval: Duration,
 
@@ -426,6 +426,20 @@ impl ListenerInner {
         };
         Ok(qos)
     }
+
+    #[inline]
+    fn deserialize_message_expiry_interval<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let v = String::deserialize(deserializer)?;
+        let mut d = to_duration(&v);
+        if d.is_zero() {
+            d = Duration::from_secs(u32::MAX as u64);
+        }
+        Ok(d)
+    }
+
     #[inline]
     fn cross_certificate_default() -> bool {
         false
