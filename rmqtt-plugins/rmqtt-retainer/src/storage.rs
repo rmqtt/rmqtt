@@ -162,9 +162,9 @@ pub struct RetainerInner {
 impl RetainerInner {
     #[inline]
     async fn _batch_store(&self, msgs: Vec<Msg>) -> Result<()> {
-        let (max_retained_messages, max_payload_size) = {
+        let (max_retained_messages, max_payload_size, retained_message_ttl) = {
             let cfg = self.cfg.read().await;
-            (cfg.max_retained_messages as usize, *cfg.max_payload_size)
+            (cfg.max_retained_messages as usize, *cfg.max_payload_size, cfg.retained_message_ttl)
         };
 
         let mut count = 0;
@@ -201,8 +201,11 @@ impl RetainerInner {
                 }
 
                 //add retain messagge
-                let expiry_interval_millis =
-                    expiry_interval.map(|expiry_interval| expiry_interval.as_millis() as i64);
+                let expiry_interval_millis = retained_message_ttl
+                    .map(|ttl| if ttl.is_zero() { None } else { Some(ttl.as_millis() as i64) })
+                    .unwrap_or_else(|| {
+                        expiry_interval.map(|expiry_interval| expiry_interval.as_millis() as i64)
+                    });
 
                 let expiry_time_at = expiry_interval_millis
                     .map(|expiry_interval_millis| timestamp_millis() + expiry_interval_millis);
