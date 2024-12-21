@@ -8,7 +8,6 @@ extern crate rmqtt_macros;
 use config::PluginConfig;
 use rmqtt::{
     async_trait::async_trait,
-    base64::prelude::{Engine, BASE64_STANDARD},
     bytes::Bytes,
     chrono, log,
     serde_json::{self, json},
@@ -18,7 +17,7 @@ use rmqtt::{
 };
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
-    broker::types::{From, Id, QoSEx},
+    broker::types::{From, Id},
     plugin::{PackageInfo, Plugin},
     register, timestamp_millis, ClientId, NodeId, Publish, PublishProperties, QoS, Result, Runtime,
     SessionState, TopicName, UserName,
@@ -103,7 +102,6 @@ impl Plugin for SystemTopicPlugin {
         self.register.add(Type::ClientDisconnected, Box::new(SystemTopicHandler::new(cfg))).await;
         self.register.add(Type::SessionSubscribed, Box::new(SystemTopicHandler::new(cfg))).await;
         self.register.add(Type::SessionUnsubscribed, Box::new(SystemTopicHandler::new(cfg))).await;
-        self.register.add(Type::MessageDropped, Box::new(SystemTopicHandler::new(cfg))).await;
 
         Self::start(self.runtime, self.cfg.clone(), self.running.clone());
         Ok(())
@@ -249,27 +247,6 @@ impl Handler for SystemTopicHandler {
                 });
                 let topic =
                     format!("$SYS/brokers/{}/session/{}/unsubscribed", self.nodeid, session.id.client_id);
-                Some((topic, body))
-            }
-
-            Parameter::MessageDropped(to, from, publish, reason) => {
-                let body = json!({
-                    "dup": publish.dup(),
-                    "retain": publish.retain(),
-                    "qos": publish.qos().value(),
-                    "topic": publish.topic(),
-                    "packet_id": publish.packet_id(),
-                    "payload": BASE64_STANDARD.encode(publish.payload()),
-                    "reason": reason.to_string(),
-                    "pts": publish.create_time(),
-                    "ts": now.timestamp_millis(),
-                    "time": now_time
-                });
-                let mut body = from.to_from_json(body);
-                if let Some(to) = to {
-                    body = to.to_to_json(body);
-                }
-                let topic = format!("$SYS/brokers/{}/message/dropped", self.nodeid);
                 Some((topic, body))
             }
 
