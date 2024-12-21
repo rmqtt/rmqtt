@@ -155,38 +155,6 @@ In RMQTT, most of the data within the $SYS topics can be obtained through other 
 
 ```
 
-
-## Message Dropped Event
-
-| Topic | Explanation                                  |
-|------------|-------------------------------------|
-| $SYS/brokers/{node}/message/dropped     | Message Discard Event: When any message is discarded, RMQTT publishes a message to this topic.  |
-
-*dropped* The payload of the event message is parsed into the following JSON format:
-```bash
-{
-  "from_node": 1,
-  "from_ipaddress": "127.0.0.1:1883",
-  "from_clientid": "rmqtt-12312431wewr232",
-  "from_username": "foo",
-  "node": 1,
-  "ipaddress": "127.0.0.1:1883",
-  "clientid": "rmqtt-12312431wewr232",
-  "username": "foo",
-  "dup": false,
-  "retain": false,
-  "qos": 1,
-  "topic": "foo/#",
-  "packet_id": 3,
-  "payload": "dGVzdCAvdGVzdC9sd3QgLi4u",
-  "reason": "MessageExpiration",
-  "pts": 1692069106000,
-  "ts": 1692069107000,
-  "time": "2023-08-15 11:11:46.984"
-}
-
-```
-
 ## Node Status Data
 
 | Topic                | Explanation     |
