@@ -435,6 +435,7 @@ pub(crate) struct MessageSender {
     msg: Message,
     max_retries: usize,
     retry_interval: Duration,
+    timeout: Option<Duration>,
 }
 
 impl MessageSender {
@@ -442,7 +443,7 @@ impl MessageSender {
     async fn send(&mut self) -> Result<MessageReply> {
         let mut current_retry = 0usize;
         loop {
-            match self.client.send_message(self.msg_type, self.msg.clone()).await {
+            match self.client.send_message(self.msg_type, self.msg.clone(), self.timeout).await {
                 Ok(reply) => {
                     return Ok(reply);
                 }

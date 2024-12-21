@@ -6,6 +6,7 @@ extern crate serde;
 extern crate rmqtt_macros;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use config::PluginConfig;
 use handler::HookHandler;
@@ -129,16 +130,17 @@ pub(crate) async fn kick(
     msg_type: MessageType,
     msg: Message,
 ) -> Result<OfflineSession> {
-    let reply = rmqtt::grpc::MessageBroadcaster::new(grpc_clients, msg_type, msg)
-        .select_ok(|reply: MessageReply| -> Result<MessageReply> {
-            log::debug!("reply: {:?}", reply);
-            if let MessageReply::Kick(o) = reply {
-                Ok(MessageReply::Kick(o))
-            } else {
-                Err(MqttError::None)
-            }
-        })
-        .await?;
+    let reply =
+        rmqtt::grpc::MessageBroadcaster::new(grpc_clients, msg_type, msg, Some(Duration::from_secs(15)))
+            .select_ok(|reply: MessageReply| -> Result<MessageReply> {
+                log::debug!("reply: {:?}", reply);
+                if let MessageReply::Kick(o) = reply {
+                    Ok(MessageReply::Kick(o))
+                } else {
+                    Err(MqttError::None)
+                }
+            })
+            .await?;
     if let MessageReply::Kick(kicked) = reply {
         Ok(kicked)
     } else {

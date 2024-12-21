@@ -165,6 +165,7 @@ impl Entry for ClusterLockEntry {
                         msg: Message::Kick(id1, clean_start, true, is_admin), //clear_subscriptions
                         max_retries: 0,
                         retry_interval: Duration::from_millis(500),
+                        timeout: Some(Duration::from_secs(10)),
                     };
                     match msg_sender.send().await {
                         Ok(reply) => {
@@ -257,6 +258,7 @@ impl Entry for ClusterLockEntry {
                     msg: Message::SubscriptionsGet(id.client_id.clone()),
                     max_retries: 0,
                     retry_interval: Duration::from_millis(500),
+                    timeout: Some(Duration::from_secs(10)),
                 }
                 .send()
                 .await;
@@ -382,6 +384,7 @@ impl Shared for &'static ClusterShared {
                             msg: Message::ForwardsTo(from, publish, relations),
                             max_retries: 1,
                             retry_interval: Duration::from_millis(500),
+                            timeout: Some(Duration::from_secs(10)),
                         };
                         (node_id, msg_sender.send().await)
                     };
@@ -507,10 +510,14 @@ impl Shared for &'static ClusterShared {
         leader_ids.insert(leader_id);
 
         let data = RaftGrpcMessage::GetRaftStatus.encode()?;
-        let replys =
-            MessageBroadcaster::new(self.grpc_clients.clone(), self.message_type, Message::Data(data))
-                .join_all()
-                .await;
+        let replys = MessageBroadcaster::new(
+            self.grpc_clients.clone(),
+            self.message_type,
+            Message::Data(data),
+            Some(Duration::from_secs(10)),
+        )
+        .join_all()
+        .await;
 
         for (node_id, reply) in replys {
             match reply {
