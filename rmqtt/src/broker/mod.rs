@@ -150,6 +150,7 @@ pub trait Shared: Sync + Send {
                         TopicFilter::from(topic_filter),
                         group.cloned(),
                     ),
+                    Some(Duration::from_secs(10)),
                 )
                 .join_all()
                 .await;

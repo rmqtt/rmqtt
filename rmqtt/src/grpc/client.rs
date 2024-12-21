@@ -2,9 +2,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-//use tokio::sync::mpsc::{
-//    unbounded_channel as channel, UnboundedReceiver as Receiver, UnboundedSender as Sender,
-//};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::oneshot::Sender as OneshotSender;
 use tokio::sync::RwLock;
@@ -80,14 +77,26 @@ impl NodeGrpcClient {
     }
 
     #[inline]
-    pub async fn batch_send_message(&self, typ: MessageType, msg: Message) -> Result<MessageReply> {
+    pub async fn batch_send_message(
+        &self,
+        typ: MessageType,
+        msg: Message,
+        timeout: Option<Duration>,
+    ) -> Result<MessageReply> {
         let (r_tx, r_rx) = tokio::sync::oneshot::channel::<Result<MessageReply>>();
         self.tx
             .send((typ, msg, r_tx))
             .await
             .map(|_| self.channel_tasks.fetch_add(1, Ordering::SeqCst))
             .map_err(|e| anyhow::Error::msg(e.to_string()))?;
-        let reply = r_rx.await.map_err(anyhow::Error::new)??;
+        let reply = if let Some(timeout) = timeout {
+            tokio::time::timeout(timeout, r_rx)
+                .await
+                .map_err(anyhow::Error::new)?
+                .map_err(anyhow::Error::new)??
+        } else {
+            r_rx.await.map_err(anyhow::Error::new)??
+        };
         let reply = match reply {
             MessageReply::Error(e) => return Err(MqttError::from(e)),
             _ => reply,
@@ -96,8 +105,13 @@ impl NodeGrpcClient {
     }
 
     #[inline]
-    pub async fn send_message(&self, typ: MessageType, msg: Message) -> Result<MessageReply> {
-        self.batch_send_message(typ, msg).await
+    pub async fn send_message(
+        &self,
+        typ: MessageType,
+        msg: Message,
+        timeout: Option<Duration>,
+    ) -> Result<MessageReply> {
+        self.batch_send_message(typ, msg, timeout).await
     }
 
     #[inline]
