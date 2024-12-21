@@ -542,20 +542,25 @@ impl Shared for &'static DefaultShared {
             let (tx, to) = if let Some((tx, to)) = self.tx(&client_id) {
                 (tx, to)
             } else {
-                log::warn!(
-                    "forwards_to, from:{:?}, to:{:?}, topic_filter:{:?}, topic:{:?}, error: Tx is None",
+                log::debug!(
+                    "forwards_to failed, from:{:?}, to:{:?}, topic_filter:{:?}, topic:{:?}, reason: the client has disconnected.",
                     from,
                     client_id,
                     topic_filter,
                     publish.topic
                 );
-                errs.push((To::from(0, client_id), from.clone(), p, Reason::from_static("Tx is None")));
+                errs.push((
+                    To::from(0, client_id),
+                    from.clone(),
+                    p,
+                    Reason::from_static("the client has disconnected"),
+                ));
                 continue;
             };
 
             if let Err(e) = tx.unbounded_send(Message::Forward(from.clone(), p)) {
                 log::warn!(
-                    "forwards_to,  from:{:?}, to:{:?}, topic_filter:{:?}, topic:{:?}, error:{:?}",
+                    "forwards_to failed, from:{:?}, to:{:?}, topic_filter:{:?}, topic:{:?}, reason:{:?}",
                     from,
                     client_id,
                     topic_filter,

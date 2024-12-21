@@ -143,8 +143,8 @@ impl SessionState {
                             Runtime::instance().stats.debug_session_channels.dec();
                             match msg{
                                 Message::Forward(from, p) => {
-                                    if let Err((from, p)) = deliver_queue_tx.send((from, p)).await{
-                                        log::warn!("{:?} deliver_dropped, from: {:?}, {:?}", state.id, from, p);
+                                    if let Err((from, p)) = deliver_queue_tx.send((from, p)).await {
+                                        log::debug!("{:?} deliver_dropped, from: {:?}, {:?}", state.id, from, p);
                                         //hook, message_dropped
                                         Runtime::instance().extends.hook_mgr().await.message_dropped(Some(state.id.clone()), from, p, Reason::MessageQueueFull).await;
                                     }
@@ -380,7 +380,7 @@ impl SessionState {
                                 state.hook.offline_message(from.clone(), &p).await;
 
                                 if let Err((from, p)) = deliver_queue_tx.send((from, p)).await {
-                                    log::warn!("{:?} offline deliver_dropped, from: {:?}, {:?}", state.id, from, p);
+                                    log::debug!("{:?} offline deliver_dropped, from: {:?}, {:?}", state.id, from, p);
                                     //hook, message_dropped
                                     Runtime::instance().extends.hook_mgr().await.message_dropped(Some(state.id.clone()), from, p, Reason::MessageQueueFull).await;
                                 }
