@@ -28,7 +28,7 @@ use rmqtt::{
         hook::{Register, Type},
         types::{From, Publish, Reason, To},
     },
-    grpc::{client::NodeGrpcClient, GrpcClients, Message, MessageReply, MessageType},
+    grpc::{client::NodeGrpcClient, GrpcClients},
     plugin::{PackageInfo, Plugin},
     register,
     tokio::time::sleep,
@@ -427,38 +427,6 @@ async fn find_actual_leader(
         sleep(Duration::from_millis(500)).await;
     }
     Ok(actual_leader_info)
-}
-
-pub(crate) struct MessageSender {
-    client: NodeGrpcClient,
-    msg_type: MessageType,
-    msg: Message,
-    max_retries: usize,
-    retry_interval: Duration,
-    timeout: Option<Duration>,
-}
-
-impl MessageSender {
-    #[inline]
-    async fn send(&mut self) -> Result<MessageReply> {
-        let mut current_retry = 0usize;
-        loop {
-            match self.client.send_message(self.msg_type, self.msg.clone(), self.timeout).await {
-                Ok(reply) => {
-                    return Ok(reply);
-                }
-                Err(e) => {
-                    if current_retry < self.max_retries {
-                        current_retry += 1;
-                        tokio::time::sleep(self.retry_interval).await;
-                    } else {
-                        log::error!("error sending message after {} retries, {:?}", self.max_retries, e);
-                        return Err(e);
-                    }
-                }
-            }
-        }
-    }
 }
 
 #[inline]

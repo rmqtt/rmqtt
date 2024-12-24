@@ -1,10 +1,9 @@
 use std::convert::From as _;
 use std::time::Duration;
 
-use rmqtt::ahash::HashSet;
 use rmqtt::{
-    anyhow, anyhow::Error, async_trait::async_trait, futures, futures::future::FutureExt, log,
-    once_cell::sync::OnceCell, rust_box::task_exec_queue::SpawnExt, HealthInfo, NodeHealthStatus,
+    ahash::HashSet, anyhow, anyhow::Error, async_trait::async_trait, futures, futures::future::FutureExt,
+    log, once_cell::sync::OnceCell, rust_box::task_exec_queue::SpawnExt,
 };
 use rmqtt::{
     broker::{
@@ -17,16 +16,15 @@ use rmqtt::{
         },
         Entry, Router, Shared,
     },
-    grpc::MessageBroadcaster,
-    grpc::{Message, MessageReply, MessageType},
-    MqttError, Result, Runtime,
+    grpc::{Message, MessageBroadcaster, MessageReply, MessageSender, MessageType},
+    HealthInfo, MqttError, NodeHealthStatus, Result, Runtime,
 };
 
 use super::message::{
     get_client_node_id, Message as RaftMessage, MessageReply as RaftMessageReply, RaftGrpcMessage,
     RaftGrpcMessageReply,
 };
-use super::{task_exec_queue, ClusterRouter, GrpcClients, HashMap, MessageSender, NodeGrpcClient};
+use super::{task_exec_queue, ClusterRouter, GrpcClients, HashMap, NodeGrpcClient};
 
 pub struct ClusterLockEntry {
     inner: Box<dyn Entry>,
@@ -159,14 +157,12 @@ impl Entry for ClusterLockEntry {
                 let message_type = self.cluster_shared.message_type;
                 let id1 = id.clone();
                 let kick_fut = async move {
-                    let mut msg_sender = MessageSender {
+                    let msg_sender = MessageSender::new(
                         client,
-                        msg_type: message_type,
-                        msg: Message::Kick(id1, clean_start, true, is_admin), //clear_subscriptions
-                        max_retries: 0,
-                        retry_interval: Duration::from_millis(500),
-                        timeout: Some(Duration::from_secs(10)),
-                    };
+                        message_type,
+                        Message::Kick(id1, clean_start, true, is_admin), //clear_subscriptions
+                        Some(Duration::from_secs(10)),
+                    );
                     match msg_sender.send().await {
                         Ok(reply) => {
                             if let MessageReply::Kick(kicked) = reply {
@@ -252,14 +248,12 @@ impl Entry for ClusterLockEntry {
         } else {
             //from other node
             if let Some(client) = self.cluster_shared.grpc_client(id.node_id) {
-                let reply = MessageSender {
+                let reply = MessageSender::new(
                     client,
-                    msg_type: self.cluster_shared.message_type,
-                    msg: Message::SubscriptionsGet(id.client_id.clone()),
-                    max_retries: 0,
-                    retry_interval: Duration::from_millis(500),
-                    timeout: Some(Duration::from_secs(10)),
-                }
+                    self.cluster_shared.message_type,
+                    Message::SubscriptionsGet(id.client_id.clone()),
+                    Some(Duration::from_secs(10)),
+                )
                 .send()
                 .await;
                 match reply {
@@ -356,7 +350,6 @@ impl Shared for &'static ClusterShared {
             }
         };
 
-        //let subs_size: SubscriptionSize = relations_map.values().map(|subs| subs.len()).sum();
         let sub_client_ids = self.inner()._collect_subscription_client_ids(&relations_map);
 
         let mut errs = Vec::new();
@@ -378,23 +371,22 @@ impl Shared for &'static ClusterShared {
                     let publish = publish.clone();
                     let message_type = self.message_type;
                     let fut_sender = async move {
-                        let mut msg_sender = MessageSender {
+                        let msg_sender = MessageSender::new(
                             client,
-                            msg_type: message_type,
-                            msg: Message::ForwardsTo(from, publish, relations),
-                            max_retries: 1,
-                            retry_interval: Duration::from_millis(500),
-                            timeout: Some(Duration::from_secs(10)),
-                        };
+                            message_type,
+                            Message::ForwardsTo(from, publish, relations),
+                            Some(Duration::from_secs(10)),
+                        );
                         (node_id, msg_sender.send().await)
                     };
                     fut_senders.push(fut_sender.boxed());
                 } else {
-                    log::error!(
+                    log::warn!(
                         "forwards error, grpc_client is not exist, node_id: {}, relations: {:?}",
                         node_id,
                         relations
                     );
+                    //@TODO messasge dropped
                 }
             }
 
@@ -405,12 +397,13 @@ impl Shared for &'static ClusterShared {
                     let replys = futures::future::join_all(fut_senders).await;
                     for (node_id, reply) in replys {
                         if let Err(e) = reply {
-                            log::error!(
-                            "forwards Message::ForwardsTo to other node, from: {:?}, to: {:?}, error: {:?}",
-                            from,
-                            node_id,
-                            e
-                        );
+                            log::warn!(
+                                "forwards Message::ForwardsTo to other node, from: {:?}, to: {:?}, error: {:?}",
+                                from,
+                                node_id,
+                                e
+                            );
+                            //@TODO messasge dropped
                         }
                     }
                     Runtime::instance().stats.forwards.dec();

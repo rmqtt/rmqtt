@@ -36,7 +36,9 @@ impl Node {
 
     #[inline]
     pub async fn new_grpc_client(&self, remote_addr: &str) -> Result<NodeGrpcClient> {
-        NodeGrpcClient::new(remote_addr).await
+        let c = NodeGrpcClient::new(remote_addr).await?;
+        c.start_ping();
+        Ok(c)
     }
 
     pub fn start_grpc_server(&self) {

@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -21,6 +21,7 @@ pub struct NodeGrpcClient {
     channel_tasks: Arc<AtomicUsize>,
     endpoint: Endpoint,
     tx: Sender<(MessageType, Message, OneshotSender<Result<MessageReply>>)>,
+    available: Arc<AtomicBool>,
 }
 
 impl NodeGrpcClient {
@@ -39,10 +40,57 @@ impl NodeGrpcClient {
         let active_tasks = Arc::new(AtomicUsize::new(0));
         let channel_tasks = Arc::new(AtomicUsize::new(0));
         let grpc_client = Arc::new(RwLock::new(None));
+        let available = Arc::new(AtomicBool::new(true));
         let (tx, rx) = channel(100_000);
-        let c = Self { grpc_client, active_tasks, channel_tasks, endpoint, tx };
+        let c = Self { grpc_client, active_tasks, channel_tasks, endpoint, tx, available };
         c.start(rx);
         Ok(c)
+    }
+
+    pub fn start_ping(&self) {
+        let c = self.clone();
+        tokio::spawn(async move {
+            let mut faileds = 0;
+            loop {
+                tokio::time::sleep(Duration::from_millis(3000)).await;
+
+                for i in 0..2 {
+                    if c._ping().await.is_err() {
+                        log::debug!("Ping failed {}, {:?}", i, c.endpoint.uri());
+                        faileds += 1;
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        continue;
+                    }
+                    faileds = 0;
+                    break;
+                }
+
+                if faileds > 0 {
+                    c.available.store(false, Ordering::SeqCst);
+                    c.grpc_client.write().await.take();
+                } else {
+                    c.available.store(true, Ordering::SeqCst);
+                }
+            }
+        });
+    }
+
+    #[inline]
+    async fn _ping(&self) -> Result<()> {
+        let mut grpc_client = self.connect().await?;
+        let _ = tokio::time::timeout(
+            Runtime::instance().settings.rpc.client_timeout,
+            grpc_client.ping(tonic::Request::new(pb::Empty {})),
+        )
+        .await
+        .map_err(anyhow::Error::new)?
+        .map_err(anyhow::Error::new)?;
+        Ok(())
+    }
+
+    #[inline]
+    pub fn is_available(&self) -> bool {
+        self.available.load(Ordering::SeqCst)
     }
 
     #[inline]
@@ -83,6 +131,13 @@ impl NodeGrpcClient {
         msg: Message,
         timeout: Option<Duration>,
     ) -> Result<MessageReply> {
+        if !self.is_available() {
+            return Err(MqttError::from(format!(
+                "gRPC client connection unavailable {:?}",
+                self.endpoint.uri()
+            )));
+        }
+
         let (r_tx, r_rx) = tokio::sync::oneshot::channel::<Result<MessageReply>>();
         self.tx
             .send((typ, msg, r_tx))
