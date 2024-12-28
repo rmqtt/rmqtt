@@ -1634,7 +1634,7 @@ async fn _get_stats_sum(message_type: MessageType) -> Result<serde_json::Value> 
         this_id,
         json!({
             "name": Runtime::instance().node.name(this_id).await,
-            "status": Runtime::instance().node.status().await,
+            "running": Runtime::instance().node.status().await.is_running(),
         }),
     );
 
@@ -1658,7 +1658,7 @@ async fn _get_stats_sum(message_type: MessageType) -> Result<serde_json::Value> 
                             id,
                             json!({
                                 "name": Runtime::instance().node.name(id).await,
-                                "status": node_status,
+                                "running": node_status.is_running(),
                             }),
                         );
                         stats_sum.add(*stats);
@@ -1810,7 +1810,7 @@ async fn _build_stats(id: NodeId, node_status: NodeStatus, stats: serde_json::Va
         "node": {
             "id": id,
             "name": node_name,
-            "status": node_status,
+            "running": node_status.is_running(),
         },
         "stats": stats
     });
