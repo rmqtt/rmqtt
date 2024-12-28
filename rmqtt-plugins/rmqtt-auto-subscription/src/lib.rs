@@ -97,6 +97,7 @@ impl AutoSubscription for &'static XAutoSubscription {
     }
 
     #[inline]
+    #[allow(clippy::to_string_in_format_args)]
     async fn subscribe(&self, id: &Id, msg_tx: &Tx) -> Result<()> {
         for item in self.cfg.read().await.subscribes.iter() {
             let (tx, rx) = oneshot::channel();
