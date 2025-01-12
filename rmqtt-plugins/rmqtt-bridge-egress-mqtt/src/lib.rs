@@ -58,9 +58,8 @@ impl BridgeMqttEgressPlugin {
                 while let Some(cmd) = bridge_mgr_cmd_rx.recv().await {
                     match cmd {
                         Command::Connect => {
-                            if let Err(e) = bridge_mgr.start().await {
-                                log::error!("start bridge error, {:?}", e);
-                            }
+                            bridge_mgr.start().await;
+                            log::info!("start bridge-egress-mqtt ok.");
                         }
                         Command::Close => {
                             bridge_mgr.stop().await;

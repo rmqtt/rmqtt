@@ -1,3 +1,4 @@
+use std::fs::File;
 use std::num::NonZeroU32;
 use std::time::Duration;
 
@@ -9,6 +10,8 @@ use ntex_mqtt::v3::codec::LastWill as LastWillV3;
 use ntex_mqtt::v5::codec::LastWill as LastWillV5;
 use ntex_mqtt::v5::codec::UserProperties;
 use ntex_mqtt::QoS;
+use rustls::{Certificate, PrivateKey};
+use rustls_pemfile::read_one;
 
 use rmqtt::{
     anyhow,
@@ -39,8 +42,25 @@ pub struct Bridge {
     pub name: BridgeName,
     #[serde(default)]
     pub client_id_prefix: String,
-    #[serde(default)]
-    pub server: String,
+    #[serde(default, deserialize_with = "Bridge::deserialize_server")]
+    pub server: ServerAddr,
+    #[serde(
+        default,
+        deserialize_with = "Bridge::deserialize_cert",
+        serialize_with = "Bridge::serialize_cert"
+    )]
+    pub root_cert: Option<Cert>,
+    // #Client Certificate File
+    #[serde(
+        default,
+        deserialize_with = "Bridge::deserialize_cert",
+        serialize_with = "Bridge::serialize_cert"
+    )]
+    pub client_cert: Option<Cert>,
+    // #Client key file
+    #[serde(default, deserialize_with = "Bridge::deserialize_key", serialize_with = "Bridge::serialize_key")]
+    pub client_key: Option<Key>,
+
     #[serde(default)]
     pub username: Option<String>,
     #[serde(default)]
@@ -106,6 +126,112 @@ impl Bridge {
         };
         Ok(protocol)
     }
+
+    #[inline]
+    pub fn deserialize_server<'de, D>(deserializer: D) -> Result<ServerAddr, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let addr: String = String::deserialize(deserializer)?;
+        let addr_split = addr.splitn(2, "://").collect::<Vec<_>>();
+
+        match addr_split.len() {
+            0 => Err(serde::de::Error::custom(format!("invalid value, {:?}", addr))),
+            1 => Ok(ServerAddr { typ: AddrType::Tcp, addr }),
+            _ => {
+                let typ = match addr_split[0].to_lowercase().as_str() {
+                    "tcp" => AddrType::Tcp,
+                    "tls" => AddrType::Tls,
+                    _ => return Err(serde::de::Error::custom(format!("invalid value, {:?}", addr))),
+                };
+                Ok(ServerAddr { typ, addr: addr_split[1].into() })
+            }
+        }
+    }
+
+    #[inline]
+    pub fn deserialize_cert<'de, D>(deserializer: D) -> Result<Option<Cert>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let file_name: String = String::deserialize(deserializer)?;
+        let cert = load_cert(&file_name).map_err(serde::de::Error::custom)?;
+
+        Ok(Some(Cert { file_name, cert }))
+    }
+
+    #[inline]
+    pub fn serialize_cert<S>(c: &Option<Cert>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if let Some(c) = c {
+            c.file_name.serialize(serializer)
+        } else {
+            "".serialize(serializer)
+        }
+    }
+
+    #[inline]
+    pub fn deserialize_key<'de, D>(deserializer: D) -> Result<Option<Key>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let file_name: String = String::deserialize(deserializer)?;
+        let key = load_key(&file_name).map_err(serde::de::Error::custom)?;
+
+        Ok(Some(Key { file_name, key }))
+    }
+
+    #[inline]
+    pub fn serialize_key<S>(c: &Option<Key>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if let Some(c) = c {
+            c.file_name.serialize(serializer)
+        } else {
+            "".serialize(serializer)
+        }
+    }
+}
+
+#[derive(Default, Debug, Clone, Deserialize, Serialize)]
+pub(crate) enum AddrType {
+    #[default]
+    Tcp,
+    Tls,
+}
+
+#[derive(Default, Debug, Clone, Deserialize, Serialize)]
+pub(crate) struct ServerAddr {
+    pub typ: AddrType,
+    pub addr: String,
+}
+
+impl ServerAddr {
+    #[inline]
+    #[allow(dead_code)]
+    pub(crate) fn is_tcp(&self) -> bool {
+        matches!(self.typ, AddrType::Tcp)
+    }
+
+    #[inline]
+    pub(crate) fn is_tls(&self) -> bool {
+        matches!(self.typ, AddrType::Tls)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct Cert {
+    pub file_name: String,
+    pub cert: Vec<Certificate>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct Key {
+    pub file_name: String,
+    pub key: PrivateKey,
 }
 
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
@@ -376,4 +502,35 @@ fn last_will_basic(obj: &Map<String, Value>) -> Result<(QoS, bool, ByteString, B
         Bytes::from(String::from(message))
     };
     Ok((qos, retain, ByteString::from(topic), message))
+}
+
+fn load_cert(path: &str) -> Result<Vec<Certificate>> {
+    let cert_pem = std::fs::read_to_string(path)?;
+    let certs =
+        rustls_pemfile::certs(&mut cert_pem.as_bytes())?.into_iter().map(Certificate).collect::<Vec<_>>();
+    if certs.is_empty() {
+        Err(MqttError::from("No certificate was found in the certificate file."))
+    } else {
+        Ok(certs)
+    }
+}
+
+fn load_key(path: &str) -> Result<PrivateKey> {
+    use std::io::Read;
+    let mut file = File::open(path)?;
+    // 读取文件内容
+    let mut contents = Vec::new();
+    file.read_to_end(&mut contents)?;
+
+    let mut pem_reader = &contents[..];
+    let key = read_one(&mut pem_reader)?;
+
+    match key {
+        Some(rustls_pemfile::Item::X509Certificate(key)) => Ok(PrivateKey(key)),
+        Some(rustls_pemfile::Item::PKCS8Key(key)) => Ok(PrivateKey(key)),
+        Some(rustls_pemfile::Item::ECKey(key)) => Ok(PrivateKey(key)),
+        Some(rustls_pemfile::Item::RSAKey(key)) => Ok(PrivateKey(key)),
+        Some(rustls_pemfile::Item::Crl(key)) => Ok(PrivateKey(key)),
+        _ => Err(MqttError::from("Invalid key format")),
+    }
 }
