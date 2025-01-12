@@ -147,18 +147,6 @@ impl Bridge {
                 Ok(ServerAddr { typ, addr: addr_split[1].into() })
             }
         }
-        // if addr_split.len() == 1 {
-        //     Ok(ServerAddr { typ: AddrType::Tcp, addr })
-        // } else if addr_split.len() > 1 {
-        //     let typ = match addr_split[0].to_lowercase().as_str() {
-        //         "tcp" => AddrType::Tcp,
-        //         "tls" => AddrType::Tls,
-        //         _ => return Err(serde::de::Error::custom(format!("invalid value, {:?}", addr))),
-        //     };
-        //     Ok(ServerAddr { typ, addr: addr_split[1].into() })
-        // } else {
-        //     Err(serde::de::Error::custom(format!("invalid value, {:?}", addr)))
-        // }
     }
 
     #[inline]

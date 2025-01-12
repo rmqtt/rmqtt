@@ -122,7 +122,6 @@ impl Client {
                 pkt.last_will.clone_from(&client.cfg.v5.last_will)
             });
 
-            // ntex::rt::spawn(client.clone().start(builder));
             if client.cfg.server.is_tls() {
                 let builder = builder.connector(build_tls_connector(&client.cfg)?);
                 ntex::rt::spawn(client.clone().start(MqttConnector::Tls(builder)));
