@@ -48,6 +48,8 @@ use ntex_mqtt::TopicLevel;
 use crate::broker::fitter::Fitter;
 use crate::broker::inflight::Inflight;
 use crate::broker::queue::{Queue, Sender};
+use crate::broker::session::OfflineInfo;
+use crate::settings::acl::AuthInfo;
 use crate::{MqttError, Result, Runtime};
 
 pub type NodeId = u64;
@@ -265,6 +267,14 @@ impl ConnectInfo {
     }
 
     #[inline]
+    pub fn ipaddress(&self) -> Option<SocketAddr> {
+        match self {
+            ConnectInfo::V3(id, _) => id.remote_addr,
+            ConnectInfo::V5(id, _) => id.remote_addr,
+        }
+    }
+
+    #[inline]
     pub fn clean_start(&self) -> bool {
         match self {
             ConnectInfo::V3(_, conn_info) => conn_info.clean_session,
@@ -348,9 +358,9 @@ pub enum PublishAclResult {
     Rejected(IsDisconnect),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum AuthResult {
-    Allow(Superuser),
+    Allow(Superuser, Option<AuthInfo>),
     ///User is not found
     NotFound,
     BadUsernameOrPassword,
@@ -1030,7 +1040,7 @@ pub enum LastWill<'a> {
     V5(&'a LastWillV5),
 }
 
-impl<'a> fmt::Debug for LastWill<'a> {
+impl fmt::Debug for LastWill<'_> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -1059,7 +1069,7 @@ impl<'a> fmt::Debug for LastWill<'a> {
     }
 }
 
-impl<'a> LastWill<'a> {
+impl LastWill<'_> {
     #[inline]
     pub fn will_delay_interval(&self) -> Option<Duration> {
         match self {
@@ -1099,7 +1109,7 @@ impl<'a> LastWill<'a> {
     }
 }
 
-impl<'a> Serialize for LastWill<'a> {
+impl Serialize for LastWill<'_> {
     #[inline]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -1319,7 +1329,7 @@ impl<'a> std::convert::TryFrom<LastWill<'a>> for Publish {
 
             properties: props,
             delay_interval: None,
-            create_time: chrono::Local::now().timestamp_millis(),
+            create_time: timestamp_millis(),
         })
     }
 }
@@ -1348,7 +1358,7 @@ impl std::convert::From<&v3::Publish> for Publish {
 
             properties: p_props,
             delay_interval: None,
-            create_time: chrono::Local::now().timestamp_millis(),
+            create_time: timestamp_millis(),
         }
     }
 }
@@ -1366,7 +1376,7 @@ impl std::convert::From<&v5::Publish> for Publish {
 
             properties: PublishProperties::from(p.packet().properties.clone()),
             delay_interval: None,
-            create_time: chrono::Local::now().timestamp_millis(),
+            create_time: timestamp_millis(),
         }
     }
 }
@@ -1608,7 +1618,7 @@ impl Id {
             remote_addr,
             client_id,
             username,
-            create_time: chrono::Local::now().timestamp_millis(),
+            create_time: timestamp_millis(),
         }))
     }
 
@@ -2049,11 +2059,11 @@ impl SessionSubs {
 }
 
 pub struct ExtraData<K, T> {
-    attrs: Arc<rust_box::std_ext::RwLock<HashMap<K, T>>>,
+    attrs: Arc<parking_lot::RwLock<HashMap<K, T>>>,
 }
 
 impl<K, T> Deref for ExtraData<K, T> {
-    type Target = Arc<rust_box::std_ext::RwLock<HashMap<K, T>>>;
+    type Target = Arc<parking_lot::RwLock<HashMap<K, T>>>;
     #[inline]
     fn deref(&self) -> &Self::Target {
         &self.attrs
@@ -2086,7 +2096,7 @@ where
         D: Deserializer<'de>,
     {
         let v = HashMap::deserialize(deserializer)?;
-        Ok(Self { attrs: Arc::new(rust_box::std_ext::RwLock::new(v)) })
+        Ok(Self { attrs: Arc::new(parking_lot::RwLock::new(v)) })
     }
 }
 
@@ -2104,7 +2114,7 @@ where
 {
     #[inline]
     pub fn new() -> Self {
-        Self { attrs: Arc::new(rust_box::std_ext::RwLock::new(HashMap::default())) }
+        Self { attrs: Arc::new(parking_lot::RwLock::new(HashMap::default())) }
     }
 
     #[inline]
@@ -2614,7 +2624,6 @@ pub struct DelayedPublish {
     pub expired_time: TimestampMillis,
     pub from: From,
     pub publish: Publish,
-    pub retain_available: bool,
     pub message_storage_available: bool,
     pub message_expiry_interval: Option<Duration>,
 }
@@ -2624,7 +2633,6 @@ impl DelayedPublish {
     pub fn new(
         from: From,
         publish: Publish,
-        retain_available: bool,
         message_storage_available: bool,
         message_expiry_interval: Option<Duration>,
     ) -> Self {
@@ -2632,14 +2640,7 @@ impl DelayedPublish {
             .delay_interval
             .map(|di| timestamp_millis() + (di as TimestampMillis * 1000))
             .unwrap_or_else(timestamp_millis);
-        Self {
-            expired_time,
-            from,
-            publish,
-            retain_available,
-            message_storage_available,
-            message_expiry_interval,
-        }
+        Self { expired_time, from, publish, message_storage_available, message_expiry_interval }
     }
 
     #[inline]
@@ -2665,6 +2666,42 @@ impl std::cmp::Ord for DelayedPublish {
 impl PartialOrd for DelayedPublish {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum OfflineSession {
+    Exist(Option<OfflineInfo>),
+    NotExist,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct HealthInfo {
+    pub running: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub descr: Option<String>,
+    pub nodes: Vec<NodeHealthStatus>,
+}
+
+impl Default for HealthInfo {
+    fn default() -> Self {
+        Self { running: true, descr: None, nodes: vec![NodeHealthStatus::default()] }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct NodeHealthStatus {
+    pub node_id: NodeId,
+    pub running: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub leader_id: Option<NodeId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub descr: Option<String>,
+}
+
+impl Default for NodeHealthStatus {
+    fn default() -> Self {
+        Self { node_id: Runtime::instance().node.id(), running: true, leader_id: None, descr: None }
     }
 }
 

@@ -42,7 +42,9 @@ node.busy.handshaking = 0
 ##--------------------------------------------------------------------
 ## RPC
 ##--------------------------------------------------------------------
+#gRPC listening address
 rpc.server_addr = "0.0.0.0:5363"
+#Number of worker threads
 rpc.server_workers = 4
 #Maximum number of messages sent in batch
 rpc.batch_size = 128
@@ -56,7 +58,7 @@ rpc.client_timeout = "10s"
 ## Log
 ##--------------------------------------------------------------------
 # Value: off | file | console | both
-log.to = "console"
+log.to = "both"
 # Value: trace, debug, info, warn, error
 log.level = "info"
 log.dir = "/var/log/rmqtt"
@@ -85,6 +87,10 @@ plugins.default_startups = [
     #"rmqtt-topic-rewrite",
     #"rmqtt-auto-subscription",
     #"rmqtt-bridge-egress-pulsar",
+    #"rmqtt-bridge-ingress-pulsar",
+    #"rmqtt-auth-jwt",
+    #"rmqtt-bridge-egress-nats",
+    #"rmqtt-bridge-egress-reductstore",
     "rmqtt-web-hook",
     "rmqtt-http-api"
 ]
@@ -100,6 +106,10 @@ mqtt.delayed_publish_max = 100_000
 #false - message will be discarded,
 #default: true
 mqtt.delayed_publish_immediate = true
+
+#Maximum session limit, 0: no limit, default value: 0.
+mqtt.max_sessions = 0
+
 
 ##--------------------------------------------------------------------
 ## Listeners
@@ -152,13 +162,11 @@ listener.tcp.external.max_qos_allowed = 2
 #The maximum level at which clients are allowed to subscribe to topics.
 #0 means unlimited. default value: 0
 listener.tcp.external.max_topic_levels = 0
-#Whether support retain message, true/false, default value: false
-listener.tcp.external.retain_available = false
 #Session timeout, default value: 2 hours
 listener.tcp.external.session_expiry_interval = "2h"
 #QoS 1/2 message retry interval, 0 means no resend
 listener.tcp.external.message_retry_interval = "20s"
-#Message expiration time, 0 means no expiration
+#Message expiration time, 0 means no expiration, default value: 5 minutes
 listener.tcp.external.message_expiry_interval = "5m"
 #The maximum number of topics that a single client is allowed to subscribe to
 #0 means unlimited, default value: 0
@@ -173,7 +181,7 @@ listener.tcp.external.limit_subscription = false
 listener.tcp.external.delayed_publish = false
 
 ##--------------------------------------------------------------------
-## Internal TCP Listener for MQTT Protocol
+## MQTT/TCP - Internal TCP Listener for MQTT Protocol
 listener.tcp.internal.enable = true
 listener.tcp.internal.addr = "0.0.0.0:11883"
 listener.tcp.internal.workers = 4
@@ -187,13 +195,12 @@ listener.tcp.internal.allow_zero_keepalive = true
 listener.tcp.internal.min_keepalive = 0
 listener.tcp.internal.max_keepalive = 65535
 listener.tcp.internal.keepalive_backoff = 0.75
-listener.tcp.internal.max_inflight = 16
+listener.tcp.internal.max_inflight = 128
 listener.tcp.internal.max_mqueue_len = 1000
-listener.tcp.internal.mqueue_rate_limit = "1000,1s"
+listener.tcp.internal.mqueue_rate_limit = "5000,1s"
 listener.tcp.internal.max_clientid_len = 65535
 listener.tcp.internal.max_qos_allowed = 2
 listener.tcp.internal.max_topic_levels = 0
-listener.tcp.internal.retain_available = false
 listener.tcp.internal.session_expiry_interval = "2h"
 listener.tcp.internal.message_retry_interval = "30s"
 listener.tcp.internal.message_expiry_interval = "5m"
@@ -205,11 +212,17 @@ listener.tcp.internal.limit_subscription = false
 ##--------------------------------------------------------------------
 ## MQTT/TLS - External TLS Listener for MQTT Protocol, (TLSv1.2)
 listener.tls.external.addr = "0.0.0.0:8883"
+#Whether to enable cross-certification, default value: false
+listener.tls.external.cross_certificate = false
+#This certificate is used to authenticate the server during TLS handshakes.
+listener.tls.external.cert = "./rmqtt-bin/rmqtt.pem"
+#This key is used to establish a secure connection with the client.
+listener.tls.external.key = "./rmqtt-bin/rmqtt.key"
+
+#The following is the configuration using cross-certification
 #listener.tls.external.cross_certificate = true
 #listener.tls.external.cert = "./rmqtt-bin/rmqtt.fullchain.pem"
-listener.tls.external.cross_certificate = false
-listener.tls.external.cert = "./rmqtt-bin/rmqtt.pem"
-listener.tls.external.key = "./rmqtt-bin/rmqtt.key"
+#listener.tls.external.key = "./rmqtt-bin/rmqtt.key"
 
 ##--------------------------------------------------------------------
 ## MQTT/WebSocket - External WebSocket Listener for MQTT Protocol
@@ -218,8 +231,9 @@ listener.ws.external.addr = "0.0.0.0:8080"
 ##--------------------------------------------------------------------
 ## MQTT/TLS-WebSocket - External TLS-WebSocket Listener for MQTT Protocol, (TLSv1.2)
 listener.wss.external.addr = "0.0.0.0:8443"
-#listener.wss.external.cross_certificate = true
-#listener.wss.external.cert = "./rmqtt-bin/rmqtt.fullchain.pem"
 listener.wss.external.cross_certificate = false
 listener.wss.external.cert = "./rmqtt-bin/rmqtt.pem"
 listener.wss.external.key = "./rmqtt-bin/rmqtt.key"
+#listener.wss.external.cross_certificate = true
+#listener.wss.external.cert = "./rmqtt-bin/rmqtt.fullchain.pem"
+#listener.wss.external.key = "./rmqtt-bin/rmqtt.key"

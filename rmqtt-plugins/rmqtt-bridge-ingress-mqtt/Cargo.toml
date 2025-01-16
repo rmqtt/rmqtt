@@ -14,3 +14,7 @@ serde = { workspace = true, features = ["derive"] }
 ntex-mqtt = "0.12"
 ntex = { version = "0.7", features = ["tokio", "rustls"] }
 event-notify = "0.1.1"
+webpki-roots = "0.25"
+rustls-pemfile = "1.0"
+rustls = "0.21"
+

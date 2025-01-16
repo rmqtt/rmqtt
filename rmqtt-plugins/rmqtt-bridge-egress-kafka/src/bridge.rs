@@ -11,7 +11,7 @@ use rmqtt::bytestring::ByteString;
 use rmqtt::rust_box::task_exec_queue::SpawnExt;
 use rmqtt::{
     broker::topic::{TopicTree, VecToTopic},
-    timestamp_millis, timestamp_secs, From, MqttError, NodeId, Publish, QoSEx, Result, Topic,
+    timestamp_millis, From, MqttError, NodeId, Publish, QoSEx, Result, Topic,
 };
 use rmqtt::{
     itoa, log, rand,
@@ -110,7 +110,7 @@ impl Producer {
             if let Some(part) = partition {
                 frecord = frecord.partition(part);
             }
-            frecord = frecord.timestamp(timestamp_secs());
+            frecord = frecord.timestamp(timestamp_millis());
 
             let delivery_status = producer.send(frecord, queue_timeout).await;
             match delivery_status {

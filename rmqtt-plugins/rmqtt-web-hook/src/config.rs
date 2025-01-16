@@ -2,17 +2,21 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
 use serde::de::{self, Deserialize, Unexpected};
 use serde::ser::{self, Serialize};
 use serde::Deserializer;
 
-use rmqtt::broker::hook::Type;
-use rmqtt::broker::topic::TopicTree;
-use rmqtt::bytestring::ByteString;
-use rmqtt::settings::deserialize_duration;
-use rmqtt::{ahash, serde_json, url};
-use rmqtt::{Result, Topic};
+use rmqtt::{
+    ahash,
+    backoff::{ExponentialBackoff, ExponentialBackoffBuilder},
+    bytestring::ByteString,
+    serde_json, url,
+};
+use rmqtt::{
+    broker::{hook::Type, topic::TopicTree},
+    settings::deserialize_duration,
+    Result, Topic,
+};
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 

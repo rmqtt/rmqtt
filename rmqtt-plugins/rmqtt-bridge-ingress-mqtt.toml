@@ -12,7 +12,18 @@ name = "bridge_name_1"
 # Client ID prefix
 client_id_prefix = "prefix"
 # Address and port of the remote MQTT broker
-server = "127.0.0.1:2883"
+# or "tcp://127.0.0.1:1883" or "tls://127.0.0.1:8883"
+server = "127.0.0.1:1883"
+#server = "tls://127.0.0.1:9883"
+##SSL / TLS Certificate Type
+#CA signed server certificate
+#root_cert = "./rmqtt-bin/root.pem"
+##CA or Self signed certificates
+#Client Certificate File
+#client_cert = "./rmqtt-bin/client.pem"
+#Client key file
+#client_key = "./rmqtt-bin/client.key"
+
 # Username to connect to the remote MQTT broker
 username = "rmqtt_u"
 # Password to connect to the remote MQTT broker
@@ -27,10 +38,6 @@ keepalive = "60s"
 # Automatic reconnection interval
 reconnect_interval = "5s"
 
-## Whether to support retain message, true/false, default value: false
-retain_available = false
-## Whether to support storage messages, true/false, default value: false
-storage_available = false
 ## Message expiration time, 0 means no expiration
 expiry_interval = "5m"
 
@@ -70,7 +77,20 @@ name = "bridge_name_2"
 # Client ID prefix
 client_id_prefix = "prefix"
 # Address and port of the remote MQTT broker
-server = "127.0.0.1:2883"
+# or "tcp://127.0.0.1:1883" or "tls://127.0.0.1:8883"
+server = "tcp://127.0.0.1:1883"
+#server = "tls://127.0.0.1:9883"
+##SSL / TLS Certificate Type
+#CA signed server certificate
+#root_cert = "./rmqtt-bin/root.pem"
+##CA or Self signed certificates
+#Client Certificate File
+#client_cert = "./rmqtt-bin/client.pem"
+#Client key file
+#client_key = "./rmqtt-bin/client.key"
+
+
+
 # Username to connect to the remote MQTT broker
 username = "rmqtt_u"
 # Password to connect to the remote MQTT broker
@@ -85,10 +105,6 @@ keepalive = "60s"
 # Automatic reconnection interval
 reconnect_interval = "5s"
 
-## Whether to support retain message, true/false, default value: false
-retain_available = false
-## Whether to support storage messages, true/false, default value: false
-storage_available = false
 ## Message expiration time, 0 means no expiration
 expiry_interval = "5m"
 

@@ -8,7 +8,6 @@ extern crate rmqtt_macros;
 use config::PluginConfig;
 use rmqtt::{
     async_trait::async_trait,
-    base64::prelude::{Engine, BASE64_STANDARD},
     bytes::Bytes,
     chrono, log,
     serde_json::{self, json},
@@ -18,7 +17,7 @@ use rmqtt::{
 };
 use rmqtt::{
     broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
-    broker::types::{From, Id, QoSEx},
+    broker::types::{From, Id},
     plugin::{PackageInfo, Plugin},
     register, timestamp_millis, ClientId, NodeId, Publish, PublishProperties, QoS, Result, Runtime,
     SessionState, TopicName, UserName,
@@ -56,36 +55,16 @@ impl SystemTopicPlugin {
         spawn(async move {
             let min = Duration::from_secs(1);
             loop {
-                let (publish_interval, publish_qos, retain_available, storage_available, expiry_interval) = {
+                let (publish_interval, publish_qos, expiry_interval) = {
                     let cfg_rl = cfg.read().await;
-                    (
-                        cfg_rl.publish_interval,
-                        cfg_rl.publish_qos,
-                        cfg_rl.message_retain_available,
-                        cfg_rl.message_storage_available,
-                        cfg_rl.message_expiry_interval,
-                    )
+                    (cfg_rl.publish_interval, cfg_rl.publish_qos, cfg_rl.message_expiry_interval)
                 };
 
                 let publish_interval = if publish_interval < min { min } else { publish_interval };
                 sleep(publish_interval).await;
                 if running.load(Ordering::SeqCst) {
-                    Self::send_stats(
-                        runtime,
-                        publish_qos,
-                        retain_available,
-                        storage_available,
-                        expiry_interval,
-                    )
-                    .await;
-                    Self::send_metrics(
-                        runtime,
-                        publish_qos,
-                        retain_available,
-                        storage_available,
-                        expiry_interval,
-                    )
-                    .await;
+                    Self::send_stats(runtime, publish_qos, expiry_interval).await;
+                    Self::send_metrics(runtime, publish_qos, expiry_interval).await;
                 }
             }
         });
@@ -93,50 +72,20 @@ impl SystemTopicPlugin {
 
     //Statistics
     //$SYS/brokers/${node}/stats
-    async fn send_stats(
-        runtime: &'static Runtime,
-        publish_qos: QoS,
-        retain_available: bool,
-        storage_available: bool,
-        expiry_interval: Duration,
-    ) {
+    async fn send_stats(runtime: &'static Runtime, publish_qos: QoS, expiry_interval: Duration) {
         let payload = runtime.stats.clone().await.to_json().await;
         let nodeid = runtime.node.id();
         let topic = format!("$SYS/brokers/{}/stats", nodeid);
-        sys_publish(
-            nodeid,
-            topic,
-            publish_qos,
-            payload,
-            retain_available,
-            storage_available,
-            expiry_interval,
-        )
-        .await;
+        sys_publish(nodeid, topic, publish_qos, payload, expiry_interval).await;
     }
 
     //Metrics
     //$SYS/brokers/${node}/metrics
-    async fn send_metrics(
-        runtime: &'static Runtime,
-        publish_qos: QoS,
-        retain_available: bool,
-        storage_available: bool,
-        expiry_interval: Duration,
-    ) {
+    async fn send_metrics(runtime: &'static Runtime, publish_qos: QoS, expiry_interval: Duration) {
         let payload = Runtime::instance().metrics.to_json();
         let nodeid = runtime.node.id();
         let topic = format!("$SYS/brokers/{}/metrics", nodeid);
-        sys_publish(
-            nodeid,
-            topic,
-            publish_qos,
-            payload,
-            retain_available,
-            storage_available,
-            expiry_interval,
-        )
-        .await;
+        sys_publish(nodeid, topic, publish_qos, payload, expiry_interval).await;
     }
 }
 
@@ -153,7 +102,6 @@ impl Plugin for SystemTopicPlugin {
         self.register.add(Type::ClientDisconnected, Box::new(SystemTopicHandler::new(cfg))).await;
         self.register.add(Type::SessionSubscribed, Box::new(SystemTopicHandler::new(cfg))).await;
         self.register.add(Type::SessionUnsubscribed, Box::new(SystemTopicHandler::new(cfg))).await;
-        self.register.add(Type::MessageDropped, Box::new(SystemTopicHandler::new(cfg))).await;
 
         Self::start(self.runtime, self.cfg.clone(), self.running.clone());
         Ok(())
@@ -191,7 +139,6 @@ impl Plugin for SystemTopicPlugin {
 
 struct SystemTopicHandler {
     cfg: Arc<RwLock<PluginConfig>>,
-    //    message_type: MessageType,
     nodeid: NodeId,
 }
 
@@ -303,52 +250,18 @@ impl Handler for SystemTopicHandler {
                 Some((topic, body))
             }
 
-            Parameter::MessageDropped(to, from, publish, reason) => {
-                let body = json!({
-                    "dup": publish.dup(),
-                    "retain": publish.retain(),
-                    "qos": publish.qos().value(),
-                    "topic": publish.topic(),
-                    "packet_id": publish.packet_id(),
-                    "payload": BASE64_STANDARD.encode(publish.payload()),
-                    "reason": reason.to_string(),
-                    "pts": publish.create_time(),
-                    "ts": now.timestamp_millis(),
-                    "time": now_time
-                });
-                let mut body = from.to_from_json(body);
-                if let Some(to) = to {
-                    body = to.to_to_json(body);
-                }
-                let topic = format!("$SYS/brokers/{}/message/dropped", self.nodeid);
-                Some((topic, body))
-            }
-
             _ => {
                 log::error!("unimplemented, {:?}", param);
                 None
             }
         } {
             let nodeid = self.nodeid;
-            let (publish_qos, retain_available, storage_available, expiry_interval) = {
+            let (publish_qos, expiry_interval) = {
                 let cfg_rl = self.cfg.read().await;
-                (
-                    cfg_rl.publish_qos,
-                    cfg_rl.message_retain_available,
-                    cfg_rl.message_storage_available,
-                    cfg_rl.message_expiry_interval,
-                )
+                (cfg_rl.publish_qos, cfg_rl.message_expiry_interval)
             };
 
-            spawn(sys_publish(
-                nodeid,
-                topic,
-                publish_qos,
-                payload,
-                retain_available,
-                storage_available,
-                expiry_interval,
-            ));
+            spawn(sys_publish(nodeid, topic, publish_qos, payload, expiry_interval));
         }
         (true, acc)
     }
@@ -360,8 +273,6 @@ async fn sys_publish(
     topic: String,
     publish_qos: QoS,
     payload: serde_json::Value,
-    retain_available: bool,
-    storage_available: bool,
     message_expiry_interval: Duration,
 ) {
     match serde_json::to_string(&payload) {
@@ -395,14 +306,10 @@ async fn sys_publish(
                 .await
                 .unwrap_or(p);
 
-            if let Err(e) = SessionState::forwards(
-                from,
-                p,
-                retain_available,
-                storage_available,
-                Some(message_expiry_interval),
-            )
-            .await
+            let storage_available = Runtime::instance().extends.message_mgr().await.enable();
+
+            if let Err(e) =
+                SessionState::forwards(from, p, storage_available, Some(message_expiry_interval)).await
             {
                 log::warn!("{:?}", e);
             }

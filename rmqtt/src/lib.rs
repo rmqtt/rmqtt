@@ -11,6 +11,7 @@ pub extern crate async_trait;
 
 pub use ahash;
 pub use anyhow;
+pub use backoff;
 pub use base64;
 pub use bincode;
 pub use bytes;
@@ -19,6 +20,7 @@ pub use chrono;
 pub use crossbeam;
 pub use dashmap;
 pub use futures;
+pub use futures_time;
 pub use get_size;
 pub use itertools;
 pub use itoa;
@@ -27,7 +29,9 @@ pub use ntex;
 pub use ntex_mqtt;
 pub use once_cell;
 pub use pin_project_lite;
+pub use prometheus;
 pub use rand;
+pub use regex;
 pub use reqwest;
 pub use rust_box;
 pub use scc;
@@ -36,6 +40,7 @@ pub use tokio;
 pub use tokio_cron_scheduler;
 pub use tokio_tungstenite;
 pub use url;
+pub use uuid;
 
 pub use crate::broker::{
     error::MqttError,

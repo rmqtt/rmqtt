@@ -20,6 +20,7 @@ use crate::broker::inflight::{Inflight, InflightMessage, MomentStatus};
 use crate::broker::queue::{self, Limiter, Policy};
 use crate::broker::types::*;
 use crate::metrics::Metrics;
+use crate::settings::acl::AuthInfo;
 use crate::settings::listener::Listener;
 use crate::{MqttError, Result, Runtime};
 
@@ -142,8 +143,8 @@ impl SessionState {
                             Runtime::instance().stats.debug_session_channels.dec();
                             match msg{
                                 Message::Forward(from, p) => {
-                                    if let Err((from, p)) = deliver_queue_tx.send((from, p)).await{
-                                        log::warn!("{:?} deliver_dropped, from: {:?}, {:?}", state.id, from, p);
+                                    if let Err((from, p)) = deliver_queue_tx.send((from, p)).await {
+                                        log::debug!("{:?} deliver_dropped, from: {:?}, {:?}", state.id, from, p);
                                         //hook, message_dropped
                                         Runtime::instance().extends.hook_mgr().await.message_dropped(Some(state.id.clone()), from, p, Reason::MessageQueueFull).await;
                                     }
@@ -191,6 +192,8 @@ impl SessionState {
                                     if ping {
                                         flags.insert(StateFlags::Ping);
                                     }
+                                    //hook, keepalive
+                                    state.hook.client_keepalive(ping).await
                                 },
                                 Message::Subscribe(sub, reply_tx) => {
                                     let sub_reply = state.subscribe(sub).await;
@@ -377,7 +380,7 @@ impl SessionState {
                                 state.hook.offline_message(from.clone(), &p).await;
 
                                 if let Err((from, p)) = deliver_queue_tx.send((from, p)).await {
-                                    log::warn!("{:?} offline deliver_dropped, from: {:?}, {:?}", state.id, from, p);
+                                    log::debug!("{:?} offline deliver_dropped, from: {:?}, {:?}", state.id, from, p);
                                     //hook, message_dropped
                                     Runtime::instance().extends.hook_mgr().await.message_dropped(Some(state.id.clone()), from, p, Reason::MessageQueueFull).await;
                                 }
@@ -580,25 +583,17 @@ impl SessionState {
                 let p = self.hook.message_publish(from.clone(), &p).await.unwrap_or(p);
                 log::debug!("process_last_will, publish: {:?}", p);
 
-                let listen_cfg = self.listen_cfg();
-
                 let message_storage_available = Runtime::instance().extends.message_mgr().await.enable();
 
-                let message_expiry_interval =
-                    if message_storage_available || (listen_cfg.retain_available && p.retain()) {
-                        Some(self.fitter.message_expiry_interval(&p))
-                    } else {
-                        None
-                    };
+                let message_expiry_interval = if message_storage_available
+                    || (p.retain() && Runtime::instance().extends.retain().await.enable())
+                {
+                    Some(self.fitter.message_expiry_interval(&p))
+                } else {
+                    None
+                };
 
-                Self::forwards(
-                    from,
-                    p,
-                    listen_cfg.retain_available,
-                    message_storage_available,
-                    message_expiry_interval,
-                )
-                .await?;
+                Self::forwards(from, p, message_storage_available, message_expiry_interval).await?;
             }
         }
 
@@ -615,7 +610,7 @@ impl SessionState {
             retain.publish.qos = retain.publish.qos.less_value(qos);
             retain.publish.topic = topic;
             retain.publish.packet_id = None;
-            retain.publish.create_time = chrono::Local::now().timestamp_millis();
+            retain.publish.create_time = timestamp_millis();
 
             log::debug!("{:?} retain.publish: {:?}", self.id, retain.publish);
 
@@ -914,7 +909,7 @@ impl SessionState {
 
         if let Some(qos) = sub_ret.success() {
             //send retain messages
-            let excludeds = if listen_cfg.retain_available {
+            let excludeds = if Runtime::instance().extends.retain().await.enable() {
                 //MQTT V5: Retain Handling
                 let send_retain_enable = match sub.opts.retain_handling() {
                     Some(RetainHandling::AtSubscribe) => true,
@@ -1031,7 +1026,6 @@ impl SessionState {
     async fn publish(&self, mut publish: Publish) -> Result<bool> {
         let from = From::from_custom(self.id.clone());
 
-        let listen_cfg = self.listen_cfg();
         if self.listen_cfg().delayed_publish {
             publish = Runtime::instance().extends.delayed_sender().await.parse(publish)?;
         }
@@ -1062,12 +1056,13 @@ impl SessionState {
 
         let message_storage_available = Runtime::instance().extends.message_mgr().await.enable();
 
-        let message_expiry_interval =
-            if message_storage_available || (listen_cfg.retain_available && publish.retain()) {
-                Some(self.fitter.message_expiry_interval(&publish))
-            } else {
-                None
-            };
+        let message_expiry_interval = if message_storage_available
+            || (publish.retain() && Runtime::instance().extends.retain().await.enable())
+        {
+            Some(self.fitter.message_expiry_interval(&publish))
+        } else {
+            None
+        };
 
         //delayed publish
         if publish.delay_interval.is_some() {
@@ -1075,24 +1070,11 @@ impl SessionState {
                 .extends
                 .delayed_sender()
                 .await
-                .delay_publish(
-                    from,
-                    publish,
-                    listen_cfg.retain_available,
-                    message_storage_available,
-                    message_expiry_interval,
-                )
+                .delay_publish(from, publish, message_storage_available, message_expiry_interval)
                 .await?
             {
                 if Runtime::instance().settings.mqtt.delayed_publish_immediate {
-                    Self::forwards(
-                        f,
-                        p,
-                        listen_cfg.retain_available,
-                        message_storage_available,
-                        message_expiry_interval,
-                    )
-                    .await?;
+                    Self::forwards(f, p, message_storage_available, message_expiry_interval).await?;
                 } else {
                     //hook, Message dropped
                     Runtime::instance()
@@ -1107,14 +1089,7 @@ impl SessionState {
             return Ok(true);
         }
 
-        Self::forwards(
-            from,
-            publish,
-            listen_cfg.retain_available,
-            message_storage_available,
-            message_expiry_interval,
-        )
-        .await?;
+        Self::forwards(from, publish, message_storage_available, message_expiry_interval).await?;
 
         Ok(true)
     }
@@ -1123,7 +1098,6 @@ impl SessionState {
     pub async fn forwards(
         from: From,
         publish: Publish,
-        retain_available: bool,
         message_storage_available: bool,
         message_expiry_interval: Option<Duration>,
     ) -> Result<()> {
@@ -1134,11 +1108,9 @@ impl SessionState {
             None
         };
 
-        if retain_available && publish.retain() {
-            Runtime::instance()
-                .extends
-                .retain()
-                .await
+        let retain = Runtime::instance().extends.retain().await;
+        if retain.enable() && publish.retain() {
+            retain
                 .set(
                     publish.topic(),
                     Retain { msg_id, from: from.clone(), publish: publish.clone() },
@@ -1146,6 +1118,7 @@ impl SessionState {
                 )
                 .await?;
         }
+        drop(retain);
 
         let stored_msg =
             if let (Some(msg_id), Some(message_expiry_interval)) = (msg_id, message_expiry_interval) {
@@ -1245,7 +1218,7 @@ impl SessionState {
     pub async fn transfer_session_state(
         &self,
         clear_subscriptions: bool,
-        mut offline_info: SessionOfflineInfo,
+        mut offline_info: OfflineInfo,
     ) -> Result<()> {
         log::debug!(
             "{:?} transfer session state, form: {:?}, subscriptions: {}, inflight_messages: {}, offline_messages: {}, clear_subscriptions: {}",
@@ -1322,7 +1295,7 @@ impl Deref for SessionState {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct SessionOfflineInfo {
+pub struct OfflineInfo {
     pub id: Id,
     pub subscriptions: Subscriptions,
     pub offline_messages: Vec<(From, Publish)>,
@@ -1330,7 +1303,7 @@ pub struct SessionOfflineInfo {
     pub created_at: TimestampMillis,
 }
 
-impl std::fmt::Debug for SessionOfflineInfo {
+impl std::fmt::Debug for OfflineInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -1358,6 +1331,7 @@ pub struct _Session {
     inner: Arc<dyn SessionLike>,
     pub id: Id,
     pub fitter: FitterType,
+    pub auth_info: Option<AuthInfo>,
     pub extra_attrs: RwLock<ExtraAttrs>,
 }
 
@@ -1397,6 +1371,7 @@ impl Session {
         max_mqueue_len: usize,
         listen_cfg: Listener,
         fitter: FitterType,
+        auth_info: Option<AuthInfo>,
         max_inflight: NonZeroU16,
         created_at: TimestampMillis,
 
@@ -1455,11 +1430,11 @@ impl Session {
                 last_id,
             )
             .await?;
-        Ok(Self(Arc::new(_Session { inner: session_like, id, fitter, extra_attrs })))
+        Ok(Self(Arc::new(_Session { inner: session_like, id, fitter, auth_info, extra_attrs })))
     }
 
     #[inline]
-    pub async fn to_offline_info(&self) -> Result<SessionOfflineInfo> {
+    pub async fn to_offline_info(&self) -> Result<OfflineInfo> {
         let id = self.id.clone();
         let created_at = self.created_at().await?;
         let subscriptions = self.subscriptions_drain().await?;
@@ -1471,7 +1446,7 @@ impl Session {
         }
         let inflight_messages = self.inflight_win().write().await.to_inflight_messages();
 
-        Ok(SessionOfflineInfo { id, subscriptions, offline_messages, inflight_messages, created_at })
+        Ok(OfflineInfo { id, subscriptions, offline_messages, inflight_messages, created_at })
     }
 
     #[inline]

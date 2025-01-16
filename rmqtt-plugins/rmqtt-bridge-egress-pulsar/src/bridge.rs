@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use pulsar::{
     authentication::oauth2::OAuth2Authentication, producer, Authentication, Error as PulsarError,
@@ -27,7 +28,7 @@ struct Message<'a> {
     metadata: &'a BTreeMap<String, String>,
 }
 
-impl<'a> SerializeMessage for Message<'a> {
+impl SerializeMessage for Message<'_> {
     fn serialize_message(input: Self) -> Result<producer::Message, PulsarError> {
         let f = input.f;
         let p = input.p;
@@ -64,10 +65,10 @@ impl<'a> SerializeMessage for Message<'a> {
         let payload = p.payload.to_vec();
         let event_time = Some(p.create_time() as u64);
         let partition_key = cfg.partition_key.clone();
-        let ordering_key = cfg.ordering_key.clone();
+        let ordering_key = cfg.ordering_key.as_ref().map(|okey| okey.generate(&f.client_id));
         let replicate_to = cfg.replicate_to.clone();
         let schema_version = cfg.schema_version.clone();
-
+        log::debug!("ordering_key: {:?}", ordering_key);
         Ok(producer::Message {
             payload,
             properties,
@@ -175,7 +176,7 @@ impl Producer {
                             receipt.sequence_id,
                             receipt.producer_id,
                             receipt.message_id.map(|m| m.ack_set)
-                        )
+                        );
                             }
                             Err(e) => {
                                 log::warn!("{}", e);
@@ -248,7 +249,15 @@ impl BridgeManager {
         Ok(pulsar)
     }
 
-    pub async fn start(&mut self) -> Result<()> {
+    pub async fn start(&mut self) {
+        while let Err(e) = self._start().await {
+            log::error!("start bridge-egress-pulsar error, {:?}", e);
+            self.stop().await;
+            tokio::time::sleep(Duration::from_millis(3000)).await;
+        }
+    }
+
+    async fn _start(&mut self) -> Result<()> {
         let mut topics = self.topics.write().await;
         let bridges = self.cfg.read().await.bridges.clone();
         let mut bridge_names: HashSet<&str> = HashSet::default();

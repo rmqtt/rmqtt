@@ -4,6 +4,7 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use ntex::connect::rustls::Connector as TlsConnector;
 use ntex::connect::Connector;
 use ntex::time;
 use ntex::time::Seconds;
@@ -22,8 +23,24 @@ use rmqtt::{
 };
 use rmqtt::{ClientId, MqttError, NodeId, Result, UserName};
 
-use crate::bridge::{BridgeClient, BridgePublish, Command, CommandMailbox, OnMessageEvent};
+use crate::bridge::{
+    build_tls_connector, BridgeClient, BridgePublish, Command, CommandMailbox, OnMessageEvent,
+};
 use crate::config::Bridge;
+
+enum MqttConnector {
+    Tcp(v5::client::MqttConnector<String, Connector<String>>),
+    Tls(v5::client::MqttConnector<String, TlsConnector<String>>),
+}
+
+impl MqttConnector {
+    async fn connect(&self) -> Result<v5::client::Client> {
+        Ok(match self {
+            MqttConnector::Tcp(c) => c.connect().await.map_err(|e| MqttError::Anyhow(e.into()))?,
+            MqttConnector::Tls(c) => c.connect().await.map_err(|e| MqttError::Anyhow(e.into()))?,
+        })
+    }
+}
 
 #[derive(Clone)]
 pub struct Client {
@@ -65,7 +82,7 @@ impl Client {
             format!("{}:{}:ingress:{}:{}:{}", cfg.client_id_prefix, cfg.name, node_id, entry_idx, client_no);
         let username = cfg.username.clone().unwrap_or("undefined".into());
 
-        let server_addr = cfg.server.to_socket_addrs()?.next().ok_or_else(|| MqttError::from("None"))?;
+        let server_addr = cfg.server.addr.to_socket_addrs()?.next().ok_or_else(|| MqttError::from("None"))?;
 
         let client = Self {
             cfg: Rc::new(cfg),
@@ -79,7 +96,7 @@ impl Client {
             on_message,
         };
 
-        let mut builder = v5::client::MqttConnector::new(client.server_addr)
+        let mut builder = v5::client::MqttConnector::new(client.cfg.server.addr.clone())
             .client_id(ByteString::from(client.client_id.as_ref()))
             .keep_alive(Seconds(client.cfg.keepalive.as_secs() as u16))
             .handshake_timeout(Seconds(client.cfg.connect_timeout.as_secs() as u16));
@@ -105,7 +122,13 @@ impl Client {
                 pkt.last_will.clone_from(&client.cfg.v5.last_will)
             });
 
-            ntex::rt::spawn(client.clone().start(builder));
+            if client.cfg.server.is_tls() {
+                let builder = builder.connector(build_tls_connector(&client.cfg)?);
+                ntex::rt::spawn(client.clone().start(MqttConnector::Tls(builder)));
+            } else {
+                ntex::rt::spawn(client.clone().start(MqttConnector::Tcp(builder)));
+            }
+
             ntex::rt::spawn(client.clone().cmd_loop(cmd_rx));
         } else {
             unreachable!()
@@ -130,7 +153,7 @@ impl Client {
         }
     }
 
-    async fn start(self, builder: v5::client::MqttConnector<SocketAddr, Connector<SocketAddr>>) {
+    async fn start(self, builder: MqttConnector) {
         let client = self;
         let sleep_interval = client.cfg.reconnect_interval;
         loop {
@@ -157,7 +180,12 @@ impl Client {
                     client.clone().ev_loop(c).await;
                 }
                 Err(e) => {
-                    log::warn!("{} Connect to {:?} fail, {:?}", client.client_id, client.cfg.server, e);
+                    log::warn!(
+                        "{} Connect to {:?} fail, {:?}",
+                        client.client_id,
+                        client.cfg.server,
+                        e.to_string()
+                    );
                 }
             }
             if client.is_closed() {

@@ -7,14 +7,33 @@
 http_timeout = "5s"
 http_headers.accept = "*/*"
 http_headers.Cache-Control = "no-cache"
-http_headers.User-Agent = "RMQTT/0.4.0"
+http_headers.User-Agent = "RMQTT/0.8.0"
 http_headers.Connection = "keep-alive"
 
-#Disconnect if publishing is rejected
+## Disconnect if publishing is rejected
+##
+## Value: true | false
+## Default: true
 disconnect_if_pub_rejected = true
 
-#Return 'Deny' if http request error otherwise 'Ignore'
+## Disconnect After Expiration
+##
+## Value: true | false
+## Default: false
+disconnect_if_expiry = false
+
+## Return 'Deny' if http request error otherwise 'Ignore'
+##
+## Value: true | false
+## Default: true
 deny_if_error = true
+
+## Prometheus metrics data caching interval.
+##
+## Value: Duration
+## Default: "5s"
+prometheus_metrics_cache_interval = "5s"
+
 
 ##--------------------------------------------------------------------
 ## Authentication request.

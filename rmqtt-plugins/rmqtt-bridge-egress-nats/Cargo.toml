@@ -1,0 +1,15 @@
+[package]
+name = "rmqtt-bridge-egress-nats"
+version = "0.1.0"
+description = "Bridge remote NATS in egress mode."
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+rmqtt.workspace = true
+rmqtt-macros.workspace = true
+serde = { workspace = true, features = ["derive"] }
+async-nats = "0.38"
+nkeys = "0.4.4"

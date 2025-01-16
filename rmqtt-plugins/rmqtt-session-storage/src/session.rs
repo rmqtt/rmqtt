@@ -5,15 +5,15 @@ use std::sync::atomic::{AtomicI64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use rmqtt::{async_trait::async_trait, chrono, log, once_cell::sync::OnceCell, tokio, DashMap};
+use rmqtt::{async_trait::async_trait, log, once_cell::sync::OnceCell, tokio, DashMap};
 use rmqtt::{
     broker::inflight::InflightMessage,
     broker::session::{SessionLike, SessionManager},
     broker::types::DisconnectInfo,
     settings::Listener,
-    ClientId, ConnectInfo, ConnectInfoType, Disconnect, FitterType, From, Id, InflightType, IsPing,
-    MessageQueueType, Password, Publish, Reason, Result, SessionSubMap, SessionSubs, SubscriptionOptions,
-    Subscriptions, TimestampMillis, TopicFilter, UserName,
+    timestamp_millis, ClientId, ConnectInfo, ConnectInfoType, Disconnect, FitterType, From, Id, InflightType,
+    IsPing, MessageQueueType, Password, Publish, Reason, Result, SessionSubMap, SessionSubs,
+    SubscriptionOptions, Subscriptions, TimestampMillis, TopicFilter, UserName,
 };
 
 use crate::{make_list_stored_key, make_map_stored_key, OfflineMessageOptionType};
@@ -192,13 +192,13 @@ impl StorageSession {
             storage_db,
             session_info_map,
             offline_messages_list,
-            last_time: AtomicI64::new(chrono::Local::now().timestamp_millis()),
+            last_time: AtomicI64::new(timestamp_millis()),
         }
     }
 
     #[inline]
     async fn update_last_time(&self, save_enable: bool) {
-        let now = chrono::Local::now().timestamp_millis();
+        let now = timestamp_millis();
         let old = self.last_time.swap(now, Ordering::SeqCst);
         if save_enable || (now - old) > (1000 * 60) {
             if let Err(e) = self.session_info_map.insert(LAST_TIME, &now).await {

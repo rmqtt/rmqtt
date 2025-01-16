@@ -194,9 +194,6 @@ pub struct ListenerInner {
     #[serde(default = "ListenerInner::max_topic_levels_default")]
     pub max_topic_levels: usize,
 
-    #[serde(default = "ListenerInner::retain_available_default")]
-    pub retain_available: bool,
-
     #[serde(
         default = "ListenerInner::session_expiry_interval_default",
         deserialize_with = "deserialize_duration"
@@ -211,7 +208,7 @@ pub struct ListenerInner {
 
     #[serde(
         default = "ListenerInner::message_expiry_interval_default",
-        deserialize_with = "deserialize_duration"
+        deserialize_with = "ListenerInner::deserialize_message_expiry_interval"
     )]
     pub message_expiry_interval: Duration,
 
@@ -260,7 +257,6 @@ impl Default for ListenerInner {
             max_clientid_len: ListenerInner::max_clientid_len_default(),
             max_qos_allowed: ListenerInner::max_qos_allowed_default(),
             max_topic_levels: ListenerInner::max_topic_levels_default(),
-            retain_available: ListenerInner::retain_available_default(),
             session_expiry_interval: ListenerInner::session_expiry_interval_default(),
             message_retry_interval: ListenerInner::message_retry_interval_default(),
             message_expiry_interval: ListenerInner::message_expiry_interval_default(),
@@ -365,10 +361,6 @@ impl ListenerInner {
         0
     }
     #[inline]
-    fn retain_available_default() -> bool {
-        false
-    }
-    #[inline]
     fn session_expiry_interval_default() -> Duration {
         Duration::from_secs(7200)
     }
@@ -434,6 +426,20 @@ impl ListenerInner {
         };
         Ok(qos)
     }
+
+    #[inline]
+    fn deserialize_message_expiry_interval<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let v = String::deserialize(deserializer)?;
+        let mut d = to_duration(&v);
+        if d.is_zero() {
+            d = Duration::from_secs(u32::MAX as u64);
+        }
+        Ok(d)
+    }
+
     #[inline]
     fn cross_certificate_default() -> bool {
         false

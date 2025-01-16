@@ -10,7 +10,7 @@ use serde::Serialize;
 use rmqtt::grpc::MessageType;
 use rmqtt::settings::{deserialize_duration, deserialize_duration_option, NodeAddr, Options};
 use rmqtt::{once_cell::sync::Lazy, serde_json};
-use rmqtt::{MqttError, NodeId, Result};
+use rmqtt::{Addr, MqttError, NodeId, Result};
 
 pub(crate) static BACKOFF_STRATEGY: Lazy<ExponentialBackoff> = Lazy::new(|| {
     ExponentialBackoffBuilder::new()
@@ -26,6 +26,8 @@ pub struct PluginConfig {
 
     #[serde(default = "PluginConfig::message_type_default")]
     pub message_type: MessageType,
+
+    pub laddr: Option<Addr>,
 
     pub node_grpc_addrs: Vec<NodeAddr>,
 
@@ -45,6 +47,12 @@ pub struct PluginConfig {
 
     #[serde(default)]
     pub verify_addr: bool,
+
+    #[serde(default)]
+    pub compression: Option<Compression>,
+
+    #[serde(default)]
+    pub health: Health,
 
     #[serde(default = "PluginConfig::raft_default")]
     pub raft: RaftConfig,
@@ -107,6 +115,50 @@ impl PluginConfig {
     }
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Health {
+    #[serde(default = "Health::exit_on_node_unavailable_default")]
+    pub exit_on_node_unavailable: bool,
+    #[serde(default = "Health::exit_code_default")]
+    pub exit_code: i32,
+    #[serde(default = "Health::max_continuous_unavailable_count_default")]
+    pub max_continuous_unavailable_count: usize,
+    #[serde(
+        default = "Health::unavailable_check_interval_default",
+        deserialize_with = "deserialize_duration"
+    )]
+    pub unavailable_check_interval: Duration,
+}
+
+impl Default for Health {
+    fn default() -> Self {
+        Self {
+            exit_on_node_unavailable: Self::exit_on_node_unavailable_default(),
+            exit_code: Self::exit_code_default(),
+            max_continuous_unavailable_count: Self::max_continuous_unavailable_count_default(),
+            unavailable_check_interval: Self::unavailable_check_interval_default(),
+        }
+    }
+}
+
+impl Health {
+    fn exit_on_node_unavailable_default() -> bool {
+        false
+    }
+
+    fn exit_code_default() -> i32 {
+        -1
+    }
+
+    fn max_continuous_unavailable_count_default() -> usize {
+        2
+    }
+
+    fn unavailable_check_interval_default() -> Duration {
+        Duration::from_secs(2)
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct RaftConfig {
     #[serde(default = "RaftConfig::grpc_reuseaddr_default")]
@@ -116,6 +168,7 @@ pub struct RaftConfig {
     #[serde(default, deserialize_with = "deserialize_duration_option")]
     pub grpc_timeout: Option<Duration>,
     pub grpc_concurrency_limit: Option<usize>,
+    pub grpc_message_size: Option<usize>,
     pub grpc_breaker_threshold: Option<u64>,
     #[serde(default, deserialize_with = "deserialize_duration_option")]
     pub grpc_breaker_retry_interval: Option<Duration>,
@@ -209,6 +262,9 @@ impl RaftConfig {
         }
         if let Some(grpc_concurrency_limit) = self.grpc_concurrency_limit {
             cfg.grpc_concurrency_limit = grpc_concurrency_limit;
+        }
+        if let Some(grpc_message_size) = self.grpc_message_size {
+            cfg.grpc_message_size = grpc_message_size;
         }
         if let Some(grpc_breaker_threshold) = self.grpc_breaker_threshold {
             cfg.grpc_breaker_threshold = grpc_breaker_threshold;
@@ -308,4 +364,12 @@ impl RaftConfig {
         };
         rop_str.serialize(s)
     }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+pub enum Compression {
+    Zstd,
+    Lz4,
+    Zlib,
+    Snappy,
 }

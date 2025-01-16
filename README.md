@@ -1,7 +1,7 @@
 # RMQTT Broker
 
 [![GitHub Release](https://img.shields.io/github/release/rmqtt/rmqtt?color=brightgreen)](https://github.com/rmqtt/rmqtt/releases)
-<a href="https://blog.rust-lang.org/2023/08/03/Rust-1.71.1.html"><img alt="Rust Version" src="https://img.shields.io/badge/rust-1.71.1%2B-blue" /></a>
+<a href="https://blog.rust-lang.org/2024/09/05/Rust-1.81.0.html"><img alt="Rust Version" src="https://img.shields.io/badge/rust-1.81.0%2B-blue" /></a>
 
 English | [简体中文](./README-CN.md)
 
@@ -18,8 +18,10 @@ and mobile applications that can handle millions of concurrent clients on a sing
     - Offline message support;
     - [Retained message support](./docs/en_US/retainer.md);
     - Last Will message support;
+- [Distributed cluster](./docs/en_US/cluster-raft.md);
 - [Built-in AUTH/ACL](./docs/en_US/acl.md);
 - [HTTP AUTH/ACL](./docs/en_US/auth-http.md);
+- [JWT AUTH/ACL](./docs/en_US/auth-jwt.md);
 - [WebHook](./docs/en_US/web-hook.md);
 - [HTTP APIs](./docs/en_US/http-api.md);
 - [$SYS System Topics](./docs/en_US/sys-topic.md);
@@ -29,13 +31,16 @@ and mobile applications that can handle millions of concurrent clients on a sing
 - [MQTT Bridging - Egress Mode](./docs/en_US/bridge-egress-mqtt.md)
 - [Apache Kafka Bridging - Ingress Mode](./docs/en_US/bridge-ingress-kafka.md)
 - [Apache Kafka Bridging - Egress Mode](./docs/en_US/bridge-egress-kafka.md)
+- [Apache Pulsar Bridging - Ingress Mode](./docs/en_US/bridge-ingress-pulsar.md)
 - [Apache Pulsar Bridging - Egress Mode](./docs/en_US/bridge-egress-pulsar.md)
+- [NATS Bridging - Egress Mode](./docs/en_US/bridge-egress-nats.md)
+- [Reductstore Bridging - Egress Mode](./docs/en_US/bridge-egress-reductstore.md)
 - [Topic Rewrite](./docs/en_US/topic-rewrite.md)
+- [Auto Subscription](./docs/en_US/auto-subscription.md)
 - Shared subscription($share/{Group}/{TopicFilter});
 - Exclusive subscription($exclusive/{TopicFilter});
 - Limit subscription($limit/{LimitQuantity}/{TopicFilter});
 - Delayed publish($delayed/{DelayInterval}/{TopicName});
-- Distributed cluster;
 - Hooks;
 - TLS support;
 - WebSocket support;

@@ -7,22 +7,23 @@ use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use futures_time::future::FutureExt;
-
 use rmqtt::{
     anyhow::anyhow,
     async_trait::async_trait,
     futures::channel::mpsc,
     futures::{SinkExt, StreamExt},
+    futures_time::{self, future::FutureExt},
     log,
     once_cell::sync::OnceCell,
-    timestamp_millis, tokio,
+    tokio,
     tokio::sync::RwLock,
     tokio::time::sleep,
-    NodeId, Retain, StatsMergeMode, TimestampMillis, TopicName,
 };
 
-use rmqtt::{MqttError, Result, Topic, TopicFilter};
+use rmqtt::{
+    timestamp_millis, MqttError, NodeId, Result, Retain, StatsMergeMode, TimestampMillis, Topic, TopicFilter,
+    TopicName,
+};
 
 use rmqtt::broker::RetainStorage;
 use rmqtt_storage::DefaultStorageDB;
@@ -161,9 +162,9 @@ pub struct RetainerInner {
 impl RetainerInner {
     #[inline]
     async fn _batch_store(&self, msgs: Vec<Msg>) -> Result<()> {
-        let (max_retained_messages, max_payload_size) = {
+        let (max_retained_messages, max_payload_size, retained_message_ttl) = {
             let cfg = self.cfg.read().await;
-            (cfg.max_retained_messages as usize, *cfg.max_payload_size)
+            (cfg.max_retained_messages as usize, *cfg.max_payload_size, cfg.retained_message_ttl)
         };
 
         let mut count = 0;
@@ -200,8 +201,11 @@ impl RetainerInner {
                 }
 
                 //add retain messagge
-                let expiry_interval_millis =
-                    expiry_interval.map(|expiry_interval| expiry_interval.as_millis() as i64);
+                let expiry_interval_millis = retained_message_ttl
+                    .map(|ttl| if ttl.is_zero() { None } else { Some(ttl.as_millis() as i64) })
+                    .unwrap_or_else(|| {
+                        expiry_interval.map(|expiry_interval| expiry_interval.as_millis() as i64)
+                    });
 
                 let expiry_time_at = expiry_interval_millis
                     .map(|expiry_interval_millis| timestamp_millis() + expiry_interval_millis);
@@ -369,6 +373,11 @@ impl RetainerInner {
 
 #[async_trait]
 impl RetainStorage for &'static Retainer {
+    #[inline]
+    fn enable(&self) -> bool {
+        true
+    }
+
     ///topic - concrete topic
     async fn set(&self, topic: &TopicName, retain: Retain, expiry_interval: Option<Duration>) -> Result<()> {
         if !self.retain_enable.load(Ordering::SeqCst) {
@@ -561,7 +570,7 @@ pub struct ValueRef<'a, T> {
     updating: bool,
 }
 
-impl<'a, T> ValueRef<'a, T> {
+impl<T> ValueRef<'_, T> {
     #[inline]
     pub fn get(&self) -> Result<&T> {
         if let Some(val) = self.val_guard.cached_val.as_ref() {

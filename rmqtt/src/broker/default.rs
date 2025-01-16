@@ -19,9 +19,10 @@ use uuid::Uuid;
 use crate::broker::fitter::{Fitter, FitterManager};
 use crate::broker::hook::{Handler, Hook, HookManager, HookResult, Parameter, Priority, Register, Type};
 use crate::broker::inflight::InflightMessage;
-use crate::broker::session::{Session, SessionLike, SessionManager, SessionOfflineInfo};
+use crate::broker::session::{Session, SessionLike, SessionManager};
 use crate::broker::topic::{Topic, VecToTopic};
 use crate::broker::types::*;
+use crate::settings::acl::AuthInfo;
 use crate::settings::listener::Listener;
 use crate::stats::Counter;
 use crate::{grpc, MqttError, Result, Runtime, SessionState};
@@ -162,7 +163,7 @@ impl super::Entry for LockEntry {
         clean_start: bool,
         clear_subscriptions: bool,
         is_admin: IsAdmin,
-    ) -> Result<Option<SessionOfflineInfo>> {
+    ) -> Result<OfflineSession> {
         log::debug!(
             "{:?} LockEntry kick ..., clean_start: {}, clear_subscriptions: {}, is_admin: {}",
             self.session().map(|s| s.id.clone()),
@@ -201,18 +202,18 @@ impl super::Entry for LockEntry {
 
         if let Some((s, _)) = self._remove(clear_subscriptions).await {
             if clean_start {
-                Ok(None)
+                Ok(OfflineSession::Exist(None))
             } else {
                 match s.to_offline_info().await {
-                    Ok(offline_info) => Ok(Some(offline_info)),
+                    Ok(offline_info) => Ok(OfflineSession::Exist(Some(offline_info))),
                     Err(e) => {
                         log::error!("get offline info error, {:?}", e);
-                        Ok(None)
+                        Ok(OfflineSession::Exist(None))
                     }
                 }
             }
         } else {
-            Ok(None)
+            Ok(OfflineSession::NotExist)
         }
     }
 
@@ -541,20 +542,25 @@ impl Shared for &'static DefaultShared {
             let (tx, to) = if let Some((tx, to)) = self.tx(&client_id) {
                 (tx, to)
             } else {
-                log::warn!(
-                    "forwards_to, from:{:?}, to:{:?}, topic_filter:{:?}, topic:{:?}, error: Tx is None",
+                log::debug!(
+                    "forwards_to failed, from:{:?}, to:{:?}, topic_filter:{:?}, topic:{:?}, reason: the client has disconnected.",
                     from,
                     client_id,
                     topic_filter,
                     publish.topic
                 );
-                errs.push((To::from(0, client_id), from.clone(), p, Reason::from_static("Tx is None")));
+                errs.push((
+                    To::from(0, client_id),
+                    from.clone(),
+                    p,
+                    Reason::from_static("the client has disconnected"),
+                ));
                 continue;
             };
 
             if let Err(e) = tx.unbounded_send(Message::Forward(from.clone(), p)) {
                 log::warn!(
-                    "forwards_to,  from:{:?}, to:{:?}, topic_filter:{:?}, topic:{:?}, error:{:?}",
+                    "forwards_to failed, from:{:?}, to:{:?}, topic_filter:{:?}, topic:{:?}, reason:{:?}",
                     from,
                     client_id,
                     topic_filter,
@@ -808,8 +814,7 @@ impl DefaultRouter {
         let limit = q._limit;
         let mut curr: usize = 0;
         let topic_filter = TopicFilter::from(topic);
-        return self
-            .relations
+        self.relations
             .get(topic)
             .map(|e| {
                 e.value()
@@ -833,7 +838,7 @@ impl DefaultRouter {
                     })
                     .collect::<Vec<_>>()
             })
-            .unwrap_or_default();
+            .unwrap_or_default()
     }
 
     #[inline]
@@ -1489,7 +1494,7 @@ impl HookManager for &'static DefaultHookManager {
         &self,
         connect_info: &ConnectInfo,
         allow_anonymous: bool,
-    ) -> (ConnectAckReason, Superuser) {
+    ) -> (ConnectAckReason, Superuser, Option<AuthInfo>) {
         let proto_ver = connect_info.proto_ver();
         let ok = || match proto_ver {
             MQTT_LEVEL_31 => ConnectAckReason::V3(ConnectAckReasonV3::ConnectionAccepted),
@@ -1500,7 +1505,7 @@ impl HookManager for &'static DefaultHookManager {
 
         log::debug!("{:?} username: {:?}", connect_info.id(), connect_info.username());
         if connect_info.username().is_none() && allow_anonymous {
-            return (ok(), false);
+            return (ok(), false, None);
         }
 
         let result = self.exec(Type::ClientAuthenticate, Parameter::ClientAuthenticate(connect_info)).await;
@@ -1508,11 +1513,13 @@ impl HookManager for &'static DefaultHookManager {
         let (bad_user_or_pass, not_auth) = match result {
             Some(HookResult::AuthResult(AuthResult::BadUsernameOrPassword)) => (true, false),
             Some(HookResult::AuthResult(AuthResult::NotAuthorized)) => (false, true),
-            Some(HookResult::AuthResult(AuthResult::Allow(superuser))) => return (ok(), superuser),
+            Some(HookResult::AuthResult(AuthResult::Allow(superuser, auth_info))) => {
+                return (ok(), superuser, auth_info)
+            }
             _ => {
                 //or AuthResult::NotFound
                 if allow_anonymous {
-                    return (ok(), false);
+                    return (ok(), false, None);
                 } else {
                     (false, true)
                 }
@@ -1528,6 +1535,7 @@ impl HookManager for &'static DefaultHookManager {
                     _ => ConnectAckReason::V3(ConnectAckReasonV3::BadUserNameOrPassword),
                 },
                 false,
+                None,
             );
         }
 
@@ -1540,10 +1548,11 @@ impl HookManager for &'static DefaultHookManager {
                     _ => ConnectAckReason::V3(ConnectAckReasonV3::NotAuthorized),
                 },
                 false,
+                None,
             );
         }
 
-        (ok(), false)
+        (ok(), false, None)
     }
 
     ///When sending mqtt:: connectack message
@@ -1815,19 +1824,24 @@ impl Hook for DefaultHook {
         let expiry_interval = publish
             .properties
             .message_expiry_interval
-            .map(|i| (i.get() * 1000) as i64)
+            .map(|i| (i.get() as i64 * 1000))
             .unwrap_or_else(|| self.s.listen_cfg().message_expiry_interval.as_millis() as i64);
         log::debug!("{:?} expiry_interval: {:?}", self.s.id, expiry_interval);
         if expiry_interval == 0 {
             return MessageExpiryCheckResult::Remaining(None);
         }
-        let remaining = chrono::Local::now().timestamp_millis() - publish.create_time();
+        let remaining = timestamp_millis() - publish.create_time();
         if remaining < expiry_interval {
             return MessageExpiryCheckResult::Remaining(NonZeroU32::new(
                 ((expiry_interval - remaining) / 1000) as u32,
             ));
         }
         MessageExpiryCheckResult::Expiry
+    }
+
+    #[inline]
+    async fn client_keepalive(&self, ping: IsPing) {
+        let _ = self.manager.exec(Type::ClientKeepalive, Parameter::ClientKeepalive(&self.s, ping)).await;
     }
 }
 
@@ -2053,7 +2067,7 @@ impl SessionLike for DefaultSession {
         let mut disconnect_info = self.disconnect_info.write().await;
 
         if !disconnect_info.is_disconnected() {
-            disconnect_info.disconnected_at = chrono::Local::now().timestamp_millis();
+            disconnect_info.disconnected_at = timestamp_millis();
         }
 
         if let Some(d) = d {
@@ -2120,7 +2134,6 @@ impl DefaultDelayedSender {
         if let Err(e) = SessionState::forwards(
             dp.from,
             dp.publish,
-            dp.retain_available,
             dp.message_storage_available,
             dp.message_expiry_interval,
         )
@@ -2157,19 +2170,12 @@ impl DelayedSender for &'static DefaultDelayedSender {
         &self,
         from: From,
         publish: Publish,
-        retain_available: bool,
         message_storage_available: bool,
         message_expiry_interval: Option<Duration>,
     ) -> Result<Option<(From, Publish)>> {
         let mut msgs = self.msgs.write().await;
         if msgs.len() < Runtime::instance().settings.mqtt.delayed_publish_max {
-            msgs.push(DelayedPublish::new(
-                from,
-                publish,
-                retain_available,
-                message_storage_available,
-                message_expiry_interval,
-            ));
+            msgs.push(DelayedPublish::new(from, publish, message_storage_available, message_expiry_interval));
             Runtime::instance().stats.delayed_publishs.max_max(msgs.len() as isize);
             Ok(None)
         } else {

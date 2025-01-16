@@ -1,5 +1,6 @@
 use itertools::Itertools;
 use once_cell::sync::OnceCell;
+use std::time::Duration;
 
 use rmqtt::{async_trait::async_trait, itertools, log, once_cell, serde_json};
 use rmqtt::{
@@ -63,6 +64,7 @@ impl Router for &'static ClusterRouter {
                     c.clone(),
                     self.message_type,
                     Message::RoutesGet(limit - routes.len()),
+                    Some(Duration::from_secs(10)),
                 )
                 .send()
                 .await;
@@ -90,6 +92,7 @@ impl Router for &'static ClusterRouter {
             self.grpc_clients.clone(),
             self.message_type,
             Message::RoutesGetBy(TopicFilter::from(topic)),
+            Some(Duration::from_secs(10)),
         )
         .join_all()
         .await

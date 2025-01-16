@@ -169,7 +169,7 @@ impl Handler for AclHandler {
                     if hit {
                         log::debug!("{:?} ClientAuthenticate, rule: {:?}", connect_info.id(), rule);
                         return if allow {
-                            (false, Some(HookResult::AuthResult(AuthResult::Allow(superuser))))
+                            (false, Some(HookResult::AuthResult(AuthResult::Allow(superuser, None))))
                         } else {
                             (false, Some(HookResult::AuthResult(AuthResult::NotAuthorized)))
                         };

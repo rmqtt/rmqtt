@@ -9,7 +9,7 @@ use serde::ser::{self, Serialize};
 
 use rmqtt::{
     anyhow::anyhow,
-    log,
+    log, regex,
     serde_json::{self},
     tokio::sync::RwLock,
 };

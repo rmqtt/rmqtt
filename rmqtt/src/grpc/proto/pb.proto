@@ -18,7 +18,14 @@ message BatchMessagesReply{
     bytes data = 1;
 }
 
+message PingReply{
+}
+
+message Empty {
+}
+
 service NodeService {
     rpc SendMessage(Message) returns (MessageReply);
     rpc BatchSendMessages(BatchMessages) returns (BatchMessagesReply);
+    rpc Ping(Empty) returns (PingReply);
 }

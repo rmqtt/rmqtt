@@ -10,16 +10,12 @@ enable = true
 # Bridge name
 name = "bridge_kafka_1"
 
-# bootstrap.servers
+# The list of broker (server) addresses for the Kafka cluster.
 #servers = "127.0.0.1:9092,127.0.0.1:9093,127.0.0.1:9094"
 servers = "127.0.0.1:9092"
 # client.id
 client_id_prefix = "kafka_001"
 
-## Whether to support retain message, true/false, default value: false
-retain_available = false
-## Whether to support storage messages, true/false, default value: false
-storage_available = false
 ## Message expiration time, 0 means no expiration
 expiry_interval = "5m"
 

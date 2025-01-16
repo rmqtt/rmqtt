@@ -97,10 +97,6 @@ connect_timeout = "20s"
 keepalive = "60s"
 # Auto-reconnect interval
 reconnect_interval = "5s"
-# Support retain messages, values: true/false, default: false
-retain_available = false
-# Support message storage, values: true/false, default: false
-storage_available = false
 # Message expiry interval, 0 means no expiry
 expiry_interval = "5m"
 # MQTT protocol version, values: v4, v5, corresponding to MQTT 3.1.1, 5.0

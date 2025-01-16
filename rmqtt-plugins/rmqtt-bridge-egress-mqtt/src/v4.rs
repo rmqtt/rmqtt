@@ -1,9 +1,9 @@
 use std::cell::RefCell;
-use std::net::{SocketAddr, ToSocketAddrs};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use ntex::connect::rustls::Connector as TlsConnector;
 use ntex::connect::Connector;
 use ntex::time::Seconds;
 use ntex::util::ByteString;
@@ -18,16 +18,29 @@ use rmqtt::futures::StreamExt;
 use rmqtt::log;
 use rmqtt::{ClientId, MqttError, NodeId, Result};
 
-use crate::bridge::{BridgePublish, Command, CommandMailbox};
+use crate::bridge::{build_tls_connector, BridgePublish, Command, CommandMailbox};
 use crate::config::Bridge;
 
 #[derive(Clone)]
 pub struct Client {
     pub(crate) cfg: Arc<Bridge>,
-    pub(crate) server_addr: SocketAddr,
     pub(crate) client_id: ClientId,
     closed: Rc<AtomicBool>,
     sink: Rc<RefCell<Option<v3::MqttSink>>>,
+}
+
+enum MqttConnector {
+    Tcp(v3::client::MqttConnector<String, Connector<String>>),
+    Tls(v3::client::MqttConnector<String, TlsConnector<String>>),
+}
+
+impl MqttConnector {
+    async fn connect(&self) -> Result<v3::client::Client> {
+        Ok(match self {
+            MqttConnector::Tcp(c) => c.connect().await.map_err(|e| MqttError::Anyhow(e.into()))?,
+            MqttConnector::Tls(c) => c.connect().await.map_err(|e| MqttError::Anyhow(e.into()))?,
+        })
+    }
 }
 
 impl Client {
@@ -56,17 +69,14 @@ impl Client {
         let client_id =
             format!("{}:{}:egress:{}:{}:{}", cfg.client_id_prefix, cfg.name, node_id, entry_idx, client_no);
 
-        let server_addr = cfg.server.to_socket_addrs()?.next().ok_or_else(|| MqttError::from("None"))?;
-
         let client = Self {
             cfg: Arc::new(cfg),
-            server_addr,
             client_id: ClientId::from(client_id),
             closed: Rc::new(AtomicBool::new(false)),
             sink: Rc::new(RefCell::new(None)),
         };
 
-        let mut builder = v3::client::MqttConnector::new(client.server_addr)
+        let mut builder = v3::client::MqttConnector::new(client.cfg.server.addr.clone())
             .client_id(ByteString::from(client.client_id.as_ref()))
             .keep_alive(Seconds(client.cfg.keepalive.as_secs() as u16))
             .handshake_timeout(Seconds(client.cfg.connect_timeout.as_secs() as u16));
@@ -87,7 +97,12 @@ impl Client {
                 builder = builder.last_will(last_will.clone());
             }
 
-            ntex::rt::spawn(client.clone().start(builder));
+            if client.cfg.server.is_tls() {
+                let builder = builder.connector(build_tls_connector(&client.cfg)?);
+                ntex::rt::spawn(client.clone().start(MqttConnector::Tls(builder)));
+            } else {
+                ntex::rt::spawn(client.clone().start(MqttConnector::Tcp(builder)));
+            }
             ntex::rt::spawn(client.clone().cmd_loop(cmd_rx));
         } else {
             unreachable!()
@@ -130,7 +145,7 @@ impl Client {
         }
     }
 
-    async fn start(self, builder: v3::client::MqttConnector<SocketAddr, Connector<SocketAddr>>) {
+    async fn start(self, builder: MqttConnector) {
         let client = self;
         let sleep_interval = client.cfg.reconnect_interval;
         loop {
@@ -157,50 +172,11 @@ impl Client {
         log::info!("{} Exit 'rmqtt-bridge-ingress-mqtt' client", client.client_id);
     }
 
-    // async fn subscribe(
-    //     self,
-    //     sink: v3::MqttSink,
-    //     topic_filter: ByteString,
-    //     qos: v3::QoS,
-    //     client_id: ByteString,
-    // ) {
-    //     'subscribe: loop {
-    //         match sink.subscribe().topic_filter(topic_filter.clone(), qos).send().await {
-    //             Ok(rets) => {
-    //                 for ret in rets {
-    //                     if let SubscribeReturnCode::Failure = ret {
-    //                         log::info!("{} Subscribe failure, topic_filter: {:?}", client_id, topic_filter);
-    //                         time::sleep(Duration::from_secs(5)).await;
-    //                         continue 'subscribe;
-    //                     } else {
-    //                         log::info!("{} Successfully subscribed to {:?}", client_id, topic_filter,);
-    //                     }
-    //                 }
-    //                 break;
-    //             }
-    //             Err(SendPacketError::Disconnected) => {
-    //                 log::info!("{} Subscribe error, Disconnected", client_id);
-    //                 break;
-    //             }
-    //             Err(e) => {
-    //                 log::info!("{} Subscribe error, {:?}", client_id, e);
-    //                 break;
-    //             }
-    //         }
-    //     }
-    // }
-
     async fn ev_loop(self, c: v3::client::Client) {
         if let Err(e) = c
             .start(move |control: v3::client::ControlMessage<()>| match control {
                 v3::client::ControlMessage::Publish(publish) => {
                     log::debug!("{} publish: {:?}", self.client_id, publish);
-                    // self.on_message.fire((
-                    //     BridgeClient::V4(self.clone()),
-                    //     Some(self.server_addr),
-                    //     None,
-                    //     BridgePublish::V3(publish.packet().clone()),
-                    // ));
                     Ready::Ok(publish.ack())
                 }
                 v3::client::ControlMessage::Error(msg) => {

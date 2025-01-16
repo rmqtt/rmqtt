@@ -9,8 +9,11 @@
 enable = true
 # Bridge name
 name = "bridge_pulsar_1"
-
+# The address of the Pulsar broker that the client will connect to using plain TCP.
+# In this case, it's connecting to the local broker at port 6650.
 servers = "pulsar://127.0.0.1:6650"
+# The address of the Pulsar broker that the client would connect to using SSL/TLS.
+# Uncomment this line to enable a secure connection to the local broker at port 6651.
 #servers = "pulsar+ssl://127.0.0.1:6651"
 
 # producer name prefix
@@ -41,10 +44,18 @@ remote.topic = "non-persistent://public/default/test1"
 
 #determines the target partition of the message. Messages with the same partition_key will be sent to the same partition.
 #remote.partition_key = ""
+
 #this affects the order of messages within a specific partition, not across partitions. If messages have the same ordering_key, they will be consumed in the order they were sent.
-#remote.ordering_key = ""
+#Values: clientid, uuid, random or {type="random", len=10}
+# clientid - use mqtt clientid
+# uuid - uuid
+# random - randomly generated
+#remote.ordering_key = "clientid"
+#remote.ordering_key = {type="random", len=10}
+
 #Override namespace's replication
 #remote.replicate_to = []
+
 #current version of the schema
 #remote.schema_version = ""
 
@@ -52,7 +63,7 @@ remote.topic = "non-persistent://public/default/test1"
 #remote.options.metadata = {}
 #algorithm used to compress the messages, value: lz4,zlib,zstd,snappy
 #remote.options.compression = "lz4"
-#producer access mode: shared = 0, exclusive = 1, waitforexclusive =2, exclusivewithoutfencing =3
+#producer access mode: shared = 0, exclusive = 1, waitforexclusive = 2, exclusivewithoutfencing = 3
 #remote.options.access_mode = 0
 
 [[bridges.entries]]

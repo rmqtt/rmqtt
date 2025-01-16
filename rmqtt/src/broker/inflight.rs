@@ -6,8 +6,8 @@ use rust_box::dequemap::DequeBTreeMap as DequeMap;
 
 use crate::broker::queue::OnEventFn;
 use crate::broker::types::{
-    From, Packet, PacketId, PacketV3, PacketV5, Publish, PublishAck2, PublishAck2Reason, TimestampMillis,
-    UserProperties,
+    timestamp_millis, From, Packet, PacketId, PacketV3, PacketV5, Publish, PublishAck2, PublishAck2Reason,
+    TimestampMillis, UserProperties,
 };
 use crate::{MqttError, Result};
 
@@ -31,24 +31,19 @@ pub struct InflightMessage {
 impl InflightMessage {
     #[inline]
     pub fn new(status: MomentStatus, from: From, publish: Publish) -> Self {
-        Self { publish, from, status, update_time: chrono::Local::now().timestamp_millis() }
+        Self { publish, from, status, update_time: timestamp_millis() }
     }
 
     #[inline]
     fn update_status(&mut self, status: MomentStatus) {
-        self.update_time = chrono::Local::now().timestamp_millis();
+        self.update_time = timestamp_millis();
         self.status = status;
     }
 
     #[inline]
     pub fn timeout(&self, interval_millis: TimestampMillis) -> bool {
-        log::debug!(
-            "interval_millis:{} {}",
-            interval_millis,
-            chrono::Local::now().timestamp_millis() - self.update_time
-        );
-        interval_millis > 0
-            && ((chrono::Local::now().timestamp_millis() - self.update_time) >= interval_millis)
+        log::debug!("interval_millis:{} {}", interval_millis, timestamp_millis() - self.update_time);
+        interval_millis > 0 && ((timestamp_millis() - self.update_time) >= interval_millis)
     }
 
     #[inline]
@@ -132,7 +127,7 @@ impl Inflight {
             return None;
         }
         if let Some((_, m)) = self.queues.front() {
-            let mut t = self.interval - (chrono::Local::now().timestamp_millis() - m.update_time);
+            let mut t = self.interval - (timestamp_millis() - m.update_time);
             if t < 1 {
                 t = 1;
             }

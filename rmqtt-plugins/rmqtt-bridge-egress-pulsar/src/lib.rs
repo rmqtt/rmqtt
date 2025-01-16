@@ -56,11 +56,8 @@ impl BridgePulsarEgressPlugin {
                 while let Some(cmd) = bridge_mgr_cmd_rx.recv().await {
                     match cmd {
                         Command::Start => {
-                            if let Err(e) = bridge_mgr.start().await {
-                                log::error!("start bridge-egress-pulsar error, {:?}", e);
-                            } else {
-                                log::info!("start bridge-egress-pulsar ok.");
-                            }
+                            bridge_mgr.start().await;
+                            log::info!("start bridge-egress-pulsar ok.");
                         }
                         Command::Close => {
                             bridge_mgr.stop().await;

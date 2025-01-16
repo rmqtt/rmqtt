@@ -65,10 +65,6 @@ servers = "127.0.0.1:9092,127.0.0.1:9093,127.0.0.1:9094"
 # Prefix for the client ID.
 client_id_prefix = "kafka_001"
 
-# Support retain messages, values: true/false, default: false
-retain_available = false
-# Support message storage, values: true/false, default: false
-storage_available = false
 # Message expiry interval, 0 means no expiry
 expiry_interval = "5m"
 

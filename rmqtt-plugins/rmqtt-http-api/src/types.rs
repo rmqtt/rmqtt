@@ -29,7 +29,7 @@ pub enum Message<'a> {
     UnloadPlugin { name: &'a str },
 }
 
-impl<'a> Message<'a> {
+impl Message<'_> {
     #[inline]
     pub fn encode(&self) -> Result<Vec<u8>> {
         Ok(bincode::serialize(self).map_err(anyhow::Error::new)?)
@@ -45,7 +45,7 @@ pub enum MessageReply {
     BrokerInfo(BrokerInfo),
     NodeInfo(NodeInfo),
     StatsInfo(NodeStatus, Box<Stats>),
-    MetricsInfo(Metrics),
+    MetricsInfo(Box<Metrics>),
     ClientSearch(Vec<ClientSearchResult>),
     ClientGet(Option<ClientSearchResult>),
     Subscribe(HashMap<TopicFilter, (bool, Option<String>)>),
@@ -311,6 +311,13 @@ impl SubscribeParams {
 pub struct UnsubscribeParams {
     pub topic: TopicFilter,
     pub clientid: ClientId,
+}
+
+#[derive(Deserialize, Serialize, Debug, Copy, Clone, Hash, Eq, PartialEq)]
+pub enum PrometheusDataType {
+    All,
+    Node(NodeId),
+    Sum,
 }
 
 #[inline]

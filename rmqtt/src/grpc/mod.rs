@@ -1,18 +1,19 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::FutureExt;
 
 use client::NodeGrpcClient;
 
-use crate::broker::session::SessionOfflineInfo;
 use crate::broker::types::{
     CleanStart, ClearSubscriptions, From, Id, IsAdmin, NodeId, Publish, Retain, Route, SessionStatus,
     SubsSearchParams, SubsSearchResult, TopicFilter, TopicName,
 };
 use crate::{
-    Addr, ClientId, MsgID, Result, SharedGroup, SubRelations, SubRelationsMap, SubscriptionClientIds,
+    Addr, ClientId, MsgID, OfflineSession, Result, SharedGroup, SubRelations, SubRelationsMap,
+    SubscriptionClientIds,
 };
 
 pub mod client;
@@ -62,7 +63,7 @@ pub enum MessageReply {
     Success,
     Forwards(SubRelationsMap, SubscriptionClientIds),
     Error(String),
-    Kick(Option<SessionOfflineInfo>),
+    Kick(OfflineSession),
     GetRetains(Vec<(TopicName, Retain)>),
     SubscriptionsSearch(Vec<SubsSearchResult>),
     SubscriptionsGet(Option<Vec<SubsSearchResult>>),
@@ -91,17 +92,23 @@ pub struct MessageSender {
     client: NodeGrpcClient,
     msg_type: MessageType,
     msg: Message,
+    timeout: Option<Duration>,
 }
 
 impl MessageSender {
     #[inline]
-    pub fn new(client: NodeGrpcClient, msg_type: MessageType, msg: Message) -> Self {
-        Self { client, msg_type, msg }
+    pub fn new(
+        client: NodeGrpcClient,
+        msg_type: MessageType,
+        msg: Message,
+        timeout: Option<Duration>,
+    ) -> Self {
+        Self { client, msg_type, msg, timeout }
     }
 
     #[inline]
     pub async fn send(self) -> Result<MessageReply> {
-        match self.client.send_message(self.msg_type, self.msg).await {
+        match self.client.send_message(self.msg_type, self.msg, self.timeout).await {
             Ok(reply) => Ok(reply),
             Err(e) => {
                 log::warn!("error sending message, {:?}", e);
@@ -117,13 +124,19 @@ pub struct MessageBroadcaster {
     grpc_clients: GrpcClients,
     msg_type: MessageType,
     msg: Message,
+    timeout: Option<Duration>,
 }
 
 impl MessageBroadcaster {
     #[inline]
-    pub fn new(grpc_clients: GrpcClients, msg_type: MessageType, msg: Message) -> Self {
+    pub fn new(
+        grpc_clients: GrpcClients,
+        msg_type: MessageType,
+        msg: Message,
+        timeout: Option<Duration>,
+    ) -> Self {
         assert!(!grpc_clients.is_empty(), "gRPC clients is empty!");
-        Self { grpc_clients, msg_type, msg }
+        Self { grpc_clients, msg_type, msg, timeout }
     }
 
     #[inline]
@@ -133,7 +146,7 @@ impl MessageBroadcaster {
         for (id, (_, grpc_client)) in self.grpc_clients.iter() {
             let msg_type = self.msg_type;
             let msg = msg.clone();
-            let fut = async move { (*id, grpc_client.send_message(msg_type, msg).await) };
+            let fut = async move { (*id, grpc_client.send_message(msg_type, msg, self.timeout).await) };
             senders.push(fut.boxed());
         }
         futures::future::join_all(senders).await
@@ -150,10 +163,12 @@ impl MessageBroadcaster {
         let max_idx = self.grpc_clients.len() - 1;
         for (i, (_, (_, grpc_client))) in self.grpc_clients.iter().enumerate() {
             if i == max_idx {
-                senders.push(Self::send(grpc_client, self.msg_type, msg, &check_fn).boxed());
+                senders.push(Self::send(grpc_client, self.msg_type, msg, self.timeout, &check_fn).boxed());
                 break;
             } else {
-                senders.push(Self::send(grpc_client, self.msg_type, msg.clone(), &check_fn).boxed());
+                senders.push(
+                    Self::send(grpc_client, self.msg_type, msg.clone(), self.timeout, &check_fn).boxed(),
+                );
             }
         }
         let (reply, _) = futures::future::select_ok(senders).await?;
@@ -165,13 +180,14 @@ impl MessageBroadcaster {
         grpc_client: &NodeGrpcClient,
         typ: MessageType,
         msg: Message,
+        timeout: Option<Duration>,
         check_fn: &F,
     ) -> Result<R>
     where
         R: std::any::Any + Send + Sync,
         F: Fn(MessageReply) -> Result<R> + Send + Sync,
     {
-        match grpc_client.send_message(typ, msg).await {
+        match grpc_client.send_message(typ, msg, timeout).await {
             Ok(r) => {
                 log::debug!("OK reply: {:?}", r);
                 check_fn(r)

@@ -3,7 +3,6 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::{Duration, Instant};
 
 use once_cell::sync::Lazy;
-use rust_box::std_ext::RwLock;
 use systemstat::Platform;
 
 use crate::grpc::client::NodeGrpcClient;
@@ -37,7 +36,9 @@ impl Node {
 
     #[inline]
     pub async fn new_grpc_client(&self, remote_addr: &str) -> Result<NodeGrpcClient> {
-        NodeGrpcClient::new(remote_addr).await
+        let c = NodeGrpcClient::new(remote_addr).await?;
+        c.start_ping();
+        Ok(c)
     }
 
     pub fn start_grpc_server(&self) {
@@ -64,7 +65,16 @@ impl Node {
 
     #[inline]
     pub async fn status(&self) -> NodeStatus {
-        NodeStatus::Running
+        match Runtime::instance().extends.shared().await.health_status().await {
+            Ok(status) => {
+                if status.running {
+                    NodeStatus::Running(1)
+                } else {
+                    NodeStatus::Stop
+                }
+            }
+            Err(e) => NodeStatus::Error(e.to_string()),
+        }
     }
 
     #[inline]
@@ -77,6 +87,7 @@ impl Node {
         let node_id = self.id();
         BrokerInfo {
             version: version::VERSION.to_string(),
+            rustc_version: version::RUSTC_VERSION.to_string(),
             uptime: self.uptime(),
             sysdescr: "RMQTT Broker".into(),
             node_status: self.status().await,
@@ -122,6 +133,7 @@ impl Node {
             node_name: Runtime::instance().extends.shared().await.node_name(node_id),
             uptime: self.uptime(),
             version: version::VERSION.to_string(),
+            rustc_version: version::RUSTC_VERSION.to_string(),
         }
     }
 
@@ -139,7 +151,8 @@ impl Node {
 
     #[inline]
     pub fn sys_is_busy(&self) -> bool {
-        static CACHED: Lazy<RwLock<(bool, Instant)>> = Lazy::new(|| RwLock::new((false, Instant::now())));
+        static CACHED: Lazy<parking_lot::RwLock<(bool, Instant)>> =
+            Lazy::new(|| parking_lot::RwLock::new((false, Instant::now())));
         {
             let cached = CACHED.read();
             let (busy, inst) = cached.deref();
@@ -184,6 +197,7 @@ impl Node {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BrokerInfo {
     pub version: String,
+    pub rustc_version: String,
     pub uptime: String,
     pub sysdescr: String,
     pub node_status: NodeStatus,
@@ -196,9 +210,10 @@ impl BrokerInfo {
     pub fn to_json(&self) -> serde_json::Value {
         json!({
             "version": self.version,
+            "rustc_version": self.rustc_version,
             "uptime": self.uptime,
             "sysdescr": self.sysdescr,
-            "node_status": self.node_status,
+            "running": self.node_status.is_running(),
             "node_id": self.node_id,
             "node_name": self.node_name,
             "datetime": self.datetime
@@ -229,9 +244,11 @@ pub struct NodeInfo {
     pub node_name: String,
     pub uptime: String,
     pub version: String,
+    pub rustc_version: String,
 }
 
 impl NodeInfo {
+    #[inline]
     pub fn to_json(&self) -> serde_json::Value {
         json!({
             "connections":  self.connections,
@@ -250,21 +267,66 @@ impl NodeInfo {
             // "os_release":  self.os_release,
             // "os_type":  self.os_type,
             // "proc_total":  self.proc_total,
-            "node_status":  self.node_status,
+            "running":  self.node_status.is_running(),
             "node_id":  self.node_id,
             "node_name":  self.node_name,
             "uptime":  self.uptime,
-            "version":  self.version
+            "version":  self.version,
+            "rustc_version": self.rustc_version,
         })
+    }
+
+    #[inline]
+    pub fn add(&mut self, other: &NodeInfo) {
+        self.load1 += other.load1;
+        self.load5 += other.load5;
+        self.load15 += other.load15;
+        self.memory_total += other.memory_total;
+        self.memory_used += other.memory_used;
+        self.memory_free += other.memory_free;
+        self.disk_total += other.disk_total;
+        self.disk_free += other.disk_free;
+        self.node_status = {
+            let c = match (&self.node_status, &other.node_status) {
+                (NodeStatus::Running(c1), NodeStatus::Running(c2)) => *c1 + *c2,
+                (NodeStatus::Running(c1), _) => *c1,
+                (_, NodeStatus::Running(c2)) => *c2,
+                (_, _) => 0,
+            };
+            NodeStatus::Running(c)
+        };
     }
 }
 
-#[derive(Default, Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "lowercase")]
 pub enum NodeStatus {
-    #[default]
-    Running,
+    Running(usize),
     Stop,
     Error(String),
+}
+
+impl NodeStatus {
+    #[inline]
+    pub fn running(&self) -> usize {
+        if let NodeStatus::Running(c) = self {
+            *c
+        } else {
+            0
+        }
+    }
+
+    #[inline]
+    pub fn is_running(&self) -> bool {
+        matches!(self, NodeStatus::Running(_))
+    }
+}
+
+impl Default for NodeStatus {
+    #[inline]
+    fn default() -> Self {
+        NodeStatus::Stop
+    }
 }
 
 #[inline]

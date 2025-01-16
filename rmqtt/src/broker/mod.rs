@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use once_cell::sync::OnceCell;
 
-use crate::broker::session::{Session, SessionOfflineInfo};
+use crate::broker::session::Session;
 use crate::broker::types::*;
 use crate::grpc::{GrpcClients, MessageBroadcaster, MessageReply, MESSAGE_TYPE_MESSAGE_GET};
 use crate::settings::listener::Listener;
@@ -42,7 +42,7 @@ pub trait Entry: Sync + Send {
         clean_start: bool,
         clear_subscriptions: bool,
         is_admin: IsAdmin,
-    ) -> Result<Option<SessionOfflineInfo>>;
+    ) -> Result<OfflineSession>;
     async fn online(&self) -> bool;
     async fn is_connected(&self) -> bool;
     fn session(&self) -> Option<Session>;
@@ -116,8 +116,18 @@ pub trait Shared: Sync + Send {
     }
 
     #[inline]
-    async fn check_health(&self) -> Result<Option<serde_json::Value>> {
-        Ok(Some(json!({"status": "Ok", "nodes": []})))
+    async fn check_health(&self) -> Result<HealthInfo> {
+        Ok(HealthInfo::default())
+    }
+
+    #[inline]
+    async fn health_status(&self) -> Result<NodeHealthStatus> {
+        Ok(NodeHealthStatus::default())
+    }
+
+    #[inline]
+    fn operation_is_busy(&self) -> bool {
+        false
     }
 
     #[inline]
@@ -140,6 +150,7 @@ pub trait Shared: Sync + Send {
                         TopicFilter::from(topic_filter),
                         group.cloned(),
                     ),
+                    Some(Duration::from_secs(10)),
                 )
                 .join_all()
                 .await;
@@ -273,8 +284,8 @@ pub trait SharedSubscription: Sync + Send {
 pub trait RetainStorage: Sync + Send {
     ///Whether retain is supported
     #[inline]
-    fn is_supported(&self, listen_cfg: &Listener) -> bool {
-        listen_cfg.retain_available
+    fn enable(&self) -> bool {
+        false
     }
 
     ///topic - concrete topic
@@ -373,7 +384,6 @@ pub trait DelayedSender: Sync + Send {
         &self,
         from: From,
         publish: Publish,
-        retain_available: bool,
         message_storage_available: bool,
         message_expiry_interval: Option<Duration>,
     ) -> Result<Option<(From, Publish)>>;

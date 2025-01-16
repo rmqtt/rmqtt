@@ -144,6 +144,15 @@ impl NodeService for NodeGrpcService {
         let reply = bincode::serialize(&reply).map_err(|e| tonic::Status::unavailable(e.to_string()))?;
         Ok(Response::new(pb::BatchMessagesReply { data: reply }))
     }
+
+    #[inline]
+    async fn ping(
+        &self,
+        request: tonic::Request<pb::Empty>,
+    ) -> Result<tonic::Response<pb::PingReply>, tonic::Status> {
+        log::trace!("request: {:?}", request);
+        Ok(Response::new(pb::PingReply {}))
+    }
 }
 
 pub static ACTIVE_REQUEST_COUNT: Lazy<Arc<AtomicIsize>> = Lazy::new(|| Arc::new(AtomicIsize::new(0)));

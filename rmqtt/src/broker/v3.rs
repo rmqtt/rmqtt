@@ -6,7 +6,7 @@ use std::sync::Arc;
 use rust_box::task_exec_queue::LocalSpawnExt;
 use uuid::Uuid;
 
-use crate::broker::executor::get_handshake_exec;
+use crate::broker::executor::{get_handshake_exec, is_too_many_unavailable, unavailable_stats};
 use crate::broker::{inflight::MomentStatus, types::*};
 use crate::runtime::Runtime;
 use crate::settings::listener::Listener;
@@ -19,6 +19,9 @@ async fn refused_ack<Io>(
     ack_code: ConnectAckReasonV3,
     reason: String,
 ) -> v3::HandshakeAck<Io, SessionState> {
+    if matches!(ack_code, ConnectAckReasonV3::ServiceUnavailable) {
+        unavailable_stats().inc();
+    }
     let new_ack_code = Runtime::instance()
         .extends
         .hook_mgr()
@@ -30,7 +33,7 @@ async fn refused_ack<Io>(
         connect_info.id(),
         ack_code,
         new_ack_code,
-        reason,
+        reason
     );
     new_ack_code.v3_error_ack(handshake)
 }
@@ -47,8 +50,24 @@ pub async fn handshake<Io: 'static>(
         local_addr,
         remote_addr,
         handshake,
-        listen_cfg
+        listen_cfg,
     );
+
+    //RReject the service if the connection handshake too many unavailable.
+    if is_too_many_unavailable().await {
+        log::warn!(
+            "{:?} Connection Refused, handshake fail, reason: too busy, fails rate: {}",
+            Id::new(
+                Runtime::instance().node.id(),
+                Some(local_addr),
+                Some(remote_addr),
+                ClientId::default(),
+                handshake.packet().username.clone(),
+            ),
+            unavailable_stats().rate()
+        );
+        return Ok(ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable).v3_error_ack(handshake));
+    }
 
     if handshake.packet().client_id.is_empty() {
         if handshake.packet().clean_session {
@@ -83,13 +102,20 @@ pub async fn handshake<Io: 'static>(
     match _handshake(id.clone(), listen_cfg, handshake).spawn(&exec).result().await {
         Ok(Ok(res)) => Ok(res),
         Ok(Err(e)) => {
-            log::warn!("{:?} Connection Refused, handshake error, reason: {:?}", id, e.to_string());
+            unavailable_stats().inc();
+            log::warn!(
+                "{:?} Connection Refused, handshake error, reason: {:?}, fails rate: {}",
+                id,
+                e.to_string(),
+                unavailable_stats().rate()
+            );
             Err(e)
         }
         Err(e) => {
             Runtime::instance().metrics.client_handshaking_timeout_inc();
+            unavailable_stats().inc();
             let err = MqttError::from("Connection Refused, execute handshake timeout");
-            log::warn!("{:?} {:?}, reason: {:?}", id, err, e.to_string());
+            log::warn!("{:?} {:?}, reason: {:?}", id, err, e.to_string(),);
             Err(err)
         }
     }
@@ -116,8 +142,19 @@ async fn _handshake<Io: 'static>(
         .await);
     }
 
+    let entry = Runtime::instance().extends.shared().await.entry(id.clone());
+    let max_sessions = Runtime::instance().settings.mqtt.max_sessions;
+    if max_sessions > 0 && Runtime::instance().stats.sessions.count() >= max_sessions && !entry.exist() {
+        return Ok(refused_ack(
+                    handshake,
+                    &connect_info,
+                    ConnectAckReasonV3::ServiceUnavailable,
+                    format!("the number of sessions on the current node exceeds the limit, with a maximum of {} sessions allowed", max_sessions),
+                ).await);
+    }
+
     //hook, client authenticate
-    let (ack, superuser) = Runtime::instance()
+    let (ack, superuser, auth_info) = Runtime::instance()
         .extends
         .hook_mgr()
         .await
@@ -148,22 +185,27 @@ async fn _handshake<Io: 'static>(
     };
 
     // Kick out the current session, if it exists
-    let (session_present, offline_info) =
-        match entry.kick(packet.clean_session, packet.clean_session, false).await {
-            Err(e) => {
-                return Ok(refused_ack(
-                    handshake,
-                    &connect_info,
-                    ConnectAckReasonV3::ServiceUnavailable,
-                    format!("{}", e),
-                )
-                .await);
-            }
-            Ok(Some(offline_info)) => (!packet.clean_session, Some(offline_info)),
-            Ok(None) => (false, None),
-        };
+    let (session_present, has_offline_session, offline_info) = match entry
+        .kick(packet.clean_session, packet.clean_session, false)
+        .await
+    {
+        Err(e) => {
+            return Ok(refused_ack(
+                handshake,
+                &connect_info,
+                ConnectAckReasonV3::ServiceUnavailable,
+                format!("{}", e),
+            )
+            .await);
+        }
+        Ok(OfflineSession::NotExist) => (false, false, None),
+        Ok(OfflineSession::Exist(Some(offline_info))) => (!packet.clean_session, true, Some(offline_info)),
+        Ok(OfflineSession::Exist(None)) => (false, true, None),
+    };
 
-    let connected_at = chrono::Local::now().timestamp_millis();
+    log::debug!("has_offline_session: {}", has_offline_session);
+
+    let connected_at = timestamp_millis();
 
     let fitter = Runtime::instance().extends.fitter_mgr().await.create(
         connect_info.clone(),
@@ -182,6 +224,7 @@ async fn _handshake<Io: 'static>(
         max_mqueue_len,
         listen_cfg,
         fitter,
+        auth_info,
         max_inflight,
         created_at,
         connect_info.clone(),
@@ -382,7 +425,7 @@ pub async fn publish(state: v3::Session<SessionState>, pub_msg: v3::PublishMessa
                     Ok(())
                 }
             };
-            if Runtime::instance().is_busy() {
+            if Runtime::instance().is_busy().await {
                 Runtime::local_exec()
                     .spawn(publish_fut)
                     .result()

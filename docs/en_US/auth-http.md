@@ -28,13 +28,25 @@ plugins/rmqtt-auth-http.toml
 http_timeout = "5s"
 http_headers.accept = "*/*"
 http_headers.Cache-Control = "no-cache"
-http_headers.User-Agent = "RMQTT/0.4.0"
+http_headers.User-Agent = "RMQTT/0.8.0"
 http_headers.Connection = "keep-alive"
 
-#Disconnect if publishing is rejected
+## Disconnect if publishing is rejected
+##
+## Value: true | false
+## Default: true
 disconnect_if_pub_rejected = true
 
-#Return 'Deny' if http request error otherwise 'Ignore'
+## Disconnect After Expiration
+##
+## Value: true | false
+## Default: false
+disconnect_if_expiry = false
+
+##Return 'Deny' if http request error otherwise 'Ignore'
+##
+## Value: true | false
+## Default: true
 deny_if_error = true
 
 ##--------------------------------------------------------------------
@@ -78,14 +90,9 @@ http_acl_req.method = "post"
 http_acl_req.params = { access = "%A", username = "%u", clientid = "%c", ipaddr = "%a", topic = "%t" }
 ```
 
+> **TIP**    
+> The rmqtt-auth-http plugin also includes ACL feature, which can be disabled via comments.
 
-
-<div style="width:100%;padding:15px;border-left:10px solid #1cc68b;background-color: #d1e3dd; color: #00b173;">
-<div style="font-size:1.3em;">TIP<br></div>
-<font style="color:#435364;font-size:1.1em;">
-The rmqtt-auth-http plugin also includes ACL feature, which can be disabled via comments.
-</font>
-</div>
 
 ## Authentication principle
 
@@ -105,7 +112,7 @@ RMQTT Broker: In the device connection event, use the current client-related inf
 
 
 Response examples:
-```json
+```
 HTTP/1.1 200 OK
 X-Superuser: true
 Content-Type: text/plain
@@ -114,6 +121,48 @@ Date: Wed, 07 Jun 2023 01:29:23 GMT
 
 allow
 ```
+
+Starting from *RMQTT* version 0.8.0, you can set an optional `acl` field in the response body to specify client permissions. For more details, please refer to the [Access Control List (ACL)](./perm-list.md).
+
+Starting from *RMQTT* version 0.8.0, you can set an optional `expire_at` field in the response body to specify the client's authentication expiration time and force the client to disconnect for reauthentication. The value should be a Unix timestamp (in seconds).
+
+
+Response examples:
+```json
+HTTP/1.1 200 OK
+Content-Length: 565
+Content-Type: application/json; charset=utf-8
+Date: Wed, 25 Sep 2024 01:54:37 GMT
+
+{
+  "result": "allow",  // "allow" | "deny" | "ignore"
+  "superuser": false,  // true | false, If this field is empty, the default value is `false`
+  "expire_at": 1827143027,  // Optional, authentication expiration time
+  "acl": [
+    {
+      "action": "all",
+      "permission": "allow",
+      "topic": "foo/${clientid}"
+    },
+    {
+      "action": "subscribe",
+      "permission": "allow",
+      "qos": [1, 2],
+      "topic": "eq foo/1/#"
+    },
+    {
+      "action": "publish",
+      "permission": "deny",
+      "retain": true,
+      "topic": "foo/4"
+    }
+  ]
+}
+```
+
+> **TIP**    
+> To support predefined ACL permissions, the *Content-Type* must be set to 'application/json' format.
+
 
 ## Authentication request
 
@@ -147,12 +196,9 @@ You can use the following placeholders in the authentication request, and RMQTT 
 - %r：Client Access Protocol
 - %P：Clear text password
 
-<div style="width:100%;padding:15px;border-left:10px solid #1cc68b;background-color: #d1e3dd; color: #00b173;">
-<div style="font-size:1.3em;">TIP<br></div>
-<font style="color:#435364;font-size:1.1em;">
-The POST and PUT methods are recommended. When using the GET method, the clear text password may be recorded with the URL in the server log during transmission.
-</font>
-</div>
+
+> **TIP<br>**
+> The POST and PUT methods are recommended. When using the GET method, the clear text password may be recorded with the URL in the server log during transmission.
 
 
 # HTTP ACL
@@ -165,13 +211,8 @@ Plugin：
 rmqtt-auth-http
 ```
 
-<div style="width:100%;padding:15px;border-left:10px solid #1cc68b;background-color: #d1e3dd; color: #00b173;">
-<div style="font-size:1.3em;">TIP<br></div>
-<font style="color:#435364;font-size:1.1em;">
-The rmqtt-auth-http plugin includes authentication functionality and can be disabled by commenting out certain sections of the code.
-</font>
-</div>
-
+> **TIP<br>**
+> The rmqtt-auth-http plugin includes authentication functionality and can be disabled by commenting out certain sections of the code.
 
 To enable HTTP ACL, the following needs to be configured in `etc/plugins/rmqtt-auth-http.toml`:
 
@@ -237,13 +278,9 @@ You can use the following placeholders in the authentication request, and RMQTT 
 - %r：The MQTT protocol version accessed by the client. The values are: 3=3.1, 4=3.1.1 or 5=5.0
 - %t：Topic
 
-<div style="width:100%;padding:15px;border-left:10px solid #1cc68b;background-color: #d1e3dd; color: #00b173;">
-<div style="font-size:1.3em;">TIP<br></div>
-<font style="color:#435364;font-size:1.1em;">
-It is recommended to use POST and PUT methods. When using the GET method, the plain text password may be recorded in the server logs during the transmission process along with the URL.
-</font>
-</div>
-
+> **TIP<br>**
+> It is recommended to use POST and PUT methods. When using the GET method, the plain text password may be recorded in 
+> the server logs during the transmission process along with the URL.
 
 # HTTP basic request information
 
@@ -256,7 +293,7 @@ HTTP API basic request information and headers.
 http_timeout = "5s"
 http_headers.accept = "*/*"
 http_headers.Cache-Control = "no-cache"
-http_headers.User-Agent = "RMQTT/0.2.11"
+http_headers.User-Agent = "RMQTT/0.8.0"
 http_headers.Connection = "keep-alive"
 
 # If publishing a message is rejected, the connection will be disconnected.

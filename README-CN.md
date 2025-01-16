@@ -1,7 +1,7 @@
 # RMQTT Broker
 
 [![GitHub Release](https://img.shields.io/github/release/rmqtt/rmqtt?color=brightgreen)](https://github.com/rmqtt/rmqtt/releases)
-<a href="https://blog.rust-lang.org/2023/08/03/Rust-1.71.1.html"><img alt="Rust Version" src="https://img.shields.io/badge/rust-1.71.1%2B-blue" /></a>
+<a href="https://blog.rust-lang.org/2024/09/05/Rust-1.81.0.html"><img alt="Rust Version" src="https://img.shields.io/badge/rust-1.81.0%2B-blue" /></a>
 
 [English](./README.md)  | 简体中文
 
@@ -17,8 +17,10 @@
     - 离线消息支持;
     - [Retained 消息支持](./docs/zh_CN/retainer.md);
     - Last Will 消息支持;
+- [分布式集群](./docs/zh_CN/cluster-raft.md);
 - [内置 AUTH/ACL](./docs/zh_CN/acl.md);
 - [HTTP AUTH/ACL](./docs/zh_CN/auth-http.md);
+- [JWT AUTH/ACL](./docs/zh_CN/auth-jwt.md);
 - [WebHook](./docs/zh_CN/web-hook.md);
 - [HTTP APIs](./docs/zh_CN/http-api.md);
 - [$SYS 系统主题](./docs/zh_CN/sys-topic.md);
@@ -28,13 +30,16 @@
 - [MQTT桥接-出口模式](./docs/zh_CN/bridge-egress-mqtt.md)
 - [Apache Kafka桥接-入口模式](./docs/zh_CN/bridge-ingress-kafka.md)
 - [Apache kafka桥接-出口模式](./docs/zh_CN/bridge-egress-kafka.md)
+- [Apache Pulsar桥接-入口模式](./docs/zh_CN/bridge-ingress-pulsar.md)
 - [Apache Pulsar桥接-出口模式](./docs/zh_CN/bridge-egress-pulsar.md)
+- [NATS桥接-出口模式](./docs/zh_CN/bridge-egress-nats.md)
+- [Reductstore桥接-出口模式](./docs/zh_CN/bridge-egress-reductstore.md)
 - [主题重写](./docs/zh_CN/topic-rewrite.md)
+- [自动订阅](./docs/zh_CN/auto-subscription.md)
 - 共享订阅($share/{Group}/{TopicFilter});
 - 排它订阅($exclusive/{TopicFilter});
 - 限制订阅($limit/{LimitQuantity}/{TopicFilter});
 - 延迟发布($delayed/{DelayInterval}/{TopicName});
-- 分布式集群;
 - 钩子(Hooks);
 - TLS支持;
 - WebSocket支持;

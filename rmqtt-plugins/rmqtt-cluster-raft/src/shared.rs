@@ -1,32 +1,30 @@
-use std::collections::HashSet;
 use std::convert::From as _;
 use std::time::Duration;
 
 use rmqtt::{
-    anyhow, anyhow::Error, async_trait::async_trait, futures, futures::future::FutureExt, log,
-    once_cell::sync::OnceCell, rust_box::task_exec_queue::SpawnExt, serde_json, serde_json::json,
+    ahash::HashSet, anyhow, anyhow::Error, async_trait::async_trait, futures, futures::future::FutureExt,
+    log, once_cell::sync::OnceCell, rust_box::task_exec_queue::SpawnExt,
 };
 use rmqtt::{
     broker::{
         default::DefaultShared,
-        session::{Session, SessionOfflineInfo},
+        session::Session,
         types::{
-            From, Id, IsAdmin, NodeId, NodeName, Publish, Reason, SessionStatus, SubRelations,
-            SubRelationsMap, SubsSearchParams, SubsSearchResult, Subscribe, SubscribeReturn,
+            From, Id, IsAdmin, NodeId, NodeName, OfflineSession, Publish, Reason, SessionStatus,
+            SubRelations, SubRelationsMap, SubsSearchParams, SubsSearchResult, Subscribe, SubscribeReturn,
             SubscriptionClientIds, To, Tx, Unsubscribe,
         },
         Entry, Router, Shared,
     },
-    grpc::MessageBroadcaster,
-    grpc::{Message, MessageReply, MessageType},
-    MqttError, Result, Runtime,
+    grpc::{Message, MessageBroadcaster, MessageReply, MessageSender, MessageType},
+    HealthInfo, MqttError, NodeHealthStatus, Result, Runtime,
 };
 
 use super::message::{
     get_client_node_id, Message as RaftMessage, MessageReply as RaftMessageReply, RaftGrpcMessage,
     RaftGrpcMessageReply,
 };
-use super::{task_exec_queue, ClusterRouter, GrpcClients, HashMap, MessageSender, NodeGrpcClient};
+use super::{task_exec_queue, ClusterRouter, GrpcClients, HashMap, NodeGrpcClient};
 
 pub struct ClusterLockEntry {
     inner: Box<dyn Entry>,
@@ -51,7 +49,11 @@ impl Entry for ClusterLockEntry {
     async fn try_lock(&self) -> Result<Box<dyn Entry>> {
         let msg = RaftMessage::HandshakeTryLock { id: self.id() }.encode()?;
         let raft_mailbox = self.cluster_shared.router.raft_mailbox().await;
-        let reply = raft_mailbox.send_proposal(msg).await.map_err(anyhow::Error::new)?;
+        let reply = async move { raft_mailbox.send_proposal(msg).await.map_err(anyhow::Error::new) }
+            .spawn(task_exec_queue())
+            .result()
+            .await
+            .map_err(|_| MqttError::from("ClusterLockEntry::try_lock(..), task execution failure"))??;
         let mut prev_node_id = None;
         if !reply.is_empty() {
             match RaftMessageReply::decode(&reply)? {
@@ -91,7 +93,11 @@ impl Entry for ClusterLockEntry {
     async fn set(&mut self, session: Session, tx: Tx) -> Result<()> {
         let msg = RaftMessage::Connected { id: session.id.clone() }.encode()?;
         let raft_mailbox = self.cluster_shared.router.raft_mailbox().await;
-        let reply = raft_mailbox.send_proposal(msg).await.map_err(anyhow::Error::new)?;
+        let reply = async move { raft_mailbox.send_proposal(msg).await.map_err(anyhow::Error::new) }
+            .spawn(task_exec_queue())
+            .result()
+            .await
+            .map_err(|_| MqttError::from("ClusterLockEntry::set(..), task execution failure"))??;
         if !reply.is_empty() {
             let reply = RaftMessageReply::decode(&reply)?;
             match reply {
@@ -124,7 +130,7 @@ impl Entry for ClusterLockEntry {
         clean_start: bool,
         clear_subscriptions: bool,
         is_admin: IsAdmin,
-    ) -> Result<Option<SessionOfflineInfo>> {
+    ) -> Result<OfflineSession> {
         log::debug!(
             "{:?} ClusterLockEntry kick ..., clean_start: {}, clear_subscriptions: {}, is_admin: {}",
             self.session().map(|s| s.id.clone()),
@@ -151,18 +157,17 @@ impl Entry for ClusterLockEntry {
                 let message_type = self.cluster_shared.message_type;
                 let id1 = id.clone();
                 let kick_fut = async move {
-                    let mut msg_sender = MessageSender {
+                    let msg_sender = MessageSender::new(
                         client,
-                        msg_type: message_type,
-                        msg: Message::Kick(id1, clean_start, true, is_admin), //clear_subscriptions
-                        max_retries: 0,
-                        retry_interval: Duration::from_millis(500),
-                    };
+                        message_type,
+                        Message::Kick(id1, clean_start, true, is_admin), //clear_subscriptions
+                        Some(Duration::from_secs(10)),
+                    );
                     match msg_sender.send().await {
                         Ok(reply) => {
-                            if let MessageReply::Kick(Some(kicked)) = reply {
+                            if let MessageReply::Kick(kicked) = reply {
                                 log::debug!("{:?} kicked: {:?}", id, kicked);
-                                Some(kicked)
+                                kicked
                             } else {
                                 log::info!(
                                     "{:?} Message::Kick from other node, prev_node_id: {:?}, reply: {:?}",
@@ -170,7 +175,7 @@ impl Entry for ClusterLockEntry {
                                     prev_node_id,
                                     reply
                                 );
-                                None
+                                OfflineSession::NotExist
                             }
                         }
                         Err(e) => {
@@ -180,7 +185,7 @@ impl Entry for ClusterLockEntry {
                                 prev_node_id,
                                 e
                             );
-                            None
+                            OfflineSession::NotExist
                         }
                     }
                 };
@@ -243,13 +248,12 @@ impl Entry for ClusterLockEntry {
         } else {
             //from other node
             if let Some(client) = self.cluster_shared.grpc_client(id.node_id) {
-                let reply = MessageSender {
+                let reply = MessageSender::new(
                     client,
-                    msg_type: self.cluster_shared.message_type,
-                    msg: Message::SubscriptionsGet(id.client_id.clone()),
-                    max_retries: 0,
-                    retry_interval: Duration::from_millis(500),
-                }
+                    self.cluster_shared.message_type,
+                    Message::SubscriptionsGet(id.client_id.clone()),
+                    Some(Duration::from_secs(10)),
+                )
                 .send()
                 .await;
                 match reply {
@@ -273,7 +277,9 @@ pub struct ClusterShared {
     router: &'static ClusterRouter,
     grpc_clients: GrpcClients,
     node_names: HashMap<NodeId, NodeName>,
-    pub message_type: MessageType,
+    pub(crate) message_type: MessageType,
+    exec_queue_busy_limit: isize,
+    exec_queue_workers_busy_limit: isize,
 }
 
 impl ClusterShared {
@@ -283,6 +289,8 @@ impl ClusterShared {
         grpc_clients: GrpcClients,
         node_names: HashMap<NodeId, NodeName>,
         message_type: MessageType,
+        exec_queue_max: usize,
+        exec_queue_workers: usize,
     ) -> &'static ClusterShared {
         static INSTANCE: OnceCell<ClusterShared> = OnceCell::new();
         INSTANCE.get_or_init(|| Self {
@@ -291,6 +299,8 @@ impl ClusterShared {
             grpc_clients,
             node_names,
             message_type,
+            exec_queue_busy_limit: (exec_queue_max as f64 * 0.7) as isize,
+            exec_queue_workers_busy_limit: (exec_queue_workers as f64 * 0.9) as isize,
         })
     }
 
@@ -340,7 +350,6 @@ impl Shared for &'static ClusterShared {
             }
         };
 
-        //let subs_size: SubscriptionSize = relations_map.values().map(|subs| subs.len()).sum();
         let sub_client_ids = self.inner()._collect_subscription_client_ids(&relations_map);
 
         let mut errs = Vec::new();
@@ -362,22 +371,22 @@ impl Shared for &'static ClusterShared {
                     let publish = publish.clone();
                     let message_type = self.message_type;
                     let fut_sender = async move {
-                        let mut msg_sender = MessageSender {
+                        let msg_sender = MessageSender::new(
                             client,
-                            msg_type: message_type,
-                            msg: Message::ForwardsTo(from, publish, relations),
-                            max_retries: 1,
-                            retry_interval: Duration::from_millis(500),
-                        };
+                            message_type,
+                            Message::ForwardsTo(from, publish, relations),
+                            Some(Duration::from_secs(10)),
+                        );
                         (node_id, msg_sender.send().await)
                     };
                     fut_senders.push(fut_sender.boxed());
                 } else {
-                    log::error!(
+                    log::warn!(
                         "forwards error, grpc_client is not exist, node_id: {}, relations: {:?}",
                         node_id,
                         relations
                     );
+                    //@TODO messasge dropped
                 }
             }
 
@@ -388,12 +397,13 @@ impl Shared for &'static ClusterShared {
                     let replys = futures::future::join_all(fut_senders).await;
                     for (node_id, reply) in replys {
                         if let Err(e) = reply {
-                            log::error!(
-                            "forwards Message::ForwardsTo to other node, from: {:?}, to: {:?}, error: {:?}",
-                            from,
-                            node_id,
-                            e
-                        );
+                            log::warn!(
+                                "forwards Message::ForwardsTo to other node, from: {:?}, to: {:?}, error: {:?}",
+                                from,
+                                node_id,
+                                e
+                            );
+                            //@TODO messasge dropped
                         }
                     }
                     Runtime::instance().stats.forwards.dec();
@@ -478,22 +488,29 @@ impl Shared for &'static ClusterShared {
     }
 
     #[inline]
-    async fn check_health(&self) -> Result<Option<serde_json::Value>> {
-        let mut node_statuses = Vec::new();
+    async fn check_health(&self) -> Result<HealthInfo> {
+        let mut nodes_health_infos = Vec::new();
         let mailbox = self.router.raft_mailbox().await;
         let status = mailbox.status().await.map_err(Error::new)?;
-        let mut leader_ids = HashSet::new();
-        node_statuses.push(json!({
-            "node_id": status.id,
-            "leader_id": status.leader_id,
-        }));
-        leader_ids.insert(status.leader_id);
+        let mut leader_ids = HashSet::default();
+        let (running, leader_id) = if status.available() { (true, status.leader_id) } else { (false, 0) };
+        nodes_health_infos.push(NodeHealthStatus {
+            node_id: status.id,
+            running,
+            leader_id: Some(leader_id),
+            descr: None,
+        });
+        leader_ids.insert(leader_id);
 
         let data = RaftGrpcMessage::GetRaftStatus.encode()?;
-        let replys =
-            MessageBroadcaster::new(self.grpc_clients.clone(), self.message_type, Message::Data(data))
-                .join_all()
-                .await;
+        let replys = MessageBroadcaster::new(
+            self.grpc_clients.clone(),
+            self.message_type,
+            Message::Data(data),
+            Some(Duration::from_secs(10)),
+        )
+        .join_all()
+        .await;
 
         for (node_id, reply) in replys {
             match reply {
@@ -501,36 +518,57 @@ impl Shared for &'static ClusterShared {
                     if let MessageReply::Data(data) = reply {
                         let RaftGrpcMessageReply::GetRaftStatus(o_status) =
                             RaftGrpcMessageReply::decode(&data)?;
-                        node_statuses.push(json!({
-                            "node_id": o_status.id,
-                            "leader_id": o_status.leader_id,
-                        }));
-                        leader_ids.insert(o_status.leader_id);
+                        let (running, leader_id) =
+                            if o_status.available() { (true, o_status.leader_id) } else { (false, 0) };
+                        nodes_health_infos.push(NodeHealthStatus {
+                            node_id: o_status.id,
+                            running,
+                            leader_id: Some(leader_id),
+                            descr: None,
+                        });
+                        leader_ids.insert(leader_id);
                     } else {
                         unreachable!()
                     }
                 }
                 Err(e) => {
                     log::error!("Get RaftGrpcMessage::GetRaftStatus from other node, error: {:?}", e);
-                    node_statuses.push(json!({
-                        "node_id": node_id,
-                        "error": e.to_string(),
-                    }));
+                    nodes_health_infos.push(NodeHealthStatus {
+                        node_id,
+                        running: false,
+                        leader_id: None,
+                        descr: Some(e.to_string()),
+                    });
                 }
             }
         }
-
-        let status = if leader_ids.len() != 1 {
-            "Leader ID exception"
+        let (running, descr) = if leader_ids.len() != 1 {
+            (false, "Leader ID exception")
         } else if leader_ids.into_iter().next() == Some(0) {
-            "Leader does not exist"
+            (false, "Leader does not exist")
         } else {
-            "Ok"
+            (true, "Ok")
         };
 
-        Ok(Some(json!({
-            "status": status,
-            "nodes": node_statuses,
-        })))
+        Ok(HealthInfo { running, descr: Some(descr.into()), nodes: nodes_health_infos })
+    }
+
+    #[inline]
+    async fn health_status(&self) -> Result<NodeHealthStatus> {
+        let mailbox = self.router.raft_mailbox().await;
+        let status = mailbox.status().await.map_err(Error::new)?;
+        Ok(NodeHealthStatus {
+            node_id: status.id,
+            running: status.leader_id > 0,
+            leader_id: Some(status.leader_id),
+            descr: None,
+        })
+    }
+
+    #[inline]
+    fn operation_is_busy(&self) -> bool {
+        let exec = task_exec_queue();
+        exec.active_count() > self.exec_queue_workers_busy_limit
+            || exec.waiting_count() > self.exec_queue_busy_limit
     }
 }

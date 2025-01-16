@@ -39,17 +39,14 @@ pub struct PluginConfig {
     #[serde(default = "PluginConfig::http_request_log_default")]
     pub http_request_log: bool,
 
-    #[serde(default = "PluginConfig::message_retain_available_default")]
-    pub message_retain_available: bool,
-
-    #[serde(default = "PluginConfig::message_storage_available_default")]
-    pub message_storage_available: bool,
-
     #[serde(
         default = "PluginConfig::message_expiry_interval_default",
         deserialize_with = "deserialize_duration"
     )]
     pub message_expiry_interval: Duration,
+
+    #[serde(default = "PluginConfig::prometheus_metrics_cache_interval_default")]
+    pub prometheus_metrics_cache_interval: Duration,
 }
 
 impl PluginConfig {
@@ -94,18 +91,13 @@ impl PluginConfig {
     }
 
     #[inline]
-    fn message_retain_available_default() -> bool {
-        false
-    }
-
-    #[inline]
-    fn message_storage_available_default() -> bool {
-        false
-    }
-
-    #[inline]
     fn message_expiry_interval_default() -> Duration {
         Duration::from_secs(300)
+    }
+
+    #[inline]
+    fn prometheus_metrics_cache_interval_default() -> Duration {
+        Duration::from_secs(5)
     }
 
     #[inline]

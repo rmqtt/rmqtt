@@ -28,7 +28,7 @@ use rmqtt::{
         hook::{Register, Type},
         types::{From, Publish, Reason, To},
     },
-    grpc::{client::NodeGrpcClient, GrpcClients, Message, MessageReply, MessageType},
+    grpc::{client::NodeGrpcClient, GrpcClients},
     plugin::{PackageInfo, Plugin},
     register,
     tokio::time::sleep,
@@ -90,8 +90,15 @@ impl ClusterPlugin {
             node_names.insert(node_addr.id, format!("{}@{}", node_addr.id, node_addr.addr));
         }
         let grpc_clients = Arc::new(grpc_clients);
-        let router = ClusterRouter::get_or_init(cfg.try_lock_timeout);
-        let shared = ClusterShared::get_or_init(router, grpc_clients.clone(), node_names, cfg.message_type);
+        let router = ClusterRouter::get_or_init(cfg.try_lock_timeout, cfg.compression);
+        let shared = ClusterShared::get_or_init(
+            router,
+            grpc_clients.clone(),
+            node_names,
+            cfg.message_type,
+            cfg.task_exec_queue_max,
+            cfg.task_exec_queue_workers,
+        );
         let raft_mailbox = None;
         let cfg = Arc::new(cfg);
         Ok(Self { runtime, register, cfg, grpc_clients, shared, router, raft_mailbox })
@@ -99,16 +106,21 @@ impl ClusterPlugin {
 
     //raft init ...
     async fn start_raft(cfg: Arc<PluginConfig>, router: &'static ClusterRouter) -> Result<Mailbox> {
+        let logger = Runtime::instance().logger.clone();
         let raft_peer_addrs = cfg.raft_peer_addrs.clone();
 
         let id = Runtime::instance().node.id();
-        let raft_laddr = raft_peer_addrs
+
+        let raft_node_addr = raft_peer_addrs
             .iter()
             .find(|peer| peer.id == id)
             .map(|peer| peer.addr.to_string())
             .ok_or_else(|| MqttError::from("raft listening address does not exist"))?;
-        let logger = Runtime::instance().logger.clone();
-        log::info!("raft_laddr: {:?}", raft_laddr);
+
+        let raft_laddr =
+            if let Some(laddr) = cfg.laddr.as_ref() { laddr.to_string() } else { raft_node_addr.clone() };
+
+        log::info!("raft_laddr: {:?}, raft_node_addr: {:?}", raft_laddr, raft_node_addr);
 
         //verify the listening address
         if cfg.verify_addr {
@@ -183,7 +195,7 @@ impl ClusterPlugin {
                             leader_id,
                             leader_addr
                         );
-                        tokio::spawn(raft.join(id, Some(leader_id), leader_addr)).await
+                        tokio::spawn(raft.join(id, raft_node_addr, Some(leader_id), leader_addr)).await
                     }
                     None => {
                         log::info!("running in leader mode");
@@ -208,12 +220,53 @@ impl ClusterPlugin {
         self.register.add(typ, Box::new(HookHandler::new(self.shared, self.raft_mailbox()))).await;
     }
 
+    #[inline]
     fn raft_mailbox(&self) -> Mailbox {
         if let Some(raft_mailbox) = &self.raft_mailbox {
             raft_mailbox.clone()
         } else {
             unreachable!()
         }
+    }
+
+    fn start_check_health(&self) {
+        let exit_on_node_unavailable = self.cfg.health.exit_on_node_unavailable;
+        let exit_code = self.cfg.health.exit_code;
+        let unavailable_check_interval = self.cfg.health.unavailable_check_interval;
+        let max_continuous_unavailable_count = self.cfg.health.max_continuous_unavailable_count;
+
+        let mut continuous_unavailable_count = 0;
+        let raft_mailbox = self.raft_mailbox();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(unavailable_check_interval).await;
+                match raft_mailbox.status().await {
+                    Err(e) => {
+                        log::error!("Error retrieving cluster status, {}", e);
+                    }
+                    Ok(s) => {
+                        if s.available() {
+                            if continuous_unavailable_count > 0 {
+                                continuous_unavailable_count = 0;
+                            }
+                        } else {
+                            continuous_unavailable_count += 1;
+                            log::error!(
+                                "cluster node unavailable({}), node status: {:?}",
+                                continuous_unavailable_count,
+                                s
+                            );
+                            if exit_on_node_unavailable
+                                && continuous_unavailable_count >= max_continuous_unavailable_count
+                            {
+                                std::thread::sleep(Duration::from_secs(2));
+                                std::process::exit(exit_code);
+                            }
+                        }
+                    }
+                }
+            }
+        });
     }
 }
 
@@ -246,6 +299,8 @@ impl Plugin for ClusterPlugin {
         self.hook_register(Type::ClientDisconnected).await;
         self.hook_register(Type::SessionTerminated).await;
         self.hook_register(Type::GrpcMessageReceived).await;
+
+        self.start_check_health();
 
         Ok(())
     }
@@ -372,37 +427,6 @@ async fn find_actual_leader(
         sleep(Duration::from_millis(500)).await;
     }
     Ok(actual_leader_info)
-}
-
-pub(crate) struct MessageSender {
-    client: NodeGrpcClient,
-    msg_type: MessageType,
-    msg: Message,
-    max_retries: usize,
-    retry_interval: Duration,
-}
-
-impl MessageSender {
-    #[inline]
-    async fn send(&mut self) -> Result<MessageReply> {
-        let mut current_retry = 0usize;
-        loop {
-            match self.client.send_message(self.msg_type, self.msg.clone()).await {
-                Ok(reply) => {
-                    return Ok(reply);
-                }
-                Err(e) => {
-                    if current_retry < self.max_retries {
-                        current_retry += 1;
-                        tokio::time::sleep(self.retry_interval).await;
-                    } else {
-                        log::error!("error sending message after {} retries, {:?}", self.max_retries, e);
-                        return Err(e);
-                    }
-                }
-            }
-        }
-    }
 }
 
 #[inline]

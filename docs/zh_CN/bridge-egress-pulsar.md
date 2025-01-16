@@ -75,8 +75,15 @@ remote.forward_all_publish = false
 
 # 决定消息的目标分区, 具有相同 partition_key 的消息将被发送到同一个分区
 remote.partition_key = ""
+
 # 影响的是消息在特定分区内的顺序，而不是跨分区的顺序。如果消息具有相同的 ordering_key，它们将会按照发送顺序被消费
-remote.ordering_key = ""
+#Values: clientid, uuid, random or {type="random", len=10}
+# clientid - use mqtt clientid
+# uuid - uuid
+# random - randomly generated
+#remote.ordering_key = "clientid"
+#remote.ordering_key = {type="random", len=10}
+
 # 覆盖命名空间的复制设置
 remote.replicate_to = []
 # 当前的 schema 版本
