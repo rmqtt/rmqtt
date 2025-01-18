@@ -1,11 +1,12 @@
 #![deny(unsafe_code)]
 
-use std::{fs::File, io::BufReader, process, sync::Arc, time::Duration};
+use std::{process, sync::Arc, time::Duration};
 
 #[cfg(not(target_os = "windows"))]
 use rustls::crypto::aws_lc_rs as provider;
 #[cfg(target_os = "windows")]
 use rustls::crypto::ring as provider;
+use rustls::pki_types::pem::PemObject;
 use rustls::server::WebPkiClientVerifier;
 use rustls::{RootCertStore, ServerConfig};
 
@@ -29,7 +30,7 @@ use rmqtt::ntex_mqtt::{
     {v3, v5, MqttServer},
 };
 use rmqtt::settings::{listener::Listener, Options, Settings};
-use rmqtt::{log, structopt::StructOpt, tokio};
+use rmqtt::{log, rustls, structopt::StructOpt, tokio};
 use rmqtt::{logger::logger_init, runtime, MqttError, Result, Runtime, SessionState};
 
 mod ws;
@@ -207,15 +208,14 @@ async fn listen(name: String, listen_cfg: &Listener) -> Result<()> {
 
 async fn listen_tls(name: String, listen_cfg: &Listener) -> Result<()> {
     async fn _listen_tls(name: &str, listen_cfg: &Listener) -> Result<()> {
-        let cert_file = &mut BufReader::new(File::open(
-            listen_cfg.cert.as_ref().ok_or::<MqttError>("cert is None".into())?,
-        )?);
-        let key_file = &mut BufReader::new(File::open(
-            listen_cfg.key.as_ref().ok_or::<MqttError>("key is None".into())?,
-        )?);
+        let cert_file = listen_cfg.cert.as_ref().ok_or::<MqttError>("cert is None".into())?;
+        let key_file = listen_cfg.key.as_ref().ok_or::<MqttError>("key is None".into())?;
 
-        let cert_chain = rustls_pemfile::certs(cert_file).collect::<Result<Vec<_>, _>>()?;
-        let key = rustls_pemfile::private_key(key_file)?.ok_or::<MqttError>("key_file is None".into())?;
+        let cert_chain = rustls::pki_types::CertificateDer::pem_file_iter(cert_file)
+            .map_err(|e| anyhow!(e))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| anyhow!(e))?;
+        let key = rustls::pki_types::PrivateKeyDer::from_pem_file(key_file).map_err(|e| anyhow!(e))?;
 
         let provider = Arc::new(provider::default_provider());
         let client_auth = if listen_cfg.cross_certificate {
@@ -440,15 +440,14 @@ async fn listen_ws(name: String, listen_cfg: &Listener) -> Result<()> {
 
 async fn listen_wss(name: String, listen_cfg: &Listener) -> Result<()> {
     async fn _listen_wss(name: &str, listen_cfg: &Listener) -> Result<()> {
-        let cert_file = &mut BufReader::new(File::open(
-            listen_cfg.cert.as_ref().ok_or::<MqttError>("cert is None".into())?,
-        )?);
-        let key_file = &mut BufReader::new(File::open(
-            listen_cfg.key.as_ref().ok_or::<MqttError>("key is None".into())?,
-        )?);
+        let cert_file = listen_cfg.cert.as_ref().ok_or::<MqttError>("cert is None".into())?;
+        let key_file = listen_cfg.key.as_ref().ok_or::<MqttError>("key is None".into())?;
 
-        let cert_chain = rustls_pemfile::certs(cert_file).collect::<Result<Vec<_>, _>>()?;
-        let key = rustls_pemfile::private_key(key_file)?.ok_or::<MqttError>("key_file is None".into())?;
+        let cert_chain = rustls::pki_types::CertificateDer::pem_file_iter(cert_file)
+            .map_err(|e| anyhow!(e))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| anyhow!(e))?;
+        let key = rustls::pki_types::PrivateKeyDer::from_pem_file(key_file).map_err(|e| anyhow!(e))?;
 
         let provider = Arc::new(provider::default_provider());
         let client_auth = if listen_cfg.cross_certificate {

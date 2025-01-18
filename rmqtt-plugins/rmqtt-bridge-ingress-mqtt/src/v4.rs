@@ -4,8 +4,9 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use ntex::connect::rustls::Connector as TlsConnector;
+use ntex::connect::rustls::TlsConnector;
 use ntex::connect::Connector;
+use ntex::service::fn_service;
 use ntex::time;
 use ntex::time::Seconds;
 use ntex::util::ByteString;
@@ -231,8 +232,8 @@ impl Client {
 
     async fn ev_loop(self, c: v3::client::Client) {
         if let Err(e) = c
-            .start(move |control: v3::client::ControlMessage<()>| match control {
-                v3::client::ControlMessage::Publish(publish) => {
+            .start(fn_service(move |control: v3::client::Control<()>| match control {
+                v3::client::Control::Publish(publish) => {
                     log::debug!("{} publish: {:?}", self.client_id, publish);
                     self.on_message.fire((
                         BridgeClient::V4(self.clone()),
@@ -242,23 +243,23 @@ impl Client {
                     ));
                     Ready::Ok(publish.ack())
                 }
-                v3::client::ControlMessage::Error(msg) => {
+                v3::client::Control::Error(msg) => {
                     log::info!("{} Codec error: {:?}", self.client_id, msg);
                     Ready::Ok(msg.ack())
                 }
-                v3::client::ControlMessage::ProtocolError(msg) => {
+                v3::client::Control::ProtocolError(msg) => {
                     log::info!("{} Protocol error: {:?}", self.client_id, msg);
                     Ready::Ok(msg.ack())
                 }
-                v3::client::ControlMessage::PeerGone(msg) => {
+                v3::client::Control::PeerGone(msg) => {
                     log::info!("{} Peer closed connection: {:?}", self.client_id, msg.err());
                     Ready::Ok(msg.ack())
                 }
-                v3::client::ControlMessage::Closed(msg) => {
+                v3::client::Control::Closed(msg) => {
                     log::info!("{} Server closed connection", self.client_id);
                     Ready::Ok(msg.ack())
                 }
-            })
+            }))
             .await
         {
             log::error!("Start ev_loop error! {:?}", e);

@@ -6,9 +6,10 @@ use std::time::Duration;
 use ntex_mqtt::v3::codec::Publish as PublishV3;
 use ntex_mqtt::v5::codec::Publish as PublishV5;
 
-use ntex::connect::rustls::ClientConfig;
-use ntex::connect::rustls::Connector as TlsConnector;
-use rustls::{OwnedTrustAnchor, RootCertStore};
+use ntex::connect::rustls::TlsConnector;
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::CertificateDer;
+use rustls::{ClientConfig, RootCertStore};
 
 use rmqtt::anyhow::anyhow;
 use rmqtt::bytestring::ByteString;
@@ -18,7 +19,7 @@ use rmqtt::{
     broker::topic::{TopicTree, VecToTopic},
     rand, ClientId, From, MqttError, NodeId, Publish, PublishProperties, Result, Topic,
 };
-use rmqtt::{log, tokio, tokio::sync::RwLock, DashMap};
+use rmqtt::{log, rustls, tokio, tokio::sync::RwLock, DashMap};
 
 use rmqtt::ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 
@@ -263,20 +264,25 @@ fn to_properties(props: &PublishProperties) -> ntex_mqtt::v5::codec::PublishProp
 }
 
 pub(crate) fn build_tls_connector(cfg: &super::config::Bridge) -> Result<TlsConnector<String>> {
-    let mut root_store = RootCertStore::empty();
-    root_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
-        OwnedTrustAnchor::from_subject_spki_name_constraints(ta.subject, ta.spki, ta.name_constraints)
-    }));
+    let mut root_store = RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.into() };
 
     if let Some(c) = &cfg.root_cert {
-        root_store.add_parsable_certificates(c.cert.as_slice());
+        root_store.add_parsable_certificates(
+            CertificateDer::pem_file_iter(c)
+                .map_err(|e| anyhow!(e))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| anyhow!(e))?,
+        );
     }
 
-    let config = ClientConfig::builder().with_safe_defaults().with_root_certificates(root_store);
+    let config = ClientConfig::builder().with_root_certificates(root_store);
     let config = if let (Some(client_key), Some(client_cert)) = (&cfg.client_key, &cfg.client_cert) {
-        config
-            .with_client_auth_cert(client_cert.cert.to_vec(), client_key.key.clone())
-            .map_err(|e| MqttError::Anyhow(e.into()))?
+        let c_certs = CertificateDer::pem_file_iter(client_cert)
+            .map_err(|e| anyhow!(e))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| anyhow!(e))?;
+        let c_key = rustls::pki_types::PrivateKeyDer::from_pem_file(client_key).map_err(|e| anyhow!(e))?;
+        config.with_client_auth_cert(c_certs, c_key).map_err(|e| MqttError::Anyhow(e.into()))?
     } else {
         config.with_no_client_auth()
     };
