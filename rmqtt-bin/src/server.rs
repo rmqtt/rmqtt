@@ -53,6 +53,11 @@ async fn main() {
     //init config
     Settings::init(Options::from_args()).expect("settings init failed");
 
+    //rustls crypto install default
+    provider::default_provider()
+        .install_default()
+        .expect("Failed to install the default Rustls crypto backend because it is already installed.");
+
     //init global task executor
     Runtime::init().await.expect("runtime init failed");
 
