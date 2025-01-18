@@ -4,15 +4,14 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use ntex::connect::rustls::Connector as TlsConnector;
+use ntex::connect::rustls::TlsConnector;
 use ntex::connect::Connector;
 use ntex::time;
 use ntex::time::Seconds;
 use ntex::util::ByteString;
 use ntex::util::Bytes;
-use ntex::util::Ready;
+use ntex::{service::fn_service, util::Ready};
 use ntex_mqtt::error::SendPacketError;
-use ntex_mqtt::v5::client::ControlMessage;
 use ntex_mqtt::v5::codec::SubscribeAckReason;
 use ntex_mqtt::{self, v5};
 
@@ -113,7 +112,7 @@ impl Client {
                 builder = builder.clean_start()
             };
 
-            builder = builder.receive_max(client.cfg.v5.receive_maximum);
+            builder = builder.max_receive(client.cfg.v5.receive_maximum);
             builder = builder.max_packet_size(client.cfg.v5.maximum_packet_size.as_u32());
 
             builder = builder.packet(|pkt| {
@@ -248,8 +247,8 @@ impl Client {
 
     async fn ev_loop(self, c: v5::client::Client) {
         if let Err(e) = c
-            .start(move |control: ControlMessage<()>| match control {
-                ControlMessage::Publish(publish) => {
+            .start(fn_service(move |control: v5::client::Control<()>| match control {
+                v5::client::Control::Publish(publish) => {
                     log::debug!("{} publish: {:?}", self.client_id, publish);
                     self.on_message.fire((
                         BridgeClient::V5(self.clone()),
@@ -260,30 +259,41 @@ impl Client {
                     let reason_code = v5::codec::PublishAckReason::Success;
                     Ready::Ok(publish.ack(reason_code))
                 }
-                ControlMessage::Error(msg) => {
+                v5::client::Control::Disconnect(msg) => {
+                    log::info!("{} Server disconnecting: {:?}", self.client_id, msg);
+                    Ready::Ok(msg.ack())
+                }
+                v5::client::Control::Error(msg) => {
                     log::info!("{} Codec error: {:?}", self.client_id, msg);
                     Ready::Ok(msg.ack(v5::codec::DisconnectReasonCode::NormalDisconnection))
                 }
-                ControlMessage::ProtocolError(msg) => {
+                v5::client::Control::ProtocolError(msg) => {
                     log::info!("{} Protocol error: {:?}", self.client_id, msg);
                     Ready::Ok(msg.ack())
                 }
-                ControlMessage::PeerGone(msg) => {
+                v5::client::Control::PeerGone(msg) => {
                     log::info!("{} Peer closed connection: {:?}", self.client_id, msg.error());
                     Ready::Ok(msg.ack())
                 }
-                ControlMessage::Closed(msg) => {
+                v5::client::Control::Closed(msg) => {
                     log::info!("{} Server closed connection", self.client_id);
                     Ready::Ok(msg.ack())
                 }
-                ControlMessage::Disconnect(msg) => {
-                    log::info!("{} Server disconnect connection: {:?}", self.client_id, msg);
-                    Ready::Ok(msg.ack())
-                }
-            })
+            }))
             .await
         {
             log::error!("Start ev_loop error! {:?}", e);
         }
+    }
+}
+
+#[derive(Debug)]
+struct Error;
+
+impl std::convert::TryFrom<Error> for v5::PublishAck {
+    type Error = Error;
+
+    fn try_from(err: Error) -> Result<Self, Self::Error> {
+        Err(err)
     }
 }

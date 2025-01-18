@@ -34,6 +34,7 @@ pub use rand;
 pub use regex;
 pub use reqwest;
 pub use rust_box;
+pub use rustls;
 pub use scc;
 pub use structopt;
 pub use tokio;
