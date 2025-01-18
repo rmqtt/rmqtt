@@ -10,4 +10,4 @@ license.workspace = true
 rmqtt.workspace = true
 rmqtt-macros.workspace = true
 serde = { workspace = true, features = ["derive"] }
-salvo = { version = "0.74", features = ["affix-state"] }
+salvo = { version = "0.76", features = ["affix-state"] }
