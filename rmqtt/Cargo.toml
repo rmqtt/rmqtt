@@ -57,12 +57,12 @@ base64 = "0.22"
 bincode = "1.3"
 url = { version = "=2.5.4", default-features = false }
 systemstat = "0.2"
-itertools = "0.13"
+itertools = "0.14"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 rust-box = { version = "0.12", features = ["task-exec-queue", "task-exec-queue-rate", "std-ext", "dequemap", "stream-ext-leaky-bucket"] }
 counter-rater = { package = "box-counter", version = "0.3", features = ["rate"] }
 structopt = "0.3"
-tokio-tungstenite = "0.24"
+tokio-tungstenite = "0.26"
 pin-project-lite = "0.2"
 tokio-cron-scheduler = "0.13"
 bitflags = "=2.6.0"
