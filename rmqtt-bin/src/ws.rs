@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use rmqtt::bytes::Bytes;
 use rmqtt::futures::{ready, FutureExt, Sink, Stream};
 use rmqtt::ntex::codec::ReadBuf;
 use rmqtt::ntex::codec::{AsyncRead, AsyncWrite};
@@ -116,7 +117,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Future for WSServiceFut<T> {
 
 pub struct WsStream<S> {
     s: WebSocketStream<S>,
-    cached_data: Option<Vec<u8>>,
+    cached_data: Option<Bytes>,
     idx: usize,
 }
 
@@ -163,7 +164,7 @@ where
             Some(Ok(msg)) => {
                 let data = msg.into_data();
                 if data.len() <= buf.remaining() {
-                    buf.put_slice(data.as_slice());
+                    buf.put_slice(data.as_ref());
                 } else {
                     let enable_buf = &data[0..buf.remaining()];
                     buf.put_slice(enable_buf);
@@ -190,7 +191,7 @@ where
         _cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, io::Error>> {
-        if let Err(e) = Pin::new(&mut self.s).start_send(Message::Binary(buf.to_vec())) {
+        if let Err(e) = Pin::new(&mut self.s).start_send(Message::Binary(buf.to_vec().into())) {
             return Poll::Ready(Err(to_error(e)));
         }
         Poll::Ready(Ok(buf.len()))
