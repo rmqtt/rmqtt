@@ -82,7 +82,7 @@ Node IDs: 1, 2, 3; Node IP Addrs: 172.17.0.3, 172.17.0.4, 172.17.0.5
 
 #### Create a static cluster by docker-compose
 
-1. [Download docker-compose configuration template](https://github.com/rmqtt/templates/blob/main/docker-compose-template/docker-compose-template.zip)
+1. [Download docker-compose configuration template](https://github.com/rmqtt/templates/blob/main/docker-compose-template/docker-compose-template-v0.7.zip)
 
 2. Start docker-compose cluster
 
