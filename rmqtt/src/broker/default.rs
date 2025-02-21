@@ -590,7 +590,7 @@ impl Shared for &'static DefaultShared {
         let mut sessions = self.peers.iter().map(|p| (p.s.clone())).collect::<Vec<Session>>();
         let len = self.peers.len();
         if len > 0 {
-            let idx = rand::prelude::random::<usize>() % len;
+            let idx = rand::random::<u64>() as usize % len;
             Some(sessions.remove(idx))
         } else {
             None

@@ -258,7 +258,7 @@ pub trait SharedSubscription: Sync + Send {
             .collect::<Vec<_>>();
 
         while !tmp_ncs.is_empty() {
-            let r_idx = if tmp_ncs.len() == 1 { 0 } else { rand::random::<usize>() % tmp_ncs.len() };
+            let r_idx = if tmp_ncs.len() == 1 { 0 } else { (rand::random::<u64>() as usize) % tmp_ncs.len() };
 
             let (idx, node_id, client_id, is_online) = tmp_ncs.remove(r_idx);
 
