@@ -578,7 +578,6 @@ impl AtomicFlags for AtomicU8 {
     }
 
     #[inline]
-    #[must_use]
     fn difference(&self, other: Self::T) -> Self::T {
         self.get() & !other
     }
