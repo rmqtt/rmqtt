@@ -1,41 +1,46 @@
 [workspace]
 resolver = "2"
 members = [
-    "rmqtt",
-    "rmqtt-plugins/*",
-    "rmqtt-bin",
-    "rmqtt-macros"
+#    "rmqtt",
+#    "rmqtt-plugins/*",
+#    "rmqtt-bin",
+#    "rmqtt-macros"
+    "rmqtt-codec",
+    "rmqtt-net"
 ]
 
 [patch.crates-io]
-rmqtt = { path = "rmqtt" }
-rmqtt-macros = { path = "rmqtt-macros" }
-rmqtt-plugin-template = { path = "rmqtt-plugins/rmqtt-plugin-template" }
-rmqtt-acl = { path = "rmqtt-plugins/rmqtt-acl" }
-rmqtt-web-hook = { path = "rmqtt-plugins/rmqtt-web-hook" }
-rmqtt-auth-http = { path = "rmqtt-plugins/rmqtt-auth-http" }
-rmqtt-auth-jwt = { path = "rmqtt-plugins/rmqtt-auth-jwt" }
-rmqtt-cluster-broadcast = { path = "rmqtt-plugins/rmqtt-cluster-broadcast" }
-rmqtt-cluster-raft = { path = "rmqtt-plugins/rmqtt-cluster-raft" }
-rmqtt-counter = { path = "rmqtt-plugins/rmqtt-counter" }
-rmqtt-http-api = { path = "rmqtt-plugins/rmqtt-http-api" }
-rmqtt-retainer = { path = "rmqtt-plugins/rmqtt-retainer" }
-rmqtt-sys-topic = { path = "rmqtt-plugins/rmqtt-sys-topic" }
-rmqtt-session-storage = { path = "rmqtt-plugins/rmqtt-session-storage" }
-rmqtt-message-storage = { path = "rmqtt-plugins/rmqtt-message-storage" }
-rmqtt-topic-rewrite = { path = "rmqtt-plugins/rmqtt-topic-rewrite" }
-rmqtt-auto-subscription = { path = "rmqtt-plugins/rmqtt-auto-subscription"}
-rmqtt-bridge-ingress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-ingress-mqtt" }
-rmqtt-bridge-egress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-egress-mqtt" }
-rmqtt-bridge-ingress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-ingress-kafka" }
-rmqtt-bridge-egress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-egress-kafka" }
-rmqtt-bridge-ingress-pulsar = { path = "rmqtt-plugins/rmqtt-bridge-ingress-pulsar"}
-rmqtt-bridge-egress-pulsar = { path = "rmqtt-plugins/rmqtt-bridge-egress-pulsar"}
-rmqtt-bridge-egress-nats = { path = "rmqtt-plugins/rmqtt-bridge-egress-nats"}
-rmqtt-bridge-egress-reductstore = { path = "rmqtt-plugins/rmqtt-bridge-egress-reductstore"}
+rmqtt-codec = { path = "rmqtt-codec" }
+rmqtt-net = { path = "rmqtt-net" }
+
+#rmqtt = { path = "rmqtt" }
+#rmqtt-macros = { path = "rmqtt-macros" }
+#rmqtt-plugin-template = { path = "rmqtt-plugins/rmqtt-plugin-template" }
+#rmqtt-acl = { path = "rmqtt-plugins/rmqtt-acl" }
+#rmqtt-web-hook = { path = "rmqtt-plugins/rmqtt-web-hook" }
+#rmqtt-auth-http = { path = "rmqtt-plugins/rmqtt-auth-http" }
+#rmqtt-auth-jwt = { path = "rmqtt-plugins/rmqtt-auth-jwt" }
+#rmqtt-cluster-broadcast = { path = "rmqtt-plugins/rmqtt-cluster-broadcast" }
+#rmqtt-cluster-raft = { path = "rmqtt-plugins/rmqtt-cluster-raft" }
+#rmqtt-counter = { path = "rmqtt-plugins/rmqtt-counter" }
+#rmqtt-http-api = { path = "rmqtt-plugins/rmqtt-http-api" }
+#rmqtt-retainer = { path = "rmqtt-plugins/rmqtt-retainer" }
+#rmqtt-sys-topic = { path = "rmqtt-plugins/rmqtt-sys-topic" }
+#rmqtt-session-storage = { path = "rmqtt-plugins/rmqtt-session-storage" }
+#rmqtt-message-storage = { path = "rmqtt-plugins/rmqtt-message-storage" }
+#rmqtt-topic-rewrite = { path = "rmqtt-plugins/rmqtt-topic-rewrite" }
+#rmqtt-auto-subscription = { path = "rmqtt-plugins/rmqtt-auto-subscription"}
+#rmqtt-bridge-ingress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-ingress-mqtt" }
+#rmqtt-bridge-egress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-egress-mqtt" }
+#rmqtt-bridge-ingress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-ingress-kafka" }
+#rmqtt-bridge-egress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-egress-kafka" }
+#rmqtt-bridge-ingress-pulsar = { path = "rmqtt-plugins/rmqtt-bridge-ingress-pulsar"}
+#rmqtt-bridge-egress-pulsar = { path = "rmqtt-plugins/rmqtt-bridge-egress-pulsar"}
+#rmqtt-bridge-egress-nats = { path = "rmqtt-plugins/rmqtt-bridge-egress-nats"}
+#rmqtt-bridge-egress-reductstore = { path = "rmqtt-plugins/rmqtt-bridge-egress-reductstore"}
 
 [workspace.package]
-version = "0.12.0"
+version = "0.20.0"
 edition = "2021"
 authors = ["rmqtt <rmqttd@126.com>"]
 description = "MQTT Server for v3.1, v3.1.1 and v5.0 protocols"
@@ -44,13 +49,77 @@ license = "MIT license, Apache-2.0 License"
 categories = ["network-programming"]
 keywords = ["MQTT", "IoT", "messaging", "MQTT-Server", "MQTT-Broker"]
 exclude = [".gitignore", ".cargo/config"]
-rust-version = "1.80.0"
+rust-version = "1.81.0"
 
 
 [workspace.dependencies]
-rmqtt = "0.12"
-rmqtt-macros = "0.1"
+rmqtt-codec = "0.1"
+rmqtt-net = "0.1"
+#rmqtt = "0.12"
+#rmqtt-macros = "0.1"
+
+futures = "0.3"
 serde = { version = "1.0", features = ["derive"] }
+tokio = "1.43"
+tokio-util = "0.7"
+tokio-stream = { version = "0.1", features = ["net"] }
+tokio-rustls = "0.26"
+socket2 = { version = "0.5", features = ["all"] }
+tonic = "0.12"
+prost = "0.13"
+rustls = "0.23"
+once_cell = "=1.20.2"
+dashmap = "=6.1.0"
+ahash = "0.8"
+bytes = { version = "1.9", features = ["serde"] }
+bytestring = { version = "1.4", features = ["serde"] }
+thiserror = "=1.0.69"
+anyhow = "=1.0.94"
+async-trait = "0.1"
+serde_json = "1.0"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+uuid = { version = "=1.11.0", features = ["v4"] }
+rand = "0.9.0"
+crossbeam = "0.8"
+governor = "0.8"
+config = { version = "0.15.8", default-features = false, features = ["toml"] }
+log = "0.4"
+slog = "2.7"
+slog-term = "2.9"
+slog-async = "2.8"
+slog-stdlog = "4.1"
+slog-scope = "4.4"
+base64 = "0.22"
+bincode = "1.3"
+url = { version = "=2.5.4", default-features = false }
+systemstat = "0.2"
+itertools = "0.14"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+rust-box = { version = "0.12", features = ["task-exec-queue", "task-exec-queue-rate", "std-ext", "dequemap", "stream-ext-leaky-bucket"] }
+counter-rater = { package = "box-counter", version = "0.3", features = ["rate"] }
+structopt = "0.3"
+tokio-tungstenite = "0.26"
+pin-project-lite = "0.2"
+tokio-cron-scheduler = "0.13"
+bitflags = "=2.6.0"
+leaky-bucket = "=1.1.2"
+scc = "=2.3.1"
+get_size = { package = "get-size", version = "0.1", features = ["derive"] }
+itoa = "=1.0.14"
+prometheus = "0.13"
+regex = "=1.11.1"
+futures-time = "3.0"
+backoff = { version = "0.4", features = ["futures", "tokio"] }
+parking_lot = "0.12.3"
+nonzero_ext = "0.3"
+
+#[workspace.target.'cfg(not(windows))'.dependencies]
+#rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "logging", "std", "tls12"] }
+#
+#[workspace.target.'cfg(windows)'.dependencies]
+#rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
+
+
 
 [profile.dev]
 opt-level = 0
