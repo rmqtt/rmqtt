@@ -15,6 +15,7 @@ use tokio::time::Duration;
 
 use super::types::Reason;
 
+#[allow(clippy::result_large_err)]
 #[derive(Error, Debug, Default)]
 pub enum MqttError {
     #[error("service unavailable")]
