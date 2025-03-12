@@ -35,7 +35,7 @@ rmqtt-bridge-egress-nats = { path = "rmqtt-plugins/rmqtt-bridge-egress-nats"}
 rmqtt-bridge-egress-reductstore = { path = "rmqtt-plugins/rmqtt-bridge-egress-reductstore"}
 
 [workspace.package]
-version = "0.12.0"
+version = "0.13.0"
 edition = "2021"
 authors = ["rmqtt <rmqttd@126.com>"]
 description = "MQTT Server for v3.1, v3.1.1 and v5.0 protocols"
@@ -44,11 +44,11 @@ license = "MIT license, Apache-2.0 License"
 categories = ["network-programming"]
 keywords = ["MQTT", "IoT", "messaging", "MQTT-Server", "MQTT-Broker"]
 exclude = [".gitignore", ".cargo/config"]
-rust-version = "1.80.0"
+rust-version = "1.81.0"
 
 
 [workspace.dependencies]
-rmqtt = "0.12"
+rmqtt = "0.13"
 rmqtt-macros = "0.1"
 serde = { version = "1.0", features = ["derive"] }
 
