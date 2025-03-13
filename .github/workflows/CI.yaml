@@ -50,7 +50,7 @@ jobs:
           echo "C:\Program Files\NASM" >> $env:GITHUB_PATH
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: nightly
+          toolchain: stable
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --all-targets --all-features
@@ -68,7 +68,6 @@ jobs:
         toolchain:
           - "1.81.0"  # minimum supported rust version
           - stable
-          - nightly
     steps:
       - uses: actions/checkout@v4
       - name: Install toolchain

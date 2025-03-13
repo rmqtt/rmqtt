@@ -53,7 +53,7 @@ impl InflightMessage {
 
     #[inline]
     pub fn release_packet_v5(&self) -> Option<Packet> {
-        log::info!("release_packet Publish V5 {:?}: ", self.publish);
+        log::debug!("release_packet Publish V5 {:?}: ", self.publish);
         if let Some(packet_id) = self.publish.packet_id {
             //@TODO ...
             let pack2 = PublishAck2 {
