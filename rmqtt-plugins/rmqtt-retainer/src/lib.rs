@@ -51,7 +51,7 @@ impl RetainerPlugin {
     async fn new<N: Into<String>>(scx: ServerContext, name: N) -> Result<Self> {
         let name = name.into();
         let node_id = scx.node.id();
-        let cfg = scx.settings.plugins.load_config::<PluginConfig>(&name)?;
+        let cfg = scx.plugins.read_config::<PluginConfig>(&name)?;
         log::info!("{} RetainerPlugin cfg: {:?}", name, cfg);
         let register = scx.extends.hook_mgr().register();
         let cfg = Arc::new(RwLock::new(cfg));
@@ -130,7 +130,7 @@ impl Plugin for RetainerPlugin {
 
     #[inline]
     async fn load_config(&mut self) -> Result<()> {
-        let new_cfg = self.scx.settings.plugins.load_config::<PluginConfig>(self.name())?;
+        let new_cfg = self.scx.plugins.read_config::<PluginConfig>(self.name())?;
         *self.cfg.write().await = new_cfg;
         log::debug!("load_config ok,  {:?}", self.cfg);
         Ok(())

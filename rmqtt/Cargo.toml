@@ -69,16 +69,19 @@ parking_lot.workspace = true
 rand.workspace = true
 prometheus.workspace = true
 url.workspace = true
-
-#[target.'cfg(not(windows))'.dependencies]
-#rustls = { workspace = true, features = ["aws-lc-rs", "logging", "std", "tls12"] }
-#
-#[target.'cfg(windows)'.dependencies]
-#rustls = { workspace = true, features = ["ring", "logging", "std", "tls12"] }
+config.workspace = true
 
 
 [dev-dependencies]
 env_logger = "0.11"
+
+[target.'cfg(not(windows))'.dev-dependencies]
+rustls = { workspace = true, features = ["aws-lc-rs"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+rustls = { workspace = true, features = ["ring"] }
+
+
 
 [build-dependencies]
 tonic-build = "0.12"

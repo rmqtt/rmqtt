@@ -48,7 +48,7 @@ pub struct Builder {
     ///Maximum allowed mqtt message length. 0 means unlimited, default: 1M
     pub max_packet_size: u32,
 
-    ///Whether anonymous login is allowed. Default: false
+    ///Whether anonymous login is allowed. Default: true
     pub allow_anonymous: bool,
     ///Minimum allowable keepalive value for mqtt connection,
     ///less than this value will reject the connection(MQTT V3),
@@ -127,7 +127,7 @@ impl Builder {
             reuseaddr: None,
             reuseport: None,
 
-            allow_anonymous: false,
+            allow_anonymous: true,
             min_keepalive: 0,
             max_keepalive: 65535,
             allow_zero_keepalive: true,

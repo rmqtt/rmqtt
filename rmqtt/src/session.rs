@@ -562,22 +562,18 @@ impl SessionState {
                 let status = match self.subscribes_v3(topic_filters).await {
                     Ok(status) => status,
                     Err(e) => {
-                        log::warn!("V3 Reason::SubscribeFailed, error: {:?}", e);
                         return Err(Reason::SubscribeFailed(Some(e.to_string().into())));
                     }
                 };
-                log::warn!("V3 send_subscribe_ack: {:?}", status);
                 sink.v3_mut().send_subscribe_ack(packet_id, status).await?;
             }
             Packet::V5(v5::Packet::Subscribe(subs)) => {
                 let ack = match self.subscribes_v5(subs).await {
                     Err(e) => {
-                        log::warn!("V5 Reason::SubscribeFailed, error: {:?}", e);
                         return Err(Reason::SubscribeFailed(Some(e.to_string().into())));
                     }
                     Ok(ack) => ack,
                 };
-                log::warn!("V5 send_subscribe_ack: {:?}", ack);
                 sink.v5_mut().send_subscribe_ack(ack).await?;
             }
 
@@ -819,7 +815,7 @@ impl SessionState {
                 .delay_publish(from, publish, message_storage_available, message_expiry_interval)
                 .await?
             {
-                if self.scx.settings.mqtt.delayed_publish_immediate {
+                if self.scx.mqtt_delayed_publish_immediate {
                     Self::forwards(&self.scx, f, p, message_storage_available, message_expiry_interval)
                         .await?;
                 } else {

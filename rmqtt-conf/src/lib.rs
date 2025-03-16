@@ -275,7 +275,7 @@ pub struct Busy {
     pub cpuloadavg: f32, //80.0
     //The threshold for determining high-concurrency connection handshakes in progress.
     #[serde(default)]
-    pub handshaking: usize, //0
+    pub handshaking: isize, //0
 }
 
 impl Default for Busy {

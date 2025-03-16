@@ -25,10 +25,6 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 #[allow(dead_code)]
 mod plugin {
     include!(concat!(env!("OUT_DIR"), "/plugin.rs"));
-
-    // pub(crate) fn default_startups(cfg: &rmqtt::conf::Settings) -> Vec<String> {
-    //     cfg.plugins.default_startups.clone()
-    // }
 }
 
 #[tokio::main]
@@ -42,7 +38,7 @@ async fn main() -> Result<()> {
         .expect("Failed to install the default Rustls crypto backend because it is already installed.");
 
     //init log
-    let (_guard, logger) = logger_init(&conf.log).expect("logger init failed");
+    let (_guard, _logger) = logger_init(&conf.log).expect("logger init failed");
 
     let _ = Settings::logs();
 
@@ -55,10 +51,18 @@ async fn main() -> Result<()> {
     );
 
     //init ServerContext
-    let scx = ServerContext::new(conf.clone(), logger, node).config().await;
-
-    // //init scheduler
-    // ServerContext::scheduler_init().await.expect("scheduler init failed");
+    let scx = ServerContext::new()
+        .node(node)
+        .task_exec_workers(conf.task.exec_workers)
+        .task_exec_queue_max(conf.task.exec_queue_max)
+        .busy_check_enable(conf.node.busy.check_enable)
+        .busy_handshaking_limit(conf.node.busy.handshaking)
+        .mqtt_delayed_publish_max(conf.mqtt.delayed_publish_max)
+        .mqtt_delayed_publish_immediate(conf.mqtt.delayed_publish_immediate)
+        .mqtt_max_sessions(conf.mqtt.max_sessions)
+        .plugins_dir(conf.plugins.dir.as_str())
+        .build()
+        .await;
 
     //start gRPC server
     scx.node.start_grpc_server(

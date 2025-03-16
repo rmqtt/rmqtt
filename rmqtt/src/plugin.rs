@@ -3,6 +3,7 @@ use core::pin::Pin;
 use std::future::Future;
 
 use async_trait::async_trait;
+use config::{Config, File, Source};
 use dashmap::iter::Iter;
 use dashmap::mapref::one::{Ref, RefMut};
 
@@ -240,11 +241,12 @@ impl PluginInfo {
 
 pub struct Manager {
     plugins: DashMap<String, Entry>,
+    dir: String,
 }
 
 impl Manager {
-    pub(crate) fn new() -> Self {
-        Self { plugins: DashMap::default() }
+    pub(crate) fn new(dir: String) -> Self {
+        Self { plugins: DashMap::default(), dir }
     }
 
     ///Register a Plugin
@@ -372,5 +374,70 @@ impl Manager {
     ///List Plugins
     pub fn iter(&self) -> EntryIter {
         self.plugins.iter()
+    }
+
+    ///Read plugin Config
+    pub fn read_config<'de, T: serde::Deserialize<'de>>(&self, name: &str) -> Result<T> {
+        let (cfg, _) = self.read_config_with_required(name, true, &[])?;
+        Ok(cfg)
+    }
+
+    pub fn read_config_default<'de, T: serde::Deserialize<'de>>(&self, name: &str) -> Result<T> {
+        let (cfg, def) = self.read_config_with_required(name, false, &[])?;
+        if def {
+            log::warn!(
+                "The configuration for plugin '{}' does not exist, default values will be used!",
+                name
+            );
+        }
+        Ok(cfg)
+    }
+
+    pub fn read_config_with<'de, T: serde::Deserialize<'de>>(
+        &self,
+        name: &str,
+        env_list_keys: &[&str],
+    ) -> Result<T> {
+        let (cfg, _) = self.read_config_with_required(name, true, env_list_keys)?;
+        Ok(cfg)
+    }
+
+    pub fn read_config_default_with<'de, T: serde::Deserialize<'de>>(
+        &self,
+        name: &str,
+        env_list_keys: &[&str],
+    ) -> Result<T> {
+        let (cfg, def) = self.read_config_with_required(name, false, env_list_keys)?;
+        if def {
+            log::warn!(
+                "The configuration for plugin '{}' does not exist, default values will be used!",
+                name
+            );
+        }
+        Ok(cfg)
+    }
+
+    pub fn read_config_with_required<'de, T: serde::Deserialize<'de>>(
+        &self,
+        name: &str,
+        required: bool,
+        env_list_keys: &[&str],
+    ) -> Result<(T, bool)> {
+        let dir = self.dir.trim_end_matches(['/', '\\']);
+        let mut builder =
+            Config::builder().add_source(File::with_name(&format!("{}/{}", dir, name)).required(required));
+
+        let mut env = config::Environment::with_prefix(&format!("rmqtt_plugin_{}", name.replace('-', "_")));
+        if !env_list_keys.is_empty() {
+            env = env.try_parsing(true).list_separator(" ");
+            for key in env_list_keys {
+                env = env.with_list_parse_key(key);
+            }
+        }
+        builder = builder.add_source(env);
+
+        let s = builder.build()?;
+        let count = s.collect()?.len();
+        Ok((s.try_deserialize::<T>()?, count == 0))
     }
 }

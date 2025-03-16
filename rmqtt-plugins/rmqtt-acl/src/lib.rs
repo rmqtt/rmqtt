@@ -40,7 +40,7 @@ impl AclPlugin {
     #[inline]
     async fn new<N: Into<String>>(scx: ServerContext, name: N) -> Result<Self> {
         let name = name.into();
-        let cfg = Arc::new(RwLock::new(scx.settings.plugins.load_config::<PluginConfig>(&name)?));
+        let cfg = Arc::new(RwLock::new(scx.plugins.read_config::<PluginConfig>(&name)?));
         log::debug!("{} AclPlugin cfg: {:?}", name, cfg.read().await);
         let register = scx.extends.hook_mgr().register();
         Ok(Self { scx, register, cfg })
@@ -72,7 +72,7 @@ impl Plugin for AclPlugin {
 
     #[inline]
     async fn load_config(&mut self) -> Result<()> {
-        let new_cfg = self.scx.settings.plugins.load_config::<PluginConfig>(self.name())?;
+        let new_cfg = self.scx.plugins.read_config::<PluginConfig>(self.name())?;
         *self.cfg.write().await = new_cfg;
         log::debug!("load_config ok,  {:?}", self.cfg);
         Ok(())

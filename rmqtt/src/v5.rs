@@ -150,7 +150,7 @@ async fn _handshake(
     }
 
     let entry = scx.extends.shared().await.entry(id.clone());
-    let max_sessions = scx.settings.mqtt.max_sessions;
+    let max_sessions = scx.mqtt_max_sessions;
     if max_sessions > 0 && scx.stats.sessions.count() >= max_sessions && !entry.exist() {
         return Err((
             ConnectAckReason::V5(ConnectAckReasonV5::ServerUnavailable),
