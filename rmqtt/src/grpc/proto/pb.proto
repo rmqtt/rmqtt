@@ -1,0 +1,31 @@
+syntax = "proto3";
+package pb;
+
+message Message{
+    uint64 typ = 1;
+    bytes data = 2;
+}
+
+message MessageReply{
+    bytes data = 1;
+}
+
+message BatchMessages{
+   bytes data = 1;
+}
+
+message BatchMessagesReply{
+    bytes data = 1;
+}
+
+message PingReply{
+}
+
+message Empty {
+}
+
+service NodeService {
+    rpc SendMessage(Message) returns (MessageReply);
+    rpc BatchSendMessages(BatchMessages) returns (BatchMessagesReply);
+    rpc Ping(Empty) returns (PingReply);
+}

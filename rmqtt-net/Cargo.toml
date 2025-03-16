@@ -34,11 +34,13 @@ bytestring = { workspace = true, features = ["serde"] }
 nonzero_ext.workspace = true
 tokio-util = { workspace = true, features = ["codec"] }
 once_cell.workspace = true
-env_logger = "0.11"
-
 
 [target.'cfg(not(windows))'.dependencies]
 rustls = { workspace = true, features = ["aws-lc-rs", "logging", "std", "tls12"] }
 
 [target.'cfg(windows)'.dependencies]
 rustls = { workspace = true, features = ["ring", "logging", "std", "tls12"] }
+
+
+[dev-dependencies]
+env_logger = "0.11"

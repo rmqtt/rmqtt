@@ -1,6 +1,5 @@
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::num::{NonZeroU16, NonZeroU32};
-use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,6 +13,7 @@ use rustls::{RootCertStore, ServerConfig};
 
 use anyhow::anyhow;
 use nonzero_ext::nonzero;
+use rmqtt_codec::types::QoS;
 use socket2::{Domain, SockAddr, Socket, Type};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
@@ -35,13 +35,13 @@ pub struct Builder {
     ///The maximum length of the TCP connection queue.
     ///It indicates the maximum number of TCP connection queues that are being handshaked three times in the system
     pub backlog: i32,
-    ///TCP_NODELAY
+    ///Sets the value of the TCP_NODELAY option on this socket.
     pub nodelay: bool,
     ///Whether to enable the SO_REUSEADDR option.
     pub reuseaddr: Option<bool>,
     ///Whether to enable the SO_REUSEPORT option.
     pub reuseport: Option<bool>,
-
+    ///The maximum number of concurrent connections allowed by the listener.
     pub max_connections: usize,
     ///Maximum concurrent handshake limit, Default: 500
     pub max_handshaking_limit: usize,
@@ -79,7 +79,7 @@ pub struct Builder {
     ///Maximum length of client ID allowed, Default: 65535
     pub max_clientid_len: usize,
     ///The maximum QoS level that clients are allowed to publish. default value: 2
-    /// max_qos_allowed: QoS,
+    pub max_qos_allowed: QoS,
     ///The maximum level at which clients are allowed to subscribe to topics.
     ///0 means unlimited. default value: 0
     pub max_topic_levels: usize,
@@ -139,7 +139,7 @@ impl Builder {
 
             mqueue_rate_limit: (nonzero!(u32::MAX), Duration::from_secs(1)),
             max_clientid_len: 65535,
-            // max_qos_allowed: QoS,
+            max_qos_allowed: QoS::ExactlyOnce,
             max_topic_levels: 0,
             session_expiry_interval: Duration::from_secs(2 * 60 * 60),
             message_retry_interval: Duration::from_secs(20),
@@ -157,7 +157,7 @@ impl Builder {
         }
     }
 
-    pub fn name(mut self, name: &str) -> Self {
+    pub fn name<N: Into<String>>(mut self, name: N) -> Self {
         self.name = name.into();
         self
     }
@@ -172,18 +172,18 @@ impl Builder {
         self
     }
 
-    pub fn nodelay(mut self) -> Self {
-        self.nodelay = true;
+    pub fn nodelay(mut self, nodelay: bool) -> Self {
+        self.nodelay = nodelay;
         self
     }
 
-    pub fn reuseaddr(mut self) -> Self {
-        self.reuseaddr = Some(true);
+    pub fn reuseaddr(mut self, reuseaddr: Option<bool>) -> Self {
+        self.reuseaddr = reuseaddr;
         self
     }
 
-    pub fn reuseport(mut self) -> Self {
-        self.reuseport = Some(true);
+    pub fn reuseport(mut self, reuseport: Option<bool>) -> Self {
+        self.reuseport = reuseport;
         self
     }
 
@@ -257,6 +257,11 @@ impl Builder {
         self
     }
 
+    pub fn max_qos_allowed(mut self, max_qos_allowed: QoS) -> Self {
+        self.max_qos_allowed = max_qos_allowed;
+        self
+    }
+
     pub fn max_topic_levels(mut self, max_topic_levels: usize) -> Self {
         self.max_topic_levels = max_topic_levels;
         self
@@ -302,18 +307,18 @@ impl Builder {
         self
     }
 
-    pub fn tls_cross_certificate(mut self) -> Self {
-        self.tls_cross_certificate = true;
+    pub fn tls_cross_certificate(mut self, cross_certificate: bool) -> Self {
+        self.tls_cross_certificate = cross_certificate;
         self
     }
 
-    pub fn tls_cert(mut self, tls_cert: &str) -> Self {
-        self.tls_cert = Some(tls_cert.into());
+    pub fn tls_cert<N: Into<String>>(mut self, tls_cert: Option<N>) -> Self {
+        self.tls_cert = tls_cert.map(|c| c.into());
         self
     }
 
-    pub fn tls_key(mut self, tls_key: &str) -> Self {
-        self.tls_key = Some(tls_key.into());
+    pub fn tls_key<N: Into<String>>(mut self, tls_key: Option<N>) -> Self {
+        self.tls_key = tls_key.map(|c| c.into());
         self
     }
 
@@ -326,31 +331,79 @@ impl Builder {
 
         builder.set_nonblocking(true)?;
 
-        #[cfg(not(windows))]
-        if let Some(reuseaddr) = reuseaddr {
+        if let Some(reuseaddr) = self.reuseaddr {
             builder.set_reuse_address(reuseaddr)?;
         }
 
         #[cfg(not(windows))]
-        if let Some(reuseport) = reuseport {
+        if let Some(reuseport) = self.reuseport {
             builder.set_reuse_port(reuseport)?;
         }
 
         builder.bind(&SockAddr::from(self.laddr))?;
         builder.listen(self.backlog)?;
-        let l = TcpListener::from_std(std::net::TcpListener::from(builder))?;
-        log::info!("Starting {} Listening on {}", self.name, self.laddr);
-        Ok(Listener { cfg: Arc::new(self), l })
+        let tcp_listener = TcpListener::from_std(std::net::TcpListener::from(builder))?;
+        log::info!("MQTT Broker Listening on {} {}", self.name, self.laddr);
+        Ok(Listener { typ: ListenerType::TCP, cfg: Arc::new(self), tcp_listener, tls_acceptor: None })
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub enum ListenerType {
+    TCP,
+    TLS,
+    WS,
+    WSS,
+}
+
 pub struct Listener {
+    pub typ: ListenerType,
     pub cfg: Arc<Builder>,
-    l: TcpListener,
+    tcp_listener: TcpListener,
+    tls_acceptor: Option<TlsAcceptor>,
 }
 
 impl Listener {
-    pub fn tls(self) -> Result<TlsListener> {
+    pub fn tcp(mut self) -> Result<Self> {
+        if matches!(self.typ, ListenerType::TLS | ListenerType::WS | ListenerType::WSS) {
+            return Err(anyhow!(
+                "Upgrading from ListenerType::TLS or ListenerType::WS or ListenerType::WSS to ListenerType::TCP is not allowed."
+            ));
+        }
+        self.typ = ListenerType::TCP;
+        Ok(self)
+    }
+
+    pub fn ws(mut self) -> Result<Self> {
+        if matches!(self.typ, ListenerType::TCP | ListenerType::WS) {
+            self.typ = ListenerType::WS;
+        } else {
+            return Err(anyhow!(
+                "Upgrading from ListenerType::TLS or ListenerType::WSS to ListenerType::WS is not allowed."
+            ));
+        }
+        Ok(self)
+    }
+
+    pub fn wss(mut self) -> Result<Self> {
+        if matches!(self.typ, ListenerType::TCP | ListenerType::WS) {
+            self = self.tls()?;
+        }
+        self.typ = ListenerType::WSS;
+        Ok(self)
+    }
+
+    pub fn tls(mut self) -> Result<Listener> {
+        match self.typ {
+            ListenerType::WS | ListenerType::WSS => {
+                return Err(anyhow!(
+                    "Upgrading from ListenerType::WS or ListenerType::WSS to ListenerType::TLS is not allowed."
+                ));
+            }
+            ListenerType::TLS => return Ok(self),
+            ListenerType::TCP => {}
+        }
+
         let cert_file = self.cfg.tls_cert.as_ref().ok_or(anyhow!("tls cert filename is None"))?;
         let key_file = self.cfg.tls_key.as_ref().ok_or(anyhow!("tls key filename is None"))?;
 
@@ -382,43 +435,23 @@ impl Listener {
             .map_err(|e| anyhow!(format!("bad certs/private key, {}", e)))?;
 
         let acceptor = TlsAcceptor::from(Arc::new(tls_config));
-
-        Ok(TlsListener { inner: self, acceptor })
+        self.tls_acceptor = Some(acceptor);
+        self.typ = ListenerType::TLS;
+        Ok(self)
     }
 
-    // pub async fn accept_ws(
-    //     &self,
-    //     tm: Duration,
-    // ) -> Result<impl Future<Output = Result<Dispatcher<WsStream<TcpStream>>>> + use<'_>> {
-    //     let (socket, remote_addr) = self.l.accept().await?;
-    //     if let Err(e) = socket.set_nodelay(self.cfg.nodelay) {
-    //         return Err(Error::from(e));
-    //     }
-    //     Ok(async move {
-    //         match tokio::time::timeout(tm, accept_hdr_async(socket, on_handshake)).await {
-    //             Ok(Ok(ws_stream)) => {
-    //                 Ok(Dispatcher::new(WsStream::new(ws_stream), remote_addr, self.cfg.clone()))
-    //             }
-    //             Ok(Err(e)) => Err(e.into()),
-    //             Err(_) => Err(MqttError::ReadTimeout.into()),
-    //         }
-    //     })
-    // }
-
-    // pub async fn accept(&self) -> Result<Dispatcher<TcpStream>> {
-    //     let (socket, remote_addr) = self.l.accept().await?;
-    //     if let Err(e) = socket.set_nodelay(self.cfg.nodelay) {
-    //         return Err(Error::from(e));
-    //     }
-    //     Ok(Dispatcher::new(socket, remote_addr, self.cfg.clone()))
-    // }
-
     pub async fn accept(&self) -> Result<Acceptor<TcpStream>> {
-        let (socket, remote_addr) = self.l.accept().await?;
+        let (socket, remote_addr) = self.tcp_listener.accept().await?;
         if let Err(e) = socket.set_nodelay(self.cfg.nodelay) {
             return Err(Error::from(e));
         }
-        Ok(Acceptor { socket, remote_addr, acceptor: None, cfg: self.cfg.clone() })
+        Ok(Acceptor {
+            socket,
+            remote_addr,
+            acceptor: self.tls_acceptor.clone(),
+            cfg: self.cfg.clone(),
+            typ: self.typ,
+        })
     }
 }
 
@@ -427,6 +460,7 @@ pub struct Acceptor<S> {
     acceptor: Option<TlsAcceptor>,
     pub remote_addr: SocketAddr,
     pub cfg: Arc<Builder>,
+    pub typ: ListenerType,
 }
 
 impl<S> Acceptor<S>
@@ -434,12 +468,20 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     #[inline]
-    pub fn tcp(self) -> Dispatcher<S> {
-        Dispatcher::new(self.socket, self.remote_addr, self.cfg)
+    pub fn tcp(self) -> Result<Dispatcher<S>> {
+        if matches!(self.typ, ListenerType::TCP) {
+            Ok(Dispatcher::new(self.socket, self.remote_addr, self.cfg))
+        } else {
+            Err(anyhow!("Mismatched ListenerType"))
+        }
     }
 
     #[inline]
     pub async fn tls(self) -> Result<Dispatcher<TlsStream<S>>> {
+        if !matches!(self.typ, ListenerType::TLS) {
+            return Err(anyhow!("Mismatched ListenerType"));
+        }
+
         let acceptor = self.acceptor.ok_or_else(|| MqttError::ServiceUnavailable)?;
         let tls_s = match tokio::time::timeout(self.cfg.handshake_timeout, acceptor.accept(self.socket)).await
         {
@@ -452,10 +494,16 @@ where
 
     #[inline]
     pub async fn ws(self) -> Result<Dispatcher<WsStream<S>>> {
+        if !matches!(self.typ, ListenerType::WS) {
+            return Err(anyhow!("Mismatched ListenerType"));
+        }
+
         match tokio::time::timeout(self.cfg.handshake_timeout, accept_hdr_async(self.socket, on_handshake))
             .await
         {
-            Ok(Ok(ws_stream)) => Ok(Dispatcher::new(WsStream::new(ws_stream), self.remote_addr, self.cfg)),
+            Ok(Ok(ws_stream)) => {
+                Ok(Dispatcher::new(WsStream::new(ws_stream), self.remote_addr, self.cfg.clone()))
+            }
             Ok(Err(e)) => Err(e.into()),
             Err(_) => Err(MqttError::ReadTimeout.into()),
         }
@@ -463,6 +511,10 @@ where
 
     #[inline]
     pub async fn wss(self) -> Result<Dispatcher<WsStream<TlsStream<S>>>> {
+        if !matches!(self.typ, ListenerType::WSS) {
+            return Err(anyhow!("Mismatched ListenerType"));
+        }
+
         let acceptor = self.acceptor.ok_or_else(|| MqttError::ServiceUnavailable)?;
         let tls_s = match tokio::time::timeout(self.cfg.handshake_timeout, acceptor.accept(self.socket)).await
         {
@@ -471,38 +523,12 @@ where
             Err(_) => return Err(MqttError::ReadTimeout.into()),
         };
         match tokio::time::timeout(self.cfg.handshake_timeout, accept_hdr_async(tls_s, on_handshake)).await {
-            Ok(Ok(ws_stream)) => Ok(Dispatcher::new(WsStream::new(ws_stream), self.remote_addr, self.cfg)),
+            Ok(Ok(ws_stream)) => {
+                Ok(Dispatcher::new(WsStream::new(ws_stream), self.remote_addr, self.cfg.clone()))
+            }
             Ok(Err(e)) => Err(e.into()),
             Err(_) => Err(MqttError::ReadTimeout.into()),
         }
-    }
-}
-
-pub struct TlsListener {
-    inner: Listener,
-    acceptor: TlsAcceptor,
-}
-
-impl Deref for TlsListener {
-    type Target = Listener;
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl DerefMut for TlsListener {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
-    }
-}
-
-impl TlsListener {
-    pub async fn accept(&self) -> Result<Acceptor<TcpStream>> {
-        let (socket, remote_addr) = self.l.accept().await?;
-        if let Err(e) = socket.set_nodelay(self.cfg.nodelay) {
-            return Err(Error::from(e));
-        }
-        Ok(Acceptor { socket, remote_addr, acceptor: Some(self.acceptor.clone()), cfg: self.cfg.clone() })
     }
 }
 

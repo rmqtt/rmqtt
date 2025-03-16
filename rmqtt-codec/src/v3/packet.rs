@@ -101,35 +101,6 @@ impl Connect {
 
 pub(crate) type Publish = crate::types::Publish;
 
-// #[derive(PartialEq, Eq, Clone)]
-// /// Publish message
-// pub struct Publish {
-//     /// this might be re-delivery of an earlier attempt to send the Packet.
-//     pub dup: bool,
-//     pub retain: bool,
-//     /// the level of assurance for delivery of an Application Message.
-//     pub qos: QoS,
-//     /// the information channel to which payload data is published.
-//     pub topic: ByteString,
-//     /// only present in PUBLISH Packets where the QoS level is 1 or 2.
-//     pub packet_id: Option<NonZeroU16>,
-//     /// the Application Message that is being published.
-//     pub payload: Bytes,
-// }
-//
-// impl fmt::Debug for Publish {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         f.debug_struct("Publish")
-//             .field("packet_id", &self.packet_id)
-//             .field("topic", &self.topic)
-//             .field("dup", &self.dup)
-//             .field("retain", &self.retain)
-//             .field("qos", &self.qos)
-//             .field("payload", &"<REDACTED>")
-//             .finish()
-//     }
-// }
-
 #[derive(Debug, PartialEq, Eq, Copy, Clone, Deserialize, Serialize)]
 /// ConnectAck message
 pub struct ConnectAck {

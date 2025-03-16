@@ -8,9 +8,9 @@ use crate::v5::PublishProperties;
 
 pub(crate) const MQTT: &[u8] = b"MQTT";
 pub(crate) const MQISDP: &[u8] = b"MQIsdp";
-pub(crate) const MQTT_LEVEL_31: u8 = 3;
-pub(crate) const MQTT_LEVEL_311: u8 = 4;
-pub(crate) const MQTT_LEVEL_5: u8 = 5;
+pub const MQTT_LEVEL_31: u8 = 3;
+pub const MQTT_LEVEL_311: u8 = 4;
+pub const MQTT_LEVEL_5: u8 = 5;
 pub(crate) const WILL_QOS_SHIFT: u8 = 3;
 
 /// Max possible packet size
@@ -64,6 +64,26 @@ prim_enum! {
         /// for use when neither loss nor duplication of messages are acceptable.
         /// There is an increased overhead associated with this quality of service.
         ExactlyOnce = 2
+    }
+}
+
+impl QoS {
+    #[inline]
+    pub fn value(&self) -> u8 {
+        match self {
+            QoS::AtMostOnce => 0,
+            QoS::AtLeastOnce => 1,
+            QoS::ExactlyOnce => 2,
+        }
+    }
+
+    #[inline]
+    pub fn less_value(&self, qos: QoS) -> QoS {
+        if self.value() < qos.value() {
+            *self
+        } else {
+            qos
+        }
     }
 }
 

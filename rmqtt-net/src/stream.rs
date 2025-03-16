@@ -28,26 +28,18 @@ where
     Io: AsyncRead + AsyncWrite + Unpin,
 {
     pub(crate) fn new(io: Io, remote_addr: SocketAddr, cfg: Arc<Builder>) -> Self {
-        Dispatcher {
-            io: Framed::new(io, MqttCodec::Version(VersionCodec)),
-            remote_addr,
-            cfg,
-        }
+        Dispatcher { io: Framed::new(io, MqttCodec::Version(VersionCodec)), remote_addr, cfg }
     }
 
     #[inline]
     pub async fn mqtt(mut self) -> Result<MqttStream<Io>> {
         Ok(match self.probe_version().await? {
-            ProtocolVersion::MQTT3 => MqttStream::V3(v3::MqttStream {
-                io: self.io,
-                remote_addr: self.remote_addr,
-                cfg: self.cfg,
-            }),
-            ProtocolVersion::MQTT5 => MqttStream::V5(v5::MqttStream {
-                io: self.io,
-                remote_addr: self.remote_addr,
-                cfg: self.cfg,
-            }),
+            ProtocolVersion::MQTT3 => {
+                MqttStream::V3(v3::MqttStream { io: self.io, remote_addr: self.remote_addr, cfg: self.cfg })
+            }
+            ProtocolVersion::MQTT5 => {
+                MqttStream::V5(v5::MqttStream { io: self.io, remote_addr: self.remote_addr, cfg: self.cfg })
+            }
         })
     }
 
@@ -58,14 +50,10 @@ where
         };
 
         let codec = match ver {
-            ProtocolVersion::MQTT3 => {
-                MqttCodec::V3(CodecV3::new().set_max_size(self.cfg.max_packet_size))
+            ProtocolVersion::MQTT3 => MqttCodec::V3(CodecV3::new(self.cfg.max_packet_size)),
+            ProtocolVersion::MQTT5 => {
+                MqttCodec::V5(CodecV5::new(self.cfg.max_packet_size, self.cfg.max_packet_size))
             }
-            ProtocolVersion::MQTT5 => MqttCodec::V5(
-                CodecV5::new()
-                    .set_max_inbound_size(self.cfg.max_packet_size)
-                    .set_max_outbound_size(self.cfg.max_packet_size),
-            ),
         };
 
         *self.io.codec_mut() = codec;
@@ -315,7 +303,6 @@ where
     // }
 }
 
-
 pub enum MqttStream<Io> {
     V3(v3::MqttStream<Io>),
     V5(v5::MqttStream<Io>),
@@ -330,20 +317,20 @@ pub mod v3 {
     use std::task::{Context, Poll};
     use std::time::Duration;
 
+    use futures::StreamExt;
     use tokio::io::{AsyncRead, AsyncWrite};
     use tokio_util::codec::Framed;
-    use futures::StreamExt;
 
-    use rmqtt_codec::types::Publish;
-    use rmqtt_codec::v3::Packet as PacketV3;
-    use rmqtt_codec::{MqttCodec, MqttPacket};
     use rmqtt_codec::error::DecodeError;
+    use rmqtt_codec::types::Publish;
+    use rmqtt_codec::v3::{Connect, ConnectAckReason, Packet as PacketV3, Packet};
+    use rmqtt_codec::{MqttCodec, MqttPacket};
 
     use crate::error::MqttError;
     use crate::{Builder, Error, Result};
 
     pub struct MqttStream<Io> {
-        pub(crate) io: Framed<Io, MqttCodec>,
+        pub io: Framed<Io, MqttCodec>,
         pub remote_addr: SocketAddr,
         pub cfg: Arc<Builder>,
     }
@@ -388,8 +375,7 @@ pub mod v3 {
             packet_id: NonZeroU16,
             status: Vec<rmqtt_codec::v3::SubscribeReturnCode>,
         ) -> Result<()> {
-            self.send(PacketV3::SubscribeAck { packet_id, status })
-                .await
+            self.send(PacketV3::SubscribeAck { packet_id, status }).await
         }
 
         #[inline]
@@ -403,8 +389,13 @@ pub mod v3 {
         }
 
         #[inline]
-        pub async fn send_connect_ack(&mut self, ack: rmqtt_codec::v3::ConnectAck) -> Result<()> {
-            self.send(PacketV3::ConnectAck(ack)).await
+        pub async fn send_connect_ack(
+            &mut self,
+            return_code: ConnectAckReason,
+            session_present: bool,
+        ) -> Result<()> {
+            self.send(PacketV3::ConnectAck(rmqtt_codec::v3::ConnectAck { session_present, return_code }))
+                .await
         }
 
         #[inline]
@@ -438,10 +429,23 @@ pub mod v3 {
                 Ok(Some(Ok(msg))) => Ok(Some(msg)),
                 Ok(Some(Err(e))) => Err(e),
                 Ok(None) => Ok(None),
-                Err(_) => Err(MqttError::ReadTimeout.into())
+                Err(_) => Err(MqttError::ReadTimeout.into()),
             }
         }
 
+        #[inline]
+        pub async fn recv_connect(&mut self, tm: Duration) -> Result<Box<Connect>> {
+            let connect = match self.recv(tm).await {
+                Ok(Some(Packet::Connect(connect))) => connect,
+                Err(e) => {
+                    return Err(e);
+                }
+                _ => {
+                    return Err(MqttError::InvalidProtocol.into());
+                }
+            };
+            Ok(connect)
+        }
     }
 
     impl<Io> futures::Stream for MqttStream<Io>
@@ -473,16 +477,16 @@ pub mod v5 {
     use tokio::io::{AsyncRead, AsyncWrite};
     use tokio_util::codec::Framed;
 
-    use rmqtt_codec::types::Publish;
-    use rmqtt_codec::v5::{Auth, Disconnect, Packet as PacketV5};
-    use rmqtt_codec::{MqttCodec, MqttPacket};
     use rmqtt_codec::error::DecodeError;
+    use rmqtt_codec::types::Publish;
+    use rmqtt_codec::v5::{Auth, Connect, Disconnect, Packet as PacketV5, Packet};
+    use rmqtt_codec::{MqttCodec, MqttPacket};
 
     use crate::error::MqttError;
     use crate::{Builder, Error, Result};
 
     pub struct MqttStream<Io> {
-        pub(crate) io: Framed<Io, MqttCodec>,
+        pub io: Framed<Io, MqttCodec>,
         pub remote_addr: SocketAddr,
         pub cfg: Arc<Builder>,
     }
@@ -507,42 +511,27 @@ pub mod v5 {
         }
 
         #[inline]
-        pub async fn send_publish_received(
-            &mut self,
-            ack: rmqtt_codec::v5::PublishAck,
-        ) -> Result<()> {
+        pub async fn send_publish_received(&mut self, ack: rmqtt_codec::v5::PublishAck) -> Result<()> {
             self.send(PacketV5::PublishReceived(ack)).await
         }
 
         #[inline]
-        pub async fn send_publish_release(
-            &mut self,
-            ack2: rmqtt_codec::v5::PublishAck2,
-        ) -> Result<()> {
+        pub async fn send_publish_release(&mut self, ack2: rmqtt_codec::v5::PublishAck2) -> Result<()> {
             self.send(PacketV5::PublishRelease(ack2)).await
         }
 
         #[inline]
-        pub async fn send_publish_complete(
-            &mut self,
-            ack2: rmqtt_codec::v5::PublishAck2,
-        ) -> Result<()> {
+        pub async fn send_publish_complete(&mut self, ack2: rmqtt_codec::v5::PublishAck2) -> Result<()> {
             self.send(PacketV5::PublishComplete(ack2)).await
         }
 
         #[inline]
-        pub async fn send_subscribe_ack(
-            &mut self,
-            ack: rmqtt_codec::v5::SubscribeAck,
-        ) -> Result<()> {
+        pub async fn send_subscribe_ack(&mut self, ack: rmqtt_codec::v5::SubscribeAck) -> Result<()> {
             self.send(PacketV5::SubscribeAck(ack)).await
         }
 
         #[inline]
-        pub async fn send_unsubscribe_ack(
-            &mut self,
-            unack: rmqtt_codec::v5::UnsubscribeAck,
-        ) -> Result<()> {
+        pub async fn send_unsubscribe_ack(&mut self, unack: rmqtt_codec::v5::UnsubscribeAck) -> Result<()> {
             self.send(PacketV5::UnsubscribeAck(unack)).await
         }
 
@@ -592,8 +581,22 @@ pub mod v5 {
                 Ok(Some(Ok(msg))) => Ok(Some(msg)),
                 Ok(Some(Err(e))) => Err(e),
                 Ok(None) => Ok(None),
-                Err(_) => Err(MqttError::ReadTimeout.into())
+                Err(_) => Err(MqttError::ReadTimeout.into()),
             }
+        }
+
+        #[inline]
+        pub async fn recv_connect(&mut self, tm: Duration) -> Result<Box<Connect>> {
+            let connect = match self.recv(tm).await {
+                Ok(Some(Packet::Connect(connect))) => connect,
+                Err(e) => {
+                    return Err(e);
+                }
+                _ => {
+                    return Err(MqttError::InvalidProtocol.into());
+                }
+            };
+            Ok(connect)
         }
     }
 
@@ -615,11 +618,7 @@ pub mod v5 {
     }
 }
 #[inline]
-async fn send<Io>(
-    io: &mut Framed<Io, MqttCodec>,
-    packet: MqttPacket,
-    send_timeout: Duration,
-) -> Result<()>
+async fn send<Io>(io: &mut Framed<Io, MqttCodec>, packet: MqttPacket, send_timeout: Duration) -> Result<()>
 where
     Io: AsyncWrite + Unpin,
 {

@@ -1,22 +1,23 @@
 [workspace]
 resolver = "2"
 members = [
-#    "rmqtt",
-#    "rmqtt-plugins/*",
-#    "rmqtt-bin",
-#    "rmqtt-macros"
+    "rmqtt",
+    "rmqtt-plugins/*",
+    "rmqtt-bin",
+    "rmqtt-macros",
     "rmqtt-codec",
-    "rmqtt-net"
+    "rmqtt-net",
+    "rmqtt-conf"
 ]
 
 [patch.crates-io]
+rmqtt = { path = "rmqtt" }
 rmqtt-codec = { path = "rmqtt-codec" }
 rmqtt-net = { path = "rmqtt-net" }
-
-#rmqtt = { path = "rmqtt" }
-#rmqtt-macros = { path = "rmqtt-macros" }
+rmqtt-conf = { path = "rmqtt-conf" }
+rmqtt-macros = { path = "rmqtt-macros" }
 #rmqtt-plugin-template = { path = "rmqtt-plugins/rmqtt-plugin-template" }
-#rmqtt-acl = { path = "rmqtt-plugins/rmqtt-acl" }
+rmqtt-acl = { path = "rmqtt-plugins/rmqtt-acl" }
 #rmqtt-web-hook = { path = "rmqtt-plugins/rmqtt-web-hook" }
 #rmqtt-auth-http = { path = "rmqtt-plugins/rmqtt-auth-http" }
 #rmqtt-auth-jwt = { path = "rmqtt-plugins/rmqtt-auth-jwt" }
@@ -24,7 +25,7 @@ rmqtt-net = { path = "rmqtt-net" }
 #rmqtt-cluster-raft = { path = "rmqtt-plugins/rmqtt-cluster-raft" }
 #rmqtt-counter = { path = "rmqtt-plugins/rmqtt-counter" }
 #rmqtt-http-api = { path = "rmqtt-plugins/rmqtt-http-api" }
-#rmqtt-retainer = { path = "rmqtt-plugins/rmqtt-retainer" }
+rmqtt-retainer = { path = "rmqtt-plugins/rmqtt-retainer" }
 #rmqtt-sys-topic = { path = "rmqtt-plugins/rmqtt-sys-topic" }
 #rmqtt-session-storage = { path = "rmqtt-plugins/rmqtt-session-storage" }
 #rmqtt-message-storage = { path = "rmqtt-plugins/rmqtt-message-storage" }
@@ -40,7 +41,7 @@ rmqtt-net = { path = "rmqtt-net" }
 #rmqtt-bridge-egress-reductstore = { path = "rmqtt-plugins/rmqtt-bridge-egress-reductstore"}
 
 [workspace.package]
-version = "0.20.0"
+version = "0.13.0"
 edition = "2021"
 authors = ["rmqtt <rmqttd@126.com>"]
 description = "MQTT Server for v3.1, v3.1.1 and v5.0 protocols"
@@ -53,10 +54,12 @@ rust-version = "1.81.0"
 
 
 [workspace.dependencies]
+rmqtt = "0.13"
 rmqtt-codec = "0.1"
 rmqtt-net = "0.1"
-#rmqtt = "0.12"
-#rmqtt-macros = "0.1"
+rmqtt-conf = "0.1"
+rmqtt-macros = "0.1"
+
 
 futures = "0.3"
 serde = { version = "1.0", features = ["derive"] }
@@ -95,7 +98,7 @@ url = { version = "=2.5.4", default-features = false }
 systemstat = "0.2"
 itertools = "0.14"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
-rust-box = { version = "0.12", features = ["task-exec-queue", "task-exec-queue-rate", "std-ext", "dequemap", "stream-ext-leaky-bucket"] }
+rust-box = "0.12"
 counter-rater = { package = "box-counter", version = "0.3", features = ["rate"] }
 structopt = "0.3"
 tokio-tungstenite = "0.26"
@@ -104,7 +107,7 @@ tokio-cron-scheduler = "0.13"
 bitflags = "=2.6.0"
 leaky-bucket = "=1.1.2"
 scc = "=2.3.1"
-get_size = { package = "get-size", version = "0.1", features = ["derive"] }
+get-size = "0.1"
 itoa = "=1.0.14"
 prometheus = "0.13"
 regex = "=1.11.1"
@@ -112,13 +115,6 @@ futures-time = "3.0"
 backoff = { version = "0.4", features = ["futures", "tokio"] }
 parking_lot = "0.12.3"
 nonzero_ext = "0.3"
-
-#[workspace.target.'cfg(not(windows))'.dependencies]
-#rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "logging", "std", "tls12"] }
-#
-#[workspace.target.'cfg(windows)'.dependencies]
-#rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
-
 
 
 [profile.dev]

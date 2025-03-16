@@ -21,25 +21,26 @@ async fn main() -> Result<()> {
     std::env::set_var("RUST_LOG", "server=debug,rmqtt_net=debug,rmqtt_codec=debug");
     env_logger::init();
 
-    let tcp_listener = Builder::new().name("external/tcp").laddr("0.0.0.0:1883".parse()?).bind()?;
+    let tcp_listener =
+        Builder::new().name("external/tcp").laddr(([0, 0, 0, 0], 1883).into()).bind()?.tcp()?;
 
     let tls_listener = Builder::new()
         .name("external/tls")
-        .laddr("0.0.0.0:8883".parse()?)
-        .tls_key("./certs/rmqtt.key")
-        .tls_cert("./certs/rmqtt.pem")
+        .laddr(([0, 0, 0, 0], 8883).into())
+        .tls_key(Some("./rmqtt-bin/rmqtt.key"))
+        .tls_cert(Some("./rmqtt-bin/rmqtt.pem"))
         .bind()?
         .tls()?;
 
-    let ws_listener = Builder::new().name("external/ws").laddr("0.0.0.0:8080".parse()?).bind()?;
+    let ws_listener = Builder::new().name("external/ws").laddr(([0, 0, 0, 0], 8080).into()).bind()?.ws()?;
 
     let wss_listener = Builder::new()
         .name("external/wss")
-        .laddr("0.0.0.0:8443".parse()?)
-        .tls_key("./certs/rmqtt.key")
-        .tls_cert("./certs/rmqtt.pem")
+        .laddr(([0, 0, 0, 0], 8443).into())
+        .tls_key(Some("./rmqtt-bin/rmqtt.key"))
+        .tls_cert(Some("./rmqtt-bin/rmqtt.pem"))
         .bind()?
-        .tls()?;
+        .wss()?;
 
     let tcp = async {
         loop {
@@ -47,7 +48,14 @@ async fn main() -> Result<()> {
                 Ok(a) => {
                     tokio::spawn(async move {
                         log::info!("tcp {:?}", a.remote_addr);
-                        match a.tcp().mqtt().await {
+                        let d = match a.tcp() {
+                            Ok(d) => d,
+                            Err(e) => {
+                                log::warn!("Failed to mqtt(tcp) accept, {:?}", e);
+                                return;
+                            }
+                        };
+                        match d.mqtt().await {
                             Ok(MqttStream::V3(s)) => {
                                 if let Err(e) = process_v3(s).await {
                                     log::warn!("Failed to process mqtt v3, {:?}", e);
@@ -211,11 +219,7 @@ where
         log::info!("recv packet: {:?}", packet);
         match packet {
             v3::Packet::Connect(_c) => {
-                s.send_connect_ack(v3::ConnectAck {
-                    session_present: false,
-                    return_code: v3::ConnectAckReason::ConnectionAccepted,
-                })
-                .await?;
+                s.send_connect_ack(v3::ConnectAckReason::ConnectionAccepted, false).await?;
             }
             v3::Packet::Subscribe { packet_id, topic_filters } => {
                 let status =

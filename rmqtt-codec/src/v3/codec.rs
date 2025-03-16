@@ -24,26 +24,22 @@ enum DecodeState {
 
 impl Codec {
     /// Create `Codec` instance
-    pub fn new() -> Self {
-        Codec {
-            state: Cell::new(DecodeState::FrameHeader),
-            max_size: Cell::new(0),
-        }
+    pub fn new(max_packet_size: u32) -> Self {
+        Codec { state: Cell::new(DecodeState::FrameHeader), max_size: Cell::new(max_packet_size) }
     }
 
     /// Set max inbound frame size.
     ///
     /// If max size is set to `0`, size is unlimited.
     /// By default max size is set to `0`
-    pub fn set_max_size(self, size: u32) -> Self {
+    pub fn set_max_size(&mut self, size: u32) {
         self.max_size.set(size);
-        self
     }
 }
 
 impl Default for Codec {
     fn default() -> Self {
-        Self::new()
+        Self::new(0)
     }
 }
 
@@ -68,10 +64,7 @@ impl Decoder for Codec {
                                 return Err(DecodeError::MaxSizeExceeded);
                             }
                             src.advance(consumed + 1);
-                            self.state.set(DecodeState::Frame(FixedHeader {
-                                first_byte,
-                                remaining_length,
-                            }));
+                            self.state.set(DecodeState::Frame(FixedHeader { first_byte, remaining_length }));
                             // todo: validate remaining_length against max frame size config
                             let remaining_length = remaining_length as usize;
                             if src.len() < remaining_length {
@@ -125,22 +118,17 @@ mod tests {
 
     #[test]
     fn test_max_size() {
-        let mut codec = Codec::new();
-        codec = codec.set_max_size(5);
+        let mut codec = Codec::default();
+        codec.set_max_size(5);
 
         let mut buf = BytesMut::new();
         buf.extend_from_slice(b"\0\x09");
-        assert_eq!(
-            codec
-                .decode(&mut buf)
-                .map_err(|e| matches!(e, DecodeError::MaxSizeExceeded)),
-            Err(true)
-        );
+        assert_eq!(codec.decode(&mut buf).map_err(|e| matches!(e, DecodeError::MaxSizeExceeded)), Err(true));
     }
 
     #[test]
     fn test_packet() {
-        let mut codec = Codec::new();
+        let mut codec = Codec::default();
         let mut buf = BytesMut::new();
 
         let pkt = Publish {
@@ -151,15 +139,10 @@ mod tests {
             packet_id: None,
             payload: Bytes::from(Vec::from("a".repeat(260 * 1024))),
         };
-        codec
-            .encode(Packet::Publish(pkt.clone()), &mut buf)
-            .unwrap();
+        codec.encode(Packet::Publish(pkt.clone()), &mut buf).unwrap();
 
-        let pkt2 = if let (Packet::Publish(v), _) = codec.decode(&mut buf).unwrap().unwrap() {
-            v
-        } else {
-            panic!()
-        };
+        let pkt2 =
+            if let (Packet::Publish(v), _) = codec.decode(&mut buf).unwrap().unwrap() { v } else { panic!() };
         assert_eq!(pkt, pkt2);
     }
 }

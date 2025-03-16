@@ -1,0 +1,87 @@
+[package]
+name = "rmqtt"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description.workspace = true
+categories.workspace = true
+keywords.workspace = true
+exclude.workspace = true
+rust-version.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+default = []
+debug = []
+
+[dependencies]
+rmqtt-net.workspace = true
+rmqtt-codec.workspace = true
+rmqtt-conf.workspace = true
+rmqtt-macros.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+tokio.workspace = true
+futures.workspace = true
+log.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+#socket2.workspace = true
+async-trait.workspace = true
+#rustls.workspace = true
+#tokio-rustls.workspace = true
+#rustls-pemfile.workspace = true
+#tokio-tungstenite.workspace = true
+#pin-project-lite.workspace = true
+bytes = { version = "1.9", features = ["serde"] }
+bytestring = { workspace = true, features = ["serde"] }
+#nonzero_ext.workspace = true
+#tokio-util = { workspace = true, features = ["codec"] }
+once_cell.workspace = true
+base64.workspace = true
+bitflags.workspace = true
+itertools.workspace = true
+dashmap.workspace = true
+ahash.workspace = true
+chrono.workspace = true
+get-size = { workspace = true, features = ["derive"] }
+slog.workspace = true
+slog-stdlog.workspace = true
+slog-scope.workspace = true
+slog-term.workspace = true
+slog-async.workspace = true
+rust-box = { workspace = true, features = ["counter-rate", "task-exec-queue", "task-exec-queue-rate", "std-ext", "dequemap", "stream-ext-leaky-bucket"] }
+tokio-cron-scheduler.workspace = true
+leaky-bucket.workspace = true
+crossbeam.workspace = true
+governor.workspace = true
+uuid.workspace = true
+systemstat.workspace = true
+bincode.workspace = true
+tonic.workspace = true
+prost.workspace = true
+tokio-stream.workspace = true
+socket2.workspace = true
+parking_lot.workspace = true
+rand.workspace = true
+prometheus.workspace = true
+url.workspace = true
+
+#[target.'cfg(not(windows))'.dependencies]
+#rustls = { workspace = true, features = ["aws-lc-rs", "logging", "std", "tls12"] }
+#
+#[target.'cfg(windows)'.dependencies]
+#rustls = { workspace = true, features = ["ring", "logging", "std", "tls12"] }
+
+
+[dev-dependencies]
+env_logger = "0.11"
+
+[build-dependencies]
+tonic-build = "0.12"
+toml = "0.8"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+

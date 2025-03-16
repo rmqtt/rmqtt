@@ -1,6 +1,7 @@
-use rmqtt_codec::error::{
-    DecodeError, EncodeError, HandshakeError, ProtocolError, SendPacketError,
-};
+use bytestring::ByteString;
+
+use rmqtt_codec::error::{DecodeError, EncodeError, HandshakeError, ProtocolError, SendPacketError};
+use rmqtt_codec::v5::PublishAckReason;
 
 #[derive(Debug, thiserror::Error)]
 pub enum MqttError {
@@ -30,6 +31,18 @@ pub enum MqttError {
     /// Close timeout
     #[error("Close timeout")]
     CloseTimeout,
+    #[error("{1}")]
+    PublishAckReason(PublishAckReason, ByteString),
     #[error("service unavailable")]
     ServiceUnavailable,
+    #[error("invalid protocol")]
+    InvalidProtocol,
+    #[error("too many subscriptions")]
+    TooManySubscriptions,
+    #[error("too many topic levels")]
+    TooManyTopicLevels,
+    #[error("subscription limit reached, {0}")]
+    SubscribeLimited(String),
+    #[error("identifier rejected")]
+    IdentifierRejected,
 }

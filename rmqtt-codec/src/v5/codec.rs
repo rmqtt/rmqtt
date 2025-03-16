@@ -33,11 +33,11 @@ enum DecodeState {
 
 impl Codec {
     /// Create `Codec` instance
-    pub fn new() -> Self {
+    pub fn new(max_in_size: u32, max_out_size: u32) -> Self {
         Codec {
             state: Cell::new(DecodeState::FrameHeader),
-            max_in_size: Cell::new(0),
-            max_out_size: Cell::new(0),
+            max_in_size: Cell::new(max_in_size),
+            max_out_size: Cell::new(max_out_size),
             flags: Cell::new(CodecFlags::empty()),
         }
     }
@@ -62,22 +62,20 @@ impl Codec {
     ///
     /// If max size is set to `0`, size is unlimited.
     /// By default max size is set to `0`
-    pub fn set_max_inbound_size(self, size: u32) -> Self {
+    pub fn set_max_inbound_size(&mut self, size: u32) {
         self.max_in_size.set(size);
-        self
     }
 
     /// Set max outbound frame size.
     ///
     /// If max size is set to `0`, size is unlimited.
     /// By default max size is set to `0`
-    pub fn set_max_outbound_size(self, mut size: u32) -> Self {
+    pub fn set_max_outbound_size(&mut self, mut size: u32) {
         if size > 5 {
             // fixed header = 1, var_len(remaining.max_value()) = 4
             size -= 5;
         }
         self.max_out_size.set(size);
-        self
     }
 
     #[inline]
@@ -111,7 +109,7 @@ impl Codec {
 
 impl Default for Codec {
     fn default() -> Self {
-        Self::new()
+        Self::new(0, 0)
     }
 }
 
@@ -141,10 +139,7 @@ impl Decoder for Codec {
                                 return Err(DecodeError::MaxSizeExceeded);
                             }
                             src.advance(consumed + 1);
-                            self.state.set(DecodeState::Frame(FixedHeader {
-                                first_byte,
-                                remaining_length,
-                            }));
+                            self.state.set(DecodeState::Frame(FixedHeader { first_byte, remaining_length }));
                             // todo: validate remaining_length against max frame size config
                             let remaining_length = remaining_length as usize;
                             if src.len() < remaining_length {
@@ -218,11 +213,7 @@ impl Encoder<Packet> for Codec {
         }
 
         let max_out_size = self.max_out_size.get();
-        let max_size = if max_out_size != 0 {
-            max_out_size
-        } else {
-            MAX_PACKET_SIZE
-        };
+        let max_size = if max_out_size != 0 { max_out_size } else { MAX_PACKET_SIZE };
         let content_size = item.encoded_size(max_size);
         if content_size > max_size as usize {
             return Err(EncodeError::OverMaxPacketSize);
@@ -243,11 +234,6 @@ mod tests {
         codec = codec.set_max_inbound_size(5);
         let mut buf = BytesMut::new();
         buf.extend_from_slice(b"\0\x09");
-        assert_eq!(
-            codec
-                .decode(&mut buf)
-                .map_err(|e| matches!(e, DecodeError::MaxSizeExceeded)),
-            Err(true)
-        );
+        assert_eq!(codec.decode(&mut buf).map_err(|e| matches!(e, DecodeError::MaxSizeExceeded)), Err(true));
     }
 }
