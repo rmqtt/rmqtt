@@ -320,7 +320,7 @@ impl SessionState {
             } else {
                 let session_expiry_interval = state.fitter.session_expiry_interval(disconnect.as_ref());
                 //hook, offline_inflight_messages
-                let inflight_messages = state.inflight_win().write().await.to_inflight_messages();
+                let inflight_messages = state.inflight_win().write().await.clone_inflight_messages();
                 if !inflight_messages.is_empty() {
                     state.hook.offline_inflight_messages(inflight_messages).await;
                 }
