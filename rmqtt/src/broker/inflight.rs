@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -259,5 +260,10 @@ impl Inflight {
             inflight_messages.push(msg);
         }
         inflight_messages
+    }
+
+    #[inline]
+    pub fn clone_inflight_messages(&mut self) -> Vec<InflightMessage> {
+        self.queues.iter().map(|(_, msg)| msg.clone()).collect_vec()
     }
 }
