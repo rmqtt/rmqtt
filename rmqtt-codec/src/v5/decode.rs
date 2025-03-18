@@ -8,9 +8,9 @@ use crate::utils::Decode;
 
 pub(super) fn decode_packet(mut src: Bytes, first_byte: u8) -> Result<Packet, DecodeError> {
     match first_byte {
-        packet_type::PUBLISH_START..=packet_type::PUBLISH_END => Ok(Packet::Publish(
-            Publish::decode(src, first_byte & 0b0000_1111)?,
-        )),
+        packet_type::PUBLISH_START..=packet_type::PUBLISH_END => {
+            Ok(Packet::Publish(Publish::decode(src, first_byte & 0b0000_1111)?))
+        }
         packet_type::PUBACK => Ok(Packet::PublishAck(PublishAck::decode(&mut src)?)),
         packet_type::PINGREQ => Ok(Packet::PingRequest),
         packet_type::PINGRESP => Ok(Packet::PingResponse),
@@ -140,17 +140,13 @@ mod tests {
             Err(true),
         );
         assert_eq!(
-            Connect::decode(&mut Bytes::from_static(
-                b"\x00\x04MQTT\x0300000000000000000000"
-            ))
-            .map_err(|e| matches!(e, DecodeError::UnsupportedProtocolLevel)),
+            Connect::decode(&mut Bytes::from_static(b"\x00\x04MQTT\x0300000000000000000000"))
+                .map_err(|e| matches!(e, DecodeError::UnsupportedProtocolLevel)),
             Err(true),
         );
         assert_eq!(
-            Connect::decode(&mut Bytes::from_static(
-                b"\x00\x04MQTT\x05\xff00000000000000000000"
-            ))
-            .map_err(|e| matches!(e, DecodeError::ConnectReservedFlagSet)),
+            Connect::decode(&mut Bytes::from_static(b"\x00\x04MQTT\x05\xff00000000000000000000"))
+                .map_err(|e| matches!(e, DecodeError::ConnectReservedFlagSet)),
             Err(true)
         );
 
@@ -319,10 +315,7 @@ mod tests {
             user_properties: Vec::new(),
         });
 
-        assert_decode_packet(
-            b"\x82\x15\x12\x34\x02\x0b\x01\x00\x04test\x01\x00\x06filter\x02",
-            p,
-        );
+        assert_decode_packet(b"\x82\x15\x12\x34\x02\x0b\x01\x00\x04test\x01\x00\x06filter\x02", p);
 
         let p = Packet::SubscribeAck(SubscribeAck {
             packet_id: packet_id(0x1234),
@@ -339,19 +332,14 @@ mod tests {
 
         let p = Packet::Unsubscribe(Unsubscribe {
             packet_id: packet_id(0x1234),
-            topic_filters: vec![
-                ByteString::from_static("test"),
-                ByteString::from_static("filter"),
-            ],
+            topic_filters: vec![ByteString::from_static("test"), ByteString::from_static("filter")],
             user_properties: UserProperties::default(),
         });
 
         assert_eq!(
             Packet::Unsubscribe(
-                Unsubscribe::decode(&mut Bytes::from_static(
-                    b"\x12\x34\x00\x00\x04test\x00\x06filter"
-                ))
-                .unwrap()
+                Unsubscribe::decode(&mut Bytes::from_static(b"\x12\x34\x00\x00\x04test\x00\x06filter"))
+                    .unwrap()
             ),
             p.clone()
         );

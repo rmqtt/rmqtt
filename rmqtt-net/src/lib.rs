@@ -1,5 +1,8 @@
 #![deny(unsafe_code)]
 
+#[macro_use]
+extern crate serde;
+
 mod builder;
 mod error;
 mod stream;

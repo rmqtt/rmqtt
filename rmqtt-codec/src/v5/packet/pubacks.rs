@@ -6,7 +6,7 @@ use bytestring::ByteString;
 use super::ack_props;
 use crate::error::{DecodeError, EncodeError};
 use crate::utils::{Decode, Encode};
-use crate::v5::{encode::*, UserProperties};
+use crate::v5::{encode::*, DisconnectReasonCode, ToReasonCode, UserProperties};
 
 const HEADER_LEN: u32 = 2 + 1; // packet id + reason code
 
@@ -46,6 +46,38 @@ prim_enum! {
     }
 }
 
+impl PublishAckReason {
+    #[inline]
+    pub fn should_disconnect(&self) -> bool {
+        matches!(
+            self,
+            PublishAckReason::UnspecifiedError
+                | PublishAckReason::ImplementationSpecificError
+                | PublishAckReason::NotAuthorized
+                | PublishAckReason::TopicNameInvalid
+        )
+    }
+}
+
+impl ToReasonCode for PublishAckReason {
+    fn to_reason_code(&self) -> DisconnectReasonCode {
+        match self {
+            PublishAckReason::Success | PublishAckReason::NoMatchingSubscribers => {
+                DisconnectReasonCode::NormalDisconnection
+            }
+            PublishAckReason::UnspecifiedError => DisconnectReasonCode::UnspecifiedError,
+            PublishAckReason::ImplementationSpecificError => {
+                DisconnectReasonCode::ImplementationSpecificError
+            }
+            PublishAckReason::NotAuthorized => DisconnectReasonCode::NotAuthorized,
+            PublishAckReason::TopicNameInvalid => DisconnectReasonCode::TopicNameInvalid,
+            PublishAckReason::PacketIdentifierInUse => DisconnectReasonCode::ProtocolError,
+            PublishAckReason::QuotaExceeded => DisconnectReasonCode::QuotaExceeded,
+            PublishAckReason::PayloadFormatInvalid => DisconnectReasonCode::PayloadFormatInvalid,
+        }
+    }
+}
+
 impl From<PublishAckReason> for u8 {
     fn from(v: PublishAckReason) -> Self {
         match v {
@@ -71,6 +103,22 @@ prim_enum! {
     }
 }
 
+impl PublishAck2Reason {
+    #[inline]
+    pub fn should_disconnect(&self) -> bool {
+        matches!(self, PublishAck2Reason::PacketIdNotFound)
+    }
+}
+
+impl ToReasonCode for PublishAck2Reason {
+    fn to_reason_code(&self) -> DisconnectReasonCode {
+        match self {
+            PublishAck2Reason::Success => DisconnectReasonCode::NormalDisconnection,
+            PublishAck2Reason::PacketIdNotFound => DisconnectReasonCode::ImplementationSpecificError,
+        }
+    }
+}
+
 impl From<PublishAck2Reason> for u8 {
     fn from(v: PublishAck2Reason) -> Self {
         match v {
@@ -89,24 +137,12 @@ impl PublishAck {
             if src.has_remaining() {
                 let (properties, reason_string) = ack_props::decode(src)?;
                 ensure!(!src.has_remaining(), DecodeError::InvalidLength); // no data should be left in src
-                Self {
-                    packet_id,
-                    reason_code,
-                    properties,
-                    reason_string,
-                }
+                Self { packet_id, reason_code, properties, reason_string }
             } else {
-                Self {
-                    packet_id,
-                    reason_code,
-                    ..Default::default()
-                }
+                Self { packet_id, reason_code, ..Default::default() }
             }
         } else {
-            Self {
-                packet_id,
-                ..Default::default()
-            }
+            Self { packet_id, ..Default::default() }
         };
 
         Ok(ack)
@@ -132,24 +168,12 @@ impl PublishAck2 {
             if src.has_remaining() {
                 let (properties, reason_string) = ack_props::decode(src)?;
                 ensure!(!src.has_remaining(), DecodeError::InvalidLength); // no data should be left in src
-                Self {
-                    packet_id,
-                    reason_code,
-                    properties,
-                    reason_string,
-                }
+                Self { packet_id, reason_code, properties, reason_string }
             } else {
-                Self {
-                    packet_id,
-                    reason_code,
-                    ..Default::default()
-                }
+                Self { packet_id, reason_code, ..Default::default() }
             }
         } else {
-            Self {
-                packet_id,
-                ..Default::default()
-            }
+            Self { packet_id, ..Default::default() }
         };
 
         Ok(ack)
@@ -169,23 +193,14 @@ impl Default for PublishAck2 {
 
 impl EncodeLtd for PublishAck {
     fn encoded_size(&self, limit: u32) -> usize {
-        let prop_len = ack_props::encoded_size(
-            &self.properties,
-            &self.reason_string,
-            limit - HEADER_LEN - 4,
-        ); // limit - HEADER_LEN - len(packet_len.max())
+        let prop_len = ack_props::encoded_size(&self.properties, &self.reason_string, limit - HEADER_LEN - 4); // limit - HEADER_LEN - len(packet_len.max())
         HEADER_LEN as usize + prop_len
     }
 
     fn encode(&self, buf: &mut BytesMut, size: u32) -> Result<(), EncodeError> {
         self.packet_id.get().encode(buf)?;
         buf.put_u8(self.reason_code.into());
-        ack_props::encode(
-            &self.properties,
-            &self.reason_string,
-            buf,
-            size - HEADER_LEN,
-        )?;
+        ack_props::encode(&self.properties, &self.reason_string, buf, size - HEADER_LEN)?;
         Ok(())
     }
 }
@@ -193,11 +208,7 @@ impl EncodeLtd for PublishAck {
 impl EncodeLtd for PublishAck2 {
     fn encoded_size(&self, limit: u32) -> usize {
         const HEADER_LEN: u32 = 2 + 1; // fixed header + packet id + reason code
-        let prop_len = ack_props::encoded_size(
-            &self.properties,
-            &self.reason_string,
-            limit - HEADER_LEN - 4,
-        ); // limit - HEADER_LEN - prop_len.max()
+        let prop_len = ack_props::encoded_size(&self.properties, &self.reason_string, limit - HEADER_LEN - 4); // limit - HEADER_LEN - prop_len.max()
         HEADER_LEN as usize + prop_len
     }
 
@@ -234,10 +245,7 @@ mod tests {
             PublishAck {
                 packet_id: packet_id.try_into().unwrap(),
                 reason_code,
-                properties: properties
-                    .into_iter()
-                    .map(|(k, v)| (k.into(), v.into()))
-                    .collect(),
+                properties: properties.into_iter().map(|(k, v)| (k.into(), v.into())).collect(),
                 reason_string: reason_string.map(|s| s.into())
             }
         );

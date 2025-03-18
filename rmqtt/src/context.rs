@@ -110,8 +110,6 @@ impl ServerContextBuilder {
 
         ServerContext {
             inner: Arc::new(ServerContextInner {
-                // settings,
-                // logger,
                 node: self.node,
                 extends: extend::Manager::new(),
                 plugins: plugin::Manager::new(self.plugins_dir),
@@ -137,8 +135,6 @@ pub struct ServerContext {
 }
 
 pub struct ServerContextInner {
-    // pub settings: Settings,
-    // pub logger: Logger,
     pub node: Node,
     pub extends: extend::Manager,
     pub plugins: plugin::Manager,
@@ -146,7 +142,7 @@ pub struct ServerContextInner {
     pub stats: Stats,
     pub handshake_exec: HandshakeExecutor,
     pub global_exec: TaskExecQueue,
-    // pub sched: JobScheduler,
+
     pub busy_check_enable: bool,
     pub mqtt_delayed_publish_max: usize,
     pub mqtt_max_sessions: isize,
@@ -185,7 +181,21 @@ impl ServerContext {
 
 impl fmt::Debug for ServerContext {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "ServerContext ...")?;
+        write!(
+            f,
+            "ServerContext node: {:?}, metrics: {:?}, stats: {:?}, \
+            handshake_exec.active_count: {}, \
+            busy_check_enable: {}, mqtt_delayed_publish_max: {}, \
+            mqtt_delayed_publish_immediate: {}, mqtt_max_sessions: {}",
+            self.node,
+            self.metrics,
+            self.stats,
+            self.handshake_exec.active_count(),
+            self.busy_check_enable,
+            self.mqtt_delayed_publish_max,
+            self.mqtt_delayed_publish_immediate,
+            self.mqtt_max_sessions
+        )?;
         Ok(())
     }
 }
@@ -212,11 +222,6 @@ impl TaskExecStats {
             rate: global_exec.rate().await,
         }
     }
-
-    // #[inline]
-    // pub fn from_local_exec() -> Self {
-    //     get_local_stats()
-    // }
 
     #[inline]
     fn add2(mut self, other: &Self) -> Self {
@@ -246,23 +251,3 @@ impl Sum<&'static TaskExecStats> for TaskExecStats {
         iter.fold(TaskExecStats::default(), |acc, x| acc.add2(x))
     }
 }
-
-// static LOCAL_ACTIVE_COUNTS: OnceCell<DashMap<ThreadId, TaskExecStats>> = OnceCell::new();
-//
-// #[inline]
-// async fn set_local_stats(exec: &LocalTaskExecQueue) {
-//     let active_counts = LOCAL_ACTIVE_COUNTS.get_or_init(DashMap::default);
-//     let mut entry = active_counts.entry(std::thread::current().id()).or_default();
-//     let stats = entry.value_mut();
-//     stats.active_count = exec.active_count();
-//     stats.completed_count = exec.completed_count().await;
-//     stats.pending_wakers_count = exec.pending_wakers_count();
-//     stats.waiting_wakers_count = exec.waiting_wakers_count();
-//     stats.waiting_count = exec.waiting_count();
-//     stats.rate = exec.rate().await;
-// }
-//
-// #[inline]
-// fn get_local_stats() -> TaskExecStats {
-//     LOCAL_ACTIVE_COUNTS.get().map(|m| m.iter().map(|item| item.value().clone()).sum()).unwrap_or_default()
-// }

@@ -140,20 +140,13 @@ impl EncodeLtd for Publish {
                 return Err(EncodeError::MalformedPacket); // packet id must not be set
             }
         } else {
-            self.packet_id
-                .ok_or(EncodeError::PacketIdRequired)?
-                .encode(buf)?;
+            self.packet_id.ok_or(EncodeError::PacketIdRequired)?.encode(buf)?;
         }
         if let Some(prop) = &self.properties {
-            prop.encode(
-                buf,
-                size - (buf.len() - start_len + self.payload.len()) as u32,
-            )?;
+            prop.encode(buf, size - (buf.len() - start_len + self.payload.len()) as u32)?;
         } else {
-            PublishProperties::default().encode(
-                buf,
-                size - (buf.len() - start_len + self.payload.len()) as u32,
-            )?;
+            PublishProperties::default()
+                .encode(buf, size - (buf.len() - start_len + self.payload.len()) as u32)?;
         }
         buf.put(self.payload.as_ref());
         Ok(())
@@ -168,9 +161,10 @@ impl EncodeLtd for PublishProperties {
             + encoded_property_size(&self.content_type)
             + encoded_property_size_default(&self.is_utf8_payload, false)
             + encoded_property_size(&self.response_topic)
-            + self.subscription_ids.iter().fold(0, |acc, id| {
-                acc + 1 + var_int_len(id.get() as usize) as usize
-            })
+            + self
+                .subscription_ids
+                .iter()
+                .fold(0, |acc, id| acc + 1 + var_int_len(id.get() as usize) as usize)
             + self.user_properties.encoded_size();
         prop_len + var_int_len(prop_len) as usize
     }

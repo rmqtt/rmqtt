@@ -9,13 +9,6 @@
 task.exec_workers = 2000
 #Queue capacity for global task executor.
 task.exec_queue_max = 300_000
-#Concurrent task count for global local task executor, per worker thread.
-task.local_exec_workers = 50
-#Queue capacity for global local task executor, per worker thread.
-task.local_exec_queue_max = 10_000
-#The rate at which messages are dequeued from the 'LocalTaskExecQueue' message queue, per worker thread.
-#default value: "u32::MAX,1s"
-task.local_exec_rate_limit = "1000,1s"
 
 
 ##--------------------------------------------------------------------
@@ -134,7 +127,7 @@ listener.tcp.external.backlog = 1024
 #Sets the value of the TCP_NODELAY option on this socket.
 #default: false
 listener.tcp.external.nodelay = false
-#Whether anonymous login is allowed. Default: false
+#Whether anonymous login is allowed. Default: true
 listener.tcp.external.allow_anonymous = false
 #A value of zero indicates disabling the keep-alive feature, where the server
 #doesn't need to disconnect due to client inactivity, default: true
@@ -193,7 +186,7 @@ listener.tcp.internal.max_handshaking_limit = 500
 listener.tcp.internal.handshake_timeout = "30s"
 listener.tcp.internal.max_packet_size = "1M"
 listener.tcp.internal.backlog = 512
-listener.tcp.internal.allow_anonymous = false
+listener.tcp.internal.allow_anonymous = true
 listener.tcp.internal.allow_zero_keepalive = true
 listener.tcp.internal.min_keepalive = 0
 listener.tcp.internal.max_keepalive = 65535

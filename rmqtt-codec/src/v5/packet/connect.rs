@@ -105,17 +105,13 @@ impl Connect {
         ensure!(src.remaining() >= 10, DecodeError::InvalidLength);
         let len = src.get_u16();
 
-        ensure!(
-            len == 4 && &src.as_ref()[0..4] == MQTT,
-            DecodeError::InvalidProtocol
-        );
+        ensure!(len == 4 && &src.as_ref()[0..4] == MQTT, DecodeError::InvalidProtocol);
         src.advance(4);
 
         let level = src.get_u8();
         ensure!(level == MQTT_LEVEL_5, DecodeError::UnsupportedProtocolLevel);
 
-        let flags =
-            ConnectFlags::from_bits(src.get_u8()).ok_or(DecodeError::ConnectReservedFlagSet)?;
+        let flags = ConnectFlags::from_bits(src.get_u8()).ok_or(DecodeError::ConnectReservedFlagSet)?;
         let keep_alive = src.get_u16();
 
         // reading properties
@@ -152,22 +148,12 @@ impl Connect {
             DecodeError::InvalidClientId
         );
 
-        let last_will = if flags.contains(ConnectFlags::WILL) {
-            Some(decode_last_will(src, flags)?)
-        } else {
-            None
-        };
+        let last_will =
+            if flags.contains(ConnectFlags::WILL) { Some(decode_last_will(src, flags)?) } else { None };
 
-        let username = if flags.contains(ConnectFlags::USERNAME) {
-            Some(ByteString::decode(src)?)
-        } else {
-            None
-        };
-        let password = if flags.contains(ConnectFlags::PASSWORD) {
-            Some(Bytes::decode(src)?)
-        } else {
-            None
-        };
+        let username =
+            if flags.contains(ConnectFlags::USERNAME) { Some(ByteString::decode(src)?) } else { None };
+        let password = if flags.contains(ConnectFlags::PASSWORD) { Some(Bytes::decode(src)?) } else { None };
 
         Ok(Connect {
             clean_start: flags.contains(ConnectFlags::CLEAN_START),
@@ -302,12 +288,7 @@ impl EncodeLtd for Connect {
         let prop_len = self.properties_len();
         utils::write_variable_length(prop_len as u32, buf); // safe: whole message size is vetted via max size check in codec
 
-        encode_property_default(
-            &self.session_expiry_interval_secs,
-            0,
-            pt::SESS_EXPIRY_INT,
-            buf,
-        )?;
+        encode_property_default(&self.session_expiry_interval_secs, 0, pt::SESS_EXPIRY_INT, buf)?;
         encode_property(&self.auth_method, pt::AUTH_METHOD, buf)?;
         encode_property(&self.auth_data, pt::AUTH_DATA, buf)?;
         encode_property_default(&self.request_problem_info, true, pt::REQ_PROB_INFO, buf)?; // 3.1.2.11.7 Request Problem Information

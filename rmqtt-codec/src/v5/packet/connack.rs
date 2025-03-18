@@ -137,8 +137,7 @@ impl ConnectAckReason {
 impl ConnectAck {
     pub(crate) fn decode(src: &mut Bytes) -> Result<Self, DecodeError> {
         ensure!(src.remaining() >= 2, DecodeError::InvalidLength);
-        let flags =
-            ConnectAckFlags::from_bits(src.get_u8()).ok_or(DecodeError::ConnAckReservedFlagSet)?;
+        let flags = ConnectAckFlags::from_bits(src.get_u8()).ok_or(DecodeError::ConnAckReservedFlagSet)?;
 
         let reason_code = src.get_u8().try_into()?;
 
@@ -219,11 +218,7 @@ impl EncodeLtd for ConnectAck {
 
         let mut prop_len = encoded_property_size(&self.session_expiry_interval_secs)
             + encoded_property_size_default(&self.receive_max, RECEIVE_MAX_DEFAULT)
-            + if self.max_qos < QoS::ExactlyOnce {
-                1 + 1
-            } else {
-                0
-            }
+            + if self.max_qos < QoS::ExactlyOnce { 1 + 1 } else { 0 }
             + encoded_property_size(&self.max_packet_size)
             + encoded_property_size(&self.assigned_client_id)
             + encoded_property_size_default(&self.retain_available, true)
@@ -265,24 +260,9 @@ impl EncodeLtd for ConnectAck {
         encode_property(&self.max_packet_size, pt::MAX_PACKET_SIZE, buf)?;
         encode_property(&self.assigned_client_id, pt::ASSND_CLIENT_ID, buf)?;
         encode_property_default(&self.topic_alias_max, 0, pt::TOPIC_ALIAS_MAX, buf)?;
-        encode_property_default(
-            &self.wildcard_subscription_available,
-            true,
-            pt::WILDCARD_SUB_AVAIL,
-            buf,
-        )?;
-        encode_property_default(
-            &self.subscription_identifiers_available,
-            true,
-            pt::SUB_IDS_AVAIL,
-            buf,
-        )?;
-        encode_property_default(
-            &self.shared_subscription_available,
-            true,
-            pt::SHARED_SUB_AVAIL,
-            buf,
-        )?;
+        encode_property_default(&self.wildcard_subscription_available, true, pt::WILDCARD_SUB_AVAIL, buf)?;
+        encode_property_default(&self.subscription_identifiers_available, true, pt::SUB_IDS_AVAIL, buf)?;
+        encode_property_default(&self.shared_subscription_available, true, pt::SHARED_SUB_AVAIL, buf)?;
         encode_property(&self.server_keepalive_sec, pt::SERVER_KA, buf)?;
         encode_property(&self.response_info, pt::RESP_INFO, buf)?;
         encode_property(&self.server_reference, pt::SERVER_REF, buf)?;

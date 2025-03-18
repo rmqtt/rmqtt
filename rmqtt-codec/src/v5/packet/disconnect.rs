@@ -15,6 +15,10 @@ pub struct Disconnect {
     pub user_properties: UserProperties,
 }
 
+pub trait ToReasonCode {
+    fn to_reason_code(&self) -> DisconnectReasonCode;
+}
+
 prim_enum! {
     /// DISCONNECT reason codes
     #[derive(Deserialize, Serialize)]
@@ -131,10 +135,7 @@ impl Disconnect {
                     user_properties,
                 }
             } else {
-                Self {
-                    reason_code,
-                    ..Default::default()
-                }
+                Self { reason_code, ..Default::default() }
             }
         } else {
             Self::default()

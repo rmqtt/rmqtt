@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use itertools::Itertools;
+use rmqtt_net::MqttError;
 use rust_box::dequemap::DequeBTreeMap as DequeMap;
 
 use crate::context::ServerContext;
@@ -48,32 +49,6 @@ impl OutInflightMessage {
         log::debug!("interval_millis:{} {}", interval_millis, timestamp_millis() - self.update_time);
         interval_millis > 0 && ((timestamp_millis() - self.update_time) >= interval_millis)
     }
-
-    // #[inline]
-    // pub fn release_packet_v3(&self) -> Result<codec::v3::Packet> {
-    //     Ok(self
-    //         .publish
-    //         .packet_id
-    //         .map(|packet_id| codec::v3::Packet::PublishRelease { packet_id })
-    //         .ok_or_else(|| MqttError::InvalidProtocol)?)
-    // }
-    //
-    // #[inline]
-    // pub fn release_packet_v5(&self) -> Result<PublishAck2> {
-    //     log::debug!("release_packet Publish V5 {:?}: ", self.publish);
-    //     if let Some(packet_id) = self.publish.packet_id {
-    //         //@TODO ...
-    //         let pack2 = PublishAck2 {
-    //             packet_id,
-    //             reason_code: PublishAck2Reason::Success,
-    //             properties: UserProperties::default(),
-    //             reason_string: None,
-    //         };
-    //         Ok(pack2)
-    //     } else {
-    //         Err(MqttError::InvalidProtocol.into())
-    //     }
-    // }
 }
 
 #[derive(Clone)]
@@ -297,14 +272,14 @@ impl InInflight {
     #[inline]
     pub(crate) fn add(&mut self, pid: NonZeroU16, qos: QoS) -> std::result::Result<bool, Reason> {
         if self.cached.len() >= self.max_inflight as usize {
-            return Err("Inflight window is full".into());
+            return Err(Reason::InflightWindowFull);
         }
         if self.cached.insert(pid) {
             self.scx.stats.in_inflights.inc();
             Ok(true)
         } else {
             if matches!(qos, QoS::ExactlyOnce) {
-                Err("Receiving duplicate messages with the same Packet ID".into())
+                Err(MqttError::PacketIdInUse(pid).into())
             } else {
                 Ok(false)
             }

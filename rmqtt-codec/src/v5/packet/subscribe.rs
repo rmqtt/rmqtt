@@ -181,12 +181,7 @@ impl Subscribe {
             topic_filters.push((topic, opts));
         }
 
-        Ok(Self {
-            packet_id,
-            id: sub_id,
-            user_properties,
-            topic_filters,
-        })
+        Ok(Self { packet_id, id: sub_id, user_properties, topic_filters })
     }
 }
 
@@ -198,12 +193,7 @@ impl SubscribeAck {
         for code in src.as_ref().iter().copied() {
             status.push(code.try_into()?);
         }
-        Ok(Self {
-            packet_id,
-            properties,
-            reason_string,
-            status,
-        })
+        Ok(Self { packet_id, properties, reason_string, status })
     }
 }
 
@@ -226,11 +216,7 @@ impl Unsubscribe {
             topic_filters.push(ByteString::decode(src)?);
         }
 
-        Ok(Self {
-            packet_id,
-            user_properties,
-            topic_filters,
-        })
+        Ok(Self { packet_id, user_properties, topic_filters })
     }
 }
 
@@ -242,12 +228,7 @@ impl UnsubscribeAck {
         for code in src.as_ref().iter().copied() {
             status.push(code.try_into()?);
         }
-        Ok(Self {
-            packet_id,
-            properties,
-            reason_string,
-            status,
-        })
+        Ok(Self { packet_id, properties, reason_string, status })
     }
 }
 
@@ -255,10 +236,8 @@ impl EncodeLtd for Subscribe {
     fn encoded_size(&self, _limit: u32) -> usize {
         let prop_len = self.id.map_or(0, |v| 1 + var_int_len(v.get() as usize) as usize) // +1 to account for property type byte
             + self.user_properties.encoded_size();
-        let payload_len = self
-            .topic_filters
-            .iter()
-            .fold(0, |acc, (filter, _opts)| acc + filter.encoded_size() + 1);
+        let payload_len =
+            self.topic_filters.iter().fold(0, |acc, (filter, _opts)| acc + filter.encoded_size() + 1);
         self.packet_id.encoded_size() + var_int_len(prop_len) as usize + prop_len + payload_len
     }
 
@@ -324,11 +303,7 @@ impl EncodeLtd for SubscribeAck {
             return usize::MAX; // bail to avoid overflow
         }
 
-        2 + ack_props::encoded_size(
-            &self.properties,
-            &self.reason_string,
-            limit - 2 - len as u32,
-        ) + len
+        2 + ack_props::encoded_size(&self.properties, &self.reason_string, limit - 2 - len as u32) + len
     }
 
     fn encode(&self, buf: &mut BytesMut, size: u32) -> Result<(), EncodeError> {
@@ -347,10 +322,7 @@ impl EncodeLtd for Unsubscribe {
         let prop_len = self.user_properties.encoded_size();
         2 + var_int_len(prop_len) as usize
             + prop_len
-            + self
-                .topic_filters
-                .iter()
-                .fold(0, |acc, filter| acc + 2 + filter.len())
+            + self.topic_filters.iter().fold(0, |acc, filter| acc + 2 + filter.len())
     }
 
     fn encode(&self, buf: &mut BytesMut, _size: u32) -> Result<(), EncodeError> {
@@ -373,12 +345,7 @@ impl EncodeLtd for UnsubscribeAck {
     // todo: almost identical to SUBACK
     fn encoded_size(&self, limit: u32) -> usize {
         let len = self.status.len();
-        2 + len
-            + ack_props::encoded_size(
-                &self.properties,
-                &self.reason_string,
-                reduce_limit(limit, 2 + len),
-            )
+        2 + len + ack_props::encoded_size(&self.properties, &self.reason_string, reduce_limit(limit, 2 + len))
     }
 
     fn encode(&self, buf: &mut BytesMut, size: u32) -> Result<(), EncodeError> {
@@ -460,10 +427,7 @@ mod tests {
 
         let ack = SubscribeAck {
             packet_id: NonZeroU16::new(1).unwrap(),
-            properties: vec![
-                ("prop1".into(), "val1".into()),
-                ("prop2".into(), "val2".into()),
-            ],
+            properties: vec![("prop1".into(), "val1".into()), ("prop2".into(), "val2".into())],
             reason_string: None,
             status: vec![SubscribeAckReason::GrantedQos0],
         };
@@ -485,10 +449,7 @@ mod tests {
 
         let ack = UnsubscribeAck {
             packet_id: NonZeroU16::new(1).unwrap(),
-            properties: vec![
-                ("prop1".into(), "val1".into()),
-                ("prop2".into(), "val2".into()),
-            ],
+            properties: vec![("prop1".into(), "val1".into()), ("prop2".into(), "val2".into())],
             reason_string: None,
             status: vec![UnsubscribeAckReason::Success],
         };

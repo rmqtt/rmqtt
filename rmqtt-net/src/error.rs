@@ -1,9 +1,10 @@
 use bytestring::ByteString;
+use std::num::NonZeroU16;
 
 use rmqtt_codec::error::{DecodeError, EncodeError, HandshakeError, ProtocolError, SendPacketError};
-use rmqtt_codec::v5::PublishAckReason;
+use rmqtt_codec::v5::{DisconnectReasonCode, PublishAckReason, ToReasonCode};
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Deserialize, Serialize, Debug, Clone, thiserror::Error)]
 pub enum MqttError {
     /// Handshake error
     #[error("Mqtt handshake error: {}", _0)]
@@ -45,4 +46,30 @@ pub enum MqttError {
     SubscribeLimited(String),
     #[error("identifier rejected")]
     IdentifierRejected,
+    #[error("Provided packet id is in use")]
+    PacketIdInUse(NonZeroU16),
+}
+
+impl ToReasonCode for MqttError {
+    fn to_reason_code(&self) -> DisconnectReasonCode {
+        match self {
+            MqttError::Handshake(err) => err.to_reason_code(),
+            MqttError::Protocol(err) => err.to_reason_code(),
+            MqttError::Decode(err) => err.to_reason_code(),
+            MqttError::Encode(err) => err.to_reason_code(),
+            MqttError::SendPacket(err) => err.to_reason_code(),
+            MqttError::ReadTimeout
+            | MqttError::WriteTimeout
+            | MqttError::FlushTimeout
+            | MqttError::CloseTimeout => DisconnectReasonCode::KeepAliveTimeout,
+            MqttError::PublishAckReason(_, _) => DisconnectReasonCode::ImplementationSpecificError,
+            MqttError::ServiceUnavailable => DisconnectReasonCode::ServerBusy,
+            MqttError::InvalidProtocol => DisconnectReasonCode::ProtocolError,
+            MqttError::TooManySubscriptions => DisconnectReasonCode::QuotaExceeded,
+            MqttError::TooManyTopicLevels => DisconnectReasonCode::TopicNameInvalid,
+            MqttError::SubscribeLimited(_) => DisconnectReasonCode::QuotaExceeded,
+            MqttError::IdentifierRejected => DisconnectReasonCode::NotAuthorized,
+            MqttError::PacketIdInUse(_) => DisconnectReasonCode::UnspecifiedError,
+        }
+    }
 }

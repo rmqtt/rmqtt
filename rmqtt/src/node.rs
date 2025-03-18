@@ -16,6 +16,7 @@ mod version {
     include!(concat!(env!("OUT_DIR"), "/version.rs"));
 }
 
+#[derive(Debug)]
 pub struct Node {
     pub id: NodeId,
     pub start_time: chrono::DateTime<chrono::Local>,

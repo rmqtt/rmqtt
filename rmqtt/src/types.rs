@@ -17,10 +17,9 @@ use bytestring::ByteString;
 use futures::StreamExt;
 use get_size::GetSize;
 use itertools::Itertools;
-use rmqtt_codec::error::HandshakeError;
 use rmqtt_codec::v5::{
-    PublishAck, PublishAck2, PublishAck2Reason, PublishAckReason, PublishProperties, UserProperties,
-    UserProperty,
+    PublishAck, PublishAck2, PublishAck2Reason, PublishAckReason, PublishProperties, ToReasonCode,
+    UserProperties, UserProperty,
 };
 
 use rmqtt_net::{v3, v5, Builder};
@@ -2460,14 +2459,16 @@ pub enum Reason {
     SessionExpiration,
     SubscribeFailed(Option<ByteString>),
     UnsubscribeFailed(Option<ByteString>),
+    PublishFailed(ByteString),
     SubscribeRefused,
     PublishRefused,
     DelayedPublishRefused,
     MessageExpiration,
     MessageQueueFull,
-    PublishFailed(ByteString),
+    InflightWindowFull,
     ProtocolError(ByteString),
     Error(ByteString),
+    MqttError(MqttError),
     Reasons(Vec<Reason>),
     #[default]
     Unknown,
@@ -2510,16 +2511,7 @@ impl std::convert::From<String> for Reason {
 impl std::convert::From<MqttError> for Reason {
     #[inline]
     fn from(e: MqttError) -> Self {
-        match e {
-            MqttError::Handshake(HandshakeError::Timeout) => Reason::ConnectReadWriteTimeout,
-            MqttError::Handshake(HandshakeError::Disconnected(io)) => {
-                Reason::ConnectDisconnect(io.map(|io| Disconnect::Other(io.to_string().into())))
-            }
-            MqttError::Handshake(HandshakeError::Protocol(p)) => {
-                Reason::ProtocolError(ByteString::from(p.to_string()))
-            }
-            _ => Reason::Error(ByteString::from(e.to_string())),
-        }
+        Reason::MqttError(e)
     }
 }
 
@@ -2528,7 +2520,48 @@ impl std::convert::From<Error> for Reason {
     fn from(e: Error) -> Self {
         match e.downcast::<MqttError>() {
             Err(e) => Reason::Error(ByteString::from(e.to_string())),
-            Ok(e) => e.into(),
+            Ok(e) => Reason::MqttError(e),
+        }
+    }
+}
+
+impl ToReasonCode for Reason {
+    fn to_reason_code(&self) -> DisconnectReasonCode {
+        match self {
+            Reason::ConnectDisconnect(Some(Disconnect::V5(d))) => d.reason_code,
+            Reason::ConnectDisconnect(_) => DisconnectReasonCode::NormalDisconnection,
+            Reason::ConnectReadWriteTimeout => DisconnectReasonCode::KeepAliveTimeout,
+            Reason::ConnectReadWriteError => DisconnectReasonCode::UnspecifiedError,
+            Reason::ConnectRemoteClose => DisconnectReasonCode::ServerShuttingDown,
+            Reason::ConnectKeepaliveTimeout => DisconnectReasonCode::KeepAliveTimeout,
+            Reason::ConnectKicked(is_admin) => {
+                if *is_admin {
+                    DisconnectReasonCode::AdministrativeAction
+                } else {
+                    DisconnectReasonCode::NotAuthorized
+                }
+            }
+            Reason::SessionExpiration => DisconnectReasonCode::SessionTakenOver,
+            Reason::SubscribeFailed(_) => DisconnectReasonCode::UnspecifiedError,
+            Reason::UnsubscribeFailed(_) => DisconnectReasonCode::UnspecifiedError,
+            Reason::SubscribeRefused => DisconnectReasonCode::NotAuthorized,
+            Reason::PublishRefused => DisconnectReasonCode::NotAuthorized,
+            Reason::DelayedPublishRefused => DisconnectReasonCode::NotAuthorized,
+            Reason::MessageExpiration => DisconnectReasonCode::MessageRateTooHigh,
+            Reason::MessageQueueFull => DisconnectReasonCode::QuotaExceeded,
+            Reason::PublishFailed(_) => DisconnectReasonCode::PacketTooLarge,
+            Reason::InflightWindowFull => DisconnectReasonCode::ReceiveMaximumExceeded,
+            Reason::ProtocolError(_) => DisconnectReasonCode::ProtocolError,
+            Reason::Error(_) => DisconnectReasonCode::UnspecifiedError,
+            Reason::MqttError(mqtt_error) => mqtt_error.to_reason_code(),
+            Reason::Reasons(reasons) => {
+                if let Some(first_reason) = reasons.first() {
+                    first_reason.to_reason_code()
+                } else {
+                    DisconnectReasonCode::UnspecifiedError
+                }
+            }
+            Reason::Unknown => DisconnectReasonCode::UnspecifiedError,
         }
     }
 }
@@ -2596,7 +2629,9 @@ impl Display for Reason {
                 "MessageQueueFull" //message deliver queue is full
             }
             Reason::PublishFailed(r) => return write!(f, "PublishFailed({})", r),
+            Reason::InflightWindowFull => "Inflight window is full",
             Reason::Error(r) => r,
+            Reason::MqttError(e) => &e.to_string(),
             Reason::ProtocolError(r) => return write!(f, "ProtocolError({})", r),
             Reason::Reasons(reasons) => match reasons.len() {
                 0 => "",
@@ -2734,61 +2769,6 @@ impl DisconnectInfo {
 //             size_of::<TopicLevel>() + data_len
 //         })
 //         .sum::<usize>()
-// }
-//
-// #[inline]
-// pub fn timestamp() -> Duration {
-//     use std::time::{SystemTime, UNIX_EPOCH};
-//     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_else(|_| {
-//         let now = chrono::Local::now();
-//         Duration::new(now.timestamp() as u64, now.timestamp_subsec_nanos())
-//     })
-// }
-//
-// #[inline]
-// pub fn timestamp_secs() -> Timestamp {
-//     use std::time::{SystemTime, UNIX_EPOCH};
-//     SystemTime::now()
-//         .duration_since(UNIX_EPOCH)
-//         .map(|t| t.as_secs() as i64)
-//         .unwrap_or_else(|_| chrono::Local::now().timestamp())
-// }
-//
-// #[inline]
-// pub fn timestamp_millis() -> TimestampMillis {
-//     use std::time::{SystemTime, UNIX_EPOCH};
-//     SystemTime::now()
-//         .duration_since(UNIX_EPOCH)
-//         .map(|t| t.as_millis() as i64)
-//         .unwrap_or_else(|_| chrono::Local::now().timestamp_millis())
-// }
-//
-// #[inline]
-// pub fn format_timestamp(t: Timestamp) -> String {
-//     if t <= 0 {
-//         "".into()
-//     } else {
-//         use chrono::TimeZone;
-//         if let chrono::LocalResult::Single(t) = chrono::Local.timestamp_opt(t, 0) {
-//             t.format("%Y-%m-%d %H:%M:%S").to_string()
-//         } else {
-//             "".into()
-//         }
-//     }
-// }
-//
-// #[inline]
-// pub fn format_timestamp_millis(t: TimestampMillis) -> String {
-//     if t <= 0 {
-//         "".into()
-//     } else {
-//         use chrono::TimeZone;
-//         if let chrono::LocalResult::Single(t) = chrono::Local.timestamp_millis_opt(t) {
-//             t.format("%Y-%m-%d %H:%M:%S%.3f").to_string()
-//         } else {
-//             "".into()
-//         }
-//     }
 // }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

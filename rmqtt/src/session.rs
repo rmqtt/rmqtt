@@ -12,7 +12,7 @@ use bitflags::Flags;
 use bytestring::ByteString;
 use futures::StreamExt;
 
-use rmqtt_codec::v5::{Auth, PublishAck2, PublishAck2Reason, RetainHandling, UserProperties};
+use rmqtt_codec::v5::{Auth, PublishAck2, PublishAck2Reason, RetainHandling, ToReasonCode, UserProperties};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::RwLock;
 use tokio::time::{Duration, Instant};
@@ -170,8 +170,6 @@ impl SessionState {
             None
         };
 
-        let _ = sink.close().await;
-
         //hook, client_disconnected
         let reason = if self.disconnected_reason_has().await {
             self.disconnected_reason().await.unwrap_or_default()
@@ -181,6 +179,24 @@ impl SessionState {
             }
             Reason::ConnectRemoteClose
         };
+
+        //@TODO ... 需要优化 Reason, 定义，可参考： DisconnectReasonCode
+        //向客户端发送‌DISCONNECT 报文，如果是MQTT 5.0
+        if let Sink::V5(s) = &mut sink {
+            let d = if let Reason::ConnectDisconnect(Some(Disconnect::V5(d))) = &reason {
+                d.clone()
+            } else {
+                v5::Disconnect {
+                    reason_code: reason.to_reason_code(),
+                    reason_string: Some(reason.to_string().into()),
+                    ..Default::default()
+                }
+            };
+            let _ = s.send_disconnect(d).await;
+        }
+
+        let _ = sink.close().await;
+
         self.hook.client_disconnected(reason).await;
 
         if flags.contains(StateFlags::Kicked) {
@@ -503,6 +519,7 @@ impl SessionState {
                 self.process_publish(sink, publish).await?;
             }
             Packet::V5(v5::Packet::Publish(publish)) => {
+                log::info!("{:?} publish: {:?}", self.id, publish);
                 self.process_publish(sink, publish).await?;
             }
 
@@ -620,6 +637,7 @@ impl SessionState {
             }
             Packet::V5(v5::Packet::Auth(_)) => {
                 sink.v5_mut().send_auth(Auth::default()).await?;
+                //@TODO 考虑通过hook来实现Auth
             }
             _ => {
                 return Err(format!("Received an unimplemented message, {:?}", pkt).into());
@@ -765,6 +783,7 @@ impl SessionState {
 
     #[inline]
     async fn _publish(&self, mut publish: Publish) -> Result<bool> {
+        log::info!("client_topic_aliases.is_some(): {}", self.client_topic_aliases.is_some());
         if let Some(client_topic_aliases) = &self.client_topic_aliases {
             publish.topic = client_topic_aliases
                 .set_and_get(publish.properties.as_ref().and_then(|p| p.topic_alias), publish.topic)

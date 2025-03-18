@@ -123,10 +123,7 @@ impl Decode for ByteString {
 
 pub(crate) fn take_properties(src: &mut Bytes) -> Result<Bytes, DecodeError> {
     let prop_len = decode_variable_length_cursor(src)?;
-    ensure!(
-        src.remaining() >= prop_len as usize,
-        DecodeError::InvalidLength
-    );
+    ensure!(src.remaining() >= prop_len as usize, DecodeError::InvalidLength);
 
     Ok(src.split_to(prop_len as usize))
 }
@@ -277,9 +274,7 @@ impl Encode for &[u8] {
 pub(crate) fn write_variable_length(len: u32, dst: &mut BytesMut) {
     match len {
         0..=127 => dst.put_u8(len as u8),
-        128..=16_383 => {
-            dst.put_slice(&[((len & 0b0111_1111) | 0b1000_0000) as u8, (len >> 7) as u8])
-        }
+        128..=16_383 => dst.put_slice(&[((len & 0b0111_1111) | 0b1000_0000) as u8, (len >> 7) as u8]),
         16_384..=2_097_151 => {
             dst.put_slice(&[
                 ((len & 0b0111_1111) | 0b1000_0000) as u8,

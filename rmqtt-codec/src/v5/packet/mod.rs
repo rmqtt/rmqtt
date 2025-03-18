@@ -221,9 +221,7 @@ mod ack_props {
     }
 
     /// Parses ACK properties (User and Reason String properties) from `src`
-    pub(crate) fn decode(
-        src: &mut Bytes,
-    ) -> Result<(UserProperties, Option<ByteString>), DecodeError> {
+    pub(crate) fn decode(src: &mut Bytes) -> Result<(UserProperties, Option<ByteString>), DecodeError> {
         let prop_src = &mut take_properties(src)?;
         let mut reason_string = None;
         let mut user_props = Vec::new();

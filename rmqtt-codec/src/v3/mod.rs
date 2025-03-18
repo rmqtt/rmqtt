@@ -7,7 +7,5 @@ pub(crate) mod encode;
 mod packet;
 
 pub use self::codec::Codec;
-pub use self::packet::{
-    Connect, ConnectAck, ConnectAckReason, LastWill, Packet, SubscribeReturnCode,
-};
+pub use self::packet::{Connect, ConnectAck, ConnectAckReason, LastWill, Packet, SubscribeReturnCode};
 pub use crate::types::{ConnectAckFlags, ConnectFlags, QoS};

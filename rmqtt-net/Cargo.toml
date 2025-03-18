@@ -29,6 +29,7 @@ tokio-rustls.workspace = true
 #rustls-pemfile.workspace = true
 tokio-tungstenite.workspace = true
 #pin-project-lite.workspace = true
+serde = { workspace = true, features = ["derive"] }
 #bytes = { version = "1.9", features = ["serde"] }
 bytestring = { workspace = true, features = ["serde"] }
 nonzero_ext.workspace = true
