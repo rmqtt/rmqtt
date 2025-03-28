@@ -125,7 +125,7 @@ impl Producer {
         .spawn(exec)
         .await
         {
-            log::error!("{} task exec error, {}", self.cfg.name, e.to_string());
+            log::error!("{} task exec error, {}", self.cfg.name, e);
         }
         Ok(())
     }
