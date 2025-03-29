@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use serde::de::{self, Deserialize, Deserializer};
-use serde_json;
 
 use rmqtt::conf::{deserialize_duration_option, Bytesize};
 use rmqtt::Result;

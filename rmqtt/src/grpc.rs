@@ -3,11 +3,10 @@ use std::sync::atomic::{AtomicIsize, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use once_cell::sync::Lazy;
-
 use anyhow::anyhow;
 use futures::FutureExt;
 use futures::StreamExt;
+use once_cell::sync::Lazy;
 use rust_box::handy_grpc::client::Mailbox;
 use rust_box::handy_grpc::{
     client::Client,
@@ -254,11 +253,11 @@ pub enum Message {
 impl Message {
     #[inline]
     pub fn encode(&self, typ: MessageType) -> Result<Vec<u8>> {
-        Ok(bincode::serialize(&(typ, self)).map_err(anyhow::Error::new)?)
+        Ok(bincode::serialize(&(typ, self))?)
     }
     #[inline]
     pub fn decode(data: &[u8]) -> Result<(MessageType, Message)> {
-        Ok(bincode::deserialize::<(MessageType, Message)>(data).map_err(anyhow::Error::new)?)
+        Ok(bincode::deserialize::<(MessageType, Message)>(data)?)
     }
 }
 
@@ -284,11 +283,11 @@ pub enum MessageReply {
 impl MessageReply {
     #[inline]
     pub fn encode(&self) -> Result<Vec<u8>> {
-        Ok(bincode::serialize(self).map_err(anyhow::Error::new)?)
+        Ok(bincode::serialize(self)?)
     }
     #[inline]
     pub fn decode(data: &[u8]) -> Result<MessageReply> {
-        Ok(bincode::deserialize::<MessageReply>(data).map_err(anyhow::Error::new)?)
+        Ok(bincode::deserialize::<MessageReply>(data)?)
     }
 }
 

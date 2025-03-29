@@ -178,7 +178,7 @@ impl OutInflight {
             old.and_then(|old| old.publish.packet_id)
         } else {
             log::warn!("packet_id is None, inflight message: {:?}", m);
-            return None;
+            None
         }
     }
 
@@ -277,12 +277,10 @@ impl InInflight {
         if self.cached.insert(pid) {
             self.scx.stats.in_inflights.inc();
             Ok(true)
+        } else if matches!(qos, QoS::ExactlyOnce) {
+            Err(MqttError::PacketIdInUse(pid).into())
         } else {
-            if matches!(qos, QoS::ExactlyOnce) {
-                Err(MqttError::PacketIdInUse(pid).into())
-            } else {
-                Ok(false)
-            }
+            Ok(false)
         }
     }
 

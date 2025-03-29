@@ -120,7 +120,7 @@ impl Settings {
     #[inline]
     pub fn init(opts: Options) -> Result<&'static Self> {
         SETTINGS.set(Settings::new(opts)?).map_err(|_| anyhow!("Settings init failed"))?;
-        Ok(SETTINGS.get().ok_or_else(|| anyhow!("Settings init failed"))?)
+        SETTINGS.get().ok_or_else(|| anyhow!("Settings init failed"))
     }
 
     #[inline]

@@ -1,18 +1,18 @@
-use crate::{PluginConfig, ERR_NOT_SUPPORTED};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+
 use async_trait::async_trait;
-use log;
-// use once_cell;
-// use once_cell::sync::OnceCell;
+use tokio::sync::RwLock;
+
 use rmqtt::{
     retain::DefaultRetainStorage,
     retain::RetainStorage,
     types::{Retain, TopicFilter, TopicName},
     Result,
 };
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::RwLock;
+
+use crate::{PluginConfig, ERR_NOT_SUPPORTED};
 
 #[derive(Clone)]
 pub(crate) struct RamRetainer {

@@ -12,8 +12,6 @@ use async_trait::async_trait;
 use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt};
 use futures_time::{self, future::FutureExt};
-use log;
-use tokio;
 use tokio::sync::RwLock;
 
 use rmqtt_storage::DefaultStorageDB;

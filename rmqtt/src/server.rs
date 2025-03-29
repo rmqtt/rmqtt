@@ -54,6 +54,7 @@ impl Deref for MqttServer {
 }
 
 impl MqttServer {
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(scx: ServerContext) -> MqttServerBuilder {
         MqttServerBuilder::new(scx)
     }

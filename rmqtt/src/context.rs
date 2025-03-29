@@ -158,6 +158,7 @@ impl Deref for ServerContext {
 }
 
 impl ServerContext {
+    #[allow(clippy::new_ret_no_self)]
     pub fn new() -> ServerContextBuilder {
         ServerContextBuilder::new()
     }

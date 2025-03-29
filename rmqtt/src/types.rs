@@ -17,12 +17,6 @@ use bytestring::ByteString;
 use futures::StreamExt;
 use get_size::GetSize;
 use itertools::Itertools;
-use rmqtt_codec::v5::{
-    PublishAck, PublishAck2, PublishAck2Reason, PublishAckReason, PublishProperties, ToReasonCode,
-    UserProperties, UserProperty,
-};
-
-use rmqtt_net::{v3, v5, Builder};
 use serde::de::{self, Deserialize, Deserializer};
 use serde::ser::{Serialize, SerializeStruct, Serializer};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -35,10 +29,13 @@ use crate::codec::v3::{
 };
 use crate::codec::v5::{
     Connect as ConnectV5, ConnectAckReason as ConnectAckReasonV5, DisconnectReasonCode,
-    LastWill as LastWillV5, RetainHandling, SubscribeAckReason, SubscriptionOptions as SubscriptionOptionsV5,
+    LastWill as LastWillV5, PublishAck, PublishAck2, PublishAck2Reason, PublishAckReason, PublishProperties,
+    RetainHandling, SubscribeAckReason, SubscriptionOptions as SubscriptionOptionsV5, ToReasonCode,
+    UserProperties, UserProperty,
 };
 use crate::fitter::Fitter;
 use crate::net::MqttError;
+use crate::net::{v3, v5, Builder};
 use crate::queue::{Queue, Sender};
 use crate::utils::timestamp_millis;
 use crate::{codec, Error, Result};
@@ -152,7 +149,7 @@ pub enum ConnectInfo {
 
 impl std::convert::From<Id> for ConnectInfo {
     fn from(id: Id) -> Self {
-        ConnectInfo::V3(id, Box::new(ConnectV3::default()))
+        ConnectInfo::V3(id, Box::default())
     }
 }
 
@@ -1221,7 +1218,7 @@ where
     #[inline]
     pub(crate) fn v3_mut(&mut self) -> &mut v3::MqttStream<Io> {
         if let Sink::V3(s) = self {
-            return s;
+            s
         } else {
             unreachable!()
         }
@@ -1230,7 +1227,7 @@ where
     #[inline]
     pub(crate) fn v5_mut(&mut self) -> &mut v5::MqttStream<Io> {
         if let Sink::V5(s) = self {
-            return s;
+            s
         } else {
             unreachable!()
         }
@@ -1999,7 +1996,7 @@ fn get_publish_size_helper(p: &Publish) -> usize {
         // + p.retain.get_heap_size()
         + get_bytestring_size_helper(&p.topic)
         + size_of_val(&p.qos)
-        + p.properties.as_ref().map(|props| get_properties_size_helper(props)).unwrap_or_default()
+        + p.properties.as_ref().map(get_properties_size_helper).unwrap_or_default()
 }
 
 impl StoredMessage {
@@ -2010,12 +2007,12 @@ impl StoredMessage {
 
     #[inline]
     pub fn encode(&self) -> Result<Vec<u8>> {
-        Ok(bincode::serialize(&self).map_err(|e| anyhow!(e))?)
+        Ok(bincode::serialize(&self)?)
     }
 
     #[inline]
     pub fn decode(data: &[u8]) -> Result<Self> {
-        Ok(bincode::deserialize(data).map_err(|e| anyhow!(e))?)
+        Ok(bincode::deserialize(data)?)
     }
 }
 

@@ -306,7 +306,7 @@ impl SessionState {
                     if let Some(msg) = msg {
                         #[cfg(feature = "debug")]
                         state.scx.stats.debug_session_channels.dec();
-                        state.process_message(sink, msg, &deliver_queue_tx, flags).await?;
+                        state.process_message(sink, msg, deliver_queue_tx, flags).await?;
                     }else{
                         return Err("No message received from the Rx".into());
                     }
@@ -596,11 +596,8 @@ impl SessionState {
             }
 
             Packet::V3(v3::Packet::Unsubscribe { packet_id, topic_filters }) => {
-                match self.unsubscribes_v3(topic_filters).await {
-                    Err(e) => {
-                        return Err(Reason::UnsubscribeFailed(Some(e.to_string().into())));
-                    }
-                    Ok(()) => {}
+                if let Err(e) = self.unsubscribes_v3(topic_filters).await {
+                    return Err(Reason::UnsubscribeFailed(Some(e.to_string().into())));
                 }
                 sink.v3_mut().send_unsubscribe_ack(packet_id).await?;
             }

@@ -78,8 +78,7 @@ impl HandshakeExecutor {
             .filter_map(|exec| if exec.active_count() > exec.busy_limit { Some(1) } else { None })
             .sum::<u32>()
             > 0;
-        let busy = _is_busy || scx.extends.shared().await.operation_is_busy();
-        busy
+        _is_busy || scx.extends.shared().await.operation_is_busy()
     }
 }
 

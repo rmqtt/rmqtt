@@ -9,8 +9,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use log;
-use serde_json;
 use tokio::{self, sync::RwLock};
 
 use rmqtt::{

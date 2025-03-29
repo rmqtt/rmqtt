@@ -315,6 +315,12 @@ pub struct DefaultHookManager {
     handlers: Arc<DashMap<Type, Arc<tokio::sync::RwLock<BTreeMap<(Priority, HandlerId), HookEntry>>>>>,
 }
 
+impl Default for DefaultHookManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DefaultHookManager {
     #[inline]
     pub fn new() -> DefaultHookManager {
@@ -727,7 +733,7 @@ impl Hook for DefaultHook {
         if expiry_interval == 0 {
             return MessageExpiryCheckResult::Remaining(None);
         }
-        let remaining = timestamp_millis() - publish.create_time.unwrap_or_else(|| timestamp_millis());
+        let remaining = timestamp_millis() - publish.create_time.unwrap_or_else(timestamp_millis);
         if remaining < expiry_interval {
             return MessageExpiryCheckResult::Remaining(NonZeroU32::new(
                 ((expiry_interval - remaining) / 1000) as u32,

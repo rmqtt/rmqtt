@@ -16,7 +16,6 @@ rmqtt-storage = { version = "0.5.2", default-features = false, features = ["ttl"
 futures.workspace = true
 futures-time.workspace = true
 tokio.workspace = true
-tokio-cron-scheduler.workspace = true
 serde = { workspace = true, features = ["derive"] }
 anyhow.workspace = true
 async-trait.workspace = true

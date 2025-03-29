@@ -5,20 +5,20 @@ fn is_metadata<T: AsRef<str>>(s: T) -> bool {
     s.as_ref().starts_with('$')
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum TopicError {
-    InvalidTopic,
-    InvalidLevel,
+    InvalidTopic(String),
+    InvalidLevel(String),
 }
 
 impl fmt::Display for TopicError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TopicError::InvalidTopic => {
-                write!(f, "InvalidTopic")
+            TopicError::InvalidTopic(s) => {
+                write!(f, "InvalidTopic({})", s)
             }
-            TopicError::InvalidLevel => {
-                write!(f, "InvalidLevel")
+            TopicError::InvalidLevel(s) => {
+                write!(f, "InvalidLevel({})", s)
             }
         }
     }
@@ -38,28 +38,40 @@ impl Level {
         Level::from_str(s.as_ref())
     }
 
-    pub fn normal<T: AsRef<str>>(s: T) -> Level {
-        if s.as_ref().contains(|c| c == '+' || c == '#') {
-            panic!("invalid normal level `{}` contains +|#", s.as_ref());
+    pub fn normal<T: AsRef<str>>(s: T) -> Result<Level, TopicError> {
+        if s.as_ref().contains(['+', '#']) {
+            return Err(TopicError::InvalidLevel(format!(
+                "invalid normal level `{}` contains +|#",
+                s.as_ref()
+            )));
         }
 
         if s.as_ref().starts_with('$') {
-            panic!("invalid normal level `{}` starts with $", s.as_ref())
+            return Err(TopicError::InvalidLevel(format!(
+                "invalid normal level `{}` starts with $",
+                s.as_ref()
+            )));
         }
 
-        Level::Normal(String::from(s.as_ref()))
+        Ok(Level::Normal(String::from(s.as_ref())))
     }
 
-    pub fn metadata<T: AsRef<str>>(s: T) -> Level {
-        if s.as_ref().contains(|c| c == '+' || c == '#') {
-            panic!("invalid metadata level `{}` contains +|#", s.as_ref());
+    pub fn metadata<T: AsRef<str>>(s: T) -> Result<Level, TopicError> {
+        if s.as_ref().contains(['+', '#']) {
+            return Err(TopicError::InvalidLevel(format!(
+                "invalid metadata level `{}` contains +|#",
+                s.as_ref()
+            )));
         }
 
         if !s.as_ref().starts_with('$') {
-            panic!("invalid metadata level `{}` not starts with $", s.as_ref())
+            return Err(TopicError::InvalidLevel(format!(
+                "invalid metadata level `{}` not starts with $",
+                s.as_ref()
+            )));
         }
 
-        Level::Metadata(String::from(s.as_ref()))
+        Ok(Level::Metadata(String::from(s.as_ref())))
     }
 
     #[inline]
@@ -83,8 +95,8 @@ impl Level {
     #[inline]
     pub fn is_valid(&self) -> bool {
         match *self {
-            Level::Normal(ref s) => !s.starts_with('$') && !s.contains(|c| c == '+' || c == '#'),
-            Level::Metadata(ref s) => s.starts_with('$') && !s.contains(|c| c == '+' || c == '#'),
+            Level::Normal(ref s) => !s.starts_with('$') && !s.contains(['+', '#']),
+            Level::Metadata(ref s) => s.starts_with('$') && !s.contains(['+', '#']),
             _ => true,
         }
     }
@@ -150,7 +162,7 @@ impl Topic {
     }
 }
 
-impl<'a> From<&'a [Level]> for Topic {
+impl From<&[Level]> for Topic {
     fn from(s: &[Level]) -> Self {
         let mut v = vec![];
 
@@ -241,8 +253,8 @@ impl FromStr for Level {
             "#" => Ok(Level::MultiWildcard),
             "" => Ok(Level::Blank),
             _ => {
-                if s.contains(|c| c == '+' || c == '#') {
-                    Err(TopicError::InvalidLevel)
+                if s.contains(['+', '#']) {
+                    Err(TopicError::InvalidLevel(format!("invalid level `{}` contains +|#", s)))
                 } else if is_metadata(s) {
                     Ok(Level::Metadata(String::from(s)))
                 } else {
@@ -258,11 +270,15 @@ impl FromStr for Topic {
 
     #[inline]
     fn from_str(s: &str) -> Result<Self, TopicError> {
-        s.split('/')
-            .map(|level| Level::from_str(level))
-            .collect::<Result<Vec<_>, TopicError>>()
-            .map(Topic)
-            .and_then(|topic| if topic.is_valid() { Ok(topic) } else { Err(TopicError::InvalidTopic) })
+        s.split('/').map(Level::from_str).collect::<Result<Vec<_>, TopicError>>().map(Topic).and_then(
+            |topic| {
+                if topic.is_valid() {
+                    Ok(topic)
+                } else {
+                    Err(TopicError::InvalidTopic(format!("invalid topic `{}`", s)))
+                }
+            },
+        )
     }
 }
 
@@ -332,14 +348,14 @@ mod tests {
 
     #[test]
     fn test_level() {
-        assert!(Level::normal("sport").is_normal());
-        assert!(Level::metadata("$SYS").is_metadata());
+        assert!(Level::normal("sport").unwrap().is_normal());
+        assert!(Level::metadata("$SYS").unwrap().is_metadata());
 
-        assert_eq!(Level::normal("sport").value(), Some("sport"));
-        assert_eq!(Level::metadata("$SYS").value(), Some("$SYS"));
+        assert_eq!(Level::normal("sport").unwrap().value(), Some("sport"));
+        assert_eq!(Level::metadata("$SYS").unwrap().value(), Some("$SYS"));
 
-        assert_eq!(Level::normal("sport"), "sport".parse().expect(""));
-        assert_eq!(Level::metadata("$SYS"), "$SYS".parse().expect(""));
+        assert_eq!(Level::normal("sport").unwrap(), "sport".parse().expect(""));
+        assert_eq!(Level::metadata("$SYS").unwrap(), "$SYS".parse().expect(""));
 
         assert!(Level::Normal(String::from("sport")).is_valid());
         assert!(Level::Metadata(String::from("$SYS")).is_valid());
@@ -353,46 +369,69 @@ mod tests {
 
     #[test]
     fn test_valid_topic() {
-        assert!(
-            Topic(vec![Level::normal("sport"), Level::normal("tennis"), Level::normal("player1")]).is_valid()
-        );
+        assert!(Topic(vec![
+            Level::normal("sport").unwrap(),
+            Level::normal("tennis").unwrap(),
+            Level::normal("player1").unwrap()
+        ])
+        .is_valid());
 
-        assert!(Topic(vec![Level::normal("sport"), Level::normal("tennis"), Level::MultiWildcard]).is_valid());
-        assert!(
-            Topic(vec![Level::metadata("$SYS"), Level::normal("tennis"), Level::MultiWildcard]).is_valid()
-        );
+        assert!(Topic(vec![
+            Level::normal("sport").unwrap(),
+            Level::normal("tennis").unwrap(),
+            Level::MultiWildcard
+        ])
+        .is_valid());
+        assert!(Topic(vec![
+            Level::metadata("$SYS").unwrap(),
+            Level::normal("tennis").unwrap(),
+            Level::MultiWildcard
+        ])
+        .is_valid());
 
-        assert!(
-            Topic(vec![Level::normal("sport"), Level::SingleWildcard, Level::normal("player1")]).is_valid()
-        );
+        assert!(Topic(vec![
+            Level::normal("sport").unwrap(),
+            Level::SingleWildcard,
+            Level::normal("player1").unwrap()
+        ])
+        .is_valid());
 
-        assert!(
-            !Topic(vec![Level::normal("sport"), Level::MultiWildcard, Level::normal("player1")]).is_valid()
-        );
-        assert!(!Topic(vec![Level::normal("sport"), Level::metadata("$SYS"), Level::normal("player1")])
-            .is_valid());
+        assert!(!Topic(vec![
+            Level::normal("sport").unwrap(),
+            Level::MultiWildcard,
+            Level::normal("player1").unwrap()
+        ])
+        .is_valid());
+        assert!(!Topic(vec![
+            Level::normal("sport").unwrap(),
+            Level::metadata("$SYS").unwrap(),
+            Level::normal("player1").unwrap()
+        ])
+        .is_valid());
     }
 
     #[test]
     fn test_parse_topic() {
         assert!(topic!("sport/tennis/player1").matches(&Topic::from(vec![
-            Level::normal("sport"),
-            Level::normal("tennis"),
-            Level::normal("player1")
+            Level::normal("sport").unwrap(),
+            Level::normal("tennis").unwrap(),
+            Level::normal("player1").unwrap()
         ])));
 
         assert!(topic!("").matches(&Topic(vec![Level::Blank])));
-        assert!(topic!("/finance").matches(&Topic::from(vec![Level::Blank, Level::normal("finance")])));
+        assert!(
+            topic!("/finance").matches(&Topic::from(vec![Level::Blank, Level::normal("finance").unwrap()]))
+        );
 
-        assert!(topic!("$SYS").matches(&Topic::from(vec![Level::metadata("$SYS")])));
+        assert!(topic!("$SYS").matches(&Topic::from(vec![Level::metadata("$SYS").unwrap()])));
         assert!("sport/$SYS".parse::<Topic>().is_err());
     }
 
     #[test]
     fn test_multi_wildcard_topic() {
         assert!(topic!("sport/tennis/#").matches(&Topic::from(vec![
-            Level::normal("sport"),
-            Level::normal("tennis"),
+            Level::normal("sport").unwrap(),
+            Level::normal("tennis").unwrap(),
             Level::MultiWildcard
         ])));
 
@@ -407,14 +446,14 @@ mod tests {
 
         assert!(topic!("+/tennis/#").matches(&Topic::from(vec![
             Level::SingleWildcard,
-            Level::normal("tennis"),
+            Level::normal("tennis").unwrap(),
             Level::MultiWildcard
         ])));
 
         assert!(topic!("sport/+/player1").matches(&Topic::from(vec![
-            Level::normal("sport"),
+            Level::normal("sport").unwrap(),
             Level::SingleWildcard,
-            Level::normal("player1")
+            Level::normal("player1").unwrap()
         ])));
 
         assert!("sport+".parse::<Topic>().is_err());
@@ -423,7 +462,7 @@ mod tests {
     #[test]
     fn test_write_topic() {
         let mut v = vec![];
-        let t = vec![Level::SingleWildcard, Level::normal("tennis"), Level::MultiWildcard].into();
+        let t = vec![Level::SingleWildcard, Level::normal("tennis").unwrap(), Level::MultiWildcard].into();
 
         assert_eq!(v.write_topic(&t).expect(""), 10);
         assert_eq!(v, b"+/tennis/#");
@@ -434,8 +473,8 @@ mod tests {
 
     #[test]
     fn test_matches() {
-        assert!("test".match_level(&Level::normal("test")));
-        assert!("$SYS".match_level(&Level::metadata("$SYS")));
+        assert!("test".match_level(&Level::normal("test").unwrap()));
+        assert!("$SYS".match_level(&Level::metadata("$SYS").unwrap()));
 
         let t: Topic = "sport/tennis/player1/#".parse().expect("");
 

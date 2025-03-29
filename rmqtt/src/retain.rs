@@ -38,6 +38,12 @@ pub struct DefaultRetainStorage {
     retaineds: Counter,
 }
 
+impl Default for DefaultRetainStorage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DefaultRetainStorage {
     #[inline]
     pub fn new() -> DefaultRetainStorage {

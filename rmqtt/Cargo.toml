@@ -46,7 +46,6 @@ slog-scope.workspace = true
 slog-term.workspace = true
 slog-async.workspace = true
 rust-box = { workspace = true, features = ["counter-rate", "task-exec-queue", "task-exec-queue-rate", "std-ext", "dequemap", "stream-ext-leaky-bucket", "mpsc", "handy-grpc"] }
-tokio-cron-scheduler.workspace = true
 leaky-bucket.workspace = true
 crossbeam.workspace = true
 governor.workspace = true

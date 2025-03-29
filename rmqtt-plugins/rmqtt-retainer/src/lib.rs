@@ -11,7 +11,6 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use async_trait::async_trait;
-use log;
 use serde_json::{self, json};
 use tokio::sync::RwLock;
 
@@ -24,9 +23,8 @@ use rmqtt::{
 
 use rmqtt_storage::{init_db, StorageType};
 
-use crate::config::Config;
-use crate::ram::RamRetainer;
-use config::PluginConfig;
+use config::{Config, PluginConfig};
+use ram::RamRetainer;
 use rmqtt::plugin::PackageInfo;
 use rmqtt::retain::RetainStorage;
 

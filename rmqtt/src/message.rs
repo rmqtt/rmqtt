@@ -65,6 +65,12 @@ pub trait MessageManager: Sync + Send {
 
 pub struct DefaultMessageManager {}
 
+impl Default for DefaultMessageManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DefaultMessageManager {
     #[inline]
     pub fn new() -> DefaultMessageManager {
