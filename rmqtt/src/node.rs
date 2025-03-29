@@ -7,8 +7,8 @@ use once_cell::sync::Lazy;
 use systemstat::Platform;
 
 use crate::context::ServerContext;
-use crate::grpc::client::NodeGrpcClient;
-use crate::grpc::server::Server;
+use crate::grpc::GrpcClient;
+use crate::grpc::GrpcServer;
 use crate::{NodeId, Result};
 
 #[allow(dead_code)]
@@ -65,11 +65,10 @@ impl Node {
         remote_addr: &str,
         client_timeout: Duration,
         client_concurrency_limit: usize,
-        batch_size: usize,
-    ) -> Result<NodeGrpcClient> {
-        let c =
-            NodeGrpcClient::new(remote_addr, client_timeout, client_concurrency_limit, batch_size).await?;
-        c.start_ping();
+        _batch_size: usize,
+    ) -> Result<GrpcClient> {
+        let c = GrpcClient::new(remote_addr, client_timeout, client_concurrency_limit).await?;
+        // c.start_ping();
         Ok(c)
     }
 
@@ -90,7 +89,8 @@ impl Node {
                 .build()
                 .expect("tokio runtime build failed");
             let runner = async {
-                if let Err(e) = Server::new(scx).listen_and_serve(server_addr, reuseaddr, reuseport).await {
+                if let Err(e) = GrpcServer::new(scx).listen_and_serve(server_addr, reuseaddr, reuseport).await
+                {
                     log::error!("listen and serve failure, {:?}, laddr: {:?}", e, server_addr);
                 }
             };

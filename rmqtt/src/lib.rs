@@ -41,5 +41,6 @@ pub use net::{Error, Result};
 
 pub use rmqtt_codec as codec;
 pub use rmqtt_conf as conf;
+// pub use rmqtt_grpc as grpc2;
 pub use rmqtt_macros as macros;
 pub use rmqtt_net as net;

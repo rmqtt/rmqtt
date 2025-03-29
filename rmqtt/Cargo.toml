@@ -29,17 +29,9 @@ futures.workspace = true
 log.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
-#socket2.workspace = true
 async-trait.workspace = true
-#rustls.workspace = true
-#tokio-rustls.workspace = true
-#rustls-pemfile.workspace = true
-#tokio-tungstenite.workspace = true
-#pin-project-lite.workspace = true
 bytes = { version = "1.9", features = ["serde"] }
 bytestring = { workspace = true, features = ["serde"] }
-#nonzero_ext.workspace = true
-#tokio-util = { workspace = true, features = ["codec"] }
 once_cell.workspace = true
 base64.workspace = true
 bitflags.workspace = true
@@ -53,7 +45,7 @@ slog-stdlog.workspace = true
 slog-scope.workspace = true
 slog-term.workspace = true
 slog-async.workspace = true
-rust-box = { workspace = true, features = ["counter-rate", "task-exec-queue", "task-exec-queue-rate", "std-ext", "dequemap", "stream-ext-leaky-bucket"] }
+rust-box = { workspace = true, features = ["counter-rate", "task-exec-queue", "task-exec-queue-rate", "std-ext", "dequemap", "stream-ext-leaky-bucket", "mpsc", "handy-grpc"] }
 tokio-cron-scheduler.workspace = true
 leaky-bucket.workspace = true
 crossbeam.workspace = true
@@ -61,7 +53,6 @@ governor.workspace = true
 uuid.workspace = true
 systemstat.workspace = true
 bincode.workspace = true
-tonic.workspace = true
 prost.workspace = true
 tokio-stream.workspace = true
 socket2.workspace = true
@@ -84,7 +75,6 @@ rustls = { workspace = true, features = ["ring"] }
 
 
 [build-dependencies]
-tonic-build = "0.12"
 toml = "0.8"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 

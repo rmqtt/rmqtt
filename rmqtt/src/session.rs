@@ -516,10 +516,11 @@ impl SessionState {
     {
         match pkt {
             Packet::V3(v3::Packet::Publish(publish)) => {
+                log::debug!("{} publish: {:?}", self.id, publish);
                 self.process_publish(sink, publish).await?;
             }
             Packet::V5(v5::Packet::Publish(publish)) => {
-                log::info!("{:?} publish: {:?}", self.id, publish);
+                log::debug!("{} publish: {:?}", self.id, publish);
                 self.process_publish(sink, publish).await?;
             }
 
@@ -783,7 +784,6 @@ impl SessionState {
 
     #[inline]
     async fn _publish(&self, mut publish: Publish) -> Result<bool> {
-        log::info!("client_topic_aliases.is_some(): {}", self.client_topic_aliases.is_some());
         if let Some(client_topic_aliases) = &self.client_topic_aliases {
             publish.topic = client_topic_aliases
                 .set_and_get(publish.properties.as_ref().and_then(|p| p.topic_alias), publish.topic)
