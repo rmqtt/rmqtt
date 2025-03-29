@@ -412,45 +412,45 @@ mod tests {
 
     #[test]
     fn test_parse_topic() {
-        assert!(topic!("sport/tennis/player1").matches(&Topic::from(vec![
+        assert!(topic!("sport/tennis/player1").unwrap().matches(&Topic::from(vec![
             Level::normal("sport").unwrap(),
             Level::normal("tennis").unwrap(),
             Level::normal("player1").unwrap()
         ])));
 
-        assert!(topic!("").matches(&Topic(vec![Level::Blank])));
-        assert!(
-            topic!("/finance").matches(&Topic::from(vec![Level::Blank, Level::normal("finance").unwrap()]))
-        );
+        assert!(topic!("").unwrap().matches(&Topic(vec![Level::Blank])));
+        assert!(topic!("/finance")
+            .unwrap()
+            .matches(&Topic::from(vec![Level::Blank, Level::normal("finance").unwrap()])));
 
-        assert!(topic!("$SYS").matches(&Topic::from(vec![Level::metadata("$SYS").unwrap()])));
+        assert!(topic!("$SYS").unwrap().matches(&Topic::from(vec![Level::metadata("$SYS").unwrap()])));
         assert!("sport/$SYS".parse::<Topic>().is_err());
     }
 
     #[test]
     fn test_multi_wildcard_topic() {
-        assert!(topic!("sport/tennis/#").matches(&Topic::from(vec![
+        assert!(topic!("sport/tennis/#").unwrap().matches(&Topic::from(vec![
             Level::normal("sport").unwrap(),
             Level::normal("tennis").unwrap(),
             Level::MultiWildcard
         ])));
 
-        assert!(topic!("#").matches(&Topic::from(vec![Level::MultiWildcard])));
+        assert!(topic!("#").unwrap().matches(&Topic::from(vec![Level::MultiWildcard])));
         assert!("sport/tennis#".parse::<Topic>().is_err());
         assert!("sport/tennis/#/ranking".parse::<Topic>().is_err());
     }
 
     #[test]
     fn test_single_wildcard_topic() {
-        assert!(topic!("+").matches(&Topic::from(vec![Level::SingleWildcard])));
+        assert!(topic!("+").unwrap().matches(&Topic::from(vec![Level::SingleWildcard])));
 
-        assert!(topic!("+/tennis/#").matches(&Topic::from(vec![
+        assert!(topic!("+/tennis/#").unwrap().matches(&Topic::from(vec![
             Level::SingleWildcard,
             Level::normal("tennis").unwrap(),
             Level::MultiWildcard
         ])));
 
-        assert!(topic!("sport/+/player1").matches(&Topic::from(vec![
+        assert!(topic!("sport/+/player1").unwrap().matches(&Topic::from(vec![
             Level::normal("sport").unwrap(),
             Level::SingleWildcard,
             Level::normal("player1").unwrap()

@@ -5,7 +5,6 @@ use std::num::NonZeroU16;
 use bytestring::ByteString;
 use nonzero_ext::nonzero;
 
-// #[allow(clippy::module_inception)]
 mod codec;
 mod decode;
 mod encode;

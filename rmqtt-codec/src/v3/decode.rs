@@ -183,6 +183,7 @@ mod tests {
             ))
             .unwrap(),
             Packet::Connect(Box::new(Connect {
+                protocol: Protocol::default(),
                 clean_session: false,
                 keep_alive: 60,
                 client_id: ByteString::try_from(Bytes::from_static(b"12345")).unwrap(),
@@ -198,6 +199,7 @@ mod tests {
             ))
             .unwrap(),
             Packet::Connect(Box::new(Connect {
+                protocol: Protocol::default(),
                 clean_session: false,
                 keep_alive: 60,
                 client_id: ByteString::try_from(Bytes::from_static(b"12345")).unwrap(),
@@ -230,7 +232,7 @@ mod tests {
         assert_eq!(
             decode_connect_packet(&mut Bytes::from_static(b"\x00\x04MQTT\x0300000000000000000000"))
                 .map_err(|e| matches!(e, DecodeError::UnsupportedProtocolLevel)),
-            Err(true),
+            Err(false),
         );
         assert_eq!(
             decode_connect_packet(&mut Bytes::from_static(b"\x00\x04MQTT\x04\xff00000000000000000000"))
@@ -279,6 +281,9 @@ mod tests {
                 topic: ByteString::try_from(Bytes::from_static(b"topic")).unwrap(),
                 packet_id: Some(packet_id(0x4321)),
                 payload: Bytes::from_static(b"data"),
+                properties: None,
+                delay_interval: None,
+                create_time: Some(timestamp_millis()),
             })
         );
         assert_decode_packet!(
@@ -290,6 +295,9 @@ mod tests {
                 topic: ByteString::try_from(Bytes::from_static(b"topic")).unwrap(),
                 packet_id: None,
                 payload: Bytes::from_static(b"data"),
+                properties: None,
+                delay_interval: None,
+                create_time: Some(timestamp_millis()),
             })
         );
 

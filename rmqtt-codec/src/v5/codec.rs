@@ -230,8 +230,7 @@ mod tests {
 
     #[test]
     fn test_max_size() {
-        let mut codec = Codec::new();
-        codec = codec.set_max_inbound_size(5);
+        let mut codec = Codec::new(5, 5);
         let mut buf = BytesMut::new();
         buf.extend_from_slice(b"\0\x09");
         assert_eq!(codec.decode(&mut buf).map_err(|e| matches!(e, DecodeError::MaxSizeExceeded)), Err(true));

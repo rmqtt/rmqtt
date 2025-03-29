@@ -1,6 +1,5 @@
 use std::num::{NonZeroU16, NonZeroU32};
 
-// use ntex_bytes::{Buf, BufMut, ByteString, Bytes, BytesMut};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use bytestring::ByteString;
 
@@ -362,10 +361,10 @@ impl EncodeLtd for UnsubscribeAck {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Decoder, Encoder};
-
-    use super::super::super::{Codec, Packet};
     use super::*;
+    use crate::v5::{Codec, Packet};
+    use tokio_util::codec::Decoder;
+    use tokio_util::codec::Encoder;
 
     #[test]
     fn test_sub() {
@@ -403,7 +402,7 @@ mod tests {
             user_properties: vec![("a".into(), "1".into())],
             topic_filters: vec![("test".into(), SubscriptionOptions::default())],
         });
-        let mut codec = Codec::new();
+        let mut codec = Codec::default();
 
         let mut buf = BytesMut::new();
         codec.encode(pkt.clone(), &mut buf).unwrap();

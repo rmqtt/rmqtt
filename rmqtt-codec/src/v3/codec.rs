@@ -113,6 +113,7 @@ impl Encoder<Packet> for Codec {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::timestamp_millis;
     use bytes::Bytes;
     use bytestring::ByteString;
 
@@ -138,6 +139,9 @@ mod tests {
             topic: ByteString::from_static("/test"),
             packet_id: None,
             payload: Bytes::from(Vec::from("a".repeat(260 * 1024))),
+            properties: None,
+            delay_interval: None,
+            create_time: Some(timestamp_millis()),
         };
         codec.encode(Packet::Publish(pkt.clone()), &mut buf).unwrap();
 

@@ -227,6 +227,7 @@ fn encode_connect(connect: &Connect, dst: &mut BytesMut) -> Result<(), EncodeErr
 
 #[cfg(test)]
 mod tests {
+    use crate::types::Protocol;
     use bytes::Bytes;
     use std::num::NonZeroU16;
 
@@ -254,6 +255,9 @@ mod tests {
             topic: ByteString::from_static("topic"),
             packet_id: Some(packet_id(0x4321)),
             payload: (0..255).collect::<Vec<u8>>().into(),
+            properties: None,
+            delay_interval: None,
+            create_time: None,
         });
 
         assert_eq!(get_encoded_size(&p), 264);
@@ -272,6 +276,7 @@ mod tests {
     fn test_encode_connect_packets() {
         assert_encode_packet(
             &Packet::Connect(Box::new(Connect {
+                protocol: Protocol::default(),
                 clean_session: false,
                 keep_alive: 60,
                 client_id: ByteString::from_static("12345"),
@@ -285,6 +290,7 @@ mod tests {
 
         assert_encode_packet(
             &Packet::Connect(Box::new(Connect {
+                protocol: Protocol::default(),
                 clean_session: false,
                 keep_alive: 60,
                 client_id: ByteString::from_static("12345"),
@@ -314,6 +320,9 @@ mod tests {
                 topic: ByteString::from_static("topic"),
                 packet_id: Some(packet_id(0x4321)),
                 payload: Bytes::from_static(b"data"),
+                properties: None,
+                delay_interval: None,
+                create_time: None,
             }),
             b"\x3d\x0D\x00\x05topic\x43\x21data",
         );
@@ -326,6 +335,9 @@ mod tests {
                 topic: ByteString::from_static("topic"),
                 packet_id: None,
                 payload: Bytes::from_static(b"data"),
+                properties: None,
+                delay_interval: None,
+                create_time: None,
             }),
             b"\x30\x0b\x00\x05topicdata",
         );
