@@ -1,25 +1,20 @@
 #![deny(unsafe_code)]
 
-#[macro_use]
-extern crate serde;
-
 use std::fmt;
 use std::net::SocketAddr;
-use std::num::NonZeroU32;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::anyhow;
-use chrono::LocalResult;
 use config::{Config, File, Source};
 use once_cell::sync::OnceCell;
-use serde::de::{self, Deserialize, Deserializer};
-use serde::ser::Serializer;
-use serde::Serialize;
+use serde::de;
+use serde::{Deserialize, Serialize};
 
 use rmqtt_net::{Error, Result};
+use rmqtt_utils::*;
 
 use self::listener::Listeners;
 use self::logging::Log;
@@ -130,9 +125,6 @@ impl Settings {
         log::info!("node_id is {}", cfg.node.id);
         log::info!("exec_workers is {}", cfg.task.exec_workers);
         log::info!("exec_queue_max is {}", cfg.task.exec_queue_max);
-        log::info!("local_exec_workers is {}", cfg.task.local_exec_workers);
-        log::info!("local_exec_queue_max is {}", cfg.task.local_exec_queue_max);
-        log::info!("local_exec_rate_limit is {:?}", cfg.task.local_exec_rate_limit);
         log::info!("node.busy config is: {:?}", cfg.node.busy);
 
         if cfg.opts.node_grpc_addrs.is_some() {
@@ -164,33 +156,12 @@ pub struct Task {
     //Queue capacity for global task executor.
     #[serde(default = "Task::exec_queue_max_default")]
     pub exec_queue_max: usize,
-
-    //Concurrent task count for global local task executor, per worker thread.
-    #[serde(default = "Task::local_exec_workers_default")]
-    pub local_exec_workers: usize,
-
-    //Queue capacity for global local task executor, per worker thread.
-    #[serde(default = "Task::local_exec_queue_max_default")]
-    pub local_exec_queue_max: usize,
-
-    //The rate at which messages are dequeued from the 'LocalTaskExecQueue' message queue.
-    #[serde(
-        default = "Task::local_exec_rate_limit_default",
-        deserialize_with = "Task::deserialize_local_exec_rate_limit"
-    )]
-    pub local_exec_rate_limit: (NonZeroU32, Duration),
 }
 
 impl Default for Task {
     #[inline]
     fn default() -> Self {
-        Self {
-            exec_workers: Self::exec_workers_default(),
-            exec_queue_max: Self::exec_queue_max_default(),
-            local_exec_workers: Self::local_exec_workers_default(),
-            local_exec_queue_max: Self::local_exec_queue_max_default(),
-            local_exec_rate_limit: Self::local_exec_rate_limit_default(),
-        }
+        Self { exec_workers: Self::exec_workers_default(), exec_queue_max: Self::exec_queue_max_default() }
     }
 }
 
@@ -200,41 +171,6 @@ impl Task {
     }
     fn exec_queue_max_default() -> usize {
         300_000
-    }
-    fn local_exec_workers_default() -> usize {
-        50
-    }
-    fn local_exec_queue_max_default() -> usize {
-        10_000
-    }
-    fn local_exec_rate_limit_default() -> (NonZeroU32, Duration) {
-        (NonZeroU32::MAX, Duration::from_secs(1))
-    }
-
-    #[inline]
-    fn deserialize_local_exec_rate_limit<'de, D>(
-        deserializer: D,
-    ) -> std::result::Result<(NonZeroU32, Duration), D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let v = String::deserialize(deserializer)?;
-        let pair: Vec<&str> = v.split(',').collect();
-        if pair.len() == 2 {
-            let burst = NonZeroU32::from_str(pair[0]).map_err(|e| {
-                de::Error::custom(format!("local_exec_rate_limit, burst format error, {:?}", e))
-            })?;
-            let replenish_n_per = to_duration(pair[1]);
-            if replenish_n_per.as_millis() == 0 {
-                return Err(de::Error::custom(format!(
-                    "local_exec_rate_limit, value format error, {}",
-                    pair.join(",")
-                )));
-            }
-            Ok((burst, replenish_n_per))
-        } else {
-            Err(de::Error::custom(format!("local_exec_rate_limit, value format error, {}", pair.join(","))))
-        }
     }
 }
 
@@ -472,249 +408,249 @@ impl Mqtt {
         0
     }
 }
-
-const BYTESIZE_K: usize = 1024;
-const BYTESIZE_M: usize = 1048576;
-const BYTESIZE_G: usize = 1073741824;
-
-#[derive(Clone, Copy, Default)]
-pub struct Bytesize(usize);
-
-impl Bytesize {
-    #[inline]
-    pub fn as_u32(&self) -> u32 {
-        self.0 as u32
-    }
-
-    #[inline]
-    pub fn as_u64(&self) -> u64 {
-        self.0 as u64
-    }
-
-    #[inline]
-    pub fn as_usize(&self) -> usize {
-        self.0
-    }
-
-    #[inline]
-    pub fn string(&self) -> String {
-        let mut v = self.0;
-        let mut res = String::new();
-
-        let g = v / BYTESIZE_G;
-        if g > 0 {
-            res.push_str(&format!("{}G", g));
-            v %= BYTESIZE_G;
-        }
-
-        let m = v / BYTESIZE_M;
-        if m > 0 {
-            res.push_str(&format!("{}M", m));
-            v %= BYTESIZE_M;
-        }
-
-        let k = v / BYTESIZE_K;
-        if k > 0 {
-            res.push_str(&format!("{}K", k));
-            v %= BYTESIZE_K;
-        }
-
-        if v > 0 {
-            res.push_str(&format!("{}B", v));
-        }
-
-        res
-    }
-}
-
-impl Deref for Bytesize {
-    type Target = usize;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for Bytesize {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl From<usize> for Bytesize {
-    fn from(v: usize) -> Self {
-        Bytesize(v)
-    }
-}
-
-impl From<&str> for Bytesize {
-    fn from(v: &str) -> Self {
-        Bytesize(to_bytesize(v))
-    }
-}
-
-impl fmt::Debug for Bytesize {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.string())?;
-        Ok(())
-    }
-}
-
-impl Serialize for Bytesize {
-    #[inline]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&self.to_string())
-    }
-}
-
-impl<'de> Deserialize<'de> for Bytesize {
-    #[inline]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let v = to_bytesize(&String::deserialize(deserializer)?);
-        Ok(Bytesize(v))
-    }
-}
-
-#[inline]
-pub fn to_bytesize(text: &str) -> usize {
-    let text = text.to_uppercase().replace("GB", "G").replace("MB", "M").replace("KB", "K");
-    text.split_inclusive(['G', 'M', 'K', 'B'])
-        .map(|x| {
-            let mut chars = x.chars();
-            let u = match chars.nth_back(0) {
-                None => return 0,
-                Some(u) => u,
-            };
-            let v = match chars.as_str().parse::<usize>() {
-                Err(_e) => return 0,
-                Ok(v) => v,
-            };
-            match u {
-                'B' => v,
-                'K' => v * BYTESIZE_K,
-                'M' => v * BYTESIZE_M,
-                'G' => v * BYTESIZE_G,
-                _ => 0,
-            }
-        })
-        .sum()
-}
-
-#[inline]
-pub fn deserialize_duration<'de, D>(deserializer: D) -> std::result::Result<Duration, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let v = String::deserialize(deserializer)?;
-    Ok(to_duration(&v))
-}
-
-#[inline]
-pub fn deserialize_duration_option<'de, D>(deserializer: D) -> std::result::Result<Option<Duration>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let v = String::deserialize(deserializer)?;
-    if v.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(to_duration(&v)))
-    }
-}
-
-#[inline]
-pub fn to_duration(text: &str) -> Duration {
-    let text = text.to_lowercase().replace("ms", "Y");
-    let ms: u64 = text
-        .split_inclusive(['s', 'm', 'h', 'd', 'w', 'f', 'Y'])
-        .map(|x| {
-            let mut chars = x.chars();
-            let u = match chars.nth_back(0) {
-                None => return 0,
-                Some(u) => u,
-            };
-            let v = match chars.as_str().parse::<u64>() {
-                Err(_e) => return 0,
-                Ok(v) => v,
-            };
-            match u {
-                'Y' => v,
-                's' => v * 1000,
-                'm' => v * 60000,
-                'h' => v * 3600000,
-                'd' => v * 86400000,
-                'w' => v * 604800000,
-                'f' => v * 1209600000,
-                _ => 0,
-            }
-        })
-        .sum();
-    Duration::from_millis(ms)
-}
-
-#[inline]
-pub fn deserialize_addr<'de, D>(deserializer: D) -> std::result::Result<SocketAddr, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let addr = String::deserialize(deserializer)?
-        .parse::<std::net::SocketAddr>()
-        .map_err(serde::de::Error::custom)?;
-    Ok(addr)
-}
-
-#[inline]
-pub fn deserialize_addr_option<'de, D>(
-    deserializer: D,
-) -> std::result::Result<Option<std::net::SocketAddr>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let addr = String::deserialize(deserializer).map(|mut addr| {
-        if !addr.contains(':') {
-            addr += ":0";
-        }
-        addr
-    })?;
-    let addr = addr.parse::<std::net::SocketAddr>().map_err(serde::de::Error::custom)?;
-    Ok(Some(addr))
-}
-
-#[inline]
-pub fn deserialize_datetime_option<'de, D>(deserializer: D) -> std::result::Result<Option<Duration>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let t_str = String::deserialize(deserializer)?;
-    if t_str.is_empty() {
-        Ok(None)
-    } else {
-        let t = if let Ok(d) = timestamp_parse_from_str(&t_str, "%Y-%m-%d %H:%M:%S") {
-            Duration::from_secs(d as u64)
-        } else {
-            let d = t_str.parse::<u64>().map_err(serde::de::Error::custom)?;
-            Duration::from_secs(d)
-        };
-        Ok(Some(t))
-    }
-}
-
-#[inline]
-pub fn serialize_datetime_option<S>(t: &Option<Duration>, s: S) -> std::result::Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    if let Some(t) = t {
-        t.as_secs().to_string().serialize(s)
-    } else {
-        "".serialize(s)
-    }
-}
+//
+// const BYTESIZE_K: usize = 1024;
+// const BYTESIZE_M: usize = 1048576;
+// const BYTESIZE_G: usize = 1073741824;
+//
+// #[derive(Clone, Copy, Default)]
+// pub struct Bytesize(usize);
+//
+// impl Bytesize {
+//     #[inline]
+//     pub fn as_u32(&self) -> u32 {
+//         self.0 as u32
+//     }
+//
+//     #[inline]
+//     pub fn as_u64(&self) -> u64 {
+//         self.0 as u64
+//     }
+//
+//     #[inline]
+//     pub fn as_usize(&self) -> usize {
+//         self.0
+//     }
+//
+//     #[inline]
+//     pub fn string(&self) -> String {
+//         let mut v = self.0;
+//         let mut res = String::new();
+//
+//         let g = v / BYTESIZE_G;
+//         if g > 0 {
+//             res.push_str(&format!("{}G", g));
+//             v %= BYTESIZE_G;
+//         }
+//
+//         let m = v / BYTESIZE_M;
+//         if m > 0 {
+//             res.push_str(&format!("{}M", m));
+//             v %= BYTESIZE_M;
+//         }
+//
+//         let k = v / BYTESIZE_K;
+//         if k > 0 {
+//             res.push_str(&format!("{}K", k));
+//             v %= BYTESIZE_K;
+//         }
+//
+//         if v > 0 {
+//             res.push_str(&format!("{}B", v));
+//         }
+//
+//         res
+//     }
+// }
+//
+// impl Deref for Bytesize {
+//     type Target = usize;
+//     fn deref(&self) -> &Self::Target {
+//         &self.0
+//     }
+// }
+//
+// impl DerefMut for Bytesize {
+//     fn deref_mut(&mut self) -> &mut Self::Target {
+//         &mut self.0
+//     }
+// }
+//
+// impl From<usize> for Bytesize {
+//     fn from(v: usize) -> Self {
+//         Bytesize(v)
+//     }
+// }
+//
+// impl From<&str> for Bytesize {
+//     fn from(v: &str) -> Self {
+//         Bytesize(to_bytesize(v))
+//     }
+// }
+//
+// impl fmt::Debug for Bytesize {
+//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//         write!(f, "{}", self.string())?;
+//         Ok(())
+//     }
+// }
+//
+// impl Serialize for Bytesize {
+//     #[inline]
+//     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+//     where
+//         S: Serializer,
+//     {
+//         serializer.serialize_str(&self.to_string())
+//     }
+// }
+//
+// impl<'de> Deserialize<'de> for Bytesize {
+//     #[inline]
+//     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+//     where
+//         D: Deserializer<'de>,
+//     {
+//         let v = to_bytesize(&String::deserialize(deserializer)?);
+//         Ok(Bytesize(v))
+//     }
+// }
+//
+// #[inline]
+// pub fn to_bytesize(text: &str) -> usize {
+//     let text = text.to_uppercase().replace("GB", "G").replace("MB", "M").replace("KB", "K");
+//     text.split_inclusive(['G', 'M', 'K', 'B'])
+//         .map(|x| {
+//             let mut chars = x.chars();
+//             let u = match chars.nth_back(0) {
+//                 None => return 0,
+//                 Some(u) => u,
+//             };
+//             let v = match chars.as_str().parse::<usize>() {
+//                 Err(_e) => return 0,
+//                 Ok(v) => v,
+//             };
+//             match u {
+//                 'B' => v,
+//                 'K' => v * BYTESIZE_K,
+//                 'M' => v * BYTESIZE_M,
+//                 'G' => v * BYTESIZE_G,
+//                 _ => 0,
+//             }
+//         })
+//         .sum()
+// }
+//
+// #[inline]
+// pub fn deserialize_duration<'de, D>(deserializer: D) -> std::result::Result<Duration, D::Error>
+// where
+//     D: Deserializer<'de>,
+// {
+//     let v = String::deserialize(deserializer)?;
+//     Ok(to_duration(&v))
+// }
+//
+// #[inline]
+// pub fn deserialize_duration_option<'de, D>(deserializer: D) -> std::result::Result<Option<Duration>, D::Error>
+// where
+//     D: Deserializer<'de>,
+// {
+//     let v = String::deserialize(deserializer)?;
+//     if v.is_empty() {
+//         Ok(None)
+//     } else {
+//         Ok(Some(to_duration(&v)))
+//     }
+// }
+//
+// #[inline]
+// pub fn to_duration(text: &str) -> Duration {
+//     let text = text.to_lowercase().replace("ms", "Y");
+//     let ms: u64 = text
+//         .split_inclusive(['s', 'm', 'h', 'd', 'w', 'f', 'Y'])
+//         .map(|x| {
+//             let mut chars = x.chars();
+//             let u = match chars.nth_back(0) {
+//                 None => return 0,
+//                 Some(u) => u,
+//             };
+//             let v = match chars.as_str().parse::<u64>() {
+//                 Err(_e) => return 0,
+//                 Ok(v) => v,
+//             };
+//             match u {
+//                 'Y' => v,
+//                 's' => v * 1000,
+//                 'm' => v * 60000,
+//                 'h' => v * 3600000,
+//                 'd' => v * 86400000,
+//                 'w' => v * 604800000,
+//                 'f' => v * 1209600000,
+//                 _ => 0,
+//             }
+//         })
+//         .sum();
+//     Duration::from_millis(ms)
+// }
+//
+// #[inline]
+// pub fn deserialize_addr<'de, D>(deserializer: D) -> std::result::Result<SocketAddr, D::Error>
+// where
+//     D: Deserializer<'de>,
+// {
+//     let addr = String::deserialize(deserializer)?
+//         .parse::<std::net::SocketAddr>()
+//         .map_err(serde::de::Error::custom)?;
+//     Ok(addr)
+// }
+//
+// #[inline]
+// pub fn deserialize_addr_option<'de, D>(
+//     deserializer: D,
+// ) -> std::result::Result<Option<std::net::SocketAddr>, D::Error>
+// where
+//     D: Deserializer<'de>,
+// {
+//     let addr = String::deserialize(deserializer).map(|mut addr| {
+//         if !addr.contains(':') {
+//             addr += ":0";
+//         }
+//         addr
+//     })?;
+//     let addr = addr.parse::<std::net::SocketAddr>().map_err(serde::de::Error::custom)?;
+//     Ok(Some(addr))
+// }
+//
+// #[inline]
+// pub fn deserialize_datetime_option<'de, D>(deserializer: D) -> std::result::Result<Option<Duration>, D::Error>
+// where
+//     D: Deserializer<'de>,
+// {
+//     let t_str = String::deserialize(deserializer)?;
+//     if t_str.is_empty() {
+//         Ok(None)
+//     } else {
+//         let t = if let Ok(d) = timestamp_parse_from_str(&t_str, "%Y-%m-%d %H:%M:%S") {
+//             Duration::from_secs(d as u64)
+//         } else {
+//             let d = t_str.parse::<u64>().map_err(serde::de::Error::custom)?;
+//             Duration::from_secs(d)
+//         };
+//         Ok(Some(t))
+//     }
+// }
+//
+// #[inline]
+// pub fn serialize_datetime_option<S>(t: &Option<Duration>, s: S) -> std::result::Result<S::Ok, S::Error>
+// where
+//     S: Serializer,
+// {
+//     if let Some(t) = t {
+//         t.as_secs().to_string().serialize(s)
+//     } else {
+//         "".serialize(s)
+//     }
+// }
 
 #[derive(Clone, Serialize)]
 pub struct NodeAddr {
@@ -750,13 +686,13 @@ impl<'de> de::Deserialize<'de> for NodeAddr {
     }
 }
 
-#[inline]
-fn timestamp_parse_from_str(ts: &str, fmt: &str) -> anyhow::Result<i64> {
-    let ndt = chrono::NaiveDateTime::parse_from_str(ts, fmt)?;
-    let ndt = ndt.and_local_timezone(*chrono::Local::now().offset());
-    match ndt {
-        LocalResult::None => Err(anyhow::Error::msg("Impossible")),
-        LocalResult::Single(d) => Ok(d.timestamp()),
-        LocalResult::Ambiguous(d, _tz) => Ok(d.timestamp()),
-    }
-}
+// #[inline]
+// fn timestamp_parse_from_str(ts: &str, fmt: &str) -> anyhow::Result<i64> {
+//     let ndt = chrono::NaiveDateTime::parse_from_str(ts, fmt)?;
+//     let ndt = ndt.and_local_timezone(*chrono::Local::now().offset());
+//     match ndt {
+//         LocalResult::None => Err(anyhow::Error::msg("Impossible")),
+//         LocalResult::Single(d) => Ok(d.timestamp()),
+//         LocalResult::Ambiguous(d, _tz) => Ok(d.timestamp()),
+//     }
+// }

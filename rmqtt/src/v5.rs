@@ -32,8 +32,6 @@ where
 
     state.run(Sink::V5(sink), keep_alive).await?;
 
-    log::info!("end ...");
-
     Ok(())
 }
 
@@ -111,6 +109,7 @@ where
             Err(e)
         }
         Err(e) => {
+            #[cfg(feature = "metrics")]
             scx.metrics.client_handshaking_timeout_inc();
             // unavailable_stats().inc();
             let err = anyhow!("Connection Refused, execute handshake timeout");
@@ -285,7 +284,12 @@ async fn _handshake(
     let session_expiry_interval_secs =
         if session_expiry_interval > 0 { Some(session_expiry_interval) } else { None };
     let max_qos = state.listen_cfg().max_qos_allowed;
-    let retain_available = state.scx.extends.retain().await.enable();
+
+    #[cfg(feature = "retain")]
+    let retain_available = { state.scx.extends.retain().await.enable() };
+    #[cfg(not(feature = "retain"))]
+    let retain_available = false;
+
     let max_server_packet_size = state.listen_cfg().max_packet_size;
     let shared_subscription_available =
         state.scx.extends.shared_subscription().await.is_supported(state.listen_cfg());

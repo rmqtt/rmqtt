@@ -2,8 +2,7 @@ use std::fmt;
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use serde::de::Deserialize;
-use serde::ser::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::topic::Level;
 use crate::topic::Topic;

@@ -2,6 +2,7 @@ use std::num::NonZeroU16;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use bytestring::ByteString;
+use serde::{Deserialize, Serialize};
 
 use super::ack_props;
 use crate::error::{DecodeError, EncodeError};

@@ -19,27 +19,26 @@ path = "src/server.rs"
 [target.'cfg(target_os = "linux")'.dependencies]
 tikv-jemallocator = "0.6"
 
-[target.'cfg(not(windows))'.dependencies]
-rustls = { workspace = true, features = ["aws-lc-rs"] }
-
-[target.'cfg(windows)'.dependencies]
-rustls = { workspace = true, features = ["ring"] }
-
-
-
 [dependencies]
-tokio = { workspace = true, features = ["full"] }
-
-##mqtt broker
-rmqtt.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
+#rmqtt.workspace = true
+rmqtt = { workspace = true, features = ["full"] }
 rmqtt-conf.workspace = true
 rmqtt-net.workspace = true
 structopt.workspace = true
 log.workspace = true
+slog.workspace = true
+slog-stdlog.workspace = true
+slog-scope.workspace = true
+slog-term.workspace = true
+slog-async.workspace = true
 anyhow.workspace = true
+chrono = { workspace = true, features = ["clock"] }
 
 ##plugins
-rmqtt-acl = "0.1"
+rmqtt-acl.workspace = true
+rmqtt-retainer.workspace = true
+
 #rmqtt-web-hook = "0.1"
 #rmqtt-auth-http = "0.1"
 #rmqtt-auth-jwt = "0.1"
@@ -47,7 +46,6 @@ rmqtt-acl = "0.1"
 #rmqtt-cluster-raft = "0.1"
 #rmqtt-counter = "0.1"
 #rmqtt-http-api = "0.1"
-rmqtt-retainer = "0.1"
 #rmqtt-sys-topic = "0.1"
 #rmqtt-session-storage = "0.1"
 #rmqtt-message-storage = "0.1"
@@ -65,6 +63,8 @@ rmqtt-retainer = "0.1"
 
 [package.metadata.plugins]
 rmqtt-acl = { default_startup = true }
+rmqtt-retainer = { }
+
 #rmqtt-http-api = { default_startup = true }
 #rmqtt-counter = { default_startup = true }
 #rmqtt-web-hook = { }
@@ -72,7 +72,6 @@ rmqtt-acl = { default_startup = true }
 #rmqtt-auth-jwt = { }
 #rmqtt-cluster-broadcast = { immutable = true }
 #rmqtt-cluster-raft = { immutable = true }
-rmqtt-retainer = { }
 #rmqtt-sys-topic = { }
 #rmqtt-session-storage = { immutable = true }
 #rmqtt-message-storage = { immutable = true }

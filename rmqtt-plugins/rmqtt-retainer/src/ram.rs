@@ -43,7 +43,7 @@ impl RetainStorage for RamRetainer {
     ///topic - concrete topic
     async fn set(&self, topic: &TopicName, retain: Retain, expiry_interval: Option<Duration>) -> Result<()> {
         if !self.retain_enable.load(Ordering::SeqCst) {
-            log::error!("{}", ERR_NOT_SUPPORTED);
+            log::warn!("{}", ERR_NOT_SUPPORTED);
             return Ok(());
         }
 
@@ -77,7 +77,7 @@ impl RetainStorage for RamRetainer {
     ///topic_filter - Topic filter
     async fn get(&self, topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>> {
         if !self.retain_enable.load(Ordering::SeqCst) {
-            log::error!("{}", ERR_NOT_SUPPORTED);
+            log::warn!("{}", ERR_NOT_SUPPORTED);
             Ok(Vec::new())
         } else {
             Ok(self.inner.get_message(topic_filter).await?)

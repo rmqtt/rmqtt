@@ -1,6 +1,9 @@
-use crate::v5::{DisconnectReasonCode, ToReasonCode};
-use bytestring::ByteString;
 use std::io;
+
+use bytestring::ByteString;
+use serde::{Deserialize, Serialize};
+
+use crate::v5::{DisconnectReasonCode, ToReasonCode};
 
 /// Errors which can occur during mqtt connection handshake.
 #[derive(Deserialize, Serialize, Debug, Clone, thiserror::Error)]

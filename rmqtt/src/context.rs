@@ -4,15 +4,20 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use rust_box::task_exec_queue::{Builder, TaskExecQueue};
+use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "delayed")]
 use crate::delayed::DefaultDelayedSender;
 use crate::executor::HandshakeExecutor;
+#[cfg(feature = "metrics")]
 use crate::metrics::Metrics;
 use crate::node::Node;
+#[cfg(feature = "plugin")]
+use crate::plugin;
 use crate::router::DefaultRouter;
 use crate::shared::DefaultShared;
 use crate::stats::Stats;
-use crate::{extend, plugin, NodeId};
+use crate::{extend, NodeId};
 
 pub struct ServerContextBuilder {
     node: Node,
@@ -112,7 +117,9 @@ impl ServerContextBuilder {
             inner: Arc::new(ServerContextInner {
                 node: self.node,
                 extends: extend::Manager::new(),
+                #[cfg(feature = "plugin")]
                 plugins: plugin::Manager::new(self.plugins_dir),
+                #[cfg(feature = "metrics")]
                 metrics: Metrics::new(),
                 stats: Stats::new(),
                 handshake_exec: HandshakeExecutor::new(self.busy_handshaking_limit),
@@ -137,7 +144,9 @@ pub struct ServerContext {
 pub struct ServerContextInner {
     pub node: Node,
     pub extends: extend::Manager,
+    #[cfg(feature = "plugin")]
     pub plugins: plugin::Manager,
+    #[cfg(feature = "metrics")]
     pub metrics: Metrics,
     pub stats: Stats,
     pub handshake_exec: HandshakeExecutor,
@@ -166,7 +175,11 @@ impl ServerContext {
     async fn config(self) -> Self {
         *self.extends.shared_mut().await = Box::new(DefaultShared::new(Some(self.clone())));
         *self.extends.router_mut().await = Box::new(DefaultRouter::new(Some(self.clone())));
-        *self.extends.delayed_sender_mut().await = Box::new(DefaultDelayedSender::new(Some(self.clone())));
+        #[cfg(feature = "delayed")]
+        {
+            *self.extends.delayed_sender_mut().await =
+                Box::new(DefaultDelayedSender::new(Some(self.clone())));
+        }
         self
     }
 
@@ -184,12 +197,12 @@ impl fmt::Debug for ServerContext {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "ServerContext node: {:?}, metrics: {:?}, stats: {:?}, \
+            "ServerContext node: {:?}, stats: {:?}, \
             handshake_exec.active_count: {}, \
             busy_check_enable: {}, mqtt_delayed_publish_max: {}, \
             mqtt_delayed_publish_immediate: {}, mqtt_max_sessions: {}",
             self.node,
-            self.metrics,
+            // self.metrics,
             self.stats,
             self.handshake_exec.active_count(),
             self.busy_check_enable,

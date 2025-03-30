@@ -4,19 +4,14 @@ use std::time::Duration;
 
 use structopt::StructOpt;
 
-// use rmqtt::context::ServerContext;
-#[cfg(not(target_os = "windows"))]
-use rustls::crypto::aws_lc_rs as provider;
-#[cfg(target_os = "windows")]
-use rustls::crypto::ring as provider;
-
 use rmqtt::conf::{listener::Listener, Options, Settings};
 use rmqtt::context::ServerContext;
-use rmqtt::logger::logger_init;
-use rmqtt::net::Builder;
+use rmqtt::net::{tls_provider, Builder};
 use rmqtt::node::Node;
 use rmqtt::server::MqttServer;
 use rmqtt::Result;
+
+mod logger;
 
 #[cfg(target_os = "linux")]
 #[global_allocator]
@@ -33,12 +28,12 @@ async fn main() -> Result<()> {
     let conf = Settings::init(Options::from_args()).expect("settings init failed");
 
     //rustls crypto install default
-    provider::default_provider()
+    tls_provider::default_provider()
         .install_default()
         .expect("Failed to install the default Rustls crypto backend because it is already installed.");
 
     //init log
-    let (_guard, _logger) = logger_init(&conf.log).expect("logger init failed");
+    let (_guard, _logger) = logger::logger_init(&conf.log).expect("logger init failed");
 
     let _ = Settings::logs();
 
@@ -75,9 +70,6 @@ async fn main() -> Result<()> {
 
     //register plugin
     plugin::registers(&scx, conf.plugins.default_startups.clone()).await.expect("register plugin failed");
-
-    //hook, before startup
-    scx.extends.hook_mgr().before_startup().await;
 
     let mut builder = MqttServer::new(scx);
 

@@ -1,11 +1,13 @@
-use anyhow::anyhow;
-use core::pin::Pin;
 use std::future::Future;
+use std::pin::Pin;
 
+use anyhow::anyhow;
 use async_trait::async_trait;
 use config::{Config, File, Source};
 use dashmap::iter::Iter;
 use dashmap::mapref::one::{Ref, RefMut};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 use crate::types::DashMap;
 use crate::Result;
@@ -19,7 +21,7 @@ macro_rules! register {
     ($name:path) => {
         #[inline]
         pub async fn register(
-            scx: rmqtt::context::ServerContext,
+            scx: &rmqtt::context::ServerContext,
             name: &'static str,
             default_startup: bool,
             immutable: bool,

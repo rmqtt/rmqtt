@@ -84,8 +84,8 @@ plugins.default_startups = [
     #"rmqtt-auth-jwt",
     #"rmqtt-bridge-egress-nats",
     #"rmqtt-bridge-egress-reductstore",
-    "rmqtt-web-hook",
-    "rmqtt-http-api"
+    #"rmqtt-web-hook",
+    #"rmqtt-http-api"
 ]
 
 
@@ -128,7 +128,7 @@ listener.tcp.external.backlog = 1024
 #default: false
 listener.tcp.external.nodelay = false
 #Whether anonymous login is allowed. Default: true
-listener.tcp.external.allow_anonymous = false
+listener.tcp.external.allow_anonymous = true
 #A value of zero indicates disabling the keep-alive feature, where the server
 #doesn't need to disconnect due to client inactivity, default: true
 listener.tcp.external.allow_zero_keepalive = true

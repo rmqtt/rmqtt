@@ -14,6 +14,7 @@ use rust_box::handy_grpc::{
     Priority,
 };
 use rust_box::mpsc::priority_channel as channel;
+use serde::{Deserialize, Serialize};
 
 use crate::context::ServerContext;
 use crate::types::*;

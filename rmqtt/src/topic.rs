@@ -1,6 +1,8 @@
 use std::fmt::{self, Write};
 use std::{io, ops, str::FromStr};
 
+use serde::{Deserialize, Serialize};
+
 fn is_metadata<T: AsRef<str>>(s: T) -> bool {
     s.as_ref().starts_with('$')
 }

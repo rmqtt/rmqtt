@@ -2,7 +2,6 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 
 use anyhow::anyhow;
-pub use slog::Logger;
 use slog::{o, Drain, Record};
 use slog_scope::GlobalLoggerGuard;
 use slog_term::{CountingWriter, RecordDecorator, ThreadSafeTimestampFn};

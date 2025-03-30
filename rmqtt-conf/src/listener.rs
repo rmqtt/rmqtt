@@ -5,7 +5,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde::de::{self, Deserialize, Deserializer};
+use serde::de::{self, Deserializer};
+use serde::Deserialize;
 
 use rmqtt_codec::types::QoS;
 

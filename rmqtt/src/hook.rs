@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::acl::AuthInfo;
@@ -11,11 +12,13 @@ use crate::codec::types::Publish;
 use crate::codec::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 use crate::codec::v5::UserProperties;
 use crate::codec::{v3, v5};
+#[cfg(feature = "grpc")]
+use crate::grpc;
 use crate::inflight::OutInflightMessage;
 use crate::session::Session;
 use crate::types::*;
 use crate::utils::timestamp_millis;
-use crate::{grpc, Result};
+use crate::Result;
 
 pub type Priority = u32;
 pub type Proceed = bool;
@@ -57,6 +60,7 @@ pub trait HookManager: Sync + Send {
     async fn message_nonsubscribed(&self, from: From);
 
     ///grpc message received
+    #[cfg(feature = "grpc")]
     async fn grpc_message_received(
         &self,
         typ: grpc::MessageType,
@@ -236,6 +240,7 @@ pub enum Parameter<'a> {
 
     OfflineMessage(&'a Session, From, &'a Publish),
     OfflineInflightMessages(&'a Session, Vec<OutInflightMessage>),
+    #[cfg(feature = "grpc")]
     GrpcMessageReceived(grpc::MessageType, grpc::Message),
 }
 
@@ -269,6 +274,7 @@ impl Parameter<'_> {
 
             Parameter::OfflineMessage(_, _, _) => Type::OfflineMessage,
             Parameter::OfflineInflightMessages(_, _) => Type::OfflineInflightMessages,
+            #[cfg(feature = "grpc")]
             Parameter::GrpcMessageReceived(_, _) => Type::GrpcMessageReceived,
         }
     }
@@ -293,6 +299,7 @@ pub enum HookResult {
     ///Message Expiry
     MessageExpiry,
     ///for GrpcMessageReceived
+    #[cfg(feature = "grpc")]
     GrpcMessageReply(Result<grpc::MessageReply>),
 }
 
@@ -497,11 +504,12 @@ impl HookManager for DefaultHookManager {
 
     ///grpc message received
     #[inline]
+    #[cfg(feature = "grpc")]
     async fn grpc_message_received(
         &self,
         typ: grpc::MessageType,
         msg: grpc::Message,
-    ) -> crate::Result<grpc::MessageReply> {
+    ) -> Result<grpc::MessageReply> {
         let result = self.exec(Type::GrpcMessageReceived, Parameter::GrpcMessageReceived(typ, msg)).await;
         if let Some(HookResult::GrpcMessageReply(reply)) = result {
             reply

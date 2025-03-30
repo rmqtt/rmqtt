@@ -49,8 +49,6 @@ where
 
     state.run(Sink::V3(sink), keep_alive).await?;
 
-    log::info!("end ...");
-
     Ok(())
 }
 
@@ -131,6 +129,7 @@ where
             Err(e)
         }
         Err(e) => {
+            #[cfg(feature = "metrics")]
             scx.metrics.client_handshaking_timeout_inc();
             // unavailable_stats().inc();
             let err = anyhow!("Connection Refused, execute handshake timeout");

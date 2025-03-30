@@ -3,6 +3,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use anyhow::anyhow;
+use serde::{Deserialize, Serialize};
 use serde_json;
 
 use crate::codec::types::Publish;

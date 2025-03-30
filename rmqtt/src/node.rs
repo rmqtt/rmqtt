@@ -1,15 +1,15 @@
-use std::net::SocketAddr;
-use std::ops::Deref;
-use std::sync::atomic::{AtomicI64, Ordering};
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::time::Duration;
 
-use once_cell::sync::Lazy;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 use systemstat::Platform;
 
 use crate::context::ServerContext;
-use crate::grpc::GrpcClient;
-use crate::grpc::GrpcServer;
-use crate::{NodeId, Result};
+#[cfg(feature = "grpc")]
+use crate::grpc::{GrpcClient, GrpcServer};
+use crate::utils::timestamp_millis;
+use crate::{NodeId, TimestampMillis};
 
 #[allow(dead_code)]
 mod version {
@@ -59,6 +59,7 @@ impl Node {
         scx.extends.shared().await.node_name(id)
     }
 
+    #[cfg(feature = "grpc")]
     #[inline]
     pub async fn new_grpc_client(
         &self,
@@ -66,16 +67,17 @@ impl Node {
         client_timeout: Duration,
         client_concurrency_limit: usize,
         _batch_size: usize,
-    ) -> Result<GrpcClient> {
+    ) -> crate::Result<GrpcClient> {
         let c = GrpcClient::new(remote_addr, client_timeout, client_concurrency_limit).await?;
         // c.start_ping();
         Ok(c)
     }
 
+    #[cfg(feature = "grpc")]
     pub fn start_grpc_server(
         &self,
         scx: ServerContext,
-        server_addr: SocketAddr,
+        server_addr: std::net::SocketAddr,
         worker_threads: usize,
         reuseaddr: bool,
         reuseport: bool,
@@ -180,23 +182,27 @@ impl Node {
         let loadavg = sys.load_average();
         let load1 = loadavg.as_ref().map(|l| l.one).unwrap_or_default();
 
-        load1 > self.max_busy_loadavg//Runtime::instance().settings.node.busy.loadavg
-            || cpuload > self.max_busy_cpuloadavg //Runtime::instance().settings.node.busy.cpuloadavg
+        load1 > self.max_busy_loadavg || cpuload > self.max_busy_cpuloadavg
     }
 
     #[inline]
     pub fn sys_is_busy(&self) -> bool {
-        static CACHED: Lazy<parking_lot::RwLock<(bool, Instant)>> =
-            Lazy::new(|| parking_lot::RwLock::new((false, Instant::now())));
-        {
-            let cached = CACHED.read();
-            let (busy, inst) = cached.deref();
-            if inst.elapsed() < self.busy_update_interval {
-                return *busy;
-            }
+        static CACHED_BUSY: AtomicBool = AtomicBool::new(false);
+        static CACHED_TIME: AtomicI64 = AtomicI64::new(0);
+
+        let now = timestamp_millis();
+
+        let last_update = CACHED_TIME.load(Ordering::Relaxed);
+
+        if now - last_update < self.busy_update_interval.as_millis() as TimestampMillis {
+            return CACHED_BUSY.load(Ordering::Relaxed);
         }
+
         let busy = self._is_busy();
-        *CACHED.write() = (busy, Instant::now());
+
+        CACHED_BUSY.store(busy, Ordering::Relaxed);
+        CACHED_TIME.store(now, Ordering::Relaxed);
+
         busy
     }
 

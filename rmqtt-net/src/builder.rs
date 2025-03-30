@@ -3,28 +3,32 @@ use std::num::{NonZeroU16, NonZeroU32};
 use std::sync::Arc;
 use std::time::Duration;
 
-#[cfg(not(target_os = "windows"))]
-use rustls::crypto::aws_lc_rs as provider;
-#[cfg(target_os = "windows")]
-use rustls::crypto::ring as provider;
-use rustls::pki_types::pem::PemObject;
-use rustls::server::WebPkiClientVerifier;
-use rustls::{RootCertStore, ServerConfig};
-
 use anyhow::anyhow;
 use nonzero_ext::nonzero;
 use rmqtt_codec::types::QoS;
+#[cfg(not(target_os = "windows"))]
+#[cfg(feature = "tls")]
+use rustls::crypto::aws_lc_rs as provider;
+#[cfg(feature = "tls")]
+#[cfg(target_os = "windows")]
+use rustls::crypto::ring as provider;
+#[cfg(feature = "tls")]
+use rustls::{pki_types::pem::PemObject, server::WebPkiClientVerifier, RootCertStore, ServerConfig};
 use socket2::{Domain, SockAddr, Socket, Type};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
-use tokio_rustls::server::TlsStream;
-use tokio_rustls::TlsAcceptor;
-use tokio_tungstenite::accept_hdr_async;
-use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
+#[cfg(feature = "tls")]
+use tokio_rustls::{server::TlsStream, TlsAcceptor};
+#[cfg(feature = "ws")]
+use tokio_tungstenite::{
+    accept_hdr_async,
+    tungstenite::handshake::server::{ErrorResponse, Request, Response},
+};
 
 use crate::stream::Dispatcher;
+#[cfg(feature = "ws")]
 use crate::ws::WsStream;
-use crate::{Error, MqttError, Result};
+use crate::{Error, Result};
 
 #[derive(Clone, Debug)]
 pub struct Builder {
@@ -344,15 +348,25 @@ impl Builder {
         builder.listen(self.backlog)?;
         let tcp_listener = TcpListener::from_std(std::net::TcpListener::from(builder))?;
         log::info!("MQTT Broker Listening on {} {}", self.name, self.laddr);
-        Ok(Listener { typ: ListenerType::TCP, cfg: Arc::new(self), tcp_listener, tls_acceptor: None })
+        Ok(Listener {
+            typ: ListenerType::TCP,
+            cfg: Arc::new(self),
+            tcp_listener,
+            #[cfg(feature = "tls")]
+            tls_acceptor: None,
+        })
     }
 }
 
 #[derive(Debug, Copy, Clone)]
 pub enum ListenerType {
     TCP,
+    #[cfg(feature = "tls")]
     TLS,
+    #[cfg(feature = "ws")]
     WS,
+    #[cfg(feature = "tls")]
+    #[cfg(feature = "ws")]
     WSS,
 }
 
@@ -360,20 +374,33 @@ pub struct Listener {
     pub typ: ListenerType,
     pub cfg: Arc<Builder>,
     tcp_listener: TcpListener,
+    #[cfg(feature = "tls")]
     tls_acceptor: Option<TlsAcceptor>,
 }
 
 impl Listener {
     pub fn tcp(mut self) -> Result<Self> {
-        if matches!(self.typ, ListenerType::TLS | ListenerType::WS | ListenerType::WSS) {
-            return Err(anyhow!(
+        let _err = anyhow!(
                 "Upgrading from ListenerType::TLS or ListenerType::WS or ListenerType::WSS to ListenerType::TCP is not allowed."
-            ));
+            );
+        #[cfg(feature = "tls")]
+        if matches!(self.typ, ListenerType::TLS) {
+            return Err(_err);
+        }
+        #[cfg(feature = "tls")]
+        #[cfg(feature = "ws")]
+        if matches!(self.typ, ListenerType::WSS) {
+            return Err(_err);
+        }
+        #[cfg(feature = "ws")]
+        if matches!(self.typ, ListenerType::WS) {
+            return Err(_err);
         }
         self.typ = ListenerType::TCP;
         Ok(self)
     }
 
+    #[cfg(feature = "ws")]
     pub fn ws(mut self) -> Result<Self> {
         if matches!(self.typ, ListenerType::TCP | ListenerType::WS) {
             self.typ = ListenerType::WS;
@@ -385,6 +412,8 @@ impl Listener {
         Ok(self)
     }
 
+    #[cfg(feature = "tls")]
+    #[cfg(feature = "ws")]
     pub fn wss(mut self) -> Result<Self> {
         if matches!(self.typ, ListenerType::TCP | ListenerType::WS) {
             self = self.tls()?;
@@ -393,8 +422,10 @@ impl Listener {
         Ok(self)
     }
 
+    #[cfg(feature = "tls")]
     pub fn tls(mut self) -> Result<Listener> {
         match self.typ {
+            #[cfg(feature = "ws")]
             ListenerType::WS | ListenerType::WSS => {
                 return Err(anyhow!(
                     "Upgrading from ListenerType::WS or ListenerType::WSS to ListenerType::TLS is not allowed."
@@ -448,6 +479,7 @@ impl Listener {
         Ok(Acceptor {
             socket,
             remote_addr,
+            #[cfg(feature = "tls")]
             acceptor: self.tls_acceptor.clone(),
             cfg: self.cfg.clone(),
             typ: self.typ,
@@ -457,6 +489,7 @@ impl Listener {
 
 pub struct Acceptor<S> {
     pub(crate) socket: S,
+    #[cfg(feature = "tls")]
     acceptor: Option<TlsAcceptor>,
     pub remote_addr: SocketAddr,
     pub cfg: Arc<Builder>,
@@ -477,22 +510,24 @@ where
     }
 
     #[inline]
+    #[cfg(feature = "tls")]
     pub async fn tls(self) -> Result<Dispatcher<TlsStream<S>>> {
         if !matches!(self.typ, ListenerType::TLS) {
             return Err(anyhow!("Mismatched ListenerType"));
         }
 
-        let acceptor = self.acceptor.ok_or_else(|| MqttError::ServiceUnavailable)?;
+        let acceptor = self.acceptor.ok_or_else(|| crate::MqttError::ServiceUnavailable)?;
         let tls_s = match tokio::time::timeout(self.cfg.handshake_timeout, acceptor.accept(self.socket)).await
         {
             Ok(Ok(tls_s)) => tls_s,
             Ok(Err(e)) => return Err(e.into()),
-            Err(_) => return Err(MqttError::ReadTimeout.into()),
+            Err(_) => return Err(crate::MqttError::ReadTimeout.into()),
         };
         Ok(Dispatcher::new(tls_s, self.remote_addr, self.cfg))
     }
 
     #[inline]
+    #[cfg(feature = "ws")]
     pub async fn ws(self) -> Result<Dispatcher<WsStream<S>>> {
         if !matches!(self.typ, ListenerType::WS) {
             return Err(anyhow!("Mismatched ListenerType"));
@@ -505,34 +540,37 @@ where
                 Ok(Dispatcher::new(WsStream::new(ws_stream), self.remote_addr, self.cfg.clone()))
             }
             Ok(Err(e)) => Err(e.into()),
-            Err(_) => Err(MqttError::ReadTimeout.into()),
+            Err(_) => Err(crate::MqttError::ReadTimeout.into()),
         }
     }
 
     #[inline]
+    #[cfg(feature = "tls")]
+    #[cfg(feature = "ws")]
     pub async fn wss(self) -> Result<Dispatcher<WsStream<TlsStream<S>>>> {
         if !matches!(self.typ, ListenerType::WSS) {
             return Err(anyhow!("Mismatched ListenerType"));
         }
 
-        let acceptor = self.acceptor.ok_or_else(|| MqttError::ServiceUnavailable)?;
+        let acceptor = self.acceptor.ok_or_else(|| crate::MqttError::ServiceUnavailable)?;
         let tls_s = match tokio::time::timeout(self.cfg.handshake_timeout, acceptor.accept(self.socket)).await
         {
             Ok(Ok(tls_s)) => tls_s,
             Ok(Err(e)) => return Err(e.into()),
-            Err(_) => return Err(MqttError::ReadTimeout.into()),
+            Err(_) => return Err(crate::MqttError::ReadTimeout.into()),
         };
         match tokio::time::timeout(self.cfg.handshake_timeout, accept_hdr_async(tls_s, on_handshake)).await {
             Ok(Ok(ws_stream)) => {
                 Ok(Dispatcher::new(WsStream::new(ws_stream), self.remote_addr, self.cfg.clone()))
             }
             Ok(Err(e)) => Err(e.into()),
-            Err(_) => Err(MqttError::ReadTimeout.into()),
+            Err(_) => Err(crate::MqttError::ReadTimeout.into()),
         }
     }
 }
 
 #[allow(clippy::result_large_err)]
+#[cfg(feature = "ws")]
 fn on_handshake(req: &Request, mut response: Response) -> std::result::Result<Response, ErrorResponse> {
     const PROTOCOL_ERROR: &str = "No \"Sec-WebSocket-Protocol: mqtt\" in client request";
     let mqtt_protocol = req

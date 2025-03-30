@@ -69,13 +69,19 @@ impl MqttServer {
     }
 
     pub async fn run(self) -> Result<()> {
+        //hook, before startup
+        self.scx.extends.hook_mgr().before_startup().await;
         futures::future::join_all(
             self.listeners
                 .iter()
                 .map(|l| match l.typ {
                     ListenerType::TCP => listen_tcp(self.scx.clone(), l).boxed(),
+                    #[cfg(feature = "tls")]
                     ListenerType::TLS => listen_tls(self.scx.clone(), l).boxed(),
+                    #[cfg(feature = "ws")]
                     ListenerType::WS => listen_ws(self.scx.clone(), l).boxed(),
+                    #[cfg(feature = "tls")]
+                    #[cfg(feature = "ws")]
                     ListenerType::WSS => listen_wss(self.scx.clone(), l).boxed(),
                 })
                 .collect_vec(),
@@ -91,7 +97,7 @@ async fn listen_tcp(scx: ServerContext, l: &Listener) {
             Ok(a) => {
                 let scx = scx.clone();
                 tokio::spawn(async move {
-                    log::info!("tcp listen addr:{:?}, remote addr:{:?}", a.cfg.laddr, a.remote_addr);
+                    log::debug!("tcp listen addr:{:?}, remote addr:{:?}", a.cfg.laddr, a.remote_addr);
                     let d = match a.tcp() {
                         Ok(d) => d,
                         Err(e) => {
@@ -125,13 +131,14 @@ async fn listen_tcp(scx: ServerContext, l: &Listener) {
     }
 }
 
+#[cfg(feature = "tls")]
 async fn listen_tls(scx: ServerContext, l: &Listener) {
     loop {
         match l.accept().await {
             Ok(a) => {
                 let scx = scx.clone();
                 tokio::spawn(async move {
-                    log::info!("tls listen addr:{:?}, remote addr:{:?}", a.cfg.laddr, a.remote_addr);
+                    log::debug!("tls listen addr:{:?}, remote addr:{:?}", a.cfg.laddr, a.remote_addr);
                     let d = match a.tls().await {
                         Ok(d) => d,
                         Err(e) => {
@@ -164,13 +171,14 @@ async fn listen_tls(scx: ServerContext, l: &Listener) {
     }
 }
 
+#[cfg(feature = "ws")]
 async fn listen_ws(scx: ServerContext, l: &Listener) {
     loop {
         match l.accept().await {
             Ok(a) => {
                 let scx = scx.clone();
                 tokio::spawn(async move {
-                    log::info!("ws listen addr:{:?}, remote addr:{:?}", a.cfg.laddr, a.remote_addr);
+                    log::debug!("ws listen addr:{:?}, remote addr:{:?}", a.cfg.laddr, a.remote_addr);
                     let d = match a.ws().await {
                         Ok(d) => d,
                         Err(e) => {
@@ -203,13 +211,15 @@ async fn listen_ws(scx: ServerContext, l: &Listener) {
     }
 }
 
+#[cfg(feature = "tls")]
+#[cfg(feature = "ws")]
 async fn listen_wss(scx: ServerContext, l: &Listener) {
     loop {
         match l.accept().await {
             Ok(a) => {
                 let scx = scx.clone();
                 tokio::spawn(async move {
-                    log::info!("wss listen addr:{:?}, remote addr:{:?}", a.cfg.laddr, a.remote_addr);
+                    log::debug!("wss listen addr:{:?}, remote addr:{:?}", a.cfg.laddr, a.remote_addr);
                     let d = match a.wss().await {
                         Ok(d) => d,
                         Err(e) => {

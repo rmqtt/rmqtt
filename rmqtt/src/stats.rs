@@ -1,10 +1,12 @@
 use std::fmt;
 use std::sync::atomic::{AtomicIsize, Ordering};
 
-#[cfg(feature = "debug")]
-use crate::context::TaskExecStats;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 use crate::context::ServerContext;
+#[cfg(feature = "debug")]
+use crate::context::TaskExecStats;
 use crate::{HashMap, NodeId, StatsMergeMode};
 
 type Current = AtomicIsize;
@@ -240,17 +242,22 @@ impl Stats {
         // self.in_inflights.current_set(curr);
         // self.in_inflights.max_max(max);
 
+        #[cfg(feature = "msgstore")]
         {
             let message_mgr = scx.extends.message_mgr().await;
             self.message_storages.current_set(message_mgr.count().await);
             self.message_storages.max_max(message_mgr.max().await);
         }
 
+        #[cfg(feature = "retain")]
         let retaineds = {
             let retain = scx.extends.retain().await;
             Counter::new_with(retain.count().await, retain.max().await, retain.stats_merge_mode())
         };
+        #[cfg(not(feature = "retain"))]
+        let retaineds = Counter::default();
 
+        #[cfg(feature = "delayed")]
         {
             let delayed_sender = scx.extends.delayed_sender().await;
             self.delayed_publishs.current_set(delayed_sender.len().await as isize);

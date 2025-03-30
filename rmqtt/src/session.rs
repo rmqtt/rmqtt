@@ -1,4 +1,3 @@
-use anyhow::anyhow;
 use std::convert::From as _f;
 use std::fmt;
 use std::num::NonZeroU16;
@@ -6,11 +5,14 @@ use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use anyhow::anyhow;
 use async_trait::async_trait;
 #[allow(unused_imports)]
 use bitflags::Flags;
 use bytestring::ByteString;
 use futures::StreamExt;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 use rmqtt_codec::v5::{Auth, PublishAck2, PublishAck2Reason, RetainHandling, ToReasonCode, UserProperties};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -36,7 +38,6 @@ pub struct SessionState {
     tx: Tx,
     rx: Rx,
     pub hook: Arc<dyn Hook>,
-    // pub deliver_queue_tx: Option<MessageSender>,
     pub server_topic_aliases: Option<Arc<ServerTopicAliases>>,
     pub client_topic_aliases: Option<Arc<ClientTopicAliases>>,
     in_inflight: InInflight,
@@ -123,10 +124,10 @@ impl SessionState {
         match self.run_loop(&mut sink, keep_alive, &mut flags, &deliver_queue_tx, &mut deliver_queue_rx).await
         {
             Ok(()) => {
-                log::info!("{} exit ...", self.id);
+                log::debug!("{} exit ...", self.id);
             }
             Err(reason) => {
-                // log::info!("{} Reason: {}", self.id, reason);
+                log::debug!("{} Reason: {}", self.id, reason);
                 self.disconnected_reason_add(reason).await?;
             }
         }
@@ -135,7 +136,7 @@ impl SessionState {
         let disconnect = self.disconnect().await.unwrap_or(None);
         let clean_session = self.clean_session(disconnect.as_ref()).await;
 
-        log::info!(
+        log::debug!(
             "{:?} exit online worker, flags: {:?}, clean_session: {} {}",
             self.id,
             flags,
@@ -148,7 +149,7 @@ impl SessionState {
             log::warn!("{:?} disconnected set error, {:?}", self.id, e);
         }
 
-        log::info!(
+        log::debug!(
             "{} disconnected_reason({}): {}",
             self.id,
             self.disconnected_reasons().await?.len(),
@@ -674,14 +675,30 @@ impl SessionState {
                 let p = self.hook.message_publish(from.clone(), &p).await.unwrap_or(p);
                 log::debug!("process_last_will, publish: {:?}", p);
 
-                let message_storage_available = self.scx.extends.message_mgr().await.enable();
+                let message_storage_available = {
+                    #[cfg(feature = "msgstore")]
+                    {
+                        self.scx.extends.message_mgr().await.enable()
+                    }
+                    #[cfg(not(feature = "msgstore"))]
+                    {
+                        false
+                    }
+                };
 
+                #[cfg(feature = "retain")]
                 let message_expiry_interval =
                     if message_storage_available || (p.retain && self.scx.extends.retain().await.enable()) {
                         Some(self.fitter.message_expiry_interval(&p))
                     } else {
                         None
                     };
+                #[cfg(not(feature = "retain"))]
+                let message_expiry_interval = if message_storage_available || (p.retain && false) {
+                    Some(self.fitter.message_expiry_interval(&p))
+                } else {
+                    None
+                };
 
                 Self::forwards(&self.scx, from, p, message_storage_available, message_expiry_interval)
                     .await?;
@@ -768,10 +785,12 @@ impl SessionState {
     async fn publish(&self, publish: Publish) -> std::result::Result<bool, Reason> {
         match self._publish(publish).await {
             Err(e) => {
+                #[cfg(feature = "metrics")]
                 self.scx.metrics.client_publish_error_inc();
                 Err(Reason::PublishFailed(e.to_string().into()))
             }
             Ok(false) => {
+                #[cfg(feature = "metrics")]
                 self.scx.metrics.client_publish_error_inc();
                 Ok(false)
             }
@@ -789,6 +808,7 @@ impl SessionState {
 
         let from = From::from_custom(self.id.clone());
 
+        #[cfg(feature = "delayed")]
         if self.listen_cfg().delayed_publish {
             publish = self.scx.extends.delayed_sender().await.parse(publish)?;
         }
@@ -800,6 +820,7 @@ impl SessionState {
         let acl_result = self.hook.message_publish_check_acl(&publish).await;
         log::debug!("{:?} acl_result: {:?}", self.id, acl_result);
         if let PublishAclResult::Rejected(disconnect) = acl_result {
+            #[cfg(feature = "metrics")]
             self.scx.metrics.client_publish_auth_error_inc();
             //hook, Message dropped
             self.scx.extends.hook_mgr().message_dropped(None, from, publish, Reason::PublishRefused).await;
@@ -812,16 +833,35 @@ impl SessionState {
             };
         }
 
-        let message_storage_available = self.scx.extends.message_mgr().await.enable();
+        let message_storage_available = {
+            #[cfg(feature = "msgstore")]
+            {
+                self.scx.extends.message_mgr().await.enable()
+            }
+            #[cfg(not(feature = "msgstore"))]
+            {
+                false
+            }
+        };
 
-        let message_expiry_interval =
-            if message_storage_available || (publish.retain && self.scx.extends.retain().await.enable()) {
-                Some(self.fitter.message_expiry_interval(&publish))
-            } else {
-                None
-            };
+        let message_expiry_interval = if message_storage_available
+            || (publish.retain && {
+                #[cfg(feature = "retain")]
+                {
+                    self.scx.extends.retain().await.enable()
+                }
+                #[cfg(not(feature = "retain"))]
+                {
+                    false
+                }
+            }) {
+            Some(self.fitter.message_expiry_interval(&publish))
+        } else {
+            None
+        };
 
         //delayed publish
+        #[cfg(feature = "delayed")]
         if publish.delay_interval.is_some() {
             if let Some((f, p)) = self
                 .scx
@@ -966,21 +1006,23 @@ impl SessionState {
     #[inline]
     async fn subscribe(&self, sub: Subscribe) -> Result<SubscribeReturn> {
         let ret = self._subscribe(sub).await;
-        match &ret {
-            Ok(sub_ret) => match sub_ret.ack_reason {
+        if let Ok(sub_ret) = &ret {
+            match sub_ret.ack_reason {
                 SubscribeAckReason::NotAuthorized => {
+                    #[cfg(feature = "metrics")]
                     self.scx.metrics.client_subscribe_auth_error_inc();
                 }
                 SubscribeAckReason::GrantedQos0
                 | SubscribeAckReason::GrantedQos1
                 | SubscribeAckReason::GrantedQos2 => {}
                 _ => {
+                    #[cfg(feature = "metrics")]
                     self.scx.metrics.client_subscribe_error_inc();
                 }
-            },
-            Err(_) => {
-                self.scx.metrics.client_subscribe_error_inc();
             }
+        } else {
+            #[cfg(feature = "metrics")]
+            self.scx.metrics.client_subscribe_error_inc();
         }
         ret
     }
@@ -1053,7 +1095,8 @@ impl SessionState {
 
         if let Some(qos) = sub_ret.success() {
             //send retain messages
-            let excludeds = if self.scx.extends.retain().await.enable() {
+            #[cfg(feature = "retain")]
+            let _excludeds = if self.scx.extends.retain().await.enable() {
                 //MQTT V5: Retain Handling
                 let send_retain_enable = match sub.opts.retain_handling() {
                     Some(RetainHandling::AtSubscribe) => true,
@@ -1083,10 +1126,13 @@ impl SessionState {
             } else {
                 None
             };
+            #[cfg(not(feature = "retain"))]
+            let _excludeds = None;
 
+            #[cfg(feature = "msgstore")]
             if self.scx.extends.message_mgr().await.enable() {
                 //Send messages before they expire
-                self.send_storaged_messages(&sub.topic_filter, qos, sub.opts.shared_group(), excludeds)
+                self.send_storaged_messages(&sub.topic_filter, qos, sub.opts.shared_group(), _excludeds)
                     .await?;
             }
 
@@ -1103,7 +1149,7 @@ impl SessionState {
         clear_subscriptions: bool,
         mut offline_info: OfflineInfo,
     ) -> Result<()> {
-        log::info!(
+        log::debug!(
                 "{:?} transfer session state, form: {:?}, subscriptions: {}, inflight_messages: {}, offline_messages: {}, clear_subscriptions: {}",
                 self.id,
                 offline_info.id,
@@ -1126,6 +1172,7 @@ impl SessionState {
                 }
 
                 //Send messages before they expire
+                #[cfg(feature = "msgstore")]
                 if let Err(e) = self.send_storaged_messages(tf, opts.qos(), opts.shared_group(), None).await {
                     log::warn!("transfer_session_state, router.add, {:?}", e);
                 }
@@ -1183,6 +1230,7 @@ impl SessionState {
     }
 
     #[inline]
+    #[cfg(feature = "msgstore")]
     async fn send_storaged_messages(
         &self,
         topic_filter: &str,
@@ -1205,6 +1253,7 @@ impl SessionState {
     }
 
     #[inline]
+    #[cfg(feature = "msgstore")]
     async fn _send_storaged_messages(
         &self,
         storaged_messages: Vec<(MsgID, From, Publish)>,
@@ -1443,28 +1492,35 @@ impl SessionState {
         scx: &ServerContext,
         from: From,
         publish: Publish,
-        message_storage_available: bool,
+        #[allow(unused_variables)] message_storage_available: bool,
         message_expiry_interval: Option<Duration>,
     ) -> Result<()> {
         //make message id
+        #[cfg(feature = "msgstore")]
         let msg_id = if message_storage_available {
             Some(scx.extends.message_mgr().await.next_msg_id())
         } else {
             None
         };
+        #[cfg(not(feature = "msgstore"))]
+        let msg_id = None;
 
-        let retain = scx.extends.retain().await;
-        if retain.enable() && publish.retain {
-            retain
-                .set(
-                    &publish.topic,
-                    Retain { msg_id, from: from.clone(), publish: publish.clone() },
-                    message_expiry_interval,
-                )
-                .await?;
+        #[cfg(feature = "retain")]
+        {
+            let retain = scx.extends.retain().await;
+            if retain.enable() && publish.retain {
+                retain
+                    .set(
+                        &publish.topic,
+                        Retain { msg_id, from: from.clone(), publish: publish.clone() },
+                        message_expiry_interval,
+                    )
+                    .await?;
+            }
+            drop(retain);
         }
-        drop(retain);
 
+        #[cfg(feature = "msgstore")]
         let stored_msg =
             if let (Some(msg_id), Some(message_expiry_interval)) = (msg_id, message_expiry_interval) {
                 Some((msg_id, from.clone(), publish.clone(), message_expiry_interval))
@@ -1472,7 +1528,7 @@ impl SessionState {
                 None
             };
 
-        let sub_cids = match scx.extends.shared().await.forwards(from.clone(), publish).await {
+        let _sub_cids = match scx.extends.shared().await.forwards(from.clone(), publish).await {
             Ok(None) => {
                 //hook, message_nonsubscribed
                 scx.extends.hook_mgr().message_nonsubscribed(from).await;
@@ -1488,10 +1544,11 @@ impl SessionState {
             }
         };
 
+        #[cfg(feature = "msgstore")]
         if let Some((msg_id, from, p, expiry_interval)) = stored_msg {
             //Store messages before they expire
             if let Err(e) =
-                scx.extends.message_mgr().await.store(msg_id, from, p, expiry_interval, sub_cids).await
+                scx.extends.message_mgr().await.store(msg_id, from, p, expiry_interval, _sub_cids).await
             {
                 log::warn!("Failed to storage messages, {:?}", e);
             }
@@ -1518,7 +1575,6 @@ pub struct _Session {
     pub fitter: FitterType,
     pub auth_info: Option<AuthInfo>,
     pub scx: ServerContext,
-    // pub extra_attrs: RwLock<ExtraAttrs>,
 }
 
 impl Deref for _Session {

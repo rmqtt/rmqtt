@@ -10,10 +10,11 @@ use tokio::sync::oneshot;
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::context::ServerContext;
-use crate::grpc::{GrpcClients, MessageBroadcaster, MessageReply, MESSAGE_TYPE_MESSAGE_GET};
+#[cfg(feature = "grpc")]
+use crate::grpc::{self, GrpcClients, MessageBroadcaster, MessageReply, MESSAGE_TYPE_MESSAGE_GET};
 use crate::session::Session;
 use crate::types::*;
-use crate::{grpc, Result};
+use crate::Result;
 
 #[async_trait]
 pub trait Entry: Sync + Send {
@@ -93,8 +94,19 @@ pub trait Shared: Sync + Send {
 
     ///This node is not included
     #[inline]
+    #[cfg(feature = "grpc")]
     fn get_grpc_clients(&self) -> GrpcClients {
         Arc::new(HashMap::default())
+    }
+
+    #[inline]
+    fn grpc_enable(&self) -> bool {
+        #[cfg(feature = "grpc")]
+        {
+            !self.get_grpc_clients().is_empty()
+        }
+        #[cfg(not(feature = "grpc"))]
+        false
     }
 
     #[inline]
@@ -117,6 +129,7 @@ pub trait Shared: Sync + Send {
         false
     }
 
+    #[cfg(feature = "msgstore")]
     async fn message_load(
         &self,
         client_id: &str,
@@ -729,6 +742,7 @@ impl Shared for DefaultShared {
     }
 
     #[inline]
+    #[cfg(feature = "msgstore")]
     async fn message_load(
         &self,
         client_id: &str,
@@ -738,29 +752,33 @@ impl Shared for DefaultShared {
         let scx = self.context();
         let message_mgr = scx.extends.message_mgr().await;
         if message_mgr.should_merge_on_get() {
+            #[allow(unused_mut)]
             let mut msgs = message_mgr.get(client_id, topic_filter, group).await?;
-            let grpc_clients = scx.extends.shared().await.get_grpc_clients();
-            if !grpc_clients.is_empty() {
-                let replys = MessageBroadcaster::new(
-                    grpc_clients,
-                    MESSAGE_TYPE_MESSAGE_GET,
-                    grpc::Message::MessageGet(
-                        ClientId::from(client_id),
-                        TopicFilter::from(topic_filter),
-                        group.cloned(),
-                    ),
-                    Some(Duration::from_secs(10)),
-                )
-                .join_all()
-                .await;
-                for (_, reply) in replys {
-                    match reply? {
-                        MessageReply::Error(e) => return Err(anyhow!(e)),
-                        MessageReply::MessageGet(res) => {
-                            msgs.extend(res.into_iter());
-                        }
-                        _ => {
-                            unreachable!()
+            #[cfg(feature = "grpc")]
+            {
+                let grpc_clients = scx.extends.shared().await.get_grpc_clients();
+                if !grpc_clients.is_empty() {
+                    let replys = MessageBroadcaster::new(
+                        grpc_clients,
+                        MESSAGE_TYPE_MESSAGE_GET,
+                        grpc::Message::MessageGet(
+                            ClientId::from(client_id),
+                            TopicFilter::from(topic_filter),
+                            group.cloned(),
+                        ),
+                        Some(Duration::from_secs(10)),
+                    )
+                    .join_all()
+                    .await;
+                    for (_, reply) in replys {
+                        match reply? {
+                            MessageReply::Error(e) => return Err(anyhow!(e)),
+                            MessageReply::MessageGet(res) => {
+                                msgs.extend(res.into_iter());
+                            }
+                            _ => {
+                                unreachable!()
+                            }
                         }
                     }
                 }

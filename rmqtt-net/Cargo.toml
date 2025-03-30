@@ -13,35 +13,31 @@ rust-version.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = []
+tls = ["rustls", "tokio-rustls"]
+ws = ["tokio-tungstenite"]
+
 [dependencies]
 rmqtt-codec.workspace = true
-#rmqtt-codec.workspace = true
-#rmqtt-setup.workspace = true
-tokio = { workspace = true, features = ["full"] }
+tokio = { workspace = true,  features = ["net", "time"] }
+tokio-util = { workspace = true, features = ["codec"] }
 futures.workspace = true
 log.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 socket2.workspace = true
-#async-trait.workspace = true
-rustls.workspace = true
-tokio-rustls.workspace = true
-#rustls-pemfile.workspace = true
-tokio-tungstenite.workspace = true
-#pin-project-lite.workspace = true
 serde = { workspace = true, features = ["derive"] }
-#bytes = { version = "1.9", features = ["serde"] }
 bytestring = { workspace = true, features = ["serde"] }
 nonzero_ext.workspace = true
-tokio-util = { workspace = true, features = ["codec"] }
 once_cell.workspace = true
 
+tokio-tungstenite = { workspace = true, optional = true }
+tokio-rustls = { workspace = true, optional = true }
 [target.'cfg(not(windows))'.dependencies]
-rustls = { workspace = true, features = ["aws-lc-rs", "logging", "std", "tls12"] }
-
+rustls = { workspace = true, features = ["aws-lc-rs", "logging", "std", "tls12"], optional = true }
 [target.'cfg(windows)'.dependencies]
-rustls = { workspace = true, features = ["ring", "logging", "std", "tls12"] }
-
+rustls = { workspace = true, features = ["ring", "logging", "std", "tls12"], optional = true }
 
 [dev-dependencies]
 env_logger = "0.11"

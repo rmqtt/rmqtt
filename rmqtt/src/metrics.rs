@@ -1,5 +1,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use serde::{Deserialize, Serialize};
+
 use crate::macros::Metrics;
 
 #[derive(Serialize, Deserialize, Debug, Default, Metrics)]

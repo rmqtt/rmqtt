@@ -7,7 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-rmqtt.workspace = true
+rmqtt = { workspace = true, features = ["plugin"] }
 rmqtt-macros.workspace = true
 serde = { workspace = true, features = ["derive"] }
 tokio.workspace = true

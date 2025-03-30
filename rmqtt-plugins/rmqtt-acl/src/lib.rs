@@ -1,9 +1,4 @@
 #![deny(unsafe_code)]
-#[macro_use]
-extern crate serde;
-
-#[macro_use]
-extern crate rmqtt_macros;
 
 use std::str::FromStr;
 use std::sync::Arc;
@@ -15,6 +10,7 @@ use rmqtt::{
     codec::v5::SubscribeAckReason,
     context::ServerContext,
     hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
+    macros::Plugin,
     plugin::{PackageInfo, Plugin},
     register,
     types::{AuthResult, PublishAclResult, SubscribeAclResult, Topic},

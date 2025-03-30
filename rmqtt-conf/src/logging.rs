@@ -1,7 +1,7 @@
+use serde::de::{self, Deserializer};
+use serde::Deserialize;
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
-
-use serde::de::{self, Deserialize, Deserializer};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Log {

@@ -1,9 +1,4 @@
 #![deny(unsafe_code)]
-#[macro_use]
-extern crate serde;
-
-#[macro_use]
-extern crate rmqtt_macros;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -17,6 +12,7 @@ use tokio::sync::RwLock;
 use rmqtt::{
     context::ServerContext,
     hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
+    macros::Plugin,
     plugin::Plugin,
     register, Result,
 };
@@ -109,7 +105,7 @@ impl Plugin for RetainerPlugin {
                 tokio::time::sleep(Duration::from_secs(10)).await;
                 let removeds = retainer.remove_expired_messages().await;
                 if removeds > 0 {
-                    log::info!(
+                    log::debug!(
                         "{:?} remove_expired_messages, removed count: {}",
                         std::thread::current().id(),
                         removeds
@@ -143,6 +139,7 @@ impl Plugin for RetainerPlugin {
         };
         *self.scx.extends.retain_mut().await = r;
         self.register.start().await;
+
         Ok(())
     }
 
@@ -176,10 +173,9 @@ impl Handler for RetainHandler {
     async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
         match param {
             Parameter::BeforeStartup => {
-                let grpc_clients = self.scx.extends.shared().await.get_grpc_clients();
-                log::info!("grpc_clients len: {}", grpc_clients.len());
-                if !grpc_clients.is_empty() && !self.support_cluster {
-                    log::error!("{}", ERR_NOT_SUPPORTED);
+                let grpc_enable = self.scx.extends.shared().await.grpc_enable();
+                if grpc_enable && !self.support_cluster {
+                    log::warn!("{}", ERR_NOT_SUPPORTED);
                     self.retain_enable.store(false, Ordering::SeqCst);
                 } else {
                     self.retain_enable.store(true, Ordering::SeqCst);

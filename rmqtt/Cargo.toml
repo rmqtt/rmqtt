@@ -13,24 +13,40 @@ rust-version.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+#cargo build --all-features
+#cargo build --features full
+#cargo check --features "conf","grpc","ws","tls"
+
 [features]
-default = []
+default = ["rust-box/dequemap", "rust-box/task-exec-queue", "rust-box/task-exec-queue-rate"]
 debug = []
+full = ["conf", "metrics", "plugin", "grpc", "tls", "ws", "delayed", "retain", "msgstore"]
+conf = ["rmqtt-conf"]
+metrics = ["rmqtt-macros/metrics"]
+plugin = ["rmqtt-macros/plugin"]
+grpc = ["rust-box/handy-grpc", "rust-box/mpsc"]
+tls = ["rmqtt-net/tls"]
+ws = ["rmqtt-net/ws"]
+delayed = []
+retain = []
+msgstore = []
 
 [dependencies]
 rmqtt-net.workspace = true
 rmqtt-codec.workspace = true
-rmqtt-conf.workspace = true
-rmqtt-macros.workspace = true
+rmqtt-conf = { workspace = true, optional = true }
+rmqtt-macros = { workspace = true, optional = true }
+rmqtt-utils.workspace = true
+rust-box = { workspace = true, optional = true  }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
-tokio.workspace = true
 futures.workspace = true
 log.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 async-trait.workspace = true
-bytes = { version = "1.9", features = ["serde"] }
+bytes = { workspace = true, features = ["serde"] }
 bytestring = { workspace = true, features = ["serde"] }
 once_cell.workspace = true
 base64.workspace = true
@@ -38,42 +54,26 @@ bitflags.workspace = true
 itertools.workspace = true
 dashmap.workspace = true
 ahash.workspace = true
-chrono.workspace = true
+chrono = { workspace = true, features = ["clock"] }
 get-size = { workspace = true, features = ["derive"] }
-slog.workspace = true
-slog-stdlog.workspace = true
-slog-scope.workspace = true
-slog-term.workspace = true
-slog-async.workspace = true
-rust-box = { workspace = true, features = ["counter-rate", "task-exec-queue", "task-exec-queue-rate", "std-ext", "dequemap", "stream-ext-leaky-bucket", "mpsc", "handy-grpc"] }
 leaky-bucket.workspace = true
 crossbeam.workspace = true
 governor.workspace = true
-uuid.workspace = true
+uuid = { workspace = true, features = ["v4"] }
 systemstat.workspace = true
 bincode.workspace = true
 prost.workspace = true
-tokio-stream.workspace = true
-socket2.workspace = true
-parking_lot.workspace = true
 rand.workspace = true
 prometheus.workspace = true
 url.workspace = true
-config.workspace = true
-
+config = { workspace = true, features = ["toml"] }
 
 [dev-dependencies]
 env_logger = "0.11"
-
-[target.'cfg(not(windows))'.dev-dependencies]
-rustls = { workspace = true, features = ["aws-lc-rs"] }
-
-[target.'cfg(windows)'.dev-dependencies]
-rustls = { workspace = true, features = ["ring"] }
-
-
+rmqtt-acl.workspace = true
+rmqtt-retainer.workspace = true
 
 [build-dependencies]
 toml = "0.8"
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
+chrono = { workspace = true, features = ["clock"] }
 

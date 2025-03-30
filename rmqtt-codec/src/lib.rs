@@ -1,9 +1,6 @@
 #![deny(unsafe_code)]
 
 #[macro_use]
-extern crate serde;
-
-#[macro_use]
 mod utils;
 pub mod error;
 pub mod types;

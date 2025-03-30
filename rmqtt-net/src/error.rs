@@ -1,6 +1,8 @@
 use bytestring::ByteString;
 use std::num::NonZeroU16;
 
+use serde::{Deserialize, Serialize};
+
 use rmqtt_codec::error::{DecodeError, EncodeError, HandshakeError, ProtocolError, SendPacketError};
 use rmqtt_codec::v5::{DisconnectReasonCode, PublishAckReason, ToReasonCode};
 

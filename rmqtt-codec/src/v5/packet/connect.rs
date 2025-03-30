@@ -2,6 +2,7 @@ use std::num::{NonZeroU16, NonZeroU32};
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use bytestring::ByteString;
+use serde::{Deserialize, Serialize};
 
 use crate::error::{DecodeError, EncodeError};
 use crate::types::{ConnectFlags, QoS, MQTT, MQTT_LEVEL_5, WILL_QOS_SHIFT};

@@ -3,6 +3,7 @@ use std::num::NonZeroU16;
 
 use bytes::Bytes;
 use bytestring::ByteString;
+use serde::{Deserialize, Serialize};
 
 use crate::v5::PublishProperties;
 

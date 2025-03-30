@@ -6,10 +6,11 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use itertools::Itertools;
-use rmqtt_net::MqttError;
 use rust_box::dequemap::DequeBTreeMap as DequeMap;
+use serde::{Deserialize, Serialize};
 
 use crate::context::ServerContext;
+use crate::net::MqttError;
 use crate::queue::OnEventFn;
 use crate::types::{From, PacketId, Publish, TimestampMillis};
 use crate::utils::timestamp_millis;
