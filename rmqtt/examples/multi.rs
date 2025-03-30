@@ -2,6 +2,7 @@ use rmqtt::context::ServerContext;
 use rmqtt::net::{Builder, Result};
 use rmqtt::server::MqttServer;
 
+//cargo build -r --example multi --features tls,ws
 #[tokio::main]
 async fn main() -> Result<()> {
     std::env::set_var("RUST_LOG", "multi=debug,rmqtt=info,rmqtt_net=info,rmqtt_codec=info");
