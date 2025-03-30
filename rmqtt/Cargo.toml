@@ -18,9 +18,9 @@ rust-version.workspace = true
 #cargo check --features "conf","grpc","ws","tls"
 
 [features]
-default = ["rust-box/dequemap", "rust-box/task-exec-queue", "rust-box/task-exec-queue-rate"]
+default = []
 debug = []
-full = ["conf", "metrics", "plugin", "grpc", "tls", "ws", "delayed", "retain", "msgstore"]
+full = ["conf", "metrics", "plugin", "grpc", "tls", "ws", "delayed", "retain", "msgstore", "shared-subscription", "auto-subscription", "limit-subscription"]
 conf = ["rmqtt-conf"]
 metrics = ["rmqtt-macros/metrics"]
 plugin = ["rmqtt-macros/plugin"]
@@ -30,6 +30,9 @@ ws = ["rmqtt-net/ws"]
 delayed = []
 retain = []
 msgstore = []
+shared-subscription = []
+auto-subscription = []
+limit-subscription = []
 
 [dependencies]
 rmqtt-net.workspace = true
@@ -37,7 +40,7 @@ rmqtt-codec.workspace = true
 rmqtt-conf = { workspace = true, optional = true }
 rmqtt-macros = { workspace = true, optional = true }
 rmqtt-utils.workspace = true
-rust-box = { workspace = true, optional = true  }
+rust-box = { workspace = true, features = ["dequemap", "task-exec-queue", "task-exec-queue-rate"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

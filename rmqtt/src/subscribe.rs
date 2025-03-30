@@ -1,9 +1,11 @@
 use async_trait::async_trait;
 
+#[cfg(feature = "shared-subscription")]
 use crate::context::ServerContext;
 use crate::types::*;
 use crate::Result;
 
+#[cfg(feature = "shared-subscription")]
 #[async_trait]
 pub trait SharedSubscription: Sync + Send {
     ///Whether shared subscriptions are supported
@@ -58,8 +60,10 @@ pub trait SharedSubscription: Sync + Send {
     }
 }
 
+#[cfg(feature = "shared-subscription")]
 pub struct DefaultSharedSubscription;
 
+#[cfg(feature = "shared-subscription")]
 #[async_trait]
 impl SharedSubscription for DefaultSharedSubscription {}
 

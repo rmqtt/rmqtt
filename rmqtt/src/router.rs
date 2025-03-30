@@ -114,12 +114,14 @@ impl DefaultRouter {
     #[allow(clippy::type_complexity)]
     #[inline]
     pub async fn _matches(&self, this_id: Id, topic_name: &TopicName) -> Result<SubRelationsMap> {
-        let scx = self.context();
+        // let scx = self.context();
         let mut collector_map: SubscriptioRelationsCollectorMap = HashMap::default();
         let topic = Topic::from_str(topic_name)?;
         for (topic_filter, _node_ids) in self.topics.read().await.matches(&topic).iter() {
             let topic_filter = topic_filter.to_topic_filter();
+
             #[allow(clippy::mutable_key_type)]
+            #[cfg(feature = "shared-subscription")]
             let mut groups: HashMap<
                 SharedGroup,
                 Vec<(
@@ -139,16 +141,28 @@ impl DefaultRouter {
                             continue;
                         }
                     }
-                    if let Some(group) = opts.shared_group() {
-                        let router = scx.extends.router().await;
-                        groups.entry(group.clone()).or_default().push((
-                            id.node_id,
-                            client_id.clone(),
-                            opts.clone(),
-                            None,
-                            Some(router.is_online(id.node_id, client_id).await),
-                        ));
-                    } else {
+                    #[cfg(feature = "shared-subscription")]
+                    {
+                        if let Some(group) = opts.shared_group() {
+                            let router = self.context().extends.router().await;
+                            groups.entry(group.clone()).or_default().push((
+                                id.node_id,
+                                client_id.clone(),
+                                opts.clone(),
+                                None,
+                                Some(router.is_online(id.node_id, client_id).await),
+                            ));
+                        } else {
+                            collector_map.entry(id.node_id).or_default().add(
+                                &topic_filter,
+                                client_id.clone(),
+                                opts.clone(),
+                                None,
+                            );
+                        }
+                    }
+                    #[cfg(not(feature = "shared-subscription"))]
+                    {
                         collector_map.entry(id.node_id).or_default().add(
                             &topic_filter,
                             client_id.clone(),
@@ -160,11 +174,12 @@ impl DefaultRouter {
             }
 
             //select a subscriber from shared subscribe groups
+            #[cfg(feature = "shared-subscription")]
             for (group, mut s_subs) in groups.drain() {
                 log::debug!("group: {}, s_subs: {:?}", group, s_subs);
                 let group_cids = s_subs.iter().map(|(_, cid, _, _, _)| cid.clone()).collect();
                 if let Some((idx, is_online)) =
-                    scx.extends.shared_subscription().await.choice(scx, &s_subs).await
+                    self.context().extends.shared_subscription().await.choice(self.context(), &s_subs).await
                 {
                     let (node_id, client_id, opts, _, _) = s_subs.remove(idx);
                     collector_map.entry(node_id).or_default().add(

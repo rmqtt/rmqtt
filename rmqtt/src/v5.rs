@@ -284,15 +284,28 @@ async fn _handshake(
     let session_expiry_interval_secs =
         if session_expiry_interval > 0 { Some(session_expiry_interval) } else { None };
     let max_qos = state.listen_cfg().max_qos_allowed;
-
-    #[cfg(feature = "retain")]
-    let retain_available = { state.scx.extends.retain().await.enable() };
-    #[cfg(not(feature = "retain"))]
-    let retain_available = false;
-
+    let retain_available = {
+        #[cfg(feature = "retain")]
+        {
+            state.scx.extends.retain().await.enable()
+        }
+        #[cfg(not(feature = "retain"))]
+        {
+            false
+        }
+    };
     let max_server_packet_size = state.listen_cfg().max_packet_size;
-    let shared_subscription_available =
-        state.scx.extends.shared_subscription().await.is_supported(state.listen_cfg());
+    let shared_subscription_available = {
+        #[cfg(feature = "shared-subscription")]
+        {
+            state.scx.extends.shared_subscription().await.is_supported(state.listen_cfg())
+        }
+        #[cfg(not(feature = "shared-subscription"))]
+        {
+            false
+        }
+    };
+
     let assigned_client_id = if is_assigned_client_id { Some(state.id.client_id.clone()) } else { None };
 
     let ack = ConnectAck {

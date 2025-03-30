@@ -12,9 +12,9 @@ use crate::router::{DefaultRouter, Router};
 
 use crate::session::{DefaultSessionManager, SessionManager};
 use crate::shared::{DefaultShared, Shared};
-use crate::subscribe::{
-    AutoSubscription, DefaultAutoSubscription, DefaultSharedSubscription, SharedSubscription,
-};
+use crate::subscribe::{AutoSubscription, DefaultAutoSubscription};
+#[cfg(feature = "shared-subscription")]
+use crate::subscribe::{DefaultSharedSubscription, SharedSubscription};
 
 // Defines a struct that manages a number of lock objects to different components that are
 // part of an MQTT broker.
@@ -25,6 +25,7 @@ pub struct Manager {
     retain: RwLock<Box<dyn RetainStorage>>,
     fitter_mgr: RwLock<Box<dyn FitterManager>>,
     hook_mgr: Box<dyn HookManager>,
+    #[cfg(feature = "shared-subscription")]
     shared_subscription: RwLock<Box<dyn SharedSubscription>>,
     session_mgr: RwLock<Box<dyn SessionManager>>,
     #[cfg(feature = "msgstore")]
@@ -44,6 +45,7 @@ impl Manager {
             retain: RwLock::new(Box::new(DefaultRetainStorage::new())),
             fitter_mgr: RwLock::new(Box::new(DefaultFitterManager)),
             hook_mgr: Box::new(DefaultHookManager::new()),
+            #[cfg(feature = "shared-subscription")]
             shared_subscription: RwLock::new(Box::new(DefaultSharedSubscription)),
             session_mgr: RwLock::new(Box::new(DefaultSessionManager)),
             #[cfg(feature = "msgstore")]
@@ -107,11 +109,13 @@ impl Manager {
     // }
 
     #[inline]
+    #[cfg(feature = "shared-subscription")]
     pub async fn shared_subscription(&self) -> RwLockReadGuard<'_, Box<dyn SharedSubscription>> {
         self.shared_subscription.read().await
     }
 
     #[inline]
+    #[cfg(feature = "shared-subscription")]
     pub async fn shared_subscription_mut(&self) -> RwLockWriteGuard<'_, Box<dyn SharedSubscription>> {
         self.shared_subscription.write().await
     }

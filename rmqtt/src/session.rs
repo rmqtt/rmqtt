@@ -898,7 +898,16 @@ impl SessionState {
         topic_filters: Vec<(ByteString, QoS)>,
     ) -> Result<Vec<v3::SubscribeReturnCode>> {
         let listen_cfg = self.listen_cfg();
-        let shared_subscription = self.scx.extends.shared_subscription().await.is_supported(listen_cfg);
+        let shared_subscription = {
+            #[cfg(feature = "shared-subscription")]
+            {
+                self.scx.extends.shared_subscription().await.is_supported(listen_cfg)
+            }
+            #[cfg(not(feature = "shared-subscription"))]
+            {
+                false
+            }
+        };
         let limit_subscription = listen_cfg.limit_subscription;
         let mut acks = Vec::new();
         for (topic_filter, qos) in topic_filters {
@@ -916,7 +925,16 @@ impl SessionState {
     #[inline]
     async fn subscribes_v5(&mut self, subs: v5::Subscribe) -> Result<v5::SubscribeAck> {
         let listen_cfg = self.listen_cfg();
-        let shared_subscription = self.scx.extends.shared_subscription().await.is_supported(listen_cfg);
+        let shared_subscription = {
+            #[cfg(feature = "shared-subscription")]
+            {
+                self.scx.extends.shared_subscription().await.is_supported(listen_cfg)
+            }
+            #[cfg(not(feature = "shared-subscription"))]
+            {
+                false
+            }
+        };
         let limit_subscription = listen_cfg.limit_subscription;
         let sub_id = subs.id;
 
@@ -938,7 +956,16 @@ impl SessionState {
     #[inline]
     async fn unsubscribes_v3(&mut self, topic_filters: Vec<ByteString>) -> Result<()> {
         let listen_cfg = self.listen_cfg();
-        let shared_subscription = self.scx.extends.shared_subscription().await.is_supported(listen_cfg);
+        let shared_subscription = {
+            #[cfg(feature = "shared-subscription")]
+            {
+                self.scx.extends.shared_subscription().await.is_supported(listen_cfg)
+            }
+            #[cfg(not(feature = "shared-subscription"))]
+            {
+                false
+            }
+        };
         let limit_subscription = listen_cfg.limit_subscription;
         for topic_filter in &topic_filters {
             let unsub = Unsubscribe::from(topic_filter, shared_subscription, limit_subscription)?;
@@ -949,7 +976,16 @@ impl SessionState {
 
     async fn unsubscribes_v5(&mut self, unsubs: v5::Unsubscribe) -> Result<v5::UnsubscribeAck> {
         let listen_cfg = self.listen_cfg();
-        let shared_subscription = self.scx.extends.shared_subscription().await.is_supported(listen_cfg);
+        let shared_subscription = {
+            #[cfg(feature = "shared-subscription")]
+            {
+                self.scx.extends.shared_subscription().await.is_supported(listen_cfg)
+            }
+            #[cfg(not(feature = "shared-subscription"))]
+            {
+                false
+            }
+        };
         let limit_subscription = listen_cfg.limit_subscription;
         for topic_filter in &unsubs.topic_filters {
             let unsub = Unsubscribe::from(topic_filter, shared_subscription, limit_subscription)?;
