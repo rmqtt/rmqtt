@@ -255,12 +255,14 @@ impl OutInflight {
 //@TODO 大小限制，即同一个连接上接收消息的并发限制
 pub struct InInflight {
     cached: BTreeSet<NonZeroU16>,
+    #[allow(dead_code)]
     scx: ServerContext,
     max_inflight: u16,
 }
 
 impl Drop for InInflight {
     fn drop(&mut self) {
+        #[cfg(feature = "stats")]
         self.scx.stats.in_inflights.decs(self.cached.len() as isize);
     }
 }
@@ -276,6 +278,7 @@ impl InInflight {
             return Err(Reason::InflightWindowFull);
         }
         if self.cached.insert(pid) {
+            #[cfg(feature = "stats")]
             self.scx.stats.in_inflights.inc();
             Ok(true)
         } else if matches!(qos, QoS::ExactlyOnce) {
@@ -288,6 +291,7 @@ impl InInflight {
     #[inline]
     pub(crate) fn remove(&mut self, pid: &NonZeroU16) -> bool {
         if self.cached.remove(pid) {
+            #[cfg(feature = "stats")]
             self.scx.stats.in_inflights.dec();
             true
         } else {

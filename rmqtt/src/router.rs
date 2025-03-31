@@ -6,9 +6,9 @@ use serde_json::json;
 use tokio::sync::RwLock;
 
 use crate::context::ServerContext;
-use crate::stats::Counter;
 use crate::trie::{TopicTree, VecToTopic};
 use crate::types::*;
+use crate::utils::Counter;
 use crate::Result;
 
 #[async_trait]
@@ -219,6 +219,7 @@ impl DefaultRouter {
             }
         }
 
+        #[cfg(feature = "shared-subscription")]
         match (&q.share, opts.shared_group()) {
             (Some(q_group), Some(group)) => {
                 if q_group != group {

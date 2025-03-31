@@ -10,6 +10,10 @@ use serde::de::Deserializer;
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 
+mod counter;
+
+pub use counter::{Counter, StatsMergeMode};
+
 pub type Timestamp = i64;
 pub type TimestampMillis = i64;
 

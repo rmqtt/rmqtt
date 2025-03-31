@@ -16,7 +16,9 @@ use crate::node::Node;
 use crate::plugin;
 use crate::router::DefaultRouter;
 use crate::shared::DefaultShared;
+#[cfg(feature = "stats")]
 use crate::stats::Stats;
+use crate::utils::Counter;
 use crate::{extend, NodeId};
 
 pub struct ServerContextBuilder {
@@ -121,6 +123,7 @@ impl ServerContextBuilder {
                 plugins: plugin::Manager::new(self.plugins_dir),
                 #[cfg(feature = "metrics")]
                 metrics: Metrics::new(),
+                #[cfg(feature = "stats")]
                 stats: Stats::new(),
                 handshake_exec: HandshakeExecutor::new(self.busy_handshaking_limit),
                 global_exec,
@@ -129,6 +132,9 @@ impl ServerContextBuilder {
                 mqtt_delayed_publish_max: self.mqtt_delayed_publish_max,
                 mqtt_max_sessions: self.mqtt_max_sessions,
                 mqtt_delayed_publish_immediate: self.mqtt_delayed_publish_immediate,
+
+                connections: Counter::new(),
+                sessions: Counter::new(),
             }),
         }
         .config()
@@ -148,6 +154,7 @@ pub struct ServerContextInner {
     pub plugins: plugin::Manager,
     #[cfg(feature = "metrics")]
     pub metrics: Metrics,
+    #[cfg(feature = "stats")]
     pub stats: Stats,
     pub handshake_exec: HandshakeExecutor,
     pub global_exec: TaskExecQueue,
@@ -156,6 +163,9 @@ pub struct ServerContextInner {
     pub mqtt_delayed_publish_max: usize,
     pub mqtt_max_sessions: isize,
     pub mqtt_delayed_publish_immediate: bool,
+
+    pub connections: Counter,
+    pub sessions: Counter,
 }
 
 impl Deref for ServerContext {
@@ -197,13 +207,11 @@ impl fmt::Debug for ServerContext {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "ServerContext node: {:?}, stats: {:?}, \
+            "ServerContext node: {:?}, \
             handshake_exec.active_count: {}, \
             busy_check_enable: {}, mqtt_delayed_publish_max: {}, \
             mqtt_delayed_publish_immediate: {}, mqtt_max_sessions: {}",
             self.node,
-            // self.metrics,
-            self.stats,
             self.handshake_exec.active_count(),
             self.busy_check_enable,
             self.mqtt_delayed_publish_max,

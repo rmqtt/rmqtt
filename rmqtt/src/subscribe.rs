@@ -67,6 +67,7 @@ pub struct DefaultSharedSubscription;
 #[async_trait]
 impl SharedSubscription for DefaultSharedSubscription {}
 
+#[cfg(feature = "auto-subscription")]
 #[async_trait]
 pub trait AutoSubscription: Sync + Send {
     #[inline]
@@ -80,7 +81,9 @@ pub trait AutoSubscription: Sync + Send {
     }
 }
 
+#[cfg(feature = "auto-subscription")]
 pub struct DefaultAutoSubscription;
 
+#[cfg(feature = "auto-subscription")]
 #[async_trait]
 impl AutoSubscription for DefaultAutoSubscription {}

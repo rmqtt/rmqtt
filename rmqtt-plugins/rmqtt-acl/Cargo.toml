@@ -8,7 +8,6 @@ license.workspace = true
 
 [dependencies]
 rmqtt = { workspace = true, features = ["plugin"] }
-rmqtt-macros.workspace = true
 serde = { workspace = true, features = ["derive"] }
 tokio.workspace = true
 anyhow.workspace = true

@@ -152,7 +152,7 @@ impl Node {
         };
 
         NodeInfo {
-            connections: scx.stats.connections.count(),
+            connections: scx.connections.count(),
             boottime,
             load1: loadavg.as_ref().map(|l| l.one).unwrap_or_default(),
             load5: loadavg.as_ref().map(|l| l.five).unwrap_or_default(),

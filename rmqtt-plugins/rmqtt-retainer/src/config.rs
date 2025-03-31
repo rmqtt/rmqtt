@@ -3,8 +3,8 @@ use std::time::Duration;
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
 
+use rmqtt::utils::{deserialize_duration_option, Bytesize};
 use rmqtt::Result;
-use rmqtt_utils::{deserialize_duration_option, Bytesize};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {

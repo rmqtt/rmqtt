@@ -26,7 +26,9 @@ pub mod router;
 pub mod server;
 pub mod session;
 pub mod shared;
+#[cfg(feature = "stats")]
 pub mod stats;
+#[cfg(any(feature = "auto-subscription", feature = "shared-subscription"))]
 pub mod subscribe;
 pub mod topic;
 pub mod trie;

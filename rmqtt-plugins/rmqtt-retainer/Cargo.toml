@@ -10,8 +10,6 @@ license.workspace = true
 
 [dependencies]
 rmqtt = { workspace = true, features = ["plugin", "retain"] }
-rmqtt-macros.workspace = true
-rmqtt-utils.workspace = true
 rmqtt-storage = { version = "0.5.2", default-features = false, features = ["ttl", "len"]}
 #rmqtt-storage = { path = "../../../rmqtt-storage", default-features = false, features = ["ttl", "len"]}
 futures.workspace = true

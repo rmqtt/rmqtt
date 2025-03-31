@@ -4,9 +4,9 @@ use std::time::Duration;
 use async_trait::async_trait;
 use tokio::sync::RwLock;
 
-use crate::stats::Counter;
 use crate::topic::{Level, Topic};
 use crate::types::*;
+use crate::utils::{Counter, StatsMergeMode};
 use crate::Result;
 
 #[async_trait]

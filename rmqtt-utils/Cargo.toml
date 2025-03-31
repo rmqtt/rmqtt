@@ -17,6 +17,6 @@ rust-version.workspace = true
 serde.workspace = true
 anyhow.workspace = true
 chrono = { workspace = true, features = ["clock"] }
-
-
+serde_json.workspace = true
+log.workspace = true
 

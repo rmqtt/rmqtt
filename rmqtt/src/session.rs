@@ -120,7 +120,8 @@ impl SessionState {
 
         let (deliver_queue_tx, mut deliver_queue_rx) = self.deliver_queue_channel(&limiter);
         let mut flags = StateFlags::empty();
-        self.scx.stats.connections.inc();
+
+        self.scx.connections.inc();
         match self.run_loop(&mut sink, keep_alive, &mut flags, &deliver_queue_tx, &mut deliver_queue_rx).await
         {
             Ok(()) => {
@@ -131,7 +132,7 @@ impl SessionState {
                 self.disconnected_reason_add(reason).await?;
             }
         }
-        self.scx.stats.connections.dec();
+        self.scx.connections.dec();
 
         let disconnect = self.disconnect().await.unwrap_or(None);
         let clean_session = self.clean_session(disconnect.as_ref()).await;
@@ -897,6 +898,7 @@ impl SessionState {
         &mut self,
         topic_filters: Vec<(ByteString, QoS)>,
     ) -> Result<Vec<v3::SubscribeReturnCode>> {
+        #[allow(unused_variables)]
         let listen_cfg = self.listen_cfg();
         let shared_subscription = {
             #[cfg(feature = "shared-subscription")]
@@ -908,7 +910,18 @@ impl SessionState {
                 false
             }
         };
-        let limit_subscription = listen_cfg.limit_subscription;
+
+        let limit_subscription = {
+            #[cfg(feature = "limit-subscription")]
+            {
+                listen_cfg.limit_subscription
+            }
+            #[cfg(not(feature = "limit-subscription"))]
+            {
+                false
+            }
+        };
+
         let mut acks = Vec::new();
         for (topic_filter, qos) in topic_filters {
             let s = Subscribe::from_v3(&topic_filter, qos, shared_subscription, limit_subscription)?;
@@ -924,6 +937,7 @@ impl SessionState {
 
     #[inline]
     async fn subscribes_v5(&mut self, subs: v5::Subscribe) -> Result<v5::SubscribeAck> {
+        #[allow(unused_variables)]
         let listen_cfg = self.listen_cfg();
         let shared_subscription = {
             #[cfg(feature = "shared-subscription")]
@@ -935,7 +949,18 @@ impl SessionState {
                 false
             }
         };
-        let limit_subscription = listen_cfg.limit_subscription;
+
+        let limit_subscription = {
+            #[cfg(feature = "limit-subscription")]
+            {
+                listen_cfg.limit_subscription
+            }
+            #[cfg(not(feature = "limit-subscription"))]
+            {
+                false
+            }
+        };
+
         let sub_id = subs.id;
 
         let mut status: Vec<SubscribeAckReason> = Vec::new();
@@ -1079,6 +1104,7 @@ impl SessionState {
             return Err(MqttError::TooManyTopicLevels.into());
         }
 
+        #[cfg(feature = "limit-subscription")]
         if let Some(limit) = sub.opts.limit_subs() {
             let (allow, count) = self
                 .scx
@@ -1623,6 +1649,7 @@ impl Deref for _Session {
 
 impl Drop for _Session {
     fn drop(&mut self) {
+        #[cfg(feature = "stats")]
         self.scx.stats.sessions.dec();
         let id = self.id.clone();
         let s = self.inner.clone();
@@ -1668,31 +1695,45 @@ impl Session {
         let max_inflight = max_inflight.get() as usize;
         let message_retry_interval = listen_cfg.message_retry_interval.as_millis() as TimestampMillis;
         let message_expiry_interval = listen_cfg.message_expiry_interval.as_millis() as TimestampMillis;
+        #[allow(unused_mut)]
         let mut deliver_queue = MessageQueue::new(max_mqueue_len);
 
-        let scx1 = scx.clone();
-        deliver_queue.on_push(move || {
-            scx1.stats.message_queues.inc();
-        });
-
-        let scx1 = scx.clone();
-        deliver_queue.on_pop(move || {
-            scx1.stats.message_queues.dec();
-        });
-
-        let scx1 = scx.clone();
-        let scx2 = scx.clone();
-        let out_inflight = OutInflight::new(max_inflight, message_retry_interval, message_expiry_interval)
-            .on_push(move || {
-                scx1.stats.out_inflights.inc();
-            })
-            .on_pop(move || {
-                scx2.stats.out_inflights.dec();
+        #[cfg(feature = "stats")]
+        {
+            let scx1 = scx.clone();
+            deliver_queue.on_push(move || {
+                scx1.stats.message_queues.inc();
             });
+        }
 
-        scx.stats.sessions.inc();
-        scx.stats.subscriptions.incs(subscriptions.len().await as isize);
-        scx.stats.subscriptions_shared.incs(subscriptions.shared_len().await as isize);
+        #[cfg(feature = "stats")]
+        {
+            let scx1 = scx.clone();
+            deliver_queue.on_pop(move || {
+                scx1.stats.message_queues.dec();
+            });
+        }
+
+        let out_inflight = OutInflight::new(max_inflight, message_retry_interval, message_expiry_interval);
+        #[cfg(feature = "stats")]
+        let out_inflight = {
+            let scx1 = scx.clone();
+            let scx2 = scx.clone();
+            out_inflight
+                .on_push(move || {
+                    scx1.stats.out_inflights.inc();
+                })
+                .on_pop(move || {
+                    scx2.stats.out_inflights.dec();
+                })
+        };
+
+        #[cfg(feature = "stats")]
+        {
+            scx.stats.sessions.inc();
+            scx.stats.subscriptions.incs(subscriptions.len().await as isize);
+            scx.stats.subscriptions_shared.incs(subscriptions.shared_len().await as isize);
+        }
 
         // let extra_attrs = RwLock::new(ExtraAttrs::new());
         let session_like = scx

@@ -17,8 +17,8 @@ use bytestring::ByteString;
 use futures::StreamExt;
 use get_size::GetSize;
 use itertools::Itertools;
-use serde::de::{self, Deserialize as Des, Deserializer};
-use serde::ser::{Serialize as Ser, SerializeStruct, Serializer};
+use serde::de::{self, Deserializer};
+use serde::ser::{SerializeStruct, Serializer};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -481,36 +481,6 @@ impl SubscriptioRelationsCollector {
     }
 }
 
-// #[inline]
-// pub fn parse_topic_filter_old(
-//     topic_filter: &ByteString,
-//     shared_subscription_supported: bool,
-// ) -> Result<(TopicFilter, Option<SharedGroup>)> {
-//     let mut shared_group = None;
-//     let err = MqttError::TopicError("Illegal topic filter".into());
-//     //$share/abc/
-//     let topic = if shared_subscription_supported {
-//         let mut levels = topic_filter.splitn(3, '/').collect::<Vec<_>>();
-//         let is_share = levels.first().map(|f| *f == "$share").unwrap_or(false);
-//         if is_share {
-//             if levels.len() < 3 {
-//                 return Err(err);
-//             }
-//             levels.remove(0);
-//             shared_group = Some(SharedGroup::from(levels.remove(0)));
-//             ByteString::from(levels.remove(0))
-//         } else {
-//             topic_filter.clone()
-//         }
-//     } else {
-//         topic_filter.clone()
-//     };
-//     if topic.is_empty() {
-//         return Err(err);
-//     }
-//     Ok((topic, shared_group))
-// }
-
 #[inline]
 pub fn parse_topic_filter(
     topic_filter: &ByteString,
@@ -573,7 +543,13 @@ pub enum SubscriptionOptions {
 
 impl Default for SubscriptionOptions {
     fn default() -> Self {
-        SubscriptionOptions::V3(SubOptionsV3 { qos: QoS::AtMostOnce, shared_group: None, limit_subs: None })
+        SubscriptionOptions::V3(SubOptionsV3 {
+            qos: QoS::AtMostOnce,
+            #[cfg(feature = "shared-subscription")]
+            shared_group: None,
+            #[cfg(feature = "limit-subscription")]
+            limit_subs: None,
+        })
     }
 }
 
@@ -635,6 +611,7 @@ impl SubscriptionOptions {
     }
 
     #[inline]
+    #[cfg(feature = "shared-subscription")]
     pub fn shared_group(&self) -> Option<&SharedGroup> {
         match self {
             SubscriptionOptions::V3(opts) => opts.shared_group.as_ref(),
@@ -643,6 +620,7 @@ impl SubscriptionOptions {
     }
 
     #[inline]
+    #[cfg(feature = "shared-subscription")]
     pub fn has_shared_group(&self) -> bool {
         match self {
             SubscriptionOptions::V3(opts) => opts.shared_group.is_some(),
@@ -651,6 +629,7 @@ impl SubscriptionOptions {
     }
 
     #[inline]
+    #[cfg(feature = "limit-subscription")]
     pub fn limit_subs(&self) -> Option<usize> {
         match self {
             SubscriptionOptions::V3(opts) => opts.limit_subs,
@@ -659,6 +638,7 @@ impl SubscriptionOptions {
     }
 
     #[inline]
+    #[cfg(feature = "limit-subscription")]
     pub fn has_limit_subs(&self) -> bool {
         match self {
             SubscriptionOptions::V3(opts) => opts.limit_subs.is_some(),
@@ -714,20 +694,26 @@ pub struct SubOptionsV3 {
         deserialize_with = "SubscriptionOptions::deserialize_qos"
     )]
     pub qos: QoS,
+    #[cfg(feature = "shared-subscription")]
     pub shared_group: Option<SharedGroup>,
+    #[cfg(feature = "limit-subscription")]
     pub limit_subs: LimitSubsCount,
 }
 
 impl SubOptionsV3 {
     #[inline]
     pub fn to_json(&self) -> serde_json::Value {
+        #[allow(unused_mut)]
         let mut obj = json!({
             "qos": self.qos.value(),
         });
+        #[cfg(any(feature = "auto-subscription", feature = "shared-subscription"))]
         if let Some(obj) = obj.as_object_mut() {
+            #[cfg(feature = "shared-subscription")]
             if let Some(g) = &self.shared_group {
                 obj.insert("group".into(), serde_json::Value::String(g.to_string()));
             }
+            #[cfg(feature = "limit-subscription")]
             if let Some(limit_subs) = &self.limit_subs {
                 obj.insert("limit_subs".into(), serde_json::Value::from(*limit_subs));
             }
@@ -743,7 +729,9 @@ pub struct SubOptionsV5 {
         deserialize_with = "SubscriptionOptions::deserialize_qos"
     )]
     pub qos: QoS,
+    #[cfg(feature = "shared-subscription")]
     pub shared_group: Option<SharedGroup>,
+    #[cfg(feature = "limit-subscription")]
     pub limit_subs: LimitSubsCount,
     pub no_local: bool,
     pub retain_as_published: bool,
@@ -775,9 +763,11 @@ impl SubOptionsV5 {
             "retain_handling": self.retain_handling_value(),
         });
         if let Some(obj) = obj.as_object_mut() {
+            #[cfg(feature = "shared-subscription")]
             if let Some(g) = &self.shared_group {
                 obj.insert("group".into(), serde_json::Value::String(g.to_string()));
             }
+            #[cfg(feature = "limit-subscription")]
             if let Some(limit_subs) = &self.limit_subs {
                 obj.insert("limit_subs".into(), serde_json::Value::from(*limit_subs));
             }
@@ -821,7 +811,13 @@ impl SubOptionsV5 {
 impl std::convert::From<(QoS, Option<SharedGroup>, LimitSubsCount)> for SubscriptionOptions {
     #[inline]
     fn from(opts: (QoS, Option<SharedGroup>, LimitSubsCount)) -> Self {
-        SubscriptionOptions::V3(SubOptionsV3 { qos: opts.0, shared_group: opts.1, limit_subs: opts.2 })
+        SubscriptionOptions::V3(SubOptionsV3 {
+            qos: opts.0,
+            #[cfg(feature = "shared-subscription")]
+            shared_group: opts.1,
+            #[cfg(feature = "limit-subscription")]
+            limit_subs: opts.2,
+        })
     }
 }
 
@@ -832,7 +828,9 @@ impl std::convert::From<(&SubscriptionOptionsV5, Option<SharedGroup>, LimitSubsC
     fn from(opts: (&SubscriptionOptionsV5, Option<SharedGroup>, LimitSubsCount, Option<NonZeroU32>)) -> Self {
         SubscriptionOptions::V5(SubOptionsV5 {
             qos: opts.0.qos,
+            #[cfg(feature = "shared-subscription")]
             shared_group: opts.1,
+            #[cfg(feature = "limit-subscription")]
             limit_subs: opts.2,
             no_local: opts.0.no_local,
             retain_as_published: opts.0.retain_as_published,
@@ -877,6 +875,7 @@ impl Subscribe {
     }
 
     #[inline]
+    #[cfg(feature = "shared-subscription")]
     pub fn is_shared(&self) -> bool {
         self.opts.has_shared_group()
     }
@@ -2095,7 +2094,6 @@ impl Default for SessionSubs {
     }
 }
 
-//@TODO Runtime::instance() to ServerContext
 impl SessionSubs {
     #[inline]
     pub fn new() -> Self {
@@ -2109,12 +2107,14 @@ impl SessionSubs {
     }
 
     #[inline]
+    #[allow(unused_variables)]
     pub(crate) async fn _add(
         &self,
         scx: &ServerContext,
         topic_filter: TopicFilter,
         opts: SubscriptionOptions,
     ) -> Option<SubscriptionOptions> {
+        #[cfg(feature = "shared-subscription")]
         let is_shared = opts.has_shared_group();
 
         let prev = {
@@ -2125,19 +2125,25 @@ impl SessionSubs {
         };
 
         if let Some(prev_opts) = &prev {
+            #[cfg(feature = "shared-subscription")]
             match (prev_opts.has_shared_group(), is_shared) {
                 (true, false) => {
+                    #[cfg(feature = "stats")]
                     scx.stats.subscriptions_shared.dec();
                 }
                 (false, true) => {
+                    #[cfg(feature = "stats")]
                     scx.stats.subscriptions_shared.inc();
                 }
                 (false, false) => {}
                 (true, true) => {}
             }
         } else {
+            #[cfg(feature = "stats")]
             scx.stats.subscriptions.inc();
+            #[cfg(feature = "shared-subscription")]
             if is_shared {
+                #[cfg(feature = "stats")]
                 scx.stats.subscriptions_shared.inc();
             }
         }
@@ -2148,7 +2154,7 @@ impl SessionSubs {
     #[inline]
     pub(crate) async fn _remove(
         &self,
-        scx: &ServerContext,
+        #[allow(unused_variables)] scx: &ServerContext,
         topic_filter: &str,
     ) -> Option<(TopicFilter, SubscriptionOptions)> {
         let removed = {
@@ -2158,9 +2164,13 @@ impl SessionSubs {
             removed
         };
 
+        #[allow(unused_variables)]
         if let Some((_, opts)) = &removed {
+            #[cfg(feature = "stats")]
             scx.stats.subscriptions.dec();
+            #[cfg(feature = "shared-subscription")]
             if opts.has_shared_group() {
+                #[cfg(feature = "stats")]
                 scx.stats.subscriptions_shared.dec();
             }
         }
@@ -2188,12 +2198,16 @@ impl SessionSubs {
     }
 
     #[inline]
-    pub(crate) async fn _clear(&self, scx: &ServerContext) {
+    pub(crate) async fn _clear(&self, #[allow(unused_variables)] scx: &ServerContext) {
         {
             let subs = self.subs.read().await;
+            #[allow(unused_variables)]
             for (_, opts) in subs.iter() {
+                #[cfg(feature = "stats")]
                 scx.stats.subscriptions.dec();
+                #[cfg(feature = "shared-subscription")]
                 if opts.has_shared_group() {
+                    #[cfg(feature = "stats")]
                     scx.stats.subscriptions_shared.dec();
                 }
             }
@@ -2210,7 +2224,14 @@ impl SessionSubs {
 
     #[inline]
     pub async fn shared_len(&self) -> usize {
-        self.subs.read().await.iter().filter(|(_, opts)| opts.has_shared_group()).count()
+        #[cfg(feature = "shared-subscription")]
+        {
+            self.subs.read().await.iter().filter(|(_, opts)| opts.has_shared_group()).count()
+        }
+        #[cfg(not(feature = "shared-subscription"))]
+        {
+            0
+        }
     }
 
     #[inline]
@@ -2769,15 +2790,6 @@ impl DisconnectInfo {
 //         })
 //         .sum::<usize>()
 // }
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum StatsMergeMode {
-    None,    // Represents no merging;
-    Sum,     // Represents summing the data;
-    Average, // Represents averaging the data;
-    Max,     // Represents taking the maximum value of the data;
-    Min,     // Represents taking the minimum value of the data;
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DelayedPublish {

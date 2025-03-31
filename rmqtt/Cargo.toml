@@ -14,15 +14,16 @@ rust-version.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 #cargo build --all-features
-#cargo build --features full
+#cargo check --features full
 #cargo check --features "conf","grpc","ws","tls"
 
 [features]
 default = []
 debug = []
-full = ["conf", "metrics", "plugin", "grpc", "tls", "ws", "delayed", "retain", "msgstore", "shared-subscription", "auto-subscription", "limit-subscription"]
+full = ["conf", "metrics", "stats", "plugin", "grpc", "tls", "ws", "delayed", "retain", "msgstore", "shared-subscription", "auto-subscription", "limit-subscription"]
 conf = ["rmqtt-conf"]
 metrics = ["rmqtt-macros/metrics"]
+stats = []
 plugin = ["rmqtt-macros/plugin"]
 grpc = ["rust-box/handy-grpc", "rust-box/mpsc"]
 tls = ["rmqtt-net/tls"]

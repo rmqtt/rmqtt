@@ -150,7 +150,7 @@ async fn _handshake(
 
     let entry = scx.extends.shared().await.entry(id.clone());
     let max_sessions = scx.mqtt_max_sessions;
-    if max_sessions > 0 && scx.stats.sessions.count() >= max_sessions && !entry.exist() {
+    if max_sessions > 0 && scx.sessions.count() >= max_sessions && !entry.exist() {
         return Err((
             ConnectAckReason::V5(ConnectAckReasonV5::ServerUnavailable),
             anyhow!(format!("the number of sessions on the current node exceeds the limit, with a maximum of {} sessions allowed", max_sessions)),
@@ -264,6 +264,7 @@ async fn _handshake(
     }
 
     //automatic subscription
+    #[cfg(feature = "auto-subscription")]
     {
         let auto_subscription = state.scx.extends.auto_subscription().await;
         if auto_subscription.enable() {

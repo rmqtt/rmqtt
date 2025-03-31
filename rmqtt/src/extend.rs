@@ -12,6 +12,7 @@ use crate::router::{DefaultRouter, Router};
 
 use crate::session::{DefaultSessionManager, SessionManager};
 use crate::shared::{DefaultShared, Shared};
+#[cfg(feature = "auto-subscription")]
 use crate::subscribe::{AutoSubscription, DefaultAutoSubscription};
 #[cfg(feature = "shared-subscription")]
 use crate::subscribe::{DefaultSharedSubscription, SharedSubscription};
@@ -32,6 +33,7 @@ pub struct Manager {
     message_mgr: RwLock<Box<dyn MessageManager>>,
     #[cfg(feature = "delayed")]
     delayed_sender: RwLock<Box<dyn DelayedSender>>,
+    #[cfg(feature = "auto-subscription")]
     auto_subscription: RwLock<Box<dyn AutoSubscription>>,
 }
 
@@ -52,6 +54,7 @@ impl Manager {
             message_mgr: RwLock::new(Box::new(DefaultMessageManager::new())),
             #[cfg(feature = "delayed")]
             delayed_sender: RwLock::new(Box::new(DefaultDelayedSender::new(None))),
+            #[cfg(feature = "auto-subscription")]
             auto_subscription: RwLock::new(Box::new(DefaultAutoSubscription)),
         }
     }
@@ -155,11 +158,13 @@ impl Manager {
     }
 
     #[inline]
+    #[cfg(feature = "auto-subscription")]
     pub async fn auto_subscription(&self) -> RwLockReadGuard<'_, Box<dyn AutoSubscription>> {
         self.auto_subscription.read().await
     }
 
     #[inline]
+    #[cfg(feature = "auto-subscription")]
     pub async fn auto_subscription_mut(&self) -> RwLockWriteGuard<'_, Box<dyn AutoSubscription>> {
         self.auto_subscription.write().await
     }
