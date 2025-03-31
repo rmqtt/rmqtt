@@ -503,7 +503,7 @@ mod tests {
 
         assert!(!Topic::from_str("#").expect("").matches_str("$SYS"));
         assert!(!Topic::from_str("+/monitor/Clients").expect("").matches_str("$SYS/monitor/Clients"));
-        assert!(Topic::from_str(&"$SYS/#").expect("").matches_str("$SYS/"));
+        assert!(Topic::from_str("$SYS/#").expect("").matches_str("$SYS/"));
         assert!(Topic::from_str("$SYS/monitor/+").expect("").matches_str("$SYS/monitor/Clients"));
     }
 }
