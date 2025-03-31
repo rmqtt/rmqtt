@@ -115,6 +115,7 @@ impl Encoder<Packet> for Codec {
 mod tests {
     use super::*;
     use crate::utils::timestamp_millis;
+    use crate::v3::packet::Publish;
     use bytes::Bytes;
     use bytestring::ByteString;
 
@@ -133,7 +134,7 @@ mod tests {
         let mut codec = Codec::default();
         let mut buf = BytesMut::new();
 
-        let pkt = Publish {
+        let pkt = Box::new(Publish {
             dup: false,
             retain: false,
             qos: QoS::AtMostOnce,
@@ -143,7 +144,7 @@ mod tests {
             properties: None,
             delay_interval: None,
             create_time: Some(timestamp_millis()),
-        };
+        });
         codec.encode(Packet::Publish(pkt.clone()), &mut buf).unwrap();
 
         let pkt2 =

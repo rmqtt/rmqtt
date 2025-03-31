@@ -298,7 +298,7 @@ mod tests {
 
         v.clear();
 
-        let p = Packet::Publish(Publish {
+        let p = Packet::Publish(Box::new(Publish {
             dup: true,
             retain: true,
             qos: QoS::ExactlyOnce,
@@ -308,7 +308,7 @@ mod tests {
             properties: Some(PublishProperties::default()),
             delay_interval: None,
             create_time: None,
-        });
+        }));
 
         assert_eq!(p.encoded_size(MAX_PACKET_SIZE), 265);
         p.encode(&mut v, 265).unwrap();
@@ -431,7 +431,7 @@ mod tests {
     #[test]
     fn test_encode_publish_packets() {
         assert_encode_packet(
-            &Packet::Publish(Publish {
+            &Packet::Publish(Box::new(Publish {
                 dup: true,
                 retain: true,
                 qos: QoS::ExactlyOnce,
@@ -441,12 +441,12 @@ mod tests {
                 properties: Some(PublishProperties::default()),
                 delay_interval: None,
                 create_time: None,
-            }),
+            })),
             b"\x3d\x0E\x00\x05topic\x43\x21\x00data",
         );
 
         assert_encode_packet(
-            &Packet::Publish(Publish {
+            &Packet::Publish(Box::new(Publish {
                 dup: false,
                 retain: false,
                 qos: QoS::AtMostOnce,
@@ -456,12 +456,12 @@ mod tests {
                 properties: Some(PublishProperties::default()),
                 delay_interval: None,
                 create_time: None,
-            }),
+            })),
             b"\x30\x0c\x00\x05topic\x00data",
         );
 
         assert_encode_packet(
-            &Packet::Publish(Publish {
+            &Packet::Publish(Box::new(Publish {
                 dup: false,
                 retain: false,
                 qos: QoS::AtMostOnce,
@@ -474,7 +474,7 @@ mod tests {
                 }),
                 delay_interval: None,
                 create_time: None,
-            }),
+            })),
             b"\x30\x0e\x00\x05topic\x02\x0b\x01data",
         );
     }

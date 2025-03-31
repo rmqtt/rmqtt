@@ -233,7 +233,7 @@ where
                 if p.qos == QoS::AtLeastOnce {
                     s.send_publish_ack(p.packet_id.ok_or(MqttError::ServiceUnavailable)?).await.unwrap();
 
-                    s.send_publish(Publish {
+                    s.send_publish(Box::new(Publish {
                         dup: false,
                         retain: false,
                         qos: p.qos,
@@ -243,7 +243,7 @@ where
                         properties: p.properties,
                         delay_interval: None,
                         create_time: None,
-                    })
+                    }))
                     .await?;
                 } else {
                     log::info!("unimplemented!");
@@ -307,7 +307,7 @@ where
 
                     s.send_publish_ack(ack).await?;
 
-                    s.send_publish(Publish {
+                    s.send_publish(Box::new(Publish {
                         dup: false,
                         retain: false,
                         qos: p.qos,
@@ -317,7 +317,7 @@ where
                         properties: p.properties,
                         delay_interval: None,
                         create_time: None,
-                    })
+                    }))
                     .await?;
                 } else {
                     log::info!("unimplemented!");

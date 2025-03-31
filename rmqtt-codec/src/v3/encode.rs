@@ -248,7 +248,7 @@ mod tests {
 
         v.clear();
 
-        let p = Packet::Publish(Publish {
+        let p = Packet::Publish(Box::new(Publish {
             dup: true,
             retain: true,
             qos: QoS::ExactlyOnce,
@@ -258,7 +258,7 @@ mod tests {
             properties: None,
             delay_interval: None,
             create_time: None,
-        });
+        }));
 
         assert_eq!(get_encoded_size(&p), 264);
         encode(&p, &mut v, 264).unwrap();
@@ -313,7 +313,7 @@ mod tests {
     #[test]
     fn test_encode_publish_packets() {
         assert_encode_packet(
-            &Packet::Publish(Publish {
+            &Packet::Publish(Box::new(Publish {
                 dup: true,
                 retain: true,
                 qos: QoS::ExactlyOnce,
@@ -323,12 +323,12 @@ mod tests {
                 properties: None,
                 delay_interval: None,
                 create_time: None,
-            }),
+            })),
             b"\x3d\x0D\x00\x05topic\x43\x21data",
         );
 
         assert_encode_packet(
-            &Packet::Publish(Publish {
+            &Packet::Publish(Box::new(Publish {
                 dup: false,
                 retain: false,
                 qos: QoS::AtMostOnce,
@@ -338,7 +338,7 @@ mod tests {
                 properties: None,
                 delay_interval: None,
                 create_time: None,
-            }),
+            })),
             b"\x30\x0b\x00\x05topicdata",
         );
     }

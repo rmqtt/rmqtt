@@ -199,7 +199,7 @@ mod tests {
 
         assert_decode_packet(
             b"\x3d\x0E\x00\x05topic\x43\x21\x00data",
-            Packet::Publish(Publish {
+            Packet::Publish(Box::new(Publish {
                 dup: true,
                 retain: true,
                 qos: QoS::ExactlyOnce,
@@ -207,7 +207,7 @@ mod tests {
                 packet_id: Some(packet_id(0x4321)),
                 payload: Bytes::from_static(b"data"),
                 ..default_test_publish()
-            }),
+            })),
         );
 
         // assert_decode_packet(

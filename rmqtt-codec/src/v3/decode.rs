@@ -274,7 +274,7 @@ mod tests {
 
         assert_decode_packet!(
             b"\x3d\x0D\x00\x05topic\x43\x21data",
-            Packet::Publish(Publish {
+            Packet::Publish(Box::new(Publish {
                 dup: true,
                 retain: true,
                 qos: QoS::ExactlyOnce,
@@ -284,11 +284,11 @@ mod tests {
                 properties: None,
                 delay_interval: None,
                 create_time: Some(timestamp_millis()),
-            })
+            }))
         );
         assert_decode_packet!(
             b"\x30\x0b\x00\x05topicdata",
-            Packet::Publish(Publish {
+            Packet::Publish(Box::new(Publish {
                 dup: false,
                 retain: false,
                 qos: QoS::AtMostOnce,
@@ -298,7 +298,7 @@ mod tests {
                 properties: None,
                 delay_interval: None,
                 create_time: Some(timestamp_millis()),
-            })
+            }))
         );
 
         assert_decode_packet!(b"\x40\x02\x43\x21", Packet::PublishAck { packet_id: packet_id(0x4321) });
