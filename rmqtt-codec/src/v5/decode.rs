@@ -210,55 +210,55 @@ mod tests {
             })),
         );
 
-        // assert_decode_packet(
-        //     b"\x30\x0C\x00\x05topic\x00data",
-        //     Packet::Publish(Publish {
-        //         dup: false,
-        //         retain: false,
-        //         qos: QoS::AtMostOnce,
-        //         topic: ByteString::from_static("topic"),
-        //         packet_id: None,
-        //         payload: Bytes::from_static(b"data"),
-        //         ..default_test_publish()
-        //     }),
-        // );
-        //
-        // assert_decode_packet(
-        //     b"\x40\x02\x43\x21",
-        //     Packet::PublishAck(PublishAck {
-        //         packet_id: packet_id(0x4321),
-        //         reason_code: PublishAckReason::Success,
-        //         properties: UserProperties::default(),
-        //         reason_string: None,
-        //     }),
-        // );
-        // assert_decode_packet(
-        //     b"\x50\x02\x43\x21",
-        //     Packet::PublishReceived(PublishAck {
-        //         packet_id: packet_id(0x4321),
-        //         reason_code: PublishAckReason::Success,
-        //         properties: UserProperties::default(),
-        //         reason_string: None,
-        //     }),
-        // );
-        // assert_decode_packet(
-        //     b"\x62\x02\x43\x21",
-        //     Packet::PublishRelease(PublishAck2 {
-        //         packet_id: packet_id(0x4321),
-        //         reason_code: PublishAck2Reason::Success,
-        //         properties: UserProperties::default(),
-        //         reason_string: None,
-        //     }),
-        // );
-        // assert_decode_packet(
-        //     b"\x70\x02\x43\x21",
-        //     Packet::PublishComplete(PublishAck2 {
-        //         packet_id: packet_id(0x4321),
-        //         reason_code: PublishAck2Reason::Success,
-        //         properties: UserProperties::default(),
-        //         reason_string: None,
-        //     }),
-        // );
+        assert_decode_packet(
+            b"\x30\x0C\x00\x05topic\x00data",
+            Packet::Publish(Box::new(Publish {
+                dup: false,
+                retain: false,
+                qos: QoS::AtMostOnce,
+                topic: ByteString::from_static("topic"),
+                packet_id: None,
+                payload: Bytes::from_static(b"data"),
+                ..default_test_publish()
+            })),
+        );
+
+        assert_decode_packet(
+            b"\x40\x02\x43\x21",
+            Packet::PublishAck(PublishAck {
+                packet_id: packet_id(0x4321),
+                reason_code: PublishAckReason::Success,
+                properties: UserProperties::default(),
+                reason_string: None,
+            }),
+        );
+        assert_decode_packet(
+            b"\x50\x02\x43\x21",
+            Packet::PublishReceived(PublishAck {
+                packet_id: packet_id(0x4321),
+                reason_code: PublishAckReason::Success,
+                properties: UserProperties::default(),
+                reason_string: None,
+            }),
+        );
+        assert_decode_packet(
+            b"\x62\x02\x43\x21",
+            Packet::PublishRelease(PublishAck2 {
+                packet_id: packet_id(0x4321),
+                reason_code: PublishAck2Reason::Success,
+                properties: UserProperties::default(),
+                reason_string: None,
+            }),
+        );
+        assert_decode_packet(
+            b"\x70\x02\x43\x21",
+            Packet::PublishComplete(PublishAck2 {
+                packet_id: packet_id(0x4321),
+                reason_code: PublishAck2Reason::Success,
+                properties: UserProperties::default(),
+                reason_string: None,
+            }),
+        );
     }
 
     #[test]

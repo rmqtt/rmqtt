@@ -134,7 +134,7 @@ mod tests {
         let mut codec = Codec::default();
         let mut buf = BytesMut::new();
 
-        let pkt = Box::new(Publish {
+        let mut pkt = Box::new(Publish {
             dup: false,
             retain: false,
             qos: QoS::AtMostOnce,
@@ -143,12 +143,13 @@ mod tests {
             payload: Bytes::from(Vec::from("a".repeat(260 * 1024))),
             properties: None,
             delay_interval: None,
-            create_time: Some(timestamp_millis()),
+            create_time: None,
         });
         codec.encode(Packet::Publish(pkt.clone()), &mut buf).unwrap();
 
         let pkt2 =
             if let (Packet::Publish(v), _) = codec.decode(&mut buf).unwrap().unwrap() { v } else { panic!() };
+        pkt.create_time = Some(timestamp_millis());
         assert_eq!(pkt, pkt2);
     }
 }
