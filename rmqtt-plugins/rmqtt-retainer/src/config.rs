@@ -1,8 +1,9 @@
-use serde::de::{self, Deserialize, Deserializer};
 use std::time::Duration;
 
-use rmqtt::serde_json;
-use rmqtt::settings::{deserialize_duration_option, Bytesize};
+use serde::de::{self, Deserializer};
+use serde::{Deserialize, Serialize};
+
+use rmqtt::utils::{deserialize_duration_option, Bytesize};
 use rmqtt::Result;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

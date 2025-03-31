@@ -106,11 +106,10 @@ pub(crate) fn build(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
         impl #name {
             #[inline]
-            pub fn instance() -> &'static #name {
-                static INSTANCE: once_cell::sync::OnceCell<#name> = once_cell::sync::OnceCell::new();
-                INSTANCE.get_or_init(|| Self {
+            pub fn new() -> #name {
+                Self {
                     #(#init_items)*
-                })
+                }
             }
 
             #(#inc_items)*

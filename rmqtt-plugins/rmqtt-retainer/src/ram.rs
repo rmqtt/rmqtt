@@ -1,32 +1,30 @@
-use crate::{PluginConfig, ERR_NOT_SUPPORTED};
-use once_cell::sync::OnceCell;
-use rmqtt::{async_trait::async_trait, log, once_cell, tokio::sync::RwLock};
-use rmqtt::{
-    broker::{
-        default::DefaultRetainStorage,
-        types::{Retain, TopicFilter, TopicName},
-        RetainStorage,
-    },
-    Result,
-};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use async_trait::async_trait;
+use tokio::sync::RwLock;
+
+use rmqtt::{
+    retain::DefaultRetainStorage,
+    retain::RetainStorage,
+    types::{Retain, TopicFilter, TopicName},
+    Result,
+};
+
+use crate::{PluginConfig, ERR_NOT_SUPPORTED};
+
+#[derive(Clone)]
 pub(crate) struct RamRetainer {
-    pub(crate) inner: &'static DefaultRetainStorage,
+    pub(crate) inner: Arc<DefaultRetainStorage>,
     cfg: Arc<RwLock<PluginConfig>>,
     retain_enable: Arc<AtomicBool>,
 }
 
 impl RamRetainer {
     #[inline]
-    pub(crate) fn get_or_init(
-        cfg: Arc<RwLock<PluginConfig>>,
-        retain_enable: Arc<AtomicBool>,
-    ) -> &'static RamRetainer {
-        static INSTANCE: OnceCell<RamRetainer> = OnceCell::new();
-        INSTANCE.get_or_init(|| Self { inner: DefaultRetainStorage::instance(), cfg, retain_enable })
+    pub(crate) fn new(cfg: Arc<RwLock<PluginConfig>>, retain_enable: Arc<AtomicBool>) -> RamRetainer {
+        Self { inner: Arc::new(DefaultRetainStorage::new()), cfg, retain_enable }
     }
 
     #[inline]
@@ -36,7 +34,7 @@ impl RamRetainer {
 }
 
 #[async_trait]
-impl RetainStorage for &'static RamRetainer {
+impl RetainStorage for RamRetainer {
     #[inline]
     fn enable(&self) -> bool {
         true
@@ -45,7 +43,7 @@ impl RetainStorage for &'static RamRetainer {
     ///topic - concrete topic
     async fn set(&self, topic: &TopicName, retain: Retain, expiry_interval: Option<Duration>) -> Result<()> {
         if !self.retain_enable.load(Ordering::SeqCst) {
-            log::error!("{}", ERR_NOT_SUPPORTED);
+            log::warn!("{}", ERR_NOT_SUPPORTED);
             return Ok(());
         }
 
@@ -79,7 +77,7 @@ impl RetainStorage for &'static RamRetainer {
     ///topic_filter - Topic filter
     async fn get(&self, topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>> {
         if !self.retain_enable.load(Ordering::SeqCst) {
-            log::error!("{}", ERR_NOT_SUPPORTED);
+            log::warn!("{}", ERR_NOT_SUPPORTED);
             Ok(Vec::new())
         } else {
             Ok(self.inner.get_message(topic_filter).await?)

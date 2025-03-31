@@ -1,25 +1,23 @@
 #![deny(unsafe_code)]
-#[macro_use]
-extern crate serde;
-
-#[macro_use]
-extern crate rmqtt_macros;
 
 use std::str::FromStr;
 use std::sync::Arc;
 
-use config::{Access, Control, PluginConfig, PH_C, PH_U};
+use async_trait::async_trait;
+use tokio::{self, sync::RwLock};
+
 use rmqtt::{
-    async_trait::async_trait,
-    log, serde_json,
-    tokio::{self, sync::RwLock},
-};
-use rmqtt::{
-    broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
-    broker::types::{AuthResult, PublishAclResult, SubscribeAckReason, SubscribeAclResult, Topic},
+    codec::v5::SubscribeAckReason,
+    context::ServerContext,
+    hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
+    macros::Plugin,
     plugin::{PackageInfo, Plugin},
-    register, Result, Runtime,
+    register,
+    types::{AuthResult, PublishAclResult, SubscribeAclResult, Topic},
+    Result,
 };
+
+use config::{Access, Control, PluginConfig, PH_C, PH_U};
 
 mod config;
 
@@ -27,19 +25,19 @@ register!(AclPlugin::new);
 
 #[derive(Plugin)]
 struct AclPlugin {
-    runtime: &'static Runtime,
+    scx: ServerContext,
     register: Box<dyn Register>,
     cfg: Arc<RwLock<PluginConfig>>,
 }
 
 impl AclPlugin {
     #[inline]
-    async fn new<N: Into<String>>(runtime: &'static Runtime, name: N) -> Result<Self> {
+    async fn new<N: Into<String>>(scx: ServerContext, name: N) -> Result<Self> {
         let name = name.into();
-        let cfg = Arc::new(RwLock::new(runtime.settings.plugins.load_config::<PluginConfig>(&name)?));
+        let cfg = Arc::new(RwLock::new(scx.plugins.read_config::<PluginConfig>(&name)?));
         log::debug!("{} AclPlugin cfg: {:?}", name, cfg.read().await);
-        let register = runtime.extends.hook_mgr().await.register();
-        Ok(Self { runtime, register, cfg })
+        let register = scx.extends.hook_mgr().register();
+        Ok(Self { scx, register, cfg })
     }
 }
 
@@ -68,7 +66,7 @@ impl Plugin for AclPlugin {
 
     #[inline]
     async fn load_config(&mut self) -> Result<()> {
-        let new_cfg = self.runtime.settings.plugins.load_config::<PluginConfig>(self.name())?;
+        let new_cfg = self.scx.plugins.read_config::<PluginConfig>(self.name())?;
         *self.cfg.write().await = new_cfg;
         log::debug!("load_config ok,  {:?}", self.cfg);
         Ok(())
@@ -219,7 +217,7 @@ impl Handler for AclHandler {
                         (
                             false,
                             Some(HookResult::SubscribeAclResult(SubscribeAclResult::new_failure(
-                                SubscribeAckReason::NotAuthorized,
+                                SubscribeAckReason::UnspecifiedError,
                             ))),
                         )
                     };
@@ -227,7 +225,7 @@ impl Handler for AclHandler {
                 return (
                     false,
                     Some(HookResult::SubscribeAclResult(SubscribeAclResult::new_failure(
-                        SubscribeAckReason::NotAuthorized,
+                        SubscribeAckReason::UnspecifiedError,
                     ))),
                 );
             }
@@ -236,7 +234,7 @@ impl Handler for AclHandler {
                 if let Some(HookResult::PublishAclResult(PublishAclResult::Rejected(_))) = &acc {
                     return (false, acc);
                 }
-                let topic_str = publish.topic();
+                let topic_str = &publish.topic;
                 let topic = Topic::from_str(topic_str).unwrap_or_else(|_| Topic::from(Vec::new()));
                 let disconnect_if_pub_rejected = self.cfg.read().await.disconnect_if_pub_rejected;
                 for (idx, rule) in self.cfg.read().await.rules().iter().enumerate() {
