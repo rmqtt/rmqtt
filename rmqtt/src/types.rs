@@ -42,10 +42,12 @@ use crate::queue::{Queue, Sender};
 use crate::utils::timestamp_millis;
 use crate::{codec, Error, Result};
 
-pub use crate::codec::types::Publish;
+use crate::codec::types::Publish as PublishInner;
 use crate::context::ServerContext;
 use crate::inflight::{OutInflight, OutInflightMessage};
 use crate::session::OfflineInfo;
+
+pub type Publish = Box<PublishInner>;
 
 pub type Port = u16;
 pub type NodeId = u64;
@@ -1192,7 +1194,7 @@ impl<'a> std::convert::TryFrom<LastWill<'a>> for Publish {
             }
         };
 
-        Ok(Self {
+        Ok(Box::new(PublishInner {
             dup: false,
             retain,
             qos,
@@ -1203,7 +1205,7 @@ impl<'a> std::convert::TryFrom<LastWill<'a>> for Publish {
             properties: Some(props),
             delay_interval: None,
             create_time: Some(timestamp_millis()),
-        })
+        }))
     }
 }
 

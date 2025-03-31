@@ -345,7 +345,7 @@ pub mod v3 {
         }
 
         #[inline]
-        pub async fn send_publish(&mut self, publish: Publish) -> Result<()> {
+        pub async fn send_publish(&mut self, publish: Box<Publish>) -> Result<()> {
             self.send(PacketV3::Publish(publish)).await
         }
 
@@ -501,7 +501,7 @@ pub mod v5 {
         }
 
         #[inline]
-        pub async fn send_publish(&mut self, publish: Publish) -> Result<()> {
+        pub async fn send_publish(&mut self, publish: Box<Publish>) -> Result<()> {
             self.send(PacketV5::Publish(publish)).await
         }
 

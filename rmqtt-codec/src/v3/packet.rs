@@ -128,7 +128,7 @@ pub enum Packet {
     ConnectAck(ConnectAck),
 
     /// Publish message
-    Publish(Publish),
+    Publish(Box<Publish>),
 
     /// Publish acknowledgment
     PublishAck {
@@ -194,7 +194,7 @@ impl From<Connect> for Packet {
 
 impl From<Publish> for Packet {
     fn from(val: Publish) -> Packet {
-        Packet::Publish(val)
+        Packet::Publish(Box::new(val))
     }
 }
 

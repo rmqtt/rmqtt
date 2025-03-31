@@ -7,7 +7,6 @@ use super::{decode, encode, Packet};
 use crate::error::{DecodeError, EncodeError};
 use crate::types::{FixedHeader, QoS};
 use crate::utils::decode_variable_length;
-use crate::v3::packet::Publish;
 
 #[derive(Debug, Clone)]
 /// Mqtt v3.1.1 protocol codec
@@ -98,8 +97,10 @@ impl Encoder<Packet> for Codec {
     type Error = EncodeError;
 
     fn encode(&mut self, item: Packet, dst: &mut BytesMut) -> Result<(), EncodeError> {
-        if let Packet::Publish(Publish { qos, packet_id, .. }) = item {
-            if (qos == QoS::AtLeastOnce || qos == QoS::ExactlyOnce) && packet_id.is_none() {
+        if let Packet::Publish(ref publish) = item {
+            if (publish.qos == QoS::AtLeastOnce || publish.qos == QoS::ExactlyOnce)
+                && publish.packet_id.is_none()
+            {
                 return Err(EncodeError::PacketIdRequired);
             }
         }

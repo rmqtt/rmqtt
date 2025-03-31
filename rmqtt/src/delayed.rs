@@ -6,7 +6,6 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use tokio::sync::RwLock;
 
-use crate::codec::types::Publish;
 use crate::context::ServerContext;
 use crate::session::SessionState;
 use crate::types::*;

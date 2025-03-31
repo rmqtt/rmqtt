@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::acl::AuthInfo;
-use crate::codec::types::Publish;
 use crate::codec::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 use crate::codec::v5::UserProperties;
 use crate::codec::{v3, v5};

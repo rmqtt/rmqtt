@@ -108,7 +108,7 @@ fn decode_publish_packet(src: &mut Bytes, packet_flags: u8) -> Result<Packet, De
         Some(NonZeroU16::decode(src)?) // packet id = 0 encountered
     };
 
-    Ok(Packet::Publish(Publish {
+    Ok(Packet::Publish(Box::new(Publish {
         dup: (packet_flags & 0b1000) == 0b1000,
         qos,
         retain: (packet_flags & 0b0001) == 0b0001,
@@ -118,7 +118,7 @@ fn decode_publish_packet(src: &mut Bytes, packet_flags: u8) -> Result<Packet, De
         properties: None,
         delay_interval: None,
         create_time: Some(timestamp_millis()),
-    }))
+    })))
 }
 
 fn decode_subscribe_packet(src: &mut Bytes) -> Result<Packet, DecodeError> {
