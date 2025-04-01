@@ -127,7 +127,7 @@ curl "http://127.0.0.1:6066/api/v1/health/check"
 * client_test.py Test.test_dollar_topics              [OK]
 * client_test.py Test.test_unsubscribe                [OK]
 * client_test.py Test.test_subscribe_failure          [OK]  
-   需要修改rmqtt-acl.toml配置，在第一行添加：["deny", "all", "subscribe", ["test/nosubscribe"]],
+  * 需要修改rmqtt-acl.toml配置，在第一行添加：["deny", "all", "subscribe", ["test/nosubscribe"]]
 
 #### paho.mqtt.testing(MQTT V5.0) [client_test5.py](https://github.com/eclipse/paho.mqtt.testing/blob/master/interoperability/client_test5.py)
 
@@ -159,10 +159,7 @@ curl "http://127.0.0.1:6066/api/v1/health/check"
 * client_test5.py Test.test_server_keep_alive           [OK]
   * 需要修改rmqtt.toml配置，将max_keepalive改为60
 * client_test5.py Test.test_subscribe_failure           [OK]
-  * 需要修改rmqtt-acl.toml配置，在第一行添加：["deny", "all", "subscribe", ["test/nosubscribe"]],
-同时修改client_test5.py的test_subscribe_failure()方法中的0x80为0x87。
-因为rmqtt返回错误码是0x87, 而test_subscribe_failure要求返回0x80。
-UnspecifiedError = 0x80, NotAuthorized = 0x87。
+  * 需要修改rmqtt-acl.toml配置，在第一行添加：["deny", "all", "subscribe", ["test/nosubscribe"]]
 
 
 ### 基准测试
