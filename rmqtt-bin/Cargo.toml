@@ -38,6 +38,7 @@ chrono = { workspace = true, features = ["clock"] }
 ##plugins
 rmqtt-acl.workspace = true
 rmqtt-retainer.workspace = true
+rmqtt-http-api.workspace = true
 
 #rmqtt-web-hook = "0.1"
 #rmqtt-auth-http = "0.1"
@@ -64,8 +65,8 @@ rmqtt-retainer.workspace = true
 [package.metadata.plugins]
 rmqtt-acl = { default_startup = true }
 rmqtt-retainer = { }
+rmqtt-http-api = { default_startup = true }
 
-#rmqtt-http-api = { default_startup = true }
 #rmqtt-counter = { default_startup = true }
 #rmqtt-web-hook = { }
 #rmqtt-auth-http = { }

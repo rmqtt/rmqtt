@@ -72,8 +72,7 @@ pub trait Shared: Sync + Send {
     ) -> std::result::Result<(), Vec<(To, From, Publish, Reason)>>;
 
     /// Iter
-    // fn iter(&self) -> Box<dyn Iterator<Item = Box<dyn Entry>> + Sync + Send>;
-    fn iter(&'static self) -> Box<dyn Iterator<Item = Box<dyn Entry>> + Sync + Send>;
+    fn iter(&self) -> Box<dyn Iterator<Item = Box<dyn Entry>> + Sync + Send + '_>;
 
     /// choose a session if exist
     fn random_session(&self) -> Option<Session>;
@@ -683,7 +682,7 @@ impl Shared for DefaultShared {
     }
 
     #[inline]
-    fn iter(&'static self) -> Box<dyn Iterator<Item = Box<dyn Entry>> + Sync + Send> {
+    fn iter(&self) -> Box<dyn Iterator<Item = Box<dyn Entry>> + Sync + Send + '_> {
         Box::new(DefaultIter { shared: self.clone(), ptr: self.peers.iter() })
     }
 
