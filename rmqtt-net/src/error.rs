@@ -50,6 +50,8 @@ pub enum MqttError {
     IdentifierRejected,
     #[error("Provided packet id is in use")]
     PacketIdInUse(NonZeroU16),
+    #[error("Is None")]
+    None,
 }
 
 impl ToReasonCode for MqttError {
@@ -72,6 +74,7 @@ impl ToReasonCode for MqttError {
             MqttError::SubscribeLimited(_) => DisconnectReasonCode::QuotaExceeded,
             MqttError::IdentifierRejected => DisconnectReasonCode::NotAuthorized,
             MqttError::PacketIdInUse(_) => DisconnectReasonCode::UnspecifiedError,
+            MqttError::None => DisconnectReasonCode::UnspecifiedError,
         }
     }
 }
