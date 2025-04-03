@@ -39,13 +39,13 @@ chrono = { workspace = true, features = ["clock"] }
 rmqtt-acl.workspace = true
 rmqtt-retainer.workspace = true
 rmqtt-http-api.workspace = true
+rmqtt-counter.workspace = true
 
 #rmqtt-web-hook = "0.1"
 #rmqtt-auth-http = "0.1"
 #rmqtt-auth-jwt = "0.1"
 #rmqtt-cluster-broadcast = "0.1"
 #rmqtt-cluster-raft = "0.1"
-#rmqtt-counter = "0.1"
 #rmqtt-http-api = "0.1"
 #rmqtt-sys-topic = "0.1"
 #rmqtt-session-storage = "0.1"
@@ -66,8 +66,8 @@ rmqtt-http-api.workspace = true
 rmqtt-acl = { default_startup = true }
 rmqtt-retainer = { }
 rmqtt-http-api = { default_startup = true }
+rmqtt-counter = { default_startup = true }
 
-#rmqtt-counter = { default_startup = true }
 #rmqtt-web-hook = { }
 #rmqtt-auth-http = { }
 #rmqtt-auth-jwt = { }

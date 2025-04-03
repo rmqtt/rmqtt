@@ -7,8 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-rmqtt = { workspace = true, features = ["metrics", "stats", "grpc" ] }
-rmqtt-macros.workspace = true
+rmqtt = { workspace = true, features = ["plugin", "metrics", "stats", "grpc" ] }
 tokio = { workspace = true, features = ["sync" ] }
 serde = { workspace = true, features = ["derive"] }
 salvo = { version = "0.77", features = ["affix-state"] }
