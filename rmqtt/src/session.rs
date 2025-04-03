@@ -502,6 +502,9 @@ impl SessionState {
             Message::SessionStateTransfer(offline_info, clean_start) => {
                 self.transfer_session_state(clean_start, offline_info).await?;
             }
+            Message::Closed(r) => {
+                return Err(r);
+            }
         }
         Ok(())
     }

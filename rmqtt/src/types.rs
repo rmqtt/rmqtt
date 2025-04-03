@@ -2024,6 +2024,8 @@ pub enum Message {
     Forward(From, Publish),
     SendRerelease(OutInflightMessage),
     Kick(oneshot::Sender<()>, Id, CleanStart, IsAdmin),
+    // Disconnect(Disconnect),
+    Closed(Reason),
     Subscribe(Subscribe, oneshot::Sender<Result<SubscribeReturn>>),
     Unsubscribe(Unsubscribe, oneshot::Sender<Result<()>>),
     SessionStateTransfer(OfflineInfo, CleanStart),

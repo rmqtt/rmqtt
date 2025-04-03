@@ -1,0 +1,76 @@
+##--------------------------------------------------------------------
+## rmqtt-auth-http
+##--------------------------------------------------------------------
+
+# See more keys and their definitions at https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/auth-http.md
+
+http_timeout = "5s"
+http_headers.accept = "*/*"
+http_headers.Cache-Control = "no-cache"
+http_headers.User-Agent = "RMQTT/0.8.0"
+http_headers.Connection = "keep-alive"
+
+## Disconnect if publishing is rejected
+##
+## Value: true | false
+## Default: true
+disconnect_if_pub_rejected = true
+
+## Disconnect After Expiration
+##
+## Value: true | false
+## Default: false
+disconnect_if_expiry = false
+
+## Return 'Deny' if http request error otherwise 'Ignore'
+##
+## Value: true | false
+## Default: true
+deny_if_error = true
+
+## Prometheus metrics data caching interval.
+##
+## Value: Duration
+## Default: "5s"
+prometheus_metrics_cache_interval = "5s"
+
+
+##--------------------------------------------------------------------
+## Authentication request.
+##
+## Variables:
+##  - %u: username
+##  - %c: clientid
+##  - %a: ipaddress
+##  - %r: protocol
+##  - %P: password
+##
+## Value: URL
+http_auth_req.url = "http://127.0.0.1:9090/mqtt/auth"
+## Value: post | get | put
+http_auth_req.method = "post"
+## HTTP request header of authentication request
+## Content-Type Currently supported values: application/x-www-form-urlencoded, application/json
+http_auth_req.headers = { content-type = "application/x-www-form-urlencoded" }
+#http_auth_req.headers.content-type="application/json"
+## Value: Params
+http_auth_req.params = { clientid = "%c", username = "%u", password = "%P", protocol = "%r" }
+
+
+##--------------------------------------------------------------------
+## ACL request.
+##
+## Variables:
+##  - %A: 1 | 2, 1 = sub, 2 = pub
+##  - %u: username
+##  - %c: clientid
+##  - %a: ipaddress
+##  - %r: protocol
+##  - %t: topic
+##
+## Value: URL
+http_acl_req.url = "http://127.0.0.1:9090/mqtt/acl"
+## Value: post | get | put
+http_acl_req.method = "post"
+## Value: Params
+http_acl_req.params = { access = "%A", username = "%u", clientid = "%c", ipaddr = "%a", topic = "%t", protocol = "%r" }
