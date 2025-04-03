@@ -202,7 +202,7 @@ impl Plugin for AuthHttpPlugin {
         let mut stats = HashMap::default();
         for (i, c) in self.caches.iter().enumerate() {
             if i < 1000 {
-                stats.insert(c.key().clone(), c.value().len());
+                stats.insert(c.key().to_string(), c.value().len());
             }
         }
 
