@@ -45,7 +45,10 @@ pub struct PluginConfig {
     )]
     pub message_expiry_interval: Duration,
 
-    #[serde(default = "PluginConfig::prometheus_metrics_cache_interval_default")]
+    #[serde(
+        default = "PluginConfig::prometheus_metrics_cache_interval_default",
+        deserialize_with = "deserialize_duration"
+    )]
     pub prometheus_metrics_cache_interval: Duration,
 }
 
