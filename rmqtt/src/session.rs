@@ -109,13 +109,13 @@ impl SessionState {
     }
 
     #[inline]
-    pub(crate) async fn run<Io>(mut self, mut sink: Sink<Io>, keep_alive: u16) -> Result<()>
+    pub(crate) async fn run<Io>(mut self, mut sink: Sink<Io>, keep_alive: u16)
     where
         Io: AsyncRead + AsyncWrite + Unpin,
     {
         let limiter = {
             let (burst, replenish_n_per) = self.fitter.mqueue_rate_limit();
-            Limiter::new(burst, replenish_n_per)?
+            Limiter::new(burst, replenish_n_per)
         };
 
         let (deliver_queue_tx, mut deliver_queue_rx) = self.deliver_queue_channel(&limiter);
@@ -129,7 +129,7 @@ impl SessionState {
             }
             Err(reason) => {
                 log::debug!("{} Reason: {}", self.id, reason);
-                self.disconnected_reason_add(reason).await?;
+                let _ = self.disconnected_reason_add(reason).await;
             }
         }
         self.scx.connections.dec();
@@ -138,10 +138,10 @@ impl SessionState {
         let clean_session = self.clean_session(disconnect.as_ref()).await;
 
         log::debug!(
-            "{:?} exit online worker, flags: {:?}, clean_session: {} {}",
+            "{:?} exit online worker, flags: {:?}, clean_session: {:?} {}",
             self.id,
             flags,
-            self.connect_info().await?.clean_start(),
+            self.connect_info().await.map(|c| c.clean_start()),
             flags.contains(StateFlags::CleanStart)
         );
 
@@ -151,10 +151,10 @@ impl SessionState {
         }
 
         log::debug!(
-            "{} disconnected_reason({}): {}",
+            "{} disconnected_reason({}): {:?}",
             self.id,
-            self.disconnected_reasons().await?.len(),
-            self.disconnected_reason().await?
+            self.disconnected_reasons().await.map(|rs| rs.len()).unwrap_or_default(),
+            self.disconnected_reason().await
         );
 
         //Last will message
@@ -229,8 +229,6 @@ impl SessionState {
                 self.clean(&deliver_queue_tx, Reason::SessionExpiration).await;
             }
         }
-
-        Ok(())
     }
 
     #[inline]
@@ -1652,8 +1650,8 @@ impl Deref for _Session {
 
 impl Drop for _Session {
     fn drop(&mut self) {
-        #[cfg(feature = "stats")]
-        self.scx.stats.sessions.dec();
+        // #[cfg(feature = "stats")]
+        self.scx.sessions.dec();
         let id = self.id.clone();
         let s = self.inner.clone();
         tokio::spawn(async move {
@@ -1731,14 +1729,14 @@ impl Session {
                 })
         };
 
+        scx.sessions.inc();
+
         #[cfg(feature = "stats")]
         {
-            scx.stats.sessions.inc();
             scx.stats.subscriptions.incs(subscriptions.len().await as isize);
             scx.stats.subscriptions_shared.incs(subscriptions.shared_len().await as isize);
         }
 
-        // let extra_attrs = RwLock::new(ExtraAttrs::new());
         let session_like = scx
             .extends
             .session_mgr()

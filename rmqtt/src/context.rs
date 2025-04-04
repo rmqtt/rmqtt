@@ -133,6 +133,7 @@ impl ServerContextBuilder {
                 mqtt_max_sessions: self.mqtt_max_sessions,
                 mqtt_delayed_publish_immediate: self.mqtt_delayed_publish_immediate,
 
+                handshakings: Counter::new(),
                 connections: Counter::new(),
                 sessions: Counter::new(),
             }),
@@ -164,6 +165,7 @@ pub struct ServerContextInner {
     pub mqtt_max_sessions: isize,
     pub mqtt_delayed_publish_immediate: bool,
 
+    pub handshakings: Counter,
     pub connections: Counter,
     pub sessions: Counter,
 }

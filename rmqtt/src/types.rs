@@ -2480,6 +2480,7 @@ pub enum Reason {
     ConnectRemoteClose,
     ConnectKeepaliveTimeout,
     ConnectKicked(IsAdmin),
+    HandshakeRateExceeded,
     SessionExpiration,
     SubscribeFailed(Option<ByteString>),
     UnsubscribeFailed(Option<ByteString>),
@@ -2565,6 +2566,7 @@ impl ToReasonCode for Reason {
                     DisconnectReasonCode::NotAuthorized
                 }
             }
+            Reason::HandshakeRateExceeded => DisconnectReasonCode::ConnectionRateExceeded,
             Reason::SessionExpiration => DisconnectReasonCode::SessionTakenOver,
             Reason::SubscribeFailed(_) => DisconnectReasonCode::UnspecifiedError,
             Reason::UnsubscribeFailed(_) => DisconnectReasonCode::UnspecifiedError,
@@ -2619,6 +2621,9 @@ impl Display for Reason {
                 } else {
                     "Kicked" //kicked
                 }
+            }
+            Reason::HandshakeRateExceeded => {
+                "HandshakeRateExceeded" //handshake rate exceeded
             }
             Reason::SessionExpiration => {
                 "SessionExpiration" //session expiration

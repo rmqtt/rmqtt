@@ -20,17 +20,18 @@ pub(crate) async fn process<Io>(scx: ServerContext, mut sink: v5::MqttStream<Io>
 where
     Io: AsyncRead + AsyncWrite + Unpin,
 {
-    let (state, ack, keep_alive) = match handshake(&scx, &mut sink).await {
+    scx.handshakings.inc();
+    let (state, keep_alive) = match handshake(&scx, &mut sink).await {
         Ok(c) => c,
         Err((ack_code, e)) => {
+            scx.handshakings.dec();
             refused_ack(&scx, &mut sink, None, ack_code, e.to_string()).await?;
             return Err(e);
         }
     };
 
-    sink.send_connect_ack(ack).await?;
-
-    state.run(Sink::V5(sink), keep_alive).await?;
+    scx.handshakings.dec();
+    state.run(Sink::V5(sink), keep_alive).await;
 
     Ok(())
 }
@@ -39,7 +40,7 @@ where
 async fn handshake<Io>(
     scx: &ServerContext,
     sink: &mut v5::MqttStream<Io>,
-) -> std::result::Result<(SessionState, ConnectAck, u16), (ConnectAckReason, Error)>
+) -> std::result::Result<(SessionState, u16), (ConnectAckReason, Error)>
 where
     Io: AsyncRead + AsyncWrite + Unpin,
 {
@@ -88,15 +89,18 @@ where
     //     return Err(MqttError::ServerUnavailable.into());
     // }
 
-    // Runtime::instance().stats.handshakings.max_max(handshake.handshakings());
-
     let exec = scx.handshake_exec.get(sink.cfg.laddr.port(), &sink.cfg);
     match _handshake(scx.clone(), id.clone(), c, sink.cfg.clone(), assigned_client_id)
         .spawn(&exec)
         .result()
         .await
     {
-        Ok(Ok((state, ack, keep_alive))) => Ok((state, ack, keep_alive)),
+        Ok(Ok((state, ack, keep_alive))) => {
+            sink.send_connect_ack(ack)
+                .await
+                .map_err(|e| (ConnectAckReason::V5(ConnectAckReasonV5::ServerUnavailable), e))?;
+            Ok((state, keep_alive))
+        }
         Ok(Err(e)) => {
             // unavailable_stats().inc();
             // log::warn!(

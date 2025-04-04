@@ -20,34 +20,18 @@ pub(crate) async fn process<Io>(scx: ServerContext, mut sink: v3::MqttStream<Io>
 where
     Io: AsyncRead + AsyncWrite + Unpin,
 {
-    let state = match handshake(&scx, &mut sink).await {
+    scx.handshakings.inc();
+    let (state, keep_alive) = match handshake(&scx, &mut sink).await {
         Ok(c) => c,
         Err((ack_code, e)) => {
+            scx.handshakings.dec();
             refused_ack_v3(&scx, &mut sink, None, ack_code, e.to_string()).await?;
             return Err(e);
         }
     };
 
-    sink.send_connect_ack(ConnectAckReasonV3::ConnectionAccepted, state.session_present().await?).await?;
-
-    let connect_info = state.connect_info().await?;
-    let mut keep_alive = state.connect_info().await?.keep_alive();
-    let keep_alive = match state.session().fitter.keep_alive(&mut keep_alive) {
-        Ok(keep_alive) => keep_alive,
-        Err(e) => {
-            refused_ack_v3(
-                &state.scx,
-                &mut sink,
-                Some(connect_info.as_ref()),
-                ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable),
-                e.to_string(),
-            )
-            .await?;
-            return Err(e);
-        }
-    };
-
-    state.run(Sink::V3(sink), keep_alive).await?;
+    scx.handshakings.dec();
+    state.run(Sink::V3(sink), keep_alive).await;
 
     Ok(())
 }
@@ -56,7 +40,7 @@ where
 async fn handshake<Io>(
     scx: &ServerContext,
     sink: &mut v3::MqttStream<Io>,
-) -> std::result::Result<SessionState, (ConnectAckReason, Error)>
+) -> std::result::Result<(SessionState, u16), (ConnectAckReason, Error)>
 where
     Io: AsyncRead + AsyncWrite + Unpin,
 {
@@ -112,11 +96,18 @@ where
     //     return Err(MqttError::ServiceUnavailable.into());
     // }
 
-    // Runtime::instance().stats.handshakings.max_max(handshake.handshakings());
-
     let exec = scx.handshake_exec.get(sink.cfg.laddr.port(), &sink.cfg);
     match _handshake(scx.clone(), id.clone(), c, sink.cfg.clone()).spawn(&exec).result().await {
-        Ok(Ok(state)) => Ok(state),
+        Ok(Ok((state, keep_alive))) => {
+            let session_present = state
+                .session_present()
+                .await
+                .map_err(|e| (ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable), e))?;
+            sink.send_connect_ack(ConnectAckReasonV3::ConnectionAccepted, session_present)
+                .await
+                .map_err(|e| (ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable), e))?;
+            Ok((state, keep_alive))
+        }
         Ok(Err(e)) => {
             // unavailable_stats().inc();
             // log::warn!(
@@ -145,7 +136,7 @@ async fn _handshake(
     id: Id,
     connect: Box<ConnectV3>,
     listen_cfg: ListenerConfig,
-) -> std::result::Result<SessionState, (ConnectAckReason, Error)> {
+) -> std::result::Result<(SessionState, u16), (ConnectAckReason, Error)> {
     let connect_info = ConnectInfo::V3(id.clone(), connect);
 
     //hook, client connect
@@ -233,6 +224,14 @@ async fn _handshake(
         }
     };
 
+    let mut keep_alive = connect_info.keep_alive();
+    let keep_alive = match session.fitter.keep_alive(&mut keep_alive) {
+        Ok(keep_alive) => keep_alive,
+        Err(e) => {
+            return Err((ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable), e));
+        }
+    };
+
     let hook = session.scx.extends.hook_mgr().hook(session.clone());
 
     if offline_info.is_none() {
@@ -274,7 +273,7 @@ async fn _handshake(
             }
         }
     }
-    Ok(state)
+    Ok((state, keep_alive))
 }
 
 async fn refused_ack_v3<Io>(
