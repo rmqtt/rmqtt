@@ -2027,6 +2027,7 @@ pub enum Message {
     // Disconnect(Disconnect),
     Closed(Reason),
     Subscribe(Subscribe, oneshot::Sender<Result<SubscribeReturn>>),
+    Subscribes(Vec<Subscribe>, Option<oneshot::Sender<Vec<Result<SubscribeReturn>>>>),
     Unsubscribe(Unsubscribe, oneshot::Sender<Result<()>>),
     SessionStateTransfer(OfflineInfo, CleanStart),
 }

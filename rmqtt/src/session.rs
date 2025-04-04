@@ -486,6 +486,38 @@ impl SessionState {
                     log::warn!("{:?} Message::Subscribe, reply sender is closed", self.id);
                 }
             }
+            Message::Subscribes(subs, replies_tx) => {
+                log::debug!("{:?} Message::Subscribes, subs {:?}", self.id, subs,);
+
+                let mut replies = Vec::new();
+                for sub in subs {
+                    let reply = self.subscribe(sub).await;
+                    match &reply {
+                        Err(e) => {
+                            log::warn!("{:?} Message::Subscribes, subscribe error, {:?}", self.id, e);
+                        }
+                        Ok(ret) => {
+                            if ret.failure() {
+                                log::warn!(
+                                    "{:?} Message::Subscribes, subscribe failed, {:?}",
+                                    self.id,
+                                    ret.ack_reason
+                                );
+                            }
+                        }
+                    }
+                    replies.push(reply);
+                }
+                if let Some(replies_tx) = replies_tx {
+                    if !replies_tx.is_closed() {
+                        if let Err(e) = replies_tx.send(replies) {
+                            log::warn!("{:?} Message::Subscribes, send response error, {:?}", self.id, e);
+                        }
+                    } else {
+                        log::warn!("{:?} Message::Subscribes, reply sender is closed", self.id);
+                    }
+                }
+            }
             Message::Unsubscribe(unsub, reply_tx) => {
                 log::debug!("{:?} Message::Unsubscribe, unsub {:?}", self.id, unsub,);
                 let unsub_reply = self.unsubscribe(unsub).await;
@@ -1066,7 +1098,7 @@ impl SessionState {
     }
 
     #[inline]
-    async fn subscribe(&self, sub: Subscribe) -> Result<SubscribeReturn> {
+    pub(crate) async fn subscribe(&self, sub: Subscribe) -> Result<SubscribeReturn> {
         let ret = self._subscribe(sub).await;
         if let Ok(sub_ret) = &ret {
             match sub_ret.ack_reason {

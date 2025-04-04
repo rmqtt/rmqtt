@@ -76,8 +76,8 @@ pub trait AutoSubscription: Sync + Send {
     }
 
     #[inline]
-    async fn subscribe(&self, _id: &Id, _msg_tx: &Tx) -> Result<()> {
-        Ok(())
+    async fn subscribes(&self, _id: &Id) -> Result<Vec<Subscribe>> {
+        Ok(Vec::new())
     }
 }
 

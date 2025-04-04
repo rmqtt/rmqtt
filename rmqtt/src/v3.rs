@@ -268,8 +268,13 @@ async fn _handshake(
     {
         let auto_subscription = state.scx.extends.auto_subscription().await;
         if auto_subscription.enable() {
-            if let Err(e) = auto_subscription.subscribe(state.id(), state.tx()).await {
-                return Err((ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable), e));
+            match auto_subscription.subscribes(state.id()).await {
+                Err(e) => return Err((ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable), e)),
+                Ok(subs) => {
+                    if let Err(e) = state.tx().unbounded_send(Message::Subscribes(subs, None)) {
+                        return Err((ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable), e.into()));
+                    }
+                }
             }
         }
     }

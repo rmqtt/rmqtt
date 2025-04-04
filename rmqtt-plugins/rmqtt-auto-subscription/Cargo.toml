@@ -1,0 +1,17 @@
+[package]
+name = "rmqtt-auto-subscription"
+version = "0.1.0"
+description = "Automatic subscription"
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+rmqtt = { workspace = true, features = ["plugin", "auto-subscription"] }
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["sync" ] }
+serde_json.workspace = true
+log.workspace = true
+async-trait.workspace = true
+anyhow.workspace = true

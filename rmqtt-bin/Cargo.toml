@@ -42,6 +42,7 @@ rmqtt-http-api.workspace = true
 rmqtt-counter.workspace = true
 rmqtt-auth-http.workspace = true
 rmqtt-auth-jwt.workspace = true
+rmqtt-auto-subscription.workspace = true
 
 #rmqtt-web-hook = "0.1"
 #rmqtt-cluster-broadcast = "0.1"
@@ -59,7 +60,6 @@ rmqtt-auth-jwt.workspace = true
 #rmqtt-bridge-ingress-pulsar = "0.1"
 #rmqtt-bridge-egress-nats = "0.1"
 #rmqtt-bridge-egress-reductstore = "0.1"
-#rmqtt-auto-subscription = "0.1"
 #rmqtt-plugin-template = "0.1"
 
 [package.metadata.plugins]
@@ -69,6 +69,7 @@ rmqtt-http-api = { default_startup = true }
 rmqtt-counter = { default_startup = true }
 rmqtt-auth-http = { }
 rmqtt-auth-jwt = { }
+rmqtt-auto-subscription = { }
 
 #rmqtt-web-hook = { }
 #rmqtt-cluster-broadcast = { immutable = true }
@@ -85,7 +86,6 @@ rmqtt-auth-jwt = { }
 #rmqtt-bridge-ingress-pulsar = { }
 #rmqtt-bridge-egress-nats = { }
 #rmqtt-bridge-egress-reductstore = { }
-#rmqtt-auto-subscription = { }
 #rmqtt-plugin-template = { }
 
 [build-dependencies]
