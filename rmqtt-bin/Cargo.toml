@@ -40,10 +40,10 @@ rmqtt-acl.workspace = true
 rmqtt-retainer.workspace = true
 rmqtt-http-api.workspace = true
 rmqtt-counter.workspace = true
-rmqtt-auth-http = "0.1"
+rmqtt-auth-http.workspace = true
+rmqtt-auth-jwt.workspace = true
 
 #rmqtt-web-hook = "0.1"
-#rmqtt-auth-jwt = "0.1"
 #rmqtt-cluster-broadcast = "0.1"
 #rmqtt-cluster-raft = "0.1"
 #rmqtt-http-api = "0.1"
@@ -68,9 +68,9 @@ rmqtt-retainer = { }
 rmqtt-http-api = { default_startup = true }
 rmqtt-counter = { default_startup = true }
 rmqtt-auth-http = { }
+rmqtt-auth-jwt = { }
 
 #rmqtt-web-hook = { }
-#rmqtt-auth-jwt = { }
 #rmqtt-cluster-broadcast = { immutable = true }
 #rmqtt-cluster-raft = { immutable = true }
 #rmqtt-sys-topic = { }
