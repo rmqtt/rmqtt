@@ -28,13 +28,6 @@ disconnect_if_expiry = false
 ## Default: true
 deny_if_error = true
 
-## Prometheus metrics data caching interval.
-##
-## Value: Duration
-## Default: "5s"
-prometheus_metrics_cache_interval = "5s"
-
-
 ##--------------------------------------------------------------------
 ## Authentication request.
 ##

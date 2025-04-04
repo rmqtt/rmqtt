@@ -16,4 +16,9 @@ http_request_log = false
 ##Message expiration time, 0 means no expiration
 message_expiry_interval = "5m"
 
+## Prometheus metrics data caching interval.
+##
+## Value: Duration
+## Default: "5s"
+prometheus_metrics_cache_interval = "5s"
 
