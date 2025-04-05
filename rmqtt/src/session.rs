@@ -14,7 +14,6 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use rmqtt_codec::v5::{Auth, PublishAck2, PublishAck2Reason, RetainHandling, ToReasonCode, UserProperties};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::RwLock;
 use tokio::time::{Duration, Instant};
@@ -22,7 +21,7 @@ use tokio::time::{Duration, Instant};
 use crate::acl::AuthInfo;
 use crate::codec::{
     v3,
-    v5::{self, SubscribeAckReason},
+    v5::{self, Auth, PublishAck2, PublishAck2Reason, SubscribeAckReason, ToReasonCode, UserProperties},
 };
 use crate::context::ServerContext;
 use crate::hook::Hook;
@@ -1188,10 +1187,12 @@ impl SessionState {
         //subscribe
         let sub_ret = self.scx.extends.shared().await.entry(self.id.clone()).subscribe(&sub).await?;
 
+        #[allow(unused_variables)]
         if let Some(qos) = sub_ret.success() {
             //send retain messages
             #[cfg(feature = "retain")]
             let _excludeds = if self.scx.extends.retain().await.enable() {
+                use crate::codec::v5::RetainHandling;
                 //MQTT V5: Retain Handling
                 let send_retain_enable = match sub.opts.retain_handling() {
                     Some(RetainHandling::AtSubscribe) => true,
@@ -1222,7 +1223,7 @@ impl SessionState {
                 None
             };
             #[cfg(not(feature = "retain"))]
-            let _excludeds = None;
+            let _excludeds: Option<Vec<(NodeId, MsgID)>> = None;
 
             #[cfg(feature = "msgstore")]
             if self.scx.extends.message_mgr().await.enable() {
@@ -1296,6 +1297,7 @@ impl SessionState {
     }
 
     #[inline]
+    #[cfg(feature = "retain")]
     async fn send_retain_messages(&self, retains: Vec<(TopicName, Retain)>, qos: QoS) -> Result<()> {
         for (topic, mut retain) in retains {
             log::debug!("{:?} topic:{:?}, retain:{:?}", self.id, topic, retain);
@@ -1588,7 +1590,7 @@ impl SessionState {
         from: From,
         publish: Publish,
         #[allow(unused_variables)] message_storage_available: bool,
-        message_expiry_interval: Option<Duration>,
+        #[allow(unused_variables)] message_expiry_interval: Option<Duration>,
     ) -> Result<()> {
         //make message id
         #[cfg(feature = "msgstore")]
@@ -1597,8 +1599,9 @@ impl SessionState {
         } else {
             None
         };
+        #[allow(unused_variables)]
         #[cfg(not(feature = "msgstore"))]
-        let msg_id = None;
+        let msg_id: Option<MsgID> = None;
 
         #[cfg(feature = "retain")]
         {

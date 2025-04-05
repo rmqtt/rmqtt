@@ -43,6 +43,7 @@ rmqtt-counter.workspace = true
 rmqtt-auth-http.workspace = true
 rmqtt-auth-jwt.workspace = true
 rmqtt-auto-subscription.workspace = true
+rmqtt-bridge-egress-kafka.workspace = true
 
 #rmqtt-web-hook = "0.1"
 #rmqtt-cluster-broadcast = "0.1"
@@ -70,6 +71,7 @@ rmqtt-counter = { default_startup = true }
 rmqtt-auth-http = { }
 rmqtt-auth-jwt = { }
 rmqtt-auto-subscription = { }
+rmqtt-bridge-egress-kafka = { }
 
 #rmqtt-web-hook = { }
 #rmqtt-cluster-broadcast = { immutable = true }
@@ -80,7 +82,6 @@ rmqtt-auto-subscription = { }
 #rmqtt-topic-rewrite = { }
 #rmqtt-bridge-ingress-mqtt = { }
 #rmqtt-bridge-egress-mqtt = { }
-#rmqtt-bridge-egress-kafka = { }
 #rmqtt-bridge-ingress-kafka = { }
 #rmqtt-bridge-egress-pulsar = { }
 #rmqtt-bridge-ingress-pulsar = { }

@@ -613,12 +613,14 @@ impl SubscriptionOptions {
     }
 
     #[inline]
-    #[cfg(feature = "shared-subscription")]
     pub fn shared_group(&self) -> Option<&SharedGroup> {
+        #[cfg(feature = "shared-subscription")]
         match self {
             SubscriptionOptions::V3(opts) => opts.shared_group.as_ref(),
             SubscriptionOptions::V5(opts) => opts.shared_group.as_ref(),
         }
+        #[cfg(not(feature = "shared-subscription"))]
+        None
     }
 
     #[inline]
@@ -709,7 +711,7 @@ impl SubOptionsV3 {
         let mut obj = json!({
             "qos": self.qos.value(),
         });
-        #[cfg(any(feature = "auto-subscription", feature = "shared-subscription"))]
+        #[cfg(any(feature = "limit-subscription", feature = "shared-subscription"))]
         if let Some(obj) = obj.as_object_mut() {
             #[cfg(feature = "shared-subscription")]
             if let Some(g) = &self.shared_group {

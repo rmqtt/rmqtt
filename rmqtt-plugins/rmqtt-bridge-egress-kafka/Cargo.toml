@@ -1,0 +1,22 @@
+[package]
+name = "rmqtt-bridge-egress-kafka"
+version = "0.1.0"
+description = "Bridge remote KAFKA in egress mode."
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+rmqtt = { workspace = true, features = ["plugin"] }
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["sync", "rt"] }
+serde_json.workspace = true
+log.workspace = true
+async-trait.workspace = true
+anyhow.workspace = true
+bytestring.workspace = true
+itoa.workspace = true
+rand.workspace = true
+rust-box = { workspace = true, features = ["task-exec-queue"] }
+rdkafka = { version = "0.37", features = ["cmake-build"] }

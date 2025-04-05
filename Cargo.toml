@@ -8,7 +8,8 @@ members = [
     "rmqtt-codec",
     "rmqtt-net",
     "rmqtt-conf",
-    "rmqtt-utils"
+    "rmqtt-utils",
+    "rmqtt/examples/*",
 ]
 
 [patch.crates-io]
@@ -37,7 +38,7 @@ rmqtt-auto-subscription = { path = "rmqtt-plugins/rmqtt-auto-subscription"}
 #rmqtt-bridge-ingress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-ingress-mqtt" }
 #rmqtt-bridge-egress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-egress-mqtt" }
 #rmqtt-bridge-ingress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-ingress-kafka" }
-#rmqtt-bridge-egress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-egress-kafka" }
+rmqtt-bridge-egress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-egress-kafka" }
 #rmqtt-bridge-ingress-pulsar = { path = "rmqtt-plugins/rmqtt-bridge-ingress-pulsar"}
 #rmqtt-bridge-egress-pulsar = { path = "rmqtt-plugins/rmqtt-bridge-egress-pulsar"}
 #rmqtt-bridge-egress-nats = { path = "rmqtt-plugins/rmqtt-bridge-egress-nats"}
@@ -70,6 +71,7 @@ rmqtt-counter = "0.1"
 rmqtt-auth-http = "0.1"
 rmqtt-auth-jwt = "0.1"
 rmqtt-auto-subscription = "0.1"
+rmqtt-bridge-egress-kafka = "0.1"
 
 tokio = { version = "1.44",  default-features = false }
 reqwest = "0.12"
@@ -118,6 +120,7 @@ prometheus = "0.13"
 futures-time = "3.0"
 nonzero_ext = "0.3"
 itoa = "=1.0.14"
+simple_logger = { version = "5.0.0", default-features = false }
 
 
 [profile.dev]
