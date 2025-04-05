@@ -633,12 +633,14 @@ impl SubscriptionOptions {
     }
 
     #[inline]
-    #[cfg(feature = "limit-subscription")]
     pub fn limit_subs(&self) -> Option<usize> {
+        #[cfg(feature = "limit-subscription")]
         match self {
             SubscriptionOptions::V3(opts) => opts.limit_subs,
             SubscriptionOptions::V5(opts) => opts.limit_subs,
         }
+        #[cfg(not(feature = "limit-subscription"))]
+        None
     }
 
     #[inline]
