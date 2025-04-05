@@ -79,6 +79,12 @@ impl Publish {
     }
 }
 
+impl std::convert::From<UserProperties> for PublishProperties {
+    fn from(props: UserProperties) -> Self {
+        PublishProperties { user_properties: props, ..Default::default() }
+    }
+}
+
 fn parse_publish_properties(src: &mut Bytes) -> Result<PublishProperties, DecodeError> {
     let prop_src = &mut utils::take_properties(src)?;
 
