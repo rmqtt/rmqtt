@@ -1,12 +1,13 @@
+use log::LevelFilter;
+use simple_logger::SimpleLogger;
+
 use rmqtt::context::ServerContext;
 use rmqtt::net::{Builder, Result};
 use rmqtt::server::MqttServer;
 
-//cargo build -r --example multi --features tls,ws
 #[tokio::main]
 async fn main() -> Result<()> {
-    std::env::set_var("RUST_LOG", "multi=debug,rmqtt=info,rmqtt_net=info,rmqtt_codec=info");
-    env_logger::init();
+    SimpleLogger::new().with_level(LevelFilter::Info).init()?;
 
     let scx = ServerContext::new().build().await;
 
