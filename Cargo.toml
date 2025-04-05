@@ -37,7 +37,7 @@ rmqtt-retainer = { path = "rmqtt-plugins/rmqtt-retainer" }
 rmqtt-auto-subscription = { path = "rmqtt-plugins/rmqtt-auto-subscription"}
 #rmqtt-bridge-ingress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-ingress-mqtt" }
 #rmqtt-bridge-egress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-egress-mqtt" }
-#rmqtt-bridge-ingress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-ingress-kafka" }
+rmqtt-bridge-ingress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-ingress-kafka" }
 rmqtt-bridge-egress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-egress-kafka" }
 #rmqtt-bridge-ingress-pulsar = { path = "rmqtt-plugins/rmqtt-bridge-ingress-pulsar"}
 #rmqtt-bridge-egress-pulsar = { path = "rmqtt-plugins/rmqtt-bridge-egress-pulsar"}
@@ -72,6 +72,7 @@ rmqtt-auth-http = "0.1"
 rmqtt-auth-jwt = "0.1"
 rmqtt-auto-subscription = "0.1"
 rmqtt-bridge-egress-kafka = "0.1"
+rmqtt-bridge-ingress-kafka = "0.1"
 
 tokio = { version = "1.44",  default-features = false }
 reqwest = "0.12"
