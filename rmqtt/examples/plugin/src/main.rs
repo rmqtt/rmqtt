@@ -18,7 +18,9 @@ async fn main() -> Result<()> {
     rmqtt_counter::register(&scx, "rmqtt-counter", true, false).await?;
     rmqtt_retainer::register(&scx, "rmqtt-retainer", true, false).await?;
     rmqtt_bridge_egress_kafka::register(&scx, "rmqtt-bridge-egress-kafka", true, false).await?;
+    rmqtt_bridge_ingress_kafka::register(&scx, "rmqtt-bridge-ingress-kafka", true, false).await?;
     rmqtt_auto_subscription::register(&scx, "rmqtt-auto-subscription", true, false).await?;
+    rmqtt_message_storage::register(&scx, "rmqtt-message-storage", true, false).await?;
 
     MqttServer::new(scx)
         .listener(Builder::new().name("external/tcp").laddr(([0, 0, 0, 0], 1883).into()).bind()?.tcp()?)

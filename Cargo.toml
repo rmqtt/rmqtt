@@ -32,7 +32,7 @@ rmqtt-http-api = { path = "rmqtt-plugins/rmqtt-http-api" }
 rmqtt-retainer = { path = "rmqtt-plugins/rmqtt-retainer" }
 #rmqtt-sys-topic = { path = "rmqtt-plugins/rmqtt-sys-topic" }
 #rmqtt-session-storage = { path = "rmqtt-plugins/rmqtt-session-storage" }
-#rmqtt-message-storage = { path = "rmqtt-plugins/rmqtt-message-storage" }
+rmqtt-message-storage = { path = "rmqtt-plugins/rmqtt-message-storage" }
 #rmqtt-topic-rewrite = { path = "rmqtt-plugins/rmqtt-topic-rewrite" }
 rmqtt-auto-subscription = { path = "rmqtt-plugins/rmqtt-auto-subscription"}
 #rmqtt-bridge-ingress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-ingress-mqtt" }
@@ -73,6 +73,7 @@ rmqtt-auth-jwt = "0.1"
 rmqtt-auto-subscription = "0.1"
 rmqtt-bridge-egress-kafka = "0.1"
 rmqtt-bridge-ingress-kafka = "0.1"
+rmqtt-message-storage = "0.1"
 
 tokio = { version = "1.44",  default-features = false }
 reqwest = "0.12"

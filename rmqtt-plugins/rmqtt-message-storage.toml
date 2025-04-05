@@ -1,0 +1,22 @@
+##--------------------------------------------------------------------
+## rmqtt-message-storage
+##--------------------------------------------------------------------
+
+##ram, redis, redis-cluster
+storage.type = "ram"
+
+##ram
+storage.ram.cache_capacity = "3G"
+storage.ram.cache_max_count = 1_000_000
+storage.ram.encode = true
+
+##redis
+storage.redis.url = "redis://127.0.0.1:6379/"
+storage.redis.prefix = "message-{node}"
+
+##redis-cluster
+storage.redis-cluster.urls = ["redis://127.0.0.1:6380/", "redis://127.0.0.1:6381/", "redis://127.0.0.1:6382/"]
+storage.redis-cluster.prefix = "message-{node}"
+
+##Quantity of expired messages cleared during each cleanup cycle.
+cleanup_count = 5000

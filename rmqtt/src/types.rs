@@ -46,6 +46,7 @@ use crate::codec::types::Publish as PublishInner;
 use crate::context::ServerContext;
 use crate::inflight::{OutInflight, OutInflightMessage};
 use crate::session::OfflineInfo;
+use crate::topic::Level;
 
 pub type Publish = Box<PublishInner>;
 
@@ -2790,20 +2791,20 @@ impl DisconnectInfo {
     }
 }
 
-// #[inline]
-// pub fn topic_size(topic: &Topic) -> usize {
-//     topic
-//         .iter()
-//         .map(|l| {
-//             let data_len = match l {
-//                 TopicLevel::Normal(s) => s.len(),
-//                 TopicLevel::Metadata(s) => s.len(),
-//                 _ => 0,
-//             };
-//             size_of::<TopicLevel>() + data_len
-//         })
-//         .sum::<usize>()
-// }
+#[inline]
+pub fn topic_size(topic: &Topic) -> usize {
+    topic
+        .iter()
+        .map(|l| {
+            let data_len = match l {
+                Level::Normal(s) => s.len(),
+                Level::Metadata(s) => s.len(),
+                _ => 0,
+            };
+            size_of::<Level>() + data_len
+        })
+        .sum::<usize>()
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DelayedPublish {

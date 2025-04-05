@@ -12,6 +12,8 @@ rmqtt-auth-http.workspace = true
 rmqtt-auth-jwt.workspace = true
 rmqtt-auto-subscription.workspace = true
 rmqtt-bridge-egress-kafka.workspace = true
+rmqtt-bridge-ingress-kafka.workspace = true
+rmqtt-message-storage.workspace = true
 
 rmqtt = { workspace = true, features = ["plugin"] }
 tokio = { workspace = true, features = ["macros"] }
