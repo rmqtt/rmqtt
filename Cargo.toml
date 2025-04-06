@@ -36,7 +36,7 @@ rmqtt-message-storage = { path = "rmqtt-plugins/rmqtt-message-storage" }
 rmqtt-topic-rewrite = { path = "rmqtt-plugins/rmqtt-topic-rewrite" }
 rmqtt-auto-subscription = { path = "rmqtt-plugins/rmqtt-auto-subscription"}
 #rmqtt-bridge-ingress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-ingress-mqtt" }
-#rmqtt-bridge-egress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-egress-mqtt" }
+rmqtt-bridge-egress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-egress-mqtt" }
 rmqtt-bridge-ingress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-ingress-kafka" }
 rmqtt-bridge-egress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-egress-kafka" }
 #rmqtt-bridge-ingress-pulsar = { path = "rmqtt-plugins/rmqtt-bridge-ingress-pulsar"}
@@ -73,6 +73,7 @@ rmqtt-auth-jwt = "0.1"
 rmqtt-auto-subscription = "0.1"
 rmqtt-bridge-egress-kafka = "0.1"
 rmqtt-bridge-ingress-kafka = "0.1"
+rmqtt-bridge-egress-mqtt = "0.1"
 rmqtt-message-storage = "0.1"
 rmqtt-session-storage = "0.1"
 rmqtt-sys-topic = "0.1"
@@ -129,6 +130,7 @@ itoa = "=1.0.14"
 simple_logger = { version = "5.0.0", default-features = false }
 regex = "=1.11.1"
 backoff = "0.4"
+webpki-roots = "0.26"
 
 [profile.dev]
 opt-level = 0
