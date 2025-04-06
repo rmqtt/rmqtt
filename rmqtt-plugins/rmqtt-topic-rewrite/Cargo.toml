@@ -1,0 +1,20 @@
+[package]
+name = "rmqtt-topic-rewrite"
+version = "0.1.0"
+description = "Topic rewrite"
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+rmqtt = { workspace = true, features = ["plugin"] }
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["sync"] }
+async-trait.workspace = true
+log.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+regex.workspace = true
+
+

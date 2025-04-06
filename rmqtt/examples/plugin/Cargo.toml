@@ -15,7 +15,8 @@ edition.workspace = true
 #rmqtt-bridge-ingress-kafka.workspace = true
 #rmqtt-message-storage.workspace = true
 #rmqtt-session-storage.workspace = true
-rmqtt-sys-topic.workspace = true
+#rmqtt-sys-topic.workspace = true
+rmqtt-topic-rewrite.workspace = true
 
 rmqtt = { workspace = true, features = ["plugin"] }
 tokio = { workspace = true, features = ["macros"] }
