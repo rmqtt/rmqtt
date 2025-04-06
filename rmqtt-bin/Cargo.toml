@@ -54,11 +54,11 @@ rmqtt-session-storage.workspace = true
 rmqtt-sys-topic.workspace = true
 rmqtt-topic-rewrite.workspace = true
 rmqtt-web-hook.workspace = true
+rmqtt-bridge-egress-nats.workspace = true
+rmqtt-bridge-egress-reductstore.workspace = true
 
 #rmqtt-cluster-broadcast = "0.1"
 #rmqtt-cluster-raft = "0.1"
-#rmqtt-bridge-egress-nats = "0.1"
-#rmqtt-bridge-egress-reductstore = "0.1"
 #rmqtt-plugin-template = "0.1"
 
 [package.metadata.plugins]
@@ -75,6 +75,8 @@ rmqtt-bridge-egress-mqtt = { }
 rmqtt-bridge-ingress-mqtt = { }
 rmqtt-bridge-egress-pulsar = { }
 rmqtt-bridge-ingress-pulsar = { }
+rmqtt-bridge-egress-nats = { }
+rmqtt-bridge-egress-reductstore = { }
 rmqtt-message-storage = { immutable = true }
 rmqtt-session-storage = { immutable = true }
 rmqtt-sys-topic = { }
@@ -83,8 +85,6 @@ rmqtt-web-hook = { }
 
 #rmqtt-cluster-broadcast = { immutable = true }
 #rmqtt-cluster-raft = { immutable = true }
-#rmqtt-bridge-egress-nats = { }
-#rmqtt-bridge-egress-reductstore = { }
 #rmqtt-plugin-template = { }
 
 [build-dependencies]
