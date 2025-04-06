@@ -46,13 +46,13 @@ rmqtt-auto-subscription.workspace = true
 rmqtt-bridge-egress-kafka.workspace = true
 rmqtt-bridge-ingress-kafka.workspace = true
 rmqtt-message-storage.workspace = true
+rmqtt-session-storage.workspace = true
 
 #rmqtt-web-hook = "0.1"
 #rmqtt-cluster-broadcast = "0.1"
 #rmqtt-cluster-raft = "0.1"
 #rmqtt-http-api = "0.1"
 #rmqtt-sys-topic = "0.1"
-#rmqtt-session-storage = "0.1"
 #rmqtt-topic-rewrite = "0.1"
 #rmqtt-bridge-ingress-mqtt = "0.1"
 #rmqtt-bridge-egress-mqtt = "0.1"
@@ -73,12 +73,12 @@ rmqtt-auto-subscription = { }
 rmqtt-bridge-egress-kafka = { }
 rmqtt-bridge-ingress-kafka = { }
 rmqtt-message-storage = { immutable = true }
+rmqtt-session-storage = { immutable = true }
 
 #rmqtt-web-hook = { }
 #rmqtt-cluster-broadcast = { immutable = true }
 #rmqtt-cluster-raft = { immutable = true }
 #rmqtt-sys-topic = { }
-#rmqtt-session-storage = { immutable = true }
 #rmqtt-topic-rewrite = { }
 #rmqtt-bridge-ingress-mqtt = { }
 #rmqtt-bridge-egress-mqtt = { }

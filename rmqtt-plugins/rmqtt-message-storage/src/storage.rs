@@ -510,7 +510,7 @@ impl StorageMessageManagerInner {
 
     #[inline]
     async fn _get_message(&self, msg_map: &StorageMap) -> Result<Option<StoredMessage>> {
-        Ok(msg_map.get::<_, StoredMessage>(DATA).await?)
+        msg_map.get::<_, StoredMessage>(DATA).await
     }
 }
 

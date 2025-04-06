@@ -2,7 +2,6 @@ use serde::{
     de::{self, Deserializer},
     Deserialize, Serialize,
 };
-use serde_json;
 
 use rmqtt::utils::Bytesize;
 

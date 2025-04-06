@@ -420,6 +420,51 @@ impl SessionState {
     }
 
     #[inline]
+    pub async fn offline_restart(session: Session, session_expiry_interval: Duration) -> Result<Tx> {
+        let hook = session.scx.extends.hook_mgr().hook(session.clone());
+
+        let mut state = SessionState::new(session, hook, 0, 0);
+        let msg_tx = state.tx.clone();
+        let limiter = {
+            let (burst, replenish_n_per) = state.fitter.mqueue_rate_limit();
+            Limiter::new(burst, replenish_n_per)
+        };
+
+        tokio::spawn(async move {
+            let (deliver_queue_tx, _deliver_queue_rx) = state.deliver_queue_channel(&limiter);
+            let mut flags = StateFlags::empty();
+
+            let disconnect = state.disconnect().await.unwrap_or(None);
+            let clean_session = state.clean_session(disconnect.as_ref()).await;
+
+            //Last will message
+            let will_delay_interval = if state.last_will_enable(flags, clean_session) {
+                let will_delay_interval = state.will_delay_interval().await;
+                if clean_session || will_delay_interval.is_none() {
+                    if let Err(e) = state.process_last_will().await {
+                        log::error!("{:?} process last will error, {:?}", state.id, e);
+                    }
+                    None
+                } else {
+                    will_delay_interval
+                }
+            } else {
+                None
+            };
+
+            state
+                .offline_run_loop(&deliver_queue_tx, &mut flags, will_delay_interval, session_expiry_interval)
+                .await;
+
+            if !flags.contains(StateFlags::Kicked) {
+                state.clean(&deliver_queue_tx, Reason::SessionExpiration).await;
+            }
+        });
+
+        Ok(msg_tx)
+    }
+
+    #[inline]
     async fn process_message<Io>(
         &mut self,
         sink: &mut Sink<Io>,
@@ -1862,7 +1907,7 @@ pub trait SessionManager: Sync + Send {
         fitter: FitterType,
         subscriptions: SessionSubs,
         deliver_queue: MessageQueueType,
-        inflight_win: OutInflightType,
+        outinflight: OutInflightType,
         conn_info: ConnectInfoType,
         created_at: TimestampMillis,
         connected_at: TimestampMillis,
@@ -1996,7 +2041,7 @@ pub struct DefaultSession {
     listen_cfg: ListenerConfig,
     pub subscriptions: SessionSubs,
     deliver_queue: MessageQueueType,
-    inflight_win: OutInflightType,
+    outinflight: OutInflightType,
     conn_info: ConnectInfoType,
 
     created_at: TimestampMillis,
@@ -2014,7 +2059,7 @@ impl DefaultSession {
         listen_cfg: ListenerConfig,
         subscriptions: SessionSubs,
         deliver_queue: MessageQueueType,
-        inflight_win: OutInflightType,
+        outinflight: OutInflightType,
         conn_info: ConnectInfoType,
 
         created_at: TimestampMillis,
@@ -2042,7 +2087,7 @@ impl DefaultSession {
             listen_cfg,
             subscriptions,
             deliver_queue,
-            inflight_win,
+            outinflight,
             conn_info,
 
             created_at,
@@ -2077,7 +2122,7 @@ impl SessionLike for DefaultSession {
 
     #[inline]
     fn inflight_win(&self) -> &OutInflightType {
-        &self.inflight_win
+        &self.outinflight
     }
 
     #[inline]
@@ -2188,7 +2233,7 @@ impl SessionLike for DefaultSession {
 
     #[inline]
     async fn on_drop(&self) -> Result<()> {
-        self.subscriptions._clear(&self.scx).await;
+        self.subscriptions.clear(&self.scx).await;
         Ok(())
     }
 }

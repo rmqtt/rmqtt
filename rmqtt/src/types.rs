@@ -2208,7 +2208,7 @@ impl SessionSubs {
     }
 
     #[inline]
-    pub(crate) async fn _clear(&self, #[allow(unused_variables)] scx: &ServerContext) {
+    pub async fn clear(&self, #[allow(unused_variables)] scx: &ServerContext) {
         {
             let subs = self.subs.read().await;
             #[allow(unused_variables)]

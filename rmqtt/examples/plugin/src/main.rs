@@ -11,16 +11,17 @@ async fn main() -> Result<()> {
 
     let scx = ServerContext::new().plugins_dir("rmqtt-plugins/").build().await;
 
-    rmqtt_acl::register(&scx, "rmqtt-acl", true, false).await?;
-    rmqtt_auth_http::register(&scx, "rmqtt-auth-http", true, false).await?;
-    rmqtt_auth_jwt::register(&scx, "rmqtt-auth-jwt", true, false).await?;
-    rmqtt_http_api::register(&scx, "rmqtt-http-api", true, false).await?;
-    rmqtt_counter::register(&scx, "rmqtt-counter", true, false).await?;
-    rmqtt_retainer::register(&scx, "rmqtt-retainer", true, false).await?;
-    rmqtt_bridge_egress_kafka::register(&scx, "rmqtt-bridge-egress-kafka", true, false).await?;
-    rmqtt_bridge_ingress_kafka::register(&scx, "rmqtt-bridge-ingress-kafka", true, false).await?;
-    rmqtt_auto_subscription::register(&scx, "rmqtt-auto-subscription", true, false).await?;
-    rmqtt_message_storage::register(&scx, "rmqtt-message-storage", true, false).await?;
+    // rmqtt_acl::register(&scx, "rmqtt-acl", true, false).await?;
+    // rmqtt_auth_http::register(&scx, "rmqtt-auth-http", true, false).await?;
+    // rmqtt_auth_jwt::register(&scx, "rmqtt-auth-jwt", true, false).await?;
+    // rmqtt_http_api::register(&scx, "rmqtt-http-api", true, false).await?;
+    // rmqtt_counter::register(&scx, "rmqtt-counter", true, false).await?;
+    // rmqtt_retainer::register(&scx, "rmqtt-retainer", true, false).await?;
+    // rmqtt_bridge_egress_kafka::register(&scx, "rmqtt-bridge-egress-kafka", true, false).await?;
+    // rmqtt_bridge_ingress_kafka::register(&scx, "rmqtt-bridge-ingress-kafka", true, false).await?;
+    // rmqtt_auto_subscription::register(&scx, "rmqtt-auto-subscription", true, false).await?;
+    // rmqtt_message_storage::register(&scx, "rmqtt-message-storage", true, false).await?;
+    // rmqtt_session_storage::register(&scx, "rmqtt-session-storage", true, false).await?;
 
     MqttServer::new(scx)
         .listener(Builder::new().name("external/tcp").laddr(([0, 0, 0, 0], 1883).into()).bind()?.tcp()?)

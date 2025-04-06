@@ -21,12 +21,15 @@ impl MqttServerBuilder {
     }
 
     pub fn listener(mut self, listen: Listener) -> Self {
+        self.scx.listen_cfgs.insert(listen.cfg.laddr.port(), listen.cfg.clone());
         self.listeners.push(listen);
         self
     }
 
     pub fn listeners<I: IntoIterator<Item = Listener>>(mut self, listens: I) -> Self {
-        self.listeners.extend(listens);
+        for l in listens {
+            self = self.listener(l);
+        }
         self
     }
 
@@ -71,6 +74,7 @@ impl MqttServer {
     pub async fn run(self) -> Result<()> {
         //hook, before startup
         self.scx.extends.hook_mgr().before_startup().await;
+        //@TODO 启动时如果有一个错误就必须退出 ...
         futures::future::join_all(
             self.listeners
                 .iter()

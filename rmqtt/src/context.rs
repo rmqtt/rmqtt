@@ -19,7 +19,7 @@ use crate::shared::DefaultShared;
 #[cfg(feature = "stats")]
 use crate::stats::Stats;
 use crate::utils::Counter;
-use crate::{extend, NodeId};
+use crate::{extend, DashMap, ListenerConfig, NodeId, Port};
 
 pub struct ServerContextBuilder {
     node: Node,
@@ -118,6 +118,7 @@ impl ServerContextBuilder {
         ServerContext {
             inner: Arc::new(ServerContextInner {
                 node: self.node,
+                listen_cfgs: DashMap::default(),
                 extends: extend::Manager::new(),
                 #[cfg(feature = "plugin")]
                 plugins: plugin::Manager::new(self.plugins_dir),
@@ -150,6 +151,7 @@ pub struct ServerContext {
 
 pub struct ServerContextInner {
     pub node: Node,
+    pub listen_cfgs: DashMap<Port, ListenerConfig>,
     pub extends: extend::Manager,
     #[cfg(feature = "plugin")]
     pub plugins: plugin::Manager,
