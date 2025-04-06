@@ -68,7 +68,6 @@ mod tests {
         if decoded.as_ref().map_err(|e| e.to_string()) != res {
             panic!("decoded packet does not match expectations.\nexpected: {:?}\nactual: {:?}\nencoding output for expected: {:X?}", res, decoded, tmp.as_ref());
         }
-        assert_eq!(decoded.unwrap(), *res.unwrap());
     }
 
     #[test]
