@@ -468,7 +468,8 @@ impl MessageManager for &'static RamMessageManager {
 
 #[test]
 fn test_message_manager() {
-    use rmqtt::{bytes, From, Id, PublishProperties, QoS, TopicName};
+    use rmqtt::codec::v5::PublishProperties;
+    use rmqtt::{From, Id, QoS, TopicName};
 
     let runner = async move {
         let cfg = RamConfig::default();
@@ -476,17 +477,17 @@ fn test_message_manager() {
             as &'static RamMessageManager;
         sleep(Duration::from_millis(10)).await;
         let f = From::from_custom(Id::from(1, ClientId::from("test-001")));
-        let mut p = Publish {
+        let mut p = Box::new(rmqtt::codec::types::Publish {
             dup: false,
             retain: false,
             qos: QoS::try_from(1).unwrap(),
             topic: TopicName::from(""),
             packet_id: Some(std::num::NonZeroU16::try_from(1).unwrap()),
             payload: bytes::Bytes::from("test ..."),
-            properties: PublishProperties::default(),
+            properties: Some(PublishProperties::default()),
             delay_interval: None,
-            create_time: timestamp_millis(),
-        };
+            create_time: Some(timestamp_millis()),
+        });
 
         let now = std::time::Instant::now();
         for i in 0..5 {

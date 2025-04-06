@@ -23,6 +23,7 @@ once_cell.workspace = true
 get-size.workspace = true
 scc.workspace = true
 
-
+[dev-dependencies]
+bytes.workspace = true
 
 
