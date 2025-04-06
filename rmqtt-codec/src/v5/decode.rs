@@ -44,7 +44,7 @@ mod tests {
     use tokio_util::codec::Encoder;
 
     use super::*;
-    use crate::utils::{decode_variable_length, timestamp_millis};
+    use crate::utils::decode_variable_length;
     use crate::v5::UserProperties;
 
     fn packet_id(v: u16) -> NonZeroU16 {
@@ -58,12 +58,17 @@ mod tests {
         let cur = Bytes::copy_from_slice(&bytes[consumed + 1..]);
         let mut tmp = BytesMut::with_capacity(4096);
         Encoder::encode(&mut crate::v5::codec::Codec::default(), res.clone(), &mut tmp).unwrap();
-        let decoded = decode_packet(cur, fixed);
+        let decoded = decode_packet(cur, fixed).map(|mut packet| {
+            if let Packet::Publish(p) = &mut packet {
+                p.create_time = None;
+            }
+            packet
+        });
         let res = Ok(&res);
         if decoded.as_ref().map_err(|e| e.to_string()) != res {
             panic!("decoded packet does not match expectations.\nexpected: {:?}\nactual: {:?}\nencoding output for expected: {:X?}", res, decoded, tmp.as_ref());
         }
-        //assert_eq!(, Ok(res));
+        assert_eq!(decoded.unwrap(), *res.unwrap());
     }
 
     #[test]
@@ -186,7 +191,7 @@ mod tests {
             payload: Bytes::new(),
             properties: Some(PublishProperties::default()),
             delay_interval: None,
-            create_time: Some(timestamp_millis()),
+            create_time: None,
         }
     }
 
