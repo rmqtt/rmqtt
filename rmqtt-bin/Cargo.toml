@@ -47,6 +47,8 @@ rmqtt-bridge-egress-kafka.workspace = true
 rmqtt-bridge-ingress-kafka.workspace = true
 rmqtt-bridge-egress-mqtt.workspace = true
 rmqtt-bridge-ingress-mqtt.workspace = true
+rmqtt-bridge-egress-pulsar.workspace = true
+rmqtt-bridge-ingress-pulsar.workspace = true
 rmqtt-message-storage.workspace = true
 rmqtt-session-storage.workspace = true
 rmqtt-sys-topic.workspace = true
@@ -55,9 +57,6 @@ rmqtt-web-hook.workspace = true
 
 #rmqtt-cluster-broadcast = "0.1"
 #rmqtt-cluster-raft = "0.1"
-#rmqtt-http-api = "0.1"
-#rmqtt-bridge-egress-pulsar = "0.1"
-#rmqtt-bridge-ingress-pulsar = "0.1"
 #rmqtt-bridge-egress-nats = "0.1"
 #rmqtt-bridge-egress-reductstore = "0.1"
 #rmqtt-plugin-template = "0.1"
@@ -74,6 +73,8 @@ rmqtt-bridge-egress-kafka = { }
 rmqtt-bridge-ingress-kafka = { }
 rmqtt-bridge-egress-mqtt = { }
 rmqtt-bridge-ingress-mqtt = { }
+rmqtt-bridge-egress-pulsar = { }
+rmqtt-bridge-ingress-pulsar = { }
 rmqtt-message-storage = { immutable = true }
 rmqtt-session-storage = { immutable = true }
 rmqtt-sys-topic = { }
@@ -82,8 +83,6 @@ rmqtt-web-hook = { }
 
 #rmqtt-cluster-broadcast = { immutable = true }
 #rmqtt-cluster-raft = { immutable = true }
-#rmqtt-bridge-egress-pulsar = { }
-#rmqtt-bridge-ingress-pulsar = { }
 #rmqtt-bridge-egress-nats = { }
 #rmqtt-bridge-egress-reductstore = { }
 #rmqtt-plugin-template = { }
