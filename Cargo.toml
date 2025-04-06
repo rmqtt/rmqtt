@@ -35,7 +35,7 @@ rmqtt-session-storage = { path = "rmqtt-plugins/rmqtt-session-storage" }
 rmqtt-message-storage = { path = "rmqtt-plugins/rmqtt-message-storage" }
 rmqtt-topic-rewrite = { path = "rmqtt-plugins/rmqtt-topic-rewrite" }
 rmqtt-auto-subscription = { path = "rmqtt-plugins/rmqtt-auto-subscription"}
-#rmqtt-bridge-ingress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-ingress-mqtt" }
+rmqtt-bridge-ingress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-ingress-mqtt" }
 rmqtt-bridge-egress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-egress-mqtt" }
 rmqtt-bridge-ingress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-ingress-kafka" }
 rmqtt-bridge-egress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-egress-kafka" }
@@ -74,11 +74,13 @@ rmqtt-auto-subscription = "0.1"
 rmqtt-bridge-egress-kafka = "0.1"
 rmqtt-bridge-ingress-kafka = "0.1"
 rmqtt-bridge-egress-mqtt = "0.1"
+rmqtt-bridge-ingress-mqtt = "0.1"
 rmqtt-message-storage = "0.1"
 rmqtt-session-storage = "0.1"
 rmqtt-sys-topic = "0.1"
 rmqtt-topic-rewrite = "0.1"
 rmqtt-web-hook = "0.1"
+
 
 tokio = { version = "1.44",  default-features = false }
 reqwest = "0.12"
