@@ -22,7 +22,7 @@ rmqtt-utils = { path = "rmqtt-utils" }
 
 #rmqtt-plugin-template = { path = "rmqtt-plugins/rmqtt-plugin-template" }
 rmqtt-acl = { path = "rmqtt-plugins/rmqtt-acl" }
-#rmqtt-web-hook = { path = "rmqtt-plugins/rmqtt-web-hook" }
+rmqtt-web-hook = { path = "rmqtt-plugins/rmqtt-web-hook" }
 rmqtt-auth-http = { path = "rmqtt-plugins/rmqtt-auth-http" }
 rmqtt-auth-jwt = { path = "rmqtt-plugins/rmqtt-auth-jwt" }
 #rmqtt-cluster-broadcast = { path = "rmqtt-plugins/rmqtt-cluster-broadcast" }
@@ -77,6 +77,7 @@ rmqtt-message-storage = "0.1"
 rmqtt-session-storage = "0.1"
 rmqtt-sys-topic = "0.1"
 rmqtt-topic-rewrite = "0.1"
+rmqtt-web-hook = "0.1"
 
 tokio = { version = "1.44",  default-features = false }
 reqwest = "0.12"
@@ -127,6 +128,7 @@ nonzero_ext = "0.3"
 itoa = "=1.0.14"
 simple_logger = { version = "5.0.0", default-features = false }
 regex = "=1.11.1"
+backoff = "0.4"
 
 [profile.dev]
 opt-level = 0

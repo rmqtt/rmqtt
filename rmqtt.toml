@@ -66,7 +66,7 @@ plugins.dir = "rmqtt-plugins/"
 #Plug in started by default, when the mqtt server is started
 plugins.default_startups = [
     #"rmqtt-plugin-template",
-    "rmqtt-retainer",
+    #"rmqtt-retainer",
     #"rmqtt-auth-http",
     #"rmqtt-cluster-broadcast",
     #"rmqtt-cluster-raft",
