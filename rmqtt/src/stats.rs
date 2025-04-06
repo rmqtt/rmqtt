@@ -94,10 +94,9 @@ impl Stats {
         }
 
         //@TODO
-        // self.handshakings.current_set(handshakings());
-        // self.handshakings_active.current_set(get_active_count());
-        // self.handshakings_rate.sets((get_rate() * 100.0) as isize);
-
+        self.handshakings.set(&scx.handshakings);
+        self.handshakings_active.current_set(scx.handshake_exec.active_count());
+        self.handshakings_rate.sets((scx.handshake_exec.get_rate().await * 100.0) as isize);
         self.connections.set(&scx.connections);
         self.sessions.set(&scx.sessions);
 

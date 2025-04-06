@@ -46,6 +46,7 @@ use crate::codec::types::Publish as PublishInner;
 use crate::context::ServerContext;
 use crate::inflight::{OutInflight, OutInflightMessage};
 use crate::session::OfflineInfo;
+use crate::topic::Level;
 
 pub type Publish = Box<PublishInner>;
 
@@ -613,12 +614,14 @@ impl SubscriptionOptions {
     }
 
     #[inline]
-    #[cfg(feature = "shared-subscription")]
     pub fn shared_group(&self) -> Option<&SharedGroup> {
+        #[cfg(feature = "shared-subscription")]
         match self {
             SubscriptionOptions::V3(opts) => opts.shared_group.as_ref(),
             SubscriptionOptions::V5(opts) => opts.shared_group.as_ref(),
         }
+        #[cfg(not(feature = "shared-subscription"))]
+        None
     }
 
     #[inline]
@@ -631,12 +634,14 @@ impl SubscriptionOptions {
     }
 
     #[inline]
-    #[cfg(feature = "limit-subscription")]
     pub fn limit_subs(&self) -> Option<usize> {
+        #[cfg(feature = "limit-subscription")]
         match self {
             SubscriptionOptions::V3(opts) => opts.limit_subs,
             SubscriptionOptions::V5(opts) => opts.limit_subs,
         }
+        #[cfg(not(feature = "limit-subscription"))]
+        None
     }
 
     #[inline]
@@ -709,7 +714,7 @@ impl SubOptionsV3 {
         let mut obj = json!({
             "qos": self.qos.value(),
         });
-        #[cfg(any(feature = "auto-subscription", feature = "shared-subscription"))]
+        #[cfg(any(feature = "limit-subscription", feature = "shared-subscription"))]
         if let Some(obj) = obj.as_object_mut() {
             #[cfg(feature = "shared-subscription")]
             if let Some(g) = &self.shared_group {
@@ -2024,7 +2029,10 @@ pub enum Message {
     Forward(From, Publish),
     SendRerelease(OutInflightMessage),
     Kick(oneshot::Sender<()>, Id, CleanStart, IsAdmin),
+    // Disconnect(Disconnect),
+    Closed(Reason),
     Subscribe(Subscribe, oneshot::Sender<Result<SubscribeReturn>>),
+    Subscribes(Vec<Subscribe>, Option<oneshot::Sender<Vec<Result<SubscribeReturn>>>>),
     Unsubscribe(Unsubscribe, oneshot::Sender<Result<()>>),
     SessionStateTransfer(OfflineInfo, CleanStart),
 }
@@ -2200,7 +2208,7 @@ impl SessionSubs {
     }
 
     #[inline]
-    pub(crate) async fn _clear(&self, #[allow(unused_variables)] scx: &ServerContext) {
+    pub async fn clear(&self, #[allow(unused_variables)] scx: &ServerContext) {
         {
             let subs = self.subs.read().await;
             #[allow(unused_variables)]
@@ -2478,6 +2486,7 @@ pub enum Reason {
     ConnectRemoteClose,
     ConnectKeepaliveTimeout,
     ConnectKicked(IsAdmin),
+    HandshakeRateExceeded,
     SessionExpiration,
     SubscribeFailed(Option<ByteString>),
     UnsubscribeFailed(Option<ByteString>),
@@ -2563,6 +2572,7 @@ impl ToReasonCode for Reason {
                     DisconnectReasonCode::NotAuthorized
                 }
             }
+            Reason::HandshakeRateExceeded => DisconnectReasonCode::ConnectionRateExceeded,
             Reason::SessionExpiration => DisconnectReasonCode::SessionTakenOver,
             Reason::SubscribeFailed(_) => DisconnectReasonCode::UnspecifiedError,
             Reason::UnsubscribeFailed(_) => DisconnectReasonCode::UnspecifiedError,
@@ -2617,6 +2627,9 @@ impl Display for Reason {
                 } else {
                     "Kicked" //kicked
                 }
+            }
+            Reason::HandshakeRateExceeded => {
+                "HandshakeRateExceeded" //handshake rate exceeded
             }
             Reason::SessionExpiration => {
                 "SessionExpiration" //session expiration
@@ -2778,20 +2791,20 @@ impl DisconnectInfo {
     }
 }
 
-// #[inline]
-// pub fn topic_size(topic: &Topic) -> usize {
-//     topic
-//         .iter()
-//         .map(|l| {
-//             let data_len = match l {
-//                 TopicLevel::Normal(s) => s.len(),
-//                 TopicLevel::Metadata(s) => s.len(),
-//                 _ => 0,
-//             };
-//             size_of::<TopicLevel>() + data_len
-//         })
-//         .sum::<usize>()
-// }
+#[inline]
+pub fn topic_size(topic: &Topic) -> usize {
+    topic
+        .iter()
+        .map(|l| {
+            let data_len = match l {
+                Level::Normal(s) => s.len(),
+                Level::Metadata(s) => s.len(),
+                _ => 0,
+            };
+            size_of::<Level>() + data_len
+        })
+        .sum::<usize>()
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DelayedPublish {

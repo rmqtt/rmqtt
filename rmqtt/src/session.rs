@@ -14,7 +14,6 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use rmqtt_codec::v5::{Auth, PublishAck2, PublishAck2Reason, RetainHandling, ToReasonCode, UserProperties};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::RwLock;
 use tokio::time::{Duration, Instant};
@@ -22,7 +21,7 @@ use tokio::time::{Duration, Instant};
 use crate::acl::AuthInfo;
 use crate::codec::{
     v3,
-    v5::{self, SubscribeAckReason},
+    v5::{self, Auth, PublishAck2, PublishAck2Reason, SubscribeAckReason, ToReasonCode, UserProperties},
 };
 use crate::context::ServerContext;
 use crate::hook::Hook;
@@ -109,13 +108,13 @@ impl SessionState {
     }
 
     #[inline]
-    pub(crate) async fn run<Io>(mut self, mut sink: Sink<Io>, keep_alive: u16) -> Result<()>
+    pub(crate) async fn run<Io>(mut self, mut sink: Sink<Io>, keep_alive: u16)
     where
         Io: AsyncRead + AsyncWrite + Unpin,
     {
         let limiter = {
             let (burst, replenish_n_per) = self.fitter.mqueue_rate_limit();
-            Limiter::new(burst, replenish_n_per)?
+            Limiter::new(burst, replenish_n_per)
         };
 
         let (deliver_queue_tx, mut deliver_queue_rx) = self.deliver_queue_channel(&limiter);
@@ -129,7 +128,7 @@ impl SessionState {
             }
             Err(reason) => {
                 log::debug!("{} Reason: {}", self.id, reason);
-                self.disconnected_reason_add(reason).await?;
+                let _ = self.disconnected_reason_add(reason).await;
             }
         }
         self.scx.connections.dec();
@@ -138,10 +137,10 @@ impl SessionState {
         let clean_session = self.clean_session(disconnect.as_ref()).await;
 
         log::debug!(
-            "{:?} exit online worker, flags: {:?}, clean_session: {} {}",
+            "{:?} exit online worker, flags: {:?}, clean_session: {:?} {}",
             self.id,
             flags,
-            self.connect_info().await?.clean_start(),
+            self.connect_info().await.map(|c| c.clean_start()),
             flags.contains(StateFlags::CleanStart)
         );
 
@@ -151,10 +150,10 @@ impl SessionState {
         }
 
         log::debug!(
-            "{} disconnected_reason({}): {}",
+            "{} disconnected_reason({}): {:?}",
             self.id,
-            self.disconnected_reasons().await?.len(),
-            self.disconnected_reason().await?
+            self.disconnected_reasons().await.map(|rs| rs.len()).unwrap_or_default(),
+            self.disconnected_reason().await
         );
 
         //Last will message
@@ -229,8 +228,6 @@ impl SessionState {
                 self.clean(&deliver_queue_tx, Reason::SessionExpiration).await;
             }
         }
-
-        Ok(())
     }
 
     #[inline]
@@ -423,6 +420,51 @@ impl SessionState {
     }
 
     #[inline]
+    pub async fn offline_restart(session: Session, session_expiry_interval: Duration) -> Result<Tx> {
+        let hook = session.scx.extends.hook_mgr().hook(session.clone());
+
+        let mut state = SessionState::new(session, hook, 0, 0);
+        let msg_tx = state.tx.clone();
+        let limiter = {
+            let (burst, replenish_n_per) = state.fitter.mqueue_rate_limit();
+            Limiter::new(burst, replenish_n_per)
+        };
+
+        tokio::spawn(async move {
+            let (deliver_queue_tx, _deliver_queue_rx) = state.deliver_queue_channel(&limiter);
+            let mut flags = StateFlags::empty();
+
+            let disconnect = state.disconnect().await.unwrap_or(None);
+            let clean_session = state.clean_session(disconnect.as_ref()).await;
+
+            //Last will message
+            let will_delay_interval = if state.last_will_enable(flags, clean_session) {
+                let will_delay_interval = state.will_delay_interval().await;
+                if clean_session || will_delay_interval.is_none() {
+                    if let Err(e) = state.process_last_will().await {
+                        log::error!("{:?} process last will error, {:?}", state.id, e);
+                    }
+                    None
+                } else {
+                    will_delay_interval
+                }
+            } else {
+                None
+            };
+
+            state
+                .offline_run_loop(&deliver_queue_tx, &mut flags, will_delay_interval, session_expiry_interval)
+                .await;
+
+            if !flags.contains(StateFlags::Kicked) {
+                state.clean(&deliver_queue_tx, Reason::SessionExpiration).await;
+            }
+        });
+
+        Ok(msg_tx)
+    }
+
+    #[inline]
     async fn process_message<Io>(
         &mut self,
         sink: &mut Sink<Io>,
@@ -488,6 +530,38 @@ impl SessionState {
                     log::warn!("{:?} Message::Subscribe, reply sender is closed", self.id);
                 }
             }
+            Message::Subscribes(subs, replies_tx) => {
+                log::debug!("{:?} Message::Subscribes, subs {:?}", self.id, subs,);
+
+                let mut replies = Vec::new();
+                for sub in subs {
+                    let reply = self.subscribe(sub).await;
+                    match &reply {
+                        Err(e) => {
+                            log::warn!("{:?} Message::Subscribes, subscribe error, {:?}", self.id, e);
+                        }
+                        Ok(ret) => {
+                            if ret.failure() {
+                                log::warn!(
+                                    "{:?} Message::Subscribes, subscribe failed, {:?}",
+                                    self.id,
+                                    ret.ack_reason
+                                );
+                            }
+                        }
+                    }
+                    replies.push(reply);
+                }
+                if let Some(replies_tx) = replies_tx {
+                    if !replies_tx.is_closed() {
+                        if let Err(e) = replies_tx.send(replies) {
+                            log::warn!("{:?} Message::Subscribes, send response error, {:?}", self.id, e);
+                        }
+                    } else {
+                        log::warn!("{:?} Message::Subscribes, reply sender is closed", self.id);
+                    }
+                }
+            }
             Message::Unsubscribe(unsub, reply_tx) => {
                 log::debug!("{:?} Message::Unsubscribe, unsub {:?}", self.id, unsub,);
                 let unsub_reply = self.unsubscribe(unsub).await;
@@ -501,6 +575,9 @@ impl SessionState {
             }
             Message::SessionStateTransfer(offline_info, clean_start) => {
                 self.transfer_session_state(clean_start, offline_info).await?;
+            }
+            Message::Closed(r) => {
+                return Err(r);
             }
         }
         Ok(())
@@ -1065,7 +1142,7 @@ impl SessionState {
     }
 
     #[inline]
-    async fn subscribe(&self, sub: Subscribe) -> Result<SubscribeReturn> {
+    pub(crate) async fn subscribe(&self, sub: Subscribe) -> Result<SubscribeReturn> {
         let ret = self._subscribe(sub).await;
         if let Ok(sub_ret) = &ret {
             match sub_ret.ack_reason {
@@ -1155,10 +1232,12 @@ impl SessionState {
         //subscribe
         let sub_ret = self.scx.extends.shared().await.entry(self.id.clone()).subscribe(&sub).await?;
 
+        #[allow(unused_variables)]
         if let Some(qos) = sub_ret.success() {
             //send retain messages
             #[cfg(feature = "retain")]
             let _excludeds = if self.scx.extends.retain().await.enable() {
+                use crate::codec::v5::RetainHandling;
                 //MQTT V5: Retain Handling
                 let send_retain_enable = match sub.opts.retain_handling() {
                     Some(RetainHandling::AtSubscribe) => true,
@@ -1189,7 +1268,7 @@ impl SessionState {
                 None
             };
             #[cfg(not(feature = "retain"))]
-            let _excludeds = None;
+            let _excludeds: Option<Vec<(NodeId, MsgID)>> = None;
 
             #[cfg(feature = "msgstore")]
             if self.scx.extends.message_mgr().await.enable() {
@@ -1263,6 +1342,7 @@ impl SessionState {
     }
 
     #[inline]
+    #[cfg(feature = "retain")]
     async fn send_retain_messages(&self, retains: Vec<(TopicName, Retain)>, qos: QoS) -> Result<()> {
         for (topic, mut retain) in retains {
             log::debug!("{:?} topic:{:?}, retain:{:?}", self.id, topic, retain);
@@ -1555,7 +1635,7 @@ impl SessionState {
         from: From,
         publish: Publish,
         #[allow(unused_variables)] message_storage_available: bool,
-        message_expiry_interval: Option<Duration>,
+        #[allow(unused_variables)] message_expiry_interval: Option<Duration>,
     ) -> Result<()> {
         //make message id
         #[cfg(feature = "msgstore")]
@@ -1564,8 +1644,9 @@ impl SessionState {
         } else {
             None
         };
+        #[allow(unused_variables)]
         #[cfg(not(feature = "msgstore"))]
-        let msg_id = None;
+        let msg_id: Option<MsgID> = None;
 
         #[cfg(feature = "retain")]
         {
@@ -1649,8 +1730,8 @@ impl Deref for _Session {
 
 impl Drop for _Session {
     fn drop(&mut self) {
-        #[cfg(feature = "stats")]
-        self.scx.stats.sessions.dec();
+        // #[cfg(feature = "stats")]
+        self.scx.sessions.dec();
         let id = self.id.clone();
         let s = self.inner.clone();
         tokio::spawn(async move {
@@ -1728,14 +1809,14 @@ impl Session {
                 })
         };
 
+        scx.sessions.inc();
+
         #[cfg(feature = "stats")]
         {
-            scx.stats.sessions.inc();
             scx.stats.subscriptions.incs(subscriptions.len().await as isize);
             scx.stats.subscriptions_shared.incs(subscriptions.shared_len().await as isize);
         }
 
-        // let extra_attrs = RwLock::new(ExtraAttrs::new());
         let session_like = scx
             .extends
             .session_mgr()
@@ -1826,7 +1907,7 @@ pub trait SessionManager: Sync + Send {
         fitter: FitterType,
         subscriptions: SessionSubs,
         deliver_queue: MessageQueueType,
-        inflight_win: OutInflightType,
+        outinflight: OutInflightType,
         conn_info: ConnectInfoType,
         created_at: TimestampMillis,
         connected_at: TimestampMillis,
@@ -1960,7 +2041,7 @@ pub struct DefaultSession {
     listen_cfg: ListenerConfig,
     pub subscriptions: SessionSubs,
     deliver_queue: MessageQueueType,
-    inflight_win: OutInflightType,
+    outinflight: OutInflightType,
     conn_info: ConnectInfoType,
 
     created_at: TimestampMillis,
@@ -1978,7 +2059,7 @@ impl DefaultSession {
         listen_cfg: ListenerConfig,
         subscriptions: SessionSubs,
         deliver_queue: MessageQueueType,
-        inflight_win: OutInflightType,
+        outinflight: OutInflightType,
         conn_info: ConnectInfoType,
 
         created_at: TimestampMillis,
@@ -2006,7 +2087,7 @@ impl DefaultSession {
             listen_cfg,
             subscriptions,
             deliver_queue,
-            inflight_win,
+            outinflight,
             conn_info,
 
             created_at,
@@ -2041,7 +2122,7 @@ impl SessionLike for DefaultSession {
 
     #[inline]
     fn inflight_win(&self) -> &OutInflightType {
-        &self.inflight_win
+        &self.outinflight
     }
 
     #[inline]
@@ -2152,7 +2233,7 @@ impl SessionLike for DefaultSession {
 
     #[inline]
     async fn on_drop(&self) -> Result<()> {
-        self.subscriptions._clear(&self.scx).await;
+        self.subscriptions.clear(&self.scx).await;
         Ok(())
     }
 }

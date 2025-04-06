@@ -333,6 +333,8 @@ impl Builder {
             SocketAddr::V6(_) => Socket::new(Domain::IPV6, Type::STREAM, None)?,
         };
 
+        builder.set_linger(Some(Duration::from_secs(10)))?;
+
         builder.set_nonblocking(true)?;
 
         if let Some(reuseaddr) = self.reuseaddr {

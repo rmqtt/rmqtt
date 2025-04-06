@@ -25,7 +25,7 @@ conf = ["rmqtt-conf"]
 metrics = ["rmqtt-macros/metrics"]
 stats = []
 plugin = ["rmqtt-macros/plugin"]
-grpc = ["rust-box/handy-grpc", "rust-box/mpsc"]
+grpc = ["rust-box/handy-grpc", "rust-box/mpsc", "msgstore"]
 tls = ["rmqtt-net/tls"]
 ws = ["rmqtt-net/ws"]
 delayed = []
@@ -73,9 +73,6 @@ url.workspace = true
 config = { workspace = true, features = ["toml"] }
 
 [dev-dependencies]
-env_logger = "0.11"
-rmqtt-acl.workspace = true
-rmqtt-retainer.workspace = true
 
 [build-dependencies]
 toml = "0.8"

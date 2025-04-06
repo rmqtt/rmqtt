@@ -1,0 +1,23 @@
+[package]
+name = "rmqtt-auth-http"
+version = "0.1.2"
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+rmqtt = { workspace = true, features = ["plugin"] }
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["sync" ] }
+async-trait.workspace = true
+log.workspace = true
+reqwest = { workspace = true, features = ["rustls-tls", "json"] }
+serde_json.workspace = true
+ahash.workspace = true
+once_cell.workspace = true
+anyhow.workspace = true
+bytestring.workspace = true
+itoa.workspace = true
+
+

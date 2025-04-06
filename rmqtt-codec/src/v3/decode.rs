@@ -167,7 +167,14 @@ mod tests {
             let first_byte = $bytes.as_ref()[0];
             let (_len, consumed) = decode_variable_length(&$bytes[1..]).unwrap().unwrap();
             let cur = Bytes::from_static(&$bytes[consumed + 1..]);
-            assert_eq!(decode_packet(cur, first_byte).unwrap(), $res);
+            // decode_packet(cur, first_byte).unwrap()
+            let decoded = decode_packet(cur, first_byte).map(|mut packet| {
+                if let Packet::Publish(p) = &mut packet {
+                    p.create_time = None;
+                }
+                packet
+            }).unwrap();
+            assert_eq!(decoded, $res);
         }};
     );
 
@@ -267,11 +274,6 @@ mod tests {
 
     #[test]
     fn test_decode_publish_packets() {
-        //assert_eq!(
-        //    decode_publish_packet(b"\x00\x05topic\x12\x34"),
-        //    Done(&b""[..], ("topic".to_owned(), 0x1234))
-        //);
-
         assert_decode_packet!(
             b"\x3d\x0D\x00\x05topic\x43\x21data",
             Packet::Publish(Box::new(Publish {
@@ -283,7 +285,7 @@ mod tests {
                 payload: Bytes::from_static(b"data"),
                 properties: None,
                 delay_interval: None,
-                create_time: Some(timestamp_millis()),
+                create_time: None,
             }))
         );
         assert_decode_packet!(
@@ -297,7 +299,7 @@ mod tests {
                 payload: Bytes::from_static(b"data"),
                 properties: None,
                 delay_interval: None,
-                create_time: Some(timestamp_millis()),
+                create_time: None,
             }))
         );
 

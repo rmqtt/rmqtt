@@ -3,7 +3,6 @@ use async_trait::async_trait;
 #[cfg(feature = "shared-subscription")]
 use crate::context::ServerContext;
 use crate::types::*;
-use crate::Result;
 
 #[cfg(feature = "shared-subscription")]
 #[async_trait]
@@ -76,8 +75,8 @@ pub trait AutoSubscription: Sync + Send {
     }
 
     #[inline]
-    async fn subscribe(&self, _id: &Id, _msg_tx: &Tx) -> Result<()> {
-        Ok(())
+    async fn subscribes(&self, _id: &Id) -> crate::Result<Vec<Subscribe>> {
+        Ok(Vec::new())
     }
 }
 
