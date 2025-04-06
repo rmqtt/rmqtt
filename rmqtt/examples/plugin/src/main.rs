@@ -22,6 +22,7 @@ async fn main() -> Result<()> {
     // rmqtt_auto_subscription::register(&scx, "rmqtt-auto-subscription", true, false).await?;
     // rmqtt_message_storage::register(&scx, "rmqtt-message-storage", true, false).await?;
     // rmqtt_session_storage::register(&scx, "rmqtt-session-storage", true, false).await?;
+    rmqtt_sys_topic::register(&scx, "rmqtt-sys-topic", true, false).await?;
 
     MqttServer::new(scx)
         .listener(Builder::new().name("external/tcp").laddr(([0, 0, 0, 0], 1883).into()).bind()?.tcp()?)
