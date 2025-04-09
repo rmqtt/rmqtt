@@ -3,7 +3,6 @@ use std::sync::atomic::{AtomicIsize, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::anyhow;
 use futures::FutureExt;
 use futures::StreamExt;
 use once_cell::sync::Lazy;
@@ -42,7 +41,7 @@ impl GrpcServer {
                     let reply = self.on_recv_message(data).await;
                     if let Some(reply_tx) = reply_tx {
                         if let Err(e) = reply_tx.send(reply.map(|r| r.unwrap_or_default())) {
-                            log::error!("gRPC send result failure, {:?}", e);
+                            log::warn!("gRPC send result failure, {:?}", e);
                         }
                     }
                 }
@@ -59,7 +58,7 @@ impl GrpcServer {
                         .run()
                         .await
                     {
-                        log::error!("Run gRPC receiver error, {:?}", e);
+                        log::warn!("Run gRPC receiver error, {:?}", e);
                     }
                     tokio::time::sleep(Duration::from_secs(3)).await;
                 }
@@ -67,8 +66,7 @@ impl GrpcServer {
             futures::future::join(recv_data_fut, run_receiver_fut).await;
         };
 
-        // runner.await;
-        tokio::spawn(runner);
+        runner.await;
 
         Ok(())
     }
@@ -100,54 +98,6 @@ impl GrpcServer {
         }
     }
 }
-//
-// pub async fn listen_and_serve<F, Fut>(
-//     server_laddr: SocketAddr,
-//     reuseaddr: bool,
-//     reuseport: bool,
-//     mut recv_fn: F,
-// ) -> Result<()>
-// where
-//     F: FnMut(Vec<u8>) -> Fut + Send + 'static,
-//     Fut: Future<Output = Result<Option<Vec<u8>>>> + Send,
-// {
-//     let runner = async move {
-//         let (tx, mut rx) = channel::<Priority, GrpcMessage>(100_000);
-//         let recv_data_fut = async move {
-//             while let Some((_, (data, reply_tx))) = rx.next().await {
-//                 let reply = recv_fn(data).await;
-//                 if let Some(reply_tx) = reply_tx {
-//                     if let Err(e) = reply_tx.send(reply.map(|r| r.unwrap_or_default())) {
-//                         log::error!("gRPC send result failure, {:?}", e);
-//                     }
-//                 }
-//             }
-//             log::error!("Recv None");
-//         };
-//
-//         let run_receiver_fut = async move {
-//             loop {
-//                 if let Err(e) = server(server_laddr, tx.clone())
-//                     .max_decoding_message_size(1024 * 1024 * 4)
-//                     .max_encoding_message_size(1024 * 1024 * 4)
-//                     .reuseaddr(reuseaddr)
-//                     .reuseport(reuseport)
-//                     .run()
-//                     .await
-//                 {
-//                     log::error!("Run gRPC receiver error, {:?}", e);
-//                 }
-//                 tokio::time::sleep(Duration::from_secs(3)).await;
-//             }
-//         };
-//         futures::future::join(recv_data_fut, run_receiver_fut).await;
-//     };
-//
-//     // runner.await;
-//     tokio::spawn(runner);
-//
-//     Ok(())
-// }
 
 pub type GrpcClients = Arc<HashMap<NodeId, (Addr, GrpcClient)>>;
 
@@ -166,13 +116,15 @@ impl GrpcClient {
         client_timeout: Duration,
         client_concurrency_limit: usize,
     ) -> Result<Self> {
+        log::info!("GrpcClient::new server_addr: {}", server_addr);
         let mut c = Client::new(server_addr.into())
             .connect_timeout(client_timeout)
             .concurrency_limit(client_concurrency_limit)
             .chunk_size(1024 * 1024 * 2)
-            .connect()
-            .await
-            .map_err(|e| anyhow!(e.to_string()))?;
+            .build()
+            //.connect()
+            .await;
+        //.map_err(|e| anyhow!(e.to_string()))?;
         let mailbox = c.transfer_start(100_000).await;
         let active_tasks = Arc::new(AtomicUsize::new(0));
         Ok(Self { inner: c, mailbox, active_tasks })

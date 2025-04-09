@@ -6,6 +6,7 @@ use std::sync::Arc;
 use rust_box::task_exec_queue::{Builder, TaskExecQueue};
 use serde::{Deserialize, Serialize};
 
+use crate::args::CommandArgs;
 #[cfg(feature = "delayed")]
 use crate::delayed::DefaultDelayedSender;
 use crate::executor::HandshakeExecutor;
@@ -22,7 +23,9 @@ use crate::utils::Counter;
 use crate::{extend, DashMap, ListenerConfig, NodeId, Port};
 
 pub struct ServerContextBuilder {
+    args: CommandArgs,
     node: Node,
+
     task_exec_workers: usize,
     task_exec_queue_max: usize,
 
@@ -45,6 +48,7 @@ impl Default for ServerContextBuilder {
 impl ServerContextBuilder {
     pub fn new() -> ServerContextBuilder {
         Self {
+            args: CommandArgs::default(),
             node: Node::default(),
             task_exec_workers: 2000,
             task_exec_queue_max: 300_000,
@@ -55,6 +59,11 @@ impl ServerContextBuilder {
             mqtt_delayed_publish_immediate: true,
             plugins_dir: "rmqtt-plugins/".into(),
         }
+    }
+
+    pub fn args(mut self, args: CommandArgs) -> Self {
+        self.args = args;
+        self
     }
 
     pub fn node_id(mut self, id: NodeId) -> Self {
@@ -117,6 +126,7 @@ impl ServerContextBuilder {
 
         ServerContext {
             inner: Arc::new(ServerContextInner {
+                args: self.args,
                 node: self.node,
                 listen_cfgs: DashMap::default(),
                 extends: extend::Manager::new(),
@@ -152,6 +162,7 @@ pub struct ServerContext {
 pub struct ServerContextInner {
     pub node: Node,
     pub listen_cfgs: DashMap<Port, ListenerConfig>,
+    pub args: CommandArgs,
     pub extends: extend::Manager,
     #[cfg(feature = "plugin")]
     pub plugins: plugin::Manager,

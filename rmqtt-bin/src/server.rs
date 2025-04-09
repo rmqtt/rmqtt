@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+use rmqtt::args::CommandArgs;
 use structopt::StructOpt;
 
 use rmqtt::conf::{listener::Listener, Options, Settings};
@@ -47,6 +48,7 @@ async fn main() -> Result<()> {
 
     //init ServerContext
     let scx = ServerContext::new()
+        .args(config_args(conf))
         .node(node)
         .task_exec_workers(conf.task.exec_workers)
         .task_exec_queue_max(conf.task.exec_queue_max)
@@ -154,4 +156,14 @@ fn config_builder(cfg: &Listener) -> Builder {
         .tls_key(cfg.key.clone())
         .limit_subscription(cfg.limit_subscription)
         .delayed_publish(cfg.delayed_publish)
+}
+
+fn config_args(cfg: &Settings) -> CommandArgs {
+    CommandArgs {
+        node_id: cfg.opts.node_id,
+        plugins_default_startups: cfg.opts.plugins_default_startups.clone(),
+        node_grpc_addrs: cfg.opts.node_grpc_addrs.clone(),
+        raft_peer_addrs: cfg.opts.raft_peer_addrs.clone(),
+        raft_leader_id: cfg.opts.raft_leader_id,
+    }
 }

@@ -26,7 +26,7 @@ rmqtt-web-hook = { path = "rmqtt-plugins/rmqtt-web-hook" }
 rmqtt-auth-http = { path = "rmqtt-plugins/rmqtt-auth-http" }
 rmqtt-auth-jwt = { path = "rmqtt-plugins/rmqtt-auth-jwt" }
 #rmqtt-cluster-broadcast = { path = "rmqtt-plugins/rmqtt-cluster-broadcast" }
-#rmqtt-cluster-raft = { path = "rmqtt-plugins/rmqtt-cluster-raft" }
+rmqtt-cluster-raft = { path = "rmqtt-plugins/rmqtt-cluster-raft" }
 rmqtt-counter = { path = "rmqtt-plugins/rmqtt-counter" }
 rmqtt-http-api = { path = "rmqtt-plugins/rmqtt-http-api" }
 rmqtt-retainer = { path = "rmqtt-plugins/rmqtt-retainer" }
@@ -84,6 +84,7 @@ rmqtt-session-storage = "0.1"
 rmqtt-sys-topic = "0.1"
 rmqtt-topic-rewrite = "0.1"
 rmqtt-web-hook = "0.1"
+rmqtt-cluster-raft = "0.1"
 
 
 tokio = { version = "1.44",  default-features = false }
@@ -121,7 +122,6 @@ bincode = "1.3"
 url = { version = "=2.5.4", default-features = false }
 systemstat = "0.2"
 itertools = "0.14"
-rust-box = "0.13"
 structopt = "0.3"
 tokio-tungstenite = "0.26"
 pin-project-lite = "0.2"
@@ -137,7 +137,8 @@ simple_logger = { version = "5.0.0", default-features = false }
 regex = "=1.11.1"
 backoff = "0.4"
 webpki-roots = "0.26"
-
+toml = "0.8"
+rust-box = "0.13.1"
 [profile.dev]
 opt-level = 0
 
