@@ -1,8 +1,6 @@
 use structopt::StructOpt;
 
-use crate::NodeId;
-
-use super::NodeAddr;
+use rmqtt_utils::{NodeAddr, NodeId};
 
 #[derive(StructOpt, Debug, Clone, Default)]
 pub struct Options {

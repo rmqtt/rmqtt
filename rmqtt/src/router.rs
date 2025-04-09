@@ -1,4 +1,6 @@
+use std::convert::From as _;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use itertools::Itertools;
@@ -60,12 +62,13 @@ pub trait Router: Sync + Send {
 }
 
 #[allow(clippy::type_complexity)]
+#[derive(Clone)]
 pub struct DefaultRouter {
     scx: Option<ServerContext>,
-    pub topics: RwLock<TopicTree<()>>,
-    pub topics_count: Counter,
-    pub relations: AllRelationsMap,
-    pub relations_count: Counter,
+    pub topics: Arc<RwLock<TopicTree<()>>>,
+    pub topics_count: Arc<Counter>,
+    pub relations: Arc<AllRelationsMap>,
+    pub relations_count: Arc<Counter>,
 }
 
 impl DefaultRouter {
@@ -73,10 +76,10 @@ impl DefaultRouter {
     pub fn new(scx: Option<ServerContext>) -> DefaultRouter {
         Self {
             scx,
-            topics: RwLock::new(TopicTree::default()),
-            topics_count: Counter::new(),
-            relations: DashMap::default(),
-            relations_count: Counter::new(),
+            topics: Arc::new(RwLock::new(TopicTree::default())),
+            topics_count: Arc::new(Counter::new()),
+            relations: Arc::new(DashMap::default()),
+            relations_count: Arc::new(Counter::new()),
         }
     }
 
@@ -515,12 +518,12 @@ impl Router for DefaultRouter {
 
     #[inline]
     fn topics(&self) -> Counter {
-        self.topics_count.clone()
+        self.topics_count.as_ref().clone()
     }
 
     #[inline]
     fn routes(&self) -> Counter {
-        self.relations_count.clone()
+        self.relations_count.as_ref().clone()
     }
 
     #[inline]

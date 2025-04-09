@@ -4,11 +4,11 @@ version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
-#rmqtt-acl.workspace = true
-#rmqtt-retainer.workspace = true
-#rmqtt-http-api.workspace = true
-#rmqtt-counter.workspace = true
+rmqtt-acl.workspace = true
 #rmqtt-auth-http.workspace = true
+rmqtt-retainer.workspace = true
+rmqtt-http-api.workspace = true
+#rmqtt-counter.workspace = true
 #rmqtt-auth-jwt.workspace = true
 #rmqtt-auto-subscription.workspace = true
 #rmqtt-bridge-egress-kafka.workspace = true
@@ -16,7 +16,13 @@ edition.workspace = true
 #rmqtt-message-storage.workspace = true
 #rmqtt-session-storage.workspace = true
 #rmqtt-sys-topic.workspace = true
-rmqtt-topic-rewrite.workspace = true
+#rmqtt-topic-rewrite.workspace = true
+#rmqtt-bridge-egress-mqtt.workspace = true
+#rmqtt-bridge-ingress-mqtt.workspace = true
+#rmqtt-bridge-egress-pulsar.workspace = true
+#rmqtt-bridge-ingress-pulsar.workspace = true
+#rmqtt-bridge-egress-nats.workspace = true
+#rmqtt-bridge-egress-reductstore.workspace = true
 
 rmqtt = { workspace = true, features = ["plugin"] }
 tokio = { workspace = true, features = ["macros"] }

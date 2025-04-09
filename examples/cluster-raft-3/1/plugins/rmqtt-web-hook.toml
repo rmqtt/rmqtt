@@ -1,0 +1,45 @@
+##--------------------------------------------------------------------
+## rmqtt-web-hook
+##--------------------------------------------------------------------
+## http
+#    Method: POST
+#    Body: <JSON>
+#    Payload: BASE64
+## file
+#    None
+#
+
+# See more keys and their definitions at https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/web-hook.md
+
+## Hook general config
+worker_threads = 3
+queue_capacity = 300_000
+concurrency_limit = 128
+
+## Default urls, supports http and file protocols
+#urls = ["file:///var/log/rmqtt/hook.log", "http://127.0.0.1:5656/mqtt/webhook"]
+urls = ["file:///var/log/rmqtt/hook1.log"]
+
+## Http config
+http_timeout = "8s"
+#If it fails, try again after approximately 2, 4, 7, 11, 18, or 42 seconds
+retry_max_elapsed_time = "60s"
+retry_multiplier = 2.5
+
+## Hook rules config
+rule.session_created = [{action = "session_created" } ]
+rule.session_terminated = [{action = "session_terminated" } ]
+rule.session_subscribed = [{action = "session_subscribed"  } ]
+rule.session_unsubscribed = [{action = "session_unsubscribed" } ]
+
+rule.client_connect = [{action = "client_connect"}]
+rule.client_connack = [{action = "client_connack"} ]
+rule.client_connected = [{action = "client_connected" } ]
+rule.client_disconnected = [{action = "client_disconnected" } ]
+rule.client_subscribe = [{action = "client_subscribe" } ]
+rule.client_unsubscribe = [{action = "client_unsubscribe" } ]
+
+rule.message_publish = [{action = "message_publish", topics=["x/y/z", "foo/#", "testtopic/#"] }]
+rule.message_delivered = [{action = "message_delivered", topics=["x/y/z", "foo/#", "testtopic/#"] } ]
+rule.message_acked = [{action = "message_acked", topics=["x/y/z", "foo/#", "testtopic/#"] } ]
+rule.message_dropped = [{action = "message_dropped" } ]
