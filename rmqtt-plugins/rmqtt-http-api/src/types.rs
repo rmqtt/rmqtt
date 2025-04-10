@@ -9,8 +9,9 @@ use rmqtt::{
     node::{BrokerInfo, NodeInfo, NodeStatus},
     plugin::PluginInfo,
     stats::Stats,
+    types::{ClientId, HashMap, NodeId, QoS, Timestamp, TopicFilter, TopicName, UserName},
     utils::{deserialize_datetime_option, format_timestamp, serialize_datetime_option},
-    ClientId, HashMap, NodeId, QoS, Result, Timestamp, TopicFilter, TopicName, UserName,
+    Result,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

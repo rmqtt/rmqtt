@@ -10,7 +10,9 @@ use rmqtt::{
     hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     macros::Plugin,
     plugin::{PackageInfo, Plugin},
-    register, ConnectAckReason, FromType, Result,
+    register,
+    types::{ConnectAckReason, FromType},
+    Result,
 };
 
 register!(CounterPlugin::new);

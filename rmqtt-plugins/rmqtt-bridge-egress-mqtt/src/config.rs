@@ -373,11 +373,11 @@ impl Remote {
     }
 
     #[inline]
-    pub fn make_qos(&self, remote_qos: rmqtt::QoS) -> QoS {
+    pub fn make_qos(&self, remote_qos: rmqtt::types::QoS) -> QoS {
         self.qos.unwrap_or(match remote_qos {
-            rmqtt::QoS::AtMostOnce => QoS::AtMostOnce,
-            rmqtt::QoS::AtLeastOnce => QoS::AtLeastOnce,
-            rmqtt::QoS::ExactlyOnce => QoS::ExactlyOnce,
+            rmqtt::types::QoS::AtMostOnce => QoS::AtMostOnce,
+            rmqtt::types::QoS::AtLeastOnce => QoS::AtLeastOnce,
+            rmqtt::types::QoS::ExactlyOnce => QoS::ExactlyOnce,
         })
     }
 

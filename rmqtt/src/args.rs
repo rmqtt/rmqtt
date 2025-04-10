@@ -1,5 +1,5 @@
+use crate::types::NodeId;
 use crate::utils::NodeAddr;
-use crate::NodeId;
 
 #[derive(Debug, Clone, Default)]
 pub struct CommandArgs {

@@ -10,7 +10,7 @@ use serde::{
 use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
 use bytestring::ByteString;
 
-use rmqtt::{hook::Type, trie::TopicTree, utils::deserialize_duration, Result, Topic};
+use rmqtt::{hook::Type, trie::TopicTree, types::Topic, utils::deserialize_duration, Result};
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 

@@ -18,7 +18,11 @@ use ntex_mqtt::error::SendPacketError;
 use ntex_mqtt::v5::codec::SubscribeAckReason;
 use ntex_mqtt::{self, v5};
 
-use rmqtt::{codec::types::MQTT_LEVEL_5, ClientId, NodeId, Result, UserName};
+use rmqtt::{
+    codec::types::MQTT_LEVEL_5,
+    types::{ClientId, NodeId, UserName},
+    Result,
+};
 
 use crate::bridge::{
     build_tls_connector, BridgeClient, BridgePublish, Command, CommandMailbox, OnMessageEvent,

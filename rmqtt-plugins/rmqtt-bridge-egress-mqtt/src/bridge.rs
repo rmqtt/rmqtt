@@ -20,7 +20,8 @@ use tokio::sync::RwLock;
 
 use rmqtt::{
     trie::{TopicTree, VecToTopic},
-    ClientId, DashMap, From, NodeId, Publish, Result, Topic,
+    types::{ClientId, DashMap, From, NodeId, Publish, Topic},
+    Result,
 };
 
 use rmqtt::codec::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};

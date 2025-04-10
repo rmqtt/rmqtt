@@ -10,8 +10,14 @@ use prometheus::{
 };
 
 use rmqtt::{
-    context::ServerContext, grpc::MessageType, metrics::Metrics, node::NodeInfo, stats::Stats,
-    utils::timestamp_secs, DashMap, NodeId, Result,
+    context::ServerContext,
+    grpc::MessageType,
+    metrics::Metrics,
+    node::NodeInfo,
+    stats::Stats,
+    types::{DashMap, NodeId},
+    utils::timestamp_secs,
+    Result,
 };
 
 use crate::api::{get_metrics_all, get_metrics_one, get_node, get_nodes_all, get_stats_all, get_stats_one};

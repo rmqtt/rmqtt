@@ -10,16 +10,15 @@ use rust_box::task_exec_queue::SpawnExt;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use rmqtt::context::ServerContext;
 use rmqtt::{
+    context::ServerContext,
     router::{DefaultRouter, Router},
     types::{
-        AllRelationsMap, ClientId, Id, IsOnline, NodeId, Route, SubRelationsMap, SubscriptionOptions,
-        TimestampMillis, Topic, TopicFilter, TopicName,
+        AllRelationsMap, ClientId, Id, IsOnline, NodeId, Route, SubRelationsMap, SubsSearchParams,
+        SubsSearchResult, SubscriptionOptions, TimestampMillis, Topic, TopicFilter, TopicName,
     },
-    utils::timestamp_millis,
-    utils::Counter,
-    Result, SubsSearchParams, SubsSearchResult,
+    utils::{timestamp_millis, Counter},
+    Result,
 };
 use rmqtt_raft::{Error, Mailbox, Result as RaftResult, Store};
 

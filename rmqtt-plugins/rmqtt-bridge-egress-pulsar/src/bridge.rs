@@ -16,7 +16,8 @@ use tokio::sync::RwLock;
 
 use rmqtt::{
     trie::{TopicTree, VecToTopic},
-    DashMap, From, NodeId, Publish, Result, Topic,
+    types::{DashMap, From, NodeId, Publish, Topic},
+    Result,
 };
 
 use crate::config::{AuthName, Bridge, Entry, PluginConfig};

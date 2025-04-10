@@ -21,8 +21,8 @@ use rmqtt::{
     macros::Plugin,
     plugin::{PackageInfo, Plugin},
     register,
-    types::{From, Publish, Reason, To},
-    NodeId, Result,
+    types::{From, NodeId, Publish, Reason, To},
+    Result,
 };
 use rmqtt_raft::{Mailbox, Raft};
 use router::ClusterRouter;

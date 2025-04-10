@@ -9,7 +9,10 @@ use serde_json::{self, Value};
 use tokio::sync::RwLock;
 
 use rmqtt::{
-    hook::Priority, trie::TopicTree, ClientId, Error, Id, Password, Result, Superuser, Topic, UserName,
+    hook::Priority,
+    trie::TopicTree,
+    types::{ClientId, Id, Password, Superuser, Topic, UserName},
+    Error, Result,
 };
 
 type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;

@@ -329,10 +329,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
-    use super::super::NodeId;
     use super::{Topic, TopicTree, VecToString};
+    use crate::types::NodeId;
+    use std::str::FromStr;
 
     fn match_one(topics: &TopicTree<NodeId>, topic: &str, vs: &[NodeId]) -> bool {
         let mut matcheds = 0;

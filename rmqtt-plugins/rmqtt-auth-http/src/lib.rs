@@ -23,10 +23,11 @@ use rmqtt::{
     plugin::{PackageInfo, Plugin},
     register,
     types::{
-        AuthResult, ConnectInfo, Message, Password, PublishAclResult, Reason, SubscribeAclResult, Superuser,
+        AuthResult, ConnectInfo, DashMap, Disconnect, Id, Message, Password, PublishAclResult, Reason,
+        SubscribeAclResult, Superuser, TimestampMillis, TopicName,
     },
     utils::timestamp_millis,
-    DashMap, Disconnect, Error, Id, Result, TimestampMillis, TopicName,
+    Error, Result,
 };
 
 use config::PluginConfig;

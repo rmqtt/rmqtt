@@ -15,7 +15,11 @@ use ntex::util::Bytes;
 use ntex::util::Ready;
 use ntex_mqtt::{self, v3};
 
-use rmqtt::{codec::types::MQTT_LEVEL_311, ClientId, NodeId, Result};
+use rmqtt::{
+    codec::types::MQTT_LEVEL_311,
+    types::{ClientId, NodeId},
+    Result,
+};
 
 use crate::bridge::{build_tls_connector, BridgePublish, Command, CommandMailbox};
 use crate::config::Bridge;

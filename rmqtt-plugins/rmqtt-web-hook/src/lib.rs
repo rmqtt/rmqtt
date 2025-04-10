@@ -29,8 +29,9 @@ use rmqtt::{
     macros::Plugin,
     plugin::{PackageInfo, Plugin},
     register,
+    types::{DashMap, Topic, TopicFilter},
     utils::Counter,
-    DashMap, Result, Topic, TopicFilter,
+    Result,
 };
 
 use config::{PluginConfig, Url};

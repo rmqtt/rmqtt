@@ -2,8 +2,7 @@ use rust_box::task_exec_queue::{Builder, TaskExecQueue};
 use std::ops::Deref;
 
 use crate::context::ServerContext;
-use crate::types::Port;
-use crate::{DashMap, ListenerConfig};
+use crate::types::{DashMap, ListenerConfig, Port};
 
 type BusyLimit = isize;
 

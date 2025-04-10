@@ -7,7 +7,7 @@ use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use rmqtt::ClientId;
+use rmqtt::types::ClientId;
 
 use crate::bridge::BridgeName;
 

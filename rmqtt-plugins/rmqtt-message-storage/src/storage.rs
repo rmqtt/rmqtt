@@ -18,8 +18,14 @@ use rust_box::task_exec_queue::{Builder, SpawnExt, TaskExecQueue};
 use tokio::{runtime::Handle, sync::RwLock, task::spawn_blocking, time::sleep};
 
 use rmqtt::{
-    message::MessageManager, retain::RetainTree, utils::timestamp_millis, ClientId, From, MsgID, NodeId,
-    Publish, Result, SharedGroup, StoredMessage, TimestampMillis, Topic, TopicFilter,
+    message::MessageManager,
+    retain::RetainTree,
+    types::{
+        ClientId, From, MsgID, NodeId, Publish, SharedGroup, StoredMessage, TimestampMillis, Topic,
+        TopicFilter,
+    },
+    utils::timestamp_millis,
+    Result,
 };
 
 use rmqtt::topic::Level;

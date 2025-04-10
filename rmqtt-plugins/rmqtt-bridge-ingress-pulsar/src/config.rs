@@ -13,8 +13,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{self, json};
 
 use rmqtt::{
+    types::{QoS, TopicName},
     utils::{deserialize_duration, deserialize_duration_option},
-    QoS, Result, TopicName,
+    Result,
 };
 
 use crate::bridge::BridgeName;

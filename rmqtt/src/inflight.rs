@@ -13,8 +13,9 @@ use crate::context::ServerContext;
 use crate::net::MqttError;
 use crate::queue::OnEventFn;
 use crate::types::{From, PacketId, Publish, TimestampMillis};
+use crate::types::{QoS, Reason};
 use crate::utils::timestamp_millis;
-use crate::{QoS, Reason, Result};
+use crate::Result;
 
 type OutQueues = DequeMap<PacketId, OutInflightMessage>;
 

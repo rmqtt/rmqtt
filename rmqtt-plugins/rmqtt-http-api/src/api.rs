@@ -27,8 +27,9 @@ use rmqtt::{
     session::SessionState,
     stats::Stats,
     types::NodeId,
+    types::{ClientId, From, HashMap, Id, QoS, SubsSearchParams, TopicFilter, TopicName, UserName},
     utils::timestamp_millis,
-    ClientId, From, HashMap, Id, QoS, Result, SubsSearchParams, TopicFilter, TopicName, UserName,
+    Result,
 };
 
 use super::types::{

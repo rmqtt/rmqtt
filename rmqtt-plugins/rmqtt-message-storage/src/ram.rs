@@ -16,9 +16,14 @@ use rust_box::task_exec_queue::{Builder, SpawnExt, TaskExecQueue};
 use tokio::{sync::RwLock, time::sleep};
 
 use rmqtt::{
-    message::MessageManager, retain::RetainTree, topic::Level, topic::Topic, topic_size,
-    utils::timestamp_millis, utils::Bytesize, ClientId, From, MsgID, Publish, Result, SharedGroup,
-    StoredMessage, TimestampMillis, TopicFilter,
+    message::MessageManager,
+    retain::RetainTree,
+    topic::{Level, Topic},
+    types::{
+        topic_size, ClientId, From, MsgID, Publish, SharedGroup, StoredMessage, TimestampMillis, TopicFilter,
+    },
+    utils::{timestamp_millis, Bytesize},
+    Result,
 };
 
 use crate::config::RamConfig;
@@ -469,7 +474,7 @@ impl MessageManager for &'static RamMessageManager {
 #[test]
 fn test_message_manager() {
     use rmqtt::codec::v5::PublishProperties;
-    use rmqtt::{From, Id, QoS, TopicName};
+    use rmqtt::types::{From, Id, QoS, TopicName};
 
     let runner = async move {
         let cfg = RamConfig::default();

@@ -6,7 +6,7 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 
 use crate::codec::types::{Publish, MQTT_LEVEL_5};
-use crate::types::*;
+use crate::types::{ConnectInfo, Disconnect, FitterType, Id, ListenerConfig};
 use crate::Result;
 
 pub trait FitterManager: Sync + Send {

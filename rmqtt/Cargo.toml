@@ -13,10 +13,6 @@ rust-version.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-#cargo build --all-features
-#cargo check --features full
-#cargo check --features "conf","grpc","ws","tls"
-
 [features]
 default = []
 debug = []

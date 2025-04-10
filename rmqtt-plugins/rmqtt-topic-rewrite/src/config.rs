@@ -11,7 +11,11 @@ use serde::{
 };
 use tokio::sync::RwLock;
 
-use rmqtt::{trie::TopicTree, Error, Result, Topic, TopicFilter, TopicName};
+use rmqtt::{
+    trie::TopicTree,
+    types::{Topic, TopicFilter, TopicName},
+    Error, Result,
+};
 
 type Rules = Arc<RwLock<TopicTree<Rule>>>;
 

@@ -6,9 +6,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use crossbeam::queue::SegQueue;
-use futures::channel::mpsc;
-use futures::SinkExt;
-use futures::Stream;
+use futures::{channel::mpsc, SinkExt, Stream};
 use governor::{
     clock::DefaultClock,
     middleware::NoOpMiddleware,

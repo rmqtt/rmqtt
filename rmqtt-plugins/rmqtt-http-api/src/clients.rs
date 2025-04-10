@@ -1,8 +1,12 @@
 use std::sync::Arc;
 
 use rmqtt::{
-    context::ServerContext, session::Session, shared::Entry, utils::timestamp_secs, ClientId, ConnectInfo,
-    Id, Result, TimestampMillis,
+    context::ServerContext,
+    session::Session,
+    shared::Entry,
+    types::{ClientId, ConnectInfo, Id, TimestampMillis},
+    utils::timestamp_secs,
+    Result,
 };
 
 use super::types::{ClientSearchParams as SearchParams, ClientSearchResult as SearchResult};

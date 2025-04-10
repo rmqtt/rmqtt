@@ -8,8 +8,8 @@ use systemstat::Platform;
 use crate::context::ServerContext;
 #[cfg(feature = "grpc")]
 use crate::grpc::{GrpcClient, GrpcServer};
+use crate::types::{NodeId, TimestampMillis};
 use crate::utils::timestamp_millis;
-use crate::{NodeId, TimestampMillis};
 
 #[allow(dead_code)]
 mod version {

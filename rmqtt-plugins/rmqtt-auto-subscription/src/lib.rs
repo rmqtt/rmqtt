@@ -11,7 +11,8 @@ use rmqtt::{
     plugin::{PackageInfo, Plugin},
     register,
     subscribe::{AutoSubscription, DefaultAutoSubscription},
-    Id, Result, Subscribe, TopicFilter,
+    types::{Id, Subscribe, TopicFilter},
+    Result,
 };
 
 use config::PluginConfig;

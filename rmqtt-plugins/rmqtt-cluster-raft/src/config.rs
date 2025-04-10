@@ -8,10 +8,13 @@ use serde::de::{self, Deserializer};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 
-use rmqtt::args::CommandArgs;
-use rmqtt::grpc::MessageType;
 use rmqtt::utils::{deserialize_duration, deserialize_duration_option, NodeAddr};
-use rmqtt::{Addr, NodeId, Result};
+use rmqtt::{
+    args::CommandArgs,
+    grpc::MessageType,
+    types::{Addr, NodeId},
+    Result,
+};
 use rmqtt_raft::ReadOnlyOption;
 
 pub(crate) static BACKOFF_STRATEGY: Lazy<ExponentialBackoff> = Lazy::new(|| {
@@ -377,37 +380,3 @@ pub enum Compression {
     Zlib,
     Snappy,
 }
-//
-// #[derive(Clone, Serialize)]
-// pub struct NodeAddr {
-//     pub id: NodeId,
-//     pub addr: Addr,
-// }
-//
-// impl std::fmt::Debug for NodeAddr {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         write!(f, "{}@{:?}", self.id, self.addr)
-//     }
-// }
-//
-// impl FromStr for NodeAddr {
-//     type Err = Error;
-//     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-//         let parts: Vec<&str> = s.split('@').collect();
-//         if parts.len() < 2 {
-//             return Err(anyhow!(format!("NodeAddr format error, {}", s)));
-//         }
-//         let id = NodeId::from_str(parts[0])?;
-//         let addr = Addr::from(parts[1]);
-//         Ok(NodeAddr { id, addr })
-//     }
-// }
-//
-// impl<'de> de::Deserialize<'de> for NodeAddr {
-//     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-//     where
-//         D: de::Deserializer<'de>,
-//     {
-//         NodeAddr::from_str(&String::deserialize(deserializer)?).map_err(de::Error::custom)
-//     }
-// }

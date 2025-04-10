@@ -4,8 +4,8 @@ use serde_json::json;
 use crate::context::ServerContext;
 #[cfg(feature = "debug")]
 use crate::context::TaskExecStats;
+use crate::types::{HashMap, NodeId};
 use crate::utils::Counter;
-use crate::{HashMap, NodeId};
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Stats {

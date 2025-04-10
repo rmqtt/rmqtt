@@ -18,9 +18,9 @@ use rmqtt::{
     plugin::{PackageInfo, Plugin},
     register,
     session::SessionState,
-    types::{From, Id},
+    types::{ClientId, From, Id, NodeId, QoS, TopicName, UserName},
     utils::timestamp_millis,
-    ClientId, NodeId, QoS, Result, TopicName, UserName,
+    Result,
 };
 
 use config::PluginConfig;

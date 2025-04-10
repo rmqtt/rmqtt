@@ -28,7 +28,14 @@ use crate::hook::Hook;
 use crate::inflight::{InInflight, MomentStatus, OutInflight, OutInflightMessage};
 use crate::net::MqttError;
 use crate::queue::{self, Limiter, Policy};
-use crate::types::*;
+use crate::types::{
+    ClientTopicAliases, ConnectInfo, ConnectInfoType, Disconnect, DisconnectInfo, FitterType, From, Id,
+    IsPing, ListenerConfig, Message, MessageQueue, MessageQueueType, MessageSender, MsgID, NodeId,
+    OutInflightType, Packet, Password, Publish, PublishAclResult, QoS, Reason, Retain, Rx,
+    ServerTopicAliases, SessionStateFlags, SessionSubs, SessionTx, SharedGroup, Sink, StateFlags, Subscribe,
+    SubscribeReturn, SubscriptionOptions, Subscriptions, TimestampMillis, Topic, TopicFilter, TopicName, Tx,
+    Unsubscribe, UserName,
+};
 use crate::utils::timestamp_millis;
 use crate::Result;
 
@@ -181,8 +188,6 @@ impl SessionState {
             Reason::ConnectRemoteClose
         };
 
-        //@TODO ... 需要优化 Reason, 定义，可参考： DisconnectReasonCode
-        //向客户端发送‌DISCONNECT 报文，如果是MQTT 5.0
         if let Sink::V5(s) = &mut sink {
             let d = if let Reason::ConnectDisconnect(Some(Disconnect::V5(d))) = &reason {
                 d.clone()
