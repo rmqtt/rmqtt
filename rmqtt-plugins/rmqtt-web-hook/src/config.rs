@@ -2,13 +2,12 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
+use bytestring::ByteString;
 use serde::{
     de::{self, Unexpected},
     ser, Deserialize, Deserializer, Serialize,
 };
-
-use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
-use bytestring::ByteString;
 
 use rmqtt::{hook::Type, trie::TopicTree, types::Topic, utils::deserialize_duration, Result};
 

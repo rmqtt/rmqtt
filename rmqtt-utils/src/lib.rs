@@ -1,17 +1,19 @@
 #![deny(unsafe_code)]
 
-use anyhow::{anyhow, Error};
 use std::fmt;
 use std::net::SocketAddr;
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 use std::time::Duration;
 
+use anyhow::{anyhow, Error};
 use bytestring::ByteString;
 use chrono::LocalResult;
-use serde::de::{self, Deserializer};
-use serde::ser::Serializer;
-use serde::{Deserialize, Serialize};
+use serde::{
+    de::{self, Deserializer},
+    ser::Serializer,
+    Deserialize, Serialize,
+};
 
 mod counter;
 
@@ -316,6 +318,10 @@ pub fn format_timestamp(t: Timestamp) -> String {
         }
     }
 }
+#[inline]
+pub fn format_timestamp_now() -> String {
+    format_timestamp(timestamp_secs())
+}
 
 #[inline]
 pub fn format_timestamp_millis(t: TimestampMillis) -> String {
@@ -329,6 +335,11 @@ pub fn format_timestamp_millis(t: TimestampMillis) -> String {
             "".into()
         }
     }
+}
+
+#[inline]
+pub fn format_timestamp_millis_now() -> String {
+    format_timestamp_millis(timestamp_millis())
 }
 
 #[derive(Clone, Serialize)]
@@ -345,7 +356,7 @@ impl std::fmt::Debug for NodeAddr {
 
 impl FromStr for NodeAddr {
     type Err = Error;
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts: Vec<&str> = s.split('@').collect();
         if parts.len() < 2 {
             return Err(anyhow!(format!("NodeAddr format error, {}", s)));
@@ -357,7 +368,7 @@ impl FromStr for NodeAddr {
 }
 
 impl<'de> de::Deserialize<'de> for NodeAddr {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: de::Deserializer<'de>,
     {

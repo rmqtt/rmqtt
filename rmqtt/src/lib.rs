@@ -37,7 +37,6 @@ pub mod types;
 pub mod v3;
 pub mod v5;
 
-// pub use crate::types::*;
 pub use net::{Error, Result};
 
 pub use rmqtt_codec as codec;

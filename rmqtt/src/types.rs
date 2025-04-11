@@ -39,7 +39,7 @@ use crate::fitter::Fitter;
 use crate::net::MqttError;
 use crate::net::{v3, v5, Builder};
 use crate::queue::{Queue, Sender};
-use crate::utils::timestamp_millis;
+use crate::utils::{self, timestamp_millis};
 use crate::{codec, Error, Result};
 
 use crate::codec::types::Publish as PublishInner;
@@ -51,27 +51,27 @@ use crate::topic::Level;
 pub type Publish = Box<PublishInner>;
 
 pub type Port = u16;
-pub type NodeId = u64;
+pub type NodeId = utils::NodeId;
 pub type NodeName = String;
 pub type RemoteSocketAddr = SocketAddr;
 pub type LocalSocketAddr = SocketAddr;
-pub type Addr = bytestring::ByteString;
-pub type ClientId = bytestring::ByteString;
-pub type UserName = bytestring::ByteString;
+pub type Addr = utils::Addr;
+pub type ClientId = ByteString;
+pub type UserName = ByteString;
 pub type Superuser = bool;
 pub type Password = bytes::Bytes;
 pub type PacketId = u16;
 ///topic name or topic filter
-pub type TopicName = bytestring::ByteString;
-pub type Topic = crate::topic::Topic; //ntex_mqtt::Topic;
+pub type TopicName = ByteString;
+pub type Topic = crate::topic::Topic;
 ///topic filter
-pub type TopicFilter = bytestring::ByteString;
-pub type SharedGroup = bytestring::ByteString;
+pub type TopicFilter = ByteString;
+pub type SharedGroup = ByteString;
 pub type LimitSubsCount = Option<usize>;
 pub type IsDisconnect = bool;
 pub type MessageExpiry = bool;
-pub type TimestampMillis = i64;
-pub type Timestamp = i64;
+pub type TimestampMillis = utils::TimestampMillis;
+pub type Timestamp = utils::Timestamp;
 pub type IsOnline = bool;
 pub type IsAdmin = bool;
 pub type LimiterName = u16;
