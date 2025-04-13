@@ -14,14 +14,12 @@ rust-version.workspace = true
 [package.metadata.docs.rs]
 all-features = true
 
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
 default = []
 debug = []
-full = ["conf", "metrics", "stats", "plugin", "grpc", "tls", "ws", "delayed", "retain", "msgstore", "shared-subscription", "auto-subscription", "limit-subscription"]
-conf = ["rmqtt-conf"]
+full = ["metrics", "stats", "plugin", "grpc", "tls", "ws", "delayed", "retain", "msgstore", "shared-subscription", "auto-subscription", "limit-subscription"]
 metrics = ["rmqtt-macros/metrics"]
 stats = []
 plugin = ["rmqtt-macros/plugin"]
@@ -38,7 +36,6 @@ limit-subscription = []
 [dependencies]
 rmqtt-net.workspace = true
 rmqtt-codec.workspace = true
-rmqtt-conf = { workspace = true, optional = true }
 rmqtt-macros = { workspace = true, optional = true }
 rmqtt-utils.workspace = true
 rust-box = { workspace = true, features = ["dequemap", "task-exec-queue", "task-exec-queue-rate"] }

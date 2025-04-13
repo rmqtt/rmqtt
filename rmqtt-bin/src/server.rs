@@ -2,15 +2,15 @@
 
 use std::time::Duration;
 
-use rmqtt::args::CommandArgs;
 use structopt::StructOpt;
 
-use rmqtt::conf::{listener::Listener, Options, Settings};
+use rmqtt::args::CommandArgs;
 use rmqtt::context::ServerContext;
 use rmqtt::net::{tls_provider, Builder};
 use rmqtt::node::Node;
 use rmqtt::server::MqttServer;
 use rmqtt::Result;
+use rmqtt_conf::{listener::Listener, Options, Settings};
 
 mod logger;
 

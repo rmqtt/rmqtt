@@ -114,10 +114,10 @@ impl Encoder<Packet> for Codec {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::timestamp_millis;
     use crate::v3::packet::Publish;
     use bytes::Bytes;
     use bytestring::ByteString;
+    use rmqtt_utils::timestamp_millis;
 
     #[test]
     fn test_max_size() {

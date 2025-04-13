@@ -1,3 +1,35 @@
+//! # Overall Example
+//! ```
+//! use std::time::Duration;
+//! use std::str::FromStr;
+//! use rmqtt::types::{ConnectInfo, Id, QoS, Subscribe};
+//! use rmqtt::acl::{AuthInfo, Rule, Permission, Action, Topic};
+//! use rmqtt::net::Result;
+//!
+//! // Check subscription access
+//! #[tokio::main]
+//! async fn main() -> Result<()> {
+//!
+//! // Create ConnectInfo and authentication rules
+//! let connect_info = ConnectInfo::from(Id::from(1, "clientid001".into()));
+//! let auth_info = AuthInfo {
+//!     superuser: false,
+//!     expire_at: Some(Duration::from_secs(3600)),
+//!     rules: vec![Rule {
+//!         permission: Permission::Allow,
+//!         action: Action::Publish,
+//!         qos: Some(vec![QoS::AtLeastOnce]),
+//!         retain: Some(false),
+//!         topic: Topic::try_from(("sensors/${clientid}", &connect_info)).unwrap(),
+//!     }]
+//! };
+//!
+//! let subscribe = Subscribe::from_v3(&("sensors/123".into()), QoS::AtLeastOnce, false, false)?;
+//! let acl_result = auth_info.subscribe_acl(&subscribe).await;
+//! Ok(())
+//! }
+//! ```
+
 use std::borrow::Cow;
 use std::str::FromStr;
 use std::time::Duration;
@@ -13,24 +45,42 @@ use crate::net::{Error, Result};
 use crate::types::{ConnectInfo, PublishAclResult, QoS, Subscribe, SubscribeAclResult};
 use crate::utils::timestamp;
 
+/// Placeholder variables for dynamic topic composition
 pub const PLACEHOLDER_USERNAME: &str = "${username}";
 pub const PLACEHOLDER_CLIENTID: &str = "${clientid}";
 pub const PLACEHOLDER_IPADDR: &str = "${ipaddr}";
 pub const PLACEHOLDER_PROTOCOL: &str = "${protocol}";
 
+/// Represents user authentication and authorization information
+/// # Example
+/// ```
+/// use rmqtt::acl::AuthInfo;
+/// let auth = AuthInfo {
+///     superuser: true,
+///     expire_at: None,
+///     rules: vec![]
+/// };
+/// ```
 #[derive(Debug, Clone)]
 pub struct AuthInfo {
+    /// Indicates administrator privileges
     pub superuser: bool,
+    /// Optional authentication expiration time
     pub expire_at: Option<Duration>,
+    /// Collection of access control rules
     pub rules: Vec<Rule>,
 }
 
 impl AuthInfo {
+    /// Checks if authentication has expired
     #[inline]
     pub fn is_expired(&self) -> bool {
         self.expire_at.map(|exp| exp < timestamp()).unwrap_or_default()
     }
 
+    /// Evaluates subscription access against ACL rules
+    /// # Arguments
+    /// * `subscribe` - Subscription request to validate
     #[inline]
     pub async fn subscribe_acl(&self, subscribe: &Subscribe) -> Option<ReturnType> {
         if self.superuser {
@@ -66,6 +116,10 @@ impl AuthInfo {
         None
     }
 
+    /// Validates publish authorization against ACL rules
+    /// # Arguments
+    /// * `publish` - Publish request to validate
+    /// * `disconnect_if_pub_rejected` - Flag for connection termination on denial
     #[inline]
     pub async fn publish_acl(
         &self,
@@ -103,16 +157,37 @@ impl AuthInfo {
     }
 }
 
+/// Defines an access control rule for MQTT operations
+/// # Example
+/// ```
+/// use rmqtt::acl::{Rule, Permission, Action, Topic};
+/// use rmqtt::types::{ConnectInfo, Id, QoS};
+/// let rule = Rule {
+///     permission: Permission::Deny,
+///     action: Action::Subscribe,
+///     qos: Some(vec![QoS::ExactlyOnce]),
+///     retain: None,
+///     topic: Topic::try_from(("events/#", &ConnectInfo::from(Id::from(1, "clientid001".into())))).unwrap()
+/// };
+/// ```
 #[derive(Debug, Clone)]
 pub struct Rule {
+    /// Allow/Deny decision for matching operations
     pub permission: Permission,
+    /// Type of MQTT operation this rule applies to
     pub action: Action,
+    /// Optional QoS level restrictions
     pub qos: Option<Vec<QoS>>,
+    /// Retention flag restriction for publish operations
     pub retain: Option<bool>,
+    /// Topic pattern to match against
     pub topic: Topic,
 }
 
 impl Rule {
+    /// Checks if subscription matches rule criteria
+    /// # Returns
+    /// true if subscription matches rule conditions
     #[inline]
     pub async fn subscribe_hit(&self, subscribe: &Subscribe) -> bool {
         if !matches!(self.action, Action::Subscribe | Action::All) {
@@ -130,6 +205,7 @@ impl Rule {
         true
     }
 
+    /// Checks if publish operation meets allow conditions
     #[inline]
     pub async fn publish_allow_hit(&self, publish: &Publish) -> bool {
         if let Some(retain) = self.retain {
@@ -140,6 +216,7 @@ impl Rule {
         self.publish_hit(publish).await
     }
 
+    /// Checks if publish operation meets deny conditions
     #[inline]
     pub async fn publish_deny_hit(&self, publish: &Publish) -> bool {
         if let Some(retain) = self.retain {
@@ -150,6 +227,7 @@ impl Rule {
         self.publish_hit(publish).await
     }
 
+    /// Internal method for publish operation matching
     #[inline]
     async fn publish_hit(&self, publish: &Publish) -> bool {
         if !matches!(self.action, Action::Publish | Action::All) {
@@ -219,9 +297,16 @@ impl TryFrom<(&serde_json::Value, &ConnectInfo)> for Rule {
     }
 }
 
+/// Access control permission type
+/// # Example
+/// ```
+/// let perm = rmqtt::acl::Permission::try_from("allow").unwrap();
+/// ```
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 pub enum Permission {
+    /// Grants access to matched operations
     Allow,
+    /// Denies access to matched operations
     Deny,
 }
 
@@ -237,13 +322,18 @@ impl TryFrom<&str> for Permission {
     }
 }
 
+/// MQTT operation type for rule matching
+/// # Example
+/// ```
+/// let action = rmqtt::acl::Action::try_from("publish").unwrap();
+/// ```
 #[derive(Debug, Clone, Copy)]
 pub enum Action {
-    ///PUBLISH and SUBSCRIBE
+    /// Applies to both PUBLISH and SUBSCRIBE
     All,
-    ///PUBLISH
+    /// Applies only to PUBLISH operations
     Publish,
-    ///SUBSCRIBE
+    /// Applies only to SUBSCRIBE operations
     Subscribe,
 }
 
@@ -260,14 +350,25 @@ impl TryFrom<&str> for Action {
     }
 }
 
+/// Topic matching configuration
+/// # Example
+/// ```
+/// use rmqtt::types::{ConnectInfo, Id};
+/// use rmqtt::acl::Topic;
+/// let topic = Topic::try_from(("eq devices/${clientid}", &ConnectInfo::from(Id::from(1, "clientid001".into())))).unwrap();
+/// ```
 #[derive(Debug, Clone)]
 pub struct Topic {
+    /// Exact match topic filter (prefixed with "eq ")
     pub eq_topic_filter: Option<String>,
-    //"sensor/${clientid}/ctrl", "sensor/${username}/ctrl"
+    /// Wildcard pattern topic filter
     pub topic_filter: Option<crate::topic::Topic>,
 }
 
 impl Topic {
+    /// Checks if topic matches stored filter
+    /// # Arguments
+    /// * `topic` - Topic string to match against
     #[inline]
     pub async fn is_match(&self, topic: &str) -> bool {
         if let Some(eq_topic_filter) = &self.eq_topic_filter {

@@ -3,9 +3,11 @@ use std::num::NonZeroU16;
 use bytes::{Buf, Bytes};
 use bytestring::ByteString;
 
+use rmqtt_utils::timestamp_millis;
+
 use crate::error::DecodeError;
 use crate::types::{packet_type, Protocol, QoS, MQISDP, MQTT, MQTT_LEVEL_31, MQTT_LEVEL_311, WILL_QOS_SHIFT};
-use crate::utils::{timestamp_millis, Decode};
+use crate::utils::Decode;
 
 use super::packet::{Connect, ConnectAck, LastWill, Packet, Publish, SubscribeReturnCode};
 use super::{ConnectAckFlags, ConnectFlags};

@@ -18,6 +18,7 @@ all-features = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+rmqtt-utils.workspace = true
 tokio-util = { workspace = true, features = ["codec"] }
 serde = { workspace = true, features = ["derive"] }
 bytes = { workspace = true, features = ["serde"] }
