@@ -347,8 +347,8 @@ impl SessionLike for StorageSession {
     }
 
     #[inline]
-    fn inflight_win(&self) -> &OutInflightType {
-        self.inner.inflight_win()
+    fn out_inflight(&self) -> &OutInflightType {
+        self.inner.out_inflight()
     }
 
     #[inline]
