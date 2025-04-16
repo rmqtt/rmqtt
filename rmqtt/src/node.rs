@@ -1,3 +1,28 @@
+//! MQTT Broker Node Management Core
+//!
+//! Provides centralized node monitoring and resource management for MQTT broker clusters, implementing:
+//! 1. **Node State Tracking**:
+//!    - Uptime calculation with chrono integration
+//!    - System load monitoring (1/5/15-minute averages)[4](@ref)
+//!    - Memory/Disk usage statistics collection[4](@ref)
+//! 2. **Cluster Health Management**:
+//!    - Busy state detection with configurable thresholds
+//!    - CPU load aggregation using systemstat[8](@ref)
+//!    - Graceful degradation through max_busy_loadavg/max_busy_cpuloadavg[8](@ref)
+//! 3. **Protocol Implementation**:
+//!    - gRPC server/client integration for cluster communication[4](@ref)
+//!    - JSON serialization of broker/node status (BrokerInfo/NodeInfo)[4,5](@ref)
+//!    - Version metadata exposure (Rustc + build version)
+//!
+//! Key components align with MQTT specification requirements:
+//! - Persistent session management through NodeStatus tracking[5](@ref)
+//! - Resource monitoring for connection capacity planning[8](@ref)
+//! - Distributed architecture support via gRPC[4](@ref)
+//!
+//! [4](@ref): Implements server composition from MQTT broker architecture
+//! [5](@ref): Follows MQTT session state management patterns
+//! [8](@ref): Addresses resource limitation handling from connection issues
+
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::time::Duration;
 

@@ -1,3 +1,49 @@
+//! MQTT Message Storage and Retrieval System
+//!
+//! Provides persistent message storage capabilities with:
+//! - Message deduplication tracking
+//! - Expiry-based cleanup
+//! - Distributed storage coordination
+//! - Client-specific message retrieval
+//!
+//! ## Core Functionality
+//! 1. ​**​Message Storage​**​:
+//!    - Tracks message origin and metadata
+//!    - Records subscriber delivery status
+//!    - Enforces message expiry policies
+//!
+//! 2. ​**​Message Retrieval​**​:
+//!    - Client-specific message queries
+//!    - Shared subscription support
+//!    - Optional distributed merge operations
+//!
+//! 3. ​**​System Monitoring​**​:
+//!    - Storage capacity tracking
+//!    - Message count statistics
+//!    - Operational status reporting
+//!
+//! ## Key Features
+//! - Pluggable storage backend (default is no-op)
+//! - Message ID generation hook
+//! - Subscriber state tracking
+//! - Cluster-aware storage coordination
+//! - Lightweight default implementation
+//!
+//! ## Implementation Notes
+//! - All methods have no-op default implementations
+//! - Designed for easy extension with concrete storage backends
+//! - Async-compatible interface
+//! - Zero-cost when disabled
+//!
+//! Typical Usage:
+//! 1. Implement `store()` for message persistence
+//! 2. Override `get()` for client-specific retrieval
+//! 3. Implement `should_merge_on_get()` for cluster coordination
+//! 4. Provide capacity monitoring via `count()`/`max()`
+//!
+//! Note: The default implementation performs no actual storage,
+//! making it suitable for brokers that don't require message persistence.
+//!
 use std::time::Duration;
 
 use async_trait::async_trait;

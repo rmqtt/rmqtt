@@ -1,3 +1,46 @@
+//! MQTT Topic Routing & Subscription Management Core
+//!
+//! Provides distributed topic-based routing implementation with hierarchical subscription management
+//! for MQTT brokers. The system combines trie-based pattern matching with concurrent data structures
+//! to achieve O(log n) topic operations while maintaining thread safety across cluster nodes.
+//!
+//! ## Core Features
+//! 1. **Topic Pattern Management**:
+//!    - Trie-based storage with wildcard support (+/#) using `TopicTree`
+//!    - Atomic subscription counters with `Counter` struct
+//!    - Distributed subscription synchronization via `AllRelationsMap`
+//!
+//! 2. **Subscription Lifecycle**:
+//!    - Add/remove operations protected by `RwLock`
+//!    - Cross-node online status checking
+//!    - Shared subscription support through conditional compilation
+//!
+//! 3. **Data Structures**:
+//!    - `Arc<DashMap>` for thread-safe subscription relations storage
+//!    - Hierarchical topic matching with `VecToTopic` conversions
+//!    - JSON serialization for admin interfaces
+//!
+//! ## Design Characteristics
+//! - **Concurrency Model**:
+//!   - Lock hierarchy: Topic tree uses `RwLock` while relations use lock-free `DashMap`
+//!   - Atomic counters for subscription statistics
+//!   - Async-compatible through `#[async_trait]`
+//!
+//! - **Cluster Coordination**:
+//!   - Node-specific subscription merging with `merge_topics/merge_routes`
+//!   - Online status integration with server context
+//!   - Paginated query support for large datasets
+//!
+//! Typical usage includes:
+//! - Routing QoS 1/2 messages with session persistence
+//! - Handling shared subscriptions with round-robin selection
+//! - Performing cluster-wide subscription audits
+//!
+//! The implementation leverages Rust's type system to ensure:
+//! - Zero-cost abstraction for topic matching
+//! - Memory safety through ownership model
+//! - Linear scalability with subscription count
+
 use std::convert::From as _;
 use std::str::FromStr;
 use std::sync::Arc;

@@ -1,3 +1,5 @@
+//! Some commonly used type definitions
+
 use std::convert::From as _f;
 use std::fmt;
 use std::fmt::Display;

@@ -1,3 +1,54 @@
+//! MQTT Inflight Message Management System
+//!
+//! Provides reliable message delivery tracking for QoS 1 and 2 with:
+//! - Outbound message retransmission
+//! - Inbound message deduplication
+//! - Configurable window sizes
+//! - Automatic expiry handling
+//!
+//! ## Core Functionality
+//! 1. ​**​Outbound Tracking (OutInflight)​**​:
+//!    - Manages unacknowledged publishes (QoS 1/2)
+//!    - Handles retransmission timeouts
+//!    - Maintains packet ID sequencing
+//!    - Supports configurable capacity limits
+//!
+//! 2. ​**​Inbound Tracking (InInflight)​**​:
+//!    - Detects duplicate messages (QoS 2)
+//!    - Enforces maximum window size
+//!    - Provides packet ID lifecycle management
+//!
+//! ## Key Features
+//! - Dual interval timing (retry/expiry)
+//! - Event hooks for push/pop operations
+//! - Atomic packet ID generation
+//! - Time-based message expiry
+//! - Statistics integration
+//!
+//! ## Implementation Details
+//! - DequeMap for O(1) front access
+//! - BTreeSet for efficient deduplication
+//! - Atomic counters for thread safety
+//! - Zero-cost status tracking
+//!
+//! Configuration Parameters:
+//! - `cap`: Maximum concurrent outbound messages
+//! - `retry_interval`: Retransmission delay (ms)
+//! - `expiry_interval`: Message expiry timeout (ms)
+//! - `max_inflight`: Maximum inbound window size
+//!
+//! Usage Patterns:
+//! 1. Assign packet IDs via `next_id()`
+//! 2. Track outbound messages with `push_back()`
+//! 3. Process acknowledgements with `remove()`
+//! 4. Handle timeouts via `pop_front_timeout()`
+//! 5. Manage inbound flow with `add()`/`remove()`
+//!
+//! Note: Implements MQTT spec requirements for:
+//! - Packet ID uniqueness (2.2.1)
+//! - QoS flow control (4.6)
+//! - Message expiry (3.3.2.3.2)
+
 use std::collections::BTreeSet;
 use std::num::NonZeroU16;
 use std::sync::atomic::{AtomicU16, Ordering};

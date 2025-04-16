@@ -1,3 +1,38 @@
+//! Delayed Message Publishing System
+//!
+//! Implements MQTT's delayed message delivery mechanism with:
+//! - Time-based message scheduling
+//! - Priority queue for efficient expiration handling
+//! - Configurable storage limits
+//!
+//! ## Core Functionality
+//! 1. ​**​Topic Parsing​**​:
+//!    - Recognizes `$delayed/<interval>/<topic>` format
+//!    - Extracts delay intervals from topic strings
+//!    - Validates delay parameter formatting
+//!
+//! 2. ​**​Message Scheduling​**​:
+//!    - Maintains time-ordered priority queue (BinaryHeap)
+//!    - Periodic expiration checks (500ms intervals)
+//!    - Automatic forwarding of expired messages
+//!
+//! 3. ​**​Resource Management​**​:
+//!    - Enforces maximum delayed message limit
+//!    - Tracks statistics through ServerContext
+//!    - Provides atomic length checks
+//!
+//! ## Implementation Details
+//! - Uses RwLock for thread-safe queue operations
+//! - Tokio-based async task for background processing  
+//! - Zero-copy topic parsing with Vec allocation
+//! - Graceful handling of storage limits
+//!
+//! Typical workflow:
+//! 1. Parse incoming publish for delay parameters
+//! 2. Schedule message if within limits
+//! 3. Background task forwards expired messages
+//! 4. Statistics updated throughout lifecycle
+
 use std::collections::BinaryHeap;
 use std::sync::Arc;
 use std::time::Duration;

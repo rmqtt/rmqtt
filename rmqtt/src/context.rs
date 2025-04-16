@@ -1,4 +1,40 @@
-//! # Overall Example
+//! MQTT Server Runtime Context Management
+//!
+//! Provides core infrastructure for building scalable MQTT brokers with:
+//! - Resource-managed task execution pipelines
+//! - Dynamic configuration of server capabilities
+//! - System health monitoring and overload protection
+//!
+//! ## Architectural Components
+//! 1. ​**​ServerContextBuilder​**​: Fluent interface for configuring:
+//!    - Cluster node properties
+//!    - Task execution parameters (workers/queue sizes)
+//!    - Connection/session limits
+//!    - Plugin system integration
+//!
+//! 2. ​**​Runtime Features​**​:
+//!    - Asynchronous task execution with backpressure control
+//!    - Busy state detection (handshake/connection thresholds)
+//!    - Metrics collection and statistical tracking
+//!    - Delayed message publishing with configurable policies
+//!
+//! 3. ​**​Resource Management​**​:
+//!    - Atomic counters for connection/session tracking
+//!    - DashMap-based listener configuration storage
+//!    - Extension points for router/shared state customization
+//!
+//! ## Implementation Highlights
+//! - Zero-cost abstractions through Arc-based sharing
+//! - Tokio-powered async task scheduling
+//! - Feature-gated components (metrics/plugins/stats)
+//! - Thread-safe counters with lock-free operations
+//!
+//! Typical usage flow:
+//! 1. Configure via ServerContextBuilder
+//! 2. Initialize shared components (router/delayed sender)
+//! 3. Monitor system state via is_busy() checks
+//! 4. Access execution metrics through TaskExecStats
+//!
 //! ```rust
 //! use std::sync::Arc;
 //! use rmqtt::context::{ServerContext, TaskExecStats};
@@ -13,11 +49,6 @@
 //!     .build()
 //!     .await;
 //!
-//! // Check server busy status
-//! let is_busy = ctx.is_busy().await;
-//!
-//! // Access execution statistics
-//! let stats = TaskExecStats::from_global_exec(&ctx.global_exec).await;
 //! Ok(())
 //! }
 //! ```

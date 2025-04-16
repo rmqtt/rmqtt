@@ -1,3 +1,46 @@
+//! MQTT Broker Core Management System
+//!
+//! Central coordination point for all broker subsystems with:
+//! - Thread-safe access to all components
+//! - Feature-gated module integration
+//! - Uniform access patterns across subsystems
+//!
+//! ## Architectural Responsibilities
+//! 1. ​**​Component Lifecycle​**​:
+//!    - Initializes default implementations of all subsystems
+//!    - Manages RwLock-protected access to mutable state
+//!    - Coordinates feature-gated components
+//!
+//! 2. ​**​Access Control​**​:
+//!    - Provides both read and write accessors for all components
+//!    - Enforces proper synchronization through async locks
+//!    - Maintains consistent interface across features
+//!
+//! 3. ​**​Subsystem Integration​**​:
+//!    - Shared state management
+//!    - Message routing infrastructure
+//!    - Session persistence
+//!    - QoS message handling
+//!    - Plugin hook system
+//!
+//! ## Implementation Features
+//! - Zero-cost abstraction for immutable access
+//! - Tokio-based async synchronization
+//! - Feature flags for optional components:
+//!   - `retain`: Message retention storage
+//!   - `msgstore`: Persistent message storage
+//!   - `delayed`: Scheduled message delivery
+//!   - `shared-subscription`: Group subscription support
+//!   - `auto-subscription`: Automatic topic subscriptions
+//!
+//! Usage Pattern:
+//! 1. Get read/write guard for needed subsystem
+//! 2. Perform operations within lock scope
+//! 3. Allow automatic lock release when done
+//!
+//! Note: All write operations should be kept minimal to avoid
+//! blocking other tasks waiting for the same resource.
+
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 #[cfg(feature = "delayed")]

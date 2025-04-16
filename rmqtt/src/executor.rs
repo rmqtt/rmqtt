@@ -1,3 +1,38 @@
+//! Handshake Connection Management System
+//!
+//! Provides controlled execution of MQTT handshake operations with:
+//! - Port-specific worker pools
+//! - Dynamic busy state detection
+//! - Connection rate monitoring
+//!
+//! ## Core Functionality
+//! 1. ​**​Executor Management​**​:
+//!    - Creates dedicated TaskExecQueue per listener port
+//!    - Auto-scales worker pools based on config limits
+//!    - Maintains execution statistics
+//!
+//! 2. ​**​Busy State Detection​**​:
+//!    - Dynamic threshold calculation (35% of max capacity)
+//!    - Cross-port busy state aggregation
+//!    - Integration with shared server state
+//!
+//! 3. ​**​Performance Monitoring​**​:
+//!    - Per-port execution rate tracking
+//!    - Active task count summation
+//!    - Async-compatible metrics collection
+//!
+//! ## Implementation Details
+//! - Uses DashMap for concurrent port mapping
+//! - Lazy initialization of executor pools
+//! - Tokio-based async task spawning
+//! - Zero-cost deref to TaskExecQueue
+//!
+//! Operational Flow:
+//! 1. Get executor for specific port (auto-creates if needed)
+//! 2. Execute handshake tasks in isolated pool
+//! 3. Monitor aggregate system state
+//! 4. Trigger busy state when thresholds exceeded
+
 use rust_box::task_exec_queue::{Builder, TaskExecQueue};
 use std::ops::Deref;
 

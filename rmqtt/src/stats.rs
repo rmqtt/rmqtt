@@ -1,3 +1,54 @@
+//! MQTT Broker Performance Monitoring
+//!
+//! Provides comprehensive statistical instrumentation for MQTT broker operations, implementing
+//! real-time metrics collection and cluster-wide aggregation. The system combines atomic counters
+//! with distributed data structures to achieve O(1) metric updates while maintaining thread safety.
+//!
+//! ## Core Monitoring Dimensions
+//! 1. **Connection Lifecycle**:
+//!    - Handshake throughput (`handshakings_rate`) and active negotiations (`handshakings_active`)
+//!    - Concurrent connections tracking with load shedding detection (`connections`)
+//!
+//! 2. **Session Management**:
+//!    - Persistent session counts with expiry tracking (`sessions`)
+//!    - Shared subscription distribution analysis (`subscriptions_shared`)
+//!
+//! 3. **Message Flow**:
+//!    - QoS 1/2 in-flight message windows (`out_inflights`/`in_inflights`)
+//!    - Message queue backpressure monitoring (`message_queues`)
+//!    - Retained message storage metrics (`retaineds`)
+//!
+//! ## Architectural Features
+//! - **Cluster Awareness**:
+//!   ```rust,ignore
+//!   topics_map: HashMap<NodeId, Counter>  // Trie-based topic tree metrics per node
+//!   routes_map: HashMap<NodeId, Counter>   // Subscription routing table metrics
+//!   ```
+//!   Enables cross-node aggregation through merge_topics/merge_routes operations
+//!
+//! - **Performance Optimizations**:
+//!   - Lock-free atomic counters for high-frequency updates
+//!   - Conditional compilation for production/DEBUG builds
+//!   - Zero-copy serialization via Serde integration
+//!
+//! - **Diagnostics**:
+//!   - DEBUG feature exposes:
+//!     - Client state machine transitions (`debug_client_states_map`)
+//!     - Topic tree memory profiling (`debug_topics_tree_map`)
+//!     - Async task execution analytics (`debug_global_exec_stats`)
+//!
+//! Typical usage includes:
+//! - Capacity planning through trend analysis
+//! - QoS compliance auditing
+//! - Cluster load balancing decisions
+//! - Anomaly detection via metric thresholds
+//!
+//! The implementation leverages Rust's type system to ensure:
+//! - Memory safety through ownership model
+//! - Linear scalability with cluster size
+//! - Seamless integration with Prometheus/Grafana
+//!
+
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 

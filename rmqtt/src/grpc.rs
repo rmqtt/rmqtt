@@ -1,3 +1,54 @@
+//! Distributed MQTT Broker gRPC Communication Layer
+//!
+//! Implements inter-node communication for clustered MQTT deployments with:
+//! - High-performance message forwarding
+//! - Cluster-wide operations and queries
+//! - Fault-tolerant request handling
+//!
+//! ## Core Functionality
+//! 1. ​**​gRPC Server​**​:
+//!    - Manages incoming cluster RPC requests
+//!    - Handles message forwarding between nodes
+//!    - Processes cluster-wide queries (subscriptions, routes, etc.)
+//!    - Automatic reconnection on failure
+//!
+//! 2. ​**​gRPC Client​**​:
+//!    - Connection pooling and management
+//!    - Request timeout handling
+//!    - Concurrent request limiting
+//!    - Message queue monitoring
+//!
+//! 3. ​**​Message Types​**​:
+//!    - 22+ predefined message types for cluster operations
+//!    - Serialization/deserialization via bincode
+//!    - Support for custom binary data payloads
+//!
+//! ## Key Features
+//! - Priority-based message channels
+//! - Request/response tracking
+//! - Broadcast operations to all nodes
+//! - Optimistic response selection
+//! - Configurable timeouts and limits:
+//!   - `client_timeout`: Per-request timeout
+//!   - `client_concurrency_limit`: Max concurrent requests
+//!   - `chunk_size`: Message fragmentation threshold (2MB default)
+//!
+//! ## Implementation Details
+//! - Uses Tokio for async I/O
+//! - Atomic counters for request tracking
+//! - Zero-copy message processing where possible
+//! - Connection reuse for performance
+//!
+//! Typical Usage:
+//! 1. Initialize gRPC server with `listen_and_serve()`
+//! 2. Create client connections with `GrpcClient::new()`
+//! 3. Send messages via:
+//!    - Direct `send_message()` for point-to-point
+//!    - `MessageBroadcaster` for cluster-wide ops
+//! 4. Handle responses via `MessageReply` enum
+//!
+//! Note: All message types below 1000 are reserved for internal use.
+//!
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicIsize, AtomicUsize, Ordering};
 use std::sync::Arc;

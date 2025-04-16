@@ -1,3 +1,43 @@
+//! MQTT Connection Parameter Management
+//!
+//! Provides configurable quality-of-service (QoS) parameters and connection behaviors with:
+//! - Protocol version-aware parameter negotiation
+//! - Runtime configurable limits and thresholds
+//! - Client-specific QoS adaptations
+//!
+//! ## Core Functionality
+//! 1. ​**​Connection Parameter Management​**​:
+//!    - Keepalive interval negotiation and validation
+//!    - Session/message expiry interval determination
+//!    - Protocol version-specific behavior adaptation
+//!
+//! 2. ​**​Message Flow Control​**​:
+//!    - Configurable message queue limits
+//!    - Rate limiting for message processing
+//!    - In-flight window size management
+//!
+//! 3. ​**​Topic Alias Handling​**​:
+//!    - Bidirectional alias limit negotiation
+//!    - Protocol version compatibility checks
+//!    - Server-enforced maximum limits
+//!
+//! ## Implementation Features
+//! - Zero-copy parameter validation
+//! - MQTT v3/v5 protocol version adaptation
+//! - Listener-configurable defaults and limits
+//! - Client-specific overrides where allowed
+//!
+//! Key Configuration Points:
+//! - `keepalive_backoff`: Multiplier for keepalive adjustments
+//! - `max_mqueue_len`: Maximum queued messages per client
+//! - `mqueue_rate_limit`: Messages processed per time unit
+//! - `max_inflight`: Unacknowledged message window size
+//!
+//! Usage Pattern:
+//! 1. Create fitter via FitterManager
+//! 2. Query parameters as needed during connection
+//! 3. Apply negotiated values to session
+
 use std::num::{NonZeroU16, NonZeroU32};
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,7 +53,7 @@ pub trait FitterManager: Sync + Send {
     fn create(&self, conn_info: Arc<ConnectInfo>, id: Id, cfg: ListenerConfig) -> FitterType;
 }
 
-// #[async_trait]
+#[async_trait]
 pub trait Fitter: Sync + Send {
     ///keep_alive - is client input value, unit: seconds
     fn keep_alive(&self, keep_alive: &mut u16) -> Result<u16>;

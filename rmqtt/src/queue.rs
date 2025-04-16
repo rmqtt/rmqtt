@@ -1,3 +1,40 @@
+//! A bounded asynchronous channel with rate-limiting and customizable backpressure policies.
+//!
+//! This module provides a mechanism for sending items into a bounded queue with an associated
+//! receiver that consumes items at a controlled rate. It supports custom policies for handling
+//! queue overflow and hook functions to track queue events.
+//!
+//! # Components
+//!
+//! - [`Sender<T>`]: Allows sending items into a bounded queue asynchronously. Supports custom
+//!   overflow policies via [`PolicyFn`] and can notify via an MPSC signal channel.
+//!
+//! - [`Receiver<'a, T>`]: A `Stream` that yields elements from the queue at a rate-limited pace,
+//!   using the [`governor`] crate.
+//!
+//! - [`Policy`]: Defines behavior when the queue is full:
+//!   - `Current`: Discard the current value being sent.
+//!   - `Early`: Discard the earliest value in the queue to make space.
+//!
+//! - [`Queue<T>`]: A thread-safe bounded queue using `SegQueue`, with optional hooks on push/pop.
+//!
+//! - [`Limiter`]: Creates rate-limited channels using `RateLimiter`, managing burst and refill
+//!   periods.
+//!
+//! # Features
+//!
+//! - Thread-safe and cloneable senders with policy injection.
+//! - Rate-limiting receivers with configurable burst size and interval.
+//! - Event hooks for push/pop operations in the queue.
+//! - Graceful handling of overflows based on selected policy.
+//!
+//!
+//! # Crates Used
+//!
+//! - `governor`: For rate limiting
+//! - `crossbeam`: For the lock-free `SegQueue`
+//! - `futures`: For async MPSC and stream support
+
 use std::num::NonZeroU32;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -121,9 +158,6 @@ pub struct Limiter {
 impl Limiter {
     #[inline]
     pub fn new(burst: NonZeroU32, replenish_n_per: Duration) -> Self {
-        // let replenish_n_per =
-        //     if replenish_n_per.is_zero() { Duration::from_secs(1) } else { replenish_n_per };
-
         let period = replenish_n_per.as_nanos() as u64 / burst.get() as u64;
         let period = if period > 0 { Duration::from_nanos(period) } else { Duration::from_nanos(1) };
         log::debug!("burst: {:?}, {:?}, {:?}", burst, replenish_n_per, period);

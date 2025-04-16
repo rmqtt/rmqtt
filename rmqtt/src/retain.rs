@@ -1,3 +1,67 @@
+//! MQTT Retained Message Storage Implementation
+//!
+//! Provides hierarchical storage and efficient retrieval of MQTT retained messages with:
+//! 1. **Topic Pattern Matching**:
+//!    - Multi-level wildcard (#) and single-level wildcard (+) support
+//!    - Metadata-aware filtering for system topics (starting with $)
+//!
+//! 2. **Message Management**:
+//!    - Time-based expiration with automatic cleanup
+//!    - Atomic counters for message statistics
+//!    - Thread-safe operations using async RwLock
+//!
+//! 3. **Core Components**:
+//!    - `RetainTree`: Trie-like structure for O(log n) topic operations
+//!    - `TimedValue`: Wrapper for message expiration tracking
+//!    - `DefaultRetainStorage`: Production implementation with plugin integration
+//!
+//! ## Design Highlights
+//! - **Hierarchical Storage**:
+//!   ```text
+//!   Root
+//!   ├── iot
+//!   │   └── b
+//!   │       ├── x (value=1)
+//!   │       ├── y (value=2)
+//!   │       └── z (value=3)
+//!   └── x
+//!       └── y
+//!           └── z (value=4)
+//!   ```
+//!   Enables efficient wildcard pattern matching through trie traversal
+//!
+//! - **Expiration Mechanism**:
+//!   ```rust,ignore
+//!   TimedValue::new(retain, timeout) // Wraps message with TTL
+//!   remove_expired_messages() // Scheduled cleanup task
+//!   ```
+//!   Automatically evicts stale messages using duration-based tracking
+//!
+//! - **Plugin Architecture**:
+//!   ```rust,ignore
+//!   #[async_trait]
+//!   impl RetainStorage for DefaultRetainStorage {
+//!       async fn set(...) { /* delegates to rmqtt-retainer plugin */ }
+//!   }
+//!   ```
+//!   Enables extension through external plugins while maintaining core logic
+//!
+//! ## Key Operations
+//! | Method                | Complexity | Description                     |
+//! |-----------------------|------------|---------------------------------|
+//! | `insert()`            | O(k)       | k = topic depth levels          |
+//! | `matches()`           | O(k+m)     | m = matching branches           |
+//! | `remove_expired()`    | O(n)       | n = total stored messages       |
+//! | `retain()`            | O(n)       | Conditional bulk removal        |
+//!
+//! ## Usage Note
+//! The base implementation intentionally delegates to `rmqtt-retainer` plugin for:
+//! - Distributed storage support
+//! - Enhanced persistence mechanisms
+//! - Cluster-wide message synchronization
+//!
+//! See `rmqtt-retainer` documentation for production deployment recommendations
+
 use std::str::FromStr;
 use std::time::Duration;
 

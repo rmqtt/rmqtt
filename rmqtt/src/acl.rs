@@ -1,34 +1,34 @@
-//! # Overall Example
-//! ```
-//! use std::time::Duration;
-//! use std::str::FromStr;
-//! use rmqtt::types::{ConnectInfo, Id, QoS, Subscribe};
-//! use rmqtt::acl::{AuthInfo, Rule, Permission, Action, Topic};
-//! use rmqtt::net::Result;
+//! MQTT Access Control List (ACL) Implementation
 //!
-//! // Check subscription access
-//! #[tokio::main]
-//! async fn main() -> Result<()> {
+//! This module provides granular authorization controls for MQTT operations, implementing:
+//! - Dynamic topic composition with client-specific placeholders
+//! - Rule-based permission evaluation for PUBLISH/SUBSCRIBE operations
+//! - Hierarchical authorization checks with superuser privileges
+//! - Serde-compatible configuration parsing for ACL rules
 //!
-//! // Create ConnectInfo and authentication rules
-//! let connect_info = ConnectInfo::from(Id::from(1, "clientid001".into()));
-//! let auth_info = AuthInfo {
-//!     superuser: false,
-//!     expire_at: Some(Duration::from_secs(3600)),
-//!     rules: vec![Rule {
-//!         permission: Permission::Allow,
-//!         action: Action::Publish,
-//!         qos: Some(vec![QoS::AtLeastOnce]),
-//!         retain: Some(false),
-//!         topic: Topic::try_from(("sensors/${clientid}", &connect_info)).unwrap(),
-//!     }]
-//! };
+//! ## Core Components
+//! 1. ​**​AuthInfo​**​: Container for client authentication state including:
+//!    - Superuser flag bypassing ACL checks
+//!    - Expiring credentials with timestamp validation
+//!    - Rule collection for granular access control
 //!
-//! let subscribe = Subscribe::from_v3(&("sensors/123".into()), QoS::AtLeastOnce, false, false)?;
-//! let acl_result = auth_info.subscribe_acl(&subscribe).await;
-//! Ok(())
-//! }
-//! ```
+//! 2. ​**​Rule Engine​**​: Evaluates operations against configured rules with:
+//!    - Topic pattern matching (exact/wildcard)
+//!    - QoS level filtering
+//!    - Retention flag validation
+//!    - Protocol-aware placeholder substitution (client ID, username, etc.)
+//!
+//! 3. ​**​Permission Model​**​:
+//!    - Allow/Deny decision hierarchy
+//!    - Action-specific controls (Publish/Subscribe/All)
+//!    - Asynchronous evaluation pipeline
+//!
+//! ## Design Highlights
+//! - Uses Rust's ownership system for memory-safe credential handling
+//! - Tokio-based async evaluation for high-throughput scenarios
+//! - Zero-copy deserialization of ACL rules via Serde integration
+//! - Compile-time validated topic pattern parsing
+//!
 
 use std::borrow::Cow;
 use std::str::FromStr;

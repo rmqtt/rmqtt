@@ -1,3 +1,50 @@
+//! MQTT Broker Plugin Hook System
+//!
+//! Provides extensible event-driven architecture for MQTT broker operations with:
+//! - 30+ hook points across the client lifecycle
+//! - Priority-based handler execution
+//! - Protocol version-aware processing
+//! - Comprehensive ACL integration
+//!
+//! ## Core Functionality
+//! 1. ​**​Lifecycle Management​**​:
+//!    - Client connection/disconnection events
+//!    - Session creation/termination
+//!    - Subscription state changes
+//!
+//! 2. ​**​Message Processing​**​:
+//!    - Publish authorization checks
+//!    - Message delivery/acknowledgement
+//!    - Offline message handling
+//!    - Message expiry validation
+//!
+//! 3. ​**​Access Control​**​:
+//!    - Authentication/authorization hooks
+//!    - Subscribe/publish ACL verification
+//!    - Superuser privilege handling
+//!
+//! ## Key Features
+//! - Protocol version specific handling (v3.1, v3.1.1, v5)
+//! - Priority-based handler ordering (0=highest)
+//! - Atomic hook registration/enabling
+//! - Session-aware processing context
+//! - Comprehensive result type system
+//!
+//! ## Implementation Details
+//! - Async trait-based interface
+//! - DashMap-backed concurrent storage
+//! - UUID-based handler identification
+//! - BTreeMap for priority ordering
+//! - Zero-cost abstraction for common cases
+//!
+//! Typical Usage:
+//! 1. Implement `Handler` trait for custom logic
+//! 2. Register via `HookManager::register()`
+//! 3. Process hook results via `HookResult` enum
+//!
+//! Note: All hooks are executed in reverse priority order (high to low)
+//! until a handler returns `proceed=false`.
+
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
 use std::sync::Arc;

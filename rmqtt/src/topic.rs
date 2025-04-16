@@ -1,3 +1,63 @@
+//! MQTT Topic Handling Module
+//!
+//! Provides comprehensive implementation for MQTT topic parsing, validation and wildcard pattern
+//! matching following MQTT 3.1.1/5.0 specifications. Implements hierarchical topic structure
+//! with support for:
+//! - Normal levels (`sport/tennis`)
+//! - System metadata levels (`$SYS/...`)
+//! - Single-level (`+`) and multi-level (`#`) wildcards
+//!
+//! ## Core Components
+//! 1. **Topic Structure**:
+//!    - `Level` enum representing different topic segment types:
+//!      ```rust
+//!      pub enum Level {
+//!          Normal(String),       // Standard topic segment
+//!          Metadata(String),    // System metadata starting with $
+//!          Blank,               // Empty segment (e.g., leading/trailing /)
+//!          SingleWildcard,      // + wildcard
+//!          MultiWildcard        // # wildcard
+//!      }
+//!      ```
+//!    - `Topic` struct containing ordered collection of Levels
+//!
+//! 2. **Validation Rules**:
+//!    - Metadata levels must start with `$` and cannot contain wildcards
+//!    - Multi-level wildcard `#` must be last segment
+//!    - Single-level wildcard `+` matches exactly one level
+//!    - Prohibits invalid characters (`+`/`#`) in normal levels
+//!
+//! 3. **Pattern Matching**:
+//!    - Implements MQTT wildcard matching semantics:
+//!      ```rust,ignore
+//!      topic!("sport/+/#").matches_str("sport/tennis/player1") // true
+//!      ```
+//!    - Supports system metadata isolation (wildcards don't match $ topics)
+//!
+//! ## Design Features
+//! - **Type-Safe Parsing**:
+//!   - Implements `FromStr` with detailed error reporting
+//!   - Strict validation during parsing
+//! - **Zero-Copy Operations**:
+//!   - Uses string references for pattern matching
+//! - **Extensible Formatting**:
+//!   - Implements `Display` trait for human-readable output
+//!   - Provides `WriteTopicExt` for efficient byte-level writing
+//!
+//! ## Usage Example
+//! ```rust,ignore
+//! let topic: Topic = "sport/+/player1/#".parse().unwrap();
+//! assert!(topic.matches_str("sport/tennis/player1/stats"));
+//! ```
+//!
+//! Implements MQTT spec requirements for:
+//! - Topic structure validation (§4.7)
+//! - Wildcard matching rules (§4.7.1-4.7.3)
+//! - System topic isolation (§4.7.3)
+//!
+//! : MQTT topic structure fundamentals
+//! : Wildcard matching semantics
+
 use std::fmt::{self, Write};
 use std::{io, ops, str::FromStr};
 

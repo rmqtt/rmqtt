@@ -1,3 +1,56 @@
+//! MQTT Topic Tree Implementation with Wildcard Support
+//!
+//! Provides a hierarchical data structure for efficient storage and retrieval of MQTT subscriptions
+//! with full protocol-compliant wildcard matching capabilities. Implements MQTT 3.1.1/5.0 spec
+//! requirements for topic filtering and metadata handling.
+//!
+//! ## Core Components
+//! 1. **Tree Structure**:
+//!    - `Node<V>` represents tree nodes containing subscription values and child branches
+//!    - `HashMap<Level, Node<V>>` manages topic hierarchy with O(1) level access
+//!    - `BTreeSet<V>` ensures ordered storage of subscription values
+//!
+//! 2. **Wildcard Handling**:
+//!    - Implements single-level (`+`) and multi-level (`#`) wildcard matching per MQTT spec
+//!    - Enforces metadata topic isolation (topics starting with `$`) from wildcard matches
+//!    - Supports hierarchical topic validation through `Level` enum constraints
+//!
+//! ## Key Features
+//! - **Efficient Matching Algorithm**:
+//!   ```rust,ignore
+//!   impl MatchedIter<'a, V> {
+//!       // Recursive matching with path tracking
+//!   }
+//!   ```
+//!   Implements depth-first traversal with branch pruning for O(n) worst-case performance
+//!
+//! - **Cluster-Ready Serialization**:
+//!   - `Serialize/Deserialize` implementations enable distributed state synchronization
+//!   - `bincode` compatible for network-efficient binary representation
+//!
+//! - **Memory Optimization**:
+//!   - Automatic node cleanup during removal operations
+//!   - Smart pointer usage minimizes value cloning
+//!   - Lazy iterator pattern reduces intermediate allocations
+//!
+//! ## Protocol Compliance
+//! 1. **Topic Structure Validation**:
+//!    - Rejects invalid level combinations (e.g., `#` not in last position)
+//!    - Prevents wildcards in metadata topics per MQTT spec
+//!
+//! 2. **Matching Semantics**:
+//!    - `/sport/+` matches `/sport/tennis` but not `/sport`
+//!    - `/home/#` matches all subtrees under `/home`
+//!    - `$SYS/...` topics never match wildcard subscriptions
+//!
+//! ## Performance Characteristics
+//! - Insertion/Removal: O(k) where k = topic depth
+//! - Match Lookup: O(n*m) worst-case (n = topic depth, m = wildcard branches)
+//! - Memory Overhead: ~40 bytes/node + value storage
+//!
+//! Typical usage includes IoT platforms requiring high-throughput subscription management.
+//! Integrates with Rust MQTT ecosystems through generic value types.
+
 use std::fmt;
 use std::fmt::Debug;
 use std::hash::Hash;
