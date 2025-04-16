@@ -13,7 +13,8 @@ use rmqtt::{
     plugin::{PackageInfo, Plugin},
     register,
     session::Session,
-    Publish, Result, Topic, TopicFilter, TopicName,
+    types::{Publish, Topic, TopicFilter, TopicName},
+    Result,
 };
 
 use config::{Action, DestTopicItem, PluginConfig, Rule};

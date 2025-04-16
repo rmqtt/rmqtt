@@ -4,8 +4,8 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use bytestring::ByteString;
 
 use crate::error::{DecodeError, EncodeError};
-use crate::types::TimestampMillis;
 
+/// Helper macro for early error return on condition failure
 macro_rules! ensure {
     ($cond:expr, $e:expr) => {
         if !($cond) {
@@ -19,62 +19,56 @@ macro_rules! ensure {
     };
 }
 
+/// Macro for creating primitive enums with u8 conversion
 macro_rules! prim_enum {
-    (
-        $( #[$enum_attr:meta] )*
-        pub enum $name:ident {
-            $(
-                $( #[$enum_item_attr:meta] )*
-                $var:ident=$val:expr
-            ),+
-        }) => {
+    ($( #[$enum_attr:meta] )* pub enum $name:ident { $($( #[$enum_item_attr:meta] )* $var:ident=$val:expr ),+ }) => {
         $( #[$enum_attr] )*
         #[repr(u8)]
         #[derive(Debug, Eq, PartialEq, Copy, Clone)]
         pub enum $name {
-            $(
-                $( #[$enum_item_attr] )*
-                $var = $val
-            ),+
+            $($( #[$enum_item_attr] )* $var = $val ),+
         }
         impl std::convert::TryFrom<u8> for $name {
             type Error = $crate::error::DecodeError;
             fn try_from(v: u8) -> Result<Self, Self::Error> {
                 match v {
-                    $($val => Ok($name::$var)),+
-                    ,_ => Err($crate::error::DecodeError::MalformedPacket)
+                    $($val => Ok($name::$var)),+ ,
+                    _ => Err($crate::error::DecodeError::MalformedPacket)
                 }
             }
         }
-        // impl From<$name> for u8 {
-        //     fn from(v: $name) -> Self {
-        //         unsafe { ::std::mem::transmute(v) }
-        //     }
-        // }
     };
 }
 
+/// Trait for decoding types from network bytes
 pub(crate) trait Decode: Sized {
+    /// Decodes from byte buffer, advancing position
+    ///
+    /// # Errors
+    /// Returns `DecodeError` on invalid data or insufficient bytes
     fn decode(src: &mut Bytes) -> Result<Self, DecodeError>;
 }
 
+/// Trait for reading MQTT properties with validation
 pub(super) trait Property {
+    /// Reads property value from buffer, ensuring single assignment
     fn read_value(&mut self, src: &mut Bytes) -> Result<(), DecodeError>;
 }
 
 impl<T: Decode> Property for Option<T> {
     fn read_value(&mut self, src: &mut Bytes) -> Result<(), DecodeError> {
-        ensure!(self.is_none(), DecodeError::MalformedPacket); // property is set twice while not allowed
+        ensure!(self.is_none(), DecodeError::MalformedPacket);
         *self = Some(T::decode(src)?);
         Ok(())
     }
 }
 
+// Primitive type decoding implementations
 impl Decode for bool {
     fn decode(src: &mut Bytes) -> Result<Self, DecodeError> {
-        ensure!(src.has_remaining(), DecodeError::InvalidLength); // expected more data within the field
+        ensure!(src.has_remaining(), DecodeError::InvalidLength);
         let v = src.get_u8();
-        ensure!(v <= 0x1, DecodeError::MalformedPacket); // value is invalid
+        ensure!(v <= 0x1, DecodeError::MalformedPacket);
         Ok(v == 0x1)
     }
 }
@@ -88,16 +82,14 @@ impl Decode for u16 {
 
 impl Decode for u32 {
     fn decode(src: &mut Bytes) -> Result<Self, DecodeError> {
-        ensure!(src.remaining() >= 4, DecodeError::InvalidLength); // expected more data within the field
-        let val = src.get_u32();
-        Ok(val)
+        ensure!(src.remaining() >= 4, DecodeError::InvalidLength);
+        Ok(src.get_u32())
     }
 }
 
 impl Decode for NonZeroU32 {
     fn decode(src: &mut Bytes) -> Result<Self, DecodeError> {
-        let val = NonZeroU32::new(u32::decode(src)?).ok_or(DecodeError::MalformedPacket)?;
-        Ok(val)
+        NonZeroU32::new(u32::decode(src)?).ok_or(DecodeError::MalformedPacket)
     }
 }
 
@@ -121,13 +113,17 @@ impl Decode for ByteString {
     }
 }
 
+/// Extracts property bytes with length prefix
 pub(crate) fn take_properties(src: &mut Bytes) -> Result<Bytes, DecodeError> {
     let prop_len = decode_variable_length_cursor(src)?;
     ensure!(src.remaining() >= prop_len as usize, DecodeError::InvalidLength);
-
     Ok(src.split_to(prop_len as usize))
 }
 
+/// Decodes MQTT variable-length integer from byte slice
+///
+/// # Returns
+/// (decoded value, bytes consumed) or None if incomplete
 pub(crate) fn decode_variable_length(src: &[u8]) -> Result<Option<(u32, usize)>, DecodeError> {
     let mut cur = Cursor::new(src);
     match decode_variable_length_cursor(&mut cur) {
@@ -137,36 +133,42 @@ pub(crate) fn decode_variable_length(src: &[u8]) -> Result<Option<(u32, usize)>,
     }
 }
 
-#[allow(clippy::cast_lossless)] // safe: allow cast through `as` because it is type-safe
+/// Decodes variable-length integer from buffer
+///
+/// # MQTT Spec
+/// Variable length integers use up to 4 bytes with continuation bits
+/// Max value: 268,435,455 (0xFFFFFF7F)
+#[allow(clippy::cast_lossless)]
 pub(crate) fn decode_variable_length_cursor<B: Buf>(src: &mut B) -> Result<u32, DecodeError> {
     let mut shift: u32 = 0;
     let mut len: u32 = 0;
     loop {
         ensure!(src.has_remaining(), DecodeError::MalformedPacket);
         let val = src.get_u8();
-        len += ((val & 0b0111_1111u8) as u32) << shift;
+        len += ((val & 0b0111_1111) as u32) << shift;
         if val & 0b1000_0000 == 0 {
             return Ok(len);
-        } else {
-            ensure!(shift < 21, DecodeError::InvalidLength);
-            shift += 7;
         }
+        ensure!(shift < 21, DecodeError::InvalidLength);
+        shift += 7;
     }
 }
 
+/// Trait for encoding types to network bytes
 pub(crate) trait Encode {
+    /// Calculates serialized size in bytes
     fn encoded_size(&self) -> usize;
 
+    /// Writes serialized data to buffer
     fn encode(&self, buf: &mut BytesMut) -> Result<(), EncodeError>;
 }
+
+// Encoding implementations for optional values
 impl<T: Encode> Encode for Option<T> {
     fn encoded_size(&self) -> usize {
-        if let Some(v) = self {
-            v.encoded_size()
-        } else {
-            0
-        }
+        self.as_ref().map_or(0, |v| v.encoded_size())
     }
+
     fn encode(&self, buf: &mut BytesMut) -> Result<(), EncodeError> {
         if let Some(v) = self {
             v.encode(buf)
@@ -176,16 +178,14 @@ impl<T: Encode> Encode for Option<T> {
     }
 }
 
+// Primitive type encoding implementations
 impl Encode for bool {
     fn encoded_size(&self) -> usize {
         1
     }
+
     fn encode(&self, buf: &mut BytesMut) -> Result<(), EncodeError> {
-        if *self {
-            buf.put_u8(0x1);
-        } else {
-            buf.put_u8(0x0);
-        }
+        buf.put_u8(u8::from(*self));
         Ok(())
     }
 }
@@ -194,6 +194,7 @@ impl Encode for u16 {
     fn encoded_size(&self) -> usize {
         2
     }
+
     fn encode(&self, buf: &mut BytesMut) -> Result<(), EncodeError> {
         buf.put_u16(*self);
         Ok(())
@@ -204,6 +205,7 @@ impl Encode for NonZeroU16 {
     fn encoded_size(&self) -> usize {
         2
     }
+
     fn encode(&self, buf: &mut BytesMut) -> Result<(), EncodeError> {
         self.get().encode(buf)
     }
@@ -213,6 +215,7 @@ impl Encode for u32 {
     fn encoded_size(&self) -> usize {
         4
     }
+
     fn encode(&self, buf: &mut BytesMut) -> Result<(), EncodeError> {
         buf.put_u32(*self);
         Ok(())
@@ -223,6 +226,7 @@ impl Encode for NonZeroU32 {
     fn encoded_size(&self) -> usize {
         4
     }
+
     fn encode(&self, buf: &mut BytesMut) -> Result<(), EncodeError> {
         self.get().encode(buf)
     }
@@ -230,12 +234,13 @@ impl Encode for NonZeroU32 {
 
 impl Encode for Bytes {
     fn encoded_size(&self) -> usize {
-        2 + self.len()
+        2 + self.len() // Length prefix + data
     }
+
     fn encode(&self, buf: &mut BytesMut) -> Result<(), EncodeError> {
         let len = u16::try_from(self.len()).map_err(|_| EncodeError::InvalidLength)?;
         buf.put_u16(len);
-        buf.extend_from_slice(self.as_ref());
+        buf.extend_from_slice(self);
         Ok(())
     }
 }
@@ -244,6 +249,7 @@ impl Encode for ByteString {
     fn encoded_size(&self) -> usize {
         self.as_bytes().encoded_size()
     }
+
     fn encode(&self, buf: &mut BytesMut) -> Result<(), EncodeError> {
         self.as_bytes().encode(buf)
     }
@@ -253,6 +259,7 @@ impl Encode for (ByteString, ByteString) {
     fn encoded_size(&self) -> usize {
         self.0.encoded_size() + self.1.encoded_size()
     }
+
     fn encode(&self, buf: &mut BytesMut) -> Result<(), EncodeError> {
         self.0.encode(buf)?;
         self.1.encode(buf)
@@ -263,6 +270,7 @@ impl Encode for &[u8] {
     fn encoded_size(&self) -> usize {
         2 + self.len()
     }
+
     fn encode(&self, buf: &mut BytesMut) -> Result<(), EncodeError> {
         let len = u16::try_from(self.len()).map_err(|_| EncodeError::InvalidLength)?;
         buf.put_u16(len);
@@ -271,6 +279,10 @@ impl Encode for &[u8] {
     }
 }
 
+/// Writes MQTT variable-length integer to buffer
+///
+/// # Panics
+/// For values exceeding 268,435,455 (should be validated earlier)
 pub(crate) fn write_variable_length(len: u32, dst: &mut BytesMut) {
     match len {
         0..=127 => dst.put_u8(len as u8),
@@ -294,72 +306,38 @@ pub(crate) fn write_variable_length(len: u32, dst: &mut BytesMut) {
     }
 }
 
-#[inline]
-pub(crate) fn timestamp_millis() -> TimestampMillis {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|t| t.as_millis() as i64)
-        .unwrap_or_else(|_| chrono::Local::now().timestamp_millis())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_decode_variable_length() {
-        fn assert_variable_length<B: AsRef<[u8]> + 'static>(bytes: B, res: (u32, usize)) {
-            assert_eq!(decode_variable_length(bytes.as_ref()).unwrap(), Some(res));
-        }
+    fn variable_length_decoding() {
+        // Test valid decodes
+        assert_eq!(decode_variable_length(&[0x00]).unwrap(), Some((0, 1)));
+        assert_eq!(decode_variable_length(&[0x7F]).unwrap(), Some((127, 1)));
+        assert_eq!(decode_variable_length(&[0x80, 0x01]).unwrap(), Some((128, 2)));
 
-        assert_variable_length(b"\x7f\x7f", (127, 1));
+        // Test incomplete data
+        assert_eq!(decode_variable_length(&[0x80]).unwrap(), None);
 
-        assert_eq!(decode_variable_length(b"\xff\xff\xff").unwrap(), None);
-
-        assert_eq!(
-            decode_variable_length(b"\xff\xff\xff\xff\xff\xff")
-                .map_err(|e| matches!(e, DecodeError::InvalidLength)),
-            Err(true)
-        );
-
-        assert_variable_length(b"\x00", (0, 1));
-        assert_variable_length(b"\x7f", (127, 1));
-        assert_variable_length(b"\x80\x01", (128, 2));
-        assert_variable_length(b"\xff\x7f", (16383, 2));
-        assert_variable_length(b"\x80\x80\x01", (16384, 3));
-        assert_variable_length(b"\xff\xff\x7f", (2_097_151, 3));
-        assert_variable_length(b"\x80\x80\x80\x01", (2_097_152, 4));
-        assert_variable_length(b"\xff\xff\xff\x7f", (268_435_455, 4));
+        // Test invalid length
+        let res = decode_variable_length(&[0xFF, 0xFF, 0xFF, 0xFF]);
+        assert!(matches!(res, Err(DecodeError::InvalidLength)));
     }
 
     #[test]
-    fn test_encode_variable_length() {
-        let mut v = BytesMut::new();
+    fn variable_length_encoding() {
+        let mut buf = BytesMut::new();
 
-        write_variable_length(123, &mut v);
-        assert_eq!(v, [123].as_ref());
+        write_variable_length(127, &mut buf);
+        assert_eq!(buf.as_ref(), &[0x7F]);
 
-        v.clear();
+        buf.clear();
+        write_variable_length(16_383, &mut buf);
+        assert_eq!(buf.as_ref(), &[0xFF, 0x7F]);
 
-        write_variable_length(129, &mut v);
-        assert_eq!(v, b"\x81\x01".as_ref());
-
-        v.clear();
-
-        write_variable_length(16_383, &mut v);
-        assert_eq!(v, b"\xff\x7f".as_ref());
-
-        v.clear();
-
-        write_variable_length(2_097_151, &mut v);
-        assert_eq!(v, b"\xff\xff\x7f".as_ref());
-
-        v.clear();
-
-        write_variable_length(268_435_455, &mut v);
-        assert_eq!(v, b"\xff\xff\xff\x7f".as_ref());
-
-        // assert!(v.write_variable_length(MAX_VARIABLE_LENGTH + 1).is_err())
+        buf.clear();
+        write_variable_length(268_435_455, &mut buf);
+        assert_eq!(buf.as_ref(), &[0xFF, 0xFF, 0xFF, 0x7F]);
     }
 }

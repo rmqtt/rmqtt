@@ -20,8 +20,8 @@ use rmqtt::{
     macros::Plugin,
     plugin::{PackageInfo, Plugin},
     register,
-    types::{AuthResult, PublishAclResult},
-    ConnectInfo, Disconnect, Message, Reason, Result,
+    types::{AuthResult, ConnectInfo, Disconnect, Message, PublishAclResult, Reason},
+    Result,
 };
 
 use config::{JWTFrom, PluginConfig, ValidateClaims};

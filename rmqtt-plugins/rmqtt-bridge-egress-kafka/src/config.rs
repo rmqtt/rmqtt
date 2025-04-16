@@ -3,7 +3,7 @@ use std::time::Duration;
 use bytestring::ByteString;
 use serde::{de::Deserializer, Deserialize, Serialize};
 
-use rmqtt::{utils::deserialize_duration, HashMap};
+use rmqtt::{types::HashMap, utils::deserialize_duration};
 
 use crate::bridge::BridgeName;
 

@@ -19,7 +19,8 @@ use rmqtt::{
         SubRelationsMap, SubsSearchParams, SubsSearchResult, Subscribe, SubscribeReturn,
         SubscriptionClientIds, To, Tx, Unsubscribe,
     },
-    HealthInfo, MsgID, NodeHealthStatus, Result, SharedGroup,
+    types::{HealthInfo, MsgID, NodeHealthStatus, SharedGroup},
+    Result,
 };
 
 use super::message::{

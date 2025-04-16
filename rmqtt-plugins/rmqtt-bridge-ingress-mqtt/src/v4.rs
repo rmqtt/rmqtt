@@ -20,8 +20,11 @@ use ntex_mqtt::error::SendPacketError;
 use ntex_mqtt::v3::codec::SubscribeReturnCode;
 use ntex_mqtt::{self, v3};
 
-use rmqtt::codec::types::MQTT_LEVEL_311;
-use rmqtt::{ClientId, NodeId, Result, UserName};
+use rmqtt::{
+    codec::types::MQTT_LEVEL_311,
+    types::{ClientId, NodeId, UserName},
+    Result,
+};
 
 use crate::bridge::{
     build_tls_connector, BridgeClient, BridgePublish, Command, CommandMailbox, OnMessageEvent,

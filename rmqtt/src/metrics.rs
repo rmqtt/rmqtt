@@ -1,3 +1,58 @@
+//! MQTT Broker Performance Monitoring System
+//!
+//! Provides comprehensive metrics collection with:
+//! - 50+ operational metrics
+//! - Thread-safe atomic counters
+//! - Categorized event tracking
+//! - Serialization support
+//!
+//! ## Metric Categories
+//! 1. ​**​Client Lifecycle​**​:
+//!    - Authentication attempts/successes
+//!    - Connection establishment
+//!    - Subscription management
+//!    - ACL verification
+//!
+//! 2. ​**​Session Tracking​**​:
+//!    - Creation/resumption
+//!    - Subscription changes
+//!    - Termination events
+//!
+//! 3. ​**​Message Processing​**​:
+//!    - Publish/delivery/ack flows
+//!    - Message drops
+//!    - Non-subscribed messages
+//!    - QoS-specific tracking
+//!
+//! 4. ​**​Message Types​**​:
+//!    - Custom messages
+//!    - Admin messages  
+//!    - Last Will messages
+//!    - System messages
+//!    - Bridge messages
+//!    - Retained messages
+//!
+//! ## Key Features
+//! - Atomic counters for thread safety
+//! - Automatic derive macros for metrics operations
+//! - Serde serialization support
+//! - Zero-overhead when disabled
+//! - Categorized counters for detailed analysis
+//!
+//! ## Implementation Details
+//! - Uses AtomicUsize for lock-free counting
+//! - Macro-generated metric operations
+//! - Organized by logical categories
+//! - Designed for monitoring systems integration
+//!
+//! Usage Patterns:
+//! 1. Increment counters at relevant code points
+//! 2. Serialize for external monitoring
+//! 3. Analyze trends across metric categories
+//!
+//! Note: All metrics are optional - only enabled counters
+//! incur measurement overhead.
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde::{Deserialize, Serialize};

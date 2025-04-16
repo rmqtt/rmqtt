@@ -4,39 +4,12 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use bytestring::ByteString;
 use serde::{Deserialize, Serialize};
 
+use rmqtt_utils::timestamp_millis;
+
 use crate::error::{DecodeError, EncodeError};
 use crate::types::QoS;
-use crate::utils::{self, timestamp_millis, write_variable_length, Decode, Encode, Property};
+use crate::utils::{self, write_variable_length, Decode, Encode, Property};
 use crate::v5::{encode::*, property_type as pt, UserProperties};
-//
-// /// PUBLISH message
-// #[derive(PartialEq, Eq, Clone)]
-// pub struct Publish {
-//     /// this might be re-delivery of an earlier attempt to send the Packet.
-//     pub dup: bool,
-//     pub retain: bool,
-//     /// the level of assurance for delivery of an Application Message.
-//     pub qos: QoS,
-//     /// only present in PUBLISH Packets where the QoS level is 1 or 2.
-//     pub packet_id: Option<NonZeroU16>,
-//     pub topic: ByteString,
-//     pub payload: Bytes,
-//     pub properties: PublishProperties,
-// }
-//
-// impl fmt::Debug for Publish {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         f.debug_struct("Publish")
-//             .field("packet_id", &self.packet_id)
-//             .field("topic", &self.topic)
-//             .field("dup", &self.dup)
-//             .field("retain", &self.retain)
-//             .field("qos", &self.qos)
-//             .field("properties", &self.properties)
-//             .field("payload", &"<REDACTED>")
-//             .finish()
-//     }
-// }
 
 pub(crate) type Publish = crate::types::Publish;
 

@@ -17,8 +17,9 @@ use rmqtt::{
     register,
     session::Session,
     types::DisconnectInfo,
+    types::{ClientId, From, Publish, SessionSubMap, SessionSubs, TimestampMillis},
     utils::timestamp_millis,
-    ClientId, From, Publish, Result, SessionSubMap, SessionSubs, TimestampMillis,
+    Result,
 };
 
 use rmqtt_storage::{init_db, DefaultStorageDB, List, Map, StorageType};
@@ -579,9 +580,9 @@ impl StorageHandler {
                     }
                 }
 
-                let inflight_win = session.inflight_win();
+                let out_inflight = session.out_inflight();
                 for item in stored.inflight_messages.drain(..) {
-                    inflight_win.write().await.push_back(item);
+                    out_inflight.write().await.push_back(item);
                 }
 
                 if let Err(e) = self

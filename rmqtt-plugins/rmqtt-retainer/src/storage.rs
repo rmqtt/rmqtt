@@ -17,8 +17,11 @@ use tokio::sync::RwLock;
 use rmqtt_storage::DefaultStorageDB;
 
 use rmqtt::{
-    retain::RetainStorage, utils::timestamp_millis, utils::StatsMergeMode, NodeId, Result, Retain,
-    TimestampMillis, Topic, TopicFilter, TopicName,
+    retain::RetainStorage,
+    types::{NodeId, Retain, TimestampMillis, Topic, TopicFilter, TopicName},
+    utils::timestamp_millis,
+    utils::StatsMergeMode,
+    Result,
 };
 
 use crate::config::PluginConfig;

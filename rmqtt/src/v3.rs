@@ -1,6 +1,38 @@
-use anyhow::anyhow;
+//! MQTT v3.1.1 Protocol Connection Handler
+//!
+//! Implements core broker-side connection workflow for MQTT v3.1.1 clients with:
+//! 1. Connection handshake and client authentication
+//! 2. Session state management with clean/dirty session persistence
+//! 3. Resource control and QoS enforcement
+//! 4. Asynchronous I/O using Tokio runtime
+//!
+//! ## Protocol Workflow
+//! - Handles CONNECT/CONNACK sequence with timeout control
+//! - Validates client IDs and enforces length limits
+//! - Manages session takeover through kick-off mechanism
+//! - Implements keep-alive negotiation and message queue limits
+//!
+//! ## Key Components
+//! - `process()`: Main entry point handling TCP stream lifecycle
+//! - `handshake()`: Performs protocol handshake and authentication
+//! - SessionState: Tracks client state with automatic reclamation
+//! - Hook system: Extensible authentication/authorization through `hook_mgr()`
+//!
+//! ## Features
+//! - Async/await architecture for high concurrency
+//! - Configurable limits:
+//!   - Max client ID length
+//!   - Concurrent sessions per node
+//!   - Inflight window size
+//!   - Message queue depth
+//! - Automatic session transfer on reconnect
+//! - Integrated metrics collection
+//!
+//! [MQTT v3.1.1 Spec Compliance](https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html)
+
 use std::sync::Arc;
 
+use anyhow::anyhow;
 use rust_box::task_exec_queue::SpawnExt;
 use tokio::io::{AsyncRead, AsyncWrite};
 use uuid::Uuid;
@@ -10,10 +42,10 @@ use crate::context::ServerContext;
 use crate::net::v3;
 use crate::net::MqttError;
 use crate::session::{Session, SessionState};
-use crate::utils::timestamp_millis;
-use crate::{
+use crate::types::{
     ClientId, ConnectAckReason, ConnectInfo, Id, ListenerConfig, Message, OfflineSession, SessionSubs, Sink,
 };
+use crate::utils::timestamp_millis;
 use crate::{Error, Result};
 
 pub(crate) async fn process<Io>(scx: ServerContext, mut sink: v3::MqttStream<Io>) -> Result<()>

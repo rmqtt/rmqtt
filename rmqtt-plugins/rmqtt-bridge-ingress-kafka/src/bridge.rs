@@ -20,10 +20,14 @@ use rdkafka::message::{BorrowedMessage, Headers, Message};
 use rdkafka::topic_partition_list::TopicPartitionList;
 use tokio::sync::{mpsc, RwLock};
 
-use rmqtt::codec::v5::{PublishProperties, UserProperties};
-use rmqtt::context::ServerContext;
-use rmqtt::session::SessionState;
-use rmqtt::{utils::timestamp_millis, ClientId, DashMap, From, Id, NodeId, Publish, QoS, Result, UserName};
+use rmqtt::{
+    codec::v5::{PublishProperties, UserProperties},
+    context::ServerContext,
+    session::SessionState,
+    types::{ClientId, DashMap, From, Id, NodeId, Publish, QoS, UserName},
+    utils::timestamp_millis,
+    Result,
+};
 
 use crate::config::{Bridge, Entry, PluginConfig, MESSAGE_KEY, PARTITION_UNASSIGNED};
 

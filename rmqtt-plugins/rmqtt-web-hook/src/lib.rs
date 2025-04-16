@@ -29,8 +29,9 @@ use rmqtt::{
     macros::Plugin,
     plugin::{PackageInfo, Plugin},
     register,
-    utils::Counter,
-    DashMap, Result, Topic, TopicFilter,
+    types::{DashMap, Topic, TopicFilter},
+    utils::{format_timestamp_millis, timestamp_millis, Counter},
+    Result,
 };
 
 use config::{PluginConfig, Url};
@@ -489,8 +490,8 @@ impl WebHookHandler {
 impl Handler for WebHookHandler {
     async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
         let typ = param.get_type();
-        let now = chrono::Local::now();
-        let now_time = now.format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+        let now = timestamp_millis();
+        let now_time = format_timestamp_millis(now);
         let bodys = match param {
             Parameter::ClientConnect(conn_info) => {
                 let mut body = conn_info.to_hook_body();
@@ -643,7 +644,7 @@ impl Handler for WebHookHandler {
                         "packet_id": publish.packet_id,
                         "payload": BASE64_STANDARD.encode(publish.payload.as_ref()),
                         "pts": publish.create_time,
-                        "ts": now.timestamp_millis(),
+                        "ts": now,
                         "time": now_time
                     });
                     let body = session.id.to_to_json(body);
@@ -665,7 +666,7 @@ impl Handler for WebHookHandler {
                         "packet_id": publish.packet_id,
                         "payload": BASE64_STANDARD.encode(publish.payload.as_ref()),
                         "pts": publish.create_time,
-                        "ts": now.timestamp_millis(),
+                        "ts": now,
                         "time": now_time
                     });
                     let body = session.id.to_to_json(body);
@@ -687,7 +688,7 @@ impl Handler for WebHookHandler {
                         "payload": BASE64_STANDARD.encode(publish.payload.as_ref()),
                         "reason": reason.to_string(),
                         "pts": publish.create_time,
-                        "ts": now.timestamp_millis(),
+                        "ts": now,
                         "time": now_time
                     });
                     let mut body = from.to_from_json(body);

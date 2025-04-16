@@ -5,7 +5,10 @@ use rdkafka::topic_partition_list::Offset;
 use serde::de::{self, Deserializer};
 use serde::{ser::Serializer, Deserialize, Serialize};
 
-use rmqtt::{utils::deserialize_duration, HashMap, QoS, TopicName};
+use rmqtt::{
+    types::{HashMap, QoS, TopicName},
+    utils::deserialize_duration,
+};
 
 use crate::bridge::BridgeName;
 

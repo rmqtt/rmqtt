@@ -1,6 +1,53 @@
-use anyhow::anyhow;
+//! MQTT v5 Protocol Connection Handler Implementation
+//!
+//! Provides broker-side MQTT v5 protocol implementation with full CONNECT/CONNACK workflow,
+//! session management, and QoS enforcement. Key features include:
+//!
+//! 1. **Protocol Compliance**
+//!    - Full support for MQTT v5 specification features
+//!    - Session expiration and persistence handling
+//!    - Topic alias management (client/server-side)
+//!    - Enhanced authentication flow with reason code mapping
+//!
+//! 2. **Connection Lifecycle**
+//!    - Async TCP stream handling using Tokio runtime
+//!    - Client ID generation with UUIDv4 fallback
+//!    - Keep-alive negotiation and timeout detection
+//!    - Configurable maximum packet size enforcement
+//!
+//! 3. **Session Management**
+//!    - Clean session/dirty session persistence
+//!    - Session takeover protection with atomic locking
+//!    - Automatic offline message queuing
+//!    - Resource limits enforcement (max sessions/client)
+//!
+//! 4. **Security & Extensibility**
+//!    - Pluggable authentication hooks
+//!    - Anonymous connection support with config toggle
+//!    - QoS level validation (0-2)
+//!    - Retained message control via feature flags
+//!
+//! Core components:
+//! - `process()`: Main entry point handling TCP stream lifecycle
+//! - `handshake()`: Negotiates protocol version and client capabilities
+//! - SessionState: Manages client-specific subscriptions and message queues
+//! - ConnectAck builder: Generates compliant CONNACK packets with server capabilities
+//!
+//! Implements advanced MQTT v5 features:
+//! - Shared subscription support (feature-gated)
+//! - Server-side topic alias mapping
+//! - Session expiry interval control
+//! - Reason code propagation for diagnostic clarity
+//!
+//! Metrics integration tracks:
+//! - Concurrent handshakes
+//! - Session creation/termination
+//! - Protocol violations
+//! - Resource limit triggers
+
 use std::sync::Arc;
 
+use anyhow::anyhow;
 use rmqtt_codec::MqttCodec;
 use rust_box::task_exec_queue::SpawnExt;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -10,10 +57,10 @@ use crate::codec::v5::{Connect as ConnectV5, ConnectAck, ConnectAckReason as Con
 use crate::context::ServerContext;
 use crate::net::v5;
 use crate::session::{Session, SessionState};
-use crate::utils::timestamp_millis;
-use crate::{
+use crate::types::{
     ClientId, ConnectAckReason, ConnectInfo, Id, ListenerConfig, Message, OfflineSession, SessionSubs, Sink,
 };
+use crate::utils::timestamp_millis;
 use crate::{Error, Result};
 
 pub(crate) async fn process<Io>(scx: ServerContext, mut sink: v5::MqttStream<Io>) -> Result<()>

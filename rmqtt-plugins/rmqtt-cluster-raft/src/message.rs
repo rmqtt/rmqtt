@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-use rmqtt::types::{Id, NodeId};
-use rmqtt::{Result, SubscriptionOptions};
+use rmqtt::types::{Id, NodeId, SubscriptionOptions};
+use rmqtt::Result;
 use rmqtt_raft::Status;
 
 use super::Mailbox;

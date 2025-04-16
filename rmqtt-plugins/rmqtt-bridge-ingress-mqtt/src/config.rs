@@ -17,8 +17,9 @@ use serde_json::{self, Map, Value};
 use rmqtt::codec::types::{Protocol, MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 
 use rmqtt::{
+    types::TopicName,
     utils::{deserialize_duration, to_duration, Bytesize},
-    Result, TopicName,
+    Result,
 };
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -409,12 +410,12 @@ impl Local {
     }
 
     #[inline]
-    pub fn make_qos(&self, remote_qos: QoS) -> rmqtt::QoS {
+    pub fn make_qos(&self, remote_qos: QoS) -> rmqtt::types::QoS {
         let qos = self.qos.unwrap_or(remote_qos);
         match qos {
-            QoS::AtMostOnce => rmqtt::QoS::AtMostOnce,
-            QoS::AtLeastOnce => rmqtt::QoS::AtLeastOnce,
-            QoS::ExactlyOnce => rmqtt::QoS::ExactlyOnce,
+            QoS::AtMostOnce => rmqtt::types::QoS::AtMostOnce,
+            QoS::AtLeastOnce => rmqtt::types::QoS::AtLeastOnce,
+            QoS::ExactlyOnce => rmqtt::types::QoS::ExactlyOnce,
         }
     }
 

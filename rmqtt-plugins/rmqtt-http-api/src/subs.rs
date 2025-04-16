@@ -2,7 +2,9 @@ use anyhow::anyhow;
 use tokio::sync::oneshot;
 
 use rmqtt::{
-    context::ServerContext, HashMap, Id, Message as MqttMessage, Result, Subscribe, TopicFilter, Unsubscribe,
+    context::ServerContext,
+    types::{HashMap, Id, Message as MqttMessage, Subscribe, TopicFilter, Unsubscribe},
+    Result,
 };
 
 use super::types::{SubscribeParams, UnsubscribeParams};

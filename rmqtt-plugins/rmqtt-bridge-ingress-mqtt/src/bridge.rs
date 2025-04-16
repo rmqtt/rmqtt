@@ -25,7 +25,11 @@ use rmqtt::codec::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 use rmqtt::codec::v5::{PublishProperties, UserProperties};
 use rmqtt::context::ServerContext;
 use rmqtt::utils::timestamp_millis;
-use rmqtt::{session::SessionState, ClientId, DashMap, From, Id, NodeId, Result, UserName};
+use rmqtt::{
+    session::SessionState,
+    types::{ClientId, DashMap, From, Id, NodeId, UserName},
+    Result,
+};
 
 use crate::config::{Bridge, PluginConfig};
 use crate::v4::Client as ClientV4;

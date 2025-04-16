@@ -1,3 +1,56 @@
+//! MQTT Broker Plugin Management System
+//!
+//! Provides a robust plugin architecture with:
+//! - Dynamic loading/unloading
+//! - Lifecycle management
+//! - Configuration handling
+//! - Inter-plugin communication
+//!
+//! ## Core Functionality
+//! 1. ​**​Plugin Lifecycle​**​:
+//!    - Registration and initialization
+//!    - Startup/shutdown sequencing
+//!    - Immutable plugin support
+//!    - State tracking (active/inactive)
+//!
+//! 2. ​**​Configuration Management​**​:
+//!    - File-based configuration
+//!    - Environment variable overrides
+//!    - Default value handling
+//!    - Runtime reload capability
+//!
+//! 3. ​**​Plugin Operations​**​:
+//!    - Metadata inspection
+//!    - Message passing
+//!    - Thread-safe access
+//!    - Dependency management
+//!
+//! ## Key Features
+//! - Async-friendly interface
+//! - Atomic state transitions
+//! - Flexible configuration system
+//! - Plugin isolation
+//! - Comprehensive metadata
+//!
+//! ## Implementation Details
+//! - DashMap for concurrent storage
+//! - Async trait patterns
+//! - Type-erased plugin instances
+//! - JSON-based configuration
+//! - Environment-aware config loading
+//!
+//! Usage Patterns:
+//! 1. Implement `Plugin` trait for custom functionality
+//! 2. Register with `register!` macro
+//! 3. Manage via `Manager` interface:
+//!    - `start()`/`stop()`
+//!    - `load_config()`
+//!    - `send()` messages
+//! 4. Query plugin info/metadata
+//!
+//! Note: Plugins can be marked immutable to prevent
+//! runtime modifications for critical components.
+
 use std::future::Future;
 use std::pin::Pin;
 

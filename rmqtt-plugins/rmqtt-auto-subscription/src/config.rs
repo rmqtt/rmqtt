@@ -7,7 +7,8 @@ use serde_json::{self, json};
 
 use rmqtt::{
     codec::v5::{RetainHandling, SubscriptionOptions},
-    Error, QoS, Result, Subscribe, TopicFilter,
+    types::{QoS, Subscribe, TopicFilter},
+    Error, Result,
 };
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

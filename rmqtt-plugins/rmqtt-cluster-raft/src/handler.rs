@@ -7,7 +7,7 @@ use rmqtt::{
     grpc::{Message as GrpcMessage, MessageReply},
     hook::{Handler, HookResult, Parameter, ReturnType},
     shared::Shared,
-    Id,
+    types::Id,
 };
 use rmqtt_raft::Mailbox;
 

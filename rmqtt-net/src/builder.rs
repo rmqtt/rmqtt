@@ -1,3 +1,34 @@
+//! # MQTT Server Implementation
+//!
+//! ## Overall Example
+//!
+//! ```rust,no_run
+//! use std::net::{Ipv4Addr, SocketAddr};
+//! use std::time::Duration;
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     // Create server configuration
+//!     let builder = rmqtt_net::Builder::new()
+//!         .name("MyMQTTBroker")
+//!         .laddr(SocketAddr::from((Ipv4Addr::LOCALHOST, 1883)))
+//!         .max_connections(5000);
+//!
+//!     // Bind TCP listener
+//!     let listener = builder.bind()?;
+//!
+//!     // Accept and handle connections
+//!     loop {
+//!         let acceptor = listener.accept().await?;
+//!         tokio::spawn(async move {
+//!             let dispatcher = acceptor.tcp().unwrap();
+//!             // Handle MQTT protocol...
+//!         });
+//!     }
+//!     Ok(())
+//! }
+//! ```
+
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::num::{NonZeroU16, NonZeroU32};
 use std::sync::Arc;
@@ -30,85 +61,76 @@ use crate::stream::Dispatcher;
 use crate::ws::WsStream;
 use crate::{Error, Result};
 
+/// Configuration builder for MQTT server instances
 #[derive(Clone, Debug)]
 pub struct Builder {
-    /// The name of the server.
+    /// Server identifier for logging and monitoring
     pub name: String,
-    ///The local address the server listens on.
+    /// Network address to listen on
     pub laddr: SocketAddr,
-    ///The maximum length of the TCP connection queue.
-    ///It indicates the maximum number of TCP connection queues that are being handshaked three times in the system
+    /// Maximum number of pending connections in the accept queue
     pub backlog: i32,
-    ///Sets the value of the TCP_NODELAY option on this socket.
+    /// Enable TCP_NODELAY option for lower latency
     pub nodelay: bool,
-    ///Whether to enable the SO_REUSEADDR option.
+    /// Set SO_REUSEADDR socket option
     pub reuseaddr: Option<bool>,
-    ///Whether to enable the SO_REUSEPORT option.
+    /// Set SO_REUSEPORT socket option
     pub reuseport: Option<bool>,
-    ///The maximum number of concurrent connections allowed by the listener.
+    /// Maximum concurrent active connections
     pub max_connections: usize,
-    ///Maximum concurrent handshake limit, Default: 500
+    /// Maximum simultaneous handshakes during connection setup
     pub max_handshaking_limit: usize,
-    ///Maximum allowed mqtt message length. 0 means unlimited, default: 1M
+    /// Maximum allowed MQTT packet size in bytes (0 = unlimited)
     pub max_packet_size: u32,
 
-    ///Whether anonymous login is allowed. Default: true
+    /// Allow unauthenticated client connections
     pub allow_anonymous: bool,
-    ///Minimum allowable keepalive value for mqtt connection,
-    ///less than this value will reject the connection(MQTT V3),
-    ///less than this value will set keepalive to this value in CONNACK (MQTT V5),
-    ///default: 0, unit: seconds
+    /// Minimum acceptable keepalive value in seconds
     pub min_keepalive: u16,
-    ///Maximum allowable keepalive value for mqtt connection,
-    ///greater than this value will reject the connection(MQTT V3),
-    ///greater than this value will set keepalive to this value in CONNACK (MQTT V5),
-    ///default value: 65535, unit: seconds
+    /// Maximum acceptable keepalive value in seconds
     pub max_keepalive: u16,
-    ///A value of zero indicates disabling the keep-alive feature, where the server
-    ///doesn't need to disconnect due to client inactivity, default: true
+    /// Allow clients to disable keepalive mechanism
     pub allow_zero_keepalive: bool,
-    ///# > 0.5, Keepalive * backoff * 2, Default: 0.75
+    /// Multiplier for calculating actual keepalive timeout
     pub keepalive_backoff: f32,
-    ///Flight window size. The flight window is used to store the unanswered QoS 1 and QoS 2 messages
+    /// Window size for unacknowledged QoS 1/2 messages
     pub max_inflight: NonZeroU16,
-    ///Handshake timeout.
+    /// Timeout for completing connection handshake
     pub handshake_timeout: Duration,
-    ///Send timeout.
+    /// Network I/O timeout for sending operations
     pub send_timeout: Duration,
-    ///Maximum length of message queue
+    /// Maximum messages queued per client
     pub max_mqueue_len: usize,
-    ///The rate at which messages are ejected from the message queue,
-    ///default value: "u32::max_value(),1s"
+    /// Rate limiting for message delivery (messages per duration)
     pub mqueue_rate_limit: (NonZeroU32, Duration),
-    ///Maximum length of client ID allowed, Default: 65535
+    /// Maximum length of client identifiers
     pub max_clientid_len: usize,
-    ///The maximum QoS level that clients are allowed to publish. default value: 2
+    /// Highest QoS level permitted for publishing
     pub max_qos_allowed: QoS,
-    ///The maximum level at which clients are allowed to subscribe to topics.
-    ///0 means unlimited. default value: 0
+    /// Maximum depth for topic hierarchy (0 = unlimited)
     pub max_topic_levels: usize,
-    ///Session timeout, default value: 2 hours
+    /// Duration before inactive sessions expire
     pub session_expiry_interval: Duration,
-    ///QoS 1/2 message retry interval, 0 means no resend
+    /// Retry interval for unacknowledged messages
     pub message_retry_interval: Duration,
-    ///Message expiration time, 0 means no expiration, default value: 5 minutes
+    /// Time-to-live for undelivered messages
     pub message_expiry_interval: Duration,
-    ///0 means unlimited, default value: 0
+    /// Maximum subscriptions per client (0 = unlimited)
     pub max_subscriptions: usize,
-    ///Shared subscription switch, default value: true
+    /// Enable shared subscription support
     pub shared_subscription: bool,
-    ///topic alias maximum, default value: 0, topic aliases not enabled. (MQTT 5.0)
+    /// Maximum topic aliases (MQTTv5 feature)
     pub max_topic_aliases: u16,
-    ///Limit subscription switch, default value: false
+    /// Enable subscription count limiting
     pub limit_subscription: bool,
-    ///Delayed publish switch, default value: false
+    /// Enable future-dated message publishing
     pub delayed_publish: bool,
 
-    ///Whether to enable cross-certification, default value: false
+    /// Enable mutual TLS authentication
     pub tls_cross_certificate: bool,
-    ///This certificate is used to authenticate the server during TLS handshakes.
+    /// Path to TLS certificate chain
     pub tls_cert: Option<String>,
-    ///This key is used to establish a secure connection with the client.
+    /// Path to TLS private key
     pub tls_key: Option<String>,
 }
 
@@ -118,14 +140,25 @@ impl Default for Builder {
     }
 }
 
+/// # Examples
+/// ```
+/// use std::net::SocketAddr;
+/// use rmqtt_net::Builder;
+///
+/// let builder = Builder::new()
+///     .name("EdgeBroker")
+///     .laddr("127.0.0.1:1883".parse().unwrap())
+///     .max_connections(10_000);
+/// ```
 impl Builder {
+    /// Creates a new builder with default configuration values
     pub fn new() -> Builder {
         Builder {
             name: Default::default(),
             laddr: SocketAddr::from(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 1883)),
             max_connections: 1_000_000,
             max_handshaking_limit: 1_000,
-            max_packet_size: 1024 * 1024, //"1M"
+            max_packet_size: 1024 * 1024,
             backlog: 512,
             nodelay: false,
             reuseaddr: None,
@@ -161,171 +194,205 @@ impl Builder {
         }
     }
 
+    /// Sets the server name identifier
     pub fn name<N: Into<String>>(mut self, name: N) -> Self {
         self.name = name.into();
         self
     }
 
+    /// Configures the network listen address
     pub fn laddr(mut self, laddr: SocketAddr) -> Self {
         self.laddr = laddr;
         self
     }
 
+    /// Sets the TCP backlog size
     pub fn backlog(mut self, backlog: i32) -> Self {
         self.backlog = backlog;
         self
     }
 
+    /// Enables/disables TCP_NODELAY option
     pub fn nodelay(mut self, nodelay: bool) -> Self {
         self.nodelay = nodelay;
         self
     }
 
+    /// Configures SO_REUSEADDR socket option
     pub fn reuseaddr(mut self, reuseaddr: Option<bool>) -> Self {
         self.reuseaddr = reuseaddr;
         self
     }
 
+    /// Configures SO_REUSEPORT socket option
     pub fn reuseport(mut self, reuseport: Option<bool>) -> Self {
         self.reuseport = reuseport;
         self
     }
 
+    /// Sets maximum concurrent connections
     pub fn max_connections(mut self, max_connections: usize) -> Self {
         self.max_connections = max_connections;
         self
     }
 
+    /// Sets maximum concurrent handshakes
     pub fn max_handshaking_limit(mut self, max_handshaking_limit: usize) -> Self {
         self.max_handshaking_limit = max_handshaking_limit;
         self
     }
 
+    /// Configures maximum MQTT packet size
     pub fn max_packet_size(mut self, max_packet_size: u32) -> Self {
         self.max_packet_size = max_packet_size;
         self
     }
 
+    /// Enables anonymous client access
     pub fn allow_anonymous(mut self, allow_anonymous: bool) -> Self {
         self.allow_anonymous = allow_anonymous;
         self
     }
 
+    /// Sets minimum acceptable keepalive value
     pub fn min_keepalive(mut self, min_keepalive: u16) -> Self {
         self.min_keepalive = min_keepalive;
         self
     }
 
+    /// Sets maximum acceptable keepalive value
     pub fn max_keepalive(mut self, max_keepalive: u16) -> Self {
         self.max_keepalive = max_keepalive;
         self
     }
 
+    /// Allows clients to disable keepalive
     pub fn allow_zero_keepalive(mut self, allow_zero_keepalive: bool) -> Self {
         self.allow_zero_keepalive = allow_zero_keepalive;
         self
     }
 
+    /// Configures keepalive backoff multiplier
     pub fn keepalive_backoff(mut self, keepalive_backoff: f32) -> Self {
         self.keepalive_backoff = keepalive_backoff;
         self
     }
 
+    /// Sets inflight message window size
     pub fn max_inflight(mut self, max_inflight: NonZeroU16) -> Self {
         self.max_inflight = max_inflight;
         self
     }
 
+    /// Configures handshake timeout duration
     pub fn handshake_timeout(mut self, handshake_timeout: Duration) -> Self {
         self.handshake_timeout = handshake_timeout;
         self
     }
 
+    /// Sets network send timeout duration
     pub fn send_timeout(mut self, send_timeout: Duration) -> Self {
         self.send_timeout = send_timeout;
         self
     }
 
+    /// Configures maximum message queue length
     pub fn max_mqueue_len(mut self, max_mqueue_len: usize) -> Self {
         self.max_mqueue_len = max_mqueue_len;
         self
     }
 
+    /// Sets message rate limiting parameters
     pub fn mqueue_rate_limit(mut self, rate_limit: NonZeroU32, duration: Duration) -> Self {
         self.mqueue_rate_limit = (rate_limit, duration);
         self
     }
 
+    /// Sets maximum client ID length
     pub fn max_clientid_len(mut self, max_clientid_len: usize) -> Self {
         self.max_clientid_len = max_clientid_len;
         self
     }
 
+    /// Configures maximum allowed QoS level
     pub fn max_qos_allowed(mut self, max_qos_allowed: QoS) -> Self {
         self.max_qos_allowed = max_qos_allowed;
         self
     }
 
+    /// Sets maximum topic hierarchy depth
     pub fn max_topic_levels(mut self, max_topic_levels: usize) -> Self {
         self.max_topic_levels = max_topic_levels;
         self
     }
 
+    /// Configures session expiration interval
     pub fn session_expiry_interval(mut self, session_expiry_interval: Duration) -> Self {
         self.session_expiry_interval = session_expiry_interval;
         self
     }
 
+    /// Sets message retry interval for QoS 1/2
     pub fn message_retry_interval(mut self, message_retry_interval: Duration) -> Self {
         self.message_retry_interval = message_retry_interval;
         self
     }
 
+    /// Configures message expiration time
     pub fn message_expiry_interval(mut self, message_expiry_interval: Duration) -> Self {
         self.message_expiry_interval = message_expiry_interval;
         self
     }
 
+    /// Sets maximum subscriptions per client
     pub fn max_subscriptions(mut self, max_subscriptions: usize) -> Self {
         self.max_subscriptions = max_subscriptions;
         self
     }
 
+    /// Enables shared subscription support
     pub fn shared_subscription(mut self, shared_subscription: bool) -> Self {
         self.shared_subscription = shared_subscription;
         self
     }
 
+    /// Configures maximum topic aliases (MQTTv5)
     pub fn max_topic_aliases(mut self, max_topic_aliases: u16) -> Self {
         self.max_topic_aliases = max_topic_aliases;
         self
     }
 
+    /// Enables subscription count limiting
     pub fn limit_subscription(mut self, limit_subscription: bool) -> Self {
         self.limit_subscription = limit_subscription;
         self
     }
 
+    /// Enables delayed message publishing
     pub fn delayed_publish(mut self, delayed_publish: bool) -> Self {
         self.delayed_publish = delayed_publish;
         self
     }
 
+    /// Enables mutual TLS authentication
     pub fn tls_cross_certificate(mut self, cross_certificate: bool) -> Self {
         self.tls_cross_certificate = cross_certificate;
         self
     }
 
+    /// Sets path to TLS certificate chain
     pub fn tls_cert<N: Into<String>>(mut self, tls_cert: Option<N>) -> Self {
         self.tls_cert = tls_cert.map(|c| c.into());
         self
     }
 
+    /// Sets path to TLS private key
     pub fn tls_key<N: Into<String>>(mut self, tls_key: Option<N>) -> Self {
         self.tls_key = tls_key.map(|c| c.into());
         self
     }
 
+    /// Binds the server to the configured address
     #[allow(unused_variables)]
     pub fn bind(self) -> Result<Listener> {
         let builder = match self.laddr {
@@ -360,31 +427,47 @@ impl Builder {
     }
 }
 
+/// Protocol variants for network listeners
 #[derive(Debug, Copy, Clone)]
 pub enum ListenerType {
+    /// Plain TCP listener
     TCP,
     #[cfg(feature = "tls")]
+    /// TLS-secured TCP listener
     TLS,
     #[cfg(feature = "ws")]
+    /// WebSocket listener
     WS,
     #[cfg(feature = "tls")]
     #[cfg(feature = "ws")]
+    /// TLS-secured WebSocket listener
     WSS,
 }
 
+/// Network listener for accepting client connections
 pub struct Listener {
+    /// Active listener protocol type
     pub typ: ListenerType,
+    /// Shared server configuration
     pub cfg: Arc<Builder>,
     tcp_listener: TcpListener,
     #[cfg(feature = "tls")]
     tls_acceptor: Option<TlsAcceptor>,
 }
 
+/// # Examples
+/// ```
+/// # use rmqtt_net::{Builder, Listener};
+/// # fn setup() -> Result<(), Box<dyn std::error::Error>> {
+/// let builder = Builder::new();
+/// let listener = builder.bind()?;
+/// # Ok(())
+/// # }
+/// ```
 impl Listener {
+    /// Converts listener to plain TCP mode
     pub fn tcp(mut self) -> Result<Self> {
-        let _err = anyhow!(
-                "Upgrading from ListenerType::TLS or ListenerType::WS or ListenerType::WSS to ListenerType::TCP is not allowed."
-            );
+        let _err = anyhow!("Protocol downgrade from TLS/WS/WSS to TCP is not permitted");
         #[cfg(feature = "tls")]
         if matches!(self.typ, ListenerType::TLS) {
             return Err(_err);
@@ -403,19 +486,19 @@ impl Listener {
     }
 
     #[cfg(feature = "ws")]
+    /// Upgrades listener to WebSocket protocol
     pub fn ws(mut self) -> Result<Self> {
         if matches!(self.typ, ListenerType::TCP | ListenerType::WS) {
             self.typ = ListenerType::WS;
         } else {
-            return Err(anyhow!(
-                "Upgrading from ListenerType::TLS or ListenerType::WSS to ListenerType::WS is not allowed."
-            ));
+            return Err(anyhow!("Protocol upgrade from TLS/WSS to WS is not permitted"));
         }
         Ok(self)
     }
 
     #[cfg(feature = "tls")]
     #[cfg(feature = "ws")]
+    /// Upgrades listener to secure WebSocket (WSS)
     pub fn wss(mut self) -> Result<Self> {
         if matches!(self.typ, ListenerType::TCP | ListenerType::WS) {
             self = self.tls()?;
@@ -425,20 +508,19 @@ impl Listener {
     }
 
     #[cfg(feature = "tls")]
+    /// Upgrades listener to TLS-secured TCP
     pub fn tls(mut self) -> Result<Listener> {
         match self.typ {
             #[cfg(feature = "ws")]
             ListenerType::WS | ListenerType::WSS => {
-                return Err(anyhow!(
-                    "Upgrading from ListenerType::WS or ListenerType::WSS to ListenerType::TLS is not allowed."
-                ));
+                return Err(anyhow!("Protocol downgrade from WS/WSS to TLS is not permitted"));
             }
             ListenerType::TLS => return Ok(self),
             ListenerType::TCP => {}
         }
 
-        let cert_file = self.cfg.tls_cert.as_ref().ok_or(anyhow!("tls cert filename is None"))?;
-        let key_file = self.cfg.tls_key.as_ref().ok_or(anyhow!("tls key filename is None"))?;
+        let cert_file = self.cfg.tls_cert.as_ref().ok_or(anyhow!("TLS certificate path not set"))?;
+        let key_file = self.cfg.tls_key.as_ref().ok_or(anyhow!("TLS key path not set"))?;
 
         let cert_chain = rustls::pki_types::CertificateDer::pem_file_iter(cert_file)
             .map_err(|e| anyhow!(e))?
@@ -465,7 +547,7 @@ impl Listener {
             .map_err(|e| anyhow!(e))?
             .with_client_cert_verifier(client_auth)
             .with_single_cert(cert_chain, key)
-            .map_err(|e| anyhow!(format!("bad certs/private key, {}", e)))?;
+            .map_err(|e| anyhow!(format!("Certificate error: {}", e)))?;
 
         let acceptor = TlsAcceptor::from(Arc::new(tls_config));
         self.tls_acceptor = Some(acceptor);
@@ -473,6 +555,7 @@ impl Listener {
         Ok(self)
     }
 
+    /// Accepts incoming client connections
     pub async fn accept(&self) -> Result<Acceptor<TcpStream>> {
         let (socket, remote_addr) = self.tcp_listener.accept().await?;
         if let Err(e) = socket.set_nodelay(self.cfg.nodelay) {
@@ -489,12 +572,17 @@ impl Listener {
     }
 }
 
+/// Connection handler for processing client streams
 pub struct Acceptor<S> {
+    /// Underlying network transport
     pub(crate) socket: S,
     #[cfg(feature = "tls")]
     acceptor: Option<TlsAcceptor>,
+    /// Remote client address
     pub remote_addr: SocketAddr,
+    /// Shared server configuration
     pub cfg: Arc<Builder>,
+    /// Active protocol type
     pub typ: ListenerType,
 }
 
@@ -502,20 +590,22 @@ impl<S> Acceptor<S>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
+    /// Creates TCP protocol dispatcher
     #[inline]
     pub fn tcp(self) -> Result<Dispatcher<S>> {
         if matches!(self.typ, ListenerType::TCP) {
             Ok(Dispatcher::new(self.socket, self.remote_addr, self.cfg))
         } else {
-            Err(anyhow!("Mismatched ListenerType"))
+            Err(anyhow!("Protocol mismatch: Expected TCP listener"))
         }
     }
 
-    #[inline]
     #[cfg(feature = "tls")]
+    /// Performs TLS handshake and creates secure dispatcher
+    #[inline]
     pub async fn tls(self) -> Result<Dispatcher<TlsStream<S>>> {
         if !matches!(self.typ, ListenerType::TLS) {
-            return Err(anyhow!("Mismatched ListenerType"));
+            return Err(anyhow!("Protocol mismatch: Expected TLS listener"));
         }
 
         let acceptor = self.acceptor.ok_or_else(|| crate::MqttError::ServiceUnavailable)?;
@@ -528,11 +618,12 @@ where
         Ok(Dispatcher::new(tls_s, self.remote_addr, self.cfg))
     }
 
-    #[inline]
     #[cfg(feature = "ws")]
+    /// Performs WebSocket upgrade and creates WS dispatcher
+    #[inline]
     pub async fn ws(self) -> Result<Dispatcher<WsStream<S>>> {
         if !matches!(self.typ, ListenerType::WS) {
-            return Err(anyhow!("Mismatched ListenerType"));
+            return Err(anyhow!("Protocol mismatch: Expected WS listener"));
         }
 
         match tokio::time::timeout(self.cfg.handshake_timeout, accept_hdr_async(self.socket, on_handshake))
@@ -546,12 +637,13 @@ where
         }
     }
 
-    #[inline]
     #[cfg(feature = "tls")]
     #[cfg(feature = "ws")]
+    /// Performs TLS handshake and WebSocket upgrade
+    #[inline]
     pub async fn wss(self) -> Result<Dispatcher<WsStream<TlsStream<S>>>> {
         if !matches!(self.typ, ListenerType::WSS) {
-            return Err(anyhow!("Mismatched ListenerType"));
+            return Err(anyhow!("Protocol mismatch: Expected WSS listener"));
         }
 
         let acceptor = self.acceptor.ok_or_else(|| crate::MqttError::ServiceUnavailable)?;
@@ -573,8 +665,9 @@ where
 
 #[allow(clippy::result_large_err)]
 #[cfg(feature = "ws")]
+/// Validates WebSocket handshake requests for MQTT protocol
 fn on_handshake(req: &Request, mut response: Response) -> std::result::Result<Response, ErrorResponse> {
-    const PROTOCOL_ERROR: &str = "No \"Sec-WebSocket-Protocol: mqtt\" in client request";
+    const PROTOCOL_ERROR: &str = "Missing required 'Sec-WebSocket-Protocol: mqtt' header";
     let mqtt_protocol = req
         .headers()
         .get("Sec-WebSocket-Protocol")
