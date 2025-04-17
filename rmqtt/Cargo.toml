@@ -69,9 +69,6 @@ prometheus.workspace = true
 url.workspace = true
 config = { workspace = true, features = ["toml"] }
 
-[dev-dependencies]
 
 [build-dependencies]
-toml.workspace = true
-chrono = { workspace = true, features = ["clock"] }
-
+rustc_version = "0.4"

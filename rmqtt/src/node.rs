@@ -3,25 +3,22 @@
 //! Provides centralized node monitoring and resource management for MQTT broker clusters, implementing:
 //! 1. **Node State Tracking**:
 //!    - Uptime calculation with chrono integration
-//!    - System load monitoring (1/5/15-minute averages)[4](@ref)
-//!    - Memory/Disk usage statistics collection[4](@ref)
+//!    - System load monitoring (1/5/15-minute averages)
+//!    - Memory/Disk usage statistics collection
 //! 2. **Cluster Health Management**:
 //!    - Busy state detection with configurable thresholds
-//!    - CPU load aggregation using systemstat[8](@ref)
-//!    - Graceful degradation through max_busy_loadavg/max_busy_cpuloadavg[8](@ref)
+//!    - CPU load aggregation using systemstat
+//!    - Graceful degradation through max_busy_loadavg/max_busy_cpuloadavg
 //! 3. **Protocol Implementation**:
-//!    - gRPC server/client integration for cluster communication[4](@ref)
-//!    - JSON serialization of broker/node status (BrokerInfo/NodeInfo)[4,5](@ref)
+//!    - gRPC server/client integration for cluster communication
+//!    - JSON serialization of broker/node status (BrokerInfo/NodeInfo)
 //!    - Version metadata exposure (Rustc + build version)
 //!
 //! Key components align with MQTT specification requirements:
-//! - Persistent session management through NodeStatus tracking[5](@ref)
-//! - Resource monitoring for connection capacity planning[8](@ref)
-//! - Distributed architecture support via gRPC[4](@ref)
+//! - Persistent session management through NodeStatus tracking
+//! - Resource monitoring for connection capacity planning
+//! - Distributed architecture support via gRPC
 //!
-//! [4](@ref): Implements server composition from MQTT broker architecture
-//! [5](@ref): Follows MQTT session state management patterns
-//! [8](@ref): Addresses resource limitation handling from connection issues
 
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::time::Duration;
@@ -36,10 +33,9 @@ use crate::grpc::{GrpcClient, GrpcServer};
 use crate::types::{NodeId, TimestampMillis};
 use crate::utils::timestamp_millis;
 
-#[allow(dead_code)]
-mod version {
-    include!(concat!(env!("OUT_DIR"), "/version.rs"));
-}
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+const RUSTC_VERSION: &str = env!("RUSTC_VERSION");
 
 #[derive(Debug)]
 pub struct Node {
@@ -148,8 +144,8 @@ impl Node {
     pub async fn broker_info(&self, scx: &ServerContext) -> BrokerInfo {
         let node_id = self.id;
         BrokerInfo {
-            version: version::VERSION.to_string(),
-            rustc_version: version::RUSTC_VERSION.to_string(),
+            version: VERSION.to_string(),
+            rustc_version: RUSTC_VERSION.to_string(),
             uptime: self.uptime(),
             sysdescr: "RMQTT Broker".into(),
             node_status: self.status(scx).await,
@@ -194,8 +190,8 @@ impl Node {
             node_id,
             node_name: self.name(scx, node_id).await, //Runtime::instance().extends.shared().await.node_name(node_id),
             uptime: self.uptime(),
-            version: version::VERSION.to_string(),
-            rustc_version: version::RUSTC_VERSION.to_string(),
+            version: VERSION.to_string(),
+            rustc_version: RUSTC_VERSION.to_string(),
         }
     }
 
