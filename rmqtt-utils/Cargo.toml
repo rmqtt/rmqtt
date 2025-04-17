@@ -1,7 +1,7 @@
 [package]
 name = "rmqtt-utils"
 version = "0.1.1"
-description = ""
+description = "Essential utilities for RMQTT system operations."
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
