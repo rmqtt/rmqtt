@@ -1,8 +1,8 @@
 #![deny(unsafe_code)]
-//! # MQTT Server Implementation
+//! Basic Implementation of MQTT Server
 //!
-//! A complete MQTT broker implementation supporting v3.1.1 and v5.0 protocols
-//! with TLS and WebSocket capabilities.
+//! The basic implementation of MQTT proxy, supporting v3.1.1 and v5.0 protocols, with TLS and
+//! WebSocket functionality.
 //!
 //! ## Basic Usage
 //!
