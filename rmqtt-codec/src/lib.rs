@@ -1,5 +1,21 @@
 #![deny(unsafe_code)]
-/// Core utilities and macros used across the codec implementation
+
+//! MQTT protocol codec implementation with multi-version support and version negotiation
+//!
+//! ## Core Features:
+//! - **Dual Protocol Support**: Full implementation of MQTT v3.1, v3.1.1 and v5.0 specifications
+//! - **Automatic Version Detection**: Handshake-based protocol negotiation during connection establishment
+//! - **Zero-Copy Encoding**: Efficient binary processing using `bytes::BytesMut` for network operations
+//! - **Tokio Integration**: Seamless compatibility with Tokio runtime via `tokio_util::codec`
+//! - **Memory Safety**: Strict enforcement of message size limits (1MB default) with configurable constraints
+//!
+//! ## Architecture Components:
+//! - `MqttCodec`: Main dispatcher handling version-specific encoding/decoding logic
+//! - `MqttPacket`: Unified representation of all protocol versions' packet types
+//! - `version::ProtocolVersion`: Detection mechanism for protocol handshake
+//! - Error handling with dedicated `EncodeError`/`DecodeError` types
+//!
+
 #[macro_use]
 mod utils;
 
