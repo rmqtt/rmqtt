@@ -1,3 +1,17 @@
+//! Thread-safe atomic counter implementation with statistical merging capabilities
+//!
+//! ## Core Features:
+//! - **Dual-value Tracking**: Maintains both current value and historical maximum
+//! - **Atomic Operations**: Uses `AtomicIsize` for lock-free thread safety
+//! - **Multiple Merge Strategies**: Supports Sum/Max/Min merging modes
+//! - **Serialization Ready**: Implements Serde traits for easy serialization
+//! - **JSON Conversion**: Provides `to_json()` for monitoring integration
+//!
+//! ## Key Components:
+//! - `Counter`: Main structure with atomic current/max values and merge mode
+//! - `StatsMergeMode`: Enum defining SUM/MAX/MIN/NONE merge strategies
+//! - Atomic operations with SeqCst ordering for cross-thread consistency
+//!
 /// # Example: Using `Counter`
 /// ```
 /// use rmqtt_utils::{Counter, StatsMergeMode};
