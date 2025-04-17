@@ -1,13 +1,11 @@
 [package]
 name = "rmqtt-codec"
 version = "0.1.0"
+description = "MQTT protocol codec implementation with multi-version support and version negotiation"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description.workspace = true
-categories.workspace = true
-keywords.workspace = true
 exclude.workspace = true
 rust-version.workspace = true
 

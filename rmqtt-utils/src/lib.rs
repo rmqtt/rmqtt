@@ -1,3 +1,46 @@
+//! Utilities module providing essential types and functions for common system operations
+//!
+//! ## Core Features:
+//! - **Byte Size Handling**: Human-readable byte size parsing/formatting with [`Bytesize`]
+//! - **Duration Conversion**: String-to-Duration parsing supporting multiple time units
+//! - **Timestamp Utilities**: Precise timestamp handling with millisecond resolution
+//! - **Network Addressing**: Cluster node address parsing ([`NodeAddr`]) and socket address handling
+//! - **Counter Implementation**: Thread-safe counter with merge modes ([`Counter`])
+//!
+//! ## Key Components:
+//! - `Bytesize`: Handles 2G512M-style conversions with serialization support
+//! - Time functions: `timestamp_secs()`, `format_timestamp_now()`, and datetime parsing
+//! - `NodeAddr`: Cluster node representation (ID@Address) with parser
+//! - Network address utilities with proper error handling
+//! - Custom serde helpers for duration and address types
+//!
+//! ## Usage Examples:
+//! ```rust
+//! use rmqtt_utils::{Bytesize, NodeAddr, to_bytesize, to_duration, format_timestamp_now};
+//!
+//! // Byte size parsing
+//! let size = Bytesize::from("2G512M");
+//! assert_eq!(size.as_usize(), 2_684_354_560);
+//!
+//! // Duration conversion
+//! let duration = to_duration("1h30m15s");
+//! assert_eq!(duration.as_secs(), 5415);
+//!
+//! // Node address parsing
+//! let node: NodeAddr = "1@mqtt-node:1883".parse().unwrap();
+//! assert_eq!(node.id, 1);
+//!
+//! // Timestamp formatting
+//! let now = format_timestamp_now();
+//! assert!(now.contains("2025")); // Current year
+//! ```
+//!
+//! ## Safety Guarantees:
+//! - Zero `unsafe` code usage (enforced by `#![deny(unsafe_code)]`)
+//! - Comprehensive error handling for parsing operations
+//! - Platform-agnostic network address handling
+//! - Chrono-based timestamp calculations with proper timezone handling
+//!
 //! Overall usage example:
 //!
 //! ```

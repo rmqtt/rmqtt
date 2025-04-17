@@ -1,13 +1,11 @@
 [package]
 name = "rmqtt-net"
 version = "0.1.0"
+description = "Basic Implementation of MQTT Server"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description.workspace = true
-categories.workspace = true
-keywords.workspace = true
 exclude.workspace = true
 rust-version.workspace = true
 
