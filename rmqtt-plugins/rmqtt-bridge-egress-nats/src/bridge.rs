@@ -1,17 +1,20 @@
 use std::collections::HashSet;
+use std::convert::From as _;
 use std::str::FromStr;
 use std::sync::Arc;
 
 use async_nats::{connect_with_options, header::HeaderMap, Client, ConnectOptions, ServerAddr, Subject};
 
-use rmqtt::{
-    anyhow::anyhow, bytestring::ByteString, futures::SinkExt, log, tokio, tokio::sync::mpsc,
-    tokio::sync::RwLock, DashMap,
-};
+use anyhow::anyhow;
+use bytestring::ByteString;
+use futures::SinkExt;
+use tokio::sync::mpsc;
+use tokio::sync::RwLock;
 
 use rmqtt::{
-    broker::topic::{TopicTree, VecToTopic},
-    From, MqttError, NodeId, Publish, QoSEx, Result, Topic,
+    trie::{TopicTree, VecToTopic},
+    types::{DashMap, From, NodeId, Publish, Topic},
+    Result,
 };
 
 use crate::config::{Bridge, Entry, PluginConfig};
@@ -59,8 +62,12 @@ impl Producer {
 
     #[inline]
     async fn build_nats(cfg: &Bridge, producer_name: &str) -> Result<Client> {
-        let addrs =
-            cfg.servers.as_str().split(',').map(|url| url.parse()).collect::<Result<Vec<ServerAddr>, _>>()?;
+        let addrs = cfg
+            .servers
+            .as_str()
+            .split(',')
+            .map(|url| url.parse())
+            .collect::<std::result::Result<Vec<ServerAddr>, _>>()?;
         let mut opts = ConnectOptions::new();
         opts = opts.name(producer_name);
 
@@ -125,7 +132,7 @@ impl Producer {
         log::debug!("ConnectOptions: {:?}", opts);
         let client = connect_with_options(addrs, opts)
             .await
-            .map_err(|e| format!("Failed to connect to NATS, {}", e))?;
+            .map_err(|e| anyhow!(format!("Failed to connect to NATS, {}", e)))?;
         Ok(client)
     }
 
@@ -164,16 +171,16 @@ impl Producer {
 
                     //Not required to forward
                     if forward_all_publish {
-                        properties.insert("dup", if p.dup() { "true" } else { "false" });
-                        properties.insert("retain", if p.retain() { "true" } else { "false" });
-                        properties.insert("qos", p.qos().value().to_string());
-                        if let Some(packet_id) = p.packet_id() {
+                        properties.insert("dup", if p.dup { "true" } else { "false" });
+                        properties.insert("retain", if p.retain { "true" } else { "false" });
+                        properties.insert("qos", p.qos.value().to_string());
+                        if let Some(packet_id) = p.packet_id {
                             properties.insert("packet_id", packet_id.to_string());
                         }
                     }
 
                     //Must forward
-                    properties.insert("topic", p.topic().as_ref());
+                    properties.insert("topic", p.topic.as_ref());
 
                     if let Err(e) = jetstream.publish_with_headers(topic.clone(), properties, p.payload).await
                     {
@@ -224,7 +231,7 @@ impl BridgeManager {
                 continue;
             }
             if bridge_names.contains(&b_cfg.name as &str) {
-                return Err(MqttError::from(format!("The bridge name already exists! {:?}", b_cfg.name)));
+                return Err(anyhow!(format!("The bridge name already exists! {:?}", b_cfg.name)));
             }
 
             bridge_names.insert(&b_cfg.name);

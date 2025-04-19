@@ -1,10 +1,11 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use rmqtt::serde_json;
+use serde::{Deserialize, Serialize};
+
 use rmqtt::{
     grpc::MessageType,
-    settings::{deserialize_addr, deserialize_duration},
+    utils::{deserialize_addr, deserialize_duration},
     Result,
 };
 

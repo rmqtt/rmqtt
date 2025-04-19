@@ -1,21 +1,28 @@
-use rmqtt::{anyhow, futures, tokio::sync::oneshot, HashMap};
+use anyhow::anyhow;
+use tokio::sync::oneshot;
+
 use rmqtt::{
-    Id, Message as MqttMessage, MqttError, QoSEx, Result, Runtime, Subscribe, TopicFilter, Unsubscribe,
+    context::ServerContext,
+    types::{HashMap, Id, Message as MqttMessage, Subscribe, TopicFilter, Unsubscribe},
+    Result,
 };
 
 use super::types::{SubscribeParams, UnsubscribeParams};
 
 #[inline]
-pub(crate) async fn subscribe(params: SubscribeParams) -> Result<HashMap<TopicFilter, Result<bool>>> {
+pub(crate) async fn subscribe(
+    scx: &ServerContext,
+    params: SubscribeParams,
+) -> Result<HashMap<TopicFilter, Result<bool>>> {
     let topics = params.topics()?;
     let qos = params.qos()?;
     let clientid = params.clientid;
-    let id = Id::from(Runtime::instance().node.id(), clientid);
-    let entry = Runtime::instance().extends.shared().await.entry(id);
-    let s = entry.session().ok_or_else(|| MqttError::from("session does not exist!"))?;
-    let shared_subs = Runtime::instance().extends.shared_subscription().await.is_supported(s.listen_cfg());
+    let id = Id::from(scx.node.id(), clientid);
+    let entry = scx.extends.shared().await.entry(id);
+    let s = entry.session().ok_or_else(|| anyhow!("session does not exist!"))?;
+    let shared_subs = scx.extends.shared_subscription().await.is_supported(s.listen_cfg());
     let limit_subs = s.listen_cfg().limit_subscription;
-    let tx = entry.tx().ok_or_else(|| MqttError::from("session message TX is not exist!"))?;
+    let tx = entry.tx().ok_or_else(|| anyhow!("session message TX is not exist!"))?;
     let qos = qos.less_value(s.listen_cfg().max_qos_allowed);
     let subs = topics
         .iter()
@@ -30,12 +37,12 @@ pub(crate) async fn subscribe(params: SubscribeParams) -> Result<HashMap<TopicFi
 
         let reply_fut = async move {
             let reply = if let Err(send_err) = send_reply {
-                Err(MqttError::Msg(send_err.to_string()))
+                Err(anyhow!(send_err.to_string()))
             } else {
                 match reply_rx.await {
                     Ok(Ok(res)) => Ok(!res.failure()),
                     Ok(Err(e)) => Err(e),
-                    Err(e) => Err(MqttError::Msg(e.to_string())),
+                    Err(e) => Err(anyhow!(e.to_string())),
                 }
             };
             (topic_filter, reply)
@@ -47,15 +54,15 @@ pub(crate) async fn subscribe(params: SubscribeParams) -> Result<HashMap<TopicFi
 }
 
 #[inline]
-pub(crate) async fn unsubscribe(params: UnsubscribeParams) -> Result<()> {
+pub(crate) async fn unsubscribe(scx: &ServerContext, params: UnsubscribeParams) -> Result<()> {
     let topic_filter = params.topic;
     let clientid = params.clientid;
-    let id = Id::from(Runtime::instance().node.id(), clientid);
-    let entry = Runtime::instance().extends.shared().await.entry(id);
-    let s = entry.session().ok_or_else(|| MqttError::from("session does not exist!"))?;
-    let shared_subs = Runtime::instance().extends.shared_subscription().await.is_supported(s.listen_cfg());
+    let id = Id::from(scx.node.id(), clientid);
+    let entry = scx.extends.shared().await.entry(id);
+    let s = entry.session().ok_or_else(|| anyhow!("session does not exist!"))?;
+    let shared_subs = scx.extends.shared_subscription().await.is_supported(s.listen_cfg());
     let limit_subs = s.listen_cfg().limit_subscription;
-    let tx = entry.tx().ok_or_else(|| MqttError::from("session message TX is not exist!"))?;
+    let tx = entry.tx().ok_or_else(|| anyhow!("session message TX is not exist!"))?;
     let unsub = Unsubscribe::from(&topic_filter, shared_subs, limit_subs)?;
     let (reply_tx, reply_rx) = oneshot::channel();
     tx.unbounded_send(MqttMessage::Unsubscribe(unsub, reply_tx)).map_err(anyhow::Error::new)?;

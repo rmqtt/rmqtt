@@ -1,23 +1,21 @@
 #![deny(unsafe_code)]
-#[macro_use]
-extern crate serde;
-
-#[macro_use]
-extern crate rmqtt_macros;
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
+use tokio::sync::RwLock;
+
 use rmqtt::{
-    async_trait::async_trait, log, once_cell::sync::OnceCell, serde_json, tokio::sync::RwLock, TopicFilter,
-};
-use rmqtt::{
-    broker::{default::DefaultAutoSubscription, AutoSubscription},
+    context::ServerContext,
+    macros::Plugin,
     plugin::{PackageInfo, Plugin},
-    register, Id, Message, Result, Runtime, Tx,
+    register,
+    subscribe::{AutoSubscription, DefaultAutoSubscription},
+    types::{Id, Subscribe, TopicFilter},
+    Result,
 };
 
 use config::PluginConfig;
-use rmqtt::tokio::sync::oneshot;
 
 mod config;
 
@@ -25,18 +23,18 @@ register!(AutoSubscriptionPlugin::new);
 
 #[derive(Plugin)]
 struct AutoSubscriptionPlugin {
-    runtime: &'static Runtime,
+    scx: ServerContext,
     cfg: Arc<RwLock<PluginConfig>>,
 }
 
 impl AutoSubscriptionPlugin {
     #[inline]
-    async fn new<N: Into<String>>(runtime: &'static Runtime, name: N) -> Result<Self> {
+    async fn new<N: Into<String>>(scx: ServerContext, name: N) -> Result<Self> {
         let name = name.into();
-        let cfg = runtime.settings.plugins.load_config::<PluginConfig>(&name)?;
+        let cfg = scx.plugins.read_config::<PluginConfig>(&name)?;
         let cfg = Arc::new(RwLock::new(cfg));
         log::info!("{} AutoSubscriptionPlugin cfg: {:?}", name, cfg.read().await);
-        Ok(Self { runtime, cfg })
+        Ok(Self { scx, cfg })
     }
 }
 
@@ -55,7 +53,7 @@ impl Plugin for AutoSubscriptionPlugin {
 
     #[inline]
     async fn load_config(&mut self) -> Result<()> {
-        let new_cfg = self.runtime.settings.plugins.load_config::<PluginConfig>(self.name())?;
+        let new_cfg = self.scx.plugins.read_config::<PluginConfig>(self.name())?;
         *self.cfg.write().await = new_cfg;
         log::debug!("load_config ok,  {:?}", self.cfg);
         Ok(())
@@ -64,15 +62,14 @@ impl Plugin for AutoSubscriptionPlugin {
     #[inline]
     async fn start(&mut self) -> Result<()> {
         log::info!("{} start", self.name());
-        *self.runtime.extends.auto_subscription_mut().await =
-            Box::new(XAutoSubscription::get_or_init(self.cfg.clone()));
+        *self.scx.extends.auto_subscription_mut().await = Box::new(XAutoSubscription::new(self.cfg.clone()));
         Ok(())
     }
 
     #[inline]
     async fn stop(&mut self) -> Result<bool> {
         log::info!("{} stop", self.name());
-        *self.runtime.extends.auto_subscription_mut().await = Box::new(DefaultAutoSubscription::instance());
+        *self.scx.extends.auto_subscription_mut().await = Box::new(DefaultAutoSubscription);
         Ok(false)
     }
 }
@@ -83,25 +80,22 @@ pub struct XAutoSubscription {
 
 impl XAutoSubscription {
     #[inline]
-    pub(crate) fn get_or_init(cfg: Arc<RwLock<PluginConfig>>) -> &'static XAutoSubscription {
-        static INSTANCE: OnceCell<XAutoSubscription> = OnceCell::new();
-        INSTANCE.get_or_init(|| Self { cfg })
+    pub(crate) fn new(cfg: Arc<RwLock<PluginConfig>>) -> XAutoSubscription {
+        Self { cfg }
     }
 }
 
 #[async_trait]
-impl AutoSubscription for &'static XAutoSubscription {
+impl AutoSubscription for XAutoSubscription {
     #[inline]
     fn enable(&self) -> bool {
         true
     }
 
     #[inline]
-    #[allow(unknown_lints)]
-    #[allow(clippy::literal_string_with_formatting_args)]
-    async fn subscribe(&self, id: &Id, msg_tx: &Tx) -> Result<()> {
+    async fn subscribes(&self, id: &Id) -> Result<Vec<Subscribe>> {
+        let mut subs = Vec::new();
         for item in self.cfg.read().await.subscribes.iter() {
-            let (tx, rx) = oneshot::channel();
             let mut sub = item.sub.clone();
             if item.has_clientid_placeholder {
                 sub.topic_filter = TopicFilter::from(sub.topic_filter.replace("${clientid}", &id.client_id));
@@ -114,23 +108,8 @@ impl AutoSubscription for &'static XAutoSubscription {
                     continue;
                 }
             }
-            if let Err(e) = msg_tx.unbounded_send(Message::Subscribe(sub, tx)) {
-                log::error!("{} auto subscribe error, {:?}", id, e);
-            }
-            match rx.await {
-                Ok(Ok(ret)) => {
-                    if ret.failure() {
-                        log::error!("{} auto subscribe failed, {:?}", id, ret.ack_reason);
-                    }
-                }
-                Ok(Err(e)) => {
-                    log::error!("{} auto subscribe error, {:?}", id, e);
-                }
-                Err(e) => {
-                    log::error!("{} auto subscribe error, {:?}", id, e);
-                }
-            }
+            subs.push(sub);
         }
-        Ok(())
+        Ok(subs)
     }
 }

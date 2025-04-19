@@ -1,26 +1,25 @@
+use anyhow::anyhow;
 use std::num::NonZeroU32;
 use std::time::Duration;
 
-use serde::de::{self, Deserialize, Deserializer};
-use serde::ser::{Serialize, Serializer};
-
+use base64::prelude::{Engine, BASE64_STANDARD};
 use ntex::util::{ByteString, Bytes};
 use ntex_mqtt::v3::codec::LastWill as LastWillV3;
 use ntex_mqtt::v5::codec::LastWill as LastWillV5;
 use ntex_mqtt::v5::codec::UserProperties;
 use ntex_mqtt::QoS;
+use serde::de::{self, Deserializer};
+use serde::ser::Serializer;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use serde_json::{self, Map, Value};
+
+use rmqtt::codec::types::{Protocol, MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 
 use rmqtt::{
-    anyhow,
-    base64::prelude::{Engine, BASE64_STANDARD},
-    ntex_mqtt::types::{Protocol, MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5},
-    serde_json::{self, Map, Value},
-};
-
-use rmqtt::serde_json::json;
-use rmqtt::{
-    settings::{deserialize_duration, to_duration, Bytesize},
-    MqttError, Result, TopicName,
+    types::TopicName,
+    utils::{deserialize_duration, to_duration, Bytesize},
+    Result,
 };
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -91,7 +90,7 @@ impl Bridge {
     }
 
     fn mqtt_ver_default() -> Protocol {
-        Protocol::MQTT(MQTT_LEVEL_311)
+        Protocol(MQTT_LEVEL_311)
     }
 
     fn expiry_interval_default() -> Duration {
@@ -99,22 +98,22 @@ impl Bridge {
     }
 
     #[inline]
-    pub fn deserialize_mqtt_ver<'de, D>(deserializer: D) -> Result<Protocol, D::Error>
+    pub fn deserialize_mqtt_ver<'de, D>(deserializer: D) -> std::result::Result<Protocol, D::Error>
     where
         D: Deserializer<'de>,
     {
         let v = String::deserialize(deserializer)?;
         let protocol = match v.as_str() {
-            "v3" | "V3" => Protocol::MQTT(MQTT_LEVEL_31),
-            "v4" | "V4" => Protocol::MQTT(MQTT_LEVEL_311),
-            "v5" | "V5" => Protocol::MQTT(MQTT_LEVEL_5),
+            "v3" | "V3" => Protocol(MQTT_LEVEL_31),
+            "v4" | "V4" => Protocol(MQTT_LEVEL_311),
+            "v5" | "V5" => Protocol(MQTT_LEVEL_5),
             _ => return Err(serde::de::Error::custom("invalid value")),
         };
         Ok(protocol)
     }
 
     #[inline]
-    pub fn deserialize_server<'de, D>(deserializer: D) -> Result<ServerAddr, D::Error>
+    pub fn deserialize_server<'de, D>(deserializer: D) -> std::result::Result<ServerAddr, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -180,7 +179,10 @@ impl MoreV3 {
     }
 
     #[inline]
-    pub fn serialize_last_will<S>(v: &Option<LastWillV3>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize_last_will<S>(
+        v: &Option<LastWillV3>,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -198,7 +200,7 @@ impl MoreV3 {
     }
 
     #[inline]
-    pub fn deserialize_last_will<'de, D>(deserializer: D) -> Result<Option<LastWillV3>, D::Error>
+    pub fn deserialize_last_will<'de, D>(deserializer: D) -> std::result::Result<Option<LastWillV3>, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -246,7 +248,10 @@ impl MoreV5 {
     }
 
     #[inline]
-    pub fn serialize_last_will<S>(v: &Option<LastWillV5>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize_last_will<S>(
+        v: &Option<LastWillV5>,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -271,7 +276,7 @@ impl MoreV5 {
     }
 
     #[inline]
-    pub fn deserialize_last_will<'de, D>(deserializer: D) -> Result<Option<LastWillV5>, D::Error>
+    pub fn deserialize_last_will<'de, D>(deserializer: D) -> std::result::Result<Option<LastWillV5>, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -352,7 +357,7 @@ impl Remote {
     }
 
     #[inline]
-    pub fn deserialize_qos<'de, D>(deserializer: D) -> Result<QoS, D::Error>
+    pub fn deserialize_qos<'de, D>(deserializer: D) -> std::result::Result<QoS, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -405,17 +410,17 @@ impl Local {
     }
 
     #[inline]
-    pub fn make_qos(&self, remote_qos: QoS) -> rmqtt::QoS {
+    pub fn make_qos(&self, remote_qos: QoS) -> rmqtt::types::QoS {
         let qos = self.qos.unwrap_or(remote_qos);
         match qos {
-            QoS::AtMostOnce => rmqtt::QoS::AtMostOnce,
-            QoS::AtLeastOnce => rmqtt::QoS::AtLeastOnce,
-            QoS::ExactlyOnce => rmqtt::QoS::ExactlyOnce,
+            QoS::AtMostOnce => rmqtt::types::QoS::AtMostOnce,
+            QoS::AtLeastOnce => rmqtt::types::QoS::AtLeastOnce,
+            QoS::ExactlyOnce => rmqtt::types::QoS::ExactlyOnce,
         }
     }
 
     #[inline]
-    pub fn deserialize_qos<'de, D>(deserializer: D) -> Result<Option<QoS>, D::Error>
+    pub fn deserialize_qos<'de, D>(deserializer: D) -> std::result::Result<Option<QoS>, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -428,7 +433,7 @@ impl Local {
     }
 
     #[inline]
-    pub fn deserialize_topic<'de, D>(deserializer: D) -> Result<(String, HasPattern), D::Error>
+    pub fn deserialize_topic<'de, D>(deserializer: D) -> std::result::Result<(String, HasPattern), D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -443,7 +448,7 @@ fn last_will_basic(obj: &Map<String, Value>) -> Result<(QoS, bool, ByteString, B
         .get("qos")
         .and_then(|q| q.as_u64().map(|q| QoS::try_from(q as u8)))
         .unwrap_or(Ok(QoS::AtMostOnce))
-        .map_err(|e| MqttError::from(format!("{:?}", e)))?;
+        .map_err(|e| anyhow!(format!("{:?}", e)))?;
     let retain = obj.get("retain").and_then(|retain| retain.as_bool()).unwrap_or_default();
     let topic = obj.get("topic").and_then(|topic| topic.as_str()).unwrap_or_default();
     let message = obj.get("message").and_then(|message| message.as_str()).unwrap_or_default();

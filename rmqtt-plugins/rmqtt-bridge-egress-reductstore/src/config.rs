@@ -1,8 +1,10 @@
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
+
 use crate::bridge::BridgeName;
 
-use rmqtt::settings::deserialize_duration_option;
+use rmqtt::utils::deserialize_duration_option;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
@@ -27,36 +29,6 @@ pub struct Bridge {
     #[serde(default, deserialize_with = "deserialize_duration_option")]
     pub(crate) timeout: Option<Duration>,
 
-    // #[serde(default)]
-    // pub(crate) max_reconnects: Option<usize>,
-    // #[serde(default, deserialize_with = "deserialize_duration_option")]
-    // pub(crate) connection_timeout: Option<Duration>,
-    // #[serde(default)]
-    // pub(crate) tls_required: Option<bool>,
-    // #[serde(default)]
-    // pub(crate) tls_first: Option<bool>,
-    // #[serde(default, deserialize_with = "Bridge::deserialize_pathbuf")]
-    // pub(crate) root_certificates: Option<PathBuf>,
-    // #[serde(default, deserialize_with = "Bridge::deserialize_pathbuf")]
-    // pub(crate) client_cert: Option<PathBuf>,
-    // #[serde(default, deserialize_with = "Bridge::deserialize_pathbuf")]
-    // pub(crate) client_key: Option<PathBuf>,
-    // #[serde(default, deserialize_with = "deserialize_duration_option")]
-    // pub(crate) ping_interval: Option<Duration>,
-    // #[serde(default)]
-    // pub(crate) sender_capacity: Option<usize>,
-    // #[serde(default, deserialize_with = "deserialize_duration_option")]
-    // pub(crate) request_timeout: Option<Duration>,
-    // #[serde(default)]
-    // pub(crate) retry_on_initial_connect: bool,
-    // #[serde(default)]
-    // pub(crate) ignore_discovered_servers: bool,
-    // #[serde(default)]
-    // pub(crate) retain_servers_order: bool,
-    // #[serde(default)]
-    // pub(crate) read_buffer_capacity: Option<u16>,
-    // #[serde(default)]
-    // pub(crate) auth: Auth,
     #[serde(default)]
     pub(crate) entries: Vec<Entry>,
 }

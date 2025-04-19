@@ -12,7 +12,7 @@ name = "bridge_name_1"
 # Client ID prefix
 client_id_prefix = "prefix"
 # Address and port of the remote MQTT broker
-server = "tcp://127.0.0.1:3883"
+server = "tcp://127.0.0.1:2883"
 #server = "tls://127.0.0.1:9883"
 ##SSL / TLS Certificate Type
 #CA signed server certificate
@@ -104,7 +104,7 @@ name = "bridge_name_2"
 # Client ID prefix
 client_id_prefix = "prefix"
 # Address and port of the remote MQTT broker
-server = "tcp://127.0.0.1:3883"
+server = "tcp://127.0.0.1:2883"
 #server = "tls://127.0.0.1:9883"
 ##SSL / TLS Certificate Type
 #CA signed server certificate

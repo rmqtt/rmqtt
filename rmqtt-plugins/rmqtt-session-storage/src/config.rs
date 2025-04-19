@@ -1,4 +1,4 @@
-use rmqtt::serde_json;
+use serde::{Deserialize, Serialize};
 
 use rmqtt_storage::Config;
 

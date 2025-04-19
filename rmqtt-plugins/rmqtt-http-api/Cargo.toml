@@ -7,7 +7,19 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-rmqtt.workspace = true
-rmqtt-macros.workspace = true
+rmqtt = { workspace = true, features = ["plugin", "metrics", "stats", "grpc", "shared-subscription" ] }
+tokio = { workspace = true, features = ["sync" ] }
 serde = { workspace = true, features = ["derive"] }
 salvo = { version = "0.76", features = ["affix-state"] }
+async-trait.workspace = true
+log.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+base64.workspace = true
+bytes.workspace = true
+futures.workspace = true
+socket2.workspace = true
+prometheus.workspace = true
+once_cell.workspace = true
+bincode.workspace = true
+

@@ -1,9 +1,15 @@
-use serde::de::{self, Deserialize, Deserializer};
-use serde::ser::{self, Serialize};
+use anyhow::anyhow;
+use serde::{
+    de::{self, Deserializer},
+    ser, Deserialize, Serialize,
+};
+use serde_json::{self, json};
 
-use rmqtt::serde_json::{self, json};
-use rmqtt::v5::codec::{self, RetainHandling};
-use rmqtt::{MqttError, QoS, QoSEx, Result, Subscribe, TopicFilter};
+use rmqtt::{
+    codec::v5::{RetainHandling, SubscriptionOptions},
+    types::{QoS, Subscribe, TopicFilter},
+    Error, Result,
+};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
@@ -93,18 +99,15 @@ impl PluginConfig {
                         .get("retain_handling")
                         .and_then(|retain_handling| retain_handling.as_u64())
                         .map(|retain_handling| match retain_handling {
-                            0 => Ok::<_, MqttError>(RetainHandling::AtSubscribe),
-                            1 => Ok::<_, MqttError>(RetainHandling::AtSubscribeNew),
-                            2 => Ok::<_, MqttError>(RetainHandling::NoAtSubscribe),
-                            _ => Err(MqttError::from(
-                                "illegal retain_handling value, only 0, 1, 2 are allowed",
-                            )),
+                            0 => Ok::<_, Error>(RetainHandling::AtSubscribe),
+                            1 => Ok::<_, Error>(RetainHandling::AtSubscribeNew),
+                            2 => Ok::<_, Error>(RetainHandling::NoAtSubscribe),
+                            _ => Err(anyhow!("illegal retain_handling value, only 0, 1, 2 are allowed",)),
                         })
                         .unwrap_or_else(|| Ok(RetainHandling::AtSubscribe))
                         .map_err(de::Error::custom)?;
 
-                    let opts =
-                        codec::SubscriptionOptions { qos, no_local, retain_as_published, retain_handling };
+                    let opts = SubscriptionOptions { qos, no_local, retain_as_published, retain_handling };
                     let sub = Subscribe::from_v5(&TopicFilter::from(topic_filter), &opts, true, true, None)
                         .map_err(de::Error::custom)?;
                     let has_clientid_placeholder = topic_filter.contains("${clientid}");

@@ -2,23 +2,19 @@ use std::collections::HashSet;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use anyhow::anyhow;
+use bytestring::ByteString;
 use rdkafka::config::{ClientConfig as KafkaClientConfig, RDKafkaLogLevel};
 use rdkafka::message::{Header, OwnedHeaders};
 use rdkafka::producer::{FutureProducer, FutureRecord};
+use rust_box::task_exec_queue::{Builder, SpawnExt, TaskExecQueue};
+use tokio::sync::RwLock;
 
-use rmqtt::anyhow::anyhow;
-use rmqtt::bytestring::ByteString;
-use rmqtt::rust_box::task_exec_queue::SpawnExt;
 use rmqtt::{
-    broker::topic::{TopicTree, VecToTopic},
-    timestamp_millis, From, MqttError, NodeId, Publish, QoSEx, Result, Topic,
-};
-use rmqtt::{
-    itoa, log, rand,
-    rust_box::task_exec_queue::{Builder, TaskExecQueue},
-    tokio,
-    tokio::sync::RwLock,
-    DashMap,
+    trie::{TopicTree, VecToTopic},
+    types::{DashMap, From, NodeId, Publish, Topic},
+    utils::timestamp_millis,
+    Result,
 };
 
 use crate::config::{Bridge, Entry, PluginConfig};
@@ -83,22 +79,26 @@ impl Producer {
         headers = headers.insert(Header { key: "from_clientid", value: Some(f.client_id.as_str()) });
         headers = headers.insert(Header { key: "from_username", value: Some(f.username_ref()) });
 
-        headers = headers.insert(Header { key: "dup", value: Some(p.dup().as_str()) });
-        headers = headers.insert(Header { key: "retain", value: Some(p.retain().as_str()) });
+        headers = headers.insert(Header { key: "dup", value: Some(p.dup.as_str()) });
+        headers = headers.insert(Header { key: "retain", value: Some(p.retain.as_str()) });
         headers =
-            headers.insert(Header { key: "qos", value: Some(itoa::Buffer::new().format(p.qos().value())) });
-        if let Some(packet_id) = p.packet_id() {
-            headers = headers
-                .insert(Header { key: "packet_id", value: Some(itoa::Buffer::new().format(packet_id)) });
+            headers.insert(Header { key: "qos", value: Some(itoa::Buffer::new().format(p.qos.value())) });
+        if let Some(packet_id) = p.packet_id {
+            headers = headers.insert(Header {
+                key: "packet_id",
+                value: Some(itoa::Buffer::new().format(packet_id.get())),
+            });
         }
-        headers =
-            headers.insert(Header { key: "ts", value: Some(itoa::Buffer::new().format(p.create_time())) });
+        if let Some(create_time) = p.create_time {
+            headers =
+                headers.insert(Header { key: "ts", value: Some(itoa::Buffer::new().format(create_time)) });
+        }
         headers = headers
             .insert(Header { key: "time", value: Some(itoa::Buffer::new().format(timestamp_millis())) });
-        headers = headers.insert(Header { key: "topic", value: Some(p.topic().as_str()) });
+        headers = headers.insert(Header { key: "topic", value: Some(p.topic.as_str()) });
 
         let topic = self.cfg_entry.remote.make_topic(&p.topic);
-        let payload = p.payload().clone();
+        let payload = p.payload.clone();
         let queue_timeout = self.cfg_entry.remote.queue_timeout;
         let partition = self.cfg_entry.remote.partition;
         let name = self.cfg.name.clone();
@@ -179,7 +179,7 @@ impl BridgeManager {
                 continue;
             }
             if bridge_names.contains(&b_cfg.name as &str) {
-                return Err(MqttError::from(format!("The bridge name already exists! {:?}", b_cfg.name)));
+                return Err(anyhow!(format!("The bridge name already exists! {:?}", b_cfg.name)));
             }
 
             bridge_names.insert(&b_cfg.name);

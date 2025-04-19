@@ -1,22 +1,23 @@
 #![deny(unsafe_code)]
-#[macro_use]
-extern crate serde;
-
-#[macro_use]
-extern crate rmqtt_macros;
 
 use std::str::FromStr;
 use std::sync::Arc;
 
-use rmqtt::{async_trait::async_trait, log, serde_json, tokio::sync::RwLock};
+use async_trait::async_trait;
+use tokio::sync::RwLock;
+
 use rmqtt::{
-    broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
+    context::ServerContext,
+    hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
+    macros::Plugin,
     plugin::{PackageInfo, Plugin},
-    register, Publish, Result, Runtime, Session, Topic, TopicFilter, TopicName,
+    register,
+    session::Session,
+    types::{Publish, Topic, TopicFilter, TopicName},
+    Result,
 };
 
-use crate::config::{DestTopicItem, Rule};
-use config::{Action, PluginConfig};
+use config::{Action, DestTopicItem, PluginConfig, Rule};
 
 mod config;
 
@@ -24,20 +25,20 @@ register!(TopicRewritePlugin::new);
 
 #[derive(Plugin)]
 struct TopicRewritePlugin {
-    runtime: &'static Runtime,
+    scx: ServerContext,
     register: Box<dyn Register>,
     cfg: Arc<RwLock<PluginConfig>>,
 }
 
 impl TopicRewritePlugin {
     #[inline]
-    async fn new<N: Into<String>>(runtime: &'static Runtime, name: N) -> Result<Self> {
+    async fn new<N: Into<String>>(scx: ServerContext, name: N) -> Result<Self> {
         let name = name.into();
-        let cfg = runtime.settings.plugins.load_config::<PluginConfig>(&name)?;
+        let cfg = scx.plugins.read_config::<PluginConfig>(&name)?;
         let cfg = Arc::new(RwLock::new(cfg));
         log::info!("{} TopicRewritePlugin cfg: {:?}", name, cfg.read().await);
-        let register = runtime.extends.hook_mgr().await.register();
-        Ok(Self { runtime, register, cfg })
+        let register = scx.extends.hook_mgr().register();
+        Ok(Self { scx, register, cfg })
     }
 }
 
@@ -60,7 +61,7 @@ impl Plugin for TopicRewritePlugin {
 
     #[inline]
     async fn load_config(&mut self) -> Result<()> {
-        let new_cfg = self.runtime.settings.plugins.load_config::<PluginConfig>(self.name())?;
+        let new_cfg = self.scx.plugins.read_config::<PluginConfig>(self.name())?;
         *self.cfg.write().await = new_cfg;
         log::debug!("load_config ok,  {:?}", self.cfg);
         Ok(())
@@ -95,7 +96,7 @@ impl TopicRewriteHandler {
         match self.rewrite_topic(Action::Publish, s, &p.topic).await? {
             Some(topic) => {
                 log::debug!("new_topic: {}", topic);
-                let new_p = Publish {
+                let new_p = rmqtt::codec::types::Publish {
                     dup: p.dup,
                     retain: p.retain,
                     qos: p.qos,
@@ -106,7 +107,7 @@ impl TopicRewriteHandler {
                     delay_interval: None,
                     create_time: p.create_time,
                 };
-                Ok(Some(new_p))
+                Ok(Some(Box::new(new_p)))
             }
             None => Ok(None),
         }

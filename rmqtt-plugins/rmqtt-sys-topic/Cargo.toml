@@ -9,6 +9,14 @@ license.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rmqtt.workspace = true
-rmqtt-macros.workspace = true
+rmqtt = { workspace = true, features = ["plugin", "msgstore", "stats", "metrics"] }
+tokio = { workspace = true, features = ["sync", "time"] }
 serde = { workspace = true, features = ["derive"] }
+async-trait.workspace = true
+log.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+bytes.workspace = true
+chrono.workspace = true
+
+

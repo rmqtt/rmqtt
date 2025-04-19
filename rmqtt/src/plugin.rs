@@ -1,12 +1,70 @@
-use core::pin::Pin;
-use std::future::Future;
+//! MQTT Broker Plugin Management System
+//!
+//! Provides a robust plugin architecture with:
+//! - Dynamic loading/unloading
+//! - Lifecycle management
+//! - Configuration handling
+//! - Inter-plugin communication
+//!
+//! ## Core Functionality
+//! 1. ​**​Plugin Lifecycle​**​:
+//!    - Registration and initialization
+//!    - Startup/shutdown sequencing
+//!    - Immutable plugin support
+//!    - State tracking (active/inactive)
+//!
+//! 2. ​**​Configuration Management​**​:
+//!    - File-based configuration
+//!    - Environment variable overrides
+//!    - Default value handling
+//!    - Runtime reload capability
+//!
+//! 3. ​**​Plugin Operations​**​:
+//!    - Metadata inspection
+//!    - Message passing
+//!    - Thread-safe access
+//!    - Dependency management
+//!
+//! ## Key Features
+//! - Async-friendly interface
+//! - Atomic state transitions
+//! - Flexible configuration system
+//! - Plugin isolation
+//! - Comprehensive metadata
+//!
+//! ## Implementation Details
+//! - DashMap for concurrent storage
+//! - Async trait patterns
+//! - Type-erased plugin instances
+//! - JSON-based configuration
+//! - Environment-aware config loading
+//!
+//! Usage Patterns:
+//! 1. Implement `Plugin` trait for custom functionality
+//! 2. Register with `register!` macro
+//! 3. Manage via `Manager` interface:
+//!    - `start()`/`stop()`
+//!    - `load_config()`
+//!    - `send()` messages
+//! 4. Query plugin info/metadata
+//!
+//! Note: Plugins can be marked immutable to prevent
+//! runtime modifications for critical components.
 
+use std::future::Future;
+use std::pin::Pin;
+
+use anyhow::anyhow;
+use async_trait::async_trait;
+use config::{Config, File, Source};
 use dashmap::iter::Iter;
 use dashmap::mapref::one::{Ref, RefMut};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 
-use crate::{MqttError, Result};
+use crate::types::DashMap;
+use crate::Result;
 
-type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
 pub type EntryRef<'a> = Ref<'a, String, Entry>;
 pub type EntryRefMut<'a> = RefMut<'a, String, Entry>;
 pub type EntryIter<'a> = Iter<'a, String, Entry, ahash::RandomState, DashMap<String, Entry>>;
@@ -16,16 +74,17 @@ macro_rules! register {
     ($name:path) => {
         #[inline]
         pub async fn register(
-            runtime: &'static rmqtt::Runtime,
+            scx: &rmqtt::context::ServerContext,
             name: &'static str,
             default_startup: bool,
             immutable: bool,
-        ) -> Result<()> {
-            runtime
-                .plugins
+        ) -> rmqtt::Result<()> {
+            let scx1 = scx.clone();
+            scx.plugins
                 .register(name, default_startup, immutable, move || -> rmqtt::plugin::DynPluginResult {
+                    let scx1 = scx1.clone();
                     Box::pin(async move {
-                        $name(runtime, name).await.map(|p| -> rmqtt::plugin::DynPlugin { Box::new(p) })
+                        $name(scx1.clone(), name).await.map(|p| -> rmqtt::plugin::DynPlugin { Box::new(p) })
                     })
                 })
                 .await?;
@@ -48,7 +107,7 @@ pub trait Plugin: PackageInfo + Send + Sync {
 
     #[inline]
     async fn load_config(&mut self) -> Result<()> {
-        Err(MqttError::from("unimplemented!"))
+        Err(anyhow!("unimplemented!"))
     }
 
     #[inline]
@@ -147,7 +206,7 @@ impl Entry {
         if let Some(plugin) = &self.plugin {
             Ok(plugin.as_ref())
         } else {
-            Err(MqttError::from("the plug-in is not initialized"))
+            Err(anyhow!("the plug-in is not initialized"))
         }
     }
 
@@ -160,7 +219,7 @@ impl Entry {
         if let Some(plugin) = self.plugin.as_mut() {
             Ok(plugin.as_mut())
         } else {
-            Err(MqttError::from("the plug-in is not initialized"))
+            Err(anyhow!("the plug-in is not initialized"))
         }
     }
 
@@ -237,11 +296,12 @@ impl PluginInfo {
 
 pub struct Manager {
     plugins: DashMap<String, Entry>,
+    dir: String,
 }
 
 impl Manager {
-    pub(crate) fn new() -> Self {
-        Self { plugins: DashMap::default() }
+    pub(crate) fn new(dir: String) -> Self {
+        Self { plugins: DashMap::default(), dir }
     }
 
     ///Register a Plugin
@@ -280,7 +340,7 @@ impl Manager {
         if let Some(entry) = self.get(name) {
             entry.plugin().await?.get_config().await
         } else {
-            Err(MqttError::from(format!("{} the plug-in does not exist", name)))
+            Err(anyhow!(format!("{} the plug-in does not exist", name)))
         }
     }
 
@@ -291,10 +351,10 @@ impl Manager {
                 entry.plugin_mut().await?.load_config().await?;
                 Ok(())
             } else {
-                Err(MqttError::from("the plug-in is not initialized"))
+                Err(anyhow!("the plug-in is not initialized"))
             }
         } else {
-            Err(MqttError::from(format!("{} the plug-in does not exist", name)))
+            Err(anyhow!(format!("{} the plug-in does not exist", name)))
         }
     }
 
@@ -311,7 +371,7 @@ impl Manager {
             }
             Ok(())
         } else {
-            Err(MqttError::from(format!("{} the plug-in does not exist", name)))
+            Err(anyhow!(format!("{} the plug-in does not exist", name)))
         }
     }
 
@@ -323,10 +383,10 @@ impl Manager {
                 entry.active = !stopped;
                 Ok(stopped)
             } else {
-                Err(MqttError::from(format!("{} the plug-in is not started", name)))
+                Err(anyhow!(format!("{} the plug-in is not started", name)))
             }
         } else {
-            Err(MqttError::from(format!("{} the plug-in does not exist", name)))
+            Err(anyhow!(format!("{} the plug-in does not exist", name)))
         }
     }
 
@@ -348,7 +408,7 @@ impl Manager {
     pub fn get_mut(&self, name: &str) -> Result<Option<EntryRefMut>> {
         if let Some(entry) = self.plugins.get_mut(name) {
             if entry.immutable {
-                Err(MqttError::from("the plug-in is immutable"))
+                Err(anyhow!("the plug-in is immutable"))
             } else {
                 Ok(Some(entry))
             }
@@ -362,12 +422,77 @@ impl Manager {
         if let Some(entry) = self.plugins.get(name) {
             entry.plugin().await?.send(msg).await
         } else {
-            Err(MqttError::from(format!("{} the plug-in does not exist", name)))
+            Err(anyhow!(format!("{} the plug-in does not exist", name)))
         }
     }
 
     ///List Plugins
     pub fn iter(&self) -> EntryIter {
         self.plugins.iter()
+    }
+
+    ///Read plugin Config
+    pub fn read_config<'de, T: serde::Deserialize<'de>>(&self, name: &str) -> Result<T> {
+        let (cfg, _) = self.read_config_with_required(name, true, &[])?;
+        Ok(cfg)
+    }
+
+    pub fn read_config_default<'de, T: serde::Deserialize<'de>>(&self, name: &str) -> Result<T> {
+        let (cfg, def) = self.read_config_with_required(name, false, &[])?;
+        if def {
+            log::warn!(
+                "The configuration for plugin '{}' does not exist, default values will be used!",
+                name
+            );
+        }
+        Ok(cfg)
+    }
+
+    pub fn read_config_with<'de, T: serde::Deserialize<'de>>(
+        &self,
+        name: &str,
+        env_list_keys: &[&str],
+    ) -> Result<T> {
+        let (cfg, _) = self.read_config_with_required(name, true, env_list_keys)?;
+        Ok(cfg)
+    }
+
+    pub fn read_config_default_with<'de, T: serde::Deserialize<'de>>(
+        &self,
+        name: &str,
+        env_list_keys: &[&str],
+    ) -> Result<T> {
+        let (cfg, def) = self.read_config_with_required(name, false, env_list_keys)?;
+        if def {
+            log::warn!(
+                "The configuration for plugin '{}' does not exist, default values will be used!",
+                name
+            );
+        }
+        Ok(cfg)
+    }
+
+    pub fn read_config_with_required<'de, T: serde::Deserialize<'de>>(
+        &self,
+        name: &str,
+        required: bool,
+        env_list_keys: &[&str],
+    ) -> Result<(T, bool)> {
+        let dir = self.dir.trim_end_matches(['/', '\\']);
+        let mut builder =
+            Config::builder().add_source(File::with_name(&format!("{}/{}", dir, name)).required(required));
+
+        let mut env = config::Environment::with_prefix(&format!("rmqtt_plugin_{}", name.replace('-', "_")));
+        if !env_list_keys.is_empty() {
+            env = env.try_parsing(true).list_separator(" ");
+            for key in env_list_keys {
+                env = env.with_list_parse_key(key);
+            }
+        }
+        builder = builder.add_source(env);
+
+        let s = builder.build()?;
+        let count = s.collect()?.len();
+        Ok((s.try_deserialize::<T>()?, count == 0))
     }
 }

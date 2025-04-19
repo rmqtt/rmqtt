@@ -1,26 +1,29 @@
-use rmqtt_raft::Mailbox;
+use anyhow::anyhow;
+use async_trait::async_trait;
+use rust_box::task_exec_queue::SpawnExt;
 
-use rmqtt::broker::Shared;
-use rmqtt::rust_box::task_exec_queue::SpawnExt;
-use rmqtt::{async_trait::async_trait, log, tokio, MqttError};
+use rmqtt::context::ServerContext;
 use rmqtt::{
-    broker::hook::{Handler, HookResult, Parameter, ReturnType},
     grpc::{Message as GrpcMessage, MessageReply},
-    Id, Runtime,
+    hook::{Handler, HookResult, Parameter, ReturnType},
+    shared::Shared,
+    types::Id,
 };
+use rmqtt_raft::Mailbox;
 
 use super::config::{retry, BACKOFF_STRATEGY};
 use super::message::{Message, RaftGrpcMessage, RaftGrpcMessageReply};
 use super::{hook_message_dropped, shared::ClusterShared, task_exec_queue};
 
 pub(crate) struct HookHandler {
-    shared: &'static ClusterShared,
+    scx: ServerContext,
+    shared: ClusterShared,
     raft_mailbox: Mailbox,
 }
 
 impl HookHandler {
-    pub(crate) fn new(shared: &'static ClusterShared, raft_mailbox: Mailbox) -> Self {
-        Self { shared, raft_mailbox }
+    pub(crate) fn new(scx: ServerContext, shared: ClusterShared, raft_mailbox: Mailbox) -> Self {
+        Self { scx, shared, raft_mailbox }
     }
 }
 
@@ -48,11 +51,11 @@ impl Handler for HookHandler {
                                         .result()
                                         .await
                                         .map_err(|_| {
-                                            MqttError::from(
+                                             anyhow!(
                                                 "Handler::hook(Message::Disconnected), task execution failure",
                                             )
                                         })?
-                                        .map_err(|e| MqttError::from(e.to_string()))?;
+                                        .map_err(|e|  anyhow!(e.to_string()))?;
                                     Ok(res)
                                 })
                                     .await
@@ -85,11 +88,11 @@ impl Handler for HookHandler {
                                     .result()
                                     .await
                                     .map_err(|_| {
-                                        MqttError::from(
+                                         anyhow!(
                                             "Handler::hook(Message::SessionTerminated), task execution failure",
                                         )
                                     })?
-                                    .map_err(|e| MqttError::from(e.to_string()))?;
+                                    .map_err(|e|  anyhow!(e.to_string()))?;
                                 Ok(res)
                             })
                                 .await
@@ -114,7 +117,7 @@ impl Handler for HookHandler {
                         if let Err(droppeds) =
                             self.shared.forwards_to(from.clone(), publish, sub_rels.clone()).await
                         {
-                            hook_message_dropped(droppeds).await;
+                            hook_message_dropped(&self.scx, droppeds).await;
                         }
                         return (false, acc);
                     }
@@ -131,7 +134,7 @@ impl Handler for HookHandler {
                         unreachable!()
                     }
                     GrpcMessage::SubscriptionsGet(clientid) => {
-                        let id = Id::from(Runtime::instance().node.id(), clientid.clone());
+                        let id = Id::from(self.scx.node.id(), clientid.clone());
                         let entry = self.shared.inner().entry(id);
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::SubscriptionsGet(
                             entry.subscriptions().await,

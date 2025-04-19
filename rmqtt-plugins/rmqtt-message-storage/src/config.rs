@@ -1,6 +1,9 @@
-use rmqtt::serde_json;
-use rmqtt::settings::Bytesize;
-use serde::de::{self, Deserialize, Deserializer};
+use serde::{
+    de::{self, Deserializer},
+    Deserialize, Serialize,
+};
+
+use rmqtt::utils::Bytesize;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {

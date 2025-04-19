@@ -9,13 +9,6 @@
 task.exec_workers = 2000
 #Queue capacity for global task executor.
 task.exec_queue_max = 300_000
-#Concurrent task count for global local task executor, per worker thread.
-task.local_exec_workers = 50
-#Queue capacity for global local task executor, per worker thread.
-task.local_exec_queue_max = 10_000
-#The rate at which messages are dequeued from the 'LocalTaskExecQueue' message queue, per worker thread.
-#default value: "u32::MAX,1s"
-task.local_exec_rate_limit = "1000,1s"
 
 
 ##--------------------------------------------------------------------
@@ -91,7 +84,7 @@ plugins.default_startups = [
     #"rmqtt-auth-jwt",
     #"rmqtt-bridge-egress-nats",
     #"rmqtt-bridge-egress-reductstore",
-    "rmqtt-web-hook",
+    #"rmqtt-web-hook",
     "rmqtt-http-api"
 ]
 
@@ -126,13 +119,16 @@ listener.tcp.external.max_connections = 1024000
 listener.tcp.external.max_handshaking_limit = 500
 #Handshake timeout.
 listener.tcp.external.handshake_timeout = "30s"
-#Maximum allowed mqtt message length. 0 means unlimited, default: 1m
-listener.tcp.external.max_packet_size = "1m"
+#Maximum allowed mqtt message length. 0 means unlimited, default: 1MB
+listener.tcp.external.max_packet_size = "1MB"
 #The maximum length of the TCP connection queue.
 #It indicates the maximum number of TCP connection queues that are being handshaked three times in the system
 listener.tcp.external.backlog = 1024
-#Whether anonymous login is allowed. Default: false
-listener.tcp.external.allow_anonymous = false
+#Sets the value of the TCP_NODELAY option on this socket.
+#default: false
+listener.tcp.external.nodelay = false
+#Whether anonymous login is allowed. Default: true
+listener.tcp.external.allow_anonymous = true
 #A value of zero indicates disabling the keep-alive feature, where the server
 #doesn't need to disconnect due to client inactivity, default: true
 listener.tcp.external.allow_zero_keepalive = true
@@ -190,7 +186,7 @@ listener.tcp.internal.max_handshaking_limit = 500
 listener.tcp.internal.handshake_timeout = "30s"
 listener.tcp.internal.max_packet_size = "1M"
 listener.tcp.internal.backlog = 512
-listener.tcp.internal.allow_anonymous = false
+listener.tcp.internal.allow_anonymous = true
 listener.tcp.internal.allow_zero_keepalive = true
 listener.tcp.internal.min_keepalive = 0
 listener.tcp.internal.max_keepalive = 65535
