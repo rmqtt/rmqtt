@@ -1,7 +1,7 @@
 # RMQTT-Server
 
-[![crates.io page](https://img.shields.io/crates/v/rmqtt.svg)](https://crates.io/crates/rmqtt/0.15.0-beta1)
-[![docs.rs page](https://docs.rs/rmqtt/badge.svg)](https://docs.rs/rmqtt/0.15.0-beta1/rmqtt)
+[![crates.io page](https://img.shields.io/crates/v/rmqtt.svg)](https://crates.io/crates/rmqtt/0.15.0-beta.2)
+[![docs.rs page](https://docs.rs/rmqtt/badge.svg)](https://docs.rs/rmqtt/0.15.0-beta.2/rmqtt)
 
 
 A high-performance, asynchronous MQTT server library built with [Tokio](https://tokio.rs). `rmqtt-server` is designed for flexibility, allowing you to configure multiple listeners with different protocols and security settings. Ideal for building custom or embedded MQTT services in Rust.
