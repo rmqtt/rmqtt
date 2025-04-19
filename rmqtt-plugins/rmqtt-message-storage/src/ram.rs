@@ -8,24 +8,25 @@ use std::sync::atomic::{AtomicIsize, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::anyhow;
 use async_trait::async_trait;
-use ntex_mqtt::TopicLevel;
+use get_size::GetSize;
 use once_cell::sync::OnceCell;
 use rust_box::task_exec_queue::{Builder, SpawnExt, TaskExecQueue};
-use tokio::sync::RwLock;
-use tokio::time::sleep;
+use tokio::{sync::RwLock, time::sleep};
 
 use rmqtt::{
-    anyhow::anyhow, async_trait, get_size::GetSize, log, ntex_mqtt, once_cell, rust_box, scc,
-    timestamp_millis, tokio, topic_size,
+    message::MessageManager,
+    retain::RetainTree,
+    topic::{Level, Topic},
+    types::{
+        topic_size, ClientId, From, MsgID, Publish, SharedGroup, StoredMessage, TimestampMillis, TopicFilter,
+    },
+    utils::{timestamp_millis, Bytesize},
+    Result,
 };
 
 use crate::config::RamConfig;
-use rmqtt::settings::Bytesize;
-use rmqtt::{
-    broker::retain::RetainTree, broker::topic::Topic, broker::MessageManager, ClientId, From, MsgID, Publish,
-    Result, SharedGroup, StoredMessage, TimestampMillis, TopicFilter,
-};
 
 static INSTANCE: OnceCell<RamMessageManager> = OnceCell::new();
 
@@ -197,7 +198,7 @@ impl RamMessageManager {
             if let Ok(Some(msg)) = self.messages_remove(msg_id).await {
                 let mut topic =
                     Topic::from_str(&msg.publish.topic).map_err(|e| anyhow!(format!("{:?}", e)))?;
-                topic.push(TopicLevel::Normal(msg_id.to_string()));
+                topic.push(Level::Normal(msg_id.to_string()));
                 inner.topic_tree.write().await.remove(&topic);
                 inner.forwardeds.remove(msg_id);
             }
@@ -281,7 +282,7 @@ impl RamMessageManager {
         sub_client_ids: SubClientIds,
     ) -> Result<()> {
         let mut topic = Topic::from_str(&publish.topic).map_err(|e| anyhow!(format!("{:?}", e)))?;
-        topic.push(TopicLevel::Normal(msg_id.to_string()));
+        topic.push(Level::Normal(msg_id.to_string()));
         let expiry_time_at = timestamp_millis() + expiry_interval.as_millis() as i64;
         let inner = &self.inner;
         let msg = StoredMessage { msg_id, from, publish, expiry_time_at };
@@ -324,8 +325,8 @@ impl RamMessageManager {
     ) -> Result<Vec<(MsgID, From, Publish)>> {
         let inner = &self.inner;
         let mut topic = Topic::from_str(topic_filter).map_err(|e| anyhow!(format!("{:?}", e)))?;
-        if !topic.levels().last().map(|l| matches!(l, TopicLevel::MultiWildcard)).unwrap_or_default() {
-            topic.push(TopicLevel::SingleWildcard);
+        if !topic.levels().last().map(|l| matches!(l, Level::MultiWildcard)).unwrap_or_default() {
+            topic.push(Level::SingleWildcard);
         }
 
         let matcheds = {
@@ -472,7 +473,8 @@ impl MessageManager for &'static RamMessageManager {
 
 #[test]
 fn test_message_manager() {
-    use rmqtt::{bytes, From, Id, PublishProperties, QoS, TopicName};
+    use rmqtt::codec::v5::PublishProperties;
+    use rmqtt::types::{From, Id, QoS, TopicName};
 
     let runner = async move {
         let cfg = RamConfig::default();
@@ -480,17 +482,17 @@ fn test_message_manager() {
             as &'static RamMessageManager;
         sleep(Duration::from_millis(10)).await;
         let f = From::from_custom(Id::from(1, ClientId::from("test-001")));
-        let mut p = Publish {
+        let mut p = Box::new(rmqtt::codec::types::Publish {
             dup: false,
             retain: false,
             qos: QoS::try_from(1).unwrap(),
             topic: TopicName::from(""),
             packet_id: Some(std::num::NonZeroU16::try_from(1).unwrap()),
             payload: bytes::Bytes::from("test ..."),
-            properties: PublishProperties::default(),
+            properties: Some(PublishProperties::default()),
             delay_interval: None,
-            create_time: timestamp_millis(),
-        };
+            create_time: Some(timestamp_millis()),
+        });
 
         let now = std::time::Instant::now();
         for i in 0..5 {

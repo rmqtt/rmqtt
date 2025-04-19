@@ -6,29 +6,29 @@ use std::sync::atomic::{AtomicIsize, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use rmqtt::{
-    anyhow::anyhow,
-    async_trait::async_trait,
-    futures,
-    futures::channel::mpsc,
-    futures::{SinkExt, StreamExt},
-    futures_time::{self, future::FutureExt},
-    log,
-    ntex_mqtt::TopicLevel,
-    once_cell::sync::OnceCell,
-    rust_box::task_exec_queue::{Builder, SpawnExt, TaskExecQueue},
-    tokio,
-    tokio::sync::RwLock,
-    tokio::time::sleep,
+use anyhow::anyhow;
+use async_trait::async_trait;
+use futures::{
+    channel::mpsc,
+    {SinkExt, StreamExt},
 };
+use futures_time::{self, future::FutureExt};
+use once_cell::sync::OnceCell;
+use rust_box::task_exec_queue::{Builder, SpawnExt, TaskExecQueue};
+use tokio::{runtime::Handle, sync::RwLock, task::spawn_blocking, time::sleep};
 
 use rmqtt::{
-    broker::retain::RetainTree, broker::MessageManager, timestamp_millis, ClientId, From, MqttError, MsgID,
-    NodeId, Publish, Result, SharedGroup, StoredMessage, TimestampMillis, Topic, TopicFilter,
+    message::MessageManager,
+    retain::RetainTree,
+    types::{
+        ClientId, From, MsgID, NodeId, Publish, SharedGroup, StoredMessage, TimestampMillis, Topic,
+        TopicFilter,
+    },
+    utils::timestamp_millis,
+    Result,
 };
 
-use rmqtt::tokio::runtime::Handle;
-use rmqtt::tokio::task::spawn_blocking;
+use rmqtt::topic::Level;
 use rmqtt_storage::{DefaultStorageDB, Map, StorageMap};
 
 use crate::config::PluginConfig;
@@ -258,7 +258,7 @@ impl StorageMessageManagerInner {
                                     continue;
                                 }
                                 Ok(mut topic) => {
-                                    topic.push(TopicLevel::Normal(smsg.msg_id.to_string()));
+                                    topic.push(Level::Normal(smsg.msg_id.to_string()));
                                     topic
                                 }
                             };
@@ -329,7 +329,7 @@ impl StorageMessageManagerInner {
             .storage_save_msg_id()
             .timeout(futures_time::time::Duration::from_millis(5000))
             .await
-            .map_err(|_e| MqttError::from("storage_save_msg_id timeout"))?
+            .map_err(|_e| anyhow!("storage_save_msg_id timeout"))?
         {
             log::warn!("save message id error, {:?}", e);
             return Ok(());
@@ -355,7 +355,7 @@ impl StorageMessageManagerInner {
                 .map(msg_key, Some(expiry_interval.as_millis() as TimestampMillis))
                 .timeout(futures_time::time::Duration::from_millis(5000))
                 .await
-                .map_err(|_e| MqttError::from("storage_db.map timeout"))?
+                .map_err(|_e| anyhow!("storage_db.map timeout"))?
             {
                 Ok(map) => map,
                 Err(e) => {
@@ -367,7 +367,7 @@ impl StorageMessageManagerInner {
                 .insert(DATA, &smsg)
                 .timeout(futures_time::time::Duration::from_millis(5000))
                 .await
-                .map_err(|_e| MqttError::from("map.insert timeout"))?
+                .map_err(|_e| anyhow!("map.insert timeout"))?
             {
                 log::warn!("store to db error, {:?}, message: {:?}", e, smsg);
                 continue;
@@ -378,7 +378,7 @@ impl StorageMessageManagerInner {
             }
 
             //topic
-            topic.push(TopicLevel::Normal(msg_id.to_string()));
+            topic.push(Level::Normal(msg_id.to_string()));
             self.topic_tree.write().await.insert(&topic, msg_id);
             self.topic_list.write().await.insert((expiry_time_at, topic));
 
@@ -389,7 +389,7 @@ impl StorageMessageManagerInner {
             .storage_messages_counter_add(count)
             .timeout(futures_time::time::Duration::from_millis(5000))
             .await
-            .map_err(|_e| MqttError::from("storage_messages_counter_add timeout"))?
+            .map_err(|_e| anyhow!("storage_messages_counter_add timeout"))?
         {
             log::warn!("messages_received_counter add error, {:?}", e);
         }
@@ -408,7 +408,7 @@ impl StorageMessageManagerInner {
                 .insert(Self::make_forwarded_key(&client_id), &opts)
                 .timeout(futures_time::time::Duration::from_millis(5000))
                 .await
-                .map_err(|_e| MqttError::from("_forwardeds insert timeout"))?
+                .map_err(|_e| anyhow!("_forwardeds insert timeout"))?
             {
                 log::warn!(
                     "_forwardeds error, client_id: {:?}, msg_map name: {:?}, error: {:?}",
@@ -430,8 +430,8 @@ impl StorageMessageManagerInner {
     ) -> Result<Vec<(MsgID, From, Publish)>> {
         let inner = self;
         let mut topic = Topic::from_str(topic_filter).map_err(|e| anyhow!(format!("{:?}", e)))?;
-        if !topic.levels().last().map(|l| matches!(l, TopicLevel::MultiWildcard)).unwrap_or_default() {
-            topic.push(TopicLevel::SingleWildcard);
+        if !topic.levels().last().map(|l| matches!(l, Level::MultiWildcard)).unwrap_or_default() {
+            topic.push(Level::SingleWildcard);
         }
 
         let matcheds: Vec<_> =
@@ -506,7 +506,7 @@ impl StorageMessageManagerInner {
                     Ok((_, None)) => {}
                     Err(e) => {
                         log::warn!("traverse forwardeds error, {:?}", e);
-                        return Err(MqttError::from(e));
+                        return Err(anyhow!(e));
                     }
                 }
             }
@@ -516,7 +516,7 @@ impl StorageMessageManagerInner {
 
     #[inline]
     async fn _get_message(&self, msg_map: &StorageMap) -> Result<Option<StoredMessage>> {
-        Ok(msg_map.get::<_, StoredMessage>(DATA).await?)
+        msg_map.get::<_, StoredMessage>(DATA).await
     }
 }
 
@@ -549,12 +549,12 @@ impl MessageManager for &'static StorageMessageManager {
                 Ok(())
             }
             Ok(Err(e)) => {
-                log::error!("StorageMessageManager set error, {:?}", e);
-                Err(MqttError::from(e.to_string()))
+                log::warn!("StorageMessageManager set error, {:?}", e);
+                Err(anyhow!(e))
             }
             Err(e) => {
                 log::warn!("StorageMessageManager store timeout, {:?}", e);
-                Err(MqttError::from(e.to_string()))
+                Err(anyhow!(e))
             }
         }
     }
@@ -584,7 +584,7 @@ impl MessageManager for &'static StorageMessageManager {
             }
             Ok(Err(e)) => {
                 log::error!("StorageMessageManager get error, {:?}", e.to_string());
-                return Err(MqttError::from(e.to_string()));
+                return Err(anyhow!(e.to_string()));
             }
             Err(e) => {
                 log::warn!("StorageMessageManager get timeout, {:?}", e);

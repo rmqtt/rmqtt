@@ -1,16 +1,21 @@
+use anyhow::anyhow;
 use std::time::Duration;
 
 pub(crate) use backoff::future::retry;
 pub(crate) use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
-use rmqtt_raft::ReadOnlyOption;
-use serde::de::{self, Deserialize, Deserializer};
+use once_cell::sync::Lazy;
+use serde::de::{self, Deserializer};
 use serde::ser::Serializer;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-use rmqtt::grpc::MessageType;
-use rmqtt::settings::{deserialize_duration, deserialize_duration_option, NodeAddr, Options};
-use rmqtt::{once_cell::sync::Lazy, serde_json};
-use rmqtt::{Addr, MqttError, NodeId, Result};
+use rmqtt::utils::{deserialize_duration, deserialize_duration_option, NodeAddr};
+use rmqtt::{
+    args::CommandArgs,
+    grpc::MessageType,
+    types::{Addr, NodeId},
+    Result,
+};
+use rmqtt_raft::ReadOnlyOption;
 
 pub(crate) static BACKOFF_STRATEGY: Lazy<ExponentialBackoff> = Lazy::new(|| {
     ExponentialBackoffBuilder::new()
@@ -68,7 +73,7 @@ impl PluginConfig {
                 .raft_peer_addrs
                 .iter()
                 .find(|leader| leader.id == self.leader_id)
-                .ok_or_else(|| MqttError::from("Leader does not exist"))?;
+                .ok_or_else(|| anyhow!("Leader does not exist"))?;
             Ok(Some(leader))
         }
     }
@@ -102,7 +107,7 @@ impl PluginConfig {
         RaftConfig { ..Default::default() }
     }
 
-    pub fn merge(&mut self, opts: &Options) {
+    pub fn merge(&mut self, opts: &CommandArgs) {
         if let Some(node_grpc_addrs) = opts.node_grpc_addrs.as_ref() {
             self.node_grpc_addrs.clone_from(node_grpc_addrs);
         }
@@ -341,7 +346,9 @@ impl RaftConfig {
         false
     }
 
-    pub fn deserialize_read_only_option<'de, D>(deserializer: D) -> Result<ReadOnlyOption, D::Error>
+    pub fn deserialize_read_only_option<'de, D>(
+        deserializer: D,
+    ) -> std::result::Result<ReadOnlyOption, D::Error>
     where
         D: Deserializer<'de>,
     {

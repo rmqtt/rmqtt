@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::convert::From as _;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,17 +12,20 @@ use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::CertificateDer;
 use rustls::{ClientConfig, RootCertStore};
 
-use rmqtt::anyhow::anyhow;
-use rmqtt::bytestring::ByteString;
-use rmqtt::futures::channel::mpsc;
-use rmqtt::futures::SinkExt;
-use rmqtt::{
-    broker::topic::{TopicTree, VecToTopic},
-    rand, ClientId, From, MqttError, NodeId, Publish, PublishProperties, Result, Topic,
-};
-use rmqtt::{log, rustls, tokio, tokio::sync::RwLock, DashMap};
+use anyhow::anyhow;
+use bytestring::ByteString;
+use futures::channel::mpsc;
+use futures::SinkExt;
+use tokio::sync::RwLock;
 
-use rmqtt::ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
+use rmqtt::{
+    trie::{TopicTree, VecToTopic},
+    types::{ClientId, DashMap, From, NodeId, Publish, Topic},
+    Result,
+};
+
+use rmqtt::codec::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
+use rmqtt::codec::v5::PublishProperties;
 
 use crate::config::{Bridge, Entry, PluginConfig};
 use crate::v4::Client as ClientV4;
@@ -106,7 +110,7 @@ impl BridgeManager {
                 continue;
             }
             if bridge_names.contains(&b_cfg.name as &str) {
-                return Err(MqttError::from(format!("The bridge name already exists! {:?}", b_cfg.name)));
+                return Err(anyhow!(format!("The bridge name already exists! {:?}", b_cfg.name)));
             }
 
             bridge_names.insert(&b_cfg.name);
@@ -239,7 +243,7 @@ impl BridgeManager {
             topic: cfg_entry.remote.make_topic(&p.topic),
             packet_id: None,
             payload: ntex::util::Bytes::from(p.payload.to_vec()), //@TODO ...
-            properties: to_properties(&p.properties),
+            properties: p.properties.as_ref().map(to_properties).unwrap_or_default(),
         }
     }
 }
@@ -257,9 +261,9 @@ fn to_properties(props: &PublishProperties) -> ntex_mqtt::v5::codec::PublishProp
         message_expiry_interval: props.message_expiry_interval,
         content_type: props.content_type.as_ref().map(|data| ntex::util::ByteString::from(data.as_ref())),
         user_properties,
-        is_utf8_payload: props.is_utf8_payload.unwrap_or_default(),
+        is_utf8_payload: props.is_utf8_payload,
         response_topic: props.response_topic.as_ref().map(|data| ntex::util::ByteString::from(data.as_ref())),
-        subscription_ids: props.subscription_ids.clone().unwrap_or_default(),
+        subscription_ids: props.subscription_ids.clone(),
     }
 }
 
@@ -270,7 +274,7 @@ pub(crate) fn build_tls_connector(cfg: &super::config::Bridge) -> Result<TlsConn
         root_store.add_parsable_certificates(
             CertificateDer::pem_file_iter(c)
                 .map_err(|e| anyhow!(e))?
-                .collect::<Result<Vec<_>, _>>()
+                .collect::<std::result::Result<Vec<_>, _>>()
                 .map_err(|e| anyhow!(e))?,
         );
     }
@@ -279,10 +283,10 @@ pub(crate) fn build_tls_connector(cfg: &super::config::Bridge) -> Result<TlsConn
     let config = if let (Some(client_key), Some(client_cert)) = (&cfg.client_key, &cfg.client_cert) {
         let c_certs = CertificateDer::pem_file_iter(client_cert)
             .map_err(|e| anyhow!(e))?
-            .collect::<Result<Vec<_>, _>>()
+            .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(|e| anyhow!(e))?;
         let c_key = rustls::pki_types::PrivateKeyDer::from_pem_file(client_key).map_err(|e| anyhow!(e))?;
-        config.with_client_auth_cert(c_certs, c_key).map_err(|e| MqttError::Anyhow(e.into()))?
+        config.with_client_auth_cert(c_certs, c_key).map_err(|e| anyhow!(e))?
     } else {
         config.with_no_client_auth()
     };

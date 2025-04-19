@@ -7,7 +7,14 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-rmqtt.workspace = true
-rmqtt-macros.workspace = true
+rmqtt = { workspace = true, features = ["plugin"] }
 serde = { workspace = true, features = ["derive"] }
+ahash.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+itoa.workspace = true
+log.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+itertools.workspace = true
 jsonwebtoken = "=9.3.0"

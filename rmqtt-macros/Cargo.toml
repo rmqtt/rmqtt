@@ -1,9 +1,22 @@
 [package]
 name = "rmqtt-macros"
-version = "0.1.0"
-edition = "2021"
+version = "0.1.1"
+description = "Procedural Macro Utilities"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+exclude.workspace = true
+rust-version.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+metrics = []
+plugin = []
 
 [lib]
 proc-macro = true

@@ -1,62 +1,120 @@
-use std::ops::Deref;
-use std::sync::atomic::{AtomicI64, Ordering};
-use std::time::{Duration, Instant};
+//! MQTT Broker Node Management Core
+//!
+//! Provides centralized node monitoring and resource management for MQTT broker clusters, implementing:
+//! 1. **Node State Tracking**:
+//!    - Uptime calculation with chrono integration
+//!    - System load monitoring (1/5/15-minute averages)
+//!    - Memory/Disk usage statistics collection
+//! 2. **Cluster Health Management**:
+//!    - Busy state detection with configurable thresholds
+//!    - CPU load aggregation using systemstat
+//!    - Graceful degradation through max_busy_loadavg/max_busy_cpuloadavg
+//! 3. **Protocol Implementation**:
+//!    - gRPC server/client integration for cluster communication
+//!    - JSON serialization of broker/node status (BrokerInfo/NodeInfo)
+//!    - Version metadata exposure (Rustc + build version)
+//!
+//! Key components align with MQTT specification requirements:
+//! - Persistent session management through NodeStatus tracking
+//! - Resource monitoring for connection capacity planning
+//! - Distributed architecture support via gRPC
+//!
 
-use once_cell::sync::Lazy;
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::time::Duration;
+
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 use systemstat::Platform;
 
-use crate::grpc::client::NodeGrpcClient;
-use crate::grpc::server::Server;
-use crate::{NodeId, Result, Runtime};
+use crate::context::ServerContext;
+#[cfg(feature = "grpc")]
+use crate::grpc::{GrpcClient, GrpcServer};
+use crate::types::{NodeId, TimestampMillis};
+use crate::utils::timestamp_millis;
 
-#[allow(dead_code)]
-mod version {
-    include!(concat!(env!("OUT_DIR"), "/version.rs"));
-}
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+const RUSTC_VERSION: &str = env!("RUSTC_VERSION");
+
+#[derive(Debug)]
 pub struct Node {
+    pub id: NodeId,
     pub start_time: chrono::DateTime<chrono::Local>,
+    max_busy_loadavg: f32,
+    max_busy_cpuloadavg: f32,
+    busy_update_interval: Duration,
     cpuload: AtomicI64,
 }
 
+impl Default for Node {
+    fn default() -> Self {
+        Self::new(0, 80.0, 90.0, Duration::from_secs(2))
+    }
+}
+
 impl Node {
-    pub(crate) fn new() -> Self {
-        Self { start_time: chrono::Local::now(), cpuload: AtomicI64::new(0) }
+    pub fn new(
+        id: NodeId,
+        max_busy_loadavg: f32,
+        max_busy_cpuloadavg: f32,
+        busy_update_interval: Duration,
+    ) -> Self {
+        Self {
+            id,
+            start_time: chrono::Local::now(),
+            max_busy_loadavg,
+            max_busy_cpuloadavg,
+            busy_update_interval,
+            cpuload: AtomicI64::new(0),
+        }
     }
 
     #[inline]
     pub fn id(&self) -> NodeId {
-        Runtime::instance().settings.node.id
+        self.id
     }
 
     #[inline]
-    pub async fn name(&self, id: NodeId) -> String {
-        Runtime::instance().extends.shared().await.node_name(id)
+    pub async fn name(&self, scx: &ServerContext, id: NodeId) -> String {
+        scx.extends.shared().await.node_name(id)
     }
 
+    #[cfg(feature = "grpc")]
     #[inline]
-    pub async fn new_grpc_client(&self, remote_addr: &str) -> Result<NodeGrpcClient> {
-        let c = NodeGrpcClient::new(remote_addr).await?;
-        c.start_ping();
+    pub async fn new_grpc_client(
+        &self,
+        remote_addr: &str,
+        client_timeout: Duration,
+        client_concurrency_limit: usize,
+        _batch_size: usize,
+    ) -> crate::Result<GrpcClient> {
+        let c = GrpcClient::new(remote_addr, client_timeout, client_concurrency_limit).await?;
+        // c.start_ping();
         Ok(c)
     }
 
-    pub fn start_grpc_server(&self) {
+    #[cfg(feature = "grpc")]
+    pub fn start_grpc_server(
+        &self,
+        scx: ServerContext,
+        server_addr: std::net::SocketAddr,
+        worker_threads: usize,
+        reuseaddr: bool,
+        reuseport: bool,
+    ) {
         std::thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
-                .worker_threads(Runtime::instance().settings.rpc.server_workers)
+                .worker_threads(worker_threads)
                 .thread_name("grpc-server-worker")
                 .thread_stack_size(4 * 1024 * 1024)
                 .build()
                 .expect("tokio runtime build failed");
             let runner = async {
-                if let Err(e) = Server::new().listen_and_serve().await {
-                    log::error!(
-                        "listen and serve failure, {:?}, laddr: {:?}",
-                        e,
-                        Runtime::instance().settings.rpc.server_addr
-                    );
+                if let Err(e) = GrpcServer::new(scx).listen_and_serve(server_addr, reuseaddr, reuseport).await
+                {
+                    log::error!("listen and serve failure, {:?}, laddr: {:?}", e, server_addr);
                 }
             };
             rt.block_on(runner)
@@ -64,8 +122,8 @@ impl Node {
     }
 
     #[inline]
-    pub async fn status(&self) -> NodeStatus {
-        match Runtime::instance().extends.shared().await.health_status().await {
+    pub async fn status(&self, scx: &ServerContext) -> NodeStatus {
+        match scx.extends.shared().await.health_status().await {
             Ok(status) => {
                 if status.running {
                     NodeStatus::Running(1)
@@ -83,23 +141,23 @@ impl Node {
     }
 
     #[inline]
-    pub async fn broker_info(&self) -> BrokerInfo {
-        let node_id = self.id();
+    pub async fn broker_info(&self, scx: &ServerContext) -> BrokerInfo {
+        let node_id = self.id;
         BrokerInfo {
-            version: version::VERSION.to_string(),
-            rustc_version: version::RUSTC_VERSION.to_string(),
+            version: VERSION.to_string(),
+            rustc_version: RUSTC_VERSION.to_string(),
             uptime: self.uptime(),
             sysdescr: "RMQTT Broker".into(),
-            node_status: self.status().await,
+            node_status: self.status(scx).await,
             node_id,
-            node_name: Runtime::instance().extends.shared().await.node_name(node_id),
+            node_name: self.name(scx, node_id).await, //Runtime::instance().extends.shared().await.node_name(node_id),
             datetime: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
         }
     }
 
     #[inline]
-    pub async fn node_info(&self) -> NodeInfo {
-        let node_id = self.id();
+    pub async fn node_info(&self, scx: &ServerContext) -> NodeInfo {
+        let node_id = self.id;
 
         let sys = systemstat::System::new();
         let boottime = sys.boot_time().map(|t| t.to_string()).unwrap_or_default();
@@ -115,7 +173,7 @@ impl Node {
         };
 
         NodeInfo {
-            connections: Runtime::instance().stats.connections.count(),
+            connections: scx.connections.count(),
             boottime,
             load1: loadavg.as_ref().map(|l| l.one).unwrap_or_default(),
             load5: loadavg.as_ref().map(|l| l.five).unwrap_or_default(),
@@ -128,12 +186,12 @@ impl Node {
                 .unwrap_or_default(),
             disk_total,
             disk_free,
-            node_status: self.status().await,
+            node_status: self.status(scx).await,
             node_id,
-            node_name: Runtime::instance().extends.shared().await.node_name(node_id),
+            node_name: self.name(scx, node_id).await, //Runtime::instance().extends.shared().await.node_name(node_id),
             uptime: self.uptime(),
-            version: version::VERSION.to_string(),
-            rustc_version: version::RUSTC_VERSION.to_string(),
+            version: VERSION.to_string(),
+            rustc_version: RUSTC_VERSION.to_string(),
         }
     }
 
@@ -145,23 +203,27 @@ impl Node {
         let loadavg = sys.load_average();
         let load1 = loadavg.as_ref().map(|l| l.one).unwrap_or_default();
 
-        load1 > Runtime::instance().settings.node.busy.loadavg
-            || cpuload > Runtime::instance().settings.node.busy.cpuloadavg
+        load1 > self.max_busy_loadavg || cpuload > self.max_busy_cpuloadavg
     }
 
     #[inline]
     pub fn sys_is_busy(&self) -> bool {
-        static CACHED: Lazy<parking_lot::RwLock<(bool, Instant)>> =
-            Lazy::new(|| parking_lot::RwLock::new((false, Instant::now())));
-        {
-            let cached = CACHED.read();
-            let (busy, inst) = cached.deref();
-            if inst.elapsed() < Runtime::instance().settings.node.busy.update_interval {
-                return *busy;
-            }
+        static CACHED_BUSY: AtomicBool = AtomicBool::new(false);
+        static CACHED_TIME: AtomicI64 = AtomicI64::new(0);
+
+        let now = timestamp_millis();
+
+        let last_update = CACHED_TIME.load(Ordering::Relaxed);
+
+        if now - last_update < self.busy_update_interval.as_millis() as TimestampMillis {
+            return CACHED_BUSY.load(Ordering::Relaxed);
         }
+
         let busy = self._is_busy();
-        *CACHED.write() = (busy, Instant::now());
+
+        CACHED_BUSY.store(busy, Ordering::Relaxed);
+        CACHED_TIME.store(now, Ordering::Relaxed);
+
         busy
     }
 

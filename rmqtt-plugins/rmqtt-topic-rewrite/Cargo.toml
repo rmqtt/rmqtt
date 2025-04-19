@@ -8,6 +8,13 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-rmqtt.workspace = true
-rmqtt-macros.workspace = true
+rmqtt = { workspace = true, features = ["plugin"] }
 serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["sync"] }
+async-trait.workspace = true
+log.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+regex.workspace = true
+
+

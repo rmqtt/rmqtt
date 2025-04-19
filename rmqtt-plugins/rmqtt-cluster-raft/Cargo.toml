@@ -7,12 +7,31 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-rmqtt.workspace = true
-rmqtt-macros.workspace = true
+rmqtt = { workspace = true, features = ["plugin", "grpc", "stats", "msgstore"] }
 serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["sync"] }
 rmqtt-raft = { version = "0.4.5", features = ["reuse"] }
 #rmqtt-raft = { path = "../../../rmqtt-raft", features = ["reuse"] }
-backoff = { version = "0.4", features = ["futures", "tokio"] }
+backoff = { workspace = true, features = ["futures", "tokio"] }
+rust-box = { workspace = true, features = ["task-exec-queue"] }
+serde_json.workspace = true
+log.workspace = true
+slog-stdlog.workspace = true
+slog.workspace = true
+slog-term.workspace = true
+async-trait.workspace = true
+anyhow.workspace = true
+bytes.workspace = true
+#regex.workspace = true
+bytestring.workspace = true
+futures.workspace = true
+rand.workspace = true
+dashmap.workspace = true
+ahash.workspace = true
+once_cell.workspace = true
+bincode.workspace = true
+
+
 lz4_flex = { version = "0.11" }
 lz4 = "=1.27.0"
 zstd = "0.13"

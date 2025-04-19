@@ -4,18 +4,28 @@ members = [
     "rmqtt",
     "rmqtt-plugins/*",
     "rmqtt-bin",
-    "rmqtt-macros"
+    "rmqtt-macros",
+    "rmqtt-codec",
+    "rmqtt-net",
+    "rmqtt-conf",
+    "rmqtt-utils",
+    "rmqtt/examples/*",
 ]
 
 [patch.crates-io]
 rmqtt = { path = "rmqtt" }
+rmqtt-codec = { path = "rmqtt-codec" }
+rmqtt-net = { path = "rmqtt-net" }
+rmqtt-conf = { path = "rmqtt-conf" }
 rmqtt-macros = { path = "rmqtt-macros" }
-rmqtt-plugin-template = { path = "rmqtt-plugins/rmqtt-plugin-template" }
+rmqtt-utils = { path = "rmqtt-utils" }
+
+#rmqtt-plugin-template = { path = "rmqtt-plugins/rmqtt-plugin-template" }
 rmqtt-acl = { path = "rmqtt-plugins/rmqtt-acl" }
 rmqtt-web-hook = { path = "rmqtt-plugins/rmqtt-web-hook" }
 rmqtt-auth-http = { path = "rmqtt-plugins/rmqtt-auth-http" }
 rmqtt-auth-jwt = { path = "rmqtt-plugins/rmqtt-auth-jwt" }
-rmqtt-cluster-broadcast = { path = "rmqtt-plugins/rmqtt-cluster-broadcast" }
+#rmqtt-cluster-broadcast = { path = "rmqtt-plugins/rmqtt-cluster-broadcast" }
 rmqtt-cluster-raft = { path = "rmqtt-plugins/rmqtt-cluster-raft" }
 rmqtt-counter = { path = "rmqtt-plugins/rmqtt-counter" }
 rmqtt-http-api = { path = "rmqtt-plugins/rmqtt-http-api" }
@@ -35,12 +45,12 @@ rmqtt-bridge-egress-nats = { path = "rmqtt-plugins/rmqtt-bridge-egress-nats"}
 rmqtt-bridge-egress-reductstore = { path = "rmqtt-plugins/rmqtt-bridge-egress-reductstore"}
 
 [workspace.package]
-version = "0.13.0"
+version = "0.15.0-beta.2"
 edition = "2021"
 authors = ["rmqtt <rmqttd@126.com>"]
 description = "MQTT Server for v3.1, v3.1.1 and v5.0 protocols"
 repository = "https://github.com/rmqtt/rmqtt.git"
-license = "MIT license, Apache-2.0 License"
+license = "MIT OR Apache-2.0"
 categories = ["network-programming"]
 keywords = ["MQTT", "IoT", "messaging", "MQTT-Server", "MQTT-Broker"]
 exclude = [".gitignore", ".cargo/config"]
@@ -48,10 +58,87 @@ rust-version = "1.81.0"
 
 
 [workspace.dependencies]
-rmqtt = "0.13"
+rmqtt = "0.15.0-beta.2"
+rmqtt-codec = "0.1"
+rmqtt-net = "0.1"
+rmqtt-conf = "0.1"
 rmqtt-macros = "0.1"
-serde = { version = "1.0", features = ["derive"] }
+rmqtt-utils = "0.1"
+rmqtt-acl = "0.1"
+rmqtt-retainer = "0.1"
+rmqtt-http-api = "0.1"
+rmqtt-counter = "0.1"
+rmqtt-auth-http = "0.1"
+rmqtt-auth-jwt = "0.1"
+rmqtt-auto-subscription = "0.1"
+rmqtt-bridge-egress-kafka = "0.1"
+rmqtt-bridge-ingress-kafka = "0.1"
+rmqtt-bridge-egress-mqtt = "0.1"
+rmqtt-bridge-ingress-mqtt = "0.1"
+rmqtt-bridge-ingress-pulsar = "0.1"
+rmqtt-bridge-egress-pulsar = "0.1"
+rmqtt-bridge-egress-nats = "0.1"
+rmqtt-bridge-egress-reductstore = "0.1"
+rmqtt-message-storage = "0.1"
+rmqtt-session-storage = "0.1"
+rmqtt-sys-topic = "0.1"
+rmqtt-topic-rewrite = "0.1"
+rmqtt-web-hook = "0.1"
+rmqtt-cluster-raft = "0.1"
 
+
+tokio = { version = "1.44",  default-features = false }
+reqwest = "0.12"
+futures = "0.3"
+serde = "1.0"
+tokio-util = "0.7"
+tokio-rustls = "0.26"
+socket2 = "0.5"
+prost = "0.13"
+rustls = "0.23"
+once_cell = "=1.20.2"
+dashmap = "=6.1.0"
+ahash = "0.8"
+bytes = "1.9"
+bytestring = "1.4"
+thiserror = "=1.0.69"
+anyhow = "=1.0.94"
+async-trait = "0.1"
+serde_json = "1.0"
+chrono = { version = "0.4", default-features = false }
+uuid = "=1.11.0"
+rand = "0.9.0"
+crossbeam = "0.8"
+governor = "0.10"
+config = { version = "0.15.8", default-features = false}
+log = "0.4"
+slog = "2.7"
+slog-term = "2.9"
+slog-async = "2.8"
+slog-stdlog = "4.1"
+slog-scope = "4.4"
+base64 = "0.22"
+bincode = "1.3"
+url = { version = "=2.5.4", default-features = false }
+systemstat = "0.2"
+itertools = "0.14"
+structopt = "0.3"
+tokio-tungstenite = "0.26"
+pin-project-lite = "0.2"
+bitflags = "=2.6.0"
+leaky-bucket = "=1.1.2"
+scc = "=2.3.1"
+get-size = "0.1"
+prometheus = "0.13"
+futures-time = "3.0"
+nonzero_ext = "0.3"
+itoa = "=1.0.14"
+simple_logger = { version = "5.0.0", default-features = false }
+regex = "=1.11.1"
+backoff = "0.4"
+webpki-roots = "0.26"
+toml = "0.8"
+rust-box = "0.13.1"
 [profile.dev]
 opt-level = 0
 

@@ -1,10 +1,14 @@
 use std::collections::HashSet;
+use std::convert::From as _;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use event_notify::Event;
 
+use anyhow::anyhow;
+use bytes::Bytes;
+use bytestring::ByteString;
 use rdkafka::client::ClientContext as KafkaClientContext;
 use rdkafka::config::{ClientConfig as KafkaClientConfig, RDKafkaLogLevel};
 use rdkafka::consumer::stream_consumer::StreamConsumer as KafkaStreamConsumer;
@@ -14,21 +18,22 @@ use rdkafka::consumer::{
 use rdkafka::error::KafkaResult;
 use rdkafka::message::{BorrowedMessage, Headers, Message};
 use rdkafka::topic_partition_list::TopicPartitionList;
+use tokio::sync::{mpsc, RwLock};
 
 use rmqtt::{
-    anyhow::anyhow, bytes::Bytes, bytestring::ByteString, log, tokio, tokio::sync::mpsc, tokio::sync::RwLock,
-    DashMap, UserProperties,
-};
-use rmqtt::{
-    timestamp_millis, ClientId, From, Id, MqttError, NodeId, Publish, PublishProperties, QoS, Result,
-    Runtime, SessionState, UserName,
+    codec::v5::{PublishProperties, UserProperties},
+    context::ServerContext,
+    session::SessionState,
+    types::{ClientId, DashMap, From, Id, NodeId, Publish, QoS, UserName},
+    utils::timestamp_millis,
+    Result,
 };
 
 use crate::config::{Bridge, Entry, PluginConfig, MESSAGE_KEY, PARTITION_UNASSIGNED};
 
 type ExpiryInterval = Duration;
 
-pub type MessageType = (From, Publish, ExpiryInterval);
+pub type MessageType = (ServerContext, From, Publish, ExpiryInterval);
 pub type OnMessageEvent = Arc<Event<MessageType, ()>>;
 
 #[derive(Debug)]
@@ -79,6 +84,7 @@ impl KafkaConsumerContext for SourceContext {
 }
 
 pub struct Consumer {
+    scx: ServerContext,
     pub(crate) client_id: ByteString,
     pub(crate) cfg: Arc<Bridge>,
     pub(crate) cfg_entry: Entry,
@@ -87,6 +93,7 @@ pub struct Consumer {
 
 impl Consumer {
     pub(crate) async fn connect(
+        scx: ServerContext,
         cfg: Arc<Bridge>,
         cfg_entry: Entry,
         entry_idx: usize,
@@ -163,7 +170,7 @@ impl Consumer {
         consumer.assign(&topic_parts).map_err(|e| anyhow!(e))?;
 
         let (cmd_tx, cmd_rx) = mpsc::channel(100_000);
-        Self { client_id: client_id.clone(), cfg, cfg_entry, enable_auto_commit }
+        Self { scx, client_id: client_id.clone(), cfg, cfg_entry, enable_auto_commit }
             .start(consumer, cmd_rx, on_message)
             .await?;
         Ok(CommandMailbox::new(cmd_tx, client_id))
@@ -226,7 +233,7 @@ impl Consumer {
                             log::debug!("{:?} {}/{} key: {:?}, payload: {:?}({}), topic: {}, partition: {}, offset: {}, timestamp: {:?}",
                                   std::thread::current().id(), name, client_id, m.key().map(|v| String::from_utf8_lossy(v)), m.payload().map(|v|String::from_utf8_lossy(v)), m.payload().map(|v| v.len()).unwrap_or_default(), m.topic(), m.partition(), m.offset(), m.timestamp());
 
-                            Self::process_message(cfg.as_ref(), &entry, name, client_id.clone(), &m, &on_message);
+                            Self::process_message(&self.scx, cfg.as_ref(), &entry, name, client_id.clone(), &m, &on_message);
 
                             if !enable_auto_commit {
                                 if let Err(e) = consumer.commit_message(&m, CommitMode::Async){
@@ -242,6 +249,7 @@ impl Consumer {
     }
 
     fn process_message(
+        scx: &ServerContext,
         cfg: &Bridge,
         entry: &Entry,
         name: &str,
@@ -325,7 +333,7 @@ impl Consumer {
         let payload = m.payload().map(|payload| Bytes::from(payload.to_vec())).unwrap_or_default();
 
         let from = From::from_bridge(Id::new(
-            Runtime::instance().node.id(),
+            scx.node.id(),
             None,
             remote_addr,
             from_clientid.unwrap_or(client_id),
@@ -333,19 +341,19 @@ impl Consumer {
         ));
 
         let properties = PublishProperties::from(user_properties);
-        let p = Publish {
+        let p = rmqtt::codec::types::Publish {
             dup: false,
             retain: entry.local.make_retain(retain),
             qos: entry.local.make_qos(qos),
             topic: entry.local.make_topic(key),
             packet_id: None,
             payload,
-            properties,
+            properties: Some(properties),
             delay_interval: None,
-            create_time: timestamp_millis(),
+            create_time: Some(timestamp_millis()),
         };
 
-        on_message.fire((from, p, cfg.expiry_interval));
+        on_message.fire((scx.clone(), from, Box::new(p), cfg.expiry_interval));
     }
 }
 
@@ -356,14 +364,15 @@ type EntryIndex = usize;
 
 #[derive(Clone)]
 pub(crate) struct BridgeManager {
+    scx: ServerContext,
     node_id: NodeId,
     cfg: Arc<RwLock<PluginConfig>>,
     sources: Arc<DashMap<SourceKey, CommandMailbox>>,
 }
 
 impl BridgeManager {
-    pub async fn new(node_id: NodeId, cfg: Arc<RwLock<PluginConfig>>) -> Self {
-        Self { node_id, cfg: cfg.clone(), sources: Arc::new(DashMap::default()) }
+    pub async fn new(scx: ServerContext, node_id: NodeId, cfg: Arc<RwLock<PluginConfig>>) -> Self {
+        Self { scx, node_id, cfg: cfg.clone(), sources: Arc::new(DashMap::default()) }
     }
 
     pub async fn start(&mut self) -> Result<()> {
@@ -374,12 +383,13 @@ impl BridgeManager {
                 continue;
             }
             if bridge_names.contains(&b_cfg.name as &str) {
-                return Err(MqttError::from(format!("The bridge name already exists! {:?}", b_cfg.name)));
+                return Err(anyhow!(format!("The bridge name already exists! {:?}", b_cfg.name)));
             }
 
             bridge_names.insert(&b_cfg.name);
             for (entry_idx, entry) in b_cfg.entries.iter().enumerate() {
                 let mailbox = Consumer::connect(
+                    self.scx.clone(),
                     Arc::new(b_cfg.clone()),
                     entry.clone(),
                     entry_idx,
@@ -395,9 +405,9 @@ impl BridgeManager {
 
     fn on_message(&self) -> OnMessageEvent {
         Arc::new(
-            Event::listen(|(f, p, expiry_interval): MessageType, _next| {
+            Event::listen(|(scx, f, p, expiry_interval): MessageType, _next| {
                 tokio::spawn(async move {
-                    send_publish(f, p, expiry_interval).await;
+                    send_publish(scx, f, p, expiry_interval).await;
                 });
             })
             .finish(),
@@ -426,27 +436,21 @@ impl BridgeManager {
     }
 }
 
-async fn send_publish(from: From, msg: Publish, expiry_interval: Duration) {
+async fn send_publish(scx: ServerContext, from: From, msg: Publish, expiry_interval: Duration) {
     log::debug!("from {:?}, message: {:?}", from, msg);
 
     let expiry_interval = msg
         .properties
-        .message_expiry_interval
-        .map(|interval| Duration::from_secs(interval.get() as u64))
+        .as_ref()
+        .and_then(|p| p.message_expiry_interval.map(|interval| Duration::from_secs(interval.get() as u64)))
         .unwrap_or(expiry_interval);
 
     //hook, message_publish
-    let msg = Runtime::instance()
-        .extends
-        .hook_mgr()
-        .await
-        .message_publish(None, from.clone(), &msg)
-        .await
-        .unwrap_or(msg);
+    let msg = scx.extends.hook_mgr().message_publish(None, from.clone(), &msg).await.unwrap_or(msg);
 
-    let storage_available = Runtime::instance().extends.message_mgr().await.enable();
+    let storage_available = scx.extends.message_mgr().await.enable();
 
-    if let Err(e) = SessionState::forwards(from, msg, storage_available, Some(expiry_interval)).await {
+    if let Err(e) = SessionState::forwards(&scx, from, msg, storage_available, Some(expiry_interval)).await {
         log::warn!("{:?}", e);
     }
 }

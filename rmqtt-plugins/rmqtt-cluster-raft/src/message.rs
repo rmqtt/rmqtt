@@ -1,8 +1,8 @@
-use rmqtt_raft::Status;
+use serde::{Deserialize, Serialize};
 
-use rmqtt::broker::types::{Id, NodeId};
-use rmqtt::{anyhow, bincode};
-use rmqtt::{Result, SubscriptionOptions};
+use rmqtt::types::{Id, NodeId, SubscriptionOptions};
+use rmqtt::Result;
+use rmqtt_raft::Status;
 
 use super::Mailbox;
 
@@ -22,11 +22,11 @@ pub enum Message<'a> {
 impl<'a> Message<'a> {
     #[inline]
     pub fn encode(&self) -> Result<Vec<u8>> {
-        Ok(bincode::serialize(self).map_err(anyhow::Error::new)?)
+        bincode::serialize(self).map_err(anyhow::Error::new)
     }
     #[inline]
     pub fn _decode(data: &'a [u8]) -> Result<Self> {
-        Ok(bincode::deserialize::<Self>(data).map_err(anyhow::Error::new)?)
+        bincode::deserialize::<Self>(data).map_err(anyhow::Error::new)
     }
 }
 
@@ -40,11 +40,11 @@ pub enum MessageReply {
 impl MessageReply {
     #[inline]
     pub fn encode(&self) -> Result<Vec<u8>> {
-        Ok(bincode::serialize(self).map_err(anyhow::Error::new)?)
+        bincode::serialize(self).map_err(anyhow::Error::new)
     }
     #[inline]
     pub fn decode(data: &[u8]) -> Result<MessageReply> {
-        Ok(bincode::deserialize::<MessageReply>(data).map_err(anyhow::Error::new)?)
+        bincode::deserialize::<MessageReply>(data).map_err(anyhow::Error::new)
     }
 }
 
@@ -79,11 +79,11 @@ pub enum RaftGrpcMessage {
 impl RaftGrpcMessage {
     #[inline]
     pub fn encode(&self) -> Result<Vec<u8>> {
-        Ok(bincode::serialize(self).map_err(anyhow::Error::new)?)
+        bincode::serialize(self).map_err(anyhow::Error::new)
     }
     #[inline]
     pub fn decode(data: &[u8]) -> Result<Self> {
-        Ok(bincode::deserialize::<Self>(data).map_err(anyhow::Error::new)?)
+        bincode::deserialize::<Self>(data).map_err(anyhow::Error::new)
     }
 }
 
@@ -95,10 +95,10 @@ pub enum RaftGrpcMessageReply {
 impl RaftGrpcMessageReply {
     #[inline]
     pub fn encode(&self) -> Result<Vec<u8>> {
-        Ok(bincode::serialize(self).map_err(anyhow::Error::new)?)
+        bincode::serialize(self).map_err(anyhow::Error::new)
     }
     #[inline]
     pub fn decode(data: &[u8]) -> Result<Self> {
-        Ok(bincode::deserialize::<Self>(data).map_err(anyhow::Error::new)?)
+        bincode::deserialize::<Self>(data).map_err(anyhow::Error::new)
     }
 }

@@ -1,39 +1,44 @@
-use rmqtt::{
-    broker::Entry, log, tokio, ClientId, ConnectInfo, Id, Result, Runtime, Session, TimestampMillis,
-};
-use rmqtt::{futures, serde_json, timestamp_secs};
 use std::sync::Arc;
+
+use rmqtt::{
+    context::ServerContext,
+    session::Session,
+    shared::Entry,
+    types::{ClientId, ConnectInfo, Id, TimestampMillis},
+    utils::timestamp_secs,
+    Result,
+};
 
 use super::types::{ClientSearchParams as SearchParams, ClientSearchResult as SearchResult};
 
-pub(crate) async fn get(clientid: &str) -> Option<SearchResult> {
-    let shared = Runtime::instance().extends.shared().await;
+pub(crate) async fn get(scx: &ServerContext, clientid: &str) -> Option<SearchResult> {
+    let shared = scx.extends.shared().await;
     if !shared.exist(clientid) {
         return None;
     }
-    let id = Id::from(Runtime::instance().node.id(), ClientId::from(clientid));
+    let id = Id::from(scx.node.id(), ClientId::from(clientid));
     let peer = shared.entry(id);
     let s = peer.session()?;
     Some(build_result(Some(s)).await)
 }
 
-pub(crate) async fn search(q: &SearchParams) -> Vec<SearchResult> {
+pub(crate) async fn search(scx: &ServerContext, q: &SearchParams) -> Vec<SearchResult> {
     let limit = q._limit;
     let mut curr: usize = 0;
-    let peers = Runtime::instance()
-        .extends
-        .shared()
-        .await
-        .iter()
-        .filter(|entry| filtering(q, entry.as_ref()))
-        .filter_map(|entry| {
+    let scx = scx.clone();
+
+    let shared = scx.extends.shared().await;
+    let mut peers = Vec::with_capacity(limit);
+    for entry in shared.iter() {
+        if _filtering(q, entry.as_ref()).await.unwrap_or_default() {
             if curr < limit {
                 curr += 1;
-                Some(entry.session())
+                peers.push(entry.session());
             } else {
-                None
+                break;
             }
-        });
+        }
+    }
 
     let futs = peers.into_iter().map(build_result).collect::<Vec<_>>();
     futures::future::join_all(futs).await
@@ -56,10 +61,10 @@ async fn build_result(s: Option<Session>) -> SearchResult {
     } else {
         s.fitter.session_expiry_interval(d.as_ref()).as_secs() as i64 - (timestamp_secs() - disconnected_at)
     };
-    let inflight = s.inflight_win().read().await.len();
+    let inflight = s.out_inflight().read().await.len();
     let created_at = s.created_at().await.map(|at| at / 1000).unwrap_or_default();
     let subscriptions_cnt = if let Ok(subs) = s.subscriptions().await { subs.len().await } else { 0 };
-    let extra_attrs = s.extra_attrs.read().await.len();
+    // let extra_attrs = s.extra_attrs.read().await.len();
 
     let connect_info = s.connect_info().await.ok();
     let last_will = connect_info
@@ -89,7 +94,7 @@ async fn build_result(s: Option<Session>) -> SearchResult {
         created_at,
         subscriptions_cnt,
         max_subscriptions: s.listen_cfg().max_subscriptions,
-        extra_attrs,
+        // extra_attrs,
         last_will,
 
         inflight,
@@ -98,20 +103,6 @@ async fn build_result(s: Option<Session>) -> SearchResult {
         mqueue_len: s.deliver_queue().len(),
         max_mqueue: s.listen_cfg().max_mqueue_len,
     }
-}
-
-fn filtering(q: &SearchParams, entry: &dyn Entry) -> bool {
-    tokio::task::block_in_place(move || {
-        tokio::runtime::Handle::current().block_on(async move {
-            match _filtering(q, entry).await {
-                Ok(res) => res,
-                Err(e) => {
-                    log::error!("{:?}", e);
-                    false
-                }
-            }
-        })
-    })
 }
 
 async fn _filtering(q: &SearchParams, entry: &dyn Entry) -> Result<bool> {

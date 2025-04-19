@@ -1,12 +1,14 @@
 use std::borrow::Cow;
 use std::time::Duration;
 
-use serde::de::{self, Deserialize, Deserializer};
-use serde::ser::{Serialize, Serializer};
-
 use rdkafka::topic_partition_list::Offset;
+use serde::de::{self, Deserializer};
+use serde::{ser::Serializer, Deserialize, Serialize};
 
-use rmqtt::{settings::deserialize_duration, HashMap, QoS, Result, TopicName};
+use rmqtt::{
+    types::{HashMap, QoS, TopicName},
+    utils::deserialize_duration,
+};
 
 use crate::bridge::BridgeName;
 
@@ -81,7 +83,7 @@ impl Remote {
         PARTITION_UNASSIGNED
     }
 
-    pub fn deserialize_offset<'de, D>(deserializer: D) -> Result<Option<Offset>, D::Error>
+    pub fn deserialize_offset<'de, D>(deserializer: D) -> std::result::Result<Option<Offset>, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -105,7 +107,7 @@ impl Remote {
     }
 
     #[inline]
-    pub fn serialize_offset<S>(offset: &Option<Offset>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize_offset<S>(offset: &Option<Offset>, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -167,7 +169,7 @@ impl Local {
     }
 
     #[inline]
-    pub fn deserialize_qos<'de, D>(deserializer: D) -> Result<Option<QoS>, D::Error>
+    pub fn deserialize_qos<'de, D>(deserializer: D) -> std::result::Result<Option<QoS>, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -180,7 +182,7 @@ impl Local {
     }
 
     #[inline]
-    pub fn deserialize_topic<'de, D>(deserializer: D) -> Result<(String, HasPattern), D::Error>
+    pub fn deserialize_topic<'de, D>(deserializer: D) -> std::result::Result<(String, HasPattern), D::Error>
     where
         D: Deserializer<'de>,
     {

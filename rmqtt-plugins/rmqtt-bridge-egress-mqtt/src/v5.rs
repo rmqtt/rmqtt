@@ -1,8 +1,10 @@
+use anyhow::anyhow;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use futures::{channel::mpsc, StreamExt};
 use ntex::connect::rustls::TlsConnector;
 use ntex::connect::Connector;
 use ntex::time::Seconds;
@@ -12,11 +14,10 @@ use ntex::{service::fn_service, util::Ready};
 use ntex_mqtt::{self, v5};
 
 use rmqtt::{
-    futures::{channel::mpsc, StreamExt},
-    log,
-    ntex_mqtt::types::MQTT_LEVEL_5,
+    codec::types::MQTT_LEVEL_5,
+    types::{ClientId, NodeId},
+    Result,
 };
-use rmqtt::{ClientId, MqttError, NodeId, Result};
 
 use crate::bridge::{build_tls_connector, BridgePublish, Command, CommandMailbox};
 use crate::config::Bridge;
@@ -29,8 +30,8 @@ enum MqttConnector {
 impl MqttConnector {
     async fn connect(&self) -> Result<v5::client::Client> {
         Ok(match self {
-            MqttConnector::Tcp(c) => c.connect().await.map_err(|e| MqttError::Anyhow(e.into()))?,
-            MqttConnector::Tls(c) => c.connect().await.map_err(|e| MqttError::Anyhow(e.into()))?,
+            MqttConnector::Tcp(c) => c.connect().await.map_err(|e| anyhow!(e))?,
+            MqttConnector::Tls(c) => c.connect().await.map_err(|e| anyhow!(e))?,
         })
     }
 }
@@ -134,10 +135,10 @@ impl Client {
                     if let Some(sink) = sink {
                         if matches!(p.qos, ntex_mqtt::QoS::AtMostOnce) {
                             if let Err(e) = sink.publish_pkt(p).send_at_most_once() {
-                                log::warn!("{}", e);
+                                log::warn!("{:?}", e);
                             }
                         } else if let Err(e) = sink.clone().publish_pkt(p).send_at_least_once().await {
-                            log::warn!("{}", e);
+                            log::warn!("{:?}", e);
                         }
                     } else {
                         log::error!("mqtt sink is None");

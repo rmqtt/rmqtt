@@ -1,25 +1,19 @@
 #![deny(unsafe_code)]
-#[macro_use]
-extern crate serde;
 
-#[macro_use]
-extern crate rmqtt_macros;
-
-use rmqtt::{
-    async_trait::async_trait,
-    log,
-    serde_json::{self, json},
-    tokio,
-    tokio::sync::mpsc,
-    tokio::sync::RwLock,
-};
-use rmqtt::{
-    broker::hook::Register,
-    plugin::{PackageInfo, Plugin},
-    register, Result, Runtime,
-};
 use std::ops::Deref;
 use std::sync::Arc;
+
+use async_trait::async_trait;
+use serde_json::json;
+use tokio::sync::{mpsc, RwLock};
+
+use rmqtt::{
+    context::ServerContext,
+    hook::Register,
+    macros::Plugin,
+    plugin::{PackageInfo, Plugin},
+    register, Result,
+};
 
 use bridge::{BridgeManager, Command};
 use config::PluginConfig;
@@ -31,7 +25,6 @@ register!(BridgeKafkaIngressPlugin::new);
 
 #[derive(Plugin)]
 struct BridgeKafkaIngressPlugin {
-    _runtime: &'static Runtime,
     cfg: Arc<RwLock<PluginConfig>>,
     register: Box<dyn Register>,
     bridge_mgr: BridgeManager,
@@ -40,19 +33,19 @@ struct BridgeKafkaIngressPlugin {
 
 impl BridgeKafkaIngressPlugin {
     #[inline]
-    async fn new(runtime: &'static Runtime, name: &'static str) -> Result<Self> {
-        let cfg = Arc::new(RwLock::new(runtime.settings.plugins.load_config::<PluginConfig>(name)?));
+    async fn new(scx: ServerContext, name: &'static str) -> Result<Self> {
+        let cfg = Arc::new(RwLock::new(scx.plugins.read_config::<PluginConfig>(name)?));
         log::info!("{} BridgeKafkaIngressPlugin cfg: {:?}", name, cfg.read().await);
-        let register = runtime.extends.hook_mgr().await.register();
-        let bridge_mgr = BridgeManager::new(runtime.node.id(), cfg.clone()).await;
-
+        let register = scx.extends.hook_mgr().register();
+        let node_id = scx.node.id();
+        let bridge_mgr = BridgeManager::new(scx, node_id, cfg.clone()).await;
         let bridge_mgr_cmd_tx = Self::start(name.into(), bridge_mgr.clone());
-        Ok(Self { _runtime: runtime, cfg, register, bridge_mgr, bridge_mgr_cmd_tx })
+        Ok(Self { cfg, register, bridge_mgr, bridge_mgr_cmd_tx })
     }
 
     fn start(name: String, mut bridge_mgr: BridgeManager) -> mpsc::Sender<Command> {
         let (bridge_mgr_cmd_tx, mut bridge_mgr_cmd_rx) = mpsc::channel(10);
-        std::thread::spawn(move || {
+        tokio::spawn(async {
             let runner = async move {
                 while let Some(cmd) = bridge_mgr_cmd_rx.recv().await {
                     match cmd {
@@ -67,7 +60,7 @@ impl BridgeKafkaIngressPlugin {
                     }
                 }
             };
-            tokio::runtime::Runtime::new().unwrap().block_on(runner);
+            runner.await;
         });
         bridge_mgr_cmd_tx
     }

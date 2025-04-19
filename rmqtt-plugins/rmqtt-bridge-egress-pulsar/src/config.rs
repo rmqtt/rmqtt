@@ -1,17 +1,13 @@
 use std::collections::BTreeMap;
 
 use pulsar::compression::{Compression, CompressionLz4, CompressionSnappy, CompressionZlib, CompressionZstd};
-use serde::de::{self, Deserialize, Deserializer};
-use serde::ser::{Serialize, Serializer};
+use rand::{distr::Uniform, rng, Rng};
+use serde::de::{self, Deserializer};
+use serde::ser::Serializer;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
-use rmqtt::{
-    log,
-    rand::{distr::Uniform, rng, Rng},
-    serde_json,
-    uuid::Uuid,
-};
-
-use rmqtt::{ClientId, Result};
+use rmqtt::types::ClientId;
 
 use crate::bridge::BridgeName;
 

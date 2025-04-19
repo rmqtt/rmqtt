@@ -1,22 +1,21 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+use anyhow::anyhow;
+use bytes::Bytes;
+use itertools::Itertools;
 use pulsar::consumer::{DeadLetterPolicy, InitialPosition};
 use pulsar::ConsumerOptions;
-use serde::de::{self, Deserialize, Deserializer};
-use serde::ser::{Serialize, Serializer};
+use regex::Regex;
+use serde::de::{self, Deserializer};
+use serde::ser::Serializer;
+use serde::{Deserialize, Serialize};
+use serde_json::{self, json};
 
-use rmqtt::itertools::Itertools;
 use rmqtt::{
-    anyhow,
-    bytes::Bytes,
-    log,
-    regex::Regex,
-    serde_json::{self, json},
-};
-use rmqtt::{
-    settings::{deserialize_duration, deserialize_duration_option},
-    MqttError, QoS, QoSEx, Result, TopicName,
+    types::{QoS, TopicName},
+    utils::{deserialize_duration, deserialize_duration_option},
+    Result,
 };
 
 use crate::bridge::BridgeName;
@@ -109,7 +108,7 @@ impl PayloadData {
     pub fn bytes(self) -> Result<Bytes> {
         match self {
             PayloadData::Bytes(data) => Ok(data),
-            PayloadData::Json(v) => serde_json::to_vec(&v).map(Bytes::from).map_err(MqttError::from),
+            PayloadData::Json(v) => serde_json::to_vec(&v).map(Bytes::from).map_err(|e| anyhow!(e)),
         }
     }
 
@@ -124,7 +123,7 @@ impl PayloadData {
                         serde_json::Value::Null => None,
                         serde_json::Value::String(s) => Some(Ok(Bytes::from(s))),
                         payload => {
-                            Some(serde_json::to_vec(&payload).map(Bytes::from).map_err(MqttError::from))
+                            Some(serde_json::to_vec(&payload).map(Bytes::from).map_err(|e| anyhow!(e)))
                         }
                     })
                 } else {
@@ -132,7 +131,7 @@ impl PayloadData {
                         serde_json::Value::Null => None,
                         serde_json::Value::String(s) => Some(Ok(Bytes::from(s))),
                         payload => {
-                            Some(serde_json::to_vec(&payload).map(Bytes::from).map_err(MqttError::from))
+                            Some(serde_json::to_vec(&payload).map(Bytes::from).map_err(|e| anyhow!(e)))
                         }
                     }
                 };
@@ -197,7 +196,7 @@ pub struct Remote {
 }
 
 impl Remote {
-    pub fn deserialize_payload_path<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+    pub fn deserialize_payload_path<'de, D>(deserializer: D) -> std::result::Result<Option<String>, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -214,7 +213,9 @@ impl Remote {
         Ok(payload_path)
     }
 
-    pub fn deserialize_subscription_type<'de, D>(deserializer: D) -> Result<Option<pulsar::SubType>, D::Error>
+    pub fn deserialize_subscription_type<'de, D>(
+        deserializer: D,
+    ) -> std::result::Result<Option<pulsar::SubType>, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -232,7 +233,7 @@ impl Remote {
     pub fn serialize_subscription_type<S>(
         sub_type: &Option<pulsar::SubType>,
         serializer: S,
-    ) -> Result<S::Ok, S::Error>
+    ) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -248,7 +249,7 @@ impl Remote {
 
     pub fn deserialize_dead_letter_policy<'de, D>(
         deserializer: D,
-    ) -> Result<Option<DeadLetterPolicy>, D::Error>
+    ) -> std::result::Result<Option<DeadLetterPolicy>, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -274,7 +275,7 @@ impl Remote {
     pub fn serialize_dead_letter_policy<S>(
         policy: &Option<DeadLetterPolicy>,
         serializer: S,
-    ) -> Result<S::Ok, S::Error>
+    ) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -289,7 +290,7 @@ impl Remote {
         .serialize(serializer)
     }
 
-    pub fn deserialize_options<'de, D>(deserializer: D) -> Result<ConsumerOptions, D::Error>
+    pub fn deserialize_options<'de, D>(deserializer: D) -> std::result::Result<ConsumerOptions, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -336,7 +337,7 @@ impl Remote {
     }
 
     #[inline]
-    pub fn serialize_options<S>(opts: &ConsumerOptions, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize_options<S>(opts: &ConsumerOptions, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -571,7 +572,7 @@ impl Local {
     }
 
     #[inline]
-    pub fn deserialize_qos<'de, D>(deserializer: D) -> Result<Option<QoS>, D::Error>
+    pub fn deserialize_qos<'de, D>(deserializer: D) -> std::result::Result<Option<QoS>, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -625,7 +626,7 @@ impl Local {
     }
 
     #[inline]
-    pub fn deserialize_topic<'de, D>(deserializer: D) -> Result<Option<LocalTopic>, D::Error>
+    pub fn deserialize_topic<'de, D>(deserializer: D) -> std::result::Result<Option<LocalTopic>, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -635,7 +636,7 @@ impl Local {
 
     #[allow(clippy::type_complexity)]
     #[inline]
-    pub fn deserialize_topics<'de, D>(deserializer: D) -> Result<Vec<LocalTopic>, D::Error>
+    pub fn deserialize_topics<'de, D>(deserializer: D) -> std::result::Result<Vec<LocalTopic>, D::Error>
     where
         D: Deserializer<'de>,
     {

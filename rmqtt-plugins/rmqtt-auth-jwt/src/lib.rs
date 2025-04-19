@@ -1,32 +1,30 @@
 #![deny(unsafe_code)]
-#[macro_use]
-extern crate serde;
-
-#[macro_use]
-extern crate rmqtt_macros;
 
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::anyhow;
 use async_trait::async_trait;
+use itoa::Buffer;
 use jsonwebtoken::{decode, TokenData, Validation};
 use tokio::sync::RwLock;
 
-use rmqtt::{ahash, anyhow::anyhow, async_trait, itoa::Buffer, log, serde_json, tokio};
 use rmqtt::{
-    broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
-    broker::types::{AuthResult, PublishAclResult},
-    plugin::{PackageInfo, Plugin},
-    register,
-    settings::acl::{
+    acl::{
         AuthInfo, Rule, PLACEHOLDER_CLIENTID, PLACEHOLDER_IPADDR, PLACEHOLDER_PROTOCOL, PLACEHOLDER_USERNAME,
     },
-    ConnectInfo, Message, MqttError, Reason, Result, Runtime,
+    context::ServerContext,
+    hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
+    macros::Plugin,
+    plugin::{PackageInfo, Plugin},
+    register,
+    types::{AuthResult, ConnectInfo, Disconnect, Message, PublishAclResult, Reason},
+    Result,
 };
 
-use crate::config::{JWTFrom, PluginConfig, ValidateClaims};
+use config::{JWTFrom, PluginConfig, ValidateClaims};
 
 mod config;
 
@@ -36,21 +34,21 @@ register!(AuthJwtPlugin::new);
 
 #[derive(Plugin)]
 struct AuthJwtPlugin {
-    runtime: &'static Runtime,
+    scx: ServerContext,
     register: Box<dyn Register>,
     cfg: Arc<RwLock<PluginConfig>>,
 }
 
 impl AuthJwtPlugin {
     #[inline]
-    async fn new<S: Into<String>>(runtime: &'static Runtime, name: S) -> Result<Self> {
+    async fn new<S: Into<String>>(scx: ServerContext, name: S) -> Result<Self> {
         let name = name.into();
-        let mut cfg = runtime.settings.plugins.load_config::<PluginConfig>(&name)?;
+        let mut cfg = scx.plugins.read_config::<PluginConfig>(&name)?;
         cfg.init_decoding_key()?;
         let cfg = Arc::new(RwLock::new(cfg));
         log::info!("{} AuthJwtPlugin cfg: {:?}", name, cfg.read().await);
-        let register = runtime.extends.hook_mgr().await.register();
-        Ok(Self { runtime, register, cfg })
+        let register = scx.extends.hook_mgr().register();
+        Ok(Self { scx, register, cfg })
     }
 }
 
@@ -62,14 +60,16 @@ impl Plugin for AuthJwtPlugin {
         let cfg = &self.cfg;
 
         let priority = cfg.read().await.priority;
-        self.register.add_priority(Type::ClientAuthenticate, priority, Box::new(AuthHandler::new(cfg))).await;
         self.register
-            .add_priority(Type::ClientSubscribeCheckAcl, priority, Box::new(AuthHandler::new(cfg)))
+            .add_priority(Type::ClientAuthenticate, priority, Box::new(AuthHandler::new(&self.scx, cfg)))
             .await;
         self.register
-            .add_priority(Type::MessagePublishCheckAcl, priority, Box::new(AuthHandler::new(cfg)))
+            .add_priority(Type::ClientSubscribeCheckAcl, priority, Box::new(AuthHandler::new(&self.scx, cfg)))
             .await;
-        self.register.add(Type::ClientKeepalive, Box::new(AuthHandler::new(cfg))).await;
+        self.register
+            .add_priority(Type::MessagePublishCheckAcl, priority, Box::new(AuthHandler::new(&self.scx, cfg)))
+            .await;
+        self.register.add(Type::ClientKeepalive, Box::new(AuthHandler::new(&self.scx, cfg))).await;
         Ok(())
     }
 
@@ -80,7 +80,7 @@ impl Plugin for AuthJwtPlugin {
 
     #[inline]
     async fn load_config(&mut self) -> Result<()> {
-        let new_cfg = self.runtime.settings.plugins.load_config::<PluginConfig>(self.name())?;
+        let new_cfg = self.scx.plugins.read_config::<PluginConfig>(self.name())?;
         *self.cfg.write().await = new_cfg;
         log::debug!("load_config ok,  {:?}", self.cfg);
         Ok(())
@@ -107,12 +107,13 @@ impl Plugin for AuthJwtPlugin {
 }
 
 struct AuthHandler {
+    scx: ServerContext,
     cfg: Arc<RwLock<PluginConfig>>,
 }
 
 impl AuthHandler {
-    fn new(cfg: &Arc<RwLock<PluginConfig>>) -> Self {
-        Self { cfg: cfg.clone() }
+    fn new(scx: &ServerContext, cfg: &Arc<RwLock<PluginConfig>>) -> Self {
+        Self { scx: scx.clone(), cfg: cfg.clone() }
     }
 
     #[inline]
@@ -137,7 +138,7 @@ impl AuthHandler {
             if let Some(username) = connect_info.username() {
                 Cow::Owned(item.replace(PLACEHOLDER_USERNAME, username))
             } else {
-                return Err(MqttError::from("username does not exist"));
+                return Err(anyhow!("username does not exist"));
             }
         } else {
             Cow::Borrowed(item)
@@ -149,7 +150,7 @@ impl AuthHandler {
             if let Some(ipaddr) = connect_info.ipaddress() {
                 item = Cow::Owned(item.replace(PLACEHOLDER_IPADDR, ipaddr.ip().to_string().as_str()));
             } else {
-                return Err(MqttError::from("ipaddr does not exist"));
+                return Err(anyhow!("ipaddr does not exist"));
             }
         }
         if p_proto {
@@ -264,7 +265,7 @@ impl AuthHandler {
         });
         log::debug!("failed: {:?}", failed);
         if let Some((name, expecteds, actuals)) = failed {
-            Err(MqttError::from(format!(
+            Err(anyhow!(format!(
                 "{} verification failed, expected value: {:?}, actual value: {:?}",
                 name, expecteds, actuals
             )))
@@ -373,11 +374,9 @@ impl Handler for AuthHandler {
                 if let Some(auth) = &s.auth_info {
                     log::debug!("Keepalive auth-jwt, is_expired: {:?}", auth.is_expired());
                     if auth.is_expired() && self.cfg.read().await.disconnect_if_expiry {
-                        if let Some(tx) =
-                            Runtime::instance().extends.shared().await.entry(s.id().clone()).tx()
-                        {
+                        if let Some(tx) = self.scx.extends.shared().await.entry(s.id().clone()).tx() {
                             if let Err(e) = tx.unbounded_send(Message::Closed(Reason::ConnectDisconnect(
-                                Some("JWT Auth expired".into()),
+                                Some(Disconnect::Other("JWT Auth expired".into())),
                             ))) {
                                 log::warn!("{} {}", s.id(), e);
                             }

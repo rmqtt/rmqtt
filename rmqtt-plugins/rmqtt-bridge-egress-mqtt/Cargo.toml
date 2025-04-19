@@ -8,10 +8,22 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-rmqtt.workspace = true
-rmqtt-macros.workspace = true
+rmqtt = { workspace = true, features = ["plugin"] }
+tokio = { workspace = true, features = ["sync"] }
 serde = { workspace = true, features = ["derive"] }
 ntex-mqtt = "=4.5.1"
 ntex = { version = "=2.10.0", features = ["tokio", "rustls"] }
 event-notify = "0.1.1"
-webpki-roots = "0.26"
+webpki-roots.workspace = true
+serde_json.workspace = true
+log.workspace = true
+async-trait.workspace = true
+anyhow.workspace = true
+rustls.workspace = true
+rand.workspace = true
+bytestring.workspace = true
+futures.workspace = true
+base64.workspace = true
+
+
+

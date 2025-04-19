@@ -8,8 +8,15 @@ license.workspace = true
 
 
 [dependencies]
-rmqtt.workspace = true
-rmqtt-macros.workspace = true
+rmqtt = { workspace = true, features = ["plugin"] }
 serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["sync", "time", "rt-multi-thread"] }
 rmqtt-storage = { version = "0.6", default-features = false, features = ["ttl"]}
 #rmqtt-storage = { path = "../../../rmqtt-storage", default-features = false, features = ["ttl"]}
+futures.workspace = true
+async-trait.workspace = true
+log.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+bytes.workspace = true
+once_cell.workspace = true

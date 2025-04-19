@@ -7,7 +7,7 @@
 http_timeout = "5s"
 http_headers.accept = "*/*"
 http_headers.Cache-Control = "no-cache"
-http_headers.User-Agent = "RMQTT/0.8.0"
+http_headers.User-Agent = "RMQTT/0.15.0"
 http_headers.Connection = "keep-alive"
 
 ## Disconnect if publishing is rejected
@@ -27,6 +27,7 @@ disconnect_if_expiry = false
 ## Value: true | false
 ## Default: true
 deny_if_error = true
+
 
 ##--------------------------------------------------------------------
 ## Authentication request.
@@ -67,3 +68,4 @@ http_acl_req.url = "http://127.0.0.1:9090/mqtt/acl"
 http_acl_req.method = "post"
 ## Value: Params
 http_acl_req.params = { access = "%A", username = "%u", clientid = "%c", ipaddr = "%a", topic = "%t", protocol = "%r" }
+

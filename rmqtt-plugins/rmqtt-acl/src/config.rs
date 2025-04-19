@@ -1,18 +1,19 @@
 use std::str::FromStr;
 use std::sync::Arc;
 
-use serde::de::{self, Deserialize, Deserializer};
-use serde::ser::{self, Serialize};
+use anyhow::anyhow;
+use serde::de::{self, Deserializer};
+use serde::ser;
+use serde::{Deserialize, Serialize};
+use serde_json::{self, Value};
+use tokio::sync::RwLock;
 
-use rmqtt::broker::hook::Priority;
-use rmqtt::broker::topic::TopicTree;
 use rmqtt::{
-    ahash, dashmap, log,
-    serde_json::{self, Value},
-    tokio::sync::RwLock,
-    Id,
+    hook::Priority,
+    trie::TopicTree,
+    types::{ClientId, Id, Password, Superuser, Topic, UserName},
+    Error, Result,
 };
-use rmqtt::{ClientId, MqttError, Password, Result, Superuser, Topic, UserName};
 
 type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
 
@@ -130,13 +131,13 @@ impl Rule {
 }
 
 impl std::convert::TryFrom<&serde_json::Value> for Rule {
-    type Error = MqttError;
+    type Error = Error;
     #[inline]
-    fn try_from(rule_cfg: &serde_json::Value) -> Result<Self, Self::Error> {
+    fn try_from(rule_cfg: &serde_json::Value) -> std::result::Result<Self, Self::Error> {
         let err_msg = format!("ACL Rule config error, rule config is {:?}", rule_cfg);
         if let Some(cfg_items) = rule_cfg.as_array() {
-            let access_cfg = cfg_items.first().ok_or_else(|| MqttError::from(err_msg.as_str()))?;
-            let user_cfg = cfg_items.get(1).ok_or_else(|| MqttError::from(err_msg))?;
+            let access_cfg = cfg_items.first().ok_or_else(|| anyhow!(err_msg.clone()))?;
+            let user_cfg = cfg_items.get(1).ok_or_else(|| anyhow!(err_msg))?;
             let control_cfg = cfg_items.get(2);
             let topics_cfg = cfg_items.get(3);
 
@@ -149,7 +150,7 @@ impl std::convert::TryFrom<&serde_json::Value> for Rule {
             }
             Ok(Rule { access, users, control, topics })
         } else {
-            Err(MqttError::from(err_msg))
+            Err(anyhow!(err_msg))
         }
     }
 }
@@ -248,14 +249,14 @@ impl Topics {
 }
 
 impl std::convert::TryFrom<&serde_json::Value> for Access {
-    type Error = MqttError;
+    type Error = Error;
     #[inline]
-    fn try_from(access_cfg: &serde_json::Value) -> Result<Self, Self::Error> {
+    fn try_from(access_cfg: &serde_json::Value) -> std::result::Result<Self, Self::Error> {
         let err_msg = format!("ACL Rule config error, access config is {:?}", access_cfg);
-        match access_cfg.as_str().ok_or_else(|| MqttError::from(err_msg.as_str()))?.to_lowercase().as_str() {
+        match access_cfg.as_str().ok_or_else(|| anyhow!(err_msg.clone()))?.to_lowercase().as_str() {
             "allow" => Ok(Access::Allow),
             "deny" => Ok(Access::Deny),
-            _ => Err(MqttError::from(err_msg)),
+            _ => Err(anyhow!(err_msg)),
         }
     }
 }
@@ -267,7 +268,7 @@ fn users_try_from(user_cfg: &Value, access: Access) -> Result<Vec<User>> {
             if all.to_lowercase() == "all" {
                 Ok(vec![User::All])
             } else {
-                Err(MqttError::from(err_msg))
+                Err(anyhow!(err_msg))
             }
         }
         Value::Object(map) => {
@@ -285,7 +286,7 @@ fn users_try_from(user_cfg: &Value, access: Access) -> Result<Vec<User>> {
                         let password = match password {
                             Some(Value::String(p)) => Some(Password::from(p.to_owned())),
                             None => None,
-                            _ => return Err(MqttError::from(err_msg)),
+                            _ => return Err(anyhow!(err_msg)),
                         };
                         let superuser = superuser.unwrap_or_default();
                         users.push(User::Username(UserName::from(name), password, superuser));
@@ -309,15 +310,15 @@ fn users_try_from(user_cfg: &Value, access: Access) -> Result<Vec<User>> {
             }
             Ok(users)
         }
-        _ => Err(MqttError::from(err_msg)),
+        _ => Err(anyhow!(err_msg)),
     };
     users
 }
 
 impl std::convert::TryFrom<Option<&serde_json::Value>> for Control {
-    type Error = MqttError;
+    type Error = Error;
     #[inline]
-    fn try_from(control_cfg: Option<&serde_json::Value>) -> Result<Self, Self::Error> {
+    fn try_from(control_cfg: Option<&serde_json::Value>) -> std::result::Result<Self, Self::Error> {
         let err_msg = format!("ACL Rule config error, control config is {:?}", control_cfg);
         let control = match control_cfg {
             None => Ok(Control::All),
@@ -327,18 +328,18 @@ impl std::convert::TryFrom<Option<&serde_json::Value>> for Control {
                 "subscribe" => Ok(Control::Subscribe),
                 "pubsub" => Ok(Control::Pubsub),
                 "all" => Ok(Control::All),
-                _ => Err(MqttError::from(err_msg)),
+                _ => Err(anyhow!(err_msg)),
             },
-            _ => Err(MqttError::from(err_msg)),
+            _ => Err(anyhow!(err_msg)),
         };
         control
     }
 }
 
 impl std::convert::TryFrom<Option<&serde_json::Value>> for Topics {
-    type Error = MqttError;
+    type Error = Error;
     #[inline]
-    fn try_from(topics_cfg: Option<&serde_json::Value>) -> Result<Self, Self::Error> {
+    fn try_from(topics_cfg: Option<&serde_json::Value>) -> std::result::Result<Self, Self::Error> {
         let err_msg = format!("ACL Rule config error, topics config is {:?}", topics_cfg);
         let mut all = false;
         let eqs = DashSet::default();
@@ -365,13 +366,13 @@ impl std::convert::TryFrom<Option<&serde_json::Value>> for Topics {
                                     eqs.insert(eq.clone());
                                 }
                             }
-                            _ => return Err(MqttError::from(err_msg)),
+                            _ => return Err(anyhow!(err_msg)),
                         },
-                        _ => return Err(MqttError::from(err_msg)),
+                        _ => return Err(anyhow!(err_msg)),
                     }
                 }
             }
-            _ => return Err(MqttError::from(err_msg)),
+            _ => return Err(anyhow!(err_msg)),
         }
         Ok(Topics {
             all,

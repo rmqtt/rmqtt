@@ -7,26 +7,22 @@ use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use rmqtt::{
-    anyhow::anyhow,
-    async_trait::async_trait,
-    futures::channel::mpsc,
-    futures::{SinkExt, StreamExt},
-    futures_time::{self, future::FutureExt},
-    log,
-    once_cell::sync::OnceCell,
-    tokio,
-    tokio::sync::RwLock,
-    tokio::time::sleep,
-};
+use anyhow::anyhow;
+use async_trait::async_trait;
+use futures::channel::mpsc;
+use futures::{SinkExt, StreamExt};
+use futures_time::{self, future::FutureExt};
+use tokio::sync::RwLock;
 
-use rmqtt::{
-    timestamp_millis, MqttError, NodeId, Result, Retain, StatsMergeMode, TimestampMillis, Topic, TopicFilter,
-    TopicName,
-};
-
-use rmqtt::broker::RetainStorage;
 use rmqtt_storage::DefaultStorageDB;
+
+use rmqtt::{
+    retain::RetainStorage,
+    types::{NodeId, Retain, TimestampMillis, Topic, TopicFilter, TopicName},
+    utils::timestamp_millis,
+    utils::StatsMergeMode,
+    Result,
+};
 
 use crate::config::PluginConfig;
 use crate::ERR_NOT_SUPPORTED;
@@ -39,40 +35,21 @@ const RETAIN_MESSAGES_MAX: &[u8] = b"m|";
 
 const RETAIN_MESSAGES_PREFIX: &[u8] = b"p|";
 
-static INSTANCE: OnceCell<Retainer> = OnceCell::new();
-
-#[inline]
-pub(crate) async fn get_or_init(
-    node_id: NodeId,
-    cfg: Arc<RwLock<PluginConfig>>,
-    storage_db: DefaultStorageDB,
-    retain_enable: Arc<AtomicBool>,
-) -> Result<&'static Retainer> {
-    if let Some(msg_mgr) = INSTANCE.get() {
-        return Ok(msg_mgr);
-    }
-    let msg_mgr = Retainer::new(node_id, cfg, storage_db, retain_enable).await?;
-    INSTANCE.set(msg_mgr).map_err(|_| anyhow!("init error!"))?;
-    if let Some(msg_mgr) = INSTANCE.get() {
-        Ok(msg_mgr)
-    } else {
-        unreachable!()
-    }
-}
-
+#[derive(Clone)]
 pub(crate) struct Retainer {
     inner: Arc<RetainerInner>,
 }
 
 impl Retainer {
     #[inline]
-    async fn new(
+    pub(crate) async fn new(
         _node_id: NodeId,
         cfg: Arc<RwLock<PluginConfig>>,
         storage_db: DefaultStorageDB,
         retain_enable: Arc<AtomicBool>,
     ) -> Result<Retainer> {
-        let (msg_tx, msg_queue_count) = Self::serve(cfg.clone())?;
+        let (msg_tx, msg_rx) = mpsc::channel::<Msg>(300_000);
+        let msg_queue_count = Arc::new(AtomicIsize::new(0));
         let storage_messages_count = ValueCached::new(Duration::from_millis(3000));
         let storage_messages_max = ValueCached::new(Duration::from_millis(3000));
         let inner = Arc::new(RetainerInner {
@@ -84,58 +61,52 @@ impl Retainer {
             storage_messages_count,
             storage_messages_max,
         });
-        Ok(Self { inner })
+        Self { inner }.serve(msg_rx)
     }
 
-    fn serve(_cfg: Arc<RwLock<PluginConfig>>) -> Result<(mpsc::Sender<Msg>, Arc<AtomicIsize>)> {
-        let msg_queue_count = Arc::new(AtomicIsize::new(0));
+    fn serve(self, mut msg_rx: mpsc::Receiver<Msg>) -> Result<Retainer> {
+        let msg_queue_count = self.msg_queue_count.clone();
         let msg_queue_count1 = msg_queue_count.clone();
-        let (msg_tx, mut msg_rx) = mpsc::channel::<Msg>(300_000);
+        let msg_mgr = self.clone();
         tokio::spawn(async move {
-            loop {
-                if INSTANCE.get().is_some() {
-                    break;
-                }
-                sleep(Duration::from_millis(10)).await;
-            }
-            if let Some(msg_mgr) = INSTANCE.get() {
-                let msg_fwds_count = Arc::new(AtomicIsize::new(0));
-
-                let mut merger_msgs = Vec::new();
-                while let Some(msg) = msg_rx.next().await {
-                    merger_msgs.push(msg);
-                    while merger_msgs.len() < 500 {
-                        match tokio::time::timeout(Duration::from_millis(0), msg_rx.next()).await {
-                            Ok(Some(msg)) => {
-                                merger_msgs.push(msg);
-                            }
-                            _ => break,
+            log::info!("Starting Retainer serve ...");
+            let msg_fwds_count = Arc::new(AtomicIsize::new(0));
+            let mut merger_msgs = Vec::new();
+            while let Some(msg) = msg_rx.next().await {
+                let msg_mgr = msg_mgr.clone();
+                merger_msgs.push(msg);
+                while merger_msgs.len() < 500 {
+                    match tokio::time::timeout(Duration::from_millis(0), msg_rx.next()).await {
+                        Ok(Some(msg)) => {
+                            merger_msgs.push(msg);
                         }
+                        _ => break,
                     }
-
-                    log::debug!("merger_msgs.len: {}", merger_msgs.len());
-                    //merge and send
-                    let msgs = std::mem::take(&mut merger_msgs);
-
-                    msg_queue_count1.fetch_sub(msgs.len() as isize, Ordering::Relaxed);
-                    msg_fwds_count.fetch_add(1, Ordering::SeqCst);
-                    while msg_fwds_count.load(Ordering::SeqCst) > 500 {
-                        tokio::time::sleep(Duration::from_millis(1)).await;
-                    }
-
-                    let msg_fwds_count1 = msg_fwds_count.clone();
-                    tokio::spawn(async move {
-                        if let Err(e) = msg_mgr._batch_store(msgs).await {
-                            log::warn!("{:?}", e);
-                        }
-                        msg_fwds_count1.fetch_sub(1, Ordering::SeqCst);
-                    });
                 }
-                log::error!("Recv failed because receiver is gone");
+
+                log::debug!("merger_msgs.len: {}", merger_msgs.len());
+                //merge and send
+                let msgs = std::mem::take(&mut merger_msgs);
+
+                msg_queue_count1.fetch_sub(msgs.len() as isize, Ordering::Relaxed);
+                msg_fwds_count.fetch_add(1, Ordering::SeqCst);
+                while msg_fwds_count.load(Ordering::SeqCst) > 500 {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+
+                let msg_fwds_count1 = msg_fwds_count.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = msg_mgr._batch_store(msgs).await {
+                        log::warn!("{:?}", e);
+                    }
+                    msg_fwds_count1.fetch_sub(1, Ordering::SeqCst);
+                });
             }
+            log::error!("Recv failed because receiver is gone");
+            // }
         });
 
-        Ok((msg_tx, msg_queue_count))
+        Ok(self)
     }
 }
 
@@ -177,7 +148,7 @@ impl RetainerInner {
                     .remove(store_topic_name.as_slice())
                     .timeout(futures_time::time::Duration::from_millis(5000))
                     .await
-                    .map_err(|_e| MqttError::from("storage_db.remove timeout"))?
+                    .map_err(|_e| anyhow!("storage_db.remove timeout"))?
                 {
                     log::warn!("remove from db error, remove(..), {:?}, topic_name: {:?}", e, topic_name);
                 };
@@ -216,7 +187,7 @@ impl RetainerInner {
                     .insert(store_topic_name.as_slice(), &smsg)
                     .timeout(futures_time::time::Duration::from_millis(5000))
                     .await
-                    .map_err(|_e| MqttError::from("storage_db.insert timeout"))?
+                    .map_err(|_e| anyhow!("storage_db.insert timeout"))?
                 {
                     log::warn!("store to db error, insert(..), {:?}, message: {:?}", e, smsg);
                     continue;
@@ -238,7 +209,7 @@ impl RetainerInner {
             .storage_messages_max_add(count)
             .timeout(futures_time::time::Duration::from_millis(5000))
             .await
-            .map_err(|_e| MqttError::from("storage_messages_max_add timeout"))?
+            .map_err(|_e| anyhow!("storage_messages_max_add timeout"))?
         {
             log::warn!("messages_received_counter add error, {:?}", e);
         }
@@ -277,7 +248,7 @@ impl RetainerInner {
         let db = self.storage_db.clone();
         let count = self
             .storage_messages_count
-            .call_timeout(async move { db.len().await.map_err(MqttError::from) }, Duration::from_millis(3000))
+            .call_timeout(async move { db.len().await }, Duration::from_millis(3000))
             .await
             .get()
             .copied()
@@ -372,7 +343,7 @@ impl RetainerInner {
 }
 
 #[async_trait]
-impl RetainStorage for &'static Retainer {
+impl RetainStorage for Retainer {
     #[inline]
     fn enable(&self) -> bool {
         true
@@ -399,11 +370,11 @@ impl RetainStorage for &'static Retainer {
             }
             Ok(Err(e)) => {
                 log::error!("Retainer set error, {:?}", e);
-                Err(MqttError::from(e.to_string()))
+                Err(anyhow!(e.to_string()))
             }
             Err(e) => {
                 log::warn!("Retainer store timeout, {:?}", e);
-                Err(MqttError::from(e.to_string()))
+                Err(anyhow!(e.to_string()))
             }
         }
     }
@@ -468,7 +439,7 @@ impl<T> ValueCached<T> {
     #[allow(unused)]
     pub async fn call<F>(&self, f: F) -> ValueRef<'_, T>
     where
-        F: Future<Output = Result<T>> + Send + 'static,
+        F: Future<Output = Result<T>> + Send,
     {
         self._call_timeout(f, None).await
     }
@@ -476,7 +447,7 @@ impl<T> ValueCached<T> {
     #[inline]
     pub async fn call_timeout<F>(&self, f: F, timeout: Duration) -> ValueRef<'_, T>
     where
-        F: Future<Output = Result<T>> + Send + 'static,
+        F: Future<Output = Result<T>> + Send,
     {
         self._call_timeout(f, Some(timeout)).await
     }
@@ -484,7 +455,7 @@ impl<T> ValueCached<T> {
     #[inline]
     async fn _call_timeout<F>(&self, f: F, timeout: Option<Duration>) -> ValueRef<'_, T>
     where
-        F: Future<Output = Result<T>> + Send + 'static,
+        F: Future<Output = Result<T>> + Send,
     {
         let inst = std::time::Instant::now();
         let (call_enable, updating) = {
@@ -520,7 +491,7 @@ impl<T> ValueCached<T> {
                     match tokio::time::timeout(t, f).await {
                         Ok(Ok(v)) => Ok(v),
                         Ok(Err(e)) => Err(e),
-                        Err(e) => Err(MqttError::from(anyhow!(e))),
+                        Err(e) => Err(anyhow!(e)),
                     }
                 } else {
                     f.await
@@ -576,7 +547,7 @@ impl<T> ValueRef<'_, T> {
         if let Some(val) = self.val_guard.cached_val.as_ref() {
             Ok(val.as_ref().map_err(|e| anyhow!(e.to_string()))?)
         } else {
-            Err(MqttError::from("Timeout"))
+            Err(anyhow!("Timeout"))
         }
     }
 

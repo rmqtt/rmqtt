@@ -1,39 +1,34 @@
 #![deny(unsafe_code)]
-#[macro_use]
-extern crate serde;
-
-#[macro_use]
-extern crate rmqtt_macros;
 
 use std::convert::From as _;
 use std::sync::Arc;
 use std::time::Duration;
 
-use rmqtt::{
-    async_trait::async_trait,
-    bytes::Bytes,
-    futures,
-    futures::channel::mpsc,
-    futures::channel::oneshot,
-    futures::{SinkExt, StreamExt},
-    log,
-    serde_json::{self, json},
-    tokio,
-};
+use async_trait::async_trait;
+use bytes::Bytes;
+use futures::channel::{mpsc, oneshot};
+use futures::{SinkExt, StreamExt};
+use serde_json::{self, json};
 
 use rmqtt::{
-    broker::fitter::Fitter,
-    broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
-    broker::inflight::InflightMessage,
-    broker::types::DisconnectInfo,
+    fitter::Fitter,
+    hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
     plugin::{PackageInfo, Plugin},
-    register, timestamp_millis, ClientId, From, Publish, Result, Runtime, Session, SessionState,
-    SessionSubMap, SessionSubs, TimestampMillis,
+    register,
+    session::Session,
+    types::DisconnectInfo,
+    types::{ClientId, From, Publish, SessionSubMap, SessionSubs, TimestampMillis},
+    utils::timestamp_millis,
+    Result,
 };
 
 use rmqtt_storage::{init_db, DefaultStorageDB, List, Map, StorageType};
 
 use config::PluginConfig;
+use rmqtt::context::ServerContext;
+use rmqtt::inflight::OutInflightMessage;
+use rmqtt::macros::Plugin;
+use rmqtt::session::SessionState;
 use session::{Basic, StorageSessionManager, StoredSessionInfo, StoredSessionInfos};
 use session::{StoredKey, BASIC, DISCONNECT_INFO, INFLIGHT_MESSAGES, LAST_TIME, SESSION_SUB_MAP};
 
@@ -51,7 +46,7 @@ register!(StoragePlugin::new);
 
 #[derive(Plugin)]
 struct StoragePlugin {
-    runtime: &'static Runtime,
+    scx: ServerContext,
     cfg: Arc<PluginConfig>,
     storage_db: DefaultStorageDB,
     stored_session_infos: StoredSessionInfos,
@@ -62,21 +57,21 @@ struct StoragePlugin {
 
 impl StoragePlugin {
     #[inline]
-    async fn new<S: Into<String>>(runtime: &'static Runtime, name: S) -> Result<Self> {
+    async fn new<S: Into<String>>(scx: ServerContext, name: S) -> Result<Self> {
         let name = name.into();
-        let mut cfg = runtime.settings.plugins.load_config_default::<PluginConfig>(&name)?;
+        let mut cfg = scx.plugins.read_config_default::<PluginConfig>(&name)?;
         match cfg.storage.typ {
             StorageType::Sled => {
                 cfg.storage.sled.path =
-                    cfg.storage.sled.path.replace("{node}", &format!("{}", runtime.node.id()));
+                    cfg.storage.sled.path.replace("{node}", &format!("{}", scx.node.id()));
             }
             StorageType::Redis => {
                 cfg.storage.redis.prefix =
-                    cfg.storage.redis.prefix.replace("{node}", &format!("{}", runtime.node.id()));
+                    cfg.storage.redis.prefix.replace("{node}", &format!("{}", scx.node.id()));
             }
             StorageType::RedisCluster => {
                 cfg.storage.redis_cluster.prefix =
-                    cfg.storage.redis_cluster.prefix.replace("{node}", &format!("{}", runtime.node.id()));
+                    cfg.storage.redis_cluster.prefix.replace("{node}", &format!("{}", scx.node.id()));
             }
         }
 
@@ -86,13 +81,13 @@ impl StoragePlugin {
 
         let stored_session_infos = StoredSessionInfos::new();
 
-        let register = runtime.extends.hook_mgr().await.register();
+        let register = scx.extends.hook_mgr().register();
         let session_mgr =
             StorageSessionManager::get_or_init(storage_db.clone(), stored_session_infos.clone());
 
         let cfg = Arc::new(cfg);
-        let rebuild_tx = Self::start_local_runtime();
-        Ok(Self { runtime, cfg, storage_db, stored_session_infos, register, session_mgr, rebuild_tx })
+        let rebuild_tx = Self::start_local_runtime(scx.clone());
+        Ok(Self { scx, cfg, storage_db, stored_session_infos, register, session_mgr, rebuild_tx })
     }
 
     async fn load_offline_session_infos(&mut self) -> Result<()> {
@@ -161,7 +156,7 @@ impl StoragePlugin {
                         }
                     }
 
-                    match m.get::<_, Vec<InflightMessage>>(INFLIGHT_MESSAGES).await {
+                    match m.get::<_, Vec<OutInflightMessage>>(INFLIGHT_MESSAGES).await {
                         Ok(Some(inflights)) => {
                             log::debug!("inflights len: {:?}", inflights.len());
                             s_info.inflight_messages = inflights;
@@ -227,7 +222,7 @@ impl StoragePlugin {
         Ok(())
     }
 
-    fn start_local_runtime() -> mpsc::Sender<RebuildChanType> {
+    fn start_local_runtime(scx: ServerContext) -> mpsc::Sender<RebuildChanType> {
         let (tx, mut rx) = futures::channel::mpsc::channel::<RebuildChanType>(100_000);
         std::thread::spawn(move || {
             let local_rt = tokio::runtime::Builder::new_current_thread()
@@ -244,9 +239,9 @@ impl StoragePlugin {
                                 Err(e) => {
                                     log::warn!("Rebuild offline session error, {:?}", e);
                                 },
-                                Ok((state, msg_tx)) => {
+                                Ok(msg_tx) => {
                                     let mut session_entry =
-                                        Runtime::instance().extends.shared().await.entry(state.id.clone());
+                                        scx.extends.shared().await.entry(session.id.clone());
 
                                     let id = session_entry.id().clone();
                                     let task_fut = async move {
@@ -254,7 +249,7 @@ impl StoragePlugin {
                                             log::warn!("{:?} Rebuild offline session error, {:?}", session_entry.id(), e);
                                         }
                                     };
-                                    let task_exec = &Runtime::instance().exec;
+                                    let task_exec = &scx.global_exec;
                                     if let Err(e) = task_exec.spawn(task_fut).await {
                                         log::warn!("{:?} Rebuild offline session error, {:?}", id, e.to_string());
                                     }
@@ -271,7 +266,7 @@ impl StoragePlugin {
                             }
                         },
                         RebuildChanType::Done(done_tx) => {
-                            let task_exec = &Runtime::instance().exec;
+                            let task_exec = &scx.global_exec;
                             let _ = task_exec.flush().await;
                             let _ = done_tx.send(());
                             log::info!(
@@ -297,6 +292,7 @@ impl Plugin for StoragePlugin {
             .add(
                 Type::BeforeStartup,
                 Box::new(StorageHandler::new(
+                    self.scx.clone(),
                     self.storage_db.clone(),
                     self.cfg.clone(),
                     self.stored_session_infos.clone(),
@@ -330,7 +326,7 @@ impl Plugin for StoragePlugin {
     #[inline]
     async fn start(&mut self) -> Result<()> {
         log::info!("{} start", self.name());
-        *self.runtime.extends.session_mgr_mut().await = Box::new(self.session_mgr);
+        *self.scx.extends.session_mgr_mut().await = Box::new(self.session_mgr);
 
         self.register.start().await;
         Ok(())
@@ -468,6 +464,7 @@ impl Handler for OfflineMessageHandler {
 }
 
 struct StorageHandler {
+    scx: ServerContext,
     storage_db: DefaultStorageDB,
     cfg: Arc<PluginConfig>,
     stored_session_infos: StoredSessionInfos,
@@ -476,12 +473,13 @@ struct StorageHandler {
 
 impl StorageHandler {
     fn new(
+        scx: ServerContext,
         storage_db: DefaultStorageDB,
         cfg: Arc<PluginConfig>,
         stored_session_infos: StoredSessionInfos,
         rebuild_tx: mpsc::Sender<RebuildChanType>,
     ) -> Self {
-        Self { storage_db, cfg, stored_session_infos, rebuild_tx }
+        Self { scx, storage_db, cfg, stored_session_infos, rebuild_tx }
     }
 
     //Rebuild offline session.
@@ -493,8 +491,9 @@ impl StorageHandler {
                 let id = stored.basic.id.clone();
 
                 //get listener config
-                let listen_cfg = if let Some(listen_cfg) =
-                    id.local_addr.and_then(|addr| Runtime::instance().settings.listeners.get(addr.port()))
+                let listen_cfg = if let Some(listen_cfg) = id
+                    .local_addr
+                    .and_then(|addr| self.scx.listen_cfgs.get(&addr.port()).map(|c| c.value().clone()))
                 {
                     listen_cfg
                 } else {
@@ -503,7 +502,7 @@ impl StorageHandler {
                 };
 
                 //create fitter
-                let fitter = Runtime::instance().extends.fitter_mgr().await.create(
+                let fitter = self.scx.extends.fitter_mgr().await.create(
                     stored.basic.conn_info.clone(),
                     id.clone(),
                     listen_cfg.clone(),
@@ -549,6 +548,7 @@ impl StorageHandler {
 
                 let session = match Session::new(
                     id.clone(),
+                    self.scx.clone(),
                     max_mqueue_len,
                     listen_cfg,
                     fitter,
@@ -580,9 +580,9 @@ impl StorageHandler {
                     }
                 }
 
-                let inflight_win = session.inflight_win();
+                let out_inflight = session.out_inflight();
                 for item in stored.inflight_messages.drain(..) {
-                    inflight_win.write().await.push_back(item);
+                    out_inflight.write().await.push_back(item);
                 }
 
                 if let Err(e) = self

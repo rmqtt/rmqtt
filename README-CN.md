@@ -10,8 +10,7 @@
 ## 功能特色
 
 - 100% Rust安全编码;
-- 基于 [tokio](https://crates.io/crates/tokio), [ntex](https://crates.io/crates/ntex)
-  , [ntex-mqtt](https://crates.io/crates/ntex-mqtt) 开发;
+- 基于 [tokio](https://crates.io/crates/tokio) 开发;
 - 支持MQTT v3.1,v3.1.1 及 v5.0协议;
     - QoS0, QoS1, QoS2 消息支持;
     - 离线消息支持;
@@ -117,7 +116,6 @@ curl "http://127.0.0.1:6066/api/v1/health/check"
 #### paho.mqtt.testing(MQTT V3.1.1) [client_test.py](https://github.com/eclipse/paho.mqtt.testing/blob/master/interoperability/client_test.py)
 
 * client_test.py Test.test_retained_messages          [OK]
-  * 需要开启"rmqtt-retainer"插件
 * client_test.py Test.test_zero_length_clientid       [OK]
 * client_test.py Test.will_message_test               [OK]
 * client_test.py Test.test_zero_length_clientid       [OK]
@@ -128,12 +126,11 @@ curl "http://127.0.0.1:6066/api/v1/health/check"
 * client_test.py Test.test_dollar_topics              [OK]
 * client_test.py Test.test_unsubscribe                [OK]
 * client_test.py Test.test_subscribe_failure          [OK]  
-   需要修改rmqtt-acl.toml配置，在第一行添加：["deny", "all", "subscribe", ["test/nosubscribe"]],
+  * 需要修改rmqtt-acl.toml配置，在第一行添加：["deny", "all", "subscribe", ["test/nosubscribe"]]
 
 #### paho.mqtt.testing(MQTT V5.0) [client_test5.py](https://github.com/eclipse/paho.mqtt.testing/blob/master/interoperability/client_test5.py)
 
 * client_test5.py Test.test_retained_message            [OK]
-  * 需要开启"rmqtt-retainer"插件
 * client_test5.py Test.test_will_message                [OK]
 * client_test5.py Test.test_offline_message_queueing    [OK]
 * client_test5.py Test.test_dollar_topics               [OK]
@@ -161,12 +158,8 @@ curl "http://127.0.0.1:6066/api/v1/health/check"
 * client_test5.py Test.test_server_keep_alive           [OK]
   * 需要修改rmqtt.toml配置，将max_keepalive改为60
 * client_test5.py Test.test_subscribe_failure           [OK]
-  * 需要修改rmqtt-acl.toml配置，在第一行添加：["deny", "all", "subscribe", ["test/nosubscribe"]],
-同时修改client_test5.py的test_subscribe_failure()方法中的0x80为0x87。
-因为rmqtt返回错误码是0x87, 而test_subscribe_failure要求返回0x80。
-UnspecifiedError = 0x80, NotAuthorized = 0x87。
+  * 需要修改rmqtt-acl.toml配置，在第一行添加：["deny", "all", "subscribe", ["test/nosubscribe"]]
 
-注意：运行测试用例前请关闭"rmqtt-message-storage"插件。
 
 ### 基准测试
 
