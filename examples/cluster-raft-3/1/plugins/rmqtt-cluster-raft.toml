@@ -21,7 +21,7 @@ task_exec_queue_workers = 501
 task_exec_queue_max = 100_001
 
 #algorithm used to compress the snapshot, value: lz4,zlib,zstd,snappy
-#compression = "zstd"
+compression = "zstd"
 
 raft.grpc_timeout = "6s"
 raft.grpc_concurrency_limit = 200
