@@ -342,6 +342,7 @@ impl InInflight {
 
     #[inline]
     pub(crate) fn remove(&mut self, pid: &NonZeroU16) -> bool {
+        #[allow(clippy::needless_bool)]
         if self.cached.remove(pid) {
             #[cfg(feature = "stats")]
             self.scx.stats.in_inflights.dec();

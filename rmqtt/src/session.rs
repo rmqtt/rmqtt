@@ -851,7 +851,7 @@ impl SessionState {
                         None
                     };
                 #[cfg(not(feature = "retain"))]
-                let message_expiry_interval = if message_storage_available || (p.retain && false) {
+                let message_expiry_interval = if message_storage_available {
                     Some(self.fitter.message_expiry_interval(&p))
                 } else {
                     None
