@@ -19,7 +19,7 @@
 //! use rmqtt_utils::{Bytesize, NodeAddr, to_bytesize, to_duration, format_timestamp_now};
 //!
 //! // Byte size parsing
-//! let size = Bytesize::from("2G512M");
+//! let size = Bytesize::try_from("2G512M").unwrap();
 //! assert_eq!(size.as_usize(), 2_684_354_560);
 //!
 //! // Duration conversion
@@ -51,7 +51,7 @@
 //! };
 //!
 //! // Parse byte size from string
-//! let size = Bytesize::from("2G512M");
+//! let size = Bytesize::try_from("2G512M");
 //!
 //! // Convert duration string
 //! let duration = to_duration("1h30m15s");
@@ -107,7 +107,7 @@ const BYTESIZE_G: usize = 1073741824;
 /// use rmqtt_utils::Bytesize;
 ///
 /// // Create from string
-/// let size = Bytesize::from("2G512M");
+/// let size = Bytesize::try_from("2G512M").unwrap();
 /// assert_eq!(size.as_usize(), 2_684_354_560);
 ///
 /// // Create from integer
@@ -214,9 +214,18 @@ impl From<usize> for Bytesize {
     }
 }
 
-impl From<&str> for Bytesize {
-    fn from(v: &str) -> Self {
-        Bytesize(to_bytesize(v))
+impl TryFrom<&str> for Bytesize {
+    type Error = ParseSizeError;
+    fn try_from(v: &str) -> Result<Self, Self::Error> {
+        let value = to_bytesize(v)?;
+        Ok(Bytesize(value))
+    }
+}
+
+impl FromStr for Bytesize {
+    type Err = ParseSizeError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Bytesize(to_bytesize(s)?))
     }
 }
 
@@ -224,6 +233,12 @@ impl fmt::Debug for Bytesize {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.string())?;
         Ok(())
+    }
+}
+
+impl fmt::Display for Bytesize {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.string())
     }
 }
 
@@ -243,7 +258,7 @@ impl<'de> Deserialize<'de> for Bytesize {
     where
         D: Deserializer<'de>,
     {
-        let v = to_bytesize(&String::deserialize(deserializer)?);
+        let v = to_bytesize(&String::deserialize(deserializer)?).map_err(de::Error::custom)?;
         Ok(Bytesize(v))
     }
 }
@@ -253,35 +268,50 @@ impl<'de> Deserialize<'de> for Bytesize {
 /// # Example:
 /// ```
 /// let bytes = rmqtt_utils::to_bytesize("2G512K");
-/// assert_eq!(bytes, 2148007936);
+/// assert_eq!(bytes, Ok(2148007936));
 ///
 /// let complex = rmqtt_utils::to_bytesize("1G500M256K1024B");
-/// assert_eq!(complex, 1598292992);
+/// assert_eq!(complex, Ok(1598292992));
 /// ```
 #[inline]
-pub fn to_bytesize(text: &str) -> usize {
+pub fn to_bytesize(text: &str) -> Result<usize, ParseSizeError> {
     let text = text.to_uppercase().replace("GB", "G").replace("MB", "M").replace("KB", "K");
     text.split_inclusive(['G', 'M', 'K', 'B'])
         .map(|x| {
             let mut chars = x.chars();
-            let u = match chars.nth_back(0) {
-                None => return 0,
-                Some(u) => u,
-            };
-            let v = match chars.as_str().parse::<usize>() {
-                Err(_e) => return 0,
-                Ok(v) => v,
-            };
+            let u = chars.nth_back(0).ok_or(ParseSizeError::InvalidFormat)?;
+            let num_str = chars.as_str();
+            let v =
+                num_str.parse::<usize>().map_err(|_| ParseSizeError::InvalidNumber(num_str.to_string()))?;
             match u {
-                'B' => v,
-                'K' => v * BYTESIZE_K,
-                'M' => v * BYTESIZE_M,
-                'G' => v * BYTESIZE_G,
-                _ => 0,
+                'B' => Ok(v),
+                'K' => Ok(v * BYTESIZE_K),
+                'M' => Ok(v * BYTESIZE_M),
+                'G' => Ok(v * BYTESIZE_G),
+                _ => Err(ParseSizeError::InvalidUnit(u)),
             }
         })
         .sum()
 }
+
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub enum ParseSizeError {
+    InvalidFormat,
+    InvalidNumber(String),
+    InvalidUnit(char),
+}
+
+impl std::fmt::Display for ParseSizeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::InvalidFormat => write!(f, "invalid size format"),
+            Self::InvalidNumber(s) => write!(f, "invalid number: '{}'", s),
+            Self::InvalidUnit(c) => write!(f, "invalid unit: '{}'", c),
+        }
+    }
+}
+
+impl std::error::Error for ParseSizeError {}
 
 /// Deserialize Duration from human-readable string format
 #[inline]
@@ -310,7 +340,7 @@ where
 /// Convert human-readable duration string to Duration
 ///
 /// # Supported units:
-/// - Y: milliseconds (e.g. "100Y" = 100ms)
+/// - ms: milliseconds
 /// - s: seconds
 /// - m: minutes
 /// - h: hours
