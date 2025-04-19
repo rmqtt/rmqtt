@@ -181,6 +181,7 @@ impl std::convert::TryFrom<&serde_json::Value> for Rule {
 }
 
 #[derive(Default, Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Action {
     #[default]
     All,
