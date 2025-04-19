@@ -1,6 +1,6 @@
 [package]
 name = "rmqtt-net"
-version = "0.1.0"
+version = "0.1.1"
 description = "Basic Implementation of MQTT Server"
 edition.workspace = true
 license.workspace = true
@@ -41,4 +41,5 @@ rustls = { workspace = true, features = ["aws-lc-rs", "logging", "std", "tls12"]
 rustls = { workspace = true, features = ["ring", "logging", "std", "tls12"], optional = true }
 
 [dev-dependencies]
-env_logger = "0.11"
+simple_logger = "5"
+tokio = { workspace = true,  features = ["full"] }

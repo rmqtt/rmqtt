@@ -1,6 +1,6 @@
 [package]
 name = "rmqtt-codec"
-version = "0.1.0"
+version = "0.1.1"
 description = "MQTT protocol codec implementation with multi-version support and version negotiation"
 edition.workspace = true
 license.workspace = true
