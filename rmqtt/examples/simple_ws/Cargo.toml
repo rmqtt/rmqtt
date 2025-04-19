@@ -5,7 +5,7 @@ edition.workspace = true
 
 [dependencies]
 rmqtt = { workspace = true, features = ["ws"] }
-tokio = { workspace = true, features = ["macros"] }
-simple_logger.workspace = true
-log.workspace = true
+tokio = { version = "1", features = ["full"] }
+simple_logger = "5"
+log = "0.4"
 

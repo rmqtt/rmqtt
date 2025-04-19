@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::Duration;
 
 use once_cell::sync::Lazy;
+use simple_logger::SimpleLogger;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::time::sleep;
 
@@ -18,8 +19,7 @@ use rmqtt_net::{
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    std::env::set_var("RUST_LOG", "server=debug,rmqtt_net=debug,rmqtt_codec=debug");
-    env_logger::init();
+    SimpleLogger::new().with_level(log::LevelFilter::Info).init()?;
 
     let tcp_listener =
         Builder::new().name("external/tcp").laddr(([0, 0, 0, 0], 1883).into()).bind()?.tcp()?;

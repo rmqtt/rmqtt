@@ -1,13 +1,9 @@
-use log::LevelFilter;
+use rmqtt::{context::ServerContext, net::Builder, server::MqttServer, Result};
 use simple_logger::SimpleLogger;
-
-use rmqtt::context::ServerContext;
-use rmqtt::net::{Builder, Result};
-use rmqtt::server::MqttServer;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    SimpleLogger::new().with_level(LevelFilter::Info).init()?;
+    SimpleLogger::new().with_level(log::LevelFilter::Info).init()?;
 
     let scx = ServerContext::new().plugins_dir("rmqtt-plugins/").build().await;
 
@@ -15,6 +11,7 @@ async fn main() -> Result<()> {
     // rmqtt_auth_http::register(&scx, "rmqtt-auth-http", true, false).await?;
     rmqtt_retainer::register(&scx, "rmqtt-retainer", true, false).await?;
     rmqtt_http_api::register(&scx, "rmqtt-http-api", true, false).await?;
+    rmqtt_web_hook::register(&scx, "rmqtt-web-hook", true, false).await?;
     // rmqtt_auth_jwt::register(&scx, "rmqtt-auth-jwt", true, false).await?;
     // rmqtt_counter::register(&scx, "rmqtt-counter", true, false).await?;
     // rmqtt_bridge_egress_kafka::register(&scx, "rmqtt-bridge-egress-kafka", true, false).await?;
