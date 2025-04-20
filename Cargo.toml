@@ -45,7 +45,7 @@ rmqtt-bridge-egress-nats = { path = "rmqtt-plugins/rmqtt-bridge-egress-nats"}
 rmqtt-bridge-egress-reductstore = { path = "rmqtt-plugins/rmqtt-bridge-egress-reductstore"}
 
 [workspace.package]
-version = "0.15.0-beta.3"
+version = "0.15.0-beta.4"
 edition = "2021"
 authors = ["rmqtt <rmqttd@126.com>"]
 description = "MQTT Server for v3.1, v3.1.1 and v5.0 protocols"
@@ -58,7 +58,7 @@ rust-version = "1.81.0"
 
 
 [workspace.dependencies]
-rmqtt = "0.15.0-beta.3"
+rmqtt = "0.15.0-beta.4"
 rmqtt-codec = "0.1"
 rmqtt-net = "0.1"
 rmqtt-conf = "0.1"
