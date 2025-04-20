@@ -2,6 +2,7 @@
 name = "rmqtt-topic-rewrite"
 version = "0.1.0"
 description = "Some legacy IoT devices can't change MQTT topics. RMQTT's topic rewriting auto-maps topics during subscribe, unsubscribe, or publish."
+repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-topic-rewrite"
 edition.workspace = true
 authors.workspace = true
 rust-version.workspace = true

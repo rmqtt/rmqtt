@@ -2,10 +2,10 @@
 name = "rmqtt-codec"
 version = "0.1.1"
 description = "MQTT protocol codec implementation with multi-version support and version negotiation"
+repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-codec"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-repository.workspace = true
 exclude.workspace = true
 rust-version.workspace = true
 
