@@ -1,6 +1,7 @@
 [package]
 name = "rmqtt-web-hook"
 version = "0.1.2"
+description = "This enables RMQTT to send hook event notifications to a web service."
 edition.workspace = true
 authors.workspace = true
 rust-version.workspace = true

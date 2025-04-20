@@ -1,6 +1,7 @@
 [package]
 name = "rmqtt-acl"
 version = "0.1.1"
+description = "The built-in ACL uses file-based rules, making it simple and lightweight—ideal for projects with stable or few rule changes."
 edition.workspace = true
 authors.workspace = true
 rust-version.workspace = true

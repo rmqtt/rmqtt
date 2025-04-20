@@ -1,6 +1,7 @@
 [package]
 name = "rmqtt-session-storage"
 version = "0.1.0"
+description = "Connection information, subscription relationships, offline messages, and inflight messages will be stored."
 edition.workspace = true
 authors.workspace = true
 rust-version.workspace = true

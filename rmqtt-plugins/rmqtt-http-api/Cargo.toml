@@ -1,6 +1,7 @@
 [package]
 name = "rmqtt-http-api"
 version = "0.1.1"
+description = "This plugin provides HTTP APIs for integration with external systems, enabling operations like querying client information and publishing messages."
 edition.workspace = true
 authors.workspace = true
 rust-version.workspace = true

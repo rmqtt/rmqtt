@@ -1,6 +1,7 @@
 [package]
 name = "rmqtt-auth-jwt"
 version = "0.1.0"
+description = "JWT is a token-based auth method that removes the need for server-side credential storage. RMQTT supports JWT-based user authentication."
 edition.workspace = true
 authors.workspace = true
 rust-version.workspace = true

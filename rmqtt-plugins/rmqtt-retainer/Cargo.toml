@@ -1,6 +1,7 @@
 [package]
 name = "rmqtt-retainer"
 version = "0.1.0"
+description = "When a client publishes with the retain flag, the message is saved and sent to future subscribers matching the topic."
 edition.workspace = true
 authors.workspace = true
 rust-version.workspace = true

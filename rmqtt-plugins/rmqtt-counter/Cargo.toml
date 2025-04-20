@@ -1,6 +1,7 @@
 [package]
 name = "rmqtt-counter"
 version = "0.1.0"
+description = "This plugin collects key MQTT server metrics, enhancing observability and operational insight."
 edition.workspace = true
 authors.workspace = true
 rust-version.workspace = true

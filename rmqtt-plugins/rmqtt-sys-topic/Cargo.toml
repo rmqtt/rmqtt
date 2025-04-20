@@ -1,6 +1,7 @@
 [package]
 name = "rmqtt-sys-topic"
 version = "0.1.0"
+description = "RMQTT periodically publishes its own operational status, message statistics, and client online/offline events to system topics starting with $SYS/."
 edition.workspace = true
 authors.workspace = true
 rust-version.workspace = true

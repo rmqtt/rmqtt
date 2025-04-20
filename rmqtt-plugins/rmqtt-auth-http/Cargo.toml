@@ -1,6 +1,7 @@
 [package]
 name = "rmqtt-auth-http"
 version = "0.1.2"
+description = "HTTP authentication uses a custom HTTP API as the data source, enabling flexible and complex auth logic based on its responses."
 edition.workspace = true
 authors.workspace = true
 rust-version.workspace = true
