@@ -2,10 +2,10 @@
 name = "rmqtt-macros"
 version = "0.1.1"
 description = "Procedural Macro Utilities"
+repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-macros"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-repository.workspace = true
 exclude.workspace = true
 rust-version.workspace = true
 

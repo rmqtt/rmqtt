@@ -2,6 +2,7 @@
 name = "rmqtt-bridge-ingress-mqtt"
 version = "0.1.0"
 description = "Bridge remote MQTT in ingress mode."
+repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-bridge-ingress-mqtt"
 edition.workspace = true
 authors.workspace = true
 rust-version.workspace = true
