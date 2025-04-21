@@ -36,6 +36,19 @@ pub struct PluginConfig {
 
     pub node_grpc_addrs: Vec<NodeAddr>,
 
+    #[serde(default = "PluginConfig::grpc_client_concurrency_limit_default")]
+    pub node_grpc_client_concurrency_limit: usize,
+
+    #[serde(
+        default = "PluginConfig::grpc_client_timeout_default",
+        deserialize_with = "deserialize_duration"
+    )]
+    pub node_grpc_client_timeout: Duration,
+
+    //#Maximum number of messages sent in batch
+    #[serde(default = "PluginConfig::grpc_batch_size_default")]
+    pub node_grpc_batch_size: usize,
+
     pub raft_peer_addrs: Vec<NodeAddr>,
 
     #[serde(default)]
@@ -105,6 +118,17 @@ impl PluginConfig {
 
     fn raft_default() -> RaftConfig {
         RaftConfig { ..Default::default() }
+    }
+
+    fn grpc_client_concurrency_limit_default() -> usize {
+        128
+    }
+    fn grpc_client_timeout_default() -> Duration {
+        Duration::from_secs(60)
+    }
+
+    fn grpc_batch_size_default() -> usize {
+        128
     }
 
     pub fn merge(&mut self, opts: &CommandArgs) {

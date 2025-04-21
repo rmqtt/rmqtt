@@ -68,9 +68,9 @@ impl ClusterPlugin {
         log::info!("node_grpc_addrs: {:?}", node_grpc_addrs);
         for node_addr in &node_grpc_addrs {
             if node_addr.id != scx.node.id() {
-                let batch_size = 128;
-                let client_concurrency_limit = 128;
-                let client_timeout = Duration::from_secs(10);
+                let batch_size = cfg.node_grpc_batch_size;
+                let client_concurrency_limit = cfg.node_grpc_client_concurrency_limit;
+                let client_timeout = cfg.node_grpc_client_timeout;
                 grpc_clients.insert(
                     node_addr.id,
                     (
@@ -98,6 +98,7 @@ impl ClusterPlugin {
             cfg.message_type,
             cfg.task_exec_queue_max,
             cfg.task_exec_queue_workers,
+            cfg.node_grpc_client_timeout,
         );
         let raft_mailbox = None;
         let cfg = Arc::new(cfg);

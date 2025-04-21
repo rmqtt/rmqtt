@@ -289,9 +289,11 @@ pub struct ClusterShared {
     pub(crate) message_type: MessageType,
     exec_queue_busy_limit: isize,
     exec_queue_workers_busy_limit: isize,
+    rw_timeout: Duration,
 }
 
 impl ClusterShared {
+    #[allow(clippy::too_many_arguments)]
     #[inline]
     pub(crate) fn new(
         scx: ServerContext,
@@ -301,6 +303,7 @@ impl ClusterShared {
         message_type: MessageType,
         exec_queue_max: usize,
         exec_queue_workers: usize,
+        rw_timeout: Duration,
     ) -> ClusterShared {
         let scx1 = scx.clone();
         Self {
@@ -312,6 +315,7 @@ impl ClusterShared {
             message_type,
             exec_queue_busy_limit: (exec_queue_max as f64 * 0.7) as isize,
             exec_queue_workers_busy_limit: (exec_queue_workers as f64 * 0.9) as isize,
+            rw_timeout,
         }
     }
 
@@ -368,6 +372,7 @@ impl Shared for ClusterShared {
         }
         if !relations_map.is_empty() {
             log::debug!("forwards to other nodes, relations_map:{:?}", relations_map);
+            let rw_timeout = self.rw_timeout;
             //forwards to other nodes
             let mut fut_senders = Vec::new();
             for (node_id, relations) in relations_map {
@@ -380,7 +385,7 @@ impl Shared for ClusterShared {
                             client,
                             message_type,
                             Message::ForwardsTo(from, publish, relations),
-                            Some(Duration::from_secs(10)),
+                            Some(rw_timeout),
                         );
                         (node_id, msg_sender.send().await)
                     };
