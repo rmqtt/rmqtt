@@ -8,6 +8,13 @@ message_type = 198
 # Each entry contains the node ID (e.g., 1, 2, 3) followed by the corresponding IP address and port.
 # These addresses are used for communication between the nodes using gRPC.
 node_grpc_addrs = ["1@127.0.0.1:5363", "2@127.0.0.1:5364", "3@127.0.0.1:5365"]
+#Maximum number of messages sent in batch
+node_grpc_batch_size = 128
+##Client concurrent request limit
+node_grpc_client_concurrency_limit = 128
+##Connect and send to server timeout
+node_grpc_client_timeout = "60s"
+
 # The list of Raft peer addresses for the nodes in the cluster.
 # Each entry contains the node ID and the corresponding IP address and port for Raft consensus communication.
 # These addresses are used by the Raft protocol to maintain consistency and coordination across the nodes.
