@@ -50,13 +50,12 @@
 //! Note: All message types below 1000 are reserved for internal use.
 //!
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicIsize, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use futures::FutureExt;
 use futures::StreamExt;
-use once_cell::sync::Lazy;
 use rust_box::handy_grpc::client::Mailbox;
 use rust_box::handy_grpc::{
     client::Client,
@@ -74,6 +73,7 @@ use crate::types::{
 };
 use crate::Result;
 
+#[derive(Clone)]
 pub struct GrpcServer {
     scx: ServerContext,
 }
@@ -84,7 +84,7 @@ impl GrpcServer {
     }
 
     pub async fn listen_and_serve(
-        mut self,
+        self,
         server_laddr: SocketAddr,
         reuseaddr: bool,
         reuseport: bool,
@@ -93,12 +93,15 @@ impl GrpcServer {
             let (tx, mut rx) = channel::<Priority, GrpcMessage>(100_000);
             let recv_data_fut = async move {
                 while let Some((_, (data, reply_tx))) = rx.next().await {
-                    let reply = self.on_recv_message(data).await;
-                    if let Some(reply_tx) = reply_tx {
-                        if let Err(e) = reply_tx.send(reply.map(|r| r.unwrap_or_default())) {
-                            log::warn!("gRPC send result failure, {:?}", e);
+                    let s = self.clone();
+                    tokio::spawn(async move {
+                        let reply = s.on_recv_message(data).await;
+                        if let Some(reply_tx) = reply_tx {
+                            if let Err(e) = reply_tx.send(reply.map(|r| r.unwrap_or_default())) {
+                                log::warn!("gRPC send result failure, {:?}", e);
+                            }
                         }
-                    }
+                    });
                 }
                 log::error!("Recv None");
             };
@@ -126,11 +129,11 @@ impl GrpcServer {
         Ok(())
     }
 
-    async fn on_recv_message(&mut self, req: Vec<u8>) -> Result<Option<Vec<u8>>> {
+    async fn on_recv_message(&self, req: Vec<u8>) -> Result<Option<Vec<u8>>> {
         let (typ, msg) = Message::decode(&req)?;
-        ACTIVE_REQUEST_COUNT.fetch_add(1, Ordering::SeqCst);
+        self.scx.stats.grpc_server_actives.inc();
         let reply = self.grpc_message_received(typ, msg).await?;
-        ACTIVE_REQUEST_COUNT.fetch_sub(1, Ordering::SeqCst);
+        self.scx.stats.grpc_server_actives.dec();
         Ok(Some(reply.encode()?))
     }
 
@@ -171,15 +174,16 @@ impl GrpcClient {
         client_timeout: Duration,
         client_concurrency_limit: usize,
     ) -> Result<Self> {
-        log::info!("GrpcClient::new server_addr: {}", server_addr);
+        log::info!(
+            "GrpcClient::new server_addr: {}, client_concurrency_limit: {}",
+            server_addr,
+            client_concurrency_limit
+        );
         let mut c = Client::new(server_addr.into())
             .connect_timeout(client_timeout)
             .concurrency_limit(client_concurrency_limit)
             .chunk_size(1024 * 1024 * 2)
-            .build()
-            //.connect()
-            .await;
-        //.map_err(|e| anyhow!(e.to_string()))?;
+            .connect_lazy()?;
         let mailbox = c.transfer_start(100_000).await;
         let active_tasks = Arc::new(AtomicUsize::new(0));
         Ok(Self { inner: c, mailbox, active_tasks })
@@ -228,6 +232,7 @@ impl GrpcClient {
         let req = msg.encode(typ)?;
         let reply = if let Some(timeout) = timeout {
             tokio::time::timeout(timeout, self.inner.send(req)).await??
+            // self.inner.send(req).await?
         } else {
             self.inner.send(req).await?
         };
@@ -403,10 +408,4 @@ impl MessageBroadcaster {
             }
         }
     }
-}
-
-pub static ACTIVE_REQUEST_COUNT: Lazy<Arc<AtomicIsize>> = Lazy::new(|| Arc::new(AtomicIsize::new(0)));
-
-pub fn active_grpc_requests() -> isize {
-    ACTIVE_REQUEST_COUNT.load(Ordering::SeqCst)
 }

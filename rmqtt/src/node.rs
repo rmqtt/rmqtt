@@ -37,6 +37,8 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const RUSTC_VERSION: &str = env!("RUSTC_VERSION");
 
+const RUSTC_BUILD_TIME: &str = env!("RUSTC_BUILD_TIME");
+
 #[derive(Debug)]
 pub struct Node {
     pub id: NodeId,
@@ -85,11 +87,11 @@ impl Node {
     pub async fn new_grpc_client(
         &self,
         remote_addr: &str,
-        client_timeout: Duration,
+        connect_timeout: Duration,
         client_concurrency_limit: usize,
         _batch_size: usize,
     ) -> crate::Result<GrpcClient> {
-        let c = GrpcClient::new(remote_addr, client_timeout, client_concurrency_limit).await?;
+        let c = GrpcClient::new(remote_addr, connect_timeout, client_concurrency_limit).await?;
         // c.start_ping();
         Ok(c)
     }
@@ -144,7 +146,7 @@ impl Node {
     pub async fn broker_info(&self, scx: &ServerContext) -> BrokerInfo {
         let node_id = self.id;
         BrokerInfo {
-            version: VERSION.to_string(),
+            version: format!("rmqtt/{}-{}", VERSION, RUSTC_BUILD_TIME),
             rustc_version: RUSTC_VERSION.to_string(),
             uptime: self.uptime(),
             sysdescr: "RMQTT Broker".into(),
@@ -190,7 +192,7 @@ impl Node {
             node_id,
             node_name: self.name(scx, node_id).await, //Runtime::instance().extends.shared().await.node_name(node_id),
             uptime: self.uptime(),
-            version: VERSION.to_string(),
+            version: format!("rmqtt/{}-{}", VERSION, RUSTC_BUILD_TIME),
             rustc_version: RUSTC_VERSION.to_string(),
         }
     }

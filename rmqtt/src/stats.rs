@@ -74,6 +74,8 @@ pub struct Stats {
     pub message_storages: Counter,
     pub retaineds: Counter,
     pub delayed_publishs: Counter,
+    pub grpc_server_actives: Counter,
+    pub grpc_clients_actives: HashMap<NodeId, usize>,
 
     pub topics_map: HashMap<NodeId, Counter>,
     pub routes_map: HashMap<NodeId, Counter>,
@@ -112,6 +114,8 @@ impl Stats {
             message_storages: Counter::new(),
             retaineds: Counter::new(),
             delayed_publishs: Counter::new(),
+            grpc_server_actives: Counter::new(),
+            grpc_clients_actives: HashMap::default(),
 
             topics_map: HashMap::default(),
             routes_map: HashMap::default(),
@@ -142,6 +146,15 @@ impl Stats {
             let router = scx.extends.router().await;
             topics_map.insert(node_id, router.topics());
             routes_map.insert(node_id, router.routes());
+        }
+
+        let mut grpc_clients_actives = HashMap::default();
+        #[cfg(feature = "grpc")]
+        {
+            let shared = scx.extends.shared().await;
+            for (id, (_, grpc_client)) in shared.get_grpc_clients().iter() {
+                grpc_clients_actives.insert(*id, grpc_client.active_tasks());
+            }
         }
 
         //@TODO
@@ -212,6 +225,8 @@ impl Stats {
             forwards: self.forwards.clone(),
             message_storages: self.message_storages.clone(),
             delayed_publishs: self.delayed_publishs.clone(),
+            grpc_server_actives: self.grpc_server_actives.clone(),
+            grpc_clients_actives,
 
             retaineds,
             topics_map,
@@ -250,6 +265,8 @@ impl Stats {
         self.message_storages.add(&other.message_storages);
         self.retaineds.merge(&other.retaineds);
         self.delayed_publishs.merge(&other.delayed_publishs);
+        self.grpc_server_actives.merge(&other.grpc_server_actives);
+        self.grpc_clients_actives.extend(other.grpc_clients_actives);
 
         self.topics_map.extend(other.topics_map);
         self.routes_map.extend(other.routes_map);
@@ -316,6 +333,9 @@ impl Stats {
             "message_storages.max": self.message_storages.max(),
             "delayed_publishs.count": self.delayed_publishs.count(),
             "delayed_publishs.max": self.delayed_publishs.max(),
+            "grpc_server_actives.count": self.grpc_server_actives.count(),
+            "grpc_server_actives.max": self.grpc_server_actives.max(),
+            "grpc_clients_actives": self.grpc_clients_actives,
 
             "topics.count": topics.count(),
             "topics.max": topics.max(),

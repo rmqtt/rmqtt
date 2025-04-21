@@ -71,4 +71,5 @@ config = { workspace = true, features = ["toml"] }
 
 
 [build-dependencies]
+chrono = { workspace = true, features = ["clock"] }
 rustc_version = "0.4"

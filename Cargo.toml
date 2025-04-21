@@ -84,7 +84,7 @@ rmqtt-session-storage = "0.1"
 rmqtt-sys-topic = "0.1"
 rmqtt-topic-rewrite = "0.1"
 rmqtt-web-hook = "0.1"
-rmqtt-cluster-raft = "0.1"
+rmqtt-cluster-raft = "0.1.2"
 
 
 tokio = { version = "1.44",  default-features = false }
@@ -138,7 +138,7 @@ regex = "=1.11.1"
 backoff = "0.4"
 webpki-roots = "0.26"
 toml = "0.8"
-rust-box = "0.13.1"
+rust-box = "0.14"
 [profile.dev]
 opt-level = 0
 
