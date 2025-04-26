@@ -2,6 +2,9 @@
 ## rmqtt-cluster-raft
 ##--------------------------------------------------------------------
 
+#cluster raft worker threads
+worker_threads = 6
+
 #grpc message type
 message_type = 198
 # The list of gRPC addresses for the nodes in the cluster.
