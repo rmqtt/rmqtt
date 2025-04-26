@@ -50,7 +50,6 @@
 //! Note: All message types below 1000 are reserved for internal use.
 //!
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -71,6 +70,7 @@ use crate::types::{
     OfflineSession, Publish, Retain, Route, SessionStatus, SharedGroup, SubRelations, SubRelationsMap,
     SubsSearchParams, SubsSearchResult, SubscriptionClientIds, TopicFilter, TopicName,
 };
+use crate::utils::Counter;
 use crate::Result;
 
 #[derive(Clone)]
@@ -90,18 +90,21 @@ impl GrpcServer {
         reuseport: bool,
     ) -> Result<()> {
         let runner = async move {
-            let (tx, mut rx) = channel::<Priority, GrpcMessage>(100_000);
+            let (tx, mut rx) = channel::<Priority, GrpcMessage>(300_000);
             let recv_data_fut = async move {
                 while let Some((_, (data, reply_tx))) = rx.next().await {
+                    self.scx.stats.grpc_server_actives.inc();
                     let s = self.clone();
-                    tokio::spawn(async move {
+                    let recv_fut = async move {
                         let reply = s.on_recv_message(data).await;
                         if let Some(reply_tx) = reply_tx {
                             if let Err(e) = reply_tx.send(reply.map(|r| r.unwrap_or_default())) {
                                 log::warn!("gRPC send result failure, {:?}", e);
                             }
                         }
-                    });
+                        s.scx.stats.grpc_server_actives.dec();
+                    };
+                    let _ = self.scx.global_exec.spawn(recv_fut).await;
                 }
                 log::error!("Recv None");
             };
@@ -131,9 +134,9 @@ impl GrpcServer {
 
     async fn on_recv_message(&self, req: Vec<u8>) -> Result<Option<Vec<u8>>> {
         let (typ, msg) = Message::decode(&req)?;
-        self.scx.stats.grpc_server_actives.inc();
+        // self.scx.stats.grpc_server_actives.inc();
         let reply = self.grpc_message_received(typ, msg).await?;
-        self.scx.stats.grpc_server_actives.dec();
+        // self.scx.stats.grpc_server_actives.dec();
         Ok(Some(reply.encode()?))
     }
 
@@ -163,7 +166,8 @@ pub type GrpcClients = Arc<HashMap<NodeId, (Addr, GrpcClient)>>;
 pub struct GrpcClient {
     inner: Client,
     mailbox: Mailbox,
-    active_tasks: Arc<AtomicUsize>,
+    //active_tasks: Arc<AtomicUsize>,
+    active_tasks: Arc<Counter>,
 }
 
 impl GrpcClient {
@@ -185,7 +189,7 @@ impl GrpcClient {
             .chunk_size(1024 * 1024 * 2)
             .connect_lazy()?;
         let mailbox = c.transfer_start(100_000).await;
-        let active_tasks = Arc::new(AtomicUsize::new(0));
+        let active_tasks = Arc::new(Counter::new()); //Arc::new(AtomicUsize::new(0));
         Ok(Self { inner: c, mailbox, active_tasks })
     }
 
@@ -195,13 +199,14 @@ impl GrpcClient {
     }
 
     #[inline]
-    pub fn active_tasks(&self) -> usize {
-        self.active_tasks.load(Ordering::SeqCst)
+    pub fn active_tasks(&self) -> &Counter {
+        //self.active_tasks.load(Ordering::SeqCst)
+        self.active_tasks.as_ref()
     }
 
     #[inline]
     pub fn channel_tasks(&self) -> usize {
-        0 //@TODO ...
+        self.mailbox.queue_len() //@TODO ...
     }
 
     #[inline]
@@ -216,9 +221,9 @@ impl GrpcClient {
         msg: Message,
         timeout: Option<Duration>,
     ) -> Result<MessageReply> {
-        self.active_tasks.fetch_add(1, Ordering::SeqCst);
+        self.active_tasks.inc();
         let result = self._send_message(typ, msg, timeout).await;
-        self.active_tasks.fetch_sub(1, Ordering::SeqCst);
+        self.active_tasks.dec();
         result
     }
 
@@ -232,11 +237,28 @@ impl GrpcClient {
         let req = msg.encode(typ)?;
         let reply = if let Some(timeout) = timeout {
             tokio::time::timeout(timeout, self.inner.send(req)).await??
-            // self.inner.send(req).await?
         } else {
             self.inner.send(req).await?
         };
         MessageReply::decode(&reply)
+    }
+
+    #[inline]
+    pub async fn notify(&mut self, typ: MessageType, msg: Message, timeout: Option<Duration>) -> Result<()> {
+        self.active_tasks.inc();
+        let result = self._notify(typ, msg, timeout).await;
+        self.active_tasks.dec();
+        result
+    }
+    #[inline]
+    async fn _notify(&mut self, typ: MessageType, msg: Message, timeout: Option<Duration>) -> Result<()> {
+        let req = msg.encode(typ)?;
+        if let Some(timeout) = timeout {
+            tokio::time::timeout(timeout, self.mailbox.send(req)).await??;
+        } else {
+            self.mailbox.send(req).await?;
+        };
+        Ok(())
     }
 }
 
