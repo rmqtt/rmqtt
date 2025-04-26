@@ -75,7 +75,7 @@ pub struct Stats {
     pub retaineds: Counter,
     pub delayed_publishs: Counter,
     pub grpc_server_actives: Counter,
-    pub grpc_clients_actives: HashMap<NodeId, usize>,
+    pub grpc_clients_actives: HashMap<NodeId, Counter>,
 
     pub topics_map: HashMap<NodeId, Counter>,
     pub routes_map: HashMap<NodeId, Counter>,
@@ -92,8 +92,6 @@ pub struct Stats {
     pub debug_session_channels: Counter,
     #[cfg(feature = "debug")]
     debug_global_exec_stats: Option<TaskExecStats>,
-    // #[cfg(feature = "debug")]
-    // debug_task_local_exec_stats: Option<TaskExecStats>,
 }
 
 impl Stats {
@@ -132,8 +130,6 @@ impl Stats {
             debug_session_channels: Counter::new(),
             #[cfg(feature = "debug")]
             debug_global_exec_stats: None,
-            // #[cfg(feature = "debug")]
-            // debug_task_local_exec_stats: None,
         }
     }
 
@@ -153,7 +149,7 @@ impl Stats {
         {
             let shared = scx.extends.shared().await;
             for (id, (_, grpc_client)) in shared.get_grpc_clients().iter() {
-                grpc_clients_actives.insert(*id, grpc_client.active_tasks());
+                grpc_clients_actives.insert(*id, grpc_client.active_tasks().clone());
             }
         }
 
@@ -208,8 +204,6 @@ impl Stats {
         let debug_subscriptions = shared.subscriptions_count().await;
         #[cfg(feature = "debug")]
         let debug_global_exec_stats = Some(TaskExecStats::from_global_exec(&scx.global_exec).await);
-        // #[cfg(feature = "debug")]
-        // let debug_task_local_exec_stats = Some(TaskExecStats::from_local_exec());
 
         Self {
             handshakings: self.handshakings.clone(),
@@ -244,8 +238,6 @@ impl Stats {
             debug_session_channels: self.debug_session_channels.clone(),
             #[cfg(feature = "debug")]
             debug_global_exec_stats,
-            // #[cfg(feature = "debug")]
-            // debug_task_local_exec_stats,
         }
     }
 
@@ -286,14 +278,6 @@ impl Stats {
                     self.debug_global_exec_stats.replace(other.clone());
                 }
             }
-
-            // if let Some(other) = other.debug_task_local_exec_stats.as_ref() {
-            //     if let Some(stats) = self.debug_task_local_exec_stats.as_mut() {
-            //         stats.add(other);
-            //     } else {
-            //         self.debug_task_local_exec_stats.replace(other.clone());
-            //     }
-            // }
         }
     }
 
@@ -303,6 +287,11 @@ impl Stats {
         let router = scx.extends.router().await;
         let topics = router.merge_topics(&self.topics_map);
         let routes = router.merge_routes(&self.routes_map);
+
+        let grpc_clients_actives = Counter::new();
+        for (_, c) in self.grpc_clients_actives.iter() {
+            grpc_clients_actives.add(c);
+        }
 
         let mut json_val = json!({
             "handshakings.count": self.handshakings.count(),
@@ -335,7 +324,8 @@ impl Stats {
             "delayed_publishs.max": self.delayed_publishs.max(),
             "grpc_server_actives.count": self.grpc_server_actives.count(),
             "grpc_server_actives.max": self.grpc_server_actives.max(),
-            "grpc_clients_actives": self.grpc_clients_actives,
+            "grpc_clients_actives.count": grpc_clients_actives.count(),
+            "grpc_clients_actives.max": grpc_clients_actives.max(),
 
             "topics.count": topics.count(),
             "topics.max": topics.max(),
@@ -346,6 +336,7 @@ impl Stats {
         #[cfg(feature = "debug")]
         {
             if let Some(obj) = json_val.as_object_mut() {
+                obj.insert("debug_grpc_clients_actives".into(), json!(self.grpc_clients_actives));
                 obj.insert("debug_client_states_map".into(), json!(self.debug_client_states_map));
                 obj.insert("debug_topics_tree_map".into(), json!(self.debug_topics_tree_map));
                 obj.insert("debug_shared_peers.count".into(), json!(self.debug_shared_peers.count()));
@@ -353,7 +344,6 @@ impl Stats {
                 obj.insert("debug_session_channels.count".into(), json!(self.debug_session_channels.count()));
                 obj.insert("debug_session_channels.max".into(), json!(self.debug_session_channels.max()));
                 obj.insert("debug_global_exec_stats".into(), json!(self.debug_global_exec_stats));
-                // obj.insert("debug_task_local_exec_stats".into(), json!(self.debug_task_local_exec_stats));
             }
         }
 
