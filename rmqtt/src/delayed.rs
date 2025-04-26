@@ -165,6 +165,7 @@ impl DelayedSender for DefaultDelayedSender {
         let mut msgs = self.msgs.write().await;
         if msgs.len() < self.context().mqtt_delayed_publish_max {
             msgs.push(DelayedPublish::new(from, publish, message_storage_available, message_expiry_interval));
+            #[cfg(feature = "stats")]
             self.context().stats.delayed_publishs.max_max(msgs.len() as isize);
             Ok(None)
         } else {

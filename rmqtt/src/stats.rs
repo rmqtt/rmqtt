@@ -144,6 +144,7 @@ impl Stats {
             routes_map.insert(node_id, router.routes());
         }
 
+        #[allow(unused_mut)]
         let mut grpc_clients_actives = HashMap::default();
         #[cfg(feature = "grpc")]
         {

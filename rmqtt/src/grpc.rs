@@ -93,6 +93,7 @@ impl GrpcServer {
             let (tx, mut rx) = channel::<Priority, GrpcMessage>(300_000);
             let recv_data_fut = async move {
                 while let Some((_, (data, reply_tx))) = rx.next().await {
+                    #[cfg(feature = "stats")]
                     self.scx.stats.grpc_server_actives.inc();
                     let s = self.clone();
                     let recv_fut = async move {
@@ -102,6 +103,7 @@ impl GrpcServer {
                                 log::warn!("gRPC send result failure, {:?}", e);
                             }
                         }
+                        #[cfg(feature = "stats")]
                         s.scx.stats.grpc_server_actives.dec();
                     };
                     let _ = self.scx.global_exec.spawn(recv_fut).await;
