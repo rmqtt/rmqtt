@@ -376,18 +376,17 @@ impl Shared for ClusterShared {
             //forwards to other nodes
             let mut fut_senders = Vec::new();
             for (node_id, relations) in relations_map {
-                if let Some(client) = self.grpc_client(node_id) {
+                if let Some(mut client) = self.grpc_client(node_id) {
                     let from = from.clone();
                     let publish = publish.clone();
                     let message_type = self.message_type;
                     let fut_sender = async move {
-                        let msg_sender = MessageSender::new(
-                            client,
+                        let msg_sender = client.notify(
                             message_type,
                             Message::ForwardsTo(from, publish, relations),
                             Some(rw_timeout),
                         );
-                        (node_id, msg_sender.send().await)
+                        (node_id, msg_sender.await)
                     };
                     fut_senders.push(fut_sender.boxed());
                 } else {
