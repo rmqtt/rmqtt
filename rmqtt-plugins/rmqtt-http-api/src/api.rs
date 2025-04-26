@@ -172,175 +172,175 @@ async fn list_apis(res: &mut Response) {
         {
             "name": "get_brokers",
             "method": "GET",
-            "path": "/brokers/{node}",
+            "path": "/api/v1/brokers/{node}",
             "descr": "Return the basic information of all nodes in the cluster"
         },
         {
             "name": "get_nodes",
             "method": "GET",
-            "path": "/nodes/{node}",
+            "path": "/api/v1/nodes/{node}",
             "descr": "Returns the status of the node"
         },
         {
             "name": "check_health",
             "method": "GET",
-            "path": "/health/check",
+            "path": "/api/v1/health/check",
             "descr": "Node health check"
         },
         {
             "name": "search_clients",
             "method": "GET",
-            "path": "/clients/",
+            "path": "/api/v1/clients/",
             "descr": "Search clients information from the cluster"
         },
         {
             "name": "get_client",
             "method": "GET",
-            "path": "/clients/{clientid}",
+            "path": "/api/v1/clients/{clientid}",
             "descr": "Get client information from the cluster"
         },
         {
             "name": "kick_client",
             "method": "DELETE",
-            "path": "/clients/{clientid}",
+            "path": "/api/v1/clients/{clientid}",
             "descr": "Kick client from the cluster"
         },
         {
             "name": "check_online",
             "method": "GET",
-            "path": "/clients/{clientid}/online",
+            "path": "/api/v1/clients/{clientid}/online",
             "descr": "Check a client whether online from the cluster"
         },
         {
             "name": "search_offlines",
             "method": "GET",
-            "path": "/clients/offlines",
+            "path": "/api/v1/clients/offlines",
             "descr": "Search offlines clients information from the cluster"
         },
         {
             "name": "kick_offlines",
             "method": "DELETE",
-            "path": "/clients/offlines",
+            "path": "/api/v1/clients/offlines",
             "descr": "Kick offlines clients from the cluster"
         },
         {
             "name": "query_subscriptions",
             "method": "GET",
-            "path": "/subscriptions",
+            "path": "/api/v1/subscriptions",
             "descr": "Query subscriptions information from the cluster"
         },
         {
             "name": "get_client_subscriptions",
             "method": "GET",
-            "path": "/subscriptions/{clientid}",
+            "path": "/api/v1/subscriptions/{clientid}",
             "descr": "Get subscriptions information for the client from the cluster"
         },
 
         {
             "name": "get_routes",
             "method": "GET",
-            "path": "/routes",
+            "path": "/api/v1/routes",
             "descr": "Return all routing information from the cluster"
         },
         {
             "name": "get_route",
             "method": "GET",
-            "path": "/routes/{topic}",
+            "path": "/api/v1/routes/{topic}",
             "descr": "Get routing information from the cluster"
         },
 
         {
             "name": "publish",
             "method": "POST",
-            "path": "/mqtt/publish",
+            "path": "/api/v1/mqtt/publish",
             "descr": "Publish MQTT message"
         },
         {
             "name": "subscribe",
             "method": "POST",
-            "path": "/mqtt/subscribe",
+            "path": "/api/v1/mqtt/subscribe",
             "descr": "Subscribe to MQTT topic"
         },
         {
             "name": "unsubscribe",
             "method": "POST",
-            "path": "/mqtt/unsubscribe",
+            "path": "/api/v1/mqtt/unsubscribe",
             "descr": "Unsubscribe"
         },
 
         {
             "name": "all_plugins",
             "method": "GET",
-            "path": "/plugins/",
+            "path": "/api/v1/plugins/",
             "descr": "Returns information of all plugins in the cluster"
         },
         {
             "name": "node_plugins",
             "method": "GET",
-            "path": "/plugins/{node}",
+            "path": "/api/v1/plugins/{node}",
             "descr": "Similar with GET /api/v1/plugins, return the plugin information under the specified node"
         },
         {
             "name": "node_plugin_info",
             "method": "GET",
-            "path": "/plugins/{node}/{plugin}",
+            "path": "/api/v1/plugins/{node}/{plugin}",
             "descr": "Get a plugin info"
         },
         {
             "name": "node_plugin_config",
             "method": "GET",
-            "path": "/plugins/{node}/{plugin}/config",
+            "path": "/api/v1/plugins/{node}/{plugin}/config",
             "descr": "Get a plugin config"
         },
         {
             "name": "node_plugin_config_reload",
             "method": "PUT",
-            "path": "/plugins/{node}/{plugin}/config/reload",
+            "path": "/api/v1/plugins/{node}/{plugin}/config/reload",
             "descr": "Reload a plugin config"
         },
         {
             "name": "node_plugin_load",
             "method": "PUT",
-            "path": "/plugins/{node}/{plugin}/load",
+            "path": "/api/v1/plugins/{node}/{plugin}/load",
             "descr": "Load the specified plugin under the specified node."
         },
         {
             "name": "node_plugin_unload",
             "method": "PUT",
-            "path": "/plugins/{node}/{plugin}/unload",
+            "path": "/api/v1/plugins/{node}/{plugin}/unload",
             "descr": "Unload the specified plugin under the specified node."
         },
 
         {
             "name": "get_stats",
             "method": "GET",
-            "path": "/stats/{node}",
+            "path": "/api/v1/stats/{node}",
             "descr": "Returns all statistics information from the cluster"
         },
         {
             "name": "get_stats_sum",
             "method": "GET",
-            "path": "/stats/sum",
+            "path": "/api/v1/stats/sum",
             "descr": "Summarize all statistics information from the cluster"
         },
 
         {
             "name": "get_metrics",
             "method": "GET",
-            "path": "/metrics/{node}",
+            "path": "/api/v1/metrics/{node}",
             "descr": "Returns all metrics information from the cluster"
         },
         {
             "name": "get_metrics_sum",
             "method": "GET",
-            "path": "/metrics/sum",
+            "path": "/api/v1/metrics/sum",
             "descr": "Summarize all metrics information from the cluster"
         },
 
         {
           "name": "get_prometheus_metrics",
           "method": "GET",
-          "path": "/metrics/prometheus",
+          "path": "/api/v1/metrics/prometheus",
           "descr": "Get prometheus metrics from the cluster"
         },
 
