@@ -956,7 +956,7 @@ async fn query_subscriptions(
         .extends
         .shared()
         .await
-        .query_subscriptions(q)
+        .query_subscriptions(&q)
         .await
         .into_iter()
         .map(|res| res.to_json())
