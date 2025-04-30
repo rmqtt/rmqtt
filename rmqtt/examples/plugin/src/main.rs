@@ -28,6 +28,9 @@ async fn main() -> Result<()> {
     // rmqtt_bridge_egress_nats::register(&scx, "rmqtt-bridge-egress-nats", true, false).await?;
     // rmqtt_bridge_egress_reductstore::register(&scx, "rmqtt-bridge-egress-reductstore", true, false).await?;
 
+    // rmqtt_cluster_raft::register(&scx, "rmqtt-cluster-raft", true, true).await?;
+    // rmqtt_cluster_broadcast::register(&scx, "rmqtt-cluster-broadcast", true, true).await?;
+
     MqttServer::new(scx)
         .listener(Builder::new().name("external/tcp").laddr(([0, 0, 0, 0], 1883).into()).bind()?.tcp()?)
         .build()
