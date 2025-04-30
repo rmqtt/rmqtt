@@ -196,19 +196,8 @@ impl GrpcClient {
     }
 
     #[inline]
-    pub fn is_available(&self) -> bool {
-        true //@TODO ...
-    }
-
-    #[inline]
     pub fn active_tasks(&self) -> &Counter {
-        //self.active_tasks.load(Ordering::SeqCst)
         self.active_tasks.as_ref()
-    }
-
-    #[inline]
-    pub fn channel_tasks(&self) -> usize {
-        self.mailbox.queue_len() //@TODO ...
     }
 
     #[inline]
@@ -347,6 +336,17 @@ impl MessageSender {
             Ok(reply) => Ok(reply),
             Err(e) => {
                 log::warn!("error sending message, {:?}", e);
+                Err(e)
+            }
+        }
+    }
+
+    #[inline]
+    pub async fn notify(mut self) -> Result<()> {
+        match self.client.notify(self.msg_type, self.msg, self.timeout).await {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                log::warn!("error notify message, {:?}", e);
                 Err(e)
             }
         }
