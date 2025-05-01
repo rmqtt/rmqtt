@@ -63,12 +63,14 @@ pub struct Auth {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum AuthName {
     Token,
     OAuth2,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Comp {
     Lz4,
     Zlib,

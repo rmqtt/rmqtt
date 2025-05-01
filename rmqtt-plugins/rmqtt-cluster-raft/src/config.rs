@@ -367,6 +367,7 @@ impl RaftConfig {
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Compression {
     Zstd,
     Lz4,
