@@ -29,4 +29,5 @@ VOLUME ["/var/log/rmqtt"]
 # - 5363 for rpc
 EXPOSE 1883 8883 11883 6060 6003 5363
 
-ENTRYPOINT ["/app/rmqtt/rmqtt-bin/rmqttd"]
+ENTRYPOINT ["sh", "-c", "/app/rmqtt/rmqtt-bin/rmqttd \"$@\"", "--"]
+
