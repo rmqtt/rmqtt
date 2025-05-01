@@ -86,12 +86,14 @@ pub struct Auth {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum AuthName {
     Token,
     OAuth2,
 }
 
 #[derive(Default, Debug, Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum PayloadFormat {
     #[default]
     Bytes,

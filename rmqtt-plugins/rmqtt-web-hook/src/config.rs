@@ -187,6 +187,7 @@ impl<'de> Deserialize<'de> for Url {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum UrlType {
     File,
     Http,
