@@ -32,7 +32,7 @@ fn plugins(decoded: &toml::Value) {
             );
             // Use the extracted data to generate Rust code and add it to the inits vector
             inits.push(format!(
-                "    {}::register(_scx, r#\"{}\"#, {} || _default_startups.contains(&String::from(r#\"{}\"#)), {}).await.map_err(|e| anyhow::anyhow!(format!(r#\"Failed to register '{}' plug-in, {{}} \"#, e.to_string())))?;",
+                "    {}::register_named(_scx, r#\"{}\"#, {} || _default_startups.contains(&String::from(r#\"{}\"#)), {}).await.map_err(|e| anyhow::anyhow!(format!(r#\"Failed to register '{}' plug-in, {{}} \"#, e.to_string())))?;",
                 plugin_id, name, default_startup, name, immutable, name
             ));
         }

@@ -73,7 +73,7 @@ pub type EntryIter<'a> = Iter<'a, String, Entry, ahash::RandomState, DashMap<Str
 macro_rules! register {
     ($name:path) => {
         #[inline]
-        pub async fn register(
+        pub async fn register_named(
             scx: &rmqtt::context::ServerContext,
             name: &'static str,
             default_startup: bool,
@@ -89,6 +89,16 @@ macro_rules! register {
                 })
                 .await?;
             Ok(())
+        }
+
+        #[inline]
+        pub async fn register(
+            scx: &rmqtt::context::ServerContext,
+            default_startup: bool,
+            immutable: bool,
+        ) -> rmqtt::Result<()> {
+            let name = env!("CARGO_PKG_NAME");
+            register_named(scx, env!("CARGO_PKG_NAME"), default_startup, immutable).await
         }
     };
 }
