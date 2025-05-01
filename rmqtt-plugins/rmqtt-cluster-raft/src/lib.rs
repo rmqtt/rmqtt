@@ -379,8 +379,9 @@ impl Plugin for ClusterPlugin {
         let mut nodes = HashMap::default();
         for (node_id, (_, c)) in self.grpc_clients.iter() {
             let stats = json!({
-                "channel_tasks": c.channel_tasks(),
-                "active_tasks": c.active_tasks(),
+                "transfer_queue_len": c.transfer_queue_len(),
+                "active_tasks_count": c.active_tasks().count(),
+                "active_tasks_max": c.active_tasks().max(),
             });
             nodes.insert(*node_id, stats);
         }

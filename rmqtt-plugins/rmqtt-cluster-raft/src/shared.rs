@@ -479,7 +479,7 @@ impl Shared for ClusterShared {
     }
 
     #[inline]
-    async fn query_subscriptions(&self, q: SubsSearchParams) -> Vec<SubsSearchResult> {
+    async fn query_subscriptions(&self, q: &SubsSearchParams) -> Vec<SubsSearchResult> {
         self.inner.query_subscriptions(q).await
     }
 

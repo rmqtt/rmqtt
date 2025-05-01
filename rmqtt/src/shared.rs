@@ -152,7 +152,7 @@ pub trait Shared: Sync + Send {
     fn sessions_count(&self) -> usize;
 
     /// Subscriptions from SubSearchParams
-    async fn query_subscriptions(&self, q: SubsSearchParams) -> Vec<SubsSearchResult>;
+    async fn query_subscriptions(&self, q: &SubsSearchParams) -> Vec<SubsSearchResult>;
 
     async fn subscriptions_count(&self) -> usize;
 
@@ -787,8 +787,8 @@ impl Shared for DefaultShared {
     }
 
     #[inline]
-    async fn query_subscriptions(&self, q: SubsSearchParams) -> Vec<SubsSearchResult> {
-        self.context().extends.router().await.query_subscriptions(&q).await
+    async fn query_subscriptions(&self, q: &SubsSearchParams) -> Vec<SubsSearchResult> {
+        self.context().extends.router().await.query_subscriptions(q).await
     }
 
     #[inline]

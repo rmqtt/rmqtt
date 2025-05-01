@@ -25,7 +25,7 @@ rmqtt-acl = { path = "rmqtt-plugins/rmqtt-acl" }
 rmqtt-web-hook = { path = "rmqtt-plugins/rmqtt-web-hook" }
 rmqtt-auth-http = { path = "rmqtt-plugins/rmqtt-auth-http" }
 rmqtt-auth-jwt = { path = "rmqtt-plugins/rmqtt-auth-jwt" }
-#rmqtt-cluster-broadcast = { path = "rmqtt-plugins/rmqtt-cluster-broadcast" }
+rmqtt-cluster-broadcast = { path = "rmqtt-plugins/rmqtt-cluster-broadcast" }
 rmqtt-cluster-raft = { path = "rmqtt-plugins/rmqtt-cluster-raft" }
 rmqtt-counter = { path = "rmqtt-plugins/rmqtt-counter" }
 rmqtt-http-api = { path = "rmqtt-plugins/rmqtt-http-api" }
@@ -84,7 +84,8 @@ rmqtt-session-storage = "0.1"
 rmqtt-sys-topic = "0.1"
 rmqtt-topic-rewrite = "0.1"
 rmqtt-web-hook = "0.1"
-rmqtt-cluster-raft = "0.1.2"
+rmqtt-cluster-raft = "0.1"
+rmqtt-cluster-broadcast = "0.1"
 
 
 tokio = { version = "1.44",  default-features = false }
