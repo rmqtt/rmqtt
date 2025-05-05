@@ -203,6 +203,9 @@ pub struct ListenerInner {
     )]
     pub session_expiry_interval: Duration,
 
+    #[serde(default, deserialize_with = "deserialize_duration")]
+    pub max_session_expiry_interval: Duration,
+
     #[serde(
         default = "ListenerInner::message_retry_interval_default",
         deserialize_with = "deserialize_duration"
@@ -263,6 +266,7 @@ impl Default for ListenerInner {
             max_qos_allowed: ListenerInner::max_qos_allowed_default(),
             max_topic_levels: ListenerInner::max_topic_levels_default(),
             session_expiry_interval: ListenerInner::session_expiry_interval_default(),
+            max_session_expiry_interval: Duration::ZERO,
             message_retry_interval: ListenerInner::message_retry_interval_default(),
             message_expiry_interval: ListenerInner::message_expiry_interval_default(),
             max_subscriptions: ListenerInner::max_subscriptions_default(),

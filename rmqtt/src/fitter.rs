@@ -180,7 +180,7 @@ impl Fitter for DefaultFitter {
             }
         };
 
-        if let Some(Disconnect::V5(d)) = d {
+        let interval = if let Some(Disconnect::V5(d)) = d {
             if let Some(interval_secs) = d.session_expiry_interval_secs {
                 Duration::from_secs(interval_secs as u64)
             } else {
@@ -188,6 +188,12 @@ impl Fitter for DefaultFitter {
             }
         } else {
             expiry_interval()
+        };
+
+        if self.listen_cfg.max_session_expiry_interval.is_zero() {
+            interval
+        } else {
+            interval.min(self.listen_cfg.max_session_expiry_interval)
         }
     }
 
