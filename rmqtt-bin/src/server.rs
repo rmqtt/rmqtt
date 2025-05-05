@@ -116,7 +116,7 @@ async fn main() -> Result<()> {
     });
 
     shutdown_rx.await.expect("Failed to receive the shutdown command");
-    log::info!("Performing cleanup...");
+    //log::info!("Performing cleanup..."); @TODO ... Hook when exiting
 
     tokio::time::sleep(Duration::from_secs(1)).await;
     Ok(())
@@ -146,6 +146,7 @@ fn config_builder(cfg: &Listener) -> Builder {
         .max_qos_allowed(cfg.max_qos_allowed)
         .max_topic_levels(cfg.max_topic_levels)
         .session_expiry_interval(cfg.session_expiry_interval)
+        .max_session_expiry_interval(cfg.max_session_expiry_interval)
         .message_retry_interval(cfg.message_retry_interval)
         .message_expiry_interval(cfg.message_expiry_interval)
         .max_subscriptions(cfg.max_subscriptions)

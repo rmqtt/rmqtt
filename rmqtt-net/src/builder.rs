@@ -111,6 +111,9 @@ pub struct Builder {
     pub max_topic_levels: usize,
     /// Duration before inactive sessions expire
     pub session_expiry_interval: Duration,
+    /// The upper limit for how long a session can remain valid before it must expire,
+    /// regardless of the client's requested session expiry interval. (0 = unlimited)
+    pub max_session_expiry_interval: Duration,
     /// Retry interval for unacknowledged messages
     pub message_retry_interval: Duration,
     /// Time-to-live for undelivered messages
@@ -179,6 +182,7 @@ impl Builder {
             max_qos_allowed: QoS::ExactlyOnce,
             max_topic_levels: 0,
             session_expiry_interval: Duration::from_secs(2 * 60 * 60),
+            max_session_expiry_interval: Duration::ZERO,
             message_retry_interval: Duration::from_secs(20),
             message_expiry_interval: Duration::from_secs(5 * 60),
             max_subscriptions: 0,
@@ -329,6 +333,12 @@ impl Builder {
     /// Configures session expiration interval
     pub fn session_expiry_interval(mut self, session_expiry_interval: Duration) -> Self {
         self.session_expiry_interval = session_expiry_interval;
+        self
+    }
+
+    /// Configures max session expiration interval
+    pub fn max_session_expiry_interval(mut self, max_session_expiry_interval: Duration) -> Self {
+        self.max_session_expiry_interval = max_session_expiry_interval;
         self
     }
 
