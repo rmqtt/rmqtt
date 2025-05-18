@@ -54,7 +54,7 @@ license = "MIT OR Apache-2.0"
 categories = ["network-programming"]
 keywords = ["MQTT", "IoT", "messaging", "MQTT-Server", "MQTT-Broker"]
 exclude = [".gitignore", ".cargo/config"]
-rust-version = "1.81.0"
+rust-version = "1.85.0"
 
 
 [workspace.dependencies]
