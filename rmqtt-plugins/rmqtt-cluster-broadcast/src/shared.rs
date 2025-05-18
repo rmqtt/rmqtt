@@ -415,7 +415,7 @@ impl Shared for ClusterShared {
                             Message::ForwardsTo(from.clone(), publish.clone(), sub_rels),
                             Some(Duration::from_secs(60)),
                         )
-                        .notify(),
+                        .send(),
                     );
                 }
             }

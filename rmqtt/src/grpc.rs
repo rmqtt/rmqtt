@@ -57,11 +57,12 @@ use futures::FutureExt;
 use futures::StreamExt;
 use rust_box::handy_grpc::client::Mailbox;
 use rust_box::handy_grpc::{
-    client::Client,
+    client::{Client, DuplexMailbox},
     server::{server, Message as GrpcMessage},
     Priority,
 };
 use rust_box::mpsc::priority_channel as channel;
+use scopeguard::defer;
 use serde::{Deserialize, Serialize};
 
 use crate::context::ServerContext;
@@ -166,9 +167,8 @@ pub type GrpcClients = Arc<HashMap<NodeId, (Addr, GrpcClient)>>;
 
 #[derive(Clone)]
 pub struct GrpcClient {
-    inner: Client,
     mailbox: Mailbox,
-    //active_tasks: Arc<AtomicUsize>,
+    duplex_mailbox: DuplexMailbox,
     active_tasks: Arc<Counter>,
 }
 
@@ -190,9 +190,10 @@ impl GrpcClient {
             .concurrency_limit(client_concurrency_limit)
             .chunk_size(1024 * 1024 * 2)
             .connect_lazy()?;
+        let duplex_mailbox = c.duplex_transfer_start(100_000).await;
         let mailbox = c.transfer_start(100_000).await;
-        let active_tasks = Arc::new(Counter::new()); //Arc::new(AtomicUsize::new(0));
-        Ok(Self { inner: c, mailbox, active_tasks })
+        let active_tasks = Arc::new(Counter::new());
+        Ok(Self { mailbox, duplex_mailbox, active_tasks })
     }
 
     #[inline]
@@ -202,7 +203,7 @@ impl GrpcClient {
 
     #[inline]
     pub fn transfer_queue_len(&self) -> usize {
-        self.mailbox.queue_len()
+        self.mailbox.req_queue_len()
     }
 
     #[inline]
@@ -212,10 +213,12 @@ impl GrpcClient {
         msg: Message,
         timeout: Option<Duration>,
     ) -> Result<MessageReply> {
-        self.active_tasks.inc();
-        let result = self._send_message(typ, msg, timeout).await;
-        self.active_tasks.dec();
-        result
+        let active_tasks = self.active_tasks.clone();
+        active_tasks.inc();
+        defer! {
+            active_tasks.dec();
+        }
+        self._send_message(typ, msg, timeout).await
     }
 
     #[inline]
@@ -227,19 +230,21 @@ impl GrpcClient {
     ) -> Result<MessageReply> {
         let req = msg.encode(typ)?;
         let reply = if let Some(timeout) = timeout {
-            tokio::time::timeout(timeout, self.inner.send(req)).await??
+            tokio::time::timeout(timeout, self.duplex_mailbox.send(req)).await??
         } else {
-            self.inner.send(req).await?
+            self.duplex_mailbox.send(req).await?
         };
         MessageReply::decode(&reply)
     }
 
     #[inline]
     pub async fn notify(&mut self, typ: MessageType, msg: Message, timeout: Option<Duration>) -> Result<()> {
-        self.active_tasks.inc();
-        let result = self._notify(typ, msg, timeout).await;
-        self.active_tasks.dec();
-        result
+        let active_tasks = self.active_tasks.clone();
+        active_tasks.inc();
+        defer! {
+            active_tasks.dec();
+        }
+        self._notify(typ, msg, timeout).await
     }
     #[inline]
     async fn _notify(&mut self, typ: MessageType, msg: Message, timeout: Option<Duration>) -> Result<()> {
