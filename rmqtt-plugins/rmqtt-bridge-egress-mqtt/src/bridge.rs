@@ -32,6 +32,7 @@ use crate::v4::Client as ClientV4;
 use crate::v5::Client as ClientV5;
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum Command {
     Connect,
     Publish(BridgePublish),
