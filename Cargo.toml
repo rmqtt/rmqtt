@@ -54,7 +54,7 @@ license = "MIT OR Apache-2.0"
 categories = ["network-programming"]
 keywords = ["MQTT", "IoT", "messaging", "MQTT-Server", "MQTT-Broker"]
 exclude = [".gitignore", ".cargo/config"]
-rust-version = "1.81.0"
+rust-version = "1.85.0"
 
 
 [workspace.dependencies]
@@ -139,7 +139,9 @@ regex = "=1.11.1"
 backoff = "0.4"
 webpki-roots = "0.26"
 toml = "0.8"
-rust-box = "0.14"
+rust-box = "0.15"
+scopeguard = "1"
+
 [profile.dev]
 opt-level = 0
 

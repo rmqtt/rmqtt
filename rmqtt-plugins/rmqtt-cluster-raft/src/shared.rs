@@ -381,7 +381,7 @@ impl Shared for ClusterShared {
                     let publish = publish.clone();
                     let message_type = self.message_type;
                     let fut_sender = async move {
-                        let msg_sender = client.notify(
+                        let msg_sender = client.send_message(
                             message_type,
                             Message::ForwardsTo(from, publish, relations),
                             Some(rw_timeout),

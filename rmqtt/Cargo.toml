@@ -68,7 +68,7 @@ rand.workspace = true
 prometheus.workspace = true
 url.workspace = true
 config = { workspace = true, features = ["toml"] }
-
+scopeguard.workspace = true
 
 [build-dependencies]
 chrono = { workspace = true, features = ["clock"] }
