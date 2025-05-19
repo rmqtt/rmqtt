@@ -580,6 +580,10 @@ impl Listener {
             typ: self.typ,
         })
     }
+
+    pub fn local_addr(&self) -> Result<SocketAddr> {
+        Ok(self.tcp_listener.local_addr()?)
+    }
 }
 
 /// Connection handler for processing client streams
