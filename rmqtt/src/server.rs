@@ -95,6 +95,7 @@ use itertools::Itertools;
 use crate::context::ServerContext;
 use crate::net::MqttStream;
 use crate::net::{Listener, ListenerType, Result};
+use crate::types::ListenerId;
 use crate::{v3, v5};
 
 /// Builder for configuring and constructing an MQTT server instance
@@ -102,7 +103,7 @@ pub struct MqttServerBuilder {
     /// Server configuration context
     scx: ServerContext,
     /// Collection of network listeners
-    listeners: Vec<Listener>,
+    listeners: Vec<(ListenerId, Listener)>,
 }
 
 impl MqttServerBuilder {
@@ -114,19 +115,30 @@ impl MqttServerBuilder {
     /// Adds a single network listener configuration
     /// # Arguments
     /// * `listen` - Listener configuration to add
-    pub fn listener(mut self, listen: Listener) -> Self {
-        self.scx.listen_cfgs.insert(listen.cfg.laddr.port(), listen.cfg.clone());
-        self.listeners.push(listen);
-        self
+    pub fn listener(self, listen: Listener) -> Self {
+        let unique_id = listen.cfg.laddr.port();
+        if 0 == unique_id {
+            log::warn!(
+                "As the listener port is dynamically assigned, it is advisable to use `listener_by_id(mut self, listen: Listener, unique_id: u16)` and explicitly provide a unique_id."
+            );
+        }
+        self.listener_by_id(listen, unique_id)
     }
 
-    /// Adds multiple listener configurations
+    /// Adds a single network listener configuration
     /// # Arguments
-    /// * `listens` - Iterator of listener configurations
-    pub fn listeners<I: IntoIterator<Item = Listener>>(mut self, listens: I) -> Self {
-        for l in listens {
-            self = self.listener(l);
+    /// * `listen` - Listener configuration to add
+    /// * `unique_id` - Manually assigned unique key for identifying the listener configuration.
+    pub fn listener_by_id(mut self, listen: Listener, unique_id: ListenerId) -> Self {
+        match self.scx.listen_cfgs.entry(unique_id) {
+            dashmap::mapref::entry::Entry::Occupied(entry) => {
+                panic!("unique_id already exists: {}", entry.key());
+            }
+            dashmap::mapref::entry::Entry::Vacant(entry) => {
+                entry.insert(listen.cfg.clone());
+            }
         }
+        self.listeners.push((unique_id, listen));
         self
     }
 
@@ -147,7 +159,7 @@ pub struct MqttServerInner {
     /// Shared server configuration and state
     scx: ServerContext,
     /// Active network listeners
-    listeners: Vec<Listener>,
+    listeners: Vec<(ListenerId, Listener)>,
 }
 
 impl Deref for MqttServer {
@@ -186,15 +198,15 @@ impl MqttServer {
         futures::future::join_all(
             self.listeners
                 .iter()
-                .map(|l| match l.typ {
-                    ListenerType::TCP => listen_tcp(self.scx.clone(), l).boxed(),
+                .map(|(lid, l)| match l.typ {
+                    ListenerType::TCP => listen_tcp(self.scx.clone(), l, *lid).boxed(),
                     #[cfg(feature = "tls")]
-                    ListenerType::TLS => listen_tls(self.scx.clone(), l).boxed(),
+                    ListenerType::TLS => listen_tls(self.scx.clone(), l, *lid).boxed(),
                     #[cfg(feature = "ws")]
-                    ListenerType::WS => listen_ws(self.scx.clone(), l).boxed(),
+                    ListenerType::WS => listen_ws(self.scx.clone(), l, *lid).boxed(),
                     #[cfg(feature = "tls")]
                     #[cfg(feature = "ws")]
-                    ListenerType::WSS => listen_wss(self.scx.clone(), l).boxed(),
+                    ListenerType::WSS => listen_wss(self.scx.clone(), l, *lid).boxed(),
                 })
                 .collect_vec(),
         )
@@ -207,7 +219,7 @@ impl MqttServer {
 /// # Arguments
 /// * `scx` - Server context
 /// * `l` - TCP listener configuration
-async fn listen_tcp(scx: ServerContext, l: &Listener) {
+async fn listen_tcp(scx: ServerContext, l: &Listener, lid: ListenerId) {
     loop {
         match l.accept().await {
             Ok(accept) => {
@@ -225,12 +237,12 @@ async fn listen_tcp(scx: ServerContext, l: &Listener) {
 
                     match stream.mqtt().await {
                         Ok(MqttStream::V3(s)) => {
-                            if let Err(e) = v3::process(scx.clone(), s).await {
+                            if let Err(e) = v3::process(scx.clone(), s, lid).await {
                                 log::warn!("MQTTv3 processing error: {:?}", e);
                             }
                         }
                         Ok(MqttStream::V5(s)) => {
-                            if let Err(e) = v5::process(scx.clone(), s).await {
+                            if let Err(e) = v5::process(scx.clone(), s, lid).await {
                                 log::warn!("MQTTv5 processing error: {:?}", e);
                             }
                         }
@@ -253,7 +265,7 @@ async fn listen_tcp(scx: ServerContext, l: &Listener) {
 /// # Arguments
 /// * `scx` - Server context
 /// * `l` - TLS listener configuration
-async fn listen_tls(scx: ServerContext, l: &Listener) {
+async fn listen_tls(scx: ServerContext, l: &Listener, lid: ListenerId) {
     loop {
         match l.accept().await {
             Ok(accept) => {
@@ -271,12 +283,12 @@ async fn listen_tls(scx: ServerContext, l: &Listener) {
 
                     match stream.mqtt().await {
                         Ok(MqttStream::V3(s)) => {
-                            if let Err(e) = v3::process(scx.clone(), s).await {
+                            if let Err(e) = v3::process(scx.clone(), s, lid).await {
                                 log::warn!("MQTTv3/TLS processing error: {:?}", e);
                             }
                         }
                         Ok(MqttStream::V5(s)) => {
-                            if let Err(e) = v5::process(scx.clone(), s).await {
+                            if let Err(e) = v5::process(scx.clone(), s, lid).await {
                                 log::warn!("MQTTv5/TLS processing error: {:?}", e);
                             }
                         }
@@ -299,7 +311,7 @@ async fn listen_tls(scx: ServerContext, l: &Listener) {
 /// # Arguments
 /// * `scx` - Server context
 /// * `l` - WebSocket listener configuration
-async fn listen_ws(scx: ServerContext, l: &Listener) {
+async fn listen_ws(scx: ServerContext, l: &Listener, lid: ListenerId) {
     loop {
         match l.accept().await {
             Ok(accept) => {
@@ -317,12 +329,12 @@ async fn listen_ws(scx: ServerContext, l: &Listener) {
 
                     match stream.mqtt().await {
                         Ok(MqttStream::V3(s)) => {
-                            if let Err(e) = v3::process(scx.clone(), s).await {
+                            if let Err(e) = v3::process(scx.clone(), s, lid).await {
                                 log::warn!("MQTTv3/WS processing error: {:?}", e);
                             }
                         }
                         Ok(MqttStream::V5(s)) => {
-                            if let Err(e) = v5::process(scx.clone(), s).await {
+                            if let Err(e) = v5::process(scx.clone(), s, lid).await {
                                 log::warn!("MQTTv5/WS processing error: {:?}", e);
                             }
                         }
@@ -345,7 +357,7 @@ async fn listen_ws(scx: ServerContext, l: &Listener) {
 /// # Arguments
 /// * `scx` - Server context
 /// * `l` - WSS listener configuration
-async fn listen_wss(scx: ServerContext, l: &Listener) {
+async fn listen_wss(scx: ServerContext, l: &Listener, lid: ListenerId) {
     loop {
         match l.accept().await {
             Ok(accept) => {
@@ -363,12 +375,12 @@ async fn listen_wss(scx: ServerContext, l: &Listener) {
 
                     match stream.mqtt().await {
                         Ok(MqttStream::V3(s)) => {
-                            if let Err(e) = v3::process(scx.clone(), s).await {
+                            if let Err(e) = v3::process(scx.clone(), s, lid).await {
                                 log::warn!("MQTTv3/WSS processing error: {:?}", e);
                             }
                         }
                         Ok(MqttStream::V5(s)) => {
-                            if let Err(e) = v5::process(scx.clone(), s).await {
+                            if let Err(e) = v5::process(scx.clone(), s, lid).await {
                                 log::warn!("MQTTv5/WSS processing error: {:?}", e);
                             }
                         }

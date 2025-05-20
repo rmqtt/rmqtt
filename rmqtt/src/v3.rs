@@ -43,17 +43,22 @@ use crate::net::v3;
 use crate::net::MqttError;
 use crate::session::{Session, SessionState};
 use crate::types::{
-    ClientId, ConnectAckReason, ConnectInfo, Id, ListenerConfig, Message, OfflineSession, SessionSubs, Sink,
+    ClientId, ConnectAckReason, ConnectInfo, Id, ListenerConfig, ListenerId, Message, OfflineSession,
+    SessionSubs, Sink,
 };
 use crate::utils::timestamp_millis;
 use crate::{Error, Result};
 
-pub(crate) async fn process<Io>(scx: ServerContext, mut sink: v3::MqttStream<Io>) -> Result<()>
+pub(crate) async fn process<Io>(
+    scx: ServerContext,
+    mut sink: v3::MqttStream<Io>,
+    lid: ListenerId,
+) -> Result<()>
 where
     Io: AsyncRead + AsyncWrite + Unpin,
 {
     scx.handshakings.inc();
-    let (state, keep_alive) = match handshake(&scx, &mut sink).await {
+    let (state, keep_alive) = match handshake(&scx, &mut sink, lid).await {
         Ok(c) => c,
         Err((ack_code, e)) => {
             scx.handshakings.dec();
@@ -72,6 +77,7 @@ where
 async fn handshake<Io>(
     scx: &ServerContext,
     sink: &mut v3::MqttStream<Io>,
+    lid: ListenerId,
 ) -> std::result::Result<(SessionState, u16), (ConnectAckReason, Error)>
 where
     Io: AsyncRead + AsyncWrite + Unpin,
@@ -97,6 +103,7 @@ where
                 "{:?} Connection Refused, handshake error, reason: invalid client id",
                 Id::new(
                     scx.node.id(),
+                    lid,
                     Some(sink.cfg.laddr),
                     Some(sink.remote_addr),
                     ClientId::default(),
@@ -112,6 +119,7 @@ where
 
     let id = Id::new(
         scx.node.id(),
+        lid,
         Some(sink.cfg.laddr),
         Some(sink.remote_addr),
         c.client_id.clone(),
