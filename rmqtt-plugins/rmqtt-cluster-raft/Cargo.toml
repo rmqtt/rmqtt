@@ -1,6 +1,6 @@
 [package]
 name = "rmqtt-cluster-raft"
-version = "0.1.3"
+version = "0.1.4"
 description = "The RMQTT cluster, powered by the `rmqtt-cluster-raft` plugin, uses RAFT for consistency and fault tolerance. Nodes share state to ensure reliable messaging and support scalable, resilient deployments."
 repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-cluster-raft"
 edition.workspace = true
