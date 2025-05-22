@@ -334,6 +334,7 @@ impl Consumer {
 
         let from = From::from_bridge(Id::new(
             scx.node.id(),
+            0,
             None,
             remote_addr,
             from_clientid.unwrap_or(client_id),

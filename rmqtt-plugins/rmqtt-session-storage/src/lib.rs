@@ -51,7 +51,7 @@ struct StoragePlugin {
     storage_db: DefaultStorageDB,
     stored_session_infos: StoredSessionInfos,
     register: Box<dyn Register>,
-    session_mgr: &'static StorageSessionManager,
+    session_mgr: StorageSessionManager,
     rebuild_tx: mpsc::Sender<RebuildChanType>,
 }
 
@@ -82,8 +82,7 @@ impl StoragePlugin {
         let stored_session_infos = StoredSessionInfos::new();
 
         let register = scx.extends.hook_mgr().register();
-        let session_mgr =
-            StorageSessionManager::get_or_init(storage_db.clone(), stored_session_infos.clone());
+        let session_mgr = StorageSessionManager::new(storage_db.clone(), stored_session_infos.clone());
 
         let cfg = Arc::new(cfg);
         let rebuild_tx = Self::start_local_runtime(scx.clone());
@@ -326,7 +325,7 @@ impl Plugin for StoragePlugin {
     #[inline]
     async fn start(&mut self) -> Result<()> {
         log::info!("{} start", self.name());
-        *self.scx.extends.session_mgr_mut().await = Box::new(self.session_mgr);
+        *self.scx.extends.session_mgr_mut().await = Box::new(self.session_mgr.clone());
 
         self.register.start().await;
         Ok(())
@@ -490,16 +489,15 @@ impl StorageHandler {
             if let Some(stored) = storeds.iter_mut().next() {
                 let id = stored.basic.id.clone();
 
-                //get listener config
-                let listen_cfg = if let Some(listen_cfg) = id
-                    .local_addr
-                    .and_then(|addr| self.scx.listen_cfgs.get(&addr.port()).map(|c| c.value().clone()))
-                {
-                    listen_cfg
-                } else {
-                    log::warn!("tcp listener config is not found, local addr is {:?}", id.local_addr);
-                    continue;
-                };
+                let listen_cfg =
+                    if let Some(listen_cfg) = self.scx.listen_cfgs.get(&id.lid).map(|c| c.value().clone()) {
+                        listen_cfg
+                    } else {
+                        log::warn!("tcp listener config is not found, local addr is {:?}", id.local_addr);
+                        continue;
+                    };
+
+                log::info!("{:?} listen_cfg: {:?}", id, listen_cfg);
 
                 //create fitter
                 let fitter = self.scx.extends.fitter_mgr().await.create(

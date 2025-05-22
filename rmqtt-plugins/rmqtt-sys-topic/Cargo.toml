@@ -1,6 +1,6 @@
 [package]
 name = "rmqtt-sys-topic"
-version = "0.1.0"
+version = "0.1.1"
 description = "RMQTT periodically publishes its own operational status, message statistics, and client online/offline events to system topics starting with $SYS/."
 repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-sys-topic"
 edition.workspace = true

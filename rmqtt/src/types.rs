@@ -105,6 +105,7 @@ pub type OutInflightType = Arc<RwLock<OutInflight>>; //@TODO 考虑去掉 RwLock
 pub type ConnectInfoType = Arc<ConnectInfo>;
 pub type FitterType = Arc<dyn Fitter>;
 pub type ListenerConfig = Arc<Builder>;
+pub type ListenerId = u16;
 
 pub(crate) const UNDEFINED: &str = "undefined";
 
@@ -1776,6 +1777,7 @@ impl Id {
     #[inline]
     pub fn new(
         node_id: NodeId,
+        lid: ListenerId,
         local_addr: Option<SocketAddr>,
         remote_addr: Option<SocketAddr>,
         client_id: ClientId,
@@ -1783,6 +1785,7 @@ impl Id {
     ) -> Self {
         Self(Arc::new(_Id {
             node_id,
+            lid,
             local_addr,
             remote_addr,
             client_id,
@@ -1836,12 +1839,17 @@ impl Id {
 
     #[inline]
     pub fn from(node_id: NodeId, client_id: ClientId) -> Self {
-        Self::new(node_id, None, None, client_id, None)
+        Self::new(node_id, 0, None, None, client_id, None)
     }
 
     #[inline]
     pub fn node(&self) -> NodeId {
         self.node_id
+    }
+
+    #[inline]
+    pub fn lid(&self) -> ListenerId {
+        self.lid
     }
 
     #[inline]
@@ -1859,9 +1867,10 @@ impl Display for Id {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{}@{}/{}/{}/{}/{}",
+            "{}@{}:{}/{}/{}/{}/{}",
             self.node_id,
-            self.local_addr.map(|addr| addr.to_string()).unwrap_or_default(),
+            self.local_addr.map(|addr| addr.ip().to_string()).unwrap_or_default(),
+            self.lid,
             self.remote_addr.map(|addr| addr.to_string()).unwrap_or_default(),
             self.client_id,
             self.username_ref(),
@@ -1881,6 +1890,7 @@ impl PartialEq<Id> for Id {
     #[inline]
     fn eq(&self, o: &Id) -> bool {
         self.node_id == o.node_id
+            && self.lid == o.lid
             && self.client_id == o.client_id
             && self.local_addr == o.local_addr
             && self.remote_addr == o.remote_addr
@@ -1895,6 +1905,7 @@ impl std::hash::Hash for Id {
     #[inline]
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.node_id.hash(state);
+        self.lid.hash(state);
         self.local_addr.hash(state);
         self.remote_addr.hash(state);
         self.client_id.hash(state);
@@ -1934,6 +1945,7 @@ impl<'de> Deserialize<'de> for Id {
 #[derive(Debug, PartialEq, Eq, Hash, Clone, GetSize, Deserialize, Serialize)]
 pub struct _Id {
     pub node_id: NodeId,
+    pub lid: ListenerId,
     #[get_size(size_fn = get_option_addr_size_helper)]
     pub local_addr: Option<SocketAddr>,
     #[get_size(size_fn = get_option_addr_size_helper)]

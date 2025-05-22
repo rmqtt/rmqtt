@@ -43,7 +43,7 @@ impl StoragePlugin {
 
         let (message_mgr, cfg) = match &mut cfg.storage {
             Config::Ram(ram_cfg) => {
-                let message_mgr = ram::get_or_init(ram_cfg.clone(), cfg.cleanup_count).await?;
+                let message_mgr = RamMessageManager::new(ram_cfg.clone(), cfg.cleanup_count).await?;
                 (MessageMgr::Ram(message_mgr), Arc::new(cfg))
             }
             Config::Storage(s_cfg) => {
@@ -54,7 +54,7 @@ impl StoragePlugin {
                 let storage_db = init_db(s_cfg).await?;
                 let cfg = Arc::new(cfg);
                 let message_mgr =
-                    storage::get_or_init(node_id, cfg.clone(), storage_db.clone(), true).await?;
+                    StorageMessageManager::new(node_id, cfg.clone(), storage_db.clone(), true).await?;
                 (MessageMgr::Storage(message_mgr), cfg)
             }
         };
@@ -81,9 +81,9 @@ impl Plugin for StoragePlugin {
     #[inline]
     async fn start(&mut self) -> Result<()> {
         log::info!("{} start", self.name());
-        let mgr: Box<dyn MessageManager> = match self.message_mgr {
-            MessageMgr::Storage(mgr) => Box::new(mgr),
-            MessageMgr::Ram(mgr) => Box::new(mgr),
+        let mgr: Box<dyn MessageManager> = match &self.message_mgr {
+            MessageMgr::Storage(mgr) => Box::new(mgr.clone()),
+            MessageMgr::Ram(mgr) => Box::new(mgr.clone()),
         };
         *self.scx.extends.message_mgr_mut().await = mgr;
         self.register.start().await;
@@ -103,8 +103,8 @@ impl Plugin for StoragePlugin {
 }
 
 enum MessageMgr {
-    Ram(&'static RamMessageManager),
-    Storage(&'static StorageMessageManager),
+    Ram(RamMessageManager),
+    Storage(StorageMessageManager),
 }
 
 impl MessageMgr {

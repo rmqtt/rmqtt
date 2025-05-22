@@ -426,7 +426,12 @@ impl Builder {
         builder.bind(&SockAddr::from(self.laddr))?;
         builder.listen(self.backlog)?;
         let tcp_listener = TcpListener::from_std(std::net::TcpListener::from(builder))?;
-        log::info!("MQTT Broker Listening on {} {}", self.name, self.laddr);
+
+        log::info!(
+            "MQTT Broker Listening on {} {}",
+            self.name,
+            tcp_listener.local_addr().unwrap_or(self.laddr)
+        );
         Ok(Listener {
             typ: ListenerType::TCP,
             cfg: Arc::new(self),

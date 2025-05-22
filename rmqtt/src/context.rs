@@ -75,7 +75,7 @@ use crate::router::DefaultRouter;
 use crate::shared::DefaultShared;
 #[cfg(feature = "stats")]
 use crate::stats::Stats;
-use crate::types::{DashMap, ListenerConfig, NodeId, Port};
+use crate::types::{DashMap, ListenerConfig, ListenerId, NodeId};
 use crate::utils::Counter;
 
 /// Builder for constructing ServerContext with configurable parameters
@@ -252,7 +252,7 @@ pub struct ServerContextInner {
     /// Cluster node information
     pub node: Node,
     /// Port-to-listener configuration mappings
-    pub listen_cfgs: DashMap<Port, ListenerConfig>,
+    pub listen_cfgs: DashMap<ListenerId, ListenerConfig>,
     /// Command line arguments
     pub args: CommandArgs,
     /// Extension point manager

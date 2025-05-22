@@ -102,6 +102,7 @@ impl Message {
 
         let f = From::from_bridge(Id::new(
             from_node.unwrap_or(node_id),
+            0,
             None,
             from_ipaddress,
             from_clientid.unwrap_or_default(),
