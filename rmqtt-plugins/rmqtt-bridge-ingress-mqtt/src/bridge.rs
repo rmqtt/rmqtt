@@ -194,6 +194,7 @@ impl BridgeManager {
 
                     let f = From::from_bridge(Id::new(
                         scx.node.id(),
+                        local_laddr.map(|a| a.port()).unwrap_or_default(),
                         local_laddr,
                         remote_addr,
                         c.client_id(),
