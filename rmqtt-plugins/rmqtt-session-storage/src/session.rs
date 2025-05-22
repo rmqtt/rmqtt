@@ -5,7 +5,6 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use once_cell::sync::OnceCell;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use rmqtt::context::ServerContext;
@@ -32,24 +31,23 @@ pub(crate) const SESSION_SUB_MAP: &[u8] = b"3";
 pub(crate) const BASIC: &[u8] = b"4";
 pub(crate) const INFLIGHT_MESSAGES: &[u8] = b"5";
 
+#[derive(Clone)]
 pub(crate) struct StorageSessionManager {
     storage_db: DefaultStorageDB,
     _stored_session_infos: StoredSessionInfos,
 }
 
 impl StorageSessionManager {
-    #[inline]
-    pub(crate) fn get_or_init(
+    pub(crate) fn new(
         storage_db: DefaultStorageDB,
         _stored_session_infos: StoredSessionInfos,
-    ) -> &'static StorageSessionManager {
-        static INSTANCE: OnceCell<StorageSessionManager> = OnceCell::new();
-        INSTANCE.get_or_init(|| Self { storage_db, _stored_session_infos })
+    ) -> StorageSessionManager {
+        Self { storage_db, _stored_session_infos }
     }
 }
 
 #[async_trait]
-impl SessionManager for &'static StorageSessionManager {
+impl SessionManager for StorageSessionManager {
     #[allow(clippy::too_many_arguments)]
     async fn create(
         &self,
