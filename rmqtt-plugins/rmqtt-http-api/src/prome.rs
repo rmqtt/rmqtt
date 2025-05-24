@@ -3,11 +3,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::anyhow;
-use once_cell::sync::OnceCell;
 use prometheus::{
     register_gauge_vec_with_registry, register_int_gauge_vec_with_registry, Encoder, GaugeVec, IntGaugeVec,
-    Registry, Result as PromeResult, TextEncoder,
+    Registry, TextEncoder,
 };
+
+pub(crate) const PROME_MONITOR: &str = "PROME_MONITOR";
 
 use rmqtt::{
     context::ServerContext,
@@ -26,12 +27,11 @@ use crate::types::PrometheusDataType;
 #[inline]
 pub async fn to_metrics(
     scx: &ServerContext,
+    monitor: Monitor,
     message_type: MessageType,
     cache_interval: Duration,
     typ: PrometheusDataType,
 ) -> Result<Vec<u8>> {
-    static INSTANCE: OnceCell<PromeResult<Monitor>> = OnceCell::new();
-    let monitor = INSTANCE.get_or_init(Monitor::new).as_ref().map_err(|e| anyhow!(format!("{:?}", e)))?;
     monitor.refresh_data(scx, message_type, cache_interval, typ).await?;
     monitor.to_metrics(typ)
 }
@@ -277,12 +277,12 @@ impl MonitorData {
 #[derive(Clone)]
 pub struct Monitor {
     last_refresh_time: Arc<AtomicI64>,
-    catcheds: DashMap<PrometheusDataType, Option<MonitorData>>,
+    catcheds: Arc<DashMap<PrometheusDataType, Option<MonitorData>>>,
 }
 
 impl Monitor {
-    fn new() -> PromeResult<Monitor> {
-        Ok(Self { last_refresh_time: Arc::new(AtomicI64::new(0)), catcheds: DashMap::default() })
+    pub fn new() -> Monitor {
+        Self { last_refresh_time: Arc::new(AtomicI64::new(0)), catcheds: Arc::new(DashMap::default()) }
     }
 
     #[inline]
