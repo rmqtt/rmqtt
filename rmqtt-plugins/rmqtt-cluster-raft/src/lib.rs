@@ -9,7 +9,6 @@ use handler::HookHandler;
 
 use anyhow::anyhow;
 use async_trait::async_trait;
-use once_cell::sync::OnceCell;
 use rust_box::task_exec_queue::{Builder, TaskExecQueue};
 use serde_json::{self, json};
 use tokio::time::sleep;
@@ -47,6 +46,7 @@ struct ClusterPlugin {
     shared: ClusterShared,
     router: ClusterRouter,
     raft_mailbox: Option<Mailbox>,
+    exec: TaskExecQueue,
 }
 
 impl ClusterPlugin {
@@ -58,7 +58,7 @@ impl ClusterPlugin {
         cfg.merge(&scx.args);
         log::info!("{} ClusterPlugin cfg: {:?}", name, cfg);
 
-        init_task_exec_queue(cfg.task_exec_queue_workers, cfg.task_exec_queue_max);
+        let exec = init_task_exec_queue(cfg.task_exec_queue_workers, cfg.task_exec_queue_max);
 
         let register = scx.extends.hook_mgr().register();
         let mut grpc_clients = HashMap::default();
@@ -89,9 +89,10 @@ impl ClusterPlugin {
             node_names.insert(node_addr.id, format!("{}@{}", node_addr.id, node_addr.addr));
         }
         let grpc_clients = Arc::new(grpc_clients);
-        let router = ClusterRouter::new(scx.clone(), cfg.try_lock_timeout, cfg.compression);
+        let router = ClusterRouter::new(scx.clone(), exec.clone(), cfg.try_lock_timeout, cfg.compression);
         let shared = ClusterShared::new(
             scx.clone(),
+            exec.clone(),
             router.clone(),
             grpc_clients.clone(),
             node_names,
@@ -102,7 +103,7 @@ impl ClusterPlugin {
         );
         let raft_mailbox = None;
         let cfg = Arc::new(cfg);
-        Ok(Self { scx, register, cfg, grpc_clients, shared, router, raft_mailbox })
+        Ok(Self { scx, register, cfg, grpc_clients, shared, router, raft_mailbox, exec })
     }
 
     //raft init ...
@@ -224,7 +225,15 @@ impl ClusterPlugin {
     #[inline]
     async fn hook_register(&self, typ: Type) {
         self.register
-            .add(typ, Box::new(HookHandler::new(self.scx.clone(), self.shared.clone(), self.raft_mailbox())))
+            .add(
+                typ,
+                Box::new(HookHandler::new(
+                    self.scx.clone(),
+                    self.exec.clone(),
+                    self.shared.clone(),
+                    self.raft_mailbox(),
+                )),
+            )
             .await;
     }
 
@@ -386,16 +395,15 @@ impl Plugin for ClusterPlugin {
             nodes.insert(*node_id, stats);
         }
 
-        let exec = task_exec_queue();
         json!({
             "grpc_clients": nodes,
             "raft_status": raft_status,
             "raft_pears": pears,
             "client_states": self.router.states_count(),
             "task_exec_queue": {
-                "waiting_count": exec.waiting_count(),
-                "active_count": exec.active_count(),
-                "completed_count": exec.completed_count().await,
+                "waiting_count": self.exec.waiting_count(),
+                "active_count": self.exec.active_count(),
+                "completed_count": self.exec.completed_count().await,
             }
         })
     }
@@ -446,20 +454,13 @@ pub(crate) async fn hook_message_dropped(scx: &ServerContext, droppeds: Vec<(To,
     }
 }
 
-static TASK_EXEC_QUEUE: OnceCell<TaskExecQueue> = OnceCell::new();
-
 #[inline]
-fn init_task_exec_queue(workers: usize, queue_max: usize) {
+fn init_task_exec_queue(workers: usize, queue_max: usize) -> TaskExecQueue {
     let (exec, task_runner) = Builder::default().workers(workers).queue_max(queue_max).build();
 
     tokio::spawn(async move {
         task_runner.await;
     });
 
-    TASK_EXEC_QUEUE.set(exec).ok().expect("Failed to initialize task execution queue")
-}
-
-#[inline]
-pub(crate) fn task_exec_queue() -> &'static TaskExecQueue {
-    TASK_EXEC_QUEUE.get().expect("TaskExecQueue not initialized")
+    exec
 }

@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use async_trait::async_trait;
-use rust_box::task_exec_queue::SpawnExt;
+use rust_box::task_exec_queue::{SpawnExt, TaskExecQueue};
 
 use rmqtt::context::ServerContext;
 use rmqtt::{
@@ -13,17 +13,23 @@ use rmqtt_raft::Mailbox;
 
 use super::config::{retry, BACKOFF_STRATEGY};
 use super::message::{Message, RaftGrpcMessage, RaftGrpcMessageReply};
-use super::{hook_message_dropped, shared::ClusterShared, task_exec_queue};
+use super::{hook_message_dropped, shared::ClusterShared};
 
 pub(crate) struct HookHandler {
     scx: ServerContext,
+    exec: TaskExecQueue,
     shared: ClusterShared,
     raft_mailbox: Mailbox,
 }
 
 impl HookHandler {
-    pub(crate) fn new(scx: ServerContext, shared: ClusterShared, raft_mailbox: Mailbox) -> Self {
-        Self { scx, shared, raft_mailbox }
+    pub(crate) fn new(
+        scx: ServerContext,
+        exec: TaskExecQueue,
+        shared: ClusterShared,
+        raft_mailbox: Mailbox,
+    ) -> Self {
+        Self { scx, exec, shared, raft_mailbox }
     }
 }
 
@@ -42,12 +48,13 @@ impl Handler for HookHandler {
                         }
                         Ok(msg) => {
                             let raft_mailbox = self.raft_mailbox.clone();
+                            let exec = self.exec.clone();
                             tokio::spawn(async move {
                                 if let Err(e) = retry(BACKOFF_STRATEGY.clone(), || async {
                                     let msg = msg.clone();
                                     let mailbox = raft_mailbox.clone();
                                     let res = async move { mailbox.send_proposal(msg).await }
-                                        .spawn(task_exec_queue())
+                                        .spawn(&exec)
                                         .result()
                                         .await
                                         .map_err(|_| {
@@ -79,12 +86,13 @@ impl Handler for HookHandler {
                     }
                     Ok(msg) => {
                         let raft_mailbox = self.raft_mailbox.clone();
+                        let exec = self.exec.clone();
                         tokio::spawn(async move {
                             if let Err(e) = retry(BACKOFF_STRATEGY.clone(), || async {
                                 let msg = msg.clone();
                                 let mailbox = raft_mailbox.clone();
                                 let res = async move { mailbox.send_proposal(msg).await }
-                                    .spawn(task_exec_queue())
+                                    .spawn(&exec)
                                     .result()
                                     .await
                                     .map_err(|_| {
