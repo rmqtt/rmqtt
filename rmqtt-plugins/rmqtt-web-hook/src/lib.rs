@@ -11,7 +11,6 @@ use async_trait::async_trait;
 use backoff::{future::retry, ExponentialBackoff};
 use base64::prelude::{Engine, BASE64_STANDARD};
 use bytestring::ByteString;
-use once_cell::sync::{Lazy, OnceCell};
 use rust_box::task_exec_queue::{Builder, SpawnExt, TaskExecQueue};
 use serde_json::{self, json};
 use tokio::{
@@ -51,6 +50,8 @@ struct WebHookPlugin {
     tx: Arc<RwLock<Sender<Message>>>,
     writers: HookWriters,
     exec: TaskExecQueue,
+    fails: Arc<Counter>,
+    httpc: reqwest::Client,
 }
 
 impl WebHookPlugin {
@@ -61,17 +62,29 @@ impl WebHookPlugin {
         log::debug!("{} WebHookPlugin cfg: {:?}", name, cfg.read().await);
         let writers = Arc::new(DashMap::default());
         let chan_queue_count = Arc::new(AtomicIsize::new(0));
-        let (tx, exec) = Self::start(&scx, cfg.clone(), writers.clone(), chan_queue_count.clone()).await;
+        let fails = Arc::new(Counter::new());
+        let httpc = new_http_client()?;
+        let (tx, exec) = Self::start(
+            &scx,
+            httpc.clone(),
+            cfg.clone(),
+            writers.clone(),
+            chan_queue_count.clone(),
+            fails.clone(),
+        )
+        .await;
         let tx = Arc::new(RwLock::new(tx));
         let register = scx.extends.hook_mgr().register();
-        Ok(Self { scx, register, cfg, chan_queue_count, tx, writers, exec })
+        Ok(Self { scx, register, cfg, chan_queue_count, tx, writers, exec, fails, httpc })
     }
 
     async fn start(
         _scx: &ServerContext,
+        httpc: reqwest::Client,
         cfg: Arc<RwLock<PluginConfig>>,
         writers: HookWriters,
         chan_queue_count: Arc<AtomicIsize>,
+        fails: Arc<Counter>,
     ) -> (Sender<Message>, TaskExecQueue) {
         let worker_threads = cfg.read().await.worker_threads;
         let (tx, mut rx): (Sender<Message>, Receiver<Message>) = channel(cfg.read().await.queue_capacity);
@@ -109,7 +122,16 @@ impl WebHookPlugin {
                                     }
                                 }
                             }
-                            Self::handle_msg(&exec, cfg, writers, backoff_strategy, msg).await;
+                            Self::handle_msg(
+                                &exec,
+                                httpc.clone(),
+                                cfg,
+                                writers,
+                                backoff_strategy,
+                                msg,
+                                fails.clone(),
+                            )
+                            .await;
                         }
                         None => {
                             log::info!("web hook message channel is closed!");
@@ -128,14 +150,27 @@ impl WebHookPlugin {
     #[inline]
     async fn handle_msg(
         exec: &TaskExecQueue,
+        httpc: reqwest::Client,
         cfg: Arc<RwLock<PluginConfig>>,
         writers: HookWriters,
         backoff_strategy: Arc<ExponentialBackoff>,
         msg: Message,
+        fails: Arc<Counter>,
     ) {
         if let Err(e) = async move {
             let (typ, topic, data) = msg;
-            if let Err(e) = WebHookHandler::handle(cfg, writers, backoff_strategy, typ, topic, data).await {
+            if let Err(e) = WebHookHandler::handle(
+                &httpc,
+                cfg,
+                writers,
+                backoff_strategy,
+                typ,
+                topic,
+                data,
+                fails.as_ref(),
+            )
+            .await
+            {
                 log::warn!("Failed to build the web-hook message, {:?}", e);
             }
         }
@@ -266,9 +301,15 @@ impl Plugin for WebHookPlugin {
         {
             let new_cfg = Arc::new(RwLock::new(new_cfg));
             //restart
-            let (new_tx, new_exec) =
-                Self::start(&self.scx, new_cfg.clone(), self.writers.clone(), self.chan_queue_count.clone())
-                    .await;
+            let (new_tx, new_exec) = Self::start(
+                &self.scx,
+                self.httpc.clone(),
+                new_cfg.clone(),
+                self.writers.clone(),
+                self.chan_queue_count.clone(),
+                self.fails.clone(),
+            )
+            .await;
             self.exec = new_exec;
             self.cfg = new_cfg;
             *self.tx.write().await = new_tx;
@@ -303,19 +344,19 @@ impl Plugin for WebHookPlugin {
                 "active_count": exec.active_count(),
                 "waiting_count": exec.waiting_count(),
                 "completed_count": exec.completed_count().await,
-                "failure_count": fails().count(),
+                "failure_count": self.fails.count(),
             }
         })
     }
 }
 
-static HTTP_CLIENT: Lazy<Result<reqwest::Client>> = Lazy::new(|| {
+fn new_http_client() -> Result<reqwest::Client> {
     reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(8))
         .timeout(Duration::from_secs(15))
         .build()
         .map_err(|e| anyhow!(e))
-});
+}
 
 type Message = (hook::Type, Option<TopicFilter>, serde_json::Value);
 
@@ -325,13 +366,16 @@ struct WebHookHandler {
 }
 
 impl WebHookHandler {
+    #[allow(clippy::too_many_arguments)]
     async fn handle(
+        httpc: &reqwest::Client,
         cfg: Arc<RwLock<PluginConfig>>,
         writers: HookWriters,
         backoff_strategy: Arc<ExponentialBackoff>,
         typ: hook::Type,
         topic: Option<TopicFilter>,
         body: serde_json::Value,
+        fails: &Counter,
     ) -> Result<()> {
         let topic = if let Some(topic) = topic { Some(Topic::from_str(&topic)?) } else { None };
         let hook_writes = {
@@ -371,22 +415,26 @@ impl WebHookHandler {
                     if urls.len() == 1 {
                         log::debug!("action: {}, url: {:?}", action, urls[0]);
                         hook_writes.push(Self::write(
+                            httpc,
                             writers.clone(),
                             backoff_strategy.clone(),
                             urls[0].clone(),
                             Arc::new(new_body),
                             cfg.http_timeout,
+                            fails,
                         ));
                     } else {
                         let new_body = Arc::new(new_body);
                         for url in urls {
                             log::debug!("action: {}, url: {:?}", action, url);
                             hook_writes.push(Self::write(
+                                httpc,
                                 writers.clone(),
                                 backoff_strategy.clone(),
                                 url.clone(),
                                 new_body.clone(),
                                 cfg.http_timeout,
+                                fails,
                             ));
                         }
                     }
@@ -415,11 +463,13 @@ impl WebHookHandler {
 
     #[inline]
     async fn write(
+        httpc: &reqwest::Client,
         writers: HookWriters,
         backoff_strategy: Arc<ExponentialBackoff>,
         url: Url,
         body: Arc<serde_json::Value>,
         timeout: Duration,
+        fails: &Counter,
     ) {
         if url.is_file() {
             //is file
@@ -439,38 +489,43 @@ impl WebHookHandler {
             log::debug!("writer.log start ... ");
             //time::sleep(time::Duration::from_secs(2)).await;
             if let Err(e) = writer.log(data.as_slice()).await {
+                fails.current_inc();
                 log::warn!("write hook message failure, file: {:?}, {:?}", writer.file_name, e);
             }
             log::debug!("writer.log end ... ");
         } else {
             //is http
-            Self::http_request(backoff_strategy, url, body, timeout).await;
+            Self::http_request(httpc, backoff_strategy, url, body, timeout, fails).await;
         }
     }
 
     async fn http_request(
+        httpc: &reqwest::Client,
         backoff_strategy: Arc<ExponentialBackoff>,
         url: Url,
         body: Arc<serde_json::Value>,
         timeout: Duration,
+        fails: &Counter,
     ) {
         if let Err(e) = retry(backoff_strategy.as_ref().clone(), || async {
-            Ok(Self::_http_request(&url.loc, body.clone(), timeout).await?)
+            Ok(Self::_http_request(httpc, &url.loc, body.clone(), timeout).await?)
         })
         .await
         {
-            fails().current_inc();
+            fails.current_inc();
             log::warn!("send web hook message failure, {:?}", e);
         }
     }
 
-    async fn _http_request(url: &str, body: Arc<serde_json::Value>, timeout: Duration) -> Result<()> {
+    async fn _http_request(
+        httpc: &reqwest::Client,
+        url: &str,
+        body: Arc<serde_json::Value>,
+        timeout: Duration,
+    ) -> Result<()> {
         log::debug!("http_request, timeout: {:?}, url: {}, body: {}", timeout, url, body);
 
-        let resp = HTTP_CLIENT
-            .as_ref()
-            .map_err(|e| anyhow!(e))?
-            .clone()
+        let resp = httpc
             .request(reqwest::Method::POST, url)
             .timeout(timeout)
             .json(body.as_ref())
@@ -765,11 +820,4 @@ fn init_task_exec_queue(workers: usize, queue_max: usize) -> TaskExecQueue {
     });
 
     exec
-}
-
-//Failure count
-#[inline]
-pub(crate) fn fails() -> &'static Counter {
-    static INSTANCE: OnceCell<Counter> = OnceCell::new();
-    INSTANCE.get_or_init(Counter::new)
 }

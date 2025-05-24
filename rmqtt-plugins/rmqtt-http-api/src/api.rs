@@ -32,6 +32,7 @@ use rmqtt::{
     Result,
 };
 
+use super::prome::{Monitor, PROME_MONITOR};
 use super::types::{
     ClientSearchParams, ClientSearchResult, Message, MessageReply, PrometheusDataType, PublishParams,
     SubscribeParams, UnsubscribeParams,
@@ -59,8 +60,16 @@ impl Handler for BearerValidator {
     }
 }
 
-fn route(scx: ServerContext, cfg: PluginConfigType, token: Option<String>) -> Router {
-    let mut router = Router::with_path("api/v1").hoop(affix_state::inject((scx, cfg))).hoop(api_logger);
+fn route(
+    scx: ServerContext,
+    cfg: PluginConfigType,
+    token: Option<String>,
+    monitor: prome::Monitor,
+) -> Router {
+    let mut router = Router::with_path("api/v1")
+        .hoop(affix_state::inject((scx, cfg)))
+        .hoop(affix_state::insert(PROME_MONITOR, monitor))
+        .hoop(api_logger);
     if let Some(token) = token {
         router = router.hoop(BearerValidator::new(&token));
     }
@@ -143,7 +152,8 @@ pub(crate) async fn listen_and_serve(
         rx.await.ok();
         handler.stop_graceful(None);
     });
-    server.try_serve(route(scx, cfg, http_bearer_token)).await?;
+    let monitor = prome::Monitor::new();
+    server.try_serve(route(scx, cfg, http_bearer_token, monitor)).await?;
     Ok(())
 }
 
@@ -355,6 +365,14 @@ fn get_scx_cfg(depot: &mut Depot) -> std::result::Result<&(ServerContext, Plugin
         Some(e) => salvo::Error::Io(std::io::Error::new(ErrorKind::NotFound, format!("{:?}", e))),
     })?;
     Ok(scx_cfg)
+}
+
+fn get_monitor(depot: &Depot) -> std::result::Result<Monitor, salvo::Error> {
+    let m = depot.get::<Monitor>(PROME_MONITOR).cloned().map_err(|e| match e {
+        None => salvo::Error::Io(std::io::Error::new(ErrorKind::NotFound, anyhow!("None"))),
+        Some(e) => salvo::Error::Io(std::io::Error::new(ErrorKind::NotFound, format!("{:?}", e))),
+    })?;
+    Ok(m)
 }
 
 #[handler]
@@ -2128,7 +2146,7 @@ async fn get_prometheus_metrics(
     depot: &mut Depot,
     res: &mut Response,
 ) -> std::result::Result<(), salvo::Error> {
-    // let cfg = get_cfg(depot)?;
+    let monitor = get_monitor(depot)?;
     let (scx, cfg) = get_scx_cfg(depot)?;
 
     let (message_type, cache_interval) = {
@@ -2137,7 +2155,9 @@ async fn get_prometheus_metrics(
     };
     let id = req.param::<NodeId>("id");
     if let Some(id) = id {
-        match prome::to_metrics(scx, message_type, cache_interval, PrometheusDataType::Node(id)).await {
+        match prome::to_metrics(scx, monitor, message_type, cache_interval, PrometheusDataType::Node(id))
+            .await
+        {
             Ok(metrics) => {
                 res.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("text/plain; charset=utf-8"));
                 res.write_body(metrics).ok();
@@ -2145,7 +2165,7 @@ async fn get_prometheus_metrics(
             Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
         }
     } else {
-        match prome::to_metrics(scx, message_type, cache_interval, PrometheusDataType::All).await {
+        match prome::to_metrics(scx, monitor, message_type, cache_interval, PrometheusDataType::All).await {
             Ok(metrics) => {
                 res.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("text/plain; charset=utf-8"));
                 res.write_body(metrics).ok();
@@ -2161,14 +2181,13 @@ async fn get_prometheus_metrics_sum(
     depot: &mut Depot,
     res: &mut Response,
 ) -> std::result::Result<(), salvo::Error> {
-    // let scx = get_scx(depot)?;
-    // let cfg = get_cfg(depot)?;
+    let monitor = get_monitor(depot)?;
     let (scx, cfg) = get_scx_cfg(depot)?;
     let (message_type, cache_interval) = {
         let cfg_rl = cfg.read().await;
         (cfg_rl.message_type, cfg_rl.prometheus_metrics_cache_interval)
     };
-    match prome::to_metrics(scx, message_type, cache_interval, PrometheusDataType::Sum).await {
+    match prome::to_metrics(scx, monitor, message_type, cache_interval, PrometheusDataType::Sum).await {
         Ok(metrics) => {
             res.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("text/plain; charset=utf-8"));
             res.write_body(metrics).ok();
