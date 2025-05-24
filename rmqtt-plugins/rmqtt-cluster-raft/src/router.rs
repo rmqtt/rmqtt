@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use async_trait::async_trait;
-use rust_box::task_exec_queue::SpawnExt;
+use rust_box::task_exec_queue::{SpawnExt, TaskExecQueue};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
@@ -21,8 +21,6 @@ use rmqtt::{
     Result,
 };
 use rmqtt_raft::{Error, Mailbox, Result as RaftResult, Store};
-
-use crate::task_exec_queue;
 
 use super::config::{retry, Compression, BACKOFF_STRATEGY};
 use super::message::{Message, MessageReply};
@@ -53,6 +51,7 @@ impl ClientStatus {
 #[derive(Clone)]
 pub(crate) struct ClusterRouter {
     inner: DefaultRouter,
+    exec: TaskExecQueue,
     raft_mailbox: Arc<RwLock<Option<Mailbox>>>,
     client_states: Arc<DashMap<ClientId, ClientStatus>>,
     pub try_lock_timeout: Duration,
@@ -63,11 +62,13 @@ impl ClusterRouter {
     #[inline]
     pub(crate) fn new(
         scx: ServerContext,
+        exec: TaskExecQueue,
         try_lock_timeout: Duration,
         compression: Option<Compression>,
     ) -> Self {
         Self {
             inner: DefaultRouter::new(Some(scx)),
+            exec,
             raft_mailbox: Arc::new(RwLock::new(None)),
             client_states: Arc::new(DashMap::default()),
             try_lock_timeout,
@@ -129,7 +130,7 @@ impl Router for ClusterRouter {
         let msg = Message::Add { topic_filter, id, opts }.encode()?;
         let mailbox = self.raft_mailbox().await;
         let _ = async move { mailbox.send_proposal(msg).await.map_err(anyhow::Error::new) }
-            .spawn(task_exec_queue())
+            .spawn(&self.exec)
             .result()
             .await
             .map_err(|_| anyhow!("Router::add(..), task execution failure"))??;
@@ -141,12 +142,13 @@ impl Router for ClusterRouter {
         log::debug!("[Router.remove] topic_filter: {:?}, id: {:?}", topic_filter, id);
         let msg = Message::Remove { topic_filter, id: id.clone() }.encode()?;
         let raft_mailbox = self.raft_mailbox().await;
+        let exec = self.exec.clone();
         tokio::spawn(async move {
             if let Err(e) = retry(BACKOFF_STRATEGY.clone(), || async {
                 let msg = msg.clone();
                 let mailbox = raft_mailbox.clone();
                 let res = async move { mailbox.send_proposal(msg).await }
-                    .spawn(task_exec_queue())
+                    .spawn(&exec)
                     .result()
                     .await
                     .map_err(|_| anyhow!("Router::remove(..), task execution failure"))?

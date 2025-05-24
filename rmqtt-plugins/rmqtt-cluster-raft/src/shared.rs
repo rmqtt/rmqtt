@@ -5,7 +5,7 @@ use ahash::HashSet;
 use anyhow::{anyhow, Error};
 use async_trait::async_trait;
 use futures::future::FutureExt;
-use rust_box::task_exec_queue::SpawnExt;
+use rust_box::task_exec_queue::{SpawnExt, TaskExecQueue};
 
 use crate::HashMap;
 use rmqtt::context::ServerContext;
@@ -27,10 +27,11 @@ use super::message::{
     get_client_node_id, Message as RaftMessage, MessageReply as RaftMessageReply, RaftGrpcMessage,
     RaftGrpcMessageReply,
 };
-use super::{task_exec_queue, ClusterRouter};
+use super::ClusterRouter;
 
 pub struct ClusterLockEntry {
     scx: ServerContext,
+    exec: TaskExecQueue,
     inner: Box<dyn Entry>,
     cluster_shared: ClusterShared,
     prev_node_id: Option<NodeId>,
@@ -40,11 +41,12 @@ impl ClusterLockEntry {
     #[inline]
     pub fn new(
         scx: ServerContext,
+        exec: TaskExecQueue,
         inner: Box<dyn Entry>,
         cluster_shared: ClusterShared,
         prev_node_id: Option<NodeId>,
     ) -> Self {
-        Self { scx, inner, cluster_shared, prev_node_id }
+        Self { scx, exec, inner, cluster_shared, prev_node_id }
     }
 }
 
@@ -55,7 +57,7 @@ impl Entry for ClusterLockEntry {
         let msg = RaftMessage::HandshakeTryLock { id: self.id() }.encode()?;
         let raft_mailbox = self.cluster_shared.router.raft_mailbox().await;
         let reply = async move { raft_mailbox.send_proposal(msg).await.map_err(anyhow::Error::new) }
-            .spawn(task_exec_queue())
+            .spawn(&self.exec)
             .result()
             .await
             .map_err(|_| anyhow!("ClusterLockEntry::try_lock(..), task execution failure"))??;
@@ -78,6 +80,7 @@ impl Entry for ClusterLockEntry {
         }
         Ok(Box::new(ClusterLockEntry::new(
             self.scx.clone(),
+            self.exec.clone(),
             self.inner.try_lock().await?,
             self.cluster_shared.clone(),
             prev_node_id,
@@ -104,7 +107,7 @@ impl Entry for ClusterLockEntry {
         let msg = RaftMessage::Connected { id: session.id.clone() }.encode()?;
         let raft_mailbox = self.cluster_shared.router.raft_mailbox().await;
         let reply = async move { raft_mailbox.send_proposal(msg).await.map_err(anyhow::Error::new) }
-            .spawn(task_exec_queue())
+            .spawn(&self.exec)
             .result()
             .await
             .map_err(|_| anyhow!("ClusterLockEntry::set(..), task execution failure"))??;
@@ -200,8 +203,7 @@ impl Entry for ClusterLockEntry {
                     }
                 };
 
-                let reply =
-                    kick_fut.spawn(task_exec_queue()).result().await.map_err(|e| anyhow!(e.to_string()))?;
+                let reply = kick_fut.spawn(&self.exec).result().await.map_err(|e| anyhow!(e.to_string()))?;
                 Ok(reply)
             } else {
                 return Err(anyhow!(format!(
@@ -282,6 +284,7 @@ impl Entry for ClusterLockEntry {
 #[derive(Clone)]
 pub struct ClusterShared {
     scx: ServerContext,
+    exec: TaskExecQueue,
     inner: DefaultShared,
     router: ClusterRouter,
     grpc_clients: GrpcClients,
@@ -297,6 +300,7 @@ impl ClusterShared {
     #[inline]
     pub(crate) fn new(
         scx: ServerContext,
+        exec: TaskExecQueue,
         router: ClusterRouter,
         grpc_clients: GrpcClients,
         node_names: HashMap<NodeId, NodeName>,
@@ -308,6 +312,7 @@ impl ClusterShared {
         let scx1 = scx.clone();
         Self {
             scx,
+            exec,
             inner: DefaultShared::new(Some(scx1)),
             router,
             grpc_clients,
@@ -334,7 +339,13 @@ impl ClusterShared {
 impl Shared for ClusterShared {
     #[inline]
     fn entry(&self, id: Id) -> Box<dyn Entry> {
-        Box::new(ClusterLockEntry::new(self.scx.clone(), self.inner.entry(id), self.clone(), None))
+        Box::new(ClusterLockEntry::new(
+            self.scx.clone(),
+            self.exec.clone(),
+            self.inner.entry(id),
+            self.clone(),
+            None,
+        ))
     }
 
     #[inline]
@@ -587,8 +598,7 @@ impl Shared for ClusterShared {
 
     #[inline]
     fn operation_is_busy(&self) -> bool {
-        let exec = task_exec_queue();
-        exec.active_count() > self.exec_queue_workers_busy_limit
-            || exec.waiting_count() > self.exec_queue_busy_limit
+        self.exec.active_count() > self.exec_queue_workers_busy_limit
+            || self.exec.waiting_count() > self.exec_queue_busy_limit
     }
 }
