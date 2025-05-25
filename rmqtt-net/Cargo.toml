@@ -31,7 +31,6 @@ socket2.workspace = true
 serde = { workspace = true, features = ["derive"] }
 bytestring = { workspace = true, features = ["serde"] }
 nonzero_ext.workspace = true
-once_cell.workspace = true
 
 tokio-tungstenite = { workspace = true, optional = true }
 tokio-rustls = { workspace = true, optional = true }
@@ -43,3 +42,4 @@ rustls = { workspace = true, features = ["ring", "logging", "std", "tls12"], opt
 [dev-dependencies]
 simple_logger = "5"
 tokio = { workspace = true,  features = ["full"] }
+once_cell.workspace = true
