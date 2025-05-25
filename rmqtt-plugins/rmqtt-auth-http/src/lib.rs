@@ -6,7 +6,6 @@ use std::time::Duration;
 use anyhow::anyhow;
 use async_trait::async_trait;
 use bytestring::ByteString;
-use once_cell::sync::Lazy;
 use reqwest::{
     header::{HeaderMap, CONTENT_TYPE},
     Method, Response, Url,
@@ -115,6 +114,7 @@ type Caches = Arc<DashMap<Id, std::collections::BTreeMap<TopicName, (Permission,
 #[derive(Plugin)]
 struct AuthHttpPlugin {
     scx: ServerContext,
+    httpc: reqwest::Client,
     register: Box<dyn Register>,
     cfg: Arc<RwLock<PluginConfig>>,
     caches: Caches,
@@ -128,7 +128,8 @@ impl AuthHttpPlugin {
         log::debug!("{} AuthHttpPlugin cfg: {:?}", name, cfg.read().await);
         let register = scx.extends.hook_mgr().register();
         let caches = Arc::new(DashMap::default());
-        Ok(Self { scx, register, cfg, caches })
+        let httpc = new_reqwest_client()?;
+        Ok(Self { scx, httpc, register, cfg, caches })
     }
 }
 
@@ -144,29 +145,35 @@ impl Plugin for AuthHttpPlugin {
             .add_priority(
                 Type::ClientAuthenticate,
                 priority,
-                Box::new(AuthHandler::new(&self.scx, cfg, &self.caches)),
+                Box::new(AuthHandler::new(&self.scx, self.httpc.clone(), cfg, &self.caches)),
             )
             .await;
         self.register
             .add_priority(
                 Type::ClientSubscribeCheckAcl,
                 priority,
-                Box::new(AuthHandler::new(&self.scx, cfg, &self.caches)),
+                Box::new(AuthHandler::new(&self.scx, self.httpc.clone(), cfg, &self.caches)),
             )
             .await;
         self.register
             .add_priority(
                 Type::MessagePublishCheckAcl,
                 priority,
-                Box::new(AuthHandler::new(&self.scx, cfg, &self.caches)),
+                Box::new(AuthHandler::new(&self.scx, self.httpc.clone(), cfg, &self.caches)),
             )
             .await;
         self.register
-            .add(Type::ClientKeepalive, Box::new(AuthHandler::new(&self.scx, cfg, &self.caches)))
+            .add(
+                Type::ClientKeepalive,
+                Box::new(AuthHandler::new(&self.scx, self.httpc.clone(), cfg, &self.caches)),
+            )
             .await;
 
         self.register
-            .add(Type::ClientDisconnected, Box::new(AuthHandler::new(&self.scx, cfg, &self.caches)))
+            .add(
+                Type::ClientDisconnected,
+                Box::new(AuthHandler::new(&self.scx, self.httpc.clone(), cfg, &self.caches)),
+            )
             .await;
         Ok(())
     }
@@ -216,13 +223,19 @@ impl Plugin for AuthHttpPlugin {
 
 struct AuthHandler {
     scx: ServerContext,
+    httpc: reqwest::Client,
     cfg: Arc<RwLock<PluginConfig>>,
     caches: Caches,
 }
 
 impl AuthHandler {
-    fn new(scx: &ServerContext, cfg: &Arc<RwLock<PluginConfig>>, caches: &Caches) -> Self {
-        Self { scx: scx.clone(), cfg: cfg.clone(), caches: caches.clone() }
+    fn new(
+        scx: &ServerContext,
+        httpc: reqwest::Client,
+        cfg: &Arc<RwLock<PluginConfig>>,
+        caches: &Caches,
+    ) -> Self {
+        Self { scx: scx.clone(), httpc, cfg: cfg.clone(), caches: caches.clone() }
     }
 
     async fn response_result(resp: Response) -> Result<ResponseResult> {
@@ -280,23 +293,14 @@ impl AuthHandler {
     }
 
     async fn http_get_request<T: Serialize + ?Sized>(
+        httpc: &reqwest::Client,
         url: Url,
         body: &T,
         headers: HeaderMap,
         timeout: Duration,
     ) -> Result<ResponseResult> {
         log::debug!("http_get_request, timeout: {:?}, url: {}", timeout, url);
-        match HTTP_CLIENT
-            .as_ref()
-            .map_err(|e| anyhow!(e))?
-            .clone()
-            .get(url)
-            .headers(headers)
-            .timeout(timeout)
-            .query(body)
-            .send()
-            .await
-        {
+        match httpc.get(url).headers(headers).timeout(timeout).query(body).send().await {
             Err(e) => {
                 log::warn!("{:?}", e);
                 Err(anyhow!(e))
@@ -306,6 +310,7 @@ impl AuthHandler {
     }
 
     async fn http_form_request<T: Serialize + ?Sized>(
+        httpc: &reqwest::Client,
         url: Url,
         method: Method,
         body: &T,
@@ -313,17 +318,7 @@ impl AuthHandler {
         timeout: Duration,
     ) -> Result<ResponseResult> {
         log::debug!("http_form_request, method: {:?}, timeout: {:?}, url: {}", method, timeout, url);
-        match HTTP_CLIENT
-            .as_ref()
-            .map_err(|e| anyhow!(e))?
-            .clone()
-            .request(method, url)
-            .headers(headers)
-            .timeout(timeout)
-            .form(body)
-            .send()
-            .await
-        {
+        match httpc.request(method, url).headers(headers).timeout(timeout).form(body).send().await {
             Err(e) => {
                 log::warn!("{:?}", e);
                 Err(anyhow!(e))
@@ -333,6 +328,7 @@ impl AuthHandler {
     }
 
     async fn http_json_request<T: Serialize + ?Sized>(
+        httpc: &reqwest::Client,
         url: Url,
         method: Method,
         body: &T,
@@ -340,17 +336,7 @@ impl AuthHandler {
         timeout: Duration,
     ) -> Result<ResponseResult> {
         log::debug!("http_json_request, method: {:?}, timeout: {:?}, url: {}", method, timeout, url);
-        match HTTP_CLIENT
-            .as_ref()
-            .map_err(|e| anyhow!(e))?
-            .clone()
-            .request(method, url)
-            .headers(headers)
-            .timeout(timeout)
-            .json(body)
-            .send()
-            .await
-        {
+        match httpc.request(method, url).headers(headers).timeout(timeout).json(body).send().await {
             Err(e) => {
                 log::warn!("{:?}", e);
                 Err(anyhow!(e))
@@ -418,16 +404,16 @@ impl AuthHandler {
         let auth_result = if req_cfg.is_get() {
             let body = &mut req_cfg.params;
             Self::replaces(body, id, password, protocol, sub_or_pub)?;
-            Self::http_get_request(req_cfg.url, body, headers, timeout).await?
+            Self::http_get_request(&self.httpc, req_cfg.url, body, headers, timeout).await?
         } else if req_cfg.json_body() {
             let body = &mut req_cfg.params;
             Self::replaces(body, id, password, protocol, sub_or_pub)?;
-            Self::http_json_request(req_cfg.url, req_cfg.method, body, headers, timeout).await?
+            Self::http_json_request(&self.httpc, req_cfg.url, req_cfg.method, body, headers, timeout).await?
         } else {
             //form body
             let body = &mut req_cfg.params;
             Self::replaces(body, id, password, protocol, sub_or_pub)?;
-            Self::http_form_request(req_cfg.url, req_cfg.method, body, headers, timeout).await?
+            Self::http_form_request(&self.httpc, req_cfg.url, req_cfg.method, body, headers, timeout).await?
         };
         log::debug!("auth_result: {:?}", auth_result);
         Ok(auth_result)
@@ -685,10 +671,10 @@ impl Handler for AuthHandler {
     }
 }
 
-static HTTP_CLIENT: Lazy<Result<reqwest::Client>> = Lazy::new(|| {
+fn new_reqwest_client() -> Result<reqwest::Client> {
     reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(10))
         .build()
         .map_err(|e| anyhow!(e))
-});
+}
