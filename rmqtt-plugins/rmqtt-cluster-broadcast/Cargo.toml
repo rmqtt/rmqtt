@@ -21,4 +21,3 @@ bytestring.workspace = true
 futures.workspace = true
 ahash.workspace = true
 itertools.workspace = true
-once_cell.workspace = true

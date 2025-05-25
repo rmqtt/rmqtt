@@ -21,7 +21,6 @@ async-trait.workspace = true
 log.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
-once_cell.workspace = true
 get-size.workspace = true
 scc.workspace = true
 
