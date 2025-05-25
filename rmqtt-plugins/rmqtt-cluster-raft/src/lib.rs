@@ -4,11 +4,11 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 use std::time::Duration;
 
-use config::PluginConfig;
-use handler::HookHandler;
-
 use anyhow::anyhow;
 use async_trait::async_trait;
+use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
+use config::PluginConfig;
+use handler::HookHandler;
 use rust_box::task_exec_queue::{Builder, TaskExecQueue};
 use serde_json::{self, json};
 use tokio::time::sleep;
@@ -47,6 +47,7 @@ struct ClusterPlugin {
     router: ClusterRouter,
     raft_mailbox: Option<Mailbox>,
     exec: TaskExecQueue,
+    backoff_strategy: ExponentialBackoff,
 }
 
 impl ClusterPlugin {
@@ -89,7 +90,17 @@ impl ClusterPlugin {
             node_names.insert(node_addr.id, format!("{}@{}", node_addr.id, node_addr.addr));
         }
         let grpc_clients = Arc::new(grpc_clients);
-        let router = ClusterRouter::new(scx.clone(), exec.clone(), cfg.try_lock_timeout, cfg.compression);
+        let backoff_strategy = ExponentialBackoffBuilder::new()
+            .with_max_elapsed_time(Some(Duration::from_secs(60)))
+            .with_multiplier(2.5)
+            .build();
+        let router = ClusterRouter::new(
+            scx.clone(),
+            exec.clone(),
+            backoff_strategy.clone(),
+            cfg.try_lock_timeout,
+            cfg.compression,
+        );
         let shared = ClusterShared::new(
             scx.clone(),
             exec.clone(),
@@ -103,7 +114,7 @@ impl ClusterPlugin {
         );
         let raft_mailbox = None;
         let cfg = Arc::new(cfg);
-        Ok(Self { scx, register, cfg, grpc_clients, shared, router, raft_mailbox, exec })
+        Ok(Self { scx, register, cfg, grpc_clients, shared, router, raft_mailbox, exec, backoff_strategy })
     }
 
     //raft init ...
@@ -230,6 +241,7 @@ impl ClusterPlugin {
                 Box::new(HookHandler::new(
                     self.scx.clone(),
                     self.exec.clone(),
+                    self.backoff_strategy.clone(),
                     self.shared.clone(),
                     self.raft_mailbox(),
                 )),

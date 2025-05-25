@@ -1,9 +1,6 @@
-use anyhow::anyhow;
 use std::time::Duration;
 
-pub(crate) use backoff::future::retry;
-pub(crate) use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
-use once_cell::sync::Lazy;
+use anyhow::anyhow;
 use serde::de::{self, Deserializer};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
@@ -16,13 +13,6 @@ use rmqtt::{
     Result,
 };
 use rmqtt_raft::ReadOnlyOption;
-
-pub(crate) static BACKOFF_STRATEGY: Lazy<ExponentialBackoff> = Lazy::new(|| {
-    ExponentialBackoffBuilder::new()
-        .with_max_elapsed_time(Some(Duration::from_secs(60)))
-        .with_multiplier(2.5)
-        .build()
-});
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {

@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use async_trait::async_trait;
+use backoff::{future::retry, ExponentialBackoff};
 use rust_box::task_exec_queue::{SpawnExt, TaskExecQueue};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -22,7 +23,7 @@ use rmqtt::{
 };
 use rmqtt_raft::{Error, Mailbox, Result as RaftResult, Store};
 
-use super::config::{retry, Compression, BACKOFF_STRATEGY};
+use super::config::Compression;
 use super::message::{Message, MessageReply};
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
@@ -52,6 +53,7 @@ impl ClientStatus {
 pub(crate) struct ClusterRouter {
     inner: DefaultRouter,
     exec: TaskExecQueue,
+    backoff_strategy: ExponentialBackoff,
     raft_mailbox: Arc<RwLock<Option<Mailbox>>>,
     client_states: Arc<DashMap<ClientId, ClientStatus>>,
     pub try_lock_timeout: Duration,
@@ -63,12 +65,14 @@ impl ClusterRouter {
     pub(crate) fn new(
         scx: ServerContext,
         exec: TaskExecQueue,
+        backoff_strategy: ExponentialBackoff,
         try_lock_timeout: Duration,
         compression: Option<Compression>,
     ) -> Self {
         Self {
             inner: DefaultRouter::new(Some(scx)),
             exec,
+            backoff_strategy,
             raft_mailbox: Arc::new(RwLock::new(None)),
             client_states: Arc::new(DashMap::default()),
             try_lock_timeout,
@@ -143,8 +147,9 @@ impl Router for ClusterRouter {
         let msg = Message::Remove { topic_filter, id: id.clone() }.encode()?;
         let raft_mailbox = self.raft_mailbox().await;
         let exec = self.exec.clone();
+        let backoff_strategy = self.backoff_strategy.clone();
         tokio::spawn(async move {
-            if let Err(e) = retry(BACKOFF_STRATEGY.clone(), || async {
+            if let Err(e) = retry(backoff_strategy, || async {
                 let msg = msg.clone();
                 let mailbox = raft_mailbox.clone();
                 let res = async move { mailbox.send_proposal(msg).await }
