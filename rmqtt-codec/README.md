@@ -1,7 +1,7 @@
 # rmqtt-codec
 
-[![crates.io page](https://img.shields.io/crates/v/rmqtt-codec.svg)](https://crates.io/crates/rmqtt-codec/0.1.0)
-[![docs.rs page](https://docs.rs/rmqtt-codec/badge.svg)](https://docs.rs/rmqtt-codec/0.1.0/rmqtt_codec)
+[![crates.io page](https://img.shields.io/crates/v/rmqtt-codec.svg)](https://crates.io/crates/rmqtt-codec/0.1.1)
+[![docs.rs page](https://docs.rs/rmqtt-codec/badge.svg)](https://docs.rs/rmqtt-codec/0.1.1/rmqtt_codec)
 
 
 🚀 **rmqtt-codec** is a high-performance MQTT protocol codec library designed for async environments. It provides full 

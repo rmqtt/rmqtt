@@ -1,7 +1,7 @@
 # rmqtt-macros
 
-[![crates.io page](https://img.shields.io/crates/v/rmqtt-macros.svg)](https://crates.io/crates/rmqtt-macros/0.1.0)
-[![docs.rs page](https://docs.rs/rmqtt-macros/badge.svg)](https://docs.rs/rmqtt-macros/0.1.0/rmqtt_macros)
+[![crates.io page](https://img.shields.io/crates/v/rmqtt-macros.svg)](https://crates.io/crates/rmqtt-macros/0.1.1)
+[![docs.rs page](https://docs.rs/rmqtt-macros/badge.svg)](https://docs.rs/rmqtt-macros/0.1.1/rmqtt_macros)
 
 
 ✨ **rmqtt-macros** provides a collection of procedural macros to enhance the RMQTT ecosystem, including support for 
