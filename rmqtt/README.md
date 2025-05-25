@@ -1,7 +1,7 @@
 # RMQTT-Server
 
-[![crates.io page](https://img.shields.io/crates/v/rmqtt.svg)](https://crates.io/crates/rmqtt/0.15.0-beta.5)
-[![docs.rs page](https://docs.rs/rmqtt/badge.svg)](https://docs.rs/rmqtt/0.15.0-beta.5/rmqtt)
+[![crates.io page](https://img.shields.io/crates/v/rmqtt.svg)](https://crates.io/crates/rmqtt/0.15.0-rc.1)
+[![docs.rs page](https://docs.rs/rmqtt/badge.svg)](https://docs.rs/rmqtt/0.15.0-rc.1/rmqtt)
 
 
 A high-performance, asynchronous MQTT server library built with [Tokio](https://tokio.rs). `rmqtt-server` is designed for flexibility, allowing you to configure multiple listeners with different protocols and security settings. Ideal for building custom or embedded MQTT services in Rust.
@@ -24,7 +24,7 @@ A basic MQTT server with RMQTT.
 
 ```toml
 [dependencies]
-rmqtt = "0.15.0-beta.5"
+rmqtt = "0.15.0-rc.1"
 tokio = { version = "1", features = ["full"] }
 simple_logger = "5"
 log = "0.4"
@@ -58,7 +58,7 @@ Make sure you included the rmqtt crate with the required features in your Cargo.
 
 ```toml
 [dependencies]
-rmqtt = { version = "0.15.0-beta.5", features = ["ws", "tls"] }
+rmqtt = { version = "0.15.0-rc.1", features = ["ws", "tls"] }
 tokio = { version = "1", features = ["full"] }
 simple_logger = "5"
 log = "0.4"
@@ -111,7 +111,7 @@ Make sure you included the rmqtt crate with the required features in your Cargo.
 
 ```toml
 [dependencies]
-rmqtt = { version = "0.15.0-beta.5", features = ["plugin"] }
+rmqtt = { version = "0.15.0-rc.1", features = ["plugin"] }
 rmqtt-acl = "0.1"
 rmqtt-retainer = "0.1"
 rmqtt-http-api = "0.1"
@@ -131,10 +131,10 @@ async fn main() -> Result<()> {
 
     let scx = ServerContext::new().plugins_dir("rmqtt-plugins/").build().await;
 
-    rmqtt_acl::register(&scx, "rmqtt-acl", true, false).await?;
-    rmqtt_retainer::register(&scx, "rmqtt-retainer", true, false).await?;
-    rmqtt_http_api::register(&scx, "rmqtt-http-api", true, false).await?;
-    rmqtt_web_hook::register(&scx, "rmqtt-web-hook", true, false).await?;
+    rmqtt_acl::register(&scx, true, false).await?;
+    rmqtt_retainer::register(&scx, true, false).await?;
+    rmqtt_http_api::register(&scx, true, false).await?;
+    rmqtt_web_hook::register(&scx, true, false).await?;
 
     MqttServer::new(scx)
         .listener(Builder::new().name("external/tcp").laddr(([0, 0, 0, 0], 1883).into()).bind()?.tcp()?)

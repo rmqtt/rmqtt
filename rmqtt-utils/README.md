@@ -1,7 +1,7 @@
 # rmqtt-utils
 
-[![crates.io page](https://img.shields.io/crates/v/rmqtt-utils.svg)](https://crates.io/crates/rmqtt-utils/0.1.0)
-[![docs.rs page](https://docs.rs/rmqtt-utils/badge.svg)](https://docs.rs/rmqtt-utils/0.1.0/rmqtt_utils)
+[![crates.io page](https://img.shields.io/crates/v/rmqtt-utils.svg)](https://crates.io/crates/rmqtt-utils/0.1.2)
+[![docs.rs page](https://docs.rs/rmqtt-utils/badge.svg)](https://docs.rs/rmqtt-utils/0.1.2/rmqtt_utils)
 
 
 **`rmqtt-utils`** is a lightweight Rust utility crate designed to support common system-level operations with a focus on performance, reliability, and developer ergonomics. It is especially useful in distributed systems like MQTT brokers but is general-purpose enough for any Rust project.

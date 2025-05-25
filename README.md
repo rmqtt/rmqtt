@@ -1,7 +1,7 @@
 # RMQTT Broker
 
 [![GitHub Release](https://img.shields.io/github/release/rmqtt/rmqtt?color=brightgreen)](https://github.com/rmqtt/rmqtt/releases)
-<a href="https://blog.rust-lang.org/2024/09/05/Rust-1.81.0.html"><img alt="Rust Version" src="https://img.shields.io/badge/rust-1.81.0%2B-blue" /></a>
+<a href="https://blog.rust-lang.org/2024/09/05/Rust-1.85.0.html"><img alt="Rust Version" src="https://img.shields.io/badge/rust-1.85.0%2B-blue" /></a>
 
 English | [简体中文](./README-CN.md)
 

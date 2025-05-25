@@ -1,7 +1,7 @@
 # rmqtt-net
 
-[![crates.io page](https://img.shields.io/crates/v/rmqtt-net.svg)](https://crates.io/crates/rmqtt-net/0.1.0)
-[![docs.rs page](https://docs.rs/rmqtt-net/badge.svg)](https://docs.rs/rmqtt-net/0.1.0/rmqtt_net)
+[![crates.io page](https://img.shields.io/crates/v/rmqtt-net.svg)](https://crates.io/crates/rmqtt-net/0.1.2)
+[![docs.rs page](https://docs.rs/rmqtt-net/badge.svg)](https://docs.rs/rmqtt-net/0.1.2/rmqtt_net)
 
 
 🔌 **rmqtt-net** provides a foundational implementation of an MQTT server network layer, supporting MQTT v3.1.1 and v5.0 protocols over TCP, TLS, and WebSocket transports. It is designed for flexibility, performance, and easy integration into custom broker logic.
