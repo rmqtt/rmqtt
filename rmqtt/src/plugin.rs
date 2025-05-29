@@ -492,10 +492,11 @@ impl Manager {
         required: bool,
         env_list_keys: &[&str],
     ) -> Result<(T, bool)> {
-        let mut builder= match self.config {
+        let mut builder = match self.config {
             PluginManagerConfig::Path(ref path) => {
                 let path = path.trim_end_matches(['/', '\\']);
-                Config::builder().add_source(File::with_name(&format!("{}/{}", path, name)).required(required))
+                Config::builder()
+                    .add_source(File::with_name(&format!("{}/{}", path, name)).required(required))
             }
             PluginManagerConfig::Map(ref map) => {
                 let default_config = "".to_owned();
