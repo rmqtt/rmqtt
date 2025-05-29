@@ -206,7 +206,6 @@ impl ServerContextBuilder {
         self.plugins_config = PluginManagerConfig::Map(plugins_config_map);
         self
     }
-    
 
     /// Constructs the ServerContext with configured parameters
     pub async fn build(self) -> ServerContext {

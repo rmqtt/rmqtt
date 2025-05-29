@@ -56,8 +56,8 @@ use std::pin::Pin;
 
 use anyhow::anyhow;
 use async_trait::async_trait;
-use config::{Config, File, Source};
 use config::FileFormat::Toml;
+use config::{Config, File, Source};
 use dashmap::iter::Iter;
 use dashmap::mapref::one::{Ref, RefMut};
 use serde::{Deserialize, Serialize};
@@ -306,7 +306,7 @@ impl PluginInfo {
 }
 pub enum PluginManagerConfig {
     Path(String),
-    Map(crate::types::HashMap<String, String>)
+    Map(crate::types::HashMap<String, String>),
 }
 pub struct Manager {
     plugins: DashMap<String, Entry>,
@@ -497,8 +497,9 @@ impl Manager {
                 let path = path.trim_end_matches(['/', '\\']);
                 File::with_name(&format!("{}/{}", path, name)).required(required)
             }
-            PluginManagerConfig::Map(ref map) =>
-                File::from_str(map.get(name).unwrap_or_default(), Toml).required(required),
+            PluginManagerConfig::Map(ref map) => {
+                File::from_str(map.get(name).unwrap_or_default(), Toml).required(required)
+            }
         };
         let mut builder = Config::builder().add_source(source);
 
