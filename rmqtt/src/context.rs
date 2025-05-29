@@ -71,11 +71,12 @@ use crate::metrics::Metrics;
 use crate::node::Node;
 #[cfg(feature = "plugin")]
 use crate::plugin;
+use crate::plugin::PluginManagerConfig;
 use crate::router::DefaultRouter;
 use crate::shared::DefaultShared;
 #[cfg(feature = "stats")]
 use crate::stats::Stats;
-use crate::types::{DashMap, ListenerConfig, ListenerId, NodeId};
+use crate::types::{DashMap, HashMap, ListenerConfig, ListenerId, NodeId};
 use crate::utils::Counter;
 
 /// Builder for constructing ServerContext with configurable parameters
@@ -109,8 +110,8 @@ pub struct ServerContextBuilder {
     /// Immediate execution flag for delayed publishes
     pub mqtt_delayed_publish_immediate: bool,
 
-    /// Directory path for plugin loading
-    pub plugins_dir: String,
+    /// plugins config, path or configMap<plugin_name, toml_string>
+    pub plugins_config: PluginManagerConfig,
 }
 
 impl Default for ServerContextBuilder {
@@ -132,7 +133,7 @@ impl ServerContextBuilder {
             mqtt_delayed_publish_max: 100_000,
             mqtt_max_sessions: 0,
             mqtt_delayed_publish_immediate: true,
-            plugins_dir: "rmqtt-plugins/".into(),
+            plugins_config: PluginManagerConfig::Path("rmqtt-plugins/".into()),
         }
     }
 
@@ -197,10 +198,15 @@ impl ServerContextBuilder {
     }
 
     /// Sets directory path for plugin loading
-    pub fn plugins_dir<N: Into<String>>(mut self, plugins_dir: N) -> Self {
-        self.plugins_dir = plugins_dir.into();
+    pub fn plugins_config_dir<N: Into<String>>(mut self, plugins_dir: N) -> Self {
+        self.plugins_config = PluginManagerConfig::Path(plugins_dir.into());
         self
     }
+    pub fn plugins_config_map(mut self, plugins_config_map: HashMap<String, String>) -> Self {
+        self.plugins_config = PluginManagerConfig::Map(plugins_config_map);
+        self
+    }
+    
 
     /// Constructs the ServerContext with configured parameters
     pub async fn build(self) -> ServerContext {
@@ -218,7 +224,7 @@ impl ServerContextBuilder {
                 listen_cfgs: DashMap::default(),
                 extends: extend::Manager::new(),
                 #[cfg(feature = "plugin")]
-                plugins: plugin::Manager::new(self.plugins_dir),
+                plugins: plugin::Manager::new(self.plugins_config),
                 #[cfg(feature = "metrics")]
                 metrics: Metrics::new(),
                 #[cfg(feature = "stats")]

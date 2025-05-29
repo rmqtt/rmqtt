@@ -129,7 +129,7 @@ use simple_logger::SimpleLogger;
 async fn main() -> Result<()> {
     SimpleLogger::new().with_level(log::LevelFilter::Info).init()?;
 
-    let scx = ServerContext::new().plugins_dir("rmqtt-plugins/").build().await;
+    let scx = ServerContext::new().plugins_config_dir("rmqtt-plugins/").build().await;
 
     rmqtt_acl::register(&scx, true, false).await?;
     rmqtt_retainer::register(&scx, true, false).await?;

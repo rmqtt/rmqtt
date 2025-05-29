@@ -57,7 +57,7 @@ async fn main() -> Result<()> {
         .mqtt_delayed_publish_max(conf.mqtt.delayed_publish_max)
         .mqtt_delayed_publish_immediate(conf.mqtt.delayed_publish_immediate)
         .mqtt_max_sessions(conf.mqtt.max_sessions)
-        .plugins_dir(conf.plugins.dir.as_str())
+        .plugins_config_dir(conf.plugins.dir.as_str())
         .build()
         .await;
 
