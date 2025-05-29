@@ -492,16 +492,17 @@ impl Manager {
         required: bool,
         env_list_keys: &[&str],
     ) -> Result<(T, bool)> {
-        let source: dyn Source = match self.config {
+        let mut builder= match self.config {
             PluginManagerConfig::Path(ref path) => {
                 let path = path.trim_end_matches(['/', '\\']);
-                File::with_name(&format!("{}/{}", path, name)).required(required)
+                Config::builder().add_source(File::with_name(&format!("{}/{}", path, name)).required(required))
             }
             PluginManagerConfig::Map(ref map) => {
-                File::from_str(map.get(name).unwrap_or_default(), Toml).required(required)
+                let default_config = "".to_owned();
+                let config_string = map.get(name).unwrap_or(&default_config);
+                Config::builder().add_source(File::from_str(config_string, Toml).required(required))
             }
         };
-        let mut builder = Config::builder().add_source(source);
 
         let mut env = config::Environment::with_prefix(&format!("rmqtt_plugin_{}", name.replace('-', "_")));
         if !env_list_keys.is_empty() {
