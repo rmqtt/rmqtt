@@ -8,40 +8,24 @@ use std::sync::atomic::{AtomicIsize, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::anyhow;
 use async_trait::async_trait;
-use ntex_mqtt::TopicLevel;
-use once_cell::sync::OnceCell;
+use get_size::GetSize;
 use rust_box::task_exec_queue::{Builder, SpawnExt, TaskExecQueue};
-use tokio::sync::RwLock;
-use tokio::time::sleep;
+use tokio::{sync::RwLock, time::sleep};
 
 use rmqtt::{
-    anyhow::anyhow, async_trait, get_size::GetSize, log, ntex_mqtt, once_cell, rust_box, scc,
-    timestamp_millis, tokio, topic_size,
+    message::MessageManager,
+    retain::RetainTree,
+    topic::{Level, Topic},
+    types::{
+        topic_size, ClientId, From, MsgID, Publish, SharedGroup, StoredMessage, TimestampMillis, TopicFilter,
+    },
+    utils::{timestamp_millis, Bytesize},
+    Result,
 };
 
 use crate::config::RamConfig;
-use rmqtt::settings::Bytesize;
-use rmqtt::{
-    broker::retain::RetainTree, broker::topic::Topic, broker::MessageManager, ClientId, From, MsgID, Publish,
-    Result, SharedGroup, StoredMessage, TimestampMillis, TopicFilter,
-};
-
-static INSTANCE: OnceCell<RamMessageManager> = OnceCell::new();
-
-#[inline]
-pub(crate) async fn get_or_init(cfg: RamConfig, cleanup_count: usize) -> Result<&'static RamMessageManager> {
-    if let Some(msg_mgr) = INSTANCE.get() {
-        return Ok(msg_mgr);
-    }
-    let msg_mgr = RamMessageManager::new(cfg, cleanup_count).await?;
-    INSTANCE.set(msg_mgr).map_err(|_| anyhow!("init error!"))?;
-    if let Some(msg_mgr) = INSTANCE.get() {
-        Ok(msg_mgr)
-    } else {
-        unreachable!()
-    }
-}
 
 enum MessageEntry<'h> {
     StoredMessage(StoredMessage),
@@ -60,6 +44,7 @@ impl MessageEntry<'_> {
 
 type SubClientIds = Option<Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>>;
 
+#[derive(Clone)]
 pub struct RamMessageManager {
     inner: Arc<RamMessageManagerInner>,
     pub(crate) exec: TaskExecQueue,
@@ -67,40 +52,39 @@ pub struct RamMessageManager {
 
 impl RamMessageManager {
     #[inline]
-    async fn new(cfg: RamConfig, cleanup_count: usize) -> Result<RamMessageManager> {
-        let exec = Self::serve(cfg.clone(), cleanup_count)?;
-        Ok(Self { inner: Arc::new(RamMessageManagerInner { cfg, ..Default::default() }), exec })
-    }
-
-    fn serve(_cfg: RamConfig, max_limit: usize) -> Result<TaskExecQueue> {
+    pub(crate) async fn new(cfg: RamConfig, cleanup_count: usize) -> Result<RamMessageManager> {
         let (exec, task_runner) = Builder::default().workers(1000).queue_max(300_000).build();
 
         tokio::spawn(async move {
             task_runner.await;
         });
 
+        Ok(Self { inner: Arc::new(RamMessageManagerInner { cfg, ..Default::default() }), exec }
+            .serve(cleanup_count))
+    }
+
+    fn serve(self, max_limit: usize) -> Self {
+        let msg_mgr = self.clone();
         tokio::spawn(async move {
             sleep(Duration::from_secs(30)).await;
             let mut total_removeds = 0;
             loop {
                 let now = std::time::Instant::now();
-                let removeds = if let Some(msg_mgr) = INSTANCE.get() {
-                    tokio::task::spawn_blocking(move || {
-                        tokio::runtime::Handle::current().block_on(async move {
-                            match msg_mgr.remove_expired_messages(max_limit).await {
-                                Err(e) => {
-                                    log::warn!("remove expired messages error, {:?}", e);
-                                    0
-                                }
-                                Ok(removed) => removed,
+                let msg_mgr = msg_mgr.clone();
+                let removeds = tokio::task::spawn_blocking(move || {
+                    tokio::runtime::Handle::current().block_on(async move {
+                        match msg_mgr.remove_expired_messages(max_limit).await {
+                            Err(e) => {
+                                log::warn!("remove expired messages error, {:?}", e);
+                                0
                             }
-                        })
+                            Ok(removed) => removed,
+                        }
                     })
-                    .await
-                    .unwrap_or_default()
-                } else {
-                    0
-                };
+                })
+                .await
+                .unwrap_or_default();
+
                 total_removeds += removeds;
                 if removeds >= max_limit {
                     continue;
@@ -116,7 +100,7 @@ impl RamMessageManager {
                 sleep(Duration::from_secs(3)).await; //@TODO config enable
             }
         });
-        Ok(exec)
+        self
     }
 }
 
@@ -197,7 +181,7 @@ impl RamMessageManager {
             if let Ok(Some(msg)) = self.messages_remove(msg_id).await {
                 let mut topic =
                     Topic::from_str(&msg.publish.topic).map_err(|e| anyhow!(format!("{:?}", e)))?;
-                topic.push(TopicLevel::Normal(msg_id.to_string()));
+                topic.push(Level::Normal(msg_id.to_string()));
                 inner.topic_tree.write().await.remove(&topic);
                 inner.forwardeds.remove(msg_id);
             }
@@ -281,7 +265,7 @@ impl RamMessageManager {
         sub_client_ids: SubClientIds,
     ) -> Result<()> {
         let mut topic = Topic::from_str(&publish.topic).map_err(|e| anyhow!(format!("{:?}", e)))?;
-        topic.push(TopicLevel::Normal(msg_id.to_string()));
+        topic.push(Level::Normal(msg_id.to_string()));
         let expiry_time_at = timestamp_millis() + expiry_interval.as_millis() as i64;
         let inner = &self.inner;
         let msg = StoredMessage { msg_id, from, publish, expiry_time_at };
@@ -324,8 +308,8 @@ impl RamMessageManager {
     ) -> Result<Vec<(MsgID, From, Publish)>> {
         let inner = &self.inner;
         let mut topic = Topic::from_str(topic_filter).map_err(|e| anyhow!(format!("{:?}", e)))?;
-        if !topic.levels().last().map(|l| matches!(l, TopicLevel::MultiWildcard)).unwrap_or_default() {
-            topic.push(TopicLevel::SingleWildcard);
+        if !topic.levels().last().map(|l| matches!(l, Level::MultiWildcard)).unwrap_or_default() {
+            topic.push(Level::SingleWildcard);
         }
 
         let matcheds = {
@@ -408,7 +392,7 @@ impl RamMessageManager {
 }
 
 #[async_trait]
-impl MessageManager for &'static RamMessageManager {
+impl MessageManager for RamMessageManager {
     #[inline]
     fn next_msg_id(&self) -> MsgID {
         self.inner.id_gen.fetch_add(1, Ordering::SeqCst)
@@ -423,7 +407,7 @@ impl MessageManager for &'static RamMessageManager {
         expiry_interval: Duration,
         sub_client_ids: SubClientIds,
     ) -> Result<()> {
-        let this: &'static RamMessageManager = self;
+        let this = self.clone();
         async move {
             if let Err(e) = this._set(from, p, expiry_interval, msg_id, sub_client_ids).await {
                 log::warn!("Store of the Publish message failed! {:?}", e);
@@ -472,7 +456,8 @@ impl MessageManager for &'static RamMessageManager {
 
 #[test]
 fn test_message_manager() {
-    use rmqtt::{bytes, From, Id, PublishProperties, QoS, TopicName};
+    use rmqtt::codec::v5::PublishProperties;
+    use rmqtt::types::{From, Id, QoS, TopicName};
 
     let runner = async move {
         let cfg = RamConfig::default();
@@ -480,17 +465,17 @@ fn test_message_manager() {
             as &'static RamMessageManager;
         sleep(Duration::from_millis(10)).await;
         let f = From::from_custom(Id::from(1, ClientId::from("test-001")));
-        let mut p = Publish {
+        let mut p = Box::new(rmqtt::codec::types::Publish {
             dup: false,
             retain: false,
             qos: QoS::try_from(1).unwrap(),
             topic: TopicName::from(""),
             packet_id: Some(std::num::NonZeroU16::try_from(1).unwrap()),
             payload: bytes::Bytes::from("test ..."),
-            properties: PublishProperties::default(),
+            properties: Some(PublishProperties::default()),
             delay_interval: None,
-            create_time: timestamp_millis(),
-        };
+            create_time: Some(timestamp_millis()),
+        });
 
         let now = std::time::Instant::now();
         for i in 0..5 {

@@ -1,36 +1,35 @@
 #![deny(unsafe_code)]
-#[macro_use]
-extern crate serde;
-
-#[macro_use]
-extern crate rmqtt_macros;
 
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::anyhow;
 use async_trait::async_trait;
-use reqwest::header::HeaderMap;
-use reqwest::{Method, Url};
+use bytestring::ByteString;
+use reqwest::{
+    header::{HeaderMap, CONTENT_TYPE},
+    Method, Response, Url,
+};
 use serde::ser::Serialize;
 use tokio::sync::RwLock;
 
 use rmqtt::{
-    ahash, anyhow::anyhow, async_trait, log, ntex::util::ByteString, once_cell::sync::Lazy, reqwest,
-    reqwest::Response, serde_json, tokio,
-};
-use rmqtt::{
-    broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
-    broker::types::{
-        AuthResult, ConnectInfo, Message, Password, PublishAclResult, Reason, SubscribeAckReason,
-        SubscribeAclResult, Superuser,
-    },
+    acl::{AuthInfo, Rule},
+    codec::v5::SubscribeAckReason,
+    context::ServerContext,
+    hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
+    macros::Plugin,
     plugin::{PackageInfo, Plugin},
-    register, timestamp_millis, Id, MqttError, Result, Runtime, TopicName,
+    register,
+    types::{
+        AuthResult, ConnectInfo, DashMap, Disconnect, Id, Message, Password, PublishAclResult, Reason,
+        SubscribeAclResult, Superuser, TimestampMillis, TopicName,
+    },
+    utils::timestamp_millis,
+    Error, Result,
 };
 
 use config::PluginConfig;
-use rmqtt::reqwest::header::CONTENT_TYPE;
-use rmqtt::settings::acl::{AuthInfo, Rule};
 
 mod config;
 
@@ -38,7 +37,7 @@ type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
 const CACHEABLE: &str = "X-Cache";
 const SUPERUSER: &str = "X-Superuser";
-const CACHE_KEY: &str = "ACL-CACHE-MAP";
+// const CACHE_KEY: &str = "ACL-CACHE-MAP";
 
 #[derive(Clone, Debug)]
 struct ResponseResult {
@@ -64,15 +63,15 @@ enum Permission {
 }
 
 impl TryFrom<(&str, Superuser)> for Permission {
-    type Error = MqttError;
+    type Error = Error;
 
     #[inline]
-    fn try_from((s, superuser): (&str, Superuser)) -> Result<Self, Self::Error> {
+    fn try_from((s, superuser): (&str, Superuser)) -> std::result::Result<Self, Self::Error> {
         match s {
             "allow" => Ok(Permission::Allow(superuser)),
             "deny" => Ok(Permission::Deny),
             "ignore" => Ok(Permission::Ignore),
-            _ => Err(MqttError::from(
+            _ => Err(anyhow!(
                 "The authentication result is incorrect; only 'allow,' 'deny,' or 'ignore' are permitted.",
             )),
         }
@@ -110,21 +109,27 @@ impl ACLType {
 
 register!(AuthHttpPlugin::new);
 
+type Caches = Arc<DashMap<Id, std::collections::BTreeMap<TopicName, (Permission, TimestampMillis)>>>;
+
 #[derive(Plugin)]
 struct AuthHttpPlugin {
-    runtime: &'static Runtime,
+    scx: ServerContext,
+    httpc: reqwest::Client,
     register: Box<dyn Register>,
     cfg: Arc<RwLock<PluginConfig>>,
+    caches: Caches,
 }
 
 impl AuthHttpPlugin {
     #[inline]
-    async fn new<S: Into<String>>(runtime: &'static Runtime, name: S) -> Result<Self> {
+    async fn new<S: Into<String>>(scx: ServerContext, name: S) -> Result<Self> {
         let name = name.into();
-        let cfg = Arc::new(RwLock::new(runtime.settings.plugins.load_config::<PluginConfig>(&name)?));
+        let cfg = Arc::new(RwLock::new(scx.plugins.read_config::<PluginConfig>(&name)?));
         log::debug!("{} AuthHttpPlugin cfg: {:?}", name, cfg.read().await);
-        let register = runtime.extends.hook_mgr().await.register();
-        Ok(Self { runtime, register, cfg })
+        let register = scx.extends.hook_mgr().register();
+        let caches = Arc::new(DashMap::default());
+        let httpc = new_reqwest_client()?;
+        Ok(Self { scx, httpc, register, cfg, caches })
     }
 }
 
@@ -136,14 +141,40 @@ impl Plugin for AuthHttpPlugin {
         let cfg = &self.cfg;
 
         let priority = cfg.read().await.priority;
-        self.register.add_priority(Type::ClientAuthenticate, priority, Box::new(AuthHandler::new(cfg))).await;
         self.register
-            .add_priority(Type::ClientSubscribeCheckAcl, priority, Box::new(AuthHandler::new(cfg)))
+            .add_priority(
+                Type::ClientAuthenticate,
+                priority,
+                Box::new(AuthHandler::new(&self.scx, self.httpc.clone(), cfg, &self.caches)),
+            )
             .await;
         self.register
-            .add_priority(Type::MessagePublishCheckAcl, priority, Box::new(AuthHandler::new(cfg)))
+            .add_priority(
+                Type::ClientSubscribeCheckAcl,
+                priority,
+                Box::new(AuthHandler::new(&self.scx, self.httpc.clone(), cfg, &self.caches)),
+            )
             .await;
-        self.register.add(Type::ClientKeepalive, Box::new(AuthHandler::new(cfg))).await;
+        self.register
+            .add_priority(
+                Type::MessagePublishCheckAcl,
+                priority,
+                Box::new(AuthHandler::new(&self.scx, self.httpc.clone(), cfg, &self.caches)),
+            )
+            .await;
+        self.register
+            .add(
+                Type::ClientKeepalive,
+                Box::new(AuthHandler::new(&self.scx, self.httpc.clone(), cfg, &self.caches)),
+            )
+            .await;
+
+        self.register
+            .add(
+                Type::ClientDisconnected,
+                Box::new(AuthHandler::new(&self.scx, self.httpc.clone(), cfg, &self.caches)),
+            )
+            .await;
         Ok(())
     }
 
@@ -154,7 +185,7 @@ impl Plugin for AuthHttpPlugin {
 
     #[inline]
     async fn load_config(&mut self) -> Result<()> {
-        let new_cfg = self.runtime.settings.plugins.load_config::<PluginConfig>(self.name())?;
+        let new_cfg = self.scx.plugins.read_config::<PluginConfig>(self.name())?;
         *self.cfg.write().await = new_cfg;
         log::debug!("load_config ok,  {:?}", self.cfg);
         Ok(())
@@ -176,17 +207,35 @@ impl Plugin for AuthHttpPlugin {
 
     #[inline]
     async fn attrs(&self) -> serde_json::Value {
-        serde_json::json!({})
+        let mut stats = HashMap::default();
+        for (i, c) in self.caches.iter().enumerate() {
+            if i < 1000 {
+                stats.insert(c.key().to_string(), c.value().len());
+            }
+        }
+
+        serde_json::json!({
+            "caches": self.caches.len(),
+            "stats": stats,
+        })
     }
 }
 
 struct AuthHandler {
+    scx: ServerContext,
+    httpc: reqwest::Client,
     cfg: Arc<RwLock<PluginConfig>>,
+    caches: Caches,
 }
 
 impl AuthHandler {
-    fn new(cfg: &Arc<RwLock<PluginConfig>>) -> Self {
-        Self { cfg: cfg.clone() }
+    fn new(
+        scx: &ServerContext,
+        httpc: reqwest::Client,
+        cfg: &Arc<RwLock<PluginConfig>>,
+        caches: &Caches,
+    ) -> Self {
+        Self { scx: scx.clone(), httpc, cfg: cfg.clone(), caches: caches.clone() }
     }
 
     async fn response_result(resp: Response) -> Result<ResponseResult> {
@@ -212,14 +261,13 @@ impl AuthHandler {
             };
             log::debug!("Cache timeout is {:?}", cache_timeout);
             let resp = if is_json_content_type {
-                let mut body: serde_json::Value =
-                    resp.json().await.map_err(|e| MqttError::Msg(e.to_string()))?;
+                let mut body: serde_json::Value = resp.json().await?;
                 log::debug!("body: {:?}", body);
                 if let Some(obj) = body.as_object_mut() {
                     let result = obj
                         .get("result")
                         .and_then(|res| res.as_str())
-                        .ok_or_else(|| MqttError::from("Authentication result does not exist"))?;
+                        .ok_or_else(|| anyhow!("Authentication result does not exist"))?;
                     let superuser = obj.get("superuser").and_then(|res| res.as_bool()).unwrap_or(superuser);
                     let expire_at =
                         obj.get("expire_at").and_then(|res| res.as_u64().map(Duration::from_secs));
@@ -231,10 +279,10 @@ impl AuthHandler {
                     log::debug!("body: {:?}", body);
                     ResponseResult::new(Permission::try_from((body, superuser))?, superuser, cache_timeout)
                 } else {
-                    return Err(MqttError::from(format!("The response result is incorrect, {}", body)));
+                    return Err(anyhow!(format!("The response result is incorrect, {}", body)));
                 }
             } else {
-                let body = resp.text().await.map_err(|e| MqttError::Msg(e.to_string()))?;
+                let body = resp.text().await?;
                 log::debug!("body: {:?}", body);
                 ResponseResult::new(Permission::from(body.as_str(), superuser), superuser, cache_timeout)
             };
@@ -245,31 +293,24 @@ impl AuthHandler {
     }
 
     async fn http_get_request<T: Serialize + ?Sized>(
+        httpc: &reqwest::Client,
         url: Url,
         body: &T,
         headers: HeaderMap,
         timeout: Duration,
     ) -> Result<ResponseResult> {
         log::debug!("http_get_request, timeout: {:?}, url: {}", timeout, url);
-        match HTTP_CLIENT
-            .as_ref()?
-            .clone()
-            .get(url)
-            .headers(headers)
-            .timeout(timeout)
-            .query(body)
-            .send()
-            .await
-        {
+        match httpc.get(url).headers(headers).timeout(timeout).query(body).send().await {
             Err(e) => {
-                log::error!("error:{:?}", e);
-                Err(MqttError::Msg(e.to_string()))
+                log::warn!("{:?}", e);
+                Err(anyhow!(e))
             }
             Ok(resp) => Self::response_result(resp).await,
         }
     }
 
     async fn http_form_request<T: Serialize + ?Sized>(
+        httpc: &reqwest::Client,
         url: Url,
         method: Method,
         body: &T,
@@ -277,25 +318,17 @@ impl AuthHandler {
         timeout: Duration,
     ) -> Result<ResponseResult> {
         log::debug!("http_form_request, method: {:?}, timeout: {:?}, url: {}", method, timeout, url);
-        match HTTP_CLIENT
-            .as_ref()?
-            .clone()
-            .request(method, url)
-            .headers(headers)
-            .timeout(timeout)
-            .form(body)
-            .send()
-            .await
-        {
+        match httpc.request(method, url).headers(headers).timeout(timeout).form(body).send().await {
             Err(e) => {
-                log::error!("error:{:?}", e);
-                Err(MqttError::Msg(e.to_string()))
+                log::warn!("{:?}", e);
+                Err(anyhow!(e))
             }
             Ok(resp) => Self::response_result(resp).await,
         }
     }
 
     async fn http_json_request<T: Serialize + ?Sized>(
+        httpc: &reqwest::Client,
         url: Url,
         method: Method,
         body: &T,
@@ -303,19 +336,10 @@ impl AuthHandler {
         timeout: Duration,
     ) -> Result<ResponseResult> {
         log::debug!("http_json_request, method: {:?}, timeout: {:?}, url: {}", method, timeout, url);
-        match HTTP_CLIENT
-            .as_ref()?
-            .clone()
-            .request(method, url)
-            .headers(headers)
-            .timeout(timeout)
-            .json(body)
-            .send()
-            .await
-        {
+        match httpc.request(method, url).headers(headers).timeout(timeout).json(body).send().await {
             Err(e) => {
-                log::error!("error:{:?}", e);
-                Err(MqttError::Msg(e.to_string()))
+                log::warn!("{:?}", e);
+                Err(anyhow!(e))
             }
             Ok(resp) => Self::response_result(resp).await,
         }
@@ -339,7 +363,7 @@ impl AuthHandler {
             *v = v.replace("%a", &remote_addr);
             *v = v.replace("%P", &password);
             if let Some(protocol) = protocol {
-                let mut buffer = rmqtt::itoa::Buffer::new();
+                let mut buffer = itoa::Buffer::new();
                 *v = v.replace("%r", buffer.format(protocol));
             }
             if let Some((ref acl_type, topic)) = sub_or_pub {
@@ -380,16 +404,16 @@ impl AuthHandler {
         let auth_result = if req_cfg.is_get() {
             let body = &mut req_cfg.params;
             Self::replaces(body, id, password, protocol, sub_or_pub)?;
-            Self::http_get_request(req_cfg.url, body, headers, timeout).await?
+            Self::http_get_request(&self.httpc, req_cfg.url, body, headers, timeout).await?
         } else if req_cfg.json_body() {
             let body = &mut req_cfg.params;
             Self::replaces(body, id, password, protocol, sub_or_pub)?;
-            Self::http_json_request(req_cfg.url, req_cfg.method, body, headers, timeout).await?
+            Self::http_json_request(&self.httpc, req_cfg.url, req_cfg.method, body, headers, timeout).await?
         } else {
             //form body
             let body = &mut req_cfg.params;
             Self::replaces(body, id, password, protocol, sub_or_pub)?;
-            Self::http_form_request(req_cfg.url, req_cfg.method, body, headers, timeout).await?
+            Self::http_form_request(&self.httpc, req_cfg.url, req_cfg.method, body, headers, timeout).await?
         };
         log::debug!("auth_result: {:?}", auth_result);
         Ok(auth_result)
@@ -481,6 +505,21 @@ impl AuthHandler {
             (Permission::Ignore, None)
         }
     }
+
+    #[inline]
+    fn cache_set(&self, id: Id, topic: TopicName, perm: Permission, expire: TimestampMillis) {
+        self.caches.entry(id).or_default().insert(topic, (perm, expire));
+    }
+
+    #[inline]
+    fn cache_get(&self, id: &Id, topic: &TopicName) -> Option<(Permission, TimestampMillis)> {
+        self.caches.get(id).and_then(|c| c.get(topic).map(|(perm, expire)| (*perm, *expire)))
+    }
+
+    #[inline]
+    fn cache_remove(&self, id: &Id) {
+        self.caches.remove(id);
+    }
 }
 
 #[async_trait]
@@ -566,15 +605,9 @@ impl Handler for AuthHandler {
                     }
                 }
 
-                let acl_res = if let Some((acl_res, expire)) = session
-                    .extra_attrs
-                    .read()
-                    .await
-                    .get::<HashMap<TopicName, (Permission, i64)>>(CACHE_KEY)
-                    .and_then(|cache_map| cache_map.get(publish.topic()))
-                {
-                    if *expire < 0 || timestamp_millis() < *expire {
-                        Some(*acl_res)
+                let acl_res = if let Some((acl_res, expire)) = self.cache_get(&session.id, &publish.topic) {
+                    if expire < 0 || timestamp_millis() < expire {
+                        Some(acl_res)
                     } else {
                         None
                     }
@@ -587,22 +620,12 @@ impl Handler for AuthHandler {
                 } else {
                     //Permission, Cacheable
                     let (acl_res, cacheable) = self
-                        .acl(
-                            &session.id,
-                            session.protocol().await.ok(),
-                            Some((ACLType::Pub, publish.topic())),
-                        )
+                        .acl(&session.id, session.protocol().await.ok(), Some((ACLType::Pub, &publish.topic)))
                         .await;
                     if let Some(tm) = cacheable {
                         let expire = if tm < 0 { tm } else { timestamp_millis() + tm };
-                        if let Some(cache_map) = session
-                            .extra_attrs
-                            .write()
-                            .await
-                            .get_default_mut(CACHE_KEY.into(), HashMap::default)
-                        {
-                            cache_map.insert(publish.topic().clone(), (acl_res, expire));
-                        }
+
+                        self.cache_set(session.id.clone(), publish.topic.clone(), acl_res, expire);
                     }
                     acl_res
                 };
@@ -625,17 +648,19 @@ impl Handler for AuthHandler {
                 if let Some(auth) = &s.auth_info {
                     log::debug!("Keepalive auth-http, is_expired: {:?}", auth.is_expired());
                     if auth.is_expired() && self.cfg.read().await.disconnect_if_expiry {
-                        if let Some(tx) =
-                            Runtime::instance().extends.shared().await.entry(s.id().clone()).tx()
-                        {
+                        if let Some(tx) = self.scx.extends.shared().await.entry(s.id().clone()).tx() {
                             if let Err(e) = tx.unbounded_send(Message::Closed(Reason::ConnectDisconnect(
-                                Some("Http Auth expired".into()),
+                                Some(Disconnect::Other("Http Auth expired".into())),
                             ))) {
                                 log::warn!("{} {}", s.id(), e);
                             }
                         }
                     }
                 }
+            }
+
+            Parameter::ClientDisconnected(s, _) => {
+                self.cache_remove(&s.id);
             }
 
             _ => {
@@ -646,10 +671,10 @@ impl Handler for AuthHandler {
     }
 }
 
-static HTTP_CLIENT: Lazy<Result<reqwest::Client>> = Lazy::new(|| {
+fn new_reqwest_client() -> Result<reqwest::Client> {
     reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(5))
-        .timeout(Duration::from_secs(5))
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(10))
         .build()
-        .map_err(|e| MqttError::from(anyhow!(e)))
-});
+        .map_err(|e| anyhow!(e))
+}

@@ -7,8 +7,8 @@
 # Expressions can use ${clientid} to represent the client ID and ${username} to represent the client username.
 
 subscribes = [
-#    { topic_filter = "x/+/#", qos = 1, no_local = false, retain_as_published = false, retain_handling = 0 },
-#    { topic_filter = "foo/${clientid}/#", qos = 1, no_local = false, retain_as_published = false, retain_handling = 0 },
-#    { topic_filter = "iot/${username}/#", qos = 1 }
+    { topic_filter = "x/+/#", qos = 1, no_local = false, retain_as_published = false, retain_handling = 0 },
+    { topic_filter = "foo/${clientid}/#", qos = 1, no_local = false, retain_as_published = false, retain_handling = 0 },
+    { topic_filter = "iot/${username}/#", qos = 1 }
 ]
 

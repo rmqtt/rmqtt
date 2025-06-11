@@ -3,13 +3,11 @@ use std::time::Duration;
 
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE};
 use reqwest::{Method, Url};
-use serde::de::{self, Deserialize, Deserializer};
-use serde::ser::{self, Serialize};
+use serde::de::{self, Deserializer};
+use serde::ser;
+use serde::{Deserialize, Serialize};
 
-use rmqtt::broker::hook::Priority;
-use rmqtt::settings::deserialize_duration;
-use rmqtt::Result;
-use rmqtt::{ahash, reqwest, serde_json};
+use rmqtt::{hook::Priority, utils::deserialize_duration, Result};
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 

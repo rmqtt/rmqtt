@@ -2,13 +2,21 @@
 name = "rmqtt-bridge-egress-pulsar"
 version = "0.1.0"
 description = "Bridge remote Apache-Pulsar in egress mode."
+repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-bridge-egress-pulsar"
 edition.workspace = true
 authors.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-rmqtt.workspace = true
-rmqtt-macros.workspace = true
+rmqtt = { workspace = true, features = ["plugin"] }
 serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["sync", "rt-multi-thread"] }
 pulsar = "=6.3.0"
+serde_json.workspace = true
+log.workspace = true
+async-trait.workspace = true
+anyhow.workspace = true
+bytestring.workspace = true
+rand.workspace = true
+uuid.workspace = true

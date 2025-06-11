@@ -1,26 +1,20 @@
 #![deny(unsafe_code)]
-#[macro_use]
-extern crate serde;
-
-#[macro_use]
-extern crate rmqtt_macros;
 
 use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
 
+use async_trait::async_trait;
+use serde_json::{self, json};
+use tokio::sync::mpsc;
+use tokio::sync::RwLock;
+
 use rmqtt::{
-    async_trait::async_trait,
-    log,
-    serde_json::{self, json},
-    tokio,
-    tokio::sync::mpsc,
-    tokio::sync::RwLock,
-};
-use rmqtt::{
-    broker::hook::Register,
+    context::ServerContext,
+    hook::Register,
+    macros::Plugin,
     plugin::{PackageInfo, Plugin},
-    register, Result, Runtime,
+    register, Result,
 };
 
 use bridge::{BridgeManager, SystemCommand};
@@ -33,7 +27,7 @@ register!(BridgePulsarIngressPlugin::new);
 
 #[derive(Plugin)]
 struct BridgePulsarIngressPlugin {
-    _runtime: &'static Runtime,
+    scx: ServerContext,
     cfg: Arc<RwLock<PluginConfig>>,
     register: Box<dyn Register>,
     bridge_mgr: BridgeManager,
@@ -42,15 +36,14 @@ struct BridgePulsarIngressPlugin {
 
 impl BridgePulsarIngressPlugin {
     #[inline]
-    async fn new(runtime: &'static Runtime, name: &'static str) -> Result<Self> {
-        let cfg = Self::load_cfg(runtime, name)?;
+    async fn new(scx: ServerContext, name: &'static str) -> Result<Self> {
+        let cfg = Self::load_cfg(&scx, name)?;
         let cfg = Arc::new(RwLock::new(cfg));
         log::info!("{} BridgePulsarIngressPlugin cfg: {:?}", name, cfg.read().await);
-        let register = runtime.extends.hook_mgr().await.register();
-        let bridge_mgr = BridgeManager::new(runtime.node.id(), cfg.clone()).await;
-
+        let register = scx.extends.hook_mgr().register();
+        let bridge_mgr = BridgeManager::new(scx.clone(), scx.node.id(), cfg.clone()).await;
         let bridge_mgr_cmd_tx = Self::start(name.into(), bridge_mgr.clone());
-        Ok(Self { _runtime: runtime, cfg, register, bridge_mgr, bridge_mgr_cmd_tx })
+        Ok(Self { scx, cfg, register, bridge_mgr, bridge_mgr_cmd_tx })
     }
 
     fn start(name: String, mut bridge_mgr: BridgeManager) -> mpsc::Sender<SystemCommand> {
@@ -82,8 +75,8 @@ impl BridgePulsarIngressPlugin {
         bridge_mgr_cmd_tx
     }
 
-    fn load_cfg(runtime: &'static Runtime, name: &str) -> Result<PluginConfig> {
-        let mut cfg = runtime.settings.plugins.load_config::<PluginConfig>(name)?;
+    fn load_cfg(scx: &ServerContext, name: &str) -> Result<PluginConfig> {
+        let mut cfg = scx.plugins.read_config::<PluginConfig>(name)?;
         cfg.prepare();
         Ok(cfg)
     }
@@ -120,7 +113,7 @@ impl Plugin for BridgePulsarIngressPlugin {
 
     #[inline]
     async fn load_config(&mut self) -> Result<()> {
-        *self.cfg.write().await = Self::load_cfg(self._runtime, self.name())?;
+        *self.cfg.write().await = Self::load_cfg(&self.scx, self.name())?;
         //@TODO stop and start ...
         Ok(())
     }

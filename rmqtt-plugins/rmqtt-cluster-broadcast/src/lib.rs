@@ -1,32 +1,26 @@
 #![deny(unsafe_code)]
-#[macro_use]
-extern crate serde;
-
-#[macro_use]
-extern crate rmqtt_macros;
 
 use std::sync::Arc;
 use std::time::Duration;
 
+use async_trait::async_trait;
+use serde_json::{self, json};
+use tokio::sync::RwLock;
+
+use rmqtt::{
+    grpc::{GrpcClients, Message, MessageReply, MessageType},
+    hook::{Register, Type},
+    macros::Plugin,
+    plugin::{PackageInfo, Plugin},
+    register,
+    types::{From, OfflineSession, Publish, Reason, To},
+    Result,
+};
+
 use config::PluginConfig;
 use handler::HookHandler;
-use rmqtt::{
-    ahash,
-    async_trait::async_trait,
-    log,
-    serde_json::{self, json},
-    tokio::sync::RwLock,
-};
-use rmqtt::{
-    broker::{
-        error::MqttError,
-        hook::{Register, Type},
-        types::{From, OfflineSession, Publish, Reason, To},
-    },
-    grpc::{GrpcClients, Message, MessageReply, MessageType},
-    plugin::{PackageInfo, Plugin},
-    register, Result, Runtime,
-};
+use rmqtt::context::ServerContext;
+use rmqtt::net::MqttError;
 use router::ClusterRouter;
 use shared::ClusterShared;
 
@@ -41,39 +35,51 @@ register!(ClusterPlugin::new);
 
 #[derive(Plugin)]
 struct ClusterPlugin {
-    runtime: &'static Runtime,
+    scx: ServerContext,
     register: Box<dyn Register>,
     cfg: Arc<RwLock<PluginConfig>>,
     grpc_clients: GrpcClients,
-    shared: &'static ClusterShared,
-    router: &'static ClusterRouter,
+    shared: ClusterShared,
+    router: ClusterRouter,
 }
 
 impl ClusterPlugin {
     #[inline]
-    async fn new<S: Into<String>>(runtime: &'static Runtime, name: S) -> Result<Self> {
+    async fn new<S: Into<String>>(scx: ServerContext, name: S) -> Result<Self> {
         let name = name.into();
-        let cfg = Arc::new(RwLock::new(
-            runtime.settings.plugins.load_config_with::<PluginConfig>(&name, &["node_grpc_addrs"])?,
-        ));
-        log::debug!("{} ClusterPlugin cfg: {:?}", name, cfg.read().await);
+        let cfg = scx.plugins.read_config_with::<PluginConfig>(&name, &["node_grpc_addrs"])?;
+        log::debug!("{} ClusterPlugin cfg: {:?}", name, cfg);
 
-        let register = runtime.extends.hook_mgr().await.register();
+        let register = scx.extends.hook_mgr().register();
         let mut grpc_clients = HashMap::default();
-        let node_grpc_addrs = cfg.read().await.node_grpc_addrs.clone();
+        let node_grpc_addrs = cfg.node_grpc_addrs.clone();
         for node_addr in &node_grpc_addrs {
-            if node_addr.id != runtime.node.id() {
+            if node_addr.id != scx.node.id() {
+                let batch_size = cfg.node_grpc_batch_size;
+                let client_concurrency_limit = cfg.node_grpc_client_concurrency_limit;
+                let client_timeout = cfg.node_grpc_client_timeout;
                 grpc_clients.insert(
                     node_addr.id,
-                    (node_addr.addr.clone(), runtime.node.new_grpc_client(&node_addr.addr).await?),
+                    (
+                        node_addr.addr.clone(),
+                        scx.node
+                            .new_grpc_client(
+                                &node_addr.addr,
+                                client_timeout,
+                                client_concurrency_limit,
+                                batch_size,
+                            )
+                            .await?,
+                    ),
                 );
             }
         }
         let grpc_clients = Arc::new(grpc_clients);
-        let message_type = cfg.read().await.message_type;
-        let router = ClusterRouter::get_or_init(grpc_clients.clone(), message_type);
-        let shared = ClusterShared::get_or_init(grpc_clients.clone(), message_type);
-        Ok(Self { runtime, register, cfg, grpc_clients, shared, router })
+        let message_type = cfg.message_type;
+        let router = ClusterRouter::new(scx.clone(), grpc_clients.clone(), message_type);
+        let shared = ClusterShared::new(scx.clone(), grpc_clients.clone(), message_type);
+        let cfg = Arc::new(RwLock::new(cfg));
+        Ok(Self { scx, register, cfg, grpc_clients, shared, router })
     }
 }
 
@@ -83,7 +89,10 @@ impl Plugin for ClusterPlugin {
     async fn init(&mut self) -> Result<()> {
         log::info!("{} init", self.name());
         self.register
-            .add(Type::GrpcMessageReceived, Box::new(HookHandler::new(self.shared, self.router)))
+            .add(
+                Type::GrpcMessageReceived,
+                Box::new(HookHandler::new(self.scx.clone(), self.shared.clone(), self.router.clone())),
+            )
             .await;
         Ok(())
     }
@@ -97,8 +106,8 @@ impl Plugin for ClusterPlugin {
     async fn start(&mut self) -> Result<()> {
         log::info!("{} start", self.name());
         self.register.start().await;
-        *self.runtime.extends.shared_mut().await = Box::new(self.shared);
-        *self.runtime.extends.router_mut().await = Box::new(self.router);
+        *self.scx.extends.shared_mut().await = Box::new(self.shared.clone());
+        *self.scx.extends.router_mut().await = Box::new(self.router.clone());
         Ok(())
     }
 
@@ -113,10 +122,11 @@ impl Plugin for ClusterPlugin {
         let mut nodes = HashMap::default();
         for (id, (addr, c)) in self.grpc_clients.iter() {
             let stats = json!({
-                "channel_tasks": c.channel_tasks(),
-                "active_tasks": c.active_tasks(),
+                "transfer_queue_len": c.transfer_queue_len(),
+                "active_tasks_count": c.active_tasks().count(),
+                "active_tasks_max": c.active_tasks().max(),
             });
-            nodes.insert(format!("{}/{:?}", id, addr), stats);
+            nodes.insert(format!("{}-{}", id, addr), stats);
         }
         json!({
             "grpc_clients": nodes,
@@ -137,20 +147,20 @@ pub(crate) async fn kick(
                 if let MessageReply::Kick(o) = reply {
                     Ok(MessageReply::Kick(o))
                 } else {
-                    Err(MqttError::None)
+                    Err(MqttError::None.into())
                 }
             })
             .await?;
     if let MessageReply::Kick(kicked) = reply {
         Ok(kicked)
     } else {
-        Err(MqttError::None)
+        Err(MqttError::None.into())
     }
 }
 
-pub(crate) async fn hook_message_dropped(droppeds: Vec<(To, From, Publish, Reason)>) {
+pub(crate) async fn hook_message_dropped(scx: &ServerContext, droppeds: Vec<(To, From, Publish, Reason)>) {
     for (to, from, publish, reason) in droppeds {
         //hook, message_dropped
-        Runtime::instance().extends.hook_mgr().await.message_dropped(Some(to), from, publish, reason).await;
+        scx.extends.hook_mgr().message_dropped(Some(to), from, publish, reason).await;
     }
 }

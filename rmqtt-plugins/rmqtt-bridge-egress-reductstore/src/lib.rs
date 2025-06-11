@@ -1,26 +1,21 @@
 #![deny(unsafe_code)]
-#[macro_use]
-extern crate serde;
 
-#[macro_use]
-extern crate rmqtt_macros;
-
-use rmqtt::{
-    async_trait::async_trait,
-    log, ntex,
-    serde_json::{self, json},
-    tokio,
-    tokio::sync::mpsc,
-    tokio::sync::RwLock,
-};
-use rmqtt::{
-    broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
-    plugin::{PackageInfo, Plugin},
-    register, Result, Runtime,
-};
 use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
+
+use async_trait::async_trait;
+use serde_json::{self, json};
+use tokio::sync::mpsc;
+use tokio::sync::RwLock;
+
+use rmqtt::{
+    context::ServerContext,
+    hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
+    macros::Plugin,
+    plugin::{PackageInfo, Plugin},
+    register, Result,
+};
 
 use bridge::{BridgeManager, Command};
 use config::PluginConfig;
@@ -32,7 +27,6 @@ register!(BridgeReductstoreEgressPlugin::new);
 
 #[derive(Plugin)]
 struct BridgeReductstoreEgressPlugin {
-    _runtime: &'static Runtime,
     cfg: Arc<RwLock<PluginConfig>>,
     register: Box<dyn Register>,
     bridge_mgr: BridgeManager,
@@ -41,17 +35,17 @@ struct BridgeReductstoreEgressPlugin {
 
 impl BridgeReductstoreEgressPlugin {
     #[inline]
-    async fn new(runtime: &'static Runtime, name: &'static str) -> Result<Self> {
-        let cfg = Arc::new(RwLock::new(runtime.settings.plugins.load_config::<PluginConfig>(name)?));
+    async fn new(scx: ServerContext, name: &'static str) -> Result<Self> {
+        let cfg = Arc::new(RwLock::new(scx.plugins.read_config::<PluginConfig>(name)?));
         log::info!("{} BridgeReductstoreEgressPlugin cfg: {:?}", name, cfg.read().await);
-        let register = runtime.extends.hook_mgr().await.register();
-        let bridge_mgr = BridgeManager::new(runtime.node.id(), cfg.clone()).await;
+        let register = scx.extends.hook_mgr().register();
+        let bridge_mgr = BridgeManager::new(scx.node.id(), cfg.clone()).await;
 
         let bridge_mgr_cmd_tx = Self::start(name.to_owned(), bridge_mgr.clone());
-        Ok(Self { _runtime: runtime, cfg, register, bridge_mgr, bridge_mgr_cmd_tx })
+        Ok(Self { cfg, register, bridge_mgr, bridge_mgr_cmd_tx })
     }
 
-    fn start(name: String, mut bridge_mgr: BridgeManager) -> mpsc::Sender<Command> {
+    fn start(_name: String, mut bridge_mgr: BridgeManager) -> mpsc::Sender<Command> {
         let (bridge_mgr_cmd_tx, mut bridge_mgr_cmd_rx) = mpsc::channel(10);
         std::thread::spawn(move || {
             let runner = async move {
@@ -73,7 +67,8 @@ impl BridgeReductstoreEgressPlugin {
                     }
                 }
             };
-            ntex::rt::System::new(&name).block_on(runner);
+            //@TODO 解决unwrap问题
+            tokio::runtime::Runtime::new().unwrap().block_on(runner);
         });
         bridge_mgr_cmd_tx
     }

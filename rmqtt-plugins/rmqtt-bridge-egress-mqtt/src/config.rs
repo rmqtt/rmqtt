@@ -1,29 +1,23 @@
-use std::fs::File;
 use std::num::NonZeroU32;
 use std::time::Duration;
 
-use serde::de::{self, Deserialize, Deserializer};
-use serde::ser::{Serialize, Serializer};
-
+use anyhow::anyhow;
+use base64::{engine::general_purpose, Engine as _};
 use ntex::util::{ByteString, Bytes};
 use ntex_mqtt::v3::codec::LastWill as LastWillV3;
 use ntex_mqtt::v5::codec::LastWill as LastWillV5;
 use ntex_mqtt::v5::codec::UserProperties;
 use ntex_mqtt::QoS;
-use rustls::{Certificate, PrivateKey};
-use rustls_pemfile::read_one;
+use serde::de::{self, Deserializer};
+use serde::ser::Serializer;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use serde_json::{self, Map, Value};
 
 use rmqtt::{
-    anyhow,
-    base64::{engine::general_purpose, Engine as _},
-    ntex_mqtt::types::{Protocol, MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5},
-    serde_json::{self, Map, Value},
-};
-
-use rmqtt::serde_json::json;
-use rmqtt::{
-    settings::{deserialize_duration, to_duration, Bytesize},
-    MqttError, Result,
+    codec::types::{Protocol, MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5},
+    utils::{deserialize_duration, to_duration, Bytesize},
+    Result,
 };
 
 use crate::bridge::BridgeName;
@@ -44,22 +38,11 @@ pub struct Bridge {
     pub client_id_prefix: String,
     #[serde(default, deserialize_with = "Bridge::deserialize_server")]
     pub server: ServerAddr,
-    #[serde(
-        default,
-        deserialize_with = "Bridge::deserialize_cert",
-        serialize_with = "Bridge::serialize_cert"
-    )]
-    pub root_cert: Option<Cert>,
+    pub root_cert: Option<String>,
     // #Client Certificate File
-    #[serde(
-        default,
-        deserialize_with = "Bridge::deserialize_cert",
-        serialize_with = "Bridge::serialize_cert"
-    )]
-    pub client_cert: Option<Cert>,
+    pub client_cert: Option<String>,
     // #Client key file
-    #[serde(default, deserialize_with = "Bridge::deserialize_key", serialize_with = "Bridge::serialize_key")]
-    pub client_key: Option<Key>,
+    pub client_key: Option<String>,
 
     #[serde(default)]
     pub username: Option<String>,
@@ -109,26 +92,26 @@ impl Bridge {
     }
 
     fn mqtt_ver_default() -> Protocol {
-        Protocol::MQTT(MQTT_LEVEL_311)
+        Protocol(MQTT_LEVEL_311)
     }
 
     #[inline]
-    pub fn deserialize_mqtt_ver<'de, D>(deserializer: D) -> Result<Protocol, D::Error>
+    pub fn deserialize_mqtt_ver<'de, D>(deserializer: D) -> std::result::Result<Protocol, D::Error>
     where
         D: Deserializer<'de>,
     {
         let v = String::deserialize(deserializer)?;
         let protocol = match v.as_str() {
-            "v3" | "V3" => Protocol::MQTT(MQTT_LEVEL_31),
-            "v4" | "V4" => Protocol::MQTT(MQTT_LEVEL_311),
-            "v5" | "V5" => Protocol::MQTT(MQTT_LEVEL_5),
+            "v3" | "V3" => Protocol(MQTT_LEVEL_31),
+            "v4" | "V4" => Protocol(MQTT_LEVEL_311),
+            "v5" | "V5" => Protocol(MQTT_LEVEL_5),
             _ => return Err(serde::de::Error::custom("invalid value")),
         };
         Ok(protocol)
     }
 
     #[inline]
-    pub fn deserialize_server<'de, D>(deserializer: D) -> Result<ServerAddr, D::Error>
+    pub fn deserialize_server<'de, D>(deserializer: D) -> std::result::Result<ServerAddr, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -146,52 +129,6 @@ impl Bridge {
                 };
                 Ok(ServerAddr { typ, addr: addr_split[1].into() })
             }
-        }
-    }
-
-    #[inline]
-    pub fn deserialize_cert<'de, D>(deserializer: D) -> Result<Option<Cert>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let file_name: String = String::deserialize(deserializer)?;
-        let cert = load_cert(&file_name).map_err(serde::de::Error::custom)?;
-
-        Ok(Some(Cert { file_name, cert }))
-    }
-
-    #[inline]
-    pub fn serialize_cert<S>(c: &Option<Cert>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        if let Some(c) = c {
-            c.file_name.serialize(serializer)
-        } else {
-            "".serialize(serializer)
-        }
-    }
-
-    #[inline]
-    pub fn deserialize_key<'de, D>(deserializer: D) -> Result<Option<Key>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let file_name: String = String::deserialize(deserializer)?;
-        let key = load_key(&file_name).map_err(serde::de::Error::custom)?;
-
-        Ok(Some(Key { file_name, key }))
-    }
-
-    #[inline]
-    pub fn serialize_key<S>(c: &Option<Key>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        if let Some(c) = c {
-            c.file_name.serialize(serializer)
-        } else {
-            "".serialize(serializer)
         }
     }
 }
@@ -222,18 +159,6 @@ impl ServerAddr {
     }
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct Cert {
-    pub file_name: String,
-    pub cert: Vec<Certificate>,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct Key {
-    pub file_name: String,
-    pub key: PrivateKey,
-}
-
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct MoreV3 {
     #[serde(default = "MoreV3::clean_session_default")]
@@ -252,7 +177,10 @@ impl MoreV3 {
     }
 
     #[inline]
-    pub fn serialize_last_will<S>(v: &Option<LastWillV3>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize_last_will<S>(
+        v: &Option<LastWillV3>,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -270,7 +198,7 @@ impl MoreV3 {
     }
 
     #[inline]
-    pub fn deserialize_last_will<'de, D>(deserializer: D) -> Result<Option<LastWillV3>, D::Error>
+    pub fn deserialize_last_will<'de, D>(deserializer: D) -> std::result::Result<Option<LastWillV3>, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -318,7 +246,10 @@ impl MoreV5 {
     }
 
     #[inline]
-    pub fn serialize_last_will<S>(v: &Option<LastWillV5>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize_last_will<S>(
+        v: &Option<LastWillV5>,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -343,7 +274,7 @@ impl MoreV5 {
     }
 
     #[inline]
-    pub fn deserialize_last_will<'de, D>(deserializer: D) -> Result<Option<LastWillV5>, D::Error>
+    pub fn deserialize_last_will<'de, D>(deserializer: D) -> std::result::Result<Option<LastWillV5>, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -442,16 +373,16 @@ impl Remote {
     }
 
     #[inline]
-    pub fn make_qos(&self, remote_qos: rmqtt::QoS) -> QoS {
+    pub fn make_qos(&self, remote_qos: rmqtt::types::QoS) -> QoS {
         self.qos.unwrap_or(match remote_qos {
-            rmqtt::QoS::AtMostOnce => QoS::AtMostOnce,
-            rmqtt::QoS::AtLeastOnce => QoS::AtLeastOnce,
-            rmqtt::QoS::ExactlyOnce => QoS::ExactlyOnce,
+            rmqtt::types::QoS::AtMostOnce => QoS::AtMostOnce,
+            rmqtt::types::QoS::AtLeastOnce => QoS::AtLeastOnce,
+            rmqtt::types::QoS::ExactlyOnce => QoS::ExactlyOnce,
         })
     }
 
     #[inline]
-    pub fn deserialize_qos<'de, D>(deserializer: D) -> Result<Option<QoS>, D::Error>
+    pub fn deserialize_qos<'de, D>(deserializer: D) -> std::result::Result<Option<QoS>, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -464,7 +395,7 @@ impl Remote {
     }
 
     #[inline]
-    pub fn deserialize_topic<'de, D>(deserializer: D) -> Result<(String, HasPattern), D::Error>
+    pub fn deserialize_topic<'de, D>(deserializer: D) -> std::result::Result<(String, HasPattern), D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -489,7 +420,7 @@ fn last_will_basic(obj: &Map<String, Value>) -> Result<(QoS, bool, ByteString, B
         .get("qos")
         .and_then(|q| q.as_u64().map(|q| QoS::try_from(q as u8)))
         .unwrap_or(Ok(QoS::AtMostOnce))
-        .map_err(|e| MqttError::from(format!("{:?}", e)))?;
+        .map_err(|e| anyhow!(format!("{:?}", e)))?;
     let retain = obj.get("retain").and_then(|retain| retain.as_bool()).unwrap_or_default();
     let topic = obj.get("topic").and_then(|topic| topic.as_str()).unwrap_or_default();
     let message = obj.get("message").and_then(|message| message.as_str()).unwrap_or_default();
@@ -502,35 +433,4 @@ fn last_will_basic(obj: &Map<String, Value>) -> Result<(QoS, bool, ByteString, B
         Bytes::from(String::from(message))
     };
     Ok((qos, retain, ByteString::from(topic), message))
-}
-
-fn load_cert(path: &str) -> Result<Vec<Certificate>> {
-    let cert_pem = std::fs::read_to_string(path)?;
-    let certs =
-        rustls_pemfile::certs(&mut cert_pem.as_bytes())?.into_iter().map(Certificate).collect::<Vec<_>>();
-    if certs.is_empty() {
-        Err(MqttError::from("No certificate was found in the certificate file."))
-    } else {
-        Ok(certs)
-    }
-}
-
-fn load_key(path: &str) -> Result<PrivateKey> {
-    use std::io::Read;
-    let mut file = File::open(path)?;
-    // 读取文件内容
-    let mut contents = Vec::new();
-    file.read_to_end(&mut contents)?;
-
-    let mut pem_reader = &contents[..];
-    let key = read_one(&mut pem_reader)?;
-
-    match key {
-        Some(rustls_pemfile::Item::X509Certificate(key)) => Ok(PrivateKey(key)),
-        Some(rustls_pemfile::Item::PKCS8Key(key)) => Ok(PrivateKey(key)),
-        Some(rustls_pemfile::Item::ECKey(key)) => Ok(PrivateKey(key)),
-        Some(rustls_pemfile::Item::RSAKey(key)) => Ok(PrivateKey(key)),
-        Some(rustls_pemfile::Item::Crl(key)) => Ok(PrivateKey(key)),
-        _ => Err(MqttError::from("Invalid key format")),
-    }
 }

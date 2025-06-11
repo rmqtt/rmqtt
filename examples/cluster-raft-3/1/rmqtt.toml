@@ -13,12 +13,6 @@ node.id = 1
 ##--------------------------------------------------------------------
 rpc.server_addr = "0.0.0.0:5363"
 rpc.server_workers = 4
-#Maximum number of messages sent in batch
-rpc.batch_size = 128
-#Client concurrent request limit
-rpc.client_concurrency_limit = 128
-#Connect and send to server timeout
-rpc.client_timeout = "5s"
 
 ##--------------------------------------------------------------------
 ## Log

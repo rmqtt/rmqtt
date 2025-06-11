@@ -1,0 +1,30 @@
+[package]
+name = "rmqtt-conf"
+version = "0.1.0"
+description = "Centralized configuration management system for RMQTT MQTT broker"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+exclude.workspace = true
+rust-version.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rmqtt-codec.workspace = true
+rmqtt-net.workspace = true
+rmqtt-utils.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+config = { workspace = true, features = ["toml"] }
+once_cell.workspace = true
+serde.workspace = true
+log.workspace = true
+serde_json.workspace = true
+ahash.workspace = true
+slog.workspace = true
+structopt.workspace = true
+bytestring.workspace = true
+
+

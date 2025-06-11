@@ -1,23 +1,18 @@
 use std::time::Duration;
 
-pub(crate) use backoff::future::retry;
-pub(crate) use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
-use rmqtt_raft::ReadOnlyOption;
-use serde::de::{self, Deserialize, Deserializer};
+use anyhow::anyhow;
+use serde::de::{self, Deserializer};
 use serde::ser::Serializer;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-use rmqtt::grpc::MessageType;
-use rmqtt::settings::{deserialize_duration, deserialize_duration_option, NodeAddr, Options};
-use rmqtt::{once_cell::sync::Lazy, serde_json};
-use rmqtt::{Addr, MqttError, NodeId, Result};
-
-pub(crate) static BACKOFF_STRATEGY: Lazy<ExponentialBackoff> = Lazy::new(|| {
-    ExponentialBackoffBuilder::new()
-        .with_max_elapsed_time(Some(Duration::from_secs(60)))
-        .with_multiplier(2.5)
-        .build()
-});
+use rmqtt::utils::{deserialize_duration, deserialize_duration_option, NodeAddr};
+use rmqtt::{
+    args::CommandArgs,
+    grpc::MessageType,
+    types::{Addr, NodeId},
+    Result,
+};
+use rmqtt_raft::ReadOnlyOption;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
@@ -30,6 +25,19 @@ pub struct PluginConfig {
     pub laddr: Option<Addr>,
 
     pub node_grpc_addrs: Vec<NodeAddr>,
+
+    #[serde(default = "PluginConfig::grpc_client_concurrency_limit_default")]
+    pub node_grpc_client_concurrency_limit: usize,
+
+    #[serde(
+        default = "PluginConfig::grpc_client_timeout_default",
+        deserialize_with = "deserialize_duration"
+    )]
+    pub node_grpc_client_timeout: Duration,
+
+    //#Maximum number of messages sent in batch
+    #[serde(default = "PluginConfig::grpc_batch_size_default")]
+    pub node_grpc_batch_size: usize,
 
     pub raft_peer_addrs: Vec<NodeAddr>,
 
@@ -68,7 +76,7 @@ impl PluginConfig {
                 .raft_peer_addrs
                 .iter()
                 .find(|leader| leader.id == self.leader_id)
-                .ok_or_else(|| MqttError::from("Leader does not exist"))?;
+                .ok_or_else(|| anyhow!("Leader does not exist"))?;
             Ok(Some(leader))
         }
     }
@@ -102,7 +110,18 @@ impl PluginConfig {
         RaftConfig { ..Default::default() }
     }
 
-    pub fn merge(&mut self, opts: &Options) {
+    fn grpc_client_concurrency_limit_default() -> usize {
+        128
+    }
+    fn grpc_client_timeout_default() -> Duration {
+        Duration::from_secs(60)
+    }
+
+    fn grpc_batch_size_default() -> usize {
+        128
+    }
+
+    pub fn merge(&mut self, opts: &CommandArgs) {
         if let Some(node_grpc_addrs) = opts.node_grpc_addrs.as_ref() {
             self.node_grpc_addrs.clone_from(node_grpc_addrs);
         }
@@ -341,7 +360,9 @@ impl RaftConfig {
         false
     }
 
-    pub fn deserialize_read_only_option<'de, D>(deserializer: D) -> Result<ReadOnlyOption, D::Error>
+    pub fn deserialize_read_only_option<'de, D>(
+        deserializer: D,
+    ) -> std::result::Result<ReadOnlyOption, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -367,6 +388,7 @@ impl RaftConfig {
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Compression {
     Zstd,
     Lz4,

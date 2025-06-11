@@ -1,29 +1,23 @@
 #![deny(unsafe_code)]
-#[macro_use]
-extern crate serde;
 
-#[macro_use]
-extern crate rmqtt_macros;
-
-use rmqtt::{
-    async_trait::async_trait,
-    log,
-    serde_json::{self, json},
-};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
+use async_trait::async_trait;
+use serde_json::{self, json};
+
 use rmqtt::{
-    broker::hook::Register,
+    context::ServerContext,
+    hook::Register,
+    macros::Plugin,
+    message::MessageManager,
     plugin::{PackageInfo, Plugin},
-    register, Result, Runtime,
+    register, Result,
 };
 use rmqtt_storage::init_db;
 
-use config::Config;
-use config::PluginConfig;
+use config::{Config, PluginConfig};
 use ram::RamMessageManager;
-use rmqtt::broker::MessageManager;
 use storage::StorageMessageManager;
 
 mod config;
@@ -34,7 +28,7 @@ register!(StoragePlugin::new);
 
 #[derive(Plugin)]
 struct StoragePlugin {
-    runtime: &'static Runtime,
+    scx: ServerContext,
     cfg: Arc<PluginConfig>,
     register: Box<dyn Register>,
     message_mgr: MessageMgr,
@@ -42,14 +36,14 @@ struct StoragePlugin {
 
 impl StoragePlugin {
     #[inline]
-    async fn new<S: Into<String>>(runtime: &'static Runtime, name: S) -> Result<Self> {
+    async fn new<S: Into<String>>(scx: ServerContext, name: S) -> Result<Self> {
         let name = name.into();
-        let node_id = runtime.node.id();
-        let mut cfg = runtime.settings.plugins.load_config_default::<PluginConfig>(&name)?;
+        let node_id = scx.node.id();
+        let mut cfg = scx.plugins.read_config_default::<PluginConfig>(&name)?;
 
         let (message_mgr, cfg) = match &mut cfg.storage {
             Config::Ram(ram_cfg) => {
-                let message_mgr = ram::get_or_init(ram_cfg.clone(), cfg.cleanup_count).await?;
+                let message_mgr = RamMessageManager::new(ram_cfg.clone(), cfg.cleanup_count).await?;
                 (MessageMgr::Ram(message_mgr), Arc::new(cfg))
             }
             Config::Storage(s_cfg) => {
@@ -60,13 +54,13 @@ impl StoragePlugin {
                 let storage_db = init_db(s_cfg).await?;
                 let cfg = Arc::new(cfg);
                 let message_mgr =
-                    storage::get_or_init(node_id, cfg.clone(), storage_db.clone(), true).await?;
+                    StorageMessageManager::new(node_id, cfg.clone(), storage_db.clone(), true).await?;
                 (MessageMgr::Storage(message_mgr), cfg)
             }
         };
         log::info!("{} StoragePlugin cfg: {:?}", name, cfg);
-        let register = runtime.extends.hook_mgr().await.register();
-        Ok(Self { runtime, cfg, register, message_mgr })
+        let register = scx.extends.hook_mgr().register();
+        Ok(Self { scx, cfg, register, message_mgr })
     }
 }
 
@@ -87,11 +81,11 @@ impl Plugin for StoragePlugin {
     #[inline]
     async fn start(&mut self) -> Result<()> {
         log::info!("{} start", self.name());
-        let mgr: Box<dyn MessageManager> = match self.message_mgr {
-            MessageMgr::Storage(mgr) => Box::new(mgr),
-            MessageMgr::Ram(mgr) => Box::new(mgr),
+        let mgr: Box<dyn MessageManager> = match &self.message_mgr {
+            MessageMgr::Storage(mgr) => Box::new(mgr.clone()),
+            MessageMgr::Ram(mgr) => Box::new(mgr.clone()),
         };
-        *self.runtime.extends.message_mgr_mut().await = mgr;
+        *self.scx.extends.message_mgr_mut().await = mgr;
         self.register.start().await;
         Ok(())
     }
@@ -109,8 +103,8 @@ impl Plugin for StoragePlugin {
 }
 
 enum MessageMgr {
-    Ram(&'static RamMessageManager),
-    Storage(&'static StorageMessageManager),
+    Ram(RamMessageManager),
+    Storage(StorageMessageManager),
 }
 
 impl MessageMgr {

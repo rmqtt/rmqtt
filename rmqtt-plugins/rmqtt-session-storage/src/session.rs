@@ -1,25 +1,29 @@
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
 use std::ops::Deref;
 use std::sync::atomic::{AtomicI64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use rmqtt::{async_trait::async_trait, log, once_cell::sync::OnceCell, tokio, DashMap};
+use async_trait::async_trait;
+use bytes::Bytes;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+use rmqtt::context::ServerContext;
+use rmqtt::session::DefaultSession;
 use rmqtt::{
-    broker::inflight::InflightMessage,
-    broker::session::{SessionLike, SessionManager},
-    broker::types::DisconnectInfo,
-    settings::Listener,
-    timestamp_millis, ClientId, ConnectInfo, ConnectInfoType, Disconnect, FitterType, From, Id, InflightType,
-    IsPing, MessageQueueType, Password, Publish, Reason, Result, SessionSubMap, SessionSubs,
-    SubscriptionOptions, Subscriptions, TimestampMillis, TopicFilter, UserName,
+    inflight::OutInflightMessage,
+    session::{SessionLike, SessionManager},
+    types::{
+        ClientId, ConnectInfo, ConnectInfoType, DashMap, Disconnect, FitterType, From, Id, IsPing,
+        ListenerConfig, MessageQueueType, Password, Publish, Reason, SessionSubMap, SessionSubs,
+        SubscriptionOptions, Subscriptions, TimestampMillis, TopicFilter, UserName,
+    },
+    types::{DisconnectInfo, OutInflightType},
+    utils::timestamp_millis,
+    Result,
 };
+use rmqtt_storage::{DefaultStorageDB, List, Map, StorageList, StorageMap};
 
 use crate::{make_list_stored_key, make_map_stored_key, OfflineMessageOptionType};
-use rmqtt::broker::default::DefaultSession;
-use rmqtt::bytes::Bytes;
-use rmqtt_storage::{DefaultStorageDB, List, Map, StorageList, StorageMap};
 
 pub(crate) const LAST_TIME: &[u8] = b"1";
 pub(crate) const DISCONNECT_INFO: &[u8] = b"2";
@@ -27,33 +31,33 @@ pub(crate) const SESSION_SUB_MAP: &[u8] = b"3";
 pub(crate) const BASIC: &[u8] = b"4";
 pub(crate) const INFLIGHT_MESSAGES: &[u8] = b"5";
 
+#[derive(Clone)]
 pub(crate) struct StorageSessionManager {
     storage_db: DefaultStorageDB,
     _stored_session_infos: StoredSessionInfos,
 }
 
 impl StorageSessionManager {
-    #[inline]
-    pub(crate) fn get_or_init(
+    pub(crate) fn new(
         storage_db: DefaultStorageDB,
         _stored_session_infos: StoredSessionInfos,
-    ) -> &'static StorageSessionManager {
-        static INSTANCE: OnceCell<StorageSessionManager> = OnceCell::new();
-        INSTANCE.get_or_init(|| Self { storage_db, _stored_session_infos })
+    ) -> StorageSessionManager {
+        Self { storage_db, _stored_session_infos }
     }
 }
 
 #[async_trait]
-impl SessionManager for &'static StorageSessionManager {
+impl SessionManager for StorageSessionManager {
     #[allow(clippy::too_many_arguments)]
     async fn create(
         &self,
         id: Id,
-        listen_cfg: Listener,
+        scx: ServerContext,
+        listen_cfg: ListenerConfig,
         fitter: FitterType,
         subscriptions: SessionSubs,
         deliver_queue: MessageQueueType,
-        inflight_win: InflightType,
+        outinflight: OutInflightType,
         conn_info: ConnectInfoType,
 
         created_at: TimestampMillis,
@@ -68,10 +72,11 @@ impl SessionManager for &'static StorageSessionManager {
         let clean_start = conn_info.clean_start();
         let inner = DefaultSession::new(
             id,
+            scx,
             listen_cfg,
             subscriptions,
             deliver_queue,
-            inflight_win,
+            outinflight,
             conn_info,
             created_at,
             connected_at,
@@ -263,7 +268,7 @@ impl StorageSession {
 
     #[inline]
     async fn _subscriptions_clear(&self) -> Result<()> {
-        self.inner.subscriptions._clear().await;
+        self.inner.subscriptions.clear(self.context()).await;
         Ok(())
     }
 
@@ -325,7 +330,12 @@ impl SessionLike for StorageSession {
     }
 
     #[inline]
-    fn listen_cfg(&self) -> &Listener {
+    fn context(&self) -> &ServerContext {
+        self.inner.context()
+    }
+
+    #[inline]
+    fn listen_cfg(&self) -> &ListenerConfig {
         self.inner.listen_cfg()
     }
 
@@ -335,8 +345,8 @@ impl SessionLike for StorageSession {
     }
 
     #[inline]
-    fn inflight_win(&self) -> &InflightType {
-        self.inner.inflight_win()
+    fn out_inflight(&self) -> &OutInflightType {
+        self.inner.out_inflight()
     }
 
     #[inline]
@@ -528,7 +538,12 @@ pub trait AtomicFlags {
     #[allow(dead_code)]
     fn remove(&self, other: Self::T);
     #[allow(dead_code)]
-    fn equal_exchange(&self, current: Self::T, new: Self::T, mask: Self::T) -> Result<Self::T, Self::T>;
+    fn equal_exchange(
+        &self,
+        current: Self::T,
+        new: Self::T,
+        mask: Self::T,
+    ) -> std::result::Result<Self::T, Self::T>;
     fn difference(&self, other: Self::T) -> Self::T;
 }
 
@@ -566,7 +581,12 @@ impl AtomicFlags for AtomicU8 {
     }
 
     #[inline]
-    fn equal_exchange(&self, current: Self::T, new: Self::T, mask: Self::T) -> Result<Self::T, Self::T> {
+    fn equal_exchange(
+        &self,
+        current: Self::T,
+        new: Self::T,
+        mask: Self::T,
+    ) -> std::result::Result<Self::T, Self::T> {
         self.fetch_update(Ordering::SeqCst, Ordering::SeqCst, move |v| {
             let flags = current & mask;
             if (v & mask) == flags {
@@ -578,7 +598,6 @@ impl AtomicFlags for AtomicU8 {
     }
 
     #[inline]
-    #[must_use]
     fn difference(&self, other: Self::T) -> Self::T {
         self.get() & !other
     }
@@ -592,7 +611,7 @@ pub(crate) struct StoredSessionInfo {
     pub subs: Option<SessionSubMap>,
     pub disconnect_info: Option<DisconnectInfo>,
     pub offline_messages: Vec<(From, Publish)>,
-    pub inflight_messages: Vec<InflightMessage>,
+    pub inflight_messages: Vec<OutInflightMessage>,
     pub last_time: TimestampMillis,
 }
 

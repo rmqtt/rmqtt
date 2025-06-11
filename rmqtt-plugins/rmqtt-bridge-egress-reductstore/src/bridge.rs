@@ -5,14 +5,16 @@ use std::time::SystemTime;
 
 use reduct_rs::{Bucket, QuotaType, ReductClient};
 
-use rmqtt::{
-    anyhow::anyhow, bytestring::ByteString, log, reqwest::Url, tokio, tokio::sync::mpsc, tokio::sync::RwLock,
-    DashMap,
-};
+use anyhow::anyhow;
+use bytestring::ByteString;
+use reqwest::Url;
+use tokio::sync::mpsc;
+use tokio::sync::RwLock;
 
 use rmqtt::{
-    broker::topic::{TopicTree, VecToTopic},
-    From, MqttError, NodeId, Publish, QoSEx, Result, Topic,
+    trie::{TopicTree, VecToTopic},
+    types::{DashMap, From, NodeId, Publish, Topic},
+    Result,
 };
 
 use crate::config::{Bridge, Entry, PluginConfig};
@@ -56,7 +58,7 @@ impl Producer {
             builder = builder.exist_ok(exist_ok);
         }
 
-        let bucket = builder.send().await.map_err(|e| format!("Failed to create Bucket, {}", e))?;
+        let bucket = builder.send().await.map_err(|e| anyhow!(format!("Failed to create Bucket, {}", e)))?;
 
         let (tx, rx) = mpsc::channel(100_000);
         tokio::spawn(async move {
@@ -79,7 +81,7 @@ impl Producer {
             builder = builder.timeout(timeout);
         }
 
-        Ok(builder.try_build().map_err(|e| format!("Failed to connect to Reductstore, {}", e))?)
+        builder.try_build().map_err(|e| anyhow!(format!("Failed to connect to Reductstore, {}", e)))
     }
 
     async fn start(entry_cfg: Entry, bucket: Bucket, mut rx: mpsc::Receiver<Command>) {
@@ -109,16 +111,16 @@ impl Producer {
 
                     //Not required to forward
                     if forward_all_publish {
-                        sender = sender.add_label("dup", if p.dup() { "true" } else { "false" });
-                        sender = sender.add_label("retain", if p.retain() { "true" } else { "false" });
-                        sender = sender.add_label("qos", p.qos().value().to_string());
-                        if let Some(packet_id) = p.packet_id() {
+                        sender = sender.add_label("dup", if p.dup { "true" } else { "false" });
+                        sender = sender.add_label("retain", if p.retain { "true" } else { "false" });
+                        sender = sender.add_label("qos", p.qos.value().to_string());
+                        if let Some(packet_id) = p.packet_id {
                             sender = sender.add_label("packet_id", packet_id.to_string());
                         }
                     }
 
                     //Must forward
-                    sender = sender.add_label("topic", p.topic());
+                    sender = sender.add_label("topic", p.topic);
 
                     if let Err(e) = sender.data(p.payload).send().await {
                         log::warn!("{}", e);
@@ -168,7 +170,7 @@ impl BridgeManager {
                 continue;
             }
             if bridge_names.contains(&b_cfg.name as &str) {
-                return Err(MqttError::from(format!("The bridge name already exists! {:?}", b_cfg.name)));
+                return Err(anyhow!(format!("The bridge name already exists! {:?}", b_cfg.name)));
             }
 
             bridge_names.insert(&b_cfg.name);

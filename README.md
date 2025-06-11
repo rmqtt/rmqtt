@@ -1,7 +1,8 @@
 # RMQTT Broker
 
 [![GitHub Release](https://img.shields.io/github/release/rmqtt/rmqtt?color=brightgreen)](https://github.com/rmqtt/rmqtt/releases)
-<a href="https://blog.rust-lang.org/2024/09/05/Rust-1.81.0.html"><img alt="Rust Version" src="https://img.shields.io/badge/rust-1.81.0%2B-blue" /></a>
+<a href="https://blog.rust-lang.org/2024/09/05/Rust-1.85.0.html"><img alt="Rust Version" src="https://img.shields.io/badge/rust-1.85.0%2B-blue" /></a>
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/rmqtt/rmqtt)
 
 English | [简体中文](./README-CN.md)
 
@@ -11,8 +12,7 @@ and mobile applications that can handle millions of concurrent clients on a sing
 ## Features
 
 - 100% Rust safe code;
-- Based on [tokio](https://crates.io/crates/tokio), [ntex](https://crates.io/crates/ntex)
-  , [ntex-mqtt](https://crates.io/crates/ntex-mqtt);
+- Based on [tokio](https://crates.io/crates/tokio);
 - MQTT v3.1, v3.1.1 and v5.0 protocols support;
     - QoS0, QoS1, QoS2 message support;
     - Offline message support;
@@ -82,7 +82,7 @@ Node IDs: 1, 2, 3; Node IP Addrs: 172.17.0.3, 172.17.0.4, 172.17.0.5
 
 #### Create a static cluster by docker-compose
 
-1. [Download docker-compose configuration template](https://github.com/rmqtt/templates/blob/main/docker-compose-template/docker-compose-template.zip)
+1. [Download docker-compose configuration template](https://github.com/rmqtt/templates/blob/main/docker-compose-template/docker-compose-template-v0.7.zip)
 
 2. Start docker-compose cluster
 
@@ -129,7 +129,7 @@ Get the binary package of the corresponding OS from [RMQTT Download](https://git
 * client_test.py Test.test_dollar_topics              [OK]
 * client_test.py Test.test_unsubscribe                [OK]
 * client_test.py Test.test_subscribe_failure          [OK]  
-  You need to modify the `rmqtt-acl.toml` configuration and add the following line at the first line: ["deny", "all", "subscribe", ["test/nosubscribe"]],
+  * You need to modify the `rmqtt-acl.toml` configuration and add the following line at the first line: ["deny", "all", "subscribe", ["test/nosubscribe"]]
 
 #### paho.mqtt.testing(MQTT V5.0) [client_test5.py](https://github.com/eclipse/paho.mqtt.testing/blob/master/interoperability/client_test5.py)
 
@@ -161,10 +161,7 @@ Get the binary package of the corresponding OS from [RMQTT Download](https://git
 * client_test5.py Test.test_server_keep_alive           [OK]
   * You need to modify the `rmqtt.toml` configuration and change `max_keepalive` to 60.
 * client_test5.py Test.test_subscribe_failure           [OK]
-  * You need to modify the `rmqtt-acl.toml` configuration and add the following line at the first line: ["deny", "all", "subscribe", ["test/nosubscribe"]],
-    Modify the `test_subscribe_failure()` method in `client_test5.py` by changing `0x80` to `0x87`.
-    Because `rmqtt` returns the error code 0x87, while `test_subscribe_failure` expects it to return 0x80.
-    UnspecifiedError = 0x80, NotAuthorized = 0x87。
+  * You need to modify the `rmqtt-acl.toml` configuration and add the following line at the first line: ["deny", "all", "subscribe", ["test/nosubscribe"]]
 
 
 ### Benchmark Testing

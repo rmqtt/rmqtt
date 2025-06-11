@@ -3,17 +3,19 @@ use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use serde::de::{self, Deserialize, Deserializer};
-use serde::ser::Serializer;
-use serde::ser::{self, Serialize};
+use anyhow::anyhow;
+use serde::{
+    de::{self, Deserializer},
+    ser::{self, Serializer},
+    Deserialize, Serialize,
+};
+use tokio::sync::RwLock;
 
 use rmqtt::{
-    anyhow::anyhow,
-    log, regex,
-    serde_json::{self},
-    tokio::sync::RwLock,
+    trie::TopicTree,
+    types::{Topic, TopicFilter, TopicName},
+    Error, Result,
 };
-use rmqtt::{broker::topic::TopicTree, MqttError, Result, Topic, TopicFilter, TopicName};
 
 type Rules = Arc<RwLock<TopicTree<Rule>>>;
 
@@ -98,7 +100,7 @@ impl DestTopicItem {
         if place.len() >= 2 {
             Ok(DestTopicItem::Place(place[1..].parse()?))
         } else {
-            Err(MqttError::from(format!("placeholder format error, {}", place)))
+            Err(anyhow!(format!("placeholder format error, {}", place)))
         }
     }
 }
@@ -149,20 +151,20 @@ fn to_dest_topic_items(dest_topic: &str) -> Result<Vec<DestTopicItem>> {
 }
 
 impl std::convert::TryFrom<&serde_json::Value> for Rule {
-    type Error = MqttError;
+    type Error = Error;
     #[inline]
-    fn try_from(rule_cfg: &serde_json::Value) -> Result<Self, Self::Error> {
+    fn try_from(rule_cfg: &serde_json::Value) -> std::result::Result<Self, Self::Error> {
         let err_msg = format!("Topic-Rewrite Rule config error, rule config is {:?}", rule_cfg);
         if let Some(cfg_objs) = rule_cfg.as_object() {
-            let action_cfg = cfg_objs.get("action").ok_or_else(|| MqttError::from(err_msg.as_str()))?;
+            let action_cfg = cfg_objs.get("action").ok_or_else(|| anyhow!(err_msg.clone()))?;
             let source_topic_filter_cfg = cfg_objs
                 .get("source_topic_filter")
                 .and_then(|tf| tf.as_str())
-                .ok_or_else(|| MqttError::from(err_msg.as_str()))?;
+                .ok_or_else(|| anyhow!(err_msg.clone()))?;
             let dest_topic_cfg = cfg_objs
                 .get("dest_topic")
                 .and_then(|tf| tf.as_str())
-                .ok_or_else(|| MqttError::from(err_msg.as_str()))?;
+                .ok_or_else(|| anyhow!(err_msg.clone()))?;
             let regex_cfg = cfg_objs.get("regex").and_then(|tf| tf.as_str());
 
             let action = Action::try_from(action_cfg)?;
@@ -173,12 +175,13 @@ impl std::convert::TryFrom<&serde_json::Value> for Rule {
 
             Ok(Rule { action, source_topic_filter, dest_topic, dest_topic_items, re })
         } else {
-            Err(MqttError::from(err_msg))
+            Err(anyhow!(err_msg))
         }
     }
 }
 
 #[derive(Default, Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Action {
     #[default]
     All,
@@ -187,15 +190,15 @@ pub enum Action {
 }
 
 impl std::convert::TryFrom<&serde_json::Value> for Action {
-    type Error = MqttError;
+    type Error = Error;
     #[inline]
-    fn try_from(action_cfg: &serde_json::Value) -> Result<Self, Self::Error> {
+    fn try_from(action_cfg: &serde_json::Value) -> std::result::Result<Self, Self::Error> {
         let err_msg = format!("Topic-Rewrite Rule config error, action config is {:?}", action_cfg);
-        match action_cfg.as_str().ok_or_else(|| MqttError::from(err_msg.as_str()))?.to_lowercase().as_str() {
+        match action_cfg.as_str().ok_or_else(|| anyhow!(err_msg.clone()))?.to_lowercase().as_str() {
             "all" => Ok(Action::All),
             "publish" => Ok(Action::Publish),
             "subscribe" => Ok(Action::Subscribe),
-            _ => Err(MqttError::from(err_msg)),
+            _ => Err(anyhow!(err_msg)),
         }
     }
 }
@@ -231,7 +234,7 @@ impl Serialize for Regex {
 
 impl<'de> Deserialize<'de> for Regex {
     #[inline]
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {

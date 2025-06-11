@@ -1,24 +1,23 @@
 use std::convert::From as _f;
 use std::time::Duration;
 
-use once_cell::sync::OnceCell;
+use async_trait::async_trait;
 
-use rmqtt::grpc::MessageSender;
-use rmqtt::{ahash, async_trait::async_trait, futures, log, once_cell, tokio};
+use rmqtt::context::ServerContext;
+use rmqtt::net::MqttError;
+use rmqtt::shared::{DefaultShared, Shared};
+use rmqtt::types::MsgID;
 use rmqtt::{
-    broker::{
-        default::DefaultShared,
-        session::Session,
-        types::{
-            ClientId, From, Id, IsAdmin, IsOnline, NodeId, OfflineSession, Publish, Reason, SessionStatus,
-            SharedGroup, SharedGroupType, SubRelations, SubRelationsMap, SubsSearchParams, SubsSearchResult,
-            Subscribe, SubscribeReturn, SubscriptionClientIds, SubscriptionIdentifier, SubscriptionOptions,
-            To, TopicFilter, Tx, Unsubscribe,
-        },
-        Entry, Shared,
+    grpc::{GrpcClients, Message, MessageBroadcaster, MessageReply, MessageSender, MessageType},
+    session::Session,
+    shared::Entry,
+    types::{
+        ClientId, From, Id, IsAdmin, IsOnline, NodeId, OfflineSession, Publish, Reason, SessionStatus,
+        SharedGroup, SharedGroupType, SubRelations, SubRelationsMap, SubsSearchParams, SubsSearchResult,
+        Subscribe, SubscribeReturn, SubscriptionClientIds, SubscriptionIdentifier, SubscriptionOptions, To,
+        TopicFilter, Tx, Unsubscribe,
     },
-    grpc::{GrpcClients, Message, MessageBroadcaster, MessageReply, MessageType},
-    MqttError, Result, Runtime,
+    Result,
 };
 
 use super::{hook_message_dropped, kick};
@@ -27,12 +26,12 @@ type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
 pub struct ClusterLockEntry {
     inner: Box<dyn Entry>,
-    cluster_shared: &'static ClusterShared,
+    cluster_shared: ClusterShared,
 }
 
 impl ClusterLockEntry {
     #[inline]
-    pub fn new(inner: Box<dyn Entry>, cluster_shared: &'static ClusterShared) -> Self {
+    pub fn new(inner: Box<dyn Entry>, cluster_shared: ClusterShared) -> Self {
         Self { inner, cluster_shared }
     }
 }
@@ -41,7 +40,7 @@ impl ClusterLockEntry {
 impl Entry for ClusterLockEntry {
     #[inline]
     async fn try_lock(&self) -> Result<Box<dyn Entry>> {
-        Ok(Box::new(ClusterLockEntry::new(self.inner.try_lock().await?, self.cluster_shared)))
+        Ok(Box::new(ClusterLockEntry::new(self.inner.try_lock().await?, self.cluster_shared.clone())))
     }
 
     #[inline]
@@ -123,7 +122,7 @@ impl Entry for ClusterLockEntry {
             if let MessageReply::Online(true) = reply {
                 Ok(true)
             } else {
-                Err(MqttError::None)
+                Err(MqttError::None.into())
             }
         })
         .await
@@ -156,7 +155,7 @@ impl Entry for ClusterLockEntry {
     }
 
     #[inline]
-    async fn publish(&self, from: From, p: Publish) -> Result<(), (From, Publish, Reason)> {
+    async fn publish(&self, from: From, p: Publish) -> std::result::Result<(), (From, Publish, Reason)> {
         self.inner.publish(from, p).await
     }
 
@@ -175,7 +174,7 @@ impl Entry for ClusterLockEntry {
             if let MessageReply::SubscriptionsGet(Some(subs)) = reply {
                 Ok(Some(subs))
             } else {
-                Err(MqttError::None)
+                Err(MqttError::None.into())
             }
         })
         .await
@@ -183,33 +182,36 @@ impl Entry for ClusterLockEntry {
     }
 }
 
+#[derive(Clone)]
 pub struct ClusterShared {
-    inner: &'static DefaultShared,
+    inner: DefaultShared,
+    scx: ServerContext,
     grpc_clients: GrpcClients,
     pub message_type: MessageType,
 }
 
 impl ClusterShared {
     #[inline]
-    pub(crate) fn get_or_init(
+    pub(crate) fn new(
+        scx: ServerContext,
         grpc_clients: GrpcClients,
         message_type: MessageType,
-    ) -> &'static ClusterShared {
-        static INSTANCE: OnceCell<ClusterShared> = OnceCell::new();
-        INSTANCE.get_or_init(|| Self { inner: DefaultShared::instance(), grpc_clients, message_type })
+    ) -> ClusterShared {
+        let scx1 = scx.clone();
+        Self { inner: DefaultShared::new(Some(scx1)), scx, grpc_clients, message_type }
     }
 
     #[inline]
-    pub(crate) fn inner(&self) -> &'static DefaultShared {
-        self.inner
+    pub(crate) fn inner(&self) -> &DefaultShared {
+        &self.inner
     }
 }
 
 #[async_trait]
-impl Shared for &'static ClusterShared {
+impl Shared for ClusterShared {
     #[inline]
     fn entry(&self, id: Id) -> Box<dyn Entry> {
-        Box::new(ClusterLockEntry::new(self.inner.entry(id), self))
+        Box::new(ClusterLockEntry::new(self.inner.entry(id), self.clone()))
     }
 
     #[inline]
@@ -222,13 +224,14 @@ impl Shared for &'static ClusterShared {
         &self,
         from: From,
         publish: Publish,
-    ) -> Result<SubscriptionClientIds, Vec<(To, From, Publish, Reason)>> {
-        let this_node_id = Runtime::instance().node.id();
-        let topic = publish.topic();
+    ) -> std::result::Result<SubscriptionClientIds, Vec<(To, From, Publish, Reason)>> {
+        let this_node_id = self.scx.node.id();
+        let topic = &publish.topic;
         log::debug!("forwards, from: {:?}, topic: {:?}", from, topic.to_string());
 
         //Matching subscriptions
-        let (relations, shared_relations, sub_client_ids) = match Runtime::instance()
+        let (relations, shared_relations, sub_client_ids) = match self
+            .scx
             .extends
             .router()
             .await
@@ -267,9 +270,11 @@ impl Shared for &'static ClusterShared {
         //forwards to remote
         let grpc_clients = self.grpc_clients.clone();
         let message_type = self.message_type;
-        let inner = self.inner;
+        let inner = self.inner.clone();
+        let scx = self.scx.clone();
         let (sub_client_ids_tx, sub_client_ids_rx) = tokio::sync::oneshot::channel();
         let broadcast_fut = async move {
+            scx.stats.forwards.inc();
             //forwards to other node and get shared subscription relations
             let replys = MessageBroadcaster::new(
                 grpc_clients.clone(),
@@ -279,7 +284,7 @@ impl Shared for &'static ClusterShared {
             )
             .join_all()
             .await;
-
+            scx.stats.forwards.dec();
             type SharedSubGroups = HashMap<
                 TopicFilter, //key is TopicFilter
                 HashMap<
@@ -377,7 +382,7 @@ impl Shared for &'static ClusterShared {
             for (topic_filter, sub_groups) in shared_sub_groups.iter_mut() {
                 for (_group, subs) in sub_groups.iter_mut() {
                     if let Some((idx, _is_online)) =
-                        Runtime::instance().extends.shared_subscription().await.choice(subs).await
+                        scx.extends.shared_subscription().await.choice(&scx, subs).await
                     {
                         let (node_id, client_id, opts, sub_ids, _is_online) = subs.remove(idx);
                         node_shared_subs.entry(node_id).or_default().push((
@@ -395,7 +400,7 @@ impl Shared for &'static ClusterShared {
             //send to this node
             if let Some(sub_rels) = node_shared_subs.remove(&this_node_id) {
                 if let Err(droppeds) = inner.forwards_to(from.clone(), &publish, sub_rels).await {
-                    hook_message_dropped(droppeds).await;
+                    hook_message_dropped(&scx, droppeds).await;
                 }
             }
 
@@ -403,20 +408,26 @@ impl Shared for &'static ClusterShared {
             let mut delivers = Vec::new();
             for (id, (_addr, grpc_client)) in grpc_clients.iter() {
                 if let Some(sub_rels) = node_shared_subs.remove(id) {
-                    delivers.push(grpc_client.send_message(
-                        message_type,
-                        Message::ForwardsTo(from.clone(), publish.clone(), sub_rels),
-                        Some(Duration::from_secs(10)),
-                    ));
+                    delivers.push(
+                        MessageSender::new(
+                            grpc_client.clone(),
+                            message_type,
+                            Message::ForwardsTo(from.clone(), publish.clone(), sub_rels),
+                            Some(Duration::from_secs(60)),
+                        )
+                        .send(),
+                    );
                 }
             }
             if !delivers.is_empty() {
+                scx.stats.forwards.inc();
                 let ress = futures::future::join_all(delivers).await;
                 for res in ress {
                     if let Err(e) = res {
                         log::error!("deliver shared subscriptions error, {:?}", e);
                     }
                 }
+                scx.stats.forwards.dec();
             }
         };
 
@@ -434,7 +445,7 @@ impl Shared for &'static ClusterShared {
         &self,
         from: From,
         publish: Publish,
-    ) -> Result<(SubRelationsMap, SubscriptionClientIds), Vec<(To, From, Publish, Reason)>> {
+    ) -> std::result::Result<(SubRelationsMap, SubscriptionClientIds), Vec<(To, From, Publish, Reason)>> {
         self.inner.forwards_and_get_shareds(from, publish).await
     }
 
@@ -444,12 +455,12 @@ impl Shared for &'static ClusterShared {
         from: From,
         publish: &Publish,
         relations: SubRelations,
-    ) -> Result<(), Vec<(To, From, Publish, Reason)>> {
+    ) -> std::result::Result<(), Vec<(To, From, Publish, Reason)>> {
         self.inner.forwards_to(from, publish, relations).await
     }
 
     #[inline]
-    fn iter(&self) -> Box<dyn Iterator<Item = Box<dyn Entry>> + Sync + Send> {
+    fn iter(&self) -> Box<dyn Iterator<Item = Box<dyn Entry>> + Sync + Send + '_> {
         self.inner.iter()
     }
 
@@ -473,7 +484,7 @@ impl Shared for &'static ClusterShared {
             if let MessageReply::SessionStatus(Some(status)) = reply {
                 Ok(status)
             } else {
-                Err(MqttError::None)
+                Err(MqttError::None.into())
             }
         })
         .await
@@ -491,18 +502,19 @@ impl Shared for &'static ClusterShared {
     }
 
     #[inline]
-    async fn query_subscriptions(&self, mut q: SubsSearchParams) -> Vec<SubsSearchResult> {
+    async fn query_subscriptions(&self, q: &SubsSearchParams) -> Vec<SubsSearchResult> {
         let limit = q._limit;
-        let mut replys = self.inner.query_subscriptions(q.clone()).await;
+        let mut replys = self.inner.query_subscriptions(q).await;
 
         let grpc_clients = self.get_grpc_clients();
         for c in grpc_clients.iter().map(|(_, (_, c))| c.clone()) {
             if replys.len() < limit {
+                let mut q = q.clone();
                 q._limit = limit - replys.len();
                 let reply = MessageSender::new(
                     c,
                     self.message_type,
-                    Message::SubscriptionsSearch(q.clone()),
+                    Message::SubscriptionsSearch(q),
                     Some(Duration::from_secs(10)),
                 )
                 .send()
@@ -522,6 +534,16 @@ impl Shared for &'static ClusterShared {
         }
 
         replys
+    }
+
+    #[inline]
+    async fn message_load(
+        &self,
+        client_id: &str,
+        topic_filter: &str,
+        group: Option<&SharedGroup>,
+    ) -> Result<Vec<(MsgID, From, Publish)>> {
+        self.inner.message_load(client_id, topic_filter, group).await
     }
 
     #[inline]

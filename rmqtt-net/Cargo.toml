@@ -1,0 +1,45 @@
+[package]
+name = "rmqtt-net"
+version = "0.1.2"
+description = "Basic Implementation of MQTT Server"
+repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-net"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+exclude.workspace = true
+rust-version.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+default = []
+tls = ["rustls", "tokio-rustls"]
+ws = ["tokio-tungstenite"]
+
+[dependencies]
+rmqtt-codec.workspace = true
+tokio = { workspace = true,  features = ["net", "time"] }
+tokio-util = { workspace = true, features = ["codec"] }
+futures.workspace = true
+log.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+socket2.workspace = true
+serde = { workspace = true, features = ["derive"] }
+bytestring = { workspace = true, features = ["serde"] }
+nonzero_ext.workspace = true
+
+tokio-tungstenite = { workspace = true, optional = true }
+tokio-rustls = { workspace = true, optional = true }
+[target.'cfg(not(windows))'.dependencies]
+rustls = { workspace = true, features = ["aws-lc-rs", "logging", "std", "tls12"], optional = true }
+[target.'cfg(windows)'.dependencies]
+rustls = { workspace = true, features = ["ring", "logging", "std", "tls12"], optional = true }
+
+[dev-dependencies]
+simple_logger = "5"
+tokio = { workspace = true,  features = ["full"] }
+once_cell.workspace = true

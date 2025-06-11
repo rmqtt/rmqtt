@@ -1,6 +1,8 @@
 [package]
 name = "rmqtt-retainer"
 version = "0.1.0"
+description = "When a client publishes with the retain flag, the message is saved and sent to future subscribers matching the topic."
+repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-retainer"
 edition.workspace = true
 authors.workspace = true
 rust-version.workspace = true
@@ -9,8 +11,14 @@ license.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rmqtt.workspace = true
-rmqtt-macros.workspace = true
+rmqtt = { workspace = true, features = ["plugin", "retain"] }
 rmqtt-storage = { version = "0.5.2", default-features = false, features = ["ttl", "len"]}
 #rmqtt-storage = { path = "../../../rmqtt-storage", default-features = false, features = ["ttl", "len"]}
+futures.workspace = true
+futures-time.workspace = true
+tokio.workspace = true
 serde = { workspace = true, features = ["derive"] }
+anyhow.workspace = true
+async-trait.workspace = true
+log.workspace = true
+serde_json.workspace = true

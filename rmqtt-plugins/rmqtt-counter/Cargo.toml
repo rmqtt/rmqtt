@@ -1,6 +1,8 @@
 [package]
 name = "rmqtt-counter"
 version = "0.1.0"
+description = "This plugin collects key MQTT server metrics, enhancing observability and operational insight."
+repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-counter"
 edition.workspace = true
 authors.workspace = true
 rust-version.workspace = true
@@ -9,5 +11,6 @@ license.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rmqtt.workspace = true
-rmqtt-macros.workspace = true
+rmqtt = { workspace = true, features = ["plugin", "metrics"] }
+async-trait.workspace = true
+log.workspace = true

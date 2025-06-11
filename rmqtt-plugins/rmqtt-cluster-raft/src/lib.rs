@@ -1,43 +1,29 @@
 #![deny(unsafe_code)]
-#[macro_use]
-extern crate serde;
 
-#[macro_use]
-extern crate rmqtt_macros;
-
-use rmqtt_raft::{Mailbox, Raft};
-use std::convert::From as _f;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::anyhow;
+use async_trait::async_trait;
+use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
 use config::PluginConfig;
 use handler::HookHandler;
+use rust_box::task_exec_queue::{Builder, TaskExecQueue};
+use serde_json::{self, json};
+use tokio::time::sleep;
 
-use rmqtt::anyhow::anyhow;
 use rmqtt::{
-    ahash, anyhow,
-    async_trait::async_trait,
-    log, rand,
-    serde_json::{self, json},
-    tokio, NodeId,
-};
-use rmqtt::{
-    broker::{
-        error::MqttError,
-        hook::{Register, Type},
-        types::{From, Publish, Reason, To},
-    },
-    grpc::{client::NodeGrpcClient, GrpcClients},
+    context::ServerContext,
+    grpc::GrpcClients,
+    hook::{Register, Type},
+    macros::Plugin,
     plugin::{PackageInfo, Plugin},
     register,
-    tokio::time::sleep,
-    Result, Runtime,
+    types::{From, NodeId, Publish, Reason, To},
+    Result,
 };
-use rmqtt::{
-    once_cell::sync::OnceCell,
-    rust_box::task_exec_queue::{Builder, TaskExecQueue},
-};
+use rmqtt_raft::{Mailbox, Raft};
 use router::ClusterRouter;
 use shared::ClusterShared;
 
@@ -53,69 +39,100 @@ register!(ClusterPlugin::new);
 
 #[derive(Plugin)]
 struct ClusterPlugin {
-    runtime: &'static Runtime,
+    scx: ServerContext,
     register: Box<dyn Register>,
     cfg: Arc<PluginConfig>,
     grpc_clients: GrpcClients,
-    shared: &'static ClusterShared,
-
-    router: &'static ClusterRouter,
+    shared: ClusterShared,
+    router: ClusterRouter,
     raft_mailbox: Option<Mailbox>,
+    exec: TaskExecQueue,
+    backoff_strategy: ExponentialBackoff,
 }
 
 impl ClusterPlugin {
     #[inline]
-    async fn new<S: Into<String>>(runtime: &'static Runtime, name: S) -> Result<Self> {
+    async fn new<S: Into<String>>(scx: ServerContext, name: S) -> Result<Self> {
         let name = name.into();
         let env_list_keys = ["node_grpc_addrs", "raft_peer_addrs"];
-        let mut cfg = runtime.settings.plugins.load_config_with::<PluginConfig>(&name, &env_list_keys)?;
-        cfg.merge(&runtime.settings.opts);
+        let mut cfg = scx.plugins.read_config_with::<PluginConfig>(&name, &env_list_keys)?;
+        cfg.merge(&scx.args);
         log::info!("{} ClusterPlugin cfg: {:?}", name, cfg);
 
-        init_task_exec_queue(cfg.task_exec_queue_workers, cfg.task_exec_queue_max);
+        let exec = init_task_exec_queue(cfg.task_exec_queue_workers, cfg.task_exec_queue_max);
 
-        let register = runtime.extends.hook_mgr().await.register();
+        let register = scx.extends.hook_mgr().register();
         let mut grpc_clients = HashMap::default();
         let mut node_names = HashMap::default();
 
         let node_grpc_addrs = cfg.node_grpc_addrs.clone();
         log::info!("node_grpc_addrs: {:?}", node_grpc_addrs);
         for node_addr in &node_grpc_addrs {
-            if node_addr.id != runtime.node.id() {
+            if node_addr.id != scx.node.id() {
+                let batch_size = cfg.node_grpc_batch_size;
+                let client_concurrency_limit = cfg.node_grpc_client_concurrency_limit;
+                let client_timeout = cfg.node_grpc_client_timeout;
                 grpc_clients.insert(
                     node_addr.id,
-                    (node_addr.addr.clone(), runtime.node.new_grpc_client(&node_addr.addr).await?),
+                    (
+                        node_addr.addr.clone(),
+                        scx.node
+                            .new_grpc_client(
+                                &node_addr.addr,
+                                client_timeout,
+                                client_concurrency_limit,
+                                batch_size,
+                            )
+                            .await?,
+                    ),
                 );
             }
             node_names.insert(node_addr.id, format!("{}@{}", node_addr.id, node_addr.addr));
         }
         let grpc_clients = Arc::new(grpc_clients);
-        let router = ClusterRouter::get_or_init(cfg.try_lock_timeout, cfg.compression);
-        let shared = ClusterShared::get_or_init(
-            router,
+        let backoff_strategy = ExponentialBackoffBuilder::new()
+            .with_max_elapsed_time(Some(Duration::from_secs(60)))
+            .with_multiplier(2.5)
+            .build();
+        let router = ClusterRouter::new(
+            scx.clone(),
+            exec.clone(),
+            backoff_strategy.clone(),
+            cfg.try_lock_timeout,
+            cfg.compression,
+        );
+        let shared = ClusterShared::new(
+            scx.clone(),
+            exec.clone(),
+            router.clone(),
             grpc_clients.clone(),
             node_names,
             cfg.message_type,
             cfg.task_exec_queue_max,
             cfg.task_exec_queue_workers,
+            cfg.node_grpc_client_timeout,
         );
         let raft_mailbox = None;
         let cfg = Arc::new(cfg);
-        Ok(Self { runtime, register, cfg, grpc_clients, shared, router, raft_mailbox })
+        Ok(Self { scx, register, cfg, grpc_clients, shared, router, raft_mailbox, exec, backoff_strategy })
     }
 
     //raft init ...
-    async fn start_raft(cfg: Arc<PluginConfig>, router: &'static ClusterRouter) -> Result<Mailbox> {
-        let logger = Runtime::instance().logger.clone();
+    async fn start_raft(
+        scx: &ServerContext,
+        cfg: Arc<PluginConfig>,
+        router: ClusterRouter,
+    ) -> Result<Mailbox> {
+        // let logger = Runtime::instance().logger.clone();
         let raft_peer_addrs = cfg.raft_peer_addrs.clone();
 
-        let id = Runtime::instance().node.id();
+        let id = scx.node.id();
 
         let raft_node_addr = raft_peer_addrs
             .iter()
             .find(|peer| peer.id == id)
             .map(|peer| peer.addr.to_string())
-            .ok_or_else(|| MqttError::from("raft listening address does not exist"))?;
+            .ok_or_else(|| anyhow!("raft listening address does not exist"))?;
 
         let raft_laddr =
             if let Some(laddr) = cfg.laddr.as_ref() { laddr.to_string() } else { raft_node_addr.clone() };
@@ -126,9 +143,11 @@ impl ClusterPlugin {
         if cfg.verify_addr {
             parse_addr(&raft_laddr).await?;
         }
+        use slog::Drain;
+        let logger = slog::Logger::root(slog_stdlog::StdLog.fuse(), slog::o!());
 
-        let raft = Raft::new(raft_laddr, router, logger, cfg.raft.to_raft_config())
-            .map_err(|e| MqttError::StdError(Box::new(e)))?;
+        let raft =
+            Raft::new(raft_laddr, router, logger, cfg.raft.to_raft_config()).map_err(|e| anyhow!(e))?;
         let mailbox = raft.mailbox();
 
         let mut peer_addrs = Vec::new();
@@ -157,9 +176,9 @@ impl ClusterPlugin {
                     //The other nodes are leader.
                     let actual_leader_info = find_actual_leader(&raft, peer_addrs, 60).await?;
                     let (actual_leader_id, actual_leader_addr) =
-                        actual_leader_info.ok_or_else(|| MqttError::from("Leader does not exist"))?;
+                        actual_leader_info.ok_or_else(|| anyhow!("Leader does not exist"))?;
                     if actual_leader_id != leader_info.id {
-                        return Err(MqttError::from(format!(
+                        return Err(anyhow!(format!(
                             "Not the expected Leader, the expected one is {:?}",
                             leader_info
                         )));
@@ -169,8 +188,7 @@ impl ClusterPlugin {
             }
             None => {
                 log::info!("Search for the existing leader ... ");
-                let leader_info =
-                    raft.find_leader_info(peer_addrs).await.map_err(|e| MqttError::StdError(Box::new(e)))?;
+                let leader_info = raft.find_leader_info(peer_addrs).await.map_err(|e| anyhow!(e))?;
                 log::info!("The information about the located leader: {:?}", leader_info);
                 leader_info
             }
@@ -217,7 +235,18 @@ impl ClusterPlugin {
 
     #[inline]
     async fn hook_register(&self, typ: Type) {
-        self.register.add(typ, Box::new(HookHandler::new(self.shared, self.raft_mailbox()))).await;
+        self.register
+            .add(
+                typ,
+                Box::new(HookHandler::new(
+                    self.scx.clone(),
+                    self.exec.clone(),
+                    self.backoff_strategy.clone(),
+                    self.shared.clone(),
+                    self.raft_mailbox(),
+                )),
+            )
+            .await;
     }
 
     #[inline]
@@ -242,7 +271,7 @@ impl ClusterPlugin {
                 tokio::time::sleep(unavailable_check_interval).await;
                 match raft_mailbox.status().await {
                     Err(e) => {
-                        log::error!("Error retrieving cluster status, {}", e);
+                        log::error!("Error retrieving cluster status, {:?}", e);
                     }
                     Ok(s) => {
                         if s.available() {
@@ -276,7 +305,7 @@ impl Plugin for ClusterPlugin {
     async fn init(&mut self) -> Result<()> {
         log::info!("{} init", self.name());
 
-        let raft_mailbox = Self::start_raft(self.cfg.clone(), self.router).await?;
+        let raft_mailbox = Self::start_raft(&self.scx, self.cfg.clone(), self.router.clone()).await?;
 
         for i in 0..60 {
             match raft_mailbox.status().await {
@@ -314,13 +343,13 @@ impl Plugin for ClusterPlugin {
     async fn start(&mut self) -> Result<()> {
         log::info!("{} start", self.name());
         let raft_mailbox = self.raft_mailbox();
-        *self.runtime.extends.router_mut().await = Box::new(self.router);
-        *self.runtime.extends.shared_mut().await = Box::new(self.shared);
+        *self.scx.extends.router_mut().await = Box::new(self.router.clone());
+        *self.scx.extends.shared_mut().await = Box::new(self.shared.clone());
         self.register.start().await;
         let status = raft_mailbox.status().await.map_err(anyhow::Error::new)?;
         log::info!("raft status: {:?}", status);
         if !status.is_started() {
-            return Err(MqttError::from("Raft cluster status is abnormal"));
+            return Err(anyhow!("Raft cluster status is abnormal"));
         }
 
         let ping = message::Message::Ping.encode()?;
@@ -345,7 +374,7 @@ impl Plugin for ClusterPlugin {
             sleep(Duration::from_millis(500)).await;
         }
 
-        Err(MqttError::from("Raft cluster status is unavailable"))
+        Err(anyhow!("Raft cluster status is unavailable"))
     }
 
     #[inline]
@@ -371,22 +400,22 @@ impl Plugin for ClusterPlugin {
         let mut nodes = HashMap::default();
         for (node_id, (_, c)) in self.grpc_clients.iter() {
             let stats = json!({
-                "channel_tasks": c.channel_tasks(),
-                "active_tasks": c.active_tasks(),
+                "transfer_queue_len": c.transfer_queue_len(),
+                "active_tasks_count": c.active_tasks().count(),
+                "active_tasks_max": c.active_tasks().max(),
             });
             nodes.insert(*node_id, stats);
         }
 
-        let exec = task_exec_queue();
         json!({
             "grpc_clients": nodes,
             "raft_status": raft_status,
             "raft_pears": pears,
             "client_states": self.router.states_count(),
             "task_exec_queue": {
-                "waiting_count": exec.waiting_count(),
-                "active_count": exec.active_count(),
-                "completed_count": exec.completed_count().await,
+                "waiting_count": self.exec.waiting_count(),
+                "active_count": self.exec.active_count(),
+                "completed_count": self.exec.completed_count().await,
             }
         })
     }
@@ -409,11 +438,11 @@ async fn parse_addr(addr: &str) -> Result<SocketAddr> {
         }
         tokio::time::sleep(Duration::from_millis((rand::random::<u64>() % 300) + 500)).await;
     }
-    Err(MqttError::from(format!("Parsing address{:?} error", addr)))
+    Err(anyhow!(format!("Parsing address{:?} error", addr)))
 }
 
 async fn find_actual_leader(
-    raft: &Raft<&ClusterRouter>,
+    raft: &Raft<ClusterRouter>,
     peer_addrs: Vec<String>,
     rounds: usize,
 ) -> Result<Option<(NodeId, String)>> {
@@ -430,27 +459,20 @@ async fn find_actual_leader(
 }
 
 #[inline]
-pub(crate) async fn hook_message_dropped(droppeds: Vec<(To, From, Publish, Reason)>) {
+pub(crate) async fn hook_message_dropped(scx: &ServerContext, droppeds: Vec<(To, From, Publish, Reason)>) {
     for (to, from, publish, reason) in droppeds {
         //hook, message_dropped
-        Runtime::instance().extends.hook_mgr().await.message_dropped(Some(to), from, publish, reason).await;
+        scx.extends.hook_mgr().message_dropped(Some(to), from, publish, reason).await;
     }
 }
 
-static TASK_EXEC_QUEUE: OnceCell<TaskExecQueue> = OnceCell::new();
-
 #[inline]
-fn init_task_exec_queue(workers: usize, queue_max: usize) {
+fn init_task_exec_queue(workers: usize, queue_max: usize) -> TaskExecQueue {
     let (exec, task_runner) = Builder::default().workers(workers).queue_max(queue_max).build();
 
     tokio::spawn(async move {
         task_runner.await;
     });
 
-    TASK_EXEC_QUEUE.set(exec).ok().expect("Failed to initialize task execution queue")
-}
-
-#[inline]
-pub(crate) fn task_exec_queue() -> &'static TaskExecQueue {
-    TASK_EXEC_QUEUE.get().expect("TaskExecQueue not initialized")
+    exec
 }

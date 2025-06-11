@@ -4,30 +4,26 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use once_cell::sync::OnceCell;
+use anyhow::anyhow;
+use async_trait::async_trait;
+use backoff::{future::retry, ExponentialBackoff};
+use rust_box::task_exec_queue::{SpawnExt, TaskExecQueue};
+use serde::{Deserialize, Serialize};
+use tokio::sync::RwLock;
+
+use rmqtt::{
+    context::ServerContext,
+    router::{DefaultRouter, Router},
+    types::{
+        AllRelationsMap, ClientId, Id, IsOnline, NodeId, Route, SubRelationsMap, SubsSearchParams,
+        SubsSearchResult, SubscriptionOptions, TimestampMillis, Topic, TopicFilter, TopicName,
+    },
+    utils::{timestamp_millis, Counter},
+    Result,
+};
 use rmqtt_raft::{Error, Mailbox, Result as RaftResult, Store};
 
-use rmqtt::rust_box::task_exec_queue::SpawnExt;
-use rmqtt::{
-    ahash, anyhow, async_trait::async_trait, bincode, dashmap, log, once_cell, serde_json, timestamp_millis,
-    tokio, tokio::sync::RwLock,
-};
-use rmqtt::{
-    broker::{
-        default::DefaultRouter,
-        types::{
-            AllRelationsMap, ClientId, Id, IsOnline, NodeId, Route, SubRelationsMap, SubscriptionOptions,
-            TimestampMillis, Topic, TopicFilter, TopicName,
-        },
-        Router,
-    },
-    stats::Counter,
-    MqttError, Result,
-};
-
-use crate::task_exec_queue;
-
-use super::config::{retry, Compression, BACKOFF_STRATEGY};
+use super::config::Compression;
 use super::message::{Message, MessageReply};
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
@@ -53,30 +49,40 @@ impl ClientStatus {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct ClusterRouter {
-    inner: &'static DefaultRouter,
+    inner: DefaultRouter,
+    exec: TaskExecQueue,
+    backoff_strategy: ExponentialBackoff,
     raft_mailbox: Arc<RwLock<Option<Mailbox>>>,
-    client_states: DashMap<ClientId, ClientStatus>,
+    client_states: Arc<DashMap<ClientId, ClientStatus>>,
     pub try_lock_timeout: Duration,
     compression: Option<Compression>,
 }
 
 impl ClusterRouter {
     #[inline]
-    pub(crate) fn get_or_init(try_lock_timeout: Duration, compression: Option<Compression>) -> &'static Self {
-        static INSTANCE: OnceCell<ClusterRouter> = OnceCell::new();
-        INSTANCE.get_or_init(|| Self {
-            inner: DefaultRouter::instance(),
+    pub(crate) fn new(
+        scx: ServerContext,
+        exec: TaskExecQueue,
+        backoff_strategy: ExponentialBackoff,
+        try_lock_timeout: Duration,
+        compression: Option<Compression>,
+    ) -> Self {
+        Self {
+            inner: DefaultRouter::new(Some(scx)),
+            exec,
+            backoff_strategy,
             raft_mailbox: Arc::new(RwLock::new(None)),
-            client_states: DashMap::default(),
+            client_states: Arc::new(DashMap::default()),
             try_lock_timeout,
             compression,
-        })
+        }
     }
 
     #[inline]
-    pub(crate) fn _inner(&self) -> Box<dyn Router> {
-        Box::new(self.inner)
+    pub(crate) fn _inner(&self) -> &DefaultRouter {
+        &self.inner
     }
 
     #[inline]
@@ -120,7 +126,7 @@ impl ClusterRouter {
 }
 
 #[async_trait]
-impl Router for &'static ClusterRouter {
+impl Router for ClusterRouter {
     #[inline]
     async fn add(&self, topic_filter: &str, id: Id, opts: SubscriptionOptions) -> Result<()> {
         log::debug!("[Router.add] topic_filter: {:?}, id: {:?}, opts: {:?}", topic_filter, id, opts);
@@ -128,10 +134,10 @@ impl Router for &'static ClusterRouter {
         let msg = Message::Add { topic_filter, id, opts }.encode()?;
         let mailbox = self.raft_mailbox().await;
         let _ = async move { mailbox.send_proposal(msg).await.map_err(anyhow::Error::new) }
-            .spawn(task_exec_queue())
+            .spawn(&self.exec)
             .result()
             .await
-            .map_err(|_| MqttError::from("Router::add(..), task execution failure"))??;
+            .map_err(|_| anyhow!("Router::add(..), task execution failure"))??;
         Ok(())
     }
 
@@ -140,16 +146,18 @@ impl Router for &'static ClusterRouter {
         log::debug!("[Router.remove] topic_filter: {:?}, id: {:?}", topic_filter, id);
         let msg = Message::Remove { topic_filter, id: id.clone() }.encode()?;
         let raft_mailbox = self.raft_mailbox().await;
+        let exec = self.exec.clone();
+        let backoff_strategy = self.backoff_strategy.clone();
         tokio::spawn(async move {
-            if let Err(e) = retry(BACKOFF_STRATEGY.clone(), || async {
+            if let Err(e) = retry(backoff_strategy, || async {
                 let msg = msg.clone();
                 let mailbox = raft_mailbox.clone();
                 let res = async move { mailbox.send_proposal(msg).await }
-                    .spawn(task_exec_queue())
+                    .spawn(&exec)
                     .result()
                     .await
-                    .map_err(|_| MqttError::from("Router::remove(..), task execution failure"))?
-                    .map_err(|e| MqttError::from(e.to_string()))?;
+                    .map_err(|_| anyhow!("Router::remove(..), task execution failure"))?
+                    .map_err(|e| anyhow!(e))?;
                 Ok(res)
             })
             .await
@@ -179,6 +187,11 @@ impl Router for &'static ClusterRouter {
     #[inline]
     async fn get(&self, topic: &str) -> Result<Vec<Route>> {
         self.inner.get(topic).await
+    }
+
+    #[inline]
+    async fn query_subscriptions(&self, q: &SubsSearchParams) -> Vec<SubsSearchResult> {
+        self.inner.query_subscriptions(q).await
     }
 
     #[inline]
@@ -223,7 +236,7 @@ impl Router for &'static ClusterRouter {
 }
 
 #[async_trait]
-impl Store for &'static ClusterRouter {
+impl Store for ClusterRouter {
     async fn apply(&mut self, message: &[u8]) -> RaftResult<Vec<u8>> {
         log::debug!("apply, message.len: {:?}", message.len());
         let message: Message = bincode::deserialize(message).map_err(|e| Error::Other(e))?;
@@ -312,11 +325,11 @@ impl Store for &'static ClusterRouter {
             }
             Message::Add { topic_filter, id, opts } => {
                 log::debug!("[Router.add] topic_filter: {:?}, id: {:?}, opts: {:?}", topic_filter, id, opts);
-                self.inner.add(topic_filter, id, opts).await.map_err(|e| Error::Other(Box::new(e)))?;
+                self.inner.add(topic_filter, id, opts).await?;
             }
             Message::Remove { topic_filter, id } => {
                 log::debug!("[Router.remove] topic_filter: {:?}, id: {:?}", topic_filter, id,);
-                self.inner.remove(topic_filter, id).await.map_err(|e| Error::Other(Box::new(e)))?;
+                self.inner.remove(topic_filter, id).await?;
             }
             Message::GetClientNodeId { client_id } => {
                 let node_id = self._client_node_id(client_id);
@@ -360,8 +373,8 @@ impl Store for &'static ClusterRouter {
             .map(|entry| (entry.key().clone(), entry.value().clone()))
             .collect::<Vec<_>>();
 
-        let topics_count = &self.inner.topics_count;
-        let relations_count = &self.inner.relations_count;
+        let topics_count = self.inner.topics_count.as_ref();
+        let relations_count = self.inner.relations_count.as_ref();
 
         let snapshot = bincode::serialize(&(relations, client_states, topics_count, relations_count))
             .map_err(|e| Error::Other(e))?;

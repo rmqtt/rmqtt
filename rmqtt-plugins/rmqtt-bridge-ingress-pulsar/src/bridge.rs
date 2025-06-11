@@ -1,19 +1,25 @@
 use std::collections::{BTreeMap, HashSet};
+use std::convert::From as _;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::anyhow;
+use bytestring::ByteString;
 use event_notify::Event;
+use futures::StreamExt;
+use itertools::Itertools;
 use pulsar::{authentication::oauth2::OAuth2Authentication, consumer, Authentication, Pulsar, TokioExecutor};
+use tokio::sync::mpsc;
+use tokio::sync::RwLock;
 
-use rmqtt::itertools::Itertools;
 use rmqtt::{
-    anyhow::anyhow, bytestring::ByteString, futures::StreamExt, log, regex, serde_json, tokio,
-    tokio::sync::mpsc, tokio::sync::RwLock, DashMap, QoSEx, UserProperties,
-};
-use rmqtt::{
-    timestamp_millis, ClientId, From, Id, MqttError, NodeId, Publish, PublishProperties, QoS, Result,
-    Runtime, SessionState, TimestampMillis, TopicName, UserName,
+    codec::v5::{PublishProperties, UserProperties},
+    context::ServerContext,
+    session::SessionState,
+    types::{ClientId, DashMap, From, Id, NodeId, Publish, QoS, TimestampMillis, TopicName, UserName},
+    utils::timestamp_millis,
+    Result,
 };
 
 use crate::config::{AuthName, Bridge, Entry, PayloadData, PayloadFormat, PluginConfig};
@@ -36,7 +42,11 @@ struct Message {
 }
 
 impl Message {
-    fn deserialize_message(msg: &consumer::Message<Vec<u8>>, cfg_entry: &Entry) -> Result<Message> {
+    fn deserialize_message(
+        node_id: NodeId,
+        msg: &consumer::Message<Vec<u8>>,
+        cfg_entry: &Entry,
+    ) -> Result<Message> {
         let payload = &msg.payload;
         let mut from_node = None;
         let mut from_ipaddress = None;
@@ -60,7 +70,7 @@ impl Message {
                         match retain_str.as_str() {
                             "true" => Some(true),
                             "false" => Some(false),
-                            _ => return Err(MqttError::from(format!("Invalid Retain, {}", retain_str))),
+                            _ => return Err(anyhow!(format!("Invalid Retain, {}", retain_str))),
                         }
                     }
                 }
@@ -71,7 +81,7 @@ impl Message {
                             "0" => QoS::AtMostOnce,
                             "1" => QoS::AtLeastOnce,
                             "2" => QoS::ExactlyOnce,
-                            _ => return Err(MqttError::from(format!("Invalid QoS, {}", qos_str))),
+                            _ => return Err(anyhow!(format!("Invalid QoS, {}", qos_str))),
                         })
                     }
                 }
@@ -91,7 +101,8 @@ impl Message {
             payload.metadata.event_time.map(|t| t as TimestampMillis).unwrap_or_else(timestamp_millis);
 
         let f = From::from_bridge(Id::new(
-            from_node.unwrap_or_else(|| Runtime::instance().node.id()),
+            from_node.unwrap_or(node_id),
+            0,
             None,
             from_ipaddress,
             from_clientid.unwrap_or_default(),
@@ -141,7 +152,7 @@ impl Message {
                             Some(0) => Some(Ok(QoS::AtMostOnce)),
                             Some(1) => Some(Ok(QoS::AtLeastOnce)),
                             Some(2) => Some(Ok(QoS::ExactlyOnce)),
-                            Some(_) => Some(Err(MqttError::from(format!("Invalid QoS, {:?}", qos)))),
+                            Some(_) => Some(Err(anyhow!(format!("Invalid QoS, {:?}", qos)))),
                             None => None,
                         })
                     })
@@ -207,13 +218,16 @@ impl CommandMailbox {
 }
 
 pub struct Consumer {
+    scx: ServerContext,
     pub(crate) consumer_name: ByteString,
     pub(crate) cfg: Bridge,
     pub(crate) cfg_entry: Entry,
 }
 
 impl Consumer {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn connect(
+        scx: ServerContext,
         sys_cmd_tx: mpsc::Sender<SystemCommand>,
         pulsar: Pulsar<TokioExecutor>,
         cfg: Bridge,
@@ -274,7 +288,7 @@ impl Consumer {
         log::info!("connection ok");
 
         let (cmd_tx, cmd_rx) = mpsc::channel(100_000);
-        Self { consumer_name: consumer_name.clone(), cfg, cfg_entry: cfg_entry1 }
+        Self { scx, consumer_name: consumer_name.clone(), cfg, cfg_entry: cfg_entry1 }
             .start(sys_cmd_tx, consumer, cmd_rx, on_message)
             .await?;
         Ok(CommandMailbox::new(cmd_tx, consumer_name))
@@ -340,7 +354,7 @@ impl Consumer {
                                 break
                             }
 
-                            let msg = match Message::deserialize_message(&data, &entry) {
+                            let msg = match Message::deserialize_message(self.scx.node.id(), &data, &entry) {
                                 Err(e) => {
                                     log::warn!("{}/{} pulsar consumer deserialize message error: {:?}", name, consumer_name, e);
                                     continue
@@ -383,18 +397,18 @@ impl Consumer {
                 log::warn!("{} ignored forwarding some messages because the topic was empty.", cfg.name);
                 continue;
             }
-            let p = Publish {
+            let p = rmqtt::codec::types::Publish {
                 dup: false,
                 retain: m.retain,
                 qos: m.qos,
                 topic,
                 packet_id: None,
                 payload: payload.clone(),
-                properties: m.properties.clone(),
+                properties: Some(m.properties.clone()),
                 delay_interval: m.delay_interval_s,
-                create_time: m.create_time,
+                create_time: Some(m.create_time),
             };
-            on_message.fire((m.f.clone(), p, cfg.expiry_interval));
+            on_message.fire((m.f.clone(), Box::new(p), cfg.expiry_interval));
         }
         Ok(())
     }
@@ -407,14 +421,15 @@ type EntryIndex = usize;
 
 #[derive(Clone)]
 pub(crate) struct BridgeManager {
+    scx: ServerContext,
     node_id: NodeId,
     cfg: Arc<RwLock<PluginConfig>>,
     sources: Arc<DashMap<SourceKey, CommandMailbox>>,
 }
 
 impl BridgeManager {
-    pub async fn new(node_id: NodeId, cfg: Arc<RwLock<PluginConfig>>) -> Self {
-        Self { node_id, cfg: cfg.clone(), sources: Arc::new(DashMap::default()) }
+    pub async fn new(scx: ServerContext, node_id: NodeId, cfg: Arc<RwLock<PluginConfig>>) -> Self {
+        Self { scx, node_id, cfg: cfg.clone(), sources: Arc::new(DashMap::default()) }
     }
 
     #[inline]
@@ -463,7 +478,7 @@ impl BridgeManager {
                 continue;
             }
             if bridge_names.contains(&b_cfg.name as &str) {
-                return Err(MqttError::from(format!("The bridge name already exists! {:?}", b_cfg.name)));
+                return Err(anyhow!(format!("The bridge name already exists! {:?}", b_cfg.name)));
             }
 
             let pulsar = Self::build_pulsar(b_cfg).await?;
@@ -471,6 +486,7 @@ impl BridgeManager {
             bridge_names.insert(&b_cfg.name);
             for (entry_idx, entry) in b_cfg.entries.iter().enumerate() {
                 let mailbox = Consumer::connect(
+                    self.scx.clone(),
                     sys_cmd_tx.clone(),
                     pulsar.clone(),
                     b_cfg.clone(),
@@ -487,10 +503,12 @@ impl BridgeManager {
     }
 
     fn on_message(&self) -> OnMessageEvent {
+        let scx = self.scx.clone();
         Arc::new(
-            Event::listen(|(f, p, expiry_interval): MessageType, _next| {
+            Event::listen(move |(f, p, expiry_interval): MessageType, _next| {
+                let scx = scx.clone();
                 tokio::spawn(async move {
-                    send_publish(f, p, expiry_interval).await;
+                    send_publish(scx, f, p, expiry_interval).await;
                 });
             })
             .finish(),
@@ -519,27 +537,27 @@ impl BridgeManager {
     }
 }
 
-async fn send_publish(from: From, msg: Publish, expiry_interval: Duration) {
+async fn send_publish(scx: ServerContext, from: From, msg: Publish, expiry_interval: Duration) {
     log::debug!("from {:?}, message: {:?}", from, msg);
+
+    // let expiry_interval = msg
+    //     .properties
+    //     .message_expiry_interval
+    //     .map(|interval| Duration::from_secs(interval.get() as u64))
+    //     .unwrap_or(expiry_interval);
 
     let expiry_interval = msg
         .properties
-        .message_expiry_interval
-        .map(|interval| Duration::from_secs(interval.get() as u64))
+        .as_ref()
+        .and_then(|p| p.message_expiry_interval.map(|interval| Duration::from_secs(interval.get() as u64)))
         .unwrap_or(expiry_interval);
 
     //hook, message_publish
-    let msg = Runtime::instance()
-        .extends
-        .hook_mgr()
-        .await
-        .message_publish(None, from.clone(), &msg)
-        .await
-        .unwrap_or(msg);
+    let msg = scx.extends.hook_mgr().message_publish(None, from.clone(), &msg).await.unwrap_or(msg);
 
-    let storage_available = Runtime::instance().extends.message_mgr().await.enable();
+    let storage_available = scx.extends.message_mgr().await.enable();
 
-    if let Err(e) = SessionState::forwards(from, msg, storage_available, Some(expiry_interval)).await {
+    if let Err(e) = SessionState::forwards(&scx, from, msg, storage_available, Some(expiry_interval)).await {
         log::warn!("{:?}", e);
     }
 }

@@ -1,7 +1,8 @@
 # RMQTT Broker
 
 [![GitHub Release](https://img.shields.io/github/release/rmqtt/rmqtt?color=brightgreen)](https://github.com/rmqtt/rmqtt/releases)
-<a href="https://blog.rust-lang.org/2024/09/05/Rust-1.81.0.html"><img alt="Rust Version" src="https://img.shields.io/badge/rust-1.81.0%2B-blue" /></a>
+<a href="https://blog.rust-lang.org/2024/09/05/Rust-1.85.0.html"><img alt="Rust Version" src="https://img.shields.io/badge/rust-1.85.0%2B-blue" /></a>
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/rmqtt/rmqtt)
 
 [English](./README.md)  | 简体中文
 
@@ -10,8 +11,7 @@
 ## 功能特色
 
 - 100% Rust安全编码;
-- 基于 [tokio](https://crates.io/crates/tokio), [ntex](https://crates.io/crates/ntex)
-  , [ntex-mqtt](https://crates.io/crates/ntex-mqtt) 开发;
+- 基于 [tokio](https://crates.io/crates/tokio) 开发;
 - 支持MQTT v3.1,v3.1.1 及 v5.0协议;
     - QoS0, QoS1, QoS2 消息支持;
     - 离线消息支持;
@@ -80,7 +80,7 @@ docker run -d --name rmqtt -p 1883:1883 -p 8883:8883 -p 11883:11883 -p 6060:6060
 
 #### 通过 docker-compose 创建静态集群
 
-1. [下载配置模板](https://github.com/rmqtt/templates/blob/main/docker-compose-template/docker-compose-template.zip)
+1. [下载配置模板](https://github.com/rmqtt/templates/blob/main/docker-compose-template/docker-compose-template-v0.7.zip)
 
 2. 启动 docker-compose 集群
 
@@ -127,7 +127,7 @@ curl "http://127.0.0.1:6066/api/v1/health/check"
 * client_test.py Test.test_dollar_topics              [OK]
 * client_test.py Test.test_unsubscribe                [OK]
 * client_test.py Test.test_subscribe_failure          [OK]  
-   需要修改rmqtt-acl.toml配置，在第一行添加：["deny", "all", "subscribe", ["test/nosubscribe"]],
+  * 需要修改rmqtt-acl.toml配置，在第一行添加：["deny", "all", "subscribe", ["test/nosubscribe"]]
 
 #### paho.mqtt.testing(MQTT V5.0) [client_test5.py](https://github.com/eclipse/paho.mqtt.testing/blob/master/interoperability/client_test5.py)
 
@@ -159,10 +159,7 @@ curl "http://127.0.0.1:6066/api/v1/health/check"
 * client_test5.py Test.test_server_keep_alive           [OK]
   * 需要修改rmqtt.toml配置，将max_keepalive改为60
 * client_test5.py Test.test_subscribe_failure           [OK]
-  * 需要修改rmqtt-acl.toml配置，在第一行添加：["deny", "all", "subscribe", ["test/nosubscribe"]],
-同时修改client_test5.py的test_subscribe_failure()方法中的0x80为0x87。
-因为rmqtt返回错误码是0x87, 而test_subscribe_failure要求返回0x80。
-UnspecifiedError = 0x80, NotAuthorized = 0x87。
+  * 需要修改rmqtt-acl.toml配置，在第一行添加：["deny", "all", "subscribe", ["test/nosubscribe"]]
 
 
 ### 基准测试

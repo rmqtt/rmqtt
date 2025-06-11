@@ -1,13 +1,14 @@
 use std::fmt;
 
+use itertools::Itertools;
 use jsonwebtoken::DecodingKey;
-use serde::de::{self, Deserialize, Deserializer};
-use serde::ser::{self, Serialize, Serializer};
+use serde::de::{self, Deserializer};
+use serde::ser::{self, Serializer};
+use serde::{Deserialize, Serialize};
 
-use rmqtt::{ahash, anyhow, itertools::Itertools, serde_json};
 use rmqtt::{
-    broker::hook::Priority,
-    settings::acl::{PLACEHOLDER_CLIENTID, PLACEHOLDER_IPADDR, PLACEHOLDER_PROTOCOL, PLACEHOLDER_USERNAME},
+    acl::{PLACEHOLDER_CLIENTID, PLACEHOLDER_IPADDR, PLACEHOLDER_PROTOCOL, PLACEHOLDER_USERNAME},
+    hook::Priority,
     Result,
 };
 
@@ -26,7 +27,11 @@ pub struct PluginConfig {
     #[serde(default = "PluginConfig::priority_default")]
     pub priority: Priority,
 
-    #[serde(default = "PluginConfig::from_default")]
+    #[serde(
+        default = "PluginConfig::from_default",
+        serialize_with = "PluginConfig::serialize_from",
+        deserialize_with = "PluginConfig::deserialize_from"
+    )]
     pub from: JWTFrom,
 
     #[serde(
@@ -143,6 +148,36 @@ impl PluginConfig {
     }
 
     #[inline]
+    fn serialize_from<S>(enc: &JWTFrom, s: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: ser::Serializer,
+    {
+        let enc = match enc {
+            JWTFrom::Username => "username",
+            JWTFrom::Password => "password",
+        };
+        enc.serialize(s)
+    }
+
+    #[inline]
+    fn deserialize_from<'de, D>(deserializer: D) -> std::result::Result<JWTFrom, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let enc: String = String::deserialize(deserializer)?;
+        let enc = match enc.as_str() {
+            "username" => JWTFrom::Username,
+            "password" => JWTFrom::Password,
+            _ => {
+                return Err(de::Error::custom(
+                    "Invalid jwt from, only 'username' and 'password' are supported.",
+                ))
+            }
+        };
+        Ok(enc)
+    }
+
+    #[inline]
     fn serialize_validate_claims<S>(claims: &ValidateClaims, s: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -214,7 +249,7 @@ impl PluginConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum JWTFrom {
     Username,
     Password,

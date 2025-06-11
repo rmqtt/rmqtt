@@ -1,10 +1,9 @@
 use std::time::Duration;
 
-use rmqtt::bytestring::ByteString;
+use bytestring::ByteString;
+use serde::{de::Deserializer, Deserialize, Serialize};
 
-use serde::de::{Deserialize, Deserializer};
-
-use rmqtt::{settings::deserialize_duration, HashMap, Result};
+use rmqtt::{types::HashMap, utils::deserialize_duration};
 
 use crate::bridge::BridgeName;
 
@@ -97,7 +96,7 @@ impl Remote {
         Duration::ZERO
     }
 
-    pub fn deserialize_topic<'de, D>(deserializer: D) -> Result<(String, HasPattern), D::Error>
+    pub fn deserialize_topic<'de, D>(deserializer: D) -> std::result::Result<(String, HasPattern), D::Error>
     where
         D: Deserializer<'de>,
     {

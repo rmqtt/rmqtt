@@ -2,27 +2,37 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use rmqtt::prometheus::{
+use anyhow::anyhow;
+use prometheus::{
     register_gauge_vec_with_registry, register_int_gauge_vec_with_registry, Encoder, GaugeVec, IntGaugeVec,
-    Registry, Result as PromeResult, TextEncoder,
+    Registry, TextEncoder,
 };
 
-use rmqtt::metrics::Metrics;
-use rmqtt::{anyhow::anyhow, log, once_cell::sync::OnceCell, DashMap, MqttError, NodeId};
-use rmqtt::{grpc::MessageType, node::NodeInfo, stats::Stats, timestamp_secs, Result, Runtime};
+pub(crate) const PROME_MONITOR: &str = "PROME_MONITOR";
+
+use rmqtt::{
+    context::ServerContext,
+    grpc::MessageType,
+    metrics::Metrics,
+    node::NodeInfo,
+    stats::Stats,
+    types::{DashMap, NodeId},
+    utils::timestamp_secs,
+    Result,
+};
 
 use crate::api::{get_metrics_all, get_metrics_one, get_node, get_nodes_all, get_stats_all, get_stats_one};
 use crate::types::PrometheusDataType;
 
 #[inline]
 pub async fn to_metrics(
+    scx: &ServerContext,
+    monitor: Monitor,
     message_type: MessageType,
     cache_interval: Duration,
     typ: PrometheusDataType,
 ) -> Result<Vec<u8>> {
-    static INSTANCE: OnceCell<PromeResult<Monitor>> = OnceCell::new();
-    let monitor = INSTANCE.get_or_init(Monitor::new).as_ref().map_err(|e| anyhow!(format!("{:?}", e)))?;
-    monitor.refresh_data(message_type, cache_interval, typ).await?;
+    monitor.refresh_data(scx, message_type, cache_interval, typ).await?;
     monitor.to_metrics(typ)
 }
 
@@ -66,16 +76,16 @@ impl MonitorData {
     }
 
     #[inline]
-    async fn refresh_data(&self, message_type: MessageType) -> Result<()> {
+    async fn refresh_data(&self, scx: &ServerContext, message_type: MessageType) -> Result<()> {
         match self.typ {
             PrometheusDataType::All => {
-                self.refresh_data_all(message_type, false).await?;
+                self.refresh_data_all(scx, message_type, false).await?;
             }
             PrometheusDataType::Sum => {
-                self.refresh_data_all(message_type, true).await?;
+                self.refresh_data_all(scx, message_type, true).await?;
             }
             PrometheusDataType::Node(node_id) => {
-                self.refresh_data_one(message_type, node_id).await?;
+                self.refresh_data_one(scx, message_type, node_id).await?;
             }
         }
 
@@ -83,34 +93,44 @@ impl MonitorData {
     }
 
     #[inline]
-    async fn refresh_data_one(&self, message_type: MessageType, node_id: NodeId) -> Result<()> {
+    async fn refresh_data_one(
+        &self,
+        scx: &ServerContext,
+        message_type: MessageType,
+        node_id: NodeId,
+    ) -> Result<()> {
         let node = node_id.to_string();
 
-        let node_info = get_node(message_type, node_id)
+        let node_info = get_node(scx, message_type, node_id)
             .await?
-            .ok_or_else(|| MqttError::from(format!("node({}) does not exist", node_id)))?;
+            .ok_or_else(|| anyhow!(format!("node({}) does not exist", node_id)))?;
         self.nodes_gauge_vec_sets(&node, &node_info).await;
 
-        let (_, stats) = get_stats_one(message_type, node_id)
+        let (_, stats) = get_stats_one(scx, message_type, node_id)
             .await?
-            .ok_or_else(|| MqttError::from(format!("node({}) does not exist", node_id)))?;
-        self.stats_gauge_vec_sets(&node, &stats).await;
+            .ok_or_else(|| anyhow!(format!("node({}) does not exist", node_id)))?;
+        self.stats_gauge_vec_sets(scx, &node, &stats).await;
 
-        let metrics = get_metrics_one(message_type, node_id)
+        let metrics = get_metrics_one(scx, message_type, node_id)
             .await?
-            .ok_or_else(|| MqttError::from(format!("node({}) does not exist", node_id)))?;
+            .ok_or_else(|| anyhow!(format!("node({}) does not exist", node_id)))?;
         metrics.build_prometheus_metrics(&node, &self.metrics_gauge_vec);
 
         Ok(())
     }
 
     #[inline]
-    async fn refresh_data_all(&self, message_type: MessageType, only_sum: bool) -> Result<()> {
+    async fn refresh_data_all(
+        &self,
+        scx: &ServerContext,
+        message_type: MessageType,
+        only_sum: bool,
+    ) -> Result<()> {
         let mut node_info_all = NodeInfo::default();
         let mut stats_all = Stats::default();
         let mut metrics_all = Metrics::default();
 
-        for node_info in get_nodes_all(message_type).await?.into_iter().flatten() {
+        for node_info in get_nodes_all(scx, message_type).await?.into_iter().flatten() {
             let node = node_info.node_id.to_string();
             if !only_sum {
                 self.nodes_gauge_vec_sets(&node, &node_info).await;
@@ -118,15 +138,15 @@ impl MonitorData {
             node_info_all.add(&node_info);
         }
 
-        for (node_id, _, stats) in get_stats_all(message_type).await?.into_iter().flatten() {
+        for (node_id, _, stats) in get_stats_all(scx, message_type).await?.into_iter().flatten() {
             let node = node_id.to_string();
             if !only_sum {
-                self.stats_gauge_vec_sets(&node, &stats).await;
+                self.stats_gauge_vec_sets(scx, &node, &stats).await;
             }
             stats_all.add(*stats);
         }
 
-        for (node_id, metrics) in get_metrics_all(message_type).await?.into_iter().flatten() {
+        for (node_id, metrics) in get_metrics_all(scx, message_type).await?.into_iter().flatten() {
             let node = node_id.to_string();
             if !only_sum {
                 metrics.build_prometheus_metrics(&node, &self.metrics_gauge_vec);
@@ -135,7 +155,7 @@ impl MonitorData {
         }
 
         self.nodes_gauge_vec_sets("all", &node_info_all).await;
-        self.stats_gauge_vec_sets("all", &stats_all).await;
+        self.stats_gauge_vec_sets(scx, "all", &stats_all).await;
         metrics_all.build_prometheus_metrics("all", &self.metrics_gauge_vec);
 
         Ok(())
@@ -160,7 +180,7 @@ impl MonitorData {
     }
 
     #[inline]
-    async fn stats_gauge_vec_sets(&self, label: &str, stats: &Stats) {
+    async fn stats_gauge_vec_sets(&self, scx: &ServerContext, label: &str, stats: &Stats) {
         self.stats_gauge_vec
             .with_label_values(&[label, "handshakings.count"])
             .set(stats.handshakings.count() as i64);
@@ -242,7 +262,7 @@ impl MonitorData {
             .with_label_values(&[label, "delayed_publishs.max"])
             .set(stats.delayed_publishs.max() as i64);
 
-        let router = Runtime::instance().extends.router().await;
+        let router = scx.extends.router().await;
         let topics = router.merge_topics(&stats.topics_map);
         let routes = router.merge_routes(&stats.routes_map);
 
@@ -257,12 +277,12 @@ impl MonitorData {
 #[derive(Clone)]
 pub struct Monitor {
     last_refresh_time: Arc<AtomicI64>,
-    catcheds: DashMap<PrometheusDataType, Option<MonitorData>>,
+    catcheds: Arc<DashMap<PrometheusDataType, Option<MonitorData>>>,
 }
 
 impl Monitor {
-    fn new() -> PromeResult<Monitor> {
-        Ok(Self { last_refresh_time: Arc::new(AtomicI64::new(0)), catcheds: DashMap::default() })
+    pub fn new() -> Monitor {
+        Self { last_refresh_time: Arc::new(AtomicI64::new(0)), catcheds: Arc::new(DashMap::default()) }
     }
 
     #[inline]
@@ -270,13 +290,14 @@ impl Monitor {
         if let Some(md) = self.catcheds.entry(typ).or_insert_with(|| MonitorData::new(typ)).value() {
             md.to_metrics()
         } else {
-            Err(MqttError::from("monitor data is not initialized"))
+            Err(anyhow!("monitor data is not initialized"))
         }
     }
 
     #[inline]
     async fn refresh_data(
         &self,
+        scx: &ServerContext,
         message_type: MessageType,
         refresh_interval: Duration,
         typ: PrometheusDataType,
@@ -289,11 +310,11 @@ impl Monitor {
             md.nodes_gauge_vec.reset();
             md.stats_gauge_vec.reset();
             md.metrics_gauge_vec.reset();
-            if let Err(e) = md.refresh_data(message_type).await {
+            if let Err(e) = md.refresh_data(scx, message_type).await {
                 log::warn!("refresh data error, {:?}", e)
             }
         } else {
-            return Err(MqttError::from("monitor data is not initialized"));
+            return Err(anyhow!("monitor data is not initialized"));
         }
 
         Ok(())

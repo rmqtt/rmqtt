@@ -19,67 +19,72 @@ path = "src/server.rs"
 [target.'cfg(target_os = "linux")'.dependencies]
 tikv-jemallocator = "0.6"
 
-[target.'cfg(not(windows))'.dependencies]
-rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "logging", "std", "tls12"] }
-
-[target.'cfg(windows)'.dependencies]
-rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
-
 [dependencies]
-rustls-pemfile = "=2.2.0"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
+#rmqtt.workspace = true
+rmqtt = { workspace = true, features = ["full"] }
+rmqtt-conf.workspace = true
+rmqtt-net.workspace = true
+structopt.workspace = true
+log.workspace = true
+slog.workspace = true
+slog-stdlog.workspace = true
+slog-scope.workspace = true
+slog-term.workspace = true
+slog-async.workspace = true
+anyhow.workspace = true
+chrono = { workspace = true, features = ["clock"] }
 
-##mqtt broker
-rmqtt.workspace = true
 ##plugins
-rmqtt-acl = "0.1"
-rmqtt-web-hook = "0.1"
-rmqtt-auth-http = "0.1"
-rmqtt-auth-jwt = "0.1"
-rmqtt-cluster-broadcast = "0.1"
-rmqtt-cluster-raft = "0.1"
-rmqtt-counter = "0.1"
-rmqtt-http-api = "0.1"
-rmqtt-retainer = "0.1"
-rmqtt-sys-topic = "0.1"
-rmqtt-session-storage = "0.1"
-rmqtt-message-storage = "0.1"
-rmqtt-topic-rewrite = "0.1"
-rmqtt-bridge-ingress-mqtt = "0.1"
-rmqtt-bridge-egress-mqtt = "0.1"
-rmqtt-bridge-egress-kafka = "0.1"
-rmqtt-bridge-ingress-kafka = "0.1"
-rmqtt-bridge-egress-pulsar = "0.1"
-rmqtt-bridge-ingress-pulsar = "0.1"
-rmqtt-bridge-egress-nats = "0.1"
-rmqtt-bridge-egress-reductstore = "0.1"
-rmqtt-auto-subscription = "0.1"
-rmqtt-plugin-template = "0.1"
+rmqtt-acl.workspace = true
+rmqtt-retainer.workspace = true
+rmqtt-http-api.workspace = true
+rmqtt-counter.workspace = true
+rmqtt-auth-http.workspace = true
+rmqtt-auth-jwt.workspace = true
+rmqtt-auto-subscription.workspace = true
+rmqtt-bridge-egress-kafka.workspace = true
+rmqtt-bridge-ingress-kafka.workspace = true
+rmqtt-bridge-egress-mqtt.workspace = true
+rmqtt-bridge-ingress-mqtt.workspace = true
+rmqtt-bridge-egress-pulsar.workspace = true
+rmqtt-bridge-ingress-pulsar.workspace = true
+rmqtt-bridge-egress-nats.workspace = true
+rmqtt-bridge-egress-reductstore.workspace = true
+rmqtt-message-storage.workspace = true
+rmqtt-session-storage.workspace = true
+rmqtt-sys-topic.workspace = true
+rmqtt-topic-rewrite.workspace = true
+rmqtt-web-hook.workspace = true
+rmqtt-cluster-raft.workspace = true
+rmqtt-cluster-broadcast.workspace = true
+#rmqtt-plugin-template = "0.1"
 
 [package.metadata.plugins]
 rmqtt-acl = { default_startup = true }
+rmqtt-retainer = { }
 rmqtt-http-api = { default_startup = true }
 rmqtt-counter = { default_startup = true }
-rmqtt-web-hook = { }
 rmqtt-auth-http = { }
 rmqtt-auth-jwt = { }
-rmqtt-cluster-broadcast = { immutable = true }
-rmqtt-cluster-raft = { immutable = true }
-rmqtt-retainer = { }
-rmqtt-sys-topic = { }
-rmqtt-session-storage = { immutable = true }
-rmqtt-message-storage = { immutable = true }
-rmqtt-topic-rewrite = { }
-rmqtt-bridge-ingress-mqtt = { }
-rmqtt-bridge-egress-mqtt = { }
+rmqtt-auto-subscription = { }
 rmqtt-bridge-egress-kafka = { }
 rmqtt-bridge-ingress-kafka = { }
+rmqtt-bridge-egress-mqtt = { }
+rmqtt-bridge-ingress-mqtt = { }
 rmqtt-bridge-egress-pulsar = { }
 rmqtt-bridge-ingress-pulsar = { }
 rmqtt-bridge-egress-nats = { }
 rmqtt-bridge-egress-reductstore = { }
-rmqtt-auto-subscription = { }
-rmqtt-plugin-template = { }
+rmqtt-message-storage = { immutable = true }
+rmqtt-session-storage = { immutable = true }
+rmqtt-sys-topic = { }
+rmqtt-topic-rewrite = { }
+rmqtt-web-hook = { }
+rmqtt-cluster-raft = { immutable = true }
+rmqtt-cluster-broadcast = { immutable = true }
+#rmqtt-plugin-template = { }
 
 [build-dependencies]
-toml = "0.8"
+toml.workspace = true
 

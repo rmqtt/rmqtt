@@ -1,17 +1,13 @@
 use std::collections::BTreeMap;
 
 use pulsar::compression::{Compression, CompressionLz4, CompressionSnappy, CompressionZlib, CompressionZstd};
-use serde::de::{self, Deserialize, Deserializer};
-use serde::ser::{Serialize, Serializer};
+use rand::{distr::Uniform, rng, Rng};
+use serde::de::{self, Deserializer};
+use serde::ser::Serializer;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
-use rmqtt::{
-    log,
-    rand::{distributions::Uniform, thread_rng, Rng},
-    serde_json,
-    uuid::Uuid,
-};
-
-use rmqtt::{ClientId, Result};
+use rmqtt::types::ClientId;
 
 use crate::bridge::BridgeName;
 
@@ -63,12 +59,14 @@ pub struct Auth {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum AuthName {
     Token,
     OAuth2,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Comp {
     Lz4,
     Zlib,
@@ -140,7 +138,7 @@ impl Remote {
                 "clientid" => OrderingKey::Clientid,
                 "uuid" => OrderingKey::Uuid,
                 "random" => {
-                    let uniform = Uniform::new_inclusive(b'a', b'z');
+                    let uniform = Uniform::new_inclusive(b'a', b'z').map_err(de::Error::custom)?;
                     OrderingKey::Random(uniform, ORDERINGKEY_RANDOM_DEF_LEN)
                 }
                 _ => return Err(de::Error::custom(format!("Invalid OrderingKey, {:?}", key))),
@@ -155,7 +153,7 @@ impl Remote {
                         .get("len")
                         .and_then(|l| l.as_u64().map(|l| l as u8))
                         .unwrap_or(ORDERINGKEY_RANDOM_DEF_LEN);
-                    let uniform = Uniform::new_inclusive(b'a', b'z');
+                    let uniform = Uniform::new_inclusive(b'a', b'z').map_err(de::Error::custom)?;
                     OrderingKey::Random(uniform, if n > 0 { n } else { ORDERINGKEY_RANDOM_DEF_LEN })
                 }
                 _ => return Err(de::Error::custom(format!("Invalid OrderingKey, {:?}", obj))),
@@ -221,7 +219,7 @@ impl OrderingKey {
 
     #[inline]
     fn gen_random_key(uniform: &Uniform<u8>, n: u8) -> Vec<u8> {
-        let mut rng = thread_rng();
+        let mut rng = rng();
         (0..n).map(|_| rng.sample(uniform)).collect()
     }
 }

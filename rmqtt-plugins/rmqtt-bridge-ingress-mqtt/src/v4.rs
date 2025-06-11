@@ -2,10 +2,15 @@ use std::cell::RefCell;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
-use ntex::connect::rustls::Connector as TlsConnector;
+use anyhow::anyhow;
+use futures::channel::mpsc;
+use futures::StreamExt;
+use ntex::connect::rustls::TlsConnector;
 use ntex::connect::Connector;
+use ntex::service::fn_service;
 use ntex::time;
 use ntex::time::Seconds;
 use ntex::util::ByteString;
@@ -15,12 +20,11 @@ use ntex_mqtt::error::SendPacketError;
 use ntex_mqtt::v3::codec::SubscribeReturnCode;
 use ntex_mqtt::{self, v3};
 
-use rmqtt::ntex_mqtt::types::MQTT_LEVEL_311;
-
-use rmqtt::futures::channel::mpsc;
-use rmqtt::futures::StreamExt;
-use rmqtt::log;
-use rmqtt::{ClientId, MqttError, NodeId, Result, UserName};
+use rmqtt::{
+    codec::types::MQTT_LEVEL_311,
+    types::{ClientId, NodeId, UserName},
+    Result,
+};
 
 use crate::bridge::{
     build_tls_connector, BridgeClient, BridgePublish, Command, CommandMailbox, OnMessageEvent,
@@ -35,15 +39,15 @@ enum MqttConnector {
 impl MqttConnector {
     async fn connect(&self) -> Result<v3::client::Client> {
         Ok(match self {
-            MqttConnector::Tcp(c) => c.connect().await.map_err(|e| MqttError::Anyhow(e.into()))?,
-            MqttConnector::Tls(c) => c.connect().await.map_err(|e| MqttError::Anyhow(e.into()))?,
+            MqttConnector::Tcp(c) => c.connect().await.map_err(|e| anyhow!(e))?,
+            MqttConnector::Tls(c) => c.connect().await.map_err(|e| anyhow!(e))?,
         })
     }
 }
 
 #[derive(Clone)]
 pub struct Client {
-    pub(crate) cfg: Rc<Bridge>,
+    pub(crate) cfg: Arc<Bridge>,
     pub(crate) server_addr: SocketAddr,
     pub(crate) entry_idx: usize,
     pub(crate) client_id: ClientId,
@@ -81,10 +85,10 @@ impl Client {
             format!("{}:{}:ingress:{}:{}:{}", cfg.client_id_prefix, cfg.name, node_id, entry_idx, client_no);
         let username = cfg.username.clone().unwrap_or("undefined".into());
 
-        let server_addr = cfg.server.addr.to_socket_addrs()?.next().ok_or_else(|| MqttError::from("None"))?;
+        let server_addr = cfg.server.addr.to_socket_addrs()?.next().ok_or_else(|| anyhow!("None"))?;
 
         let client = Self {
-            cfg: Rc::new(cfg),
+            cfg: Arc::new(cfg),
             server_addr,
             entry_idx,
             client_id: ClientId::from(client_id),
@@ -231,8 +235,8 @@ impl Client {
 
     async fn ev_loop(self, c: v3::client::Client) {
         if let Err(e) = c
-            .start(move |control: v3::client::ControlMessage<()>| match control {
-                v3::client::ControlMessage::Publish(publish) => {
+            .start(fn_service(move |control: v3::client::Control<()>| match control {
+                v3::client::Control::Publish(publish) => {
                     log::debug!("{} publish: {:?}", self.client_id, publish);
                     self.on_message.fire((
                         BridgeClient::V4(self.clone()),
@@ -242,23 +246,23 @@ impl Client {
                     ));
                     Ready::Ok(publish.ack())
                 }
-                v3::client::ControlMessage::Error(msg) => {
+                v3::client::Control::Error(msg) => {
                     log::info!("{} Codec error: {:?}", self.client_id, msg);
                     Ready::Ok(msg.ack())
                 }
-                v3::client::ControlMessage::ProtocolError(msg) => {
+                v3::client::Control::ProtocolError(msg) => {
                     log::info!("{} Protocol error: {:?}", self.client_id, msg);
                     Ready::Ok(msg.ack())
                 }
-                v3::client::ControlMessage::PeerGone(msg) => {
+                v3::client::Control::PeerGone(msg) => {
                     log::info!("{} Peer closed connection: {:?}", self.client_id, msg.err());
                     Ready::Ok(msg.ack())
                 }
-                v3::client::ControlMessage::Closed(msg) => {
+                v3::client::Control::Closed(msg) => {
                     log::info!("{} Server closed connection", self.client_id);
                     Ready::Ok(msg.ack())
                 }
-            })
+            }))
             .await
         {
             log::error!("Start ev_loop error! {:?}", e);

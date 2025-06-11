@@ -1,24 +1,26 @@
-use rmqtt::broker::{Router, Shared};
-use rmqtt::{async_trait::async_trait, log};
+use async_trait::async_trait;
+
+use rmqtt::context::ServerContext;
+use rmqtt::router::Router;
+use rmqtt::shared::Shared;
+use rmqtt::types::Id;
 use rmqtt::{
-    broker::{
-        hook::{Handler, HookResult, Parameter, ReturnType},
-        types::{From, Publish, SubRelationsMap, SubscriptionClientIds},
-    },
     grpc::{Message, MessageReply},
-    Id, Runtime,
+    hook::{Handler, HookResult, Parameter, ReturnType},
+    types::{From, Publish, SubRelationsMap, SubscriptionClientIds},
 };
 
 use super::{hook_message_dropped, router::ClusterRouter, shared::ClusterShared};
 
 pub(crate) struct HookHandler {
-    shared: &'static ClusterShared,
-    router: &'static ClusterRouter,
+    scx: ServerContext,
+    shared: ClusterShared,
+    router: ClusterRouter,
 }
 
 impl HookHandler {
-    pub(crate) fn new(shared: &'static ClusterShared, router: &'static ClusterRouter) -> Self {
-        Self { shared, router }
+    pub(crate) fn new(scx: ServerContext, shared: ClusterShared, router: ClusterRouter) -> Self {
+        Self { scx, shared, router }
     }
 }
 
@@ -33,7 +35,8 @@ impl Handler for HookHandler {
                 }
                 match msg {
                     Message::Forwards(from, publish) => {
-                        let (shared_subs, subs_size) = forwards(from.clone(), publish.clone()).await;
+                        let (shared_subs, subs_size) =
+                            forwards(&self.scx, from.clone(), publish.clone()).await;
                         let new_acc =
                             HookResult::GrpcMessageReply(Ok(MessageReply::Forwards(shared_subs, subs_size)));
                         return (false, Some(new_acc));
@@ -42,7 +45,7 @@ impl Handler for HookHandler {
                         if let Err(droppeds) =
                             self.shared.inner().forwards_to(from.clone(), publish, sub_rels.clone()).await
                         {
-                            hook_message_dropped(droppeds).await;
+                            hook_message_dropped(&self.scx, droppeds).await;
                         }
                         return (false, acc);
                     }
@@ -69,14 +72,14 @@ impl Handler for HookHandler {
                     Message::NumberOfClients => {
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::NumberOfClients(
                             //self.shared.inner().clients().await,
-                            Runtime::instance().stats.connections.count() as usize,
+                            self.scx.stats.connections.count() as usize,
                         )));
                         return (false, Some(new_acc));
                     }
                     Message::NumberOfSessions => {
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::NumberOfSessions(
                             //self.shared.inner().sessions().await,
-                            Runtime::instance().stats.sessions.count() as usize,
+                            self.scx.stats.sessions.count() as usize,
                         )));
                         return (false, Some(new_acc));
                     }
@@ -85,23 +88,18 @@ impl Handler for HookHandler {
                     }
                     Message::Online(clientid) => {
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::Online(
-                            Runtime::instance()
-                                .extends
-                                .router()
-                                .await
-                                .is_online(Runtime::instance().node.id(), clientid)
-                                .await,
+                            self.scx.extends.router().await.is_online(self.scx.node.id(), clientid).await,
                         )));
                         return (false, Some(new_acc));
                     }
                     Message::SubscriptionsSearch(q) => {
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::SubscriptionsSearch(
-                            self.shared.inner()._query_subscriptions(q).await,
+                            self.shared.inner().query_subscriptions(q).await,
                         )));
                         return (false, Some(new_acc));
                     }
                     Message::SubscriptionsGet(clientid) => {
-                        let id = Id::from(Runtime::instance().node.id(), clientid.clone());
+                        let id = Id::from(self.scx.node.id(), clientid.clone());
                         let entry = self.shared.inner().entry(id);
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::SubscriptionsGet(
                             entry.subscriptions().await,
@@ -141,11 +139,15 @@ impl Handler for HookHandler {
     }
 }
 
-async fn forwards(from: From, publish: Publish) -> (SubRelationsMap, SubscriptionClientIds) {
+async fn forwards(
+    scx: &ServerContext,
+    from: From,
+    publish: Publish,
+) -> (SubRelationsMap, SubscriptionClientIds) {
     log::debug!("forwards, From: {:?}, publish: {:?}", from, publish);
-    match Runtime::instance().extends.shared().await.forwards_and_get_shareds(from, publish).await {
+    match scx.extends.shared().await.forwards_and_get_shareds(from, publish).await {
         Err(droppeds) => {
-            hook_message_dropped(droppeds).await;
+            hook_message_dropped(scx, droppeds).await;
             (SubRelationsMap::default(), None)
         }
         Ok(relations_map) => relations_map,

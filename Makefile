@@ -14,7 +14,7 @@ docker-amd64:
 
 publish-amd64:
 	docker push rmqtt/rmqtt:$$(git describe --tags $$(git rev-list --tags --max-count=1))-amd64
-	docker push rmqtt/rmqtt:latest-amd64
+#	docker push rmqtt/rmqtt:latest-amd64
 
 release-aarch64:
 	git checkout $$(git describe --tags $$(git rev-list --tags --max-count=1))
@@ -26,11 +26,11 @@ docker-aarch64:
 
 publish-aarch64:
 	docker push rmqtt/rmqtt:$$(git describe --tags $$(git rev-list --tags --max-count=1))-arm64
-	docker push rmqtt/rmqtt:latest-arm64
+# 	docker push rmqtt/rmqtt:latest-arm64
 
 merge:
 	docker buildx imagetools create --tag rmqtt/rmqtt:$$(git describe --tags $$(git rev-list --tags --max-count=1)) rmqtt/rmqtt:$$(git describe --tags $$(git rev-list --tags --max-count=1))-amd64 rmqtt/rmqtt:$$(git describe --tags $$(git rev-list --tags --max-count=1))-arm64
-	docker buildx imagetools create --tag rmqtt/rmqtt:latest rmqtt/rmqtt:latest-amd64 rmqtt/rmqtt:latest-arm64
+# 	docker buildx imagetools create --tag rmqtt/rmqtt:latest rmqtt/rmqtt:latest-amd64 rmqtt/rmqtt:latest-arm64
 
 clean:
 	cargo clean

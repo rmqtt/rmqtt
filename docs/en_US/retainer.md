@@ -10,6 +10,7 @@ Then, when the client subscribes to a topic filter that matches this message, th
 Starting from **RMQTT 0.4.0**, the **Retain Message** feature will be disabled by default.
 Enabling the **Retain Message** feature requires activating the **rmqtt-retainer** plugin and configuring the **listener.tcp.\<xxxx\>.retain_available** option.
 
+**Note:** Starting from **RMQTT 0.11.0**, the configuration item **listener.tcp.\<xxxx\>.retain_available** has been **removed**.
 #### Plugins:
 
 ```bash

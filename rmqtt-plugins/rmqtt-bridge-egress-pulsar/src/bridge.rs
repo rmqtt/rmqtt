@@ -9,14 +9,15 @@ use pulsar::{
     Producer as PulsarProducer, Pulsar, SerializeMessage, TokioExecutor,
 };
 
-use rmqtt::{
-    anyhow::anyhow, bytestring::ByteString, log, serde_json, tokio, tokio::sync::mpsc, tokio::sync::RwLock,
-    DashMap,
-};
+use anyhow::anyhow;
+use bytestring::ByteString;
+use tokio::sync::mpsc;
+use tokio::sync::RwLock;
 
 use rmqtt::{
-    broker::topic::{TopicTree, VecToTopic},
-    From, MqttError, NodeId, Publish, QoSEx, Result, Topic,
+    trie::{TopicTree, VecToTopic},
+    types::{DashMap, From, NodeId, Publish, Topic},
+    Result,
 };
 
 use crate::config::{AuthName, Bridge, Entry, PluginConfig};
@@ -29,7 +30,7 @@ struct Message<'a> {
 }
 
 impl SerializeMessage for Message<'_> {
-    fn serialize_message(input: Self) -> Result<producer::Message, PulsarError> {
+    fn serialize_message(input: Self) -> std::result::Result<producer::Message, PulsarError> {
         let f = input.f;
         let p = input.p;
         let cfg = &input.cfg.remote;
@@ -52,18 +53,18 @@ impl SerializeMessage for Message<'_> {
 
         //Not required to forward
         if cfg.forward_all_publish {
-            properties.insert("dup".into(), if p.dup() { "true".into() } else { "false".into() });
-            properties.insert("retain".into(), if p.retain() { "true".into() } else { "false".into() });
-            properties.insert("qos".into(), p.qos().value().to_string());
-            if let Some(packet_id) = p.packet_id() {
+            properties.insert("dup".into(), if p.dup { "true".into() } else { "false".into() });
+            properties.insert("retain".into(), if p.retain { "true".into() } else { "false".into() });
+            properties.insert("qos".into(), p.qos.value().to_string());
+            if let Some(packet_id) = p.packet_id {
                 properties.insert("packet_id".into(), packet_id.to_string());
             }
         }
 
         //Must forward
-        properties.insert("topic".into(), p.topic().to_string());
+        properties.insert("topic".into(), p.topic.to_string());
         let payload = p.payload.to_vec();
-        let event_time = Some(p.create_time() as u64);
+        let event_time = p.create_time.map(|t| t as u64);
         let partition_key = cfg.partition_key.clone();
         let ordering_key = cfg.ordering_key.as_ref().map(|okey| okey.generate(&f.client_id));
         let replicate_to = cfg.replicate_to.clone();
@@ -257,7 +258,7 @@ impl BridgeManager {
         }
     }
 
-    async fn _start(&mut self) -> Result<()> {
+    async fn _start(&mut self) -> rmqtt::Result<()> {
         let mut topics = self.topics.write().await;
         let bridges = self.cfg.read().await.bridges.clone();
         let mut bridge_names: HashSet<&str> = HashSet::default();
@@ -266,7 +267,7 @@ impl BridgeManager {
                 continue;
             }
             if bridge_names.contains(&b_cfg.name as &str) {
-                return Err(MqttError::from(format!("The bridge name already exists! {:?}", b_cfg.name)));
+                return Err(anyhow!(format!("The bridge name already exists! {:?}", b_cfg.name)));
             }
 
             let pulsar = Self::build_pulsar(b_cfg).await?;
@@ -310,7 +311,7 @@ impl BridgeManager {
     }
 
     #[inline]
-    pub(crate) async fn send(&self, f: &From, p: &Publish) -> Result<()> {
+    pub(crate) async fn send(&self, f: &From, p: &Publish) -> rmqtt::Result<()> {
         let topic = Topic::from_str(&p.topic)?;
         for (topic_filter, bridge_infos) in { self.topics.read().await.matches(&topic) }.iter() {
             let topic_filter = topic_filter.to_topic_filter();

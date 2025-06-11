@@ -1,10 +1,13 @@
-use serde::de::{self, Deserialize, Deserializer};
 use std::time::Duration;
 
-use rmqtt::serde_json;
+use serde::{
+    de::{self, Deserializer},
+    Deserialize, Serialize,
+};
+
 use rmqtt::{
-    broker::types::QoS,
-    settings::{deserialize_duration, to_duration},
+    types::QoS,
+    utils::{deserialize_duration, to_duration},
     Result,
 };
 
@@ -59,7 +62,7 @@ impl PluginConfig {
     }
 
     #[inline]
-    fn deserialize_publish_qos<'de, D>(deserializer: D) -> Result<QoS, D::Error>
+    fn deserialize_publish_qos<'de, D>(deserializer: D) -> std::result::Result<QoS, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -73,7 +76,7 @@ impl PluginConfig {
     }
 
     #[inline]
-    pub fn deserialize_publish_interval<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+    pub fn deserialize_publish_interval<'de, D>(deserializer: D) -> std::result::Result<Duration, D::Error>
     where
         D: Deserializer<'de>,
     {

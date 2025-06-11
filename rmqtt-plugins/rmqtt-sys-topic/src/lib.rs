@@ -1,31 +1,29 @@
 #![deny(unsafe_code)]
-#[macro_use]
-extern crate serde;
 
-#[macro_use]
-extern crate rmqtt_macros;
-
-use config::PluginConfig;
-use rmqtt::{
-    async_trait::async_trait,
-    bytes::Bytes,
-    chrono, log,
-    serde_json::{self, json},
-    tokio::spawn,
-    tokio::sync::RwLock,
-    tokio::time::sleep,
-};
-use rmqtt::{
-    broker::hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
-    broker::types::{From, Id},
-    plugin::{PackageInfo, Plugin},
-    register, timestamp_millis, ClientId, NodeId, Publish, PublishProperties, QoS, Result, Runtime,
-    SessionState, TopicName, UserName,
-};
 use std::convert::From as _;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+
+use async_trait::async_trait;
+use bytes::Bytes;
+use serde_json::{self, json};
+use tokio::{spawn, sync::RwLock, time::sleep};
+
+use rmqtt::{
+    codec::v5::PublishProperties,
+    context::ServerContext,
+    hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
+    macros::Plugin,
+    plugin::{PackageInfo, Plugin},
+    register,
+    session::SessionState,
+    types::{ClientId, From, Id, NodeId, QoS, TopicName, UserName},
+    utils::timestamp_millis,
+    Result,
+};
+
+use config::PluginConfig;
 
 mod config;
 
@@ -33,7 +31,7 @@ register!(SystemTopicPlugin::new);
 
 #[derive(Plugin)]
 struct SystemTopicPlugin {
-    runtime: &'static Runtime,
+    scx: ServerContext,
     register: Box<dyn Register>,
     cfg: Arc<RwLock<PluginConfig>>,
     running: Arc<AtomicBool>,
@@ -41,17 +39,17 @@ struct SystemTopicPlugin {
 
 impl SystemTopicPlugin {
     #[inline]
-    async fn new<N: Into<String>>(runtime: &'static Runtime, name: N) -> Result<Self> {
+    async fn new<N: Into<String>>(scx: ServerContext, name: N) -> Result<Self> {
         let name = name.into();
-        let cfg = runtime.settings.plugins.load_config_default::<PluginConfig>(&name)?;
+        let cfg = scx.plugins.read_config_default::<PluginConfig>(&name)?;
         log::debug!("{} SystemTopicPlugin cfg: {:?}", name, cfg);
-        let register = runtime.extends.hook_mgr().await.register();
+        let register = scx.extends.hook_mgr().register();
         let cfg = Arc::new(RwLock::new(cfg));
         let running = Arc::new(AtomicBool::new(false));
-        Ok(Self { runtime, register, cfg, running })
+        Ok(Self { scx, register, cfg, running })
     }
 
-    fn start(runtime: &'static Runtime, cfg: Arc<RwLock<PluginConfig>>, running: Arc<AtomicBool>) {
+    fn start(scx: ServerContext, cfg: Arc<RwLock<PluginConfig>>, running: Arc<AtomicBool>) {
         spawn(async move {
             let min = Duration::from_secs(1);
             loop {
@@ -63,8 +61,8 @@ impl SystemTopicPlugin {
                 let publish_interval = if publish_interval < min { min } else { publish_interval };
                 sleep(publish_interval).await;
                 if running.load(Ordering::SeqCst) {
-                    Self::send_stats(runtime, publish_qos, expiry_interval).await;
-                    Self::send_metrics(runtime, publish_qos, expiry_interval).await;
+                    Self::send_stats(&scx, publish_qos, expiry_interval).await;
+                    Self::send_metrics(&scx, publish_qos, expiry_interval).await;
                 }
             }
         });
@@ -72,20 +70,20 @@ impl SystemTopicPlugin {
 
     //Statistics
     //$SYS/brokers/${node}/stats
-    async fn send_stats(runtime: &'static Runtime, publish_qos: QoS, expiry_interval: Duration) {
-        let payload = runtime.stats.clone().await.to_json().await;
-        let nodeid = runtime.node.id();
+    async fn send_stats(scx: &ServerContext, publish_qos: QoS, expiry_interval: Duration) {
+        let payload = scx.stats.clone(scx).await.to_json(scx).await;
+        let nodeid = scx.node.id();
         let topic = format!("$SYS/brokers/{}/stats", nodeid);
-        sys_publish(nodeid, topic, publish_qos, payload, expiry_interval).await;
+        sys_publish(scx.clone(), nodeid, topic, publish_qos, payload, expiry_interval).await;
     }
 
     //Metrics
     //$SYS/brokers/${node}/metrics
-    async fn send_metrics(runtime: &'static Runtime, publish_qos: QoS, expiry_interval: Duration) {
-        let payload = Runtime::instance().metrics.to_json();
-        let nodeid = runtime.node.id();
+    async fn send_metrics(scx: &ServerContext, publish_qos: QoS, expiry_interval: Duration) {
+        let payload = scx.metrics.to_json();
+        let nodeid = scx.node.id();
         let topic = format!("$SYS/brokers/{}/metrics", nodeid);
-        sys_publish(nodeid, topic, publish_qos, payload, expiry_interval).await;
+        sys_publish(scx.clone(), nodeid, topic, publish_qos, payload, expiry_interval).await;
     }
 }
 
@@ -96,14 +94,14 @@ impl Plugin for SystemTopicPlugin {
         log::info!("{} init", self.name());
         let cfg = &self.cfg;
 
-        self.register.add(Type::SessionCreated, Box::new(SystemTopicHandler::new(cfg))).await;
-        self.register.add(Type::SessionTerminated, Box::new(SystemTopicHandler::new(cfg))).await;
-        self.register.add(Type::ClientConnected, Box::new(SystemTopicHandler::new(cfg))).await;
-        self.register.add(Type::ClientDisconnected, Box::new(SystemTopicHandler::new(cfg))).await;
-        self.register.add(Type::SessionSubscribed, Box::new(SystemTopicHandler::new(cfg))).await;
-        self.register.add(Type::SessionUnsubscribed, Box::new(SystemTopicHandler::new(cfg))).await;
+        self.register.add(Type::SessionCreated, Box::new(SystemTopicHandler::new(&self.scx, cfg))).await;
+        self.register.add(Type::SessionTerminated, Box::new(SystemTopicHandler::new(&self.scx, cfg))).await;
+        self.register.add(Type::ClientConnected, Box::new(SystemTopicHandler::new(&self.scx, cfg))).await;
+        self.register.add(Type::ClientDisconnected, Box::new(SystemTopicHandler::new(&self.scx, cfg))).await;
+        self.register.add(Type::SessionSubscribed, Box::new(SystemTopicHandler::new(&self.scx, cfg))).await;
+        self.register.add(Type::SessionUnsubscribed, Box::new(SystemTopicHandler::new(&self.scx, cfg))).await;
 
-        Self::start(self.runtime, self.cfg.clone(), self.running.clone());
+        Self::start(self.scx.clone(), self.cfg.clone(), self.running.clone());
         Ok(())
     }
 
@@ -114,7 +112,7 @@ impl Plugin for SystemTopicPlugin {
 
     #[inline]
     async fn load_config(&mut self) -> Result<()> {
-        let new_cfg = self.runtime.settings.plugins.load_config::<PluginConfig>(self.name())?;
+        let new_cfg = self.scx.plugins.read_config_default::<PluginConfig>(self.name())?;
         *self.cfg.write().await = new_cfg;
         log::debug!("load_config ok,  {:?}", self.cfg);
         Ok(())
@@ -138,14 +136,14 @@ impl Plugin for SystemTopicPlugin {
 }
 
 struct SystemTopicHandler {
+    scx: ServerContext,
     cfg: Arc<RwLock<PluginConfig>>,
     nodeid: NodeId,
 }
 
 impl SystemTopicHandler {
-    fn new(cfg: &Arc<RwLock<PluginConfig>>) -> Self {
-        let nodeid = Runtime::instance().node.id();
-        Self { cfg: cfg.clone(), nodeid }
+    fn new(scx: &ServerContext, cfg: &Arc<RwLock<PluginConfig>>) -> Self {
+        Self { scx: scx.clone(), cfg: cfg.clone(), nodeid: scx.node.id() }
     }
 }
 
@@ -261,7 +259,8 @@ impl Handler for SystemTopicHandler {
                 (cfg_rl.publish_qos, cfg_rl.message_expiry_interval)
             };
 
-            spawn(sys_publish(nodeid, topic, publish_qos, payload, expiry_interval));
+            let scx = self.scx.clone();
+            spawn(sys_publish(scx, nodeid, topic, publish_qos, payload, expiry_interval));
         }
         (true, acc)
     }
@@ -269,6 +268,7 @@ impl Handler for SystemTopicHandler {
 
 #[inline]
 async fn sys_publish(
+    scx: ServerContext,
     nodeid: NodeId,
     topic: String,
     publish_qos: QoS,
@@ -279,37 +279,32 @@ async fn sys_publish(
         Ok(payload) => {
             let from = From::from_system(Id::new(
                 nodeid,
+                0,
                 None,
                 None,
                 ClientId::from_static("system"),
                 Some(UserName::from("system")),
             ));
 
-            let p = Publish {
+            let p = Box::new(rmqtt::codec::types::Publish {
                 dup: false,
                 retain: false,
                 qos: publish_qos,
                 topic: TopicName::from(topic),
                 packet_id: None,
                 payload: Bytes::from(payload),
-                properties: PublishProperties::default(),
+                properties: Some(PublishProperties::default()),
                 delay_interval: None,
-                create_time: timestamp_millis(),
-            };
+                create_time: Some(timestamp_millis()),
+            });
 
             //hook, message_publish
-            let p = Runtime::instance()
-                .extends
-                .hook_mgr()
-                .await
-                .message_publish(None, from.clone(), &p)
-                .await
-                .unwrap_or(p);
+            let p = scx.extends.hook_mgr().message_publish(None, from.clone(), &p).await.unwrap_or(p);
 
-            let storage_available = Runtime::instance().extends.message_mgr().await.enable();
+            let storage_available = scx.extends.message_mgr().await.enable();
 
             if let Err(e) =
-                SessionState::forwards(from, p, storage_available, Some(message_expiry_interval)).await
+                SessionState::forwards(&scx, from, p, storage_available, Some(message_expiry_interval)).await
             {
                 log::warn!("{:?}", e);
             }

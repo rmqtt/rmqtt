@@ -2,21 +2,14 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde::de::{self, Deserialize, Unexpected};
-use serde::ser::{self, Serialize};
-use serde::Deserializer;
+use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
+use bytestring::ByteString;
+use serde::{
+    de::{self, Unexpected},
+    ser, Deserialize, Deserializer, Serialize,
+};
 
-use rmqtt::{
-    ahash,
-    backoff::{ExponentialBackoff, ExponentialBackoffBuilder},
-    bytestring::ByteString,
-    serde_json, url,
-};
-use rmqtt::{
-    broker::{hook::Type, topic::TopicTree},
-    settings::deserialize_duration,
-    Result, Topic,
-};
+use rmqtt::{hook::Type, trie::TopicTree, types::Topic, utils::deserialize_duration, Result};
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
@@ -168,7 +161,7 @@ impl Url {
 
 impl<'de> Deserialize<'de> for Url {
     #[inline]
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -187,6 +180,7 @@ impl<'de> Deserialize<'de> for Url {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum UrlType {
     File,
     Http,

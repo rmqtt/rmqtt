@@ -13,7 +13,7 @@ name = "bridge_name_1"
 client_id_prefix = "prefix"
 # Address and port of the remote MQTT broker
 # or "tcp://127.0.0.1:1883" or "tls://127.0.0.1:8883"
-server = "127.0.0.1:1883"
+server = "tcp://127.0.0.1:2883"
 #server = "tls://127.0.0.1:9883"
 ##SSL / TLS Certificate Type
 #CA signed server certificate
@@ -50,7 +50,7 @@ v4.clean_session = true
 
 [[bridges.entries]]
 # Choose 0, 1, 2, default: 0
-remote.qos = 0
+remote.qos = 1
 remote.topic = "$share/g/remote/topic1/ingress/#"
 
 # Choose 0, 1, 2, or not set (follow message QoS)
@@ -78,7 +78,7 @@ name = "bridge_name_2"
 client_id_prefix = "prefix"
 # Address and port of the remote MQTT broker
 # or "tcp://127.0.0.1:1883" or "tls://127.0.0.1:8883"
-server = "tcp://127.0.0.1:1883"
+server = "tcp://127.0.0.1:2883"
 #server = "tls://127.0.0.1:9883"
 ##SSL / TLS Certificate Type
 #CA signed server certificate

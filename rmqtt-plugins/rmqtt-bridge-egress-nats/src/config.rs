@@ -1,11 +1,12 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use serde::de::{Deserialize, Deserializer};
+use serde::de::Deserializer;
+use serde::{Deserialize, Serialize};
 
 use crate::bridge::BridgeName;
 
-use rmqtt::settings::deserialize_duration_option;
+use rmqtt::utils::deserialize_duration_option;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
@@ -62,7 +63,7 @@ pub struct Bridge {
 
 impl Bridge {
     #[inline]
-    pub fn deserialize_pathbuf<'de, D>(deserializer: D) -> Result<Option<PathBuf>, D::Error>
+    pub fn deserialize_pathbuf<'de, D>(deserializer: D) -> std::result::Result<Option<PathBuf>, D::Error>
     where
         D: Deserializer<'de>,
     {

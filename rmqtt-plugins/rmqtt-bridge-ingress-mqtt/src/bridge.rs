@@ -1,4 +1,6 @@
+use std::convert::From as _;
 use std::net::SocketAddr;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -7,21 +9,27 @@ use event_notify::Event;
 use ntex_mqtt::v3::codec::Publish as PublishV3;
 use ntex_mqtt::v5::codec::Publish as PublishV5;
 
-use ntex::connect::rustls::ClientConfig;
-use ntex::connect::rustls::Connector as TlsConnector;
-use rustls::{OwnedTrustAnchor, RootCertStore};
+use ntex::connect::rustls::TlsConnector;
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::CertificateDer;
+use rustls::{ClientConfig, RootCertStore};
 
-use rmqtt::anyhow::anyhow;
-use rmqtt::bytestring::ByteString;
-use rmqtt::futures::channel::mpsc;
-use rmqtt::futures::SinkExt;
-use rmqtt::{bytes::Bytes, log, timestamp_millis, tokio, tokio::sync::RwLock, ClientId, DashMap};
+use anyhow::anyhow;
+use bytes::Bytes;
+use bytestring::ByteString;
+use futures::channel::mpsc;
+use futures::SinkExt;
+use tokio::sync::RwLock;
+
+use rmqtt::codec::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
+use rmqtt::codec::v5::{PublishProperties, UserProperties};
+use rmqtt::context::ServerContext;
+use rmqtt::utils::timestamp_millis;
 use rmqtt::{
-    From, Id, MqttError, NodeId, Publish, PublishProperties, Result, Runtime, SessionState, UserName,
-    UserProperties,
+    session::SessionState,
+    types::{ClientId, DashMap, From, Id, NodeId, UserName},
+    Result,
 };
-
-use rmqtt::ntex_mqtt::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 
 use crate::config::{Bridge, PluginConfig};
 use crate::v4::Client as ClientV4;
@@ -69,10 +77,10 @@ pub enum BridgeClient {
 }
 
 impl BridgeClient {
-    fn cfg(&self) -> &Bridge {
+    fn cfg(&self) -> Arc<Bridge> {
         match self {
-            BridgeClient::V4(c) => c.cfg.as_ref(),
-            BridgeClient::V5(c) => c.cfg.as_ref(),
+            BridgeClient::V4(c) => c.cfg.clone(),
+            BridgeClient::V5(c) => c.cfg.clone(),
         }
     }
 
@@ -99,20 +107,22 @@ impl BridgeClient {
 }
 
 pub type OnMessageEvent =
-    Arc<Event<(BridgeClient, Option<SocketAddr>, Option<SocketAddr>, BridgePublish), ()>>;
+    Rc<Event<(BridgeClient, Option<SocketAddr>, Option<SocketAddr>, BridgePublish), ()>>;
 
 type SourceKey = (String, usize, usize); //BridgeName, entry_idx, client_no
 
 #[derive(Clone)]
 pub(crate) struct BridgeManager {
+    scx: ServerContext,
     node_id: NodeId,
     cfg: Arc<RwLock<PluginConfig>>,
     sources: Arc<DashMap<SourceKey, CommandMailbox>>,
 }
 
 impl BridgeManager {
-    pub fn new(node_id: NodeId, cfg: Arc<RwLock<PluginConfig>>) -> Self {
-        Self { node_id, cfg, sources: Arc::new(DashMap::default()) }
+    pub fn new(scx: ServerContext, cfg: Arc<RwLock<PluginConfig>>) -> Self {
+        let node_id = scx.node.id();
+        Self { scx, node_id, cfg, sources: Arc::new(DashMap::default()) }
     }
 
     pub async fn start(&mut self) {
@@ -170,17 +180,30 @@ impl BridgeManager {
     }
 
     fn on_message(&self) -> OnMessageEvent {
-        Arc::new(
+        let scx = self.scx.clone();
+        Rc::new(
             Event::listen(
-                |(c, remote_addr, local_laddr, p): (
+                move |(c, remote_addr, local_laddr, p): (
                     BridgeClient,
                     Option<SocketAddr>,
                     Option<SocketAddr>,
                     BridgePublish,
                 ),
-                 _next| {
+                      _next| {
+                    let scx = scx.clone();
+
+                    let f = From::from_bridge(Id::new(
+                        scx.node.id(),
+                        local_laddr.map(|a| a.port()).unwrap_or_default(),
+                        local_laddr,
+                        remote_addr,
+                        c.client_id(),
+                        Some(c.username()),
+                    ));
+                    let cfg = c.cfg();
+                    let idx = c.entry_idx();
                     ntex::rt::spawn(async move {
-                        send_publish(c, p, remote_addr, local_laddr).await;
+                        send_publish(scx, cfg, idx, f, p).await;
                     });
                 },
             )
@@ -215,44 +238,31 @@ impl BridgeManager {
     }
 }
 
-async fn send_publish(
-    c: BridgeClient,
-    p: BridgePublish,
-    remote_addr: Option<SocketAddr>,
-    local_laddr: Option<SocketAddr>,
-) {
-    let from = From::from_bridge(Id::new(
-        Runtime::instance().node.id(),
-        local_laddr,
-        remote_addr,
-        c.client_id(),
-        Some(c.username()),
-    ));
-    log::debug!("from {:?}, message: {:?}", from, p);
-    let cfg = c.cfg();
-    let entry = if let Some(entry) = cfg.entries.get(c.entry_idx()) { entry } else { unreachable!() };
+async fn send_publish(scx: ServerContext, cfg: Arc<Bridge>, entry_idx: usize, f: From, p: BridgePublish) {
+    log::debug!("from {:?}, message: {:?}", f, p);
+    let entry = if let Some(entry) = cfg.entries.get(entry_idx) { entry } else { unreachable!() };
     let msg = match p {
-        BridgePublish::V3(p) => Publish {
+        BridgePublish::V3(p) => rmqtt::codec::types::Publish {
             dup: false,
             retain: entry.local.make_retain(p.retain),
             qos: entry.local.make_qos(p.qos),
             topic: entry.local.make_topic(p.topic.as_str()),
             packet_id: None,
             payload: Bytes::from(p.payload.to_vec()), //@TODO ...
-            properties: PublishProperties::default(),
+            properties: Some(PublishProperties::default()),
             delay_interval: None,
-            create_time: timestamp_millis(),
+            create_time: Some(timestamp_millis()),
         },
-        BridgePublish::V5(p) => Publish {
+        BridgePublish::V5(p) => rmqtt::codec::types::Publish {
             dup: false,
             retain: entry.local.make_retain(p.retain),
             qos: entry.local.make_qos(p.qos),
             topic: entry.local.make_topic(p.topic.as_str()),
             packet_id: None,
-            payload: Bytes::from(p.payload.to_vec()), //@TODO ...
-            properties: to_properties(p.properties),  //@TODO ...
+            payload: Bytes::from(p.payload.to_vec()),      //@TODO ...
+            properties: Some(to_properties(p.properties)), //@TODO ...
             delay_interval: None,
-            create_time: timestamp_millis(),
+            create_time: Some(timestamp_millis()),
         },
     };
 
@@ -260,22 +270,18 @@ async fn send_publish(
 
     let expiry_interval = msg
         .properties
-        .message_expiry_interval
-        .map(|interval| Duration::from_secs(interval.get() as u64))
+        .as_ref()
+        .and_then(|p| p.message_expiry_interval.map(|interval| Duration::from_secs(interval.get() as u64)))
         .unwrap_or(cfg.expiry_interval);
 
+    let msg = Box::new(msg);
+
     //hook, message_publish
-    let msg = Runtime::instance()
-        .extends
-        .hook_mgr()
-        .await
-        .message_publish(None, from.clone(), &msg)
-        .await
-        .unwrap_or(msg);
+    let msg = scx.extends.hook_mgr().message_publish(None, f.clone(), &msg).await.unwrap_or(msg);
 
-    let storage_available = Runtime::instance().extends.message_mgr().await.enable();
+    let storage_available = scx.extends.message_mgr().await.enable();
 
-    if let Err(e) = SessionState::forwards(from, msg, storage_available, Some(expiry_interval)).await {
+    if let Err(e) = SessionState::forwards(&scx, f, msg, storage_available, Some(expiry_interval)).await {
         log::warn!("{:?}", e);
     }
 }
@@ -293,27 +299,32 @@ fn to_properties(props: ntex_mqtt::v5::codec::PublishProperties) -> PublishPrope
         message_expiry_interval: props.message_expiry_interval,
         content_type: props.content_type.map(|data| ByteString::from(data.as_str())),
         user_properties,
-        is_utf8_payload: Some(props.is_utf8_payload),
+        is_utf8_payload: props.is_utf8_payload,
         response_topic: props.response_topic.map(|data| ByteString::from(data.as_str())),
-        subscription_ids: Some(props.subscription_ids.clone()),
+        subscription_ids: props.subscription_ids.clone(),
     }
 }
 
 pub(crate) fn build_tls_connector(cfg: &super::config::Bridge) -> Result<TlsConnector<String>> {
-    let mut root_store = RootCertStore::empty();
-    root_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
-        OwnedTrustAnchor::from_subject_spki_name_constraints(ta.subject, ta.spki, ta.name_constraints)
-    }));
+    let mut root_store = RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.into() };
 
     if let Some(c) = &cfg.root_cert {
-        root_store.add_parsable_certificates(c.cert.as_slice());
+        root_store.add_parsable_certificates(
+            CertificateDer::pem_file_iter(c)
+                .map_err(|e| anyhow!(e))?
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|e| anyhow!(e))?,
+        );
     }
 
-    let config = ClientConfig::builder().with_safe_defaults().with_root_certificates(root_store);
+    let config = ClientConfig::builder().with_root_certificates(root_store);
     let config = if let (Some(client_key), Some(client_cert)) = (&cfg.client_key, &cfg.client_cert) {
-        config
-            .with_client_auth_cert(client_cert.cert.to_vec(), client_key.key.clone())
-            .map_err(|e| MqttError::Anyhow(e.into()))?
+        let c_certs = CertificateDer::pem_file_iter(client_cert)
+            .map_err(|e| anyhow!(e))?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|e| anyhow!(e))?;
+        let c_key = rustls::pki_types::PrivateKeyDer::from_pem_file(client_key).map_err(|e| anyhow!(e))?;
+        config.with_client_auth_cert(c_certs, c_key).map_err(|e| anyhow!(e))?
     } else {
         config.with_no_client_auth()
     };
