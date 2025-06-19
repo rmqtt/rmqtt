@@ -80,7 +80,7 @@ impl Client {
         };
 
         let mut builder = v3::client::MqttConnector::new(client.cfg.server.addr.clone())
-            .client_id(ByteString::from(client.client_id.as_ref()))
+            .client_id(ByteString::from(client.client_id.to_string()))
             .keep_alive(Seconds(client.cfg.keepalive.as_secs() as u16))
             .handshake_timeout(Seconds(client.cfg.connect_timeout.as_secs() as u16));
 
