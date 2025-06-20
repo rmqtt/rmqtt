@@ -6,7 +6,7 @@ RMQTT Broker provides HTTP APIs for integration with external systems,such as qu
 messages.
 
 RMQTT Broker's HTTP API service listens on port 6060 by default. You can modify the listening port through the
-configuration file of etc/plugins/rmqtt-http-api.toml. All API calls start with api/v1.
+configuration file of etc/plugins/rmqtt-http-api.toml. All API calls start with api/v2.
 
 #### Plugins:
 
@@ -48,14 +48,14 @@ message_expiry_interval = "5m"
 
 ### HTTP status codes
 
-The RMQTT Broker interface always returns 200 OK when the call is successful, and the response content is returned in
+The RMQTT Broker interface always returns 0 OK when the call is successful, and the response content is returned in
 JSON format.
 
 The possible status codes are as follows:
 
 | Status Code | Description |
 | ---- | ----------------------- |
-| 200  | Succeed, and the returned JSON data will provide more information |
+| 0  | Succeed, and the returned JSON data will provide more information |
 | 400  | Invalid client request, such as wrong request body or parameters |
 | 401  | Client authentication failed , maybe because of invalid authentication credentials |
 | 404  | The requested path cannot be found or the requested object does not exist |
@@ -63,9 +63,9 @@ The possible status codes are as follows:
 
 ## API Endpoints
 
-## /api/v1
+## /api/v2
 
-### GET /api/v1
+### GET /api/v2
 
 Return all Endpoints supported by RMQTT Broker.
 
@@ -84,15 +84,15 @@ Return all Endpoints supported by RMQTT Broker.
 **Examples:**
 
 ```bash
-$ curl -i -X GET "http://localhost:6060/api/v1"
+$ curl -i -X GET "http://localhost:6060/api/v2"
 
-[{"descr":"Return the basic information of all nodes in the cluster","method":"GET","name":"get_brokers","path":"/brokers/{node}"}, ...]
+{"code":0,"msg":"","data":[{"descr":"Return the basic information of all nodes in the cluster","method":"GET","name":"get_brokers","path":"/brokers/{node}"}, ...]}
 
 ```
 
 ## Broker Basic Information
 
-### GET /api/v1/brokers/{node}
+### GET /api/v2/brokers/{node}
 
 Return basic information of all nodes in the cluster.
 
@@ -121,22 +121,22 @@ Return basic information of all nodes in the cluster.
 Get the basic information of all nodes:
 
 ```bash
-$ curl -i -X GET "http://localhost:6060/api/v1/brokers"
+$ curl -i -X GET "http://localhost:6060/api/v2/brokers"
 
-[{"datetime":"2022-07-24 23:01:31","node_id":1,"node_name":"1@127.0.0.1","node_status":"Running","sysdescr":"RMQTT Broker","uptime":"5 days 23 hours, 16 minutes, 3 seconds","version":"rmqtt/0.2.3-20220724094535"}]
+{"code":0,"msg":"","data":[{"datetime":"2022-07-24 23:01:31","node_id":1,"node_name":"1@127.0.0.1","node_status":"Running","sysdescr":"RMQTT Broker","uptime":"5 days 23 hours, 16 minutes, 3 seconds","version":"rmqtt/0.2.3-20220724094535"}]}
 ```
 
 Get the basic information of node 1 :
 
 ```bash
-$ curl -i -X GET "http://localhost:6060/api/v1/brokers/1"
+$ curl -i -X GET "http://localhost:6060/api/v2/brokers/1"
 
-{"datetime":"2022-07-24 23:01:31","node_id":1,"node_name":"1@127.0.0.1","node_status":"Running","sysdescr":"RMQTT Broker","uptime":"5 days 23 hours, 17 minutes, 15 seconds","version":"rmqtt/0.2.3-20220724094535"}
+{"code":0,"msg":"","data":{"datetime":"2022-07-24 23:01:31","node_id":1,"node_name":"1@127.0.0.1","node_status":"Running","sysdescr":"RMQTT Broker","uptime":"5 days 23 hours, 17 minutes, 15 seconds","version":"rmqtt/0.2.3-20220724094535"}}
 ```
 
 ## Node
 
-### GET /api/v1/nodes/{node}
+### GET /api/v2/nodes/{node}
 
 Return the status of the node.
 
@@ -173,22 +173,22 @@ Return the status of the node.
 Get the status of all nodes:
 
 ```bash
-$ curl -i -X GET "http://localhost:6060/api/v1/nodes"
+$ curl -i -X GET "http://localhost:6060/api/v2/nodes"
 
-[{"boottime":"2022-06-30 05:20:24 UTC","connections":1,"disk_free":77382381568,"disk_total":88692346880,"load1":0.0224609375,"load15":0.0,"load5":0.0263671875,"memory_free":1457954816,"memory_total":2084057088,"memory_used":626102272,"node_id":1,"node_name":"1@127.0.0.1","node_status":"Running","uptime":"5 days 23 hours, 33 minutes, 0 seconds","version":"rmqtt/0.2.3-20220724094535"}]
+{"code":0,"msg":"","data":[{"boottime":"2022-06-30 05:20:24 UTC","connections":1,"disk_free":77382381568,"disk_total":88692346880,"load1":0.0224609375,"load15":0.0,"load5":0.0263671875,"memory_free":1457954816,"memory_total":2084057088,"memory_used":626102272,"node_id":1,"node_name":"1@127.0.0.1","node_status":"Running","uptime":"5 days 23 hours, 33 minutes, 0 seconds","version":"rmqtt/0.2.3-20220724094535"}]}
 ```
 
 Get the status of the specified node:
 
 ```bash
-$ curl -i -X GET "http://localhost:6060/api/v1/nodes/1"
+$ curl -i -X GET "http://localhost:6060/api/v2/nodes/1"
 
 {"boottime":"2022-06-30 05:20:24 UTC","connections":1,"disk_free":77382381568,"disk_total":88692346880,"load1":0.0224609375,"load15":0.0,"load5":0.0263671875,"memory_free":1457954816,"memory_total":2084057088,"memory_used":626102272,"node_id":1,"node_name":"1@127.0.0.1","node_status":"Running","uptime":"5 days 23 hours, 33 minutes, 0 seconds","version":"rmqtt/0.2.3-20220724094535"}
 ```
 
 ## Client
 
-### GET /api/v1/clients
+### GET /api/v2/clients
 
 <span id = "get-clients" />
 
@@ -249,12 +249,12 @@ Returns the information of all clients under the cluster.
 **Examples:**
 
 ```bash
-$ curl -i -X GET "http://localhost:6060/api/v1/clients?_limit=10"
+$ curl -i -X GET "http://localhost:6060/api/v2/clients?_limit=10"
 
 [{"clean_start":true,"clientid":"be82ee31-7220-4cad-a724-aaad9a065012","connected":true,"connected_at":"2022-07-30 18:14:08","created_at":"2022-07-30 18:14:08","disconnected_at":"","expiry_interval":7200,"inflight":0,"ip_address":"183.193.169.110","keepalive":60,"max_inflight":16,"max_mqueue":1000,"max_subscriptions":0,"mqueue_len":0,"node_id":1,"port":10839,"proto_ver":4,"subscriptions_cnt":0,"username":"undefined"}]
 ```
 
-### GET /api/v1/clients/{clientid}
+### GET /api/v2/clients/{clientid}
 
 Returns information for the specified client
 
@@ -268,19 +268,19 @@ Returns information for the specified client
 
 | Name | Type | Description |
 |------| --------- | ----------- |
-| {}   | Array of Objects | Client information, for details, see<br/>[GET /api/v1/clients](#get-clients)|
+| {}   | Array of Objects | Client information, for details, see<br/>[GET /api/v2/clients](#get-clients)|
 
 **Examples:**
 
 Query the specified client
 
 ```bash
-$ curl -i -X GET "http://localhost:6060/api/v1/clients/example1"
+$ curl -i -X GET "http://localhost:6060/api/v2/clients/example1"
 
 {"clean_start":true,"clientid":"example1","connected":true,"connected_at":"2022-07-30 23:30:43","created_at":"2022-07-30 23:30:43","disconnected_at":"","expiry_interval":7200,"inflight":0,"ip_address":"183.193.169.110","keepalive":60,"max_inflight":16,"max_mqueue":1000,"max_subscriptions":0,"mqueue_len":0,"node_id":1,"port":11232,"proto_ver":4,"subscriptions_cnt":0,"username":"undefined"}
 ```
 
-### DELETE /api/v1/clients/{clientid}
+### DELETE /api/v2/clients/{clientid}
 
 Kick out the specified client. Note that this operation will terminate the connection with the session.
 
@@ -301,12 +301,12 @@ Kick out the specified client. Note that this operation will terminate the conne
 Kick out the specified client
 
 ```bash
-$ curl -i -X DELETE "http://localhost:6060/api/v1/clients/example1"
+$ curl -i -X DELETE "http://localhost:6060/api/v2/clients/example1"
 
 1@10.0.4.6:1883/183.193.169.110:10876/example1/dashboard
 ```
 
-### GET /api/v1/clients/{clientid}/online
+### GET /api/v2/clients/{clientid}/online
 
 Check if the client is online
 
@@ -327,14 +327,14 @@ Check if the client is online
 Check if the client is online
 
 ```bash
-$ curl -i -X GET "http://localhost:6060/api/v1/clients/example1/online"
+$ curl -i -X GET "http://localhost:6060/api/v2/clients/example1/online"
 
 false
 ```
 
 ## Subscription Information
 
-### GET /api/v1/subscriptions
+### GET /api/v2/subscriptions
 
 Returns all subscription information under the cluster.
 
@@ -367,12 +367,12 @@ Returns all subscription information under the cluster.
 **Examples:**
 
 ```bash
-$ curl -i -X GET "http://localhost:6060/api/v1/subscriptions?_limit=10"
+$ curl -i -X GET "http://localhost:6060/api/v2/subscriptions?_limit=10"
 
 [{"node_id":1,"clientid":"example1","topic":"foo/#","qos":2,"share":null},{"node_id":1,"clientid":"example1","topic":"foo/+","qos":2,"share":"test"}]
 ```
 
-### GET /api/v1/subscriptions/{clientid}
+### GET /api/v2/subscriptions/{clientid}
 
 Return the subscription information of the specified client in the cluster.
 
@@ -397,14 +397,14 @@ Return the subscription information of the specified client in the cluster.
 **Examples:**
 
 ```bash
-$ curl -i -X GET "http://localhost:6060/api/v1/subscriptions/example1"
+$ curl -i -X GET "http://localhost:6060/api/v2/subscriptions/example1"
 
 [{"node_id":1,"clientid":"example1","topic":"foo/+","qos":2,"share":"test"},{"node_id":1,"clientid":"example1","topic":"foo/#","qos":2,"share":null}]
 ```
 
 ## Routes
 
-### GET /api/v1/routes
+### GET /api/v2/routes
 
 List all routes
 
@@ -425,12 +425,12 @@ List all routes
 **Examples:**
 
 ```bash
-$ curl -i -X GET "http://localhost:6060/api/v1/routes"
+$ curl -i -X GET "http://localhost:6060/api/v2/routes"
 
 [{"node_id":1,"topic":"foo/#"},{"node_id":1,"topic":"foo/+"}]
 ```
 
-### GET /api/v1/routes/{topic}
+### GET /api/v2/routes/{topic}
 
 List all routes of a topic.
 
@@ -451,14 +451,14 @@ List all routes of a topic.
 **Examples:**
 
 ```bash
-$ curl -i -X GET "http://localhost:6060/api/v1/routes/foo%2f1"
+$ curl -i -X GET "http://localhost:6060/api/v2/routes/foo%2f1"
 
 [{"node_id":1,"topic":"foo/#"},{"node_id":1,"topic":"foo/+"}]
 ```
 
 ## Publish message
 
-### POST /api/v1/mqtt/publish
+### POST /api/v2/mqtt/publish
 
 Publish MQTT message。
 
@@ -483,18 +483,18 @@ Publish MQTT message。
 **Examples:**
 
 ```bash
-$ curl -i -X POST "http://localhost:6060/api/v1/mqtt/publish" --header 'Content-Type: application/json' -d '{"topic":"foo/1","payload":"Hello World","qos":1,"retain":false,"clientid":"example"}'
+$ curl -i -X POST "http://localhost:6060/api/v2/mqtt/publish" --header 'Content-Type: application/json' -d '{"topic":"foo/1","payload":"Hello World","qos":1,"retain":false,"clientid":"example"}'
 
 ok
 
-$ curl -i -X POST "http://localhost:6060/api/v1/mqtt/publish" --header 'Content-Type: application/json' -d '{"topic":"foo/1","payload":"SGVsbG8gV29ybGQ=","qos":1,"encoding":"base64"}'
+$ curl -i -X POST "http://localhost:6060/api/v2/mqtt/publish" --header 'Content-Type: application/json' -d '{"topic":"foo/1","payload":"SGVsbG8gV29ybGQ=","qos":1,"encoding":"base64"}'
 
 ok
 ```
 
 ## Subscribe to topic
 
-### POST /api/v1/mqtt/subscribe
+### POST /api/v2/mqtt/subscribe
 
 Subscribe to MQTT topic
 
@@ -519,12 +519,12 @@ Subscribe to MQTT topic
 Subscribe to the three topics `foo/a`, `foo/b`, `foo/c`
 
 ```bash
-$ curl -i -X POST "http://localhost:6060/api/v1/mqtt/subscribe" --header 'Content-Type: application/json' -d '{"topics":"foo/a,foo/b,foo/c","qos":1,"clientid":"example1"}'
+$ curl -i -X POST "http://localhost:6060/api/v2/mqtt/subscribe" --header 'Content-Type: application/json' -d '{"topics":"foo/a,foo/b,foo/c","qos":1,"clientid":"example1"}'
 
 {"foo/a":true,"foo/c":true,"foo/b":true}
 ```
 
-### POST /api/v1/mqtt/unsubscribe
+### POST /api/v2/mqtt/unsubscribe
 
 Unsubscribe.
 
@@ -546,14 +546,14 @@ Unsubscribe.
 Unsubscribe from `foo/a` topic
 
 ```bash
-$ curl -i -X POST "http://localhost:6060/api/v1/mqtt/unsubscribe" --header 'Content-Type: application/json' -d '{"topic":"foo/a","clientid":"example1"}'
+$ curl -i -X POST "http://localhost:6060/api/v2/mqtt/unsubscribe" --header 'Content-Type: application/json' -d '{"topic":"foo/a","clientid":"example1"}'
 
 true
 ```
 
 ## plugins
 
-### GET /api/v1/plugins
+### GET /api/v2/plugins
 
 Returns information of all plugins in the cluster.
 
@@ -577,12 +577,12 @@ Returns information of all plugins in the cluster.
 **Examples:**
 
 ```bash
-$ curl -i -X GET "http://localhost:6060/api/v1/plugins"
+$ curl -i -X GET "http://localhost:6060/api/v2/plugins"
 
 [{"node":1,"plugins":[{"active":false,"attrs":null,"descr":null,"immutable":true,"inited":false,"name":"rmqtt-cluster-raft","version":null},{"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-auth-http","version":null},{"active":true,"attrs":null,"descr":"","immutable":true,"inited":true,"name":"rmqtt-acl","version":"0.1.1"},{"active":true,"attrs":null,"descr":"","immutable":false,"inited":true,"name":"rmqtt-counter","version":"0.1.0"},{"active":true,"attrs":null,"descr":"","immutable":false,"inited":true,"name":"rmqtt-http-api","version":"0.1.1"},{"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-web-hook","version":null},{"active":false,"attrs":null,"descr":null,"immutable":true,"inited":false,"name":"rmqtt-cluster-broadcast","version":null}]}]
 ```
 
-### GET /api/v1/plugins/{node}
+### GET /api/v2/plugins/{node}
 
 Return the plugin information under the specified node
 
@@ -608,12 +608,12 @@ Return the plugin information under the specified node
 **Examples:**
 
 ```bash
-$ curl -i -X GET "http://localhost:6060/api/v1/plugins/1"
+$ curl -i -X GET "http://localhost:6060/api/v2/plugins/1"
 
 [{"active":false,"attrs":null,"descr":null,"immutable":true,"inited":false,"name":"rmqtt-cluster-raft","version":null},{"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-auth-http","version":null},{"active":true,"attrs":null,"descr":"","immutable":true,"inited":true,"name":"rmqtt-acl","version":"0.1.1"},{"active":true,"attrs":null,"descr":"","immutable":false,"inited":true,"name":"rmqtt-counter","version":"0.1.0"},{"active":true,"attrs":null,"descr":"","immutable":false,"inited":true,"name":"rmqtt-http-api","version":"0.1.1"},{"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-web-hook","version":null},{"active":false,"attrs":null,"descr":null,"immutable":true,"inited":false,"name":"rmqtt-cluster-broadcast","version":null}]
 ```
 
-### GET /api/v1/plugins/{node}/{plugin}
+### GET /api/v2/plugins/{node}/{plugin}
 
 Returns the plugin information of the specified plugin name under the specified node.
 
@@ -640,12 +640,12 @@ Returns the plugin information of the specified plugin name under the specified 
 **Examples:**
 
 ```bash
-$ curl -i -X GET "http://localhost:6060/api/v1/plugins/1/rmqtt-web-hook"
+$ curl -i -X GET "http://localhost:6060/api/v2/plugins/1/rmqtt-web-hook"
 
 {"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-web-hook","version":null}
 ```
 
-### GET /api/v1/plugins/{node}/{plugin}/config
+### GET /api/v2/plugins/{node}/{plugin}/config
 
 Returns the plugin configuration information of the specified plugin name under the specified node.
 
@@ -665,12 +665,12 @@ Returns the plugin configuration information of the specified plugin name under 
 **Examples:**
 
 ```bash
-$ curl -i -X GET "http://localhost:6060/api/v1/plugins/1/rmqtt-http-api/config"
+$ curl -i -X GET "http://localhost:6060/api/v2/plugins/1/rmqtt-http-api/config"
 
 {"http_laddr":"0.0.0.0:6060","max_row_limit":10000,"workers":1}
 ```
 
-### PUT /api/v1/plugins/{node}/{plugin}/config/reload
+### PUT /api/v2/plugins/{node}/{plugin}/config/reload
 
 Reloads the plugin configuration information of the specified plugin name under the specified node.
 
@@ -690,12 +690,12 @@ Reloads the plugin configuration information of the specified plugin name under 
 **Examples:**
 
 ```bash
-$ curl -i -X PUT "http://localhost:6060/api/v1/plugins/1/rmqtt-http-api/config/reload"
+$ curl -i -X PUT "http://localhost:6060/api/v2/plugins/1/rmqtt-http-api/config/reload"
 
 ok
 ```
 
-### PUT /api/v1/plugins/{node}/{plugin}/load
+### PUT /api/v2/plugins/{node}/{plugin}/load
 
 Load the specified plugin under the specified node.
 
@@ -715,12 +715,12 @@ Load the specified plugin under the specified node.
 **Examples:**
 
 ```bash
-$ curl -i -X PUT "http://localhost:6060/api/v1/plugins/1/rmqtt-web-hook/load"
+$ curl -i -X PUT "http://localhost:6060/api/v2/plugins/1/rmqtt-web-hook/load"
 
 ok
 ```
 
-### PUT /api/v1/plugins/{node}/{plugin}/unload
+### PUT /api/v2/plugins/{node}/{plugin}/unload
 
 Unload the specified plugin under the specified node.
 
@@ -740,14 +740,14 @@ Unload the specified plugin under the specified node.
 **Examples:**
 
 ```bash
-$ curl -i -X PUT "http://localhost:6060/api/v1/plugins/1/rmqtt-web-hook/unload"
+$ curl -i -X PUT "http://localhost:6060/api/v2/plugins/1/rmqtt-web-hook/unload"
 
 true
 ```
 
 ## Stats
 
-### GET /api/v1/stats
+### GET /api/v2/stats
 
 <span id = "get-stats" />
 
@@ -798,12 +798,12 @@ Return all status data in the cluster.
 **Examples:**
 
 ```bash
-$ curl -i -X GET "http://localhost:6060/api/v1/stats"
+$ curl -i -X GET "http://localhost:6060/api/v2/stats"
 
 [{"node":{"id":1,"name":"1@127.0.0.1","status":"Running"},"stats":{"connections.count":1,"connections.max":2,"retained.count":2,"retained.max":2,"routes.count":3,"routes.max":4,"sessions.count":1,"sessions.max":2,"subscriptions.count":7,"subscriptions.max":8,"subscriptions_shared.count":1,"subscriptions_shared.max":2,"topics.count":3,"topics.max":4}}]
 ```
 
-### GET /api/v1/stats/{node}
+### GET /api/v2/stats/{node}
 
 Returns status data on the specified node.
 
@@ -833,17 +833,17 @@ Returns status data on the specified node.
 
 | Name | Type | Description   |
 |------| --------- |---------------|
-| {}   | Json Object | Status data, see [GET /api/v1/stats](#get-stats) for details |
+| {}   | Json Object | Status data, see [GET /api/v2/stats](#get-stats) for details |
 
 **Examples:**
 
 ```bash
-$ curl -i -X GET "http://localhost:6060/api/v1/stats/1"
+$ curl -i -X GET "http://localhost:6060/api/v2/stats/1"
 
 {"node":{"id":1,"name":"1@127.0.0.1","status":"Running"},"stats":{"connections.count":1,"connections.max":2,"retained.count":2,"retained.max":2,"routes.count":3,"routes.max":4,"sessions.count":1,"sessions.max":2,"subscriptions.count":7,"subscriptions.max":8,"subscriptions_shared.count":1,"subscriptions_shared.max":2,"topics.count":3,"topics.max":4}}
 ```
 
-### GET /api/v1/stats/sum
+### GET /api/v2/stats/sum
 
 Summarize the status data of all nodes in the cluster.
 
@@ -869,19 +869,19 @@ Summarize the status data of all nodes in the cluster.
 
 | Name | Type | Description                                                           |
 |------| --------- |-----------------------------------------------------------------------|
-| {}   | Json Object | Status summary data, see [GET /api/v1/stats](#get-stats) for details  |
+| {}   | Json Object | Status summary data, see [GET /api/v2/stats](#get-stats) for details  |
 
 **Examples:**
 
 ```bash
-$ curl -i -X GET "http://localhost:6060/api/v1/stats/sum"
+$ curl -i -X GET "http://localhost:6060/api/v2/stats/sum"
 
 {"nodes":{"1":{"name":"1@127.0.0.1","status":"Running"}},"stats":{"connections.count":1,"connections.max":2,"retained.count":2,"retained.max":2,"routes.count":3,"routes.max":4,"sessions.count":1,"sessions.max":2,"subscriptions.count":7,"subscriptions.max":8,"subscriptions_shared.count":1,"subscriptions_shared.max":2,"topics.count":3,"topics.max":4}}
 ```
 
 ## Metrics
 
-### GET /api/v1/metrics
+### GET /api/v2/metrics
 
 <span id = "get-metrics" />
 
@@ -959,12 +959,12 @@ Returns all statistical metrics under the cluster
 **Examples:**
 
 ```bash
-$ curl -i -X GET "http://localhost:6060/api/v1/metrics"
+$ curl -i -X GET "http://localhost:6060/api/v2/metrics"
 
 [{"metrics":{"client.auth.anonymous":38,"client.authenticate":47,"client.connack":47,"client.connect":47,"client.connected":47,"client.disconnected":46,"client.publish.check.acl":50,"client.subscribe":37,"client.subscribe.check.acl":15,"client.unsubscribe":8,"messages.acked":35,"messages.delivered":78,"messages.dropped":0,"messages.publish":78,"session.created":45,"session.resumed":2,"session.subscribed":15,"session.terminated":42,"session.unsubscribed":8},"node":{"id":1,"name":"1@127.0.0.1"}}]
 ```
 
-### GET /api/v1/metrics/{node}
+### GET /api/v2/metrics/{node}
 
 Returns statistical metrics data of the specified node under the cluster.
 
@@ -993,17 +993,17 @@ Returns statistical metrics data of the specified node under the cluster.
 
 | Name | Type | Description                                                                                                              |
 |------| --------- |--------------------------------------------------------------------------------------------------------------------------|
-| {}   | Json Object | Statistical metrics data, see [GET /api/v1/metrics](#get-metrics) for details |
+| {}   | Json Object | Statistical metrics data, see [GET /api/v2/metrics](#get-metrics) for details |
 
 **Examples:**
 
 ```bash
-$ curl -i -X GET "http://localhost:6060/api/v1/metrics/1"
+$ curl -i -X GET "http://localhost:6060/api/v2/metrics/1"
 
 {"metrics":{"client.auth.anonymous":38,"client.authenticate":47,"client.connack":47,"client.connect":47,"client.connected":47,"client.disconnected":46,"client.publish.check.acl":50,"client.subscribe":37,"client.subscribe.check.acl":15,"client.unsubscribe":8,"messages.acked":35,"messages.delivered":78,"messages.dropped":0,"messages.publish":78,"session.created":45,"session.resumed":2,"session.subscribed":15,"session.terminated":42,"session.unsubscribed":8},"node":{"id":1,"name":"1@127.0.0.1"}}
 ```
 
-### GET /api/v1/metrics/sum
+### GET /api/v2/metrics/sum
 
 Summarize the statistical metrics data of all nodes under the cluster.
 
@@ -1013,17 +1013,17 @@ Summarize the statistical metrics data of all nodes under the cluster.
 
 | Name | Type | Description                                                                    |
 |------| --------- |--------------------------------------------------------------------------------|
-| {}   | Json Object | Statistical metrics data, see [GET /api/v1/metrics](#get-metrics) for details  |
+| {}   | Json Object | Statistical metrics data, see [GET /api/v2/metrics](#get-metrics) for details  |
 
 **Examples:**
 
 ```bash
-$ curl -i -X GET "http://localhost:6060/api/v1/metrics/sum"
+$ curl -i -X GET "http://localhost:6060/api/v2/metrics/sum"
 
 {"client.auth.anonymous":38,"client.authenticate":47,"client.connack":47,"client.connect":47,"client.connected":47,"client.disconnected":46,"client.publish.check.acl":50,"client.subscribe":37,"client.subscribe.check.acl":15,"client.unsubscribe":8,"messages.acked":35,"messages.delivered":78,"messages.dropped":0,"messages.publish":78,"session.created":45,"session.resumed":2,"session.subscribed":15,"session.terminated":42,"session.unsubscribed":8}
 ```
 
-### GET /api/v1/metrics/prometheus
+### GET /api/v2/metrics/prometheus
 
 <span id = "get-prometheus" />
 
@@ -1036,7 +1036,7 @@ Return the status data and statistical metrics of all nodes in the cluster in *p
 **Examples:**
 
 ```bash
-$ curl -i -X GET "http://localhost:6060/api/v1/metrics/prometheus"
+$ curl -i -X GET "http://localhost:6060/api/v2/metrics/prometheus"
 
 # HELP rmqtt_metrics All metrics data
 # TYPE rmqtt_metrics gauge
@@ -1408,7 +1408,7 @@ rmqtt_stats{item="topics.max",node="all"} 0
 ![Example Image](../imgs/prometheus_demo1.jpg)
 
 
-### GET /api/v1/metrics/prometheus/{node}
+### GET /api/v2/metrics/prometheus/{node}
 
 Returns the status data and statistical metrics of the specified node in the cluster in Prometheus format.
 
@@ -1420,10 +1420,10 @@ Returns the status data and statistical metrics of the specified node in the clu
 
 **Success Response Body (TEXT):**
 
-see [GET /api/v1/metrics/prometheus](#get-prometheus) 
+see [GET /api/v2/metrics/prometheus](#get-prometheus) 
 
 
-### GET /api/v1/metrics/prometheus/sum
+### GET /api/v2/metrics/prometheus/sum
 
 Returns the total of the status data and statistical metrics of all nodes in the cluster in Prometheus format.
 
@@ -1431,5 +1431,5 @@ Returns the total of the status data and statistical metrics of all nodes in the
 
 **Success Response Body (TEXT):**
 
-see [GET /api/v1/metrics/prometheus](#get-prometheus) 
+see [GET /api/v2/metrics/prometheus](#get-prometheus) 
 
