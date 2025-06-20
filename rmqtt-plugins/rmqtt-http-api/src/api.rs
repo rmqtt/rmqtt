@@ -4,13 +4,12 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use salvo::conn::tcp::TcpAcceptor;
-use salvo::http::header::{HeaderValue, CONTENT_TYPE};
-use salvo::http::mime;
+use salvo::http::{mime, StatusCode};
 use salvo::prelude::*;
 
 use anyhow::anyhow;
 use base64::prelude::{Engine, BASE64_STANDARD};
-use serde_json::{self, json};
+use serde_json::{self, json, Value};
 use tokio::sync::oneshot;
 
 use rmqtt::{
@@ -39,6 +38,34 @@ use super::types::{
 };
 use super::{clients, plugin, prome, subs, PluginConfigType};
 
+// 辅助函数：创建成功的JSON响应
+fn render_ok(res: &mut Response, data: Value) {
+    res.render(Json(json!({
+        "code": 0,
+        "msg": "",
+        "data": data
+    })));
+}
+
+// 辅助函数：创建带文本数据的成功响应
+fn render_ok_text(res: &mut Response, text: &str) {
+    res.render(Json(json!({
+        "code": 0,
+        "msg": "",
+        "data": text
+    })));
+}
+
+// 辅助函数：创建错误的JSON响应
+fn render_err(res: &mut Response, status: StatusCode, code: i32, msg: String) {
+    res.status_code(status);
+    res.render(Json(json!({
+        "code": code,
+        "msg": msg,
+        "data": Value::Null
+    })));
+}
+
 struct BearerValidator {
     token: String,
 }
@@ -54,7 +81,7 @@ impl Handler for BearerValidator {
         if req.headers().get("authorization").is_some_and(|token| token == &self.token) {
             ctrl.call_next(req, depot, res).await;
         } else {
-            res.status_code(StatusCode::UNAUTHORIZED);
+            render_err(res, StatusCode::UNAUTHORIZED, 401, "Unauthorized".to_string());
             ctrl.skip_rest()
         }
     }
@@ -66,7 +93,7 @@ fn route(
     token: Option<String>,
     monitor: prome::Monitor,
 ) -> Router {
-    let mut router = Router::with_path("api/v1")
+    let mut router = Router::with_path("api/v2") // API路径更新为v2
         .hoop(affix_state::inject((scx, cfg)))
         .hoop(affix_state::insert(PROME_MONITOR, monitor))
         .hoop(api_logger);
@@ -182,181 +209,179 @@ async fn list_apis(res: &mut Response) {
         {
             "name": "get_brokers",
             "method": "GET",
-            "path": "/api/v1/brokers/{node}",
+            "path": "/api/v2/brokers/{node}",
             "descr": "Return the basic information of all nodes in the cluster"
         },
         {
             "name": "get_nodes",
             "method": "GET",
-            "path": "/api/v1/nodes/{node}",
+            "path": "/api/v2/nodes/{node}",
             "descr": "Returns the status of the node"
         },
         {
             "name": "check_health",
             "method": "GET",
-            "path": "/api/v1/health/check",
+            "path": "/api/v2/health/check",
             "descr": "Node health check"
         },
         {
             "name": "search_clients",
             "method": "GET",
-            "path": "/api/v1/clients/",
+            "path": "/api/v2/clients/",
             "descr": "Search clients information from the cluster"
         },
         {
             "name": "get_client",
             "method": "GET",
-            "path": "/api/v1/clients/{clientid}",
+            "path": "/api/v2/clients/{clientid}",
             "descr": "Get client information from the cluster"
         },
         {
             "name": "kick_client",
             "method": "DELETE",
-            "path": "/api/v1/clients/{clientid}",
+            "path": "/api/v2/clients/{clientid}",
             "descr": "Kick client from the cluster"
         },
         {
             "name": "check_online",
             "method": "GET",
-            "path": "/api/v1/clients/{clientid}/online",
+            "path": "/api/v2/clients/{clientid}/online",
             "descr": "Check a client whether online from the cluster"
         },
         {
             "name": "search_offlines",
             "method": "GET",
-            "path": "/api/v1/clients/offlines",
+            "path": "/api/v2/clients/offlines",
             "descr": "Search offlines clients information from the cluster"
         },
         {
             "name": "kick_offlines",
             "method": "DELETE",
-            "path": "/api/v1/clients/offlines",
+            "path": "/api/v2/clients/offlines",
             "descr": "Kick offlines clients from the cluster"
         },
         {
             "name": "query_subscriptions",
             "method": "GET",
-            "path": "/api/v1/subscriptions",
+            "path": "/api/v2/subscriptions",
             "descr": "Query subscriptions information from the cluster"
         },
         {
             "name": "get_client_subscriptions",
             "method": "GET",
-            "path": "/api/v1/subscriptions/{clientid}",
+            "path": "/api/v2/subscriptions/{clientid}",
             "descr": "Get subscriptions information for the client from the cluster"
         },
 
         {
             "name": "get_routes",
             "method": "GET",
-            "path": "/api/v1/routes",
+            "path": "/api/v2/routes",
             "descr": "Return all routing information from the cluster"
         },
         {
             "name": "get_route",
             "method": "GET",
-            "path": "/api/v1/routes/{topic}",
+            "path": "/api/v2/routes/{topic}",
             "descr": "Get routing information from the cluster"
         },
 
         {
             "name": "publish",
             "method": "POST",
-            "path": "/api/v1/mqtt/publish",
+            "path": "/api/v2/mqtt/publish",
             "descr": "Publish MQTT message"
         },
         {
             "name": "subscribe",
             "method": "POST",
-            "path": "/api/v1/mqtt/subscribe",
+            "path": "/api/v2/mqtt/subscribe",
             "descr": "Subscribe to MQTT topic"
         },
         {
             "name": "unsubscribe",
             "method": "POST",
-            "path": "/api/v1/mqtt/unsubscribe",
+            "path": "/api/v2/mqtt/unsubscribe",
             "descr": "Unsubscribe"
         },
 
         {
             "name": "all_plugins",
             "method": "GET",
-            "path": "/api/v1/plugins/",
+            "path": "/api/v2/plugins/",
             "descr": "Returns information of all plugins in the cluster"
         },
         {
             "name": "node_plugins",
             "method": "GET",
-            "path": "/api/v1/plugins/{node}",
-            "descr": "Similar with GET /api/v1/plugins, return the plugin information under the specified node"
+            "path": "/api/v2/plugins/{node}",
+            "descr": "Similar with GET /api/v2/plugins, return the plugin information under the specified node"
         },
         {
             "name": "node_plugin_info",
             "method": "GET",
-            "path": "/api/v1/plugins/{node}/{plugin}",
+            "path": "/api/v2/plugins/{node}/{plugin}",
             "descr": "Get a plugin info"
         },
         {
             "name": "node_plugin_config",
             "method": "GET",
-            "path": "/api/v1/plugins/{node}/{plugin}/config",
+            "path": "/api/v2/plugins/{node}/{plugin}/config",
             "descr": "Get a plugin config"
         },
         {
             "name": "node_plugin_config_reload",
             "method": "PUT",
-            "path": "/api/v1/plugins/{node}/{plugin}/config/reload",
+            "path": "/api/v2/plugins/{node}/{plugin}/config/reload",
             "descr": "Reload a plugin config"
         },
         {
             "name": "node_plugin_load",
             "method": "PUT",
-            "path": "/api/v1/plugins/{node}/{plugin}/load",
+            "path": "/api/v2/plugins/{node}/{plugin}/load",
             "descr": "Load the specified plugin under the specified node."
         },
         {
             "name": "node_plugin_unload",
             "method": "PUT",
-            "path": "/api/v1/plugins/{node}/{plugin}/unload",
+            "path": "/api/v2/plugins/{node}/{plugin}/unload",
             "descr": "Unload the specified plugin under the specified node."
         },
 
         {
             "name": "get_stats",
             "method": "GET",
-            "path": "/api/v1/stats/{node}",
+            "path": "/api/v2/stats/{node}",
             "descr": "Returns all statistics information from the cluster"
         },
         {
             "name": "get_stats_sum",
             "method": "GET",
-            "path": "/api/v1/stats/sum",
+            "path": "/api/v2/stats/sum",
             "descr": "Summarize all statistics information from the cluster"
         },
 
         {
             "name": "get_metrics",
             "method": "GET",
-            "path": "/api/v1/metrics/{node}",
+            "path": "/api/v2/metrics/{node}",
             "descr": "Returns all metrics information from the cluster"
         },
         {
             "name": "get_metrics_sum",
             "method": "GET",
-            "path": "/api/v1/metrics/sum",
+            "path": "/api/v2/metrics/sum",
             "descr": "Summarize all metrics information from the cluster"
         },
 
         {
           "name": "get_prometheus_metrics",
           "method": "GET",
-          "path": "/api/v1/metrics/prometheus",
+          "path": "/api/v2/metrics/prometheus",
           "descr": "Get prometheus metrics from the cluster"
         },
-
-
     ]);
-    res.render(Json(data));
+    render_ok(res, data);
 }
 
 fn get_scx_cfg(depot: &mut Depot) -> std::result::Result<&(ServerContext, PluginConfigType), salvo::Error> {
@@ -416,19 +441,18 @@ async fn get_brokers(
     let id = req.param::<NodeId>("id");
     if let Some(id) = id {
         match _get_broker(scx, message_type, id).await {
-            Ok(Some(broker_info)) => res.render(Json(broker_info)),
+            Ok(Some(broker_info)) => render_ok(res, broker_info),
             Ok(None) => {
-                //| Err(MqttError::None)
-                res.status_code(StatusCode::NOT_FOUND);
+                render_err(res, StatusCode::NOT_FOUND, 404, "Broker not found".to_string());
             }
             Err(e) => {
-                res.render(StatusError::service_unavailable().detail(e.to_string()));
+                render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string());
             }
         }
     } else {
         match _get_brokers(scx, message_type).await {
-            Ok(brokers) => res.render(Json(brokers)),
-            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+            Ok(brokers) => render_ok(res, brokers.into()),
+            Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
         }
     }
     Ok(())
@@ -523,11 +547,11 @@ async fn get_nodes(
     let id = req.param::<NodeId>("id");
     if let Some(id) = id {
         match get_node(scx, message_type, id).await {
-            Ok(Some(node_info)) => res.render(Json(node_info.to_json())),
+            Ok(Some(node_info)) => render_ok(res, node_info.to_json()),
             Ok(None) => {
-                res.status_code(StatusCode::NOT_FOUND);
+                render_err(res, StatusCode::NOT_FOUND, 404, "Node not found".to_string());
             }
-            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+            Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
         }
     } else {
         match get_nodes_all(scx, message_type).await {
@@ -543,9 +567,9 @@ async fn get_nodes(
                         }
                     }
                 }
-                res.render(Json(nodes))
+                render_ok(res, nodes.into())
             }
-            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+            Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
         }
     }
     Ok(())
@@ -674,8 +698,13 @@ async fn check_health(
 ) -> std::result::Result<(), salvo::Error> {
     let (scx, _) = get_scx_cfg(depot)?;
     match scx.extends.shared().await.check_health().await {
-        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
-        Ok(health_info) => res.render(Json(health_info)),
+        Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
+        Ok(health_info) => {
+            match serde_json::to_value(health_info) {
+                Ok(v) => render_ok(res, v),
+                Err(e) => render_err(res, StatusCode::INTERNAL_SERVER_ERROR, 500, e.to_string())
+            }
+        }
     }
     Ok(())
 }
@@ -691,15 +720,14 @@ async fn get_client(
     let clientid = req.param::<String>("clientid");
     if let Some(clientid) = clientid {
         match _get_client(scx, message_type, &clientid).await {
-            Ok(Some(reply)) => res.render(Json(reply)),
+            Ok(Some(reply)) => render_ok(res, reply),
             Ok(None) => {
-                //| Err(MqttError::None)
-                res.status_code(StatusCode::NOT_FOUND);
+                render_err(res, StatusCode::NOT_FOUND, 404, "Client not found".to_string());
             }
-            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+            Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
         }
     } else {
-        res.render(StatusError::bad_request())
+        render_err(res, StatusCode::BAD_REQUEST, 400, "Bad Request: clientid is required".to_string());
     }
     Ok(())
 }
@@ -758,7 +786,7 @@ async fn search_clients(
     let mut q = match req.parse_queries::<ClientSearchParams>() {
         Ok(q) => q,
         Err(e) => {
-            res.render(StatusError::bad_request().detail(e.to_string()));
+            render_err(res, StatusCode::BAD_REQUEST, 400, e.to_string());
             return Ok(());
         }
     };
@@ -769,9 +797,9 @@ async fn search_clients(
     match _search_clients(scx, message_type, q).await {
         Ok(replys) => {
             let replys = replys.iter().map(|res| res.to_json()).collect::<Vec<_>>();
-            res.render(Json(replys))
+            render_ok(res, replys.into())
         }
-        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+        Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
     }
     Ok(())
 }
@@ -788,7 +816,7 @@ async fn search_offlines(
     let mut q = match req.parse_queries::<ClientSearchParams>() {
         Ok(q) => q,
         Err(e) => {
-            res.render(StatusError::bad_request().detail(e.to_string()));
+            render_err(res, StatusCode::BAD_REQUEST, 400, e.to_string());
             return Ok(());
         }
     };
@@ -800,9 +828,9 @@ async fn search_offlines(
     match _search_clients(scx, message_type, q).await {
         Ok(replys) => {
             let replys = replys.iter().map(|res| res.to_json()).collect::<Vec<_>>();
-            res.render(Json(replys))
+            render_ok(res, replys.into())
         }
-        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+        Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
     }
     Ok(())
 }
@@ -862,14 +890,14 @@ async fn kick_client(
         let s = entry.session();
         if let Some(s) = s {
             match entry.kick(true, true, true).await {
-                Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
-                Ok(_) => res.render(Json(s.id.to_json())),
+                Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
+                Ok(_) => render_ok(res, s.id.to_json()),
             }
         } else {
-            res.status_code(StatusCode::NOT_FOUND);
+            render_err(res, StatusCode::NOT_FOUND, 404, "Client not found".to_string());
         }
     } else {
-        res.render(StatusError::bad_request())
+        render_err(res, StatusCode::BAD_REQUEST, 400, "Bad Request: clientid is required".to_string());
     }
     Ok(())
 }
@@ -886,7 +914,7 @@ async fn kick_offlines(
     let mut q = match req.parse_queries::<ClientSearchParams>() {
         Ok(q) => q,
         Err(e) => {
-            res.render(StatusError::bad_request().detail(e.to_string()));
+            render_err(res, StatusCode::BAD_REQUEST, 400, e.to_string());
             return Ok(());
         }
     };
@@ -929,7 +957,7 @@ async fn kick_offlines(
             log::warn!("{}", e);
         }
     }
-    res.render(Json(json!({"count": count})));
+    render_ok(res, json!({"count": count}));
     Ok(())
 }
 
@@ -943,11 +971,10 @@ async fn check_online(
     let clientid = req.param::<String>("clientid");
     if let Some(clientid) = clientid {
         let entry = scx.extends.shared().await.entry(Id::from(scx.node.id(), ClientId::from(clientid)));
-
         let online = entry.online().await;
-        res.render(Json(online));
+        render_ok(res, json!(online));
     } else {
-        res.render(StatusError::bad_request())
+        render_err(res, StatusCode::BAD_REQUEST, 400, "Bad Request: clientid is required".to_string());
     }
     Ok(())
 }
@@ -963,7 +990,7 @@ async fn query_subscriptions(
     let mut q = match req.parse_queries::<SubsSearchParams>() {
         Ok(q) => q,
         Err(e) => {
-            res.render(StatusError::bad_request().detail(e.to_string()));
+            render_err(res, StatusCode::BAD_REQUEST, 400, e.to_string());
             return Ok(());
         }
     };
@@ -979,7 +1006,7 @@ async fn query_subscriptions(
         .into_iter()
         .map(|res| res.to_json())
         .collect::<Vec<serde_json::Value>>();
-    res.render(Json(replys));
+    render_ok(res, replys.into());
     Ok(())
 }
 
@@ -995,12 +1022,12 @@ async fn get_client_subscriptions(
         let entry = scx.extends.shared().await.entry(Id::from(scx.node.id(), ClientId::from(clientid)));
         if let Some(subs) = entry.subscriptions().await {
             let subs = subs.into_iter().map(|res| res.to_json()).collect::<Vec<serde_json::Value>>();
-            res.render(Json(subs));
+            render_ok(res, subs.into());
         } else {
-            res.status_code(StatusCode::NOT_FOUND);
+            render_err(res, StatusCode::NOT_FOUND, 404, "Client not found".to_string());
         }
     } else {
-        res.render(StatusError::bad_request());
+        render_err(res, StatusCode::BAD_REQUEST, 400, "Bad Request: clientid is required".to_string());
     }
     Ok(())
 }
@@ -1024,7 +1051,7 @@ async fn get_routes(
         max_row_limit
     };
     let replys = scx.extends.router().await.gets(limit).await;
-    res.render(Json(replys));
+    render_ok(res, json!(replys));
     Ok(())
 }
 
@@ -1038,11 +1065,11 @@ async fn get_route(
     let topic = req.param::<String>("topic");
     if let Some(topic) = topic {
         match scx.extends.router().await.get(&topic).await {
-            Ok(replys) => res.render(Json(replys)),
-            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+            Ok(replys) => render_ok(res, json!(replys)),
+            Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
         }
     } else {
-        res.render(StatusError::bad_request())
+        render_err(res, StatusCode::BAD_REQUEST, 400, "Bad Request: topic is required".to_string());
     }
     Ok(())
 }
@@ -1069,13 +1096,13 @@ async fn publish(
     let params = match req.parse_json::<PublishParams>().await {
         Ok(p) => p,
         Err(e) => {
-            res.render(StatusError::bad_request().detail(e.to_string()));
+            render_err(res, StatusCode::BAD_REQUEST, 400, e.to_string());
             return Ok(());
         }
     };
     match _publish(scx, params, remote_addr, http_laddr, expiry_interval).await {
-        Ok(()) => res.render(Text::Plain("ok")),
-        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+        Ok(()) => render_ok_text(res, "ok"),
+        Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
     }
     Ok(())
 }
@@ -1171,7 +1198,7 @@ async fn subscribe(
     let params = match req.parse_json::<SubscribeParams>().await {
         Ok(p) => p,
         Err(e) => {
-            res.render(StatusError::bad_request().detail(e.to_string()));
+            render_err(res, StatusCode::BAD_REQUEST, 400, e.to_string());
             return Ok(());
         }
     };
@@ -1180,11 +1207,11 @@ async fn subscribe(
         if status.online {
             status.id.node_id
         } else {
-            res.render(StatusError::service_unavailable().detail("the session is offline"));
+            render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, "the session is offline".to_string());
             return Ok(());
         }
     } else {
-        res.render(StatusError::not_found().detail("session does not exist"));
+        render_err(res, StatusCode::NOT_FOUND, 404, "session does not exist".to_string());
         return Ok(());
     };
 
@@ -1202,14 +1229,12 @@ async fn subscribe(
                         (t, r)
                     })
                     .collect::<HashMap<_, _>>();
-                res.render(Json(replys))
+                render_ok(res, json!(replys))
             }
-            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+            Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
         }
     } else {
-        // let cfg = get_cfg(depot)?;
         let message_type = cfg.read().await.message_type;
-        //The session is on another node
         #[allow(clippy::mutable_key_type)]
         match _subscribe_on_other_node(scx, message_type, node_id, params).await {
             Ok(replys) => {
@@ -1224,9 +1249,9 @@ async fn subscribe(
                         (t, r)
                     })
                     .collect::<HashMap<_, _>>();
-                res.render(Json(replys))
+                render_ok(res, json!(replys))
             }
-            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+            Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
         }
     }
     Ok(())
@@ -1266,7 +1291,7 @@ async fn unsubscribe(
     let params = match req.parse_json::<UnsubscribeParams>().await {
         Ok(p) => p,
         Err(e) => {
-            res.render(StatusError::bad_request().detail(e.to_string()));
+            render_err(res, StatusCode::BAD_REQUEST, 400, e.to_string());
             return Ok(());
         }
     };
@@ -1275,26 +1300,24 @@ async fn unsubscribe(
         if status.online {
             status.id.node_id
         } else {
-            res.render(StatusError::service_unavailable().detail("the session is offline"));
+            render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, "the session is offline".to_string());
             return Ok(());
         }
     } else {
-        res.render(StatusError::not_found().detail("session does not exist"));
+        render_err(res, StatusCode::NOT_FOUND, 404, "session does not exist".to_string());
         return Ok(());
     };
 
     if node_id == scx.node.id() {
         match subs::unsubscribe(scx, params).await {
-            Ok(()) => res.render(Json(true)),
-            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+            Ok(()) => render_ok(res, json!(true)),
+            Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
         }
     } else {
-        // let cfg = get_cfg(depot)?;
         let message_type = cfg.read().await.message_type;
-        //The session is on another node
         match _unsubscribe_on_other_node(scx, message_type, node_id, params).await {
-            Ok(()) => res.render(Text::Plain("ok")),
-            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+            Ok(()) => render_ok_text(res, "ok"),
+            Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
         }
     }
     Ok(())
@@ -1334,8 +1357,8 @@ async fn all_plugins(depot: &mut Depot, res: &mut Response) -> std::result::Resu
     let message_type = cfg.read().await.message_type;
 
     match _all_plugins(scx, message_type).await {
-        Ok(pluginss) => res.render(Json(pluginss)),
-        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+        Ok(pluginss) => render_ok(res, pluginss.into()),
+        Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
     }
     Ok(())
 }
@@ -1400,12 +1423,12 @@ async fn node_plugins(
     let node_id = if let Some(node_id) = req.param::<NodeId>("node") {
         node_id
     } else {
-        res.status_code(StatusCode::NOT_FOUND);
+        render_err(res, StatusCode::BAD_REQUEST, 400, "node is required".to_string());
         return Ok(());
     };
     match _node_plugins(scx, node_id, message_type).await {
-        Ok(plugins) => res.render(Json(plugins)),
-        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+        Ok(plugins) => render_ok(res, plugins.into()),
+        Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
     }
     Ok(())
 }
@@ -1449,19 +1472,20 @@ async fn node_plugin_info(
     let node_id = if let Some(node_id) = req.param::<NodeId>("node") {
         node_id
     } else {
-        res.status_code(StatusCode::NOT_FOUND);
+        render_err(res, StatusCode::BAD_REQUEST, 400, "node is required".to_string());
         return Ok(());
     };
     let name = if let Some(name) = req.param::<String>("plugin") {
         name
     } else {
-        res.status_code(StatusCode::NOT_FOUND);
+        render_err(res, StatusCode::BAD_REQUEST, 400, "plugin is required".to_string());
         return Ok(());
     };
 
     match _node_plugin_info(scx, node_id, &name, message_type).await {
-        Ok(plugin) => res.render(Json(plugin)),
-        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+        Ok(Some(plugin)) => render_ok(res, plugin),
+        Ok(None) => render_err(res, StatusCode::NOT_FOUND, 404, "plugin not found".to_string()),
+        Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
     }
 
     Ok(())
@@ -1511,23 +1535,24 @@ async fn node_plugin_config(
     let node_id = if let Some(node_id) = req.param::<NodeId>("node") {
         node_id
     } else {
-        res.status_code(StatusCode::NOT_FOUND);
+        render_err(res, StatusCode::BAD_REQUEST, 400, "node is required".to_string());
         return Ok(());
     };
     let name = if let Some(name) = req.param::<String>("plugin") {
         name
     } else {
-        res.status_code(StatusCode::NOT_FOUND);
+        render_err(res, StatusCode::BAD_REQUEST, 400, "plugin is required".to_string());
         return Ok(());
     };
 
     match _node_plugin_config(scx, node_id, &name, message_type).await {
-        Ok(cfg) => {
-            res.headers_mut()
-                .insert(CONTENT_TYPE, HeaderValue::from_static("application/json; charset=utf-8"));
-            res.write_body(cfg).ok();
+        Ok(cfg_bytes) => {
+            match serde_json::from_slice::<Value>(&cfg_bytes) {
+                Ok(cfg_json) => render_ok(res, cfg_json),
+                Err(e) => render_err(res, StatusCode::INTERNAL_SERVER_ERROR, 500, format!("Failed to parse plugin config: {}", e)),
+            }
         }
-        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+        Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
     }
     Ok(())
 }
@@ -1576,19 +1601,19 @@ async fn node_plugin_config_reload(
     let node_id = if let Some(node_id) = req.param::<NodeId>("node") {
         node_id
     } else {
-        res.status_code(StatusCode::NOT_FOUND);
+        render_err(res, StatusCode::BAD_REQUEST, 400, "node is required".to_string());
         return Ok(());
     };
     let name = if let Some(name) = req.param::<String>("plugin") {
         name
     } else {
-        res.status_code(StatusCode::NOT_FOUND);
+        render_err(res, StatusCode::BAD_REQUEST, 400, "plugin is required".to_string());
         return Ok(());
     };
 
     match _node_plugin_config_reload(scx, node_id, &name, message_type).await {
-        Ok(r) => res.render(Json(r)),
-        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+        Ok(r) => render_ok(res, json!(r)),
+        Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
     }
     Ok(())
 }
@@ -1637,19 +1662,19 @@ async fn node_plugin_load(
     let node_id = if let Some(node_id) = req.param::<NodeId>("node") {
         node_id
     } else {
-        res.status_code(StatusCode::NOT_FOUND);
+        render_err(res, StatusCode::BAD_REQUEST, 400, "node is required".to_string());
         return Ok(());
     };
     let name = if let Some(name) = req.param::<String>("plugin") {
         name
     } else {
-        res.status_code(StatusCode::NOT_FOUND);
+        render_err(res, StatusCode::BAD_REQUEST, 400, "plugin is required".to_string());
         return Ok(());
     };
 
     match _node_plugin_load(scx, node_id, &name, message_type).await {
-        Ok(r) => res.render(Json(r)),
-        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+        Ok(r) => render_ok(res, json!(r)),
+        Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
     }
     Ok(())
 }
@@ -1689,25 +1714,24 @@ async fn node_plugin_unload(
     depot: &mut Depot,
     res: &mut Response,
 ) -> std::result::Result<(), salvo::Error> {
-    //let cfg = get_cfg(depot)?;
     let (scx, cfg) = get_scx_cfg(depot)?;
     let message_type = cfg.read().await.message_type;
     let node_id = if let Some(node_id) = req.param::<NodeId>("node") {
         node_id
     } else {
-        res.status_code(StatusCode::NOT_FOUND);
+        render_err(res, StatusCode::BAD_REQUEST, 400, "node is required".to_string());
         return Ok(());
     };
     let name = if let Some(name) = req.param::<String>("plugin") {
         name
     } else {
-        res.status_code(StatusCode::NOT_FOUND);
+        render_err(res, StatusCode::BAD_REQUEST, 400, "plugin is required".to_string());
         return Ok(());
     };
 
     match _node_plugin_unload(scx, node_id, &name, message_type).await {
-        Ok(r) => res.render(Json(r)),
-        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+        Ok(r) => render_ok(res, json!(r)),
+        Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
     }
     Ok(())
 }
@@ -1746,14 +1770,12 @@ async fn _node_plugin_unload(
 
 #[handler]
 async fn get_stats_sum(depot: &mut Depot, res: &mut Response) -> std::result::Result<(), salvo::Error> {
-    // let cfg = get_cfg(depot)?;
     let (scx, cfg) = get_scx_cfg(depot)?;
-
     let message_type = cfg.read().await.message_type;
 
     match _get_stats_sum(scx, message_type).await {
-        Ok(stats_sum) => res.render(Json(stats_sum)),
-        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+        Ok(stats_sum) => render_ok(res, stats_sum),
+        Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
     }
     Ok(())
 }
@@ -1822,7 +1844,6 @@ async fn get_stats(
     depot: &mut Depot,
     res: &mut Response,
 ) -> std::result::Result<(), salvo::Error> {
-    //let cfg = get_cfg(depot)?;
     let (scx, cfg) = get_scx_cfg(depot)?;
     let message_type = cfg.read().await.message_type;
 
@@ -1831,13 +1852,12 @@ async fn get_stats(
         match get_stats_one(scx, message_type, id).await {
             Ok(Some((node_status, stats))) => {
                 let stat_info = _build_stats(scx, id, node_status, stats.to_json(scx).await).await;
-                res.render(Json(stat_info))
+                render_ok(res, stat_info)
             }
             Ok(None) => {
-                //| Err(MqttError::None)
-                res.status_code(StatusCode::NOT_FOUND);
+                render_err(res, StatusCode::NOT_FOUND, 404, "Stats not found".to_string());
             }
-            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+            Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
         }
     } else {
         match get_stats_all(scx, message_type).await {
@@ -1854,9 +1874,9 @@ async fn get_stats(
                         }
                     }
                 }
-                res.render(Json(stat_infos))
+                render_ok(res, stat_infos.into())
             }
-            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+            Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
         }
     }
     Ok(())
@@ -1908,7 +1928,6 @@ pub(crate) async fn get_stats_all(
     let id = scx.node.id();
     let node_status = scx.node.status(scx).await;
     let state = scx.stats.clone(scx).await;
-    //let mut stats = vec![_build_stats(id, node_status, state).await];
     let mut stats = vec![Ok((id, node_status, Box::new(state)))];
 
     let grpc_clients = scx.extends.shared().await.get_grpc_clients();
@@ -1969,7 +1988,6 @@ async fn get_metrics(
     res: &mut Response,
 ) -> std::result::Result<(), salvo::Error> {
     let (scx, cfg) = get_scx_cfg(depot)?;
-
     let message_type = cfg.read().await.message_type;
 
     let id = req.param::<NodeId>("id");
@@ -1977,12 +1995,12 @@ async fn get_metrics(
         match get_metrics_one(scx, message_type, id).await {
             Ok(Some(metrics)) => {
                 let metrics = _build_metrics(scx, id, metrics.to_json()).await;
-                res.render(Json(metrics))
+                render_ok(res, metrics)
             }
             Ok(None) => {
-                res.status_code(StatusCode::NOT_FOUND);
+                render_err(res, StatusCode::NOT_FOUND, 404, "Metrics not found".to_string());
             }
-            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+            Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
         }
     } else {
         match get_metrics_all(scx, message_type).await {
@@ -1998,9 +2016,9 @@ async fn get_metrics(
                         }
                     }
                 }
-                res.render(Json(metrics_infos))
+                render_ok(res, metrics_infos.into())
             }
-            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+            Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
         }
     }
     Ok(())
@@ -2013,7 +2031,6 @@ pub(crate) async fn get_metrics_one(
     id: NodeId,
 ) -> Result<Option<Box<Metrics>>> {
     if id == scx.node.id() {
-        // let metrics = scx.metrics;
         Ok(Some(Box::new(scx.metrics.clone())))
     } else {
         let grpc_clients = scx.extends.shared().await.get_grpc_clients();
@@ -2089,8 +2106,8 @@ async fn get_metrics_sum(depot: &mut Depot, res: &mut Response) -> std::result::
     let message_type = cfg.read().await.message_type;
 
     match _get_metrics_sum(scx, message_type).await {
-        Ok(metrics_sum) => res.render(Json(metrics_sum)),
-        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+        Ok(metrics_sum) => render_ok(res, metrics_sum),
+        Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
     }
     Ok(())
 }
@@ -2153,25 +2170,19 @@ async fn get_prometheus_metrics(
         let cfg_rl = cfg.read().await;
         (cfg_rl.message_type, cfg_rl.prometheus_metrics_cache_interval)
     };
-    let id = req.param::<NodeId>("id");
-    if let Some(id) = id {
-        match prome::to_metrics(scx, monitor, message_type, cache_interval, PrometheusDataType::Node(id))
-            .await
-        {
-            Ok(metrics) => {
-                res.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("text/plain; charset=utf-8"));
-                res.write_body(metrics).ok();
-            }
-            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
-        }
+    
+    let typ = if let Some(id) = req.param::<NodeId>("id") {
+        PrometheusDataType::Node(id)
     } else {
-        match prome::to_metrics(scx, monitor, message_type, cache_interval, PrometheusDataType::All).await {
-            Ok(metrics) => {
-                res.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("text/plain; charset=utf-8"));
-                res.write_body(metrics).ok();
-            }
-            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+        PrometheusDataType::All
+    };
+
+    match prome::to_metrics(scx, monitor, message_type, cache_interval, typ).await {
+        Ok(metrics_bytes) => {
+            let metrics_str = String::from_utf8_lossy(&metrics_bytes);
+            render_ok(res, json!({ "metrics": metrics_str }));
         }
+        Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
     }
     Ok(())
 }
@@ -2188,11 +2199,11 @@ async fn get_prometheus_metrics_sum(
         (cfg_rl.message_type, cfg_rl.prometheus_metrics_cache_interval)
     };
     match prome::to_metrics(scx, monitor, message_type, cache_interval, PrometheusDataType::Sum).await {
-        Ok(metrics) => {
-            res.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("text/plain; charset=utf-8"));
-            res.write_body(metrics).ok();
+        Ok(metrics_bytes) => {
+            let metrics_str = String::from_utf8_lossy(&metrics_bytes);
+            render_ok(res, json!({ "metrics": metrics_str }));
         }
-        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+        Err(e) => render_err(res, StatusCode::SERVICE_UNAVAILABLE, 503, e.to_string()),
     }
     Ok(())
 }
