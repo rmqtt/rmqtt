@@ -149,3 +149,4 @@ opt-level = 0
 lto = true
 opt-level = 's'
 codegen-units = 1
+panic = "abort"
