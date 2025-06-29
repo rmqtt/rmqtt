@@ -77,7 +77,13 @@ impl StoragePlugin {
 
         log::info!("{} StoragePlugin cfg: {:?}", name, cfg);
 
-        let storage_db = init_db(&cfg.storage).await?;
+        let storage_db = match init_db(&cfg.storage).await {
+            Err(e) => {
+                log::error!("{} init storage db error, {:?}", name, e);
+                return Err(e);
+            }
+            Ok(db) => db,
+        };
 
         let stored_session_infos = StoredSessionInfos::new();
 

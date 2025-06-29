@@ -4,7 +4,6 @@ use rmqtt_storage::Config;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
-    #[serde(default)]
     pub storage: Config,
 }
 
