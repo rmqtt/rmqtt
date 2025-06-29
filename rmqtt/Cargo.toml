@@ -32,6 +32,7 @@ msgstore = []
 shared-subscription = []
 auto-subscription = []
 limit-subscription = []
+macros = ["dep:rmqtt-macros", "metrics", "plugin"]
 
 [dependencies]
 rmqtt-net.workspace = true

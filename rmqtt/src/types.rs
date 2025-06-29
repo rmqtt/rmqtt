@@ -2786,7 +2786,7 @@ impl ClientTopicAliases {
     }
 }
 
-#[derive(Debug, Default, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
 pub struct DisconnectInfo {
     pub disconnected_at: TimestampMillis,
     pub reasons: Vec<Reason>,
