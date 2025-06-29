@@ -51,7 +51,14 @@ impl StoragePlugin {
                 s_cfg.redis_cluster.prefix =
                     s_cfg.redis_cluster.prefix.replace("{node}", &format!("{}", node_id));
 
-                let storage_db = init_db(s_cfg).await?;
+                let storage_db = match init_db(s_cfg).await {
+                    Err(e) => {
+                        log::error!("{} init storage db error, {:?}", name, e);
+                        return Err(e);
+                    }
+                    Ok(db) => db,
+                };
+
                 let cfg = Arc::new(cfg);
                 let message_mgr =
                     StorageMessageManager::new(node_id, cfg.clone(), storage_db.clone(), true).await?;
