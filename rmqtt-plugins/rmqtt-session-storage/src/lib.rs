@@ -77,7 +77,13 @@ impl StoragePlugin {
 
         log::info!("{} StoragePlugin cfg: {:?}", name, cfg);
 
-        let storage_db = init_db(&cfg.storage).await?;
+        let storage_db = match init_db(&cfg.storage).await {
+            Err(e) => {
+                log::error!("{} init storage db error, {}", name, e);
+                return Err(e);
+            }
+            Ok(db) => db,
+        };
 
         let stored_session_infos = StoredSessionInfos::new();
 
@@ -339,54 +345,89 @@ impl Plugin for StoragePlugin {
 
     #[inline]
     async fn attrs(&self) -> serde_json::Value {
-        let max_limit = 100;
-        let mut map_count = 0;
-        {
-            let now = std::time::Instant::now();
-            let mut storage_db = self.storage_db.clone();
-            let iter = storage_db.map_iter().await;
-            if let Ok(mut iter) = iter {
-                while let Some(m) = iter.next().await {
-                    if let Ok(m) = m {
-                        log::debug!("map: {:?}", StoredKey::from(m.name().to_vec()));
-                    }
-                    map_count += 1;
-                    if map_count >= max_limit {
-                        break;
-                    }
-                }
-            }
-            log::debug!("map_iter cost time: {:?}", now.elapsed());
-        }
-
-        let mut list_count = 0;
-        {
-            let now = std::time::Instant::now();
-            let mut storage_db = self.storage_db.clone();
-            let iter = storage_db.list_iter().await;
-            if let Ok(mut iter) = iter {
-                while let Some(l) = iter.next().await {
-                    if let Ok(l) = l {
-                        log::debug!("list: {:?}", StoredKey::from(l.name().to_vec()));
-                    }
-                    list_count += 1;
-                    if list_count >= max_limit {
-                        break;
+        async fn stats(storage_db: &DefaultStorageDB) -> (String, String, String, serde_json::Value) {
+            let max_limit = 1000;
+            let mut session_count = 0;
+            let mut storage_db_map = storage_db.clone();
+            {
+                let now = std::time::Instant::now();
+                let iter = storage_db_map.map_iter().await;
+                if let Ok(mut iter) = iter {
+                    while let Some(m) = iter.next().await {
+                        if let Ok(m) = m {
+                            log::debug!("map: {:?}", StoredKey::from(m.name().to_vec()));
+                        }
+                        session_count += 1;
+                        if session_count >= max_limit {
+                            break;
+                        }
                     }
                 }
+                log::debug!("map_iter cost time: {:?}", now.elapsed());
             }
-            log::debug!("list_iter cost time: {:?}", now.elapsed());
-        }
-        let map_count =
-            if map_count >= max_limit { format!("{}+", map_count) } else { format!("{}", map_count) };
-        let list_count =
-            if list_count >= max_limit { format!("{}+", list_count) } else { format!("{}", list_count) };
 
-        let storage_info = self.storage_db.info().await.unwrap_or_default();
+            let mut offline_session_count = 0;
+            let mut offline_message_count = 0;
+            let mut storage_db_list = storage_db.clone();
+            {
+                let now = std::time::Instant::now();
+                let iter = storage_db_list.list_iter().await;
+                if let Ok(mut iter) = iter {
+                    while let Some(l) = iter.next().await {
+                        if let Ok(mut l) = l {
+                            log::debug!("list: {:?}", StoredKey::from(l.name().to_vec()));
+                            if let Ok(mut l_iter) = l.iter::<OfflineMessageOptionType>().await {
+                                while let Some(msg) = l_iter.next().await {
+                                    if let Ok(Some(_)) = msg {
+                                        offline_message_count += 1;
+                                        if offline_message_count >= max_limit {
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        offline_session_count += 1;
+                        if offline_session_count >= max_limit {
+                            break;
+                        }
+                    }
+                }
+                log::debug!("list_iter cost time: {:?}", now.elapsed());
+            }
+            let session_count = if session_count >= max_limit {
+                format!("{}+", session_count)
+            } else {
+                format!("{}", session_count)
+            };
+            let offline_session_count = if offline_session_count >= max_limit {
+                format!("{}+", offline_session_count)
+            } else {
+                format!("{}", offline_session_count)
+            };
+            let offline_message_count = if offline_message_count >= max_limit {
+                format!("{}+", offline_message_count)
+            } else {
+                format!("{}", offline_message_count)
+            };
+
+            let storage_info = storage_db.info().await.unwrap_or_default();
+
+            (session_count, offline_session_count, offline_message_count, storage_info)
+        }
+
+        let (session_count, offline_session_count, offline_message_count, storage_info) =
+            match tokio::time::timeout(Duration::from_secs(1), stats(&self.storage_db)).await {
+                Ok((session_count, offline_session_count, offline_message_count, storage_info)) => {
+                    (session_count, offline_session_count, offline_message_count, storage_info)
+                }
+                Err(_) => ("Elapsed".into(), "Elapsed".into(), "Elapsed".into(), serde_json::Value::Null),
+            };
 
         json!({
-            "session_count": map_count,
-            "offline_messages_count": list_count,
+            "session_count": session_count,
+            "offline_session_count": offline_session_count,
+            "offline_message_count": offline_message_count,
             "storage_info": storage_info
         })
     }
@@ -415,23 +456,30 @@ impl Handler for OfflineMessageHandler {
                     p
                 );
                 let list_stored_key = make_list_stored_key(s.id.to_string());
-                match self.storage_db.list(list_stored_key.as_ref(), None).await {
-                    Ok(offlines_list) => {
-                        let res = offlines_list
-                            .push_limit::<OfflineMessageOptionType>(
-                                &Some((s.id.client_id.clone(), f.clone(), (*p).clone())),
-                                s.listen_cfg().max_mqueue_len,
-                                true,
-                            )
-                            .await;
-                        if let Err(e) = res {
-                            log::warn!("{:?} save offline messages error, {:?}", s.id, e)
+                let storage_db = self.storage_db.clone();
+                let id = s.id.clone();
+                let max_mqueue_len = s.listen_cfg().max_mqueue_len;
+                let p = (*p).clone();
+                let f = f.clone();
+                tokio::spawn(async move {
+                    match storage_db.list(list_stored_key.as_ref(), None).await {
+                        Ok(offlines_list) => {
+                            let res = offlines_list
+                                .push_limit::<OfflineMessageOptionType>(
+                                    &Some((id.client_id.clone(), f, p)),
+                                    max_mqueue_len,
+                                    true,
+                                )
+                                .await;
+                            if let Err(e) = res {
+                                log::warn!("{:?} save offline messages error, {}", id, e)
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("{:?} save offline messages error, {}", id, e)
                         }
                     }
-                    Err(e) => {
-                        log::warn!("{:?} save offline messages error, {:?}", s.id, e)
-                    }
-                }
+                });
             }
 
             Parameter::OfflineInflightMessages(s, inflight_messages) => {
@@ -442,16 +490,22 @@ impl Handler for OfflineMessageHandler {
                 );
                 let map_stored_key = make_map_stored_key(s.id.to_string());
                 log::debug!("{:?} map_stored_key: {:?}", s.id, map_stored_key);
-                match self.storage_db.map(map_stored_key.as_ref(), None).await {
-                    Ok(m) => {
-                        if let Err(e) = m.insert(INFLIGHT_MESSAGES, inflight_messages).await {
-                            log::warn!("{:?} save offline inflight messages error, {:?}", s.id, e)
+
+                let storage_db = self.storage_db.clone();
+                let inflight_messages = inflight_messages.clone();
+                let id = s.id.clone();
+                tokio::spawn(async move {
+                    match storage_db.map(map_stored_key.as_ref(), None).await {
+                        Ok(m) => {
+                            if let Err(e) = m.insert(INFLIGHT_MESSAGES, &inflight_messages).await {
+                                log::warn!("{:?} save offline inflight messages error, {}", id, e)
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("{:?} save offline inflight messages error, {}", id, e)
                         }
                     }
-                    Err(e) => {
-                        log::warn!("{:?} save offline inflight messages error, {:?}", s.id, e)
-                    }
-                }
+                });
             }
 
             _ => {

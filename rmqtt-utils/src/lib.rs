@@ -171,24 +171,24 @@ impl Bytesize {
 
         let g = v / BYTESIZE_G;
         if g > 0 {
-            res.push_str(&format!("{}G", g));
+            res.push_str(&format!("{g}G"));
             v %= BYTESIZE_G;
         }
 
         let m = v / BYTESIZE_M;
         if m > 0 {
-            res.push_str(&format!("{}M", m));
+            res.push_str(&format!("{m}M"));
             v %= BYTESIZE_M;
         }
 
         let k = v / BYTESIZE_K;
         if k > 0 {
-            res.push_str(&format!("{}K", k));
+            res.push_str(&format!("{k}K"));
             v %= BYTESIZE_K;
         }
 
         if v > 0 {
-            res.push_str(&format!("{}B", v));
+            res.push_str(&format!("{v}B"));
         }
 
         res
@@ -305,8 +305,8 @@ impl std::fmt::Display for ParseSizeError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Self::InvalidFormat => write!(f, "invalid size format"),
-            Self::InvalidNumber(s) => write!(f, "invalid number: '{}'", s),
-            Self::InvalidUnit(c) => write!(f, "invalid unit: '{}'", c),
+            Self::InvalidNumber(s) => write!(f, "invalid number: '{s}'"),
+            Self::InvalidUnit(c) => write!(f, "invalid unit: '{c}'"),
         }
     }
 }
