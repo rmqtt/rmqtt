@@ -1,15 +1,13 @@
-FROM python:3.10
+FROM python:3.13
 WORKDIR /app
 
-ADD requirements.txt /app/requirements.txt
+ADD pyproject.toml /app/pyproject.toml
 
-RUN pip install --upgrade -r requirements.txt
-RUN pip install python-multipart
-
-RUN apt-get update && apt-get install -y librabbitmq-dev
-
+RUN pip install uv
+RUN uv venv
+RUN uv pip install .
 COPY ./ /app
 
 EXPOSE 8080
 
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uv", "run", "main.py"]
