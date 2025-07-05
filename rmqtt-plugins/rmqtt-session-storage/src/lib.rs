@@ -61,14 +61,17 @@ impl StoragePlugin {
         let name = name.into();
         let mut cfg = scx.plugins.read_config_default::<PluginConfig>(&name)?;
         match cfg.storage.typ {
+            #[cfg(feature = "sled")]
             StorageType::Sled => {
                 cfg.storage.sled.path =
                     cfg.storage.sled.path.replace("{node}", &format!("{}", scx.node.id()));
             }
+            #[cfg(feature = "redis")]
             StorageType::Redis => {
                 cfg.storage.redis.prefix =
                     cfg.storage.redis.prefix.replace("{node}", &format!("{}", scx.node.id()));
             }
+            #[cfg(feature = "redis-cluster")]
             StorageType::RedisCluster => {
                 cfg.storage.redis_cluster.prefix =
                     cfg.storage.redis_cluster.prefix.replace("{node}", &format!("{}", scx.node.id()));
@@ -238,7 +241,7 @@ impl StoragePlugin {
                         RebuildChanType::Session(session, session_expiry_interval)  => {
                             match SessionState::offline_restart(session.clone(), session_expiry_interval).await {
                                 Err(e) => {
-                                    log::warn!("Rebuild offline session error, {e:?}");
+                                    log::warn!("Rebuild offline sessions error, {e:?}");
                                 },
                                 Ok(msg_tx) => {
                                     let mut session_entry =
@@ -247,18 +250,18 @@ impl StoragePlugin {
                                     let id = session_entry.id().clone();
                                     let task_fut = async move {
                                         if let Err(e) = session_entry.set(session, msg_tx).await {
-                                            log::warn!("{:?} Rebuild offline session error, {:?}", session_entry.id(), e);
+                                            log::warn!("{:?} Rebuild offline sessions error, {:?}", session_entry.id(), e);
                                         }
                                     };
                                     let task_exec = &scx.global_exec;
                                     if let Err(e) = task_exec.spawn(task_fut).await {
-                                        log::warn!("{:?} Rebuild offline session error, {:?}", id, e.to_string());
+                                        log::warn!("{:?} Rebuild offline sessions error, {:?}", id, e.to_string());
                                     }
 
                                     let completed_count = task_exec.completed_count().await;
                                     if completed_count > 0 && completed_count % 5000 == 0 {
                                         log::info!(
-                                        "{:?} Rebuild offline session, completed_count: {}, active_count: {}, waiting_count: {}, rate: {:?}",
+                                        "{:?} Rebuild offline sessions, completed_count: {}, active_count: {}, waiting_count: {}, rate: {:?}",
                                         id,
                                         task_exec.completed_count().await, task_exec.active_count(), task_exec.waiting_count(), task_exec.rate().await
                                     );
@@ -271,14 +274,14 @@ impl StoragePlugin {
                             let _ = task_exec.flush().await;
                             let _ = done_tx.send(());
                             log::info!(
-                                "Rebuild offline session, completed_count: {}, active_count: {}, waiting_count: {}, rate: {:?}",
+                                "Rebuild offline sessions, completed_count: {}, active_count: {}, waiting_count: {}, rate: {:?}",
                                 task_exec.completed_count().await, task_exec.active_count(), task_exec.waiting_count(), task_exec.rate().await
                             );
                         }
                     }
                 }
             });
-            log::info!("Rebuild offline session ends");
+            log::info!("Offline session rebuilding finished");
         });
         tx
     }
@@ -531,7 +534,7 @@ impl StorageHandler {
         Self { scx, storage_db, cfg, stored_session_infos, rebuild_tx }
     }
 
-    //Rebuild offline session.
+    //Rebuild offline sessions.
     async fn rebuild_offline_sessions(&self, rebuild_done_tx: oneshot::Sender<()>) {
         let mut offline_sessions_count = 0;
         for mut entry in self.stored_session_infos.iter_mut() {

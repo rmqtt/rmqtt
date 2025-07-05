@@ -52,7 +52,7 @@ rmqtt-bridge-ingress-pulsar.workspace = true
 rmqtt-bridge-egress-nats.workspace = true
 rmqtt-bridge-egress-reductstore.workspace = true
 rmqtt-message-storage.workspace = true
-rmqtt-session-storage.workspace = true
+rmqtt-session-storage = { workspace = true, features = ["sled", "redis", "redis-cluster"] }
 rmqtt-sys-topic.workspace = true
 rmqtt-topic-rewrite.workspace = true
 rmqtt-web-hook.workspace = true
