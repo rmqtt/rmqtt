@@ -97,7 +97,7 @@ impl Retainer {
                 let msg_fwds_count1 = msg_fwds_count.clone();
                 tokio::spawn(async move {
                     if let Err(e) = msg_mgr._batch_store(msgs).await {
-                        log::warn!("{:?}", e);
+                        log::warn!("{e:?}");
                     }
                     msg_fwds_count1.fetch_sub(1, Ordering::SeqCst);
                 });
@@ -150,7 +150,7 @@ impl RetainerInner {
                     .await
                     .map_err(|_e| anyhow!("storage_db.remove timeout"))?
                 {
-                    log::warn!("remove from db error, remove(..), {:?}, topic_name: {:?}", e, topic_name);
+                    log::warn!("remove from db error, remove(..), {e:?}, topic_name: {topic_name:?}");
                 };
             } else {
                 match self
@@ -162,11 +162,7 @@ impl RetainerInner {
                     }
                     Ok(true) => {}
                     Err(e) => {
-                        log::warn!(
-                            "store to db error, check_constraints(..), {:?}, message: {:?}",
-                            e,
-                            retain
-                        );
+                        log::warn!("store to db error, check_constraints(..), {e:?}, message: {retain:?}");
                         continue;
                     }
                 }
@@ -189,14 +185,14 @@ impl RetainerInner {
                     .await
                     .map_err(|_e| anyhow!("storage_db.insert timeout"))?
                 {
-                    log::warn!("store to db error, insert(..), {:?}, message: {:?}", e, smsg);
+                    log::warn!("store to db error, insert(..), {e:?}, message: {smsg:?}");
                     continue;
                 };
                 if let Some(expiry_interval_millis) = expiry_interval_millis {
                     if let Err(e) =
                         self.storage_db.expire(store_topic_name.as_slice(), expiry_interval_millis).await
                     {
-                        log::warn!("store to db error, expire(..), {:?}, message: {:?}", e, smsg);
+                        log::warn!("store to db error, expire(..), {e:?}, message: {smsg:?}");
                         continue;
                     }
                 }
@@ -211,7 +207,7 @@ impl RetainerInner {
             .await
             .map_err(|_e| anyhow!("storage_messages_max_add timeout"))?
         {
-            log::warn!("messages_received_counter add error, {:?}", e);
+            log::warn!("messages_received_counter add error, {e:?}");
         }
 
         Ok(())
@@ -226,16 +222,13 @@ impl RetainerInner {
         max_payload_size: usize,
     ) -> Result<bool> {
         if retain.publish.payload.len() > max_payload_size {
-            log::warn!("Retain message payload exceeding limit, topic: {:?}, retain: {:?}", topic, retain);
+            log::warn!("Retain message payload exceeding limit, topic: {topic:?}, retain: {retain:?}");
             return Ok(false);
         }
 
         if max_retained_messages > 0 && self.get_retain_count().await >= max_retained_messages {
             log::warn!(
-                "The retained message has exceeded the maximum limit of: {}, topic: {:?}, retain: {:?}",
-                max_retained_messages,
-                topic,
-                retain
+                "The retained message has exceeded the maximum limit of: {max_retained_messages}, topic: {topic:?}, retain: {retain:?}"
             );
             return Ok(false);
         }
@@ -295,7 +288,7 @@ impl RetainerInner {
         let mut iter = match db.scan([RETAIN_MESSAGES_PREFIX, topic_filter_pattern.as_bytes()].concat()).await
         {
             Err(e) => {
-                log::error!("{:?}", e);
+                log::error!("{e:?}");
                 return Ok(Vec::new());
             }
             Ok(iter) => iter,
@@ -311,7 +304,7 @@ impl RetainerInner {
                     }
                 }
                 Err(e) => {
-                    log::error!("{:?}", e);
+                    log::error!("{e:?}");
                 }
             }
         }
@@ -334,7 +327,7 @@ impl RetainerInner {
                 }
                 Ok(None) => {}
                 Err(e) => {
-                    log::error!("{:?}", e);
+                    log::error!("{e:?}");
                 }
             }
         }
@@ -352,7 +345,7 @@ impl RetainStorage for Retainer {
     ///topic - concrete topic
     async fn set(&self, topic: &TopicName, retain: Retain, expiry_interval: Option<Duration>) -> Result<()> {
         if !self.retain_enable.load(Ordering::SeqCst) {
-            log::error!("{}", ERR_NOT_SUPPORTED);
+            log::error!("{ERR_NOT_SUPPORTED}");
             return Ok(());
         }
 
@@ -369,11 +362,11 @@ impl RetainStorage for Retainer {
                 Ok(())
             }
             Ok(Err(e)) => {
-                log::error!("Retainer set error, {:?}", e);
+                log::error!("Retainer set error, {e:?}");
                 Err(anyhow!(e.to_string()))
             }
             Err(e) => {
-                log::warn!("Retainer store timeout, {:?}", e);
+                log::warn!("Retainer store timeout, {e:?}");
                 Err(anyhow!(e.to_string()))
             }
         }
@@ -382,7 +375,7 @@ impl RetainStorage for Retainer {
     ///topic_filter - Topic filter
     async fn get(&self, topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>> {
         if !self.retain_enable.load(Ordering::SeqCst) {
-            log::error!("{}", ERR_NOT_SUPPORTED);
+            log::error!("{ERR_NOT_SUPPORTED}");
             Ok(Vec::new())
         } else {
             Ok(self.get_message(topic_filter).await?)

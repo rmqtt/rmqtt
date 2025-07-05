@@ -264,7 +264,7 @@ impl Handler for CounterHandler {
             }
 
             _ => {
-                log::error!("parameter is: {:?}", param);
+                log::error!("parameter is: {param:?}");
             }
         }
         (true, acc)

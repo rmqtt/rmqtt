@@ -115,11 +115,11 @@ impl Entry for ClusterLockEntry {
             let reply = RaftMessageReply::decode(&reply)?;
             match reply {
                 RaftMessageReply::Error(e) => {
-                    log::error!("RaftMessage::Connected reply: {:?}", e);
+                    log::error!("RaftMessage::Connected reply: {e:?}");
                     return Err(anyhow!(e));
                 }
                 _ => {
-                    log::error!("unreachable!(), {:?}", reply);
+                    log::error!("unreachable!(), {reply:?}");
                     unreachable!()
                 }
             }
@@ -179,24 +179,18 @@ impl Entry for ClusterLockEntry {
                     match msg_sender.send().await {
                         Ok(reply) => {
                             if let MessageReply::Kick(kicked) = reply {
-                                log::debug!("{:?} kicked: {:?}", id, kicked);
+                                log::debug!("{id:?} kicked: {kicked:?}");
                                 kicked
                             } else {
                                 log::info!(
-                                    "{:?} Message::Kick from other node, prev_node_id: {:?}, reply: {:?}",
-                                    id,
-                                    prev_node_id,
-                                    reply
+                                    "{id:?} Message::Kick from other node, prev_node_id: {prev_node_id:?}, reply: {reply:?}"
                                 );
                                 OfflineSession::NotExist
                             }
                         }
                         Err(e) => {
                             log::error!(
-                                "{:?} Message::Kick from other node, prev_node_id: {:?}, error: {:?}",
-                                id,
-                                prev_node_id,
-                                e
+                                "{id:?} Message::Kick from other node, prev_node_id: {prev_node_id:?}, error: {e:?}"
                             );
                             OfflineSession::NotExist
                         }
@@ -268,7 +262,7 @@ impl Entry for ClusterLockEntry {
                 match reply {
                     Ok(MessageReply::SubscriptionsGet(subs)) => subs,
                     Err(e) => {
-                        log::warn!("Message::SubscriptionsGet, error: {:?}", e);
+                        log::warn!("Message::SubscriptionsGet, error: {e:?}");
                         None
                     }
                     _ => unreachable!(),
@@ -365,7 +359,7 @@ impl Shared for ClusterShared {
         let mut relations_map = match self.scx.extends.router().await.matches(from.id.clone(), topic).await {
             Ok(relations_map) => relations_map,
             Err(e) => {
-                log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
+                log::warn!("forwards, from:{from:?}, topic:{topic:?}, error: {e:?}");
                 SubRelationsMap::default()
             }
         };
@@ -382,7 +376,7 @@ impl Shared for ClusterShared {
             }
         }
         if !relations_map.is_empty() {
-            log::debug!("forwards to other nodes, relations_map:{:?}", relations_map);
+            log::debug!("forwards to other nodes, relations_map:{relations_map:?}");
             let rw_timeout = self.rw_timeout;
             //forwards to other nodes
             let mut fut_senders = Vec::new();
@@ -402,9 +396,7 @@ impl Shared for ClusterShared {
                     fut_senders.push(fut_sender.boxed());
                 } else {
                     log::warn!(
-                        "forwards error, grpc_client is not exist, node_id: {}, relations: {:?}",
-                        node_id,
-                        relations
+                        "forwards error, grpc_client is not exist, node_id: {node_id}, relations: {relations:?}"
                     );
                     //@TODO messasge dropped
                 }
@@ -419,10 +411,7 @@ impl Shared for ClusterShared {
                     for (node_id, reply) in replys {
                         if let Err(e) = reply {
                             log::warn!(
-                                "forwards Message::ForwardsTo to other node, from: {:?}, to: {:?}, error: {:?}",
-                                from,
-                                node_id,
-                                e
+                                "forwards Message::ForwardsTo to other node, from: {from:?}, to: {node_id:?}, error: {e:?}"
                             );
                             //@TODO messasge dropped
                         }
@@ -563,7 +552,7 @@ impl Shared for ClusterShared {
                     }
                 }
                 Err(e) => {
-                    log::error!("Get RaftGrpcMessage::GetRaftStatus from other node, error: {:?}", e);
+                    log::error!("Get RaftGrpcMessage::GetRaftStatus from other node, error: {e:?}");
                     nodes_health_infos.push(NodeHealthStatus {
                         node_id,
                         running: false,

@@ -51,7 +51,7 @@ impl BridgeKafkaEgressPlugin {
                     match cmd {
                         Command::Start => {
                             if let Err(e) = bridge_mgr.start().await {
-                                log::error!("start bridge error, {:?}", e);
+                                log::error!("start bridge error, {e:?}");
                             }
                         }
                         Command::Close => {

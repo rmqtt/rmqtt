@@ -77,10 +77,10 @@ impl fmt::Display for TopicError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             TopicError::InvalidTopic(s) => {
-                write!(f, "InvalidTopic({})", s)
+                write!(f, "InvalidTopic({s})")
             }
             TopicError::InvalidLevel(s) => {
-                write!(f, "InvalidLevel({})", s)
+                write!(f, "InvalidLevel({s})")
             }
         }
     }
@@ -316,7 +316,7 @@ impl FromStr for Level {
             "" => Ok(Level::Blank),
             _ => {
                 if s.contains(['+', '#']) {
-                    Err(TopicError::InvalidLevel(format!("invalid level `{}` contains +|#", s)))
+                    Err(TopicError::InvalidLevel(format!("invalid level `{s}` contains +|#")))
                 } else if is_metadata(s) {
                     Ok(Level::Metadata(String::from(s)))
                 } else {
@@ -337,7 +337,7 @@ impl FromStr for Topic {
                 if topic.is_valid() {
                     Ok(topic)
                 } else {
-                    Err(TopicError::InvalidTopic(format!("invalid topic `{}`", s)))
+                    Err(TopicError::InvalidTopic(format!("invalid topic `{s}`")))
                 }
             },
         )
@@ -529,7 +529,7 @@ mod tests {
         assert_eq!(v.write_topic(&t).expect(""), 10);
         assert_eq!(v, b"+/tennis/#");
 
-        assert_eq!(format!("{}", t), "+/tennis/#");
+        assert_eq!(format!("{t}"), "+/tennis/#");
         assert_eq!(t.to_string(), "+/tennis/#");
     }
 

@@ -48,7 +48,7 @@ impl ClusterPlugin {
     async fn new<S: Into<String>>(scx: ServerContext, name: S) -> Result<Self> {
         let name = name.into();
         let cfg = scx.plugins.read_config_with::<PluginConfig>(&name, &["node_grpc_addrs"])?;
-        log::debug!("{} ClusterPlugin cfg: {:?}", name, cfg);
+        log::debug!("{name} ClusterPlugin cfg: {cfg:?}");
 
         let register = scx.extends.hook_mgr().register();
         let mut grpc_clients = HashMap::default();
@@ -126,7 +126,7 @@ impl Plugin for ClusterPlugin {
                 "active_tasks_count": c.active_tasks().count(),
                 "active_tasks_max": c.active_tasks().max(),
             });
-            nodes.insert(format!("{}-{}", id, addr), stats);
+            nodes.insert(format!("{id}-{addr}"), stats);
         }
         json!({
             "grpc_clients": nodes,
@@ -143,7 +143,7 @@ pub(crate) async fn kick(
     let reply =
         rmqtt::grpc::MessageBroadcaster::new(grpc_clients, msg_type, msg, Some(Duration::from_secs(15)))
             .select_ok(|reply: MessageReply| -> Result<MessageReply> {
-                log::debug!("reply: {:?}", reply);
+                log::debug!("reply: {reply:?}");
                 if let MessageReply::Kick(o) = reply {
                     Ok(MessageReply::Kick(o))
                 } else {

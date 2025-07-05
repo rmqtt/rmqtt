@@ -311,7 +311,7 @@ impl Monitor {
             md.stats_gauge_vec.reset();
             md.metrics_gauge_vec.reset();
             if let Err(e) = md.refresh_data(scx, message_type).await {
-                log::warn!("refresh data error, {:?}", e)
+                log::warn!("refresh data error, {e:?}")
             }
         } else {
             return Err(anyhow!("monitor data is not initialized"));

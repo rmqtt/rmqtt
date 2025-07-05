@@ -454,10 +454,7 @@ impl Manager {
     pub fn read_config_default<'de, T: serde::Deserialize<'de>>(&self, name: &str) -> Result<T> {
         let (cfg, def) = self.read_config_with_required(name, false, &[])?;
         if def {
-            log::warn!(
-                "The configuration for plugin '{}' does not exist, default values will be used!",
-                name
-            );
+            log::warn!("The configuration for plugin '{name}' does not exist, default values will be used!");
         }
         Ok(cfg)
     }
@@ -478,10 +475,7 @@ impl Manager {
     ) -> Result<T> {
         let (cfg, def) = self.read_config_with_required(name, false, env_list_keys)?;
         if def {
-            log::warn!(
-                "The configuration for plugin '{}' does not exist, default values will be used!",
-                name
-            );
+            log::warn!("The configuration for plugin '{name}' does not exist, default values will be used!");
         }
         Ok(cfg)
     }
@@ -495,8 +489,7 @@ impl Manager {
         let mut builder = match self.config {
             PluginManagerConfig::Path(ref path) => {
                 let path = path.trim_end_matches(['/', '\\']);
-                Config::builder()
-                    .add_source(File::with_name(&format!("{}/{}", path, name)).required(required))
+                Config::builder().add_source(File::with_name(&format!("{path}/{name}")).required(required))
             }
             PluginManagerConfig::Map(ref map) => {
                 let default_config = "".to_owned();

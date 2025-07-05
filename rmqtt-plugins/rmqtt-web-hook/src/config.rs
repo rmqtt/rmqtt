@@ -138,8 +138,7 @@ impl Rule {
         } else {
             let mut topics = TopicTree::default();
             for topic in topics_cfg.iter() {
-                topics
-                    .insert(&Topic::from_str(topic).map_err(|e| de::Error::custom(format!("{:?}", e)))?, ());
+                topics.insert(&Topic::from_str(topic).map_err(|e| de::Error::custom(format!("{e:?}")))?, ());
             }
             Ok(Some((Arc::new(topics), topics_cfg)))
         }

@@ -10,10 +10,19 @@ license.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[package.metadata.docs.rs]
+all-features = true
+
+[features]
+default = []
+ram = []
+sled = ["rmqtt-storage/sled"]
+redis = ["rmqtt-storage/redis"]
+
 [dependencies]
 rmqtt = { workspace = true, features = ["plugin", "retain"] }
-rmqtt-storage = { package = "rmqtt-storage", version = "0.7", default-features = false, features = ["sled", "redis", "ttl", "len"]}
-#rmqtt-storage = { path = "../../../rmqtt-storage", default-features = false, features = ["sled", "redis", "ttl", "len"]}
+rmqtt-storage = { package = "rmqtt-storage", version = "0.7", default-features = false, features = ["ttl", "len"], optional = true}
+#rmqtt-storage = { path = "../../../rmqtt-storage", default-features = false, features = ["ttl", "len"], optional = true}
 futures.workspace = true
 futures-time.workspace = true
 tokio.workspace = true

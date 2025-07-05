@@ -166,7 +166,7 @@ impl OutInflight {
             if t < 1 {
                 t = 1;
             }
-            log::debug!("get timeout t: {}", t);
+            log::debug!("get timeout t: {t}");
             return Some(Duration::from_millis(t as u64));
         }
         None
@@ -230,7 +230,7 @@ impl OutInflight {
             }
             old.and_then(|old| old.publish.packet_id)
         } else {
-            log::warn!("packet_id is None, inflight message: {:?}", m);
+            log::warn!("packet_id is None, inflight message: {m:?}");
             None
         }
     }

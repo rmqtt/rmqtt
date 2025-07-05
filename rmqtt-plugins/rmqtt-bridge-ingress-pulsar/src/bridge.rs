@@ -110,7 +110,7 @@ impl Message {
         ));
 
         log::debug!("props_topic_names: {:?}", cfg_entry.local.props_topic_names);
-        log::debug!("props_topics: {:?}", props_topics);
+        log::debug!("props_topics: {props_topics:?}");
 
         let properties = PublishProperties::from(user_props);
 
@@ -142,7 +142,7 @@ impl Message {
                     })
                     .collect::<BTreeMap<_, _>>();
 
-                log::debug!("payload_topics: {:?}", payload_topics);
+                log::debug!("payload_topics: {payload_topics:?}");
                 let topics = cfg_entry.local.make_topics(&msg.topic, props_topics, Some(payload_topics));
 
                 let qos1 = payload_json
@@ -243,7 +243,7 @@ impl Consumer {
             format!("{}:ingress:{}:{}", cfg.name, node_id, entry_idx)
         };
         let consumer_name = ByteString::from(consumer_name);
-        log::debug!("consumer_name: {}", consumer_name);
+        log::debug!("consumer_name: {consumer_name}");
 
         let mut consumer = pulsar.consumer();
         if let Some(ref topic) = cfg_entry.remote.topic {
@@ -318,20 +318,20 @@ impl Consumer {
         let entry = self.cfg_entry.clone();
         let name = self.cfg.name.as_str();
         let consumer_name = self.consumer_name;
-        log::info!("{}/{} start pulsar recv loop", name, consumer_name);
+        log::info!("{name}/{consumer_name} start pulsar recv loop");
         loop {
             tokio::select! {
                 cmd = cmd_rx.recv() => {
                     match cmd{
                         Some(Command::Close) => {
                             if let Err(e) = consumer.close().await {
-                                log::warn!("{}/{} consumer close error, {:?}", name, consumer_name, e);
+                                log::warn!("{name}/{consumer_name} consumer close error, {e:?}");
                             }
-                            log::info!("{}/{} Command(Close) pulsar exit event loop", name, consumer_name);
+                            log::info!("{name}/{consumer_name} Command(Close) pulsar exit event loop");
                             return;
                         }
                         None => {
-                            log::error!("{}/{} Command(None) received", name, consumer_name);
+                            log::error!("{name}/{consumer_name} Command(None) received");
                             break;
                         }
                     }
@@ -339,24 +339,24 @@ impl Consumer {
                 msg = consumer.next() => {
                     match msg {
                         None => {
-                            log::warn!("{}/{} Message(None) received", name, consumer_name);
+                            log::warn!("{name}/{consumer_name} Message(None) received");
                             break
                         }
                         Some(Err(e)) => {
-                            log::error!("{}/{} pulsar consumer recv error: {:?}", name, consumer_name, e);
+                            log::error!("{name}/{consumer_name} pulsar consumer recv error: {e:?}");
                             break
                         },
                         Some(Ok(data)) => {
                             let data: consumer::Message<Vec<u8>> = data;
 
                             if let Err(e) = consumer.ack(&data).await {
-                                log::error!("{}/{} pulsar consumer recv message error: {:?}", name, consumer_name, e);
+                                log::error!("{name}/{consumer_name} pulsar consumer recv message error: {e:?}");
                                 break
                             }
 
                             let msg = match Message::deserialize_message(self.scx.node.id(), &data, &entry) {
                                 Err(e) => {
-                                    log::warn!("{}/{} pulsar consumer deserialize message error: {:?}", name, consumer_name, e);
+                                    log::warn!("{name}/{consumer_name} pulsar consumer deserialize message error: {e:?}");
                                     continue
                                 },
                                 Ok(msg) => msg
@@ -365,7 +365,7 @@ impl Consumer {
                             log::debug!("{:?} {}/{} msg: {:?}", std::thread::current().id(), name, consumer_name, msg);
 
                             if let Err(e) = Self::process_message(&cfg, &entry, msg, &on_message) {
-                                log::warn!("{}/{} pulsar consumer process message error: {:?}", name, consumer_name, e);
+                                log::warn!("{name}/{consumer_name} pulsar consumer process message error: {e:?}");
                             }
                         }
                     }
@@ -373,11 +373,11 @@ impl Consumer {
             }
         }
         if let Err(e) = consumer.close().await {
-            log::warn!("{}/{} consumer close error, {:?}", name, consumer_name, e);
+            log::warn!("{name}/{consumer_name} consumer close error, {e:?}");
         }
-        log::info!("{}/{} pulsar exit event loop", name, consumer_name);
+        log::info!("{name}/{consumer_name} pulsar exit event loop");
         if let Err(e) = sys_cmd_tx.send(SystemCommand::Restart).await {
-            log::warn!("{}/{} consumer Send(SystemCommand::Restart) error, {:?}", name, consumer_name, e);
+            log::warn!("{name}/{consumer_name} consumer Send(SystemCommand::Restart) error, {e:?}");
         }
     }
 
@@ -464,7 +464,7 @@ impl BridgeManager {
 
     pub async fn start(&mut self, sys_cmd_tx: mpsc::Sender<SystemCommand>) {
         while let Err(e) = self._start(sys_cmd_tx.clone()).await {
-            log::error!("start bridge-ingress-pulsar error, {:?}", e);
+            log::error!("start bridge-ingress-pulsar error, {e:?}");
             self.stop().await;
             tokio::time::sleep(Duration::from_millis(3000)).await;
         }
@@ -518,13 +518,10 @@ impl BridgeManager {
     pub async fn stop(&mut self) {
         for mut entry in &mut self.sources.iter_mut() {
             let ((bridge_name, entry_idx), mailbox) = entry.pair_mut();
-            log::debug!("stop bridge_name: {:?}, entry_idx: {:?}", bridge_name, entry_idx,);
+            log::debug!("stop bridge_name: {bridge_name:?}, entry_idx: {entry_idx:?}",);
             if let Err(e) = mailbox.stop().await {
                 log::warn!(
-                    "stop BridgePulsarIngressPlugin error, bridge_name: {}, entry_idx: {}, {:?}",
-                    bridge_name,
-                    entry_idx,
-                    e
+                    "stop BridgePulsarIngressPlugin error, bridge_name: {bridge_name}, entry_idx: {entry_idx}, {e:?}"
                 );
             }
         }
@@ -538,7 +535,7 @@ impl BridgeManager {
 }
 
 async fn send_publish(scx: ServerContext, from: From, msg: Publish, expiry_interval: Duration) {
-    log::debug!("from {:?}, message: {:?}", from, msg);
+    log::debug!("from {from:?}, message: {msg:?}");
 
     // let expiry_interval = msg
     //     .properties
@@ -558,7 +555,7 @@ async fn send_publish(scx: ServerContext, from: From, msg: Publish, expiry_inter
     let storage_available = scx.extends.message_mgr().await.enable();
 
     if let Err(e) = SessionState::forwards(&scx, from, msg, storage_available, Some(expiry_interval)).await {
-        log::warn!("{:?}", e);
+        log::warn!("{e:?}");
     }
 }
 
