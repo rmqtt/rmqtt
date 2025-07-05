@@ -56,6 +56,7 @@ use std::pin::Pin;
 
 use anyhow::anyhow;
 use async_trait::async_trait;
+use config::FileFormat::Toml;
 use config::{Config, File, Source};
 use dashmap::iter::Iter;
 use dashmap::mapref::one::{Ref, RefMut};
@@ -303,15 +304,18 @@ impl PluginInfo {
         }))
     }
 }
-
+pub enum PluginManagerConfig {
+    Path(String),
+    Map(crate::types::HashMap<String, String>),
+}
 pub struct Manager {
     plugins: DashMap<String, Entry>,
-    dir: String,
+    config: PluginManagerConfig,
 }
 
 impl Manager {
-    pub(crate) fn new(dir: String) -> Self {
-        Self { plugins: DashMap::default(), dir }
+    pub(crate) fn new(config: PluginManagerConfig) -> Self {
+        Self { plugins: DashMap::default(), config }
     }
 
     ///Register a Plugin
@@ -482,9 +486,17 @@ impl Manager {
         required: bool,
         env_list_keys: &[&str],
     ) -> Result<(T, bool)> {
-        let dir = self.dir.trim_end_matches(['/', '\\']);
-        let mut builder =
-            Config::builder().add_source(File::with_name(&format!("{dir}/{name}")).required(required));
+        let mut builder = match self.config {
+            PluginManagerConfig::Path(ref path) => {
+                let path = path.trim_end_matches(['/', '\\']);
+                Config::builder().add_source(File::with_name(&format!("{path}/{name}")).required(required))
+            }
+            PluginManagerConfig::Map(ref map) => {
+                let default_config = "".to_owned();
+                let config_string = map.get(name).unwrap_or(&default_config);
+                Config::builder().add_source(File::from_str(config_string, Toml).required(required))
+            }
+        };
 
         let mut env = config::Environment::with_prefix(&format!("rmqtt_plugin_{}", name.replace('-', "_")));
         if !env_list_keys.is_empty() {

@@ -128,9 +128,10 @@ use simple_logger::SimpleLogger;
 #[tokio::main]
 async fn main() -> Result<()> {
     SimpleLogger::new().with_level(log::LevelFilter::Info).init()?;
-
-    let scx = ServerContext::new().plugins_dir("rmqtt-plugins/").build().await;
-
+    // put plugin config files in ./rmqtt-plugins/ , like rmqtt_web_hook.toml
+    let scx = ServerContext::new().plugins_config_dir("rmqtt-plugins/").build().await;
+    // or load by string
+    // let scx = ServerContext::new().plugins_config_map(load_config()).build().await;
     rmqtt_acl::register(&scx, true, false).await?;
     rmqtt_retainer::register(&scx, true, false).await?;
     rmqtt_http_api::register(&scx, true, false).await?;
@@ -143,6 +144,16 @@ async fn main() -> Result<()> {
         .await?;
     Ok(())
 }
+
+use ahash::HashMapExt;
+fn load_config() -> rmqtt::types::HashMap<String, String> {
+  let mut config = HashMap::new();
+  config.insert("rmqtt_web_hook".to_owned(), r#"worker_threads = 3
+    queue_capacity = 300_000
+    concurrency_limit = 128"#.to_owned());
+  return config;
+}
+
 
 ```
 
