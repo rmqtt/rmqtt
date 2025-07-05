@@ -6,14 +6,14 @@ edition.workspace = true
 [dependencies]
 rmqtt-acl.workspace = true
 rmqtt-auth-http.workspace = true
-rmqtt-retainer.workspace = true
+rmqtt-retainer = { workspace = true, features = ["ram"] }
 rmqtt-http-api.workspace = true
 rmqtt-web-hook.workspace = true
 rmqtt-counter.workspace = true
 rmqtt-auth-jwt.workspace = true
 rmqtt-auto-subscription.workspace = true
-rmqtt-message-storage.workspace = true
-rmqtt-session-storage.workspace = true
+rmqtt-message-storage = { workspace = true, features = ["ram"] }
+rmqtt-session-storage = { workspace = true, features = ["sled"] }
 rmqtt-sys-topic.workspace = true
 rmqtt-topic-rewrite.workspace = true
 rmqtt-cluster-raft.workspace = true
