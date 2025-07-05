@@ -37,7 +37,7 @@ chrono = { workspace = true, features = ["clock"] }
 
 ##plugins
 rmqtt-acl.workspace = true
-rmqtt-retainer.workspace = true
+rmqtt-retainer = { workspace = true, features = ["ram", "sled", "redis"] }
 rmqtt-http-api.workspace = true
 rmqtt-counter.workspace = true
 rmqtt-auth-http.workspace = true
@@ -51,7 +51,7 @@ rmqtt-bridge-egress-pulsar.workspace = true
 rmqtt-bridge-ingress-pulsar.workspace = true
 rmqtt-bridge-egress-nats.workspace = true
 rmqtt-bridge-egress-reductstore.workspace = true
-rmqtt-message-storage.workspace = true
+rmqtt-message-storage = { workspace = true, features = ["ram", "redis", "redis-cluster"] }
 rmqtt-session-storage = { workspace = true, features = ["sled", "redis", "redis-cluster"] }
 rmqtt-sys-topic.workspace = true
 rmqtt-topic-rewrite.workspace = true

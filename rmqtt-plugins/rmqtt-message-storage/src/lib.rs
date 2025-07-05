@@ -1,6 +1,5 @@
 #![deny(unsafe_code)]
 
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -14,14 +13,20 @@ use rmqtt::{
     plugin::{PackageInfo, Plugin},
     register, Result,
 };
+
+#[cfg(any(feature = "redis", feature = "redis-cluster"))]
 use rmqtt_storage::init_db;
 
 use config::{Config, PluginConfig};
+#[cfg(feature = "ram")]
 use ram::RamMessageManager;
+#[cfg(any(feature = "redis", feature = "redis-cluster"))]
 use storage::StorageMessageManager;
 
 mod config;
+#[cfg(feature = "ram")]
 mod ram;
+#[cfg(any(feature = "redis", feature = "redis-cluster"))]
 mod storage;
 
 register!(StoragePlugin::new);
@@ -38,19 +43,26 @@ impl StoragePlugin {
     #[inline]
     async fn new<S: Into<String>>(scx: ServerContext, name: S) -> Result<Self> {
         let name = name.into();
-        let node_id = scx.node.id();
         let mut cfg = scx.plugins.read_config_default::<PluginConfig>(&name)?;
 
         let (message_mgr, cfg) = match &mut cfg.storage {
+            #[cfg(feature = "ram")]
             Config::Ram(ram_cfg) => {
                 let message_mgr = RamMessageManager::new(ram_cfg.clone(), cfg.cleanup_count).await?;
                 (MessageMgr::Ram(message_mgr), Arc::new(cfg))
             }
+            #[cfg(any(feature = "redis", feature = "redis-cluster"))]
             Config::Storage(s_cfg) => {
-                s_cfg.redis.prefix = s_cfg.redis.prefix.replace("{node}", &format!("{node_id}"));
-                s_cfg.redis_cluster.prefix =
-                    s_cfg.redis_cluster.prefix.replace("{node}", &format!("{node_id}"));
-
+                let node_id = scx.node.id();
+                #[cfg(feature = "redis")]
+                {
+                    s_cfg.redis.prefix = s_cfg.redis.prefix.replace("{node}", &format!("{node_id}"));
+                }
+                #[cfg(feature = "redis-cluster")]
+                {
+                    s_cfg.redis_cluster.prefix =
+                        s_cfg.redis_cluster.prefix.replace("{node}", &format!("{node_id}"));
+                }
                 let storage_db = match init_db(s_cfg).await {
                     Err(e) => {
                         log::error!("{name} init storage db error, {e:?}");
@@ -89,7 +101,9 @@ impl Plugin for StoragePlugin {
     async fn start(&mut self) -> Result<()> {
         log::info!("{} start", self.name());
         let mgr: Box<dyn MessageManager> = match &self.message_mgr {
+            #[cfg(any(feature = "redis", feature = "redis-cluster"))]
             MessageMgr::Storage(mgr) => Box::new(mgr.clone()),
+            #[cfg(feature = "ram")]
             MessageMgr::Ram(mgr) => Box::new(mgr.clone()),
         };
         *self.scx.extends.message_mgr_mut().await = mgr;
@@ -110,16 +124,20 @@ impl Plugin for StoragePlugin {
 }
 
 enum MessageMgr {
+    #[cfg(feature = "ram")]
     Ram(RamMessageManager),
+    #[cfg(any(feature = "redis", feature = "redis-cluster"))]
     Storage(StorageMessageManager),
 }
 
 impl MessageMgr {
     async fn restore_topic_tree(&self) -> Result<()> {
         match self {
+            #[cfg(any(feature = "redis", feature = "redis-cluster"))]
             MessageMgr::Storage(mgr) => {
                 mgr.restore_topic_tree().await?;
             }
+            #[cfg(feature = "ram")]
             MessageMgr::Ram(_) => {}
         }
         Ok(())
@@ -127,6 +145,7 @@ impl MessageMgr {
 
     async fn info(&self) -> serde_json::Value {
         match self {
+            #[cfg(feature = "ram")]
             MessageMgr::Ram(mgr) => {
                 let msg_max = mgr.max().await;
                 let msg_count = mgr.count().await;
@@ -152,9 +171,10 @@ impl MessageMgr {
                     "exec_waiting_count": exec_waiting_count,
                 })
             }
+            #[cfg(any(feature = "redis", feature = "redis-cluster"))]
             MessageMgr::Storage(mgr) => {
                 let now = std::time::Instant::now();
-                let msg_queue_count = mgr.msg_queue_count.load(Ordering::Relaxed);
+                let msg_queue_count = mgr.msg_queue_count.load(std::sync::atomic::Ordering::Relaxed);
                 let topic_nodes = mgr.topic_tree.read().await.nodes_size();
                 let receiveds = mgr.topic_tree.read().await.values_size();
                 let exec_active_count = mgr.exec.active_count();

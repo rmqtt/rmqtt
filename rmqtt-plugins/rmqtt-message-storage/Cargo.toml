@@ -8,12 +8,21 @@ authors.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[package.metadata.docs.rs]
+all-features = true
+
+[features]
+default = []
+ram = []
+redis = ["rmqtt-storage/redis"]
+redis-cluster = ["redis", "rmqtt-storage/redis-cluster"]
+
 [dependencies]
 rmqtt = { workspace = true, features = ["plugin", "msgstore", "retain"] }
 serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["sync", "time"] }
-rmqtt-storage = { version = "0.7", default-features = false, features = ["redis", "redis-cluster", "ttl"]}
-#rmqtt-storage = { path = "../../../rmqtt-storage", default-features = false, features = ["redis", "redis-cluster", "ttl"]}
+rmqtt-storage = { version = "0.7", default-features = false, features = ["ttl"], optional = true}
+#rmqtt-storage = { path = "../../../rmqtt-storage", default-features = false, features = ["ttl"], optional = true}
 rust-box.workspace = true
 futures.workspace = true
 futures-time.workspace = true
