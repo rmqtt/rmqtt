@@ -450,9 +450,7 @@ impl Manager {
     pub fn read_config_default<'de, T: serde::Deserialize<'de>>(&self, name: &str) -> Result<T> {
         let (cfg, def) = self.read_config_with_required(name, false, &[])?;
         if def {
-            log::warn!(
-                "The configuration for plugin '{name}' does not exist, default values will be used!"
-            );
+            log::warn!("The configuration for plugin '{name}' does not exist, default values will be used!");
         }
         Ok(cfg)
     }
@@ -473,9 +471,7 @@ impl Manager {
     ) -> Result<T> {
         let (cfg, def) = self.read_config_with_required(name, false, env_list_keys)?;
         if def {
-            log::warn!(
-                "The configuration for plugin '{name}' does not exist, default values will be used!"
-            );
+            log::warn!("The configuration for plugin '{name}' does not exist, default values will be used!");
         }
         Ok(cfg)
     }

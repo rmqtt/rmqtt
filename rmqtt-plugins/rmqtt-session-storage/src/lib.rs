@@ -192,9 +192,7 @@ impl StoragePlugin {
                             log::debug!("{:?} offline_msgs len: {}", id_key, offline_msgs.len(),);
                             let ok =
                                 self.stored_session_infos.set_offline_messages(id_key.clone(), offline_msgs);
-                            log::debug!(
-                                "{id_key:?} stored_session_infos, set_offline_messages res: {ok}"
-                            );
+                            log::debug!("{id_key:?} stored_session_infos, set_offline_messages res: {ok}");
                             if !ok {
                                 if let Err(e) = storage_db.list_remove(l.name()).await {
                                     log::warn!("{id_key:?} remove offline messages error, {e:?}");

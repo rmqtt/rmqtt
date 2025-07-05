@@ -1318,9 +1318,7 @@ async fn _unsubscribe_on_other_node(
             _ => unreachable!(),
         },
         reply => {
-            log::info!(
-                "Unsubscribe GrpcMessage::Unsubscribe from other node({node_id}), reply: {reply:?}"
-            );
+            log::info!("Unsubscribe GrpcMessage::Unsubscribe from other node({node_id}), reply: {reply:?}");
             Err(anyhow!("Invalid Operation"))
         }
     }
@@ -1551,9 +1549,7 @@ async fn _node_plugin_config(
                 _ => unreachable!(),
             },
             reply => {
-                log::info!(
-                    "Get GrpcMessage::GetPluginConfig from other node({node_id}), reply: {reply:?}"
-                );
+                log::info!("Get GrpcMessage::GetPluginConfig from other node({node_id}), reply: {reply:?}");
                 return Err(anyhow!("Invalid Result"));
             }
         }
@@ -1727,9 +1723,7 @@ async fn _node_plugin_unload(
                 _ => unreachable!(),
             },
             reply => {
-                log::info!(
-                    "Unload GrpcMessage::UnloadPlugin from other node({node_id}), reply: {reply:?}"
-                );
+                log::info!("Unload GrpcMessage::UnloadPlugin from other node({node_id}), reply: {reply:?}");
                 Ok(false)
             }
         }

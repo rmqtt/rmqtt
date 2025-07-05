@@ -364,9 +364,7 @@ impl Shared for ClusterShared {
                         }
                     }
                     Err(e) => {
-                        log::error!(
-                            "forwards Message::Forwards to other node, from: {from:?}, error: {e:?}"
-                        );
+                        log::error!("forwards Message::Forwards to other node, from: {from:?}, error: {e:?}");
                     }
                 }
             }
