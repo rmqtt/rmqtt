@@ -63,12 +63,12 @@ impl RetainerPlugin {
                 let support_cluster = match s_cfg.typ {
                     #[cfg(feature = "sled")]
                     StorageType::Sled => {
-                        s_cfg.sled.path = s_cfg.sled.path.replace("{node}", &format!("{}", node_id));
+                        s_cfg.sled.path = s_cfg.sled.path.replace("{node}", &format!("{node_id}"));
                         false
                     }
                     #[cfg(feature = "redis")]
                     StorageType::Redis => {
-                        s_cfg.redis.prefix = s_cfg.redis.prefix.replace("{node}", &format!("{}", node_id));
+                        s_cfg.redis.prefix = s_cfg.redis.prefix.replace("{node}", &format!("{node_id}"));
                         true
                     }
                     #[allow(unreachable_patterns)]
