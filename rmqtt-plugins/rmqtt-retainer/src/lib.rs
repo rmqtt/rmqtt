@@ -4,7 +4,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::anyhow;
 use async_trait::async_trait;
 use serde_json::{self, json};
 use tokio::sync::RwLock;
@@ -17,15 +16,19 @@ use rmqtt::{
     register, Result,
 };
 
+#[cfg(feature = "ram")]
+use ram::RamRetainer;
+#[cfg(any(feature = "sled", feature = "redis"))]
 use rmqtt_storage::{init_db, StorageType};
 
 use config::{Config, PluginConfig};
-use ram::RamRetainer;
 use rmqtt::plugin::PackageInfo;
 use rmqtt::retain::RetainStorage;
 
 mod config;
+#[cfg(feature = "ram")]
 mod ram;
+#[cfg(any(feature = "sled", feature = "redis"))]
 mod storage;
 
 register!(RetainerPlugin::new);
@@ -44,7 +47,7 @@ impl RetainerPlugin {
     #[inline]
     async fn new<N: Into<String>>(scx: ServerContext, name: N) -> Result<Self> {
         let name = name.into();
-        let node_id = scx.node.id();
+
         let cfg = scx.plugins.read_config::<PluginConfig>(&name)?;
         log::info!("{name} RetainerPlugin cfg: {cfg:?}");
         let register = scx.extends.hook_mgr().register();
@@ -52,20 +55,24 @@ impl RetainerPlugin {
         let retain_enable = Arc::new(AtomicBool::new(false));
 
         let (retainer, support_cluster) = match &mut cfg.write().await.storage {
+            #[cfg(feature = "ram")]
             Config::Ram => (Retainer::Ram(RamRetainer::new(cfg.clone(), retain_enable.clone())), false),
+            #[cfg(any(feature = "sled", feature = "redis"))]
             Config::Storage(s_cfg) => {
+                let node_id = scx.node.id();
                 let support_cluster = match s_cfg.typ {
+                    #[cfg(feature = "sled")]
                     StorageType::Sled => {
-                        s_cfg.sled.path = s_cfg.sled.path.replace("{node}", &format!("{}", scx.node.id()));
+                        s_cfg.sled.path = s_cfg.sled.path.replace("{node}", &format!("{}", node_id));
                         false
                     }
+                    #[cfg(feature = "redis")]
                     StorageType::Redis => {
-                        s_cfg.redis.prefix =
-                            s_cfg.redis.prefix.replace("{node}", &format!("{}", scx.node.id()));
+                        s_cfg.redis.prefix = s_cfg.redis.prefix.replace("{node}", &format!("{}", node_id));
                         true
                     }
                     #[allow(unreachable_patterns)]
-                    _ => return Err(anyhow!("unsupported storage type")),
+                    _ => return Err(anyhow::anyhow!("unsupported storage type")),
                 };
                 let storage_db = init_db(s_cfg).await?;
                 (
@@ -134,7 +141,9 @@ impl Plugin for RetainerPlugin {
     async fn start(&mut self) -> Result<()> {
         log::info!("{} start", self.name());
         let r: Box<dyn RetainStorage> = match self.retainer.clone() {
+            #[cfg(feature = "ram")]
             Retainer::Ram(r) => Box::new(r),
+            #[cfg(any(feature = "sled", feature = "redis"))]
             Retainer::Storage(r) => Box::new(r),
         };
         *self.scx.extends.retain_mut().await = r;
@@ -191,20 +200,25 @@ impl Handler for RetainHandler {
 
 #[derive(Clone)]
 enum Retainer {
+    #[cfg(feature = "ram")]
     Ram(RamRetainer),
+    #[cfg(any(feature = "sled", feature = "redis"))]
     Storage(storage::Retainer),
 }
 
 impl Retainer {
     async fn remove_expired_messages(&self) -> usize {
         match self {
+            #[cfg(feature = "ram")]
             Retainer::Ram(r) => r.remove_expired_messages().await,
+            #[cfg(any(feature = "sled", feature = "redis"))]
             Retainer::Storage(_r) => 0,
         }
     }
 
     async fn info(&self) -> serde_json::Value {
         match self {
+            #[cfg(feature = "ram")]
             Retainer::Ram(r) => {
                 let msg_max = r.max().await;
                 let msg_count = r.count().await;
@@ -220,6 +234,7 @@ impl Retainer {
                     },
                 })
             }
+            #[cfg(any(feature = "sled", feature = "redis"))]
             Retainer::Storage(r) => {
                 let msg_max = r.max().await;
                 let msg_count = r.count().await;

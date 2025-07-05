@@ -8,7 +8,6 @@ use rmqtt::Result;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
-    #[serde(default)]
     #[serde(deserialize_with = "PluginConfig::deserialize_storage")]
     pub storage: Config,
 
@@ -45,6 +44,7 @@ impl PluginConfig {
         let storage = serde_json::Value::deserialize(deserializer)?;
         let typ = storage.as_object().and_then(|obj| obj.get("type").and_then(|typ| typ.as_str()));
         match typ {
+            #[cfg(feature = "ram")]
             Some("ram") => {
                 match storage
                     .as_object()
@@ -57,10 +57,12 @@ impl PluginConfig {
                     Ok(_) => Ok(Config::Ram),
                 }
             }
-            _ => match serde_json::from_value::<rmqtt_storage::Config>(storage) {
+            #[cfg(any(feature = "sled", feature = "redis"))]
+            Some("sled") | Some("redis") => match serde_json::from_value::<rmqtt_storage::Config>(storage) {
                 Err(e) => Err(de::Error::custom(e.to_string())),
                 Ok(s_cfg) => Ok(Config::Storage(s_cfg)),
             },
+            _ => Err(de::Error::custom(format!("Unsupported storage type, {typ:?}"))),
         }
     }
 
@@ -72,15 +74,10 @@ impl PluginConfig {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum Config {
+    #[cfg(feature = "ram")]
     Ram,
+    #[cfg(any(feature = "sled", feature = "redis"))]
     Storage(rmqtt_storage::Config),
-}
-
-impl Default for Config {
-    #[inline]
-    fn default() -> Self {
-        Config::Ram
-    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
