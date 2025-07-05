@@ -54,7 +54,7 @@ impl Log {
             return file.to_owned();
         }
         let dir = self.dir.trim_end_matches(['/', '\\']);
-        format!("{}/{}", dir, file)
+        format!("{dir}/{file}")
     }
 }
 

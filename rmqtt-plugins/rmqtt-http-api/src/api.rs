@@ -141,7 +141,7 @@ pub(crate) async fn listen_and_serve(
         let cfg = cfg.read().await;
         (cfg.http_reuseaddr, cfg.http_reuseport, cfg.http_bearer_token.clone())
     };
-    log::info!("HTTP API Listening on {}, reuseaddr: {}, reuseport: {}", laddr, reuseaddr, reuseport);
+    log::info!("HTTP API Listening on {laddr}, reuseaddr: {reuseaddr}, reuseport: {reuseport}");
 
     let listen = tokio::net::TcpListener::from_std(bind(laddr, 128, reuseaddr, reuseport)?)?;
 
@@ -362,7 +362,7 @@ async fn list_apis(res: &mut Response) {
 fn get_scx_cfg(depot: &mut Depot) -> std::result::Result<&(ServerContext, PluginConfigType), salvo::Error> {
     let scx_cfg = depot.obtain::<(ServerContext, PluginConfigType)>().map_err(|e| match e {
         None => salvo::Error::Io(std::io::Error::new(ErrorKind::NotFound, anyhow!("None"))),
-        Some(e) => salvo::Error::Io(std::io::Error::new(ErrorKind::NotFound, format!("{:?}", e))),
+        Some(e) => salvo::Error::Io(std::io::Error::new(ErrorKind::NotFound, format!("{e:?}"))),
     })?;
     Ok(scx_cfg)
 }
@@ -370,7 +370,7 @@ fn get_scx_cfg(depot: &mut Depot) -> std::result::Result<&(ServerContext, Plugin
 fn get_monitor(depot: &Depot) -> std::result::Result<Monitor, salvo::Error> {
     let m = depot.get::<Monitor>(PROME_MONITOR).cloned().map_err(|e| match e {
         None => salvo::Error::Io(std::io::Error::new(ErrorKind::NotFound, anyhow!("None"))),
-        Some(e) => salvo::Error::Io(std::io::Error::new(ErrorKind::NotFound, format!("{:?}", e))),
+        Some(e) => salvo::Error::Io(std::io::Error::new(ErrorKind::NotFound, format!("{e:?}"))),
     })?;
     Ok(m)
 }
@@ -397,9 +397,9 @@ async fn api_logger(req: &mut Request, depot: &mut Depot) -> std::result::Result
         None
     };
     if let Some(txt_body) = txt_body {
-        log::info!("{}, body: {}", log_data, txt_body);
+        log::info!("{log_data}, body: {txt_body}");
     } else {
-        log::info!("{}", log_data);
+        log::info!("{log_data}");
     }
     Ok(())
 }
@@ -460,11 +460,11 @@ async fn _get_broker(
                     _ => unreachable!(),
                 },
                 Ok(reply) => {
-                    log::info!("Get GrpcMessage::BrokerInfo from other node({}), reply: {:?}", id, reply);
+                    log::info!("Get GrpcMessage::BrokerInfo from other node({id}), reply: {reply:?}");
                     serde_json::Value::String("Invalid Result".into())
                 }
                 Err(e) => {
-                    log::warn!("Get GrpcMessage::BrokerInfo from other node, error: {:?}", e);
+                    log::warn!("Get GrpcMessage::BrokerInfo from other node, error: {e:?}");
                     serde_json::Value::String(e.to_string())
                 }
             };
@@ -497,11 +497,11 @@ async fn _get_brokers(scx: &ServerContext, message_type: MessageType) -> Result<
                 _ => unreachable!(),
             },
             (id, Ok(reply)) => {
-                log::info!("Get GrpcMessage::BrokerInfo from other node({}), reply: {:?}", id, reply);
+                log::info!("Get GrpcMessage::BrokerInfo from other node({id}), reply: {reply:?}");
                 Ok(serde_json::Value::String("Invalid Result".into()))
             }
             (id, Err(e)) => {
-                log::warn!("Get GrpcMessage::BrokerInfo from other node({}), error: {:?}", id, e);
+                log::warn!("Get GrpcMessage::BrokerInfo from other node({id}), error: {e:?}");
                 Ok(serde_json::Value::String(e.to_string()))
             }
         })
@@ -573,11 +573,11 @@ async fn _get_nodes(scx: &ServerContext, message_type: MessageType) -> Result<Ve
                 _ => unreachable!(),
             },
             (id, Ok(reply)) => {
-                log::info!("Get GrpcMessage::NodeInfo from other node({}), reply: {:?}", id, reply);
+                log::info!("Get GrpcMessage::NodeInfo from other node({id}), reply: {reply:?}");
                 Err(anyhow!("Invalid Result"))
             }
             (id, Err(e)) => {
-                log::warn!("Get GrpcMessage::NodeInfo from other node({}), error: {:?}", id, e);
+                log::warn!("Get GrpcMessage::NodeInfo from other node({id}), error: {e:?}");
                 Ok(serde_json::Value::String(e.to_string()))
             }
         })
@@ -613,11 +613,11 @@ pub(crate) async fn get_node(
                     _ => unreachable!(),
                 },
                 Ok(reply) => {
-                    log::info!("Get GrpcMessage::NodeInfo from other node({}), reply: {:?}", id, reply);
+                    log::info!("Get GrpcMessage::NodeInfo from other node({id}), reply: {reply:?}");
                     Err(anyhow!("Invalid Result"))
                 }
                 Err(e) => {
-                    log::warn!("Get GrpcMessage::NodeInfo from other node, error: {:?}", e);
+                    log::warn!("Get GrpcMessage::NodeInfo from other node, error: {e:?}");
                     Err(e)
                 }
             }
@@ -652,11 +652,11 @@ pub(crate) async fn get_nodes_all(
                 _ => unreachable!(),
             },
             (id, Ok(reply)) => {
-                log::info!("Get GrpcMessage::NodeInfo from other node({}), reply: {:?}", id, reply);
+                log::info!("Get GrpcMessage::NodeInfo from other node({id}), reply: {reply:?}");
                 Err(anyhow!("Invalid Result"))
             }
             (id, Err(e)) => {
-                log::warn!("Get GrpcMessage::NodeInfo from other node({}), error: {:?}", id, e);
+                log::warn!("Get GrpcMessage::NodeInfo from other node({id}), error: {e:?}");
                 Ok(Err(e))
             }
         })
@@ -724,7 +724,7 @@ async fn _get_client(
             _ => unreachable!(),
         },
         reply => {
-            log::info!("Subscribe GrpcMessage::ClientGet from other node, reply: {:?}", reply);
+            log::info!("Subscribe GrpcMessage::ClientGet from other node, reply: {reply:?}");
             Err(anyhow!("Invalid Result"))
         }
     };
@@ -835,10 +835,10 @@ async fn _search_clients(
                     _ => unreachable!(),
                 },
                 Err(e) => {
-                    log::warn!("Get GrpcMessage::ClientSearch, error: {:?}", e);
+                    log::warn!("Get GrpcMessage::ClientSearch, error: {e:?}");
                 }
                 Ok(reply) => {
-                    log::warn!("Get GrpcMessage::ClientSearch from other node({}), reply: {:?}", id, reply);
+                    log::warn!("Get GrpcMessage::ClientSearch from other node({id}), reply: {reply:?}");
                 }
             };
         } else {
@@ -910,7 +910,7 @@ async fn kick_offlines(
                 if s.is_some() {
                     match entry.kick(true, true, true).await {
                         Err(e) => {
-                            log::warn!("{}", e);
+                            log::warn!("{e}");
                         }
                         Ok(_) => {
                             count += 1;
@@ -926,7 +926,7 @@ async fn kick_offlines(
             }
         }
         Err(e) => {
-            log::warn!("{}", e);
+            log::warn!("{e}");
         }
     }
     res.render(Json(json!({"count": count})));
@@ -1135,7 +1135,7 @@ async fn _publish(
             props.message_expiry_interval.map(|interval| Duration::from_secs(interval.get() as u64))
         })
         .unwrap_or(expiry_interval);
-    log::debug!("message_expiry_interval: {:?}", message_expiry_interval);
+    log::debug!("message_expiry_interval: {message_expiry_interval:?}");
 
     let storage_available = scx.extends.message_mgr().await.enable();
 
@@ -1152,7 +1152,7 @@ async fn _publish(
             if let Err(e) =
                 SessionState::forwards(scx, from, p1, storage_available, Some(message_expiry_interval)).await
             {
-                log::warn!("{:?}", e);
+                log::warn!("{e:?}");
             }
         };
         futs.push(fut);
@@ -1250,7 +1250,7 @@ async fn _subscribe_on_other_node(
             _ => unreachable!(),
         },
         reply => {
-            log::info!("Subscribe GrpcMessage::Subscribe from other node({}), reply: {:?}", node_id, reply);
+            log::info!("Subscribe GrpcMessage::Subscribe from other node({node_id}), reply: {reply:?}");
             Err(anyhow!("Invalid Operation"))
         }
     }
@@ -1319,9 +1319,7 @@ async fn _unsubscribe_on_other_node(
         },
         reply => {
             log::info!(
-                "Unsubscribe GrpcMessage::Unsubscribe from other node({}), reply: {:?}",
-                node_id,
-                reply
+                "Unsubscribe GrpcMessage::Unsubscribe from other node({node_id}), reply: {reply:?}"
             );
             Err(anyhow!("Invalid Operation"))
         }
@@ -1430,7 +1428,7 @@ async fn _node_plugins(
                 _ => unreachable!(),
             },
             reply => {
-                log::info!("Get GrpcMessage::GetPlugins from other node({}), reply: {:?}", node_id, reply);
+                log::info!("Get GrpcMessage::GetPlugins from other node({node_id}), reply: {reply:?}");
                 return Err(anyhow!("Invalid Result"));
             }
         }
@@ -1488,7 +1486,7 @@ async fn _node_plugin_info(
                 _ => unreachable!(),
             },
             reply => {
-                log::info!("Get GrpcMessage::GetPlugin from other node({}), reply: {:?}", node_id, reply);
+                log::info!("Get GrpcMessage::GetPlugin from other node({node_id}), reply: {reply:?}");
                 return Err(anyhow!("Invalid Result"));
             }
         }
@@ -1554,9 +1552,7 @@ async fn _node_plugin_config(
             },
             reply => {
                 log::info!(
-                    "Get GrpcMessage::GetPluginConfig from other node({}), reply: {:?}",
-                    node_id,
-                    reply
+                    "Get GrpcMessage::GetPluginConfig from other node({node_id}), reply: {reply:?}"
                 );
                 return Err(anyhow!("Invalid Result"));
             }
@@ -1616,9 +1612,7 @@ async fn _node_plugin_config_reload(
             },
             reply => {
                 log::info!(
-                    "ConfigReload GrpcMessage::ReloadPluginConfig from other node({}), reply: {:?}",
-                    node_id,
-                    reply
+                    "ConfigReload GrpcMessage::ReloadPluginConfig from other node({node_id}), reply: {reply:?}"
                 );
                 Ok(false)
             }
@@ -1676,7 +1670,7 @@ async fn _node_plugin_load(
                 _ => unreachable!(),
             },
             reply => {
-                log::info!("Load GrpcMessage::LoadPlugin from other node({}), reply: {:?}", node_id, reply);
+                log::info!("Load GrpcMessage::LoadPlugin from other node({node_id}), reply: {reply:?}");
                 Ok(false)
             }
         }
@@ -1734,9 +1728,7 @@ async fn _node_plugin_unload(
             },
             reply => {
                 log::info!(
-                    "Unload GrpcMessage::UnloadPlugin from other node({}), reply: {:?}",
-                    node_id,
-                    reply
+                    "Unload GrpcMessage::UnloadPlugin from other node({node_id}), reply: {reply:?}"
                 );
                 Ok(false)
             }
@@ -1797,11 +1789,11 @@ async fn _get_stats_sum(scx: &ServerContext, message_type: MessageType) -> Resul
                     _ => unreachable!(),
                 },
                 (id, Ok(reply)) => {
-                    log::info!("Get GrpcMessage::StateInfo from other node({}), reply: {:?}", id, reply);
+                    log::info!("Get GrpcMessage::StateInfo from other node({id}), reply: {reply:?}");
                     continue;
                 }
                 (id, Err(e)) => {
-                    log::warn!("Get GrpcMessage::StateInfo from other node({}), error: {:?}", id, e);
+                    log::warn!("Get GrpcMessage::StateInfo from other node({id}), error: {e:?}");
                     nodes.insert(id, serde_json::Value::String(e.to_string()));
                 }
             };
@@ -1886,11 +1878,11 @@ pub(crate) async fn get_stats_one(
                     _ => unreachable!(),
                 },
                 Ok(reply) => {
-                    log::info!("Get GrpcMessage::StateInfo from other node, reply: {:?}", reply);
+                    log::info!("Get GrpcMessage::StateInfo from other node, reply: {reply:?}");
                     Err(anyhow!("Invalid Result"))
                 }
                 Err(e) => {
-                    log::warn!("Get GrpcMessage::StateInfo from other node, error: {:?}", e);
+                    log::warn!("Get GrpcMessage::StateInfo from other node, error: {e:?}");
                     Err(e)
                 }
             }
@@ -1929,11 +1921,11 @@ pub(crate) async fn get_stats_all(
                     _ => unreachable!(),
                 },
                 (id, Ok(reply)) => {
-                    log::info!("Get GrpcMessage::StateInfo from other node({}), reply: {:?}", id, reply);
+                    log::info!("Get GrpcMessage::StateInfo from other node({id}), reply: {reply:?}");
                     continue;
                 }
                 (id, Err(e)) => {
-                    log::warn!("Get GrpcMessage::StateInfo from other node({}), error: {:?}", id, e);
+                    log::warn!("Get GrpcMessage::StateInfo from other node({id}), error: {e:?}");
                     Err(e)
                 }
             };
@@ -2029,11 +2021,11 @@ pub(crate) async fn get_metrics_one(
                     _ => unreachable!(),
                 },
                 Ok(reply) => {
-                    log::info!("Get GrpcMessage::MetricsInfo from other node, reply: {:?}", reply);
+                    log::info!("Get GrpcMessage::MetricsInfo from other node, reply: {reply:?}");
                     Err(anyhow!("Invalid Result"))
                 }
                 Err(e) => {
-                    log::warn!("Get GrpcMessage::MetricsInfo from other node, error: {:?}", e);
+                    log::warn!("Get GrpcMessage::MetricsInfo from other node, error: {e:?}");
                     Err(e)
                 }
             }
@@ -2069,11 +2061,11 @@ pub(crate) async fn get_metrics_all(
                     _ => unreachable!(),
                 },
                 (id, Ok(reply)) => {
-                    log::info!("Get GrpcMessage::MetricsInfo from other node({}), reply: {:?}", id, reply);
+                    log::info!("Get GrpcMessage::MetricsInfo from other node({id}), reply: {reply:?}");
                     continue;
                 }
                 (id, Err(e)) => {
-                    log::warn!("Get GrpcMessage::MetricsInfo from other node({}), error: {:?}", id, e);
+                    log::warn!("Get GrpcMessage::MetricsInfo from other node({id}), error: {e:?}");
                     Err(e)
                 }
             };
@@ -2115,10 +2107,10 @@ async fn _get_metrics_sum(scx: &ServerContext, message_type: MessageType) -> Res
                     _ => unreachable!(),
                 },
                 (id, Ok(reply)) => {
-                    log::info!("Get GrpcMessage::MetricsInfo from other node({}), reply: {:?}", id, reply);
+                    log::info!("Get GrpcMessage::MetricsInfo from other node({id}), reply: {reply:?}");
                 }
                 (id, Err(e)) => {
-                    log::warn!("Get GrpcMessage::MetricsInfo from other node({}), error: {:?}", id, e);
+                    log::warn!("Get GrpcMessage::MetricsInfo from other node({id}), error: {e:?}");
                 }
             };
         }

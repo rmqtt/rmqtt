@@ -119,13 +119,13 @@ impl Bridge {
         let addr_split = addr.splitn(2, "://").collect::<Vec<_>>();
 
         match addr_split.len() {
-            0 => Err(serde::de::Error::custom(format!("invalid value, {:?}", addr))),
+            0 => Err(serde::de::Error::custom(format!("invalid value, {addr:?}"))),
             1 => Ok(ServerAddr { typ: AddrType::Tcp, addr }),
             _ => {
                 let typ = match addr_split[0].to_lowercase().as_str() {
                     "tcp" => AddrType::Tcp,
                     "tls" => AddrType::Tls,
-                    _ => return Err(serde::de::Error::custom(format!("invalid value, {:?}", addr))),
+                    _ => return Err(serde::de::Error::custom(format!("invalid value, {addr:?}"))),
                 };
                 Ok(ServerAddr { typ, addr: addr_split[1].into() })
             }

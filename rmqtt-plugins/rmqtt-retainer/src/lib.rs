@@ -46,7 +46,7 @@ impl RetainerPlugin {
         let name = name.into();
         let node_id = scx.node.id();
         let cfg = scx.plugins.read_config::<PluginConfig>(&name)?;
-        log::info!("{} RetainerPlugin cfg: {:?}", name, cfg);
+        log::info!("{name} RetainerPlugin cfg: {cfg:?}");
         let register = scx.extends.hook_mgr().register();
         let cfg = Arc::new(RwLock::new(cfg));
         let retain_enable = Arc::new(AtomicBool::new(false));
@@ -175,14 +175,14 @@ impl Handler for RetainHandler {
             Parameter::BeforeStartup => {
                 let grpc_enable = self.scx.extends.shared().await.grpc_enable();
                 if grpc_enable && !self.support_cluster {
-                    log::warn!("{}", ERR_NOT_SUPPORTED);
+                    log::warn!("{ERR_NOT_SUPPORTED}");
                     self.retain_enable.store(false, Ordering::SeqCst);
                 } else {
                     self.retain_enable.store(true, Ordering::SeqCst);
                 }
             }
             _ => {
-                log::error!("unimplemented, {:?}", param)
+                log::error!("unimplemented, {param:?}")
             }
         }
         (true, acc)

@@ -211,7 +211,7 @@ impl AuthHandler {
         }
 
         let header = jsonwebtoken::decode_header(token).map_err(|e| anyhow!(e))?;
-        log::debug!("header: {:?}", header);
+        log::debug!("header: {header:?}");
         let mut validation = Validation::new(header.alg);
         validation.validate_exp = validate_exp;
         validation.validate_nbf = validate_nbf;
@@ -221,7 +221,7 @@ impl AuthHandler {
         validation.sub = sub;
         validation.required_spec_claims = required_spec_claims;
 
-        log::debug!("validation: {:?}", validation);
+        log::debug!("validation: {validation:?}");
 
         let token_data = decode::<HashMap<String, serde_json::Value>>(
             token,
@@ -263,7 +263,7 @@ impl AuthHandler {
                 None
             }
         });
-        log::debug!("failed: {:?}", failed);
+        log::debug!("failed: {failed:?}");
         if let Some((name, expecteds, actuals)) = failed {
             Err(anyhow!(format!(
                 "{} verification failed, expected value: {:?}, actual value: {:?}",
@@ -293,7 +293,7 @@ impl Handler for AuthHandler {
                     Some(token) => token,
                     None => return (false, Some(HookResult::AuthResult(AuthResult::NotAuthorized))),
                 };
-                log::debug!("ClientAuthenticate token: {}", token);
+                log::debug!("ClientAuthenticate token: {token}");
 
                 let validate_claims_cfg = &self.cfg.read().await.validate_claims;
                 let token_data =
@@ -331,7 +331,7 @@ impl Handler for AuthHandler {
                 } else {
                     Vec::new()
                 };
-                log::debug!("rules: {:?}", rules);
+                log::debug!("rules: {rules:?}");
                 let expire_at =
                     token_data.claims.get("exp").and_then(|exp| exp.as_u64().map(Duration::from_secs));
                 let auth_info = AuthInfo { superuser, expire_at, rules };
@@ -386,7 +386,7 @@ impl Handler for AuthHandler {
             }
 
             _ => {
-                log::error!("unimplemented, {:?}", param)
+                log::error!("unimplemented, {param:?}")
             }
         }
         (true, acc)

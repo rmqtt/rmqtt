@@ -104,7 +104,7 @@ impl AutoSubscription for XAutoSubscription {
                 if let Some(username) = &id.username {
                     sub.topic_filter = TopicFilter::from(sub.topic_filter.replace("${username}", username));
                 } else {
-                    log::warn!("{} auto subscribe failed, username is not exist", id);
+                    log::warn!("{id} auto subscribe failed, username is not exist");
                     continue;
                 }
             }

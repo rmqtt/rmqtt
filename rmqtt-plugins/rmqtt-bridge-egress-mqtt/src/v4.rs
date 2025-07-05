@@ -132,10 +132,10 @@ impl Client {
                     if let Some(sink) = sink {
                         if matches!(p.qos, ntex_mqtt::QoS::AtMostOnce) {
                             if let Err(e) = sink.publish_pkt(p).send_at_most_once() {
-                                log::warn!("{:?}", e);
+                                log::warn!("{e:?}");
                             }
                         } else if let Err(e) = sink.publish_pkt(p).send_at_least_once().await {
-                            log::warn!("{:?}", e);
+                            log::warn!("{e:?}");
                         }
                     } else {
                         log::error!("mqtt sink is None");
@@ -206,7 +206,7 @@ impl Client {
             }))
             .await
         {
-            log::error!("Start ev_loop error! {:?}", e);
+            log::error!("Start ev_loop error! {e:?}");
         }
     }
 }

@@ -256,7 +256,7 @@ impl Remote {
         D: Deserializer<'de>,
     {
         let json_val: serde_json::Value = serde_json::Value::deserialize(deserializer)?;
-        log::debug!("DeadLetterPolicy json_val: {:?}", json_val);
+        log::debug!("DeadLetterPolicy json_val: {json_val:?}");
         if let Some(obj) = json_val.as_object() {
             let max_redeliver_count =
                 obj.get("max_redeliver_count").and_then(|v| v.as_u64().map(|v| v as usize));
@@ -266,7 +266,7 @@ impl Remote {
             {
                 Ok(Some(DeadLetterPolicy { max_redeliver_count, dead_letter_topic }))
             } else {
-                Err(de::Error::custom(format!("Invalid DeadLetterPolicy, {:?}", json_val)))
+                Err(de::Error::custom(format!("Invalid DeadLetterPolicy, {json_val:?}")))
             }
         } else {
             Ok(None)
@@ -297,7 +297,7 @@ impl Remote {
         D: Deserializer<'de>,
     {
         let json_val: serde_json::Value = serde_json::Value::deserialize(deserializer)?;
-        log::debug!("ConsumerOptions json_val: {:?}", json_val);
+        log::debug!("ConsumerOptions json_val: {json_val:?}");
         if let Some(obj) = json_val.as_object() {
             let priority_level = obj.get("priority_level").and_then(|v| v.as_i64().map(|v| v as i32));
             let durable = obj.get("durable").and_then(|v| v.as_bool());
@@ -306,7 +306,7 @@ impl Remote {
                 match v.to_lowercase().as_str() {
                     "latest" => Ok(InitialPosition::Latest),
                     "earliest" => Ok(InitialPosition::Earliest),
-                    _ => Err(de::Error::custom(format!("Invalid InitialPosition, {:?}", v))),
+                    _ => Err(de::Error::custom(format!("Invalid InitialPosition, {v:?}"))),
                 }
             });
             let initial_position = match initial_position {
@@ -314,7 +314,7 @@ impl Remote {
                 None => InitialPosition::default(),
                 Some(Err(e)) => return Err(e),
             };
-            log::debug!("ConsumerOptions initial_position: {:?}", initial_position);
+            log::debug!("ConsumerOptions initial_position: {initial_position:?}");
             let metadata = obj
                 .get("metadata")
                 .and_then(|v| {
@@ -458,10 +458,7 @@ impl Local {
                     topics.push(t);
                 } else {
                     log::warn!(
-                        "No matching topic found in RemoteProperties, placeholder: {}, name: {}, topic: {}",
-                        placeholder,
-                        name,
-                        topic
+                        "No matching topic found in RemoteProperties, placeholder: {placeholder}, name: {name}, topic: {topic}"
                     );
                 }
             }
@@ -473,10 +470,7 @@ impl Local {
                     topics.push(t);
                 } else {
                     log::warn!(
-                        "No matching topic found in RemoteProperties, placeholder: {}, name: {}, topic: {}",
-                        placeholder,
-                        name,
-                        topic
+                        "No matching topic found in RemoteProperties, placeholder: {placeholder}, name: {name}, topic: {topic}"
                     );
                 }
             }
@@ -489,10 +483,7 @@ impl Local {
                     topics.extend(ts);
                 } else {
                     log::warn!(
-                        "No matching topic found in RemotePayload, placeholder: {}, path: {}, topic: {}",
-                        placeholder,
-                        path,
-                        topic
+                        "No matching topic found in RemotePayload, placeholder: {placeholder}, path: {path}, topic: {topic}"
                     );
                 }
             }
@@ -505,10 +496,7 @@ impl Local {
                     topics.extend(ts);
                 } else {
                     log::warn!(
-                        "No matching topic found in RemotePayload, placeholder: {}, path: {}, topic: {}",
-                        placeholder,
-                        path,
-                        topic
+                        "No matching topic found in RemotePayload, placeholder: {placeholder}, path: {path}, topic: {topic}"
                     );
                 }
             }
@@ -554,7 +542,7 @@ impl Local {
                 topics.push(item.name.clone());
             }
         }
-        log::debug!("make_topics topics: {:?}", topics);
+        log::debug!("make_topics topics: {topics:?}");
         topics
     }
 

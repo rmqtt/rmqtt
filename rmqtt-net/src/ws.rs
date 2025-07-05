@@ -62,7 +62,7 @@ where
                 Poll::Ready(Ok(()))
             }
             Some(Err(e)) => {
-                log::warn!("{:?}", e);
+                log::warn!("{e:?}");
                 Poll::Ready(Err(to_error(e)))
             }
             None => Poll::Ready(Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))),

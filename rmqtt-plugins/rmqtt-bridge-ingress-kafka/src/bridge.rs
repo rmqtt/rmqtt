@@ -70,15 +70,15 @@ struct SourceContext {}
 impl KafkaClientContext for SourceContext {}
 impl KafkaConsumerContext for SourceContext {
     fn pre_rebalance(&self, _base_consumer: &BaseConsumer<Self>, rebalance: &Rebalance<'_>) {
-        log::debug!("Pre rebalance {:?}", rebalance);
+        log::debug!("Pre rebalance {rebalance:?}");
     }
     fn post_rebalance(&self, _base_consumer: &BaseConsumer<Self>, rebalance: &Rebalance<'_>) {
-        log::debug!("Post rebalance {:?}", rebalance);
+        log::debug!("Post rebalance {rebalance:?}");
     }
     fn commit_callback(&self, result: KafkaResult<()>, _offsets: &TopicPartitionList) {
         match result {
             Ok(_) => log::debug!("Offsets committed successfully"),
-            Err(e) => log::warn!("Error while committing offsets: {}", e),
+            Err(e) => log::warn!("Error while committing offsets: {e}"),
         }
     }
 }
@@ -118,7 +118,7 @@ impl Consumer {
         let mut enable_auto_commit = true;
         for (key, val) in &cfg.properties {
             if !key.trim_start().starts_with('#') {
-                log::info!("{}={}", key, val);
+                log::info!("{key}={val}");
                 if key == "enable.auto.commit" && val == "false" {
                     enable_auto_commit = false;
                 }
@@ -143,25 +143,22 @@ impl Consumer {
             topic_parts.add_partition_range(t, start_partition, stop_partition);
             if let Some(offset) = offset {
                 for p in start_partition..stop_partition + 1 {
-                    log::debug!("{}..{}, partition: {}", start_partition, stop_partition, p);
+                    log::debug!("{start_partition}..{stop_partition}, partition: {p}");
                     topic_parts.set_partition_offset(t, p, offset).map_err(|e| anyhow!(e))?;
                 }
             }
         } else {
             log::error!(
-                "Kafka topic config error, start_partition({}) > stop_partition({}), {:?}",
-                start_partition,
-                stop_partition,
-                t
+                "Kafka topic config error, start_partition({start_partition}) > stop_partition({stop_partition}), {t:?}"
             );
         }
 
         client_cfg.set("group.id", cfg_entry.remote.group_id.as_str());
 
-        log::info!("topic_parts: {:?}", topic_parts);
+        log::info!("topic_parts: {topic_parts:?}");
         client_cfg.set_log_level(RDKafkaLogLevel::Info);
 
-        log::info!("client_cfg: {:?}", client_cfg);
+        log::info!("client_cfg: {client_cfg:?}");
 
         let consumer: KafkaStreamConsumer<SourceContext> =
             client_cfg.create_with_context(SourceContext {}).map_err(|e| anyhow!(e))?;
@@ -206,7 +203,7 @@ impl Consumer {
         let name = self.cfg.name.as_str();
         let client_id = self.client_id;
         let enable_auto_commit = self.enable_auto_commit;
-        log::info!("{}/{} start kafka recv loop", name, client_id);
+        log::info!("{name}/{client_id} start kafka recv loop");
         loop {
             tokio::select! {
                 cmd = cmd_rx.recv() => {
@@ -216,7 +213,7 @@ impl Consumer {
                         }
                         Some(Command::Start) => {}
                         None => {
-                            log::error!("{}/{} Command(None) received", name, client_id);
+                            log::error!("{name}/{client_id} Command(None) received");
                             break;
                         }
                     }
@@ -224,7 +221,7 @@ impl Consumer {
                 msg = consumer.recv() => {
                     match msg{
                         Err(e) => {
-                            log::error!("{}/{} Kafka error: {:?}", name, client_id, e);
+                            log::error!("{name}/{client_id} Kafka error: {e:?}");
                             tokio::time::sleep(Duration::from_millis(1000)).await;
                         },
                         Ok(m) => {
@@ -237,7 +234,7 @@ impl Consumer {
 
                             if !enable_auto_commit {
                                 if let Err(e) = consumer.commit_message(&m, CommitMode::Async){
-                                    log::error!("{}/{} Kafka commit_message error: {:?}", name, client_id, e);
+                                    log::error!("{name}/{client_id} Kafka commit_message error: {e:?}");
                                 }
                             }
                         }
@@ -245,7 +242,7 @@ impl Consumer {
                 }
             }
         }
-        log::info!("{}/{} Kafka exit event loop", name, client_id);
+        log::info!("{name}/{client_id} Kafka exit event loop");
     }
 
     fn process_message(
@@ -269,7 +266,7 @@ impl Consumer {
                 let h = headers.get(i);
                 let key = h.key;
                 let val = h.value.map(|v| String::from_utf8_lossy(v));
-                log::debug!("{}/{} Header {:#?}: {:?}", name, client_id, key, val);
+                log::debug!("{name}/{client_id} Header {key:#?}: {val:?}");
 
                 match (key, val) {
                     ("from_ipaddress", Some(addr)) => match addr.parse::<SocketAddr>() {
@@ -418,13 +415,10 @@ impl BridgeManager {
     pub async fn stop(&mut self) {
         for mut entry in &mut self.sources.iter_mut() {
             let ((bridge_name, entry_idx), mailbox) = entry.pair_mut();
-            log::debug!("stop bridge_name: {:?}, entry_idx: {:?}", bridge_name, entry_idx,);
+            log::debug!("stop bridge_name: {bridge_name:?}, entry_idx: {entry_idx:?}",);
             if let Err(e) = mailbox.stop().await {
                 log::error!(
-                    "stop BridgeKafkaIngressPlugin error, bridge_name: {}, entry_idx: {}, {:?}",
-                    bridge_name,
-                    entry_idx,
-                    e
+                    "stop BridgeKafkaIngressPlugin error, bridge_name: {bridge_name}, entry_idx: {entry_idx}, {e:?}"
                 );
             }
         }
@@ -438,7 +432,7 @@ impl BridgeManager {
 }
 
 async fn send_publish(scx: ServerContext, from: From, msg: Publish, expiry_interval: Duration) {
-    log::debug!("from {:?}, message: {:?}", from, msg);
+    log::debug!("from {from:?}, message: {msg:?}");
 
     let expiry_interval = msg
         .properties
@@ -452,7 +446,7 @@ async fn send_publish(scx: ServerContext, from: From, msg: Publish, expiry_inter
     let storage_available = scx.extends.message_mgr().await.enable();
 
     if let Err(e) = SessionState::forwards(&scx, from, msg, storage_available, Some(expiry_interval)).await {
-        log::warn!("{:?}", e);
+        log::warn!("{e:?}");
     }
 }
 

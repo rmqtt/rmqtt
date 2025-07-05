@@ -101,7 +101,7 @@ impl GrpcServer {
                         let reply = s.on_recv_message(data).await;
                         if let Some(reply_tx) = reply_tx {
                             if let Err(e) = reply_tx.send(reply.map(|r| r.unwrap_or_default())) {
-                                log::warn!("gRPC send result failure, {:?}", e);
+                                log::warn!("gRPC send result failure, {e:?}");
                             }
                         }
                         #[cfg(feature = "stats")]
@@ -122,7 +122,7 @@ impl GrpcServer {
                         .run()
                         .await
                     {
-                        log::warn!("Run gRPC receiver error, {:?}", e);
+                        log::warn!("Run gRPC receiver error, {e:?}");
                     }
                     tokio::time::sleep(Duration::from_secs(3)).await;
                 }
@@ -181,9 +181,7 @@ impl GrpcClient {
         client_concurrency_limit: usize,
     ) -> Result<Self> {
         log::info!(
-            "GrpcClient::new server_addr: {}, client_concurrency_limit: {}",
-            server_addr,
-            client_concurrency_limit
+            "GrpcClient::new server_addr: {server_addr}, client_concurrency_limit: {client_concurrency_limit}"
         );
         let mut c = Client::new(server_addr.into())
             .connect_timeout(client_timeout)
@@ -340,7 +338,7 @@ impl MessageSender {
         match self.client.send_message(self.msg_type, self.msg, self.timeout).await {
             Ok(reply) => Ok(reply),
             Err(e) => {
-                log::warn!("error sending message, {:?}", e);
+                log::warn!("error sending message, {e:?}");
                 Err(e)
             }
         }
@@ -351,7 +349,7 @@ impl MessageSender {
         match self.client.notify(self.msg_type, self.msg, self.timeout).await {
             Ok(()) => Ok(()),
             Err(e) => {
-                log::warn!("error notify message, {:?}", e);
+                log::warn!("error notify message, {e:?}");
                 Err(e)
             }
         }
@@ -428,11 +426,11 @@ impl MessageBroadcaster {
     {
         match grpc_client.clone().send_message(typ, msg, timeout).await {
             Ok(r) => {
-                log::debug!("OK reply: {:?}", r);
+                log::debug!("OK reply: {r:?}");
                 check_fn(r)
             }
             Err(e) => {
-                log::debug!("ERROR reply: {:?}", e);
+                log::debug!("ERROR reply: {e:?}");
                 Err(e)
             }
         }

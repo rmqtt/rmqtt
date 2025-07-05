@@ -47,13 +47,13 @@ impl StoragePlugin {
                 (MessageMgr::Ram(message_mgr), Arc::new(cfg))
             }
             Config::Storage(s_cfg) => {
-                s_cfg.redis.prefix = s_cfg.redis.prefix.replace("{node}", &format!("{}", node_id));
+                s_cfg.redis.prefix = s_cfg.redis.prefix.replace("{node}", &format!("{node_id}"));
                 s_cfg.redis_cluster.prefix =
-                    s_cfg.redis_cluster.prefix.replace("{node}", &format!("{}", node_id));
+                    s_cfg.redis_cluster.prefix.replace("{node}", &format!("{node_id}"));
 
                 let storage_db = match init_db(s_cfg).await {
                     Err(e) => {
-                        log::error!("{} init storage db error, {:?}", name, e);
+                        log::error!("{name} init storage db error, {e:?}");
                         return Err(e);
                     }
                     Ok(db) => db,
@@ -65,7 +65,7 @@ impl StoragePlugin {
                 (MessageMgr::Storage(message_mgr), cfg)
             }
         };
-        log::info!("{} StoragePlugin cfg: {:?}", name, cfg);
+        log::info!("{name} StoragePlugin cfg: {cfg:?}");
         let register = scx.extends.hook_mgr().register();
         Ok(Self { scx, cfg, register, message_mgr })
     }

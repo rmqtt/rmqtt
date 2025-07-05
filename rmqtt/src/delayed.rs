@@ -129,7 +129,7 @@ impl DefaultDelayedSender {
         )
         .await
         {
-            log::warn!("delayed forwards error, {:?}", e);
+            log::warn!("delayed forwards error, {e:?}");
         }
     }
 }

@@ -49,28 +49,28 @@ impl Listeners {
     pub(crate) fn init(&mut self) {
         for (name, mut inner) in self._tcps.drain() {
             if inner.enable {
-                inner.name = format!("{}/tcp", name);
+                inner.name = format!("{name}/tcp");
                 self.tcps.insert(inner.addr.port(), Listener::new(inner));
             }
         }
 
         for (name, mut inner) in self._tlss.drain() {
             if inner.enable {
-                inner.name = format!("{}/tls", name);
+                inner.name = format!("{name}/tls");
                 self.tlss.insert(inner.addr.port(), Listener::new(inner));
             }
         }
 
         for (name, mut inner) in self._wss.drain() {
             if inner.enable {
-                inner.name = format!("{}/ws", name);
+                inner.name = format!("{name}/ws");
                 self.wss.insert(inner.addr.port(), Listener::new(inner));
             }
         }
 
         for (name, mut inner) in self._wsss.drain() {
             if inner.enable {
-                inner.name = format!("{}/wss", name);
+                inner.name = format!("{name}/wss");
                 self.wsss.insert(inner.addr.port(), Listener::new(inner));
             }
         }
@@ -414,7 +414,7 @@ impl ListenerInner {
         let pair: Vec<&str> = v.split(',').collect();
         if pair.len() == 2 {
             let burst = NonZeroU32::from_str(pair[0])
-                .map_err(|e| de::Error::custom(format!("mqueue_rate_limit, burst format error, {:?}", e)))?;
+                .map_err(|e| de::Error::custom(format!("mqueue_rate_limit, burst format error, {e:?}")))?;
             let replenish_n_per = to_duration(pair[1]);
             if replenish_n_per.as_millis() == 0 {
                 return Err(de::Error::custom(format!(

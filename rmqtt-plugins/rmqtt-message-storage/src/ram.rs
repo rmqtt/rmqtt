@@ -75,7 +75,7 @@ impl RamMessageManager {
                     tokio::runtime::Handle::current().block_on(async move {
                         match msg_mgr.remove_expired_messages(max_limit).await {
                             Err(e) => {
-                                log::warn!("remove expired messages error, {:?}", e);
+                                log::warn!("remove expired messages error, {e:?}");
                                 0
                             }
                             Ok(removed) => removed,
@@ -343,7 +343,7 @@ impl RamMessageManager {
                         false
                     };
 
-                    log::debug!("is_forwarded: {}", is_forwarded);
+                    log::debug!("is_forwarded: {is_forwarded}");
                     if is_forwarded {
                         None
                     } else {
@@ -410,7 +410,7 @@ impl MessageManager for RamMessageManager {
         let this = self.clone();
         async move {
             if let Err(e) = this._set(from, p, expiry_interval, msg_id, sub_client_ids).await {
-                log::warn!("Store of the Publish message failed! {:?}", e);
+                log::warn!("Store of the Publish message failed! {e:?}");
             }
         }
         .spawn(&self.exec)

@@ -451,8 +451,7 @@ impl Manager {
         let (cfg, def) = self.read_config_with_required(name, false, &[])?;
         if def {
             log::warn!(
-                "The configuration for plugin '{}' does not exist, default values will be used!",
-                name
+                "The configuration for plugin '{name}' does not exist, default values will be used!"
             );
         }
         Ok(cfg)
@@ -475,8 +474,7 @@ impl Manager {
         let (cfg, def) = self.read_config_with_required(name, false, env_list_keys)?;
         if def {
             log::warn!(
-                "The configuration for plugin '{}' does not exist, default values will be used!",
-                name
+                "The configuration for plugin '{name}' does not exist, default values will be used!"
             );
         }
         Ok(cfg)
@@ -490,7 +488,7 @@ impl Manager {
     ) -> Result<(T, bool)> {
         let dir = self.dir.trim_end_matches(['/', '\\']);
         let mut builder =
-            Config::builder().add_source(File::with_name(&format!("{}/{}", dir, name)).required(required));
+            Config::builder().add_source(File::with_name(&format!("{dir}/{name}")).required(required));
 
         let mut env = config::Environment::with_prefix(&format!("rmqtt_plugin_{}", name.replace('-', "_")));
         if !env_list_keys.is_empty() {

@@ -51,29 +51,29 @@ async fn main() -> Result<()> {
                         let d = match a.tcp() {
                             Ok(d) => d,
                             Err(e) => {
-                                log::warn!("Failed to mqtt(tcp) accept, {:?}", e);
+                                log::warn!("Failed to mqtt(tcp) accept, {e:?}");
                                 return;
                             }
                         };
                         match d.mqtt().await {
                             Ok(MqttStream::V3(s)) => {
                                 if let Err(e) = process_v3(s).await {
-                                    log::warn!("Failed to process mqtt v3, {:?}", e);
+                                    log::warn!("Failed to process mqtt v3, {e:?}");
                                 }
                             }
                             Ok(MqttStream::V5(s)) => {
                                 if let Err(e) = process_v5(s).await {
-                                    log::warn!("Failed to process mqtt v5, {:?}", e);
+                                    log::warn!("Failed to process mqtt v5, {e:?}");
                                 }
                             }
                             Err(e) => {
-                                log::warn!("Failed to probe MQTT version, {:?}", e);
+                                log::warn!("Failed to probe MQTT version, {e:?}");
                             }
                         }
                     });
                 }
                 Err(e) => {
-                    log::warn!("Failed to accept TCP socket connection, {:?}", e);
+                    log::warn!("Failed to accept TCP socket connection, {e:?}");
                     sleep(Duration::from_millis(300)).await;
                 }
             }
@@ -89,29 +89,29 @@ async fn main() -> Result<()> {
                         let d = match acceptor.tls().await {
                             Ok(d) => d,
                             Err(e) => {
-                                log::warn!("Failed to mqtt(tls) accept, {:?}", e);
+                                log::warn!("Failed to mqtt(tls) accept, {e:?}");
                                 return;
                             }
                         };
                         match d.mqtt().await {
                             Ok(MqttStream::V3(s)) => {
                                 if let Err(e) = process_v3(s).await {
-                                    log::warn!("Failed to process mqtt(tls) v3, {:?}", e);
+                                    log::warn!("Failed to process mqtt(tls) v3, {e:?}");
                                 }
                             }
                             Ok(MqttStream::V5(s)) => {
                                 if let Err(e) = process_v5(s).await {
-                                    log::warn!("Failed to process mqtt(tls) v5, {:?}", e);
+                                    log::warn!("Failed to process mqtt(tls) v5, {e:?}");
                                 }
                             }
                             Err(e) => {
-                                log::warn!("Failed to probe MQTT(TLS) version, {:?}", e);
+                                log::warn!("Failed to probe MQTT(TLS) version, {e:?}");
                             }
                         }
                     });
                 }
                 Err(e) => {
-                    log::warn!("Failed to accept TLS socket connection, {:?}", e);
+                    log::warn!("Failed to accept TLS socket connection, {e:?}");
                     sleep(Duration::from_millis(300)).await;
                 }
             }
@@ -127,29 +127,29 @@ async fn main() -> Result<()> {
                         let d = match acceptor.ws().await {
                             Ok(d) => d,
                             Err(e) => {
-                                log::warn!("Failed to websocket accept, {:?}", e);
+                                log::warn!("Failed to websocket accept, {e:?}");
                                 return;
                             }
                         };
                         match d.mqtt().await {
                             Ok(MqttStream::V3(s)) => {
                                 if let Err(e) = process_v3(s).await {
-                                    log::warn!("Failed to process websocket mqtt v3, {:?}", e);
+                                    log::warn!("Failed to process websocket mqtt v3, {e:?}");
                                 }
                             }
                             Ok(MqttStream::V5(s)) => {
                                 if let Err(e) = process_v5(s).await {
-                                    log::warn!("Failed to process websocket mqtt v5, {:?}", e);
+                                    log::warn!("Failed to process websocket mqtt v5, {e:?}");
                                 }
                             }
                             Err(e) => {
-                                log::warn!("Failed to websocket probe MQTT version, {:?}", e);
+                                log::warn!("Failed to websocket probe MQTT version, {e:?}");
                             }
                         }
                     });
                 }
                 Err(e) => {
-                    log::warn!("Failed to websocket accept TCP socket connection, {:?}", e);
+                    log::warn!("Failed to websocket accept TCP socket connection, {e:?}");
                     sleep(Duration::from_millis(300)).await;
                 }
             }
@@ -165,29 +165,29 @@ async fn main() -> Result<()> {
                         let d = match acceptor.wss().await {
                             Ok(d) => d,
                             Err(e) => {
-                                log::warn!("Failed to websocket mqtt(tls) accept, {:?}", e);
+                                log::warn!("Failed to websocket mqtt(tls) accept, {e:?}");
                                 return;
                             }
                         };
                         match d.mqtt().await {
                             Ok(MqttStream::V3(s)) => {
                                 if let Err(e) = process_v3(s).await {
-                                    log::warn!("Failed to process websocket mqtt(tls) v3, {:?}", e);
+                                    log::warn!("Failed to process websocket mqtt(tls) v3, {e:?}");
                                 }
                             }
                             Ok(MqttStream::V5(s)) => {
                                 if let Err(e) = process_v5(s).await {
-                                    log::warn!("Failed to process websocket mqtt(tls) v5, {:?}", e);
+                                    log::warn!("Failed to process websocket mqtt(tls) v5, {e:?}");
                                 }
                             }
                             Err(e) => {
-                                log::warn!("Failed to websocket probe MQTT(TLS) version, {:?}", e);
+                                log::warn!("Failed to websocket probe MQTT(TLS) version, {e:?}");
                             }
                         }
                     });
                 }
                 Err(e) => {
-                    log::warn!("Failed to websocket accept TLS socket connection, {:?}", e);
+                    log::warn!("Failed to websocket accept TLS socket connection, {e:?}");
                     sleep(Duration::from_millis(300)).await;
                 }
             }
@@ -202,7 +202,7 @@ async fn main() -> Result<()> {
 static PID_GEN: Lazy<AtomicU16> = Lazy::new(|| AtomicU16::new(65533));
 fn gen_packet_id() -> NonZeroU16 {
     let id = PID_GEN.fetch_add(1, Ordering::SeqCst);
-    log::info!("gen_packet_id: {}", id);
+    log::info!("gen_packet_id: {id}");
     if id < u16::MAX {
         NonZeroU16::new(id).unwrap()
     } else {
@@ -216,7 +216,7 @@ where
     Io: AsyncRead + AsyncWrite + Unpin,
 {
     while let Some(packet) = s.recv(Duration::from_secs(90)).await? {
-        log::info!("recv packet: {:?}", packet);
+        log::info!("recv packet: {packet:?}");
         match packet {
             v3::Packet::Connect(_c) => {
                 s.send_connect_ack(v3::ConnectAckReason::ConnectionAccepted, false).await?;
@@ -275,7 +275,7 @@ where
     Io: AsyncRead + AsyncWrite + Unpin,
 {
     while let Some(packet) = s.recv(Duration::from_secs(90)).await? {
-        log::info!("recv packet: {:?}", packet);
+        log::info!("recv packet: {packet:?}");
         match packet {
             v5::Packet::Connect(_c) => s.send_connect_ack(v5::ConnectAck::default()).await?,
             v5::Packet::Subscribe(sub) => {

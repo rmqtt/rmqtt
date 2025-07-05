@@ -107,10 +107,10 @@ impl SessionManager for StorageSessionManager {
                 let s1 = s.clone();
                 tokio::spawn(async move {
                     if let Err(e) = s1.save_to_db().await {
-                        log::error!("Save session info error to db, {:?}", e);
+                        log::error!("Save session info error to db, {e:?}");
                     }
                     if let Some(last_id) = last_id {
-                        log::debug!("Remove last offline session info from db, last_id: {:?}", last_id,);
+                        log::debug!("Remove last offline session info from db, last_id: {last_id:?}",);
 
                         let map = s1.storage_db.map(make_map_stored_key(last_id.to_string()), None).await;
                         let list = s1.storage_db.list(make_list_stored_key(last_id.to_string()), None).await;
@@ -118,9 +118,7 @@ impl SessionManager for StorageSessionManager {
                         if let Ok(map) = map {
                             if let Err(e) = map.clear().await {
                                 log::warn!(
-                                    "Remove last offline session info error from db, last_id: {:?}, {:?}",
-                                    last_id,
-                                    e
+                                    "Remove last offline session info error from db, last_id: {last_id:?}, {e:?}"
                                 );
                             }
                         }
@@ -128,9 +126,7 @@ impl SessionManager for StorageSessionManager {
                         if let Ok(list) = list {
                             if let Err(e) = list.clear().await {
                                 log::warn!(
-                                    "Remove last offline session info error from db, last_id: {:?}, {:?}",
-                                    last_id,
-                                    e
+                                    "Remove last offline session info error from db, last_id: {last_id:?}, {e:?}"
                                 );
                             }
                         }
@@ -216,7 +212,7 @@ impl StorageSession {
     #[inline]
     async fn _update_last_time(id: &Id, session_info_map: StorageMap, now: TimestampMillis) {
         if let Err(e) = session_info_map.insert(LAST_TIME, &now).await {
-            log::warn!("{:?} save last time to db error, {}", id, e);
+            log::warn!("{id:?} save last time to db error, {e}");
         }
     }
 
@@ -233,10 +229,10 @@ impl StorageSession {
     #[inline]
     async fn _delete_from_db(id: &Id, session_info_map: &StorageMap, offline_messages_list: &StorageList) {
         if let Err(e) = session_info_map.clear().await {
-            log::error!("{:?} remove session info error from db, {}", id, e);
+            log::error!("{id:?} remove session info error from db, {e}");
         }
         if let Err(e) = offline_messages_list.clear().await {
-            log::error!("{:?} remove session offline messages error from db, {}", id, e);
+            log::error!("{id:?} remove session offline messages error from db, {e}");
         }
     }
 
@@ -252,7 +248,7 @@ impl StorageSession {
     #[inline]
     async fn save_basic_info(&self) {
         if let Err(e) = self._save_basic_info().await {
-            log::error!("save basic info error, {:?}", e);
+            log::error!("save basic info error, {e:?}");
         }
     }
 
@@ -282,7 +278,7 @@ impl StorageSession {
             {
                 Ok(()) => {}
                 Err(e) => {
-                    log::error!("save subscriptions error, {}", e);
+                    log::error!("save subscriptions error, {e}");
                 }
             }
         });
@@ -291,7 +287,7 @@ impl StorageSession {
     #[inline]
     async fn _save_subscriptions(session_info_map: &StorageMap, subs: &SessionSubMap) {
         if let Err(e) = session_info_map.insert(SESSION_SUB_MAP, subs).await {
-            log::error!("save subscriptions error, {}", e);
+            log::error!("save subscriptions error, {e}");
         }
     }
 
@@ -307,7 +303,7 @@ impl StorageSession {
         let disconnect_info = self.inner.disconnect_info.read().await.clone();
         tokio::spawn(async move {
             if let Err(e) = Self::_save_disconnect_info(session_info_map, &disconnect_info).await {
-                log::error!("save disconnect info error, {}", e);
+                log::error!("save disconnect info error, {e}");
             }
         });
     }
@@ -334,7 +330,7 @@ impl StorageSession {
     ) {
         match session_info_map.expire(session_expiry_interval_millis).await {
             Err(e) => {
-                log::warn!("{:?} set map ttl to db error, {}", id, e);
+                log::warn!("{id:?} set map ttl to db error, {e}");
             }
             Ok(res) => {
                 log::debug!(
@@ -355,7 +351,7 @@ impl StorageSession {
     ) {
         match offline_messages_list.expire(session_expiry_interval_millis).await {
             Err(e) => {
-                log::warn!("{:?} set list ttl to db error, {}", id, e);
+                log::warn!("{id:?} set list ttl to db error, {e}");
             }
             Ok(res) => {
                 log::debug!(
@@ -382,7 +378,7 @@ impl StorageSession {
                 Self::_set_list_stored_key_ttl(id, &offline_messages_list, session_expiry_interval).await;
             }
             Err(e) => {
-                log::warn!("{:?} save offline messages error, {}", id, e)
+                log::warn!("{id:?} save offline messages error, {e}")
             }
         }
 
@@ -563,7 +559,7 @@ impl SessionLike for StorageSession {
             )
             .await
             {
-                log::error!("{:?} disconnected set error, {}", id, e)
+                log::error!("{id:?} disconnected set error, {e}")
             }
         });
 
@@ -583,7 +579,7 @@ impl SessionLike for StorageSession {
 
     #[inline]
     async fn keepalive(&self, ping: IsPing) {
-        log::debug!("ping: {}", ping);
+        log::debug!("ping: {ping}");
         if ping {
             self.update_last_time(true).await;
         } else {
@@ -759,7 +755,7 @@ impl StoredSessionInfos {
         offline_messages: Vec<OfflineMessageOptionType>,
     ) -> bool {
         let mut exist = false;
-        log::debug!("set_offline_messages id_key: {:?}", id_key);
+        log::debug!("set_offline_messages id_key: {id_key:?}");
         for (cid, f, p) in offline_messages.into_iter().flatten() {
             if let Some(mut entry) = self.0.get_mut(&cid) {
                 let storeds = entry.value_mut();
