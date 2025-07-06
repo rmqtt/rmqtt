@@ -831,13 +831,15 @@ impl Shared for DefaultShared {
                     .join_all()
                     .await;
                     for (_, reply) in replys {
-                        match reply? {
+                        let reply = reply?;
+                        match reply {
                             MessageReply::Error(e) => return Err(anyhow!(e)),
                             MessageReply::MessageGet(res) => {
                                 msgs.extend(res.into_iter());
                             }
                             _ => {
-                                unreachable!()
+                                log::error!("unreachable!(), reply: {reply:?}");
+                                return Err(anyhow!("unreachable!()"));
                             }
                         }
                     }
