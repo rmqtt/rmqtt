@@ -233,7 +233,12 @@ impl BridgeManager {
 
 async fn send_publish(scx: ServerContext, cfg: Arc<Bridge>, entry_idx: usize, f: From, p: BridgePublish) {
     log::debug!("from {f:?}, message: {p:?}");
-    let entry = if let Some(entry) = cfg.entries.get(entry_idx) { entry } else { unreachable!() };
+    let entry = if let Some(entry) = cfg.entries.get(entry_idx) {
+        entry
+    } else {
+        log::error!("unreachable!(), entry_idx: {entry_idx}, from: {f:?}, bridge publish: {p:?}");
+        return;
+    };
     let msg = match p {
         BridgePublish::V3(p) => rmqtt::codec::types::Publish {
             dup: false,
