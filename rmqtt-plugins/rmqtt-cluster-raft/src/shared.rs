@@ -75,7 +75,10 @@ impl Entry for ClusterLockEntry {
                         prev_node_id
                     );
                 }
-                _ => unreachable!(),
+                _ => {
+                    log::error!("unreachable!(), reply: {reply:?}");
+                    return Err(anyhow!("unreachable!()"));
+                }
             }
         }
         Ok(Box::new(ClusterLockEntry::new(
@@ -120,7 +123,7 @@ impl Entry for ClusterLockEntry {
                 }
                 _ => {
                     log::error!("unreachable!(), {reply:?}");
-                    unreachable!()
+                    return Err(anyhow!("unreachable!()"));
                 }
             }
         }
@@ -265,7 +268,10 @@ impl Entry for ClusterLockEntry {
                         log::warn!("Message::SubscriptionsGet, error: {e:?}");
                         None
                     }
-                    _ => unreachable!(),
+                    _ => {
+                        log::error!("unreachable!(), reply: {reply:?}");
+                        None
+                    }
                 }
             } else {
                 log::error!("get subscriptions error, grpc_client is not exist, node_id: {}", id.node_id,);
@@ -534,8 +540,8 @@ impl Shared for ClusterShared {
 
         for (node_id, reply) in replys {
             match reply {
-                Ok(reply) => {
-                    if let MessageReply::Data(data) = reply {
+                Ok(reply) => match reply {
+                    MessageReply::Data(data) => {
                         let RaftGrpcMessageReply::GetRaftStatus(o_status) =
                             RaftGrpcMessageReply::decode(&data)?;
                         let (running, leader_id) =
@@ -547,10 +553,20 @@ impl Shared for ClusterShared {
                             descr: None,
                         });
                         leader_ids.insert(leader_id);
-                    } else {
-                        unreachable!()
                     }
-                }
+                    MessageReply::Error(err) => {
+                        log::error!("Get RaftGrpcMessage::GetRaftStatus from other node, error: {err}");
+                        nodes_health_infos.push(NodeHealthStatus {
+                            node_id,
+                            running: false,
+                            leader_id: None,
+                            descr: Some(err),
+                        });
+                    }
+                    _ => {
+                        log::error!("unreachable!(), reply: {reply:?}")
+                    }
+                },
                 Err(e) => {
                     log::error!("Get RaftGrpcMessage::GetRaftStatus from other node, error: {e:?}");
                     nodes_health_infos.push(NodeHealthStatus {

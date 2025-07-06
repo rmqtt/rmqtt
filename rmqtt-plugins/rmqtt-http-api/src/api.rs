@@ -457,7 +457,10 @@ async fn _get_broker(
             let broker_info = match reply {
                 Ok(GrpcMessageReply::Data(msg)) => match MessageReply::decode(&msg)? {
                     MessageReply::BrokerInfo(broker_info) => broker_info.to_json(),
-                    _ => unreachable!(),
+                    _ => {
+                        log::error!("unreachable!(), msg: {msg:?}");
+                        serde_json::Value::String("unreachable!()".into())
+                    }
                 },
                 Ok(reply) => {
                     log::info!("Get GrpcMessage::BrokerInfo from other node({id}), reply: {reply:?}");
@@ -494,7 +497,10 @@ async fn _get_brokers(scx: &ServerContext, message_type: MessageType) -> Result<
             (_, Ok(GrpcMessageReply::Data(msg))) => match MessageReply::decode(&msg) {
                 Ok(MessageReply::BrokerInfo(broker_info)) => Ok(broker_info.to_json()),
                 Err(e) => Err(e),
-                _ => unreachable!(),
+                _ => {
+                    log::error!("unreachable!(), msg: {msg:?}");
+                    Err(anyhow!("unreachable!()"))
+                }
             },
             (id, Ok(reply)) => {
                 log::info!("Get GrpcMessage::BrokerInfo from other node({id}), reply: {reply:?}");
@@ -570,7 +576,10 @@ async fn _get_nodes(scx: &ServerContext, message_type: MessageType) -> Result<Ve
             (_, Ok(GrpcMessageReply::Data(msg))) => match MessageReply::decode(&msg) {
                 Ok(MessageReply::NodeInfo(node_info)) => Ok(node_info.to_json()),
                 Err(e) => Err(e),
-                _ => unreachable!(),
+                _ => {
+                    log::error!("unreachable!(), msg: {msg:?}");
+                    Err(anyhow!("unreachable!()"))
+                }
             },
             (id, Ok(reply)) => {
                 log::info!("Get GrpcMessage::NodeInfo from other node({id}), reply: {reply:?}");
@@ -610,7 +619,10 @@ pub(crate) async fn get_node(
             match reply {
                 Ok(GrpcMessageReply::Data(msg)) => match MessageReply::decode(&msg)? {
                     MessageReply::NodeInfo(node_info) => Ok(Some(node_info)),
-                    _ => unreachable!(),
+                    _ => {
+                        log::error!("unreachable!(), msg: {msg:?}");
+                        Err(anyhow!("unreachable!()"))
+                    }
                 },
                 Ok(reply) => {
                     log::info!("Get GrpcMessage::NodeInfo from other node({id}), reply: {reply:?}");
@@ -649,7 +661,10 @@ pub(crate) async fn get_nodes_all(
             (_, Ok(GrpcMessageReply::Data(msg))) => match MessageReply::decode(&msg) {
                 Ok(MessageReply::NodeInfo(node_info)) => Ok(Ok(node_info)),
                 Err(e) => Err(e),
-                _ => unreachable!(),
+                _ => {
+                    log::error!("unreachable!(), msg: {msg:?}");
+                    Err(anyhow!("unreachable!()"))
+                }
             },
             (id, Ok(reply)) => {
                 log::info!("Get GrpcMessage::NodeInfo from other node({id}), reply: {reply:?}");
@@ -721,7 +736,10 @@ async fn _get_client(
                 None => Err(anyhow!(MqttError::None)),
             },
             Err(e) => Err(e),
-            _ => unreachable!(),
+            _ => {
+                log::error!("unreachable!(), res: {res:?}");
+                Err(anyhow!("unreachable!()"))
+            }
         },
         reply => {
             log::info!("Subscribe GrpcMessage::ClientGet from other node, reply: {reply:?}");
@@ -832,7 +850,9 @@ async fn _search_clients(
                     MessageReply::ClientSearch(ress) => {
                         replys.extend(ress);
                     }
-                    _ => unreachable!(),
+                    _ => {
+                        log::error!("unreachable!(), res: {res:?}");
+                    }
                 },
                 Err(e) => {
                     log::warn!("Get GrpcMessage::ClientSearch, error: {e:?}");
@@ -1247,7 +1267,10 @@ async fn _subscribe_on_other_node(
     match reply {
         GrpcMessageReply::Data(res) => match MessageReply::decode(&res)? {
             MessageReply::Subscribe(ress) => Ok(ress),
-            _ => unreachable!(),
+            _ => {
+                log::error!("unreachable!(), res: {res:?}");
+                Err(anyhow!("unreachable!()"))
+            }
         },
         reply => {
             log::info!("Subscribe GrpcMessage::Subscribe from other node({node_id}), reply: {reply:?}");
@@ -1315,7 +1338,10 @@ async fn _unsubscribe_on_other_node(
     match reply {
         GrpcMessageReply::Data(res) => match MessageReply::decode(&res)? {
             MessageReply::Unsubscribe => Ok(()),
-            _ => unreachable!(),
+            _ => {
+                log::error!("unreachable!(), res: {res:?}");
+                Err(anyhow!("unreachable!()"))
+            }
         },
         reply => {
             log::info!("Unsubscribe GrpcMessage::Unsubscribe from other node({node_id}), reply: {reply:?}");
@@ -1369,7 +1395,10 @@ async fn _all_plugins(scx: &ServerContext, message_type: MessageType) -> Result<
                         }
                     }
                     Err(e) => serde_json::Value::String(e.to_string()),
-                    _ => unreachable!(),
+                    _ => {
+                        log::error!("unreachable!(), reply_msg: {reply_msg:?}");
+                        serde_json::Value::String("unreachable!()".into())
+                    }
                 },
                 Ok(_) => serde_json::Value::String("Invalid Result".into()),
                 Err(e) => serde_json::Value::String(e.to_string()),
@@ -1423,7 +1452,10 @@ async fn _node_plugins(
         match reply {
             GrpcMessageReply::Data(msg) => match MessageReply::decode(&msg)? {
                 MessageReply::GetPlugins(plugins) => plugins,
-                _ => unreachable!(),
+                _ => {
+                    log::error!("unreachable!(), msg: {msg:?}");
+                    return Err(anyhow!("unreachable!()"));
+                }
             },
             reply => {
                 log::info!("Get GrpcMessage::GetPlugins from other node({node_id}), reply: {reply:?}");
@@ -1481,7 +1513,10 @@ async fn _node_plugin_info(
         match reply {
             GrpcMessageReply::Data(msg) => match MessageReply::decode(&msg)? {
                 MessageReply::GetPlugin(plugin) => plugin,
-                _ => unreachable!(),
+                _ => {
+                    log::error!("unreachable!(), msg: {msg:?}");
+                    return Err(anyhow!("unreachable!()"));
+                }
             },
             reply => {
                 log::info!("Get GrpcMessage::GetPlugin from other node({node_id}), reply: {reply:?}");
@@ -1546,7 +1581,10 @@ async fn _node_plugin_config(
         match reply {
             GrpcMessageReply::Data(msg) => match MessageReply::decode(&msg)? {
                 MessageReply::GetPluginConfig(cfg) => cfg,
-                _ => unreachable!(),
+                _ => {
+                    log::error!("unreachable!(), msg: {msg:?}");
+                    return Err(anyhow!("unreachable!()"));
+                }
             },
             reply => {
                 log::info!("Get GrpcMessage::GetPluginConfig from other node({node_id}), reply: {reply:?}");
@@ -1604,7 +1642,10 @@ async fn _node_plugin_config_reload(
         match reply {
             GrpcMessageReply::Data(msg) => match MessageReply::decode(&msg)? {
                 MessageReply::ReloadPluginConfig => Ok(true),
-                _ => unreachable!(),
+                _ => {
+                    log::error!("unreachable!(), msg: {msg:?}");
+                    Err(anyhow!("unreachable!()"))
+                }
             },
             reply => {
                 log::info!(
@@ -1663,7 +1704,10 @@ async fn _node_plugin_load(
         match reply {
             GrpcMessageReply::Data(msg) => match MessageReply::decode(&msg)? {
                 MessageReply::LoadPlugin => Ok(true),
-                _ => unreachable!(),
+                _ => {
+                    log::error!("unreachable!(), msg: {msg:?}");
+                    Err(anyhow!("unreachable!()"))
+                }
             },
             reply => {
                 log::info!("Load GrpcMessage::LoadPlugin from other node({node_id}), reply: {reply:?}");
@@ -1720,7 +1764,10 @@ async fn _node_plugin_unload(
         match reply {
             GrpcMessageReply::Data(msg) => match MessageReply::decode(&msg)? {
                 MessageReply::UnloadPlugin(ok) => Ok(ok),
-                _ => unreachable!(),
+                _ => {
+                    log::error!("unreachable!(), msg: {msg:?}");
+                    Err(anyhow!("unreachable!()"))
+                }
             },
             reply => {
                 log::info!("Unload GrpcMessage::UnloadPlugin from other node({node_id}), reply: {reply:?}");
@@ -1780,7 +1827,10 @@ async fn _get_stats_sum(scx: &ServerContext, message_type: MessageType) -> Resul
                         );
                         stats_sum.add(*stats);
                     }
-                    _ => unreachable!(),
+                    _ => {
+                        log::error!("unreachable!(), msg: {msg:?}");
+                        return Err(anyhow!("unreachable!()"));
+                    }
                 },
                 (id, Ok(reply)) => {
                     log::info!("Get GrpcMessage::StateInfo from other node({id}), reply: {reply:?}");
@@ -1869,7 +1919,10 @@ pub(crate) async fn get_stats_one(
             match reply {
                 Ok(GrpcMessageReply::Data(msg)) => match MessageReply::decode(&msg)? {
                     MessageReply::StatsInfo(node_status, stats) => Ok(Some((node_status, stats))),
-                    _ => unreachable!(),
+                    _ => {
+                        log::error!("unreachable!(), msg: {msg:?}");
+                        Err(anyhow!("unreachable!()"))
+                    }
                 },
                 Ok(reply) => {
                     log::info!("Get GrpcMessage::StateInfo from other node, reply: {reply:?}");
@@ -1912,7 +1965,10 @@ pub(crate) async fn get_stats_all(
             let data = match reply {
                 (id, Ok(GrpcMessageReply::Data(msg))) => match MessageReply::decode(&msg)? {
                     MessageReply::StatsInfo(node_status, stats) => Ok((id, node_status, stats)),
-                    _ => unreachable!(),
+                    _ => {
+                        log::error!("unreachable!(), msg: {msg:?}");
+                        Err(anyhow!("unreachable!()"))
+                    }
                 },
                 (id, Ok(reply)) => {
                     log::info!("Get GrpcMessage::StateInfo from other node({id}), reply: {reply:?}");
@@ -2012,7 +2068,10 @@ pub(crate) async fn get_metrics_one(
             match reply {
                 Ok(GrpcMessageReply::Data(msg)) => match MessageReply::decode(&msg)? {
                     MessageReply::MetricsInfo(metrics) => Ok(Some(metrics)),
-                    _ => unreachable!(),
+                    _ => {
+                        log::error!("unreachable!(), msg: {msg:?}");
+                        Err(anyhow!("unreachable!()"))
+                    }
                 },
                 Ok(reply) => {
                     log::info!("Get GrpcMessage::MetricsInfo from other node, reply: {reply:?}");
@@ -2052,7 +2111,10 @@ pub(crate) async fn get_metrics_all(
             let data = match reply {
                 (id, Ok(GrpcMessageReply::Data(msg))) => match MessageReply::decode(&msg)? {
                     MessageReply::MetricsInfo(metrics) => Ok((id, metrics)),
-                    _ => unreachable!(),
+                    _ => {
+                        log::error!("unreachable!(), msg: {msg:?}");
+                        Err(anyhow!("unreachable!()"))
+                    }
                 },
                 (id, Ok(reply)) => {
                     log::info!("Get GrpcMessage::MetricsInfo from other node({id}), reply: {reply:?}");
@@ -2098,7 +2160,10 @@ async fn _get_metrics_sum(scx: &ServerContext, message_type: MessageType) -> Res
             match reply {
                 (_, Ok(GrpcMessageReply::Data(msg))) => match MessageReply::decode(&msg)? {
                     MessageReply::MetricsInfo(metrics) => metrics_sum.add(&metrics),
-                    _ => unreachable!(),
+                    _ => {
+                        log::error!("unreachable!(), msg: {msg:?}");
+                        return Err(anyhow!("unreachable!()"));
+                    }
                 },
                 (id, Ok(reply)) => {
                     log::info!("Get GrpcMessage::MetricsInfo from other node({id}), reply: {reply:?}");

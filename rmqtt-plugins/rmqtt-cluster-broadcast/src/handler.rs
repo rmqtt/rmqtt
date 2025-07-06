@@ -83,8 +83,8 @@ impl Handler for HookHandler {
                         )));
                         return (false, Some(new_acc));
                     }
-                    Message::GetRetains(_topic_filter) => {
-                        unreachable!()
+                    Message::GetRetains(topic_filter) => {
+                        log::error!("unreachable!(), Message::GetRetains({topic_filter})");
                     }
                     Message::Online(clientid) => {
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::Online(

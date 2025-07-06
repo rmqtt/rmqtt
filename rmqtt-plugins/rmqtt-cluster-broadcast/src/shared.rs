@@ -520,7 +520,9 @@ impl Shared for ClusterShared {
                     Err(e) => {
                         log::warn!("query_subscriptions, error: {e:?}");
                     }
-                    _ => unreachable!(),
+                    _ => {
+                        log::error!("unreachable!(), reply: {reply:?}");
+                    }
                 };
             } else {
                 break;
