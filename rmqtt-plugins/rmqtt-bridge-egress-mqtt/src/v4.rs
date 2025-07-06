@@ -108,7 +108,8 @@ impl Client {
             }
             ntex::rt::spawn(client.clone().cmd_loop(cmd_rx));
         } else {
-            unreachable!()
+            log::error!("unreachable!(), mqtt_ver: {:?}", client.cfg.mqtt_ver);
+            return Err(anyhow!("unreachable!()"));
         }
 
         Ok(CommandMailbox::new(client.cfg.clone(), client.client_id, cmd_tx))
