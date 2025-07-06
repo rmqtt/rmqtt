@@ -360,7 +360,7 @@ impl Plugin for ClusterPlugin {
                         log::warn!("ping error, {e:?}");
                     }
                     _ => {
-                        unreachable!()
+                        log::error!("unreachable!()");
                     }
                 },
                 Err(e) => {
