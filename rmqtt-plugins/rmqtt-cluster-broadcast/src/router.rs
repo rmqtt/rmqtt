@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -77,7 +78,9 @@ impl Router for ClusterRouter {
                     Err(e) => {
                         log::warn!("gets, error: {e:?}");
                     }
-                    _ => unreachable!(),
+                    _ => {
+                        log::error!("unreachable!(), reply: {reply:?}");
+                    }
                 };
             } else {
                 break;
@@ -101,7 +104,10 @@ impl Router for ClusterRouter {
         .into_iter()
         .map(|(_, replys)| match replys {
             Ok(MessageReply::RoutesGetBy(routes)) => Ok(routes),
-            Ok(_) => unreachable!(),
+            Ok(_) => {
+                log::error!("unreachable!(), replys: {replys:?}");
+                Err(anyhow!("unreachable!()"))
+            }
             Err(e) => Err(e),
         })
         .collect::<Result<Vec<_>>>()?;
