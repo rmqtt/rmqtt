@@ -108,7 +108,8 @@ impl Client {
             }
             ntex::rt::spawn(client.clone().cmd_loop(cmd_rx));
         } else {
-            unreachable!()
+            log::error!("unreachable!(), mqtt_ver: {:?}", client.cfg.mqtt_ver);
+            return Err(anyhow!("unreachable!()"));
         }
 
         Ok(CommandMailbox::new(client.cfg.clone(), client.client_id, cmd_tx))
@@ -132,10 +133,10 @@ impl Client {
                     if let Some(sink) = sink {
                         if matches!(p.qos, ntex_mqtt::QoS::AtMostOnce) {
                             if let Err(e) = sink.publish_pkt(p).send_at_most_once() {
-                                log::warn!("{:?}", e);
+                                log::warn!("{e:?}");
                             }
                         } else if let Err(e) = sink.publish_pkt(p).send_at_least_once().await {
-                            log::warn!("{:?}", e);
+                            log::warn!("{e:?}");
                         }
                     } else {
                         log::error!("mqtt sink is None");
@@ -206,7 +207,7 @@ impl Client {
             }))
             .await
         {
-            log::error!("Start ev_loop error! {:?}", e);
+            log::error!("Start ev_loop error! {e:?}");
         }
     }
 }

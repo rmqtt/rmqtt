@@ -51,7 +51,7 @@ impl BridgeKafkaEgressPlugin {
                     match cmd {
                         Command::Start => {
                             if let Err(e) = bridge_mgr.start().await {
-                                log::error!("start bridge error, {:?}", e);
+                                log::error!("start bridge error, {e:?}");
                             }
                         }
                         Command::Close => {
@@ -152,11 +152,11 @@ impl Handler for HookHandler {
             Parameter::MessagePublish(s, f, publish) => {
                 log::debug!("{:?} message publish, {:?}", s.map(|s| &s.id), publish);
                 if let Err(e) = self.bridge_mgr.send(f, publish).await {
-                    log::error!("{:?}", e);
+                    log::error!("{e}");
                 }
             }
             _ => {
-                log::error!("unimplemented, {:?}", param)
+                log::error!("unimplemented, {param:?}")
             }
         }
         (true, acc)

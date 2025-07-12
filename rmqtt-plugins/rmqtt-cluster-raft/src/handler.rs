@@ -46,7 +46,7 @@ impl Handler for HookHandler {
                     let msg = Message::Disconnected { id: s.id.clone() }.encode();
                     match msg {
                         Err(e) => {
-                            log::warn!("HookHandler, Message::Disconnected, message encode error, {:?}", e);
+                            log::warn!("HookHandler, Message::Disconnected, message encode error, {e:?}");
                         }
                         Ok(msg) => {
                             let raft_mailbox = self.raft_mailbox.clone();
@@ -71,8 +71,7 @@ impl Handler for HookHandler {
                                     .await
                                 {
                                     log::warn!(
-                                        "HookHandler, Message::Disconnected, raft mailbox send error, {:?}",
-                                        e
+                                        "HookHandler, Message::Disconnected, raft mailbox send error, {e:?}"
                                     );
                                 }
                             });
@@ -85,7 +84,7 @@ impl Handler for HookHandler {
                 let msg = Message::SessionTerminated { id: s.id.clone() }.encode();
                 match msg {
                     Err(e) => {
-                        log::warn!("HookHandler, Message::SessionTerminated, message encode error, {:?}", e);
+                        log::warn!("HookHandler, Message::SessionTerminated, message encode error, {e:?}");
                     }
                     Ok(msg) => {
                         let raft_mailbox = self.raft_mailbox.clone();
@@ -110,8 +109,7 @@ impl Handler for HookHandler {
                                 .await
                             {
                                 log::warn!(
-                                    "HookHandler, Message::SessionTerminated, raft mailbox send error, {:?}",
-                                    e
+                                    "HookHandler, Message::SessionTerminated, raft mailbox send error, {e:?}"
                                 );
                             }
                         });
@@ -120,7 +118,7 @@ impl Handler for HookHandler {
             }
 
             Parameter::GrpcMessageReceived(typ, msg) => {
-                log::debug!("GrpcMessageReceived, type: {}, msg: {:?}", typ, msg);
+                log::debug!("GrpcMessageReceived, type: {typ}, msg: {msg:?}");
                 if self.shared.message_type != *typ {
                     return (true, acc);
                 }
@@ -142,8 +140,7 @@ impl Handler for HookHandler {
                         return (false, Some(new_acc));
                     }
                     GrpcMessage::GetRetains(topic_filter) => {
-                        log::debug!("[GrpcMessage::GetRetains] topic_filter: {:?}", topic_filter);
-                        unreachable!()
+                        log::error!("unreachable!(), GrpcMessage::GetRetains({topic_filter})");
                     }
                     GrpcMessage::SubscriptionsGet(clientid) => {
                         let id = Id::from(self.scx.node.id(), clientid.clone());
@@ -156,7 +153,7 @@ impl Handler for HookHandler {
                     GrpcMessage::Data(data) => {
                         let new_acc = match RaftGrpcMessage::decode(data) {
                             Err(e) => {
-                                log::error!("Message::decode, error: {:?}", e);
+                                log::error!("Message::decode, error: {e:?}");
                                 HookResult::GrpcMessageReply(Ok(MessageReply::Error(e.to_string())))
                             }
                             Ok(RaftGrpcMessage::GetRaftStatus) => {
@@ -181,12 +178,12 @@ impl Handler for HookHandler {
                         return (false, Some(new_acc));
                     }
                     _ => {
-                        log::error!("unimplemented, {:?}", param)
+                        log::error!("unimplemented, {param:?}")
                     }
                 }
             }
             _ => {
-                log::error!("unimplemented, {:?}", param)
+                log::error!("unimplemented, {param:?}")
             }
         }
         (true, acc)

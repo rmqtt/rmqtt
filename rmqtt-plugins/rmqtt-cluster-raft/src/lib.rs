@@ -57,7 +57,7 @@ impl ClusterPlugin {
         let env_list_keys = ["node_grpc_addrs", "raft_peer_addrs"];
         let mut cfg = scx.plugins.read_config_with::<PluginConfig>(&name, &env_list_keys)?;
         cfg.merge(&scx.args);
-        log::info!("{} ClusterPlugin cfg: {:?}", name, cfg);
+        log::info!("{name} ClusterPlugin cfg: {cfg:?}");
 
         let exec = init_task_exec_queue(cfg.task_exec_queue_workers, cfg.task_exec_queue_max);
 
@@ -66,7 +66,7 @@ impl ClusterPlugin {
         let mut node_names = HashMap::default();
 
         let node_grpc_addrs = cfg.node_grpc_addrs.clone();
-        log::info!("node_grpc_addrs: {:?}", node_grpc_addrs);
+        log::info!("node_grpc_addrs: {node_grpc_addrs:?}");
         for node_addr in &node_grpc_addrs {
             if node_addr.id != scx.node.id() {
                 let batch_size = cfg.node_grpc_batch_size;
@@ -137,7 +137,7 @@ impl ClusterPlugin {
         let raft_laddr =
             if let Some(laddr) = cfg.laddr.as_ref() { laddr.to_string() } else { raft_node_addr.clone() };
 
-        log::info!("raft_laddr: {:?}, raft_node_addr: {:?}", raft_laddr, raft_node_addr);
+        log::info!("raft_laddr: {raft_laddr:?}, raft_node_addr: {raft_node_addr:?}");
 
         //verify the listening address
         if cfg.verify_addr {
@@ -160,16 +160,16 @@ impl ClusterPlugin {
                 }
             }
         }
-        log::info!("peer_addrs: {:?}", peer_addrs);
+        log::info!("peer_addrs: {peer_addrs:?}");
 
         let leader_info = match cfg.leader()? {
             Some(leader_info) => {
-                log::info!("Specify a leader: {:?}", leader_info);
+                log::info!("Specify a leader: {leader_info:?}");
                 if id == leader_info.id {
                     //First, check if the Leader exists.
                     let actual_leader_info = find_actual_leader(&raft, peer_addrs, 3).await?;
                     if actual_leader_info.is_some() {
-                        log::info!("Leader already exists, {:?}", actual_leader_info);
+                        log::info!("Leader already exists, {actual_leader_info:?}");
                     }
                     actual_leader_info
                 } else {
@@ -189,7 +189,7 @@ impl ClusterPlugin {
             None => {
                 log::info!("Search for the existing leader ... ");
                 let leader_info = raft.find_leader_info(peer_addrs).await.map_err(|e| anyhow!(e))?;
-                log::info!("The information about the located leader: {:?}", leader_info);
+                log::info!("The information about the located leader: {leader_info:?}");
                 leader_info
             }
         };
@@ -205,13 +205,11 @@ impl ClusterPlugin {
                 .expect("tokio runtime build failed");
 
             let runner = async move {
-                log::info!("leader_info: {:?}", leader_info);
+                log::info!("leader_info: {leader_info:?}");
                 let raft_handle = match leader_info {
                     Some((leader_id, leader_addr)) => {
                         log::info!(
-                            "running in follower mode, leader_id: {}, leader_addr: {}",
-                            leader_id,
-                            leader_addr
+                            "running in follower mode, leader_id: {leader_id}, leader_addr: {leader_addr}"
                         );
                         tokio::spawn(raft.join(id, raft_node_addr, Some(leader_id), leader_addr)).await
                     }
@@ -222,7 +220,7 @@ impl ClusterPlugin {
                 };
 
                 if let Err(_) | Ok(Err(_)) = raft_handle {
-                    log::error!("Raft service startup failed, {:?}", raft_handle);
+                    log::error!("Raft service startup failed, {raft_handle:?}");
                     tokio::time::sleep(Duration::from_millis(500)).await;
                     std::process::exit(-1);
                 }
@@ -271,7 +269,7 @@ impl ClusterPlugin {
                 tokio::time::sleep(unavailable_check_interval).await;
                 match raft_mailbox.status().await {
                     Err(e) => {
-                        log::error!("Error retrieving cluster status, {:?}", e);
+                        log::error!("Error retrieving cluster status, {e:?}");
                     }
                     Ok(s) => {
                         if s.available() {
@@ -281,9 +279,7 @@ impl ClusterPlugin {
                         } else {
                             continuous_unavailable_count += 1;
                             log::error!(
-                                "cluster node unavailable({}), node status: {:?}",
-                                continuous_unavailable_count,
-                                s
+                                "cluster node unavailable({continuous_unavailable_count}), node status: {s:?}"
                             );
                             if exit_on_node_unavailable
                                 && continuous_unavailable_count >= max_continuous_unavailable_count
@@ -361,14 +357,14 @@ impl Plugin for ClusterPlugin {
                         return Ok(());
                     }
                     message::MessageReply::Error(e) => {
-                        log::warn!("ping error, {:?}", e);
+                        log::warn!("ping error, {e:?}");
                     }
                     _ => {
-                        unreachable!()
+                        log::error!("unreachable!()");
                     }
                 },
                 Err(e) => {
-                    log::warn!("ping error, {:?}", e);
+                    log::warn!("ping error, {e:?}");
                 }
             }
             sleep(Duration::from_millis(500)).await;
@@ -426,14 +422,14 @@ async fn parse_addr(addr: &str) -> Result<SocketAddr> {
         match addr.to_socket_addrs() {
             Ok(mut to_socket_addrs) => {
                 if let Some(a) = to_socket_addrs.next() {
-                    log::info!("Round: {}, parse_addr({:?}), addr is {:?}", i, addr, a);
+                    log::info!("Round: {i}, parse_addr({addr:?}), addr is {a:?}");
                     return Ok(a);
                 } else {
-                    log::warn!("Round: {}, parse_addr({:?}), next is None", i, addr);
+                    log::warn!("Round: {i}, parse_addr({addr:?}), next is None");
                 }
             }
             Err(e) => {
-                log::warn!("Round: {}, {:?}", i, e);
+                log::warn!("Round: {i}, {e:?}");
             }
         }
         tokio::time::sleep(Duration::from_millis((rand::random::<u64>() % 300) + 500)).await;
@@ -452,7 +448,7 @@ async fn find_actual_leader(
         if actual_leader_info.is_some() {
             break;
         }
-        log::info!("Leader not found, rounds: {}", i);
+        log::info!("Leader not found, rounds: {i}");
         sleep(Duration::from_millis(500)).await;
     }
     Ok(actual_leader_info)

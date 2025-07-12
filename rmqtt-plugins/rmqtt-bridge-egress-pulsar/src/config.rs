@@ -132,7 +132,7 @@ impl Remote {
         D: Deserializer<'de>,
     {
         let json_cfg: serde_json::Value = serde_json::Value::deserialize(deserializer)?;
-        log::debug!("json_cfg: {:?}", json_cfg);
+        log::debug!("json_cfg: {json_cfg:?}");
         let ordering_key = if let Some(key) = json_cfg.as_str() {
             let ordering_key = match key {
                 "clientid" => OrderingKey::Clientid,
@@ -141,7 +141,7 @@ impl Remote {
                     let uniform = Uniform::new_inclusive(b'a', b'z').map_err(de::Error::custom)?;
                     OrderingKey::Random(uniform, ORDERINGKEY_RANDOM_DEF_LEN)
                 }
-                _ => return Err(de::Error::custom(format!("Invalid OrderingKey, {:?}", key))),
+                _ => return Err(de::Error::custom(format!("Invalid OrderingKey, {key:?}"))),
             };
             Some(ordering_key)
         } else if let Some(obj) = json_cfg.as_object() {
@@ -156,7 +156,7 @@ impl Remote {
                     let uniform = Uniform::new_inclusive(b'a', b'z').map_err(de::Error::custom)?;
                     OrderingKey::Random(uniform, if n > 0 { n } else { ORDERINGKEY_RANDOM_DEF_LEN })
                 }
-                _ => return Err(de::Error::custom(format!("Invalid OrderingKey, {:?}", obj))),
+                _ => return Err(de::Error::custom(format!("Invalid OrderingKey, {obj:?}"))),
             };
             Some(ordering_key)
         } else {

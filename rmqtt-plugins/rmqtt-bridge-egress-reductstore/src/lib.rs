@@ -53,7 +53,7 @@ impl BridgeReductstoreEgressPlugin {
                     match cmd {
                         Command::Start => loop {
                             if let Err(e) = bridge_mgr.start().await {
-                                log::error!("start bridge-egress-reductstore error, {:?}", e);
+                                log::error!("start bridge-egress-reductstore error, {e:?}");
                                 tokio::time::sleep(Duration::from_secs(3)).await;
                             } else {
                                 log::info!("start bridge-egress-reductstore ok.");
@@ -148,11 +148,11 @@ impl Handler for HookHandler {
             Parameter::MessagePublish(s, f, publish) => {
                 log::debug!("{:?} message publish, {:?}", s.map(|s| &s.id), publish);
                 if let Err(e) = self.bridge_mgr.send(f, publish).await {
-                    log::error!("{:?}", e);
+                    log::error!("{e:?}");
                 }
             }
             _ => {
-                log::error!("unimplemented, {:?}", param)
+                log::error!("unimplemented, {param:?}")
             }
         }
         (true, acc)

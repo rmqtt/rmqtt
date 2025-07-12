@@ -222,7 +222,7 @@ impl DefaultRouter {
             //select a subscriber from shared subscribe groups
             #[cfg(feature = "shared-subscription")]
             for (group, mut s_subs) in groups.drain() {
-                log::debug!("group: {}, s_subs: {:?}", group, s_subs);
+                log::debug!("group: {group}, s_subs: {s_subs:?}");
                 let group_cids = s_subs.iter().map(|(_, cid, _, _, _)| cid.clone()).collect();
                 if let Some((idx, is_online)) =
                     self.context().extends.shared_subscription().await.choice(self.context(), &s_subs).await
@@ -243,7 +243,7 @@ impl DefaultRouter {
             rels_map.insert(node_id, collector.into());
         }
 
-        log::debug!("{:?} this_subs: {:?}", topic_name, rels_map);
+        log::debug!("{topic_name:?} this_subs: {rels_map:?}");
         Ok(rels_map)
     }
 
@@ -446,7 +446,7 @@ impl Router for DefaultRouter {
         let res = if let Some(mut rels) = self.relations.get_mut(topic_filter) {
             let remove_enable = rels.value().get(&id.client_id).map(|(s_id, _)| {
                 if *s_id != id {
-                    log::debug!("remove, input id not the same, input id: {:?}, current id: {:?}, topic_filter: {}", id, s_id, topic_filter);
+                    log::debug!("remove, input id not the same, input id: {id:?}, current id: {s_id:?}, topic_filter: {topic_filter}");
                     false
                 } else {
                     true

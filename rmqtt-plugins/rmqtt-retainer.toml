@@ -27,4 +27,4 @@ max_payload_size = "1MB"
 
 # TTL for retained messages. Set to 0 for no expiration.
 # If not specified, the message expiration time will be used by default.
-retained_message_ttl = "1m"
+retained_message_ttl = "0m"

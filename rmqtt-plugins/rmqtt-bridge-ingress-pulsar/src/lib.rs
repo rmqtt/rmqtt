@@ -58,7 +58,7 @@ impl BridgePulsarIngressPlugin {
                             log::info!("start bridge-ingress-pulsar ok.");
                         }
                         SystemCommand::Restart => {
-                            log::info!("{} restart bridge-ingress-pulsar ...", name);
+                            log::info!("{name} restart bridge-ingress-pulsar ...");
                             bridge_mgr.stop().await;
                             tokio::time::sleep(Duration::from_millis(3000)).await;
                             bridge_mgr.start(sys_cmd_tx.clone()).await;

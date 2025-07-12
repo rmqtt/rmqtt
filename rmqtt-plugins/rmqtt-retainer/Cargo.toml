@@ -1,6 +1,6 @@
 [package]
 name = "rmqtt-retainer"
-version = "0.1.0"
+version = "0.1.1"
 description = "When a client publishes with the retain flag, the message is saved and sent to future subscribers matching the topic."
 repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-retainer"
 edition.workspace = true
@@ -10,10 +10,19 @@ license.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[package.metadata.docs.rs]
+all-features = true
+
+[features]
+default = []
+ram = []
+sled = ["rmqtt-storage/sled"]
+redis = ["rmqtt-storage/redis"]
+
 [dependencies]
 rmqtt = { workspace = true, features = ["plugin", "retain"] }
-rmqtt-storage = { version = "0.5.2", default-features = false, features = ["ttl", "len"]}
-#rmqtt-storage = { path = "../../../rmqtt-storage", default-features = false, features = ["ttl", "len"]}
+rmqtt-storage = { package = "rmqtt-storage", version = "0.7", default-features = false, features = ["ttl", "len"], optional = true}
+#rmqtt-storage = { path = "../../../rmqtt-storage", default-features = false, features = ["ttl", "len"], optional = true}
 futures.workspace = true
 futures-time.workspace = true
 tokio.workspace = true

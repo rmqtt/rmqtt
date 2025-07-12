@@ -163,7 +163,7 @@ where
             //     e.to_string(),
             //     unavailable_stats().rate()
             // );
-            log::warn!("{:?} Connection Refused, handshake error, reason: {:?}", id, e);
+            log::warn!("{id:?} Connection Refused, handshake error, reason: {e:?}");
             Err(e)
         }
         Err(e) => {
@@ -245,7 +245,7 @@ async fn _handshake(
 
     let connect_info = Arc::new(connect_info);
 
-    log::debug!("{:?} offline_info: {:?}", id, offline_info);
+    log::debug!("{id:?} offline_info: {offline_info:?}");
     let created_at =
         if let Some(ref offline_info) = offline_info { offline_info.created_at } else { connected_at };
 

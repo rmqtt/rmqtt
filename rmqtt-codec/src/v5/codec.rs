@@ -132,9 +132,7 @@ impl Decoder for Codec {
                             let max_in_size = self.max_in_size.get();
                             if max_in_size != 0 && max_in_size < remaining_length {
                                 log::debug!(
-                                    "MaxSizeExceeded max-size: {}, remaining: {}",
-                                    max_in_size,
-                                    remaining_length
+                                    "MaxSizeExceeded max-size: {max_in_size}, remaining: {remaining_length}"
                                 );
                                 return Err(DecodeError::MaxSizeExceeded);
                             }

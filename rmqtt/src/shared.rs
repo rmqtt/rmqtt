@@ -175,7 +175,7 @@ pub trait Shared: Sync + Send {
 
     #[inline]
     fn node_name(&self, id: NodeId) -> String {
-        format!("{}@127.0.0.1", id)
+        format!("{id}@127.0.0.1")
     }
 
     #[inline]
@@ -373,7 +373,7 @@ impl Entry for LockEntry {
                 match s.to_offline_info().await {
                     Ok(offline_info) => Ok(OfflineSession::Exist(Some(offline_info))),
                     Err(e) => {
-                        log::error!("get offline info error, {:?}", e);
+                        log::error!("get offline info error, {e:?}");
                         Ok(OfflineSession::Exist(None))
                     }
                 }
@@ -535,18 +535,14 @@ impl DefaultShared {
             .flat_map(|subs| {
                 subs.iter().flat_map(|(tf, cid, _, _, group_shared)| {
                     log::debug!(
-                        "_collect_subscription_client_ids, tf: {:?}, cid {:?}, group_shared: {:?}",
-                        tf,
-                        cid,
-                        group_shared
+                        "_collect_subscription_client_ids, tf: {tf:?}, cid {cid:?}, group_shared: {group_shared:?}"
                     );
                     if let Some((group, _, cids)) = group_shared {
                         cids.iter()
                             .map(|g_cid| {
                                 if g_cid == cid {
                                     log::debug!(
-                                        "_collect_subscription_client_ids is group_shared {:?}",
-                                        g_cid
+                                        "_collect_subscription_client_ids is group_shared {g_cid:?}"
                                     );
                                     (g_cid.clone(), Some((tf.clone(), group.clone())))
                                 } else {
@@ -560,7 +556,7 @@ impl DefaultShared {
                 })
             })
             .collect::<Vec<_>>();
-        log::debug!("_collect_subscription_client_ids sub_client_ids: {:?}", sub_client_ids);
+        log::debug!("_collect_subscription_client_ids sub_client_ids: {sub_client_ids:?}");
         if sub_client_ids.is_empty() {
             None
         } else {
@@ -585,7 +581,7 @@ impl DefaultShared {
             (None, Some(o_sub_client_ids)) => Some(o_sub_client_ids),
             (None, None) => None,
         };
-        log::debug!("_merge_subscription_client_ids sub_client_ids: {:?}", sub_client_ids);
+        log::debug!("_merge_subscription_client_ids sub_client_ids: {sub_client_ids:?}");
         sub_client_ids.filter(|sub_client_ids| !sub_client_ids.is_empty())
     }
 }
@@ -625,7 +621,7 @@ impl Shared for DefaultShared {
             self.forwards_to(from, &publish, relations).await?;
         }
         if !relations_map.is_empty() {
-            log::warn!("forwards, relations_map:{:?}", relations_map);
+            log::warn!("forwards, relations_map:{relations_map:?}");
         }
         Ok(sub_client_ids)
     }
@@ -835,13 +831,15 @@ impl Shared for DefaultShared {
                     .join_all()
                     .await;
                     for (_, reply) in replys {
-                        match reply? {
+                        let reply = reply?;
+                        match reply {
                             MessageReply::Error(e) => return Err(anyhow!(e)),
                             MessageReply::MessageGet(res) => {
                                 msgs.extend(res.into_iter());
                             }
                             _ => {
-                                unreachable!()
+                                log::error!("unreachable!(), reply: {reply:?}");
+                                return Err(anyhow!("unreachable!()"));
                             }
                         }
                     }

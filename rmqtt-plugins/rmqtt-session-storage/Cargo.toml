@@ -1,6 +1,6 @@
 [package]
 name = "rmqtt-session-storage"
-version = "0.1.1"
+version = "0.1.2"
 description = "Connection information, subscription relationships, offline messages, and inflight messages will be stored."
 repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-session-storage"
 edition.workspace = true
@@ -8,13 +8,21 @@ authors.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[package.metadata.docs.rs]
+all-features = true
+
+[features]
+default = ["rmqtt-storage"]
+sled = ["rmqtt-storage/sled"]
+redis = ["rmqtt-storage/redis"]
+redis-cluster = ["redis", "rmqtt-storage/redis-cluster"]
 
 [dependencies]
 rmqtt = { workspace = true, features = ["plugin"] }
 serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["sync", "time", "rt-multi-thread"] }
-rmqtt-storage = { version = "0.6", default-features = false, features = ["ttl"]}
-#rmqtt-storage = { path = "../../../rmqtt-storage", default-features = false, features = ["ttl"]}
+rmqtt-storage = { version = "0.7", default-features = false, features = ["ttl"] , optional = true }
+#rmqtt-storage = { path = "../../../rmqtt-storage", default-features = false, features = ["ttl"], optional = true}
 futures.workspace = true
 async-trait.workspace = true
 log.workspace = true

@@ -1,6 +1,6 @@
 [package]
 name = "rmqtt-bridge-egress-mqtt"
-version = "0.1.1"
+version = "0.1.2"
 description = "Bridge remote MQTT in egress mode."
 repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-bridge-egress-mqtt"
 edition.workspace = true

@@ -208,7 +208,7 @@ impl PluginConfig {
                 } else if let Some(true) = val.as_bool() {
                     vec![parse(claim.as_str(), val)]
                 } else {
-                    return Err(de::Error::custom(format!("invalid value, {}:{}", claim, val)));
+                    return Err(de::Error::custom(format!("invalid value, {claim}:{val}")));
                 };
                 for (exp_enable, nbf_enable, _) in items.iter() {
                     if *exp_enable && !validate_exp_enable {

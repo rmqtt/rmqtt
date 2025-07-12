@@ -113,7 +113,7 @@ impl WebHookPlugin {
                     match rx.recv().await {
                         Some(msg) => {
                             chan_queue_count.fetch_sub(1, Ordering::SeqCst);
-                            log::trace!("received web-hook Message: {:?}", msg);
+                            log::trace!("received web-hook Message: {msg:?}");
                             if exec.is_full() {
                                 loop {
                                     time::sleep(Duration::from_millis(1)).await;
@@ -171,7 +171,7 @@ impl WebHookPlugin {
             )
             .await
             {
-                log::warn!("Failed to build the web-hook message, {:?}", e);
+                log::warn!("Failed to build the web-hook message, {e:?}");
             }
         }
         .spawn(exec)
@@ -426,7 +426,7 @@ impl WebHookHandler {
                     } else {
                         let new_body = Arc::new(new_body);
                         for url in urls {
-                            log::debug!("action: {}, url: {:?}", action, url);
+                            log::debug!("action: {action}, url: {url:?}");
                             hook_writes.push(Self::write(
                                 httpc,
                                 writers.clone(),
@@ -476,7 +476,7 @@ impl WebHookHandler {
             let data = match serde_json::to_vec(body.as_ref()) {
                 Ok(data) => data,
                 Err(e) => {
-                    log::warn!("write hook message failure, {:?}", e);
+                    log::warn!("write hook message failure, {e:?}");
                     return;
                 }
             };
@@ -513,7 +513,7 @@ impl WebHookHandler {
         .await
         {
             fails.current_inc();
-            log::warn!("send web hook message failure, {:?}", e);
+            log::warn!("send web hook message failure, {e:?}");
         }
     }
 
@@ -523,7 +523,7 @@ impl WebHookHandler {
         body: Arc<serde_json::Value>,
         timeout: Duration,
     ) -> Result<()> {
-        log::debug!("http_request, timeout: {:?}, url: {}, body: {}", timeout, url, body);
+        log::debug!("http_request, timeout: {timeout:?}, url: {url}, body: {body}");
 
         let resp = httpc
             .request(reqwest::Method::POST, url)
@@ -754,7 +754,7 @@ impl Handler for WebHookHandler {
                 }
             }
             _ => {
-                log::error!("parameter is: {:?}", param);
+                log::error!("parameter is: {param:?}");
                 None
             }
         };
@@ -764,7 +764,7 @@ impl Handler for WebHookHandler {
         if let Some((topic, body)) = bodys {
             let tx = self.tx.read().await.clone();
             if let Err(e) = tx.send((typ, topic, body)).await {
-                log::warn!("web-hook send error, typ: {:?}, {:?}", typ, e);
+                log::warn!("web-hook send error, typ: {typ:?}, {e:?}");
             } else {
                 self.chan_queue_count.fetch_add(1, Ordering::SeqCst);
             }

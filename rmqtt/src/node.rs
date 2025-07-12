@@ -116,7 +116,7 @@ impl Node {
             let runner = async {
                 if let Err(e) = GrpcServer::new(scx).listen_and_serve(server_addr, reuseaddr, reuseport).await
                 {
-                    log::error!("listen and serve failure, {:?}, laddr: {:?}", e, server_addr);
+                    log::error!("listen and serve failure, {e:?}, laddr: {server_addr:?}");
                 }
             };
             rt.block_on(runner)
@@ -146,7 +146,7 @@ impl Node {
     pub async fn broker_info(&self, scx: &ServerContext) -> BrokerInfo {
         let node_id = self.id;
         BrokerInfo {
-            version: format!("rmqtt/{}-{}", VERSION, RUSTC_BUILD_TIME),
+            version: format!("rmqtt/{VERSION}-{RUSTC_BUILD_TIME}"),
             rustc_version: RUSTC_VERSION.to_string(),
             uptime: self.uptime(),
             sysdescr: "RMQTT Broker".into(),
@@ -192,7 +192,7 @@ impl Node {
             node_id,
             node_name: self.name(scx, node_id).await, //Runtime::instance().extends.shared().await.node_name(node_id),
             uptime: self.uptime(),
-            version: format!("rmqtt/{}-{}", VERSION, RUSTC_BUILD_TIME),
+            version: format!("rmqtt/{VERSION}-{RUSTC_BUILD_TIME}"),
             rustc_version: RUSTC_VERSION.to_string(),
         }
     }
@@ -401,5 +401,5 @@ pub fn to_uptime(uptime: i64) -> String {
     let uptime = uptime / 60;
     let uptime_hours = uptime % 24;
     let uptime_days = uptime / 24;
-    format!("{} days {} hours, {} minutes, {} seconds", uptime_days, uptime_hours, uptime_minus, uptime_secs)
+    format!("{uptime_days} days {uptime_hours} hours, {uptime_minus} minutes, {uptime_secs} seconds")
 }

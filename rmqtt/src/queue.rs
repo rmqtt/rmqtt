@@ -124,7 +124,7 @@ impl<T> Sender<T> {
                 }
             }
         } else if let Err(e) = self.tx.clone().try_send(()) {
-            log::warn!("channel is full, {:?}", e);
+            log::warn!("channel is full, {e:?}");
         }
         Ok(())
     }
@@ -160,7 +160,7 @@ impl Limiter {
     pub fn new(burst: NonZeroU32, replenish_n_per: Duration) -> Self {
         let period = replenish_n_per.as_nanos() as u64 / burst.get() as u64;
         let period = if period > 0 { Duration::from_nanos(period) } else { Duration::from_nanos(1) };
-        log::debug!("burst: {:?}, {:?}, {:?}", burst, replenish_n_per, period);
+        log::debug!("burst: {burst:?}, {replenish_n_per:?}, {period:?}");
         let q = if let Some(q) = Quota::with_period(period) { q.allow_burst(burst) } else { unreachable!() };
         let l = RateLimiter::direct(q);
         Self { l }
@@ -173,7 +173,7 @@ impl Limiter {
         (0..queue.len()).for_each(|_| {
             if let Err(e) = tx.clone().try_send(()) {
                 //send offline message
-                log::warn!("channel is full, {:?}", e);
+                log::warn!("channel is full, {e:?}");
             }
         });
         (Sender { tx, queue, policy_fn: Arc::new(|_v: &T| -> Policy { Policy::Current }) }, s)
