@@ -136,8 +136,9 @@ where
     //     return Err(MqttError::ServiceUnavailable.into());
     // }
 
+    let now = std::time::Instant::now();
     let exec = scx.handshake_exec.get(sink.cfg.laddr.port(), &sink.cfg);
-    match _handshake(scx.clone(), id.clone(), c, sink.cfg.clone()).spawn(&exec).result().await {
+    match _handshake(scx.clone(), id.clone(), c, sink.cfg.clone(), now).spawn(&exec).result().await {
         Ok(Ok((state, keep_alive))) => {
             let session_present = state
                 .session_present()
@@ -176,11 +177,19 @@ async fn _handshake(
     id: Id,
     connect: Box<ConnectV3>,
     listen_cfg: ListenerConfig,
+    hdshk_start: std::time::Instant,
 ) -> std::result::Result<(SessionState, u16), (ConnectAckReason, Error)> {
     let connect_info = ConnectInfo::V3(id.clone(), connect);
 
     //hook, client connect
     let _ = scx.extends.hook_mgr().client_connect(&connect_info).await;
+
+    if hdshk_start.elapsed() > listen_cfg.handshake_timeout {
+        return Err((
+            ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable),
+            anyhow!("handshake timeout"),
+        ));
+    }
 
     //check clientid len
     if listen_cfg.max_clientid_len > 0 && id.client_id.len() > listen_cfg.max_clientid_len {
