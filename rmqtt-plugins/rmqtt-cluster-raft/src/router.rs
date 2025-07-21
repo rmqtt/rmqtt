@@ -7,6 +7,7 @@ use std::time::Duration;
 use anyhow::anyhow;
 use async_trait::async_trait;
 use backoff::{future::retry, ExponentialBackoff};
+use rayon::prelude::*;
 use rust_box::task_exec_queue::{SpawnExt, TaskExecQueue};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -22,6 +23,7 @@ use rmqtt::{
     Result,
 };
 use rmqtt_raft::{Error, Mailbox, Result as RaftResult, Store};
+use tokio::task::{block_in_place, spawn_blocking};
 
 use super::config::Compression;
 use super::message::{Message, MessageReply};
@@ -356,110 +358,175 @@ impl Store for ClusterRouter {
     async fn snapshot(&self) -> RaftResult<Vec<u8>> {
         log::debug!("create snapshot ...");
         let now = std::time::Instant::now();
-        let relations = &self
-            .inner
-            .relations
-            .iter()
-            .map(|entry| (entry.key().clone(), entry.value().clone()))
-            .collect::<Vec<_>>();
-        let client_states = &self
-            .client_states
-            .iter()
-            .map(|entry| (entry.key().clone(), entry.value().clone()))
-            .collect::<Vec<_>>();
 
-        let topics_count = self.inner.topics_count.as_ref();
-        let relations_count = self.inner.relations_count.as_ref();
-
-        let snapshot = bincode::serialize(&(relations, client_states, topics_count, relations_count))
-            .map_err(|e| Error::Other(e))?;
-        log::info!(
-            "create snapshot, len: {},  topics_count: {:?}, relations_count: {:?}, cost time: {:?}",
-            snapshot.len(),
-            topics_count,
-            relations_count,
-            now.elapsed()
-        );
-
-        let now = std::time::Instant::now();
-        let compressed = match self.compression {
-            Some(Compression::Zstd) => zstd::encode_all(&*snapshot, 1)?,
-            Some(Compression::Lz4) => {
-                use lz4_flex::block::compress_prepend_size;
-                compress_prepend_size(&snapshot)
-            }
-            Some(Compression::Zlib) => {
-                use flate2::write::ZlibEncoder;
-                let mut e = ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
-                e.write_all(&snapshot)?;
-                e.finish()?
-            }
-            Some(Compression::Snappy) => {
-                use snap::write;
-                let mut wtr = write::FrameEncoder::new(vec![]);
-                wtr.write_all(&snapshot)?;
-                wtr.into_inner().map_err(|e| Error::Anyhow(e.into()))?
-            }
-            None => snapshot,
+        let compress = |compression: Option<Compression>, data: Vec<u8>| -> RaftResult<Vec<u8>> {
+            let compressed = match compression {
+                Some(Compression::Zstd) => zstd::encode_all(&*data, 1)?,
+                Some(Compression::Lz4) => {
+                    use lz4_flex::block::compress_prepend_size;
+                    compress_prepend_size(&data)
+                }
+                Some(Compression::Zlib) => {
+                    use flate2::write::ZlibEncoder;
+                    let mut e = ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
+                    e.write_all(&data)?;
+                    e.finish()?
+                }
+                Some(Compression::Snappy) => {
+                    use snap::write;
+                    let mut wtr = write::FrameEncoder::new(vec![]);
+                    wtr.write_all(&data)?;
+                    wtr.into_inner().map_err(|e| Error::Anyhow(e.into()))?
+                }
+                None => data,
+            };
+            Ok(compressed)
         };
 
-        if self.compression.is_some() {
-            log::info!(
-                "create snapshot, compressed({:?}) len: {}, cost time: {:?}",
-                self.compression,
-                compressed.len(),
-                now.elapsed()
-            );
-        }
+        let encode_with_length_prefix = |data: &[u8], out: &mut Vec<u8>| {
+            let len = data.len();
+            out.extend(&len.to_le_bytes());
+            out.extend(data);
+        };
 
-        Ok(compressed)
+        let compression = self.compression.clone();
+        let relations = self.inner.relations.clone();
+        let client_states = self.client_states.clone();
+        let topics_count = self.inner.topics_count.clone();
+        let relations_count = self.inner.relations_count.clone();
+        let snapshot: Vec<u8> = spawn_blocking(move || {
+            let relations = relations
+                .iter()
+                .par_bridge()
+                .map(|entry| (entry.key().clone(), entry.value().clone()))
+                .collect::<Vec<_>>();
+
+            let client_states = client_states
+                .iter()
+                .par_bridge()
+                .map(|entry| (entry.key().clone(), entry.value().clone()))
+                .collect::<Vec<_>>();
+
+            let (relations_bin, client_states_bin) = rayon::join(
+                || bincode::serialize(&relations).map(|data| compress(compression, data)),
+                || bincode::serialize(&client_states).map(|data| compress(compression, data)),
+            );
+            let relations_bin = relations_bin??;
+            let client_states_bin = client_states_bin??;
+            let topics_count_bin = bincode::serialize(&topics_count.as_ref())?;
+            let relations_count_bin = bincode::serialize(&relations_count.as_ref())?;
+
+            let mut snapshot = Vec::new();
+            encode_with_length_prefix(&relations_bin, &mut snapshot);
+            encode_with_length_prefix(&client_states_bin, &mut snapshot);
+            encode_with_length_prefix(&topics_count_bin, &mut snapshot);
+            encode_with_length_prefix(&relations_count_bin, &mut snapshot);
+
+            Ok(snapshot)
+        })
+        .await
+        .map_err(|e| Error::Anyhow(e.into()))?
+        .map_err(|e: Error| Error::Anyhow(e.into()))?;
+
+        log::info!("create snapshot, len: {}, cost time: {:?}", snapshot.len(), now.elapsed());
+
+        Ok(snapshot)
     }
 
     async fn restore(&mut self, snapshot: &[u8]) -> RaftResult<()> {
         log::info!("restore, snapshot.len: {}", snapshot.len());
         let now = std::time::Instant::now();
-
-        let uncompressed = match self.compression {
-            Some(Compression::Zstd) => Cow::Owned(zstd::decode_all(snapshot)?),
-            Some(Compression::Lz4) => {
-                use lz4_flex::block::decompress_size_prepended;
-                let buf = decompress_size_prepended(snapshot).map_err(|e| Error::Other(Box::new(e)))?;
-                Cow::Owned(buf)
-            }
-            Some(Compression::Zlib) => {
-                use flate2::bufread::ZlibDecoder;
-                let mut z = ZlibDecoder::new(snapshot);
-                let mut buf = Vec::new();
-                z.read_to_end(&mut buf)?;
-                Cow::Owned(buf)
-            }
-            Some(Compression::Snappy) => {
-                let mut buf = Vec::new();
-                snap::read::FrameDecoder::new(snapshot).read_to_end(&mut buf)?;
-                Cow::Owned(buf)
-            }
-            None => Cow::Borrowed(snapshot),
-        };
-
-        if self.compression.is_some() {
-            log::info!(
-                "restore, uncompressed({:?}) len: {}, cost time: {:?}",
-                self.compression,
-                uncompressed.len(),
-                now.elapsed()
-            );
+        let compression = self.compression.clone();
+        fn uncompress(compression: Option<Compression>, data: &[u8]) -> RaftResult<Cow<[u8]>> {
+            let uncompr = match compression {
+                Some(Compression::Zstd) => Cow::Owned(zstd::decode_all(data)?),
+                Some(Compression::Lz4) => {
+                    use lz4_flex::block::decompress_size_prepended;
+                    let buf = decompress_size_prepended(data).map_err(|e| Error::Other(Box::new(e)))?;
+                    Cow::Owned(buf)
+                }
+                Some(Compression::Zlib) => {
+                    use flate2::bufread::ZlibDecoder;
+                    let mut z = ZlibDecoder::new(data);
+                    let mut buf = Vec::new();
+                    z.read_to_end(&mut buf)?;
+                    Cow::Owned(buf)
+                }
+                Some(Compression::Snappy) => {
+                    let mut buf = Vec::new();
+                    snap::read::FrameDecoder::new(data).read_to_end(&mut buf)?;
+                    Cow::Owned(buf)
+                }
+                None => Cow::Borrowed(data),
+            };
+            Ok(uncompr)
         }
 
-        let now = std::time::Instant::now();
-        let (relations, client_states, topics_count, relations_count): (
-            Vec<(TopicFilter, HashMap<ClientId, (Id, SubscriptionOptions)>)>,
-            Vec<(ClientId, ClientStatus)>,
-            Counter,
-            Counter,
-        ) = bincode::deserialize(uncompressed.as_ref()).map_err(|e| Error::Other(e))?;
+        fn decode_with_length_prefix<'a, T: serde::de::DeserializeOwned>(
+            snapshot: &'a [u8],
+            start: usize,
+            len: usize,
+            uncompress_enable: bool,
+            compression: Option<Compression>,
+        ) -> Result<T> {
+            let slice = &snapshot[start..start + len];
+            if uncompress_enable {
+                let slice = uncompress(compression, slice)?;
+                Ok(bincode::deserialize(slice.as_ref())?)
+            } else {
+                Ok(bincode::deserialize(slice)?)
+            }
+        }
+
+        let read_len = |snapshot: &[u8], start: usize| -> Result<usize> {
+            let slice = &snapshot[start..start + size_of::<usize>()];
+            Ok(usize::from_le_bytes(slice.try_into()?))
+        };
+
+        let res: Result<_> = block_in_place(move || {
+            let relations_len = read_len(snapshot, 0)?;
+            let relations_start = size_of::<usize>();
+
+            let client_states_len = read_len(snapshot, relations_start + relations_len)?;
+            let client_states_start = size_of::<usize>() + relations_start + relations_len;
+
+            //topics_count, relations_count
+            let topics_count_len = read_len(snapshot, client_states_start + client_states_len)?;
+            let topics_count_start = size_of::<usize>() + client_states_start + client_states_len;
+
+            let relations_count_len = read_len(snapshot, topics_count_start + topics_count_len)?;
+            let relations_count_start = size_of::<usize>() + topics_count_start + topics_count_len;
+
+            let (relations, client_states) = rayon::join(
+                || decode_with_length_prefix(snapshot, relations_start, relations_len, true, compression),
+                || {
+                    decode_with_length_prefix(
+                        snapshot,
+                        client_states_start,
+                        client_states_len,
+                        true,
+                        compression,
+                    )
+                },
+            );
+            let relations: Vec<(TopicFilter, HashMap<ClientId, (Id, SubscriptionOptions)>)> = relations?;
+            let client_states: Vec<(ClientId, ClientStatus)> = client_states?;
+            let topics_count: Counter =
+                decode_with_length_prefix(snapshot, topics_count_start, topics_count_len, false, None)?;
+            let relations_count: Counter =
+                decode_with_length_prefix(snapshot, relations_count_start, relations_count_len, false, None)?;
+
+            log::info!("relations: {:?}", relations.len());
+            log::info!("client_states: {:?}", client_states.len());
+            log::info!("topics_count: {topics_count:?}",);
+            log::info!("relations_count: {relations_count:?}");
+
+            Ok((relations, client_states, topics_count, relations_count))
+        });
+
+        let (relations, client_states, topics_count, relations_count) = res?;
 
         self.inner.topics_count.set(&topics_count);
-
         let mut topics = self.inner.topics.write().await;
         self.inner.relations.clear();
         for (topic_filter, relation) in relations {
@@ -467,19 +534,18 @@ impl Store for ClusterRouter {
             self.inner.relations.insert(topic_filter, relation);
             topics.insert(&topic, ());
         }
-        self.inner.relations_count.set(&relations_count);
 
+        self.inner.relations_count.set(&relations_count);
         self.client_states.clear();
         for (client_id, content) in client_states {
             self.client_states.insert(client_id, content);
         }
 
         log::info!(
-            "restore, topics_count: {:?}, relations_count: {:?}, cost time: {:?}",
-            topics_count,
-            relations_count,
+            "restore, topics_count: {topics_count:?}, relations_count: {relations_count:?}, cost time: {:?}",
             now.elapsed()
         );
+
         Ok(())
     }
 }
