@@ -389,7 +389,7 @@ impl Store for ClusterRouter {
             out.extend(data);
         };
 
-        let compression = self.compression.clone();
+        let compression = self.compression;
         let relations = self.inner.relations.clone();
         let client_states = self.client_states.clone();
         let topics_count = self.inner.topics_count.clone();
@@ -436,8 +436,8 @@ impl Store for ClusterRouter {
     async fn restore(&mut self, snapshot: &[u8]) -> RaftResult<()> {
         log::info!("restore, snapshot.len: {}", snapshot.len());
         let now = std::time::Instant::now();
-        let compression = self.compression.clone();
-        fn uncompress(compression: Option<Compression>, data: &[u8]) -> RaftResult<Cow<[u8]>> {
+        let compression = self.compression;
+        fn uncompress(compression: Option<Compression>, data: &[u8]) -> Result<Cow<[u8]>> {
             let uncompr = match compression {
                 Some(Compression::Zstd) => Cow::Owned(zstd::decode_all(data)?),
                 Some(Compression::Lz4) => {
@@ -462,8 +462,8 @@ impl Store for ClusterRouter {
             Ok(uncompr)
         }
 
-        fn decode_with_length_prefix<'a, T: serde::de::DeserializeOwned>(
-            snapshot: &'a [u8],
+        fn decode_with_length_prefix<T: serde::de::DeserializeOwned>(
+            snapshot: &[u8],
             start: usize,
             len: usize,
             uncompress_enable: bool,
