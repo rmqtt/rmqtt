@@ -50,6 +50,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use rmqtt_codec::MqttCodec;
 use rust_box::task_exec_queue::SpawnExt;
+use scopeguard::defer;
 use tokio::io::{AsyncRead, AsyncWrite};
 use uuid::Uuid;
 
@@ -72,17 +73,22 @@ pub(crate) async fn process<Io>(
 where
     Io: AsyncRead + AsyncWrite + Unpin,
 {
-    scx.handshakings.inc();
-    let (state, keep_alive) = match handshake(&scx, &mut sink, lid).await {
-        Ok(c) => c,
-        Err((ack_code, e)) => {
+    let (state, keep_alive) = {
+        scx.handshakings.inc();
+        defer! {
             scx.handshakings.dec();
-            refused_ack(&scx, &mut sink, None, ack_code, e.to_string()).await?;
-            return Err(e);
         }
+
+        let (state, keep_alive) = match handshake(&scx, &mut sink, lid).await {
+            Ok(c) => c,
+            Err((ack_code, e)) => {
+                refused_ack(&scx, &mut sink, None, ack_code, e.to_string()).await?;
+                return Err(e);
+            }
+        };
+        (state, keep_alive)
     };
 
-    scx.handshakings.dec();
     state.run(Sink::V5(sink), keep_alive).await;
 
     Ok(())
