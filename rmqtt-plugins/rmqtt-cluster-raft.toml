@@ -58,7 +58,7 @@ raft.grpc_breaker_threshold = 5
 raft.grpc_breaker_retry_interval = "2500ms"
 raft.proposal_batch_size = 60
 raft.proposal_batch_timeout = "200ms"
-raft.snapshot_interval = "600s"
+raft.snapshot_interval = "300s"
 raft.heartbeat = "100ms"
 
 raft.election_tick = 10
