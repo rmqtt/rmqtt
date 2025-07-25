@@ -1,8 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-use rmqtt::types::{Id, NodeId, SubscriptionOptions};
+use rmqtt::types::{Id, NodeHealthStatus, NodeId, SubscriptionOptions};
 use rmqtt::Result;
-use rmqtt_raft::Status;
 
 use super::Mailbox;
 
@@ -73,7 +72,7 @@ pub async fn ping(raft_mailbox: &Mailbox) -> Result<Option<MessageReply>> {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum RaftGrpcMessage {
-    GetRaftStatus,
+    GetNodeHealthStatus,
 }
 
 impl RaftGrpcMessage {
@@ -89,7 +88,7 @@ impl RaftGrpcMessage {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum RaftGrpcMessageReply {
-    GetRaftStatus(Status),
+    GetNodeHealthStatus(NodeHealthStatus),
 }
 
 impl RaftGrpcMessageReply {

@@ -690,7 +690,7 @@ async fn check_health(
     let (scx, _) = get_scx_cfg(depot)?;
     match scx.extends.shared().await.check_health().await {
         Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
-        Ok(health_info) => res.render(Json(health_info)),
+        Ok(health_info) => res.render(Json(health_info.to_json())),
     }
     Ok(())
 }
