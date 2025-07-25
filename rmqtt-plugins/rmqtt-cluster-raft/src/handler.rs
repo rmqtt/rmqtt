@@ -156,11 +156,10 @@ impl Handler for HookHandler {
                                 log::error!("Message::decode, error: {e:?}");
                                 HookResult::GrpcMessageReply(Ok(MessageReply::Error(e.to_string())))
                             }
-                            Ok(RaftGrpcMessage::GetRaftStatus) => {
-                                let raft_mailbox = self.raft_mailbox.clone();
-                                match raft_mailbox.status().await {
+                            Ok(RaftGrpcMessage::GetNodeHealthStatus) => {
+                                match self.shared.health_status().await {
                                     Ok(status) => {
-                                        match RaftGrpcMessageReply::GetRaftStatus(status).encode() {
+                                        match RaftGrpcMessageReply::GetNodeHealthStatus(status).encode() {
                                             Ok(ress) => {
                                                 HookResult::GrpcMessageReply(Ok(MessageReply::Data(ress)))
                                             }
