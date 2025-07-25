@@ -22,7 +22,7 @@ use itertools::Itertools;
 use serde::de::{self, Deserializer};
 use serde::ser::{SerializeStruct, Serializer};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Map, Value};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{oneshot, RwLock};
 
@@ -2890,14 +2890,53 @@ impl Default for HealthInfo {
     }
 }
 
+impl HealthInfo {
+    pub fn to_json(&self) -> Value {
+        let mut obj = Map::new();
+
+        obj.insert("running".into(), json!(self.running));
+
+        if let Some(descr) = &self.descr {
+            if !descr.is_empty() {
+                obj.insert("descr".into(), json!(descr));
+            }
+        }
+
+        let nodes_json: Vec<Value> = self.nodes.iter().map(|node| node.to_json()).collect();
+
+        obj.insert("nodes".into(), Value::Array(nodes_json));
+
+        Value::Object(obj)
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct NodeHealthStatus {
     pub node_id: NodeId,
     pub running: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub leader_id: Option<NodeId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub descr: Option<String>,
+}
+
+impl NodeHealthStatus {
+    pub fn to_json(&self) -> Value {
+        let mut obj = Map::new();
+
+        obj.insert("node_id".into(), json!(self.node_id));
+        obj.insert("running".into(), json!(self.running));
+
+        if let Some(leader_id) = &self.leader_id {
+            obj.insert("leader_id".into(), json!(leader_id));
+        }
+
+        if let Some(descr) = &self.descr {
+            if !descr.is_empty() {
+                obj.insert("descr".into(), json!(descr));
+            }
+        }
+
+        Value::Object(obj)
+    }
 }
 
 impl Default for NodeHealthStatus {
