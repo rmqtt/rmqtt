@@ -26,6 +26,7 @@ use shared::ClusterShared;
 
 mod config;
 mod handler;
+mod message;
 mod router;
 mod shared;
 

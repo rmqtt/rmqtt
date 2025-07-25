@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 
+use crate::message::{BroadcastGrpcMessage, BroadcastGrpcMessageReply};
 use rmqtt::context::ServerContext;
 use rmqtt::router::Router;
 use rmqtt::shared::Shared;
@@ -125,7 +126,33 @@ impl Handler for HookHandler {
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::SessionStatus(status)));
                         return (false, Some(new_acc));
                     }
-
+                    Message::Data(data) => {
+                        let new_acc = match BroadcastGrpcMessage::decode(data) {
+                            Err(e) => {
+                                log::error!("Message::decode, error: {e:?}");
+                                HookResult::GrpcMessageReply(Ok(MessageReply::Error(e.to_string())))
+                            }
+                            Ok(BroadcastGrpcMessage::GetNodeHealthStatus) => {
+                                match self.shared.health_status().await {
+                                    Ok(status) => {
+                                        match BroadcastGrpcMessageReply::GetNodeHealthStatus(status).encode()
+                                        {
+                                            Ok(ress) => {
+                                                HookResult::GrpcMessageReply(Ok(MessageReply::Data(ress)))
+                                            }
+                                            Err(e) => HookResult::GrpcMessageReply(Ok(MessageReply::Error(
+                                                e.to_string(),
+                                            ))),
+                                        }
+                                    }
+                                    Err(e) => {
+                                        HookResult::GrpcMessageReply(Ok(MessageReply::Error(e.to_string())))
+                                    }
+                                }
+                            }
+                        };
+                        return (false, Some(new_acc));
+                    }
                     _ => {
                         log::error!("unimplemented, {param:?}")
                     }
