@@ -2919,6 +2919,14 @@ pub struct NodeHealthStatus {
 }
 
 impl NodeHealthStatus {
+    pub fn is_running(&self) -> bool {
+        if let Some(leader_id) = self.leader_id {
+            leader_id > 0 && self.running
+        } else {
+            self.running
+        }
+    }
+
     pub fn to_json(&self) -> Value {
         let mut obj = Map::new();
 
