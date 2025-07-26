@@ -141,6 +141,7 @@ webpki-roots = "0.26"
 toml = "0.8"
 rust-box = "0.15"
 scopeguard = "1"
+rayon = "=1.10.0"
 
 [profile.dev]
 opt-level = 0

@@ -50,6 +50,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use rmqtt_codec::MqttCodec;
 use rust_box::task_exec_queue::SpawnExt;
+use scopeguard::defer;
 use tokio::io::{AsyncRead, AsyncWrite};
 use uuid::Uuid;
 
@@ -72,17 +73,22 @@ pub(crate) async fn process<Io>(
 where
     Io: AsyncRead + AsyncWrite + Unpin,
 {
-    scx.handshakings.inc();
-    let (state, keep_alive) = match handshake(&scx, &mut sink, lid).await {
-        Ok(c) => c,
-        Err((ack_code, e)) => {
+    let (state, keep_alive) = {
+        scx.handshakings.inc();
+        defer! {
             scx.handshakings.dec();
-            refused_ack(&scx, &mut sink, None, ack_code, e.to_string()).await?;
-            return Err(e);
         }
+
+        let (state, keep_alive) = match handshake(&scx, &mut sink, lid).await {
+            Ok(c) => c,
+            Err((ack_code, e)) => {
+                refused_ack(&scx, &mut sink, None, ack_code, e.to_string()).await?;
+                return Err(e);
+            }
+        };
+        (state, keep_alive)
     };
 
-    scx.handshakings.dec();
     state.run(Sink::V5(sink), keep_alive).await;
 
     Ok(())
@@ -143,8 +149,9 @@ where
     //     return Err(MqttError::ServerUnavailable.into());
     // }
 
+    let now = std::time::Instant::now();
     let exec = scx.handshake_exec.get(sink.cfg.laddr.port(), &sink.cfg);
-    match _handshake(scx.clone(), id.clone(), c, sink.cfg.clone(), assigned_client_id)
+    match _handshake(scx.clone(), id.clone(), c, sink.cfg.clone(), assigned_client_id, now)
         .spawn(&exec)
         .result()
         .await
@@ -184,11 +191,19 @@ async fn _handshake(
     connect: Box<ConnectV5>,
     listen_cfg: ListenerConfig,
     is_assigned_client_id: bool,
+    hdshk_start: std::time::Instant,
 ) -> std::result::Result<(SessionState, ConnectAck, u16), (ConnectAckReason, Error)> {
     let connect_info = ConnectInfo::V5(id.clone(), connect);
 
     //hook, client connect
     let _ = scx.extends.hook_mgr().client_connect(&connect_info).await;
+
+    if hdshk_start.elapsed() > listen_cfg.handshake_timeout {
+        return Err((
+            ConnectAckReason::V5(ConnectAckReasonV5::ServerUnavailable),
+            anyhow!("handshake timeout"),
+        ));
+    }
 
     //check clientid len
     if listen_cfg.max_clientid_len > 0 && id.client_id.len() > listen_cfg.max_clientid_len {

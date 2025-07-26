@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use rmqtt::context::ServerContext;
 use rmqtt::net::MqttError;
 use rmqtt::shared::{DefaultShared, Shared};
-use rmqtt::types::MsgID;
+use rmqtt::types::{HealthInfo, MsgID, NodeHealthStatus};
 use rmqtt::{
     grpc::{GrpcClients, Message, MessageBroadcaster, MessageReply, MessageSender, MessageType},
     session::Session,
@@ -20,6 +20,7 @@ use rmqtt::{
     Result,
 };
 
+use super::message::{BroadcastGrpcMessage, BroadcastGrpcMessageReply};
 use super::{hook_message_dropped, kick};
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
@@ -550,5 +551,65 @@ impl Shared for ClusterShared {
     #[inline]
     fn get_grpc_clients(&self) -> GrpcClients {
         self.grpc_clients.clone()
+    }
+
+    #[inline]
+    async fn check_health(&self) -> Result<HealthInfo> {
+        let running = true;
+        let descr = "Ok";
+        let mut nodes_health_infos = Vec::new();
+
+        nodes_health_infos.push(self.health_status().await?);
+
+        let data = BroadcastGrpcMessage::GetNodeHealthStatus.encode()?;
+        let replys = MessageBroadcaster::new(
+            self.grpc_clients.clone(),
+            self.message_type,
+            Message::Data(data),
+            Some(Duration::from_secs(5)),
+        )
+        .join_all()
+        .await;
+
+        for (node_id, reply) in replys {
+            match reply {
+                Ok(reply) => match reply {
+                    MessageReply::Data(data) => {
+                        let BroadcastGrpcMessageReply::GetNodeHealthStatus(o_status) =
+                            BroadcastGrpcMessageReply::decode(&data)?;
+                        nodes_health_infos.push(o_status);
+                    }
+                    MessageReply::Error(err) => {
+                        log::error!("Get GrpcMessage::GetNodeHealthStatus from other node, error: {err}");
+                        nodes_health_infos.push(NodeHealthStatus {
+                            node_id,
+                            running: false,
+                            leader_id: None,
+                            descr: Some(err),
+                        });
+                    }
+                    _ => {
+                        log::error!("unreachable!(), reply: {reply:?}")
+                    }
+                },
+                Err(e) => {
+                    log::error!("Get GrpcMessage::GetNodeHealthStatus from other node, error: {e:?}");
+                    nodes_health_infos.push(NodeHealthStatus {
+                        node_id,
+                        running: false,
+                        leader_id: None,
+                        descr: Some(e.to_string()),
+                    });
+                }
+            }
+        }
+
+        Ok(HealthInfo { running, descr: Some(descr.into()), nodes: nodes_health_infos })
+    }
+
+    #[inline]
+    async fn health_status(&self) -> Result<NodeHealthStatus> {
+        let node_id = self.scx.node.id();
+        Ok(NodeHealthStatus { node_id, running: true, leader_id: None, descr: None })
     }
 }

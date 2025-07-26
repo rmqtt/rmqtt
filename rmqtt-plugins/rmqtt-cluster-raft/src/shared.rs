@@ -516,24 +516,22 @@ impl Shared for ClusterShared {
     #[inline]
     async fn check_health(&self) -> Result<HealthInfo> {
         let mut nodes_health_infos = Vec::new();
-        let mailbox = self.router.raft_mailbox().await;
-        let status = mailbox.status().await.map_err(Error::new)?;
         let mut leader_ids = HashSet::default();
-        let (running, leader_id) = if status.available() { (true, status.leader_id) } else { (false, 0) };
-        nodes_health_infos.push(NodeHealthStatus {
-            node_id: status.id,
-            running,
-            leader_id: Some(leader_id),
-            descr: None,
-        });
-        leader_ids.insert(leader_id);
+        let status = self.health_status().await?;
+        if let Some(leader_id) = status.leader_id {
+            if leader_id > 0 {
+                leader_ids.insert(leader_id);
+            }
+        }
 
-        let data = RaftGrpcMessage::GetRaftStatus.encode()?;
+        nodes_health_infos.push(status);
+
+        let data = RaftGrpcMessage::GetNodeHealthStatus.encode()?;
         let replys = MessageBroadcaster::new(
             self.grpc_clients.clone(),
             self.message_type,
             Message::Data(data),
-            Some(Duration::from_secs(10)),
+            Some(Duration::from_secs(5)),
         )
         .join_all()
         .await;
@@ -542,17 +540,14 @@ impl Shared for ClusterShared {
             match reply {
                 Ok(reply) => match reply {
                     MessageReply::Data(data) => {
-                        let RaftGrpcMessageReply::GetRaftStatus(o_status) =
+                        let RaftGrpcMessageReply::GetNodeHealthStatus(o_status) =
                             RaftGrpcMessageReply::decode(&data)?;
-                        let (running, leader_id) =
-                            if o_status.available() { (true, o_status.leader_id) } else { (false, 0) };
-                        nodes_health_infos.push(NodeHealthStatus {
-                            node_id: o_status.id,
-                            running,
-                            leader_id: Some(leader_id),
-                            descr: None,
-                        });
-                        leader_ids.insert(leader_id);
+                        if let Some(leader_id) = o_status.leader_id {
+                            if leader_id > 0 {
+                                leader_ids.insert(leader_id);
+                            }
+                        }
+                        nodes_health_infos.push(o_status);
                     }
                     MessageReply::Error(err) => {
                         log::error!("Get RaftGrpcMessage::GetRaftStatus from other node, error: {err}");
@@ -593,12 +588,8 @@ impl Shared for ClusterShared {
     async fn health_status(&self) -> Result<NodeHealthStatus> {
         let mailbox = self.router.raft_mailbox().await;
         let status = mailbox.status().await.map_err(Error::new)?;
-        Ok(NodeHealthStatus {
-            node_id: status.id,
-            running: status.leader_id > 0,
-            leader_id: Some(status.leader_id),
-            descr: None,
-        })
+        let (running, leader_id) = if status.available() { (true, status.leader_id) } else { (false, 0) };
+        Ok(NodeHealthStatus { node_id: status.id, running, leader_id: Some(leader_id), descr: None })
     }
 
     #[inline]

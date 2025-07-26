@@ -738,6 +738,7 @@ impl SessionState {
                 let status = match self.subscribes_v3(topic_filters).await {
                     Ok(status) => status,
                     Err(e) => {
+                        log::warn!("{} Connection Refused, reason: {e:?}", self.id);
                         return Err(Reason::SubscribeFailed(Some(e.to_string().into())));
                     }
                 };
@@ -746,6 +747,7 @@ impl SessionState {
             Packet::V5(v5::Packet::Subscribe(subs)) => {
                 let ack = match self.subscribes_v5(subs).await {
                     Err(e) => {
+                        log::warn!("{} Connection Refused, reason: {e:?}", self.id);
                         return Err(Reason::SubscribeFailed(Some(e.to_string().into())));
                     }
                     Ok(ack) => ack,
