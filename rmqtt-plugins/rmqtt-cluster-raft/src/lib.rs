@@ -303,19 +303,24 @@ impl Plugin for ClusterPlugin {
 
         let raft_mailbox = Self::start_raft(&self.scx, self.cfg.clone(), self.router.clone()).await?;
 
+        let mut raft_status = None;
         for i in 0..60 {
             match raft_mailbox.status().await {
                 Ok(status) => {
                     if status.is_started() {
+                        raft_status = Some(status);
                         break;
                     }
                     log::info!("{} Initializing cluster, raft status({}): {:?}", self.name(), i, status);
                 }
                 Err(e) => {
-                    log::info!("{} init error, {:?}", self.name(), e);
+                    log::info!("{} init failed, {:?}", self.name(), e);
                 }
             }
             sleep(Duration::from_millis(500)).await;
+        }
+        if raft_status.is_none() {
+            return Err(anyhow!("init failed"));
         }
 
         self.raft_mailbox.replace(raft_mailbox.clone());
@@ -357,14 +362,14 @@ impl Plugin for ClusterPlugin {
                         return Ok(());
                     }
                     message::MessageReply::Error(e) => {
-                        log::warn!("ping error, {e:?}");
+                        log::warn!("ping failed, {e:?}");
                     }
                     _ => {
                         log::error!("unreachable!()");
                     }
                 },
                 Err(e) => {
-                    log::warn!("ping error, {e:?}");
+                    log::warn!("ping failed, {e:?}");
                 }
             }
             sleep(Duration::from_millis(500)).await;

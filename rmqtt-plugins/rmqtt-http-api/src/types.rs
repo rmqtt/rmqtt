@@ -3,6 +3,7 @@ use std::time::Duration;
 use anyhow::anyhow;
 use serde::{de, ser, Deserialize, Serialize};
 
+use rmqtt::types::NodeHealthStatus;
 use rmqtt::{
     codec::v5::PublishProperties,
     metrics::Metrics,
@@ -18,6 +19,7 @@ use rmqtt::{
 pub enum Message<'a> {
     BrokerInfo,
     NodeInfo,
+    NodeHealthStatus,
     StatsInfo,
     MetricsInfo,
     ClientSearch(Box<ClientSearchParams>),
@@ -47,6 +49,7 @@ impl Message<'_> {
 pub enum MessageReply {
     BrokerInfo(BrokerInfo),
     NodeInfo(NodeInfo),
+    NodeHealthStatus(NodeHealthStatus),
     StatsInfo(NodeStatus, Box<Stats>),
     MetricsInfo(Box<Metrics>),
     ClientSearch(Vec<ClientSearchResult>),
