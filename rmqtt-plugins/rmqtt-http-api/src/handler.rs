@@ -60,6 +60,25 @@ impl Handler for HookHandler {
                                     ))),
                                 }
                             }
+                            Ok(Message::NodeHealthStatus) => {
+                                let health_status =
+                                    self.scx.extends.shared.read().await.health_status().await;
+                                match health_status {
+                                    Ok(health_status) => {
+                                        match MessageReply::NodeHealthStatus(health_status).encode() {
+                                            Ok(ress) => {
+                                                HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
+                                            }
+                                            Err(e) => HookResult::GrpcMessageReply(Ok(
+                                                GrpcMessageReply::Error(e.to_string()),
+                                            )),
+                                        }
+                                    }
+                                    Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
+                                        e.to_string(),
+                                    ))),
+                                }
+                            }
                             Ok(Message::StatsInfo) => {
                                 let node_status = self.scx.node.status(&self.scx).await;
                                 let stats = self.scx.stats.clone(&self.scx).await;

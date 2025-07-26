@@ -13,6 +13,7 @@ use base64::prelude::{Engine, BASE64_STANDARD};
 use serde_json::{self, json};
 use tokio::sync::oneshot;
 
+use rmqtt::types::NodeHealthStatus;
 use rmqtt::{
     codec::types::Publish,
     codec::v5::PublishProperties,
@@ -77,7 +78,11 @@ fn route(
         .get(list_apis)
         .push(Router::with_path("brokers").get(get_brokers).push(Router::with_path("{id}").get(get_brokers)))
         .push(Router::with_path("nodes").get(get_nodes).push(Router::with_path("{id}").get(get_nodes)))
-        .push(Router::with_path("health/check").get(check_health))
+        .push(
+            Router::with_path("health/check")
+                .get(check_health)
+                .push(Router::with_path("{id}").get(check_health)),
+        )
         .push(
             Router::with_path("clients")
                 .push(Router::with_path("offlines").get(search_offlines).delete(kick_offlines))
@@ -194,7 +199,7 @@ async fn list_apis(res: &mut Response) {
         {
             "name": "check_health",
             "method": "GET",
-            "path": "/api/v1/health/check",
+            "path": "/api/v1/health/check/{node}",
             "descr": "Node health check"
         },
         {
@@ -683,16 +688,76 @@ pub(crate) async fn get_nodes_all(
 
 #[handler]
 async fn check_health(
-    _req: &mut Request,
+    req: &mut Request,
     depot: &mut Depot,
     res: &mut Response,
 ) -> std::result::Result<(), salvo::Error> {
-    let (scx, _) = get_scx_cfg(depot)?;
-    match scx.extends.shared().await.check_health().await {
-        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
-        Ok(health_info) => res.render(Json(health_info.to_json())),
+    let (scx, cfg) = get_scx_cfg(depot)?;
+    let message_type = cfg.read().await.message_type;
+    let id = req.param::<NodeId>("id");
+    if let Some(id) = id {
+        match check_health_one(scx, message_type, id).await {
+            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+            Ok(None) => res.render(StatusError::not_found()),
+            Ok(Some(health_status)) => {
+                if health_status.is_running() {
+                    res.render(Json(health_status.to_json()))
+                } else {
+                    log::info!("{health_status:?}");
+                    res.status_code(StatusCode::SERVICE_UNAVAILABLE);
+                    res.render(Json(health_status.to_json()))
+                }
+            }
+        }
+    } else {
+        match scx.extends.shared().await.check_health().await {
+            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+            Ok(health_info) => res.render(Json(health_info.to_json())),
+        }
     }
     Ok(())
+}
+
+async fn check_health_one(
+    scx: &ServerContext,
+    message_type: MessageType,
+    id: NodeId,
+) -> Result<Option<NodeHealthStatus>> {
+    if id == scx.node.id() {
+        Ok(Some(scx.extends.shared().await.health_status().await?))
+    } else {
+        let grpc_clients = scx.extends.shared().await.get_grpc_clients();
+        if let Some((_, c)) = grpc_clients.get(&id) {
+            let msg = Message::NodeHealthStatus.encode()?;
+            let reply = MessageSender::new(
+                c.clone(),
+                message_type,
+                GrpcMessage::Data(msg),
+                Some(Duration::from_secs(10)),
+            )
+            .send()
+            .await;
+            match reply {
+                Ok(GrpcMessageReply::Data(msg)) => match MessageReply::decode(&msg)? {
+                    MessageReply::NodeHealthStatus(health_status) => Ok(Some(health_status)),
+                    _ => {
+                        log::error!("unreachable!(), msg: {msg:?}");
+                        Err(anyhow!("unreachable!()"))
+                    }
+                },
+                Ok(reply) => {
+                    log::info!("Get GrpcMessage::NodeHealthStatus from other node({id}), reply: {reply:?}");
+                    Err(anyhow!("Invalid Result"))
+                }
+                Err(e) => {
+                    log::warn!("Get GrpcMessage::NodeHealthStatus from other node, error: {e:?}");
+                    Err(e)
+                }
+            }
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 #[handler]
