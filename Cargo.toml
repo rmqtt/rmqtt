@@ -80,11 +80,11 @@ rmqtt-bridge-egress-pulsar = "0.1"
 rmqtt-bridge-egress-nats = "0.1"
 rmqtt-bridge-egress-reductstore = "0.1"
 rmqtt-message-storage = "0.1"
-rmqtt-session-storage = "0.1"
+rmqtt-session-storage = "0.2"
 rmqtt-sys-topic = "0.1"
 rmqtt-topic-rewrite = "0.1"
 rmqtt-web-hook = "0.1"
-rmqtt-cluster-raft = "0.1"
+rmqtt-cluster-raft = "0.2"
 rmqtt-cluster-broadcast = "0.1"
 
 

@@ -253,7 +253,7 @@ impl StoragePlugin {
                                             log::warn!("{:?} Rebuild offline sessions error, {:?}", session_entry.id(), e);
                                         }
                                     };
-                                    let task_exec = &scx.global_exec;
+                                    let task_exec = &scx.server_exec;
                                     if let Err(e) = task_exec.spawn(task_fut).await {
                                         log::warn!("{:?} Rebuild offline sessions error, {:?}", id, e.to_string());
                                     }
@@ -270,7 +270,7 @@ impl StoragePlugin {
                             }
                         },
                         RebuildChanType::Done(done_tx) => {
-                            let task_exec = &scx.global_exec;
+                            let task_exec = &scx.server_exec;
                             let _ = task_exec.flush().await;
                             let _ = done_tx.send(());
                             log::info!(

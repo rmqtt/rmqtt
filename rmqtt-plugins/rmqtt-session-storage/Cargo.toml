@@ -1,6 +1,6 @@
 [package]
 name = "rmqtt-session-storage"
-version = "0.1.2"
+version = "0.2.0"
 description = "Connection information, subscription relationships, offline messages, and inflight messages will be stored."
 repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-session-storage"
 edition.workspace = true
