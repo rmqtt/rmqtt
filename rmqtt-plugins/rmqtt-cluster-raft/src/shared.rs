@@ -424,7 +424,7 @@ impl Shared for ClusterShared {
                     }
                     scx.stats.forwards.dec();
                 };
-                let _reply = self.scx.global_exec.spawn(forwards_fut).await;
+                let _reply = self.scx.client_exec.spawn(forwards_fut).await;
             }
         }
 
