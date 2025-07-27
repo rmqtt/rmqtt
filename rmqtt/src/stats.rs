@@ -35,7 +35,8 @@
 //!   - DEBUG feature exposes:
 //!     - Client state machine transitions (`debug_client_states_map`)
 //!     - Topic tree memory profiling (`debug_topics_tree_map`)
-//!     - Async task execution analytics (`debug_global_exec_stats`)
+//!     - Async server task execution analytics (`debug_server_exec_stats`)
+//!     - Async client task execution analytics (`debug_client_exec_stats`)
 //!
 //! Typical usage includes:
 //! - Capacity planning through trend analysis
@@ -91,7 +92,9 @@ pub struct Stats {
     #[cfg(feature = "debug")]
     pub debug_session_channels: Counter,
     #[cfg(feature = "debug")]
-    debug_global_exec_stats: Option<TaskExecStats>,
+    debug_server_exec_stats: Option<TaskExecStats>,
+    #[cfg(feature = "debug")]
+    debug_client_exec_stats: Option<TaskExecStats>,
 }
 
 impl Stats {
@@ -129,7 +132,9 @@ impl Stats {
             #[cfg(feature = "debug")]
             debug_session_channels: Counter::new(),
             #[cfg(feature = "debug")]
-            debug_global_exec_stats: None,
+            debug_server_exec_stats: None,
+            #[cfg(feature = "debug")]
+            debug_client_exec_stats: None,
         }
     }
 
@@ -204,7 +209,9 @@ impl Stats {
         #[cfg(feature = "debug")]
         let debug_subscriptions = shared.subscriptions_count().await;
         #[cfg(feature = "debug")]
-        let debug_global_exec_stats = Some(TaskExecStats::from_global_exec(&scx.global_exec).await);
+        let debug_server_exec_stats = Some(TaskExecStats::from_exec(&scx.server_exec).await);
+        #[cfg(feature = "debug")]
+        let debug_client_exec_stats = Some(TaskExecStats::from_exec(&scx.client_exec).await);
 
         Self {
             handshakings: self.handshakings.clone(),
@@ -238,7 +245,9 @@ impl Stats {
             #[cfg(feature = "debug")]
             debug_session_channels: self.debug_session_channels.clone(),
             #[cfg(feature = "debug")]
-            debug_global_exec_stats,
+            debug_server_exec_stats,
+            #[cfg(feature = "debug")]
+            debug_client_exec_stats,
         }
     }
 
@@ -272,11 +281,19 @@ impl Stats {
             self.debug_subscriptions += other.debug_subscriptions;
             self.debug_session_channels.add(&other.debug_session_channels);
 
-            if let Some(other) = other.debug_global_exec_stats.as_ref() {
-                if let Some(stats) = self.debug_global_exec_stats.as_mut() {
+            if let Some(other) = other.debug_server_exec_stats.as_ref() {
+                if let Some(stats) = self.debug_server_exec_stats.as_mut() {
                     stats.add(other);
                 } else {
-                    self.debug_global_exec_stats.replace(other.clone());
+                    self.debug_server_exec_stats.replace(other.clone());
+                }
+            }
+
+            if let Some(other) = other.debug_client_exec_stats.as_ref() {
+                if let Some(stats) = self.debug_client_exec_stats.as_mut() {
+                    stats.add(other);
+                } else {
+                    self.debug_client_exec_stats.replace(other.clone());
                 }
             }
         }
@@ -344,7 +361,8 @@ impl Stats {
                 obj.insert("debug_subscriptions.count".into(), json!(self.debug_subscriptions));
                 obj.insert("debug_session_channels.count".into(), json!(self.debug_session_channels.count()));
                 obj.insert("debug_session_channels.max".into(), json!(self.debug_session_channels.max()));
-                obj.insert("debug_global_exec_stats".into(), json!(self.debug_global_exec_stats));
+                obj.insert("debug_server_exec_stats".into(), json!(self.debug_server_exec_stats));
+                obj.insert("debug_client_exec_stats".into(), json!(self.debug_client_exec_stats));
             }
         }
 

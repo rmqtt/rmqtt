@@ -107,7 +107,7 @@ impl GrpcServer {
                         #[cfg(feature = "stats")]
                         s.scx.stats.grpc_server_actives.dec();
                     };
-                    let _ = self.scx.global_exec.spawn(recv_fut).await;
+                    let _ = self.scx.server_exec.spawn(recv_fut).await;
                 }
                 log::error!("Recv None");
             };
