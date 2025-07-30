@@ -35,6 +35,7 @@
 //! - `crossbeam`: For the lock-free `SegQueue`
 //! - `futures`: For async MPSC and stream support
 
+use std::collections::vec_deque::VecDeque;
 use std::num::NonZeroU32;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -42,7 +43,7 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use anyhow::Result;
-use crossbeam::queue::SegQueue;
+// use crossbeam::queue::SegQueue;
 use futures::{channel::mpsc, SinkExt, Stream};
 use governor::{
     clock::DefaultClock,
@@ -51,6 +52,7 @@ use governor::{
     state::{InMemoryState, NotKeyed},
     Quota, RateLimiter, RatelimitedStream,
 };
+use parking_lot::Mutex;
 
 type DirectLimiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock>;
 
@@ -71,7 +73,6 @@ impl<T, P> PolicyFn<P> for T where T: 'static + Sync + Send + Clone + Fn(&P) -> 
 pub trait OnEventFn: 'static + Sync + Send + Fn() {}
 impl<T> OnEventFn for T where T: 'static + Sync + Send + Clone + Fn() {}
 
-// #[derive(Clone)]
 pub struct Sender<T> {
     tx: mpsc::Sender<()>,
     queue: Arc<Queue<T>>,
@@ -182,7 +183,7 @@ impl Limiter {
 
 pub struct Queue<T> {
     cap: usize,
-    inner: SegQueue<T>,
+    inner: Mutex<VecDeque<T>>,
     on_push_fn: Option<Arc<dyn OnEventFn>>,
     on_pop_fn: Option<Arc<dyn OnEventFn>>,
 }
@@ -197,7 +198,7 @@ impl<T> Drop for Queue<T> {
 impl<T> Queue<T> {
     #[inline]
     pub fn new(cap: usize) -> Self {
-        Self { cap, inner: SegQueue::new(), on_push_fn: None, on_pop_fn: None }
+        Self { cap, inner: Mutex::new(VecDeque::new()), on_push_fn: None, on_pop_fn: None }
     }
 
     #[inline]
@@ -218,19 +219,21 @@ impl<T> Queue<T> {
 
     #[inline]
     pub fn push(&self, v: T) -> Result<(), T> {
-        if self.inner.len() > self.cap {
+        let mut inner = self.inner.lock();
+        if inner.len() > self.cap {
             return Err(v);
         }
         if let Some(f) = self.on_push_fn.as_ref() {
             f();
         }
-        self.inner.push(v);
+        inner.push_back(v);
         Ok(())
     }
 
     #[inline]
     pub fn pop(&self) -> Option<T> {
-        if let Some(v) = self.inner.pop() {
+        let mut inner = self.inner.lock();
+        if let Some(v) = inner.pop_front() {
             if let Some(f) = self.on_pop_fn.as_ref() {
                 f();
             }
@@ -247,7 +250,7 @@ impl<T> Queue<T> {
 
     #[inline]
     pub fn len(&self) -> usize {
-        self.inner.len()
+        self.inner.lock().len()
     }
 
     #[inline]
