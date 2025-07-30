@@ -209,11 +209,18 @@ impl ServerContextBuilder {
 
     /// Constructs the ServerContext with configured parameters
     pub async fn build(self) -> ServerContext {
-        let (global_exec, task_runner) =
+        let (server_exec, server_task_runner) =
+            Builder::default().workers(self.task_exec_workers).queue_max(self.task_exec_queue_max).build();
+
+        let (client_exec, client_task_runner) =
             Builder::default().workers(self.task_exec_workers).queue_max(self.task_exec_queue_max).build();
 
         tokio::spawn(async move {
-            task_runner.await;
+            server_task_runner.await;
+        });
+
+        tokio::spawn(async move {
+            client_task_runner.await;
         });
 
         ServerContext {
@@ -229,7 +236,8 @@ impl ServerContextBuilder {
                 #[cfg(feature = "stats")]
                 stats: Stats::new(),
                 handshake_exec: HandshakeExecutor::new(self.busy_handshaking_limit),
-                global_exec,
+                server_exec,
+                client_exec,
 
                 busy_check_enable: self.busy_check_enable,
                 mqtt_delayed_publish_max: self.mqtt_delayed_publish_max,
@@ -273,8 +281,10 @@ pub struct ServerContextInner {
     pub stats: Stats,
     /// Handshake process executor
     pub handshake_exec: HandshakeExecutor,
-    /// Global task execution queue
-    pub global_exec: TaskExecQueue,
+    /// Server task execution queue
+    pub server_exec: TaskExecQueue,
+    /// Client task execution queue
+    pub client_exec: TaskExecQueue,
 
     /// Busy state check flag
     pub busy_check_enable: bool,
@@ -372,16 +382,16 @@ pub struct TaskExecStats {
 impl TaskExecStats {
     /// Collects statistics from task execution queue
     /// # Arguments
-    /// * `global_exec` - Task queue to analyze
+    /// * `exec` - Task queue to analyze
     #[inline]
-    pub async fn from_global_exec(global_exec: &TaskExecQueue) -> Self {
+    pub async fn from_exec(exec: &TaskExecQueue) -> Self {
         Self {
-            active_count: global_exec.active_count(),
-            completed_count: global_exec.completed_count().await,
-            pending_wakers_count: global_exec.pending_wakers_count(),
-            waiting_wakers_count: global_exec.waiting_wakers_count(),
-            waiting_count: global_exec.waiting_count(),
-            rate: global_exec.rate().await,
+            active_count: exec.active_count(),
+            completed_count: exec.completed_count().await,
+            pending_wakers_count: exec.pending_wakers_count(),
+            waiting_wakers_count: exec.waiting_wakers_count(),
+            waiting_count: exec.waiting_count(),
+            rate: exec.rate().await,
         }
     }
 

@@ -45,7 +45,7 @@ rmqtt-bridge-egress-nats = { path = "rmqtt-plugins/rmqtt-bridge-egress-nats"}
 rmqtt-bridge-egress-reductstore = { path = "rmqtt-plugins/rmqtt-bridge-egress-reductstore"}
 
 [workspace.package]
-version = "0.15.0-rc.2"
+version = "0.15.0-rc.4"
 edition = "2021"
 authors = ["rmqtt <rmqttd@126.com>"]
 description = "MQTT Server for v3.1, v3.1.1 and v5.0 protocols"
@@ -58,7 +58,7 @@ rust-version = "1.85.0"
 
 
 [workspace.dependencies]
-rmqtt = "0.15.0-rc.2"
+rmqtt = "0.15.0-rc.4"
 rmqtt-codec = "0.1"
 rmqtt-net = "0.1"
 rmqtt-conf = "0.1"
@@ -80,11 +80,11 @@ rmqtt-bridge-egress-pulsar = "0.1"
 rmqtt-bridge-egress-nats = "0.1"
 rmqtt-bridge-egress-reductstore = "0.1"
 rmqtt-message-storage = "0.1"
-rmqtt-session-storage = "0.1"
+rmqtt-session-storage = "0.2"
 rmqtt-sys-topic = "0.1"
 rmqtt-topic-rewrite = "0.1"
 rmqtt-web-hook = "0.1"
-rmqtt-cluster-raft = "0.1"
+rmqtt-cluster-raft = "0.2"
 rmqtt-cluster-broadcast = "0.1"
 
 
@@ -109,7 +109,6 @@ serde_json = "1.0"
 chrono = { version = "0.4", default-features = false }
 uuid = "=1.11.0"
 rand = "0.9.0"
-crossbeam = "0.8"
 governor = "0.10"
 config = { version = "0.15.8", default-features = false}
 log = "0.4"
@@ -142,6 +141,7 @@ toml = "0.8"
 rust-box = "0.15"
 scopeguard = "1"
 rayon = "=1.10.0"
+parking_lot = "0.12.4"
 
 [profile.dev]
 opt-level = 0
