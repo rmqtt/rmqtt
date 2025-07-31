@@ -2931,7 +2931,7 @@ impl NodeHealthStatus {
         let mut obj = Map::new();
 
         obj.insert("node_id".into(), json!(self.node_id));
-        obj.insert("running".into(), json!(self.running));
+        obj.insert("running".into(), json!(self.is_running()));
 
         if let Some(leader_id) = &self.leader_id {
             obj.insert("leader_id".into(), json!(leader_id));
