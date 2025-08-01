@@ -208,7 +208,7 @@ impl SessionState {
 
         //Setting the disconnected state
         if let Err(e) = self.disconnected_set(None, None).await {
-            log::warn!("{:?} disconnected set error, {:?}", self.id, e);
+            log::info!("{:?} disconnected set error, {:?}", self.id, e);
         }
 
         log::debug!(
@@ -223,7 +223,7 @@ impl SessionState {
             let will_delay_interval = self.will_delay_interval().await;
             if clean_session || will_delay_interval.is_none() {
                 if let Err(e) = self.process_last_will().await {
-                    log::error!("{:?} process last will error, {:?}", self.id, e);
+                    log::warn!("{:?} process last will error, {:?}", self.id, e);
                 }
                 None
             } else {
