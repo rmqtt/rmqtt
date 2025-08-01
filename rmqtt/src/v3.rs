@@ -132,16 +132,6 @@ where
         c.username.clone(),
     );
 
-    // //RReject the service if the connection handshake too many unavailable.
-    // if is_too_many_unavailable().await {
-    //     log::warn!(
-    //         "{:?} Connection Refused, handshake fail, reason: too busy, fails rate: {}",
-    //         id,
-    //         unavailable_stats().rate()
-    //     );
-    //     return Err(MqttError::ServiceUnavailable.into());
-    // }
-
     let now = std::time::Instant::now();
     let exec = scx.handshake_exec.get(sink.cfg.laddr.port(), &sink.cfg);
     match _handshake(scx.clone(), id.clone(), c, sink.cfg.clone(), now).spawn(&exec).result().await {
@@ -156,22 +146,14 @@ where
             Ok((state, keep_alive))
         }
         Ok(Err(e)) => {
-            // unavailable_stats().inc();
-            // log::warn!(
-            //     "{:?} Connection Refused, handshake error, reason: {:?}, fails rate: {}",
-            //     id,
-            //     e.to_string(),
-            //     unavailable_stats().rate()
-            // );
-            log::warn!("{id:?} Connection Refused, handshake error, reason: {e:?}");
+            log::info!("{id:?} Connection Refused, handshake error, reason: {e:?}");
             Err(e)
         }
         Err(e) => {
             #[cfg(feature = "metrics")]
             scx.metrics.client_handshaking_timeout_inc();
-            // unavailable_stats().inc();
             let err = anyhow!("Connection Refused, execute handshake timeout");
-            log::warn!("{:?} {:?}, reason: {:?}", id, err, e.to_string(),);
+            log::info!("{:?} {:?}, reason: {:?}", id, err, e.to_string(),);
             Err((ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable), err))
         }
     }
@@ -346,15 +328,12 @@ async fn refused_ack_v3<Io>(
 where
     Io: AsyncRead + AsyncWrite + Unpin,
 {
-    // if matches!(ack_code, ConnectAckReasonV3::ServiceUnavailable) {
-    //     // unavailable_stats().inc();
-    // }
     let new_ack_code = if let Some(connect_info) = connect_info {
         scx.extends.hook_mgr().client_connack(connect_info, ack_code).await
     } else {
         ack_code
     };
-    log::warn!(
+    log::info!(
         "{:?} Connection Refused, handshake, ack_code: {:?}, new_ack_code: {:?}, reason: {}",
         connect_info.map(|c| c.id()),
         ack_code,

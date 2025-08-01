@@ -349,31 +349,6 @@ impl Disconnect {
     }
 }
 
-// pub trait QoSEx {
-//     fn value(&self) -> u8;
-//     fn less_value(&self, qos: QoS) -> QoS;
-// }
-//
-// impl QoSEx for QoS {
-//     #[inline]
-//     fn value(&self) -> u8 {
-//         match self {
-//             QoS::AtMostOnce => 0,
-//             QoS::AtLeastOnce => 1,
-//             QoS::ExactlyOnce => 2,
-//         }
-//     }
-//
-//     #[inline]
-//     fn less_value(&self, qos: QoS) -> QoS {
-//         if self.value() < qos.value() {
-//             *self
-//         } else {
-//             qos
-//         }
-//     }
-// }
-
 pub type SubscribeAclResult = SubscribeReturn;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -989,31 +964,6 @@ impl ConnectAckReason {
             _ => (false, false),
         }
     }
-
-    // #[inline]
-    // pub fn v3_error_ack<Io, St>(&self, handshake: v3::Handshake<Io>) -> HandshakeAckV3<Io, St> {
-    //     match *self {
-    //         ConnectAckReason::V3(ConnectAckReasonV3::UnacceptableProtocolVersion) => {
-    //             handshake.service_unavailable()
-    //         }
-    //         ConnectAckReason::V3(ConnectAckReasonV3::IdentifierRejected) => handshake.identifier_rejected(),
-    //         ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable) => handshake.service_unavailable(),
-    //         ConnectAckReason::V3(ConnectAckReasonV3::BadUserNameOrPassword) => {
-    //             handshake.bad_username_or_pwd()
-    //         }
-    //         ConnectAckReason::V3(ConnectAckReasonV3::NotAuthorized) => handshake.not_authorized(),
-    //         ConnectAckReason::V3(ConnectAckReasonV3::Reserved) => handshake.service_unavailable(),
-    //         _ => panic!("invalid value"),
-    //     }
-    // }
-
-    // #[inline]
-    // pub fn v5_error_ack<Io, St>(&self, handshake: v5::Handshake<Io>) -> HandshakeAckV5<Io, St> {
-    //     match *self {
-    //         ConnectAckReason::V5(ack_reason) => handshake.failed(ack_reason),
-    //         _ => panic!("invalid value"),
-    //     }
-    // }
 
     #[inline]
     pub fn reason(&self) -> &'static str {
