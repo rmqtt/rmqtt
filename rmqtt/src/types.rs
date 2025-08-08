@@ -247,7 +247,7 @@ impl ConnectInfo {
     }
 
     #[inline]
-    pub fn last_will(&self) -> Option<LastWill> {
+    pub fn last_will(&self) -> Option<LastWill<'_>> {
         match self {
             ConnectInfo::V3(_, conn_info) => conn_info.last_will.as_ref().map(LastWill::V3),
             ConnectInfo::V5(_, conn_info) => conn_info.last_will.as_ref().map(LastWill::V5),
@@ -348,31 +348,6 @@ impl Disconnect {
         }
     }
 }
-
-// pub trait QoSEx {
-//     fn value(&self) -> u8;
-//     fn less_value(&self, qos: QoS) -> QoS;
-// }
-//
-// impl QoSEx for QoS {
-//     #[inline]
-//     fn value(&self) -> u8 {
-//         match self {
-//             QoS::AtMostOnce => 0,
-//             QoS::AtLeastOnce => 1,
-//             QoS::ExactlyOnce => 2,
-//         }
-//     }
-//
-//     #[inline]
-//     fn less_value(&self, qos: QoS) -> QoS {
-//         if self.value() < qos.value() {
-//             *self
-//         } else {
-//             qos
-//         }
-//     }
-// }
 
 pub type SubscribeAclResult = SubscribeReturn;
 
@@ -989,31 +964,6 @@ impl ConnectAckReason {
             _ => (false, false),
         }
     }
-
-    // #[inline]
-    // pub fn v3_error_ack<Io, St>(&self, handshake: v3::Handshake<Io>) -> HandshakeAckV3<Io, St> {
-    //     match *self {
-    //         ConnectAckReason::V3(ConnectAckReasonV3::UnacceptableProtocolVersion) => {
-    //             handshake.service_unavailable()
-    //         }
-    //         ConnectAckReason::V3(ConnectAckReasonV3::IdentifierRejected) => handshake.identifier_rejected(),
-    //         ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable) => handshake.service_unavailable(),
-    //         ConnectAckReason::V3(ConnectAckReasonV3::BadUserNameOrPassword) => {
-    //             handshake.bad_username_or_pwd()
-    //         }
-    //         ConnectAckReason::V3(ConnectAckReasonV3::NotAuthorized) => handshake.not_authorized(),
-    //         ConnectAckReason::V3(ConnectAckReasonV3::Reserved) => handshake.service_unavailable(),
-    //         _ => panic!("invalid value"),
-    //     }
-    // }
-
-    // #[inline]
-    // pub fn v5_error_ack<Io, St>(&self, handshake: v5::Handshake<Io>) -> HandshakeAckV5<Io, St> {
-    //     match *self {
-    //         ConnectAckReason::V5(ack_reason) => handshake.failed(ack_reason),
-    //         _ => panic!("invalid value"),
-    //     }
-    // }
 
     #[inline]
     pub fn reason(&self) -> &'static str {
@@ -2931,7 +2881,7 @@ impl NodeHealthStatus {
         let mut obj = Map::new();
 
         obj.insert("node_id".into(), json!(self.node_id));
-        obj.insert("running".into(), json!(self.running));
+        obj.insert("running".into(), json!(self.is_running()));
 
         if let Some(leader_id) = &self.leader_id {
             obj.insert("leader_id".into(), json!(leader_id));
