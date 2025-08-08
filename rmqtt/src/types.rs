@@ -247,7 +247,7 @@ impl ConnectInfo {
     }
 
     #[inline]
-    pub fn last_will(&self) -> Option<LastWill> {
+    pub fn last_will(&self) -> Option<LastWill<'_>> {
         match self {
             ConnectInfo::V3(_, conn_info) => conn_info.last_will.as_ref().map(LastWill::V3),
             ConnectInfo::V5(_, conn_info) => conn_info.last_will.as_ref().map(LastWill::V5),
