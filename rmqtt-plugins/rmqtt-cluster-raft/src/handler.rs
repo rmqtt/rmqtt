@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::anyhow;
 use async_trait::async_trait;
 use backoff::{future::retry, ExponentialBackoff};
@@ -12,6 +14,7 @@ use rmqtt::{
 };
 use rmqtt_raft::Mailbox;
 
+use super::config::PluginConfig;
 use super::message::{Message, RaftGrpcMessage, RaftGrpcMessageReply};
 use super::{hook_message_dropped, shared::ClusterShared};
 
@@ -26,11 +29,13 @@ pub(crate) struct HookHandler {
 impl HookHandler {
     pub(crate) fn new(
         scx: ServerContext,
-        exec: TaskExecQueue,
+        cfg: Arc<PluginConfig>,
         backoff_strategy: ExponentialBackoff,
         shared: ClusterShared,
         raft_mailbox: Mailbox,
     ) -> Self {
+        let exec =
+            scx.get_exec(("RAFT_DISCONNECTED_EXEC", cfg.task_exec_queue_workers, cfg.task_exec_queue_max));
         Self { scx, exec, backoff_strategy, shared, raft_mailbox }
     }
 }

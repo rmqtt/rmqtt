@@ -7,7 +7,6 @@ use async_trait::async_trait;
 use futures::future::FutureExt;
 use rust_box::task_exec_queue::{SpawnExt, TaskExecQueue};
 
-use crate::HashMap;
 use rmqtt::context::ServerContext;
 use rmqtt::{
     grpc::{GrpcClient, GrpcClients, Message, MessageBroadcaster, MessageReply, MessageSender, MessageType},
@@ -27,7 +26,7 @@ use super::message::{
     get_client_node_id, Message as RaftMessage, MessageReply as RaftMessageReply, RaftGrpcMessage,
     RaftGrpcMessageReply,
 };
-use super::ClusterRouter;
+use super::{ClusterRouter, HashMap};
 
 pub struct ClusterLockEntry {
     scx: ServerContext,
@@ -285,6 +284,7 @@ impl Entry for ClusterLockEntry {
 pub struct ClusterShared {
     scx: ServerContext,
     exec: TaskExecQueue,
+    forwards_exec: TaskExecQueue,
     inner: DefaultShared,
     router: ClusterRouter,
     grpc_clients: GrpcClients,
@@ -310,9 +310,11 @@ impl ClusterShared {
         rw_timeout: Duration,
     ) -> ClusterShared {
         let scx1 = scx.clone();
+        let forwards_exec = scx.get_exec("RAFT_FORWARDS_EXEC");
         Self {
             scx,
             exec,
+            forwards_exec,
             inner: DefaultShared::new(Some(scx1)),
             router,
             grpc_clients,
@@ -424,7 +426,7 @@ impl Shared for ClusterShared {
                     }
                     scx.stats.forwards.dec();
                 };
-                let _reply = self.scx.client_exec.spawn(forwards_fut).await;
+                let _reply = self.forwards_exec.spawn(forwards_fut).await;
             }
         }
 
