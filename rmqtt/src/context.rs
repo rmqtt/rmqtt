@@ -209,20 +209,6 @@ impl ServerContextBuilder {
 
     /// Constructs the ServerContext with configured parameters
     pub async fn build(self) -> ServerContext {
-        let (server_exec, server_task_runner) =
-            Builder::default().workers(self.task_exec_workers).queue_max(self.task_exec_queue_max).build();
-
-        let (client_exec, client_task_runner) =
-            Builder::default().workers(self.task_exec_workers).queue_max(self.task_exec_queue_max).build();
-
-        tokio::spawn(async move {
-            server_task_runner.await;
-        });
-
-        tokio::spawn(async move {
-            client_task_runner.await;
-        });
-
         ServerContext {
             inner: Arc::new(ServerContextInner {
                 args: self.args,
@@ -236,8 +222,7 @@ impl ServerContextBuilder {
                 #[cfg(feature = "stats")]
                 stats: Stats::new(),
                 handshake_exec: HandshakeExecutor::new(self.busy_handshaking_limit),
-                server_exec,
-                client_exec,
+                execs: DashMap::default(),
 
                 busy_check_enable: self.busy_check_enable,
                 mqtt_delayed_publish_max: self.mqtt_delayed_publish_max,
@@ -247,6 +232,9 @@ impl ServerContextBuilder {
                 handshakings: Counter::new(),
                 connections: Counter::new(),
                 sessions: Counter::new(),
+
+                task_exec_workers: self.task_exec_workers,
+                task_exec_queue_max: self.task_exec_queue_max,
             }),
         }
         .config()
@@ -281,10 +269,8 @@ pub struct ServerContextInner {
     pub stats: Stats,
     /// Handshake process executor
     pub handshake_exec: HandshakeExecutor,
-    /// Server task execution queue
-    pub server_exec: TaskExecQueue,
-    /// Client task execution queue
-    pub client_exec: TaskExecQueue,
+    /// Task execution queues
+    execs: DashMap<&'static str, TaskExecQueue>,
 
     /// Busy state check flag
     pub busy_check_enable: bool,
@@ -301,6 +287,9 @@ pub struct ServerContextInner {
     pub connections: Counter,
     /// Active session counter
     pub sessions: Counter,
+
+    task_exec_workers: usize,
+    task_exec_queue_max: usize,
 }
 
 impl Deref for ServerContext {
@@ -341,6 +330,30 @@ impl ServerContext {
             false
         }
     }
+
+    #[inline]
+    pub fn get_exec<K: ExecKey>(&self, key: K) -> TaskExecQueue {
+        self.execs
+            .entry(key.get())
+            .or_insert_with(|| {
+                let (exec, task_runner) = Builder::default()
+                    .workers(key.workers().unwrap_or(self.task_exec_workers))
+                    .queue_max(key.queue_max().unwrap_or(self.task_exec_queue_max))
+                    .build();
+
+                tokio::spawn(async move {
+                    task_runner.await;
+                });
+                exec
+            })
+            .value()
+            .clone()
+    }
+
+    #[inline]
+    pub fn execs(&self) -> &DashMap<&'static str, TaskExecQueue> {
+        &self.execs
+    }
 }
 
 impl fmt::Debug for ServerContext {
@@ -359,6 +372,43 @@ impl fmt::Debug for ServerContext {
             self.mqtt_max_sessions
         )?;
         Ok(())
+    }
+}
+
+pub type ExecWorkers = usize;
+pub type ExecQueueMax = usize;
+
+pub trait ExecKey {
+    fn get(&self) -> &'static str;
+    fn workers(&self) -> Option<ExecWorkers>;
+    fn queue_max(&self) -> Option<ExecQueueMax>;
+}
+
+impl ExecKey for &'static str {
+    fn get(&self) -> &'static str {
+        self
+    }
+
+    fn workers(&self) -> Option<ExecWorkers> {
+        None
+    }
+
+    fn queue_max(&self) -> Option<ExecQueueMax> {
+        None
+    }
+}
+
+impl ExecKey for (&'static str, ExecWorkers, ExecQueueMax) {
+    fn get(&self) -> &'static str {
+        self.0
+    }
+
+    fn workers(&self) -> Option<ExecWorkers> {
+        Some(self.1)
+    }
+
+    fn queue_max(&self) -> Option<ExecQueueMax> {
+        Some(self.2)
     }
 }
 

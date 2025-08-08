@@ -40,7 +40,7 @@ impl Message<'_> {
         bincode::serialize(self).map_err(anyhow::Error::new)
     }
     #[inline]
-    pub fn decode(data: &[u8]) -> Result<Message> {
+    pub fn decode(data: &[u8]) -> Result<Message<'_>> {
         bincode::deserialize::<Message>(data).map_err(anyhow::Error::new)
     }
 }

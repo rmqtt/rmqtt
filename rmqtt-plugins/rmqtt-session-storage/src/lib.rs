@@ -236,6 +236,7 @@ impl StoragePlugin {
             let local_set = tokio::task::LocalSet::new();
 
             local_set.block_on(&local_rt, async {
+                let exec = scx.get_exec("SESSION_REBUILD_EXEC");
                 while let Some(msg) = rx.next().await {
                     match msg {
                         RebuildChanType::Session(session, session_expiry_interval)  => {
@@ -253,29 +254,27 @@ impl StoragePlugin {
                                             log::warn!("{:?} Rebuild offline sessions error, {:?}", session_entry.id(), e);
                                         }
                                     };
-                                    let task_exec = &scx.server_exec;
-                                    if let Err(e) = task_exec.spawn(task_fut).await {
+                                    if let Err(e) = exec.spawn(task_fut).await {
                                         log::warn!("{:?} Rebuild offline sessions error, {:?}", id, e.to_string());
                                     }
 
-                                    let completed_count = task_exec.completed_count().await;
+                                    let completed_count = exec.completed_count().await;
                                     if completed_count > 0 && completed_count % 5000 == 0 {
                                         log::info!(
                                         "{:?} Rebuild offline sessions, completed_count: {}, active_count: {}, waiting_count: {}, rate: {:?}",
                                         id,
-                                        task_exec.completed_count().await, task_exec.active_count(), task_exec.waiting_count(), task_exec.rate().await
+                                        exec.completed_count().await, exec.active_count(), exec.waiting_count(), exec.rate().await
                                     );
                                     }
                                 }
                             }
                         },
                         RebuildChanType::Done(done_tx) => {
-                            let task_exec = &scx.server_exec;
-                            let _ = task_exec.flush().await;
+                            let _ = exec.flush().await;
                             let _ = done_tx.send(());
                             log::info!(
                                 "Rebuild offline sessions, completed_count: {}, active_count: {}, waiting_count: {}, rate: {:?}",
-                                task_exec.completed_count().await, task_exec.active_count(), task_exec.waiting_count(), task_exec.rate().await
+                                exec.completed_count().await, exec.active_count(), exec.waiting_count(), exec.rate().await
                             );
                         }
                     }

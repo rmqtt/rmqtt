@@ -93,6 +93,7 @@ impl GrpcServer {
         let runner = async move {
             let (tx, mut rx) = channel::<Priority, GrpcMessage>(300_000);
             let recv_data_fut = async move {
+                let exec = self.scx.get_exec("GRPC_SERVER_EXEC");
                 while let Some((_, (data, reply_tx))) = rx.next().await {
                     #[cfg(feature = "stats")]
                     self.scx.stats.grpc_server_actives.inc();
@@ -107,7 +108,7 @@ impl GrpcServer {
                         #[cfg(feature = "stats")]
                         s.scx.stats.grpc_server_actives.dec();
                     };
-                    let _ = self.scx.server_exec.spawn(recv_fut).await;
+                    let _ = exec.spawn(recv_fut).await;
                 }
                 log::error!("Recv None");
             };

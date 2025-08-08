@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
 use config::PluginConfig;
 use handler::HookHandler;
-use rust_box::task_exec_queue::{Builder, TaskExecQueue};
+use rust_box::task_exec_queue::TaskExecQueue;
 use serde_json::{self, json};
 use tokio::time::sleep;
 
@@ -59,7 +59,7 @@ impl ClusterPlugin {
         cfg.merge(&scx.args);
         log::info!("{name} ClusterPlugin cfg: {cfg:?}");
 
-        let exec = init_task_exec_queue(cfg.task_exec_queue_workers, cfg.task_exec_queue_max);
+        let exec = scx.get_exec(("RAFT_EXEC", cfg.task_exec_queue_workers, cfg.task_exec_queue_max));
 
         let register = scx.extends.hook_mgr().register();
         let mut grpc_clients = HashMap::default();
@@ -94,13 +94,8 @@ impl ClusterPlugin {
             .with_max_elapsed_time(Some(Duration::from_secs(60)))
             .with_multiplier(2.5)
             .build();
-        let router = ClusterRouter::new(
-            scx.clone(),
-            exec.clone(),
-            backoff_strategy.clone(),
-            cfg.try_lock_timeout,
-            cfg.compression,
-        );
+        let router =
+            ClusterRouter::new(scx.clone(), backoff_strategy.clone(), cfg.try_lock_timeout, cfg.compression);
         let shared = ClusterShared::new(
             scx.clone(),
             exec.clone(),
@@ -238,7 +233,7 @@ impl ClusterPlugin {
                 typ,
                 Box::new(HookHandler::new(
                     self.scx.clone(),
-                    self.exec.clone(),
+                    self.cfg.clone(),
                     self.backoff_strategy.clone(),
                     self.shared.clone(),
                     self.raft_mailbox(),
@@ -465,15 +460,4 @@ pub(crate) async fn hook_message_dropped(scx: &ServerContext, droppeds: Vec<(To,
         //hook, message_dropped
         scx.extends.hook_mgr().message_dropped(Some(to), from, publish, reason).await;
     }
-}
-
-#[inline]
-fn init_task_exec_queue(workers: usize, queue_max: usize) -> TaskExecQueue {
-    let (exec, task_runner) = Builder::default().workers(workers).queue_max(queue_max).build();
-
-    tokio::spawn(async move {
-        task_runner.await;
-    });
-
-    exec
 }

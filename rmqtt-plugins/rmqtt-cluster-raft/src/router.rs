@@ -54,7 +54,8 @@ impl ClientStatus {
 #[derive(Clone)]
 pub(crate) struct ClusterRouter {
     inner: DefaultRouter,
-    exec: TaskExecQueue,
+    add_exec: TaskExecQueue,
+    remove_exec: TaskExecQueue,
     backoff_strategy: ExponentialBackoff,
     raft_mailbox: Arc<RwLock<Option<Mailbox>>>,
     client_states: Arc<DashMap<ClientId, ClientStatus>>,
@@ -66,14 +67,16 @@ impl ClusterRouter {
     #[inline]
     pub(crate) fn new(
         scx: ServerContext,
-        exec: TaskExecQueue,
         backoff_strategy: ExponentialBackoff,
         try_lock_timeout: Duration,
         compression: Option<Compression>,
     ) -> Self {
+        let add_exec = scx.get_exec("RAFT_ROUTER_ADD_EXEC");
+        let remove_exec = scx.get_exec("RAFT_ROUTER_REMOVE_EXEC");
         Self {
             inner: DefaultRouter::new(Some(scx)),
-            exec,
+            add_exec,
+            remove_exec,
             backoff_strategy,
             raft_mailbox: Arc::new(RwLock::new(None)),
             client_states: Arc::new(DashMap::default()),
@@ -136,7 +139,7 @@ impl Router for ClusterRouter {
         let msg = Message::Add { topic_filter, id, opts }.encode()?;
         let mailbox = self.raft_mailbox().await;
         let _ = async move { mailbox.send_proposal(msg).await.map_err(anyhow::Error::new) }
-            .spawn(&self.exec)
+            .spawn(&self.add_exec)
             .result()
             .await
             .map_err(|_| anyhow!("Router::add(..), task execution failure"))??;
@@ -148,7 +151,7 @@ impl Router for ClusterRouter {
         log::debug!("[Router.remove] topic_filter: {:?}, id: {:?}", topic_filter, id);
         let msg = Message::Remove { topic_filter, id: id.clone() }.encode()?;
         let raft_mailbox = self.raft_mailbox().await;
-        let exec = self.exec.clone();
+        let exec = self.remove_exec.clone();
         let backoff_strategy = self.backoff_strategy.clone();
         tokio::spawn(async move {
             if let Err(e) = retry(backoff_strategy, || async {
