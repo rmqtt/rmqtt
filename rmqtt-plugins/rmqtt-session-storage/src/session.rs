@@ -602,6 +602,7 @@ pub trait AtomicFlags {
     fn empty() -> Self;
     #[allow(dead_code)]
     fn all() -> Self;
+    #[allow(dead_code)]
     fn get(&self) -> Self::T;
     #[allow(dead_code)]
     fn insert(&self, other: Self::T);
@@ -616,6 +617,7 @@ pub trait AtomicFlags {
         new: Self::T,
         mask: Self::T,
     ) -> std::result::Result<Self::T, Self::T>;
+    #[allow(dead_code)]
     fn difference(&self, other: Self::T) -> Self::T;
 }
 
