@@ -136,13 +136,25 @@ impl Router for ClusterRouter {
     async fn add(&self, topic_filter: &str, id: Id, opts: SubscriptionOptions) -> Result<()> {
         log::debug!("[Router.add] topic_filter: {:?}, id: {:?}, opts: {:?}", topic_filter, id, opts);
 
-        let msg = Message::Add { topic_filter, id, opts }.encode()?;
-        let mailbox = self.raft_mailbox().await;
-        let _ = async move { mailbox.send_proposal(msg).await.map_err(anyhow::Error::new) }
-            .spawn(&self.add_exec)
-            .result()
-            .await
-            .map_err(|_| anyhow!("Router::add(..), task execution failure"))??;
+        let mut add_res = None;
+        for _ in 0..3 {
+            let mailbox = self.raft_mailbox().await;
+            let msg = Message::Add { topic_filter, id: id.clone(), opts: opts.clone() }.encode()?;
+            let res = async move { mailbox.send_proposal(msg).await.map_err(anyhow::Error::new) }
+                .spawn(&self.add_exec)
+                .result()
+                .await
+                .map_err(|_| anyhow!("Router::add(..), task execution failure"));
+            add_res = Some(res);
+            match add_res.as_ref() {
+                Some(Ok(Ok(_))) => return Ok(()),
+                _ => {
+                    tokio::time::sleep(Duration::from_millis(800)).await;
+                    continue;
+                }
+            }
+        }
+        let _ = add_res.ok_or_else(|| anyhow!("unreachable!()"))???;
         Ok(())
     }
 
