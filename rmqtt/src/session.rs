@@ -72,6 +72,7 @@ use async_trait::async_trait;
 #[allow(unused_imports)]
 use bitflags::Flags;
 use bytestring::ByteString;
+use futures::channel::mpsc::unbounded;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -139,7 +140,7 @@ impl SessionState {
         log::debug!("server_topic_aliases: {server_topic_aliases:?}");
         log::debug!("client_topic_aliases: {client_topic_aliases:?}");
 
-        let (tx, rx) = futures::channel::mpsc::unbounded();
+        let (tx, rx) = unbounded();
         let tx = SessionTx::new(
             tx,
             #[cfg(feature = "debug")]
@@ -738,7 +739,7 @@ impl SessionState {
                 let status = match self.subscribes_v3(topic_filters).await {
                     Ok(status) => status,
                     Err(e) => {
-                        log::warn!("{} Connection Refused, reason: {e:?}", self.id);
+                        log::warn!("{} Subscribe Refused, reason: {e:?}", self.id);
                         return Err(Reason::SubscribeFailed(Some(e.to_string().into())));
                     }
                 };
@@ -747,7 +748,7 @@ impl SessionState {
             Packet::V5(v5::Packet::Subscribe(subs)) => {
                 let ack = match self.subscribes_v5(subs).await {
                     Err(e) => {
-                        log::warn!("{} Connection Refused, reason: {e:?}", self.id);
+                        log::warn!("{} Subscribe Refused, reason: {e:?}", self.id);
                         return Err(Reason::SubscribeFailed(Some(e.to_string().into())));
                     }
                     Ok(ack) => ack,
@@ -1083,11 +1084,18 @@ impl SessionState {
         let mut acks = Vec::new();
         for (topic_filter, qos) in topic_filters {
             let s = Subscribe::from_v3(&topic_filter, qos, shared_subscription, limit_subscription)?;
-            let sub_ret = self.subscribe(s).await?;
-            if let Some(qos) = sub_ret.success() {
-                acks.push(v3::SubscribeReturnCode::Success(qos))
-            } else {
-                acks.push(v3::SubscribeReturnCode::Failure)
+            match self.subscribe(s).await {
+                Ok(sub_ret) => {
+                    if let Some(qos) = sub_ret.success() {
+                        acks.push(v3::SubscribeReturnCode::Success(qos))
+                    } else {
+                        acks.push(v3::SubscribeReturnCode::Failure)
+                    }
+                }
+                Err(e) => {
+                    log::warn!("{:?} Subscribe failed, {:?}", self.id, e);
+                    acks.push(v3::SubscribeReturnCode::Failure)
+                }
             }
         }
         Ok(acks)
@@ -1125,8 +1133,15 @@ impl SessionState {
 
         for (topic_filter, opts) in &subs.topic_filters {
             let s = Subscribe::from_v5(topic_filter, opts, shared_subscription, limit_subscription, sub_id)?;
-            let sub_ret = self.subscribe(s).await?;
-            status.push(sub_ret.into_inner());
+            match self.subscribe(s).await {
+                Ok(sub_ret) => {
+                    status.push(sub_ret.into_inner());
+                }
+                Err(e) => {
+                    log::warn!("{:?} Subscribe failed, {:?}", self.id, e);
+                    status.push(SubscribeAckReason::UnspecifiedError);
+                }
+            }
         }
         Ok(v5::SubscribeAck {
             status,
@@ -1311,7 +1326,22 @@ impl SessionState {
         }
 
         //subscribe
-        let sub_ret = self.scx.extends.shared().await.entry(self.id.clone()).subscribe(&sub).await?;
+        let mut sub_ret: Option<Result<SubscribeReturn>> = None;
+        for _ in 0..3 {
+            sub_ret = Some(self.scx.extends.shared().await.entry(self.id.clone()).subscribe(&sub).await);
+            match sub_ret.as_ref() {
+                Some(Err(e)) => {
+                    log::debug!("{:?} Subscription failed, {:?}", self.id, e);
+                    tokio::time::sleep(Duration::from_millis(800)).await;
+                    continue;
+                }
+                Some(Ok(_)) => {
+                    break;
+                }
+                None => unreachable!(),
+            }
+        }
+        let sub_ret = sub_ret.ok_or_else(|| anyhow!("unreachable!()"))??;
 
         #[allow(unused_variables)]
         if let Some(qos) = sub_ret.success() {
