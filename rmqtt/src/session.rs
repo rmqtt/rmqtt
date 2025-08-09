@@ -1326,22 +1326,7 @@ impl SessionState {
         }
 
         //subscribe
-        let mut sub_ret: Option<Result<SubscribeReturn>> = None;
-        for _ in 0..3 {
-            sub_ret = Some(self.scx.extends.shared().await.entry(self.id.clone()).subscribe(&sub).await);
-            match sub_ret.as_ref() {
-                Some(Err(e)) => {
-                    log::debug!("{:?} Subscription failed, {:?}", self.id, e);
-                    tokio::time::sleep(Duration::from_millis(800)).await;
-                    continue;
-                }
-                Some(Ok(_)) => {
-                    break;
-                }
-                None => unreachable!(),
-            }
-        }
-        let sub_ret = sub_ret.ok_or_else(|| anyhow!("unreachable!()"))??;
+        let sub_ret = self.scx.extends.shared().await.entry(self.id.clone()).subscribe(&sub).await?;
 
         #[allow(unused_variables)]
         if let Some(qos) = sub_ret.success() {
