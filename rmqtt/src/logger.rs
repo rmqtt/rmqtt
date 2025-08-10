@@ -124,5 +124,5 @@ fn open_file(filename: &str) -> Result<File> {
         .create(true)
         .append(true)
         .open(filename)
-        .map_err(|e| MqttError::from(format!("logger file config error, filename: {}, {:?}", filename, e)))
+        .map_err(|e| MqttError::from(format!("logger file config error, filename: {filename}, {e:?}")))
 }

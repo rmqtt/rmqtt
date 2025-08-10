@@ -102,10 +102,10 @@ impl SessionManager for &'static StorageSessionManager {
                 let s1 = s.clone();
                 tokio::spawn(async move {
                     if let Err(e) = s1.save_to_db().await {
-                        log::error!("Save session info error to db, {:?}", e);
+                        log::error!("Save session info error to db, {e:?}");
                     }
                     if let Some(last_id) = last_id {
-                        log::debug!("Remove last offline session info from db, last_id: {:?}", last_id,);
+                        log::debug!("Remove last offline session info from db, last_id: {last_id:?}",);
 
                         let map = s1.storage_db.map(make_map_stored_key(last_id.to_string()), None).await;
                         let list = s1.storage_db.list(make_list_stored_key(last_id.to_string()), None).await;
@@ -113,9 +113,7 @@ impl SessionManager for &'static StorageSessionManager {
                         if let Ok(map) = map {
                             if let Err(e) = map.clear().await {
                                 log::warn!(
-                                    "Remove last offline session info error from db, last_id: {:?}, {:?}",
-                                    last_id,
-                                    e
+                                    "Remove last offline session info error from db, last_id: {last_id:?}, {e:?}"
                                 );
                             }
                         }
@@ -123,9 +121,7 @@ impl SessionManager for &'static StorageSessionManager {
                         if let Ok(list) = list {
                             if let Err(e) = list.clear().await {
                                 log::warn!(
-                                    "Remove last offline session info error from db, last_id: {:?}, {:?}",
-                                    last_id,
-                                    e
+                                    "Remove last offline session info error from db, last_id: {last_id:?}, {e:?}"
                                 );
                             }
                         }
@@ -231,7 +227,7 @@ impl StorageSession {
     #[inline]
     async fn save_basic_info(&self) {
         if let Err(e) = self._save_basic_info().await {
-            log::error!("save basic info error, {:?}", e);
+            log::error!("save basic info error, {e:?}");
         }
     }
 
@@ -250,7 +246,7 @@ impl StorageSession {
     #[inline]
     async fn save_subscriptions(&self) {
         if let Err(e) = self._save_subscriptions().await {
-            log::error!("save subscriptions error, {:?}", e);
+            log::error!("save subscriptions error, {e:?}");
         }
     }
 
@@ -270,7 +266,7 @@ impl StorageSession {
     #[inline]
     async fn save_disconnect_info(&self) {
         if let Err(e) = self._save_disconnect_info().await {
-            log::error!("save disconnect info error, {:?}", e);
+            log::error!("save disconnect info error, {e:?}");
         }
     }
 
@@ -497,7 +493,7 @@ impl SessionLike for StorageSession {
 
     #[inline]
     async fn keepalive(&self, ping: IsPing) {
-        log::debug!("ping: {}", ping);
+        log::debug!("ping: {ping}");
         if ping {
             self.update_last_time(true).await;
         } else {
@@ -663,7 +659,7 @@ impl StoredSessionInfos {
         offline_messages: Vec<OfflineMessageOptionType>,
     ) -> bool {
         let mut exist = false;
-        log::debug!("set_offline_messages id_key: {:?}", id_key);
+        log::debug!("set_offline_messages id_key: {id_key:?}");
         for (cid, f, p) in offline_messages.into_iter().flatten() {
             if let Some(mut entry) = self.0.get_mut(&cid) {
                 let storeds = entry.value_mut();

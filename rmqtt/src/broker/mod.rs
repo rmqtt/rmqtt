@@ -112,7 +112,7 @@ pub trait Shared: Sync + Send {
 
     #[inline]
     fn node_name(&self, id: NodeId) -> String {
-        format!("{}@127.0.0.1", id)
+        format!("{id}@127.0.0.1")
     }
 
     #[inline]

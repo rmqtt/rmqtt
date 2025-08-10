@@ -253,7 +253,7 @@ impl Shared for &'static ClusterShared {
                 (relations, shared_relations, sub_client_ids)
             }
             Err(e) => {
-                log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
+                log::warn!("forwards, from:{from:?}, topic:{topic:?}, error: {e:?}");
                 (Vec::new(), Vec::new(), None)
             }
         };
@@ -339,9 +339,7 @@ impl Shared for &'static ClusterShared {
                     Ok(reply) => {
                         if let MessageReply::Forwards(mut o_relations_map, o_sub_client_ids) = reply {
                             log::debug!(
-                                "other noade relations: {:?}, o_sub_client_ids: {:?}",
-                                o_relations_map,
-                                o_sub_client_ids
+                                "other noade relations: {o_relations_map:?}, o_sub_client_ids: {o_sub_client_ids:?}"
                             );
 
                             if let Some(o_sub_client_ids) = o_sub_client_ids {
@@ -362,9 +360,7 @@ impl Shared for &'static ClusterShared {
                     }
                     Err(e) => {
                         log::error!(
-                            "forwards Message::Forwards to other node, from: {:?}, error: {:?}",
-                            from,
-                            e
+                            "forwards Message::Forwards to other node, from: {from:?}, error: {e:?}"
                         );
                     }
                 }
@@ -390,7 +386,7 @@ impl Shared for &'static ClusterShared {
                     }
                 }
             }
-            log::debug!("node_shared_subs: {:?}", node_shared_subs);
+            log::debug!("node_shared_subs: {node_shared_subs:?}");
 
             //send to this node
             if let Some(sub_rels) = node_shared_subs.remove(&this_node_id) {
@@ -414,7 +410,7 @@ impl Shared for &'static ClusterShared {
                 let ress = futures::future::join_all(delivers).await;
                 for res in ress {
                     if let Err(e) = res {
-                        log::error!("deliver shared subscriptions error, {:?}", e);
+                        log::error!("deliver shared subscriptions error, {e:?}");
                     }
                 }
             }
@@ -512,7 +508,7 @@ impl Shared for &'static ClusterShared {
                         replys.extend(subs);
                     }
                     Err(e) => {
-                        log::warn!("query_subscriptions, error: {:?}", e);
+                        log::warn!("query_subscriptions, error: {e:?}");
                     }
                     _ => unreachable!(),
                 };

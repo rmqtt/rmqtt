@@ -206,7 +206,7 @@ impl Task {
         let pair: Vec<&str> = v.split(',').collect();
         if pair.len() == 2 {
             let burst = NonZeroU32::from_str(pair[0]).map_err(|e| {
-                de::Error::custom(format!("local_exec_rate_limit, burst format error, {:?}", e))
+                de::Error::custom(format!("local_exec_rate_limit, burst format error, {e:?}"))
             })?;
             let replenish_n_per = to_duration(pair[1]);
             if replenish_n_per.as_millis() == 0 {
@@ -377,8 +377,7 @@ impl Plugins {
         let (cfg, def) = self.load_config_with_required(name, false, &[])?;
         if def {
             crate::log::warn!(
-                "The configuration for plugin '{}' does not exist, default values will be used!",
-                name
+                "The configuration for plugin '{name}' does not exist, default values will be used!"
             );
         }
         Ok(cfg)
@@ -401,8 +400,7 @@ impl Plugins {
         let (cfg, def) = self.load_config_with_required(name, false, env_list_keys)?;
         if def {
             crate::log::warn!(
-                "The configuration for plugin '{}' does not exist, default values will be used!",
-                name
+                "The configuration for plugin '{name}' does not exist, default values will be used!"
             );
         }
         Ok(cfg)
@@ -416,7 +414,7 @@ impl Plugins {
     ) -> Result<(T, bool)> {
         let dir = self.dir.trim_end_matches(['/', '\\']);
         let mut builder =
-            Config::builder().add_source(File::with_name(&format!("{}/{}", dir, name)).required(required));
+            Config::builder().add_source(File::with_name(&format!("{dir}/{name}")).required(required));
 
         let mut env = config::Environment::with_prefix(&format!("rmqtt_plugin_{}", name.replace('-', "_")));
         if !env_list_keys.is_empty() {
@@ -487,24 +485,24 @@ impl Bytesize {
 
         let g = v / BYTESIZE_G;
         if g > 0 {
-            res.push_str(&format!("{}G", g));
+            res.push_str(&format!("{g}G"));
             v %= BYTESIZE_G;
         }
 
         let m = v / BYTESIZE_M;
         if m > 0 {
-            res.push_str(&format!("{}M", m));
+            res.push_str(&format!("{m}M"));
             v %= BYTESIZE_M;
         }
 
         let k = v / BYTESIZE_K;
         if k > 0 {
-            res.push_str(&format!("{}K", k));
+            res.push_str(&format!("{k}K"));
             v %= BYTESIZE_K;
         }
 
         if v > 0 {
-            res.push_str(&format!("{}B", v));
+            res.push_str(&format!("{v}B"));
         }
 
         res
@@ -717,7 +715,7 @@ impl FromStr for NodeAddr {
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let parts: Vec<&str> = s.split('@').collect();
         if parts.len() < 2 {
-            return Err(MqttError::Msg(format!("NodeAddr format error, {}", s)));
+            return Err(MqttError::Msg(format!("NodeAddr format error, {s}")));
         }
         let id = NodeId::from_str(parts[0]).map_err(MqttError::ParseIntError)?;
         //let addr = parts[1].parse().map_err(|e|MqttError::AddrParseError(e))?;

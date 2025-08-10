@@ -133,7 +133,7 @@ impl std::convert::TryFrom<&serde_json::Value> for Rule {
     type Error = MqttError;
     #[inline]
     fn try_from(rule_cfg: &serde_json::Value) -> Result<Self, Self::Error> {
-        let err_msg = format!("ACL Rule config error, rule config is {:?}", rule_cfg);
+        let err_msg = format!("ACL Rule config error, rule config is {rule_cfg:?}");
         if let Some(cfg_items) = rule_cfg.as_array() {
             let access_cfg = cfg_items.first().ok_or_else(|| MqttError::from(err_msg.as_str()))?;
             let user_cfg = cfg_items.get(1).ok_or_else(|| MqttError::from(err_msg))?;
@@ -145,7 +145,7 @@ impl std::convert::TryFrom<&serde_json::Value> for Rule {
             let control = Control::try_from(control_cfg)?;
             let topics = Topics::try_from(topics_cfg)?;
             if topics_cfg.is_some() && matches!(control, Control::Connect) {
-                log::warn!("ACL Rule config, the third column of a quadruple is Connect, but the fourth column is not empty! topics config is {:?}", topics_cfg);
+                log::warn!("ACL Rule config, the third column of a quadruple is Connect, but the fourth column is not empty! topics config is {topics_cfg:?}");
             }
             Ok(Rule { access, users, control, topics })
         } else {
@@ -251,7 +251,7 @@ impl std::convert::TryFrom<&serde_json::Value> for Access {
     type Error = MqttError;
     #[inline]
     fn try_from(access_cfg: &serde_json::Value) -> Result<Self, Self::Error> {
-        let err_msg = format!("ACL Rule config error, access config is {:?}", access_cfg);
+        let err_msg = format!("ACL Rule config error, access config is {access_cfg:?}");
         match access_cfg.as_str().ok_or_else(|| MqttError::from(err_msg.as_str()))?.to_lowercase().as_str() {
             "allow" => Ok(Access::Allow),
             "deny" => Ok(Access::Deny),
@@ -261,7 +261,7 @@ impl std::convert::TryFrom<&serde_json::Value> for Access {
 }
 
 fn users_try_from(user_cfg: &Value, access: Access) -> Result<Vec<User>> {
-    let err_msg = format!("ACL Rule config error, user config is {:?}", user_cfg);
+    let err_msg = format!("ACL Rule config error, user config is {user_cfg:?}");
     let users = match user_cfg {
         Value::String(all) => {
             if all.to_lowercase() == "all" {
@@ -318,7 +318,7 @@ impl std::convert::TryFrom<Option<&serde_json::Value>> for Control {
     type Error = MqttError;
     #[inline]
     fn try_from(control_cfg: Option<&serde_json::Value>) -> Result<Self, Self::Error> {
-        let err_msg = format!("ACL Rule config error, control config is {:?}", control_cfg);
+        let err_msg = format!("ACL Rule config error, control config is {control_cfg:?}");
         let control = match control_cfg {
             None => Ok(Control::All),
             Some(Value::String(control)) => match control.to_lowercase().as_str() {
@@ -339,7 +339,7 @@ impl std::convert::TryFrom<Option<&serde_json::Value>> for Topics {
     type Error = MqttError;
     #[inline]
     fn try_from(topics_cfg: Option<&serde_json::Value>) -> Result<Self, Self::Error> {
-        let err_msg = format!("ACL Rule config error, topics config is {:?}", topics_cfg);
+        let err_msg = format!("ACL Rule config error, topics config is {topics_cfg:?}");
         let mut all = false;
         let eqs = DashSet::default();
         let mut tree = TopicTree::default();

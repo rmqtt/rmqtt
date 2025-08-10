@@ -30,7 +30,7 @@ impl NodeGrpcClient {
     pub async fn new(server_addr: &str) -> Result<Self> {
         log::debug!("rpc.client_timeout: {:?}", Runtime::instance().settings.rpc.client_timeout);
         let concurrency_limit = Runtime::instance().settings.rpc.client_concurrency_limit + 1;
-        let endpoint = Channel::from_shared(format!("http://{}", server_addr))
+        let endpoint = Channel::from_shared(format!("http://{server_addr}"))
             .map(|endpoint| {
                 endpoint
                     .concurrency_limit(concurrency_limit)
@@ -188,7 +188,7 @@ impl NodeGrpcClient {
             .send_message(tonic::Request::new(pb::Message { typ, data: msg.encode()? }))
             .await
             .map_err(anyhow::Error::new)?;
-        log::trace!("response: {:?}", response);
+        log::trace!("response: {response:?}");
         let message_reply = response.into_inner();
         MessageReply::decode(&message_reply.data)
     }
@@ -215,7 +215,7 @@ impl NodeGrpcClient {
             .batch_send_messages(tonic::Request::new(pb::BatchMessages { data }))
             .await
             .map_err(anyhow::Error::new)?;
-        log::trace!("response: {:?}", response);
+        log::trace!("response: {response:?}");
         let message_reply = response.into_inner();
 
         Ok(bincode::deserialize::<Vec<MessageReply>>(&message_reply.data).map_err(anyhow::Error::new)?)
@@ -231,14 +231,14 @@ impl NodeGrpcClient {
             let batch_size = Runtime::instance().settings.rpc.batch_size;
             while let Some((typ, msg, r_tx)) = rx.recv().await {
                 channel_tasks.fetch_sub(1, Ordering::SeqCst);
-                log::debug!("recv, type: {}, message: {:?}", typ, msg);
+                log::debug!("recv, type: {typ}, message: {msg:?}");
                 merger_msgs.push((typ, msg));
                 merger_txs.push(r_tx);
                 while merger_msgs.len() < batch_size {
                     match tokio::time::timeout(Duration::from_millis(0), rx.recv()).await {
                         Ok(Some((typ, msg, r_tx))) => {
                             channel_tasks.fetch_sub(1, Ordering::SeqCst);
-                            log::debug!("try_recv, type: {}, message: {:?}", typ, msg);
+                            log::debug!("try_recv, type: {typ}, message: {msg:?}");
                             merger_msgs.push((typ, msg));
                             merger_txs.push(r_tx);
                         }
@@ -260,7 +260,7 @@ impl NodeGrpcClient {
                     Self::_send(client.clone(), msgs, r_txs).await;
                 }
             }
-            log::info!("exit NodeGrpcClient, {:?}", endpoint);
+            log::info!("exit NodeGrpcClient, {endpoint:?}");
         });
     }
 
@@ -275,7 +275,7 @@ impl NodeGrpcClient {
             let reply = client.inner_send_message(typ, msg).await;
             if !r_tx.is_closed() {
                 if let Err(r) = r_tx.send(reply) {
-                    log::warn!("Failed to return result, reply message: {:?}", r);
+                    log::warn!("Failed to return result, reply message: {r:?}");
                 }
             }
         } else {
@@ -284,7 +284,7 @@ impl NodeGrpcClient {
                     for r_tx in r_txs {
                         if !r_tx.is_closed() {
                             if let Err(r) = r_tx.send(Err(MqttError::from(e.to_string()))) {
-                                log::warn!("Failed to return result, reply error message: {:?}", r);
+                                log::warn!("Failed to return result, reply error message: {r:?}");
                             }
                         }
                     }
@@ -294,7 +294,7 @@ impl NodeGrpcClient {
                         let r_tx = r_txs.remove(0);
                         if !r_tx.is_closed() {
                             if let Err(r) = r_tx.send(Ok(msg)) {
-                                log::warn!("Failed to return result, reply message: {:?}", r);
+                                log::warn!("Failed to return result, reply message: {r:?}");
                             }
                         }
                     }

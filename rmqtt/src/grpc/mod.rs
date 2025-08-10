@@ -111,7 +111,7 @@ impl MessageSender {
         match self.client.send_message(self.msg_type, self.msg, self.timeout).await {
             Ok(reply) => Ok(reply),
             Err(e) => {
-                log::warn!("error sending message, {:?}", e);
+                log::warn!("error sending message, {e:?}");
                 Err(e)
             }
         }
@@ -189,11 +189,11 @@ impl MessageBroadcaster {
     {
         match grpc_client.send_message(typ, msg, timeout).await {
             Ok(r) => {
-                log::debug!("OK reply: {:?}", r);
+                log::debug!("OK reply: {r:?}");
                 check_fn(r)
             }
             Err(e) => {
-                log::debug!("ERROR reply: {:?}", e);
+                log::debug!("ERROR reply: {e:?}");
                 Err(e)
             }
         }

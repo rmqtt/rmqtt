@@ -1,3 +1,4 @@
+#![allow(clippy::result_large_err)]
 #![deny(unsafe_code)]
 #[macro_use]
 extern crate serde;
@@ -118,8 +119,7 @@ impl Handler for AclHandler {
                             }
                             if let Err(e) = rule.add_topic_filter(&tf).await {
                                 log::error!(
-                                    "acl config error, build_placeholders, add topic filter error, {:?}",
-                                    e
+                                    "acl config error, build_placeholders, add topic filter error, {e:?}"
                                 );
                             }
                         }
@@ -278,7 +278,7 @@ impl Handler for AclHandler {
                 );
             }
             _ => {
-                log::error!("parameter is: {:?}", param);
+                log::error!("parameter is: {param:?}");
             }
         }
         (true, acc)

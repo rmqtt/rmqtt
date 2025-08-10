@@ -1,3 +1,4 @@
+#![allow(clippy::result_large_err)]
 #![deny(unsafe_code)]
 #[macro_use]
 extern crate serde;
@@ -44,7 +45,7 @@ impl SystemTopicPlugin {
     async fn new<N: Into<String>>(runtime: &'static Runtime, name: N) -> Result<Self> {
         let name = name.into();
         let cfg = runtime.settings.plugins.load_config_default::<PluginConfig>(&name)?;
-        log::debug!("{} SystemTopicPlugin cfg: {:?}", name, cfg);
+        log::debug!("{name} SystemTopicPlugin cfg: {cfg:?}");
         let register = runtime.extends.hook_mgr().await.register();
         let cfg = Arc::new(RwLock::new(cfg));
         let running = Arc::new(AtomicBool::new(false));
@@ -75,7 +76,7 @@ impl SystemTopicPlugin {
     async fn send_stats(runtime: &'static Runtime, publish_qos: QoS, expiry_interval: Duration) {
         let payload = runtime.stats.clone().await.to_json().await;
         let nodeid = runtime.node.id();
-        let topic = format!("$SYS/brokers/{}/stats", nodeid);
+        let topic = format!("$SYS/brokers/{nodeid}/stats");
         sys_publish(nodeid, topic, publish_qos, payload, expiry_interval).await;
     }
 
@@ -84,7 +85,7 @@ impl SystemTopicPlugin {
     async fn send_metrics(runtime: &'static Runtime, publish_qos: QoS, expiry_interval: Duration) {
         let payload = Runtime::instance().metrics.to_json();
         let nodeid = runtime.node.id();
-        let topic = format!("$SYS/brokers/{}/metrics", nodeid);
+        let topic = format!("$SYS/brokers/{nodeid}/metrics");
         sys_publish(nodeid, topic, publish_qos, payload, expiry_interval).await;
     }
 }
@@ -251,7 +252,7 @@ impl Handler for SystemTopicHandler {
             }
 
             _ => {
-                log::error!("unimplemented, {:?}", param);
+                log::error!("unimplemented, {param:?}");
                 None
             }
         } {
@@ -311,11 +312,11 @@ async fn sys_publish(
             if let Err(e) =
                 SessionState::forwards(from, p, storage_available, Some(message_expiry_interval)).await
             {
-                log::warn!("{:?}", e);
+                log::warn!("{e:?}");
             }
         }
         Err(e) => {
-            log::error!("{:?}", e);
+            log::error!("{e:?}");
         }
     }
 }

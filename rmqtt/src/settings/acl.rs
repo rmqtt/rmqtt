@@ -167,7 +167,7 @@ impl std::convert::TryFrom<(&serde_json::Value, &ConnectInfo)> for Rule {
     type Error = MqttError;
     #[inline]
     fn try_from((acl_cfg, connect_info): (&serde_json::Value, &ConnectInfo)) -> Result<Self, Self::Error> {
-        let err_msg = format!("ACL Rule config error, rule config is {:?}", acl_cfg);
+        let err_msg = format!("ACL Rule config error, rule config is {acl_cfg:?}");
 
         if let Some(obj) = acl_cfg.as_object() {
             let permission = obj
@@ -311,7 +311,7 @@ impl std::convert::TryFrom<(&str, &ConnectInfo)> for Topic {
         } else if !topic_cfg.is_empty() {
             topic_filter = Some(crate::Topic::from_str(replaces(topic_cfg, connect_info)?.as_ref())?);
         } else {
-            return Err(MqttError::from(format!("ACL Rule config error, topic config is {:?}", topic_cfg)));
+            return Err(MqttError::from(format!("ACL Rule config error, topic config is {topic_cfg:?}")));
         }
 
         Ok(Topic { eq_topic_filter, topic_filter })

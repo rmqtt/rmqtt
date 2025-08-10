@@ -68,7 +68,7 @@ impl Handler for HookHandler {
     async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
         match param {
             Parameter::ClientConnack(connect_info, r) => {
-                log::debug!("client connack, {:?}, {:?}", connect_info, r);
+                log::debug!("client connack, {connect_info:?}, {r:?}");
             }
             Parameter::ClientSubscribe(s, subscribe) => {
                 log::debug!("{:?} client subscribe, {:?}", s.id, subscribe);
@@ -92,7 +92,7 @@ impl Handler for HookHandler {
                 log::debug!("{:?} ClientSubscribeCheckAcl, {:?}", s.id, subscribe);
             }
             _ => {
-                log::error!("unimplemented, {:?}", param)
+                log::error!("unimplemented, {param:?}")
             }
         }
         (true, acc)

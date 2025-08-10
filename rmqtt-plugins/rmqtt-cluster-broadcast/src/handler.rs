@@ -27,7 +27,7 @@ impl Handler for HookHandler {
     async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
         match param {
             Parameter::GrpcMessageReceived(typ, msg) => {
-                log::debug!("GrpcMessageReceived, type: {}, msg: {:?}", typ, msg);
+                log::debug!("GrpcMessageReceived, type: {typ}, msg: {msg:?}");
                 if self.shared.message_type != *typ {
                     return (true, acc);
                 }
@@ -48,19 +48,19 @@ impl Handler for HookHandler {
                     }
                     Message::Kick(id, clean_start, clear_subscriptions, is_admin) => {
                         let entry = self.shared.inner().entry(id.clone());
-                        log::debug!("{:?}", id);
+                        log::debug!("{id:?}");
                         let new_acc = match entry.try_lock().await {
                             Ok(mut entry) => {
                                 match entry.kick(*clean_start, *clear_subscriptions, *is_admin).await {
                                     Ok(o) => {
-                                        log::debug!("{:?} offline info: {:?}", id, o);
+                                        log::debug!("{id:?} offline info: {o:?}");
                                         HookResult::GrpcMessageReply(Ok(MessageReply::Kick(o)))
                                     }
                                     Err(e) => HookResult::GrpcMessageReply(Err(e)),
                                 }
                             }
                             Err(e) => {
-                                log::warn!("{:?}, try_lock error, {:?}", id, e);
+                                log::warn!("{id:?}, try_lock error, {e:?}");
                                 HookResult::GrpcMessageReply(Err(e))
                             }
                         };
@@ -129,12 +129,12 @@ impl Handler for HookHandler {
                     }
 
                     _ => {
-                        log::error!("unimplemented, {:?}", param)
+                        log::error!("unimplemented, {param:?}")
                     }
                 }
             }
             _ => {
-                log::error!("unimplemented, {:?}", param)
+                log::error!("unimplemented, {param:?}")
             }
         }
         (true, acc)
@@ -142,7 +142,7 @@ impl Handler for HookHandler {
 }
 
 async fn forwards(from: From, publish: Publish) -> (SubRelationsMap, SubscriptionClientIds) {
-    log::debug!("forwards, From: {:?}, publish: {:?}", from, publish);
+    log::debug!("forwards, From: {from:?}, publish: {publish:?}");
     match Runtime::instance().extends.shared().await.forwards_and_get_shareds(from, publish).await {
         Err(droppeds) => {
             hook_message_dropped(droppeds).await;

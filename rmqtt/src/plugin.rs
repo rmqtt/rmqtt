@@ -280,7 +280,7 @@ impl Manager {
         if let Some(entry) = self.get(name) {
             entry.plugin().await?.get_config().await
         } else {
-            Err(MqttError::from(format!("{} the plug-in does not exist", name)))
+            Err(MqttError::from(format!("{name} the plug-in does not exist")))
         }
     }
 
@@ -294,7 +294,7 @@ impl Manager {
                 Err(MqttError::from("the plug-in is not initialized"))
             }
         } else {
-            Err(MqttError::from(format!("{} the plug-in does not exist", name)))
+            Err(MqttError::from(format!("{name} the plug-in does not exist")))
         }
     }
 
@@ -311,7 +311,7 @@ impl Manager {
             }
             Ok(())
         } else {
-            Err(MqttError::from(format!("{} the plug-in does not exist", name)))
+            Err(MqttError::from(format!("{name} the plug-in does not exist")))
         }
     }
 
@@ -323,10 +323,10 @@ impl Manager {
                 entry.active = !stopped;
                 Ok(stopped)
             } else {
-                Err(MqttError::from(format!("{} the plug-in is not started", name)))
+                Err(MqttError::from(format!("{name} the plug-in is not started")))
             }
         } else {
-            Err(MqttError::from(format!("{} the plug-in does not exist", name)))
+            Err(MqttError::from(format!("{name} the plug-in does not exist")))
         }
     }
 
@@ -362,7 +362,7 @@ impl Manager {
         if let Some(entry) = self.plugins.get(name) {
             entry.plugin().await?.send(msg).await
         } else {
-            Err(MqttError::from(format!("{} the plug-in does not exist", name)))
+            Err(MqttError::from(format!("{name} the plug-in does not exist")))
         }
     }
 

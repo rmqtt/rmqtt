@@ -337,5 +337,5 @@ pub fn to_uptime(uptime: i64) -> String {
     let uptime = uptime / 60;
     let uptime_hours = uptime % 24;
     let uptime_days = uptime / 24;
-    format!("{} days {} hours, {} minutes, {} seconds", uptime_days, uptime_hours, uptime_minus, uptime_secs)
+    format!("{uptime_days} days {uptime_hours} hours, {uptime_minus} minutes, {uptime_secs} seconds")
 }

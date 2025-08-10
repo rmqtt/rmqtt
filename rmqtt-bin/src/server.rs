@@ -1,3 +1,4 @@
+#![allow(clippy::result_large_err)]
 #![deny(unsafe_code)]
 
 use std::{process, sync::Arc, time::Duration};
@@ -83,7 +84,7 @@ async fn main() {
         let name = format!("{}/{:?}", &listen_cfg.name, &listen_cfg.addr);
         ntex::rt::spawn(async {
             if let Err(err) = listen(name, listen_cfg).await {
-                log::error!("listen mqtt failed: {}", err);
+                log::error!("listen mqtt failed: {err}");
                 process::exit(1);
             }
         });
@@ -94,7 +95,7 @@ async fn main() {
         let name = format!("{}/{:?}", &listen_cfg.name, &listen_cfg.addr);
         ntex::rt::spawn(async {
             if let Err(err) = listen_tls(name, listen_cfg).await {
-                log::error!("listen mqtt tls failed: {}", err);
+                log::error!("listen mqtt tls failed: {err}");
                 process::exit(1);
             }
         });
@@ -105,7 +106,7 @@ async fn main() {
         let name = format!("{}/{:?}", &listen_cfg.name, &listen_cfg.addr);
         ntex::rt::spawn(async {
             if let Err(err) = listen_ws(name, listen_cfg).await {
-                log::error!("listen websocket failed: {}", err);
+                log::error!("listen websocket failed: {err}");
                 process::exit(1);
             }
         });
@@ -116,7 +117,7 @@ async fn main() {
         let name = format!("{}/{:?}", &listen_cfg.name, &listen_cfg.addr);
         ntex::rt::spawn(async {
             if let Err(err) = listen_wss(name, listen_cfg).await {
-                log::error!("listen websocket tls failed: {}", err);
+                log::error!("listen websocket tls failed: {err}");
                 process::exit(1);
             }
         });
@@ -140,16 +141,14 @@ async fn listen(name: String, listen_cfg: &Listener) -> Result<()> {
                     .v3(v3::MqttServer::new(move |mut handshake: HandshakeV3<TcpStream>| async {
                         let remote_addr = handshake.io().peer_addr()?;
                         let local_addr = handshake.io().local_addr()?;
-                        let listen_cfg =
-                            Runtime::instance().settings.listeners.tcp(local_addr.port()).ok_or_else(
-                                || {
-                                    log::error!(
-                                        "tcp listener config is not found, local addr is {:?}",
-                                        local_addr
-                                    );
-                                    MqttError::ListenerConfigError
-                                },
-                            )?;
+                        let listen_cfg = Runtime::instance()
+                            .settings
+                            .listeners
+                            .tcp(local_addr.port())
+                            .ok_or_else(|| {
+                                log::error!("tcp listener config is not found, local addr is {local_addr:?}");
+                                MqttError::ListenerConfigError
+                            })?;
                         handshake_v3(listen_cfg, handshake, remote_addr, local_addr).await
                     })
                     // .v3(v3::MqttServer::new(handshake_v3)
@@ -169,16 +168,14 @@ async fn listen(name: String, listen_cfg: &Listener) -> Result<()> {
                     .v5(v5::MqttServer::new(move |mut handshake: HandshakeV5<TcpStream>| async {
                         let peer_addr = handshake.io().peer_addr()?;
                         let local_addr = handshake.io().local_addr()?;
-                        let listen_cfg =
-                            Runtime::instance().settings.listeners.tcp(local_addr.port()).ok_or_else(
-                                || {
-                                    log::error!(
-                                        "tcp listener config is not found, local addr is {:?}",
-                                        local_addr
-                                    );
-                                    MqttError::ListenerConfigError
-                                },
-                            )?;
+                        let listen_cfg = Runtime::instance()
+                            .settings
+                            .listeners
+                            .tcp(local_addr.port())
+                            .ok_or_else(|| {
+                                log::error!("tcp listener config is not found, local addr is {local_addr:?}");
+                                MqttError::ListenerConfigError
+                            })?;
                         handshake_v5(listen_cfg, handshake, peer_addr, local_addr).await
                     })
                     //v5::MqttServer::new(handshake_v5)
@@ -205,7 +202,7 @@ async fn listen(name: String, listen_cfg: &Listener) -> Result<()> {
         Ok(())
     }
 
-    _listen(&format!("tcp: {}", name), listen_cfg).await.map_err(|e| {
+    _listen(&format!("tcp: {name}"), listen_cfg).await.map_err(|e| {
         log::error!("Listen {:?} failed on {}, {:?}", name, listen_cfg.addr, e);
         e
     })
@@ -268,8 +265,7 @@ async fn listen_tls(name: String, listen_cfg: &Listener) -> Result<()> {
                                         .tls(local_addr.port())
                                         .ok_or_else(|| {
                                             log::error!(
-                                                "tls listener config is not found, local addr is {:?}",
-                                                local_addr
+                                                "tls listener config is not found, local addr is {local_addr:?}"
                                             );
                                             MqttError::ListenerConfigError
                                         })?;
@@ -304,8 +300,7 @@ async fn listen_tls(name: String, listen_cfg: &Listener) -> Result<()> {
                                             .tls(local_addr.port())
                                             .ok_or_else(|| {
                                                 log::error!(
-                                                    "tls listener config is not found, local addr is {:?}",
-                                                    local_addr
+                                                    "tls listener config is not found, local addr is {local_addr:?}"
                                                 );
                                                 MqttError::ListenerConfigError
                                             })?;
@@ -339,7 +334,7 @@ async fn listen_tls(name: String, listen_cfg: &Listener) -> Result<()> {
         Ok(())
     }
 
-    _listen_tls(&format!("tls: {}", name), listen_cfg).await.map_err(|e| {
+    _listen_tls(&format!("tls: {name}"), listen_cfg).await.map_err(|e| {
         log::error!(
             "Listen_tls {:?} failed on {}, cert: {:?}, key: {:?}, {:?}",
             name,
@@ -373,9 +368,8 @@ async fn listen_ws(name: String, listen_cfg: &Listener) -> Result<()> {
                                     Runtime::instance().settings.listeners.ws(local_addr.port()).ok_or_else(
                                         || {
                                             log::error!(
-                                                "ws listener config is not found, local addr is {:?}",
-                                                local_addr
-                                            );
+                                            "ws listener config is not found, local addr is {local_addr:?}"
+                                        );
                                             MqttError::ListenerConfigError
                                         },
                                     )?;
@@ -404,9 +398,8 @@ async fn listen_ws(name: String, listen_cfg: &Listener) -> Result<()> {
                                     Runtime::instance().settings.listeners.ws(local_addr.port()).ok_or_else(
                                         || {
                                             log::error!(
-                                                "ws listener config is not found, local addr is {:?}",
-                                                local_addr
-                                            );
+                                            "ws listener config is not found, local addr is {local_addr:?}"
+                                        );
                                             MqttError::ListenerConfigError
                                         },
                                     )?;
@@ -437,7 +430,7 @@ async fn listen_ws(name: String, listen_cfg: &Listener) -> Result<()> {
         Ok(())
     }
 
-    _listen_ws(&format!("ws: {}", name), listen_cfg).await.map_err(|e| {
+    _listen_ws(&format!("ws: {name}"), listen_cfg).await.map_err(|e| {
         log::error!("Listen {:?} failed on {}, {:?}", name, listen_cfg.addr, e);
         e
     })
@@ -501,8 +494,7 @@ async fn listen_wss(name: String, listen_cfg: &Listener) -> Result<()> {
                                         .wss(local_addr.port())
                                         .ok_or_else(|| {
                                             log::error!(
-                                                "wss listener config is not found, local addr is {:?}",
-                                                local_addr
+                                                "wss listener config is not found, local addr is {local_addr:?}"
                                             );
                                             MqttError::ListenerConfigError
                                         })?;
@@ -534,8 +526,7 @@ async fn listen_wss(name: String, listen_cfg: &Listener) -> Result<()> {
                                         .wss(local_addr.port())
                                         .ok_or_else(|| {
                                             log::error!(
-                                                "wss listener config is not found, local addr is {:?}",
-                                                local_addr
+                                                "wss listener config is not found, local addr is {local_addr:?}"
                                             );
                                             MqttError::ListenerConfigError
                                         })?;
@@ -566,7 +557,7 @@ async fn listen_wss(name: String, listen_cfg: &Listener) -> Result<()> {
         Ok(())
     }
 
-    _listen_wss(&format!("wss: {}", name), listen_cfg).await.map_err(|e| {
+    _listen_wss(&format!("wss: {name}"), listen_cfg).await.map_err(|e| {
         log::error!(
             "listen_wss {:?} failed on {}, cert: {:?}, key: {:?}, {:?}",
             name,

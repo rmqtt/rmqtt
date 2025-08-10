@@ -1,3 +1,4 @@
+#![allow(clippy::result_large_err)]
 #![deny(unsafe_code)]
 #[macro_use]
 extern crate serde;
@@ -61,7 +62,7 @@ impl HttpApiPlugin {
             let runner = async move {
                 let laddr = cfg1.read().await.http_laddr;
                 if let Err(e) = api::listen_and_serve(laddr, cfg1, shutdown_rx).await {
-                    log::error!("{:?}", e);
+                    log::error!("{e:?}");
                 }
             };
 
@@ -73,7 +74,7 @@ impl HttpApiPlugin {
                 .build()
                 .expect("tokio runtime build failed");
             rt.block_on(runner);
-            log::info!("Exit HTTP API Server, ..., http://{:?}", http_laddr);
+            log::info!("Exit HTTP API Server, ..., http://{http_laddr:?}");
         });
         shutdown_tx
     }
@@ -105,7 +106,7 @@ impl Plugin for HttpApiPlugin {
             let new_cfg = Arc::new(RwLock::new(new_cfg));
             if let Some(tx) = self.shutdown_tx.take() {
                 if let Err(e) = tx.send(()) {
-                    log::warn!("shutdown_tx send fail, {:?}", e);
+                    log::warn!("shutdown_tx send fail, {e:?}");
                 }
             }
             self.shutdown_tx = Some(Self::start(self.runtime, new_cfg.clone()).await);

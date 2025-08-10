@@ -57,7 +57,7 @@ impl PluginConfig {
             for rule_cfg in rules_cfg {
                 let r = Rule::try_from(rule_cfg).map_err(de::Error::custom)?;
                 let tf = Topic::from_str(r.source_topic_filter.as_ref())
-                    .map_err(|e| de::Error::custom(format!("{:?}", e)))?;
+                    .map_err(|e| de::Error::custom(format!("{e:?}")))?;
 
                 if source_topic_filters.contains(&tf) {
                     return Err(de::Error::custom(format!(
@@ -98,7 +98,7 @@ impl DestTopicItem {
         if place.len() >= 2 {
             Ok(DestTopicItem::Place(place[1..].parse()?))
         } else {
-            Err(MqttError::from(format!("placeholder format error, {}", place)))
+            Err(MqttError::from(format!("placeholder format error, {place}")))
         }
     }
 }
@@ -144,7 +144,7 @@ fn to_dest_topic_items(dest_topic: &str) -> Result<Vec<DestTopicItem>> {
     if idx < dest_topic.len() {
         items.push(DestTopicItem::normal(&dest_topic[idx..]));
     }
-    log::debug!("items: {:?}", items);
+    log::debug!("items: {items:?}");
     Ok(items)
 }
 
@@ -152,7 +152,7 @@ impl std::convert::TryFrom<&serde_json::Value> for Rule {
     type Error = MqttError;
     #[inline]
     fn try_from(rule_cfg: &serde_json::Value) -> Result<Self, Self::Error> {
-        let err_msg = format!("Topic-Rewrite Rule config error, rule config is {:?}", rule_cfg);
+        let err_msg = format!("Topic-Rewrite Rule config error, rule config is {rule_cfg:?}");
         if let Some(cfg_objs) = rule_cfg.as_object() {
             let action_cfg = cfg_objs.get("action").ok_or_else(|| MqttError::from(err_msg.as_str()))?;
             let source_topic_filter_cfg = cfg_objs
@@ -191,7 +191,7 @@ impl std::convert::TryFrom<&serde_json::Value> for Action {
     type Error = MqttError;
     #[inline]
     fn try_from(action_cfg: &serde_json::Value) -> Result<Self, Self::Error> {
-        let err_msg = format!("Topic-Rewrite Rule config error, action config is {:?}", action_cfg);
+        let err_msg = format!("Topic-Rewrite Rule config error, action config is {action_cfg:?}");
         match action_cfg.as_str().ok_or_else(|| MqttError::from(err_msg.as_str()))?.to_lowercase().as_str() {
             "all" => Ok(Action::All),
             "publish" => Ok(Action::Publish),

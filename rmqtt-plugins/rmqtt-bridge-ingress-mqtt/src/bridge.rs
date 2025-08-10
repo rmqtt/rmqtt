@@ -118,7 +118,7 @@ impl BridgeManager {
 
     pub async fn start(&mut self) {
         while let Err(e) = self._start().await {
-            log::error!("start bridge-ingress-mqtt error, {:?}", e);
+            log::error!("start bridge-ingress-mqtt error, {e:?}");
             self.stop().await;
             tokio::time::sleep(Duration::from_millis(3000)).await;
         }
@@ -133,7 +133,7 @@ impl BridgeManager {
             for (entry_idx, entry) in b_cfg.entries.iter().enumerate() {
                 let concurrent_client_limit =
                     if entry.remote.topic.starts_with("$share/") { b_cfg.concurrent_client_limit } else { 1 };
-                log::debug!("concurrent_client_limit: {}", concurrent_client_limit);
+                log::debug!("concurrent_client_limit: {concurrent_client_limit}");
 
                 for client_no in 0..concurrent_client_limit {
                     match b_cfg.mqtt_ver.level() {
@@ -193,18 +193,11 @@ impl BridgeManager {
         for mut entry in &mut self.sources.iter_mut() {
             let ((bridge_name, entry_idx, client_no), mailbox) = entry.pair_mut();
             log::debug!(
-                "stop bridge_name: {:?}, entry_idx: {:?}, client_no: {:?}",
-                bridge_name,
-                entry_idx,
-                client_no
+                "stop bridge_name: {bridge_name:?}, entry_idx: {entry_idx:?}, client_no: {client_no:?}"
             );
             if let Err(e) = mailbox.stop().await {
                 log::error!(
-                    "stop BridgeMqttIngressPlugin error, bridge_name: {}, entry_idx: {}, client_no: {}, {:?}",
-                    bridge_name,
-                    entry_idx,
-                    client_no,
-                    e
+                    "stop BridgeMqttIngressPlugin error, bridge_name: {bridge_name}, entry_idx: {entry_idx}, client_no: {client_no}, {e:?}"
                 );
             }
         }
@@ -229,7 +222,7 @@ async fn send_publish(
         c.client_id(),
         Some(c.username()),
     ));
-    log::debug!("from {:?}, message: {:?}", from, p);
+    log::debug!("from {from:?}, message: {p:?}");
     let cfg = c.cfg();
     let entry = if let Some(entry) = cfg.entries.get(c.entry_idx()) { entry } else { unreachable!() };
     let msg = match p {
@@ -257,7 +250,7 @@ async fn send_publish(
         },
     };
 
-    log::debug!("msg: {:?}", msg);
+    log::debug!("msg: {msg:?}");
 
     let expiry_interval = msg
         .properties
@@ -277,7 +270,7 @@ async fn send_publish(
     let storage_available = Runtime::instance().extends.message_mgr().await.enable();
 
     if let Err(e) = SessionState::forwards(from, msg, storage_available, Some(expiry_interval)).await {
-        log::warn!("{:?}", e);
+        log::warn!("{e:?}");
     }
 }
 

@@ -9,9 +9,9 @@ fn main() {
 
 fn proto() {
     let out = std::env::var("OUT_DIR").unwrap();
-    println!("out: {}", out);
+    println!("out: {out}");
     let build_res = tonic_build::configure().out_dir(out).compile_protos(&["pb.proto"], &["src/grpc/proto"]);
-    println!("compile proto result! {:?}", build_res);
+    println!("compile proto result! {build_res:?}");
     build_res.unwrap();
 }
 
@@ -28,7 +28,7 @@ fn version() {
     let mut version_file = File::create(format!("{}/{}", out, "version.rs")).unwrap();
     version_file.write_all(b"\n/// rmqtt version").unwrap();
     version_file
-        .write_all(format!("\npub const VERSION: &str = \"{}\";", server_version).as_bytes())
+        .write_all(format!("\npub const VERSION: &str = \"{server_version}\";").as_bytes())
         .unwrap();
 
     let rustc_version_out = Command::new("rustc").arg("--version").output().expect("Failed to execute rustc");

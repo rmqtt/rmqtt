@@ -219,13 +219,10 @@ impl Client {
                                 | SubscribeAckReason::GrantedQos1
                                 | SubscribeAckReason::GrantedQos2
                         ) {
-                            log::info!("{} Successfully subscribed to {:?}", client_id, topic_filter,);
+                            log::info!("{client_id} Successfully subscribed to {topic_filter:?}",);
                         } else {
                             log::warn!(
-                                "{} Subscribe failure, topic_filter: {:?}, reason: {:?}",
-                                client_id,
-                                topic_filter,
-                                reason
+                                "{client_id} Subscribe failure, topic_filter: {topic_filter:?}, reason: {reason:?}"
                             );
                             time::sleep(Duration::from_secs(5)).await;
                             continue 'subscribe;
@@ -234,11 +231,11 @@ impl Client {
                     break;
                 }
                 Err(SendPacketError::Disconnected) => {
-                    log::info!("{} Subscribe error, Disconnected", client_id);
+                    log::info!("{client_id} Subscribe error, Disconnected");
                     break;
                 }
                 Err(e) => {
-                    log::info!("{} Subscribe error, {:?}", client_id, e);
+                    log::info!("{client_id} Subscribe error, {e:?}");
                     break;
                 }
             }
@@ -282,7 +279,7 @@ impl Client {
             }))
             .await
         {
-            log::error!("Start ev_loop error! {:?}", e);
+            log::error!("Start ev_loop error! {e:?}");
         }
     }
 }

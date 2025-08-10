@@ -187,7 +187,7 @@ impl super::Entry for LockEntry {
                             e,
                             self.session().map(|s| s.id.clone())
                         );
-                        return Err(MqttError::Msg(format!("recv kick result is {:?}", e)));
+                        return Err(MqttError::Msg(format!("recv kick result is {e:?}")));
                     }
                     Err(_) => {
                         log::warn!(
@@ -207,7 +207,7 @@ impl super::Entry for LockEntry {
                 match s.to_offline_info().await {
                     Ok(offline_info) => Ok(OfflineSession::Exist(Some(offline_info))),
                     Err(e) => {
-                        log::error!("get offline info error, {:?}", e);
+                        log::error!("get offline info error, {e:?}");
                         Ok(OfflineSession::Exist(None))
                     }
                 }
@@ -368,18 +368,14 @@ impl DefaultShared {
             .flat_map(|subs| {
                 subs.iter().flat_map(|(tf, cid, _, _, group_shared)| {
                     log::debug!(
-                        "_collect_subscription_client_ids, tf: {:?}, cid {:?}, group_shared: {:?}",
-                        tf,
-                        cid,
-                        group_shared
+                        "_collect_subscription_client_ids, tf: {tf:?}, cid {cid:?}, group_shared: {group_shared:?}"
                     );
                     if let Some((group, _, cids)) = group_shared {
                         cids.iter()
                             .map(|g_cid| {
                                 if g_cid == cid {
                                     log::debug!(
-                                        "_collect_subscription_client_ids is group_shared {:?}",
-                                        g_cid
+                                        "_collect_subscription_client_ids is group_shared {g_cid:?}"
                                     );
                                     (g_cid.clone(), Some((tf.clone(), group.clone())))
                                 } else {
@@ -393,7 +389,7 @@ impl DefaultShared {
                 })
             })
             .collect::<Vec<_>>();
-        log::debug!("_collect_subscription_client_ids sub_client_ids: {:?}", sub_client_ids);
+        log::debug!("_collect_subscription_client_ids sub_client_ids: {sub_client_ids:?}");
         if sub_client_ids.is_empty() {
             None
         } else {
@@ -418,7 +414,7 @@ impl DefaultShared {
             (None, Some(o_sub_client_ids)) => Some(o_sub_client_ids),
             (None, None) => None,
         };
-        log::debug!("_merge_subscription_client_ids sub_client_ids: {:?}", sub_client_ids);
+        log::debug!("_merge_subscription_client_ids sub_client_ids: {sub_client_ids:?}");
         sub_client_ids.filter(|sub_client_ids| !sub_client_ids.is_empty())
     }
 }
@@ -451,7 +447,7 @@ impl Shared for &'static DefaultShared {
         {
             Ok(relations_map) => relations_map,
             Err(e) => {
-                log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
+                log::warn!("forwards, from:{from:?}, topic:{topic:?}, error: {e:?}");
                 SubRelationsMap::default()
             }
         };
@@ -463,7 +459,7 @@ impl Shared for &'static DefaultShared {
             self.forwards_to(from, &publish, relations).await?;
         }
         if !relations_map.is_empty() {
-            log::warn!("forwards, relations_map:{:?}", relations_map);
+            log::warn!("forwards, relations_map:{relations_map:?}");
         }
         Ok(sub_client_ids)
     }
@@ -480,7 +476,7 @@ impl Shared for &'static DefaultShared {
             match Runtime::instance().extends.router().await.matches(from.id.clone(), topic).await {
                 Ok(relations_map) => relations_map,
                 Err(e) => {
-                    log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, topic, e);
+                    log::warn!("forwards, from:{from:?}, topic:{topic:?}, error: {e:?}");
                     SubRelationsMap::default()
                 }
             };
@@ -749,7 +745,7 @@ impl DefaultRouter {
 
             //select a subscriber from shared subscribe groups
             for (group, mut s_subs) in groups.drain() {
-                log::debug!("group: {}, s_subs: {:?}", group, s_subs);
+                log::debug!("group: {group}, s_subs: {s_subs:?}");
                 let group_cids = s_subs.iter().map(|(_, cid, _, _, _)| cid.clone()).collect();
                 if let Some((idx, is_online)) =
                     Runtime::instance().extends.shared_subscription().await.choice(&s_subs).await
@@ -770,7 +766,7 @@ impl DefaultRouter {
             rels_map.insert(node_id, collector.into());
         }
 
-        log::debug!("{:?} this_subs: {:?}", topic_name, rels_map);
+        log::debug!("{topic_name:?} this_subs: {rels_map:?}");
         Ok(rels_map)
     }
 
@@ -972,7 +968,7 @@ impl Router for &'static DefaultRouter {
         let res = if let Some(mut rels) = self.relations.get_mut(topic_filter) {
             let remove_enable = rels.value().get(&id.client_id).map(|(s_id, _)| {
                 if *s_id != id {
-                    log::debug!("remove, input id not the same, input id: {:?}, current id: {:?}, topic_filter: {}", id, s_id, topic_filter);
+                    log::debug!("remove, input id not the same, input id: {id:?}, current id: {s_id:?}, topic_filter: {topic_filter}");
                     false
                 } else {
                     true
@@ -1434,7 +1430,7 @@ impl DefaultHookManager {
         let key = (priority, id.clone());
         let contains_key = type_handlers.contains_key(&key);
         if contains_key {
-            Err(MqttError::from(format!("handler id is repetition, key is {:?}, type is {:?}", key, typ)))
+            Err(MqttError::from(format!("handler id is repetition, key is {key:?}, type is {typ:?}")))
         } else {
             type_handlers.insert(key, HookEntry::new(handler));
             Ok(id)
@@ -1644,7 +1640,7 @@ impl Register for DefaultHookRegister {
                 self.type_ids.insert((typ, (priority, id)));
             }
             Err(e) => {
-                log::error!("Hook add handler fail, {:?}", e);
+                log::error!("Hook add handler fail, {e:?}");
             }
         }
     }
@@ -2139,7 +2135,7 @@ impl DefaultDelayedSender {
         )
         .await
         {
-            log::warn!("delayed forwards error, {:?}", e);
+            log::warn!("delayed forwards error, {e:?}");
         }
     }
 }

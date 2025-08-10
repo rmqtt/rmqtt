@@ -1,3 +1,4 @@
+#![allow(clippy::result_large_err)]
 #![deny(unsafe_code)]
 #[macro_use]
 extern crate serde;
@@ -94,7 +95,7 @@ impl TopicRewriteHandler {
     pub async fn rewrite_publish_topic(&self, s: Option<&Session>, p: &Publish) -> Result<Option<Publish>> {
         match self.rewrite_topic(Action::Publish, s, &p.topic).await? {
             Some(topic) => {
-                log::debug!("new_topic: {}", topic);
+                log::debug!("new_topic: {topic}");
                 let new_p = Publish {
                     dup: p.dup,
                     retain: p.retain,
@@ -120,7 +121,7 @@ impl TopicRewriteHandler {
     ) -> Result<Option<TopicFilter>> {
         match self.rewrite_topic(Action::Subscribe, s, topic_filter).await? {
             Some(new_tf) => {
-                log::debug!("new_tf: {}", new_tf);
+                log::debug!("new_tf: {new_tf}");
                 Ok(Some(new_tf))
             }
             None => Ok(None),
@@ -155,7 +156,7 @@ impl TopicRewriteHandler {
             .collect::<Vec<_>>()
             .last()
         {
-            log::debug!("rule: {:?}, input topic: {}", r, topic);
+            log::debug!("rule: {r:?}, input topic: {topic}");
             Ok(self.make_new_topic(r, s, topic))
         } else {
             Ok(None)
@@ -174,7 +175,7 @@ impl TopicRewriteHandler {
                 }
             }
         }
-        log::debug!("matcheds: {:?}", matcheds);
+        log::debug!("matcheds: {matcheds:?}");
         let mut new_topic = String::new();
         for item in &r.dest_topic_items {
             match item {
@@ -282,7 +283,7 @@ impl Handler for TopicRewriteHandler {
                 }
             }
             _ => {
-                log::error!("parameter is: {:?}", param);
+                log::error!("parameter is: {param:?}");
             }
         }
         (true, acc)

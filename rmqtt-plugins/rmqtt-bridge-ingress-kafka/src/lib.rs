@@ -1,3 +1,4 @@
+#![allow(clippy::result_large_err)]
 #![deny(unsafe_code)]
 #[macro_use]
 extern crate serde;
@@ -58,7 +59,7 @@ impl BridgeKafkaIngressPlugin {
                     match cmd {
                         Command::Start => {
                             if let Err(e) = bridge_mgr.start().await {
-                                log::error!("{} start bridge error, {:?}", name, e);
+                                log::error!("{name} start bridge error, {e:?}");
                             }
                         }
                         Command::Close => {

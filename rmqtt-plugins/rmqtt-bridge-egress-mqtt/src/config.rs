@@ -122,13 +122,13 @@ impl Bridge {
         let addr_split = addr.splitn(2, "://").collect::<Vec<_>>();
 
         match addr_split.len() {
-            0 => Err(serde::de::Error::custom(format!("invalid value, {:?}", addr))),
+            0 => Err(serde::de::Error::custom(format!("invalid value, {addr:?}"))),
             1 => Ok(ServerAddr { typ: AddrType::Tcp, addr }),
             _ => {
                 let typ = match addr_split[0].to_lowercase().as_str() {
                     "tcp" => AddrType::Tcp,
                     "tls" => AddrType::Tls,
-                    _ => return Err(serde::de::Error::custom(format!("invalid value, {:?}", addr))),
+                    _ => return Err(serde::de::Error::custom(format!("invalid value, {addr:?}"))),
                 };
                 Ok(ServerAddr { typ, addr: addr_split[1].into() })
             }
@@ -417,7 +417,7 @@ fn last_will_basic(obj: &Map<String, Value>) -> Result<(QoS, bool, ByteString, B
         .get("qos")
         .and_then(|q| q.as_u64().map(|q| QoS::try_from(q as u8)))
         .unwrap_or(Ok(QoS::AtMostOnce))
-        .map_err(|e| MqttError::from(format!("{:?}", e)))?;
+        .map_err(|e| MqttError::from(format!("{e:?}")))?;
     let retain = obj.get("retain").and_then(|retain| retain.as_bool()).unwrap_or_default();
     let topic = obj.get("topic").and_then(|topic| topic.as_str()).unwrap_or_default();
     let message = obj.get("message").and_then(|message| message.as_str()).unwrap_or_default();

@@ -1,4 +1,6 @@
 #![deny(unsafe_code)]
+#![allow(clippy::result_large_err)]
+#![allow(clippy::large_enum_variant)]
 #[macro_use]
 extern crate serde;
 
@@ -194,8 +196,8 @@ impl AuthHandler {
             let content_type = resp.headers().get(CONTENT_TYPE);
             let is_json_content_type =
                 content_type.map(|hv| hv.as_bytes().starts_with(b"application/json")).unwrap_or_default();
-            log::debug!("content_type: {:?}", content_type);
-            log::debug!("is_json_content_type: {}", is_json_content_type);
+            log::debug!("content_type: {content_type:?}");
+            log::debug!("is_json_content_type: {is_json_content_type}");
             let superuser = resp.headers().contains_key(SUPERUSER);
             // let acl = resp.headers().contains_key(ACL);
             let cache_timeout = if let Some(tm) = resp.headers().get(CACHEABLE).and_then(|v| v.to_str().ok())
@@ -203,18 +205,18 @@ impl AuthHandler {
                 match tm.parse::<i64>() {
                     Ok(tm) => Some(tm),
                     Err(e) => {
-                        log::warn!("Parse X-Cache error, {:?}", e);
+                        log::warn!("Parse X-Cache error, {e:?}");
                         None
                     }
                 }
             } else {
                 None
             };
-            log::debug!("Cache timeout is {:?}", cache_timeout);
+            log::debug!("Cache timeout is {cache_timeout:?}");
             let resp = if is_json_content_type {
                 let mut body: serde_json::Value =
                     resp.json().await.map_err(|e| MqttError::Msg(e.to_string()))?;
-                log::debug!("body: {:?}", body);
+                log::debug!("body: {body:?}");
                 if let Some(obj) = body.as_object_mut() {
                     let result = obj
                         .get("result")
@@ -228,14 +230,14 @@ impl AuthHandler {
 
                     ResponseResult { permission, superuser, cacheable: cache_timeout, expire_at, acl_data }
                 } else if let Some(body) = body.as_str() {
-                    log::debug!("body: {:?}", body);
+                    log::debug!("body: {body:?}");
                     ResponseResult::new(Permission::try_from((body, superuser))?, superuser, cache_timeout)
                 } else {
-                    return Err(MqttError::from(format!("The response result is incorrect, {}", body)));
+                    return Err(MqttError::from(format!("The response result is incorrect, {body}")));
                 }
             } else {
                 let body = resp.text().await.map_err(|e| MqttError::Msg(e.to_string()))?;
-                log::debug!("body: {:?}", body);
+                log::debug!("body: {body:?}");
                 ResponseResult::new(Permission::from(body.as_str(), superuser), superuser, cache_timeout)
             };
             Ok(resp)
@@ -250,7 +252,7 @@ impl AuthHandler {
         headers: HeaderMap,
         timeout: Duration,
     ) -> Result<ResponseResult> {
-        log::debug!("http_get_request, timeout: {:?}, url: {}", timeout, url);
+        log::debug!("http_get_request, timeout: {timeout:?}, url: {url}");
         match HTTP_CLIENT
             .as_ref()?
             .clone()
@@ -262,7 +264,7 @@ impl AuthHandler {
             .await
         {
             Err(e) => {
-                log::error!("error:{:?}", e);
+                log::error!("error:{e:?}");
                 Err(MqttError::Msg(e.to_string()))
             }
             Ok(resp) => Self::response_result(resp).await,
@@ -276,7 +278,7 @@ impl AuthHandler {
         headers: HeaderMap,
         timeout: Duration,
     ) -> Result<ResponseResult> {
-        log::debug!("http_form_request, method: {:?}, timeout: {:?}, url: {}", method, timeout, url);
+        log::debug!("http_form_request, method: {method:?}, timeout: {timeout:?}, url: {url}");
         match HTTP_CLIENT
             .as_ref()?
             .clone()
@@ -288,7 +290,7 @@ impl AuthHandler {
             .await
         {
             Err(e) => {
-                log::error!("error:{:?}", e);
+                log::error!("error:{e:?}");
                 Err(MqttError::Msg(e.to_string()))
             }
             Ok(resp) => Self::response_result(resp).await,
@@ -302,7 +304,7 @@ impl AuthHandler {
         headers: HeaderMap,
         timeout: Duration,
     ) -> Result<ResponseResult> {
-        log::debug!("http_json_request, method: {:?}, timeout: {:?}, url: {}", method, timeout, url);
+        log::debug!("http_json_request, method: {method:?}, timeout: {timeout:?}, url: {url}");
         match HTTP_CLIENT
             .as_ref()?
             .clone()
@@ -314,7 +316,7 @@ impl AuthHandler {
             .await
         {
             Err(e) => {
-                log::error!("error:{:?}", e);
+                log::error!("error:{e:?}");
                 Err(MqttError::Msg(e.to_string()))
             }
             Ok(resp) => Self::response_result(resp).await,
@@ -391,7 +393,7 @@ impl AuthHandler {
             Self::replaces(body, id, password, protocol, sub_or_pub)?;
             Self::http_form_request(req_cfg.url, req_cfg.method, body, headers, timeout).await?
         };
-        log::debug!("auth_result: {:?}", auth_result);
+        log::debug!("auth_result: {auth_result:?}");
         Ok(auth_result)
     }
 
@@ -409,7 +411,7 @@ impl AuthHandler {
                 .await
             {
                 Ok(auth_res) => {
-                    log::debug!("auth result: {:?}", auth_res);
+                    log::debug!("auth result: {auth_res:?}");
                     let auth_info = if matches!(auth_res.permission, Permission::Allow(_)) {
                         if let Some(acl_data) =
                             auth_res.acl_data.as_ref().and_then(|acl_data| acl_data.as_array())
@@ -425,7 +427,7 @@ impl AuthHandler {
                                         expire_at: auth_res.expire_at,
                                         rules,
                                     };
-                                    log::debug!("auth_info: {:?}", auth_info);
+                                    log::debug!("auth_info: {auth_info:?}");
                                     Some(auth_info)
                                 }
                                 Err(e) => {
@@ -465,11 +467,11 @@ impl AuthHandler {
         if let Some(req) = { self.cfg.read().await.http_acl_req.clone() } {
             match self.request(id, req, None, protocol, sub_or_pub).await {
                 Ok(acl_res) => {
-                    log::debug!("acl result: {:?}", acl_res);
+                    log::debug!("acl result: {acl_res:?}");
                     (acl_res.permission, acl_res.cacheable)
                 }
                 Err(e) => {
-                    log::warn!("{:?} acl error, {:?}", id, e);
+                    log::warn!("{id:?} acl error, {e:?}");
                     if self.cfg.read().await.deny_if_error {
                         (Permission::Deny, None)
                     } else {
@@ -639,7 +641,7 @@ impl Handler for AuthHandler {
             }
 
             _ => {
-                log::error!("unimplemented, {:?}", param)
+                log::error!("unimplemented, {param:?}")
             }
         }
         (true, acc)

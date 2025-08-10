@@ -1,3 +1,4 @@
+#![allow(clippy::result_large_err)]
 #![deny(unsafe_code)]
 #[macro_use]
 extern crate serde;
@@ -50,7 +51,7 @@ impl RetainerPlugin {
         let name = name.into();
         let node_id = runtime.node.id();
         let cfg = runtime.settings.plugins.load_config::<PluginConfig>(&name)?;
-        log::info!("{} RetainerPlugin cfg: {:?}", name, cfg);
+        log::info!("{name} RetainerPlugin cfg: {cfg:?}");
         let register = runtime.extends.hook_mgr().await.register();
         let cfg = Arc::new(RwLock::new(cfg));
         let retain_enable = Arc::new(AtomicBool::new(false));
@@ -177,14 +178,14 @@ impl Handler for RetainHandler {
                 let grpc_clients = Runtime::instance().extends.shared().await.get_grpc_clients();
                 log::info!("grpc_clients len: {}", grpc_clients.len());
                 if !grpc_clients.is_empty() && !self.support_cluster {
-                    log::error!("{}", ERR_NOT_SUPPORTED);
+                    log::error!("{ERR_NOT_SUPPORTED}");
                     self.retain_enable.store(false, Ordering::SeqCst);
                 } else {
                     self.retain_enable.store(true, Ordering::SeqCst);
                 }
             }
             _ => {
-                log::error!("unimplemented, {:?}", param)
+                log::error!("unimplemented, {param:?}")
             }
         }
         (true, acc)

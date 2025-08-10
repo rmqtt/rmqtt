@@ -1,3 +1,4 @@
+#![allow(clippy::result_large_err)]
 #![deny(unsafe_code)]
 
 #[macro_use]
@@ -248,7 +249,7 @@ impl Handler for CounterHandler {
             }
 
             _ => {
-                log::error!("parameter is: {:?}", param);
+                log::error!("parameter is: {param:?}");
             }
         }
         (true, acc)

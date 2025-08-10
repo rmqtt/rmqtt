@@ -61,7 +61,7 @@ impl Producer {
 
         for (key, val) in &cfg.properties {
             if !key.trim_start().starts_with('#') {
-                log::info!("{}={}", key, val);
+                log::info!("{key}={val}");
                 client_cfg.set(key, val);
             }
         }
@@ -115,10 +115,10 @@ impl Producer {
             let delivery_status = producer.send(frecord, queue_timeout).await;
             match delivery_status {
                 Ok((partition, offset)) => {
-                    log::debug!("{} delivery ok, partition: {}, offset: {}", name, partition, offset);
+                    log::debug!("{name} delivery ok, partition: {partition}, offset: {offset}");
                 }
                 Err((e, msg)) => {
-                    log::error!("{} delivery error: {:?}, message: {:?}", name, e, msg);
+                    log::error!("{name} delivery error: {e:?}, message: {msg:?}");
                 }
             };
         }
@@ -210,10 +210,7 @@ impl BridgeManager {
             let ((bridge_name, entry_idx), producers) = entry.pair_mut();
             for (client_no, _producer) in producers.iter_mut().enumerate() {
                 log::debug!(
-                    "stop bridge_name: {:?}, entry_idx: {:?}, client_no: {:?}",
-                    bridge_name,
-                    entry_idx,
-                    client_no
+                    "stop bridge_name: {bridge_name:?}, entry_idx: {entry_idx:?}, client_no: {client_no:?}"
                 );
             }
         }
@@ -231,14 +228,14 @@ impl BridgeManager {
         let rnd = rand::random::<u64>() as usize;
         for (topic_filter, bridge_infos) in { self.topics.read().await.matches(&topic) }.iter() {
             let topic_filter = topic_filter.to_topic_filter();
-            log::debug!("topic_filter: {:?}", topic_filter);
-            log::debug!("bridge_infos: {:?}", bridge_infos);
+            log::debug!("topic_filter: {topic_filter:?}");
+            log::debug!("bridge_infos: {bridge_infos:?}");
             for (name, entry_idx) in bridge_infos {
                 if let Some(producers) = self.sinks.get(&(name.clone(), *entry_idx)) {
                     let client_no = rnd % producers.len();
                     if let Some(producer) = producers.get(client_no) {
                         if let Err(e) = producer.send(&self.exec, f, p).await {
-                            log::warn!("{}", e);
+                            log::warn!("{e}");
                         }
                     }
                 }
