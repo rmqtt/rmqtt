@@ -89,8 +89,9 @@ pub async fn handshake<Io: 'static>(
 
     Runtime::instance().stats.handshakings.max_max(handshake.handshakings());
 
+    let now = std::time::Instant::now();
     let exec = get_handshake_exec(local_addr.port(), listen_cfg.clone());
-    match _handshake(id.clone(), listen_cfg, handshake, assigned_client_id).spawn(&exec).result().await {
+    match _handshake(id.clone(), listen_cfg, now, handshake, assigned_client_id).spawn(&exec).result().await {
         Ok(Ok(res)) => Ok(res),
         Ok(Err(e)) => {
             unavailable_stats().inc();
@@ -111,6 +112,7 @@ pub async fn handshake<Io: 'static>(
 pub async fn _handshake<Io: 'static>(
     id: Id,
     listen_cfg: Listener,
+    hdshk_start: std::time::Instant,
     mut handshake: v5::Handshake<Io>,
     is_assigned_client_id: bool,
 ) -> Result<v5::HandshakeAck<Io, SessionState>, MqttError> {
@@ -118,6 +120,16 @@ pub async fn _handshake<Io: 'static>(
     log::debug!("handshake.packet(): {:?}", handshake.packet());
     //hook, client connect
     let _user_props = Runtime::instance().extends.hook_mgr().await.client_connect(&connect_info).await;
+
+    if hdshk_start.elapsed() > listen_cfg.handshake_timeout {
+        return Ok(refused_ack(
+            handshake,
+            &connect_info,
+            ConnectAckReasonV5::ServerUnavailable,
+            "handshake timeout".into(),
+        )
+        .await);
+    }
 
     if listen_cfg.max_clientid_len > 0 && id.client_id.len() > listen_cfg.max_clientid_len {
         return Ok(refused_ack(

@@ -98,8 +98,9 @@ pub async fn handshake<Io: 'static>(
 
     Runtime::instance().stats.handshakings.max_max(handshake.handshakings());
 
+    let now = std::time::Instant::now();
     let exec = get_handshake_exec(local_addr.port(), listen_cfg.clone());
-    match _handshake(id.clone(), listen_cfg, handshake).spawn(&exec).result().await {
+    match _handshake(id.clone(), listen_cfg, now, handshake).spawn(&exec).result().await {
         Ok(Ok(res)) => Ok(res),
         Ok(Err(e)) => {
             unavailable_stats().inc();
@@ -125,12 +126,23 @@ pub async fn handshake<Io: 'static>(
 async fn _handshake<Io: 'static>(
     id: Id,
     listen_cfg: Listener,
+    hdshk_start: std::time::Instant,
     mut handshake: v3::Handshake<Io>,
 ) -> Result<v3::HandshakeAck<Io, SessionState>, MqttError> {
     let connect_info = Arc::new(ConnectInfo::V3(id.clone(), handshake.packet().clone()));
 
     //hook, client connect
     let _ = Runtime::instance().extends.hook_mgr().await.client_connect(&connect_info).await;
+
+    if hdshk_start.elapsed() > listen_cfg.handshake_timeout {
+        return Ok(refused_ack(
+            handshake,
+            &connect_info,
+            ConnectAckReasonV3::ServiceUnavailable,
+            "handshake timeout".into(),
+        )
+        .await);
+    }
 
     if listen_cfg.max_clientid_len > 0 && id.client_id.len() > listen_cfg.max_clientid_len {
         return Ok(refused_ack(
