@@ -27,9 +27,7 @@ fn version() {
     let out = std::env::var("OUT_DIR").unwrap();
     let mut version_file = File::create(format!("{}/{}", out, "version.rs")).unwrap();
     version_file.write_all(b"\n/// rmqtt version").unwrap();
-    version_file
-        .write_all(format!("\npub const VERSION: &str = \"{server_version}\";").as_bytes())
-        .unwrap();
+    version_file.write_all(format!("\npub const VERSION: &str = \"{server_version}\";").as_bytes()).unwrap();
 
     let rustc_version_out = Command::new("rustc").arg("--version").output().expect("Failed to execute rustc");
     let rustc_version = String::from_utf8_lossy(&rustc_version_out.stdout);

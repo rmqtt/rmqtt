@@ -1219,9 +1219,7 @@ async fn _unsubscribe_on_other_node(
             _ => unreachable!(),
         },
         reply => {
-            log::info!(
-                "Unsubscribe GrpcMessage::Unsubscribe from other node({node_id}), reply: {reply:?}"
-            );
+            log::info!("Unsubscribe GrpcMessage::Unsubscribe from other node({node_id}), reply: {reply:?}");
             Err(MqttError::Msg("Invalid Operation".into()))
         }
     }
@@ -1438,9 +1436,7 @@ async fn _node_plugin_config(node_id: NodeId, name: &str, message_type: MessageT
                 _ => unreachable!(),
             },
             reply => {
-                log::info!(
-                    "Get GrpcMessage::GetPluginConfig from other node({node_id}), reply: {reply:?}"
-                );
+                log::info!("Get GrpcMessage::GetPluginConfig from other node({node_id}), reply: {reply:?}");
                 return Err(MqttError::from("Invalid Result"));
             }
         }
@@ -1598,9 +1594,7 @@ async fn _node_plugin_unload(node_id: NodeId, name: &str, message_type: MessageT
                 _ => unreachable!(),
             },
             reply => {
-                log::info!(
-                    "Unload GrpcMessage::UnloadPlugin from other node({node_id}), reply: {reply:?}"
-                );
+                log::info!("Unload GrpcMessage::UnloadPlugin from other node({node_id}), reply: {reply:?}");
                 Ok(false)
             }
         }

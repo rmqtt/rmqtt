@@ -123,9 +123,8 @@ impl Producer {
         }
 
         log::debug!("ConnectOptions: {opts:?}");
-        let client = connect_with_options(addrs, opts)
-            .await
-            .map_err(|e| format!("Failed to connect to NATS, {e}"))?;
+        let client =
+            connect_with_options(addrs, opts).await.map_err(|e| format!("Failed to connect to NATS, {e}"))?;
         Ok(client)
     }
 

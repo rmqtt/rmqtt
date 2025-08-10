@@ -191,9 +191,7 @@ impl RetainerInner {
                     }
                     Ok(true) => {}
                     Err(e) => {
-                        log::warn!(
-                            "store to db error, check_constraints(..), {e:?}, message: {retain:?}"
-                        );
+                        log::warn!("store to db error, check_constraints(..), {e:?}, message: {retain:?}");
                         continue;
                     }
                 }
