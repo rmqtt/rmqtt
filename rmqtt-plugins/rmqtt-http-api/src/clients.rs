@@ -106,7 +106,7 @@ fn filtering(q: &SearchParams, entry: &dyn Entry) -> bool {
             match _filtering(q, entry).await {
                 Ok(res) => res,
                 Err(e) => {
-                    log::error!("{:?}", e);
+                    log::error!("{e:?}");
                     false
                 }
             }

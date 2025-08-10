@@ -499,7 +499,7 @@ pub fn parse_topic_filter(
     shared_subscription: bool,
     limit_subscription: bool,
 ) -> Result<(TopicFilter, Option<SharedGroup>, LimitSubsCount)> {
-    let invalid_filter = || MqttError::TopicError(format!("Illegal topic filter, {:?}", topic_filter));
+    let invalid_filter = || MqttError::TopicError(format!("Illegal topic filter, {topic_filter:?}"));
     let (topic, shared_group, limit_subs) = if shared_subscription || limit_subscription {
         let levels = topic_filter.splitn(3, '/').collect::<Vec<_>>();
         match (levels.first(), levels.get(1), levels.get(2)) {
@@ -513,8 +513,7 @@ pub fn parse_topic_filter(
                 }
                 (false, _, _) => {
                     return Err(MqttError::TopicError(format!(
-                        "Shared subscription is not enabled, {:?}",
-                        topic_filter
+                        "Shared subscription is not enabled, {topic_filter:?}"
                     )));
                 }
             },
@@ -529,8 +528,7 @@ pub fn parse_topic_filter(
                 }
                 (false, _, _) => {
                     return Err(MqttError::TopicError(format!(
-                        "Limit subscription is not enabled, {:?}",
-                        topic_filter
+                        "Limit subscription is not enabled, {topic_filter:?}"
                     )));
                 }
             },
@@ -540,8 +538,7 @@ pub fn parse_topic_filter(
                     (tf, None, Some(1))
                 } else {
                     return Err(MqttError::TopicError(format!(
-                        "Limit subscription is not enabled, {:?}",
-                        topic_filter
+                        "Limit subscription is not enabled, {topic_filter:?}"
                     )));
                 }
             }
@@ -685,7 +682,7 @@ impl SubscriptionOptions {
             0 => QoS::AtMostOnce,
             1 => QoS::AtLeastOnce,
             2 => QoS::ExactlyOnce,
-            _ => return Err(de::Error::custom(format!("invalid QoS value, {}", v))),
+            _ => return Err(de::Error::custom(format!("invalid QoS value, {v}"))),
         })
     }
 
@@ -789,7 +786,7 @@ impl SubOptionsV5 {
             0 => RetainHandling::AtSubscribe,
             1 => RetainHandling::AtSubscribeNew,
             2 => RetainHandling::NoAtSubscribe,
-            _ => return Err(de::Error::custom(format!("invalid RetainHandling value, {}", v))),
+            _ => return Err(de::Error::custom(format!("invalid RetainHandling value, {v}"))),
         })
     }
 
@@ -1408,7 +1405,7 @@ impl Publish {
                 (Some(self.topic.clone()), None)
             }
         };
-        log::debug!("topic: {:?}, alias: {:?}", topic, alias);
+        log::debug!("topic: {topic:?}, alias: {alias:?}");
         let mut p = v5::codec::Publish {
             dup: self.dup,
             retain: self.retain,
@@ -1704,7 +1701,7 @@ impl Display for Id {
 impl std::fmt::Debug for Id {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "{self}")
     }
 }
 
@@ -2004,7 +2001,7 @@ impl SessionSubs {
 
     #[inline]
     pub async fn _drain(&self) -> Subscriptions {
-        let topic_filters = self.subs.read().await.iter().map(|(key, _)| key.clone()).collect::<Vec<_>>();
+        let topic_filters = self.subs.read().await.keys().cloned().collect::<Vec<_>>();
         let mut subs = Vec::new();
         for tf in topic_filters {
             if let Some(sub) = self._remove(&tf).await {
@@ -2054,7 +2051,7 @@ impl SessionSubs {
 
     #[inline]
     pub async fn to_topic_filters(&self) -> TopicFilters {
-        self.subs.read().await.iter().map(|(key, _)| key.clone()).collect()
+        self.subs.read().await.keys().cloned().collect()
     }
 }
 
@@ -2359,7 +2356,7 @@ impl Display for Reason {
             Reason::ConnectDisconnect(r) => {
                 //Disconnect message received
                 match r {
-                    Some(r) => return write!(f, "Disconnect({})", r),
+                    Some(r) => return write!(f, "Disconnect({r})"),
                     None => "Disconnect",
                 }
             }
@@ -2388,14 +2385,14 @@ impl Display for Reason {
             Reason::SubscribeFailed(r) => {
                 //subscribe failed
                 match r {
-                    Some(r) => return write!(f, "SubscribeFailed({})", r),
+                    Some(r) => return write!(f, "SubscribeFailed({r})"),
                     None => "SubscribeFailed",
                 }
             }
             Reason::UnsubscribeFailed(r) => {
                 //unsubscribe failed
                 match r {
-                    Some(r) => return write!(f, "UnsubscribeFailed({})", r),
+                    Some(r) => return write!(f, "UnsubscribeFailed({r})"),
                     None => "UnsubscribeFailed",
                 }
             }
@@ -2414,9 +2411,9 @@ impl Display for Reason {
             Reason::MessageQueueFull => {
                 "MessageQueueFull" //message deliver queue is full
             }
-            Reason::PublishFailed(r) => return write!(f, "PublishFailed({})", r),
+            Reason::PublishFailed(r) => return write!(f, "PublishFailed({r})"),
             Reason::Error(r) => r,
-            Reason::ProtocolError(r) => return write!(f, "ProtocolError({})", r),
+            Reason::ProtocolError(r) => return write!(f, "ProtocolError({r})"),
             Reason::Reasons(reasons) => match reasons.len() {
                 0 => "",
                 1 => return write!(f, "{}", reasons.first().map(|r| r.to_string()).unwrap_or_default()),
@@ -2426,7 +2423,7 @@ impl Display for Reason {
                 "Unknown" //unknown
             }
         };
-        write!(f, "{}", r)
+        write!(f, "{r}")
     }
 }
 

@@ -240,7 +240,7 @@ mod tests {
         let t = Topic::from_str(topic_filter).unwrap();
         //println!("[retain] {} ===> {:?}", topic_filter, tree.matches(&t));
         for (topic, v) in tree.matches(&t).iter() {
-            println!("[retain] {}({}) => {:?}, {:?}", topic_filter, topic, v, vs);
+            println!("[retain] {topic_filter}({topic}) => {v:?}, {vs:?}");
             if !vs.contains(v) {
                 return false;
             }

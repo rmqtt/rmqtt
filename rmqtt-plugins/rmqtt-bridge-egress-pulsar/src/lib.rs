@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+#![allow(clippy::large_enum_variant)]
 #![deny(unsafe_code)]
 #[macro_use]
 extern crate serde;
@@ -146,11 +148,11 @@ impl Handler for HookHandler {
             Parameter::MessagePublish(s, f, publish) => {
                 log::debug!("{:?} message publish, {:?}", s.map(|s| &s.id), publish);
                 if let Err(e) = self.bridge_mgr.send(f, publish).await {
-                    log::error!("{:?}", e);
+                    log::error!("{e:?}");
                 }
             }
             _ => {
-                log::error!("unimplemented, {:?}", param)
+                log::error!("unimplemented, {param:?}")
             }
         }
         (true, acc)

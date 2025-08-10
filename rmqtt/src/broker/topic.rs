@@ -470,7 +470,7 @@ mod tests {
 
         let start = std::time::Instant::now();
         for v in 1..10000 {
-            topics.insert(&Topic::from_str(&format!("/iot/{}", v)).unwrap(), v);
+            topics.insert(&Topic::from_str(&format!("/iot/{v}")).unwrap(), v);
         }
         for v in 1..10000 {
             topics.insert(&Topic::from_str("/iot/x").unwrap(), v);

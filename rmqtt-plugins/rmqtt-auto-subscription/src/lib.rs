@@ -1,3 +1,4 @@
+#![allow(clippy::result_large_err)]
 #![deny(unsafe_code)]
 #[macro_use]
 extern crate serde;
@@ -110,12 +111,12 @@ impl AutoSubscription for &'static XAutoSubscription {
                 if let Some(username) = &id.username {
                     sub.topic_filter = TopicFilter::from(sub.topic_filter.replace("${username}", username));
                 } else {
-                    log::warn!("{} auto subscribe failed, username is not exist", id);
+                    log::warn!("{id} auto subscribe failed, username is not exist");
                     continue;
                 }
             }
             if let Err(e) = msg_tx.unbounded_send(Message::Subscribe(sub, tx)) {
-                log::error!("{} auto subscribe error, {:?}", id, e);
+                log::error!("{id} auto subscribe error, {e:?}");
             }
             match rx.await {
                 Ok(Ok(ret)) => {
@@ -124,10 +125,10 @@ impl AutoSubscription for &'static XAutoSubscription {
                     }
                 }
                 Ok(Err(e)) => {
-                    log::error!("{} auto subscribe error, {:?}", id, e);
+                    log::error!("{id} auto subscribe error, {e:?}");
                 }
                 Err(e) => {
-                    log::error!("{} auto subscribe error, {:?}", id, e);
+                    log::error!("{id} auto subscribe error, {e:?}");
                 }
             }
         }

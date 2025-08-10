@@ -66,8 +66,8 @@ impl SessionState {
         } else {
             None
         };
-        log::debug!("server_topic_aliases: {:?}", server_topic_aliases);
-        log::debug!("client_topic_aliases: {:?}", client_topic_aliases);
+        log::debug!("server_topic_aliases: {server_topic_aliases:?}");
+        log::debug!("client_topic_aliases: {client_topic_aliases:?}");
         Self {
             tx: None,
             session,
@@ -581,7 +581,7 @@ impl SessionState {
                 let from = From::from_lastwill(self.id.clone());
                 //hook, message_publish
                 let p = self.hook.message_publish(from.clone(), &p).await.unwrap_or(p);
-                log::debug!("process_last_will, publish: {:?}", p);
+                log::debug!("process_last_will, publish: {p:?}");
 
                 let message_storage_available = Runtime::instance().extends.message_mgr().await.enable();
 
@@ -1158,7 +1158,7 @@ impl SessionState {
                 .store(msg_id, from, p, expiry_interval, sub_cids)
                 .await
             {
-                log::warn!("Failed to storage messages, {:?}", e);
+                log::warn!("Failed to storage messages, {e:?}");
             }
         }
 
@@ -1233,19 +1233,16 @@ impl SessionState {
             for (tf, opts) in offline_info.subscriptions.iter() {
                 let id = self.id.clone();
                 log::debug!(
-                    "{:?} transfer_session_state, router.add ... topic_filter: {:?}, opts: {:?}",
-                    id,
-                    tf,
-                    opts
+                    "{id:?} transfer_session_state, router.add ... topic_filter: {tf:?}, opts: {opts:?}"
                 );
                 if let Err(e) = Runtime::instance().extends.router().await.add(tf, id, opts.clone()).await {
-                    log::warn!("transfer_session_state, router.add, {:?}", e);
+                    log::warn!("transfer_session_state, router.add, {e:?}");
                     //return Err(e);
                 }
 
                 //Send messages before they expire
                 if let Err(e) = self.send_storaged_messages(tf, opts.qos(), opts.shared_group(), None).await {
-                    log::warn!("transfer_session_state, router.add, {:?}", e);
+                    log::warn!("transfer_session_state, router.add, {e:?}");
                 }
             }
         }
@@ -1259,7 +1256,7 @@ impl SessionState {
         while let Some(msg) = offline_info.inflight_messages.pop() {
             if !matches!(msg.status, MomentStatus::UnComplete) {
                 if let Err(e) = self.reforward(msg).await {
-                    log::warn!("transfer_session_state, reforward error, {:?}", e);
+                    log::warn!("transfer_session_state, reforward error, {e:?}");
                 }
             }
         }
@@ -1350,7 +1347,7 @@ impl Drop for _Session {
         let s = self.inner.clone();
         tokio::spawn(async move {
             if let Err(e) = s.on_drop().await {
-                log::error!("{:?} session clear error, {:?}", id, e);
+                log::error!("{id:?} session clear error, {e:?}");
             }
         });
     }

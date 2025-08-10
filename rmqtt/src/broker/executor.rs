@@ -157,8 +157,7 @@ pub(crate) fn unavailable_stats() -> &'static Counter {
                 let is_too_many_unavailable = is_too_many_unavailable().await;
                 if fail_rate > 0.0 && !is_too_many_unavailable {
                     log::warn!(
-                        "Connection handshake with too many unavailable, switching to TooManyUnavailable::Yes, fail rate: {}",
-                        fail_rate
+                        "Connection handshake with too many unavailable, switching to TooManyUnavailable::Yes, fail rate: {fail_rate}"
                     );
                     too_many_unavailable_set(TooManyUnavailable::Yes).await;
                     delay = Some(Instant::now());

@@ -46,11 +46,7 @@ pub async fn handshake<Io: 'static>(
     local_addr: SocketAddr,
 ) -> Result<v3::HandshakeAck<Io, SessionState>, MqttError> {
     log::debug!(
-        "new Connection: local_addr: {:?}, remote: {:?}, {:?}, listen_cfg: {:?}",
-        local_addr,
-        remote_addr,
-        handshake,
-        listen_cfg,
+        "new Connection: local_addr: {local_addr:?}, remote: {remote_addr:?}, {handshake:?}, listen_cfg: {listen_cfg:?}",
     );
 
     //RReject the service if the connection handshake too many unavailable.
@@ -161,7 +157,7 @@ async fn _handshake<Io: 'static>(
                     handshake,
                     &connect_info,
                     ConnectAckReasonV3::ServiceUnavailable,
-                    format!("the number of sessions on the current node exceeds the limit, with a maximum of {} sessions allowed", max_sessions),
+                    format!("the number of sessions on the current node exceeds the limit, with a maximum of {max_sessions} sessions allowed"),
                 ).await);
     }
 
@@ -189,7 +185,7 @@ async fn _handshake<Io: 'static>(
                 handshake,
                 &connect_info,
                 ConnectAckReasonV3::ServiceUnavailable,
-                format!("{}", e),
+                format!("{e}"),
             )
             .await);
         }
@@ -206,7 +202,7 @@ async fn _handshake<Io: 'static>(
                 handshake,
                 &connect_info,
                 ConnectAckReasonV3::ServiceUnavailable,
-                format!("{}", e),
+                format!("{e}"),
             )
             .await);
         }
@@ -215,7 +211,7 @@ async fn _handshake<Io: 'static>(
         Ok(OfflineSession::Exist(None)) => (false, true, None),
     };
 
-    log::debug!("has_offline_session: {}", has_offline_session);
+    log::debug!("has_offline_session: {has_offline_session}");
 
     let connected_at = timestamp_millis();
 
@@ -225,7 +221,7 @@ async fn _handshake<Io: 'static>(
         listen_cfg.clone(),
     );
 
-    log::debug!("{:?} offline_info: {:?}", id, offline_info);
+    log::debug!("{id:?} offline_info: {offline_info:?}");
     let created_at =
         if let Some(ref offline_info) = offline_info { offline_info.created_at } else { connected_at };
 
@@ -256,7 +252,7 @@ async fn _handshake<Io: 'static>(
                 handshake,
                 connect_info.as_ref(),
                 ConnectAckReasonV3::ServiceUnavailable,
-                format!("{}", e),
+                format!("{e}"),
             )
             .await);
         }
@@ -269,7 +265,7 @@ async fn _handshake<Io: 'static>(
                 handshake,
                 connect_info.as_ref(),
                 ConnectAckReasonV3::ServiceUnavailable,
-                format!("{:?}", e),
+                format!("{e:?}"),
             )
             .await);
         }
@@ -288,7 +284,7 @@ async fn _handshake<Io: 'static>(
             handshake,
             connect_info.as_ref(),
             ConnectAckReasonV3::ServiceUnavailable,
-            format!("{}", e),
+            format!("{e}"),
         )
         .await);
     }

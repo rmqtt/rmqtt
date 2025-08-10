@@ -88,17 +88,17 @@ impl MonitorData {
 
         let node_info = get_node(message_type, node_id)
             .await?
-            .ok_or_else(|| MqttError::from(format!("node({}) does not exist", node_id)))?;
+            .ok_or_else(|| MqttError::from(format!("node({node_id}) does not exist")))?;
         self.nodes_gauge_vec_sets(&node, &node_info).await;
 
         let (_, stats) = get_stats_one(message_type, node_id)
             .await?
-            .ok_or_else(|| MqttError::from(format!("node({}) does not exist", node_id)))?;
+            .ok_or_else(|| MqttError::from(format!("node({node_id}) does not exist")))?;
         self.stats_gauge_vec_sets(&node, &stats).await;
 
         let metrics = get_metrics_one(message_type, node_id)
             .await?
-            .ok_or_else(|| MqttError::from(format!("node({}) does not exist", node_id)))?;
+            .ok_or_else(|| MqttError::from(format!("node({node_id}) does not exist")))?;
         metrics.build_prometheus_metrics(&node, &self.metrics_gauge_vec);
 
         Ok(())
@@ -290,7 +290,7 @@ impl Monitor {
             md.stats_gauge_vec.reset();
             md.metrics_gauge_vec.reset();
             if let Err(e) = md.refresh_data(message_type).await {
-                log::warn!("refresh data error, {:?}", e)
+                log::warn!("refresh data error, {e:?}")
             }
         } else {
             return Err(MqttError::from("monitor data is not initialized"));

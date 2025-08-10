@@ -25,7 +25,7 @@ impl Handler for HookHandler {
     async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
         match param {
             Parameter::GrpcMessageReceived(typ, msg) => {
-                log::debug!("GrpcMessageReceived, type: {}, msg: {:?}", typ, msg);
+                log::debug!("GrpcMessageReceived, type: {typ}, msg: {msg:?}");
                 if self.message_type != *typ {
                     return (true, acc);
                 }
@@ -33,7 +33,7 @@ impl Handler for HookHandler {
                     GrpcMessage::Data(data) => {
                         let new_acc = match Message::decode(data) {
                             Err(e) => {
-                                log::error!("Message::decode, error: {:?}", e);
+                                log::error!("Message::decode, error: {e:?}");
                                 HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(e.to_string())))
                             }
                             Ok(Message::BrokerInfo) => {
@@ -230,12 +230,12 @@ impl Handler for HookHandler {
                         return (false, Some(new_acc));
                     }
                     _ => {
-                        log::error!("unimplemented, {:?}", param)
+                        log::error!("unimplemented, {param:?}")
                     }
                 }
             }
             _ => {
-                log::error!("unimplemented, {:?}", param)
+                log::error!("unimplemented, {param:?}")
             }
         }
         (true, acc)

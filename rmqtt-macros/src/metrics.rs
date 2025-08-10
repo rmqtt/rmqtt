@@ -33,7 +33,7 @@ pub(crate) fn build(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         .iter()
         .map(|f| {
             let name = &f.ident;
-            let fn_name = name.as_ref().map(|ref i| Ident::new(&format!("{}_inc", i), i.span()));
+            let fn_name = name.as_ref().map(|ref i| Ident::new(&format!("{i}_inc"), i.span()));
             quote! {
                 #[inline]
                 pub fn #fn_name(&self) {
@@ -48,7 +48,7 @@ pub(crate) fn build(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         .iter()
         .map(|f| {
             let name = &f.ident;
-            let fn_name = name.as_ref().map(|ref i| Ident::new(&format!("{}", i), i.span()));
+            let fn_name = name.as_ref().map(|ref i| Ident::new(&format!("{i}"), i.span()));
             quote! {
                 #[inline]
                 pub fn #fn_name(&self) -> usize {

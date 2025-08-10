@@ -209,21 +209,21 @@ impl Client {
                 Ok(rets) => {
                     for ret in rets {
                         if let SubscribeReturnCode::Failure = ret {
-                            log::info!("{} Subscribe failure, topic_filter: {:?}", client_id, topic_filter);
+                            log::info!("{client_id} Subscribe failure, topic_filter: {topic_filter:?}");
                             time::sleep(Duration::from_secs(5)).await;
                             continue 'subscribe;
                         } else {
-                            log::info!("{} Successfully subscribed to {:?}", client_id, topic_filter,);
+                            log::info!("{client_id} Successfully subscribed to {topic_filter:?}",);
                         }
                     }
                     break;
                 }
                 Err(SendPacketError::Disconnected) => {
-                    log::info!("{} Subscribe error, Disconnected", client_id);
+                    log::info!("{client_id} Subscribe error, Disconnected");
                     break;
                 }
                 Err(e) => {
-                    log::info!("{} Subscribe error, {:?}", client_id, e);
+                    log::info!("{client_id} Subscribe error, {e:?}");
                     break;
                 }
             }
@@ -262,7 +262,7 @@ impl Client {
             }))
             .await
         {
-            log::error!("Start ev_loop error! {:?}", e);
+            log::error!("Start ev_loop error! {e:?}");
         }
     }
 }

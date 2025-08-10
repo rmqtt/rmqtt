@@ -154,7 +154,7 @@ impl Router for &'static ClusterRouter {
             })
             .await
             {
-                log::warn!("[Router.remove] Failed to send Message::Remove, id: {:?}, {:?}", id, e);
+                log::warn!("[Router.remove] Failed to send Message::Remove, id: {id:?}, {e:?}");
             }
         });
         Ok(true)
@@ -229,7 +229,7 @@ impl Store for &'static ClusterRouter {
         let message: Message = bincode::deserialize(message).map_err(|e| Error::Other(e))?;
         match message {
             Message::HandshakeTryLock { id } => {
-                log::debug!("[Router.HandshakeTryLock] id: {:?}", id);
+                log::debug!("[Router.HandshakeTryLock] id: {id:?}");
                 let mut try_lock_ok = false;
                 let mut prev_id = None;
                 self.client_states
@@ -246,10 +246,7 @@ impl Store for &'static ClusterRouter {
                         ClientStatus::new(id.clone(), false, true)
                     });
                 log::debug!(
-                    "[Router.HandshakeTryLock] id: {:?}, try_lock_ok: {}, prev_id: {:?}",
-                    id,
-                    try_lock_ok,
-                    prev_id
+                    "[Router.HandshakeTryLock] id: {id:?}, try_lock_ok: {try_lock_ok}, prev_id: {prev_id:?}"
                 );
                 return if try_lock_ok {
                     Ok(MessageReply::HandshakeTryLock(prev_id).encode().map_err(|_e| Error::Unknown)?)
@@ -260,22 +257,22 @@ impl Store for &'static ClusterRouter {
                 };
             }
             Message::Connected { id } => {
-                log::debug!("[Router.Connected] id: {:?}", id);
+                log::debug!("[Router.Connected] id: {id:?}");
                 let mut reply = None;
                 self.client_states.entry(id.client_id.clone()).and_modify(|status| {
                     if status.id != id && id.create_time < status.id.create_time {
-                        log::info!("[Router.Connected] id not the same, input id: {:?}, current status: {:?}", id, status);
+                        log::info!("[Router.Connected] id not the same, input id: {id:?}, current status: {status:?}");
                         reply = Some(MessageReply::Error("id not the same".into()));
                     } else {
                         if id.create_time > status.id.create_time {
-                            log::info!("[Router.Connected] id.create_time > status.id.create_time, input id: {:?}, current status: {:?}", id, status);
+                            log::info!("[Router.Connected] id.create_time > status.id.create_time, input id: {id:?}, current status: {status:?}");
                         }
                         status.id = id.clone();
                         status.online = true;
                         status.handshaking = false;
                     }
                 }).or_insert_with(|| {
-                    log::debug!("[Router.Connected] id: {:?}, Not found", id);
+                    log::debug!("[Router.Connected] id: {id:?}, Not found");
                     ClientStatus::new(id, true, false)
                 });
                 if let Some(reply) = reply {
@@ -283,27 +280,25 @@ impl Store for &'static ClusterRouter {
                 }
             }
             Message::Disconnected { id } => {
-                log::debug!("[Router.Disconnected] id: {:?}", id,);
+                log::debug!("[Router.Disconnected] id: {id:?}",);
                 if let Some(mut entry) = self.client_states.get_mut(&id.client_id) {
                     let status = entry.value_mut();
                     if status.id != id {
                         log::debug!(
-                            "[Router.Disconnected] id not the same, input id: {:?}, current status: {:?}",
-                            id,
-                            status
+                            "[Router.Disconnected] id not the same, input id: {id:?}, current status: {status:?}"
                         );
                     } else {
                         status.online = false;
                     }
                 } else {
-                    log::info!("[Router.Disconnected] id: {:?}, Not found", id);
+                    log::info!("[Router.Disconnected] id: {id:?}, Not found");
                 }
             }
             Message::SessionTerminated { id } => {
-                log::debug!("[Router.SessionTerminated] id: {:?}", id,);
+                log::debug!("[Router.SessionTerminated] id: {id:?}",);
                 self.client_states.remove_if(&id.client_id, |_, status| {
                     if status.id != id {
-                        log::debug!("[Router.SessionTerminated] id not the same, input id: {:?}, current status: {:?}", id, status);
+                        log::debug!("[Router.SessionTerminated] id not the same, input id: {id:?}, current status: {status:?}");
                         false
                     } else {
                         true
@@ -311,11 +306,11 @@ impl Store for &'static ClusterRouter {
                 });
             }
             Message::Add { topic_filter, id, opts } => {
-                log::debug!("[Router.add] topic_filter: {:?}, id: {:?}, opts: {:?}", topic_filter, id, opts);
+                log::debug!("[Router.add] topic_filter: {topic_filter:?}, id: {id:?}, opts: {opts:?}");
                 self.inner.add(topic_filter, id, opts).await.map_err(|e| Error::Other(Box::new(e)))?;
             }
             Message::Remove { topic_filter, id } => {
-                log::debug!("[Router.remove] topic_filter: {:?}, id: {:?}", topic_filter, id,);
+                log::debug!("[Router.remove] topic_filter: {topic_filter:?}, id: {id:?}",);
                 self.inner.remove(topic_filter, id).await.map_err(|e| Error::Other(Box::new(e)))?;
             }
             Message::GetClientNodeId { client_id } => {
@@ -339,7 +334,7 @@ impl Store for &'static ClusterRouter {
                 return Ok(data);
             }
             _ => {
-                log::error!("unimplemented, query: {:?}", query)
+                log::error!("unimplemented, query: {query:?}")
             }
         }
         Ok(Vec::new())
@@ -455,7 +450,7 @@ impl Store for &'static ClusterRouter {
         let mut topics = self.inner.topics.write().await;
         self.inner.relations.clear();
         for (topic_filter, relation) in relations {
-            let topic = Topic::from_str(&topic_filter).map_err(|e| Error::Msg(format!("{:?}", e)))?;
+            let topic = Topic::from_str(&topic_filter).map_err(|e| Error::Msg(format!("{e:?}")))?;
             self.inner.relations.insert(topic_filter, relation);
             topics.insert(&topic, ());
         }

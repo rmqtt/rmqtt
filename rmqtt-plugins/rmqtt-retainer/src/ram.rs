@@ -45,7 +45,7 @@ impl RetainStorage for &'static RamRetainer {
     ///topic - concrete topic
     async fn set(&self, topic: &TopicName, retain: Retain, expiry_interval: Option<Duration>) -> Result<()> {
         if !self.retain_enable.load(Ordering::SeqCst) {
-            log::error!("{}", ERR_NOT_SUPPORTED);
+            log::error!("{ERR_NOT_SUPPORTED}");
             return Ok(());
         }
 
@@ -55,16 +55,13 @@ impl RetainStorage for &'static RamRetainer {
         };
 
         if retain.publish.payload.len() > max_payload_size {
-            log::warn!("Retain message payload exceeding limit, topic: {:?}, retain: {:?}", topic, retain);
+            log::warn!("Retain message payload exceeding limit, topic: {topic:?}, retain: {retain:?}");
             return Ok(());
         }
 
         if max_retained_messages > 0 && self.inner.count().await >= max_retained_messages {
             log::warn!(
-                "The retained message has exceeded the maximum limit of: {}, topic: {:?}, retain: {:?}",
-                max_retained_messages,
-                topic,
-                retain
+                "The retained message has exceeded the maximum limit of: {max_retained_messages}, topic: {topic:?}, retain: {retain:?}"
             );
             return Ok(());
         }
@@ -79,7 +76,7 @@ impl RetainStorage for &'static RamRetainer {
     ///topic_filter - Topic filter
     async fn get(&self, topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>> {
         if !self.retain_enable.load(Ordering::SeqCst) {
-            log::error!("{}", ERR_NOT_SUPPORTED);
+            log::error!("{ERR_NOT_SUPPORTED}");
             Ok(Vec::new())
         } else {
             Ok(self.inner.get_message(topic_filter).await?)

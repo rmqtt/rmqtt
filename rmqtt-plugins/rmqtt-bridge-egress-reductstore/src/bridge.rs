@@ -36,14 +36,14 @@ impl Producer {
         entry_idx: usize,
         node_id: NodeId,
     ) -> Result<Self> {
-        log::debug!("entry_idx: {}, node_id: {}", entry_idx, node_id);
+        log::debug!("entry_idx: {entry_idx}, node_id: {node_id}");
 
         let producer_name = if let Some(prefix) = &cfg.producer_name_prefix {
             format!("{}:{}:egress:{}:{}", prefix, cfg.name, node_id, entry_idx)
         } else {
             format!("{}:egress:{}:{}", cfg.name, node_id, entry_idx)
         };
-        log::debug!("producer_name: {}", producer_name);
+        log::debug!("producer_name: {producer_name}");
 
         let producer = Self::build_reductstore(&cfg).await?;
 
@@ -56,7 +56,7 @@ impl Producer {
             builder = builder.exist_ok(exist_ok);
         }
 
-        let bucket = builder.send().await.map_err(|e| format!("Failed to create Bucket, {}", e))?;
+        let bucket = builder.send().await.map_err(|e| format!("Failed to create Bucket, {e}"))?;
 
         let (tx, rx) = mpsc::channel(100_000);
         tokio::spawn(async move {
@@ -79,7 +79,7 @@ impl Producer {
             builder = builder.timeout(timeout);
         }
 
-        Ok(builder.try_build().map_err(|e| format!("Failed to connect to Reductstore, {}", e))?)
+        Ok(builder.try_build().map_err(|e| format!("Failed to connect to Reductstore, {e}"))?)
     }
 
     async fn start(entry_cfg: Entry, bucket: Bucket, mut rx: mpsc::Receiver<Command>) {
@@ -121,7 +121,7 @@ impl Producer {
                     sender = sender.add_label("topic", p.topic());
 
                     if let Err(e) = sender.data(p.payload).send().await {
-                        log::warn!("{}", e);
+                        log::warn!("{e}");
                     }
                 }
             }
@@ -190,9 +190,9 @@ impl BridgeManager {
     pub async fn stop(&mut self) {
         for mut entry in &mut self.sinks.iter_mut() {
             let ((bridge_name, entry_idx), producer) = entry.pair_mut();
-            log::debug!("stop bridge_name: {:?}, entry_idx: {:?}", bridge_name, entry_idx,);
+            log::debug!("stop bridge_name: {bridge_name:?}, entry_idx: {entry_idx:?}",);
             if let Err(e) = producer.tx.send(Command::Close).await {
-                log::error!("{:?}", e);
+                log::error!("{e:?}");
             }
         }
         self.sinks.clear();
@@ -208,12 +208,12 @@ impl BridgeManager {
         let topic = Topic::from_str(&p.topic)?;
         for (topic_filter, bridge_infos) in { self.topics.read().await.matches(&topic) }.iter() {
             let topic_filter = topic_filter.to_topic_filter();
-            log::debug!("topic_filter: {:?}", topic_filter);
-            log::debug!("bridge_infos: {:?}", bridge_infos);
+            log::debug!("topic_filter: {topic_filter:?}");
+            log::debug!("bridge_infos: {bridge_infos:?}");
             for (name, entry_idx) in bridge_infos {
                 if let Some(producer) = self.sinks.get(&(name.clone(), *entry_idx)) {
                     if let Err(e) = producer.send(f, p).await {
-                        log::warn!("{}", e);
+                        log::warn!("{e}");
                     }
                 }
             }

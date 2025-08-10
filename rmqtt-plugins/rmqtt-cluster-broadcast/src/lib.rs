@@ -1,3 +1,4 @@
+#![allow(clippy::result_large_err)]
 #![deny(unsafe_code)]
 #[macro_use]
 extern crate serde;
@@ -116,7 +117,7 @@ impl Plugin for ClusterPlugin {
                 "channel_tasks": c.channel_tasks(),
                 "active_tasks": c.active_tasks(),
             });
-            nodes.insert(format!("{}/{:?}", id, addr), stats);
+            nodes.insert(format!("{id}/{addr:?}"), stats);
         }
         json!({
             "grpc_clients": nodes,
@@ -133,7 +134,7 @@ pub(crate) async fn kick(
     let reply =
         rmqtt::grpc::MessageBroadcaster::new(grpc_clients, msg_type, msg, Some(Duration::from_secs(15)))
             .select_ok(|reply: MessageReply| -> Result<MessageReply> {
-                log::debug!("reply: {:?}", reply);
+                log::debug!("reply: {reply:?}");
                 if let MessageReply::Kick(o) = reply {
                     Ok(MessageReply::Kick(o))
                 } else {

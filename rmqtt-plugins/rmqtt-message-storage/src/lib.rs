@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+#![allow(clippy::large_enum_variant)]
 #![deny(unsafe_code)]
 #[macro_use]
 extern crate serde;
@@ -53,9 +55,9 @@ impl StoragePlugin {
                 (MessageMgr::Ram(message_mgr), Arc::new(cfg))
             }
             Config::Storage(s_cfg) => {
-                s_cfg.redis.prefix = s_cfg.redis.prefix.replace("{node}", &format!("{}", node_id));
+                s_cfg.redis.prefix = s_cfg.redis.prefix.replace("{node}", &format!("{node_id}"));
                 s_cfg.redis_cluster.prefix =
-                    s_cfg.redis_cluster.prefix.replace("{node}", &format!("{}", node_id));
+                    s_cfg.redis_cluster.prefix.replace("{node}", &format!("{node_id}"));
 
                 let storage_db = init_db(s_cfg).await?;
                 let cfg = Arc::new(cfg);
@@ -64,7 +66,7 @@ impl StoragePlugin {
                 (MessageMgr::Storage(message_mgr), cfg)
             }
         };
-        log::info!("{} StoragePlugin cfg: {:?}", name, cfg);
+        log::info!("{name} StoragePlugin cfg: {cfg:?}");
         let register = runtime.extends.hook_mgr().await.register();
         Ok(Self { runtime, cfg, register, message_mgr })
     }

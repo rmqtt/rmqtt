@@ -174,7 +174,7 @@ where
                 Poll::Ready(Ok(()))
             }
             Some(Err(e)) => {
-                log::debug!("{:?}", e);
+                log::debug!("{e:?}");
                 Poll::Ready(Err(to_error(e)))
             }
             None => Poll::Ready(Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))),
@@ -217,7 +217,7 @@ fn to_error(e: WSError) -> io::Error {
         WSError::ConnectionClosed => io::Error::from(ErrorKind::ConnectionAborted),
         WSError::AlreadyClosed => io::Error::from(ErrorKind::NotConnected),
         WSError::Io(io_e) => io_e,
-        _ => io::Error::new(ErrorKind::Other, e.to_string()),
+        _ => io::Error::other(e.to_string()),
     }
 }
 

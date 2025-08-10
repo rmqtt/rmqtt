@@ -91,7 +91,7 @@ impl BridgeManager {
 
     pub async fn start(&mut self) {
         while let Err(e) = self._start().await {
-            log::error!("start bridge-egress-mqtt error, {:?}", e);
+            log::error!("start bridge-egress-mqtt error, {e:?}");
             self.stop().await;
             tokio::time::sleep(Duration::from_millis(3000)).await;
         }
@@ -146,18 +146,11 @@ impl BridgeManager {
             let ((bridge_name, entry_idx), mailboxs) = entry.pair_mut();
             for (client_no, mailbox) in mailboxs.iter_mut().enumerate() {
                 log::debug!(
-                    "stop bridge_name: {:?}, entry_idx: {:?}, client_no: {:?}",
-                    bridge_name,
-                    entry_idx,
-                    client_no
+                    "stop bridge_name: {bridge_name:?}, entry_idx: {entry_idx:?}, client_no: {client_no:?}"
                 );
                 if let Err(e) = mailbox.stop().await {
                     log::error!(
-                    "stop BridgeMqttIngressPlugin error, bridge_name: {}, entry_idx: {}, client_no: {}, {:?}",
-                    bridge_name,
-                    entry_idx,
-                    client_no,
-                    e
+                    "stop BridgeMqttIngressPlugin error, bridge_name: {bridge_name}, entry_idx: {entry_idx}, client_no: {client_no}, {e:?}"
                 );
                 }
             }
@@ -175,8 +168,8 @@ impl BridgeManager {
         let rnd = rand::random::<u64>() as usize;
         for (topic_filter, bridge_infos) in { self.topics.read().await.matches(&topic) }.iter() {
             let topic_filter = topic_filter.to_topic_filter();
-            log::debug!("topic_filter: {:?}", topic_filter);
-            log::debug!("bridge_infos: {:?}", bridge_infos);
+            log::debug!("topic_filter: {topic_filter:?}");
+            log::debug!("bridge_infos: {bridge_infos:?}");
             for (name, entry_idx, mqtt_ver) in bridge_infos {
                 if let Some(mailboxs) = self.sinks.get(&(name.clone(), *entry_idx)) {
                     let client_no = rnd % mailboxs.len();
@@ -193,7 +186,7 @@ impl BridgeManager {
                                     .send(Command::Publish(BridgePublish::V3(self.to_v3_publish(entry, p))))
                                     .await
                                 {
-                                    log::warn!("{}", e);
+                                    log::warn!("{e}");
                                 }
                             }
                             MQTT_LEVEL_5 => {
@@ -201,7 +194,7 @@ impl BridgeManager {
                                     .send(Command::Publish(BridgePublish::V5(self.to_v5_publish(entry, p))))
                                     .await
                                 {
-                                    log::warn!("{}", e);
+                                    log::warn!("{e}");
                                 }
                             }
                             MQTT_LEVEL_31 => {

@@ -112,14 +112,14 @@ impl From<SendPacketError> for MqttError {
 impl From<TopicError> for MqttError {
     #[inline]
     fn from(e: TopicError) -> Self {
-        MqttError::TopicError(format!("{:?}", e))
+        MqttError::TopicError(format!("{e:?}"))
     }
 }
 
 impl<T: Send + Sync + core::fmt::Debug> From<SendError<T>> for MqttError {
     #[inline]
     fn from(e: SendError<T>) -> Self {
-        MqttError::SendError(format!("{:?}", e))
+        MqttError::SendError(format!("{e:?}"))
     }
 }
 
@@ -149,6 +149,6 @@ impl std::convert::TryFrom<MqttError> for v5::PublishResult {
 impl From<MqttError> for tonic::Status {
     #[inline]
     fn from(e: MqttError) -> Self {
-        tonic::Status::new(tonic::Code::Unavailable, format!("{:?}", e))
+        tonic::Status::new(tonic::Code::Unavailable, format!("{e:?}"))
     }
 }
