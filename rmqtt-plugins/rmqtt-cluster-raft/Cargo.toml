@@ -10,7 +10,7 @@ license.workspace = true
 rmqtt.workspace = true
 rmqtt-macros.workspace = true
 serde = { workspace = true, features = ["derive"] }
-rmqtt-raft = { version = "0.4.5", features = ["reuse"] }
+rmqtt-raft = { version = "0.5.3", features = ["reuse"] }
 #rmqtt-raft = { path = "../../../rmqtt-raft", features = ["reuse"] }
 backoff = { version = "0.4", features = ["futures", "tokio"] }
 lz4_flex = { version = "0.11" }
