@@ -242,16 +242,21 @@ fn to_properties(props: &PublishProperties) -> ntex_mqtt::v5::codec::PublishProp
     let user_properties: ntex_mqtt::v5::codec::UserProperties = props
         .user_properties
         .iter()
-        .map(|(k, v)| (ntex::util::ByteString::from(k.as_ref()), ntex::util::ByteString::from(v.as_ref())))
+        .map(|(k, v)| {
+            (ntex::util::ByteString::from(k.to_string()), ntex::util::ByteString::from(v.to_string()))
+        })
         .collect();
     ntex_mqtt::v5::codec::PublishProperties {
         topic_alias: props.topic_alias,
         correlation_data: props.correlation_data.as_ref().map(|data| ntex::util::Bytes::from(data.to_vec())),
         message_expiry_interval: props.message_expiry_interval,
-        content_type: props.content_type.as_ref().map(|data| ntex::util::ByteString::from(data.as_ref())),
+        content_type: props.content_type.as_ref().map(|data| ntex::util::ByteString::from(data.to_string())),
         user_properties,
         is_utf8_payload: props.is_utf8_payload.unwrap_or_default(),
-        response_topic: props.response_topic.as_ref().map(|data| ntex::util::ByteString::from(data.as_ref())),
+        response_topic: props
+            .response_topic
+            .as_ref()
+            .map(|data| ntex::util::ByteString::from(data.to_string())),
         subscription_ids: props.subscription_ids.clone().unwrap_or_default(),
     }
 }
