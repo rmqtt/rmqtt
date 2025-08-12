@@ -12,7 +12,7 @@ license.workspace = true
 rmqtt = { workspace = true, features = ["plugin", "grpc", "stats", "msgstore"] }
 serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["sync"] }
-rmqtt-raft = { version = "0.5.2", features = ["reuse"] }
+rmqtt-raft = { version = "0.5.3", features = ["reuse"] }
 #rmqtt-raft = { path = "../../../rmqtt-raft", features = ["reuse"] }
 backoff = { workspace = true, features = ["futures", "tokio"] }
 rust-box = { workspace = true, features = ["task-exec-queue"] }
