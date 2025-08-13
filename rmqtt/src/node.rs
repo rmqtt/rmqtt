@@ -45,7 +45,7 @@ pub struct Node {
     pub start_time: chrono::DateTime<chrono::Local>,
     max_busy_loadavg: f32,
     max_busy_cpuloadavg: f32,
-    busy_update_interval: Duration,
+    pub(crate) busy_update_interval: Duration,
     cpuload: AtomicI64,
 }
 
