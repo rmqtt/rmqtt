@@ -239,6 +239,7 @@ impl ServerContextBuilder {
         }
         .config()
         .await
+        .start_cpuload_monitoring()
     }
 }
 
@@ -315,6 +316,32 @@ impl ServerContext {
         {
             *self.extends.delayed_sender_mut().await =
                 Box::new(DefaultDelayedSender::new(Some(self.clone())));
+        }
+        self
+    }
+
+    /// Starts a background asynchronous task that periodically updates the node's CPU load.
+    ///
+    /// If `busy_check_enable` is set to `true`, this function will:
+    /// - Clone the current `ServerContext` instance.
+    /// - Spawn a Tokio task that runs in an infinite loop.
+    /// - In each loop iteration:
+    ///   1. Sleep for `node.busy_update_interval`.
+    ///   2. Call `node.update_cpuload()` to refresh the CPU load metrics.
+    ///
+    /// This method is typically used for monitoring server load to support
+    /// busy-state detection and performance management.
+    ///
+    /// Returns the original `ServerContext` so the call can be chained.
+    fn start_cpuload_monitoring(self) -> ServerContext {
+        if self.busy_check_enable {
+            let scx = self.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(scx.node.busy_update_interval).await;
+                    scx.node.update_cpuload().await;
+                }
+            });
         }
         self
     }

@@ -18,8 +18,8 @@ task.exec_queue_max = 300_000
 node.id = 1
 
 #Busy status check switch.
-#default value: true
-node.busy.check_enable = true
+#default value: false
+node.busy.check_enable = false
 #Busy status update interval.
 #default value: 2s
 node.busy.update_interval = "2s"
