@@ -119,6 +119,12 @@ fn route(
         .push(
             Router::with_path("stats")
                 .get(get_stats)
+                .push(
+                    Router::with_path("sys")
+                        .get(get_sys_stats)
+                        .push(Router::with_path("sum").get(get_sys_stats_sum))
+                        .push(Router::with_path("{id}").get(get_sys_stats)),
+                )
                 .push(Router::with_path("sum").get(get_stats_sum))
                 .push(Router::with_path("{id}").get(get_stats)),
         )
@@ -338,7 +344,18 @@ async fn list_apis(res: &mut Response) {
             "path": "/api/v1/stats/sum",
             "descr": "Summarize all statistics information from the cluster"
         },
-
+        {
+            "name": "get_sys_stats",
+            "method": "GET",
+            "path": "/api/v1/stats/sys/{node}",
+            "descr": "Returns all system statistics information from the cluster"
+        },
+        {
+            "name": "get_sys_stats_sum",
+            "method": "GET",
+            "path": "/api/v1/stats/sys/sum",
+            "descr": "Summarize all system statistics information from the cluster"
+        },
         {
             "name": "get_metrics",
             "method": "GET",
@@ -1849,14 +1866,18 @@ async fn get_stats_sum(depot: &mut Depot, res: &mut Response) -> std::result::Re
 
     let message_type = cfg.read().await.message_type;
 
-    match _get_stats_sum(scx, message_type).await {
+    match _get_stats_sum(scx, message_type, false).await {
         Ok(stats_sum) => res.render(Json(stats_sum)),
         Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
     }
     Ok(())
 }
 
-async fn _get_stats_sum(scx: &ServerContext, message_type: MessageType) -> Result<serde_json::Value> {
+async fn _get_stats_sum(
+    scx: &ServerContext,
+    message_type: MessageType,
+    is_sys: bool,
+) -> Result<serde_json::Value> {
     let this_id = scx.node.id();
     let mut nodes = HashMap::default();
     nodes.insert(
@@ -1911,7 +1932,7 @@ async fn _get_stats_sum(scx: &ServerContext, message_type: MessageType) -> Resul
 
     let stats_sum = json!({
         "nodes": nodes,
-        "stats": stats_sum.to_json(scx).await
+        "stats": if is_sys { stats_sum.to_sys_json(scx).await} else {stats_sum.to_json(scx).await}
     });
 
     Ok(stats_sum)
@@ -2067,6 +2088,63 @@ async fn _build_stats(
         "stats": stats
     });
     data
+}
+
+#[handler]
+async fn get_sys_stats(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> std::result::Result<(), salvo::Error> {
+    let (scx, cfg) = get_scx_cfg(depot)?;
+    let message_type = cfg.read().await.message_type;
+
+    let id = req.param::<NodeId>("id");
+    if let Some(id) = id {
+        match get_stats_one(scx, message_type, id).await {
+            Ok(Some((node_status, stats))) => {
+                let stat_info = _build_stats(scx, id, node_status, stats.to_sys_json(scx).await).await;
+                res.render(Json(stat_info))
+            }
+            Ok(None) => {
+                res.status_code(StatusCode::NOT_FOUND);
+            }
+            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+        }
+    } else {
+        match get_stats_all(scx, message_type).await {
+            Ok(stats) => {
+                let mut stat_infos = Vec::new();
+                for item in stats {
+                    match item {
+                        Ok((id, node_status, state)) => {
+                            stat_infos
+                                .push(_build_stats(scx, id, node_status, state.to_sys_json(scx).await).await);
+                        }
+                        Err(e) => {
+                            stat_infos.push(serde_json::Value::String(e.to_string()));
+                        }
+                    }
+                }
+                res.render(Json(stat_infos))
+            }
+            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+        }
+    }
+    Ok(())
+}
+
+#[handler]
+async fn get_sys_stats_sum(depot: &mut Depot, res: &mut Response) -> std::result::Result<(), salvo::Error> {
+    let (scx, cfg) = get_scx_cfg(depot)?;
+
+    let message_type = cfg.read().await.message_type;
+
+    match _get_stats_sum(scx, message_type, true).await {
+        Ok(stats_sum) => res.render(Json(stats_sum)),
+        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+    }
+    Ok(())
 }
 
 #[handler]
