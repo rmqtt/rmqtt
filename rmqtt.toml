@@ -173,7 +173,7 @@ listener.tcp.external.limit_subscription = false
 #Delayed publish switch, default value: false
 listener.tcp.external.delayed_publish = false
 #Proxy Protocol switch, default value: false
-listener.tcp.external.proxy_protocol = true
+listener.tcp.external.proxy_protocol = false
 #Proxy Protocol timeout, default value: 5s
 listener.tcp.external.proxy_protocol_timeout = "5s"
 
@@ -235,3 +235,4 @@ listener.wss.external.key = "./rmqtt-bin/rmqtt.key"
 #listener.wss.external.cross_certificate = true
 #listener.wss.external.cert = "./rmqtt-bin/rmqtt.fullchain.pem"
 #listener.wss.external.key = "./rmqtt-bin/rmqtt.key"
+
