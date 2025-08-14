@@ -71,6 +71,7 @@ use crate::metrics::Metrics;
 use crate::node::Node;
 #[cfg(feature = "plugin")]
 use crate::plugin;
+#[cfg(feature = "plugin")]
 use crate::plugin::PluginManagerConfig;
 use crate::router::DefaultRouter;
 use crate::shared::DefaultShared;
@@ -111,6 +112,7 @@ pub struct ServerContextBuilder {
     pub mqtt_delayed_publish_immediate: bool,
 
     /// plugins config, path or configMap<plugin_name, toml_string>
+    #[cfg(feature = "plugin")]
     pub plugins_config: PluginManagerConfig,
 }
 
@@ -133,6 +135,7 @@ impl ServerContextBuilder {
             mqtt_delayed_publish_max: 100_000,
             mqtt_max_sessions: 0,
             mqtt_delayed_publish_immediate: true,
+            #[cfg(feature = "plugin")]
             plugins_config: PluginManagerConfig::Path("rmqtt-plugins/".into()),
         }
     }
@@ -198,10 +201,13 @@ impl ServerContextBuilder {
     }
 
     /// Sets directory path for plugin loading
+    #[cfg(feature = "plugin")]
     pub fn plugins_config_dir<N: Into<String>>(mut self, plugins_dir: N) -> Self {
         self.plugins_config = PluginManagerConfig::Path(plugins_dir.into());
         self
     }
+
+    #[cfg(feature = "plugin")]
     pub fn plugins_config_map(mut self, plugins_config_map: HashMap<String, String>) -> Self {
         self.plugins_config = PluginManagerConfig::Map(plugins_config_map);
         self
@@ -378,8 +384,8 @@ impl ServerContext {
     }
 
     #[inline]
-    pub fn execs(&self) -> &DashMap<&'static str, TaskExecQueue> {
-        &self.execs
+    pub fn execs(&self) -> HashMap<String, TaskExecQueue> {
+        self.execs.iter().map(|entry| (entry.key().to_string(), entry.value().clone())).collect()
     }
 }
 
@@ -440,7 +446,7 @@ impl ExecKey for (&'static str, ExecWorkers, ExecQueueMax) {
 }
 
 /// Execution statistics for task queues
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct TaskExecStats {
     /// Currently active tasks
     pub active_count: isize,
