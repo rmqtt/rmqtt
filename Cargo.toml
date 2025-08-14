@@ -142,6 +142,7 @@ rust-box = "0.15"
 scopeguard = "1"
 rayon = "=1.10.0"
 parking_lot = "0.12.4"
+proxy-protocol = "0.5"
 
 [profile.dev]
 opt-level = 0

@@ -38,6 +38,7 @@ tokio-rustls = { workspace = true, optional = true }
 rustls = { workspace = true, features = ["aws-lc-rs", "logging", "std", "tls12"], optional = true }
 [target.'cfg(windows)'.dependencies]
 rustls = { workspace = true, features = ["ring", "logging", "std", "tls12"], optional = true }
+proxy-protocol = { workspace = true }
 
 [dev-dependencies]
 simple_logger = "5"

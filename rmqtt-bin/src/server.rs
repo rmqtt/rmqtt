@@ -157,6 +157,8 @@ fn config_builder(cfg: &Listener) -> Builder {
         .tls_key(cfg.key.clone())
         .limit_subscription(cfg.limit_subscription)
         .delayed_publish(cfg.delayed_publish)
+        .proxy_protocol(cfg.proxy_protocol)
+        .proxy_protocol_timeout(cfg.proxy_protocol_timeout)
 }
 
 fn config_args(cfg: &Settings) -> CommandArgs {
