@@ -172,6 +172,10 @@ listener.tcp.external.max_topic_aliases = 32
 listener.tcp.external.limit_subscription = false
 #Delayed publish switch, default value: false
 listener.tcp.external.delayed_publish = false
+#Proxy Protocol switch, default value: false
+listener.tcp.external.proxy_protocol = false
+#Proxy Protocol timeout, default value: 5s
+listener.tcp.external.proxy_protocol_timeout = "5s"
 
 ##--------------------------------------------------------------------
 ## MQTT/TCP - Internal TCP Listener for MQTT Protocol
@@ -231,3 +235,4 @@ listener.wss.external.key = "./rmqtt-bin/rmqtt.key"
 #listener.wss.external.cross_certificate = true
 #listener.wss.external.cert = "./rmqtt-bin/rmqtt.fullchain.pem"
 #listener.wss.external.key = "./rmqtt-bin/rmqtt.key"
+

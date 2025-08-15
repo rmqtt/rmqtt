@@ -236,6 +236,13 @@ pub struct ListenerInner {
     pub limit_subscription: bool,
     #[serde(default)]
     pub delayed_publish: bool,
+    #[serde(default)]
+    pub proxy_protocol: bool,
+    #[serde(
+        default = "ListenerInner::proxy_protocol_timeout_default",
+        deserialize_with = "deserialize_duration"
+    )]
+    pub proxy_protocol_timeout: Duration,
 }
 
 impl Default for ListenerInner {
@@ -277,6 +284,8 @@ impl Default for ListenerInner {
             key: None,
             limit_subscription: false,
             delayed_publish: false,
+            proxy_protocol: false,
+            proxy_protocol_timeout: ListenerInner::proxy_protocol_timeout_default(),
         }
     }
 }
@@ -457,5 +466,9 @@ impl ListenerInner {
     #[inline]
     fn cross_certificate_default() -> bool {
         false
+    }
+    #[inline]
+    fn proxy_protocol_timeout_default() -> Duration {
+        Duration::from_secs(5)
     }
 }

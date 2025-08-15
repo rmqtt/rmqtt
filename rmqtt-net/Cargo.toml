@@ -31,9 +31,10 @@ socket2.workspace = true
 serde = { workspace = true, features = ["derive"] }
 bytestring = { workspace = true, features = ["serde"] }
 nonzero_ext.workspace = true
-
 tokio-tungstenite = { workspace = true, optional = true }
 tokio-rustls = { workspace = true, optional = true }
+proxy-protocol = { workspace = true }
+
 [target.'cfg(not(windows))'.dependencies]
 rustls = { workspace = true, features = ["aws-lc-rs", "logging", "std", "tls12"], optional = true }
 [target.'cfg(windows)'.dependencies]
