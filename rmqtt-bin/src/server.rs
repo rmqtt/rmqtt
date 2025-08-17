@@ -62,13 +62,7 @@ async fn main() -> Result<()> {
         .await;
 
     //start gRPC server
-    scx.node.start_grpc_server(
-        scx.clone(),
-        conf.rpc.server_addr,
-        conf.rpc.server_workers,
-        conf.rpc.reuseaddr,
-        conf.rpc.reuseport,
-    );
+    scx.node.start_grpc_server(scx.clone(), conf.rpc.server_addr, conf.rpc.reuseaddr, conf.rpc.reuseport);
 
     //register plugin
     plugin::registers(&scx, conf.plugins.default_startups.clone()).await.expect("register plugin failed");

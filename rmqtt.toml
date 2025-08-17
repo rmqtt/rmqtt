@@ -33,12 +33,22 @@ node.busy.cpuloadavg = 90.0
 node.busy.handshaking = 0
 
 ##--------------------------------------------------------------------
-## RPC
+## RPC (Remote Procedure Call) Configuration Section
 ##--------------------------------------------------------------------
-#gRPC listening address
+# gRPC server listening address
+# Format: "IP:PORT"
+# "0.0.0.0" means listen on all available network interfaces
+# 5363 is the default listening port
 rpc.server_addr = "0.0.0.0:5363"
-#Number of worker threads
-rpc.server_workers = 4
+
+# Enable SO_REUSEADDR socket option
+# true allows immediate reuse of addresses in TIME_WAIT state (useful for fast service restart)
+rpc.reuseaddr = true
+
+# Enable SO_REUSEPORT socket option
+# false prevents multiple sockets from binding to same IP+PORT combination
+# (Linux 3.9+ kernel feature, can be used for load balancing)
+rpc.reuseport = false
 
 ##--------------------------------------------------------------------
 ## Log

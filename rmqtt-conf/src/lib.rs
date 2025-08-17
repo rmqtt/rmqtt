@@ -248,18 +248,6 @@ pub struct Rpc {
 
     #[serde(default = "Rpc::reuseport_default")]
     pub reuseport: bool,
-
-    #[serde(default = "Rpc::server_workers_default")]
-    pub server_workers: usize,
-    // #[serde(default = "Rpc::client_concurrency_limit_default")]
-    // pub client_concurrency_limit: usize,
-    //
-    // #[serde(default = "Rpc::client_timeout_default", deserialize_with = "deserialize_duration")]
-    // pub client_timeout: Duration,
-    //
-    // //#Maximum number of messages sent in batch
-    // #[serde(default = "Rpc::batch_size_default")]
-    // pub batch_size: usize,
 }
 
 impl Default for Rpc {
@@ -268,11 +256,7 @@ impl Default for Rpc {
         Self {
             reuseaddr: Self::reuseaddr_default(),
             reuseport: Self::reuseport_default(),
-            // batch_size: Self::batch_size_default(),
             server_addr: Self::server_addr_default(),
-            server_workers: Self::server_workers_default(),
-            // client_concurrency_limit: Self::client_concurrency_limit_default(),
-            // client_timeout: Self::client_timeout_default(),
         }
     }
 }
@@ -286,9 +270,6 @@ impl Rpc {
     }
     fn server_addr_default() -> SocketAddr {
         ([0, 0, 0, 0], 5363).into()
-    }
-    fn server_workers_default() -> usize {
-        4
     }
 }
 

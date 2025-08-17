@@ -91,9 +91,7 @@ impl Node {
         client_concurrency_limit: usize,
         _batch_size: usize,
     ) -> crate::Result<GrpcClient> {
-        let c = GrpcClient::new(remote_addr, connect_timeout, client_concurrency_limit).await?;
-        // c.start_ping();
-        Ok(c)
+        GrpcClient::new(remote_addr, connect_timeout, client_concurrency_limit).await
     }
 
     #[cfg(feature = "grpc")]
@@ -101,25 +99,13 @@ impl Node {
         &self,
         scx: ServerContext,
         server_addr: std::net::SocketAddr,
-        worker_threads: usize,
         reuseaddr: bool,
         reuseport: bool,
     ) {
-        std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .worker_threads(worker_threads)
-                .thread_name("grpc-server-worker")
-                .thread_stack_size(4 * 1024 * 1024)
-                .build()
-                .expect("tokio runtime build failed");
-            let runner = async {
-                if let Err(e) = GrpcServer::new(scx).listen_and_serve(server_addr, reuseaddr, reuseport).await
-                {
-                    log::error!("listen and serve failure, {e:?}, laddr: {server_addr:?}");
-                }
-            };
-            rt.block_on(runner)
+        tokio::spawn(async move {
+            if let Err(e) = GrpcServer::new(scx).listen_and_serve(server_addr, reuseaddr, reuseport).await {
+                log::error!("listen and serve failure, {e:?}, laddr: {server_addr:?}");
+            }
         });
     }
 
