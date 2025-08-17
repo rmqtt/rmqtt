@@ -50,25 +50,11 @@ impl HttpApiPlugin {
 
     async fn start(scx: ServerContext, cfg: PluginConfigType) -> ShutdownTX {
         let (shutdown_tx, shutdown_rx): (oneshot::Sender<()>, oneshot::Receiver<()>) = oneshot::channel();
-        let workers = cfg.read().await.workers;
         let http_laddr = cfg.read().await.http_laddr;
-        let _child = std::thread::Builder::new().name("http-api".to_string()).spawn(move || {
-            let cfg1 = cfg.clone();
-            let runner = async move {
-                let laddr = cfg1.read().await.http_laddr;
-                if let Err(e) = api::listen_and_serve(scx, laddr, cfg1, shutdown_rx).await {
-                    log::error!("{e:?}");
-                }
-            };
-
-            let rt = tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .worker_threads(workers)
-                .thread_name("http-api-worker")
-                .thread_stack_size(4 * 1024 * 1024)
-                .build()
-                .expect("tokio runtime build failed");
-            rt.block_on(runner);
+        tokio::spawn(async move {
+            if let Err(e) = api::listen_and_serve(scx, http_laddr, cfg, shutdown_rx).await {
+                log::error!("{e:?}");
+            }
             log::info!("Exit HTTP API Server, ..., http://{http_laddr:?}");
         });
         shutdown_tx

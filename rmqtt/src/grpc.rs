@@ -138,9 +138,7 @@ impl GrpcServer {
 
     async fn on_recv_message(&self, req: Vec<u8>) -> Result<Option<Vec<u8>>> {
         let (typ, msg) = Message::decode(&req)?;
-        // self.scx.stats.grpc_server_actives.inc();
         let reply = self.grpc_message_received(typ, msg).await?;
-        // self.scx.stats.grpc_server_actives.dec();
         Ok(Some(reply.encode()?))
     }
 

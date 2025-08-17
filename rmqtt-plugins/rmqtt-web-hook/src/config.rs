@@ -15,8 +15,6 @@ type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
-    #[serde(default = "PluginConfig::worker_threads_default")]
-    pub worker_threads: usize,
     #[serde(default = "PluginConfig::queue_capacity_default")]
     pub queue_capacity: usize,
     #[serde(default = "PluginConfig::concurrency_limit_default")]
@@ -42,9 +40,6 @@ pub struct PluginConfig {
 }
 
 impl PluginConfig {
-    fn worker_threads_default() -> usize {
-        3
-    }
     fn queue_capacity_default() -> usize {
         1_000_000
     }
