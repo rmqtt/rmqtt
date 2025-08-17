@@ -27,7 +27,7 @@ futures.workspace = true
 log.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
-socket2.workspace = true
+socket2 = { workspace = true, features = ["all"] }
 serde = { workspace = true, features = ["derive"] }
 bytestring = { workspace = true, features = ["serde"] }
 nonzero_ext.workspace = true
