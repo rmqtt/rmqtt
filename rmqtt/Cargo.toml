@@ -40,7 +40,7 @@ rmqtt-codec.workspace = true
 rmqtt-macros = { workspace = true, optional = true }
 rmqtt-utils.workspace = true
 rust-box = { workspace = true, features = ["dequemap", "task-exec-queue", "task-exec-queue-rate"] }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "io-util"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 futures.workspace = true
