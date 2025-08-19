@@ -1,6 +1,6 @@
 [package]
 name = "rmqtt-counter"
-version = "0.1.0"
+version = "0.1.1"
 description = "This plugin collects key MQTT server metrics, enhancing observability and operational insight."
 repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-counter"
 edition.workspace = true
