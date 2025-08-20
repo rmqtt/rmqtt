@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::anyhow;
 use base64::prelude::{Engine, BASE64_STANDARD};
-use bitflags::*;
+use bitflags::bitflags;
 use bytes::Bytes;
 use bytestring::ByteString;
 use futures::StreamExt;
