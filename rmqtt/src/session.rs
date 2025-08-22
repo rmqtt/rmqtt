@@ -60,6 +60,7 @@
 //! Implements MQTT 5.0 best practices from OASIS specifications while maintaining
 //! backward compatibility through protocol negotiation and feature detection.
 
+use std::collections::vec_deque::VecDeque;
 use std::convert::From as _f;
 use std::fmt;
 use std::num::NonZeroU16;
@@ -1428,7 +1429,7 @@ impl SessionState {
         }
 
         //Send offline messages
-        while let Some((from, p)) = offline_info.offline_messages.pop() {
+        while let Some((from, p)) = offline_info.offline_messages.pop_front() {
             self.forward(from, p).await;
         }
         Ok(())
@@ -1955,10 +1956,10 @@ impl Session {
         let created_at = self.created_at().await?;
         let subscriptions = self.subscriptions_drain().await?;
 
-        let mut offline_messages = Vec::new();
+        let mut offline_messages = VecDeque::new();
         while let Some(item) = self.deliver_queue().pop() {
             //@TODO ..., check message expired
-            offline_messages.push(item);
+            offline_messages.push_back(item);
         }
         let inflight_messages = self.out_inflight().write().await.to_inflight_messages();
 
@@ -2080,7 +2081,7 @@ pub trait SessionLike: Sync + Send + 'static {
 pub struct OfflineInfo {
     pub id: Id,
     pub subscriptions: Subscriptions,
-    pub offline_messages: Vec<(From, Publish)>,
+    pub offline_messages: VecDeque<(From, Publish)>,
     pub inflight_messages: Vec<OutInflightMessage>,
     pub created_at: TimestampMillis,
 }
