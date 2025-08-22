@@ -414,10 +414,10 @@ impl Local {
     pub(crate) fn prepare_topic(&mut self) {
         if let Some(item) = self.topic.as_ref() {
             match &item.pattern {
-                Some(LocalTopicPattern::RemoteProperties(name, ref placeholder)) => {
+                Some(LocalTopicPattern::RemoteProperties(name, placeholder)) => {
                     self.props_topic_names.insert(name.into(), placeholder.as_str().into());
                 }
-                Some(LocalTopicPattern::RemotePayload(path, ref placeholder)) => {
+                Some(LocalTopicPattern::RemotePayload(path, placeholder)) => {
                     self.payload_topic_names.insert(["/", path].concat(), placeholder.as_str().into());
                 }
                 _ => {}
@@ -426,10 +426,10 @@ impl Local {
 
         for item in self.topics.iter() {
             match &item.pattern {
-                Some(LocalTopicPattern::RemoteProperties(name, ref placeholder)) => {
+                Some(LocalTopicPattern::RemoteProperties(name, placeholder)) => {
                     self.props_topic_names.insert(name.into(), placeholder.as_str().into());
                 }
-                Some(LocalTopicPattern::RemotePayload(path, ref placeholder)) => {
+                Some(LocalTopicPattern::RemotePayload(path, placeholder)) => {
                     self.payload_topic_names.insert(["/", path].concat(), placeholder.as_str().into());
                 }
                 _ => {}
@@ -452,7 +452,7 @@ impl Local {
             (LocalTopicPattern::RemoteTopic, false) => {
                 topics.push(TopicName::from(topic.replace(REMOTE_TOPIC_NAME, remote_topic)))
             }
-            (LocalTopicPattern::RemoteProperties(ref name, ref placeholder), true) => {
+            (LocalTopicPattern::RemoteProperties(name, placeholder), true) => {
                 if let Some(t) = props_topics.get(placeholder.as_str()).map(|t| TopicName::from(*t)) {
                     topics.push(t);
                 } else {
@@ -461,7 +461,7 @@ impl Local {
                     );
                 }
             }
-            (LocalTopicPattern::RemoteProperties(ref name, ref placeholder), false) => {
+            (LocalTopicPattern::RemoteProperties(name, placeholder), false) => {
                 if let Some(t) = props_topics
                     .get(placeholder.as_str())
                     .map(|t| TopicName::from(topic.replace(placeholder, t)))
@@ -473,7 +473,7 @@ impl Local {
                     );
                 }
             }
-            (LocalTopicPattern::RemotePayload(ref path, ref placeholder), true) => {
+            (LocalTopicPattern::RemotePayload(path, placeholder), true) => {
                 if let Some(ts) = payload_topics.as_ref().and_then(|payload_topics| {
                     payload_topics
                         .get(placeholder.as_str())
@@ -486,7 +486,7 @@ impl Local {
                     );
                 }
             }
-            (LocalTopicPattern::RemotePayload(ref path, ref placeholder), false) => {
+            (LocalTopicPattern::RemotePayload(path, placeholder), false) => {
                 if let Some(ts) = payload_topics.as_ref().and_then(|payload_topics| {
                     payload_topics.get(placeholder.as_str()).map(|ts| {
                         ts.iter().map(|t| TopicName::from(topic.replace(placeholder, t))).collect_vec()

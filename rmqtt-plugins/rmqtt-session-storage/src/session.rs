@@ -516,6 +516,7 @@ pub trait AtomicFlags {
     fn empty() -> Self;
     #[allow(dead_code)]
     fn all() -> Self;
+    #[allow(dead_code)]
     fn get(&self) -> Self::T;
     #[allow(dead_code)]
     fn insert(&self, other: Self::T);
@@ -525,6 +526,7 @@ pub trait AtomicFlags {
     fn remove(&self, other: Self::T);
     #[allow(dead_code)]
     fn equal_exchange(&self, current: Self::T, new: Self::T, mask: Self::T) -> Result<Self::T, Self::T>;
+    #[allow(dead_code)]
     fn difference(&self, other: Self::T) -> Self::T;
 }
 

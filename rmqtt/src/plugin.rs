@@ -340,12 +340,12 @@ impl Manager {
     }
 
     ///Get a Plugin
-    pub fn get(&self, name: &str) -> Option<EntryRef> {
+    pub fn get(&self, name: &str) -> Option<EntryRef<'_>> {
         self.plugins.get(name)
     }
 
     ///Get a mut Plugin
-    pub fn get_mut(&self, name: &str) -> Result<Option<EntryRefMut>> {
+    pub fn get_mut(&self, name: &str) -> Result<Option<EntryRefMut<'_>>> {
         if let Some(entry) = self.plugins.get_mut(name) {
             if entry.immutable {
                 Err(MqttError::from("the plug-in is immutable"))
@@ -367,7 +367,7 @@ impl Manager {
     }
 
     ///List Plugins
-    pub fn iter(&self) -> EntryIter {
+    pub fn iter(&self) -> EntryIter<'_> {
         self.plugins.iter()
     }
 }

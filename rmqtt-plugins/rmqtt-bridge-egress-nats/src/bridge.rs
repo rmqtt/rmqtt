@@ -261,7 +261,7 @@ impl BridgeManager {
     #[inline]
     pub(crate) async fn send(&self, f: &From, p: &Publish) -> Result<()> {
         let topic = Topic::from_str(&p.topic)?;
-        for (topic_filter, bridge_infos) in { self.topics.read().await.matches(&topic) }.iter() {
+        for (topic_filter, bridge_infos) in self.topics.read().await.matches(&topic).iter() {
             let topic_filter = topic_filter.to_topic_filter();
             log::debug!("topic_filter: {topic_filter:?}");
             log::debug!("bridge_infos: {bridge_infos:?}");
