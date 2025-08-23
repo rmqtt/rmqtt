@@ -1,12 +1,15 @@
 [package]
 name = "rmqtt-plugins"
-version = "0.1.0"
+version = "0.1.1"
 description = "Plugin collection for rmqtt, providing authentication, storage, bridges, clustering, and other extensions."
 repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins"
 edition.workspace = true
 authors.workspace = true
 rust-version.workspace = true
 license.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
 
 [features]
 default = []
