@@ -52,6 +52,7 @@
 //! runtime modifications for critical components.
 
 use std::future::Future;
+use std::path::Path;
 use std::pin::Pin;
 
 use anyhow::anyhow;
@@ -63,7 +64,7 @@ use dashmap::mapref::one::{Ref, RefMut};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::types::DashMap;
+use crate::types::{DashMap, HashMap};
 use crate::Result;
 
 pub type EntryRef<'a> = Ref<'a, String, Entry>;
@@ -304,10 +305,30 @@ impl PluginInfo {
         }))
     }
 }
-pub enum PluginManagerConfig {
-    Path(String),
-    Map(crate::types::HashMap<String, String>),
+
+#[derive(Default)]
+pub struct PluginManagerConfig {
+    pub(crate) path: Option<String>,
+    pub(crate) map: HashMap<String, String>,
 }
+
+impl PluginManagerConfig {
+    pub fn path(mut self, path: String) -> Self {
+        self.path = Some(path);
+        self
+    }
+
+    pub fn map(mut self, map: HashMap<String, String>) -> Self {
+        self.map.extend(map);
+        self
+    }
+
+    pub fn add(mut self, name: String, cfg: String) -> Self {
+        self.map.insert(name, cfg);
+        self
+    }
+}
+
 pub struct Manager {
     plugins: DashMap<String, Entry>,
     config: PluginManagerConfig,
@@ -486,16 +507,32 @@ impl Manager {
         required: bool,
         env_list_keys: &[&str],
     ) -> Result<(T, bool)> {
-        let mut builder = match self.config {
-            PluginManagerConfig::Path(ref path) => {
-                let path = path.trim_end_matches(['/', '\\']);
-                Config::builder().add_source(File::with_name(&format!("{path}/{name}")).required(required))
+        let builder = if let Some(path) = &self.config.path {
+            let path = path.trim_end_matches(['/', '\\']);
+            let path = format!("{path}/{name}.toml");
+            let path = Path::new(path.as_str());
+            if path.is_file() {
+                Some(Config::builder().add_source(File::from(path).required(required)))
+            } else {
+                None
             }
-            PluginManagerConfig::Map(ref map) => {
-                let default_config = "".to_owned();
-                let config_string = map.get(name).unwrap_or(&default_config);
+        } else {
+            None
+        };
+
+        let builder = match builder {
+            Some(builder) => Some(builder),
+            None => self.config.map.get(name).map(|config_string| {
                 Config::builder().add_source(File::from_str(config_string, Toml).required(required))
-            }
+            }),
+        };
+
+        let mut builder = if required {
+            builder.ok_or_else(|| {
+                anyhow!(format!("plugin configuration not found, the plugin name is: {name}"))
+            })?
+        } else {
+            builder.unwrap_or_default()
         };
 
         let mut env = config::Environment::with_prefix(&format!("rmqtt_plugin_{}", name.replace('-', "_")));

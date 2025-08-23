@@ -136,7 +136,7 @@ impl ServerContextBuilder {
             mqtt_max_sessions: 0,
             mqtt_delayed_publish_immediate: true,
             #[cfg(feature = "plugin")]
-            plugins_config: PluginManagerConfig::Path("rmqtt-plugins/".into()),
+            plugins_config: PluginManagerConfig::default().path("rmqtt-plugins/".into()),
         }
     }
 
@@ -203,13 +203,28 @@ impl ServerContextBuilder {
     /// Sets directory path for plugin loading
     #[cfg(feature = "plugin")]
     pub fn plugins_config_dir<N: Into<String>>(mut self, plugins_dir: N) -> Self {
-        self.plugins_config = PluginManagerConfig::Path(plugins_dir.into());
+        self.plugins_config = self.plugins_config.path(plugins_dir.into());
         self
     }
 
     #[cfg(feature = "plugin")]
     pub fn plugins_config_map(mut self, plugins_config_map: HashMap<String, String>) -> Self {
-        self.plugins_config = PluginManagerConfig::Map(plugins_config_map);
+        self.plugins_config = self.plugins_config.map(plugins_config_map);
+        self
+    }
+
+    #[cfg(feature = "plugin")]
+    pub fn plugins_config_map_add(mut self, name: String, cfg: String) -> Self {
+        self.plugins_config = self.plugins_config.add(name, cfg);
+        self
+    }
+
+    #[cfg(feature = "plugin")]
+    pub fn plugins_config(mut self, plugins_config: PluginManagerConfig) -> Self {
+        if let Some(path) = plugins_config.path {
+            self.plugins_config = self.plugins_config.path(path);
+        }
+        self.plugins_config = self.plugins_config.map(plugins_config.map);
         self
     }
 
