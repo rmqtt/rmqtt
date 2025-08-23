@@ -2,7 +2,8 @@
 resolver = "2"
 members = [
     "rmqtt",
-    "rmqtt-plugins/*",
+    "rmqtt-plugins",
+    "rmqtt-plugins/rmqtt-*",
     "rmqtt-bin",
     "rmqtt-macros",
     "rmqtt-codec",
@@ -20,6 +21,7 @@ rmqtt-conf = { path = "rmqtt-conf" }
 rmqtt-macros = { path = "rmqtt-macros" }
 rmqtt-utils = { path = "rmqtt-utils" }
 
+rmqtt-plugins = { path = "rmqtt-plugins" }
 #rmqtt-plugin-template = { path = "rmqtt-plugins/rmqtt-plugin-template" }
 rmqtt-acl = { path = "rmqtt-plugins/rmqtt-acl" }
 rmqtt-web-hook = { path = "rmqtt-plugins/rmqtt-web-hook" }
@@ -86,6 +88,7 @@ rmqtt-topic-rewrite = "0.1"
 rmqtt-web-hook = "0.1"
 rmqtt-cluster-raft = "0.2"
 rmqtt-cluster-broadcast = "0.1"
+rmqtt-plugins = "0.1"
 
 
 tokio = { version = "1.44",  default-features = false }
