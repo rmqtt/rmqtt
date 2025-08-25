@@ -1,7 +1,7 @@
 # RMQTT-Server
 
 [![crates.io page](https://img.shields.io/crates/v/rmqtt.svg)](https://crates.io/crates/rmqtt)
-[![docs.rs page](https://docs.rs/rmqtt/badge.svg)](https://docs.rs/rmqtt/0.15.0-rc.3/rmqtt)
+[![docs.rs page](https://docs.rs/rmqtt/badge.svg)](https://docs.rs/rmqtt/latest/rmqtt/)
 
 
 A high-performance, asynchronous MQTT server library built with [Tokio](https://tokio.rs). `rmqtt-server` is designed for flexibility, allowing you to configure multiple listeners with different protocols and security settings. Ideal for building custom or embedded MQTT services in Rust.
@@ -24,7 +24,7 @@ A basic MQTT server with RMQTT.
 
 ```toml
 [dependencies]
-rmqtt = "0.15.0-rc.3"
+rmqtt = "0.15.0-rc"
 tokio = { version = "1", features = ["full"] }
 simple_logger = "5"
 log = "0.4"
@@ -58,7 +58,7 @@ Make sure you included the rmqtt crate with the required features in your Cargo.
 
 ```toml
 [dependencies]
-rmqtt = { version = "0.15.0-rc.3", features = ["ws", "tls"] }
+rmqtt = { version = "0.15.0-rc", features = ["ws", "tls"] }
 tokio = { version = "1", features = ["full"] }
 simple_logger = "5"
 log = "0.4"
@@ -111,7 +111,7 @@ Make sure you included the rmqtt crate with the required features in your Cargo.
 
 ```toml
 [dependencies]
-rmqtt = { version = "0.15.0-rc.3", features = ["plugin"] }
+rmqtt = { version = "0.15.0-rc", features = ["plugin"] }
 rmqtt-acl = "0.1"
 rmqtt-retainer = "0.1"
 rmqtt-http-api = "0.1"
