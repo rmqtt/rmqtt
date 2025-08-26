@@ -136,7 +136,7 @@ impl ServerContextBuilder {
             mqtt_max_sessions: 0,
             mqtt_delayed_publish_immediate: true,
             #[cfg(feature = "plugin")]
-            plugins_config: PluginManagerConfig::default().path("rmqtt-plugins/".into()),
+            plugins_config: PluginManagerConfig::default(),
         }
     }
 
@@ -214,8 +214,8 @@ impl ServerContextBuilder {
     }
 
     #[cfg(feature = "plugin")]
-    pub fn plugins_config_map_add(mut self, name: String, cfg: String) -> Self {
-        self.plugins_config = self.plugins_config.add(name, cfg);
+    pub fn plugins_config_map_add<N: Into<String>, C: Into<String>>(mut self, name: N, cfg: C) -> Self {
+        self.plugins_config = self.plugins_config.add(name.into(), cfg.into());
         self
     }
 
