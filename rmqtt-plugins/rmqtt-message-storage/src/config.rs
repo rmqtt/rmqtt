@@ -7,19 +7,29 @@ use rmqtt::utils::Bytesize;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
-    #[serde(deserialize_with = "PluginConfig::deserialize_storage")]
-    pub storage: Config,
+    #[serde(
+        default = "PluginConfig::storage_default",
+        deserialize_with = "PluginConfig::deserialize_storage"
+    )]
+    pub storage: Option<Config>,
     #[serde(default = "PluginConfig::cleanup_count_default")]
     pub cleanup_count: usize,
 }
 
 impl PluginConfig {
+    fn storage_default() -> Option<Config> {
+        #[cfg(feature = "ram")]
+        return Some(Config::Ram(RamConfig::default()));
+        #[cfg(not(feature = "ram"))]
+        None
+    }
+
     fn cleanup_count_default() -> usize {
         2000
     }
 
     #[inline]
-    fn deserialize_storage<'de, D>(deserializer: D) -> std::result::Result<Config, D::Error>
+    fn deserialize_storage<'de, D>(deserializer: D) -> std::result::Result<Option<Config>, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -36,14 +46,14 @@ impl PluginConfig {
                     .unwrap_or_else(|| Ok(RamConfig::default()))
                 {
                     Err(e) => Err(de::Error::custom(e.to_string())),
-                    Ok(ram) => Ok(Config::Ram(ram)),
+                    Ok(ram) => Ok(Some(Config::Ram(ram))),
                 }
             }
             #[cfg(any(feature = "redis", feature = "redis-cluster"))]
             Some("redis") | Some("redis-cluster") => {
                 match serde_json::from_value::<rmqtt_storage::Config>(storage) {
                     Err(e) => Err(de::Error::custom(e.to_string())),
-                    Ok(s_cfg) => Ok(Config::Storage(s_cfg)),
+                    Ok(s_cfg) => Ok(Some(Config::Storage(s_cfg))),
                 }
             }
             _ => Err(de::Error::custom(format!("Unsupported storage type, {typ:?}"))),

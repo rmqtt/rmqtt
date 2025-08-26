@@ -1,6 +1,6 @@
 [package]
 name = "rmqtt-http-api"
-version = "0.2.1"
+version = "0.2.2"
 description = "This plugin provides HTTP APIs for integration with external systems, enabling operations like querying client information and publishing messages."
 repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-http-api"
 edition.workspace = true

@@ -31,7 +31,7 @@ pub struct PluginConfig {
     pub priority: Priority,
 
     #[serde(
-        default,
+        default = "PluginConfig::rules_default",
         serialize_with = "PluginConfig::serialize_rules",
         deserialize_with = "PluginConfig::deserialize_rules"
     )]
@@ -45,6 +45,36 @@ impl PluginConfig {
 
     fn priority_default() -> Priority {
         10
+    }
+
+    fn rules_default() -> (Vec<Rule>, serde_json::Value) {
+        let rules = r###"rules = [
+                ["allow", { user = "dashboard" }, "subscribe", ["$SYS/#"]],
+                ["allow", { ipaddr = "127.0.0.1" }, "pubsub", ["$SYS/#", "#"]],
+                ["deny", "all", "subscribe", ["$SYS/#", { eq = "#" }]],
+                ["allow", "all"]
+        ]"###;
+
+        let josn_rules = match toml::from_str::<serde_json::Value>(rules) {
+            Ok(mut josn_rules) => {
+                let rules =
+                    josn_rules.as_object_mut().and_then(|obj| obj.remove("rules").map(Self::parse_rules));
+                match rules {
+                    Some(Ok(rules)) => rules,
+                    Some(Err(e)) => {
+                        log::error!("{e:?}");
+                        Default::default()
+                    }
+                    None => Default::default(),
+                }
+            }
+            Err(e) => {
+                log::error!("{e:?}");
+                Default::default()
+            }
+        };
+
+        josn_rules
     }
 
     #[inline]
@@ -73,19 +103,24 @@ impl PluginConfig {
         D: Deserializer<'de>,
     {
         let json_rules = serde_json::Value::deserialize(deserializer)?;
-        let mut rules = Vec::new();
-        if let Some(rules_cfg) = json_rules.as_array() {
-            for rule_cfg in rules_cfg {
-                let r = Rule::try_from(rule_cfg).map_err(de::Error::custom)?;
-                rules.push(r);
-            }
-        }
-        Ok((rules, json_rules))
+        Self::parse_rules(json_rules).map_err(de::Error::custom)
     }
 
     #[inline]
     pub fn to_json(&self) -> Result<serde_json::Value> {
         Ok(serde_json::to_value(self)?)
+    }
+
+    #[inline]
+    fn parse_rules(json_rules: serde_json::Value) -> Result<(Vec<Rule>, serde_json::Value)> {
+        let mut rules = Vec::new();
+        if let Some(rules_cfg) = json_rules.as_array() {
+            for rule_cfg in rules_cfg {
+                let r = Rule::try_from(rule_cfg)?;
+                rules.push(r);
+            }
+        }
+        Ok((rules, json_rules))
     }
 }
 

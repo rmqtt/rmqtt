@@ -41,8 +41,9 @@ impl HttpApiPlugin {
     #[inline]
     async fn new<S: Into<String>>(scx: ServerContext, name: S) -> Result<Self> {
         let name = name.into();
-        let cfg = Arc::new(RwLock::new(scx.plugins.read_config::<PluginConfig>(&name)?));
-        log::debug!("{} HttpApiPlugin cfg: {:?}", name, cfg.read().await);
+        let cfg = scx.plugins.read_config_default::<PluginConfig>(&name);
+        log::info!("{} HttpApiPlugin cfg: {:?}", name, cfg);
+        let cfg = Arc::new(RwLock::new(cfg?));
         let register = scx.extends.hook_mgr().register();
         let shutdown_tx = Some(Self::start(scx.clone(), cfg.clone()).await);
         Ok(Self { scx, register, cfg, shutdown_tx })

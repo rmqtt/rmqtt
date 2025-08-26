@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::anyhow;
 use async_trait::async_trait;
 use serde_json::{self, json};
 use tokio::sync::RwLock;
@@ -48,7 +49,7 @@ impl RetainerPlugin {
     async fn new<N: Into<String>>(scx: ServerContext, name: N) -> Result<Self> {
         let name = name.into();
 
-        let cfg = scx.plugins.read_config::<PluginConfig>(&name)?;
+        let cfg = scx.plugins.read_config_default::<PluginConfig>(&name)?;
         log::info!("{name} RetainerPlugin cfg: {cfg:?}");
         let register = scx.extends.hook_mgr().register();
         let cfg = Arc::new(RwLock::new(cfg));
@@ -56,9 +57,9 @@ impl RetainerPlugin {
 
         let (retainer, support_cluster) = match &mut cfg.write().await.storage {
             #[cfg(feature = "ram")]
-            Config::Ram => (Retainer::Ram(RamRetainer::new(cfg.clone(), retain_enable.clone())), false),
+            Some(Config::Ram) => (Retainer::Ram(RamRetainer::new(cfg.clone(), retain_enable.clone())), false),
             #[cfg(any(feature = "sled", feature = "redis"))]
-            Config::Storage(s_cfg) => {
+            Some(Config::Storage(s_cfg)) => {
                 let node_id = scx.node.id();
                 let support_cluster = match s_cfg.typ {
                     #[cfg(feature = "sled")]
@@ -83,6 +84,7 @@ impl RetainerPlugin {
                     support_cluster,
                 )
             }
+            None => return Err(anyhow!("No storage engine specified (ram, sled, or redis)")),
         };
 
         Ok(Self { scx, register, cfg, retainer, support_cluster, retain_enable })
