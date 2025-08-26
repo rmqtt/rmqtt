@@ -136,7 +136,7 @@ impl ServerContextBuilder {
             mqtt_max_sessions: 0,
             mqtt_delayed_publish_immediate: true,
             #[cfg(feature = "plugin")]
-            plugins_config: PluginManagerConfig::default().path("rmqtt-plugins/".into()),
+            plugins_config: PluginManagerConfig::default(),
         }
     }
 
