@@ -45,8 +45,8 @@ impl AuthJwtPlugin {
         let name = name.into();
         let mut cfg = scx.plugins.read_config::<PluginConfig>(&name)?;
         cfg.init_decoding_key()?;
+        log::info!("{} AuthJwtPlugin cfg: {:?}", name, cfg);
         let cfg = Arc::new(RwLock::new(cfg));
-        log::info!("{} AuthJwtPlugin cfg: {:?}", name, cfg.read().await);
         let register = scx.extends.hook_mgr().register();
         Ok(Self { scx, register, cfg })
     }
@@ -300,7 +300,7 @@ impl Handler for AuthHandler {
                     match self.standard_auth(connect_info, token.as_ref(), validate_claims_cfg).await {
                         Ok(token_data) => token_data,
                         Err(e) => {
-                            log::warn!("{} {}", connect_info.id(), e);
+                            log::warn!("{} token:{}, error: {}", connect_info.id(), token, e);
                             return (false, Some(HookResult::AuthResult(AuthResult::NotAuthorized)));
                         }
                     };

@@ -42,7 +42,7 @@ impl SystemTopicPlugin {
     async fn new<N: Into<String>>(scx: ServerContext, name: N) -> Result<Self> {
         let name = name.into();
         let cfg = scx.plugins.read_config_default::<PluginConfig>(&name)?;
-        log::debug!("{name} SystemTopicPlugin cfg: {cfg:?}");
+        log::info!("{name} SystemTopicPlugin cfg: {cfg:?}");
         let register = scx.extends.hook_mgr().register();
         let cfg = Arc::new(RwLock::new(cfg));
         let running = Arc::new(AtomicBool::new(false));

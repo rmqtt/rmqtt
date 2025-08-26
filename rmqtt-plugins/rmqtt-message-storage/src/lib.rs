@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use anyhow::anyhow;
 use async_trait::async_trait;
 use serde_json::{self, json};
 
@@ -47,12 +48,12 @@ impl StoragePlugin {
 
         let (message_mgr, cfg) = match &mut cfg.storage {
             #[cfg(feature = "ram")]
-            Config::Ram(ram_cfg) => {
+            Some(Config::Ram(ram_cfg)) => {
                 let message_mgr = RamMessageManager::new(ram_cfg.clone(), cfg.cleanup_count).await?;
                 (MessageMgr::Ram(message_mgr), Arc::new(cfg))
             }
             #[cfg(any(feature = "redis", feature = "redis-cluster"))]
-            Config::Storage(s_cfg) => {
+            Some(Config::Storage(s_cfg)) => {
                 let node_id = scx.node.id();
                 #[cfg(feature = "redis")]
                 {
@@ -76,6 +77,7 @@ impl StoragePlugin {
                     StorageMessageManager::new(node_id, cfg.clone(), storage_db.clone(), true).await?;
                 (MessageMgr::Storage(message_mgr), cfg)
             }
+            None => return Err(anyhow!("No storage engine specified (ram, redis, or redis-cluster)")),
         };
         log::info!("{name} StoragePlugin cfg: {cfg:?}");
         let register = scx.extends.hook_mgr().register();
