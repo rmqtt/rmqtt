@@ -12,3 +12,5 @@ target/
 /Cargo.lock
 /readme.txt
 !.github
+/publishs-dry-run.bat
+/publishs.bat
