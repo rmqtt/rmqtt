@@ -1,6 +1,6 @@
 [package]
 name = "rmqtt-bridge-egress-nats"
-version = "0.1.1"
+version.workspace = true
 description = "Bridge remote NATS in egress mode."
 repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-bridge-egress-nats"
 edition.workspace = true

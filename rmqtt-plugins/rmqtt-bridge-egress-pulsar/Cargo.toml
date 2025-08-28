@@ -1,6 +1,6 @@
 [package]
 name = "rmqtt-bridge-egress-pulsar"
-version = "0.1.1"
+version.workspace = true
 description = "Bridge remote Apache-Pulsar in egress mode."
 repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-bridge-egress-pulsar"
 edition.workspace = true
