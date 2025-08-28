@@ -1,27 +1,9 @@
 use rmqtt::{context::ServerContext, net::Builder, server::MqttServer, Result};
-use std::path::Path;
+use simple_logger::SimpleLogger;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    std::env::set_var("RUST_LOG", "info");
-    env_logger::Builder::from_default_env()
-        .format(|buf, record| {
-            use std::io::Write;
-            let file = record
-                .file()
-                .and_then(|f| Path::new(f).file_name().and_then(|n| n.to_str()))
-                .unwrap_or("unknown");
-            writeln!(
-                buf,
-                "[{} {} ({}:{})] {}",
-                record.level(),
-                record.module_path().unwrap_or("unknown"),
-                file,
-                record.line().unwrap_or(0),
-                record.args()
-            )
-        })
-        .init();
+    SimpleLogger::new().with_level(log::LevelFilter::Info).init()?;
 
     let rules = r###"rules = [
                 ["allow", { user = "dashboard" }, "subscribe", ["$SYS/#"]],
@@ -38,9 +20,10 @@ async fn main() -> Result<()> {
 
     rmqtt_acl::register(&scx, true, false).await?;
     rmqtt_http_api::register(&scx, true, false).await?;
-    // rmqtt_message_storage::register(&scx, true, false).await?;
     rmqtt_retainer::register(&scx, true, false).await?;
-    rmqtt_sys_topic::register(&scx, true, false).await?;
+    // rmqtt_sys_topic::register(&scx, true, false).await?;
+    // rmqtt_message_storage::register(&scx, true, false).await?;
+
     // rmqtt_session_storage::register(&scx, true, false).await?;
     // rmqtt_auth_jwt::register(&scx, true, false).await?;
     // rmqtt_auth_http::register(&scx, true, false).await?;

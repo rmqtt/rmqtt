@@ -1,0 +1,13 @@
+[package]
+name = "plugins"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+rmqtt = { workspace = true, features = ["plugin"] }
+rmqtt-plugins = { workspace = true, features = ["full"] }
+tokio = { version = "1", features = ["full"] }
+simple_logger = "5"
+log = "0.4"
+
+
