@@ -1,6 +1,6 @@
 [package]
 name = "rmqtt-auto-subscription"
-version = "0.1.1"
+version.workspace = true
 description = "Auto Subscription allows RMQTT to set multiple rules, subscribing the device to specified topics according to the rules once it successfully connects, without the need to initiate subscriptions separately."
 repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-auto-subscription"
 edition.workspace = true

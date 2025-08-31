@@ -112,7 +112,7 @@ Make sure you included the rmqtt crate with the required features in your Cargo.
 ```toml
 [dependencies]
 rmqtt = { version = "0.15", features = ["plugin"] }
-rmqtt-plugins = { version = "0.1", features = ["full"] }
+rmqtt-plugins = { version = "0.15", features = ["full"] }
 tokio = { version = "1", features = ["full"] }
 simple_logger = "5"
 log = "0.4"
@@ -154,7 +154,7 @@ or
 ```toml
 [dependencies]
 rmqtt = { version = "0.15", features = ["plugin"] }
-rmqtt-plugins = { version = "0.1", features = ["full"] }
+rmqtt-plugins = { version = "0.15", features = ["full"] }
 tokio = { version = "1", features = ["full"] }
 simple_logger = "5"
 log = "0.4"
@@ -207,10 +207,10 @@ or
 ```toml
 [dependencies]
 rmqtt = { version = "0.15", features = ["plugin"] }
-rmqtt-acl = "0.1"
-rmqtt-retainer = "0.1"
-rmqtt-http-api = "0.1"
-rmqtt-web-hook = "0.1"
+rmqtt-acl = "0.15"
+rmqtt-retainer = "0.15"
+rmqtt-http-api = "0.15"
+rmqtt-web-hook = "0.15"
 tokio = { version = "1", features = ["full"] }
 simple_logger = "5"
 log = "0.4"

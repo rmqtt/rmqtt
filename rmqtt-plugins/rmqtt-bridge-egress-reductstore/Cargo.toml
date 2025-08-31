@@ -1,6 +1,6 @@
 [package]
 name = "rmqtt-bridge-egress-reductstore"
-version = "0.1.1"
+version.workspace = true
 description = "Bridge remote reductstore in egress mode."
 repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-bridge-egress-reductstore"
 edition.workspace = true
