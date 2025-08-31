@@ -58,12 +58,7 @@ mod tests {
         let cur = Bytes::copy_from_slice(&bytes[consumed + 1..]);
         let mut tmp = BytesMut::with_capacity(4096);
         Encoder::encode(&mut crate::v5::codec::Codec::default(), res.clone(), &mut tmp).unwrap();
-        let decoded = decode_packet(cur, fixed).map(|mut packet| {
-            if let Packet::Publish(p) = &mut packet {
-                p.create_time = None;
-            }
-            packet
-        });
+        let decoded = decode_packet(cur, fixed);
         let res = Ok(&res);
         if decoded.as_ref().map_err(|e| e.to_string()) != res {
             panic!("decoded packet does not match expectations.\nexpected: {:?}\nactual: {:?}\nencoding output for expected: {:X?}", res, decoded, tmp.as_ref());
@@ -189,8 +184,6 @@ mod tests {
             packet_id: Some(packet_id(1)),
             payload: Bytes::new(),
             properties: Some(PublishProperties::default()),
-            delay_interval: None,
-            create_time: None,
         }
     }
 

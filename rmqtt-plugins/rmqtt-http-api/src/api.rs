@@ -13,9 +13,7 @@ use base64::prelude::{Engine, BASE64_STANDARD};
 use serde_json::{self, json};
 use tokio::sync::oneshot;
 
-use rmqtt::types::NodeHealthStatus;
 use rmqtt::{
-    codec::types::Publish,
     codec::v5::PublishProperties,
     context::ServerContext,
     grpc::{
@@ -28,7 +26,10 @@ use rmqtt::{
     session::SessionState,
     stats::Stats,
     types::NodeId,
-    types::{ClientId, From, HashMap, Id, QoS, SubsSearchParams, TopicFilter, TopicName, UserName},
+    types::{
+        ClientId, CodecPublish, From, HashMap, Id, NodeHealthStatus, Publish, QoS, SubsSearchParams,
+        TopicFilter, TopicName, UserName,
+    },
     utils::timestamp_millis,
     Result,
 };
@@ -1218,7 +1219,7 @@ async fn _publish(
         params.clientid,
         Some(UserName::from("admin")),
     ));
-    let p = Publish {
+    let p = CodecPublish {
         dup: false,
         retain: params.retain,
         qos,
@@ -1226,8 +1227,6 @@ async fn _publish(
         packet_id: None,
         payload,
         properties: Some(PublishProperties::default()),
-        delay_interval: None,
-        create_time: Some(timestamp_millis()),
     };
 
     let message_expiry_interval = params
@@ -1241,12 +1240,14 @@ async fn _publish(
 
     let storage_available = scx.extends.message_mgr().await.enable();
 
+    let create_time = timestamp_millis();
+
     let mut futs = Vec::new();
     for topic in topics {
         let from = from.clone();
         let mut p1 = p.clone();
         p1.topic = topic;
-        let p1 = Box::new(p1);
+        let p1 = <CodecPublish as Into<Publish>>::into(p1).create_time(create_time);
         let fut = async move {
             //hook, message_publish
             let p1 = scx.extends.hook_mgr().message_publish(None, from.clone(), &p1).await.unwrap_or(p1);

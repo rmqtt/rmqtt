@@ -1,5 +1,6 @@
 #![deny(unsafe_code)]
 
+use std::ops::DerefMut;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -96,18 +97,9 @@ impl TopicRewriteHandler {
         match self.rewrite_topic(Action::Publish, s, &p.topic).await? {
             Some(topic) => {
                 log::debug!("new_topic: {topic}");
-                let new_p = rmqtt::codec::types::Publish {
-                    dup: p.dup,
-                    retain: p.retain,
-                    qos: p.qos,
-                    topic,
-                    packet_id: p.packet_id,
-                    payload: p.payload.clone(),
-                    properties: p.properties.clone(),
-                    delay_interval: None,
-                    create_time: p.create_time,
-                };
-                Ok(Some(Box::new(new_p)))
+                let mut new_p = p.clone();
+                new_p.deref_mut().topic = topic;
+                Ok(Some(new_p))
             }
             None => Ok(None),
         }

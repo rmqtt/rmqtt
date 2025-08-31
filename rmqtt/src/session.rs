@@ -64,7 +64,7 @@ use std::collections::vec_deque::VecDeque;
 use std::convert::From as _f;
 use std::fmt;
 use std::num::NonZeroU16;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -677,11 +677,13 @@ impl SessionState {
         match pkt {
             Packet::V3(v3::Packet::Publish(publish)) => {
                 log::debug!("{} publish: {:?}", self.id, publish);
-                self.process_publish(sink, publish).await?;
+                let p: Publish = publish.into();
+                self.process_publish(sink, p.create_time(timestamp_millis())).await?;
             }
             Packet::V5(v5::Packet::Publish(publish)) => {
                 log::debug!("{} publish: {:?}", self.id, publish);
-                self.process_publish(sink, publish).await?;
+                let p: Publish = publish.into();
+                self.process_publish(sink, p.create_time(timestamp_millis())).await?;
             }
 
             Packet::V3(v3::Packet::PublishRelease { packet_id }) => {
@@ -967,8 +969,8 @@ impl SessionState {
     #[inline]
     async fn _publish(&self, mut publish: Publish) -> Result<bool> {
         if let Some(client_topic_aliases) = &self.client_topic_aliases {
-            publish.topic = client_topic_aliases
-                .set_and_get(publish.properties.as_ref().and_then(|p| p.topic_alias), publish.topic)
+            publish.deref_mut().topic = client_topic_aliases
+                .set_and_get(publish.properties.as_ref().and_then(|p| p.topic_alias), publish.topic.clone())
                 .await?;
         }
 

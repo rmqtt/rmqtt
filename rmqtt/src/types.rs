@@ -7,7 +7,7 @@ use std::hash::Hash;
 use std::mem::{size_of, size_of_val};
 use std::net::SocketAddr;
 use std::num::{NonZeroU16, NonZeroU32};
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -44,13 +44,12 @@ use crate::queue::{Queue, Sender};
 use crate::utils::{self, timestamp_millis};
 use crate::{codec, Error, Result};
 
-use crate::codec::types::Publish as PublishInner;
 use crate::context::ServerContext;
 use crate::inflight::{OutInflight, OutInflightMessage};
 use crate::session::OfflineInfo;
 use crate::topic::Level;
 
-pub type Publish = Box<PublishInner>;
+pub use crate::codec::types::Publish as CodecPublish;
 
 pub type Port = u16;
 pub type NodeId = utils::NodeId;
@@ -1115,6 +1114,98 @@ impl Serialize for LastWill<'_> {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+/// High-level Publish structure used in the broker.
+///
+/// This wraps a low-level `CodecPublish` packet and adds
+/// extra metadata such as the target client identifier.
+pub struct Publish {
+    /// The raw publish packet decoded from the codec layer.
+    pub inner: Box<CodecPublish>,
+
+    /// Optional target client ID that this publish message
+    /// should be delivered to.
+    pub target_clientid: Option<ClientId>,
+
+    /// Delayed publish interval in seconds
+    pub delay_interval: Option<u32>,
+
+    /// Message creation timestamp
+    pub create_time: Option<i64>,
+}
+
+impl Publish {
+    #[inline]
+    pub fn target_clientid(mut self, target_clientid: ClientId) -> Self {
+        self.target_clientid = Some(target_clientid);
+        self
+    }
+
+    #[inline]
+    pub fn delay_interval(mut self, delay_interval: u32) -> Self {
+        self.delay_interval = Some(delay_interval);
+        self
+    }
+
+    #[inline]
+    pub fn create_time(mut self, create_time: i64) -> Self {
+        self.create_time = Some(create_time);
+        self
+    }
+
+    #[inline]
+    pub fn new(
+        inner: Box<CodecPublish>,
+        target_clientid: Option<ClientId>,
+        delay_interval: Option<u32>,
+        create_time: Option<i64>,
+    ) -> Self {
+        Publish { inner, target_clientid, delay_interval, create_time }
+    }
+
+    #[inline]
+    pub fn take(self) -> Box<CodecPublish> {
+        self.inner
+    }
+
+    #[inline]
+    pub fn take_topic(self) -> ByteString {
+        self.inner.topic
+    }
+
+    #[inline]
+    pub fn take_payload(self) -> Bytes {
+        self.inner.payload
+    }
+}
+
+impl Deref for Publish {
+    type Target = CodecPublish;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        self.inner.as_ref()
+    }
+}
+
+impl DerefMut for Publish {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.inner.as_mut()
+    }
+}
+
+impl std::convert::From<CodecPublish> for Publish {
+    fn from(p: CodecPublish) -> Self {
+        Publish { inner: Box::new(p), target_clientid: None, delay_interval: None, create_time: None }
+    }
+}
+
+impl std::convert::From<Box<CodecPublish>> for Publish {
+    fn from(p: Box<CodecPublish>) -> Self {
+        Publish { inner: p, target_clientid: None, delay_interval: None, create_time: None }
+    }
+}
+
 impl<'a> std::convert::TryFrom<LastWill<'a>> for Publish {
     type Error = MqttError;
 
@@ -1152,18 +1243,17 @@ impl<'a> std::convert::TryFrom<LastWill<'a>> for Publish {
             }
         };
 
-        Ok(Box::new(PublishInner {
+        let p = CodecPublish {
             dup: false,
             retain,
             qos,
             topic,
             packet_id: None,
             payload,
-
             properties: Some(props),
-            delay_interval: None,
-            create_time: Some(timestamp_millis()),
-        }))
+        };
+        let p = <CodecPublish as Into<Publish>>::into(p).create_time(timestamp_millis());
+        Ok(p)
     }
 }
 
@@ -1231,7 +1321,7 @@ where
     ) -> Result<()> {
         match self {
             Sink::V3(s) => {
-                s.send_publish(p).await?;
+                s.send_publish(p.take()).await?;
             }
             Sink::V5(s) => {
                 let (topic, alias) = {
@@ -1248,7 +1338,7 @@ where
                     properties.message_expiry_interval = message_expiry_interval;
                     properties.topic_alias = alias;
                 }
-                s.send_publish(p).await?;
+                s.send_publish(p.take()).await?;
             }
         }
         Ok(())
@@ -1325,291 +1415,6 @@ pub enum Packet {
     V3(codec::v3::Packet),
     V5(codec::v5::Packet),
 }
-
-// #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Default)]
-// pub struct PublishProperties {
-//     pub topic_alias: Option<NonZeroU16>,
-//     pub correlation_data: Option<Bytes>,
-//     pub message_expiry_interval: Option<NonZeroU32>,
-//     pub content_type: Option<ByteString>,
-//     pub user_properties: UserProperties,
-//     pub is_utf8_payload: Option<bool>,
-//     pub response_topic: Option<ByteString>,
-//     pub subscription_ids: Option<Vec<NonZeroU32>>,
-// }
-//
-// impl std::convert::From<UserProperties> for PublishProperties {
-//     fn from(props: UserProperties) -> Self {
-//         PublishProperties {
-//             topic_alias: None,
-//             correlation_data: None,
-//             message_expiry_interval: None,
-//             content_type: None,
-//             user_properties: props,
-//             is_utf8_payload: None,
-//             response_topic: None,
-//             subscription_ids: None,
-//         }
-//     }
-// }
-//
-// impl std::convert::From<PublishPropertiesV5> for PublishProperties {
-//     fn from(props: PublishPropertiesV5) -> Self {
-//         PublishProperties {
-//             topic_alias: props.topic_alias,
-//             correlation_data: props.correlation_data,
-//             message_expiry_interval: props.message_expiry_interval,
-//             content_type: props.content_type,
-//             user_properties: props.user_properties,
-//             is_utf8_payload: props.is_utf8_payload,
-//             response_topic: props.response_topic,
-//             subscription_ids: props.subscription_ids,
-//         }
-//     }
-// }
-//
-// impl std::convert::From<PublishProperties> for PublishPropertiesV5 {
-//     fn from(props: PublishProperties) -> Self {
-//         PublishPropertiesV5 {
-//             topic_alias: props.topic_alias,
-//             correlation_data: props.correlation_data,
-//             message_expiry_interval: props.message_expiry_interval,
-//             content_type: props.content_type,
-//             user_properties: props.user_properties,
-//             is_utf8_payload: props.is_utf8_payload,
-//             response_topic: props.response_topic,
-//             subscription_ids: props.subscription_ids,
-//         }
-//     }
-// }
-//
-// #[derive(Serialize, Deserialize, Debug, Clone)]
-// pub struct Publish {
-//     /// this might be re-delivery of an earlier attempt to send the Packet.
-//     pub dup: bool,
-//     pub retain: bool,
-//     /// the level of assurance for delivery of an Application Message.
-//     pub qos: QoS,
-//     /// the information channel to which payload data is published.
-//     pub topic: TopicName,
-//     /// only present in PUBLISH Packets where the QoS level is 1 or 2.
-//     pub packet_id: Option<NonZeroU16>,
-//     /// the Application Message that is being published.
-//     pub payload: Bytes,
-//
-//     pub properties: PublishProperties,
-//     /// delay publish interval, unit: seconds
-//     pub delay_interval: Option<u32>,
-//     pub create_time: TimestampMillis,
-// }
-//
-// impl<'a> std::convert::TryFrom<LastWill<'a>> for Publish {
-//     type Error = MqttError;
-//
-//     #[inline]
-//     fn try_from(lw: LastWill<'a>) -> std::result::Result<Self, Self::Error> {
-//         let (retain, qos, topic, payload, props) = match lw {
-//             LastWill::V3(lw) => {
-//                 let (topic, user_properties) = if let Some(pos) = lw.topic.find('?') {
-//                     let topic = lw.topic.clone();
-//                     let query = lw.topic.as_bytes().slice(pos + 1..lw.topic.len());
-//                     let user_props = url::form_urlencoded::parse(query.as_ref())
-//                         .into_owned()
-//                         .map(|(key, val)| (ByteString::from(key), ByteString::from(val)))
-//                         .collect::<UserProperties>();
-//                     (topic, user_props)
-//                 } else {
-//                     let topic = lw.topic.clone();
-//                     (topic, UserProperties::default())
-//                 };
-//                 let props = PublishProperties { user_properties, ..Default::default() };
-//                 (lw.retain, lw.qos, topic, lw.message.clone(), props)
-//             }
-//             LastWill::V5(lw) => {
-//                 let topic = lw.topic.clone();
-//                 let props = PublishProperties {
-//                     correlation_data: lw.correlation_data.clone(),
-//                     message_expiry_interval: lw.message_expiry_interval,
-//                     content_type: lw.content_type.clone(),
-//                     user_properties: lw.user_properties.clone(),
-//                     is_utf8_payload: lw.is_utf8_payload,
-//                     response_topic: lw.response_topic.clone(),
-//                     ..Default::default()
-//                 };
-//                 (lw.retain, lw.qos, topic, lw.message.clone(), props)
-//             }
-//         };
-//
-//         Ok(Self {
-//             dup: false,
-//             retain,
-//             qos,
-//             topic,
-//             packet_id: None,
-//             payload,
-//
-//             properties: props,
-//             delay_interval: None,
-//             create_time: timestamp_millis(),
-//         })
-//     }
-// }
-//
-// impl std::convert::From<&v3::Publish> for Publish {
-//     #[inline]
-//     fn from(p: &v3::Publish) -> Self {
-//         let query = p.query();
-//         let p_props = if !query.is_empty() {
-//             let user_props = url::form_urlencoded::parse(query.as_bytes())
-//                 .into_owned()
-//                 .map(|(key, val)| (ByteString::from(key), ByteString::from(val)))
-//                 .collect::<UserProperties>();
-//             PublishProperties::from(user_props)
-//         } else {
-//             PublishProperties::default()
-//         };
-//
-//         Self {
-//             dup: p.dup(),
-//             retain: p.retain(),
-//             qos: p.qos(),
-//             topic: TopicName::from(p.topic().path()),
-//             packet_id: p.id(),
-//             payload: p.take_payload(),
-//
-//             properties: p_props,
-//             delay_interval: None,
-//             create_time: timestamp_millis(),
-//         }
-//     }
-// }
-//
-// impl std::convert::From<&v5::Publish> for Publish {
-//     #[inline]
-//     fn from(p: &v5::Publish) -> Self {
-//         Self {
-//             dup: p.dup(),
-//             retain: p.retain(),
-//             qos: p.qos(),
-//             topic: TopicName::from(p.topic().path()),
-//             packet_id: p.id(),
-//             payload: p.take_payload(),
-//
-//             properties: PublishProperties::from(p.packet().properties.clone()),
-//             delay_interval: None,
-//             create_time: timestamp_millis(),
-//         }
-//     }
-// }
-//
-// impl Publish {
-//     #[inline]
-//     pub fn into_v3(&self) -> Packet {
-//         let p = v3::codec::Publish {
-//             dup: self.dup,
-//             retain: self.retain,
-//             qos: self.qos,
-//             topic: self.topic.clone(),
-//             packet_id: self.packet_id,
-//             payload: self.payload.clone(),
-//         };
-//         Packet::V3(v3::codec::Packet::Publish(p))
-//     }
-//
-//     #[inline]
-//     pub async fn into_v5(
-//         &self,
-//         message_expiry_interval: Option<NonZeroU32>,
-//         server_topic_aliases: Option<&Rc<ServerTopicAliases>>,
-//     ) -> Packet {
-//         let (topic, alias) = {
-//             if let Some(server_topic_aliases) = server_topic_aliases {
-//                 server_topic_aliases.get(self.topic.clone()).await
-//             } else {
-//                 (Some(self.topic.clone()), None)
-//             }
-//         };
-//         log::debug!("topic: {:?}, alias: {:?}", topic, alias);
-//         let mut p = v5::codec::Publish {
-//             dup: self.dup,
-//             retain: self.retain,
-//             qos: self.qos,
-//             topic: topic.unwrap_or_default(),
-//             packet_id: self.packet_id,
-//             payload: self.payload.clone(),
-//             properties: self.properties.clone().into(),
-//         };
-//         p.properties.message_expiry_interval = message_expiry_interval;
-//         p.properties.topic_alias = alias;
-//         log::debug!("p.properties: {:?}", p.properties);
-//         Packet::V5(v5::codec::Packet::Publish(p))
-//     }
-//
-//     #[inline]
-//     pub fn payload(&self) -> &Bytes {
-//         &self.payload
-//     }
-//
-//     #[inline]
-//     pub fn retain(&self) -> bool {
-//         self.retain
-//     }
-//
-//     #[inline]
-//     pub fn topic(&self) -> &TopicName {
-//         &self.topic
-//     }
-//
-//     #[inline]
-//     pub fn topic_mut(&mut self) -> &mut TopicName {
-//         &mut self.topic
-//     }
-//
-//     #[inline]
-//     pub fn dup(&self) -> bool {
-//         self.dup
-//     }
-//
-//     #[inline]
-//     pub fn set_dup(&mut self, b: bool) {
-//         self.dup = b
-//     }
-//
-//     #[inline]
-//     pub fn is_empty(&self) -> bool {
-//         self.payload.is_empty()
-//     }
-//
-//     #[inline]
-//     pub fn qos(&self) -> QoS {
-//         self.qos
-//     }
-//
-//     #[inline]
-//     pub fn create_time(&self) -> TimestampMillis {
-//         self.create_time
-//     }
-//
-//     #[inline]
-//     pub fn packet_id(&self) -> Option<PacketId> {
-//         self.packet_id.map(|id| id.get())
-//     }
-//
-//     #[inline]
-//     pub fn packet_id_mut(&mut self) -> &mut Option<NonZeroU16> {
-//         &mut self.packet_id
-//     }
-//
-//     #[inline]
-//     pub fn packet_id_is_none(&self) -> bool {
-//         self.packet_id.is_none()
-//     }
-//
-//     #[inline]
-//     pub fn set_packet_id(&mut self, packet_id: PacketId) {
-//         self.packet_id = NonZeroU16::new(packet_id)
-//     }
-// }
 
 #[derive(GetSize, Debug, Clone, Copy, Deserialize, Serialize)]
 pub enum FromType {

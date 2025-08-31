@@ -17,7 +17,9 @@ use rmqtt::{
     codec::v5::{PublishProperties, UserProperties},
     context::ServerContext,
     session::SessionState,
-    types::{ClientId, DashMap, From, Id, NodeId, Publish, QoS, TimestampMillis, TopicName, UserName},
+    types::{
+        ClientId, CodecPublish, DashMap, From, Id, NodeId, Publish, QoS, TimestampMillis, TopicName, UserName,
+    },
     utils::timestamp_millis,
     Result,
 };
@@ -397,7 +399,7 @@ impl Consumer {
                 log::warn!("{} ignored forwarding some messages because the topic was empty.", cfg.name);
                 continue;
             }
-            let p = rmqtt::codec::types::Publish {
+            let p = CodecPublish {
                 dup: false,
                 retain: m.retain,
                 qos: m.qos,
@@ -405,10 +407,14 @@ impl Consumer {
                 packet_id: None,
                 payload: payload.clone(),
                 properties: Some(m.properties.clone()),
-                delay_interval: m.delay_interval_s,
-                create_time: Some(m.create_time),
             };
-            on_message.fire((m.f.clone(), Box::new(p), cfg.expiry_interval));
+            let p = <CodecPublish as Into<Publish>>::into(p).create_time(m.create_time);
+            let p = if let Some(delay_interval_s) = m.delay_interval_s {
+                p.delay_interval(delay_interval_s)
+            } else {
+                p
+            };
+            on_message.fire((m.f.clone(), p, cfg.expiry_interval));
         }
         Ok(())
     }

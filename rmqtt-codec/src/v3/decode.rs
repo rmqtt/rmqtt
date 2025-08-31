@@ -3,8 +3,6 @@ use std::num::NonZeroU16;
 use bytes::{Buf, Bytes};
 use bytestring::ByteString;
 
-use rmqtt_utils::timestamp_millis;
-
 use crate::error::DecodeError;
 use crate::types::{packet_type, Protocol, QoS, MQISDP, MQTT, MQTT_LEVEL_31, MQTT_LEVEL_311, WILL_QOS_SHIFT};
 use crate::utils::Decode;
@@ -118,8 +116,6 @@ fn decode_publish_packet(src: &mut Bytes, packet_flags: u8) -> Result<Packet, De
         packet_id,
         payload: src.split_off(0),
         properties: None,
-        delay_interval: None,
-        create_time: Some(timestamp_millis()),
     })))
 }
 
@@ -170,12 +166,7 @@ mod tests {
             let (_len, consumed) = decode_variable_length(&$bytes[1..]).unwrap().unwrap();
             let cur = Bytes::from_static(&$bytes[consumed + 1..]);
             // decode_packet(cur, first_byte).unwrap()
-            let decoded = decode_packet(cur, first_byte).map(|mut packet| {
-                if let Packet::Publish(p) = &mut packet {
-                    p.create_time = None;
-                }
-                packet
-            }).unwrap();
+            let decoded = decode_packet(cur, first_byte).unwrap();
             assert_eq!(decoded, $res);
         }};
     );
@@ -286,8 +277,6 @@ mod tests {
                 packet_id: Some(packet_id(0x4321)),
                 payload: Bytes::from_static(b"data"),
                 properties: None,
-                delay_interval: None,
-                create_time: None,
             }))
         );
         assert_decode_packet!(
@@ -300,8 +289,6 @@ mod tests {
                 packet_id: None,
                 payload: Bytes::from_static(b"data"),
                 properties: None,
-                delay_interval: None,
-                create_time: None,
             }))
         );
 

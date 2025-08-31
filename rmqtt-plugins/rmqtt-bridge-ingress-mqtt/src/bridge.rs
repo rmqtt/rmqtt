@@ -24,6 +24,7 @@ use tokio::sync::RwLock;
 use rmqtt::codec::types::{MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5};
 use rmqtt::codec::v5::{PublishProperties, UserProperties};
 use rmqtt::context::ServerContext;
+use rmqtt::types::{CodecPublish, Publish};
 use rmqtt::utils::timestamp_millis;
 use rmqtt::{
     session::SessionState,
@@ -248,8 +249,6 @@ async fn send_publish(scx: ServerContext, cfg: Arc<Bridge>, entry_idx: usize, f:
             packet_id: None,
             payload: Bytes::from(p.payload.to_vec()), //@TODO ...
             properties: Some(PublishProperties::default()),
-            delay_interval: None,
-            create_time: Some(timestamp_millis()),
         },
         BridgePublish::V5(p) => rmqtt::codec::types::Publish {
             dup: false,
@@ -259,8 +258,6 @@ async fn send_publish(scx: ServerContext, cfg: Arc<Bridge>, entry_idx: usize, f:
             packet_id: None,
             payload: Bytes::from(p.payload.to_vec()),      //@TODO ...
             properties: Some(to_properties(p.properties)), //@TODO ...
-            delay_interval: None,
-            create_time: Some(timestamp_millis()),
         },
     };
 
@@ -272,7 +269,7 @@ async fn send_publish(scx: ServerContext, cfg: Arc<Bridge>, entry_idx: usize, f:
         .and_then(|p| p.message_expiry_interval.map(|interval| Duration::from_secs(interval.get() as u64)))
         .unwrap_or(cfg.expiry_interval);
 
-    let msg = Box::new(msg);
+    let msg = <CodecPublish as Into<Publish>>::into(msg).create_time(timestamp_millis());
 
     //hook, message_publish
     let msg = scx.extends.hook_mgr().message_publish(None, f.clone(), &msg).await.unwrap_or(msg);

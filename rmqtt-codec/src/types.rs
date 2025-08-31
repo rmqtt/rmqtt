@@ -206,10 +206,6 @@ pub struct Publish {
 
     /// MQTT 5.0 properties (None for MQTT 3.1.1)
     pub properties: Option<PublishProperties>,
-    /// Delayed publish interval in seconds
-    pub delay_interval: Option<u32>,
-    /// Message creation timestamp
-    pub create_time: Option<i64>,
 }
 
 impl fmt::Debug for Publish {
@@ -223,8 +219,6 @@ impl fmt::Debug for Publish {
             .field("qos", &self.qos)
             .field("payload", &"<REDACTED>")
             .field("properties", &self.properties)
-            .field("delay_interval", &self.delay_interval)
-            .field("create_time", &self.create_time)
             .finish()
     }
 }
