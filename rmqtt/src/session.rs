@@ -915,11 +915,16 @@ impl SessionState {
                     }
                     Ok(res) => res,
                 };
-                self.publish(publish).await?;
-                sink.send_publish_ack(packet_id).await?;
+                self.publish(publish).await.inspect_err(|_| {
+                    if inflight_res {
+                        self.in_inflight.remove(&packet_id);
+                    }
+                })?;
+                let ack_res = sink.send_publish_ack(packet_id).await;
                 if inflight_res {
                     self.in_inflight.remove(&packet_id);
                 }
+                ack_res?;
             }
             QoS::ExactlyOnce => {
                 let packet_id = Self::packet_id(packet_id)?;
