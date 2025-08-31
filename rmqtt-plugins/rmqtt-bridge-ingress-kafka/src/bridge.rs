@@ -24,7 +24,7 @@ use rmqtt::{
     codec::v5::{PublishProperties, UserProperties},
     context::ServerContext,
     session::SessionState,
-    types::{ClientId, DashMap, From, Id, NodeId, Publish, QoS, UserName},
+    types::{ClientId, CodecPublish, DashMap, From, Id, NodeId, Publish, QoS, UserName},
     utils::timestamp_millis,
     Result,
 };
@@ -339,7 +339,7 @@ impl Consumer {
         ));
 
         let properties = PublishProperties::from(user_properties);
-        let p = rmqtt::codec::types::Publish {
+        let p = CodecPublish {
             dup: false,
             retain: entry.local.make_retain(retain),
             qos: entry.local.make_qos(qos),
@@ -347,11 +347,9 @@ impl Consumer {
             packet_id: None,
             payload,
             properties: Some(properties),
-            delay_interval: None,
-            create_time: Some(timestamp_millis()),
         };
-
-        on_message.fire((scx.clone(), from, Box::new(p), cfg.expiry_interval));
+        let p = <CodecPublish as Into<Publish>>::into(p).create_time(timestamp_millis());
+        on_message.fire((scx.clone(), from, p, cfg.expiry_interval));
     }
 }
 

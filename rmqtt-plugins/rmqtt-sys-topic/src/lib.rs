@@ -24,6 +24,7 @@ use rmqtt::{
 };
 
 use config::PluginConfig;
+use rmqtt::types::{CodecPublish, Publish};
 
 mod config;
 
@@ -286,7 +287,7 @@ async fn sys_publish(
                 Some(UserName::from("system")),
             ));
 
-            let p = Box::new(rmqtt::codec::types::Publish {
+            let p = CodecPublish {
                 dup: false,
                 retain: false,
                 qos: publish_qos,
@@ -294,9 +295,8 @@ async fn sys_publish(
                 packet_id: None,
                 payload: Bytes::from(payload),
                 properties: Some(PublishProperties::default()),
-                delay_interval: None,
-                create_time: Some(timestamp_millis()),
-            });
+            };
+            let p = <CodecPublish as Into<Publish>>::into(p).create_time(timestamp_millis());
 
             //hook, message_publish
             let p = scx.extends.hook_mgr().message_publish(None, from.clone(), &p).await.unwrap_or(p);

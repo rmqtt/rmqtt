@@ -4,8 +4,6 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use bytestring::ByteString;
 use serde::{Deserialize, Serialize};
 
-use rmqtt_utils::timestamp_millis;
-
 use crate::error::{DecodeError, EncodeError};
 use crate::types::QoS;
 use crate::utils::{self, write_variable_length, Decode, Encode, Property};
@@ -46,8 +44,6 @@ impl Publish {
             packet_id,
             payload,
             properties: Some(properties),
-            delay_interval: None,
-            create_time: Some(timestamp_millis()),
         })
     }
 }

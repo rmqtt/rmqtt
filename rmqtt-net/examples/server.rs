@@ -241,8 +241,6 @@ where
                         topic: p.topic,
                         payload: p.payload,
                         properties: p.properties,
-                        delay_interval: None,
-                        create_time: None,
                     }))
                     .await?;
                 } else {
@@ -315,8 +313,6 @@ where
                         topic: p.topic,
                         payload: p.payload,
                         properties: p.properties,
-                        delay_interval: None,
-                        create_time: None,
                     }))
                     .await?;
                 } else {

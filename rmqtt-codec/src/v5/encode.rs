@@ -306,8 +306,6 @@ mod tests {
             packet_id: Some(packet_id(0x4321)),
             payload: (0..255).collect::<Vec<u8>>().into(),
             properties: Some(PublishProperties::default()),
-            delay_interval: None,
-            create_time: None,
         }));
 
         assert_eq!(p.encoded_size(MAX_PACKET_SIZE), 265);
@@ -439,8 +437,6 @@ mod tests {
                 packet_id: Some(packet_id(0x4321)),
                 payload: Bytes::from_static(b"data"),
                 properties: Some(PublishProperties::default()),
-                delay_interval: None,
-                create_time: None,
             })),
             b"\x3d\x0E\x00\x05topic\x43\x21\x00data",
         );
@@ -454,8 +450,6 @@ mod tests {
                 packet_id: None,
                 payload: Bytes::from_static(b"data"),
                 properties: Some(PublishProperties::default()),
-                delay_interval: None,
-                create_time: None,
             })),
             b"\x30\x0c\x00\x05topic\x00data",
         );
@@ -472,8 +466,6 @@ mod tests {
                     subscription_ids: vec![NonZeroU32::new(1).unwrap()],
                     ..Default::default()
                 }),
-                delay_interval: None,
-                create_time: None,
             })),
             b"\x30\x0e\x00\x05topic\x02\x0b\x01data",
         );

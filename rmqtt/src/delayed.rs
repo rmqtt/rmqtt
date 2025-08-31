@@ -34,6 +34,7 @@
 //! 4. Statistics updated throughout lifecycle
 
 use std::collections::BinaryHeap;
+use std::ops::DerefMut;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -142,6 +143,7 @@ impl DelayedSender for DefaultDelayedSender {
         if let (Some(&"$delayed"), Some(delay_interval), Some(topic)) =
             (items.first(), items.get(1), items.get(2))
         {
+            let topic = TopicName::from(*topic);
             let interval_s = delay_interval.parse().map_err(|e| {
                 anyhow!(format!(
                     "the delay time of $delayed must be an integer, topic: {}, {}",
@@ -149,7 +151,7 @@ impl DelayedSender for DefaultDelayedSender {
                 ))
             })?;
             publish.delay_interval = Some(interval_s);
-            publish.topic = TopicName::from(*topic);
+            publish.deref_mut().topic = topic;
         }
         Ok(publish)
     }
