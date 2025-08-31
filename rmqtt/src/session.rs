@@ -915,11 +915,10 @@ impl SessionState {
                     }
                     Ok(res) => res,
                 };
-                self.publish(publish).await.map_err(|e| {
+                self.publish(publish).await.inspect_err(|_| {
                     if inflight_res {
                         self.in_inflight.remove(&packet_id);
                     }
-                    e
                 })?;
                 let ack_res = sink.send_publish_ack(packet_id).await;
                 if inflight_res {
