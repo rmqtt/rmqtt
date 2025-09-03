@@ -1,6 +1,6 @@
 [package]
 name = "rmqtt-bridge-egress-reductstore"
-version = "0.1.0"
+version.workspace = true
 description = "Bridge remote reductstore in egress mode."
 repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-bridge-egress-reductstore"
 edition.workspace = true
@@ -12,7 +12,7 @@ license.workspace = true
 rmqtt = { workspace = true, features = ["plugin"] }
 tokio = { workspace = true, features = ["sync"] }
 serde = { workspace = true, features = ["derive"] }
-reduct-rs = "=1.14.0"
+reduct-rs = "1.14.0"
 serde_json.workspace = true
 log.workspace = true
 async-trait.workspace = true

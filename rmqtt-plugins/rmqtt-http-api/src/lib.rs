@@ -41,8 +41,9 @@ impl HttpApiPlugin {
     #[inline]
     async fn new<S: Into<String>>(scx: ServerContext, name: S) -> Result<Self> {
         let name = name.into();
-        let cfg = Arc::new(RwLock::new(scx.plugins.read_config::<PluginConfig>(&name)?));
-        log::debug!("{} HttpApiPlugin cfg: {:?}", name, cfg.read().await);
+        let cfg = scx.plugins.read_config_default::<PluginConfig>(&name);
+        log::info!("{} HttpApiPlugin cfg: {:?}", name, cfg);
+        let cfg = Arc::new(RwLock::new(cfg?));
         let register = scx.extends.hook_mgr().register();
         let shutdown_tx = Some(Self::start(scx.clone(), cfg.clone()).await);
         Ok(Self { scx, register, cfg, shutdown_tx })
@@ -50,25 +51,11 @@ impl HttpApiPlugin {
 
     async fn start(scx: ServerContext, cfg: PluginConfigType) -> ShutdownTX {
         let (shutdown_tx, shutdown_rx): (oneshot::Sender<()>, oneshot::Receiver<()>) = oneshot::channel();
-        let workers = cfg.read().await.workers;
         let http_laddr = cfg.read().await.http_laddr;
-        let _child = std::thread::Builder::new().name("http-api".to_string()).spawn(move || {
-            let cfg1 = cfg.clone();
-            let runner = async move {
-                let laddr = cfg1.read().await.http_laddr;
-                if let Err(e) = api::listen_and_serve(scx, laddr, cfg1, shutdown_rx).await {
-                    log::error!("{e:?}");
-                }
-            };
-
-            let rt = tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .worker_threads(workers)
-                .thread_name("http-api-worker")
-                .thread_stack_size(4 * 1024 * 1024)
-                .build()
-                .expect("tokio runtime build failed");
-            rt.block_on(runner);
+        tokio::spawn(async move {
+            if let Err(e) = api::listen_and_serve(scx, http_laddr, cfg, shutdown_rx).await {
+                log::error!("{e:?}");
+            }
             log::info!("Exit HTTP API Server, ..., http://{http_laddr:?}");
         });
         shutdown_tx

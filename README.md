@@ -3,6 +3,9 @@
 [![GitHub Release](https://img.shields.io/github/release/rmqtt/rmqtt?color=brightgreen)](https://github.com/rmqtt/rmqtt/releases)
 <a href="https://blog.rust-lang.org/2025/03/18/Rust-1.85.1/"><img alt="Rust Version" src="https://img.shields.io/badge/rust-1.85.0%2B-blue" /></a>
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/rmqtt/rmqtt)
+[![crates.io page](https://img.shields.io/crates/v/rmqtt.svg)](https://crates.io/crates/rmqtt)
+[![docs.rs page](https://docs.rs/rmqtt/badge.svg)](https://docs.rs/rmqtt/latest/rmqtt/)
+
 
 English | [简体中文](./README-CN.md)
 
@@ -103,6 +106,18 @@ Get the binary package of the corresponding OS from [RMQTT Download](https://git
 - [Single Node Install](./docs/en_US/install.md)
 
 - [Multi Node Install](./docs/en_US/install.md)
+
+
+## Library Mode Integration
+
+In addition to running as a standalone MQTT Broker/Server, rmqtt also provides a **Library Mode**, which allows you to embed rmqtt directly into your Rust applications or services. Simply add the following dependency to your `Cargo.toml`, and you can use rmqtt's APIs just like a regular Rust library:
+
+```toml
+[dependencies]
+rmqtt = "0.15"
+```
+
+For more details about using rmqtt in library mode, please refer to the [RMQTT Library Documentation](./rmqtt/README.md).
 
 ## Experience
 

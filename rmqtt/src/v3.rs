@@ -88,6 +88,13 @@ async fn handshake<Io>(
 where
     Io: AsyncRead + AsyncWrite + Unpin,
 {
+    if scx.busy_check_enable && scx.node.sys_is_busy() {
+        return Err((
+            ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable),
+            anyhow!("the system is currently overloaded"),
+        ));
+    }
+
     let mut c = sink
         .recv_connect(sink.cfg.handshake_timeout)
         .await

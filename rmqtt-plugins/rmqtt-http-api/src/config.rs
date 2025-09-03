@@ -11,9 +11,6 @@ use rmqtt::{
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
-    #[serde(default = "PluginConfig::workers_default")]
-    pub workers: usize,
-
     #[serde(default = "PluginConfig::max_row_limit_default")]
     pub max_row_limit: usize,
 
@@ -54,11 +51,6 @@ pub struct PluginConfig {
 }
 
 impl PluginConfig {
-    #[inline]
-    fn workers_default() -> usize {
-        1
-    }
-
     #[inline]
     fn max_row_limit_default() -> usize {
         10_000
@@ -111,15 +103,15 @@ impl PluginConfig {
 
     #[inline]
     pub fn changed(&self, other: &Self) -> bool {
-        self.workers != other.workers
-            || self.max_row_limit != other.max_row_limit
+        self.max_row_limit != other.max_row_limit
             || self.http_laddr != other.http_laddr
             || self.metrics_sample_interval != other.metrics_sample_interval
             || self.http_request_log != other.http_request_log
+            || self.prometheus_metrics_cache_interval != other.prometheus_metrics_cache_interval
     }
 
     #[inline]
     pub fn restart_enable(&self, other: &Self) -> bool {
-        self.workers != other.workers || self.http_laddr != other.http_laddr
+        self.http_laddr != other.http_laddr
     }
 }

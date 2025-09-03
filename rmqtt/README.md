@@ -1,7 +1,7 @@
 # RMQTT-Server
 
 [![crates.io page](https://img.shields.io/crates/v/rmqtt.svg)](https://crates.io/crates/rmqtt)
-[![docs.rs page](https://docs.rs/rmqtt/badge.svg)](https://docs.rs/rmqtt/0.15.0-rc.3/rmqtt)
+[![docs.rs page](https://docs.rs/rmqtt/badge.svg)](https://docs.rs/rmqtt/latest/rmqtt/)
 
 
 A high-performance, asynchronous MQTT server library built with [Tokio](https://tokio.rs). `rmqtt-server` is designed for flexibility, allowing you to configure multiple listeners with different protocols and security settings. Ideal for building custom or embedded MQTT services in Rust.
@@ -24,7 +24,7 @@ A basic MQTT server with RMQTT.
 
 ```toml
 [dependencies]
-rmqtt = "0.15.0-rc.3"
+rmqtt = "0.15"
 tokio = { version = "1", features = ["full"] }
 simple_logger = "5"
 log = "0.4"
@@ -58,7 +58,7 @@ Make sure you included the rmqtt crate with the required features in your Cargo.
 
 ```toml
 [dependencies]
-rmqtt = { version = "0.15.0-rc.3", features = ["ws", "tls"] }
+rmqtt = { version = "0.15", features = ["ws", "tls"] }
 tokio = { version = "1", features = ["full"] }
 simple_logger = "5"
 log = "0.4"
@@ -111,11 +111,106 @@ Make sure you included the rmqtt crate with the required features in your Cargo.
 
 ```toml
 [dependencies]
-rmqtt = { version = "0.15.0-rc.3", features = ["plugin"] }
-rmqtt-acl = "0.1"
-rmqtt-retainer = "0.1"
-rmqtt-http-api = "0.1"
-rmqtt-web-hook = "0.1"
+rmqtt = { version = "0.15", features = ["plugin"] }
+rmqtt-plugins = { version = "0.15", features = ["full"] }
+tokio = { version = "1", features = ["full"] }
+simple_logger = "5"
+log = "0.4"
+```
+
+```rust
+use rmqtt::{context::ServerContext, net::Builder, server::MqttServer, Result};
+use simple_logger::SimpleLogger;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    SimpleLogger::new().with_level(log::LevelFilter::Info).init()?;
+
+    let scx = ServerContext::new().plugins_config_dir("rmqtt-plugins/").build().await;
+
+    rmqtt_plugins::acl::register(&scx, true, false).await?;
+    rmqtt_plugins::http_api::register(&scx, true, false).await?;
+    rmqtt_plugins::retainer::register(&scx, true, false).await?;
+
+    MqttServer::new(scx)
+        .listener(
+            Builder::new()
+                .name("external/tcp")
+                .laddr(([0, 0, 0, 0], 1883).into())
+                .allow_anonymous(false)
+                .bind()?
+                .tcp()?,
+        )
+        .build()
+        .run()
+        .await?;
+    Ok(())
+}
+
+```
+
+or
+
+```toml
+[dependencies]
+rmqtt = { version = "0.15", features = ["plugin"] }
+rmqtt-plugins = { version = "0.15", features = ["full"] }
+tokio = { version = "1", features = ["full"] }
+simple_logger = "5"
+log = "0.4"
+```
+
+```rust
+
+use rmqtt::{context::ServerContext, net::Builder, server::MqttServer, Result};
+use simple_logger::SimpleLogger;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+  SimpleLogger::new().with_level(log::LevelFilter::Info).init()?;
+
+  let rules = r###"rules = [
+                ["allow", { user = "dashboard" }, "subscribe", ["$SYS/#"]],
+                ["allow", { ipaddr = "127.0.0.1" }, "pubsub", ["$SYS/#", "#"]],
+                ["deny", "all", "subscribe", ["$SYS/#", { eq = "#" }]],
+                ["allow", "all"]
+        ]"###;
+
+  let scx = ServerContext::new()
+          .plugins_config_dir("rmqtt-plugins/")
+          .plugins_config_map_add("rmqtt-acl", rules)
+          .build()
+          .await;
+  rmqtt_plugins::acl::register(&scx, true, false).await?;
+  rmqtt_plugins::http_api::register(&scx, true, false).await?;
+  rmqtt_plugins::retainer::register(&scx, true, false).await?;
+
+  MqttServer::new(scx)
+          .listener(
+            Builder::new()
+                    .name("external/tcp")
+                    .laddr(([0, 0, 0, 0], 1883).into())
+                    .allow_anonymous(false)
+                    .bind()?
+                    .tcp()?,
+          )
+          .build()
+          .run()
+          .await?;
+  Ok(())
+}
+
+```
+
+or
+
+```toml
+[dependencies]
+rmqtt = { version = "0.15", features = ["plugin"] }
+rmqtt-acl = "0.15"
+rmqtt-retainer = "0.15"
+rmqtt-http-api = "0.15"
+rmqtt-web-hook = "0.15"
 tokio = { version = "1", features = ["full"] }
 simple_logger = "5"
 log = "0.4"
@@ -162,6 +257,9 @@ More examples can be found [here][examples]. For a larger "real world" example, 
 
 [examples]: https://github.com/rmqtt/rmqtt/tree/master/rmqtt/examples
 [rmqtt]: https://github.com/rmqtt/rmqtt
+
+
+
 
 ## 📦 Use Cases
 

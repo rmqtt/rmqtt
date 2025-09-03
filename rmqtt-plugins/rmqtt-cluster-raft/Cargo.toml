@@ -1,6 +1,6 @@
 [package]
 name = "rmqtt-cluster-raft"
-version = "0.2.1"
+version.workspace = true
 description = "The RMQTT cluster, powered by the `rmqtt-cluster-raft` plugin, uses RAFT for consistency and fault tolerance. Nodes share state to ensure reliable messaging and support scalable, resilient deployments."
 repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-cluster-raft"
 edition.workspace = true
@@ -34,7 +34,7 @@ rayon.workspace = true
 
 
 lz4_flex = { version = "0.11" }
-lz4 = "=1.27.0"
+lz4 = "1.27.0"
 zstd = "0.13"
-flate2 = { version = "=1.0.30" }
-snap = { version = "=1.1.1" }
+flate2 = { version = "1.0.30" }
+snap = { version = "1.1.1" }

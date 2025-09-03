@@ -120,9 +120,9 @@ impl Producer {
                     }
 
                     //Must forward
-                    sender = sender.add_label("topic", p.topic);
+                    sender = sender.add_label("topic", p.topic.clone());
 
-                    if let Err(e) = sender.data(p.payload).send().await {
+                    if let Err(e) = sender.data(p.take_payload()).send().await {
                         log::warn!("{e}");
                     }
                 }

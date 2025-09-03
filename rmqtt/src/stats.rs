@@ -53,7 +53,7 @@ use serde_json::json;
 
 use crate::context::ServerContext;
 // #[cfg(feature = "debug")]
-// use crate::context::TaskExecStats;
+use crate::context::TaskExecStats;
 use crate::types::{HashMap, NodeId};
 use crate::utils::Counter;
 
@@ -78,6 +78,8 @@ pub struct Stats {
 
     pub topics_map: HashMap<NodeId, Counter>,
     pub routes_map: HashMap<NodeId, Counter>,
+
+    pub execs_actives: HashMap<String, TaskExecStats>,
 
     #[cfg(feature = "debug")]
     debug_client_states_map: HashMap<NodeId, usize>,
@@ -119,6 +121,8 @@ impl Stats {
             topics_map: HashMap::default(),
             routes_map: HashMap::default(),
 
+            execs_actives: HashMap::default(),
+
             #[cfg(feature = "debug")]
             debug_client_states_map: HashMap::default(),
             #[cfg(feature = "debug")]
@@ -155,6 +159,12 @@ impl Stats {
             for (id, (_, grpc_client)) in shared.get_grpc_clients().iter() {
                 grpc_clients_actives.insert(*id, grpc_client.active_tasks().clone());
             }
+        }
+
+        //execs
+        let mut execs_actives = HashMap::default();
+        for (key, exec) in scx.execs() {
+            execs_actives.insert(key, TaskExecStats::from_exec(&exec).await);
         }
 
         //@TODO
@@ -232,6 +242,8 @@ impl Stats {
             topics_map,
             routes_map,
 
+            execs_actives,
+
             #[cfg(feature = "debug")]
             debug_client_states_map,
             #[cfg(feature = "debug")]
@@ -271,6 +283,10 @@ impl Stats {
         self.topics_map.extend(other.topics_map);
         self.routes_map.extend(other.routes_map);
 
+        for (k, v) in other.execs_actives {
+            self.execs_actives.entry(k).and_modify(|tes| tes.add(&v)).or_insert_with(|| v);
+        }
+
         #[cfg(feature = "debug")]
         {
             self.debug_client_states_map.extend(other.debug_client_states_map);
@@ -278,22 +294,6 @@ impl Stats {
             self.debug_shared_peers.add(&other.debug_shared_peers);
             self.debug_subscriptions += other.debug_subscriptions;
             self.debug_session_channels.add(&other.debug_session_channels);
-
-            // if let Some(other) = other.debug_server_exec_stats.as_ref() {
-            //     if let Some(stats) = self.debug_server_exec_stats.as_mut() {
-            //         stats.add(other);
-            //     } else {
-            //         self.debug_server_exec_stats.replace(other.clone());
-            //     }
-            // }
-            //
-            // if let Some(other) = other.debug_client_exec_stats.as_ref() {
-            //     if let Some(stats) = self.debug_client_exec_stats.as_mut() {
-            //         stats.add(other);
-            //     } else {
-            //         self.debug_client_exec_stats.replace(other.clone());
-            //     }
-            // }
         }
     }
 
@@ -309,7 +309,7 @@ impl Stats {
             grpc_clients_actives.add(c);
         }
 
-        let mut json_val = json!({
+        json!({
             "handshakings.count": self.handshakings.count(),
             "handshakings.max": self.handshakings.max(),
             "handshakings_active.count": self.handshakings_active.count(),
@@ -338,15 +338,29 @@ impl Stats {
             "message_storages.max": self.message_storages.max(),
             "delayed_publishs.count": self.delayed_publishs.count(),
             "delayed_publishs.max": self.delayed_publishs.max(),
-            "grpc_server_actives.count": self.grpc_server_actives.count(),
-            "grpc_server_actives.max": self.grpc_server_actives.max(),
-            "grpc_clients_actives.count": grpc_clients_actives.count(),
-            "grpc_clients_actives.max": grpc_clients_actives.max(),
 
             "topics.count": topics.count(),
             "topics.max": topics.max(),
             "routes.count": routes.count(),
             "routes.max": routes.max(),
+        })
+    }
+
+    #[allow(unused_mut)]
+    #[inline]
+    pub async fn to_sys_json(&self, _scx: &ServerContext) -> serde_json::Value {
+        let grpc_clients_actives = Counter::new();
+        for (_, c) in self.grpc_clients_actives.iter() {
+            grpc_clients_actives.add(c);
+        }
+
+        let mut json_val = json!({
+            "grpc_server_actives.count": self.grpc_server_actives.count(),
+            "grpc_server_actives.max": self.grpc_server_actives.max(),
+            "grpc_clients_actives.count": grpc_clients_actives.count(),
+            "grpc_clients_actives.max": grpc_clients_actives.max(),
+
+            "execs_actives": self.execs_actives,
         });
 
         #[cfg(feature = "debug")]

@@ -1,6 +1,6 @@
 [package]
 name = "rmqtt-net"
-version = "0.1.2"
+version = "0.1.5"
 description = "Basic Implementation of MQTT Server"
 repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-net"
 edition.workspace = true
@@ -21,19 +21,20 @@ ws = ["tokio-tungstenite"]
 
 [dependencies]
 rmqtt-codec.workspace = true
-tokio = { workspace = true,  features = ["net", "time"] }
+tokio = { workspace = true,  features = ["net", "time", "io-util"] }
 tokio-util = { workspace = true, features = ["codec"] }
 futures.workspace = true
 log.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
-socket2.workspace = true
+socket2 = { workspace = true, features = ["all"] }
 serde = { workspace = true, features = ["derive"] }
 bytestring = { workspace = true, features = ["serde"] }
 nonzero_ext.workspace = true
-
 tokio-tungstenite = { workspace = true, optional = true }
 tokio-rustls = { workspace = true, optional = true }
+proxy-protocol = { workspace = true }
+
 [target.'cfg(not(windows))'.dependencies]
 rustls = { workspace = true, features = ["aws-lc-rs", "logging", "std", "tls12"], optional = true }
 [target.'cfg(windows)'.dependencies]

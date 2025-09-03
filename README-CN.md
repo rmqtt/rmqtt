@@ -3,6 +3,8 @@
 [![GitHub Release](https://img.shields.io/github/release/rmqtt/rmqtt?color=brightgreen)](https://github.com/rmqtt/rmqtt/releases)
 <a href="https://blog.rust-lang.org/2025/03/18/Rust-1.85.1/"><img alt="Rust Version" src="https://img.shields.io/badge/rust-1.85.0%2B-blue" /></a>
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/rmqtt/rmqtt)
+[![crates.io page](https://img.shields.io/crates/v/rmqtt.svg)](https://crates.io/crates/rmqtt)
+[![docs.rs page](https://docs.rs/rmqtt/badge.svg)](https://docs.rs/rmqtt/latest/rmqtt/)
 
 [English](./README.md)  | 简体中文
 
@@ -101,6 +103,18 @@ curl "http://127.0.0.1:6066/api/v1/health/check"
 - [单节点安装配置文档](./docs/zh_CN/install.md)
 
 - [集群安装配置文档](./docs/zh_CN/install.md)
+
+
+##  通过库方式集成
+
+除了作为独立的 MQTT Broker/Server 使用外，rmqtt 还提供 **库模式（Library Mode）**，可以将 rmqtt 作为 Rust 的依赖直接嵌入到你的应用或服务中。只需在 `Cargo.toml` 中添加如下依赖，即可在代码中像使用普通库一样调用 rmqtt 的 API：
+
+```toml
+[dependencies]
+rmqtt = "0.15"
+```
+
+更多关于库模式的使用说明，请参考 [RMQTT 库使用文档](./rmqtt/README.md) 。
 
 ## 体验
 

@@ -60,10 +60,11 @@
 //! Implements MQTT 5.0 best practices from OASIS specifications while maintaining
 //! backward compatibility through protocol negotiation and feature detection.
 
+use std::collections::vec_deque::VecDeque;
 use std::convert::From as _f;
 use std::fmt;
 use std::num::NonZeroU16;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -676,11 +677,13 @@ impl SessionState {
         match pkt {
             Packet::V3(v3::Packet::Publish(publish)) => {
                 log::debug!("{} publish: {:?}", self.id, publish);
-                self.process_publish(sink, publish).await?;
+                let p: Publish = publish.into();
+                self.process_publish(sink, p.create_time(timestamp_millis())).await?;
             }
             Packet::V5(v5::Packet::Publish(publish)) => {
                 log::debug!("{} publish: {:?}", self.id, publish);
-                self.process_publish(sink, publish).await?;
+                let p: Publish = publish.into();
+                self.process_publish(sink, p.create_time(timestamp_millis())).await?;
             }
 
             Packet::V3(v3::Packet::PublishRelease { packet_id }) => {
@@ -914,11 +917,16 @@ impl SessionState {
                     }
                     Ok(res) => res,
                 };
-                self.publish(publish).await?;
-                sink.send_publish_ack(packet_id).await?;
+                self.publish(publish).await.inspect_err(|_| {
+                    if inflight_res {
+                        self.in_inflight.remove(&packet_id);
+                    }
+                })?;
+                let ack_res = sink.send_publish_ack(packet_id).await;
                 if inflight_res {
                     self.in_inflight.remove(&packet_id);
                 }
+                ack_res?;
             }
             QoS::ExactlyOnce => {
                 let packet_id = Self::packet_id(packet_id)?;
@@ -961,8 +969,8 @@ impl SessionState {
     #[inline]
     async fn _publish(&self, mut publish: Publish) -> Result<bool> {
         if let Some(client_topic_aliases) = &self.client_topic_aliases {
-            publish.topic = client_topic_aliases
-                .set_and_get(publish.properties.as_ref().and_then(|p| p.topic_alias), publish.topic)
+            publish.deref_mut().topic = client_topic_aliases
+                .set_and_get(publish.properties.as_ref().and_then(|p| p.topic_alias), publish.topic.clone())
                 .await?;
         }
 
@@ -1428,7 +1436,7 @@ impl SessionState {
         }
 
         //Send offline messages
-        while let Some((from, p)) = offline_info.offline_messages.pop() {
+        while let Some((from, p)) = offline_info.offline_messages.pop_front() {
             self.forward(from, p).await;
         }
         Ok(())
@@ -1955,10 +1963,10 @@ impl Session {
         let created_at = self.created_at().await?;
         let subscriptions = self.subscriptions_drain().await?;
 
-        let mut offline_messages = Vec::new();
+        let mut offline_messages = VecDeque::new();
         while let Some(item) = self.deliver_queue().pop() {
             //@TODO ..., check message expired
-            offline_messages.push(item);
+            offline_messages.push_back(item);
         }
         let inflight_messages = self.out_inflight().write().await.to_inflight_messages();
 
@@ -2080,7 +2088,7 @@ pub trait SessionLike: Sync + Send + 'static {
 pub struct OfflineInfo {
     pub id: Id,
     pub subscriptions: Subscriptions,
-    pub offline_messages: Vec<(From, Publish)>,
+    pub offline_messages: VecDeque<(From, Publish)>,
     pub inflight_messages: Vec<OutInflightMessage>,
     pub created_at: TimestampMillis,
 }

@@ -1,6 +1,6 @@
 [package]
 name = "rmqtt-bridge-ingress-pulsar"
-version = "0.1.1"
+version.workspace = true
 description = "Bridge remote Apache-Pulsar in ingress mode."
 repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-bridge-ingress-pulsar"
 edition.workspace = true
@@ -12,7 +12,7 @@ license.workspace = true
 rmqtt = { workspace = true, features = ["plugin", "msgstore"] }
 serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["sync"] }
-pulsar = "=6.3.0"
+pulsar = "6.3.0"
 event-notify = "0.1.1"
 serde_json.workspace = true
 log.workspace = true

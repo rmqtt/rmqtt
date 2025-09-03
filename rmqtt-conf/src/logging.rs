@@ -34,7 +34,7 @@ impl Log {
     }
     #[inline]
     fn level_default() -> Level {
-        Level { inner: slog::Level::Debug }
+        Level { inner: slog::Level::Info }
     }
     #[inline]
     fn dir_default() -> String {

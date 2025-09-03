@@ -18,8 +18,8 @@ task.exec_queue_max = 300_000
 node.id = 1
 
 #Busy status check switch.
-#default value: true
-node.busy.check_enable = true
+#default value: false
+node.busy.check_enable = false
 #Busy status update interval.
 #default value: 2s
 node.busy.update_interval = "2s"
@@ -33,12 +33,22 @@ node.busy.cpuloadavg = 90.0
 node.busy.handshaking = 0
 
 ##--------------------------------------------------------------------
-## RPC
+## RPC (Remote Procedure Call) Configuration Section
 ##--------------------------------------------------------------------
-#gRPC listening address
+# gRPC server listening address
+# Format: "IP:PORT"
+# "0.0.0.0" means listen on all available network interfaces
+# 5363 is the default listening port
 rpc.server_addr = "0.0.0.0:5363"
-#Number of worker threads
-rpc.server_workers = 4
+
+# Enable SO_REUSEADDR socket option
+# true allows immediate reuse of addresses in TIME_WAIT state (useful for fast service restart)
+rpc.reuseaddr = true
+
+# Enable SO_REUSEPORT socket option
+# false prevents multiple sockets from binding to same IP+PORT combination
+# (Linux 3.9+ kernel feature, can be used for load balancing)
+rpc.reuseport = false
 
 ##--------------------------------------------------------------------
 ## Log
@@ -172,6 +182,10 @@ listener.tcp.external.max_topic_aliases = 32
 listener.tcp.external.limit_subscription = false
 #Delayed publish switch, default value: false
 listener.tcp.external.delayed_publish = false
+#Proxy Protocol switch, default value: false
+listener.tcp.external.proxy_protocol = false
+#Proxy Protocol timeout, default value: 5s
+listener.tcp.external.proxy_protocol_timeout = "5s"
 
 ##--------------------------------------------------------------------
 ## MQTT/TCP - Internal TCP Listener for MQTT Protocol
@@ -231,3 +245,4 @@ listener.wss.external.key = "./rmqtt-bin/rmqtt.key"
 #listener.wss.external.cross_certificate = true
 #listener.wss.external.cert = "./rmqtt-bin/rmqtt.fullchain.pem"
 #listener.wss.external.key = "./rmqtt-bin/rmqtt.key"
+

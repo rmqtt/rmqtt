@@ -1,6 +1,6 @@
 [package]
 name = "rmqtt-bridge-egress-pulsar"
-version = "0.1.0"
+version.workspace = true
 description = "Bridge remote Apache-Pulsar in egress mode."
 repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-bridge-egress-pulsar"
 edition.workspace = true
@@ -12,7 +12,7 @@ license.workspace = true
 rmqtt = { workspace = true, features = ["plugin"] }
 serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["sync", "rt-multi-thread"] }
-pulsar = "=6.3.0"
+pulsar = "6.3.0"
 serde_json.workspace = true
 log.workspace = true
 async-trait.workspace = true

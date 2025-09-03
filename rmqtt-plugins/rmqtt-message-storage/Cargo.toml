@@ -1,6 +1,6 @@
 [package]
 name = "rmqtt-message-storage"
-version = "0.1.4"
+version.workspace = true
 description = "Published messages are stored until expiration and forwarded to new matching subscriptions. They’re cleared automatically after expiring."
 repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-message-storage"
 edition.workspace = true

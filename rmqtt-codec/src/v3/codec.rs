@@ -117,7 +117,6 @@ mod tests {
     use crate::v3::packet::Publish;
     use bytes::Bytes;
     use bytestring::ByteString;
-    use rmqtt_utils::timestamp_millis;
 
     #[test]
     fn test_max_size() {
@@ -134,7 +133,7 @@ mod tests {
         let mut codec = Codec::default();
         let mut buf = BytesMut::new();
 
-        let mut pkt = Box::new(Publish {
+        let pkt = Box::new(Publish {
             dup: false,
             retain: false,
             qos: QoS::AtMostOnce,
@@ -142,14 +141,11 @@ mod tests {
             packet_id: None,
             payload: Bytes::from(Vec::from("a".repeat(260 * 1024))),
             properties: None,
-            delay_interval: None,
-            create_time: None,
         });
         codec.encode(Packet::Publish(pkt.clone()), &mut buf).unwrap();
 
         let pkt2 =
             if let (Packet::Publish(v), _) = codec.decode(&mut buf).unwrap().unwrap() { v } else { panic!() };
-        pkt.create_time = Some(timestamp_millis());
         assert_eq!(pkt, pkt2);
     }
 }

@@ -182,7 +182,8 @@ impl Producer {
                     //Must forward
                     properties.insert("topic", p.topic.as_ref());
 
-                    if let Err(e) = jetstream.publish_with_headers(topic.clone(), properties, p.payload).await
+                    if let Err(e) =
+                        jetstream.publish_with_headers(topic.clone(), properties, p.take_payload()).await
                     {
                         log::warn!("{e}");
                     }

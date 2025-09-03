@@ -71,6 +71,7 @@ use crate::metrics::Metrics;
 use crate::node::Node;
 #[cfg(feature = "plugin")]
 use crate::plugin;
+#[cfg(feature = "plugin")]
 use crate::plugin::PluginManagerConfig;
 use crate::router::DefaultRouter;
 use crate::shared::DefaultShared;
@@ -111,6 +112,7 @@ pub struct ServerContextBuilder {
     pub mqtt_delayed_publish_immediate: bool,
 
     /// plugins config, path or configMap<plugin_name, toml_string>
+    #[cfg(feature = "plugin")]
     pub plugins_config: PluginManagerConfig,
 }
 
@@ -133,7 +135,8 @@ impl ServerContextBuilder {
             mqtt_delayed_publish_max: 100_000,
             mqtt_max_sessions: 0,
             mqtt_delayed_publish_immediate: true,
-            plugins_config: PluginManagerConfig::Path("rmqtt-plugins/".into()),
+            #[cfg(feature = "plugin")]
+            plugins_config: PluginManagerConfig::default(),
         }
     }
 
@@ -198,12 +201,30 @@ impl ServerContextBuilder {
     }
 
     /// Sets directory path for plugin loading
+    #[cfg(feature = "plugin")]
     pub fn plugins_config_dir<N: Into<String>>(mut self, plugins_dir: N) -> Self {
-        self.plugins_config = PluginManagerConfig::Path(plugins_dir.into());
+        self.plugins_config = self.plugins_config.path(plugins_dir.into());
         self
     }
+
+    #[cfg(feature = "plugin")]
     pub fn plugins_config_map(mut self, plugins_config_map: HashMap<String, String>) -> Self {
-        self.plugins_config = PluginManagerConfig::Map(plugins_config_map);
+        self.plugins_config = self.plugins_config.map(plugins_config_map);
+        self
+    }
+
+    #[cfg(feature = "plugin")]
+    pub fn plugins_config_map_add<N: Into<String>, C: Into<String>>(mut self, name: N, cfg: C) -> Self {
+        self.plugins_config = self.plugins_config.add(name.into(), cfg.into());
+        self
+    }
+
+    #[cfg(feature = "plugin")]
+    pub fn plugins_config(mut self, plugins_config: PluginManagerConfig) -> Self {
+        if let Some(path) = plugins_config.path {
+            self.plugins_config = self.plugins_config.path(path);
+        }
+        self.plugins_config = self.plugins_config.map(plugins_config.map);
         self
     }
 
@@ -239,6 +260,7 @@ impl ServerContextBuilder {
         }
         .config()
         .await
+        .start_cpuload_monitoring()
     }
 }
 
@@ -319,6 +341,32 @@ impl ServerContext {
         self
     }
 
+    /// Starts a background asynchronous task that periodically updates the node's CPU load.
+    ///
+    /// If `busy_check_enable` is set to `true`, this function will:
+    /// - Clone the current `ServerContext` instance.
+    /// - Spawn a Tokio task that runs in an infinite loop.
+    /// - In each loop iteration:
+    ///   1. Sleep for `node.busy_update_interval`.
+    ///   2. Call `node.update_cpuload()` to refresh the CPU load metrics.
+    ///
+    /// This method is typically used for monitoring server load to support
+    /// busy-state detection and performance management.
+    ///
+    /// Returns the original `ServerContext` so the call can be chained.
+    fn start_cpuload_monitoring(self) -> ServerContext {
+        if self.busy_check_enable {
+            let scx = self.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(scx.node.busy_update_interval).await;
+                    scx.node.update_cpuload().await;
+                }
+            });
+        }
+        self
+    }
+
     /// Checks if server is in busy state
     /// # Returns
     /// true if server is overloaded or at capacity
@@ -351,8 +399,8 @@ impl ServerContext {
     }
 
     #[inline]
-    pub fn execs(&self) -> &DashMap<&'static str, TaskExecQueue> {
-        &self.execs
+    pub fn execs(&self) -> HashMap<String, TaskExecQueue> {
+        self.execs.iter().map(|entry| (entry.key().to_string(), entry.value().clone())).collect()
     }
 }
 
@@ -413,7 +461,7 @@ impl ExecKey for (&'static str, ExecWorkers, ExecQueueMax) {
 }
 
 /// Execution statistics for task queues
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct TaskExecStats {
     /// Currently active tasks
     pub active_count: isize,

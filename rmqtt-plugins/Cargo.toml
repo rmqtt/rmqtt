@@ -1,0 +1,118 @@
+[package]
+name = "rmqtt-plugins"
+version.workspace = true
+description = "Plugin collection for rmqtt, providing authentication, storage, bridges, clustering, and other extensions."
+repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins"
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+
+[features]
+default = []
+full = [
+    "retainer-ram",
+    "retainer-sled",
+    "retainer-redis",
+
+    "message-storage-ram",
+    "message-storage-redis",
+    "message-storage-redis-cluster",
+
+    "session-storage-sled",
+    "session-storage-redis",
+    "session-storage-redis-cluster",
+
+    "acl",
+    "http-api",
+    "counter",
+    "auth-http",
+    "auth-jwt",
+    "auto-subscription",
+
+    "bridge-egress-kafka",
+    "bridge-ingress-kafka",
+    "bridge-egress-mqtt",
+    "bridge-ingress-mqtt",
+    "bridge-egress-pulsar",
+    "bridge-ingress-pulsar",
+    "bridge-egress-nats",
+    "bridge-egress-reductstore",
+
+    "sys-topic",
+    "topic-rewrite",
+    "web-hook",
+
+    "cluster-raft",
+    "cluster-broadcast",
+]
+
+# ---- storage sub-features ----
+retainer-ram = ["rmqtt-retainer/ram"]
+retainer-sled = ["rmqtt-retainer/sled"]
+retainer-redis = ["rmqtt-retainer/redis"]
+retainer = ["retainer-ram", "retainer-sled", "retainer-redis"]
+
+message-storage-ram = ["rmqtt-message-storage/ram"]
+message-storage-redis = ["rmqtt-message-storage/redis"]
+message-storage-redis-cluster = ["rmqtt-message-storage/redis-cluster"]
+message-storage = ["message-storage-ram", "message-storage-redis", "message-storage-redis-cluster"]
+
+session-storage-sled = ["rmqtt-session-storage/sled"]
+session-storage-redis = ["rmqtt-session-storage/redis"]
+session-storage-redis-cluster = ["rmqtt-session-storage/redis-cluster"]
+session-storage = ["session-storage-sled", "session-storage-redis", "session-storage-redis-cluster"]
+
+# ---- core plugins ----
+acl = ["rmqtt-acl"]
+http-api = ["rmqtt-http-api"]
+counter = ["rmqtt-counter"]
+auth-http = ["rmqtt-auth-http"]
+auth-jwt = ["rmqtt-auth-jwt"]
+auto-subscription = ["rmqtt-auto-subscription"]
+
+# ---- bridge plugins ----
+bridge-egress-kafka = ["rmqtt-bridge-egress-kafka"]
+bridge-ingress-kafka = ["rmqtt-bridge-ingress-kafka"]
+bridge-egress-mqtt = ["rmqtt-bridge-egress-mqtt"]
+bridge-ingress-mqtt = ["rmqtt-bridge-ingress-mqtt"]
+bridge-egress-pulsar = ["rmqtt-bridge-egress-pulsar"]
+bridge-ingress-pulsar = ["rmqtt-bridge-ingress-pulsar"]
+bridge-egress-nats = ["rmqtt-bridge-egress-nats"]
+bridge-egress-reductstore = ["rmqtt-bridge-egress-reductstore"]
+
+# ---- other plugins ----
+sys-topic = ["rmqtt-sys-topic"]
+topic-rewrite = ["rmqtt-topic-rewrite"]
+web-hook = ["rmqtt-web-hook"]
+
+# ---- cluster plugins ----
+cluster-raft = ["rmqtt-cluster-raft"]
+cluster-broadcast = ["rmqtt-cluster-broadcast"]
+
+[dependencies]
+rmqtt-acl = { workspace = true, optional = true }
+rmqtt-retainer = { workspace = true, optional = true }
+rmqtt-http-api = { workspace = true, optional = true }
+rmqtt-counter = { workspace = true, optional = true }
+rmqtt-auth-http = { workspace = true, optional = true }
+rmqtt-auth-jwt = { workspace = true, optional = true }
+rmqtt-auto-subscription = { workspace = true, optional = true }
+rmqtt-bridge-egress-kafka = { workspace = true, optional = true }
+rmqtt-bridge-ingress-kafka = { workspace = true, optional = true }
+rmqtt-bridge-egress-mqtt = { workspace = true, optional = true }
+rmqtt-bridge-ingress-mqtt = { workspace = true, optional = true }
+rmqtt-bridge-egress-pulsar = { workspace = true, optional = true }
+rmqtt-bridge-ingress-pulsar = { workspace = true, optional = true }
+rmqtt-bridge-egress-nats = { workspace = true, optional = true }
+rmqtt-bridge-egress-reductstore = { workspace = true, optional = true }
+rmqtt-message-storage = { workspace = true, optional = true }
+rmqtt-session-storage = { workspace = true, optional = true }
+rmqtt-sys-topic = { workspace = true, optional = true }
+rmqtt-topic-rewrite = { workspace = true, optional = true }
+rmqtt-web-hook = { workspace = true, optional = true }
+rmqtt-cluster-raft = { workspace = true, optional = true }
+rmqtt-cluster-broadcast = { workspace = true, optional = true }

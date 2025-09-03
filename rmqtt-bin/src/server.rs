@@ -62,13 +62,7 @@ async fn main() -> Result<()> {
         .await;
 
     //start gRPC server
-    scx.node.start_grpc_server(
-        scx.clone(),
-        conf.rpc.server_addr,
-        conf.rpc.server_workers,
-        conf.rpc.reuseaddr,
-        conf.rpc.reuseport,
-    );
+    scx.node.start_grpc_server(scx.clone(), conf.rpc.server_addr, conf.rpc.reuseaddr, conf.rpc.reuseport);
 
     //register plugin
     plugin::registers(&scx, conf.plugins.default_startups.clone()).await.expect("register plugin failed");
@@ -157,6 +151,8 @@ fn config_builder(cfg: &Listener) -> Builder {
         .tls_key(cfg.key.clone())
         .limit_subscription(cfg.limit_subscription)
         .delayed_publish(cfg.delayed_publish)
+        .proxy_protocol(cfg.proxy_protocol)
+        .proxy_protocol_timeout(cfg.proxy_protocol_timeout)
 }
 
 fn config_args(cfg: &Settings) -> CommandArgs {

@@ -29,6 +29,9 @@
 //! }
 //! ```
 
+use proxy_protocol::parse;
+use proxy_protocol::ProxyHeader;
+use proxy_protocol::{version1 as v1, version2 as v2};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::num::{NonZeroU16, NonZeroU32};
 use std::sync::Arc;
@@ -46,7 +49,7 @@ use rustls::crypto::ring as provider;
 #[cfg(feature = "tls")]
 use rustls::{pki_types::pem::PemObject, server::WebPkiClientVerifier, RootCertStore, ServerConfig};
 use socket2::{Domain, SockAddr, Socket, Type};
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
 #[cfg(feature = "tls")]
 use tokio_rustls::{server::TlsStream, TlsAcceptor};
@@ -135,6 +138,10 @@ pub struct Builder {
     pub tls_cert: Option<String>,
     /// Path to TLS private key
     pub tls_key: Option<String>,
+    /// Enable Proxy Protocol
+    pub proxy_protocol: bool,
+    /// Proxy Protocol timeout
+    pub proxy_protocol_timeout: Duration,
 }
 
 impl Default for Builder {
@@ -195,6 +202,8 @@ impl Builder {
             tls_cross_certificate: false,
             tls_cert: None,
             tls_key: None,
+            proxy_protocol: false,
+            proxy_protocol_timeout: Duration::from_secs(5),
         }
     }
 
@@ -402,6 +411,18 @@ impl Builder {
         self
     }
 
+    /// Enable proxy protocol parse
+    pub fn proxy_protocol(mut self, enable_protocol_proxy: bool) -> Self {
+        self.proxy_protocol = enable_protocol_proxy;
+        self
+    }
+
+    /// Sets proxy protocol timeout
+    pub fn proxy_protocol_timeout(mut self, proxy_protocol_timeout: Duration) -> Self {
+        self.proxy_protocol_timeout = proxy_protocol_timeout;
+        self
+    }
+
     /// Binds the server to the configured address
     #[allow(unused_variables)]
     pub fn bind(self) -> Result<Listener> {
@@ -572,9 +593,24 @@ impl Listener {
 
     /// Accepts incoming client connections
     pub async fn accept(&self) -> Result<Acceptor<TcpStream>> {
-        let (socket, remote_addr) = self.tcp_listener.accept().await?;
+        let (mut socket, mut remote_addr) = self.tcp_listener.accept().await?;
         if let Err(e) = socket.set_nodelay(self.cfg.nodelay) {
             return Err(Error::from(e));
+        }
+        if self.cfg.proxy_protocol {
+            let mut buffer = [0u8; u16::MAX as usize];
+            let read_bytes =
+                tokio::time::timeout(self.cfg.proxy_protocol_timeout, socket.peek(&mut buffer)).await??;
+            let len = {
+                let mut slice = &buffer[..read_bytes];
+                let header = parse(&mut slice)?;
+                if let Some((src, _)) = handle_header(header) {
+                    remote_addr = src;
+                }
+                read_bytes - slice.len()
+            };
+            // skip proxy protocol data
+            let _ = socket.read_exact(&mut buffer[..len]).await;
         }
         Ok(Acceptor {
             socket,
@@ -699,4 +735,89 @@ fn on_handshake(req: &Request, mut response: Response) -> std::result::Result<Re
         "mqtt".parse().map_err(|_| ErrorResponse::new(Some("InvalidHeaderValue".into())))?,
     );
     Ok(response)
+}
+
+// from https://github.com/zhboner/realm/blob/master/realm_core/src/tcp/proxy.rs
+fn handle_header(header: ProxyHeader) -> Option<(SocketAddr, SocketAddr)> {
+    use ProxyHeader::{Version1, Version2};
+    match header {
+        Version1 { addresses } => handle_header_v1(addresses),
+        Version2 { command, transport_protocol, addresses } => {
+            handle_header_v2(command, transport_protocol, addresses)
+        }
+        _ => {
+            log::info!("[tcp]accept proxy-protocol-v?");
+            None
+        }
+    }
+}
+
+fn handle_header_v1(addr: v1::ProxyAddresses) -> Option<(SocketAddr, SocketAddr)> {
+    use v1::ProxyAddresses::*;
+    match addr {
+        Unknown => {
+            log::debug!("[tcp]accept proxy-protocol-v1: unknown");
+            None
+        }
+        Ipv4 { source, destination } => {
+            log::debug!("[tcp]accept proxy-protocol-v1: {} => {}", &source, &destination);
+            Some((SocketAddr::V4(source), SocketAddr::V4(destination)))
+        }
+        Ipv6 { source, destination } => {
+            log::debug!("[tcp]accept proxy-protocol-v1: {} => {}", &source, &destination);
+            Some((SocketAddr::V6(source), SocketAddr::V6(destination)))
+        }
+    }
+}
+
+fn handle_header_v2(
+    cmd: v2::ProxyCommand,
+    proto: v2::ProxyTransportProtocol,
+    addr: v2::ProxyAddresses,
+) -> Option<(SocketAddr, SocketAddr)> {
+    use v2::ProxyAddresses as Address;
+    use v2::ProxyCommand as Command;
+    use v2::ProxyTransportProtocol as Protocol;
+
+    // The connection endpoints are the sender and the receiver.
+    // Such connections exist when the proxy sends health-checks to the server.
+    // The receiver must accept this connection as valid and must use the
+    // real connection endpoints and discard the protocol block including the
+    // family which is ignored
+    if let Command::Local = cmd {
+        log::debug!("[tcp]accept proxy-protocol-v2: command = LOCAL, ignore");
+        return None;
+    }
+
+    // only get tcp address
+    match proto {
+        Protocol::Stream => {}
+        Protocol::Unspec => {
+            log::debug!("[tcp]accept proxy-protocol-v2: protocol = UNSPEC, ignore");
+            return None;
+        }
+        Protocol::Datagram => {
+            log::debug!("[tcp]accept proxy-protocol-v2: protocol = DGRAM, ignore");
+            return None;
+        }
+    }
+
+    match addr {
+        Address::Ipv4 { source, destination } => {
+            log::debug!("[tcp]accept proxy-protocol-v2: {} => {}", &source, &destination);
+            Some((SocketAddr::V4(source), SocketAddr::V4(destination)))
+        }
+        Address::Ipv6 { source, destination } => {
+            log::debug!("[tcp]accept proxy-protocol-v2: {} => {}", &source, &destination);
+            Some((SocketAddr::V6(source), SocketAddr::V6(destination)))
+        }
+        Address::Unspec => {
+            log::debug!("[tcp]accept proxy-protocol-v2: af_family = AF_UNSPEC, ignore");
+            None
+        }
+        Address::Unix { .. } => {
+            log::debug!("[tcp]accept proxy-protocol-v2: af_family = AF_UNIX, ignore");
+            None
+        }
+    }
 }

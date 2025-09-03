@@ -1,6 +1,6 @@
 [package]
 name = "rmqtt-auth-jwt"
-version = "0.1.0"
+version.workspace = true
 description = "JWT is a token-based auth method that removes the need for server-side credential storage. RMQTT supports JWT-based user authentication."
 repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-auth-jwt"
 edition.workspace = true
@@ -19,4 +19,4 @@ log.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 itertools.workspace = true
-jsonwebtoken = "=9.3.0"
+jsonwebtoken.workspace = true

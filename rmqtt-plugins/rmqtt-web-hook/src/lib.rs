@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use backoff::{future::retry, ExponentialBackoff};
 use base64::prelude::{Engine, BASE64_STANDARD};
 use bytestring::ByteString;
-use rust_box::task_exec_queue::{Builder, SpawnExt, TaskExecQueue};
+use rust_box::task_exec_queue::{SpawnExt, TaskExecQueue};
 use serde_json::{self, json};
 use tokio::{
     self,
@@ -48,10 +48,8 @@ struct WebHookPlugin {
     cfg: Arc<RwLock<PluginConfig>>,
     chan_queue_count: Arc<AtomicIsize>,
     tx: Arc<RwLock<Sender<Message>>>,
-    writers: HookWriters,
     exec: TaskExecQueue,
     fails: Arc<Counter>,
-    httpc: reqwest::Client,
 }
 
 impl WebHookPlugin {
@@ -64,44 +62,33 @@ impl WebHookPlugin {
         let chan_queue_count = Arc::new(AtomicIsize::new(0));
         let fails = Arc::new(Counter::new());
         let httpc = new_http_client()?;
-        let (tx, exec) = Self::start(
-            &scx,
-            httpc.clone(),
-            cfg.clone(),
-            writers.clone(),
-            chan_queue_count.clone(),
-            fails.clone(),
-        )
-        .await;
+        let (tx, exec) =
+            Self::start(scx.clone(), httpc, cfg.clone(), writers, chan_queue_count.clone(), fails.clone())
+                .await;
         let tx = Arc::new(RwLock::new(tx));
         let register = scx.extends.hook_mgr().register();
-        Ok(Self { scx, register, cfg, chan_queue_count, tx, writers, exec, fails, httpc })
+        Ok(Self { scx, register, cfg, chan_queue_count, tx, exec, fails })
     }
 
     async fn start(
-        _scx: &ServerContext,
+        scx: ServerContext,
         httpc: reqwest::Client,
         cfg: Arc<RwLock<PluginConfig>>,
         writers: HookWriters,
         chan_queue_count: Arc<AtomicIsize>,
         fails: Arc<Counter>,
     ) -> (Sender<Message>, TaskExecQueue) {
-        let worker_threads = cfg.read().await.worker_threads;
         let (tx, mut rx): (Sender<Message>, Receiver<Message>) = channel(cfg.read().await.queue_capacity);
 
         let (exec_tx, exec_rx) = tokio::sync::oneshot::channel();
-        let _child = std::thread::Builder::new().name("web-hook".to_string()).spawn(move || {
+        tokio::spawn(async move {
             log::info!("start web-hook async worker.");
-            let rt = tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .worker_threads(worker_threads)
-                .thread_name("web-hook-worker")
-                .thread_stack_size(4 * 1024 * 1024)
-                .build()
-                .expect("tokio runtime build failed");
             let runner = async {
-                let exec =
-                    init_task_exec_queue(cfg.read().await.concurrency_limit, cfg.read().await.queue_capacity);
+                let exec = scx.get_exec((
+                    "WEB_HOOK_EXEC",
+                    cfg.read().await.concurrency_limit,
+                    cfg.read().await.queue_capacity,
+                ));
                 if exec_tx.send(exec.clone()).is_err() {
                     log::error!("tokio oneshot channel send failed");
                 }
@@ -140,7 +127,7 @@ impl WebHookPlugin {
                     }
                 }
             };
-            rt.block_on(runner);
+            runner.await;
             log::info!("exit web-hook async worker.");
         });
         let exec = exec_rx.await.expect("tokio oneshot channel recv failed");
@@ -294,28 +281,7 @@ impl Plugin for WebHookPlugin {
     #[inline]
     async fn load_config(&mut self) -> Result<()> {
         let new_cfg = Self::load_config(&self.scx, self.name())?;
-        let cfg = { self.cfg.read().await.clone() };
-        if cfg.worker_threads != new_cfg.worker_threads
-            || cfg.queue_capacity != new_cfg.queue_capacity
-            || cfg.concurrency_limit != new_cfg.concurrency_limit
-        {
-            let new_cfg = Arc::new(RwLock::new(new_cfg));
-            //restart
-            let (new_tx, new_exec) = Self::start(
-                &self.scx,
-                self.httpc.clone(),
-                new_cfg.clone(),
-                self.writers.clone(),
-                self.chan_queue_count.clone(),
-                self.fails.clone(),
-            )
-            .await;
-            self.exec = new_exec;
-            self.cfg = new_cfg;
-            *self.tx.write().await = new_tx;
-        } else {
-            *self.cfg.write().await = new_cfg;
-        }
+        *self.cfg.write().await = new_cfg;
         log::debug!("load_config ok,  {:?}", self.cfg);
         Ok(())
     }
@@ -809,15 +775,4 @@ impl HookWriter {
         }
         Ok(())
     }
-}
-
-#[inline]
-fn init_task_exec_queue(workers: usize, queue_max: usize) -> TaskExecQueue {
-    let (exec, task_runner) = Builder::default().workers(workers).queue_max(queue_max).build();
-
-    tokio::spawn(async move {
-        task_runner.await;
-    });
-
-    exec
 }
