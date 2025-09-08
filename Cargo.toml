@@ -91,7 +91,6 @@ rmqtt-web-hook = "0.15.1"
 rmqtt-cluster-raft = "0.15.1"
 rmqtt-cluster-broadcast = "0.15.1"
 
-
 tokio = { version = "1.44",  default-features = false }
 reqwest = "0.12"
 futures = "0.3"
