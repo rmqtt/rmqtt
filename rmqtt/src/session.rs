@@ -915,7 +915,7 @@ impl SessionState {
                     }
                     Ok(res) => res,
                 };
-                self.publish(publish).await.inspect_err(|e| {
+                self.publish(publish).await.inspect_err(|_| {
                     if inflight_res {
                         self.in_inflight.remove(&packet_id);
                     }
