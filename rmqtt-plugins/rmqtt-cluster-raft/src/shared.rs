@@ -8,6 +8,7 @@ use futures::future::FutureExt;
 use rust_box::task_exec_queue::{SpawnExt, TaskExecQueue};
 
 use rmqtt::context::ServerContext;
+use rmqtt::types::{ClientId, SubscriptionOptions};
 use rmqtt::{
     grpc::{GrpcClient, GrpcClients, Message, MessageBroadcaster, MessageReply, MessageSender, MessageType},
     router::Router,
@@ -335,34 +336,67 @@ impl ClusterShared {
     pub(crate) fn grpc_client(&self, node_id: u64) -> Option<GrpcClient> {
         self.grpc_clients.get(&node_id).map(|(_, c)| c.clone())
     }
-}
 
-#[async_trait]
-impl Shared for ClusterShared {
     #[inline]
-    fn entry(&self, id: Id) -> Box<dyn Entry> {
-        Box::new(ClusterLockEntry::new(
-            self.scx.clone(),
-            self.exec.clone(),
-            self.inner.entry(id),
-            self.clone(),
-            None,
-        ))
+    async fn forward_to_target_client(
+        &self,
+        from: From,
+        publish: Publish,
+        target_clientid: ClientId,
+    ) -> std::result::Result<SubscriptionClientIds, Vec<(To, From, Publish, Reason)>> {
+        let mut opts = SubscriptionOptions::default();
+        opts.set_qos(publish.qos);
+        let relations = vec![(publish.topic.clone(), target_clientid.clone(), opts, None, None)];
+        let target_nodeid = self.router.get_target_node_id(&target_clientid);
+        let target_nodeid = target_nodeid.unwrap_or_else(|| self.scx.node.id());
+
+        if target_nodeid == self.scx.node.id() {
+            //forward this node
+            self.forwards_to(from, &publish, relations).await?;
+        } else {
+            //forward other node
+            if let Some(target_client) = self.grpc_client(target_nodeid) {
+                let from = from.clone();
+                let publish = publish.clone();
+                let message_type = self.message_type;
+                let rw_timeout = self.rw_timeout;
+
+                let msg_sender = MessageSender::new(
+                    target_client,
+                    message_type,
+                    Message::ForwardsTo(from, publish, relations),
+                    Some(rw_timeout),
+                )
+                .send();
+
+                self.scx.stats.forwards.inc();
+                let scx = self.scx.clone();
+                let forwards_fut = async move {
+                    if let Err(e) = msg_sender.await {
+                        log::warn!(
+                            "forwards Message::ForwardsTo to other node, to: {target_nodeid:?}, error: {e:?}"
+                        );
+                        //@TODO messasge dropped
+                    }
+                    scx.stats.forwards.dec();
+                };
+                let _reply = self.forwards_exec.spawn(forwards_fut).await;
+            } else {
+                log::warn!(
+                        "forwards error, grpc_client is not exist, node_id: {target_nodeid}, relations: {relations:?}"
+                    );
+            }
+        }
+
+        Ok(Some(vec![(target_clientid, None)]))
     }
 
     #[inline]
-    fn exist(&self, client_id: &str) -> bool {
-        self.inner.exist(client_id)
-    }
-
-    #[inline]
-    async fn forwards(
+    async fn forward_to_subscriptions(
         &self,
         from: From,
         publish: Publish,
     ) -> std::result::Result<SubscriptionClientIds, Vec<(To, From, Publish, Reason)>> {
-        log::debug!("[forwards] from: {:?}, publish: {:?}", from, publish);
-
         let topic = &publish.topic;
         let mut relations_map = match self.scx.extends.router().await.matches(from.id.clone(), topic).await {
             Ok(relations_map) => relations_map,
@@ -434,6 +468,39 @@ impl Shared for ClusterShared {
             Ok(sub_client_ids)
         } else {
             Err(errs)
+        }
+    }
+}
+
+#[async_trait]
+impl Shared for ClusterShared {
+    #[inline]
+    fn entry(&self, id: Id) -> Box<dyn Entry> {
+        Box::new(ClusterLockEntry::new(
+            self.scx.clone(),
+            self.exec.clone(),
+            self.inner.entry(id),
+            self.clone(),
+            None,
+        ))
+    }
+
+    #[inline]
+    fn exist(&self, client_id: &str) -> bool {
+        self.inner.exist(client_id)
+    }
+
+    #[inline]
+    async fn forwards(
+        &self,
+        from: From,
+        publish: Publish,
+    ) -> std::result::Result<SubscriptionClientIds, Vec<(To, From, Publish, Reason)>> {
+        log::debug!("[forwards] from: {:?}, publish: {:?}", from, publish);
+        if let Some(target_clientid) = publish.target_clientid.clone() {
+            self.forward_to_target_client(from, publish, target_clientid).await
+        } else {
+            self.forward_to_subscriptions(from, publish).await
         }
     }
 

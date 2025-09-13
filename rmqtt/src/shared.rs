@@ -605,24 +605,34 @@ impl Shared for DefaultShared {
         publish: Publish,
     ) -> std::result::Result<SubscriptionClientIds, Vec<(To, From, Publish, Reason)>> {
         let scx = self.context();
-        let mut relations_map =
-            match scx.extends.router().await.matches(from.id.clone(), &publish.topic).await {
-                Ok(relations_map) => relations_map,
-                Err(e) => {
-                    log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, publish.topic, e);
-                    SubRelationsMap::default()
-                }
-            };
-
-        let sub_client_ids = self._collect_subscription_client_ids(&relations_map);
-
-        let this_node_id = scx.node.id();
-        if let Some(relations) = relations_map.remove(&this_node_id) {
+        let sub_client_ids = if let Some(target_clientid) = &publish.target_clientid {
+            let mut opts = SubscriptionOptions::default();
+            opts.set_qos(publish.qos);
+            let relations = vec![(publish.topic.clone(), target_clientid.clone(), opts, None, None)];
             self.forwards_to(from, &publish, relations).await?;
-        }
-        if !relations_map.is_empty() {
-            log::warn!("forwards, relations_map:{relations_map:?}");
-        }
+            Some(vec![(target_clientid.clone(), None)])
+        } else {
+            let mut relations_map =
+                match scx.extends.router().await.matches(from.id.clone(), &publish.topic).await {
+                    Ok(relations_map) => relations_map,
+                    Err(e) => {
+                        log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, publish.topic, e);
+                        SubRelationsMap::default()
+                    }
+                };
+
+            let sub_cids = self._collect_subscription_client_ids(&relations_map);
+
+            let this_node_id = scx.node.id();
+            if let Some(relations) = relations_map.remove(&this_node_id) {
+                self.forwards_to(from, &publish, relations).await?;
+            }
+            if !relations_map.is_empty() {
+                log::warn!("forwards, relations_map:{relations_map:?}");
+            }
+
+            sub_cids
+        };
         Ok(sub_client_ids)
     }
 
@@ -633,39 +643,49 @@ impl Shared for DefaultShared {
         publish: Publish,
     ) -> std::result::Result<(SubRelationsMap, SubscriptionClientIds), Vec<(To, From, Publish, Reason)>> {
         log::debug!("forwards_and_get_shareds, from: {:?}, topic: {:?}", from, publish.topic);
-        let relations_map =
-            match self.context().extends.router().await.matches(from.id.clone(), &publish.topic).await {
-                Ok(relations_map) => relations_map,
-                Err(e) => {
-                    log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, publish.topic, e);
-                    SubRelationsMap::default()
-                }
-            };
 
-        let sub_client_ids = self._collect_subscription_client_ids(&relations_map);
+        if let Some(target_clientid) = &publish.target_clientid {
+            let mut opts = SubscriptionOptions::default();
+            opts.set_qos(publish.qos);
+            let relations = vec![(publish.topic.clone(), target_clientid.clone(), opts, None, None)];
+            self.forwards_to(from, &publish, relations).await?;
+            Ok((SubRelationsMap::default(), Some(vec![(target_clientid.clone(), None)])))
+        } else {
+            let relations_map =
+                match self.context().extends.router().await.matches(from.id.clone(), &publish.topic).await {
+                    Ok(relations_map) => relations_map,
+                    Err(e) => {
+                        log::warn!("forwards, from:{:?}, topic:{:?}, error: {:?}", from, publish.topic, e);
+                        SubRelationsMap::default()
+                    }
+                };
 
-        let mut relations = SubRelations::new();
-        let mut sub_relations_map = SubRelationsMap::default();
-        for (node_id, rels) in relations_map {
-            for (topic_filter, client_id, opts, sub_ids, group) in rels {
-                if let Some(group) = group {
-                    sub_relations_map.entry(node_id).or_default().push((
-                        topic_filter,
-                        client_id,
-                        opts,
-                        sub_ids,
-                        Some(group),
-                    ));
-                } else {
-                    relations.push((topic_filter, client_id, opts, sub_ids, None));
+            let sub_client_ids = self._collect_subscription_client_ids(&relations_map);
+
+            let mut relations = SubRelations::new();
+            let mut sub_relations_map = SubRelationsMap::default();
+            for (node_id, rels) in relations_map {
+                for (topic_filter, client_id, opts, sub_ids, group) in rels {
+                    if let Some(group) = group {
+                        sub_relations_map.entry(node_id).or_default().push((
+                            topic_filter,
+                            client_id,
+                            opts,
+                            sub_ids,
+                            Some(group),
+                        ));
+                    } else {
+                        relations.push((topic_filter, client_id, opts, sub_ids, None));
+                    }
                 }
             }
-        }
 
-        if !relations.is_empty() {
-            self.forwards_to(from, &publish, relations).await?;
+            if !relations.is_empty() {
+                self.forwards_to(from, &publish, relations).await?;
+            }
+
+            Ok((sub_relations_map, sub_client_ids))
         }
-        Ok((sub_relations_map, sub_client_ids))
     }
 
     #[inline]
