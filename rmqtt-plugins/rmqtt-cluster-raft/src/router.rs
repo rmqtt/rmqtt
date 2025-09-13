@@ -128,6 +128,11 @@ impl ClusterRouter {
     pub(crate) fn _handshakings(&self) -> usize {
         self.client_states.iter().filter_map(|entry| if entry.handshaking { Some(()) } else { None }).count()
     }
+
+    #[inline]
+    pub(crate) fn get_target_node_id(&self, target_clientid: &str) -> Option<NodeId> {
+        self.client_states.get(target_clientid).map(|entry| entry.id.node_id)
+    }
 }
 
 #[async_trait]
@@ -191,6 +196,7 @@ impl Router for ClusterRouter {
     }
 
     ///Check online or offline
+    #[inline]
     async fn is_online(&self, node_id: NodeId, client_id: &str) -> bool {
         log::debug!("[Router.is_online] node_id: {:?}, client_id: {:?}", node_id, client_id);
         self.client_states.get(client_id).map(|entry| entry.online).unwrap_or(false)
