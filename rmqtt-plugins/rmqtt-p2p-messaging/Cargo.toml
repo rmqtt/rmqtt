@@ -1,7 +1,7 @@
 [package]
 name = "rmqtt-p2p-messaging"
 version.workspace = true
-description = ""
+description = "An rmqtt plugin that provides point-to-point (P2P) messaging support, enabling direct message delivery between clients using configurable topic patterns."
 repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-p2p-messaging"
 edition.workspace = true
 authors.workspace = true
