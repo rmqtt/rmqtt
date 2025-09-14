@@ -88,6 +88,7 @@ plugins.default_startups = [
     #"rmqtt-bridge-egress-nats",
     #"rmqtt-bridge-egress-reductstore",
     #"rmqtt-web-hook",
+    #"rmqtt-p2p-messaging",
     "rmqtt-http-api"
 ]
 

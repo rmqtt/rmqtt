@@ -41,6 +41,7 @@ full = [
     "bridge-ingress-pulsar",
     "bridge-egress-nats",
     "bridge-egress-reductstore",
+    "p2p-messaging",
 
     "sys-topic",
     "topic-rewrite",
@@ -88,6 +89,7 @@ bridge-egress-reductstore = ["rmqtt-bridge-egress-reductstore"]
 sys-topic = ["rmqtt-sys-topic"]
 topic-rewrite = ["rmqtt-topic-rewrite"]
 web-hook = ["rmqtt-web-hook"]
+p2p-messaging = ["rmqtt-p2p-messaging"]
 
 # ---- cluster plugins ----
 cluster-raft = ["rmqtt-cluster-raft"]
@@ -116,3 +118,4 @@ rmqtt-topic-rewrite = { workspace = true, optional = true }
 rmqtt-web-hook = { workspace = true, optional = true }
 rmqtt-cluster-raft = { workspace = true, optional = true }
 rmqtt-cluster-broadcast = { workspace = true, optional = true }
+rmqtt-p2p-messaging = { workspace = true, optional = true }

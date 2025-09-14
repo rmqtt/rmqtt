@@ -1,0 +1,8 @@
+##--------------------------------------------------------------------
+## rmqtt-p2p-messaging
+##--------------------------------------------------------------------
+
+#"prefix": `p2p/{clientid}/{topic}` — the `p2p` identifier is at the start.
+#"suffix": `{topic}/p2p/{clientid}` — the `p2p` identifier is at the end.
+#"both": supports both prefix and suffix formats.
+mode = "prefix"
