@@ -40,6 +40,7 @@ and mobile applications that can handle millions of concurrent clients on a sing
 - [Reductstore Bridging - Egress Mode](./docs/en_US/bridge-egress-reductstore.md)
 - [Topic Rewrite](./docs/en_US/topic-rewrite.md)
 - [Auto Subscription](./docs/en_US/auto-subscription.md)
+- [P2P Messaging](./docs/en_US/p2p-messaging.md)
 - Shared subscription($share/{Group}/{TopicFilter});
 - Exclusive subscription($exclusive/{TopicFilter});
 - Limit subscription($limit/{LimitQuantity}/{TopicFilter});
@@ -114,7 +115,7 @@ In addition to running as a standalone MQTT Broker/Server, rmqtt also provides a
 
 ```toml
 [dependencies]
-rmqtt = "0.15"
+rmqtt = "0.16"
 ```
 
 For more details about using rmqtt in library mode, please refer to the [RMQTT Library Documentation](./rmqtt/README.md).
