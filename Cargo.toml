@@ -45,6 +45,8 @@ rmqtt-bridge-ingress-pulsar = { path = "rmqtt-plugins/rmqtt-bridge-ingress-pulsa
 rmqtt-bridge-egress-pulsar = { path = "rmqtt-plugins/rmqtt-bridge-egress-pulsar"}
 rmqtt-bridge-egress-nats = { path = "rmqtt-plugins/rmqtt-bridge-egress-nats"}
 rmqtt-bridge-egress-reductstore = { path = "rmqtt-plugins/rmqtt-bridge-egress-reductstore"}
+rmqtt-p2p-messaging = { path = "rmqtt-plugins/rmqtt-p2p-messaging"}
+
 
 [workspace.package]
 version = "0.16.0"
@@ -90,7 +92,7 @@ rmqtt-topic-rewrite = "0.16.0"
 rmqtt-web-hook = "0.16.0"
 rmqtt-cluster-raft = "0.16.0"
 rmqtt-cluster-broadcast = "0.16.0"
-
+rmqtt-p2p-messaging = "0.16.0"
 
 tokio = { version = "1.44",  default-features = false }
 reqwest = "0.12"

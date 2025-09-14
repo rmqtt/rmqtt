@@ -58,6 +58,7 @@ rmqtt-topic-rewrite.workspace = true
 rmqtt-web-hook.workspace = true
 rmqtt-cluster-raft.workspace = true
 rmqtt-cluster-broadcast.workspace = true
+rmqtt-p2p-messaging.workspace = true
 #rmqtt-plugin-template = "0.1"
 
 [package.metadata.plugins]
@@ -83,6 +84,7 @@ rmqtt-topic-rewrite = { }
 rmqtt-web-hook = { }
 rmqtt-cluster-raft = { immutable = true }
 rmqtt-cluster-broadcast = { immutable = true }
+rmqtt-p2p-messaging = { }
 #rmqtt-plugin-template = { }
 
 [build-dependencies]

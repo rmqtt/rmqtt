@@ -10,6 +10,7 @@ async fn main() -> Result<()> {
     rmqtt_plugins::acl::register(&scx, true, false).await?;
     rmqtt_plugins::http_api::register(&scx, true, false).await?;
     rmqtt_plugins::retainer::register(&scx, true, false).await?;
+    rmqtt_plugins::p2p_messaging::register(&scx, true, false).await?;
     // rmqtt_plugins::sys_topic::register(&scx, true, false).await?;
     // rmqtt_plugins::message_storage::register(&scx, true, false).await?;
 
