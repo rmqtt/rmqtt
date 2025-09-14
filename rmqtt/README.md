@@ -24,7 +24,7 @@ A basic MQTT server with RMQTT.
 
 ```toml
 [dependencies]
-rmqtt = "0.15"
+rmqtt = "0.16"
 tokio = { version = "1", features = ["full"] }
 simple_logger = "5"
 log = "0.4"
@@ -58,7 +58,7 @@ Make sure you included the rmqtt crate with the required features in your Cargo.
 
 ```toml
 [dependencies]
-rmqtt = { version = "0.15", features = ["ws", "tls"] }
+rmqtt = { version = "0.16", features = ["ws", "tls"] }
 tokio = { version = "1", features = ["full"] }
 simple_logger = "5"
 log = "0.4"
@@ -111,8 +111,8 @@ Make sure you included the rmqtt crate with the required features in your Cargo.
 
 ```toml
 [dependencies]
-rmqtt = { version = "0.15", features = ["plugin"] }
-rmqtt-plugins = { version = "0.15", features = ["full"] }
+rmqtt = { version = "0.16", features = ["plugin"] }
+rmqtt-plugins = { version = "0.16", features = ["full"] }
 tokio = { version = "1", features = ["full"] }
 simple_logger = "5"
 log = "0.4"
@@ -153,8 +153,8 @@ or
 
 ```toml
 [dependencies]
-rmqtt = { version = "0.15", features = ["plugin"] }
-rmqtt-plugins = { version = "0.15", features = ["full"] }
+rmqtt = { version = "0.16", features = ["plugin"] }
+rmqtt-plugins = { version = "0.16", features = ["full"] }
 tokio = { version = "1", features = ["full"] }
 simple_logger = "5"
 log = "0.4"
@@ -206,11 +206,11 @@ or
 
 ```toml
 [dependencies]
-rmqtt = { version = "0.15", features = ["plugin"] }
-rmqtt-acl = "0.15"
-rmqtt-retainer = "0.15"
-rmqtt-http-api = "0.15"
-rmqtt-web-hook = "0.15"
+rmqtt = { version = "0.16", features = ["plugin"] }
+rmqtt-acl = "0.16"
+rmqtt-retainer = "0.16"
+rmqtt-http-api = "0.16"
+rmqtt-web-hook = "0.16"
 tokio = { version = "1", features = ["full"] }
 simple_logger = "5"
 log = "0.4"

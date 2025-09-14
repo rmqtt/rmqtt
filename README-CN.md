@@ -38,6 +38,7 @@
 - [Reductstore桥接-出口模式](./docs/zh_CN/bridge-egress-reductstore.md)
 - [主题重写](./docs/zh_CN/topic-rewrite.md)
 - [自动订阅](./docs/zh_CN/auto-subscription.md)
+- [P2P 消息传递](./docs/zh_CN/p2p-messaging.md)
 - 共享订阅($share/{Group}/{TopicFilter});
 - 排它订阅($exclusive/{TopicFilter});
 - 限制订阅($limit/{LimitQuantity}/{TopicFilter});
@@ -111,7 +112,7 @@ curl "http://127.0.0.1:6066/api/v1/health/check"
 
 ```toml
 [dependencies]
-rmqtt = "0.15"
+rmqtt = "0.16"
 ```
 
 更多关于库模式的使用说明，请参考 [RMQTT 库使用文档](./rmqtt/README.md) 。
