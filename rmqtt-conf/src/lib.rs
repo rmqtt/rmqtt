@@ -84,9 +84,7 @@ impl Settings {
 
         //Command line configuration overriding file configuration
         if let Some(id) = opts.node_id {
-            if id > 0 {
-                inner.node.id = id;
-            }
+            inner.node.id = id;
         }
         if let Some(plugins_default_startups) = opts.plugins_default_startups.as_ref() {
             inner.plugins.default_startups.clone_from(plugins_default_startups)
@@ -366,5 +364,51 @@ impl Mqtt {
 
     fn max_sessions_default() -> isize {
         0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_node_id_values() {
+        let test_cases = [
+            (Some(0), 0),
+            (Some(1), 1),
+            (Some(2), 2),
+            (Some(1000), 1000),
+            (None, 0), // Default when None
+        ];
+
+        for (node_id, expected) in &test_cases {
+            let opts = Options { node_id: *node_id, ..Default::default() };
+
+            let settings = Settings::new(opts).expect("Settings creation failed");
+            assert_eq!(settings.node.id, *expected, "Expected node ID {}", expected);
+        }
+    }
+
+    #[test]
+    fn test_raft_leader_id_integration() {
+        // Ensure node ID and raft leader ID can both use 0 without conflicts
+        let test_cases = [
+            (Some(0), None, 0, None),
+            (Some(0), Some(0), 0, Some(0)),
+            (Some(1), Some(0), 1, Some(0)),
+            (Some(0), Some(1), 0, Some(1)),
+        ];
+
+        for (node_id, raft_leader_id, expected_node, expected_leader) in &test_cases {
+            let opts = Options { node_id: *node_id, raft_leader_id: *raft_leader_id, ..Default::default() };
+
+            let settings = Settings::new(opts).expect("Settings creation failed");
+            assert_eq!(settings.node.id, *expected_node, "Expected node ID {}", expected_node);
+            assert_eq!(
+                settings.opts.raft_leader_id, *expected_leader,
+                "Expected raft leader {:?}",
+                expected_leader
+            );
+        }
     }
 }

@@ -42,7 +42,7 @@ pub struct PluginConfig {
     pub raft_peer_addrs: Vec<NodeAddr>,
 
     #[serde(default)]
-    pub leader_id: NodeId,
+    pub leader_id: Option<NodeId>,
 
     #[serde(default = "PluginConfig::try_lock_timeout_default", deserialize_with = "deserialize_duration")]
     pub try_lock_timeout: Duration, //Message::HandshakeTryLock
@@ -69,15 +69,14 @@ pub struct PluginConfig {
 impl PluginConfig {
     #[inline]
     pub fn leader(&self) -> Result<Option<&NodeAddr>> {
-        if self.leader_id == 0 {
-            Ok(None)
-        } else {
-            let leader = self
+        match self.leader_id {
+            Some(leader_id) => self
                 .raft_peer_addrs
                 .iter()
-                .find(|leader| leader.id == self.leader_id)
-                .ok_or_else(|| anyhow!("Leader does not exist"))?;
-            Ok(Some(leader))
+                .find(|addr| addr.id == leader_id)
+                .map(Some)
+                .ok_or_else(|| anyhow!("Leader does not exist")),
+            None => Ok(None), // No leader specified, first node becomes leader
         }
     }
 
@@ -129,7 +128,7 @@ impl PluginConfig {
             self.raft_peer_addrs.clone_from(raft_peer_addrs);
         }
         if let Some(raft_leader_id) = opts.raft_leader_id.as_ref() {
-            self.leader_id = *raft_leader_id;
+            self.leader_id = Some(*raft_leader_id);
         }
     }
 }
@@ -394,4 +393,63 @@ pub enum Compression {
     Lz4,
     Zlib,
     Snappy,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rmqtt::utils::Addr;
+
+    #[test]
+    fn test_leader_id_semantics() {
+        let peers = vec![
+            NodeAddr { id: 0, addr: Addr::from("127.0.0.1:6003") },
+            NodeAddr { id: 1, addr: Addr::from("127.0.0.1:6004") },
+            NodeAddr { id: 2, addr: Addr::from("127.0.0.1:6005") },
+        ];
+
+        // None means no leader specified
+        let config = PluginConfig { leader_id: None, raft_peer_addrs: peers.clone(), ..create_test_config() };
+        assert!(config.leader().unwrap().is_none(), "None should return None");
+
+        // Valid node IDs should work
+        for &node_id in &[0, 1, 2] {
+            let config = PluginConfig {
+                leader_id: Some(node_id),
+                raft_peer_addrs: peers.clone(),
+                ..create_test_config()
+            };
+            let leader = config.leader().unwrap();
+            assert!(leader.is_some(), "Node ID {} should be valid", node_id);
+            assert_eq!(leader.unwrap().id, node_id, "Expected node ID {}", node_id);
+        }
+
+        // Invalid node ID should error
+        let config = PluginConfig { leader_id: Some(999), raft_peer_addrs: peers, ..create_test_config() };
+        let result = config.leader();
+        assert!(result.is_err(), "Invalid leader ID should return error");
+        assert!(result.unwrap_err().to_string().contains("Leader does not exist"));
+    }
+
+    // Helper function to create a test config with default values
+    fn create_test_config() -> PluginConfig {
+        PluginConfig {
+            worker_threads: 6,
+            message_type: MessageType::default(),
+            laddr: None,
+            node_grpc_addrs: vec![],
+            node_grpc_client_concurrency_limit: 128,
+            node_grpc_client_timeout: Duration::from_secs(60),
+            node_grpc_batch_size: 128,
+            raft_peer_addrs: vec![],
+            leader_id: None,
+            try_lock_timeout: Duration::from_secs(10),
+            task_exec_queue_workers: 500,
+            task_exec_queue_max: 100_000,
+            compression: None,
+            health: Health::default(),
+            raft: RaftConfig::default(),
+            verify_addr: false,
+        }
+    }
 }

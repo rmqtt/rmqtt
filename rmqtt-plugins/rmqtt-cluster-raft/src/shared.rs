@@ -588,9 +588,7 @@ impl Shared for ClusterShared {
         let mut leader_ids = HashSet::default();
         let status = self.health_status().await?;
         if let Some(leader_id) = status.leader_id {
-            if leader_id > 0 {
-                leader_ids.insert(leader_id);
-            }
+            leader_ids.insert(leader_id);
         }
 
         nodes_health_infos.push(status);
@@ -612,9 +610,7 @@ impl Shared for ClusterShared {
                         let RaftGrpcMessageReply::GetNodeHealthStatus(o_status) =
                             RaftGrpcMessageReply::decode(&data)?;
                         if let Some(leader_id) = o_status.leader_id {
-                            if leader_id > 0 {
-                                leader_ids.insert(leader_id);
-                            }
+                            leader_ids.insert(leader_id);
                         }
                         nodes_health_infos.push(o_status);
                     }
@@ -642,10 +638,10 @@ impl Shared for ClusterShared {
                 }
             }
         }
-        let (running, descr) = if leader_ids.len() != 1 {
-            (false, "Leader ID exception")
-        } else if leader_ids.into_iter().next() == Some(0) {
+        let (running, descr) = if leader_ids.is_empty() {
             (false, "Leader does not exist")
+        } else if leader_ids.len() != 1 {
+            (false, "Leader ID exception")
         } else {
             (true, "Ok")
         };
@@ -657,8 +653,9 @@ impl Shared for ClusterShared {
     async fn health_status(&self) -> Result<NodeHealthStatus> {
         let mailbox = self.router.raft_mailbox().await;
         let status = mailbox.status().await.map_err(Error::new)?;
-        let (running, leader_id) = if status.available() { (true, status.leader_id) } else { (false, 0) };
-        Ok(NodeHealthStatus { node_id: status.id, running, leader_id: Some(leader_id), descr: None })
+        let (running, leader_id) =
+            if status.available() { (true, Some(status.leader_id)) } else { (false, None) };
+        Ok(NodeHealthStatus { node_id: status.id, running, leader_id, descr: None })
     }
 
     #[inline]

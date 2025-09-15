@@ -2675,11 +2675,9 @@ pub struct NodeHealthStatus {
 
 impl NodeHealthStatus {
     pub fn is_running(&self) -> bool {
-        if let Some(leader_id) = self.leader_id {
-            leader_id > 0 && self.running
-        } else {
-            self.running
-        }
+        // A node is running if it's marked as running and either has no leader specified
+        // or has a valid leader (including node ID 0, which is now valid)
+        self.running
     }
 
     pub fn to_json(&self) -> Value {
@@ -2705,6 +2703,28 @@ impl NodeHealthStatus {
 impl Default for NodeHealthStatus {
     fn default() -> Self {
         Self { node_id: 0, running: true, leader_id: None, descr: None }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_node_health_status_is_running() {
+        let test_cases = [
+            (0, true, None, true, "None leader running"),
+            (1, true, Some(0), true, "Leader ID 0 running"),
+            (2, true, Some(1), true, "Leader ID 1 running"),
+            (3, false, Some(0), false, "Not running"),
+            (4, true, Some(1000), true, "Large leader ID running"),
+        ];
+
+        for (node_id, running, leader_id, expected, desc) in &test_cases {
+            let status =
+                NodeHealthStatus { node_id: *node_id, running: *running, leader_id: *leader_id, descr: None };
+            assert_eq!(status.is_running(), *expected, "{}", desc);
+        }
     }
 }
 

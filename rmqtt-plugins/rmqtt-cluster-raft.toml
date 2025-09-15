@@ -27,9 +27,9 @@ raft_peer_addrs = ["1@127.0.0.1:6003", "2@127.0.0.1:6004", "3@127.0.0.1:6005"]
 #If this listening address is not specified, the address of the node corresponding to `raft_peer_addrs` will be used.
 #laddr = "0.0.0.0:6003"
 
-#Specify a leader id, when the value is 0 or not specified, the first node
-#will be designated as the Leader. Default value: 0
-leader_id = 0
+#Specify a leader id, when not specified, the first node will be designated as the Leader.
+#Default value: None (the first node)
+#leader_id = 0  # Uncomment and set to a specific node ID to designate a leader
 
 #Handshake lock timeout
 try_lock_timeout = "10s"

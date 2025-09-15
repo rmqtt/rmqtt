@@ -24,8 +24,8 @@ pub struct Options {
     #[structopt(name = "raft-peer-addrs", long)]
     pub raft_peer_addrs: Option<Vec<NodeAddr>>,
 
-    ///Specify a leader id, when the value is 0 or not specified, the first node
-    ///will be designated as the Leader. Default value: 0
+    ///Specify a leader id, when not specified, the first node will be designated as the Leader.
+    ///Default value: None (the first node)
     #[structopt(name = "raft-leader-id", long)]
     pub raft_leader_id: Option<NodeId>,
     // ///Node cookie
