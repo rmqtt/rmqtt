@@ -231,7 +231,7 @@ RMQTT uses the current client-related information as parameters in device publis
   - API HTTP request fails and deny_if_error configuration is set to false, resulting in the authorization chain continuing with a result of ignore.
 - Cache authorization result:
   - Response header returns "X-Cache: -1" indicating the result is cached. The value represents the cache timeout duration in milliseconds. The value -1 indicates it is valid during the active connection period.
-
+  - **Note: Caching is not supported for subscription ACLs.**
 
 When performing publish and subscribe authentication, RMQTT will populate the current client information and initiate a user-configured ACL authorization query request. This request is used to retrieve the authorization data of the client from the HTTP server.
 
