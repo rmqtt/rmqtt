@@ -34,16 +34,6 @@ pub struct Bridge {
 }
 
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
-pub struct Auth {
-    pub(crate) jwt: Option<String>,
-    pub(crate) jwt_seed: Option<String>,
-    pub(crate) nkey: Option<String>,
-    pub(crate) username: Option<String>,
-    pub(crate) password: Option<String>,
-    pub(crate) token: Option<String>,
-}
-
-#[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Entry {
     #[serde(default)]
     pub local: Local,

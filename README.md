@@ -209,3 +209,6 @@ For more details about using rmqtt in library mode, please refer to the [RMQTT L
 
 [For detailed benchmark test results and information, see documentation.](./docs/en_US/benchmark-testing.md)
 
+## ⭐ Star History
+[![Star History Chart](https://api.star-history.com/svg?repos=rmqtt/rmqtt&type=Date)](https://star-history.com/#rmqtt/rmqtt&Date)
+
