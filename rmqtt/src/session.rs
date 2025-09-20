@@ -1028,33 +1028,6 @@ impl SessionState {
             None
         };
 
-        //delayed publish
-        #[cfg(feature = "delayed")]
-        if publish.delay_interval.is_some() {
-            if let Some((f, p)) = self
-                .scx
-                .extends
-                .delayed_sender()
-                .await
-                .delay_publish(from, publish, message_storage_available, message_expiry_interval)
-                .await?
-            {
-                if self.scx.mqtt_delayed_publish_immediate {
-                    Self::forwards(&self.scx, f, p, message_storage_available, message_expiry_interval)
-                        .await?;
-                } else {
-                    //hook, Message dropped
-                    self.scx
-                        .extends
-                        .hook_mgr()
-                        .message_dropped(None, f, p, Reason::DelayedPublishRefused)
-                        .await;
-                    return Ok(false);
-                }
-            }
-            return Ok(true);
-        }
-
         Self::forwards(&self.scx, from, publish, message_storage_available, message_expiry_interval).await?;
 
         Ok(true)
@@ -1752,6 +1725,41 @@ impl SessionState {
         #[allow(unused_variables)] message_storage_available: bool,
         #[allow(unused_variables)] message_expiry_interval: Option<Duration>,
     ) -> Result<()> {
+        //delayed publish
+        #[cfg(feature = "delayed")]
+        if publish.delay_interval.is_some() {
+            if let Some((f, p)) = scx
+                .extends
+                .delayed_sender()
+                .await
+                .delay_publish(from, publish, message_storage_available, message_expiry_interval)
+                .await?
+            {
+                if scx.mqtt_delayed_publish_immediate {
+                    Self::inner_forwards(scx, f, p, message_storage_available, message_expiry_interval)
+                        .await?;
+                } else {
+                    //hook, Message dropped
+                    scx.extends.hook_mgr().message_dropped(None, f, p, Reason::DelayedPublishRefused).await;
+                    return Ok(());
+                }
+            }
+            return Ok(());
+        }
+
+        Self::inner_forwards(scx, from, publish, message_storage_available, message_expiry_interval).await
+    }
+
+    #[inline]
+    pub(crate) async fn inner_forwards(
+        scx: &ServerContext,
+        from: From,
+        publish: Publish,
+        #[allow(unused_variables)] message_storage_available: bool,
+        #[allow(unused_variables)] message_expiry_interval: Option<Duration>,
+    ) -> Result<()> {
+        log::debug!("{from:?}");
+        log::debug!("{publish:?}");
         //make message id
         #[cfg(feature = "msgstore")]
         let msg_id = if message_storage_available {
