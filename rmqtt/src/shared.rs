@@ -769,7 +769,7 @@ impl Shared for DefaultShared {
 
     #[inline]
     fn random_session(&self) -> Option<Session> {
-        let mut sessions = self.peers.iter().map(|p| (p.s.clone())).collect::<Vec<Session>>();
+        let mut sessions = self.peers.iter().map(|p| p.s.clone()).collect::<Vec<Session>>();
         let len = self.peers.len();
         if len > 0 {
             let idx = rand::random::<u64>() as usize % len;
