@@ -34,6 +34,7 @@
 - [Apache kafka桥接-出口模式](./docs/zh_CN/bridge-egress-kafka.md)
 - [Apache Pulsar桥接-入口模式](./docs/zh_CN/bridge-ingress-pulsar.md)
 - [Apache Pulsar桥接-出口模式](./docs/zh_CN/bridge-egress-pulsar.md)
+- [NATS桥接-入口模式](./docs/zh_CN/bridge-ingress-nats.md)
 - [NATS桥接-出口模式](./docs/zh_CN/bridge-egress-nats.md)
 - [Reductstore桥接-出口模式](./docs/zh_CN/bridge-egress-reductstore.md)
 - [主题重写](./docs/zh_CN/topic-rewrite.md)
