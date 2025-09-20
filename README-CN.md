@@ -206,6 +206,9 @@ rmqtt = "0.16"
 
 [基准测试详细内容，请参阅](./docs/zh_CN/benchmark-testing.md)
 
+## ⭐ Star History
+[![Star History Chart](https://api.star-history.com/svg?repos=rmqtt/rmqtt&type=Date)](https://star-history.com/#rmqtt/rmqtt&Date)
+
 
 
 
