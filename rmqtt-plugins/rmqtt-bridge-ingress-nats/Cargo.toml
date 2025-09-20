@@ -1,0 +1,31 @@
+[package]
+name = "rmqtt-bridge-ingress-nats"
+version.workspace = true
+description = "Bridge remote NATS in ingress mode."
+repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-bridge-ingress-nats"
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+rmqtt = { workspace = true, features = ["plugin"] }
+tokio = { workspace = true, features = ["sync"] }
+serde = { workspace = true, features = ["derive"] }
+async-nats = "0.38"
+nkeys = "0.4.4"
+event-notify = "0.1.1"
+serde_json.workspace = true
+log.workspace = true
+async-trait.workspace = true
+anyhow.workspace = true
+futures.workspace = true
+bytestring.workspace = true
+bytes.workspace = true
+
+
+
+
+
+
+

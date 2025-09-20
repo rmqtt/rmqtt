@@ -39,6 +39,7 @@ full = [
     "bridge-ingress-mqtt",
     "bridge-egress-pulsar",
     "bridge-ingress-pulsar",
+    "bridge-ingress-nats",
     "bridge-egress-nats",
     "bridge-egress-reductstore",
     "p2p-messaging",
@@ -82,6 +83,7 @@ bridge-egress-mqtt = ["rmqtt-bridge-egress-mqtt"]
 bridge-ingress-mqtt = ["rmqtt-bridge-ingress-mqtt"]
 bridge-egress-pulsar = ["rmqtt-bridge-egress-pulsar"]
 bridge-ingress-pulsar = ["rmqtt-bridge-ingress-pulsar"]
+bridge-ingress-nats = ["rmqtt-bridge-ingress-nats"]
 bridge-egress-nats = ["rmqtt-bridge-egress-nats"]
 bridge-egress-reductstore = ["rmqtt-bridge-egress-reductstore"]
 
@@ -109,6 +111,7 @@ rmqtt-bridge-egress-mqtt = { workspace = true, optional = true }
 rmqtt-bridge-ingress-mqtt = { workspace = true, optional = true }
 rmqtt-bridge-egress-pulsar = { workspace = true, optional = true }
 rmqtt-bridge-ingress-pulsar = { workspace = true, optional = true }
+rmqtt-bridge-ingress-nats = { workspace = true, optional = true }
 rmqtt-bridge-egress-nats = { workspace = true, optional = true }
 rmqtt-bridge-egress-reductstore = { workspace = true, optional = true }
 rmqtt-message-storage = { workspace = true, optional = true }

@@ -43,6 +43,7 @@ rmqtt-bridge-ingress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-ingress-kafka"
 rmqtt-bridge-egress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-egress-kafka" }
 rmqtt-bridge-ingress-pulsar = { path = "rmqtt-plugins/rmqtt-bridge-ingress-pulsar"}
 rmqtt-bridge-egress-pulsar = { path = "rmqtt-plugins/rmqtt-bridge-egress-pulsar"}
+rmqtt-bridge-ingress-nats = { path = "rmqtt-plugins/rmqtt-bridge-ingress-nats"}
 rmqtt-bridge-egress-nats = { path = "rmqtt-plugins/rmqtt-bridge-egress-nats"}
 rmqtt-bridge-egress-reductstore = { path = "rmqtt-plugins/rmqtt-bridge-egress-reductstore"}
 rmqtt-p2p-messaging = { path = "rmqtt-plugins/rmqtt-p2p-messaging"}
@@ -83,6 +84,7 @@ rmqtt-bridge-egress-mqtt = "0.17.0"
 rmqtt-bridge-ingress-mqtt = "0.17.0"
 rmqtt-bridge-ingress-pulsar = "0.17.0"
 rmqtt-bridge-egress-pulsar = "0.17.0"
+rmqtt-bridge-ingress-nats = "0.17.0"
 rmqtt-bridge-egress-nats = "0.17.0"
 rmqtt-bridge-egress-reductstore = "0.17.0"
 rmqtt-message-storage = "0.17.0"
