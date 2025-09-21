@@ -16,8 +16,8 @@ and mobile applications that can handle millions of concurrent clients on a sing
 
 - 100% Rust safe code;
 - Based on [tokio](https://crates.io/crates/tokio);
-- MQTT v3.1, v3.1.1 and v5.0 protocols support;
-    - QoS0, QoS1, QoS2 message support;
+- [MQTT v3.1, v3.1.1 and v5.0 protocols support](./docs/en_US/mqtt-protocol.md);
+    - [QoS0, QoS1, QoS2 message support](./docs/en_US/mqtt-protocol.md#41-qos-levels);
     - [Offline message support](./docs/en_US/offline-message.md);
     - [Retained message support](./docs/en_US/retainer.md);
     - Last Will message support;

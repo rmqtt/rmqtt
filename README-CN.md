@@ -14,8 +14,8 @@
 
 - 100% Rust安全编码;
 - 基于 [tokio](https://crates.io/crates/tokio) 开发;
-- 支持MQTT v3.1,v3.1.1 及 v5.0协议;
-    - QoS0, QoS1, QoS2 消息支持;
+- [支持MQTT v3.1,v3.1.1 及 v5.0协议](./docs/zh_CN/mqtt-protocol.md);
+    - [QoS0, QoS1, QoS2 消息支持](./docs/zh_CN/mqtt-protocol.md#41-qos-说明);
     - [离线消息支持](./docs/zh_CN/offline-message.md);
     - [Retained 消息支持](./docs/zh_CN/retainer.md);
     - Last Will 消息支持;
