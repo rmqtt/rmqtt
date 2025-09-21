@@ -18,7 +18,7 @@ and mobile applications that can handle millions of concurrent clients on a sing
 - Based on [tokio](https://crates.io/crates/tokio);
 - MQTT v3.1, v3.1.1 and v5.0 protocols support;
     - QoS0, QoS1, QoS2 message support;
-    - Offline message support;
+    - [Offline message support](./docs/en_US/offline-message.md);
     - [Retained message support](./docs/en_US/retainer.md);
     - Last Will message support;
 - [Distributed cluster](./docs/en_US/cluster-raft.md);
@@ -30,18 +30,18 @@ and mobile applications that can handle millions of concurrent clients on a sing
 - [$SYS System Topics](./docs/en_US/sys-topic.md);
 - [Store session information](./docs/en_US/store-session.md);
 - [Store unexpired messages](./docs/en_US/store-message.md);
-- [MQTT Bridging - Ingress Mode](./docs/en_US/bridge-ingress-mqtt.md)
-- [MQTT Bridging - Egress Mode](./docs/en_US/bridge-egress-mqtt.md)
-- [Apache Kafka Bridging - Ingress Mode](./docs/en_US/bridge-ingress-kafka.md)
-- [Apache Kafka Bridging - Egress Mode](./docs/en_US/bridge-egress-kafka.md)
-- [Apache Pulsar Bridging - Ingress Mode](./docs/en_US/bridge-ingress-pulsar.md)
-- [Apache Pulsar Bridging - Egress Mode](./docs/en_US/bridge-egress-pulsar.md)
-- [NATS Bridging - Ingress Mode](./docs/en_US/bridge-ingress-nats.md)
-- [NATS Bridging - Egress Mode](./docs/en_US/bridge-egress-nats.md)
-- [Reductstore Bridging - Egress Mode](./docs/en_US/bridge-egress-reductstore.md)
-- [Topic Rewrite](./docs/en_US/topic-rewrite.md)
-- [Auto Subscription](./docs/en_US/auto-subscription.md)
-- [P2P Messaging](./docs/en_US/p2p-messaging.md)
+- [MQTT Bridging - Ingress Mode](./docs/en_US/bridge-ingress-mqtt.md);
+- [MQTT Bridging - Egress Mode](./docs/en_US/bridge-egress-mqtt.md);
+- [Apache Kafka Bridging - Ingress Mode](./docs/en_US/bridge-ingress-kafka.md);
+- [Apache Kafka Bridging - Egress Mode](./docs/en_US/bridge-egress-kafka.md);
+- [Apache Pulsar Bridging - Ingress Mode](./docs/en_US/bridge-ingress-pulsar.md);
+- [Apache Pulsar Bridging - Egress Mode](./docs/en_US/bridge-egress-pulsar.md);
+- [NATS Bridging - Ingress Mode](./docs/en_US/bridge-ingress-nats.md);
+- [NATS Bridging - Egress Mode](./docs/en_US/bridge-egress-nats.md);
+- [Reductstore Bridging - Egress Mode](./docs/en_US/bridge-egress-reductstore.md);
+- [Topic Rewrite](./docs/en_US/topic-rewrite.md);
+- [Auto Subscription](./docs/en_US/auto-subscription.md);
+- [P2P Messaging](./docs/en_US/p2p-messaging.md);
 - Shared subscription($share/{Group}/{TopicFilter});
 - Exclusive subscription($exclusive/{TopicFilter});
 - Limit subscription($limit/{LimitQuantity}/{TopicFilter});
