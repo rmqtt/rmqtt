@@ -16,7 +16,7 @@
 - 基于 [tokio](https://crates.io/crates/tokio) 开发;
 - 支持MQTT v3.1,v3.1.1 及 v5.0协议;
     - QoS0, QoS1, QoS2 消息支持;
-    - 离线消息支持;
+    - [离线消息支持](./docs/zh_CN/offline-message.md);
     - [Retained 消息支持](./docs/zh_CN/retainer.md);
     - Last Will 消息支持;
 - [分布式集群](./docs/zh_CN/cluster-raft.md);
@@ -28,18 +28,18 @@
 - [$SYS 系统主题](./docs/zh_CN/sys-topic.md);
 - [存储会话信息](./docs/zh_CN/store-session.md);
 - [存储未过期消息](./docs/zh_CN/store-message.md);
-- [MQTT桥接-入口模式](./docs/zh_CN/bridge-ingress-mqtt.md)
-- [MQTT桥接-出口模式](./docs/zh_CN/bridge-egress-mqtt.md)
-- [Apache Kafka桥接-入口模式](./docs/zh_CN/bridge-ingress-kafka.md)
-- [Apache kafka桥接-出口模式](./docs/zh_CN/bridge-egress-kafka.md)
-- [Apache Pulsar桥接-入口模式](./docs/zh_CN/bridge-ingress-pulsar.md)
-- [Apache Pulsar桥接-出口模式](./docs/zh_CN/bridge-egress-pulsar.md)
-- [NATS桥接-入口模式](./docs/zh_CN/bridge-ingress-nats.md)
-- [NATS桥接-出口模式](./docs/zh_CN/bridge-egress-nats.md)
-- [Reductstore桥接-出口模式](./docs/zh_CN/bridge-egress-reductstore.md)
-- [主题重写](./docs/zh_CN/topic-rewrite.md)
-- [自动订阅](./docs/zh_CN/auto-subscription.md)
-- [P2P 消息传递](./docs/zh_CN/p2p-messaging.md)
+- [MQTT桥接-入口模式](./docs/zh_CN/bridge-ingress-mqtt.md);
+- [MQTT桥接-出口模式](./docs/zh_CN/bridge-egress-mqtt.md);
+- [Apache Kafka桥接-入口模式](./docs/zh_CN/bridge-ingress-kafka.md);
+- [Apache kafka桥接-出口模式](./docs/zh_CN/bridge-egress-kafka.md);
+- [Apache Pulsar桥接-入口模式](./docs/zh_CN/bridge-ingress-pulsar.md);
+- [Apache Pulsar桥接-出口模式](./docs/zh_CN/bridge-egress-pulsar.md);
+- [NATS桥接-入口模式](./docs/zh_CN/bridge-ingress-nats.md);
+- [NATS桥接-出口模式](./docs/zh_CN/bridge-egress-nats.md);
+- [Reductstore桥接-出口模式](./docs/zh_CN/bridge-egress-reductstore.md);
+- [主题重写](./docs/zh_CN/topic-rewrite.md);
+- [自动订阅](./docs/zh_CN/auto-subscription.md);
+- [P2P 消息传递](./docs/zh_CN/p2p-messaging.md);
 - 共享订阅($share/{Group}/{TopicFilter});
 - 排它订阅($exclusive/{TopicFilter});
 - 限制订阅($limit/{LimitQuantity}/{TopicFilter});
