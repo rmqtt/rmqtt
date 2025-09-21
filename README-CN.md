@@ -18,7 +18,7 @@
     - [QoS0, QoS1, QoS2 消息支持](./docs/zh_CN/mqtt-protocol.md#41-qos-说明);
     - [离线消息支持](./docs/zh_CN/offline-message.md);
     - [Retained 消息支持](./docs/zh_CN/retainer.md);
-    - Last Will 消息支持;
+    - [Last Will 消息支持](./docs/zh_CN/mqtt-protocol.md#6-保留消息与遗嘱消息);
 - [分布式集群](./docs/zh_CN/cluster-raft.md);
 - [内置 AUTH/ACL](./docs/zh_CN/acl.md);
 - [HTTP AUTH/ACL](./docs/zh_CN/auth-http.md);
