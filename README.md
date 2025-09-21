@@ -20,7 +20,7 @@ and mobile applications that can handle millions of concurrent clients on a sing
     - [QoS0, QoS1, QoS2 message support](./docs/en_US/mqtt-protocol.md#41-qos-levels);
     - [Offline message support](./docs/en_US/offline-message.md);
     - [Retained message support](./docs/en_US/retainer.md);
-    - Last Will message support;
+    - [Last Will message support](./docs/en_US/mqtt-protocol.md#6-retained-and-will-messages);
 - [Distributed cluster](./docs/en_US/cluster-raft.md);
 - [Built-in AUTH/ACL](./docs/en_US/acl.md);
 - [HTTP AUTH/ACL](./docs/en_US/auth-http.md);
