@@ -220,7 +220,7 @@ impl<T> Queue<T> {
     #[inline]
     pub fn push(&self, v: T) -> Result<(), T> {
         let mut inner = self.inner.lock();
-        if inner.len() > self.cap {
+        if inner.len() >= self.cap {
             return Err(v);
         }
         if let Some(f) = self.on_push_fn.as_ref() {

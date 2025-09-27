@@ -784,7 +784,7 @@ impl Hook for DefaultHook {
         let expiry_interval = publish
             .properties
             .as_ref()
-            .and_then(|p| p.message_expiry_interval.map(|i| (i.get() as i64 * 1000)))
+            .and_then(|p| p.message_expiry_interval.map(|i| i.get() as i64 * 1000))
             .unwrap_or_else(|| self.s.listen_cfg().message_expiry_interval.as_millis() as i64);
 
         log::debug!("{:?} expiry_interval: {:?}", self.s.id, expiry_interval);

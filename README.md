@@ -16,11 +16,11 @@ and mobile applications that can handle millions of concurrent clients on a sing
 
 - 100% Rust safe code;
 - Based on [tokio](https://crates.io/crates/tokio);
-- MQTT v3.1, v3.1.1 and v5.0 protocols support;
-    - QoS0, QoS1, QoS2 message support;
-    - Offline message support;
+- [MQTT v3.1, v3.1.1 and v5.0 protocols support](./docs/en_US/mqtt-protocol.md);
+    - [QoS0, QoS1, QoS2 message support](./docs/en_US/mqtt-protocol.md#41-qos-levels);
+    - [Offline message support](./docs/en_US/offline-message.md);
     - [Retained message support](./docs/en_US/retainer.md);
-    - Last Will message support;
+    - [Last Will message support](./docs/en_US/mqtt-protocol.md#6-retained-and-will-messages);
 - [Distributed cluster](./docs/en_US/cluster-raft.md);
 - [Built-in AUTH/ACL](./docs/en_US/acl.md);
 - [HTTP AUTH/ACL](./docs/en_US/auth-http.md);
@@ -30,16 +30,18 @@ and mobile applications that can handle millions of concurrent clients on a sing
 - [$SYS System Topics](./docs/en_US/sys-topic.md);
 - [Store session information](./docs/en_US/store-session.md);
 - [Store unexpired messages](./docs/en_US/store-message.md);
-- [MQTT Bridging - Ingress Mode](./docs/en_US/bridge-ingress-mqtt.md)
-- [MQTT Bridging - Egress Mode](./docs/en_US/bridge-egress-mqtt.md)
-- [Apache Kafka Bridging - Ingress Mode](./docs/en_US/bridge-ingress-kafka.md)
-- [Apache Kafka Bridging - Egress Mode](./docs/en_US/bridge-egress-kafka.md)
-- [Apache Pulsar Bridging - Ingress Mode](./docs/en_US/bridge-ingress-pulsar.md)
-- [Apache Pulsar Bridging - Egress Mode](./docs/en_US/bridge-egress-pulsar.md)
-- [NATS Bridging - Egress Mode](./docs/en_US/bridge-egress-nats.md)
-- [Reductstore Bridging - Egress Mode](./docs/en_US/bridge-egress-reductstore.md)
-- [Topic Rewrite](./docs/en_US/topic-rewrite.md)
-- [Auto Subscription](./docs/en_US/auto-subscription.md)
+- [MQTT Bridging - Ingress Mode](./docs/en_US/bridge-ingress-mqtt.md);
+- [MQTT Bridging - Egress Mode](./docs/en_US/bridge-egress-mqtt.md);
+- [Apache Kafka Bridging - Ingress Mode](./docs/en_US/bridge-ingress-kafka.md);
+- [Apache Kafka Bridging - Egress Mode](./docs/en_US/bridge-egress-kafka.md);
+- [Apache Pulsar Bridging - Ingress Mode](./docs/en_US/bridge-ingress-pulsar.md);
+- [Apache Pulsar Bridging - Egress Mode](./docs/en_US/bridge-egress-pulsar.md);
+- [NATS Bridging - Ingress Mode](./docs/en_US/bridge-ingress-nats.md);
+- [NATS Bridging - Egress Mode](./docs/en_US/bridge-egress-nats.md);
+- [Reductstore Bridging - Egress Mode](./docs/en_US/bridge-egress-reductstore.md);
+- [Topic Rewrite](./docs/en_US/topic-rewrite.md);
+- [Auto Subscription](./docs/en_US/auto-subscription.md);
+- [P2P Messaging](./docs/en_US/p2p-messaging.md);
 - Shared subscription($share/{Group}/{TopicFilter});
 - Exclusive subscription($exclusive/{TopicFilter});
 - Limit subscription($limit/{LimitQuantity}/{TopicFilter});
@@ -114,7 +116,7 @@ In addition to running as a standalone MQTT Broker/Server, rmqtt also provides a
 
 ```toml
 [dependencies]
-rmqtt = "0.15"
+rmqtt = "0.16"
 ```
 
 For more details about using rmqtt in library mode, please refer to the [RMQTT Library Documentation](./rmqtt/README.md).
@@ -207,4 +209,7 @@ For more details about using rmqtt in library mode, please refer to the [RMQTT L
 | Message Throughput Rate  | 150,000/second      | 156,000/second     |
 
 [For detailed benchmark test results and information, see documentation.](./docs/en_US/benchmark-testing.md)
+
+## ⭐ Star History
+[![Star History Chart](https://api.star-history.com/svg?repos=rmqtt/rmqtt&type=Date)](https://star-history.com/#rmqtt/rmqtt&Date)
 

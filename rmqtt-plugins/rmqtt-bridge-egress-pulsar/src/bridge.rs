@@ -78,6 +78,7 @@ impl SerializeMessage for Message<'_> {
             replicate_to,
             event_time,
             schema_version,
+            deliver_at_time: None,
         })
     }
 }

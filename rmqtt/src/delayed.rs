@@ -120,8 +120,9 @@ impl DefaultDelayedSender {
     }
 
     #[inline]
-    async fn send(scx: &ServerContext, dp: DelayedPublish) {
-        if let Err(e) = SessionState::forwards(
+    async fn send(scx: &ServerContext, mut dp: DelayedPublish) {
+        dp.publish.delay_interval = None;
+        if let Err(e) = SessionState::inner_forwards(
             scx,
             dp.from,
             dp.publish,

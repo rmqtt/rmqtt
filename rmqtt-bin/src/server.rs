@@ -112,8 +112,8 @@ async fn main() -> Result<()> {
     shutdown_rx.await.expect("Failed to receive the shutdown command");
     //log::info!("Performing cleanup..."); @TODO ... Hook when exiting
 
-    tokio::time::sleep(Duration::from_secs(1)).await;
-    Ok(())
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    std::process::exit(0);
 }
 
 fn config_builder(cfg: &Listener) -> Builder {

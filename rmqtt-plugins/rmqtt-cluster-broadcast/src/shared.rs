@@ -206,22 +206,74 @@ impl ClusterShared {
     pub(crate) fn inner(&self) -> &DefaultShared {
         &self.inner
     }
-}
 
-#[async_trait]
-impl Shared for ClusterShared {
     #[inline]
-    fn entry(&self, id: Id) -> Box<dyn Entry> {
-        Box::new(ClusterLockEntry::new(self.inner.entry(id), self.clone()))
+    async fn forward_to_target_client(
+        &self,
+        from: From,
+        publish: Publish,
+        target_clientid: ClientId,
+    ) -> std::result::Result<SubscriptionClientIds, Vec<(To, From, Publish, Reason)>> {
+        let mut opts = SubscriptionOptions::default();
+        opts.set_qos(publish.qos);
+        let relations = vec![(publish.topic.clone(), target_clientid.clone(), opts, None, None)];
+
+        //forwards to local
+        if self.exist(&target_clientid) {
+            let local_res = self.inner.forwards_to(from.clone(), &publish, relations.clone()).await;
+            log::debug!("forwards, from: {:?}, local_res: {:?}", from, local_res);
+            Ok(Some(vec![(target_clientid, None)]))
+        } else {
+            //forward other nodes
+            let grpc_clients = self.grpc_clients.clone();
+            let message_type = self.message_type;
+            // let inner = self.inner.clone();
+            let scx = self.scx.clone();
+            let broadcast_fut = async move {
+                scx.stats.forwards.inc();
+                //forwards to other node and get shared subscription relations
+                let replys = MessageBroadcaster::new(
+                    grpc_clients.clone(),
+                    message_type,
+                    Message::Forwards(from.clone(), publish.clone()),
+                    Some(Duration::from_secs(10)),
+                )
+                .join_all()
+                .await;
+                scx.stats.forwards.dec();
+
+                let mut all_sub_client_ids = Vec::new();
+                for (_, reply) in replys {
+                    match reply {
+                        Ok(reply) => {
+                            if let MessageReply::Forwards(o_relations_map, o_sub_client_ids) = reply {
+                                log::debug!(
+                                    "other noade relations: {o_relations_map:?}, o_sub_client_ids: {o_sub_client_ids:?}"
+                                    );
+                                if let Some(o_sub_client_ids) = o_sub_client_ids {
+                                    all_sub_client_ids.extend(o_sub_client_ids);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            log::error!(
+                                "forwards Message::Forwards to other node, from: {from:?}, error: {e:?}"
+                            );
+                        }
+                    }
+                }
+
+                all_sub_client_ids
+            };
+
+            let sub_client_ids = broadcast_fut.await;
+            log::debug!("sub_client_ids: {sub_client_ids:?}");
+            Ok(Some(sub_client_ids))
+        }
     }
 
     #[inline]
-    fn exist(&self, client_id: &str) -> bool {
-        self.inner.exist(client_id)
-    }
-
-    #[inline]
-    async fn forwards(
+    async fn forward_to_subscriptions(
         &self,
         from: From,
         publish: Publish,
@@ -229,7 +281,6 @@ impl Shared for ClusterShared {
         let this_node_id = self.scx.node.id();
         let topic = &publish.topic;
         log::debug!("forwards, from: {:?}, topic: {:?}", from, topic.to_string());
-
         //Matching subscriptions
         let (relations, shared_relations, sub_client_ids) = match self
             .scx
@@ -347,7 +398,6 @@ impl Shared for ClusterShared {
                             log::debug!(
                                 "other noade relations: {o_relations_map:?}, o_sub_client_ids: {o_sub_client_ids:?}"
                             );
-
                             if let Some(o_sub_client_ids) = o_sub_client_ids {
                                 all_sub_client_ids.extend(o_sub_client_ids);
                             }
@@ -433,6 +483,32 @@ impl Shared for ClusterShared {
 
         local_res?;
         Ok(sub_client_ids)
+    }
+}
+
+#[async_trait]
+impl Shared for ClusterShared {
+    #[inline]
+    fn entry(&self, id: Id) -> Box<dyn Entry> {
+        Box::new(ClusterLockEntry::new(self.inner.entry(id), self.clone()))
+    }
+
+    #[inline]
+    fn exist(&self, client_id: &str) -> bool {
+        self.inner.exist(client_id)
+    }
+
+    #[inline]
+    async fn forwards(
+        &self,
+        from: From,
+        publish: Publish,
+    ) -> std::result::Result<SubscriptionClientIds, Vec<(To, From, Publish, Reason)>> {
+        if let Some(target_clientid) = publish.target_clientid.clone() {
+            self.forward_to_target_client(from, publish, target_clientid).await
+        } else {
+            self.forward_to_subscriptions(from, publish).await
+        }
     }
 
     #[inline]

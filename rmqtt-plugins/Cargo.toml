@@ -39,8 +39,10 @@ full = [
     "bridge-ingress-mqtt",
     "bridge-egress-pulsar",
     "bridge-ingress-pulsar",
+    "bridge-ingress-nats",
     "bridge-egress-nats",
     "bridge-egress-reductstore",
+    "p2p-messaging",
 
     "sys-topic",
     "topic-rewrite",
@@ -81,6 +83,7 @@ bridge-egress-mqtt = ["rmqtt-bridge-egress-mqtt"]
 bridge-ingress-mqtt = ["rmqtt-bridge-ingress-mqtt"]
 bridge-egress-pulsar = ["rmqtt-bridge-egress-pulsar"]
 bridge-ingress-pulsar = ["rmqtt-bridge-ingress-pulsar"]
+bridge-ingress-nats = ["rmqtt-bridge-ingress-nats"]
 bridge-egress-nats = ["rmqtt-bridge-egress-nats"]
 bridge-egress-reductstore = ["rmqtt-bridge-egress-reductstore"]
 
@@ -88,6 +91,7 @@ bridge-egress-reductstore = ["rmqtt-bridge-egress-reductstore"]
 sys-topic = ["rmqtt-sys-topic"]
 topic-rewrite = ["rmqtt-topic-rewrite"]
 web-hook = ["rmqtt-web-hook"]
+p2p-messaging = ["rmqtt-p2p-messaging"]
 
 # ---- cluster plugins ----
 cluster-raft = ["rmqtt-cluster-raft"]
@@ -107,6 +111,7 @@ rmqtt-bridge-egress-mqtt = { workspace = true, optional = true }
 rmqtt-bridge-ingress-mqtt = { workspace = true, optional = true }
 rmqtt-bridge-egress-pulsar = { workspace = true, optional = true }
 rmqtt-bridge-ingress-pulsar = { workspace = true, optional = true }
+rmqtt-bridge-ingress-nats = { workspace = true, optional = true }
 rmqtt-bridge-egress-nats = { workspace = true, optional = true }
 rmqtt-bridge-egress-reductstore = { workspace = true, optional = true }
 rmqtt-message-storage = { workspace = true, optional = true }
@@ -116,3 +121,4 @@ rmqtt-topic-rewrite = { workspace = true, optional = true }
 rmqtt-web-hook = { workspace = true, optional = true }
 rmqtt-cluster-raft = { workspace = true, optional = true }
 rmqtt-cluster-broadcast = { workspace = true, optional = true }
+rmqtt-p2p-messaging = { workspace = true, optional = true }
