@@ -293,7 +293,16 @@ pub mod v3 {
         #[inline]
         pub async fn recv_connect(&mut self, tm: Duration) -> Result<Box<Connect>> {
             let connect = match self.recv(tm).await {
-                Ok(Some(Packet::Connect(connect))) => connect,
+                Ok(Some(Packet::Connect(mut connect))) => {
+                    if self.cfg.cert_cn_as_username {
+                        if let Some(cert) = &self.cert_info {
+                            if let Some(cn) = &cert.common_name {
+                                connect.username = Some(cn.clone().into());
+                            }
+                        }
+                    }
+                    connect
+                }
                 Err(e) => {
                     return Err(e);
                 }

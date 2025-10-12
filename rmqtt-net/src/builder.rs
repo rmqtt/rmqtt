@@ -142,6 +142,9 @@ pub struct Builder {
     pub proxy_protocol: bool,
     /// Proxy Protocol timeout
     pub proxy_protocol_timeout: Duration,
+
+    /// Use TLS Certificate CN as Username
+    pub cert_cn_as_username: bool,
 }
 
 impl Default for Builder {
@@ -204,6 +207,8 @@ impl Builder {
             tls_key: None,
             proxy_protocol: false,
             proxy_protocol_timeout: Duration::from_secs(5),
+
+            cert_cn_as_username: false,
         }
     }
 
@@ -408,6 +413,11 @@ impl Builder {
     /// Sets path to TLS private key
     pub fn tls_key<N: Into<String>>(mut self, tls_key: Option<N>) -> Self {
         self.tls_key = tls_key.map(|c| c.into());
+        self
+    }
+
+    pub fn cert_cn_as_username(mut self, cert_cn_as_username: bool) -> Self {
+        self.cert_cn_as_username = cert_cn_as_username;
         self
     }
 
