@@ -42,7 +42,14 @@ async fn main() -> Result<()> {
         .bind()?
         .wss()?;
 
-    let tcp = async {
+    let quic_listener = Builder::new()
+        .name("external/quic")
+        .laddr(([0, 0, 0, 0], 9443).into())
+        .tls_key(Some("./rmqtt-bin/rmqtt.key"))
+        .tls_cert(Some("./rmqtt-bin/rmqtt.pem"))
+        .bind_quic()?;
+
+    let tcp = async move {
         loop {
             match tcp_listener.accept().await {
                 Ok(a) => {
@@ -80,7 +87,7 @@ async fn main() -> Result<()> {
         }
     };
 
-    let tls = async {
+    let tls = async move {
         loop {
             match tls_listener.accept().await {
                 Ok(acceptor) => {
@@ -118,7 +125,7 @@ async fn main() -> Result<()> {
         }
     };
 
-    let ws = async {
+    let ws = async move {
         loop {
             match ws_listener.accept().await {
                 Ok(acceptor) => {
@@ -156,7 +163,7 @@ async fn main() -> Result<()> {
         }
     };
 
-    let wss = async {
+    let wss = async move {
         loop {
             match wss_listener.accept().await {
                 Ok(acceptor) => {
@@ -194,7 +201,50 @@ async fn main() -> Result<()> {
         }
     };
 
-    futures::future::join4(tcp, tls, ws, wss).await;
+    let quic = async move {
+        loop {
+            match quic_listener.accept_quic().await {
+                Ok(acceptor) => {
+                    tokio::spawn(async move {
+                        log::info!("quic {:?}", acceptor.remote_addr);
+                        let d = match acceptor.quic().await {
+                            Ok(d) => d,
+                            Err(e) => {
+                                log::warn!("Failed to quic mqtt(tls) accept, {e:?}");
+                                return;
+                            }
+                        };
+                        match d.mqtt().await {
+                            Ok(MqttStream::V3(s)) => {
+                                if let Err(e) = process_v3(s).await {
+                                    log::warn!("Failed to process quic mqtt(tls) v3, {e:?}");
+                                }
+                            }
+                            Ok(MqttStream::V5(s)) => {
+                                if let Err(e) = process_v5(s).await {
+                                    log::warn!("Failed to process quic mqtt(tls) v5, {e:?}");
+                                }
+                            }
+                            Err(e) => {
+                                log::warn!("Failed to quic probe MQTT(TLS) version, {e:?}");
+                            }
+                        }
+                    });
+                }
+                Err(e) => {
+                    log::warn!("Failed to quic accept TLS socket connection, {e:?}");
+                    sleep(Duration::from_millis(300)).await;
+                }
+            }
+        }
+    };
+
+    // futures::future::join4(tcp, tls, ws, wss).await;
+    tokio::spawn(tcp);
+    tokio::spawn(tls);
+    tokio::spawn(ws);
+    tokio::spawn(quic);
+    wss.await;
 
     Ok(())
 }

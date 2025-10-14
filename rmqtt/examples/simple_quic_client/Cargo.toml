@@ -1,0 +1,18 @@
+[package]
+name = "simple_quic_client"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+rmqtt-net = { workspace = true, features = ["quic"] }
+rmqtt-codec.workspace = true
+tokio = { workspace = true, features = ["full"] }
+tokio-util = { workspace = true, features = ["codec"] }
+simple_logger = "5"
+log.workspace = true
+quinn.workspace = true
+futures.workspace = true
+anyhow.workspace = true
+bytestring.workspace = true
+bytes.workspace = true
+rustls.workspace = true
