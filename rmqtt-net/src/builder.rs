@@ -29,9 +29,7 @@
 //! }
 //! ```
 
-use proxy_protocol::parse;
-use proxy_protocol::ProxyHeader;
-use proxy_protocol::{version1 as v1, version2 as v2};
+use std::fmt::Debug;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::num::{NonZeroU16, NonZeroU32};
 use std::sync::Arc;
@@ -39,7 +37,11 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use nonzero_ext::nonzero;
-use rmqtt_codec::types::QoS;
+use proxy_protocol::parse;
+use proxy_protocol::ProxyHeader;
+use proxy_protocol::{version1 as v1, version2 as v2};
+#[cfg(feature = "quic")]
+use quinn::{crypto::rustls::QuicServerConfig, IdleTimeout};
 #[cfg(not(target_os = "windows"))]
 #[cfg(feature = "tls")]
 use rustls::crypto::aws_lc_rs as provider;
@@ -59,6 +61,10 @@ use tokio_tungstenite::{
     tungstenite::handshake::server::{ErrorResponse, Request, Response},
 };
 
+use rmqtt_codec::types::QoS;
+
+#[cfg(feature = "quic")]
+use crate::quic::QuinnBiStream;
 use crate::stream::Dispatcher;
 #[cfg(feature = "ws")]
 use crate::ws::WsStream;
@@ -138,10 +144,14 @@ pub struct Builder {
     pub tls_cert: Option<String>,
     /// Path to TLS private key
     pub tls_key: Option<String>,
+
     /// Enable Proxy Protocol
     pub proxy_protocol: bool,
     /// Proxy Protocol timeout
     pub proxy_protocol_timeout: Duration,
+
+    /// QUIC(max_idle_timeout)
+    pub idle_timeout: Duration,
 }
 
 impl Default for Builder {
@@ -204,6 +214,8 @@ impl Builder {
             tls_key: None,
             proxy_protocol: false,
             proxy_protocol_timeout: Duration::from_secs(5),
+
+            idle_timeout: Duration::from_secs(90),
         }
     }
 
@@ -423,6 +435,12 @@ impl Builder {
         self
     }
 
+    /// Sets idle timeout (QUIC)
+    pub fn idle_timeout(mut self, idle_timeout: Duration) -> Self {
+        self.idle_timeout = idle_timeout;
+        self
+    }
+
     /// Binds the server to the configured address
     #[allow(unused_variables)]
     pub fn bind(self) -> Result<Listener> {
@@ -456,9 +474,65 @@ impl Builder {
         Ok(Listener {
             typ: ListenerType::TCP,
             cfg: Arc::new(self),
-            tcp_listener,
+            tcp_listener: Some(tcp_listener),
             #[cfg(feature = "tls")]
             tls_acceptor: None,
+            #[cfg(feature = "quic")]
+            quinn_endpoint: None,
+        })
+    }
+
+    #[allow(unused_variables)]
+    #[cfg(feature = "quic")]
+    pub fn bind_quic(self) -> Result<Listener> {
+        let cert_file = self.tls_cert.as_ref().ok_or(anyhow!("TLS certificate path not set"))?;
+        let key_file = self.tls_key.as_ref().ok_or(anyhow!("TLS key path not set"))?;
+
+        let cert_chain = rustls::pki_types::CertificateDer::pem_file_iter(cert_file)
+            .map_err(|e| anyhow!(e))?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|e| anyhow!(e))?;
+        let key = rustls::pki_types::PrivateKeyDer::from_pem_file(key_file).map_err(|e| anyhow!(e))?;
+
+        let provider = Arc::new(provider::default_provider());
+        let client_auth = if self.tls_cross_certificate {
+            let root_chain = cert_chain.clone();
+            let mut client_auth_roots = RootCertStore::empty();
+            for root in root_chain {
+                client_auth_roots.add(root).map_err(|e| anyhow!(e))?;
+            }
+            WebPkiClientVerifier::builder_with_provider(client_auth_roots.into(), provider.clone())
+                .build()
+                .map_err(|e| anyhow!(e))?
+        } else {
+            WebPkiClientVerifier::no_client_auth()
+        };
+
+        let mut tls_config = ServerConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .map_err(|e| anyhow!(e))?
+            .with_client_cert_verifier(client_auth)
+            .with_single_cert(cert_chain, key)
+            .map_err(|e| anyhow!(format!("Certificate error: {}", e)))?;
+
+        tls_config.alpn_protocols = vec![b"mqtt".to_vec(), b"mqttv5".to_vec()];
+        let server_crypto = QuicServerConfig::try_from(tls_config)?;
+        let mut server_config = quinn::ServerConfig::with_crypto(Arc::new(server_crypto));
+
+        let transport_config = Arc::get_mut(&mut server_config.transport).unwrap();
+        transport_config.max_concurrent_uni_streams(0_u8.into());
+        transport_config.max_idle_timeout(Some(IdleTimeout::try_from(self.idle_timeout)?));
+
+        let endpoint = quinn::Endpoint::server(server_config, self.laddr)?;
+
+        log::info!("MQTT Broker Listening on {} {}", self.name, endpoint.local_addr().unwrap_or(self.laddr));
+        Ok(Listener {
+            typ: ListenerType::QUIC,
+            cfg: Arc::new(self),
+            tcp_listener: None,
+            #[cfg(feature = "tls")]
+            tls_acceptor: None,
+            quinn_endpoint: Some(endpoint),
         })
     }
 }
@@ -478,6 +552,9 @@ pub enum ListenerType {
     #[cfg(feature = "ws")]
     /// TLS-secured WebSocket listener
     WSS,
+    #[cfg(feature = "quic")]
+    ///QUIC listener (UDP-based, multiplexed and secured by default)
+    QUIC,
 }
 
 /// Network listener for accepting client connections
@@ -486,9 +563,12 @@ pub struct Listener {
     pub typ: ListenerType,
     /// Shared server configuration
     pub cfg: Arc<Builder>,
-    tcp_listener: TcpListener,
+
+    tcp_listener: Option<TcpListener>,
     #[cfg(feature = "tls")]
     tls_acceptor: Option<TlsAcceptor>,
+    #[cfg(feature = "quic")]
+    quinn_endpoint: Option<quinn::Endpoint>,
 }
 
 /// # Examples
@@ -503,7 +583,7 @@ pub struct Listener {
 impl Listener {
     /// Converts listener to plain TCP mode
     pub fn tcp(mut self) -> Result<Self> {
-        let _err = anyhow!("Protocol downgrade from TLS/WS/WSS to TCP is not permitted");
+        let _err = anyhow!("Protocol downgrade from TLS/WS/WSS/QUIC to TCP is not permitted");
         #[cfg(feature = "tls")]
         if matches!(self.typ, ListenerType::TLS) {
             return Err(_err);
@@ -517,6 +597,11 @@ impl Listener {
         if matches!(self.typ, ListenerType::WS) {
             return Err(_err);
         }
+        #[cfg(feature = "quic")]
+        if matches!(self.typ, ListenerType::QUIC) {
+            return Err(_err);
+        }
+
         self.typ = ListenerType::TCP;
         Ok(self)
     }
@@ -527,7 +612,7 @@ impl Listener {
         if matches!(self.typ, ListenerType::TCP | ListenerType::WS) {
             self.typ = ListenerType::WS;
         } else {
-            return Err(anyhow!("Protocol upgrade from TLS/WSS to WS is not permitted"));
+            return Err(anyhow!("Protocol upgrade from TLS/WSS/QUIC to WS is not permitted"));
         }
         Ok(self)
     }
@@ -536,6 +621,11 @@ impl Listener {
     #[cfg(feature = "ws")]
     /// Upgrades listener to secure WebSocket (WSS)
     pub fn wss(mut self) -> Result<Self> {
+        #[cfg(feature = "quic")]
+        if matches!(self.typ, ListenerType::QUIC) {
+            return Err(anyhow!("Protocol upgrade from QUIC to WS is not permitted"));
+        }
+
         if matches!(self.typ, ListenerType::TCP | ListenerType::WS) {
             self = self.tls()?;
         }
@@ -549,7 +639,11 @@ impl Listener {
         match self.typ {
             #[cfg(feature = "ws")]
             ListenerType::WS | ListenerType::WSS => {
-                return Err(anyhow!("Protocol downgrade from WS/WSS to TLS is not permitted"));
+                return Err(anyhow!("Protocol downgrade from WS/WSS/QUIC to TLS is not permitted"));
+            }
+            #[cfg(feature = "quic")]
+            ListenerType::QUIC => {
+                return Err(anyhow!("Protocol downgrade from QUIC to TLS is not permitted"));
             }
             ListenerType::TLS => return Ok(self),
             ListenerType::TCP => {}
@@ -593,10 +687,19 @@ impl Listener {
 
     /// Accepts incoming client connections
     pub async fn accept(&self) -> Result<Acceptor<TcpStream>> {
-        let (mut socket, mut remote_addr) = self.tcp_listener.accept().await?;
+        if let Some(tcp_listener) = &self.tcp_listener {
+            self.accept_tcp(tcp_listener).await
+        } else {
+            Err(anyhow!(""))
+        }
+    }
+
+    async fn accept_tcp(&self, tcp_listener: &TcpListener) -> Result<Acceptor<TcpStream>> {
+        let (mut socket, mut remote_addr) = tcp_listener.accept().await?;
         if let Err(e) = socket.set_nodelay(self.cfg.nodelay) {
             return Err(Error::from(e));
         }
+        log::info!("remote_addr: {remote_addr}, proxy_protocol: {}", self.cfg.proxy_protocol);
         if self.cfg.proxy_protocol {
             let mut buffer = [0u8; u16::MAX as usize];
             let read_bytes =
@@ -622,8 +725,43 @@ impl Listener {
         })
     }
 
+    #[cfg(feature = "quic")]
+    pub async fn accept_quic(&self) -> Result<Acceptor<QuinnBiStream>> {
+        if let Some(endpoint) = &self.quinn_endpoint {
+            let incoming =
+                endpoint.accept().await.ok_or_else(|| anyhow!("No incoming QUIC connection available"))?;
+            let conn = incoming.await?;
+            let remote_addr = conn.remote_address();
+
+            let (send, recv) = conn.accept_bi().await?;
+            let socket = QuinnBiStream::new(send, recv);
+
+            Ok(Acceptor {
+                socket,
+                remote_addr,
+                #[cfg(feature = "tls")]
+                acceptor: self.tls_acceptor.clone(),
+                cfg: self.cfg.clone(),
+                typ: self.typ,
+            })
+        } else {
+            Err(anyhow!(""))
+        }
+    }
+
     pub fn local_addr(&self) -> Result<SocketAddr> {
-        Ok(self.tcp_listener.local_addr()?)
+        if let Some(tcp_listener) = &self.tcp_listener {
+            Ok(tcp_listener.local_addr()?)
+        } else {
+            #[cfg(feature = "quic")]
+            if let Some(endpoint) = &self.quinn_endpoint {
+                Ok(endpoint.local_addr()?)
+            } else {
+                Err(anyhow!("No active listener (neither TCP nor QUIC endpoint is available)"))
+            }
+            #[cfg(not(feature = "quic"))]
+            Err(anyhow!("No active listener"))
+        }
     }
 }
 
@@ -715,6 +853,15 @@ where
             Ok(Err(e)) => Err(e.into()),
             Err(_) => Err(crate::MqttError::ReadTimeout.into()),
         }
+    }
+
+    #[cfg(feature = "quic")]
+    #[inline]
+    pub async fn quic(self) -> Result<Dispatcher<S>> {
+        if !matches!(self.typ, ListenerType::QUIC) {
+            return Err(anyhow!("Protocol mismatch: Expected QUIC listener"));
+        }
+        Ok(Dispatcher::new(self.socket, self.remote_addr, self.cfg))
     }
 }
 

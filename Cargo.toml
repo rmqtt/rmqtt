@@ -65,8 +65,8 @@ rust-version = "1.85.0"
 [workspace.dependencies]
 rmqtt = "0.17.0"
 rmqtt-codec = "0.2"
-rmqtt-net = "0.2"
-rmqtt-conf = "0.2"
+rmqtt-net = "0.3"
+rmqtt-conf = "0.3"
 rmqtt-macros = "0.1"
 rmqtt-utils = "0.1"
 
@@ -152,6 +152,7 @@ rayon = "1.11.0"
 parking_lot = "0.12.4"
 proxy-protocol = "0.5"
 jsonwebtoken = "9.3.1"
+quinn = "0.11.6"
 
 [profile.dev]
 opt-level = 0
