@@ -741,10 +741,9 @@ where
             let cert_info: Option<CertInfo> = io.extract_cert_info();
             // Certificate info is now available in s.cert_info
             if let Some(ref cert) = cert_info {
-                log::info!("Client certificate: {}", cert);
-                log::info!("CN: {:?}, Org: {:?}", cert.common_name, cert.organization);
+                log::debug!("Client certificate: {}", cert);
+                log::debug!("CN: {:?}, Org: {:?}", cert.common_name, cert.organization);
             }
-            log::info!("cert_info: {:?}", cert_info);
             cert_info
         } else {
             None
