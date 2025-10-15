@@ -65,8 +65,8 @@ rust-version = "1.85.0"
 [workspace.dependencies]
 rmqtt = "0.17.0"
 rmqtt-codec = "0.2"
-rmqtt-net = "0.2"
-rmqtt-conf = "0.2"
+rmqtt-net = "0.3"
+rmqtt-conf = "0.3"
 rmqtt-macros = "0.1"
 rmqtt-utils = "0.1"
 
@@ -161,3 +161,4 @@ lto = true
 opt-level = 's'
 codegen-units = 1
 panic = "abort"
+
