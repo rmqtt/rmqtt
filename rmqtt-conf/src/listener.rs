@@ -34,6 +34,10 @@ pub struct Listeners {
     #[serde(default)]
     _wsss: HashMap<String, ListenerInner>,
 
+    #[serde(rename = "quic")]
+    #[serde(default)]
+    _quics: HashMap<String, ListenerInner>,
+
     #[serde(default, skip)]
     pub tcps: HashMap<Port, Listener>,
     #[serde(default, skip)]
@@ -42,6 +46,8 @@ pub struct Listeners {
     pub wss: HashMap<Port, Listener>,
     #[serde(default, skip)]
     pub wsss: HashMap<Port, Listener>,
+    #[serde(default, skip)]
+    pub quics: HashMap<Port, Listener>,
 }
 
 impl Listeners {
@@ -74,6 +80,13 @@ impl Listeners {
                 self.wsss.insert(inner.addr.port(), Listener::new(inner));
             }
         }
+
+        for (name, mut inner) in self._quics.drain() {
+            if inner.enable {
+                inner.name = format!("{name}/quic");
+                self.quics.insert(inner.addr.port(), Listener::new(inner));
+            }
+        }
     }
 
     #[inline]
@@ -97,6 +110,11 @@ impl Listeners {
     }
 
     #[inline]
+    pub fn quic(&self, port: u16) -> Option<Listener> {
+        self.quics.get(&port).cloned()
+    }
+
+    #[inline]
     pub fn get(&self, port: u16) -> Option<Listener> {
         if let Some(l) = self.tcp(port) {
             return Some(l);
@@ -108,6 +126,9 @@ impl Listeners {
             return Some(l);
         }
         if let Some(l) = self.wss(port) {
+            return Some(l);
+        }
+        if let Some(l) = self.quic(port) {
             return Some(l);
         }
         None
@@ -246,6 +267,9 @@ pub struct ListenerInner {
 
     #[serde(default)]
     pub cert_cn_as_username: bool,
+    //QUIC max_idle_timeout
+    #[serde(default = "ListenerInner::idle_timeout_default", deserialize_with = "deserialize_duration")]
+    pub idle_timeout: Duration,
 }
 
 impl Default for ListenerInner {
@@ -291,6 +315,7 @@ impl Default for ListenerInner {
             proxy_protocol_timeout: ListenerInner::proxy_protocol_timeout_default(),
 
             cert_cn_as_username: false,
+            idle_timeout: ListenerInner::idle_timeout_default(),
         }
     }
 }
@@ -475,5 +500,10 @@ impl ListenerInner {
     #[inline]
     fn proxy_protocol_timeout_default() -> Duration {
         Duration::from_secs(5)
+    }
+
+    #[inline]
+    fn idle_timeout_default() -> Duration {
+        Duration::from_secs(90)
     }
 }

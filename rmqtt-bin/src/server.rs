@@ -89,6 +89,11 @@ async fn main() -> Result<()> {
         builder = builder.listener(config_builder(listen_cfg).bind()?.wss()?);
     }
 
+    //MQTT over QUIC
+    for (_, listen_cfg) in Settings::instance().listeners.quics.iter() {
+        builder = builder.listener(config_builder(listen_cfg).bind_quic()?);
+    }
+
     builder.build().start();
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
@@ -154,6 +159,7 @@ fn config_builder(cfg: &Listener) -> Builder {
         .proxy_protocol(cfg.proxy_protocol)
         .proxy_protocol_timeout(cfg.proxy_protocol_timeout)
         .cert_cn_as_username(cfg.cert_cn_as_username)
+        .idle_timeout(cfg.idle_timeout)
 }
 
 fn config_args(cfg: &Settings) -> CommandArgs {

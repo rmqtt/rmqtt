@@ -255,3 +255,21 @@ listener.wss.external.key = "./rmqtt-bin/rmqtt.key"
 #listener.wss.external.cert = "./rmqtt-bin/rmqtt.fullchain.pem"
 #listener.wss.external.key = "./rmqtt-bin/rmqtt.key"
 
+##--------------------------------------------------------------------
+## MQTT/QUIC - External QUIC Listener for MQTT Protocol, (TLSv1.3)
+listener.quic.external.addr = "0.0.0.0:9443"
+
+#quic max_idle_timeout, default value: 90s
+listener.quic.external.idle_timeout = "120s"
+
+#Whether to enable cross-certification, default value: false
+listener.quic.external.cross_certificate = false
+#This certificate is used to authenticate the server during TLS handshakes.
+listener.quic.external.cert = "./rmqtt-bin/rmqtt.pem"
+#This key is used to establish a secure connection with the client.
+listener.quic.external.key = "./rmqtt-bin/rmqtt.key"
+
+#The following is the configuration using cross-certification
+#listener.quic.external.cross_certificate = true
+#listener.quic.external.cert = "./rmqtt-bin/rmqtt.fullchain.pem"
+#listener.quic.external.key = "./rmqtt-bin/rmqtt.key"
