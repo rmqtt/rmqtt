@@ -1,7 +1,8 @@
+use crate::ws::WsStream;
 use std::fmt;
 
 /// TLS certificate information extracted from peer
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CertInfo {
     /// Common Name from certificate subject
     pub common_name: Option<String>,
@@ -15,13 +16,7 @@ pub struct CertInfo {
 
 impl CertInfo {
     pub fn new() -> Self {
-        Self { common_name: None, subject: String::new(), serial: None, organization: None }
-    }
-}
-
-impl Default for CertInfo {
-    fn default() -> Self {
-        Self::new()
+        Self::default()
     }
 }
 
@@ -73,5 +68,17 @@ where
 impl TlsCertExtractor for tokio::net::TcpStream {
     fn extract_cert_info(&self) -> Option<CertInfo> {
         None
+    }
+}
+
+impl TlsCertExtractor for WsStream<tokio::net::TcpStream> {
+    fn extract_cert_info(&self) -> Option<CertInfo> {
+        None
+    }
+}
+
+impl TlsCertExtractor for WsStream<tokio_rustls::server::TlsStream<tokio::net::TcpStream>> {
+    fn extract_cert_info(&self) -> Option<CertInfo> {
+        self.get_inner().get_ref().extract_cert_info()
     }
 }
