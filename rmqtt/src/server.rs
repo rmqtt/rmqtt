@@ -281,7 +281,7 @@ async fn listen_tls(scx: ServerContext, l: &Listener, lid: ListenerId) {
                         }
                     };
 
-                    match stream.mqtt_tls().await {
+                    match stream.mqtt().await {
                         Ok(MqttStream::V3(s)) => {
                             if let Err(e) = v3::process(scx.clone(), s, lid).await {
                                 log::info!("MQTTv3/TLS processing error: {e:?}");
