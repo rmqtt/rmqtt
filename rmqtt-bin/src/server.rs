@@ -153,6 +153,7 @@ fn config_builder(cfg: &Listener) -> Builder {
         .delayed_publish(cfg.delayed_publish)
         .proxy_protocol(cfg.proxy_protocol)
         .proxy_protocol_timeout(cfg.proxy_protocol_timeout)
+        .cert_cn_as_username(cfg.cert_cn_as_username)
 }
 
 fn config_args(cfg: &Settings) -> CommandArgs {
