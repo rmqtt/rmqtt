@@ -243,6 +243,9 @@ pub struct ListenerInner {
         deserialize_with = "deserialize_duration"
     )]
     pub proxy_protocol_timeout: Duration,
+
+    #[serde(default)]
+    pub cert_cn_as_username: bool,
 }
 
 impl Default for ListenerInner {
@@ -286,6 +289,8 @@ impl Default for ListenerInner {
             delayed_publish: false,
             proxy_protocol: false,
             proxy_protocol_timeout: ListenerInner::proxy_protocol_timeout_default(),
+
+            cert_cn_as_username: false,
         }
     }
 }
