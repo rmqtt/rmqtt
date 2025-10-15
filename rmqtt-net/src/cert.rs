@@ -1,3 +1,4 @@
+#[cfg(feature = "ws")]
 use crate::ws::WsStream;
 use std::fmt;
 
@@ -71,12 +72,14 @@ impl TlsCertExtractor for tokio::net::TcpStream {
     }
 }
 
+#[cfg(feature = "ws")]
 impl TlsCertExtractor for WsStream<tokio::net::TcpStream> {
     fn extract_cert_info(&self) -> Option<CertInfo> {
         None
     }
 }
 
+#[cfg(feature = "ws")]
 impl TlsCertExtractor for WsStream<tokio_rustls::server::TlsStream<tokio::net::TcpStream>> {
     fn extract_cert_info(&self) -> Option<CertInfo> {
         self.get_inner().get_ref().extract_cert_info()

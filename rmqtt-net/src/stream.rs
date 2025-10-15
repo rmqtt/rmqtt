@@ -16,7 +16,6 @@ use rmqtt_codec::{MqttCodec, MqttPacket};
 
 use crate::error::MqttError;
 use crate::CertInfo;
-#[cfg(feature = "tls")]
 use crate::TlsCertExtractor;
 use crate::{Builder, Result};
 
@@ -48,7 +47,7 @@ where
         Dispatcher { io: Framed::new(io, MqttCodec::Version(VersionCodec)), remote_addr, cfg, cert_info }
     }
 
-    /// Negotiates protocol version and returns appropriate stream (without cert info)
+    /// Negotiates protocol version and returns appropriate stream
     #[inline]
     pub async fn mqtt(mut self) -> Result<MqttStream<Io>>
     where
@@ -121,7 +120,10 @@ pub mod v3 {
     use rmqtt_codec::{MqttCodec, MqttPacket};
 
     use crate::error::MqttError;
-    use crate::{Builder, CertInfo, Error, Result};
+    use crate::{Builder, Error, Result};
+
+    #[cfg(feature = "tls")]
+    use crate::CertInfo;
 
     /// MQTT v3.1.1 protocol stream implementation
     pub struct MqttStream<Io> {
@@ -279,10 +281,13 @@ pub mod v3 {
         pub async fn recv_connect(&mut self, tm: Duration) -> Result<Box<Connect>> {
             let connect = match self.recv(tm).await {
                 Ok(Some(Packet::Connect(mut connect))) => {
-                    if self.cfg.cert_cn_as_username {
-                        if let Some(cert) = &self.cert_info {
-                            if let Some(cn) = &cert.common_name {
-                                connect.username = Some(cn.clone().into());
+                    #[cfg(feature = "tls")]
+                    {
+                        if self.cfg.cert_cn_as_username {
+                            if let Some(cert) = &self.cert_info {
+                                if let Some(cn) = &cert.common_name {
+                                    connect.username = Some(cn.clone().into());
+                                }
                             }
                         }
                     }
