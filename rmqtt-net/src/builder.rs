@@ -62,7 +62,7 @@ use tokio_tungstenite::{
 use crate::stream::Dispatcher;
 #[cfg(feature = "ws")]
 use crate::ws::WsStream;
-use crate::{Error, Result};
+use crate::{CertInfo, Error, Result, TlsCertExtractor};
 
 /// Configuration builder for MQTT server instances
 #[derive(Clone, Debug)]
@@ -659,7 +659,7 @@ where
     #[inline]
     pub fn tcp(self) -> Result<Dispatcher<S>> {
         if matches!(self.typ, ListenerType::TCP) {
-            Ok(Dispatcher::new(self.socket, self.remote_addr, self.cfg))
+            Ok(Dispatcher::new(self.socket, self.remote_addr, None, self.cfg))
         } else {
             Err(anyhow!("Protocol mismatch: Expected TCP listener"))
         }
@@ -680,7 +680,10 @@ where
             Ok(Err(e)) => return Err(e.into()),
             Err(_) => return Err(crate::MqttError::ReadTimeout.into()),
         };
-        Ok(Dispatcher::new(tls_s, self.remote_addr, self.cfg))
+
+        let cert_info = Self::get_extract_cert_info(&tls_s, self.cfg.cert_cn_as_username);
+
+        Ok(Dispatcher::new(tls_s, self.remote_addr, cert_info, self.cfg))
     }
 
     #[cfg(feature = "ws")]
@@ -695,7 +698,7 @@ where
             .await
         {
             Ok(Ok(ws_stream)) => {
-                Ok(Dispatcher::new(WsStream::new(ws_stream), self.remote_addr, self.cfg.clone()))
+                Ok(Dispatcher::new(WsStream::new(ws_stream), self.remote_addr, None, self.cfg.clone()))
             }
             Ok(Err(e)) => Err(e.into()),
             Err(_) => Err(crate::MqttError::ReadTimeout.into()),
@@ -718,12 +721,33 @@ where
             Ok(Err(e)) => return Err(e.into()),
             Err(_) => return Err(crate::MqttError::ReadTimeout.into()),
         };
+
+        let cert_info = Self::get_extract_cert_info(&tls_s, self.cfg.cert_cn_as_username);
+
         match tokio::time::timeout(self.cfg.handshake_timeout, accept_hdr_async(tls_s, on_handshake)).await {
             Ok(Ok(ws_stream)) => {
-                Ok(Dispatcher::new(WsStream::new(ws_stream), self.remote_addr, self.cfg.clone()))
+                Ok(Dispatcher::new(WsStream::new(ws_stream), self.remote_addr, cert_info, self.cfg.clone()))
             }
             Ok(Err(e)) => Err(e.into()),
             Err(_) => Err(crate::MqttError::ReadTimeout.into()),
+        }
+    }
+
+    #[inline]
+    #[cfg(feature = "tls")]
+    fn get_extract_cert_info<C: TlsCertExtractor>(io: &C, cert_cn_as_username: bool) -> Option<CertInfo> {
+        if cert_cn_as_username {
+            // Extract cert info BEFORE consuming self
+            let cert_info: Option<CertInfo> = io.extract_cert_info();
+            // Certificate info is now available in s.cert_info
+            if let Some(ref cert) = cert_info {
+                log::info!("Client certificate: {}", cert);
+                log::info!("CN: {:?}, Org: {:?}", cert.common_name, cert.organization);
+            }
+            log::info!("cert_info: {:?}", cert_info);
+            cert_info
+        } else {
+            None
         }
     }
 }
