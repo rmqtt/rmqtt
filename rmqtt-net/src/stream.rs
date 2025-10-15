@@ -15,7 +15,7 @@ use rmqtt_codec::version::{ProtocolVersion, VersionCodec};
 use rmqtt_codec::{MqttCodec, MqttPacket};
 
 use crate::error::MqttError;
-use crate::TlsCertExtractor;
+use crate::CertInfo;
 use crate::{Builder, Result};
 
 /// MQTT protocol dispatcher handling version negotiation
@@ -28,6 +28,8 @@ pub struct Dispatcher<Io> {
     pub remote_addr: SocketAddr,
     /// Shared configuration builder
     pub cfg: Arc<Builder>,
+
+    pub cert_info: Option<CertInfo>,
 }
 
 impl<Io> Dispatcher<Io>
@@ -35,8 +37,13 @@ where
     Io: AsyncRead + AsyncWrite + Unpin,
 {
     /// Creates a new Dispatcher instance
-    pub(crate) fn new(io: Io, remote_addr: SocketAddr, cfg: Arc<Builder>) -> Self {
-        Dispatcher { io: Framed::new(io, MqttCodec::Version(VersionCodec)), remote_addr, cfg }
+    pub(crate) fn new(
+        io: Io,
+        remote_addr: SocketAddr,
+        cert_info: Option<CertInfo>,
+        cfg: Arc<Builder>,
+    ) -> Self {
+        Dispatcher { io: Framed::new(io, MqttCodec::Version(VersionCodec)), remote_addr, cfg, cert_info }
     }
 
     /// Negotiates protocol version and returns appropriate stream (without cert info)
@@ -60,35 +67,35 @@ where
         })
     }
 
-    /// Negotiates protocol version and returns stream WITH certificate info (TLS only)
-    #[cfg(feature = "tls")]
-    #[inline]
-    pub async fn mqtt_tls(mut self) -> Result<MqttStream<Io>>
-    where
-        Io: TlsCertExtractor,
-    {
-        // Extract cert info BEFORE consuming self
-        let cert_info = self.io.get_ref().extract_cert_info();
-        // Certificate info is now available in s.cert_info
-        if let Some(ref cert) = cert_info {
-            log::debug!("Client certificate: {}", cert);
-            log::debug!("CN: {:?}, Org: {:?}", cert.common_name, cert.organization);
-        }
-        Ok(match self.probe_version().await? {
-            ProtocolVersion::MQTT3 => MqttStream::V3(v3::MqttStream {
-                io: self.io,
-                remote_addr: self.remote_addr,
-                cfg: self.cfg,
-                cert_info,
-            }),
-            ProtocolVersion::MQTT5 => MqttStream::V5(v5::MqttStream {
-                io: self.io,
-                remote_addr: self.remote_addr,
-                cfg: self.cfg,
-                cert_info,
-            }),
-        })
-    }
+    // /// Negotiates protocol version and returns stream WITH certificate info (TLS only)
+    // #[cfg(feature = "tls")]
+    // #[inline]
+    // pub async fn mqtt_tls(mut self) -> Result<MqttStream<Io>>
+    // where
+    //     Io: TlsCertExtractor,
+    // {
+    //     // Extract cert info BEFORE consuming self
+    //     let cert_info = self.io.get_ref().extract_cert_info();
+    //     // Certificate info is now available in s.cert_info
+    //     if let Some(ref cert) = cert_info {
+    //         log::debug!("Client certificate: {}", cert);
+    //         log::debug!("CN: {:?}, Org: {:?}", cert.common_name, cert.organization);
+    //     }
+    //     Ok(match self.probe_version().await? {
+    //         ProtocolVersion::MQTT3 => MqttStream::V3(v3::MqttStream {
+    //             io: self.io,
+    //             remote_addr: self.remote_addr,
+    //             cfg: self.cfg,
+    //             cert_info,
+    //         }),
+    //         ProtocolVersion::MQTT5 => MqttStream::V5(v5::MqttStream {
+    //             io: self.io,
+    //             remote_addr: self.remote_addr,
+    //             cfg: self.cfg,
+    //             cert_info,
+    //         }),
+    //     })
+    // }
 
     /// Detects protocol version from initial handshake
     #[inline]
