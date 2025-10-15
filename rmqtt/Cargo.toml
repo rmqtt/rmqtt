@@ -70,6 +70,7 @@ url.workspace = true
 config = { workspace = true, features = ["toml"] }
 scopeguard.workspace = true
 parking_lot.workspace = true
+num_cpus = "1.17.0"
 
 [build-dependencies]
 chrono = { workspace = true, features = ["clock"] }

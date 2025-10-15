@@ -47,6 +47,8 @@ pub struct Node {
     max_busy_cpuloadavg: f32,
     pub(crate) busy_update_interval: Duration,
     cpuload: AtomicI64,
+    cached_busy: AtomicBool,
+    cached_time: AtomicI64,
 }
 
 impl Default for Node {
@@ -62,13 +64,24 @@ impl Node {
         max_busy_cpuloadavg: f32,
         busy_update_interval: Duration,
     ) -> Self {
+        let cpu_count = num_cpus::get() as f32;
+        let normalized_loadavg = max_busy_loadavg * cpu_count / 100.0;
+        log::debug!(
+            "Node busy thresholds: load_avg={:.2} ({}% of {} cores), cpu_load={:.2}%",
+            normalized_loadavg,
+            max_busy_loadavg,
+            cpu_count,
+            max_busy_cpuloadavg
+        );
         Self {
             id,
             start_time: chrono::Local::now(),
-            max_busy_loadavg,
+            max_busy_loadavg: normalized_loadavg,
             max_busy_cpuloadavg,
             busy_update_interval,
             cpuload: AtomicI64::new(0),
+            cached_busy: AtomicBool::new(false),
+            cached_time: AtomicI64::new(0),
         }
     }
 
@@ -191,26 +204,33 @@ impl Node {
         let loadavg = sys.load_average();
         let load1 = loadavg.as_ref().map(|l| l.one).unwrap_or_default();
 
+        let is_busy = load1 > self.max_busy_loadavg || cpuload > self.max_busy_cpuloadavg;
+
+        log::debug!(
+            "Busy check: load1={:.2}, max_load={:.2}, cpuload={:.2}, max_cpu={:.2}, is_busy={}",
+            load1,
+            self.max_busy_loadavg,
+            cpuload,
+            self.max_busy_cpuloadavg,
+            is_busy
+        );
+
         load1 > self.max_busy_loadavg || cpuload > self.max_busy_cpuloadavg
     }
 
     #[inline]
     pub fn sys_is_busy(&self) -> bool {
-        static CACHED_BUSY: AtomicBool = AtomicBool::new(false);
-        static CACHED_TIME: AtomicI64 = AtomicI64::new(0);
-
         let now = timestamp_millis();
-
-        let last_update = CACHED_TIME.load(Ordering::Relaxed);
+        let last_update = self.cached_time.load(Ordering::Relaxed);
 
         if now - last_update < self.busy_update_interval.as_millis() as TimestampMillis {
-            return CACHED_BUSY.load(Ordering::Relaxed);
+            return self.cached_busy.load(Ordering::Relaxed);
         }
 
         let busy = self._is_busy();
 
-        CACHED_BUSY.store(busy, Ordering::Relaxed);
-        CACHED_TIME.store(now, Ordering::Relaxed);
+        self.cached_busy.store(busy, Ordering::Relaxed);
+        self.cached_time.store(now, Ordering::Relaxed);
 
         busy
     }
