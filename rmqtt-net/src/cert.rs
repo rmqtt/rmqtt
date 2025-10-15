@@ -19,6 +19,12 @@ impl CertInfo {
     }
 }
 
+impl Default for CertInfo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl fmt::Display for CertInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "CN: {:?}, Subject: {}, Org: {:?}", self.common_name, self.subject, self.organization)
