@@ -16,7 +16,6 @@ use rmqtt_codec::{MqttCodec, MqttPacket};
 
 use crate::error::MqttError;
 use crate::CertInfo;
-use crate::TlsCertExtractor;
 use crate::{Builder, Result};
 
 /// MQTT protocol dispatcher handling version negotiation
@@ -49,27 +48,21 @@ where
 
     /// Negotiates protocol version and returns appropriate stream
     #[inline]
-    pub async fn mqtt(mut self) -> Result<MqttStream<Io>>
-    where
-        Io: TlsCertExtractor,
-    {
-        #[cfg(feature = "tls")]
-        let cert_info = self.io.get_ref().extract_cert_info();
-
+    pub async fn mqtt(mut self) -> Result<MqttStream<Io>> {
         Ok(match self.probe_version().await? {
             ProtocolVersion::MQTT3 => MqttStream::V3(v3::MqttStream {
                 io: self.io,
                 remote_addr: self.remote_addr,
                 cfg: self.cfg,
                 #[cfg(feature = "tls")]
-                cert_info,
+                cert_info: self.cert_info,
             }),
             ProtocolVersion::MQTT5 => MqttStream::V5(v5::MqttStream {
                 io: self.io,
                 remote_addr: self.remote_addr,
                 cfg: self.cfg,
                 #[cfg(feature = "tls")]
-                cert_info,
+                cert_info: self.cert_info,
             }),
         })
     }
