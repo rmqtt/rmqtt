@@ -222,6 +222,13 @@ listener.tcp.internal.limit_subscription = false
 ##--------------------------------------------------------------------
 ## MQTT/TLS - External TLS Listener for MQTT Protocol, (TLSv1.2)
 listener.tls.external.addr = "0.0.0.0:8883"
+
+# Whether to use the Common Name (CN) field from the client certificate as the username
+# true  - enable this feature; the username will be extracted from the certificate CN field
+# false - disable this feature; the username must be provided in the CONNECT packet
+# Default: false
+listener.tls.external.cert_cn_as_username = false
+
 #Whether to enable cross-certification, default value: false
 listener.tls.external.cross_certificate = false
 #This certificate is used to authenticate the server during TLS handshakes.
