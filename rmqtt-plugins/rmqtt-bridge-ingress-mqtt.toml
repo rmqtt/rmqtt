@@ -25,8 +25,10 @@ server = "tcp://127.0.0.1:2883"
 #client_key = "./rmqtt-bin/client.key"
 
 # Username to connect to the remote MQTT broker
+#username = "${ENV:MQTT_USER}"
 username = "rmqtt_u"
 # Password to connect to the remote MQTT broker
+#password = "${ENV:MQTT_PASS}"
 password = "public"
 
 # Maximum limit of clients connected to the remote MQTT broker
