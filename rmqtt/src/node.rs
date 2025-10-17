@@ -230,16 +230,9 @@ impl Node {
             .map(|cpuload_aggr| {
                 let aggregate1 =
                     cpuload_aggr.user + cpuload_aggr.nice + cpuload_aggr.system + cpuload_aggr.interrupt;
-                let aggregate2 = aggregate1 + cpuload_aggr.idle;
-                if aggregate2 <= 0.0 {
-                    1.0
-                } else {
-                    aggregate2
-                };
-                aggregate1 / aggregate2 * 10_000.0
+                aggregate1 * 100.0
             })
             .unwrap_or_default();
-
         self.cpuload.store(cpuload as i64, Ordering::SeqCst);
     }
 }

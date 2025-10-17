@@ -50,6 +50,7 @@ and mobile applications that can handle millions of concurrent clients on a sing
 - TLS support;
 - WebSocket support;
 - WebSocket-TLS support;
+- MQTT over QUIC support;
 - Built-in extensible components;
 - Extensible plug-in support;
 - Metrics & Stats;

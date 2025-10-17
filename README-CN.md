@@ -48,6 +48,7 @@
 - TLS支持;
 - WebSocket支持;
 - WebSocket-TLS支持;
+- MQTT over QUIC支持;
 - 内置可扩展功能;
 - 支持扩展插件;
 - 指标监控;
