@@ -29,7 +29,6 @@
 //! }
 //! ```
 
-use std::fmt::Debug;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::num::{NonZeroU16, NonZeroU32};
 use std::sync::Arc;
@@ -42,6 +41,7 @@ use proxy_protocol::ProxyHeader;
 use proxy_protocol::{version1 as v1, version2 as v2};
 #[cfg(feature = "quic")]
 use quinn::{crypto::rustls::QuicServerConfig, IdleTimeout};
+use rmqtt_codec::types::QoS;
 #[cfg(not(target_os = "windows"))]
 #[cfg(feature = "tls")]
 use rustls::crypto::aws_lc_rs as provider;
@@ -61,14 +61,12 @@ use tokio_tungstenite::{
     tungstenite::handshake::server::{ErrorResponse, Request, Response},
 };
 
-use rmqtt_codec::types::QoS;
-
 #[cfg(feature = "quic")]
 use crate::quic::QuinnBiStream;
 use crate::stream::Dispatcher;
 #[cfg(feature = "ws")]
 use crate::ws::WsStream;
-use crate::{Error, Result};
+use crate::{CertInfo, Error, Result, TlsCertExtractor};
 
 /// Configuration builder for MQTT server instances
 #[derive(Clone, Debug)]
@@ -144,11 +142,13 @@ pub struct Builder {
     pub tls_cert: Option<String>,
     /// Path to TLS private key
     pub tls_key: Option<String>,
-
     /// Enable Proxy Protocol
     pub proxy_protocol: bool,
     /// Proxy Protocol timeout
     pub proxy_protocol_timeout: Duration,
+
+    /// Use TLS Certificate CN as Username
+    pub cert_cn_as_username: bool,
 
     /// QUIC(max_idle_timeout)
     pub idle_timeout: Duration,
@@ -214,6 +214,8 @@ impl Builder {
             tls_key: None,
             proxy_protocol: false,
             proxy_protocol_timeout: Duration::from_secs(5),
+
+            cert_cn_as_username: false,
 
             idle_timeout: Duration::from_secs(90),
         }
@@ -423,6 +425,11 @@ impl Builder {
         self
     }
 
+    pub fn cert_cn_as_username(mut self, cert_cn_as_username: bool) -> Self {
+        self.cert_cn_as_username = cert_cn_as_username;
+        self
+    }
+
     /// Enable proxy protocol parse
     pub fn proxy_protocol(mut self, enable_protocol_proxy: bool) -> Self {
         self.proxy_protocol = enable_protocol_proxy;
@@ -563,7 +570,6 @@ pub struct Listener {
     pub typ: ListenerType,
     /// Shared server configuration
     pub cfg: Arc<Builder>,
-
     tcp_listener: Option<TcpListener>,
     #[cfg(feature = "tls")]
     tls_acceptor: Option<TlsAcceptor>,
@@ -699,7 +705,7 @@ impl Listener {
         if let Err(e) = socket.set_nodelay(self.cfg.nodelay) {
             return Err(Error::from(e));
         }
-        log::info!("remote_addr: {remote_addr}, proxy_protocol: {}", self.cfg.proxy_protocol);
+        log::debug!("remote_addr: {remote_addr}, proxy_protocol: {}", self.cfg.proxy_protocol);
         if self.cfg.proxy_protocol {
             let mut buffer = [0u8; u16::MAX as usize];
             let read_bytes =
@@ -787,7 +793,7 @@ where
     #[inline]
     pub fn tcp(self) -> Result<Dispatcher<S>> {
         if matches!(self.typ, ListenerType::TCP) {
-            Ok(Dispatcher::new(self.socket, self.remote_addr, self.cfg))
+            Ok(Dispatcher::new(self.socket, self.remote_addr, None, self.cfg))
         } else {
             Err(anyhow!("Protocol mismatch: Expected TCP listener"))
         }
@@ -808,7 +814,10 @@ where
             Ok(Err(e)) => return Err(e.into()),
             Err(_) => return Err(crate::MqttError::ReadTimeout.into()),
         };
-        Ok(Dispatcher::new(tls_s, self.remote_addr, self.cfg))
+
+        let cert_info = Self::get_extract_cert_info(&tls_s, self.cfg.cert_cn_as_username);
+
+        Ok(Dispatcher::new(tls_s, self.remote_addr, cert_info, self.cfg))
     }
 
     #[cfg(feature = "ws")]
@@ -823,7 +832,7 @@ where
             .await
         {
             Ok(Ok(ws_stream)) => {
-                Ok(Dispatcher::new(WsStream::new(ws_stream), self.remote_addr, self.cfg.clone()))
+                Ok(Dispatcher::new(WsStream::new(ws_stream), self.remote_addr, None, self.cfg.clone()))
             }
             Ok(Err(e)) => Err(e.into()),
             Err(_) => Err(crate::MqttError::ReadTimeout.into()),
@@ -846,9 +855,12 @@ where
             Ok(Err(e)) => return Err(e.into()),
             Err(_) => return Err(crate::MqttError::ReadTimeout.into()),
         };
+
+        let cert_info = Self::get_extract_cert_info(&tls_s, self.cfg.cert_cn_as_username);
+
         match tokio::time::timeout(self.cfg.handshake_timeout, accept_hdr_async(tls_s, on_handshake)).await {
             Ok(Ok(ws_stream)) => {
-                Ok(Dispatcher::new(WsStream::new(ws_stream), self.remote_addr, self.cfg.clone()))
+                Ok(Dispatcher::new(WsStream::new(ws_stream), self.remote_addr, cert_info, self.cfg.clone()))
             }
             Ok(Err(e)) => Err(e.into()),
             Err(_) => Err(crate::MqttError::ReadTimeout.into()),
@@ -861,7 +873,24 @@ where
         if !matches!(self.typ, ListenerType::QUIC) {
             return Err(anyhow!("Protocol mismatch: Expected QUIC listener"));
         }
-        Ok(Dispatcher::new(self.socket, self.remote_addr, self.cfg))
+        Ok(Dispatcher::new(self.socket, self.remote_addr, None, self.cfg))
+    }
+
+    #[inline]
+    #[cfg(feature = "tls")]
+    fn get_extract_cert_info<C: TlsCertExtractor>(io: &C, cert_cn_as_username: bool) -> Option<CertInfo> {
+        if cert_cn_as_username {
+            // Extract cert info BEFORE consuming self
+            let cert_info: Option<CertInfo> = io.extract_cert_info();
+            // Certificate info is now available in s.cert_info
+            if let Some(ref cert) = cert_info {
+                log::debug!("Client certificate: {}", cert);
+                log::debug!("CN: {:?}, Org: {:?}", cert.common_name, cert.organization);
+            }
+            cert_info
+        } else {
+            None
+        }
     }
 }
 

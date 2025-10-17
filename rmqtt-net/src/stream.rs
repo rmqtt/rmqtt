@@ -15,6 +15,7 @@ use rmqtt_codec::version::{ProtocolVersion, VersionCodec};
 use rmqtt_codec::{MqttCodec, MqttPacket};
 
 use crate::error::MqttError;
+use crate::CertInfo;
 use crate::{Builder, Result};
 
 /// MQTT protocol dispatcher handling version negotiation
@@ -27,6 +28,8 @@ pub struct Dispatcher<Io> {
     pub remote_addr: SocketAddr,
     /// Shared configuration builder
     pub cfg: Arc<Builder>,
+
+    pub cert_info: Option<CertInfo>,
 }
 
 impl<Io> Dispatcher<Io>
@@ -34,20 +37,33 @@ where
     Io: AsyncRead + AsyncWrite + Unpin,
 {
     /// Creates a new Dispatcher instance
-    pub(crate) fn new(io: Io, remote_addr: SocketAddr, cfg: Arc<Builder>) -> Self {
-        Dispatcher { io: Framed::new(io, MqttCodec::Version(VersionCodec)), remote_addr, cfg }
+    pub(crate) fn new(
+        io: Io,
+        remote_addr: SocketAddr,
+        cert_info: Option<CertInfo>,
+        cfg: Arc<Builder>,
+    ) -> Self {
+        Dispatcher { io: Framed::new(io, MqttCodec::Version(VersionCodec)), remote_addr, cfg, cert_info }
     }
 
     /// Negotiates protocol version and returns appropriate stream
     #[inline]
     pub async fn mqtt(mut self) -> Result<MqttStream<Io>> {
         Ok(match self.probe_version().await? {
-            ProtocolVersion::MQTT3 => {
-                MqttStream::V3(v3::MqttStream { io: self.io, remote_addr: self.remote_addr, cfg: self.cfg })
-            }
-            ProtocolVersion::MQTT5 => {
-                MqttStream::V5(v5::MqttStream { io: self.io, remote_addr: self.remote_addr, cfg: self.cfg })
-            }
+            ProtocolVersion::MQTT3 => MqttStream::V3(v3::MqttStream {
+                io: self.io,
+                remote_addr: self.remote_addr,
+                cfg: self.cfg,
+                #[cfg(feature = "tls")]
+                cert_info: self.cert_info,
+            }),
+            ProtocolVersion::MQTT5 => MqttStream::V5(v5::MqttStream {
+                io: self.io,
+                remote_addr: self.remote_addr,
+                cfg: self.cfg,
+                #[cfg(feature = "tls")]
+                cert_info: self.cert_info,
+            }),
         })
     }
 
@@ -99,6 +115,9 @@ pub mod v3 {
     use crate::error::MqttError;
     use crate::{Builder, Error, Result};
 
+    #[cfg(feature = "tls")]
+    use crate::CertInfo;
+
     /// MQTT v3.1.1 protocol stream implementation
     pub struct MqttStream<Io> {
         /// Framed IO layer with MQTT codec
@@ -107,6 +126,9 @@ pub mod v3 {
         pub remote_addr: SocketAddr,
         /// Shared configuration builder
         pub cfg: Arc<Builder>,
+        #[cfg(feature = "tls")]
+        /// TLS certificate information (if available)
+        pub cert_info: Option<CertInfo>,
     }
 
     /// # Examples
@@ -251,7 +273,19 @@ pub mod v3 {
         #[inline]
         pub async fn recv_connect(&mut self, tm: Duration) -> Result<Box<Connect>> {
             let connect = match self.recv(tm).await {
-                Ok(Some(Packet::Connect(connect))) => connect,
+                Ok(Some(Packet::Connect(mut connect))) => {
+                    #[cfg(feature = "tls")]
+                    {
+                        if self.cfg.cert_cn_as_username {
+                            if let Some(cert) = &self.cert_info {
+                                if let Some(cn) = &cert.common_name {
+                                    connect.username = Some(cn.clone().into());
+                                }
+                            }
+                        }
+                    }
+                    connect
+                }
                 Err(e) => {
                     return Err(e);
                 }
@@ -298,7 +332,7 @@ pub mod v5 {
     use rmqtt_codec::{MqttCodec, MqttPacket};
 
     use crate::error::MqttError;
-    use crate::{Builder, Error, Result};
+    use crate::{Builder, CertInfo, Error, Result};
 
     /// MQTT v5.0 protocol stream implementation
     pub struct MqttStream<Io> {
@@ -308,6 +342,9 @@ pub mod v5 {
         pub remote_addr: SocketAddr,
         /// Shared configuration builder
         pub cfg: Arc<Builder>,
+        #[cfg(feature = "tls")]
+        /// TLS certificate information (if available)
+        pub cert_info: Option<CertInfo>,
     }
 
     /// # Examples

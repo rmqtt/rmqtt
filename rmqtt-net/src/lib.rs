@@ -47,6 +47,9 @@ pub use error::MqttError;
 #[cfg(feature = "tls")]
 pub use rustls;
 
+pub mod cert;
+pub use cert::{CertInfo, TlsCertExtractor};
+
 /// AWS-LC based TLS provider (non-Windows platforms)
 #[cfg(not(target_os = "windows"))]
 #[cfg(feature = "tls")]
