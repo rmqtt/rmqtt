@@ -147,6 +147,7 @@ pub mod v3 {
     ///     io: Framed::new(stream, MqttCodec::V3(Default::default())),
     ///     remote_addr: addr,
     ///     cfg: Arc::new(Builder::default()),
+    ///     cert_info: None,
     /// };
     ///
     /// // Send a PING request
@@ -364,6 +365,7 @@ pub mod v5 {
     ///     io: Framed::new(stream, MqttCodec::V5(Default::default())),
     ///     remote_addr: addr,
     ///     cfg: Arc::new(Builder::default()),
+    ///     cert_info: None
     /// };
     ///
     /// // Send authentication packet

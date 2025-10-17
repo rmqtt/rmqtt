@@ -16,7 +16,7 @@ use serde_json::{self, Map, Value};
 
 use rmqtt::{
     codec::types::{Protocol, MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5},
-    utils::{deserialize_duration, to_duration, Bytesize},
+    utils::{deserialize_duration, deserialize_expand_env_vars_option, to_duration, Bytesize},
     Result,
 };
 
@@ -44,9 +44,9 @@ pub struct Bridge {
     // #Client key file
     pub client_key: Option<String>,
 
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_expand_env_vars_option")]
     pub username: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_expand_env_vars_option")]
     pub password: Option<String>,
 
     #[serde(default = "Bridge::concurrent_client_limit_default")]
