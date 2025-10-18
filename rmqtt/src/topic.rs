@@ -222,6 +222,24 @@ impl Topic {
     pub fn matches_str<S: AsRef<str> + ?Sized>(&self, topic: &S) -> bool {
         matches!(self, topic.as_ref().split('/'))
     }
+
+    /// Convert the topic to a string, optionally ignoring the first `n` levels.
+    ///
+    /// # Example
+    /// ```
+    /// let topic: rmqtt::topic::Topic = "a/b/c/d".parse().unwrap();
+    /// assert_eq!(topic.to_string_skip(2), "c/d");
+    ///
+    /// let topic: rmqtt::topic::Topic = "sport/tennis/player1/stats".parse().unwrap();
+    /// assert_eq!(topic.to_string_skip(0), "sport/tennis/player1/stats");
+    /// assert_eq!(topic.to_string_skip(2), "player1/stats");
+    /// assert_eq!(topic.to_string_skip(4), "");
+    /// assert_eq!(topic.to_string_skip(6), "");
+    /// ```
+    #[inline]
+    pub fn to_string_skip(&self, skip: usize) -> String {
+        self.0.iter().skip(skip).map(|lvl| lvl.to_string()).collect::<Vec<_>>().join("/")
+    }
 }
 
 impl From<&[Level]> for Topic {

@@ -40,6 +40,7 @@ keepalive = "60s"
 reconnect_interval = "5s"
 # Specifies the maximum number of messages that the channel can hold simultaneously.
 message_channel_capacity = 100_000
+
 # MQTT protocol version to use: v4, v5 corresponding to MQTT 3.1.1, 5.0
 mqtt_ver = "v5"
 
@@ -73,6 +74,11 @@ remote.qos = 1
 remote.retain = false
 # Topic for messages forwarded to the remote MQTT server, where ${local.topic} represents the original topic of the forwarded message.
 remote.topic = "remote/topic/egress/${local.topic}"
+
+# Number of leading topic levels to skip when substituting ${local.topic} in `remote.topic`.
+# For example, if the local topic is `a/b/c/d` and skip_local_topic_levels = 2,
+# ${local.topic} will resolve to `c/d`.
+#remote.skip_levels = 0
 
 [[bridges.entries]]
 #Local topic filter: All messages matching this topic filter will be forwarded.

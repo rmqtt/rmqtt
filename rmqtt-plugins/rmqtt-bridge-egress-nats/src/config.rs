@@ -102,6 +102,8 @@ pub struct Remote {
     pub forward_all_from: bool,
     #[serde(default)]
     pub forward_all_publish: bool,
+    #[serde(default)]
+    pub skip_levels: usize,
 }
 
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]

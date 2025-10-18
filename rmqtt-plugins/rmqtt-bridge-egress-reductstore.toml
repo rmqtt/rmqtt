@@ -39,6 +39,11 @@ remote.forward_all_from = true
 # forward all publish data, including: dup, retain, qos, packet_id, topic (required to forward), payload (required to forward)
 remote.forward_all_publish = true
 
+# Number of leading topic levels to skip when substituting ${local.topic} in `remote.topic`.
+# For example, if the local topic is `a/b/c/d` and skip_local_topic_levels = 2,
+# ${local.topic} will resolve to `c/d`.
+#remote.skip_levels = 0
+
 [[bridges.entries]]
 # Local topic filter: All messages matching this topic filter will be forwarded.
 local.topic_filter = "local/topic2/egress/#"
