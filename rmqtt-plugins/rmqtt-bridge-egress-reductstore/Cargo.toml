@@ -12,7 +12,7 @@ license.workspace = true
 rmqtt = { workspace = true, features = ["plugin"] }
 tokio = { workspace = true, features = ["sync"] }
 serde = { workspace = true, features = ["derive"] }
-reduct-rs = "1.14.0"
+reduct-rs = "1.16.1"
 serde_json.workspace = true
 log.workspace = true
 async-trait.workspace = true

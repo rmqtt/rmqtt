@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -69,7 +70,13 @@ impl Producer {
     }
 
     #[inline]
-    pub(crate) async fn send(&self, exec: &TaskExecQueue, f: &From, p: &Publish) -> Result<()> {
+    pub(crate) async fn send(
+        &self,
+        exec: &TaskExecQueue,
+        f: &From,
+        p: &Publish,
+        new_local_topic: &str,
+    ) -> Result<()> {
         let mut headers = OwnedHeaders::new();
         headers = headers.insert(Header { key: "from_type", value: Some(f.typ().as_str()) });
         headers =
@@ -95,9 +102,9 @@ impl Producer {
         }
         headers = headers
             .insert(Header { key: "time", value: Some(itoa::Buffer::new().format(timestamp_millis())) });
-        headers = headers.insert(Header { key: "topic", value: Some(p.topic.as_str()) });
+        headers = headers.insert(Header { key: "topic", value: Some(new_local_topic) });
 
-        let topic = self.cfg_entry.remote.make_topic(&p.topic);
+        let topic = self.cfg_entry.remote.make_topic(new_local_topic);
         let payload = p.payload.clone();
         let queue_timeout = self.cfg_entry.remote.queue_timeout;
         let partition = self.cfg_entry.remote.partition;
@@ -234,7 +241,17 @@ impl BridgeManager {
                 if let Some(producers) = self.sinks.get(&(name.clone(), *entry_idx)) {
                     let client_no = rnd % producers.len();
                     if let Some(producer) = producers.get(client_no) {
-                        if let Err(e) = producer.send(&self.exec, f, p).await {
+                        let producer: &Producer = producer;
+                        let new_local_topic: Cow<str> = if producer.cfg_entry.remote.skip_levels > 0 {
+                            Cow::Owned(topic.to_string_skip(producer.cfg_entry.remote.skip_levels))
+                        } else {
+                            Cow::Borrowed(p.topic.as_ref())
+                        };
+                        log::debug!(
+                            "new_local_topic: {new_local_topic}, skip_levels: {}",
+                            producer.cfg_entry.remote.skip_levels
+                        );
+                        if let Err(e) = producer.send(&self.exec, f, p, new_local_topic.as_ref()).await {
                             log::warn!("{e}");
                         }
                     }

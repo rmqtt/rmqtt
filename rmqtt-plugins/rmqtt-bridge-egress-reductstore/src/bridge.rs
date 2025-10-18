@@ -28,6 +28,7 @@ pub enum Command {
 
 pub struct Producer {
     pub(crate) name: String,
+    cfg_entry: Entry,
     tx: mpsc::Sender<Command>,
 }
 
@@ -60,11 +61,12 @@ impl Producer {
 
         let bucket = builder.send().await.map_err(|e| anyhow!(format!("Failed to create Bucket, {}", e)))?;
 
+        let cfg_entry1 = cfg_entry.clone();
         let (tx, rx) = mpsc::channel(100_000);
         tokio::spawn(async move {
-            Self::start(cfg_entry, bucket, rx).await;
+            Self::start(cfg_entry1, bucket, rx).await;
         });
-        Ok(Producer { name: producer_name, tx })
+        Ok(Producer { name: producer_name, cfg_entry, tx })
     }
 
     #[inline]
@@ -121,7 +123,6 @@ impl Producer {
 
                     //Must forward
                     sender = sender.add_label("topic", p.topic.clone());
-
                     if let Err(e) = sender.data(p.take_payload()).send().await {
                         log::warn!("{e}");
                     }
@@ -132,8 +133,16 @@ impl Producer {
     }
 
     #[inline]
-    pub(crate) async fn send(&self, f: &From, p: &Publish) -> Result<()> {
-        self.tx.send(Command::Message(f.clone(), p.clone())).await?;
+    pub(crate) async fn send(&self, f: &From, p: &Publish, topic: &Topic) -> Result<()> {
+        let p = if self.cfg_entry.remote.skip_levels > 0 {
+            let mut p = p.clone();
+            p.topic = ByteString::from(topic.to_string_skip(self.cfg_entry.remote.skip_levels));
+            p
+        } else {
+            p.clone()
+        };
+        log::debug!("new_local_topic: {}, skip_levels: {}", p.topic, self.cfg_entry.remote.skip_levels);
+        self.tx.send(Command::Message(f.clone(), p)).await?;
         Ok(())
     }
 }
@@ -214,7 +223,7 @@ impl BridgeManager {
             log::debug!("bridge_infos: {bridge_infos:?}");
             for (name, entry_idx) in bridge_infos {
                 if let Some(producer) = self.sinks.get(&(name.clone(), *entry_idx)) {
-                    if let Err(e) = producer.send(f, p).await {
+                    if let Err(e) = producer.send(f, p, &topic).await {
                         log::warn!("{e}");
                     }
                 }

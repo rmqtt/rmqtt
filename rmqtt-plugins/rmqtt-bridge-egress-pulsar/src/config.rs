@@ -124,6 +124,8 @@ pub struct Remote {
     pub schema_version: Option<Vec<u8>>,
     #[serde(default)]
     pub options: Opts,
+    #[serde(default)]
+    pub skip_levels: usize,
 }
 
 impl Remote {

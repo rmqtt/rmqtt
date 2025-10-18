@@ -70,6 +70,8 @@ pub struct Remote {
     pub queue_timeout: Duration,
     #[serde(default)]
     pub partition: Option<i32>,
+    #[serde(default)]
+    pub skip_levels: usize,
 }
 
 impl Remote {
