@@ -274,6 +274,7 @@ pub mod v3 {
         #[inline]
         pub async fn recv_connect(&mut self, tm: Duration) -> Result<Box<Connect>> {
             let connect = match self.recv(tm).await {
+                #[allow(unused_mut)]
                 Ok(Some(Packet::Connect(mut connect))) => {
                     #[cfg(feature = "tls")]
                     {
@@ -333,7 +334,9 @@ pub mod v5 {
     use rmqtt_codec::{MqttCodec, MqttPacket};
 
     use crate::error::MqttError;
-    use crate::{Builder, CertInfo, Error, Result};
+    #[cfg(feature = "tls")]
+    use crate::CertInfo;
+    use crate::{Builder, Error, Result};
 
     /// MQTT v5.0 protocol stream implementation
     pub struct MqttStream<Io> {
