@@ -9,7 +9,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-rmqtt = { workspace = true, features = ["plugin"] }
+rmqtt = { workspace = true, features = ["plugin", "msgstore"] }
 tokio = { workspace = true, features = ["sync"] }
 serde = { workspace = true, features = ["derive"] }
 async-nats = "0.38"
