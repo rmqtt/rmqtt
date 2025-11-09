@@ -343,7 +343,7 @@ impl Plugin for ClusterPlugin {
         *self.scx.extends.shared_mut().await = Box::new(self.shared.clone());
         self.register.start().await;
         let status = raft_mailbox.status().await.map_err(anyhow::Error::new)?;
-        log::info!("raft status: {:?}", status);
+        log::info!("raft status: {status:?}");
         if !status.is_started() {
             return Err(anyhow!("Raft cluster status is abnormal"));
         }

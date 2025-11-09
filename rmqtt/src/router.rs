@@ -419,7 +419,7 @@ impl DefaultRouter {
 impl Router for DefaultRouter {
     #[inline]
     async fn add(&self, topic_filter: &str, id: Id, opts: SubscriptionOptions) -> Result<()> {
-        log::debug!("{:?} add, topic_filter: {:?}", id, topic_filter);
+        log::debug!("{id:?} add, topic_filter: {topic_filter:?}");
         let topic = Topic::from_str(topic_filter)?;
         //add to topic tree
         self.topics.write().await.insert(&topic, ());
@@ -441,7 +441,7 @@ impl Router for DefaultRouter {
 
     #[inline]
     async fn remove(&self, topic_filter: &str, id: Id) -> Result<bool> {
-        log::debug!("{:?} remove, topic_filter: {:?}", id, topic_filter);
+        log::debug!("{id:?} remove, topic_filter: {topic_filter:?}");
         //Remove subscription relationship from local
         let res = if let Some(mut rels) = self.relations.get_mut(topic_filter) {
             let remove_enable = rels.value().get(&id.client_id).map(|(s_id, _)| {
@@ -465,7 +465,7 @@ impl Router for DefaultRouter {
             None
         };
 
-        log::debug!("{:?} remove, topic_filter: {:?}, res: {:?}", id, topic_filter, res);
+        log::debug!("{id:?} remove, topic_filter: {topic_filter:?}, res: {res:?}");
 
         let remove_ok = if let Some((is_empty, remove_ok)) = res {
             if is_empty {

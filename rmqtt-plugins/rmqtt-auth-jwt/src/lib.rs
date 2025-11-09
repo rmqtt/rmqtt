@@ -45,7 +45,7 @@ impl AuthJwtPlugin {
         let name = name.into();
         let mut cfg = scx.plugins.read_config::<PluginConfig>(&name)?;
         cfg.init_decoding_key()?;
-        log::info!("{} AuthJwtPlugin cfg: {:?}", name, cfg);
+        log::info!("{name} AuthJwtPlugin cfg: {cfg:?}");
         let cfg = Arc::new(RwLock::new(cfg));
         let register = scx.extends.hook_mgr().register();
         Ok(Self { scx, register, cfg })

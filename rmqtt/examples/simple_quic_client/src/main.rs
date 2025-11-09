@@ -61,7 +61,7 @@ async fn main() -> Result<()> {
 
     // Wait for CONNACK response
     if let Some(Ok((MqttPacket::V3(rmqtt_codec::v3::Packet::ConnectAck(ack)), _))) = framed.next().await {
-        log::info!("Received CONNACK: {:?}", ack);
+        log::info!("Received CONNACK: {ack:?}");
     }
 
     // Send PUBLISH packet
@@ -82,7 +82,7 @@ async fn main() -> Result<()> {
     if let Some(Ok((MqttPacket::V3(rmqtt_codec::v3::Packet::PublishAck { packet_id }), _))) =
         framed.next().await
     {
-        log::info!("Received PUBACK for packet_id {:?}", packet_id);
+        log::info!("Received PUBACK for packet_id {packet_id:?}");
     }
 
     framed.close().await?;

@@ -426,8 +426,7 @@ impl Entry for LockEntry {
         let node_id = peer.s.id.node_id;
         assert_eq!(
             node_id, this_node_id,
-            "session node exception, session node id is {}, this node id is {}",
-            node_id, this_node_id
+            "session node exception, session node id is {node_id}, this node id is {this_node_id}"
         );
 
         scx.extends.router().await.add(&sub.topic_filter, self.id.clone(), sub.opts.clone()).await?;

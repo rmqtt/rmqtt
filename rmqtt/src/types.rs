@@ -2416,7 +2416,7 @@ impl std::convert::From<Reason> for PublishResult {
             ProtocolError(msg) => Self {
                 reason_code: UnspecifiedError,
                 properties: UserProperties::default(),
-                reason_string: Some(format!("Protocol error: {}", msg).into()),
+                reason_string: Some(format!("Protocol error: {msg}").into()),
                 disconnect: true,
             },
 
