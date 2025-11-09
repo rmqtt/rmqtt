@@ -139,7 +139,7 @@ impl ClusterRouter {
 impl Router for ClusterRouter {
     #[inline]
     async fn add(&self, topic_filter: &str, id: Id, opts: SubscriptionOptions) -> Result<()> {
-        log::debug!("[Router.add] topic_filter: {:?}, id: {:?}, opts: {:?}", topic_filter, id, opts);
+        log::debug!("[Router.add] topic_filter: {topic_filter:?}, id: {id:?}, opts: {opts:?}");
 
         let mut add_res = None;
         for _ in 0..3 {
@@ -165,7 +165,7 @@ impl Router for ClusterRouter {
 
     #[inline]
     async fn remove(&self, topic_filter: &str, id: Id) -> Result<bool> {
-        log::debug!("[Router.remove] topic_filter: {:?}, id: {:?}", topic_filter, id);
+        log::debug!("[Router.remove] topic_filter: {topic_filter:?}, id: {id:?}");
         let msg = Message::Remove { topic_filter, id: id.clone() }.encode()?;
         let raft_mailbox = self.raft_mailbox().await;
         let exec = self.remove_exec.clone();
@@ -198,7 +198,7 @@ impl Router for ClusterRouter {
     ///Check online or offline
     #[inline]
     async fn is_online(&self, node_id: NodeId, client_id: &str) -> bool {
-        log::debug!("[Router.is_online] node_id: {:?}, client_id: {:?}", node_id, client_id);
+        log::debug!("[Router.is_online] node_id: {node_id:?}, client_id: {client_id:?}");
         self.client_states.get(client_id).map(|entry| entry.online).unwrap_or(false)
     }
 

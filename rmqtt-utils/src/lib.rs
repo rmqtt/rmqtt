@@ -648,7 +648,7 @@ pub fn expand_env_vars(value: &str) -> String {
         .replace_all(value, |caps: &regex::Captures| {
             let env_name = &caps[1];
             std::env::var(env_name).unwrap_or_else(|_| {
-                log::warn!("environment variable `{}` not set", env_name);
+                log::warn!("environment variable `{env_name}` not set");
                 String::new()
             })
         })

@@ -68,7 +68,6 @@ use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use anyhow::anyhow;
 use async_trait::async_trait;
 #[allow(unused_imports)]
 use bitflags::Flags;
@@ -689,10 +688,12 @@ impl SessionState {
             }
 
             Packet::V3(v3::Packet::PublishRelease { packet_id }) => {
+                log::debug!("{} PublishRelease: {:?}", self.id, packet_id);
                 self.in_inflight.remove(&packet_id);
                 sink.v3_mut().send_publish_complete(packet_id).await?;
             }
             Packet::V5(v5::Packet::PublishRelease(ack2)) => {
+                log::debug!("{} PublishRelease: {:?}", self.id, ack2);
                 self.in_inflight.remove(&ack2.packet_id);
                 sink.v5_mut()
                     .send_publish_complete(PublishAck2 { packet_id: ack2.packet_id, ..Default::default() })
@@ -919,12 +920,14 @@ impl SessionState {
                     }
                     Ok(res) => res,
                 };
-                self.publish(publish).await.inspect_err(|_| {
+
+                let pubres = self.publish(publish).await.inspect_err(|_| {
                     if inflight_res {
                         self.in_inflight.remove(&packet_id);
                     }
                 })?;
-                let ack_res = sink.send_publish_ack(packet_id).await;
+
+                let ack_res = sink.send_publish_ack(packet_id, pubres).await;
                 if inflight_res {
                     self.in_inflight.remove(&packet_id);
                 }
@@ -932,17 +935,14 @@ impl SessionState {
             }
             QoS::ExactlyOnce => {
                 let packet_id = Self::packet_id(packet_id)?;
-                if let Err(e) = self.in_inflight.add(packet_id, qos) {
-                    //hook, Message dropped
-                    self.scx
-                        .extends
-                        .hook_mgr()
-                        .message_dropped(None, From::from_custom(self.id.clone()), publish, e.clone())
-                        .await;
-                    return Err(e);
+                let pub_res = self.publish(publish).await?;
+                let inflight_res =
+                    if pub_res.is_success() { self.in_inflight.add(packet_id, qos)? } else { false };
+                let rec_res = sink.send_publish_received(packet_id, pub_res).await;
+                if inflight_res && rec_res.is_err() {
+                    self.in_inflight.remove(&packet_id);
                 }
-                self.publish(publish).await?;
-                sink.send_publish_received(packet_id).await?;
+                rec_res?;
             }
             QoS::AtMostOnce => {
                 self.publish(publish).await?;
@@ -952,24 +952,35 @@ impl SessionState {
     }
 
     #[inline]
-    async fn publish(&self, publish: Publish) -> std::result::Result<bool, Reason> {
+    async fn publish(&self, publish: Publish) -> Result<PublishResult> {
         match self._publish(publish).await {
             Err(e) => {
                 #[cfg(feature = "metrics")]
                 self.scx.metrics.client_publish_error_inc();
-                Err(Reason::PublishFailed(e.to_string().into()))
+                Err(e)
             }
-            Ok(false) => {
-                #[cfg(feature = "metrics")]
-                self.scx.metrics.client_publish_error_inc();
-                Ok(false)
+            Ok(pub_res) => {
+                if pub_res.is_success() {
+                    Ok(pub_res)
+                } else {
+                    #[cfg(feature = "metrics")]
+                    self.scx.metrics.client_publish_error_inc();
+                    if pub_res.disconnect {
+                        Err(MqttError::PublishAckReason(
+                            pub_res.reason_code,
+                            pub_res.reason_string.unwrap_or_default(),
+                        )
+                        .into())
+                    } else {
+                        Ok(pub_res)
+                    }
+                }
             }
-            Ok(true) => Ok(true),
         }
     }
 
     #[inline]
-    async fn _publish(&self, mut publish: Publish) -> Result<bool> {
+    async fn _publish(&self, mut publish: Publish) -> Result<PublishResult> {
         if let Some(client_topic_aliases) = &self.client_topic_aliases {
             publish.deref_mut().topic = client_topic_aliases
                 .set_and_get(publish.properties.as_ref().and_then(|p| p.topic_alias), publish.topic.clone())
@@ -989,17 +1000,24 @@ impl SessionState {
         //hook, message_publish_check_acl
         let acl_result = self.hook.message_publish_check_acl(&publish).await;
         log::debug!("{:?} acl_result: {:?}", self.id, acl_result);
-        if let PublishAclResult::Rejected(disconnect) = acl_result {
+        if !acl_result.is_allow() {
             #[cfg(feature = "metrics")]
             self.scx.metrics.client_publish_auth_error_inc();
+
+            let pub_res = acl_result.pub_res();
+            let reason = Reason::PublishResult(pub_res.clone());
+
             //hook, Message dropped
-            self.scx.extends.hook_mgr().message_dropped(None, from, publish, Reason::PublishRefused).await;
-            return if disconnect {
-                Err(anyhow!(
-                    "Publish Refused, reason: hook::message_publish_check_acl() -> Rejected(Disconnect)",
-                ))
+            self.scx.extends.hook_mgr().message_dropped(None, from, publish, reason).await;
+
+            return if pub_res.disconnect {
+                Err(MqttError::PublishAckReason(
+                    pub_res.reason_code,
+                    pub_res.reason_string.unwrap_or_default(),
+                )
+                .into())
             } else {
-                Ok(false)
+                Ok(pub_res)
             };
         }
 
@@ -1032,7 +1050,7 @@ impl SessionState {
 
         Self::forwards(&self.scx, from, publish, message_storage_available, message_expiry_interval).await?;
 
-        Ok(true)
+        Ok(PublishResult::success())
     }
 
     #[inline]

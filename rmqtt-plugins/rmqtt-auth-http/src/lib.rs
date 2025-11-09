@@ -593,8 +593,10 @@ impl Handler for AuthHandler {
 
             Parameter::MessagePublishCheckAcl(session, publish) => {
                 log::debug!("MessagePublishCheckAcl");
-                if let Some(HookResult::PublishAclResult(PublishAclResult::Rejected(_))) = &acc {
-                    return (false, acc);
+                if let Some(HookResult::PublishAclResult(acl_res)) = &acc {
+                    if acl_res.is_rejected() {
+                        return (false, acc);
+                    }
                 }
 
                 if let Some(auth_info) = &session.auth_info {
@@ -632,12 +634,13 @@ impl Handler for AuthHandler {
 
                 return match acl_res {
                     Permission::Allow(_) => {
-                        (false, Some(HookResult::PublishAclResult(PublishAclResult::Allow)))
+                        (false, Some(HookResult::PublishAclResult(PublishAclResult::allow())))
                     }
                     Permission::Deny => (
                         false,
-                        Some(HookResult::PublishAclResult(PublishAclResult::Rejected(
+                        Some(HookResult::PublishAclResult(PublishAclResult::rejected(
                             self.cfg.read().await.disconnect_if_pub_rejected,
+                            None,
                         ))),
                     ),
                     Permission::Ignore => (true, None),

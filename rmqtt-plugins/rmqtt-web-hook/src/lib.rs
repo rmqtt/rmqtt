@@ -725,7 +725,7 @@ impl Handler for WebHookHandler {
             }
         };
 
-        log::debug!("bodys: {:?}", bodys);
+        log::debug!("bodys: {bodys:?}");
 
         if let Some((topic, body)) = bodys {
             let tx = self.tx.read().await.clone();

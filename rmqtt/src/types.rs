@@ -33,9 +33,9 @@ use crate::codec::v3::{
 };
 use crate::codec::v5::{
     Connect as ConnectV5, ConnectAckReason as ConnectAckReasonV5, DisconnectReasonCode,
-    LastWill as LastWillV5, PublishAck, PublishAck2, PublishAck2Reason, PublishAckReason, PublishProperties,
-    RetainHandling, SubscribeAckReason, SubscriptionOptions as SubscriptionOptionsV5, ToReasonCode,
-    UserProperties, UserProperty,
+    LastWill as LastWillV5, PublishAck as PublishAckV5, PublishAck2, PublishAck2Reason, PublishAckReason,
+    PublishProperties, RetainHandling, SubscribeAckReason, SubscriptionOptions as SubscriptionOptionsV5,
+    ToReasonCode, UserProperties, UserProperty,
 };
 use crate::fitter::Fitter;
 use crate::net::MqttError;
@@ -350,10 +350,38 @@ impl Disconnect {
 
 pub type SubscribeAclResult = SubscribeReturn;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PublishAclResult {
-    Allow,
-    Rejected(IsDisconnect),
+#[derive(Default, Debug, Clone, Deserialize, Serialize)]
+pub struct PublishAclResult(pub PublishResult);
+
+impl PublishAclResult {
+    #[inline]
+    pub fn pub_res(self) -> PublishResult {
+        self.0
+    }
+
+    #[inline]
+    pub fn allow() -> Self {
+        PublishAclResult(PublishResult::reason_code(PublishAckReason::Success, None, false))
+    }
+
+    #[inline]
+    pub fn rejected(disconnect: IsDisconnect, reason_string: Option<ByteString>) -> Self {
+        PublishAclResult(PublishResult::reason_code(
+            PublishAckReason::NotAuthorized,
+            Some(reason_string.unwrap_or_else(|| "PublishRefused".into())),
+            disconnect,
+        ))
+    }
+
+    #[inline]
+    pub fn is_allow(&self) -> bool {
+        matches!(self.0.reason_code, PublishAckReason::Success)
+    }
+
+    #[inline]
+    pub fn is_rejected(&self) -> bool {
+        !self.is_allow()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1345,14 +1373,22 @@ where
     }
 
     #[inline]
-    pub(crate) async fn send_publish_ack(&mut self, packet_id: NonZeroU16) -> Result<()> {
+    pub(crate) async fn send_publish_ack(
+        &mut self,
+        packet_id: NonZeroU16,
+        pubres: PublishResult,
+    ) -> Result<()> {
         match self {
             Sink::V3(s) => {
                 s.send_publish_ack(packet_id).await?;
             }
             Sink::V5(s) => {
-                let ack =
-                    PublishAck { packet_id, reason_code: PublishAckReason::Success, ..Default::default() };
+                let ack = PublishAckV5 {
+                    packet_id,
+                    reason_code: pubres.reason_code,
+                    properties: pubres.properties,
+                    reason_string: pubres.reason_string,
+                };
                 s.send_publish_ack(ack).await?;
             }
         }
@@ -1360,14 +1396,22 @@ where
     }
 
     #[inline]
-    pub(crate) async fn send_publish_received(&mut self, packet_id: NonZeroU16) -> Result<()> {
+    pub(crate) async fn send_publish_received(
+        &mut self,
+        packet_id: NonZeroU16,
+        pubres: PublishResult,
+    ) -> Result<()> {
         match self {
             Sink::V3(s) => {
                 s.send_publish_received(packet_id).await?;
             }
             Sink::V5(s) => {
-                let ack =
-                    PublishAck { packet_id, reason_code: PublishAckReason::Success, ..Default::default() };
+                let ack = PublishAckV5 {
+                    packet_id,
+                    reason_code: pubres.reason_code,
+                    properties: pubres.properties,
+                    reason_string: pubres.reason_string,
+                };
                 s.send_publish_received(ack).await?;
             }
         }
@@ -1406,6 +1450,46 @@ where
             }
         }
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PublishResult {
+    pub reason_code: PublishAckReason,
+    pub properties: UserProperties,
+    pub reason_string: Option<ByteString>,
+    pub disconnect: IsDisconnect,
+}
+
+impl PublishResult {
+    #[inline]
+    pub fn success() -> PublishResult {
+        PublishResult { reason_code: PublishAckReason::Success, ..Default::default() }
+    }
+
+    #[inline]
+    pub fn reason_code(
+        reason_code: PublishAckReason,
+        reason_string: Option<ByteString>,
+        disconnect: IsDisconnect,
+    ) -> PublishResult {
+        PublishResult { reason_code, reason_string, disconnect, ..Default::default() }
+    }
+
+    #[inline]
+    pub fn is_success(&self) -> bool {
+        matches!(self.reason_code, PublishAckReason::Success)
+    }
+}
+
+impl Default for PublishResult {
+    fn default() -> Self {
+        Self {
+            reason_code: PublishAckReason::Success,
+            properties: UserProperties::default(),
+            reason_string: None,
+            disconnect: false,
+        }
     }
 }
 
@@ -2259,9 +2343,8 @@ pub enum Reason {
     SessionExpiration,
     SubscribeFailed(Option<ByteString>),
     UnsubscribeFailed(Option<ByteString>),
-    PublishFailed(ByteString),
+    PublishResult(PublishResult),
     SubscribeRefused,
-    PublishRefused,
     DelayedPublishRefused,
     MessageExpiration,
     MessageQueueFull,
@@ -2291,6 +2374,84 @@ impl Reason {
     #[inline]
     pub fn is_kicked_by_admin(&self) -> bool {
         matches!(self, Reason::ConnectKicked(true))
+    }
+}
+
+impl std::convert::From<Reason> for PublishResult {
+    fn from(reason: Reason) -> Self {
+        use PublishAckReason::*;
+        use Reason::*;
+
+        match reason {
+            PublishResult(r) => r, // 已经是 PublishResult，直接返回
+
+            MessageQueueFull => Self {
+                reason_code: QuotaExceeded,
+                properties: UserProperties::default(),
+                reason_string: Some("Message queue full".into()),
+                disconnect: false,
+            },
+
+            InflightWindowFull => Self {
+                reason_code: QuotaExceeded,
+                properties: UserProperties::default(),
+                reason_string: Some("Inflight window full".into()),
+                disconnect: false,
+            },
+
+            SubscribeRefused | DelayedPublishRefused => Self {
+                reason_code: ImplementationSpecificError,
+                properties: UserProperties::default(),
+                reason_string: Some("Publish refused".into()),
+                disconnect: false,
+            },
+
+            MessageExpiration => Self {
+                reason_code: UnspecifiedError,
+                properties: UserProperties::default(),
+                reason_string: Some("Message expired".into()),
+                disconnect: true,
+            },
+
+            ProtocolError(msg) => Self {
+                reason_code: UnspecifiedError,
+                properties: UserProperties::default(),
+                reason_string: Some(format!("Protocol error: {msg}").into()),
+                disconnect: true,
+            },
+
+            Error(msg) => Self {
+                reason_code: ImplementationSpecificError,
+                properties: UserProperties::default(),
+                reason_string: Some(msg),
+                disconnect: true,
+            },
+
+            MqttError(_) => Self {
+                reason_code: UnspecifiedError,
+                properties: UserProperties::default(),
+                reason_string: Some("MQTT internal error".into()),
+                disconnect: true,
+            },
+
+            ConnectDisconnect(_)
+            | ConnectReadWriteTimeout
+            | ConnectReadWriteError
+            | ConnectRemoteClose
+            | ConnectKeepaliveTimeout
+            | ConnectKicked(_)
+            | HandshakeRateExceeded
+            | SessionExpiration
+            | SubscribeFailed(_)
+            | UnsubscribeFailed(_)
+            | Reasons(_)
+            | Unknown => Self {
+                reason_code: UnspecifiedError,
+                properties: UserProperties::default(),
+                reason_string: Some("Connection or session related error".into()),
+                disconnect: true,
+            },
+        }
     }
 }
 
@@ -2346,11 +2507,10 @@ impl ToReasonCode for Reason {
             Reason::SubscribeFailed(_) => DisconnectReasonCode::UnspecifiedError,
             Reason::UnsubscribeFailed(_) => DisconnectReasonCode::UnspecifiedError,
             Reason::SubscribeRefused => DisconnectReasonCode::NotAuthorized,
-            Reason::PublishRefused => DisconnectReasonCode::NotAuthorized,
+            Reason::PublishResult(pubres) => pubres.reason_code.to_reason_code(),
             Reason::DelayedPublishRefused => DisconnectReasonCode::NotAuthorized,
             Reason::MessageExpiration => DisconnectReasonCode::MessageRateTooHigh,
             Reason::MessageQueueFull => DisconnectReasonCode::QuotaExceeded,
-            Reason::PublishFailed(_) => DisconnectReasonCode::PacketTooLarge,
             Reason::InflightWindowFull => DisconnectReasonCode::ReceiveMaximumExceeded,
             Reason::ProtocolError(_) => DisconnectReasonCode::ProtocolError,
             Reason::Error(_) => DisconnectReasonCode::UnspecifiedError,
@@ -2420,8 +2580,13 @@ impl Display for Reason {
             Reason::SubscribeRefused => {
                 "SubscribeRefused" //subscribe refused
             }
-            Reason::PublishRefused => {
-                "PublishRefused" //publish refused
+            Reason::PublishResult(pubres) => {
+                if let Some(rs) = pubres.reason_string.as_ref() {
+                    let s: &str = rs.as_ref();
+                    s
+                } else {
+                    &format!("{:?}", pubres.reason_code)
+                }
             }
             Reason::DelayedPublishRefused => {
                 "DelayedPublishRefused" //delayed publish refused
@@ -2432,7 +2597,6 @@ impl Display for Reason {
             Reason::MessageQueueFull => {
                 "MessageQueueFull" //message deliver queue is full
             }
-            Reason::PublishFailed(r) => return write!(f, "PublishFailed({r})"),
             Reason::InflightWindowFull => "Inflight window is full",
             Reason::Error(r) => r,
             Reason::MqttError(e) => &e.to_string(),
@@ -2719,10 +2883,6 @@ fn test_reason() {
     assert!(!Reason::ConnectDisconnect(None).is_kicked(false));
     assert!(!Reason::ConnectDisconnect(None).is_kicked_by_admin());
 
-    let reasons = Reason::Reasons(vec![
-        Reason::PublishRefused,
-        Reason::ConnectKicked(false),
-        Reason::MessageExpiration,
-    ]);
-    assert_eq!(reasons.to_string(), "PublishRefused,Kicked,MessageExpiration");
+    let reasons = Reason::Reasons(vec![Reason::ConnectKicked(false), Reason::MessageExpiration]);
+    assert_eq!(reasons.to_string(), "Kicked,MessageExpiration");
 }
