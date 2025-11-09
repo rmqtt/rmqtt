@@ -20,7 +20,7 @@ use rmqtt::{
     macros::Plugin,
     plugin::{PackageInfo, Plugin},
     register,
-    types::{AuthResult, ConnectInfo, Disconnect, Message, PublishAclResult, Reason},
+    types::{AuthResult, ConnectInfo, Disconnect, Message, Reason},
     Result,
 };
 
@@ -356,8 +356,10 @@ impl Handler for AuthHandler {
 
             Parameter::MessagePublishCheckAcl(session, publish) => {
                 log::debug!("MessagePublishCheckAcl auth-jwt");
-                if let Some(HookResult::PublishAclResult(PublishAclResult::Rejected(_))) = &acc {
-                    return (false, acc);
+                if let Some(HookResult::PublishAclResult(acl_res)) = &acc {
+                    if acl_res.is_rejected() {
+                        return (false, acc);
+                    }
                 }
 
                 if let Some(auth_info) = &session.auth_info {
