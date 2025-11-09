@@ -27,6 +27,7 @@
 //! ```
 
 mod builder;
+mod cert;
 mod error;
 #[cfg(feature = "quic")]
 mod quic;
@@ -40,15 +41,14 @@ pub use quic::QuinnBiStream;
 /// Server configuration and listener management
 pub use builder::{Builder, Listener, ListenerType};
 
+pub use cert::{CertInfo, TlsCertExtractor};
+
 /// Error types for MQTT operations
 pub use error::MqttError;
 
 /// TLS implementation providers
 #[cfg(feature = "tls")]
 pub use rustls;
-
-pub mod cert;
-pub use cert::{CertInfo, TlsCertExtractor};
 
 /// AWS-LC based TLS provider (non-Windows platforms)
 #[cfg(not(target_os = "windows"))]

@@ -80,6 +80,7 @@ impl TlsCertExtractor for WsStream<tokio::net::TcpStream> {
 }
 
 #[cfg(feature = "ws")]
+#[cfg(feature = "tls")]
 impl TlsCertExtractor for WsStream<tokio_rustls::server::TlsStream<tokio::net::TcpStream>> {
     fn extract_cert_info(&self) -> Option<CertInfo> {
         self.get_inner().get_ref().extract_cert_info()

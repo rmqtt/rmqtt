@@ -66,7 +66,9 @@ use crate::quic::QuinnBiStream;
 use crate::stream::Dispatcher;
 #[cfg(feature = "ws")]
 use crate::ws::WsStream;
-use crate::{CertInfo, Error, Result, TlsCertExtractor};
+#[cfg(feature = "tls")]
+use crate::{CertInfo, TlsCertExtractor};
+use crate::{Error, Result};
 
 /// Configuration builder for MQTT server instances
 #[derive(Clone, Debug)]
