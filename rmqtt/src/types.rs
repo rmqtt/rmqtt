@@ -2884,5 +2884,5 @@ fn test_reason() {
     assert!(!Reason::ConnectDisconnect(None).is_kicked_by_admin());
 
     let reasons = Reason::Reasons(vec![Reason::ConnectKicked(false), Reason::MessageExpiration]);
-    assert_eq!(reasons.to_string(), "PublishRefused,Kicked,MessageExpiration");
+    assert_eq!(reasons.to_string(), "Kicked,MessageExpiration");
 }
