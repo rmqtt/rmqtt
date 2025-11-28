@@ -49,9 +49,16 @@ impl Plugin for TopicRewritePlugin {
     async fn init(&mut self) -> Result<()> {
         log::info!("{} init", self.name());
         let cfg = &self.cfg;
-        self.register.add(Type::MessagePublish, Box::new(TopicRewriteHandler::new(cfg))).await;
-        self.register.add(Type::ClientSubscribe, Box::new(TopicRewriteHandler::new(cfg))).await;
-        self.register.add(Type::ClientUnsubscribe, Box::new(TopicRewriteHandler::new(cfg))).await;
+        let priority = cfg.read().await.priority;
+        self.register
+            .add_priority(Type::MessagePublish, priority, Box::new(TopicRewriteHandler::new(cfg)))
+            .await;
+        self.register
+            .add_priority(Type::ClientSubscribe, priority, Box::new(TopicRewriteHandler::new(cfg)))
+            .await;
+        self.register
+            .add_priority(Type::ClientUnsubscribe, priority, Box::new(TopicRewriteHandler::new(cfg)))
+            .await;
         Ok(())
     }
 
@@ -237,8 +244,8 @@ impl Handler for TopicRewriteHandler {
     async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
         match param {
             Parameter::MessagePublish(s, _f, p) => {
-                log::debug!("{:?} MessagePublish ..", s.map(|s| &s.id));
-
+                let p = if let Some(HookResult::Publish(publish)) = &acc { publish } else { p };
+                log::debug!("{:?} topic-rewrite MessagePublish ..", s.map(|s| &s.id));
                 match self.rewrite_publish_topic(s.as_ref().map(|s| *s), p).await {
                     Err(e) => {
                         log::error!("{:?} topic format error, {:?}", s.map(|s| &s.id), e);
@@ -251,7 +258,12 @@ impl Handler for TopicRewriteHandler {
                 }
             }
             Parameter::ClientSubscribe(s, sub) => {
-                match self.rewrite_subscribe_topic(Some(*s), &sub.topic_filter).await {
+                let topic_filter = if let Some(HookResult::TopicFilter(Some(topic_filter))) = &acc {
+                    topic_filter
+                } else {
+                    &sub.topic_filter
+                };
+                match self.rewrite_subscribe_topic(Some(*s), topic_filter).await {
                     Err(e) => {
                         log::error!("{} topic_filter format error, {:?}", s.id, e);
                         return (true, acc);
@@ -263,7 +275,12 @@ impl Handler for TopicRewriteHandler {
                 }
             }
             Parameter::ClientUnsubscribe(s, unsub) => {
-                match self.rewrite_subscribe_topic(Some(*s), &unsub.topic_filter).await {
+                let topic_filter = if let Some(HookResult::TopicFilter(Some(topic_filter))) = &acc {
+                    topic_filter
+                } else {
+                    &unsub.topic_filter
+                };
+                match self.rewrite_subscribe_topic(Some(*s), topic_filter).await {
                     Err(e) => {
                         log::error!("{} topic_filter format error, {:?}", s.id, e);
                         return (true, acc);
