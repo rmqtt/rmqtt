@@ -145,9 +145,10 @@ impl HookHandler {
 impl Handler for HookHandler {
     async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
         match param {
-            Parameter::MessagePublish(s, f, publish) => {
-                log::debug!("{:?} message publish, {:?}", s.map(|s| &s.id), publish);
-                if let Err(e) = self.bridge_mgr.send(f, publish).await {
+            Parameter::MessagePublish(s, f, p) => {
+                let p = if let Some(HookResult::Publish(publish)) = &acc { publish } else { p };
+                log::debug!("{:?} message publish, {:?}", s.map(|s| &s.id), p);
+                if let Err(e) = self.bridge_mgr.send(f, p).await {
                     log::error!("{e:?}");
                 }
             }
