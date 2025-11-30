@@ -904,14 +904,26 @@ fn on_handshake(req: &Request, mut response: Response) -> std::result::Result<Re
     let mqtt_protocol = req
         .headers()
         .get("Sec-WebSocket-Protocol")
-        .ok_or_else(|| ErrorResponse::new(Some(PROTOCOL_ERROR.into())))?;
-    if mqtt_protocol != "mqtt" {
-        return Err(ErrorResponse::new(Some(PROTOCOL_ERROR.into())));
+        .ok_or_else(|| ErrorResponse::new(Some(PROTOCOL_ERROR.into())))?
+        .to_str()
+        .map_err(|_| ErrorResponse::new(Some(PROTOCOL_ERROR.into())))?;
+    match mqtt_protocol {
+        "mqtt" => {
+            response.headers_mut().append(
+                "Sec-WebSocket-Protocol",
+                "mqtt".parse().map_err(|_| ErrorResponse::new(Some("InvalidHeaderValue".into())))?,
+            );
+        }
+        "mqttv3.1" => {
+            response.headers_mut().append(
+                "Sec-WebSocket-Protocol",
+                "mqttv3.1".parse().map_err(|_| ErrorResponse::new(Some("InvalidHeaderValue".into())))?,
+            );
+        }
+        _ => {
+            return Err(ErrorResponse::new(Some(PROTOCOL_ERROR.into())));
+        }
     }
-    response.headers_mut().append(
-        "Sec-WebSocket-Protocol",
-        "mqtt".parse().map_err(|_| ErrorResponse::new(Some("InvalidHeaderValue".into())))?,
-    );
     Ok(response)
 }
 
