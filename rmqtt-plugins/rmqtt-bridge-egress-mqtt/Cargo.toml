@@ -12,8 +12,9 @@ license.workspace = true
 rmqtt = { workspace = true, features = ["plugin"] }
 tokio = { workspace = true, features = ["sync"] }
 serde = { workspace = true, features = ["derive"] }
-ntex-mqtt = "4.6.1"
-ntex = { version = "2.10.0", features = ["tokio", "rustls"] }
+ntex-mqtt = "=4.6.1"
+ntex = { version = "=2.16.0", features = ["tokio", "rustls"] }
+ntex-tls = "=2.6.1"
 event-notify = "0.1.1"
 webpki-roots.workspace = true
 serde_json.workspace = true
