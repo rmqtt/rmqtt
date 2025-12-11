@@ -246,20 +246,32 @@ opts include
 
 **client_connected**
 
-| Key             | Type    | Description                                        |
-|-----------------|---------|--------------------------------------------------- |
-| action          | string  | Event name<br>Default: "client_connected"           |
-| node            | integer | Node ID                                            |
-| ipaddress       | string  | Source IP address and port of the client               |
-| clientid        | string  | Client ID                                          |
-| username        | string  | Client Username; "undefined" if it doesn't exist     |
-| keepalive       | integer | Requested keep-alive time by the client               |
-| proto_ver       | integer | Protocol version number                             |
-| clean_session   | bool    | Session persistence flag (MQTT 3.1, 3.1.1)          |
-| clean_start     | bool    | Session clean start flag (MQTT 5.0)                 |
+| Key             | Type    | Description                                                   |
+|-----------------|---------|---------------------------------------------------------------|
+| action          | string  | Event name<br>Default: "client_connected"                     |
+| node            | integer | Node ID                                                       |
+| ipaddress       | string  | Source IP address and port of the client                      |
+| clientid        | string  | Client ID                                                     |
+| username        | string  | Client Username; "undefined" if it doesn't exist              |
+| keepalive       | integer | Requested keep-alive time by the client                       |
+| proto_ver       | integer | Protocol version number                                       |
+| clean_session   | bool    | Session persistence flag (MQTT 3.1, 3.1.1)                    |
+| clean_start     | bool    | Session clean start flag (MQTT 5.0)                           |
 | connected_at    | integer | Timestamp in milliseconds when the connection was established |
-| session_present | bool    | Indicates whether a persistent session is present     |
-| time            | string  | Hook Information Creation Time, Format: %Y-%m-%d %H:%M:%S%.3f  |
+| session_present | bool    | Indicates whether a persistent session is present             |
+| user_properties | json    | Attach additional contextual information                      |
+| time            | string  | Hook Information Creation Time, Format: %Y-%m-%d %H:%M:%S%.3f |
+
+user_properties contains
+
+| Key  | Type | Description                          |
+|------|--------------------|------------------------|
+| name | string or [string] | The property name serves as the key, and its value may be a single string or a string array |
+
+Such as:
+```
+{"age": "23", "interests": ["reading", "gaming", "running"], "name": "Alice"}
+```
 
 **client_disconnected**
 

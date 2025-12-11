@@ -249,20 +249,32 @@ opts 包含
 
 **client_connected**
 
-| Key             | 类型      | 说明                               |
-|-----------------|---------|----------------------------------|
-| action          | string  | 事件名称<br>默认为："client_connected"   |
-| node            | integer | 节点ID                             |
-| ipaddress       | string  | 客户端源 IP 地址和端口                    |
-| clientid        | string  | 客户端 ClientId                     |
-| username        | string  | 客户端 Username，不存在时该值为 "undefined" |
-| keepalive       | integer | 客户端申请的心跳保活时间                     |
-| proto_ver       | integer | 协议版本号                            |
-| clean_session   | bool    | 保持会话标记(MQTT 3.1, 3.1.1)          |
-| clean_start     | bool    | 连接时清除会话标记(MQTT 5.0)              |
-| connected_at    | integer | 时间戳(毫秒)                          |
-| session_present | bool    | 是否持久会话                           |
+| Key             | 类型      | 说明                                  |
+|-----------------|---------|-------------------------------------|
+| action          | string  | 事件名称<br>默认为："client_connected"      |
+| node            | integer | 节点ID                                |
+| ipaddress       | string  | 客户端源 IP 地址和端口                       |
+| clientid        | string  | 客户端 ClientId                        |
+| username        | string  | 客户端 Username，不存在时该值为 "undefined"    |
+| keepalive       | integer | 客户端申请的心跳保活时间                        |
+| proto_ver       | integer | 协议版本号                               |
+| clean_session   | bool    | 保持会话标记(MQTT 3.1, 3.1.1)             |
+| clean_start     | bool    | 连接时清除会话标记(MQTT 5.0)                 |
+| connected_at    | integer | 时间戳(毫秒)                             |
+| session_present | bool    | 是否持久会话                              |
+| user_properties | json    | 用户自定义属性                             |
 | time            | string  | Hook信息创建时间，格式：%Y-%m-%d %H:%M:%S%.3f |
+
+user_properties 包含
+
+| Key  | 类型                | 说明                     |
+|------|-------------------|------------------------|
+| name | string 或 [string] | name为属性名，值：单值为串，多值为串数组 |
+
+如：
+```
+{"age": "23", "interests": ["reading", "gaming", "running"], "name": "Alice"}
+```
 
 **client_disconnected**
 
@@ -279,15 +291,15 @@ opts 包含
 
 **client_subscribe**
 
-| Key         |  类型   | 说明  |
-|-------------| ------- | ----- |
-| action      | string  | 事件名称<br>默认为："client_subscribe" |
-| node        | integer | 节点ID |
-| ipaddress   | string  | 客户端源 IP 地址和端口 |
-| clientid    | string  | 客户端 ClientId |
-| username    | string  | 客户端 Username，不存在时该值为 "undefined" |
-| topic       | string  | 订阅的主题 |
-| opts        | json    | 订阅参数 |
+| Key         |  类型   | 说明                                  |
+|-------------| ------- |-------------------------------------|
+| action      | string  | 事件名称<br>默认为："client_subscribe"      |
+| node        | integer | 节点ID                                |
+| ipaddress   | string  | 客户端源 IP 地址和端口                       |
+| clientid    | string  | 客户端 ClientId                        |
+| username    | string  | 客户端 Username，不存在时该值为 "undefined"    |
+| topic       | string  | 订阅的主题                               |
+| opts        | json    | 订阅参数                         |
 | time        | string  | Hook信息创建时间，格式：%Y-%m-%d %H:%M:%S%.3f |
 
 opts 包含

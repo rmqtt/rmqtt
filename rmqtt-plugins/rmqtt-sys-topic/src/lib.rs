@@ -185,7 +185,7 @@ impl Handler for SystemTopicHandler {
                 let mut body = session
                     .connect_info()
                     .await
-                    .map(|connect_info| connect_info.to_hook_body())
+                    .map(|connect_info| connect_info.to_hook_body(true))
                     .unwrap_or_default();
                 if let Some(obj) = body.as_object_mut() {
                     obj.insert(
