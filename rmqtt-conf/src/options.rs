@@ -3,7 +3,12 @@ use structopt::StructOpt;
 use rmqtt_utils::{NodeAddr, NodeId};
 
 #[derive(StructOpt, Debug, Clone, Default)]
+#[structopt(no_version)]
 pub struct Options {
+    /// Prints version information
+    #[structopt(short = "V", long = "version")]
+    pub version: bool,
+
     /// Config filename
     #[structopt(name = "config", short = "f", long)]
     pub cfg_name: Option<String>,

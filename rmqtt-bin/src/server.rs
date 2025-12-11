@@ -25,6 +25,12 @@ mod plugin {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let opts = Options::from_args();
+    if opts.version {
+        println!("{} rustc/{}", Node::version(), Node::rustc_version());
+        return Ok(());
+    }
+
     //init config
     let conf = Settings::init(Options::from_args()).expect("settings init failed");
 
@@ -36,8 +42,6 @@ async fn main() -> Result<()> {
     //init log
     let (_guard, _logger) = logger::logger_init(&conf.log).expect("logger init failed");
 
-    let _ = Settings::logs();
-
     //node info
     let node = Node::new(
         conf.node.id,
@@ -45,6 +49,11 @@ async fn main() -> Result<()> {
         conf.node.busy.cpuloadavg,
         conf.node.busy.update_interval,
     );
+
+    //print version
+    log::info!("Starting rmqtt (version={}, rustc={})", Node::version(), Node::rustc_version());
+
+    let _ = Settings::logs();
 
     //init ServerContext
     let scx = ServerContext::new()
