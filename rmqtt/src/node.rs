@@ -129,11 +129,21 @@ impl Node {
     }
 
     #[inline]
+    pub fn version() -> String {
+        format!("rmqtt/{VERSION}-{RUSTC_BUILD_TIME}")
+    }
+
+    #[inline]
+    pub fn rustc_version() -> String {
+        RUSTC_VERSION.to_string()
+    }
+
+    #[inline]
     pub async fn broker_info(&self, scx: &ServerContext) -> BrokerInfo {
         let node_id = self.id;
         BrokerInfo {
-            version: format!("rmqtt/{VERSION}-{RUSTC_BUILD_TIME}"),
-            rustc_version: RUSTC_VERSION.to_string(),
+            version: Self::version(),
+            rustc_version: Self::rustc_version(),
             uptime: self.uptime(),
             sysdescr: "RMQTT Broker".into(),
             node_status: self.status(scx).await,
@@ -178,8 +188,8 @@ impl Node {
             node_id,
             node_name: self.name(scx, node_id).await, //Runtime::instance().extends.shared().await.node_name(node_id),
             uptime: self.uptime(),
-            version: format!("rmqtt/{VERSION}-{RUSTC_BUILD_TIME}"),
-            rustc_version: RUSTC_VERSION.to_string(),
+            version: Self::version(),
+            rustc_version: Self::rustc_version(),
         }
     }
 
