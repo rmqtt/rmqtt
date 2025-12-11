@@ -218,7 +218,7 @@ impl ConnectInfo {
     }
 
     #[inline]
-    pub fn to_hook_body(&self) -> serde_json::Value {
+    pub fn to_hook_body(&self, user_properties: bool) -> serde_json::Value {
         match self {
             ConnectInfo::V3(id, c) => {
                 json!({
@@ -232,7 +232,7 @@ impl ConnectInfo {
                 })
             }
             ConnectInfo::V5(id, c) => {
-                json!({
+                let mut body = json!({
                     "node": id.node(),
                     "ipaddress": id.remote_addr,
                     "clientid": id.client_id,
@@ -240,7 +240,16 @@ impl ConnectInfo {
                     "keepalive": c.keep_alive,
                     "proto_ver": MQTT_LEVEL_5,
                     "clean_start": c.clean_start,
-                })
+                });
+                if user_properties && !c.user_properties.is_empty() {
+                    if let Some(obj) = body.as_object_mut() {
+                        obj.insert(
+                            "user_properties".into(),
+                            json!(serialize_user_properties(&c.user_properties)),
+                        );
+                    }
+                }
+                body
             }
         }
     }
@@ -2870,6 +2879,28 @@ impl Default for NodeHealthStatus {
     fn default() -> Self {
         Self { node_id: 0, running: true, leader_id: None, descr: None }
     }
+}
+
+#[inline]
+pub fn serialize_user_properties(props: &UserProperties) -> HashMap<&str, Value> {
+    let mut map: HashMap<&str, Vec<&str>> = HashMap::default();
+
+    for (k, v) in props {
+        map.entry(k.as_ref()).or_default().push(v.as_ref());
+    }
+
+    let mut result = HashMap::default();
+    for (key, values) in map {
+        if values.len() == 1 {
+            result.insert(key, serde_json::Value::String(values[0].to_string()));
+        } else {
+            let array: Vec<serde_json::Value> =
+                values.iter().map(|v| serde_json::Value::String(v.to_string())).collect();
+            result.insert(key, serde_json::Value::Array(array));
+        }
+    }
+
+    result
 }
 
 #[test]
