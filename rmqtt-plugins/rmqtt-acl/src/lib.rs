@@ -35,7 +35,7 @@ impl AclPlugin {
     async fn new<N: Into<String>>(scx: ServerContext, name: N) -> Result<Self> {
         let name = name.into();
         let cfg = scx.plugins.read_config_default::<PluginConfig>(&name);
-        log::info!("{} AclPlugin cfg: {:?}", name, cfg);
+        log::info!("{name} AclPlugin cfg: {cfg:?}");
         let cfg = Arc::new(RwLock::new(cfg?));
         let register = scx.extends.hook_mgr().register();
         Ok(Self { scx, register, cfg })
@@ -231,9 +231,12 @@ impl Handler for AclHandler {
             }
 
             Parameter::MessagePublishCheckAcl(session, publish) => {
-                if let Some(HookResult::PublishAclResult(PublishAclResult::Rejected(_))) = &acc {
-                    return (false, acc);
+                if let Some(HookResult::PublishAclResult(acl_res)) = &acc {
+                    if acl_res.is_rejected() {
+                        return (false, acc);
+                    }
                 }
+
                 let topic_str = &publish.topic;
                 let topic = Topic::from_str(topic_str).unwrap_or_else(|_| Topic::from(Vec::new()));
                 let disconnect_if_pub_rejected = self.cfg.read().await.disconnect_if_pub_rejected;
@@ -258,20 +261,22 @@ impl Handler for AclHandler {
                         topic_str
                     );
                     return if allow {
-                        (false, Some(HookResult::PublishAclResult(PublishAclResult::Allow)))
+                        (false, Some(HookResult::PublishAclResult(PublishAclResult::allow())))
                     } else {
                         (
                             false,
-                            Some(HookResult::PublishAclResult(PublishAclResult::Rejected(
+                            Some(HookResult::PublishAclResult(PublishAclResult::rejected(
                                 disconnect_if_pub_rejected,
+                                None,
                             ))),
                         )
                     };
                 }
                 return (
                     false,
-                    Some(HookResult::PublishAclResult(PublishAclResult::Rejected(
+                    Some(HookResult::PublishAclResult(PublishAclResult::rejected(
                         disconnect_if_pub_rejected,
+                        None,
                     ))),
                 );
             }

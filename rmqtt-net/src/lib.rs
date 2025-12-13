@@ -27,13 +27,21 @@
 //! ```
 
 mod builder;
+mod cert;
 mod error;
+#[cfg(feature = "quic")]
+mod quic;
 mod stream;
 #[cfg(feature = "ws")]
 mod ws;
 
+#[cfg(feature = "quic")]
+pub use quic::QuinnBiStream;
+
 /// Server configuration and listener management
 pub use builder::{Builder, Listener, ListenerType};
+
+pub use cert::{CertInfo, TlsCertExtractor};
 
 /// Error types for MQTT operations
 pub use error::MqttError;

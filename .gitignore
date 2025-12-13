@@ -9,7 +9,6 @@ target/
 */*/target/
 */*/Cargo.lock
 */*/*.iml
-/Cargo.lock
 /readme.txt
 !.github
 /publishs-dry-run.bat

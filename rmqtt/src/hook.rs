@@ -675,7 +675,7 @@ impl Hook for DefaultHook {
     #[inline]
     async fn message_publish_check_acl(&self, publish: &Publish) -> PublishAclResult {
         if self.s.superuser().await.unwrap_or_default() {
-            return PublishAclResult::Allow;
+            return PublishAclResult::allow();
         }
         let result = self
             .manager
@@ -685,7 +685,7 @@ impl Hook for DefaultHook {
         if let Some(HookResult::PublishAclResult(acl_result)) = result {
             acl_result
         } else {
-            PublishAclResult::Allow
+            PublishAclResult::allow()
         }
     }
 

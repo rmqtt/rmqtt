@@ -207,6 +207,8 @@ impl MqttServer {
                     #[cfg(feature = "tls")]
                     #[cfg(feature = "ws")]
                     ListenerType::WSS => listen_wss(self.scx.clone(), l, *lid).boxed(),
+                    #[cfg(feature = "quic")]
+                    ListenerType::QUIC => listen_quic(self.scx.clone(), l, *lid).boxed(),
                 })
                 .collect_vec(),
         )
@@ -392,6 +394,52 @@ async fn listen_wss(scx: ServerContext, l: &Listener, lid: ListenerId) {
             }
             Err(e) => {
                 log::info!("WSS listener error: {e:?}");
+                tokio::time::sleep(Duration::from_millis(1000)).await;
+            }
+        }
+    }
+}
+
+#[cfg(feature = "quic")]
+/// Handles QUIC connections (requires "quic" feature)
+/// # Arguments
+/// * `scx` - Server context
+/// * `l` - QUIC listener configuration
+async fn listen_quic(scx: ServerContext, l: &Listener, lid: ListenerId) {
+    loop {
+        match l.accept_quic().await {
+            Ok(accept) => {
+                let scx = scx.clone();
+                tokio::spawn(async move {
+                    log::debug!("QUIC connection from {}", accept.remote_addr);
+
+                    let stream = match accept.quic().await {
+                        Ok(s) => s,
+                        Err(e) => {
+                            log::warn!("QUIC accept error: {e:?}");
+                            return;
+                        }
+                    };
+
+                    match stream.mqtt().await {
+                        Ok(MqttStream::V3(s)) => {
+                            if let Err(e) = v3::process(scx.clone(), s, lid).await {
+                                log::info!("MQTTv3/QUIC processing error: {e:?}");
+                            }
+                        }
+                        Ok(MqttStream::V5(s)) => {
+                            if let Err(e) = v5::process(scx.clone(), s, lid).await {
+                                log::info!("MQTTv5/QUIC processing error: {e:?}");
+                            }
+                        }
+                        Err(e) => {
+                            log::info!("MQTT/QUIC version detection failed: {e:?}");
+                        }
+                    }
+                });
+            }
+            Err(e) => {
+                log::info!("QUIC listener error: {e:?}");
                 tokio::time::sleep(Duration::from_millis(1000)).await;
             }
         }

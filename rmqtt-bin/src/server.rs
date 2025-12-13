@@ -25,6 +25,12 @@ mod plugin {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let opts = Options::from_args();
+    if opts.version {
+        println!("{} rustc/{}", Node::version(), Node::rustc_version());
+        return Ok(());
+    }
+
     //init config
     let conf = Settings::init(Options::from_args()).expect("settings init failed");
 
@@ -36,8 +42,6 @@ async fn main() -> Result<()> {
     //init log
     let (_guard, _logger) = logger::logger_init(&conf.log).expect("logger init failed");
 
-    let _ = Settings::logs();
-
     //node info
     let node = Node::new(
         conf.node.id,
@@ -45,6 +49,11 @@ async fn main() -> Result<()> {
         conf.node.busy.cpuloadavg,
         conf.node.busy.update_interval,
     );
+
+    //print version
+    log::info!("Starting rmqtt (version={}, rustc={})", Node::version(), Node::rustc_version());
+
+    let _ = Settings::logs();
 
     //init ServerContext
     let scx = ServerContext::new()
@@ -87,6 +96,11 @@ async fn main() -> Result<()> {
     //tls-websocket
     for (_, listen_cfg) in Settings::instance().listeners.wsss.iter() {
         builder = builder.listener(config_builder(listen_cfg).bind()?.wss()?);
+    }
+
+    //MQTT over QUIC
+    for (_, listen_cfg) in Settings::instance().listeners.quics.iter() {
+        builder = builder.listener(config_builder(listen_cfg).bind_quic()?);
     }
 
     builder.build().start();
@@ -153,6 +167,8 @@ fn config_builder(cfg: &Listener) -> Builder {
         .delayed_publish(cfg.delayed_publish)
         .proxy_protocol(cfg.proxy_protocol)
         .proxy_protocol_timeout(cfg.proxy_protocol_timeout)
+        .cert_cn_as_username(cfg.cert_cn_as_username)
+        .idle_timeout(cfg.idle_timeout)
 }
 
 fn config_args(cfg: &Settings) -> CommandArgs {

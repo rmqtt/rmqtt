@@ -127,14 +127,14 @@ impl AuthInfo {
         disconnect_if_pub_rejected: bool,
     ) -> Option<ReturnType> {
         if self.superuser {
-            return Some((false, Some(HookResult::PublishAclResult(PublishAclResult::Allow))));
+            return Some((false, Some(HookResult::PublishAclResult(PublishAclResult::allow()))));
         }
 
         for rule in &self.rules {
             return match rule.permission {
                 Permission::Allow => {
                     if rule.publish_allow_hit(publish).await {
-                        Some((false, Some(HookResult::PublishAclResult(PublishAclResult::Allow))))
+                        Some((false, Some(HookResult::PublishAclResult(PublishAclResult::allow()))))
                     } else {
                         continue;
                     }
@@ -143,8 +143,9 @@ impl AuthInfo {
                     if rule.publish_deny_hit(publish).await {
                         Some((
                             false,
-                            Some(HookResult::PublishAclResult(PublishAclResult::Rejected(
+                            Some(HookResult::PublishAclResult(PublishAclResult::rejected(
                                 disconnect_if_pub_rejected,
+                                None,
                             ))),
                         ))
                     } else {

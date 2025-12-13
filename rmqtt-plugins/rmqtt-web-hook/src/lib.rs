@@ -515,14 +515,14 @@ impl Handler for WebHookHandler {
         let now_time = format_timestamp_millis(now);
         let bodys = match param {
             Parameter::ClientConnect(conn_info) => {
-                let mut body = conn_info.to_hook_body();
+                let mut body = conn_info.to_hook_body(false);
                 if let Some(obj) = body.as_object_mut() {
                     obj.insert("time".into(), serde_json::Value::String(now_time));
                 }
                 Some((None, body))
             }
             Parameter::ClientConnack(conn_info, conn_ack) => {
-                let mut body = conn_info.to_hook_body();
+                let mut body = conn_info.to_hook_body(false);
                 if let Some(obj) = body.as_object_mut() {
                     obj.insert("conn_ack".into(), serde_json::Value::String(conn_ack.reason().to_string()));
                     obj.insert("time".into(), serde_json::Value::String(now_time));
@@ -531,7 +531,7 @@ impl Handler for WebHookHandler {
             }
 
             Parameter::ClientConnected(session) => {
-                let mut body = session.connect_info().await.map(|c| c.to_hook_body()).unwrap_or_default();
+                let mut body = session.connect_info().await.map(|c| c.to_hook_body(true)).unwrap_or_default();
                 if let Some(obj) = body.as_object_mut() {
                     obj.insert(
                         "connected_at".into(),
@@ -725,7 +725,7 @@ impl Handler for WebHookHandler {
             }
         };
 
-        log::debug!("bodys: {:?}", bodys);
+        log::debug!("bodys: {bodys:?}");
 
         if let Some((topic, body)) = bodys {
             let tx = self.tx.read().await.clone();

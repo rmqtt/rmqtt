@@ -16,7 +16,7 @@ use serde_json::{self, Map, Value};
 
 use rmqtt::{
     codec::types::{Protocol, MQTT_LEVEL_31, MQTT_LEVEL_311, MQTT_LEVEL_5},
-    utils::{deserialize_duration, to_duration, Bytesize},
+    utils::{deserialize_duration, deserialize_expand_env_vars_option, to_duration, Bytesize},
     Result,
 };
 
@@ -44,9 +44,9 @@ pub struct Bridge {
     // #Client key file
     pub client_key: Option<String>,
 
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_expand_env_vars_option")]
     pub username: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_expand_env_vars_option")]
     pub password: Option<String>,
 
     #[serde(default = "Bridge::concurrent_client_limit_default")]
@@ -59,6 +59,7 @@ pub struct Bridge {
     pub reconnect_interval: Duration,
     #[serde(default = "Bridge::message_channel_capacity_default")]
     pub message_channel_capacity: usize,
+
     #[serde(default = "Bridge::mqtt_ver_default", deserialize_with = "Bridge::deserialize_mqtt_ver")]
     pub mqtt_ver: Protocol,
     #[serde(default)]
@@ -345,6 +346,8 @@ pub struct Remote {
     pub topic: (String, HasPattern),
     #[serde(default)]
     pub retain: Option<bool>,
+    #[serde(default)]
+    pub skip_levels: usize,
 }
 
 impl Remote {
@@ -359,9 +362,9 @@ impl Remote {
     }
 
     #[inline]
-    pub fn make_topic(&self, remote_topic: &str) -> ntex::util::ByteString {
+    pub fn make_topic(&self, topic: &str) -> ntex::util::ByteString {
         if self.topic_has_pattern() {
-            ntex::util::ByteString::from(self.topic().replace("${local.topic}", remote_topic))
+            ntex::util::ByteString::from(self.topic().replace("${local.topic}", topic))
         } else {
             ntex::util::ByteString::from(self.topic())
         }

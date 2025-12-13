@@ -12,6 +12,7 @@ use serde::{
 use tokio::sync::RwLock;
 
 use rmqtt::{
+    hook::Priority,
     trie::TopicTree,
     types::{Topic, TopicFilter, TopicName},
     Error, Result,
@@ -21,6 +22,8 @@ type Rules = Arc<RwLock<TopicTree<Rule>>>;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
+    #[serde(default = "PluginConfig::default_priority")]
+    pub(crate) priority: Priority,
     #[serde(
         default,
         serialize_with = "PluginConfig::serialize_rules",
@@ -30,6 +33,10 @@ pub struct PluginConfig {
 }
 
 impl PluginConfig {
+    fn default_priority() -> Priority {
+        Priority::MAX
+    }
+
     #[inline]
     pub fn rules(&self) -> &Rules {
         let (_rules, _) = &self.rules;

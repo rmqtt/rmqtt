@@ -221,7 +221,7 @@ impl ClusterShared {
         //forwards to local
         if self.exist(&target_clientid) {
             let local_res = self.inner.forwards_to(from.clone(), &publish, relations.clone()).await;
-            log::debug!("forwards, from: {:?}, local_res: {:?}", from, local_res);
+            log::debug!("forwards, from: {from:?}, local_res: {local_res:?}");
             Ok(Some(vec![(target_clientid, None)]))
         } else {
             //forward other nodes
@@ -317,7 +317,7 @@ impl ClusterShared {
 
         //forwards to local
         let local_res = self.inner.forwards_to(from.clone(), &publish, relations).await;
-        log::debug!("forwards, from: {:?}, local_res: {:?}", from, local_res);
+        log::debug!("forwards, from: {from:?}, local_res: {local_res:?}");
 
         //forwards to remote
         let grpc_clients = self.grpc_clients.clone();

@@ -616,3 +616,64 @@ impl<'de> de::Deserialize<'de> for NodeAddr {
         NodeAddr::from_str(&String::deserialize(deserializer)?).map_err(de::Error::custom)
     }
 }
+
+/// Expand all environment variable placeholders in the form `${ENV:VAR_NAME}`
+/// within a string.
+///
+/// Each occurrence of `${ENV:VAR_NAME}` will be replaced with the value of the
+/// corresponding environment variable `VAR_NAME`.  
+/// If an environment variable is not set, it will be replaced with an empty string
+/// and a warning will be logged.
+///
+/// # Example
+///
+/// ```
+/// use std::env;
+/// env::set_var("MQTT_USER", "user");
+/// env::set_var("MQTT_PASS", "pass");
+///
+/// let p = rmqtt_utils::expand_env_vars("${env:MQTT_PASS}");
+/// assert_eq!(p, "pass");
+///
+/// let s = rmqtt_utils::expand_env_vars("mqtt://${ENV:MQTT_USER}:${ENV:MQTT_PASS}@localhost");
+/// assert_eq!(s, "mqtt://user:pass@localhost");
+/// ```
+#[inline]
+pub fn expand_env_vars(value: &str) -> String {
+    static ENV_PATTERN: once_cell::sync::Lazy<regex::Regex> = once_cell::sync::Lazy::new(|| {
+        regex::Regex::new(r"(?i)\$\{ENV:([A-Z0-9_]+)\}").expect("Invalid regex pattern")
+    });
+
+    ENV_PATTERN
+        .replace_all(value, |caps: &regex::Captures| {
+            let env_name = &caps[1];
+            std::env::var(env_name).unwrap_or_else(|_| {
+                log::warn!("environment variable `{env_name}` not set");
+                String::new()
+            })
+        })
+        .into_owned()
+}
+
+#[inline]
+pub fn deserialize_expand_env_vars<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let v = String::deserialize(deserializer)?;
+    Ok(expand_env_vars(&v))
+}
+
+#[inline]
+pub fn deserialize_expand_env_vars_option<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    String::deserialize(deserializer).map(|s| expand_env_vars(&s)).map(|s| {
+        if s.is_empty() {
+            None
+        } else {
+            Some(s)
+        }
+    })
+}

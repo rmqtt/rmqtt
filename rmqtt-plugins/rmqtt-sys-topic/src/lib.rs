@@ -151,7 +151,7 @@ impl SystemTopicHandler {
 #[async_trait]
 impl Handler for SystemTopicHandler {
     async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
-        log::debug!("param: {:?}, acc: {:?}", param, acc);
+        log::debug!("param: {param:?}, acc: {acc:?}");
         let now = chrono::Local::now();
         let now_time = now.format("%Y-%m-%d %H:%M:%S%.3f").to_string();
         if let Some((topic, payload)) = match param {
@@ -185,7 +185,7 @@ impl Handler for SystemTopicHandler {
                 let mut body = session
                     .connect_info()
                     .await
-                    .map(|connect_info| connect_info.to_hook_body())
+                    .map(|connect_info| connect_info.to_hook_body(true))
                     .unwrap_or_default();
                 if let Some(obj) = body.as_object_mut() {
                     obj.insert(

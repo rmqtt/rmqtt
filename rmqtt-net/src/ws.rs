@@ -21,6 +21,10 @@ impl<S> WsStream<S> {
     pub fn new(inner: WebSocketStream<S>) -> Self {
         Self { inner, cached_data: None, idx: 0 }
     }
+
+    pub fn get_inner(&self) -> &WebSocketStream<S> {
+        &self.inner
+    }
 }
 
 impl<S> AsyncRead for WsStream<S>

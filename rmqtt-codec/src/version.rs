@@ -55,11 +55,22 @@ impl Decoder for VersionCodec {
                     );
 
                     // Validate protocol name matches MQTT spec
-                    ensure!(
-                        (protocol_len == 4 && &src[consumed + 2..consumed + 6] == MQTT)
-                            || (protocol_len == 6 && &src[consumed + 2..consumed + 8] == MQISDP),
-                        DecodeError::InvalidProtocol
-                    );
+                    if protocol_len == 4 {
+                        //for mqtt 3.1.1 or 5.0
+                        if &src[consumed + 2..consumed + 6] != MQTT {
+                            return Err(DecodeError::InvalidProtocol);
+                        }
+                    } else if protocol_len == 6 {
+                        //for mqtt 3.1
+                        if len <= consumed + 8 {
+                            return Ok(None);
+                        }
+                        if &src[consumed + 2..consumed + 8] != MQISDP {
+                            return Err(DecodeError::InvalidProtocol);
+                        }
+                    } else {
+                        return Err(DecodeError::InvalidProtocol);
+                    }
 
                     // Extract protocol level byte (position after protocol name)
                     match src[consumed + 2 + protocol_len as usize] {

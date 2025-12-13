@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::convert::From as _;
 use std::str::FromStr;
@@ -169,7 +170,7 @@ impl BridgeManager {
 
     #[inline]
     pub(crate) async fn send(&self, _f: &From, p: &Publish) -> Result<()> {
-        let topic = Topic::from_str(&p.topic)?;
+        let topic: Topic = Topic::from_str(&p.topic)?;
         let rnd = rand::random::<u64>() as usize;
         for (topic_filter, bridge_infos) in { self.topics.read().await.matches(&topic) }.iter() {
             let topic_filter = topic_filter.to_topic_filter();
@@ -179,16 +180,29 @@ impl BridgeManager {
                 if let Some(mailboxs) = self.sinks.get(&(name.clone(), *entry_idx)) {
                     let client_no = rnd % mailboxs.len();
                     if let Some(mailbox) = mailboxs.get(client_no) {
-                        let entry = if let Some(entry) = mailbox.cfg.entries.get(*entry_idx) {
+                        let entry: &Entry = if let Some(entry) = mailbox.cfg.entries.get(*entry_idx) {
                             entry
                         } else {
                             log::error!("unreachable!(), entry_idx: {}", *entry_idx);
                             continue;
                         };
+                        let new_local_topic: Cow<str> = if entry.remote.skip_levels > 0 {
+                            Cow::Owned(topic.to_string_skip(entry.remote.skip_levels))
+                        } else {
+                            Cow::Borrowed(p.topic.as_ref())
+                        };
+                        log::debug!(
+                            "new_local_topic: {new_local_topic}, skip_levels: {}",
+                            entry.remote.skip_levels
+                        );
                         match *mqtt_ver {
                             MQTT_LEVEL_311 => {
                                 if let Err(e) = mailbox
-                                    .send(Command::Publish(BridgePublish::V3(self.to_v3_publish(entry, p))))
+                                    .send(Command::Publish(BridgePublish::V3(self.to_v3_publish(
+                                        entry,
+                                        p,
+                                        new_local_topic.as_ref(),
+                                    ))))
                                     .await
                                 {
                                     log::warn!("{e}");
@@ -196,7 +210,11 @@ impl BridgeManager {
                             }
                             MQTT_LEVEL_5 => {
                                 if let Err(e) = mailbox
-                                    .send(Command::Publish(BridgePublish::V5(self.to_v5_publish(entry, p))))
+                                    .send(Command::Publish(BridgePublish::V5(self.to_v5_publish(
+                                        entry,
+                                        p,
+                                        new_local_topic.as_ref(),
+                                    ))))
                                     .await
                                 {
                                     log::warn!("{e}");
@@ -217,24 +235,24 @@ impl BridgeManager {
     }
 
     #[inline]
-    fn to_v3_publish(&self, cfg_entry: &Entry, p: &Publish) -> PublishV3 {
+    fn to_v3_publish(&self, cfg_entry: &Entry, p: &Publish, new_local_topic: &str) -> PublishV3 {
         PublishV3 {
             dup: false,
             retain: cfg_entry.remote.make_retain(p.retain),
             qos: cfg_entry.remote.make_qos(p.qos),
-            topic: cfg_entry.remote.make_topic(&p.topic),
+            topic: cfg_entry.remote.make_topic(new_local_topic),
             packet_id: None,
             payload: ntex::util::Bytes::from(p.payload.to_vec()), //@TODO ...
         }
     }
 
     #[inline]
-    fn to_v5_publish(&self, cfg_entry: &Entry, p: &Publish) -> PublishV5 {
+    fn to_v5_publish(&self, cfg_entry: &Entry, p: &Publish, new_local_topic: &str) -> PublishV5 {
         PublishV5 {
             dup: false,
             retain: cfg_entry.remote.make_retain(p.retain),
             qos: cfg_entry.remote.make_qos(p.qos),
-            topic: cfg_entry.remote.make_topic(&p.topic),
+            topic: cfg_entry.remote.make_topic(new_local_topic),
             packet_id: None,
             payload: ntex::util::Bytes::from(p.payload.to_vec()), //@TODO ...
             properties: p.properties.as_ref().map(to_properties).unwrap_or_default(),

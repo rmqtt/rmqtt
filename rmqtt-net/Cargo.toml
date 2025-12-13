@@ -1,6 +1,6 @@
 [package]
 name = "rmqtt-net"
-version = "0.2.0"
+version = "0.3.2"
 description = "Basic Implementation of MQTT Server"
 repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-net"
 edition.workspace = true
@@ -16,8 +16,9 @@ all-features = true
 
 [features]
 default = []
-tls = ["rustls", "tokio-rustls"]
+tls = ["rustls", "tokio-rustls", "x509-parser"]
 ws = ["tokio-tungstenite"]
+quic = ["tls"]
 
 [dependencies]
 rmqtt-codec.workspace = true
@@ -34,6 +35,11 @@ nonzero_ext.workspace = true
 tokio-tungstenite = { workspace = true, optional = true }
 tokio-rustls = { workspace = true, optional = true }
 proxy-protocol = { workspace = true }
+quinn = { workspace = true }
+
+[dependencies.x509-parser]
+version = "0.18.0"
+optional = true
 
 [target.'cfg(not(windows))'.dependencies]
 rustls = { workspace = true, features = ["aws-lc-rs", "logging", "std", "tls12"], optional = true }
