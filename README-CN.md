@@ -114,7 +114,7 @@ curl "http://127.0.0.1:6066/api/v1/health/check"
 
 ```toml
 [dependencies]
-rmqtt = "0.16"
+rmqtt = "0.18"
 ```
 
 更多关于库模式的使用说明，请参考 [RMQTT 库使用文档](./rmqtt/README.md) 。

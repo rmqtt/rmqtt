@@ -117,7 +117,7 @@ In addition to running as a standalone MQTT Broker/Server, rmqtt also provides a
 
 ```toml
 [dependencies]
-rmqtt = "0.16"
+rmqtt = "0.18"
 ```
 
 For more details about using rmqtt in library mode, please refer to the [RMQTT Library Documentation](./rmqtt/README.md).
