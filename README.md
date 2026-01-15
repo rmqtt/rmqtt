@@ -214,3 +214,10 @@ For more details about using rmqtt in library mode, please refer to the [RMQTT L
 ## ⭐ Star History
 [![Star History Chart](https://api.star-history.com/svg?repos=rmqtt/rmqtt&type=Date)](https://star-history.com/#rmqtt/rmqtt&Date)
 
+---
+
+## Credits
+
+- Starting from version 0.15, the MQTT encoding and decoding implementation is partially inspired by and derived from ntex-mqtt.
+
+- For versions 0.13 and earlier, this project relied on maintained forked versions of the ntex and ntex-mqtt crates as dependencies.

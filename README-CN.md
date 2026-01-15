@@ -211,6 +211,13 @@ rmqtt = "0.18"
 ## ⭐ Star History
 [![Star History Chart](https://api.star-history.com/svg?repos=rmqtt/rmqtt&type=Date)](https://star-history.com/#rmqtt/rmqtt&Date)
 
+---
+
+## Credits
+
+- 从 0.15 版本开始，本项目的 MQTT 编解码实现部分参考并借鉴了 ntex-mqtt 的实现。
+
+- 在 0.13 及之前的版本，本项目依赖了维护的 ntex 和 ntex-mqtt fork 版本作为依赖库。
 
 
 
