@@ -1,5 +1,6 @@
 //! Some commonly used type definitions
 
+use std::any::Any;
 use std::convert::From as _f;
 use std::fmt;
 use std::fmt::Display;
@@ -2197,70 +2198,70 @@ impl SessionSubs {
 //     }
 // }
 //
-// pub struct ExtraAttrs {
-//     attrs: HashMap<String, Box<dyn Any + Sync + Send>>,
-// }
-//
-// impl Default for ExtraAttrs {
-//     fn default() -> Self {
-//         Self::new()
-//     }
-// }
-//
-// impl ExtraAttrs {
-//     #[inline]
-//     pub fn new() -> Self {
-//         Self { attrs: HashMap::default() }
-//     }
-//
-//     #[inline]
-//     pub fn len(&self) -> usize {
-//         self.attrs.len()
-//     }
-//
-//     #[inline]
-//     pub fn is_empty(&self) -> bool {
-//         self.attrs.is_empty()
-//     }
-//
-//     #[inline]
-//     pub fn clear(&mut self) {
-//         self.attrs.clear()
-//     }
-//
-//     #[inline]
-//     pub fn insert<T: Any + Sync + Send>(&mut self, key: String, value: T) {
-//         self.attrs.insert(key, Box::new(value));
-//     }
-//
-//     #[inline]
-//     pub fn get<T: Any + Sync + Send>(&self, key: &str) -> Option<&T> {
-//         self.attrs.get(key).and_then(|v| v.downcast_ref::<T>())
-//     }
-//
-//     #[inline]
-//     pub fn get_mut<T: Any + Sync + Send>(&mut self, key: &str) -> Option<&mut T> {
-//         self.attrs.get_mut(key).and_then(|v| v.downcast_mut::<T>())
-//     }
-//
-//     #[inline]
-//     pub fn get_default_mut<T: Any + Sync + Send, F: Fn() -> T>(
-//         &mut self,
-//         key: String,
-//         def_fn: F,
-//     ) -> Option<&mut T> {
-//         self.attrs.entry(key).or_insert_with(|| Box::new(def_fn())).downcast_mut::<T>()
-//     }
-//
-//     #[inline]
-//     pub fn serialize_key<S, T>(&self, key: &str, serializer: S) -> Result<S::Ok, S::Error>
-//     where
-//         T: Any + Sync + Send + serde::ser::Serialize,
-//         S: Serializer,
-//     {
-//         self.get::<T>(key).serialize(serializer)
-//     }
-// }
+pub struct ExtraAttrs {
+    attrs: HashMap<String, Box<dyn Any + Sync + Send>>,
+}
+
+impl Default for ExtraAttrs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ExtraAttrs {
+    #[inline]
+    pub fn new() -> Self {
+        Self { attrs: HashMap::default() }
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.attrs.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.attrs.is_empty()
+    }
+
+    #[inline]
+    pub fn clear(&mut self) {
+        self.attrs.clear()
+    }
+
+    #[inline]
+    pub fn insert<T: Any + Sync + Send>(&mut self, key: String, value: T) {
+        self.attrs.insert(key, Box::new(value));
+    }
+
+    #[inline]
+    pub fn get<T: Any + Sync + Send>(&self, key: &str) -> Option<&T> {
+        self.attrs.get(key).and_then(|v| v.downcast_ref::<T>())
+    }
+
+    #[inline]
+    pub fn get_mut<T: Any + Sync + Send>(&mut self, key: &str) -> Option<&mut T> {
+        self.attrs.get_mut(key).and_then(|v| v.downcast_mut::<T>())
+    }
+
+    #[inline]
+    pub fn get_default_mut<T: Any + Sync + Send, F: Fn() -> T>(
+        &mut self,
+        key: String,
+        def_fn: F,
+    ) -> Option<&mut T> {
+        self.attrs.entry(key).or_insert_with(|| Box::new(def_fn())).downcast_mut::<T>()
+    }
+
+    #[inline]
+    pub fn serialize_key<S, T>(&self, key: &str, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        T: Any + Sync + Send + serde::ser::Serialize,
+        S: serde::ser::Serializer,
+    {
+        self.get::<T>(key).serialize(serializer)
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct TimedValue<V>(V, Option<Instant>);
