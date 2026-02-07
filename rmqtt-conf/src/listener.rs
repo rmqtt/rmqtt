@@ -252,6 +252,7 @@ pub struct ListenerInner {
     pub cross_certificate: bool,
     pub cert: Option<String>,
     pub key: Option<String>,
+    pub client_ca_certs: Option<String>,
 
     #[serde(default)]
     pub limit_subscription: bool,
@@ -309,6 +310,7 @@ impl Default for ListenerInner {
             cross_certificate: ListenerInner::cross_certificate_default(),
             cert: None,
             key: None,
+            client_ca_certs: None,
             limit_subscription: false,
             delayed_publish: false,
             proxy_protocol: false,
