@@ -12,21 +12,6 @@ use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use anyhow::anyhow;
-use base64::prelude::{Engine, BASE64_STANDARD};
-use bitflags::bitflags;
-use bytes::Bytes;
-use bytestring::ByteString;
-use futures::StreamExt;
-use get_size::GetSize;
-use itertools::Itertools;
-use serde::de::{self, Deserializer};
-use serde::ser::{SerializeStruct, Serializer};
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Map, Value};
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::{oneshot, RwLock};
-
 use crate::acl::AuthInfo;
 use crate::codec::types::MQTT_LEVEL_5;
 use crate::codec::v3::{
@@ -44,6 +29,21 @@ use crate::net::{v3, v5, Builder};
 use crate::queue::{Queue, Sender};
 use crate::utils::{self, timestamp_millis};
 use crate::{codec, Error, Result};
+use anyhow::anyhow;
+use base64::prelude::{Engine, BASE64_STANDARD};
+use bitflags::bitflags;
+use bytes::Bytes;
+use bytestring::ByteString;
+use futures::StreamExt;
+use get_size::GetSize;
+use itertools::Itertools;
+use rmqtt_codec::mtls::CertInfo;
+use serde::de::{self, Deserializer};
+use serde::ser::{SerializeStruct, Serializer};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Map, Value};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::sync::{oneshot, RwLock};
 
 use crate::context::ServerContext;
 use crate::inflight::{OutInflight, OutInflightMessage};
@@ -327,6 +327,14 @@ impl ConnectInfo {
             connect.auth_method.as_ref()
         } else {
             None
+        }
+    }
+
+    #[inline]
+    pub fn cert(&self) -> Option<&CertInfo> {
+        match self {
+            ConnectInfo::V3(_, connect) => connect.cert.as_ref(),
+            ConnectInfo::V5(_, connect) => connect.cert.as_ref(),
         }
     }
 }

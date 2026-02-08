@@ -34,6 +34,14 @@ use std::num::{NonZeroU16, NonZeroU32};
 use std::sync::Arc;
 use std::time::Duration;
 
+#[cfg(feature = "quic")]
+use crate::quic::QuinnBiStream;
+use crate::stream::Dispatcher;
+#[cfg(feature = "ws")]
+use crate::ws::WsStream;
+use crate::TlsCertExtractor;
+#[cfg(feature = "tls")]
+use crate::{Error, Result};
 use anyhow::{anyhow, Context};
 use nonzero_ext::nonzero;
 use proxy_protocol::parse;
@@ -41,6 +49,7 @@ use proxy_protocol::ProxyHeader;
 use proxy_protocol::{version1 as v1, version2 as v2};
 #[cfg(feature = "quic")]
 use quinn::{crypto::rustls::QuicServerConfig, IdleTimeout};
+use rmqtt_codec::mtls::CertInfo;
 use rmqtt_codec::types::QoS;
 #[cfg(not(target_os = "windows"))]
 #[cfg(feature = "tls")]
@@ -61,15 +70,6 @@ use tokio_tungstenite::{
     accept_hdr_async,
     tungstenite::handshake::server::{ErrorResponse, Request, Response},
 };
-
-#[cfg(feature = "quic")]
-use crate::quic::QuinnBiStream;
-use crate::stream::Dispatcher;
-#[cfg(feature = "ws")]
-use crate::ws::WsStream;
-#[cfg(feature = "tls")]
-use crate::{CertInfo, TlsCertExtractor};
-use crate::{Error, Result};
 
 /// Configuration builder for MQTT server instances
 #[derive(Clone, Debug)]
@@ -155,6 +155,9 @@ pub struct Builder {
     /// Use TLS Certificate CN as Username
     pub cert_cn_as_username: bool,
 
+    /// Collect TLS Certificate information
+    pub collect_cert_info: bool,
+
     /// QUIC(max_idle_timeout)
     pub idle_timeout: Duration,
 }
@@ -222,6 +225,7 @@ impl Builder {
             proxy_protocol_timeout: Duration::from_secs(5),
 
             cert_cn_as_username: false,
+            collect_cert_info: false,
 
             idle_timeout: Duration::from_secs(90),
         }
@@ -439,6 +443,11 @@ impl Builder {
 
     pub fn cert_cn_as_username(mut self, cert_cn_as_username: bool) -> Self {
         self.cert_cn_as_username = cert_cn_as_username;
+        self
+    }
+
+    pub fn collect_cert_info(mut self, collect_cert_info: bool) -> Self {
+        self.collect_cert_info = collect_cert_info;
         self
     }
 

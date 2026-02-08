@@ -88,6 +88,7 @@ mod tests {
                 topic_alias_max: 0,
                 user_properties: Vec::new(),
                 max_packet_size: None,
+                cert: None,
             }
         );
 
@@ -124,6 +125,7 @@ mod tests {
                 topic_alias_max: 0,
                 user_properties: Vec::new(),
                 max_packet_size: None,
+                cert: None,
             }
         );
 

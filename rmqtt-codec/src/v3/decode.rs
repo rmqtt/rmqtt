@@ -84,6 +84,7 @@ fn decode_connect_packet(src: &mut Bytes) -> Result<Packet, DecodeError> {
         last_will,
         username,
         password,
+        cert: None,
     }
     .into())
 }
@@ -190,6 +191,7 @@ mod tests {
                 last_will: None,
                 username: Some(ByteString::try_from(Bytes::from_static(b"user")).unwrap()),
                 password: Some(Bytes::from(&b"pass"[..])),
+                cert: None,
             }))
         );
 
@@ -211,6 +213,7 @@ mod tests {
                 }),
                 username: None,
                 password: None,
+                cert: None,
             }))
         );
 

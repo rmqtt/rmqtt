@@ -41,7 +41,7 @@ pub use quic::QuinnBiStream;
 /// Server configuration and listener management
 pub use builder::{Builder, Listener, ListenerType};
 
-pub use cert::{CertInfo, TlsCertExtractor};
+pub use cert::TlsCertExtractor;
 
 /// Error types for MQTT operations
 pub use error::MqttError;

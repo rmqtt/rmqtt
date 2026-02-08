@@ -54,6 +54,7 @@ async fn main() -> Result<()> {
         client_id: "cid-001".into(),
         username: None,
         password: None,
+        cert: None,
     };
     framed.send(MqttPacket::V3(rmqtt_codec::v3::Packet::Connect(Box::new(connect)))).await?;
     framed.flush().await?;
