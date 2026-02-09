@@ -238,8 +238,9 @@ listener.tls.external.key = "./rmqtt-bin/rmqtt.key"
 
 #The following is the configuration using cross-certification
 #listener.tls.external.cross_certificate = true
-#listener.tls.external.cert = "./rmqtt-bin/rmqtt.fullchain.pem"
+#listener.tls.external.cert = "./rmqtt-bin/rmqtt.pem"
 #listener.tls.external.key = "./rmqtt-bin/rmqtt.key"
+#listener.tls.external.client_ca_certs = "./rmqtt-bin/rmqtt.fullchain.pem"
 
 ##--------------------------------------------------------------------
 ## MQTT/WebSocket - External WebSocket Listener for MQTT Protocol
