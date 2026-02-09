@@ -48,9 +48,9 @@ use rustls::crypto::aws_lc_rs as provider;
 #[cfg(feature = "tls")]
 #[cfg(target_os = "windows")]
 use rustls::crypto::ring as provider;
+use rustls::pki_types::CertificateDer;
 #[cfg(feature = "tls")]
 use rustls::{pki_types::pem::PemObject, server::WebPkiClientVerifier, RootCertStore, ServerConfig};
-use rustls::pki_types::CertificateDer;
 use socket2::{Domain, SockAddr, Socket, Type};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
@@ -530,8 +530,7 @@ impl Builder {
         let cert_file = self.tls_cert.as_ref().ok_or(anyhow!("TLS certificate path not set"))?;
         let key_file = self.tls_key.as_ref().ok_or(anyhow!("TLS key path not set"))?;
 
-        let cert_chain = read_ca_certs(cert_file)
-            .context("Failed to read TLS certificate chain")?;
+        let cert_chain = read_ca_certs(cert_file).context("Failed to read TLS certificate chain")?;
         let key = rustls::pki_types::PrivateKeyDer::from_pem_file(key_file).map_err(|e| anyhow!(e))?;
         let client_ca_certs = if let Some(ca_certs_file) = self.tls_client_ca_certs.as_ref() {
             read_ca_certs(ca_certs_file).context("Failed to read TLS Client CA certificates")?
@@ -552,7 +551,7 @@ impl Builder {
             WebPkiClientVerifier::no_client_auth()
         };
 
-         ServerConfig::builder_with_provider(provider)
+        ServerConfig::builder_with_provider(provider)
             .with_safe_default_protocol_versions()
             .map_err(|e| anyhow!(e))?
             .with_client_cert_verifier(client_auth)

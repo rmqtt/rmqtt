@@ -163,6 +163,7 @@ fn config_builder(cfg: &Listener) -> Builder {
         .tls_cross_certificate(cfg.cross_certificate)
         .tls_cert(cfg.cert.clone())
         .tls_key(cfg.key.clone())
+        .tls_client_ca_certs(cfg.client_ca_certs.clone())
         .limit_subscription(cfg.limit_subscription)
         .delayed_publish(cfg.delayed_publish)
         .proxy_protocol(cfg.proxy_protocol)
