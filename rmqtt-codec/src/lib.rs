@@ -31,6 +31,7 @@ pub mod v3;
 /// MQTT v5.0 protocol implementation
 pub mod v5;
 
+pub mod cert;
 /// Protocol version detection and negotiation
 pub mod version;
 

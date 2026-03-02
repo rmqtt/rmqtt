@@ -8,15 +8,15 @@ use futures::StreamExt;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
 
+use crate::error::MqttError;
+use crate::{Builder, Result};
+#[cfg(feature = "tls")]
+use rmqtt_codec::cert::CertInfo;
 use rmqtt_codec::error::{DecodeError, SendPacketError};
 use rmqtt_codec::v3::Codec as CodecV3;
 use rmqtt_codec::v5::Codec as CodecV5;
 use rmqtt_codec::version::{ProtocolVersion, VersionCodec};
 use rmqtt_codec::{MqttCodec, MqttPacket};
-
-use crate::error::MqttError;
-use crate::CertInfo;
-use crate::{Builder, Result};
 
 /// MQTT protocol dispatcher handling version negotiation
 ///
@@ -107,16 +107,14 @@ pub mod v3 {
     use tokio::io::{AsyncRead, AsyncWrite};
     use tokio_util::codec::Framed;
 
+    use crate::error::MqttError;
+    use crate::{Builder, Error, Result};
+    #[cfg(feature = "tls")]
+    use rmqtt_codec::cert::CertInfo;
     use rmqtt_codec::error::DecodeError;
     use rmqtt_codec::types::Publish;
     use rmqtt_codec::v3::{Connect, ConnectAckReason, Packet as PacketV3, Packet};
     use rmqtt_codec::{MqttCodec, MqttPacket};
-
-    use crate::error::MqttError;
-    use crate::{Builder, Error, Result};
-
-    #[cfg(feature = "tls")]
-    use crate::CertInfo;
 
     /// MQTT v3.1.1 protocol stream implementation
     pub struct MqttStream<Io> {
@@ -285,6 +283,9 @@ pub mod v3 {
                                 }
                             }
                         }
+                        if self.cfg.collect_cert_info {
+                            connect.cert = self.cert_info.clone();
+                        }
                     }
                     connect
                 }
@@ -328,15 +329,15 @@ pub mod v5 {
     use tokio::io::{AsyncRead, AsyncWrite};
     use tokio_util::codec::Framed;
 
+    use crate::error::MqttError;
+    #[cfg(feature = "tls")]
+    use crate::{Builder, Error, Result};
+    #[cfg(feature = "tls")]
+    use rmqtt_codec::cert::CertInfo;
     use rmqtt_codec::error::DecodeError;
     use rmqtt_codec::types::Publish;
     use rmqtt_codec::v5::{Auth, Connect, Disconnect, Packet as PacketV5, Packet};
     use rmqtt_codec::{MqttCodec, MqttPacket};
-
-    use crate::error::MqttError;
-    #[cfg(feature = "tls")]
-    use crate::CertInfo;
-    use crate::{Builder, Error, Result};
 
     /// MQTT v5.0 protocol stream implementation
     pub struct MqttStream<Io> {
@@ -494,7 +495,23 @@ pub mod v5 {
         #[inline]
         pub async fn recv_connect(&mut self, tm: Duration) -> Result<Box<Connect>> {
             let connect = match self.recv(tm).await {
-                Ok(Some(Packet::Connect(connect))) => connect,
+                #[allow(unused_mut)]
+                Ok(Some(Packet::Connect(mut connect))) => {
+                    #[cfg(feature = "tls")]
+                    {
+                        if self.cfg.cert_cn_as_username {
+                            if let Some(cert) = &self.cert_info {
+                                if let Some(cn) = &cert.common_name {
+                                    connect.username = Some(cn.clone().into());
+                                }
+                            }
+                        }
+                        if self.cfg.collect_cert_info {
+                            connect.cert = self.cert_info.clone();
+                        }
+                    }
+                    connect
+                }
                 Err(e) => {
                     return Err(e);
                 }

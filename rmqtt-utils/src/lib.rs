@@ -32,7 +32,7 @@
 //!
 //! // Timestamp formatting
 //! let now = format_timestamp_now();
-//! assert!(now.contains("2025")); // Current year
+//! assert!(now.contains("2026")); // Current year
 //! ```
 //!
 //! ## Safety Guarantees:
