@@ -4,8 +4,8 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use bytestring::ByteString;
 use serde::{Deserialize, Serialize};
 
+use crate::cert::CertInfo;
 use crate::error::{DecodeError, EncodeError};
-use crate::mtls::CertInfo;
 use crate::types::{ConnectFlags, QoS, MQTT, MQTT_LEVEL_5, WILL_QOS_SHIFT};
 use crate::utils::{self, Decode, Encode, Property};
 use crate::v5::{encode::*, property_type as pt, UserProperties, UserProperty};

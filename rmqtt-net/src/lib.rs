@@ -27,7 +27,7 @@
 //! ```
 
 mod builder;
-mod cert;
+mod cert_extractor;
 mod error;
 #[cfg(feature = "quic")]
 mod quic;
@@ -41,7 +41,7 @@ pub use quic::QuinnBiStream;
 /// Server configuration and listener management
 pub use builder::{Builder, Listener, ListenerType};
 
-pub use cert::TlsCertExtractor;
+pub use cert_extractor::TlsCertExtractor;
 
 /// Error types for MQTT operations
 pub use error::MqttError;

@@ -1,6 +1,6 @@
 #[cfg(feature = "ws")]
 use crate::ws::WsStream;
-use rmqtt_codec::mtls::CertInfo;
+use rmqtt_codec::cert::CertInfo;
 
 /// Trait for extracting TLS certificate information from streams
 pub trait TlsCertExtractor {

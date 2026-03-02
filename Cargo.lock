@@ -4828,7 +4828,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-codec"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "bitflags 2.10.0",
  "bytes",
@@ -4923,7 +4923,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-net"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "anyhow",
  "bytestring",

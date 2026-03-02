@@ -10,9 +10,9 @@ use tokio_util::codec::Framed;
 
 use crate::error::MqttError;
 use crate::{Builder, Result};
-use rmqtt_codec::error::{DecodeError, SendPacketError};
 #[cfg(feature = "tls")]
-use rmqtt_codec::mtls::CertInfo;
+use rmqtt_codec::cert::CertInfo;
+use rmqtt_codec::error::{DecodeError, SendPacketError};
 use rmqtt_codec::v3::Codec as CodecV3;
 use rmqtt_codec::v5::Codec as CodecV5;
 use rmqtt_codec::version::{ProtocolVersion, VersionCodec};
@@ -109,9 +109,9 @@ pub mod v3 {
 
     use crate::error::MqttError;
     use crate::{Builder, Error, Result};
-    use rmqtt_codec::error::DecodeError;
     #[cfg(feature = "tls")]
-    use rmqtt_codec::mtls::CertInfo;
+    use rmqtt_codec::cert::CertInfo;
+    use rmqtt_codec::error::DecodeError;
     use rmqtt_codec::types::Publish;
     use rmqtt_codec::v3::{Connect, ConnectAckReason, Packet as PacketV3, Packet};
     use rmqtt_codec::{MqttCodec, MqttPacket};
@@ -332,9 +332,9 @@ pub mod v5 {
     use crate::error::MqttError;
     #[cfg(feature = "tls")]
     use crate::{Builder, Error, Result};
-    use rmqtt_codec::error::DecodeError;
     #[cfg(feature = "tls")]
-    use rmqtt_codec::mtls::CertInfo;
+    use rmqtt_codec::cert::CertInfo;
+    use rmqtt_codec::error::DecodeError;
     use rmqtt_codec::types::Publish;
     use rmqtt_codec::v5::{Auth, Connect, Disconnect, Packet as PacketV5, Packet};
     use rmqtt_codec::{MqttCodec, MqttPacket};

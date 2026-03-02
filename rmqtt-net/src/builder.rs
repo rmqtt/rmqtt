@@ -49,7 +49,7 @@ use proxy_protocol::ProxyHeader;
 use proxy_protocol::{version1 as v1, version2 as v2};
 #[cfg(feature = "quic")]
 use quinn::{crypto::rustls::QuicServerConfig, IdleTimeout};
-use rmqtt_codec::mtls::CertInfo;
+use rmqtt_codec::cert::CertInfo;
 use rmqtt_codec::types::QoS;
 #[cfg(not(target_os = "windows"))]
 #[cfg(feature = "tls")]

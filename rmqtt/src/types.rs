@@ -37,7 +37,7 @@ use bytestring::ByteString;
 use futures::StreamExt;
 use get_size::GetSize;
 use itertools::Itertools;
-use rmqtt_codec::mtls::CertInfo;
+use rmqtt_codec::cert::CertInfo;
 use serde::de::{self, Deserializer};
 use serde::ser::{SerializeStruct, Serializer};
 use serde::{Deserialize, Serialize};

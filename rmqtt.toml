@@ -229,6 +229,14 @@ listener.tls.external.addr = "0.0.0.0:8883"
 # Default: false
 listener.tls.external.cert_cn_as_username = false
 
+# Whether to collect client certificate information (cert_info) and
+# include it in the MQTT connection metadata
+# true  - enable this feature; cert_info will be added to the MQTT CONNECT
+#         connection context for further authentication/authorization use
+# false - disable this feature; no certificate information will be attached
+# Default: false
+listener.tls.external.collect_cert_info = false
+
 #Whether to enable cross-certification, default value: false
 listener.tls.external.cross_certificate = false
 #This certificate is used to authenticate the server during TLS handshakes.

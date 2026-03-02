@@ -1,6 +1,6 @@
 use std::num::NonZeroU16;
 
-use crate::mtls::CertInfo;
+use crate::cert::CertInfo;
 use crate::types::{packet_type, Protocol, QoS};
 use bytes::Bytes;
 use bytestring::ByteString;
