@@ -10,7 +10,6 @@ use tokio_util::codec::Framed;
 
 use crate::error::MqttError;
 use crate::{Builder, Result};
-#[cfg(feature = "tls")]
 use rmqtt_codec::cert::CertInfo;
 use rmqtt_codec::error::{DecodeError, SendPacketError};
 use rmqtt_codec::v3::Codec as CodecV3;
@@ -330,7 +329,6 @@ pub mod v5 {
     use tokio_util::codec::Framed;
 
     use crate::error::MqttError;
-    #[cfg(feature = "tls")]
     use crate::{Builder, Error, Result};
     #[cfg(feature = "tls")]
     use rmqtt_codec::cert::CertInfo;
