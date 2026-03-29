@@ -13,7 +13,7 @@ rust-version.workspace = true
 
 [dependencies]
 rmqtt-codec.workspace = true
-rmqtt-net.workspace = true
+rmqtt-net = { workspace = true, features = ["tls"] }
 rmqtt-utils.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
