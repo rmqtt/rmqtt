@@ -39,9 +39,10 @@ use crate::quic::QuinnBiStream;
 use crate::stream::Dispatcher;
 #[cfg(feature = "ws")]
 use crate::ws::WsStream;
-use crate::TlsCertExtractor;
 #[cfg(feature = "tls")]
+use crate::TlsCertExtractor;
 use crate::{Error, Result};
+#[allow(unused_imports)]
 use anyhow::{anyhow, Context};
 use nonzero_ext::nonzero;
 use proxy_protocol::parse;
@@ -49,6 +50,7 @@ use proxy_protocol::ProxyHeader;
 use proxy_protocol::{version1 as v1, version2 as v2};
 #[cfg(feature = "quic")]
 use quinn::{crypto::rustls::QuicServerConfig, IdleTimeout};
+#[cfg(feature = "tls")]
 use rmqtt_codec::cert::CertInfo;
 use rmqtt_codec::types::QoS;
 #[cfg(not(target_os = "windows"))]
@@ -57,6 +59,7 @@ use rustls::crypto::aws_lc_rs as provider;
 #[cfg(feature = "tls")]
 #[cfg(target_os = "windows")]
 use rustls::crypto::ring as provider;
+#[cfg(feature = "tls")]
 use rustls::pki_types::CertificateDer;
 #[cfg(feature = "tls")]
 use rustls::{pki_types::pem::PemObject, server::WebPkiClientVerifier, RootCertStore, ServerConfig};
@@ -535,6 +538,7 @@ impl Builder {
         })
     }
 
+    #[cfg(feature = "tls")]
     fn build_tls_config(&self) -> Result<ServerConfig> {
         let cert_file = self.tls_cert.as_ref().ok_or(anyhow!("TLS certificate path not set"))?;
         let key_file = self.tls_key.as_ref().ok_or(anyhow!("TLS key path not set"))?;
@@ -1006,6 +1010,7 @@ fn handle_header_v2(
     }
 }
 
+#[cfg(feature = "tls")]
 fn read_ca_certs(cert_file: &str) -> Result<Vec<CertificateDer<'static>>> {
     CertificateDer::pem_file_iter(cert_file)
         .map_err(|e| anyhow!(e))?
