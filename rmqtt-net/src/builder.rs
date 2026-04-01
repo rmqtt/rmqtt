@@ -815,7 +815,8 @@ where
             Err(_) => return Err(crate::MqttError::ReadTimeout.into()),
         };
 
-        let cert_info = Self::get_extract_cert_info(&tls_s, self.cfg.cert_cn_as_username);
+        let cert_info =
+            Self::get_extract_cert_info(&tls_s, self.cfg.cert_cn_as_username, self.cfg.collect_cert_info);
 
         Ok(Dispatcher::new(tls_s, self.remote_addr, cert_info, self.cfg))
     }
@@ -856,7 +857,8 @@ where
             Err(_) => return Err(crate::MqttError::ReadTimeout.into()),
         };
 
-        let cert_info = Self::get_extract_cert_info(&tls_s, self.cfg.cert_cn_as_username);
+        let cert_info =
+            Self::get_extract_cert_info(&tls_s, self.cfg.cert_cn_as_username, self.cfg.collect_cert_info);
 
         match tokio::time::timeout(self.cfg.handshake_timeout, accept_hdr_async(tls_s, on_handshake)).await {
             Ok(Ok(ws_stream)) => {
@@ -878,8 +880,12 @@ where
 
     #[inline]
     #[cfg(feature = "tls")]
-    fn get_extract_cert_info<C: TlsCertExtractor>(io: &C, cert_cn_as_username: bool) -> Option<CertInfo> {
-        if cert_cn_as_username {
+    fn get_extract_cert_info<C: TlsCertExtractor>(
+        io: &C,
+        cert_cn_as_username: bool,
+        collect_cert_info: bool,
+    ) -> Option<CertInfo> {
+        if cert_cn_as_username || collect_cert_info {
             // Extract cert info BEFORE consuming self
             let cert_info: Option<CertInfo> = io.extract_cert_info();
             // Certificate info is now available in s.cert_info
