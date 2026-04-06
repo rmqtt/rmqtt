@@ -43,3 +43,4 @@ rule.message_publish = [{action = "message_publish", topics=["x/y/z", "foo/#", "
 rule.message_delivered = [{action = "message_delivered", topics=["x/y/z", "foo/#", "testtopic/#"] } ]
 rule.message_acked = [{action = "message_acked", topics=["x/y/z", "foo/#", "testtopic/#"] } ]
 rule.message_dropped = [{action = "message_dropped" } ]
+rule.offline_message = [{action = "offline_message", topics=["#", "$SYS/#"] }]

@@ -269,6 +269,12 @@ impl Plugin for WebHookPlugin {
                 Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() }),
             )
             .await;
+        self.register
+            .add(
+                Type::OfflineMessage,
+                Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() }),
+            )
+            .await;
 
         Ok(())
     }
@@ -717,6 +723,27 @@ impl Handler for WebHookHandler {
                         body = to.to_to_json(body);
                     }
                     Some((None, body))
+                }
+            }
+            Parameter::OfflineMessage(session, from, publish) => {
+                if from.is_system() {
+                    None
+                } else {
+                    let topic = &publish.topic;
+                    let body = json!({
+                        "dup": publish.dup,
+                        "retain": publish.retain,
+                        "qos": publish.qos.value(),
+                        "topic": topic,
+                        "packet_id": publish.packet_id,
+                        "payload": BASE64_STANDARD.encode(publish.payload.as_ref()),
+                        "pts": publish.create_time,
+                        "ts": now,
+                        "time": now_time
+                    });
+                    let body = session.id.to_to_json(body);
+                    let body = from.to_from_json(body);
+                    Some((Some(topic.clone()), body))
                 }
             }
             _ => {
