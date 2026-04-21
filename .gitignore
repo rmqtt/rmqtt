@@ -10,6 +10,9 @@ target/
 */*/Cargo.lock
 */*/*.iml
 /readme.txt
-!.github
 /publishs-dry-run.bat
 /publishs.bat
+
+# Exclusions:
+!.dockerignore
+!.github

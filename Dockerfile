@@ -1,11 +1,13 @@
-FROM rust:1-alpine3.18 as builder
-RUN apk add --no-cache musl-dev protoc make
+FROM rust:1-alpine3.21 AS builder
+RUN apk add --no-cache musl-dev protoc make pkgconfig \
+    openssl-dev openssl-libs-static cmake g++ curl-dev \
+    curl-static zlib-dev zlib-static
 WORKDIR /rmqtt
 COPY . .
 RUN cargo build --release
 
 
-FROM alpine:3.18
+FROM alpine:3.21
 LABEL maintainer="rmqtt <rmqttd@126.com>"
 
 RUN mkdir -p /app/rmqtt/rmqtt-bin

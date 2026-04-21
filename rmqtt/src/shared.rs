@@ -854,7 +854,7 @@ impl Shared for DefaultShared {
                         match reply {
                             MessageReply::Error(e) => return Err(anyhow!(e)),
                             MessageReply::MessageGet(res) => {
-                                msgs.extend(res.into_iter());
+                                msgs.extend(res);
                             }
                             _ => {
                                 log::error!("unreachable!(), reply: {reply:?}");

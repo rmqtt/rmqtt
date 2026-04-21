@@ -39,12 +39,22 @@ jobs:
           - windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          if command -v sudo >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y cmake g++ pkg-config libssl-dev zlib1g-dev libcurl4-openssl-dev libsasl2-dev libzstd-dev
+          else
+            apt-get update
+            apt-get install -y cmake g++ pkg-config libssl-dev zlib1g-dev libcurl4-openssl-dev libsasl2-dev libzstd-dev
+          fi
       - name: Install protoc
         uses: taiki-e/install-action@v2
         with:
           tool: protoc@${{ env.PROTOC_VERSION }}
       - name: Install nasm on Windows
-        if: matrix.os == 'windows-latest'
+        if: runner.os == 'Windows'
         run: |
           choco install nasm -y
           echo "C:\Program Files\NASM" >> $env:GITHUB_PATH
@@ -74,12 +84,22 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.toolchain }}
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          if command -v sudo >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y cmake g++ pkg-config libssl-dev zlib1g-dev libcurl4-openssl-dev libsasl2-dev libzstd-dev
+          else
+            apt-get update
+            apt-get install -y cmake g++ pkg-config libssl-dev zlib1g-dev libcurl4-openssl-dev libsasl2-dev libzstd-dev
+          fi
       - name: Install protoc
         uses: taiki-e/install-action@v2
         with:
           tool: protoc@${{ env.PROTOC_VERSION }}
       - name: Install nasm on Windows
-        if: matrix.os == 'windows-latest'
+        if: runner.os == 'Windows'
         run: |
           choco install nasm -y
           echo "C:\Program Files\NASM" >> $env:GITHUB_PATH
