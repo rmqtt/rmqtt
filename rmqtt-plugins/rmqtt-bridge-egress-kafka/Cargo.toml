@@ -20,4 +20,5 @@ bytestring.workspace = true
 itoa.workspace = true
 rand.workspace = true
 rust-box = { workspace = true, features = ["task-exec-queue"] }
-rdkafka = { version = "0.37", features = ["cmake-build"] }
+rdkafka = { version = "0.38", features = ["cmake-build"] }
+rdkafka-sys = "=4.9.0"
