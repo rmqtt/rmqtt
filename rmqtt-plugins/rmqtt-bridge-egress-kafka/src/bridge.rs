@@ -121,8 +121,8 @@ impl Producer {
 
             let delivery_status = producer.send(frecord, queue_timeout).await;
             match delivery_status {
-                Ok((partition, offset)) => {
-                    log::debug!("{name} delivery ok, partition: {partition}, offset: {offset}");
+                Ok(delivery) => {
+                    log::debug!("{name} delivery ok, delivery: {delivery:?}");
                 }
                 Err((e, msg)) => {
                     log::error!("{name} delivery error: {e:?}, message: {msg:?}");
