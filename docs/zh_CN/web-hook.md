@@ -104,6 +104,7 @@ rule.message_publish = [{action = "message_publish" }]
 rule.message_delivered = [{action = "message_delivered", topics=["x/y/z", "foo/#"] } ]
 rule.message_acked = [{action = "message_acked", topics=["x/y/z", "foo/#"] } ]
 rule.message_dropped = [{action = "message_dropped" } ]
+rule.offline_message = [{action = "offline_message", topics=["#", "$SYS/#"] }]
 
 ```
 ### Event 触发事件
@@ -126,6 +127,7 @@ rule.message_dropped = [{action = "message_dropped" } ]
 | message_delivered    | 消息投递     | 消息准备投递到客户端前                                     |
 | message_acked        | 消息回执     | 服务端在收到客户端发回的消息 ACK 后                            |
 | message_dropped      | 消息丢弃     | 消息未能成功转发                                        |
+| offline_message      | 消息进入离线队列 | 当消息被推送到离线会话的消息队列时                          |
 
 ### [Rule]
 
@@ -407,6 +409,29 @@ opts 包含
 | reason         | string  | 消息丢弃原因                            |
 | pts            | integer | 接收到Publish消息时的时间戳(毫秒)             |
 | ts             | integer | 生成此hook消息时的时间戳(毫秒)                |
+| time           | string  | Hook信息创建时间，格式：%Y-%m-%d %H:%M:%S%.3f |
+
+**offline_message**
+
+| Key            | 类型      | 说明                               |
+|----------------| ------- |----------------------------------|
+| action         | string  | 事件名称<br>默认为："offline_message"   |
+| from_node      | integer | 发布端节点ID                          |
+| from_ipaddress | string  | 发布端源 IP 地址和端口                    |
+| from_clientid  | string  | 发布端 ClientId                     |
+| from_username  | string  | 发布端 Username，不存在时该值为 "undefined" |
+| node           | integer | 节点ID                             |
+| ipaddress      | string  | 客户端源 IP 地址和端口                    |
+| clientid       | string  | 客户端 ClientId                     |
+| username       | string  | 客户端 Username，不存在时该值为 "undefined" |
+| dup            | bool    | 是否为 Dup 消息                       |
+| retain         | bool    | 是否为 Retain 消息                    |
+| qos            | enum    | QoS 等级，可取 `0` `1` `2`            |
+| topic          | string  | 消息主题                             |
+| packet_id      | string  | 消息ID                             |
+| payload        | string  | 消息 Payload                       |
+| pts            | integer | 接收到Publish消息时的时间戳(毫秒)            |
+| ts             | integer | 生成此hook消息时的时间戳(毫秒)               |
 | time           | string  | Hook信息创建时间，格式：%Y-%m-%d %H:%M:%S%.3f |
 
 

@@ -176,6 +176,7 @@ fn encode_connect(connect: &Connect, dst: &mut BytesMut) -> Result<(), EncodeErr
         ref client_id,
         ref username,
         ref password,
+        ..
     } = *connect;
 
     // MQTT.as_ref().encode(dst)?;
@@ -281,6 +282,7 @@ mod tests {
                 last_will: None,
                 username: Some(ByteString::from_static("user")),
                 password: Some(Bytes::from_static(b"pass")),
+                cert: None,
             })),
             &b"\x10\x1D\x00\x04MQTT\x04\xC0\x00\x3C\x00\
 \x0512345\x00\x04user\x00\x04pass"[..],
@@ -300,6 +302,7 @@ mod tests {
                 }),
                 username: None,
                 password: None,
+                cert: None,
             })),
             &b"\x10\x21\x00\x04MQTT\x04\x14\x00\x3C\x00\
 \x0512345\x00\x05topic\x00\x07message"[..],

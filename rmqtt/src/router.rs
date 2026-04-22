@@ -267,11 +267,7 @@ impl DefaultRouter {
 
         #[cfg(feature = "shared-subscription")]
         match (&q.share, opts.shared_group()) {
-            (Some(q_group), Some(group)) => {
-                if q_group != group {
-                    return false;
-                }
-            }
+            (Some(q_group), Some(group)) if q_group != group => return false,
             (Some(_), None) => return false,
             _ => {}
         }

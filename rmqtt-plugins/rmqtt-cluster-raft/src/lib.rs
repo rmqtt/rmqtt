@@ -210,7 +210,7 @@ impl ClusterPlugin {
                     }
                     None => {
                         log::info!("running in leader mode");
-                        tokio::spawn(raft.lead(id)).await
+                        tokio::spawn(raft.lead(id, raft_node_addr)).await
                     }
                 };
 

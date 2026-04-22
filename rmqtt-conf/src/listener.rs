@@ -252,6 +252,7 @@ pub struct ListenerInner {
     pub cross_certificate: bool,
     pub cert: Option<String>,
     pub key: Option<String>,
+    pub client_ca_certs: Option<String>,
 
     #[serde(default)]
     pub limit_subscription: bool,
@@ -267,6 +268,9 @@ pub struct ListenerInner {
 
     #[serde(default)]
     pub cert_cn_as_username: bool,
+    #[serde(default)]
+    pub collect_cert_info: bool,
+
     //QUIC max_idle_timeout
     #[serde(default = "ListenerInner::idle_timeout_default", deserialize_with = "deserialize_duration")]
     pub idle_timeout: Duration,
@@ -309,12 +313,14 @@ impl Default for ListenerInner {
             cross_certificate: ListenerInner::cross_certificate_default(),
             cert: None,
             key: None,
+            client_ca_certs: None,
             limit_subscription: false,
             delayed_publish: false,
             proxy_protocol: false,
             proxy_protocol_timeout: ListenerInner::proxy_protocol_timeout_default(),
 
             cert_cn_as_username: false,
+            collect_cert_info: false,
             idle_timeout: ListenerInner::idle_timeout_default(),
         }
     }

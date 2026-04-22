@@ -1860,6 +1860,7 @@ pub struct _Session {
     pub id: Id,
     pub fitter: FitterType,
     pub auth_info: Option<AuthInfo>,
+    pub extra_attrs: Arc<RwLock<ExtraAttrs>>,
     pub scx: ServerContext,
 }
 
@@ -1982,7 +1983,8 @@ impl Session {
                 last_id,
             )
             .await?;
-        Ok(Self(Arc::new(_Session { inner: session_like, id, fitter, auth_info, scx })))
+        let extra_attrs = Arc::new(RwLock::new(ExtraAttrs::new()));
+        Ok(Self(Arc::new(_Session { inner: session_like, id, fitter, auth_info, extra_attrs, scx })))
     }
 
     #[inline]

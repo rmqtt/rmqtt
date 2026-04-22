@@ -4,6 +4,7 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use bytestring::ByteString;
 use serde::{Deserialize, Serialize};
 
+use crate::cert::CertInfo;
 use crate::error::{DecodeError, EncodeError};
 use crate::types::{ConnectFlags, QoS, MQTT, MQTT_LEVEL_5, WILL_QOS_SHIFT};
 use crate::utils::{self, Decode, Encode, Property};
@@ -35,6 +36,8 @@ pub struct Connect {
     pub username: Option<ByteString>,
     /// password can be used by the Server for authentication and authorization.
     pub password: Option<Bytes>,
+    /// Client certificate information (if available)
+    pub cert: Option<CertInfo>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
@@ -173,6 +176,7 @@ impl Connect {
             last_will,
             username,
             password,
+            cert: None,
         })
     }
 }
@@ -195,6 +199,7 @@ impl Default for Connect {
             client_id: ByteString::default(),
             username: None,
             password: None,
+            cert: None,
         }
     }
 }

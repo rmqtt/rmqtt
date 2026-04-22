@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{self, Value};
 use tokio::sync::RwLock;
 
+use rmqtt::trie::{VecToString, VecToTopic};
 use rmqtt::{
     hook::Priority,
     trie::TopicTree,
@@ -134,9 +135,29 @@ pub struct Rule {
 
 impl Rule {
     #[inline]
-    pub async fn add_topic_filter(&self, topic_filter: &str) -> Result<()> {
+    pub async fn add_topic_filter(&self, topic_filter: &str, clientid: ClientId) -> Result<()> {
         let t = Topic::from_str(topic_filter)?;
-        self.topics.tree.write().await.insert(&t, ());
+        self.topics.tree.write().await.insert(&t, Some(clientid));
+        Ok(())
+    }
+
+    #[inline]
+    pub async fn remove_topic(&self, topic: &str, clientid: &str) -> Result<()> {
+        let mut topics = Vec::new();
+        {
+            let t = Topic::from_str(topic)?;
+            for (topic_levels, clientids) in self.topics.tree.read().await.matches(&t).iter() {
+                for cid in clientids.iter().copied().flatten() {
+                    if *cid == clientid {
+                        topics.push(topic_levels.to_topic());
+                    }
+                }
+            }
+        }
+        let clientid = Some(ClientId::from(clientid));
+        for topic in topics {
+            self.topics.tree.write().await.remove(&topic, &clientid);
+        }
         Ok(())
     }
 
@@ -267,19 +288,39 @@ pub struct Topics {
     pub eqs: Arc<DashSet<String>>,
     pub eq_placeholders: Vec<String>,
     //"sensor/%u/ctrl", "sensor/%c/ctrl"
-    pub tree: Arc<RwLock<TopicTree<()>>>,
+    pub tree: Arc<RwLock<TopicTree<Option<ClientId>>>>,
     pub placeholders: Vec<String>, //"sensor/%u/ctrl", "sensor/%c/ctrl"
 }
 
 impl Topics {
-    pub async fn is_match(&self, topic_filter: &Topic, topic_filter_str: &str) -> bool {
+    pub async fn is_match(&self, topic_filter: &Topic, topic_filter_str: &str, client_id: &str) -> bool {
         if self.all {
             return true;
         }
+
         if self.eqs.contains(topic_filter_str) {
             return true;
         }
-        self.tree.read().await.is_match(topic_filter)
+
+        {
+            let tree = self.tree.read().await;
+            let matcheds = tree.matches(topic_filter);
+            for (topic, values) in matcheds.iter() {
+                log::debug!("topic: {:?}, topic_filter_str: {topic_filter_str}", topic.to_string());
+                log::debug!("values: {values:?}");
+                for cid in values {
+                    log::debug!("cid: {cid:?}, client_id: {client_id:?}");
+                    if let Some(cid) = cid {
+                        if cid == client_id {
+                            return true;
+                        }
+                    } else {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 }
 
@@ -390,7 +431,7 @@ impl std::convert::TryFrom<Option<&serde_json::Value>> for Topics {
                             if topic.contains(PH_U) || topic.contains(PH_C) {
                                 placeholders.push(topic.clone());
                             } else {
-                                tree.insert(&Topic::from_str(topic.as_str())?, ());
+                                tree.insert(&Topic::from_str(topic.as_str())?, None);
                             }
                         }
                         Value::Object(eq_map) => match eq_map.get("eq") {

@@ -23,6 +23,8 @@ mod config;
 
 register!(AclPlugin::new);
 
+const CACHE_KEY: &str = "$SYS/ACL-CACHE-MAP";
+
 #[derive(Plugin)]
 struct AclPlugin {
     scx: ServerContext,
@@ -50,6 +52,7 @@ impl Plugin for AclPlugin {
         let cfg = &self.cfg;
         let priority = cfg.read().await.priority;
         self.register.add_priority(Type::ClientConnected, priority, Box::new(AclHandler::new(cfg))).await;
+        self.register.add_priority(Type::ClientDisconnected, priority, Box::new(AclHandler::new(cfg))).await;
         self.register.add_priority(Type::ClientAuthenticate, priority, Box::new(AclHandler::new(cfg))).await;
         self.register
             .add_priority(Type::ClientSubscribeCheckAcl, priority, Box::new(AclHandler::new(cfg)))
@@ -106,6 +109,8 @@ impl Handler for AclHandler {
                 let cfg = self.cfg.clone();
                 let client_id = session.id.client_id.clone();
                 let username = session.id.username.clone();
+                let extra_attrs = session.extra_attrs.clone();
+
                 let build_placeholders = async move {
                     for rule in cfg.read().await.rules() {
                         for ph_tf in &rule.topics.placeholders {
@@ -115,10 +120,16 @@ impl Handler for AclHandler {
                             } else {
                                 tf = tf.replace(PH_U, "");
                             }
-                            if let Err(e) = rule.add_topic_filter(&tf).await {
+                            if let Err(e) = rule.add_topic_filter(&tf, client_id.clone()).await {
                                 log::error!(
                                     "acl config error, build_placeholders, add topic filter error, {e:?}"
                                 );
+                            }
+                            log::debug!("topic filter: {tf}");
+                            if let Some(caches) =
+                                extra_attrs.write().await.get_default_mut(CACHE_KEY.into(), Vec::default)
+                            {
+                                caches.push(tf);
                             }
                         }
 
@@ -129,6 +140,7 @@ impl Handler for AclHandler {
                             } else {
                                 t = t.replace(PH_U, "");
                             }
+                            log::info!("eq topic: {t}");
                             rule.add_topic_to_eqs(t);
                         }
 
@@ -137,9 +149,23 @@ impl Handler for AclHandler {
                         log::debug!("rule.control: {:?}", rule.control);
                         log::debug!("rule.topics.eqs: {:?}", rule.topics.eqs);
                         log::debug!("rule.topics.tree: {:?}", rule.topics.tree.read().await.list(100));
+                        log::debug!("rule.topics.placeholders: {:?}", rule.topics.placeholders);
                     }
                 };
                 tokio::spawn(build_placeholders);
+            }
+
+            Parameter::ClientDisconnected(session, _reason) => {
+                if let Some(topic_filters) = session.extra_attrs.read().await.get::<Vec<String>>(CACHE_KEY) {
+                    let client_id = session.id.client_id.clone();
+                    for topic_filter in topic_filters {
+                        for rule in self.cfg.read().await.rules() {
+                            if let Err(e) = rule.remove_topic(topic_filter.as_str(), &client_id).await {
+                                log::error!("remove topic filter error, {e:?}");
+                            }
+                        }
+                    }
+                };
             }
 
             Parameter::ClientAuthenticate(connect_info) => {
@@ -196,7 +222,7 @@ impl Handler for AclHandler {
                     if !hit {
                         continue;
                     }
-                    if !rule.topics.is_match(&topic, topic_filter).await {
+                    if !rule.topics.is_match(&topic, topic_filter, &session.id.client_id).await {
                         continue;
                     }
                     log::debug!(
@@ -251,7 +277,7 @@ impl Handler for AclHandler {
                     if !hit {
                         continue;
                     }
-                    if !rule.topics.is_match(&topic, topic_str).await {
+                    if !rule.topics.is_match(&topic, topic_str, &session.id.client_id).await {
                         continue;
                     }
                     log::debug!(

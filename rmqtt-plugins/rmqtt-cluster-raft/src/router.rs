@@ -260,6 +260,7 @@ impl Router for ClusterRouter {
 
 #[async_trait]
 impl Store for ClusterRouter {
+    #[allow(clippy::result_large_err)]
     async fn apply(&mut self, message: &[u8]) -> RaftResult<Vec<u8>> {
         log::debug!("apply, message.len: {:?}", message.len());
         let message: Message = bincode::deserialize(message).map_err(|e| Error::Other(e))?;
@@ -360,6 +361,7 @@ impl Store for ClusterRouter {
         Ok(Vec::new())
     }
 
+    #[allow(clippy::result_large_err)]
     async fn query(&self, query: &[u8]) -> RaftResult<Vec<u8>> {
         log::debug!("query, message.len: {:?}", query.len());
         let query: Message = bincode::deserialize(query).map_err(|e| Error::Other(e))?;
@@ -376,6 +378,7 @@ impl Store for ClusterRouter {
         Ok(Vec::new())
     }
 
+    #[allow(clippy::result_large_err)]
     async fn snapshot(&self) -> RaftResult<Vec<u8>> {
         log::debug!("create snapshot ...");
         let now = std::time::Instant::now();
@@ -454,6 +457,7 @@ impl Store for ClusterRouter {
         Ok(snapshot)
     }
 
+    #[allow(clippy::result_large_err)]
     async fn restore(&mut self, snapshot: &[u8]) -> RaftResult<()> {
         log::info!("restore, snapshot.len: {}", snapshot.len());
         let now = std::time::Instant::now();

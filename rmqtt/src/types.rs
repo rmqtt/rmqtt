@@ -1,5 +1,6 @@
 //! Some commonly used type definitions
 
+use std::any::Any;
 use std::convert::From as _f;
 use std::fmt;
 use std::fmt::Display;
@@ -10,21 +11,6 @@ use std::num::{NonZeroU16, NonZeroU32};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-
-use anyhow::anyhow;
-use base64::prelude::{Engine, BASE64_STANDARD};
-use bitflags::bitflags;
-use bytes::Bytes;
-use bytestring::ByteString;
-use futures::StreamExt;
-use get_size::GetSize;
-use itertools::Itertools;
-use serde::de::{self, Deserializer};
-use serde::ser::{SerializeStruct, Serializer};
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Map, Value};
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::{oneshot, RwLock};
 
 use crate::acl::AuthInfo;
 use crate::codec::types::MQTT_LEVEL_5;
@@ -43,6 +29,21 @@ use crate::net::{v3, v5, Builder};
 use crate::queue::{Queue, Sender};
 use crate::utils::{self, timestamp_millis};
 use crate::{codec, Error, Result};
+use anyhow::anyhow;
+use base64::prelude::{Engine, BASE64_STANDARD};
+use bitflags::bitflags;
+use bytes::Bytes;
+use bytestring::ByteString;
+use futures::StreamExt;
+use get_size::GetSize;
+use itertools::Itertools;
+use rmqtt_codec::cert::CertInfo;
+use serde::de::{self, Deserializer};
+use serde::ser::{SerializeStruct, Serializer};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Map, Value};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::sync::{oneshot, RwLock};
 
 use crate::context::ServerContext;
 use crate::inflight::{OutInflight, OutInflightMessage};
@@ -326,6 +327,14 @@ impl ConnectInfo {
             connect.auth_method.as_ref()
         } else {
             None
+        }
+    }
+
+    #[inline]
+    pub fn cert(&self) -> Option<&CertInfo> {
+        match self {
+            ConnectInfo::V3(_, connect) => connect.cert.as_ref(),
+            ConnectInfo::V5(_, connect) => connect.cert.as_ref(),
         }
     }
 }
@@ -2197,70 +2206,70 @@ impl SessionSubs {
 //     }
 // }
 //
-// pub struct ExtraAttrs {
-//     attrs: HashMap<String, Box<dyn Any + Sync + Send>>,
-// }
-//
-// impl Default for ExtraAttrs {
-//     fn default() -> Self {
-//         Self::new()
-//     }
-// }
-//
-// impl ExtraAttrs {
-//     #[inline]
-//     pub fn new() -> Self {
-//         Self { attrs: HashMap::default() }
-//     }
-//
-//     #[inline]
-//     pub fn len(&self) -> usize {
-//         self.attrs.len()
-//     }
-//
-//     #[inline]
-//     pub fn is_empty(&self) -> bool {
-//         self.attrs.is_empty()
-//     }
-//
-//     #[inline]
-//     pub fn clear(&mut self) {
-//         self.attrs.clear()
-//     }
-//
-//     #[inline]
-//     pub fn insert<T: Any + Sync + Send>(&mut self, key: String, value: T) {
-//         self.attrs.insert(key, Box::new(value));
-//     }
-//
-//     #[inline]
-//     pub fn get<T: Any + Sync + Send>(&self, key: &str) -> Option<&T> {
-//         self.attrs.get(key).and_then(|v| v.downcast_ref::<T>())
-//     }
-//
-//     #[inline]
-//     pub fn get_mut<T: Any + Sync + Send>(&mut self, key: &str) -> Option<&mut T> {
-//         self.attrs.get_mut(key).and_then(|v| v.downcast_mut::<T>())
-//     }
-//
-//     #[inline]
-//     pub fn get_default_mut<T: Any + Sync + Send, F: Fn() -> T>(
-//         &mut self,
-//         key: String,
-//         def_fn: F,
-//     ) -> Option<&mut T> {
-//         self.attrs.entry(key).or_insert_with(|| Box::new(def_fn())).downcast_mut::<T>()
-//     }
-//
-//     #[inline]
-//     pub fn serialize_key<S, T>(&self, key: &str, serializer: S) -> Result<S::Ok, S::Error>
-//     where
-//         T: Any + Sync + Send + serde::ser::Serialize,
-//         S: Serializer,
-//     {
-//         self.get::<T>(key).serialize(serializer)
-//     }
-// }
+pub struct ExtraAttrs {
+    attrs: HashMap<String, Box<dyn Any + Sync + Send>>,
+}
+
+impl Default for ExtraAttrs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ExtraAttrs {
+    #[inline]
+    pub fn new() -> Self {
+        Self { attrs: HashMap::default() }
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.attrs.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.attrs.is_empty()
+    }
+
+    #[inline]
+    pub fn clear(&mut self) {
+        self.attrs.clear()
+    }
+
+    #[inline]
+    pub fn insert<T: Any + Sync + Send>(&mut self, key: String, value: T) {
+        self.attrs.insert(key, Box::new(value));
+    }
+
+    #[inline]
+    pub fn get<T: Any + Sync + Send>(&self, key: &str) -> Option<&T> {
+        self.attrs.get(key).and_then(|v| v.downcast_ref::<T>())
+    }
+
+    #[inline]
+    pub fn get_mut<T: Any + Sync + Send>(&mut self, key: &str) -> Option<&mut T> {
+        self.attrs.get_mut(key).and_then(|v| v.downcast_mut::<T>())
+    }
+
+    #[inline]
+    pub fn get_default_mut<T: Any + Sync + Send, F: Fn() -> T>(
+        &mut self,
+        key: String,
+        def_fn: F,
+    ) -> Option<&mut T> {
+        self.attrs.entry(key).or_insert_with(|| Box::new(def_fn())).downcast_mut::<T>()
+    }
+
+    #[inline]
+    pub fn serialize_key<S, T>(&self, key: &str, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        T: Any + Sync + Send + serde::ser::Serialize,
+        S: serde::ser::Serializer,
+    {
+        self.get::<T>(key).serialize(serializer)
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct TimedValue<V>(V, Option<Instant>);

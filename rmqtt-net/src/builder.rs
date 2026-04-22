@@ -34,13 +34,24 @@ use std::num::{NonZeroU16, NonZeroU32};
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::anyhow;
+#[cfg(feature = "quic")]
+use crate::quic::QuinnBiStream;
+use crate::stream::Dispatcher;
+#[cfg(feature = "ws")]
+use crate::ws::WsStream;
+#[cfg(feature = "tls")]
+use crate::TlsCertExtractor;
+use crate::{Error, Result};
+#[allow(unused_imports)]
+use anyhow::{anyhow, Context};
 use nonzero_ext::nonzero;
 use proxy_protocol::parse;
 use proxy_protocol::ProxyHeader;
 use proxy_protocol::{version1 as v1, version2 as v2};
 #[cfg(feature = "quic")]
 use quinn::{crypto::rustls::QuicServerConfig, IdleTimeout};
+#[cfg(feature = "tls")]
+use rmqtt_codec::cert::CertInfo;
 use rmqtt_codec::types::QoS;
 #[cfg(not(target_os = "windows"))]
 #[cfg(feature = "tls")]
@@ -48,6 +59,8 @@ use rustls::crypto::aws_lc_rs as provider;
 #[cfg(feature = "tls")]
 #[cfg(target_os = "windows")]
 use rustls::crypto::ring as provider;
+#[cfg(feature = "tls")]
+use rustls::pki_types::CertificateDer;
 #[cfg(feature = "tls")]
 use rustls::{pki_types::pem::PemObject, server::WebPkiClientVerifier, RootCertStore, ServerConfig};
 use socket2::{Domain, SockAddr, Socket, Type};
@@ -60,15 +73,6 @@ use tokio_tungstenite::{
     accept_hdr_async,
     tungstenite::handshake::server::{ErrorResponse, Request, Response},
 };
-
-#[cfg(feature = "quic")]
-use crate::quic::QuinnBiStream;
-use crate::stream::Dispatcher;
-#[cfg(feature = "ws")]
-use crate::ws::WsStream;
-#[cfg(feature = "tls")]
-use crate::{CertInfo, TlsCertExtractor};
-use crate::{Error, Result};
 
 /// Configuration builder for MQTT server instances
 #[derive(Clone, Debug)]
@@ -144,6 +148,8 @@ pub struct Builder {
     pub tls_cert: Option<String>,
     /// Path to TLS private key
     pub tls_key: Option<String>,
+    /// Path to TLS client ca certs
+    pub tls_client_ca_certs: Option<String>,
     /// Enable Proxy Protocol
     pub proxy_protocol: bool,
     /// Proxy Protocol timeout
@@ -151,6 +157,9 @@ pub struct Builder {
 
     /// Use TLS Certificate CN as Username
     pub cert_cn_as_username: bool,
+
+    /// Collect TLS Certificate information
+    pub collect_cert_info: bool,
 
     /// QUIC(max_idle_timeout)
     pub idle_timeout: Duration,
@@ -214,10 +223,12 @@ impl Builder {
             tls_cross_certificate: false,
             tls_cert: None,
             tls_key: None,
+            tls_client_ca_certs: None,
             proxy_protocol: false,
             proxy_protocol_timeout: Duration::from_secs(5),
 
             cert_cn_as_username: false,
+            collect_cert_info: false,
 
             idle_timeout: Duration::from_secs(90),
         }
@@ -427,8 +438,19 @@ impl Builder {
         self
     }
 
+    /// Sets path to TLS private key
+    pub fn tls_client_ca_certs<N: Into<String>>(mut self, tls_key: Option<N>) -> Self {
+        self.tls_client_ca_certs = tls_key.map(|c| c.into());
+        self
+    }
+
     pub fn cert_cn_as_username(mut self, cert_cn_as_username: bool) -> Self {
         self.cert_cn_as_username = cert_cn_as_username;
+        self
+    }
+
+    pub fn collect_cert_info(mut self, collect_cert_info: bool) -> Self {
+        self.collect_cert_info = collect_cert_info;
         self
     }
 
@@ -494,36 +516,7 @@ impl Builder {
     #[allow(unused_variables)]
     #[cfg(feature = "quic")]
     pub fn bind_quic(self) -> Result<Listener> {
-        let cert_file = self.tls_cert.as_ref().ok_or(anyhow!("TLS certificate path not set"))?;
-        let key_file = self.tls_key.as_ref().ok_or(anyhow!("TLS key path not set"))?;
-
-        let cert_chain = rustls::pki_types::CertificateDer::pem_file_iter(cert_file)
-            .map_err(|e| anyhow!(e))?
-            .collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(|e| anyhow!(e))?;
-        let key = rustls::pki_types::PrivateKeyDer::from_pem_file(key_file).map_err(|e| anyhow!(e))?;
-
-        let provider = Arc::new(provider::default_provider());
-        let client_auth = if self.tls_cross_certificate {
-            let root_chain = cert_chain.clone();
-            let mut client_auth_roots = RootCertStore::empty();
-            for root in root_chain {
-                client_auth_roots.add(root).map_err(|e| anyhow!(e))?;
-            }
-            WebPkiClientVerifier::builder_with_provider(client_auth_roots.into(), provider.clone())
-                .build()
-                .map_err(|e| anyhow!(e))?
-        } else {
-            WebPkiClientVerifier::no_client_auth()
-        };
-
-        let mut tls_config = ServerConfig::builder_with_provider(provider)
-            .with_safe_default_protocol_versions()
-            .map_err(|e| anyhow!(e))?
-            .with_client_cert_verifier(client_auth)
-            .with_single_cert(cert_chain, key)
-            .map_err(|e| anyhow!(format!("Certificate error: {}", e)))?;
-
+        let mut tls_config = self.build_tls_config()?;
         tls_config.alpn_protocols = vec![b"mqtt".to_vec(), b"mqttv5".to_vec()];
         let server_crypto = QuicServerConfig::try_from(tls_config)?;
         let mut server_config = quinn::ServerConfig::with_crypto(Arc::new(server_crypto));
@@ -543,6 +536,40 @@ impl Builder {
             tls_acceptor: None,
             quinn_endpoint: Some(endpoint),
         })
+    }
+
+    #[cfg(feature = "tls")]
+    fn build_tls_config(&self) -> Result<ServerConfig> {
+        let cert_file = self.tls_cert.as_ref().ok_or(anyhow!("TLS certificate path not set"))?;
+        let key_file = self.tls_key.as_ref().ok_or(anyhow!("TLS key path not set"))?;
+
+        let cert_chain = read_ca_certs(cert_file).context("Failed to read TLS certificate chain")?;
+        let key = rustls::pki_types::PrivateKeyDer::from_pem_file(key_file).map_err(|e| anyhow!(e))?;
+        let client_ca_certs = if let Some(ca_certs_file) = self.tls_client_ca_certs.as_ref() {
+            read_ca_certs(ca_certs_file).context("Failed to read TLS Client CA certificates")?
+        } else {
+            cert_chain.clone()
+        };
+
+        let provider = Arc::new(provider::default_provider());
+        let client_auth = if self.tls_cross_certificate {
+            let mut client_auth_roots = RootCertStore::empty();
+            for root in client_ca_certs {
+                client_auth_roots.add(root).map_err(|e| anyhow!(e))?;
+            }
+            WebPkiClientVerifier::builder_with_provider(client_auth_roots.into(), provider.clone())
+                .build()
+                .map_err(|e| anyhow!(e))?
+        } else {
+            WebPkiClientVerifier::no_client_auth()
+        };
+
+        ServerConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .map_err(|e| anyhow!(e))?
+            .with_client_cert_verifier(client_auth)
+            .with_single_cert(cert_chain, key)
+            .map_err(|e| anyhow!(format!("Certificate error: {e}")))
     }
 }
 
@@ -657,36 +684,7 @@ impl Listener {
             ListenerType::TCP => {}
         }
 
-        let cert_file = self.cfg.tls_cert.as_ref().ok_or(anyhow!("TLS certificate path not set"))?;
-        let key_file = self.cfg.tls_key.as_ref().ok_or(anyhow!("TLS key path not set"))?;
-
-        let cert_chain = rustls::pki_types::CertificateDer::pem_file_iter(cert_file)
-            .map_err(|e| anyhow!(e))?
-            .collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(|e| anyhow!(e))?;
-        let key = rustls::pki_types::PrivateKeyDer::from_pem_file(key_file).map_err(|e| anyhow!(e))?;
-
-        let provider = Arc::new(provider::default_provider());
-        let client_auth = if self.cfg.tls_cross_certificate {
-            let root_chain = cert_chain.clone();
-            let mut client_auth_roots = RootCertStore::empty();
-            for root in root_chain {
-                client_auth_roots.add(root).map_err(|e| anyhow!(e))?;
-            }
-            WebPkiClientVerifier::builder_with_provider(client_auth_roots.into(), provider.clone())
-                .build()
-                .map_err(|e| anyhow!(e))?
-        } else {
-            WebPkiClientVerifier::no_client_auth()
-        };
-
-        let tls_config = ServerConfig::builder_with_provider(provider)
-            .with_safe_default_protocol_versions()
-            .map_err(|e| anyhow!(e))?
-            .with_client_cert_verifier(client_auth)
-            .with_single_cert(cert_chain, key)
-            .map_err(|e| anyhow!(format!("Certificate error: {}", e)))?;
-
+        let tls_config = self.cfg.build_tls_config()?;
         let acceptor = TlsAcceptor::from(Arc::new(tls_config));
         self.tls_acceptor = Some(acceptor);
         self.typ = ListenerType::TLS;
@@ -817,7 +815,8 @@ where
             Err(_) => return Err(crate::MqttError::ReadTimeout.into()),
         };
 
-        let cert_info = Self::get_extract_cert_info(&tls_s, self.cfg.cert_cn_as_username);
+        let cert_info =
+            Self::get_extract_cert_info(&tls_s, self.cfg.cert_cn_as_username, self.cfg.collect_cert_info);
 
         Ok(Dispatcher::new(tls_s, self.remote_addr, cert_info, self.cfg))
     }
@@ -858,7 +857,8 @@ where
             Err(_) => return Err(crate::MqttError::ReadTimeout.into()),
         };
 
-        let cert_info = Self::get_extract_cert_info(&tls_s, self.cfg.cert_cn_as_username);
+        let cert_info =
+            Self::get_extract_cert_info(&tls_s, self.cfg.cert_cn_as_username, self.cfg.collect_cert_info);
 
         match tokio::time::timeout(self.cfg.handshake_timeout, accept_hdr_async(tls_s, on_handshake)).await {
             Ok(Ok(ws_stream)) => {
@@ -880,8 +880,12 @@ where
 
     #[inline]
     #[cfg(feature = "tls")]
-    fn get_extract_cert_info<C: TlsCertExtractor>(io: &C, cert_cn_as_username: bool) -> Option<CertInfo> {
-        if cert_cn_as_username {
+    fn get_extract_cert_info<C: TlsCertExtractor>(
+        io: &C,
+        cert_cn_as_username: bool,
+        collect_cert_info: bool,
+    ) -> Option<CertInfo> {
+        if cert_cn_as_username || collect_cert_info {
             // Extract cert info BEFORE consuming self
             let cert_info: Option<CertInfo> = io.extract_cert_info();
             // Certificate info is now available in s.cert_info
@@ -1010,4 +1014,12 @@ fn handle_header_v2(
             None
         }
     }
+}
+
+#[cfg(feature = "tls")]
+fn read_ca_certs(cert_file: &str) -> Result<Vec<CertificateDer<'static>>> {
+    CertificateDer::pem_file_iter(cert_file)
+        .map_err(|e| anyhow!(e))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| anyhow!(e))
 }
