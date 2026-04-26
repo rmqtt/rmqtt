@@ -1,12 +1,11 @@
 FROM python:3.13
 WORKDIR /app
 
-ADD pyproject.toml /app/pyproject.toml
+COPY . /app
 
 RUN pip install uv
-RUN uv venv
-RUN uv pip install .
-COPY ./ /app
+RUN uv sync
+
 
 EXPOSE 8080
 
