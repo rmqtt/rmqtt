@@ -11,7 +11,7 @@ target/
 */*/*.iml
 /readme.txt
 /publishs-dry-run.bat
-/publishs.bat
+/publishs-login.bat
 
 # Exclusions:
 !.dockerignore
