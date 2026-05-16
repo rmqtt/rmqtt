@@ -1,19 +1,9 @@
 use std::path::Path;
 use std::sync::OnceLock;
 
-use time::{
-    format_description::FormatItem,
-    macros::format_description,
-    OffsetDateTime, UtcOffset,
-};
+use time::{format_description::FormatItem, macros::format_description, OffsetDateTime, UtcOffset};
 use tracing_appender::non_blocking::{self, WorkerGuard};
-use tracing_subscriber::{
-    fmt,
-    fmt::time::FormatTime,
-    layer::SubscriberExt,
-    prelude::*,
-    EnvFilter,
-};
+use tracing_subscriber::{fmt, fmt::time::FormatTime, layer::SubscriberExt, prelude::*, EnvFilter};
 
 use rmqtt_conf::logging::{Log, To};
 use rmqtt_net::Result;
@@ -40,10 +30,7 @@ impl LocalTimer {
 
 impl FormatTime for LocalTimer {
     #[inline]
-    fn format_time(
-        &self,
-        w: &mut tracing_subscriber::fmt::format::Writer<'_>,
-    ) -> std::fmt::Result {
+    fn format_time(&self, w: &mut tracing_subscriber::fmt::format::Writer<'_>) -> std::fmt::Result {
         let now = OffsetDateTime::now_utc().to_offset(self.offset);
 
         match now.format(TIME_FORMAT) {
@@ -55,14 +42,10 @@ impl FormatTime for LocalTimer {
 
 #[inline]
 fn build_env_filter(level: &str) -> EnvFilter {
-    EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(level))
+    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level))
 }
 
-fn build_non_blocking_writer(
-    dir: &str,
-    file: &str,
-) -> Result<non_blocking::NonBlocking> {
+fn build_non_blocking_writer(dir: &str, file: &str) -> Result<non_blocking::NonBlocking> {
     if !Path::new(dir).exists() {
         std::fs::create_dir_all(dir)?;
     }
@@ -82,11 +65,7 @@ fn build_non_blocking_writer(
 /// Shared layer configuration.
 macro_rules! common_layer {
     ($layer:expr) => {
-        $layer
-            .with_target(true)
-            .with_line_number(true)
-            .with_thread_ids(false)
-            .with_ansi(false)
+        $layer.with_target(true).with_line_number(true).with_thread_ids(false).with_ansi(false)
     };
 }
 
@@ -108,13 +87,11 @@ pub fn logger_init(cfg: &Log) -> Result<()> {
         To::Console => {
             tracing_subscriber::registry()
                 .with(
-                    common_layer!(
-                        fmt::layer()
-                            .with_writer(std::io::stderr)
-                            .with_timer(LocalTimer::new())
-                            .compact()
-                    )
-                        .with_filter(env_filter),
+                    common_layer!(fmt::layer()
+                        .with_writer(std::io::stderr)
+                        .with_timer(LocalTimer::new())
+                        .compact())
+                    .with_filter(env_filter),
                 )
                 .try_init()?;
         }
@@ -124,11 +101,7 @@ pub fn logger_init(cfg: &Log) -> Result<()> {
 
             tracing_subscriber::registry()
                 .with(
-                    common_layer!(
-                        fmt::layer()
-                            .with_writer(writer)
-                            .with_timer(LocalTimer::new())
-                    )
+                    common_layer!(fmt::layer().with_writer(writer).with_timer(LocalTimer::new()))
                         .with_filter(env_filter),
                 )
                 .try_init()?;
@@ -139,25 +112,16 @@ pub fn logger_init(cfg: &Log) -> Result<()> {
 
             let file_filter = env_filter.clone();
 
-            let file_layer = common_layer!(
-                fmt::layer()
-                    .with_writer(writer)
-                    .with_timer(LocalTimer::new())
-            )
+            let file_layer = common_layer!(fmt::layer().with_writer(writer).with_timer(LocalTimer::new()))
                 .with_filter(file_filter);
 
-            let console_layer = common_layer!(
-                fmt::layer()
-                    .with_writer(std::io::stderr)
-                    .with_timer(LocalTimer::new())
-                    .compact()
-            )
-                .with_filter(env_filter);
+            let console_layer = common_layer!(fmt::layer()
+                .with_writer(std::io::stderr)
+                .with_timer(LocalTimer::new())
+                .compact())
+            .with_filter(env_filter);
 
-            tracing_subscriber::registry()
-                .with(file_layer)
-                .with(console_layer)
-                .try_init()?;
+            tracing_subscriber::registry().with(file_layer).with(console_layer).try_init()?;
         }
 
         _ => {}

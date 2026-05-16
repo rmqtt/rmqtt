@@ -4,7 +4,6 @@ use serde::Deserialize;
 #[derive(Debug, Clone, Deserialize)]
 pub struct Log {
     #[serde(default = "Log::to_default")]
-
     pub to: To,
     #[serde(default = "Log::level_default")]
     pub level: Level,
