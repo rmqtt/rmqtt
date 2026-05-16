@@ -1,127 +1,167 @@
-use std::fs::{File, OpenOptions};
-use std::io::{self, Write};
+use std::path::Path;
+use std::sync::OnceLock;
 
-use anyhow::anyhow;
-use slog::{o, Drain, Record};
-use slog_scope::GlobalLoggerGuard;
-use slog_term::{CountingWriter, RecordDecorator, ThreadSafeTimestampFn};
+use time::{
+    format_description::FormatItem,
+    macros::format_description,
+    OffsetDateTime, UtcOffset,
+};
+use tracing_appender::non_blocking::{self, WorkerGuard};
+use tracing_subscriber::{
+    fmt,
+    fmt::time::FormatTime,
+    layer::SubscriberExt,
+    prelude::*,
+    EnvFilter,
+};
 
-use rmqtt_conf::logging::{Level, Log, To};
+use rmqtt_conf::logging::{Log, To};
 use rmqtt_net::Result;
 
-/// Initializes a logger using `slog` and `slog_scope`.
-///
-/// This function creates a `GlobalLoggerGuard` and sets the global logger to the `logger` passed
-/// in the `Runtime` instance. It also initializes `slog_stdlog` with the log level specified in
-/// the `Runtime` settings.
-pub fn logger_init(cfg: &Log) -> Result<(GlobalLoggerGuard, slog::Logger)> {
-    let logger = config_logger(cfg.filename(), cfg.to, cfg.level)?;
-    let level = slog_log_to_level(cfg.level.inner());
-    // Make sure to save the guard, see documentation for more information
-    let guard = slog_scope::set_global_logger(logger.clone());
-    // register slog_stdlog as the log handler with the log crate
-    slog_stdlog::init_with_level(level)?;
-    Ok((guard, logger))
+/// Prevent log loss on process exit.
+static LOG_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
+
+/// Example:
+/// 2026-05-16 19:00:07.487
+static TIME_FORMAT: &[FormatItem<'static>] =
+    format_description!("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]");
+
+struct LocalTimer {
+    offset: UtcOffset,
 }
 
-fn slog_log_to_level(level: slog::Level) -> log::Level {
-    match level {
-        slog::Level::Trace => log::Level::Trace,
-        slog::Level::Debug => log::Level::Debug,
-        slog::Level::Info => log::Level::Info,
-        slog::Level::Warning => log::Level::Warn,
-        slog::Level::Error => log::Level::Error,
-        slog::Level::Critical => log::Level::Error,
+impl LocalTimer {
+    #[inline]
+    fn new() -> Self {
+        let offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
+        Self { offset }
     }
 }
 
-/// Creates a new `slog::Logger` with two `Drain`s: one for printing to the console and another for
-/// printing to a file.
-///
-/// This function takes three arguments: `filename`, which specifies the name of the file to print
-/// to; `to`, which specifies where to print the logs (either the console or a file); and `level`,
-/// which specifies the minimum log level to print. The function sets the format for the logs and
-/// creates the two `Drain`s using the provided parameters. It then combines the two `Drain`s using a
-/// `Tee` and returns the resulting `Logger`.
-pub fn config_logger(filename: String, to: To, level: Level) -> Result<slog::Logger> {
-    let custom_timestamp =
-        |io: &mut dyn io::Write| write!(io, "{}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f"));
+impl FormatTime for LocalTimer {
+    #[inline]
+    fn format_time(
+        &self,
+        w: &mut tracing_subscriber::fmt::format::Writer<'_>,
+    ) -> std::fmt::Result {
+        let now = OffsetDateTime::now_utc().to_offset(self.offset);
 
-    let print_msg_header = |fn_timestamp: &dyn ThreadSafeTimestampFn<Output = io::Result<()>>,
-                            mut rd: &mut dyn RecordDecorator,
-                            record: &Record,
-                            _use_file_location: bool|
-     -> io::Result<bool> {
-        rd.start_timestamp()?;
-        fn_timestamp(&mut rd)?;
-
-        rd.start_whitespace()?;
-        write!(rd, " ")?;
-
-        rd.start_level()?;
-        write!(rd, "{}", record.level().as_short_str())?;
-
-        rd.start_location()?;
-        if record.function().is_empty() {
-            write!(rd, " {}.{} | ", record.module(), record.line())?;
-        } else {
-            write!(rd, " {}::{}.{} | ", record.module(), record.function(), record.line())?;
+        match now.format(TIME_FORMAT) {
+            Ok(s) => w.write_str(&s),
+            Err(_) => w.write_str("0000-00-00 00:00:00.000"),
         }
-
-        rd.start_msg()?;
-        let mut count_rd = CountingWriter::new(&mut rd);
-        write!(count_rd, "{}", record.msg())?;
-        Ok(count_rd.count() != 0)
-    };
-
-    //Console
-    let stdout_drain = if to.console() {
-        let plain = slog_term::PlainSyncDecorator::new(std::io::stdout());
-        let stdout_drain = slog_term::FullFormat::new(plain)
-            .use_custom_timestamp(custom_timestamp)
-            .use_custom_header_print(print_msg_header)
-            .build()
-            .fuse();
-        Some(stdout_drain.filter_level(level.inner()).fuse())
-    } else {
-        None
-    };
-
-    //File
-    let file_drain = if to.file() {
-        let decorator = slog_term::PlainSyncDecorator::new(open_file(&filename)?);
-        let file_drain = slog_term::FullFormat::new(decorator)
-            .use_custom_timestamp(custom_timestamp)
-            .use_custom_header_print(print_msg_header)
-            .build()
-            .fuse();
-
-        //@TODO config ...
-        let file_drain = slog_async::Async::new(file_drain)
-            .chan_size(100_000)
-            .overflow_strategy(slog_async::OverflowStrategy::DropAndReport)
-            .build()
-            .fuse();
-
-        Some(file_drain.filter_level(level.inner()).fuse())
-    } else {
-        None
-    };
-
-    Ok(match (stdout_drain, file_drain) {
-        (Some(stdout_drain), None) => slog::Logger::root(stdout_drain, o!()),
-        (None, Some(file_drain)) => slog::Logger::root(file_drain, o!()),
-        (Some(stdout_drain), Some(file_drain)) => {
-            slog::Logger::root(slog::Duplicate::new(stdout_drain, file_drain).fuse(), o!())
-        }
-        (None, None) => slog::Logger::root(slog::Discard, o!()),
-    })
+    }
 }
 
-fn open_file(filename: &str) -> Result<File> {
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(filename)
-        .map_err(|e| anyhow!(format!("logger file config error, filename: {}, {:?}", filename, e)))
+#[inline]
+fn build_env_filter(level: &str) -> EnvFilter {
+    EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(level))
+}
+
+fn build_non_blocking_writer(
+    dir: &str,
+    file: &str,
+) -> Result<non_blocking::NonBlocking> {
+    if !Path::new(dir).exists() {
+        std::fs::create_dir_all(dir)?;
+    }
+
+    let file_appender = tracing_appender::rolling::never(dir, file);
+
+    let (writer, guard) = non_blocking::NonBlockingBuilder::default()
+        .lossy(false)
+        .buffered_lines_limit(1024 * 1024)
+        .finish(file_appender);
+
+    let _ = LOG_GUARD.set(guard);
+
+    Ok(writer)
+}
+
+/// Shared layer configuration.
+macro_rules! common_layer {
+    ($layer:expr) => {
+        $layer
+            .with_target(true)
+            .with_line_number(true)
+            .with_thread_ids(false)
+            .with_ansi(false)
+    };
+}
+
+/// Initializes tracing logger.
+///
+/// Supported config:
+/// - log.to: off | console | file | both
+/// - log.level: trace | debug | info | warn | error
+/// - log.dir
+/// - log.file
+pub fn logger_init(cfg: &Log) -> Result<()> {
+    if cfg.to.off() {
+        return Ok(());
+    }
+
+    let env_filter = build_env_filter(cfg.level.as_str());
+
+    match cfg.to {
+        To::Console => {
+            tracing_subscriber::registry()
+                .with(
+                    common_layer!(
+                        fmt::layer()
+                            .with_writer(std::io::stderr)
+                            .with_timer(LocalTimer::new())
+                            .compact()
+                    )
+                        .with_filter(env_filter),
+                )
+                .try_init()?;
+        }
+
+        To::File => {
+            let writer = build_non_blocking_writer(&cfg.dir, &cfg.file)?;
+
+            tracing_subscriber::registry()
+                .with(
+                    common_layer!(
+                        fmt::layer()
+                            .with_writer(writer)
+                            .with_timer(LocalTimer::new())
+                    )
+                        .with_filter(env_filter),
+                )
+                .try_init()?;
+        }
+
+        To::Both => {
+            let writer = build_non_blocking_writer(&cfg.dir, &cfg.file)?;
+
+            let file_filter = env_filter.clone();
+
+            let file_layer = common_layer!(
+                fmt::layer()
+                    .with_writer(writer)
+                    .with_timer(LocalTimer::new())
+            )
+                .with_filter(file_filter);
+
+            let console_layer = common_layer!(
+                fmt::layer()
+                    .with_writer(std::io::stderr)
+                    .with_timer(LocalTimer::new())
+                    .compact()
+            )
+                .with_filter(env_filter);
+
+            tracing_subscriber::registry()
+                .with(file_layer)
+                .with(console_layer)
+                .try_init()?;
+        }
+
+        _ => {}
+    }
+
+    Ok(())
 }

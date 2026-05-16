@@ -18,9 +18,6 @@ backoff = { workspace = true, features = ["futures", "tokio"] }
 rust-box = { workspace = true, features = ["task-exec-queue"] }
 serde_json.workspace = true
 log.workspace = true
-slog-stdlog.workspace = true
-slog.workspace = true
-slog-term.workspace = true
 async-trait.workspace = true
 anyhow.workspace = true
 bytes.workspace = true
@@ -32,6 +29,9 @@ ahash.workspace = true
 bincode.workspace = true
 rayon.workspace = true
 
+slog = "2.7"
+slog-term = "2.9"
+slog-stdlog = "4.1"
 
 lz4_flex = { version = "0.11" }
 lz4 = "1.27.0"

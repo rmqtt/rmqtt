@@ -181,7 +181,7 @@ impl MqttServer {
     pub fn start(self) {
         tokio::spawn(async move {
             if let Err(e) = self.run().await {
-                log::error!("Failed to start the MQTT server! {e}");
+                eprintln!("Failed to start the MQTT server! {e}");
                 std::process::exit(1);
             }
         });

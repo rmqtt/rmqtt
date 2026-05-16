@@ -27,13 +27,12 @@ rmqtt-conf.workspace = true
 rmqtt-net.workspace = true
 structopt.workspace = true
 log.workspace = true
-slog.workspace = true
-slog-stdlog.workspace = true
-slog-scope.workspace = true
-slog-term.workspace = true
-slog-async.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+tracing-appender.workspace = true
 anyhow.workspace = true
 chrono = { workspace = true, features = ["clock"] }
+time.workspace = true
 
 ##plugins
 rmqtt-acl.workspace = true
