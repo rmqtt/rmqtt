@@ -16,3 +16,4 @@ target/
 # Exclusions:
 !.dockerignore
 !.github
+/CODEBUDDY.md

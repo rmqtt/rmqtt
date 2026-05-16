@@ -40,7 +40,7 @@ async fn main() -> Result<()> {
         .expect("Failed to install the default Rustls crypto backend because it is already installed.");
 
     //init log
-    let (_guard, _logger) = logger::logger_init(&conf.log).expect("logger init failed");
+    logger::logger_init(&conf.log).expect("logger init failed");
 
     //node info
     let node = Node::new(
@@ -80,27 +80,63 @@ async fn main() -> Result<()> {
 
     //tcp
     for (_, listen_cfg) in Settings::instance().listeners.tcps.iter() {
-        builder = builder.listener(config_builder(listen_cfg).bind()?.tcp()?);
+        let listener = match config_builder(listen_cfg).bind() {
+            Ok(l) => l.tcp()?,
+            Err(e) => {
+                log::error!("Failed to bind TCP listener on {}: {}", listen_cfg.addr, e);
+                return Err(e);
+            }
+        };
+        builder = builder.listener(listener);
     }
 
     //tls
     for (_, listen_cfg) in Settings::instance().listeners.tlss.iter() {
-        builder = builder.listener(config_builder(listen_cfg).bind()?.tls()?);
+        let listener = match config_builder(listen_cfg).bind() {
+            Ok(l) => l.tls()?,
+            Err(e) => {
+                log::error!("Failed to bind TLS listener on {}: {}", listen_cfg.addr, e);
+                return Err(e);
+            }
+        };
+        builder = builder.listener(listener);
     }
 
     //websocket
     for (_, listen_cfg) in Settings::instance().listeners.wss.iter() {
-        builder = builder.listener(config_builder(listen_cfg).bind()?.ws()?);
+        let listener = match config_builder(listen_cfg).bind() {
+            Ok(l) => l.ws()?,
+            Err(e) => {
+                log::error!("Failed to bind WebSocket listener on {}: {}", listen_cfg.addr, e);
+                return Err(e);
+            }
+        };
+        builder = builder.listener(listener);
     }
 
     //tls-websocket
     for (_, listen_cfg) in Settings::instance().listeners.wsss.iter() {
-        builder = builder.listener(config_builder(listen_cfg).bind()?.wss()?);
+        let listener = match config_builder(listen_cfg).bind() {
+            Ok(l) => l.wss()?,
+            Err(e) => {
+                log::error!("Failed to bind WSS listener on {}: {}", listen_cfg.addr, e);
+                return Err(e);
+            }
+        };
+        builder = builder.listener(listener);
     }
 
     //MQTT over QUIC
     for (_, listen_cfg) in Settings::instance().listeners.quics.iter() {
-        builder = builder.listener(config_builder(listen_cfg).bind_quic()?);
+        let listener = match config_builder(listen_cfg).bind_quic() {
+            Ok(l) => l,
+            Err(e) => {
+                log::error!("Failed to bind QUIC listener on {}: {}", listen_cfg.addr, e);
+
+                return Err(e);
+            }
+        };
+        builder = builder.listener(listener);
     }
 
     builder.build().start();
