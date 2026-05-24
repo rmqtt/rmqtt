@@ -42,7 +42,7 @@ impl BrokerProcess {
     }
 
     /// Find the broker binary
-    fn find_binary(workspace_root: Option<&std::path::Path>) -> PathBuf {
+    pub fn find_binary(workspace_root: Option<&std::path::Path>) -> PathBuf {
         if let Some(root) = workspace_root {
             for dir in &["target/release", "target/debug"] {
                 let path = root.join(dir).join("rmqttd.exe");

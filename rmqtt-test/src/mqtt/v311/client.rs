@@ -344,4 +344,12 @@ impl MqttV311Client {
         }
         Ok(())
     }
+
+    /// Abort connection without sending DISCONNECT (simulates unclean disconnect)
+    /// Used for testing Last Will and Testament
+    pub async fn abort_connection(&self) -> Result<()> {
+        self.connected.store(false, Ordering::Relaxed);
+        self.writer.lock().await.shutdown().await?;
+        Ok(())
+    }
 }

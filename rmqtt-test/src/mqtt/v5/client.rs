@@ -96,7 +96,7 @@ impl MqttV5Client {
         will: Option<LastWill>,
         username: Option<ByteString>,
         password: Option<Bytes>,
-        _session_expiry_interval: Option<u32>,
+        session_expiry_interval: Option<u32>,
     ) -> Result<Self> {
         let (mut reader, writer) = tcp_v5::connect(broker_addr, connect_timeout).await?;
         let writer = Arc::new(Mutex::new(writer));
@@ -113,7 +113,7 @@ impl MqttV5Client {
             let conn = Connect {
                 clean_start: clean_session,
                 keep_alive,
-                session_expiry_interval_secs: 0,
+                session_expiry_interval_secs: session_expiry_interval.unwrap_or(0),
                 auth_method: None,
                 auth_data: None,
                 request_problem_info: false,
@@ -398,6 +398,14 @@ impl MqttV5Client {
             writer.shutdown().await?;
         }
 
+        Ok(())
+    }
+
+    /// Abort connection without sending DISCONNECT (simulates unclean disconnect)
+    /// Used for testing Last Will and Testament
+    pub async fn abort_connection(&self) -> Result<()> {
+        self.connected.store(false, Ordering::Relaxed);
+        self.writer.lock().await.shutdown().await?;
         Ok(())
     }
 
