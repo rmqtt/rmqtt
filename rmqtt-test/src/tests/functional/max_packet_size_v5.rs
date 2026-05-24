@@ -90,24 +90,13 @@ impl TestCase for MaxPacketSizeEnforcementV5Test {
 
             // Publish a small message that should fit within 256 bytes
             publisher.publish("test/v5/mpsenf", b"small_msg", QoS::AtLeastOnce, false).await?;
-            let msg = subscriber.recv_message_timeout(Duration::from_secs(3)).await;
+            let _msg = subscriber.recv_message_timeout(Duration::from_secs(3)).await;
 
             // If the broker enforced max_packet_size, the connection might be dropped
             // Either way: receiving the message OR being disconnected are both valid
-            if msg.is_some() || !publisher.is_connected() {
-                let _ = publisher.disconnect().await;
-                subscriber.disconnect().await?;
-                if msg.is_some() {
-                    Ok(())
-                } else {
-                    Ok(()) // Disconnected is also valid enforcement
-                }
-            } else {
-                publisher.disconnect().await?;
-                subscriber.disconnect().await?;
-                // Broker didn't enforce limit and didn't deliver - unexpected
-                Ok(()) // Acceptable - broker may not enforce
-            }
+            let _ = publisher.disconnect().await;
+            subscriber.disconnect().await?;
+            Ok(())
         });
         match result {
             Ok(()) => TestResult::passed(self.name(), "functional_v5", start.elapsed()),

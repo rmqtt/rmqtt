@@ -141,7 +141,7 @@ impl MqttV5Client {
                 receive_max,
                 topic_alias_max: 0,
                 user_properties: Vec::new(),
-                max_packet_size: max_packet_size.and_then(|v| std::num::NonZeroU32::new(v)),
+                max_packet_size: max_packet_size.and_then(NonZeroU32::new),
                 last_will: will,
                 client_id: ByteString::from(client_id),
                 username,
