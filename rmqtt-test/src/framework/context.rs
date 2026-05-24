@@ -51,11 +51,7 @@ pub struct TestContext {
 impl TestContext {
     /// Create a new test context
     pub fn new(config: TestConfig) -> Self {
-        Self {
-            config,
-            metrics: Arc::new(Mutex::new(Metrics::default())),
-            broker: None,
-        }
+        Self { config, metrics: Arc::new(Mutex::new(Metrics::default())), broker: None }
     }
 
     /// Create with a broker process
@@ -73,37 +69,34 @@ impl TestContext {
         // This is a sync method, so tests need to call connect themselves
         // For compatibility with test infrastructure, we use a runtime
         let rt = tokio::runtime::Runtime::new().expect("failed to create runtime");
-        rt.block_on(
-            crate::mqtt::v3::MqttV3Client::connect(
-                &self.config.broker_addr,
-                client_id,
-                self.config.connect_timeout,
-            )
-        ).expect("failed to connect v3 client")
+        rt.block_on(crate::mqtt::v3::MqttV3Client::connect(
+            &self.config.broker_addr,
+            client_id,
+            self.config.connect_timeout,
+        ))
+        .expect("failed to connect v3 client")
     }
 
     /// Create an MQTT v3.1.1 client
     pub fn create_v311_client(&self, client_id: &str) -> crate::mqtt::v311::MqttV311Client {
         let rt = tokio::runtime::Runtime::new().expect("failed to create runtime");
-        rt.block_on(
-            crate::mqtt::v311::MqttV311Client::connect(
-                &self.config.broker_addr,
-                client_id,
-                self.config.connect_timeout,
-            )
-        ).expect("failed to connect v311 client")
+        rt.block_on(crate::mqtt::v311::MqttV311Client::connect(
+            &self.config.broker_addr,
+            client_id,
+            self.config.connect_timeout,
+        ))
+        .expect("failed to connect v311 client")
     }
 
     /// Create an MQTT v5 client
     pub fn create_v5_client(&self, client_id: &str) -> crate::mqtt::v5::MqttV5Client {
         let rt = tokio::runtime::Runtime::new().expect("failed to create runtime");
-        rt.block_on(
-            crate::mqtt::v5::MqttV5Client::connect(
-                &self.config.broker_addr,
-                client_id,
-                self.config.connect_timeout,
-            )
-        ).expect("failed to connect v5 client")
+        rt.block_on(crate::mqtt::v5::MqttV5Client::connect(
+            &self.config.broker_addr,
+            client_id,
+            self.config.connect_timeout,
+        ))
+        .expect("failed to connect v5 client")
     }
 
     /// Record a message sent

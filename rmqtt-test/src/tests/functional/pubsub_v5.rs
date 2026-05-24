@@ -10,7 +10,9 @@ use crate::mqtt::common::QoS;
 pub struct PubSubV5Qos0Test;
 
 impl TestCase for PubSubV5Qos0Test {
-    fn name(&self) -> &str { "pubsub_v5_qos0" }
+    fn name(&self) -> &str {
+        "pubsub_v5_qos0"
+    }
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
@@ -21,12 +23,14 @@ impl TestCase for PubSubV5Qos0Test {
                 &ctx.config.broker_addr,
                 "v5-pub-qos0",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
             let mut subscriber = crate::mqtt::v5::MqttV5Client::connect(
                 &ctx.config.broker_addr,
                 "v5-sub-qos0",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
 
             let topic = "test/v5/pubsub/qos0";
             subscriber.subscribe(topic, QoS::AtMostOnce).await?;
@@ -53,14 +57,18 @@ impl TestCase for PubSubV5Qos0Test {
         }
     }
 
-    fn timeout(&self) -> Duration { Duration::from_secs(15) }
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(15)
+    }
 }
 
 /// Test QoS 1 publish/subscribe with v5 client
 pub struct PubSubV5Qos1Test;
 
 impl TestCase for PubSubV5Qos1Test {
-    fn name(&self) -> &str { "pubsub_v5_qos1" }
+    fn name(&self) -> &str {
+        "pubsub_v5_qos1"
+    }
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
@@ -71,12 +79,14 @@ impl TestCase for PubSubV5Qos1Test {
                 &ctx.config.broker_addr,
                 "v5-pub-qos1",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
             let mut subscriber = crate::mqtt::v5::MqttV5Client::connect(
                 &ctx.config.broker_addr,
                 "v5-sub-qos1",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
 
             let topic = "test/v5/pubsub/qos1";
             subscriber.subscribe(topic, QoS::AtLeastOnce).await?;
@@ -103,14 +113,18 @@ impl TestCase for PubSubV5Qos1Test {
         }
     }
 
-    fn timeout(&self) -> Duration { Duration::from_secs(15) }
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(15)
+    }
 }
 
 /// Test QoS 2 publish/subscribe with v5 client
 pub struct PubSubV5Qos2Test;
 
 impl TestCase for PubSubV5Qos2Test {
-    fn name(&self) -> &str { "pubsub_v5_qos2" }
+    fn name(&self) -> &str {
+        "pubsub_v5_qos2"
+    }
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
@@ -121,12 +135,14 @@ impl TestCase for PubSubV5Qos2Test {
                 &ctx.config.broker_addr,
                 "v5-pub-qos2",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
             let mut subscriber = crate::mqtt::v5::MqttV5Client::connect(
                 &ctx.config.broker_addr,
                 "v5-sub-qos2",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
 
             let topic = "test/v5/pubsub/qos2";
             subscriber.subscribe(topic, QoS::ExactlyOnce).await?;
@@ -153,5 +169,7 @@ impl TestCase for PubSubV5Qos2Test {
         }
     }
 
-    fn timeout(&self) -> Duration { Duration::from_secs(15) }
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(15)
+    }
 }

@@ -134,15 +134,7 @@ impl TestScheduler {
             }
         }
 
-        TestSummary {
-            total: self.results.len(),
-            passed,
-            failed,
-            skipped,
-            errors,
-            timeouts,
-            total_duration,
-        }
+        TestSummary { total: self.results.len(), passed, failed, skipped, errors, timeouts, total_duration }
     }
 }
 
@@ -161,11 +153,8 @@ pub struct TestSummary {
 /// Resolve DAG dependencies to produce execution order (topological sort)
 fn resolve_dag_order(tests: &[Arc<dyn TestCase>]) -> Vec<usize> {
     let n = tests.len();
-    let name_to_idx: HashMap<String, usize> = tests
-        .iter()
-        .enumerate()
-        .map(|(i, t)| (t.name().to_string(), i))
-        .collect();
+    let name_to_idx: HashMap<String, usize> =
+        tests.iter().enumerate().map(|(i, t)| (t.name().to_string(), i)).collect();
 
     // Build adjacency list
     let mut in_degree = vec![0usize; n];

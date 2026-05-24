@@ -56,10 +56,7 @@ pub async fn connect(
 impl TcpTransportV5Reader {
     /// Read data into the internal buffer and return the number of bytes read
     pub async fn recv(&mut self) -> Result<usize, anyhow::Error> {
-        let stream = self
-            .stream
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("not connected"))?;
+        let stream = self.stream.as_mut().ok_or_else(|| anyhow::anyhow!("not connected"))?;
         let mut tmp = [0u8; 4096];
         let n = stream.read(&mut tmp).await?;
         if n == 0 {
@@ -109,10 +106,7 @@ impl TcpTransportV5Reader {
 impl TcpTransportV5Writer {
     /// Send raw bytes over the TCP stream
     async fn send(&mut self, data: &Bytes) -> Result<(), anyhow::Error> {
-        let stream = self
-            .stream
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("not connected"))?;
+        let stream = self.stream.as_mut().ok_or_else(|| anyhow::anyhow!("not connected"))?;
         stream.write_all(data).await?;
         stream.flush().await?;
         Ok(())
@@ -177,11 +171,8 @@ pub(crate) fn format_hex(data: &[u8]) -> String {
     if data.len() <= MAX_SHOW {
         data.iter().map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" ")
     } else {
-        let shown: String = data[..MAX_SHOW]
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect::<Vec<_>>()
-            .join(" ");
+        let shown: String =
+            data[..MAX_SHOW].iter().map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" ");
         format!("{}... ({} bytes total)", shown, data.len())
     }
 }

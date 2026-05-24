@@ -15,11 +15,15 @@ pub struct FanOutTest {
 }
 
 impl Default for FanOutTest {
-    fn default() -> Self { Self { subscriber_count: 10, message_count: 5 } }
+    fn default() -> Self {
+        Self { subscriber_count: 10, message_count: 5 }
+    }
 }
 
 impl TestCase for FanOutTest {
-    fn name(&self) -> &str { "fan_out" }
+    fn name(&self) -> &str {
+        "fan_out"
+    }
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
@@ -35,7 +39,8 @@ impl TestCase for FanOutTest {
                     &ctx.config.broker_addr,
                     &format!("v311-fanout-sub-{}", i),
                     ctx.config.connect_timeout,
-                ).await?;
+                )
+                .await?;
                 subscribers.push(sub);
             }
 
@@ -52,7 +57,8 @@ impl TestCase for FanOutTest {
                 &ctx.config.broker_addr,
                 "v311-fanout-pub",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
 
             for i in 0..msg_count {
                 let payload = format!("fanout-msg-{}", i);
@@ -89,7 +95,8 @@ impl TestCase for FanOutTest {
             } else {
                 Err(anyhow::anyhow!(
                     "fan-out: received {}/{} messages ({:.0}%)",
-                    received, total_expected,
+                    received,
+                    total_expected,
                     (received as f64 / total_expected as f64) * 100.0
                 ))
             }
@@ -101,5 +108,7 @@ impl TestCase for FanOutTest {
         }
     }
 
-    fn timeout(&self) -> Duration { Duration::from_secs(120) }
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(120)
+    }
 }

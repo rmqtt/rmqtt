@@ -10,7 +10,9 @@ use crate::mqtt::common::QoS;
 pub struct WildcardPlusTest;
 
 impl TestCase for WildcardPlusTest {
-    fn name(&self) -> &str { "wildcard_plus" }
+    fn name(&self) -> &str {
+        "wildcard_plus"
+    }
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
@@ -21,12 +23,14 @@ impl TestCase for WildcardPlusTest {
                 &ctx.config.broker_addr,
                 "wc-plus-pub",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
             let mut subscriber = crate::mqtt::v311::MqttV311Client::connect(
                 &ctx.config.broker_addr,
                 "wc-plus-sub",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
 
             let sub_topic = "test/wildcard/+/message";
             subscriber.subscribe(sub_topic, QoS::AtLeastOnce).await?;
@@ -58,14 +62,18 @@ impl TestCase for WildcardPlusTest {
         }
     }
 
-    fn timeout(&self) -> Duration { Duration::from_secs(15) }
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(15)
+    }
 }
 
 /// Test multi-level wildcard (#)
 pub struct WildcardHashTest;
 
 impl TestCase for WildcardHashTest {
-    fn name(&self) -> &str { "wildcard_hash" }
+    fn name(&self) -> &str {
+        "wildcard_hash"
+    }
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
@@ -76,12 +84,14 @@ impl TestCase for WildcardHashTest {
                 &ctx.config.broker_addr,
                 "wc-hash-pub",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
             let mut subscriber = crate::mqtt::v311::MqttV311Client::connect(
                 &ctx.config.broker_addr,
                 "wc-hash-sub",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
 
             let sub_topic = "test/wildcard/#";
             subscriber.subscribe(sub_topic, QoS::AtLeastOnce).await?;
@@ -110,5 +120,7 @@ impl TestCase for WildcardHashTest {
         }
     }
 
-    fn timeout(&self) -> Duration { Duration::from_secs(15) }
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(15)
+    }
 }

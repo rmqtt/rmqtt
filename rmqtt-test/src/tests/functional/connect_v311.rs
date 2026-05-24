@@ -9,7 +9,9 @@ use crate::framework::testcase::{TestCase, TestResult};
 pub struct ConnectV311Test;
 
 impl TestCase for ConnectV311Test {
-    fn name(&self) -> &str { "connect_v311" }
+    fn name(&self) -> &str {
+        "connect_v311"
+    }
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
@@ -20,7 +22,8 @@ impl TestCase for ConnectV311Test {
                 &ctx.config.broker_addr,
                 "connect-v311-test",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
             assert!(client.is_connected());
             client.disconnect().await?;
             Ok::<(), anyhow::Error>(())
@@ -37,7 +40,9 @@ impl TestCase for ConnectV311Test {
 pub struct ConnectEmptyClientIdTest;
 
 impl TestCase for ConnectEmptyClientIdTest {
-    fn name(&self) -> &str { "connect_empty_client_id" }
+    fn name(&self) -> &str {
+        "connect_empty_client_id"
+    }
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
@@ -48,7 +53,8 @@ impl TestCase for ConnectEmptyClientIdTest {
                 &ctx.config.broker_addr,
                 "",
                 ctx.config.connect_timeout,
-            ).await?; // should succeed with clean session
+            )
+            .await?; // should succeed with clean session
             client.disconnect().await?;
             Ok::<(), anyhow::Error>(())
         });
@@ -66,11 +72,15 @@ pub struct MultipleConnectionsTest {
 }
 
 impl Default for MultipleConnectionsTest {
-    fn default() -> Self { Self { count: 10 } }
+    fn default() -> Self {
+        Self { count: 10 }
+    }
 }
 
 impl TestCase for MultipleConnectionsTest {
-    fn name(&self) -> &str { "multiple_connections" }
+    fn name(&self) -> &str {
+        "multiple_connections"
+    }
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
@@ -86,7 +96,8 @@ impl TestCase for MultipleConnectionsTest {
                     &addr,
                     &format!("multi-conn-{}", i),
                     connect_timeout,
-                ).await?;
+                )
+                .await?;
                 clients.push(client);
             }
             // Verify all connected
@@ -106,5 +117,7 @@ impl TestCase for MultipleConnectionsTest {
         }
     }
 
-    fn timeout(&self) -> Duration { Duration::from_secs(30) }
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(30)
+    }
 }

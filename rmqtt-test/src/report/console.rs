@@ -39,17 +39,9 @@ impl ConsoleReporter {
         println!("\n{}", "-".repeat(60));
         println!(
             "  Total: {} | Passed: {} | Failed: {} | Errors: {} | Timeouts: {} | Skipped: {}",
-            summary.total,
-            summary.passed,
-            summary.failed,
-            summary.errors,
-            summary.timeouts,
-            summary.skipped,
+            summary.total, summary.passed, summary.failed, summary.errors, summary.timeouts, summary.skipped,
         );
-        println!(
-            "  Duration: {:.2}s",
-            summary.total_duration.as_secs_f64()
-        );
+        println!("  Duration: {:.2}s", summary.total_duration.as_secs_f64());
         println!("{}\n", "=".repeat(60));
     }
 }

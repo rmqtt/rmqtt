@@ -9,7 +9,9 @@ use crate::framework::testcase::{TestCase, TestResult};
 pub struct PubSubV3Qos0Test;
 
 impl TestCase for PubSubV3Qos0Test {
-    fn name(&self) -> &str { "pubsub_v3_qos0" }
+    fn name(&self) -> &str {
+        "pubsub_v3_qos0"
+    }
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
@@ -20,12 +22,14 @@ impl TestCase for PubSubV3Qos0Test {
                 &ctx.config.broker_addr,
                 "v3-pub-qos0",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
             let mut subscriber = crate::mqtt::v3::MqttV3Client::connect(
                 &ctx.config.broker_addr,
                 "v3-sub-qos0",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
 
             tracing::info!("publisher connect ok");
             tracing::info!("subscriber connect ok");
@@ -50,8 +54,7 @@ impl TestCase for PubSubV3Qos0Test {
                     if m.payload.as_ref() == b"hello v3 qos0" && m.topic == topic {
                         Ok(())
                     } else {
-                        Err(anyhow::anyhow!("unexpected message: topic={}, payload={:?}",
-                            m.topic, m.payload))
+                        Err(anyhow::anyhow!("unexpected message: topic={}, payload={:?}", m.topic, m.payload))
                     }
                 }
                 None => Err(anyhow::anyhow!("no message received within timeout")),
@@ -64,5 +67,7 @@ impl TestCase for PubSubV3Qos0Test {
         }
     }
 
-    fn timeout(&self) -> Duration { Duration::from_secs(15) }
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(15)
+    }
 }

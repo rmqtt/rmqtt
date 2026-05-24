@@ -14,20 +14,12 @@ pub struct TestSuite {
 impl TestSuite {
     /// Create a new test suite
     pub fn new(name: &str) -> Self {
-        Self {
-            name: name.to_string(),
-            tests: Vec::new(),
-            parallel: false,
-        }
+        Self { name: name.to_string(), tests: Vec::new(), parallel: false }
     }
 
     /// Create a parallel test suite
     pub fn parallel(name: &str) -> Self {
-        Self {
-            name: name.to_string(),
-            tests: Vec::new(),
-            parallel: true,
-        }
+        Self { name: name.to_string(), tests: Vec::new(), parallel: true }
     }
 
     /// Add a test case

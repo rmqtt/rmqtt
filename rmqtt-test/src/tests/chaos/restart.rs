@@ -10,7 +10,9 @@ use crate::mqtt::common::QoS;
 pub struct BrokerRestartTest;
 
 impl TestCase for BrokerRestartTest {
-    fn name(&self) -> &str { "chaos_broker_restart" }
+    fn name(&self) -> &str {
+        "chaos_broker_restart"
+    }
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
@@ -22,7 +24,8 @@ impl TestCase for BrokerRestartTest {
                 &ctx.config.broker_addr,
                 "chaos-restart",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
             assert!(client.is_connected());
 
             // Disconnect client
@@ -47,7 +50,8 @@ impl TestCase for BrokerRestartTest {
                 &ctx.config.broker_addr,
                 "chaos-restart-2",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
             client2.disconnect().await?;
 
             Ok::<(), anyhow::Error>(())
@@ -59,14 +63,18 @@ impl TestCase for BrokerRestartTest {
         }
     }
 
-    fn timeout(&self) -> Duration { Duration::from_secs(60) }
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(60)
+    }
 }
 
 /// Test publish/subscriber recovery after broker restart
 pub struct BrokerRestartPubSubTest;
 
 impl TestCase for BrokerRestartPubSubTest {
-    fn name(&self) -> &str { "chaos_broker_restart_pubsub" }
+    fn name(&self) -> &str {
+        "chaos_broker_restart_pubsub"
+    }
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
@@ -78,7 +86,8 @@ impl TestCase for BrokerRestartPubSubTest {
                 &ctx.config.broker_addr,
                 "chaos-pubsub-pub1",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
             pub1.publish("test/chaos/restart", b"before", QoS::AtLeastOnce, false).await?;
             pub1.disconnect().await?;
 
@@ -91,12 +100,14 @@ impl TestCase for BrokerRestartPubSubTest {
                 &ctx.config.broker_addr,
                 "chaos-pubsub-pub2",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
             let mut sub = crate::mqtt::v311::MqttV311Client::connect(
                 &ctx.config.broker_addr,
                 "chaos-pubsub-sub",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
 
             sub.subscribe("test/chaos/restart", QoS::AtLeastOnce).await?;
             tokio::time::sleep(Duration::from_millis(100)).await;
@@ -120,5 +131,7 @@ impl TestCase for BrokerRestartPubSubTest {
         }
     }
 
-    fn timeout(&self) -> Duration { Duration::from_secs(60) }
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(60)
+    }
 }

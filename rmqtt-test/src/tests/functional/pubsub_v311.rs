@@ -10,7 +10,9 @@ use crate::mqtt::common::QoS;
 pub struct PubSubV311Qos0Test;
 
 impl TestCase for PubSubV311Qos0Test {
-    fn name(&self) -> &str { "pubsub_v311_qos0" }
+    fn name(&self) -> &str {
+        "pubsub_v311_qos0"
+    }
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
@@ -21,12 +23,14 @@ impl TestCase for PubSubV311Qos0Test {
                 &ctx.config.broker_addr,
                 "v311-pub-qos0",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
             let mut subscriber = crate::mqtt::v311::MqttV311Client::connect(
                 &ctx.config.broker_addr,
                 "v311-sub-qos0",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
 
             let topic = "test/v311/pubsub/qos0";
             subscriber.subscribe(topic, QoS::AtMostOnce).await?;
@@ -45,8 +49,7 @@ impl TestCase for PubSubV311Qos0Test {
                     if m.payload.as_ref() == b"hello qos0" && m.topic == topic {
                         Ok(())
                     } else {
-                        Err(anyhow::anyhow!("unexpected message: topic={}, payload={:?}",
-                            m.topic, m.payload))
+                        Err(anyhow::anyhow!("unexpected message: topic={}, payload={:?}", m.topic, m.payload))
                     }
                 }
                 None => Err(anyhow::anyhow!("no message received within timeout")),
@@ -59,14 +62,18 @@ impl TestCase for PubSubV311Qos0Test {
         }
     }
 
-    fn timeout(&self) -> Duration { Duration::from_secs(15) }
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(15)
+    }
 }
 
 /// Test QoS 1 publish/subscribe with v311 client
 pub struct PubSubV311Qos1Test;
 
 impl TestCase for PubSubV311Qos1Test {
-    fn name(&self) -> &str { "pubsub_v311_qos1" }
+    fn name(&self) -> &str {
+        "pubsub_v311_qos1"
+    }
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
@@ -77,12 +84,14 @@ impl TestCase for PubSubV311Qos1Test {
                 &ctx.config.broker_addr,
                 "v311-pub-qos1",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
             let mut subscriber = crate::mqtt::v311::MqttV311Client::connect(
                 &ctx.config.broker_addr,
                 "v311-sub-qos1",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
 
             let topic = "test/v311/pubsub/qos1";
             subscriber.subscribe(topic, QoS::AtLeastOnce).await?;
@@ -114,14 +123,18 @@ impl TestCase for PubSubV311Qos1Test {
         }
     }
 
-    fn timeout(&self) -> Duration { Duration::from_secs(15) }
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(15)
+    }
 }
 
 /// Test QoS 2 publish/subscribe with v311 client
 pub struct PubSubV311Qos2Test;
 
 impl TestCase for PubSubV311Qos2Test {
-    fn name(&self) -> &str { "pubsub_v311_qos2" }
+    fn name(&self) -> &str {
+        "pubsub_v311_qos2"
+    }
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
@@ -132,12 +145,14 @@ impl TestCase for PubSubV311Qos2Test {
                 &ctx.config.broker_addr,
                 "v311-pub-qos2",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
             let mut subscriber = crate::mqtt::v311::MqttV311Client::connect(
                 &ctx.config.broker_addr,
                 "v311-sub-qos2",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
 
             let topic = "test/v311/pubsub/qos2";
             subscriber.subscribe(topic, QoS::ExactlyOnce).await?;
@@ -169,14 +184,18 @@ impl TestCase for PubSubV311Qos2Test {
         }
     }
 
-    fn timeout(&self) -> Duration { Duration::from_secs(15) }
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(15)
+    }
 }
 
 /// Test retain message with v311 client
 pub struct RetainV311Test;
 
 impl TestCase for RetainV311Test {
-    fn name(&self) -> &str { "retain_v311_message" }
+    fn name(&self) -> &str {
+        "retain_v311_message"
+    }
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
@@ -188,7 +207,8 @@ impl TestCase for RetainV311Test {
                 &ctx.config.broker_addr,
                 "v311-retain-pub",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
             let topic = "test/v311/retain/msg";
             publisher.publish(topic, b"retained payload", QoS::AtLeastOnce, true).await?;
             publisher.disconnect().await?;
@@ -200,7 +220,8 @@ impl TestCase for RetainV311Test {
                 &ctx.config.broker_addr,
                 "v311-retain-sub",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
             subscriber.subscribe(topic, QoS::AtLeastOnce).await?;
 
             let msg = subscriber.recv_message_timeout(Duration::from_secs(5)).await;
@@ -211,8 +232,11 @@ impl TestCase for RetainV311Test {
                     if m.retain && m.payload.as_ref() == b"retained payload" {
                         Ok(())
                     } else {
-                        Err(anyhow::anyhow!("unexpected retained message: retain={}, payload={:?}",
-                            m.retain, m.payload))
+                        Err(anyhow::anyhow!(
+                            "unexpected retained message: retain={}, payload={:?}",
+                            m.retain,
+                            m.payload
+                        ))
                     }
                 }
                 None => Err(anyhow::anyhow!("no retained message received")),
@@ -225,14 +249,18 @@ impl TestCase for RetainV311Test {
         }
     }
 
-    fn timeout(&self) -> Duration { Duration::from_secs(15) }
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(15)
+    }
 }
 
 /// Test unsubscribe with v311 client
 pub struct UnsubscribeV311Test;
 
 impl TestCase for UnsubscribeV311Test {
-    fn name(&self) -> &str { "unsubscribe_v311" }
+    fn name(&self) -> &str {
+        "unsubscribe_v311"
+    }
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
@@ -243,12 +271,14 @@ impl TestCase for UnsubscribeV311Test {
                 &ctx.config.broker_addr,
                 "v311-unsub-pub",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
             let mut subscriber = crate::mqtt::v311::MqttV311Client::connect(
                 &ctx.config.broker_addr,
                 "v311-unsub-sub",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
 
             let topic = "test/v311/unsub/topic";
             subscriber.subscribe(topic, QoS::AtLeastOnce).await?;
@@ -283,5 +313,7 @@ impl TestCase for UnsubscribeV311Test {
         }
     }
 
-    fn timeout(&self) -> Duration { Duration::from_secs(20) }
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(20)
+    }
 }

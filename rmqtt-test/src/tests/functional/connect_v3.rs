@@ -9,7 +9,9 @@ use crate::framework::testcase::{TestCase, TestResult};
 pub struct ConnectV3Test;
 
 impl TestCase for ConnectV3Test {
-    fn name(&self) -> &str { "connect_v3" }
+    fn name(&self) -> &str {
+        "connect_v3"
+    }
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
@@ -20,7 +22,8 @@ impl TestCase for ConnectV3Test {
                 &ctx.config.broker_addr,
                 "connect-v3-test",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
             assert!(client.is_connected());
             client.disconnect().await?;
             Ok::<(), anyhow::Error>(())
