@@ -221,8 +221,14 @@ fn build_functional_v3_suite() -> TestSuite {
 }
 
 fn build_functional_v311_suite() -> TestSuite {
+    use tests::functional::auth_v311::*;
+    use tests::functional::boundary::*;
     use tests::functional::connect_v311::*;
+    use tests::functional::keepalive::*;
+    use tests::functional::last_will::*;
+    use tests::functional::multi_topic::*;
     use tests::functional::pubsub_v311::*;
+    use tests::functional::shared_subscription::*;
     use tests::functional::wildcard::*;
 
     let mut suite = TestSuite::new("functional_v311");
@@ -236,12 +242,39 @@ fn build_functional_v311_suite() -> TestSuite {
     suite.add(UnsubscribeV311Test);
     suite.add(WildcardPlusTest);
     suite.add(WildcardHashTest);
+    // Last Will and Testament
+    suite.add(LastWillV311Test);
+    suite.add(LastWillV311CleanTest);
+    suite.add(LastWillUncleanTest);
+    // KeepAlive / PING
+    suite.add(KeepAliveV311Test);
+    suite.add(KeepAliveTimeoutTest);
+    // Shared subscriptions
+    suite.add(SharedSubV311Test);
+    // Authentication edge cases
+    suite.add(AuthEmptyClientIdFailTest);
+    suite.add(AuthConnectDisconnectSequenceTest);
+    // Boundary tests
+    suite.add(MaxClientIdTest);
+    suite.add(LongTopicTest);
+    suite.add(EmptyPayloadTest);
+    suite.add(LargePayloadTest);
+    suite.add(SpecialCharsTopicTest);
+    suite.add(RapidSubscribeTest);
+    // Multi-topic
+    suite.add(MultiTopicSubscribeV311Test);
+    suite.add(OverlappingSubscriptionsTest);
+    suite.add(MessageOrderingTest);
     suite
 }
 
 fn build_functional_v5_suite() -> TestSuite {
     use tests::functional::connect_v5::*;
+    use tests::functional::keepalive::*;
+    use tests::functional::last_will::*;
     use tests::functional::pubsub_v5::*;
+    use tests::functional::session_v5::*;
+    use tests::functional::shared_subscription::*;
 
     let mut suite = TestSuite::new("functional_v5");
     suite.add(ConnectV5Test);
@@ -249,17 +282,29 @@ fn build_functional_v5_suite() -> TestSuite {
     suite.add(PubSubV5Qos0Test);
     suite.add(PubSubV5Qos1Test);
     suite.add(PubSubV5Qos2Test);
+    // V5 specific features
+    suite.add(LastWillV5Test);
+    suite.add(PingV5Test);
+    // Session management
+    suite.add(SessionExpiryV5Test);
+    suite.add(SessionTakeoverV5Test);
+    suite.add(SessionCleanStartV5Test);
+    // Shared subscriptions
+    suite.add(SharedSubV5Test);
     suite
 }
 
 fn build_stress_suite(client_count: usize) -> TestSuite {
     use tests::stress::fanout::*;
     use tests::stress::load_v311::*;
+    use tests::stress::memory::*;
 
     let mut suite = TestSuite::new("stress");
     suite.add(ConnectionLoadTest { client_count });
     suite.add(PublishLoadTest::default());
     suite.add(FanOutTest::default());
+    suite.add(RetainFloodTest);
+    suite.add(SubscriptionStressTest);
     suite
 }
 
