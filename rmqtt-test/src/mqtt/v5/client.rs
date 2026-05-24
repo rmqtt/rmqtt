@@ -81,8 +81,19 @@ pub struct MqttV5Client {
 impl MqttV5Client {
     /// Connect to broker with default settings
     pub async fn connect(broker_addr: &str, client_id: &str, connect_timeout: Duration) -> Result<Self> {
-        Self::connect_with_options(broker_addr, client_id, connect_timeout, true, 60, None, None, None, None)
-            .await
+        Self::connect_with_options(
+            broker_addr,
+            client_id,
+            connect_timeout,
+            true,
+            60,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
     }
 
     /// Connect to broker with full options
@@ -97,6 +108,7 @@ impl MqttV5Client {
         username: Option<ByteString>,
         password: Option<Bytes>,
         session_expiry_interval: Option<u32>,
+        receive_max: Option<NonZeroU16>,
     ) -> Result<Self> {
         let (mut reader, writer) = tcp_v5::connect(broker_addr, connect_timeout).await?;
         let writer = Arc::new(Mutex::new(writer));
@@ -118,7 +130,7 @@ impl MqttV5Client {
                 auth_data: None,
                 request_problem_info: false,
                 request_response_info: false,
-                receive_max: None,
+                receive_max,
                 topic_alias_max: 0,
                 user_properties: Vec::new(),
                 max_packet_size: None,
@@ -320,6 +332,19 @@ impl MqttV5Client {
 
     /// Subscribe to a topic with a specific QoS
     pub async fn subscribe(&mut self, topic: &str, qos: QoSTest) -> Result<SubscribeAck> {
+        self.subscribe_with_options(topic, qos, false, false, rmqtt_codec::v5::RetainHandling::AtSubscribe)
+            .await
+    }
+
+    /// Subscribe with MQTT 5.0 subscription options
+    pub async fn subscribe_with_options(
+        &mut self,
+        topic: &str,
+        qos: QoSTest,
+        no_local: bool,
+        retain_as_published: bool,
+        retain_handling: rmqtt_codec::v5::RetainHandling,
+    ) -> Result<SubscribeAck> {
         let packet_id = NonZeroU16::new(u16::from(self.packet_id_counter.next()))
             .ok_or_else(|| anyhow!("packet id overflow"))?;
 
@@ -329,12 +354,7 @@ impl MqttV5Client {
             user_properties: Vec::new(),
             topic_filters: vec![(
                 ByteString::from(topic),
-                SubscriptionOptions {
-                    qos,
-                    no_local: false,
-                    retain_as_published: false,
-                    retain_handling: rmqtt_codec::v5::RetainHandling::AtSubscribe,
-                },
+                SubscriptionOptions { qos, no_local, retain_as_published, retain_handling },
             )],
         });
 
@@ -381,11 +401,15 @@ impl MqttV5Client {
     }
 
     /// Disconnect with a V5 reason code
-    pub async fn disconnect_with_reason(&self, _reason_code: Option<u8>) -> Result<()> {
+    pub async fn disconnect_with_reason(&self, reason_code: Option<u8>) -> Result<()> {
         self.connected.store(false, Ordering::Relaxed);
 
+        let code = reason_code
+            .and_then(|c| rmqtt_codec::v5::DisconnectReasonCode::try_from(c).ok())
+            .unwrap_or(rmqtt_codec::v5::DisconnectReasonCode::NormalDisconnection);
+
         let disc = rmqtt_codec::v5::Disconnect {
-            reason_code: rmqtt_codec::v5::DisconnectReasonCode::NormalDisconnection,
+            reason_code: code,
             session_expiry_interval_secs: None,
             server_reference: None,
             reason_string: None,

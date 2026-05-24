@@ -143,6 +143,7 @@ impl TestCase for SharedSubV5Test {
                 None,
                 None,
                 None,
+                None,
             )
             .await?;
             let mut subscriber2 = crate::mqtt::v5::MqttV5Client::connect_with_options(
@@ -151,6 +152,7 @@ impl TestCase for SharedSubV5Test {
                 ctx.config.connect_timeout,
                 true,
                 60,
+                None,
                 None,
                 None,
                 None,
@@ -167,6 +169,7 @@ impl TestCase for SharedSubV5Test {
                 None,
                 None,
                 None,
+                None,
             )
             .await?;
 
@@ -174,10 +177,11 @@ impl TestCase for SharedSubV5Test {
             subscriber1.subscribe(shared_topic, QoS::AtLeastOnce).await?;
             subscriber2.subscribe(shared_topic, QoS::AtLeastOnce).await?;
 
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(300)).await;
 
             let topic = "test/shared_v5";
-            for i in 0..4 {
+            let msg_count = 10;
+            for i in 0..msg_count {
                 let payload = format!("msg{}", i);
                 publisher.publish(topic, payload.as_bytes(), QoS::AtLeastOnce, false).await?;
             }
@@ -197,9 +201,9 @@ impl TestCase for SharedSubV5Test {
             subscriber2.disconnect().await?;
 
             let total = sub1_count + sub2_count;
-            if total < 2 {
+            if total < 5 {
                 return Err(anyhow::anyhow!(
-                    "expected at least 2 shared sub messages total, got {} (sub1={}, sub2={})",
+                    "expected at least 5 shared sub messages total, got {} (sub1={}, sub2={})",
                     total,
                     sub1_count,
                     sub2_count
@@ -221,6 +225,6 @@ impl TestCase for SharedSubV5Test {
     }
 
     fn timeout(&self) -> Duration {
-        Duration::from_secs(20)
+        Duration::from_secs(30)
     }
 }
