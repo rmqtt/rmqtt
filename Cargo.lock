@@ -5197,6 +5197,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "rmqtt-test"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "bytestring",
+ "chrono",
+ "futures",
+ "parking_lot 0.12.5",
+ "rand 0.9.4",
+ "rmqtt-codec",
+ "serde",
+ "serde_json",
+ "structopt",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "rmqtt-topic-rewrite"
 version = "0.21.0"
 dependencies = [

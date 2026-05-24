@@ -10,6 +10,7 @@ members = [
     "rmqtt-net",
     "rmqtt-conf",
     "rmqtt-utils",
+    "rmqtt-test",
     "rmqtt/examples/*",
 ]
 
