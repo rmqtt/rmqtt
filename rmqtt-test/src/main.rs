@@ -227,9 +227,12 @@ fn build_functional_v311_suite() -> TestSuite {
     use tests::functional::keepalive::*;
     use tests::functional::last_will::*;
     use tests::functional::multi_topic::*;
+    use tests::functional::protocol_error::*;
     use tests::functional::pubsub_v311::*;
+    use tests::functional::session_v311::*;
     use tests::functional::shared_subscription::*;
     use tests::functional::wildcard::*;
+    use tests::functional::wildcard_reject::*;
 
     let mut suite = TestSuite::new("functional_v311");
     suite.add(ConnectV311Test);
@@ -265,16 +268,31 @@ fn build_functional_v311_suite() -> TestSuite {
     suite.add(MultiTopicSubscribeV311Test);
     suite.add(OverlappingSubscriptionsTest);
     suite.add(MessageOrderingTest);
+    // Session persistence (v311)
+    suite.add(CleanSessionFalseTest);
+    suite.add(OfflineQueueV311Test);
+    // Wildcard publish rejection
+    suite.add(PublishWildcardRejectTest);
+    // QoS 2 duplicate detection
+    suite.add(Qos2DuplicateDetectionTest);
+    // Protocol error edge cases
+    suite.add(InvalidProtocolVersionTest);
+    suite.add(EmptyTopicFilterTest);
     suite
 }
 
 fn build_functional_v5_suite() -> TestSuite {
     use tests::functional::connect_v5::*;
+    use tests::functional::disconnect_reason_v5::*;
+    use tests::functional::flow_control_v5::*;
     use tests::functional::keepalive::*;
     use tests::functional::last_will::*;
+    use tests::functional::no_local_v5::*;
     use tests::functional::pubsub_v5::*;
+    use tests::functional::retain_handling_v5::*;
     use tests::functional::session_v5::*;
     use tests::functional::shared_subscription::*;
+    use tests::functional::will_delay_v5::*;
 
     let mut suite = TestSuite::new("functional_v5");
     suite.add(ConnectV5Test);
@@ -289,6 +307,17 @@ fn build_functional_v5_suite() -> TestSuite {
     suite.add(SessionExpiryV5Test);
     suite.add(SessionTakeoverV5Test);
     suite.add(SessionCleanStartV5Test);
+    // Will delay
+    suite.add(WillDelayV5Test);
+    // No local
+    suite.add(NoLocalV5Test);
+    // Retain handling
+    suite.add(RetainHandlingNoAtSubscribeV5Test);
+    suite.add(RetainHandlingNewV5Test);
+    // Disconnect reason codes
+    suite.add(DisconnectReasonV5Test);
+    // Flow control
+    suite.add(FlowControlV5Test);
     // Shared subscriptions
     suite.add(SharedSubV5Test);
     suite
