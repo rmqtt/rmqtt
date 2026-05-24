@@ -23,7 +23,8 @@ struct LocalTimer {
 impl LocalTimer {
     #[inline]
     fn new() -> Self {
-        let offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
+        // Use UTC+8 (China Standard Time) as default offset since current_local_offset was removed in time 0.3.34+
+        let offset = UtcOffset::from_hms(8, 0, 0).unwrap_or(UtcOffset::UTC);
         Self { offset }
     }
 }
