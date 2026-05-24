@@ -122,3 +122,66 @@ impl TestCase for RetainHandlingNewV5Test {
         Duration::from_secs(15)
     }
 }
+
+/// Test that retain_as_published=true preserves the retain flag on forwarded messages (v5)
+pub struct RetainAsPublishedV5Test;
+
+impl TestCase for RetainAsPublishedV5Test {
+    fn name(&self) -> &str {
+        "retain_as_published_v5"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result: anyhow::Result<()> = rt.block_on(async {
+            let publisher = crate::mqtt::v5::MqttV5Client::connect(
+                &ctx.config.broker_addr,
+                "rap-pub",
+                ctx.config.connect_timeout,
+            )
+            .await?;
+            let mut subscriber = crate::mqtt::v5::MqttV5Client::connect(
+                &ctx.config.broker_addr,
+                "rap-sub",
+                ctx.config.connect_timeout,
+            )
+            .await?;
+
+            subscriber
+                .subscribe_with_options(
+                    "test/retainaspub",
+                    QoS::AtLeastOnce,
+                    false,
+                    true,
+                    RetainHandling::AtSubscribe,
+                )
+                .await?;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+
+            publisher.publish("test/retainaspub", b"retained_pub", QoS::AtLeastOnce, true).await?;
+
+            let msg = subscriber.recv_message_timeout(Duration::from_secs(3)).await;
+            publisher.disconnect().await?;
+            subscriber.disconnect().await?;
+
+            match msg {
+                Some(m) => {
+                    if m.payload.as_ref() == b"retained_pub" {
+                        Ok(())
+                    } else {
+                        Err(anyhow::anyhow!("unexpected payload"))
+                    }
+                }
+                None => Err(anyhow::anyhow!("no message received")),
+            }
+        });
+        match result {
+            Ok(()) => TestResult::passed(self.name(), "functional_v5", start.elapsed()),
+            Err(e) => TestResult::failed(self.name(), "functional_v5", start.elapsed(), e.to_string()),
+        }
+    }
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(15)
+    }
+}

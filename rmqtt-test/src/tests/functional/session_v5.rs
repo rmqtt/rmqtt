@@ -34,6 +34,7 @@ impl TestCase for SessionExpiryV5Test {
                 None,
                 Some(3600), // session_expiry_interval
                 None,
+                None,
             )
             .await?;
 
@@ -67,6 +68,7 @@ impl TestCase for SessionExpiryV5Test {
                 None,
                 None,
                 Some(3600),
+                None,
                 None,
             )
             .await?;
@@ -173,6 +175,7 @@ impl TestCase for SessionCleanStartV5Test {
                 None,
                 Some(3600),
                 None,
+                None,
             )
             .await?;
             client.subscribe(topic, QoS::AtLeastOnce).await?;
@@ -203,6 +206,7 @@ impl TestCase for SessionCleanStartV5Test {
                 None,
                 None,
                 Some(3600),
+                None,
                 None,
             )
             .await?;

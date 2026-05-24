@@ -32,6 +32,7 @@ impl TestCase for FlowControlV5Test {
                 None,
                 None,
                 NonZeroU16::new(2),
+                None,
             )
             .await?;
             let mut subscriber = crate::mqtt::v5::MqttV5Client::connect_with_options(
@@ -45,6 +46,7 @@ impl TestCase for FlowControlV5Test {
                 None,
                 None,
                 NonZeroU16::new(2),
+                None,
             )
             .await?;
 

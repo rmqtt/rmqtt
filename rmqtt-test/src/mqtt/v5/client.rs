@@ -25,7 +25,7 @@
 //! Only ONE task reads from socket.
 
 use std::collections::HashMap;
-use std::num::NonZeroU16;
+use std::num::{NonZeroU16, NonZeroU32};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -37,7 +37,7 @@ use bytestring::ByteString;
 use rmqtt_codec::v5::ConnectAckReason;
 use rmqtt_codec::v5::{
     Connect, ConnectAck, LastWill, Packet as PacketV5, PublishAck, PublishAck2, PublishAck2Reason,
-    PublishAckReason, SubscriptionOptions, UserProperties,
+    PublishAckReason, PublishProperties, SubscriptionOptions, UserProperties,
 };
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time;
@@ -54,6 +54,12 @@ pub struct IncomingMessage {
     pub qos: QoSTest,
     pub retain: bool,
     pub dup: bool,
+    pub response_topic: Option<ByteString>,
+    pub correlation_data: Option<Bytes>,
+    pub content_type: Option<ByteString>,
+    pub user_properties: Vec<(ByteString, ByteString)>,
+    pub is_utf8_payload: bool,
+    pub message_expiry_interval: Option<NonZeroU32>,
 }
 
 /// Subscribe result
@@ -92,6 +98,7 @@ impl MqttV5Client {
             None,
             None,
             None,
+            None,
         )
         .await
     }
@@ -109,6 +116,7 @@ impl MqttV5Client {
         password: Option<Bytes>,
         session_expiry_interval: Option<u32>,
         receive_max: Option<NonZeroU16>,
+        max_packet_size: Option<u32>,
     ) -> Result<Self> {
         let (mut reader, writer) = tcp_v5::connect(broker_addr, connect_timeout).await?;
         let writer = Arc::new(Mutex::new(writer));
@@ -133,7 +141,7 @@ impl MqttV5Client {
                 receive_max,
                 topic_alias_max: 0,
                 user_properties: Vec::new(),
-                max_packet_size: None,
+                max_packet_size: max_packet_size.and_then(NonZeroU32::new),
                 last_will: will,
                 client_id: ByteString::from(client_id),
                 username,
@@ -188,12 +196,38 @@ impl MqttV5Client {
                             let qos = pub_msg.qos;
                             let packet_id = pub_msg.packet_id;
 
+                            let (
+                                response_topic,
+                                correlation_data,
+                                content_type,
+                                user_properties,
+                                is_utf8_payload,
+                                message_expiry_interval,
+                            ) = if let Some(ref props) = pub_msg.properties {
+                                (
+                                    props.response_topic.clone(),
+                                    props.correlation_data.clone(),
+                                    props.content_type.clone(),
+                                    props.user_properties.clone(),
+                                    props.is_utf8_payload,
+                                    props.message_expiry_interval,
+                                )
+                            } else {
+                                (None, None, None, Vec::new(), false, None)
+                            };
+
                             let msg = IncomingMessage {
                                 topic: pub_msg.topic.clone(),
                                 payload: pub_msg.payload.clone(),
                                 qos,
                                 retain: pub_msg.retain,
                                 dup: pub_msg.dup,
+                                response_topic,
+                                correlation_data,
+                                content_type,
+                                user_properties,
+                                is_utf8_payload,
+                                message_expiry_interval,
                             };
                             let _ = message_tx.send(msg);
 
@@ -322,6 +356,62 @@ impl MqttV5Client {
             topic: ByteString::from(topic),
             packet_id,
             properties: None,
+            payload: Bytes::copy_from_slice(payload),
+        };
+
+        self.writer.lock().await.send_packet(&PacketV5::Publish(Box::new(publish))).await?;
+
+        Ok(())
+    }
+
+    /// Publish a message with V5 properties
+    #[allow(clippy::too_many_arguments)]
+    pub async fn publish_with_properties(
+        &self,
+        topic: &str,
+        payload: &[u8],
+        qos: QoSTest,
+        retain: bool,
+        payload_format_indicator: Option<bool>,
+        message_expiry_interval: Option<u32>,
+        response_topic: Option<&str>,
+        correlation_data: Option<&[u8]>,
+        content_type: Option<&str>,
+        user_properties: Option<&[(String, String)]>,
+    ) -> Result<()> {
+        let packet_id = if qos != QoS::AtMostOnce {
+            Some(
+                NonZeroU16::new(u16::from(self.packet_id_counter.next()))
+                    .ok_or_else(|| anyhow!("packet id overflow"))?,
+            )
+        } else {
+            None
+        };
+
+        let props = PublishProperties {
+            topic_alias: None,
+            correlation_data: correlation_data.map(Bytes::copy_from_slice),
+            message_expiry_interval: message_expiry_interval.and_then(NonZeroU32::new),
+            content_type: content_type.map(ByteString::from),
+            user_properties: user_properties
+                .map(|ups| {
+                    ups.iter()
+                        .map(|(k, v)| (ByteString::from(k.as_str()), ByteString::from(v.as_str())))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            is_utf8_payload: payload_format_indicator.unwrap_or(false),
+            response_topic: response_topic.map(ByteString::from),
+            subscription_ids: Vec::new(),
+        };
+
+        let publish = rmqtt_codec::types::Publish {
+            dup: false,
+            retain,
+            qos,
+            topic: ByteString::from(topic),
+            packet_id,
+            properties: Some(props),
             payload: Bytes::copy_from_slice(payload),
         };
 
