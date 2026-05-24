@@ -224,6 +224,7 @@ fn build_functional_v311_suite() -> TestSuite {
     use tests::functional::auth_v311::*;
     use tests::functional::boundary::*;
     use tests::functional::connect_v311::*;
+    use tests::functional::dollar_topics::*;
     use tests::functional::keepalive::*;
     use tests::functional::last_will::*;
     use tests::functional::multi_topic::*;
@@ -273,6 +274,8 @@ fn build_functional_v311_suite() -> TestSuite {
     suite.add(OfflineQueueV311Test);
     // Wildcard publish rejection
     suite.add(PublishWildcardRejectTest);
+    // Dollar topics ($SYS)
+    suite.add(DollarTopicsTest);
     // QoS 2 duplicate detection
     suite.add(Qos2DuplicateDetectionTest);
     // Protocol error edge cases
@@ -282,16 +285,26 @@ fn build_functional_v311_suite() -> TestSuite {
 }
 
 fn build_functional_v5_suite() -> TestSuite {
+    use tests::functional::assigned_clientid_v5::*;
     use tests::functional::connect_v5::*;
     use tests::functional::disconnect_reason_v5::*;
+    use tests::functional::dollar_topics::*;
     use tests::functional::flow_control_v5::*;
     use tests::functional::keepalive::*;
     use tests::functional::last_will::*;
+    use tests::functional::max_packet_size_v5::*;
     use tests::functional::no_local_v5::*;
+    use tests::functional::payload_format_v5::*;
+    use tests::functional::publication_expiry_v5::*;
     use tests::functional::pubsub_v5::*;
+    use tests::functional::request_response_v5::*;
     use tests::functional::retain_handling_v5::*;
+    use tests::functional::server_keepalive_v5::*;
     use tests::functional::session_v5::*;
     use tests::functional::shared_subscription::*;
+    use tests::functional::subscribe_identifiers_v5::*;
+    use tests::functional::topic_alias_v5::*;
+    use tests::functional::user_properties_v5::*;
     use tests::functional::will_delay_v5::*;
 
     let mut suite = TestSuite::new("functional_v5");
@@ -314,12 +327,26 @@ fn build_functional_v5_suite() -> TestSuite {
     // Retain handling
     suite.add(RetainHandlingNoAtSubscribeV5Test);
     suite.add(RetainHandlingNewV5Test);
+    suite.add(RetainAsPublishedV5Test);
     // Disconnect reason codes
     suite.add(DisconnectReasonV5Test);
     // Flow control
     suite.add(FlowControlV5Test);
     // Shared subscriptions
     suite.add(SharedSubV5Test);
+    // V5 CONNACK property checks
+    suite.add(AssignedClientIdV5Test);
+    suite.add(ServerKeepAliveV5Test);
+    suite.add(ServerTopicAliasV5Test);
+    suite.add(MaxPacketSizeV5Test);
+    suite.add(MaxPacketSizeEnforcementV5Test);
+    suite.add(SubscribeIdentifiersV5Test);
+    suite.add(WildcardAvailableV5Test);
+    suite.add(PayloadFormatV5Test);
+    suite.add(PublicationExpiryV5Test);
+    suite.add(RequestResponseV5Test);
+    suite.add(UserPropertiesV5Test);
+    suite.add(ClientTopicAliasV5Test);
     suite
 }
 

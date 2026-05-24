@@ -30,6 +30,7 @@ impl TestCase for ConnectV5Test {
                 None,
                 Some(3600), // session_expiry_interval
                 None,
+                None,
             )
             .await?;
             assert!(client.is_connected());

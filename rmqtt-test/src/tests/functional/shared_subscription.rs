@@ -144,6 +144,7 @@ impl TestCase for SharedSubV5Test {
                 None,
                 None,
                 None,
+                None,
             )
             .await?;
             let mut subscriber2 = crate::mqtt::v5::MqttV5Client::connect_with_options(
@@ -157,6 +158,7 @@ impl TestCase for SharedSubV5Test {
                 None,
                 None,
                 None,
+                None,
             )
             .await?;
             let publisher = crate::mqtt::v5::MqttV5Client::connect_with_options(
@@ -165,6 +167,7 @@ impl TestCase for SharedSubV5Test {
                 ctx.config.connect_timeout,
                 true,
                 60,
+                None,
                 None,
                 None,
                 None,
