@@ -10,9 +10,7 @@ pub struct PacketIdCounter {
 
 impl PacketIdCounter {
     pub fn new() -> Self {
-        Self {
-            next: AtomicU16::new(1),
-        }
+        Self { next: AtomicU16::new(1) }
     }
 
     pub fn next(&self) -> NonZeroU16 {

@@ -2,15 +2,17 @@
 
 use std::time::Instant;
 
-use rmqtt_codec::v5::ConnectAckReason;
 use crate::framework::context::TestContext;
 use crate::framework::testcase::{TestCase, TestResult};
+use rmqtt_codec::v5::ConnectAckReason;
 
 /// Test basic MQTT 5.0 connect with session expiry
 pub struct ConnectV5Test;
 
 impl TestCase for ConnectV5Test {
-    fn name(&self) -> &str { "connect_v5" }
+    fn name(&self) -> &str {
+        "connect_v5"
+    }
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
@@ -27,7 +29,8 @@ impl TestCase for ConnectV5Test {
                 None,
                 None,
                 Some(3600), // session_expiry_interval
-            ).await?;
+            )
+            .await?;
             assert!(client.is_connected());
 
             // Verify connack has v5 fields
@@ -51,7 +54,9 @@ impl TestCase for ConnectV5Test {
 pub struct ConnectV5ReasonCodeTest;
 
 impl TestCase for ConnectV5ReasonCodeTest {
-    fn name(&self) -> &str { "connect_v5_reason_codes" }
+    fn name(&self) -> &str {
+        "connect_v5_reason_codes"
+    }
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
@@ -62,7 +67,8 @@ impl TestCase for ConnectV5ReasonCodeTest {
                 &ctx.config.broker_addr,
                 "v5-reason-code-test",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
 
             // CONNACK should have reason code 0 (Success)
             let ack = client.connack();

@@ -33,22 +33,12 @@ impl BrokerProcess {
     /// Searches for the broker binary in target/release and target/debug
     pub fn new(workspace_root: Option<PathBuf>) -> Self {
         let binary_path = Self::find_binary(workspace_root.as_deref());
-        Self {
-            binary_path,
-            addr: DEFAULT_BROKER_ADDR.to_string(),
-            config_path: None,
-            child: None,
-        }
+        Self { binary_path, addr: DEFAULT_BROKER_ADDR.to_string(), config_path: None, child: None }
     }
 
     /// Create with a specific binary path and address
     pub fn with_config(binary_path: PathBuf, addr: String, config_path: Option<PathBuf>) -> Self {
-        Self {
-            binary_path,
-            addr,
-            config_path,
-            child: None,
-        }
+        Self { binary_path, addr, config_path, child: None }
     }
 
     /// Find the broker binary
@@ -87,8 +77,7 @@ impl BrokerProcess {
         info!("Starting broker: {:?}", self.binary_path);
 
         let mut cmd = std::process::Command::new(&self.binary_path);
-        cmd.stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped());
+        cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
 
         if let Some(ref config) = self.config_path {
             cmd.arg("-c").arg(config);

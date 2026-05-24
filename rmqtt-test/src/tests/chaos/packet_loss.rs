@@ -13,11 +13,15 @@ pub struct Qos1ReliabilityTest {
 }
 
 impl Default for Qos1ReliabilityTest {
-    fn default() -> Self { Self { message_count: 50 } }
+    fn default() -> Self {
+        Self { message_count: 50 }
+    }
 }
 
 impl TestCase for Qos1ReliabilityTest {
-    fn name(&self) -> &str { "chaos_qos1_reliability" }
+    fn name(&self) -> &str {
+        "chaos_qos1_reliability"
+    }
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
@@ -29,12 +33,14 @@ impl TestCase for Qos1ReliabilityTest {
                 &ctx.config.broker_addr,
                 "v311-qos1-pub",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
             let mut subscriber = crate::mqtt::v311::MqttV311Client::connect(
                 &ctx.config.broker_addr,
                 "v311-qos1-sub",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
 
             let topic = "test/chaos/qos1";
             subscriber.subscribe(topic, QoS::AtLeastOnce).await?;
@@ -73,14 +79,18 @@ impl TestCase for Qos1ReliabilityTest {
         }
     }
 
-    fn timeout(&self) -> Duration { Duration::from_secs(60) }
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(60)
+    }
 }
 
 /// Test slow consumer scenario
 pub struct SlowConsumerTest;
 
 impl TestCase for SlowConsumerTest {
-    fn name(&self) -> &str { "chaos_slow_consumer" }
+    fn name(&self) -> &str {
+        "chaos_slow_consumer"
+    }
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
@@ -91,12 +101,14 @@ impl TestCase for SlowConsumerTest {
                 &ctx.config.broker_addr,
                 "v311-slow-pub",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
             let mut subscriber = crate::mqtt::v311::MqttV311Client::connect(
                 &ctx.config.broker_addr,
                 "v311-slow-sub",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
 
             let topic = "test/chaos/slow";
             subscriber.subscribe(topic, QoS::AtLeastOnce).await?;
@@ -134,5 +146,7 @@ impl TestCase for SlowConsumerTest {
         }
     }
 
-    fn timeout(&self) -> Duration { Duration::from_secs(30) }
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(30)
+    }
 }

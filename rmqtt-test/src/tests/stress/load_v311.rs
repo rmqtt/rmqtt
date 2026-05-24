@@ -14,11 +14,15 @@ pub struct ConnectionLoadTest {
 }
 
 impl Default for ConnectionLoadTest {
-    fn default() -> Self { Self { client_count: 100 } }
+    fn default() -> Self {
+        Self { client_count: 100 }
+    }
 }
 
 impl TestCase for ConnectionLoadTest {
-    fn name(&self) -> &str { "connection_load" }
+    fn name(&self) -> &str {
+        "connection_load"
+    }
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
@@ -40,7 +44,9 @@ impl TestCase for ConnectionLoadTest {
                         &addr,
                         &format!("load-conn-{}", i),
                         Duration::from_secs(15),
-                    ).await {
+                    )
+                    .await
+                    {
                         Ok(client) => {
                             sc.fetch_add(1, Ordering::Relaxed);
                             tokio::time::sleep(Duration::from_millis(100)).await;
@@ -64,10 +70,7 @@ impl TestCase for ConnectionLoadTest {
             if errors == 0 {
                 Ok(())
             } else {
-                Err(anyhow::anyhow!(
-                    "{} of {} connections failed",
-                    errors, count
-                ))
+                Err(anyhow::anyhow!("{} of {} connections failed", errors, count))
             }
         });
 
@@ -77,7 +80,9 @@ impl TestCase for ConnectionLoadTest {
         }
     }
 
-    fn timeout(&self) -> Duration { Duration::from_secs(120) }
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(120)
+    }
 }
 
 /// Sustained publish load test using v311 client
@@ -87,11 +92,15 @@ pub struct PublishLoadTest {
 }
 
 impl Default for PublishLoadTest {
-    fn default() -> Self { Self { message_count: 1000, payload_size: 256 } }
+    fn default() -> Self {
+        Self { message_count: 1000, payload_size: 256 }
+    }
 }
 
 impl TestCase for PublishLoadTest {
-    fn name(&self) -> &str { "publish_load" }
+    fn name(&self) -> &str {
+        "publish_load"
+    }
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
@@ -104,12 +113,14 @@ impl TestCase for PublishLoadTest {
                 &ctx.config.broker_addr,
                 "v311-load-pub",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
             let mut subscriber = crate::mqtt::v311::MqttV311Client::connect(
                 &ctx.config.broker_addr,
                 "v311-load-sub",
                 ctx.config.connect_timeout,
-            ).await?;
+            )
+            .await?;
 
             let topic = "test/load/publish";
             subscriber.subscribe(topic, QoS::AtLeastOnce).await?;
@@ -140,7 +151,11 @@ impl TestCase for PublishLoadTest {
             let qps = msg_count as f64 / pub_elapsed.as_secs_f64();
             tracing::info!(
                 "Publish load: {} msgs in {:.2}s ({:.0} msg/s), received {}/{}",
-                msg_count, pub_elapsed.as_secs_f64(), qps, received, msg_count
+                msg_count,
+                pub_elapsed.as_secs_f64(),
+                qps,
+                received,
+                msg_count
             );
 
             if received >= msg_count * 90 / 100 {
@@ -156,5 +171,7 @@ impl TestCase for PublishLoadTest {
         }
     }
 
-    fn timeout(&self) -> Duration { Duration::from_secs(120) }
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(120)
+    }
 }

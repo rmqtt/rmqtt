@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use structopt::StructOpt;
-use tracing::{info, error, warn};
+use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 mod broker;
@@ -18,14 +18,14 @@ mod chaos;
 mod framework;
 mod mqtt;
 mod report;
-mod transport;
 mod tests;
+mod transport;
 
 use broker::BrokerProcess;
 use framework::context::{TestConfig, TestContext};
-use framework::suite::TestSuite;
 use framework::scheduler::TestScheduler;
-use report::{ConsoleReporter, JsonReporter, HtmlReporter, write_detail_log};
+use framework::suite::TestSuite;
+use report::{write_detail_log, ConsoleReporter, HtmlReporter, JsonReporter};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "mqtt_harness", about = "RMQTT Industrial-Grade Test Harness")]
@@ -253,8 +253,8 @@ fn build_functional_v5_suite() -> TestSuite {
 }
 
 fn build_stress_suite(client_count: usize) -> TestSuite {
-    use tests::stress::load_v311::*;
     use tests::stress::fanout::*;
+    use tests::stress::load_v311::*;
 
     let mut suite = TestSuite::new("stress");
     suite.add(ConnectionLoadTest { client_count });
@@ -264,9 +264,9 @@ fn build_stress_suite(client_count: usize) -> TestSuite {
 }
 
 fn build_chaos_suite(iterations: usize) -> TestSuite {
-    use tests::chaos::restart::*;
     use tests::chaos::disconnect::*;
     use tests::chaos::packet_loss::*;
+    use tests::chaos::restart::*;
 
     let mut suite = TestSuite::new("chaos");
     suite.add(BrokerRestartTest);
@@ -281,13 +281,12 @@ fn build_chaos_suite(iterations: usize) -> TestSuite {
 /// Initialize logging: console at info level, log file at debug level (includes packet traces)
 fn init_logging(log_path: &std::path::Path, verbose: bool) {
     use tracing_subscriber::layer::SubscriberExt;
-    use tracing_subscriber::Layer;
     use tracing_subscriber::util::SubscriberInitExt;
+    use tracing_subscriber::Layer;
 
     // Console filter: info by default, debug if verbose
     let console_level = if verbose { "debug" } else { "info" };
-    let console_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(console_level));
+    let console_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(console_level));
 
     // File filter: always debug (captures SEND/RECV packet traces)
     let file_filter = EnvFilter::new("debug");
@@ -299,19 +298,13 @@ fn init_logging(log_path: &std::path::Path, verbose: bool) {
                 .with_writer(std::sync::Arc::new(file))
                 .with_filter(file_filter);
 
-            let console_layer = tracing_subscriber::fmt::layer()
-                .with_filter(console_filter);
+            let console_layer = tracing_subscriber::fmt::layer().with_filter(console_filter);
 
-            tracing_subscriber::registry()
-                .with(console_layer)
-                .with(file_layer)
-                .init();
+            tracing_subscriber::registry().with(console_layer).with(file_layer).init();
         }
         Err(e) => {
             warn!("Cannot create log file {}: {}, falling back to console-only", log_path.display(), e);
-            tracing_subscriber::fmt()
-                .with_env_filter(console_filter)
-                .init();
+            tracing_subscriber::fmt().with_env_filter(console_filter).init();
         }
     }
 }

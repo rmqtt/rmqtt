@@ -39,8 +39,8 @@ use rmqtt_codec::v3::{
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time;
 
-use crate::mqtt::common::QoSTest;
 use crate::mqtt::common::session::PacketIdCounter;
+use crate::mqtt::common::QoSTest;
 use crate::mqtt::common::MQTT_LEVEL_311;
 use crate::transport::tcp_v3::{self, TcpTransportV3Writer};
 
@@ -78,22 +78,8 @@ pub struct MqttV311Client {
 
 impl MqttV311Client {
     /// Connect to broker with default settings
-    pub async fn connect(
-        broker_addr: &str,
-        client_id: &str,
-        connect_timeout: Duration,
-    ) -> Result<Self> {
-        Self::connect_with_options(
-            broker_addr,
-            client_id,
-            connect_timeout,
-            true,
-            60,
-            None,
-            None,
-            None,
-        )
-        .await
+    pub async fn connect(broker_addr: &str, client_id: &str, connect_timeout: Duration) -> Result<Self> {
+        Self::connect_with_options(broker_addr, client_id, connect_timeout, true, 60, None, None, None).await
     }
 
     /// Connect to broker with full options
@@ -131,11 +117,7 @@ impl MqttV311Client {
                 cert: None,
             };
 
-            writer
-                .lock()
-                .await
-                .send_packet(&PacketV3::Connect(Box::new(conn)))
-                .await?;
+            writer.lock().await.send_packet(&PacketV3::Connect(Box::new(conn))).await?;
         }
 
         //
@@ -212,22 +194,11 @@ impl MqttV311Client {
                         }
 
                         // SUBACK
-                        PacketV3::SubscribeAck {
-                            packet_id,
-                            status,
-                        } => {
-                            let tx = {
-                                suback_waiters
-                                    .lock()
-                                    .await
-                                    .remove(&packet_id.get())
-                            };
+                        PacketV3::SubscribeAck { packet_id, status } => {
+                            let tx = { suback_waiters.lock().await.remove(&packet_id.get()) };
 
                             if let Some(tx) = tx {
-                                let _ = tx.send(Ok(SubscribeAck {
-                                    packet_id,
-                                    status,
-                                }));
+                                let _ = tx.send(Ok(SubscribeAck { packet_id, status }));
                             }
                         }
 
@@ -287,13 +258,7 @@ impl MqttV311Client {
     }
 
     /// Publish a message with QoS and retain flag
-    pub async fn publish(
-        &self,
-        topic: &str,
-        payload: &[u8],
-        qos: QoSTest,
-        retain: bool,
-    ) -> Result<()> {
+    pub async fn publish(&self, topic: &str, payload: &[u8], qos: QoSTest, retain: bool) -> Result<()> {
         let packet_id = if qos != QoSTest::AtMostOnce {
             Some(
                 NonZeroU16::new(u16::from(self.packet_id_counter.next()))
@@ -313,11 +278,7 @@ impl MqttV311Client {
             properties: None,
         };
 
-        self.writer
-            .lock()
-            .await
-            .send_packet(&PacketV3::Publish(Box::new(publish)))
-            .await?;
+        self.writer.lock().await.send_packet(&PacketV3::Publish(Box::new(publish))).await?;
 
         Ok(())
     }
@@ -327,24 +288,15 @@ impl MqttV311Client {
         let packet_id = NonZeroU16::new(u16::from(self.packet_id_counter.next()))
             .ok_or_else(|| anyhow!("packet id overflow"))?;
 
-        let subscribe_pkt = PacketV3::Subscribe {
-            packet_id,
-            topic_filters: vec![(ByteString::from(topic), qos)],
-        };
+        let subscribe_pkt =
+            PacketV3::Subscribe { packet_id, topic_filters: vec![(ByteString::from(topic), qos)] };
 
         // REGISTER ACK WAITER
         let (tx, rx) = oneshot::channel();
-        self.suback_waiters
-            .lock()
-            .await
-            .insert(packet_id.get(), tx);
+        self.suback_waiters.lock().await.insert(packet_id.get(), tx);
 
         // SEND SUBSCRIBE
-        self.writer
-            .lock()
-            .await
-            .send_packet(&subscribe_pkt)
-            .await?;
+        self.writer.lock().await.send_packet(&subscribe_pkt).await?;
 
         // WAIT SUBACK
         let ack = time::timeout(Duration::from_secs(30), rx)
@@ -360,46 +312,26 @@ impl MqttV311Client {
         let packet_id = NonZeroU16::new(u16::from(self.packet_id_counter.next()))
             .ok_or_else(|| anyhow!("packet id overflow"))?;
 
-        let unsub = PacketV3::Unsubscribe {
-            packet_id,
-            topic_filters: vec![ByteString::from(topic)],
-        };
+        let unsub = PacketV3::Unsubscribe { packet_id, topic_filters: vec![ByteString::from(topic)] };
 
-        self.writer
-            .lock()
-            .await
-            .send_packet(&unsub)
-            .await?;
+        self.writer.lock().await.send_packet(&unsub).await?;
 
         Ok(())
     }
 
     /// Send a PINGREQ
     pub async fn ping(&self) -> Result<()> {
-        self.writer
-            .lock()
-            .await
-            .send_packet(&PacketV3::PingRequest)
-            .await
+        self.writer.lock().await.send_packet(&PacketV3::PingRequest).await
     }
 
     /// Receive incoming publish
     pub async fn recv_message(&mut self) -> Result<IncomingMessage> {
-        self.message_rx
-            .recv()
-            .await
-            .ok_or_else(|| anyhow!("message channel closed"))
+        self.message_rx.recv().await.ok_or_else(|| anyhow!("message channel closed"))
     }
 
     /// Receive incoming publish with timeout
-    pub async fn recv_message_timeout(
-        &mut self,
-        timeout: Duration,
-    ) -> Option<IncomingMessage> {
-        time::timeout(timeout, self.recv_message())
-            .await
-            .ok()
-            .and_then(|r| r.ok())
+    pub async fn recv_message_timeout(&mut self, timeout: Duration) -> Option<IncomingMessage> {
+        time::timeout(timeout, self.recv_message()).await.ok().and_then(|r| r.ok())
     }
 
     /// Disconnect

@@ -1,11 +1,11 @@
 //! MQTT common module - Shared packet types, codec, and utilities
 
-pub mod session;
 pub mod error;
+pub mod session;
 
 // Re-export commonly used types from rmqtt_codec
-pub use rmqtt_codec::v3::Packet as PacketV3;
 pub use rmqtt_codec::v3::Connect as ConnectPacketInner;
+pub use rmqtt_codec::v3::Packet as PacketV3;
 pub use rmqtt_codec::v3::QoS;
 
 // Main Packet type for v3

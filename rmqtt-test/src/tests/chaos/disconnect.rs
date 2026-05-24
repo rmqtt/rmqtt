@@ -12,11 +12,15 @@ pub struct ConnectionChurnTest {
 }
 
 impl Default for ConnectionChurnTest {
-    fn default() -> Self { Self { cycles: 20 } }
+    fn default() -> Self {
+        Self { cycles: 20 }
+    }
 }
 
 impl TestCase for ConnectionChurnTest {
-    fn name(&self) -> &str { "chaos_connection_churn" }
+    fn name(&self) -> &str {
+        "chaos_connection_churn"
+    }
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
@@ -29,7 +33,8 @@ impl TestCase for ConnectionChurnTest {
                     &ctx.config.broker_addr,
                     &format!("churn-{}", i),
                     ctx.config.connect_timeout,
-                ).await?;
+                )
+                .await?;
                 // Immediately disconnect
                 client.disconnect().await?;
             }
@@ -42,7 +47,9 @@ impl TestCase for ConnectionChurnTest {
         }
     }
 
-    fn timeout(&self) -> Duration { Duration::from_secs(60) }
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(60)
+    }
 }
 
 /// Test reconnect storm - many clients connecting simultaneously
@@ -51,11 +58,15 @@ pub struct ReconnectStormTest {
 }
 
 impl Default for ReconnectStormTest {
-    fn default() -> Self { Self { client_count: 50 } }
+    fn default() -> Self {
+        Self { client_count: 50 }
+    }
 }
 
 impl TestCase for ReconnectStormTest {
-    fn name(&self) -> &str { "chaos_reconnect_storm" }
+    fn name(&self) -> &str {
+        "chaos_reconnect_storm"
+    }
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
@@ -74,7 +85,9 @@ impl TestCase for ReconnectStormTest {
                         &addr,
                         &format!("storm-{}", i),
                         Duration::from_secs(15),
-                    ).await {
+                    )
+                    .await
+                    {
                         s.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         tokio::time::sleep(Duration::from_millis(50)).await;
                         let _ = client.disconnect().await;
@@ -101,5 +114,7 @@ impl TestCase for ReconnectStormTest {
         }
     }
 
-    fn timeout(&self) -> Duration { Duration::from_secs(60) }
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(60)
+    }
 }

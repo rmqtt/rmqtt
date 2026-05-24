@@ -26,7 +26,9 @@ impl HtmlReporter {
         html.push_str("table { border-collapse: collapse; width: 100%; }\n");
         html.push_str("th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #333; }\n");
         html.push_str("th { background: #16213e; }\n");
-        html.push_str(".summary { margin: 20px 0; padding: 15px; background: #16213e; border-radius: 8px; }\n");
+        html.push_str(
+            ".summary { margin: 20px 0; padding: 15px; background: #16213e; border-radius: 8px; }\n",
+        );
         html.push_str("</style>\n");
         html.push_str("</head><body>\n");
 
@@ -42,10 +44,7 @@ impl HtmlReporter {
              <span class='skipped'>Skipped: {}</span></p>\n",
             summary.total, summary.passed, summary.failed, summary.errors, summary.timeouts, summary.skipped
         ));
-        html.push_str(&format!(
-            "<p>Duration: {:.2}s</p>\n",
-            summary.total_duration.as_secs_f64()
-        ));
+        html.push_str(&format!("<p>Duration: {:.2}s</p>\n", summary.total_duration.as_secs_f64()));
         html.push_str("</div>\n");
 
         // Results table

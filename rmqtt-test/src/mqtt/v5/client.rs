@@ -34,16 +34,16 @@ use anyhow::anyhow;
 use anyhow::Result;
 use bytes::Bytes;
 use bytestring::ByteString;
-use rmqtt_codec::v5::{
-    Connect, ConnectAck, LastWill, Packet as PacketV5, SubscriptionOptions,
-    PublishAck, PublishAck2, PublishAckReason, PublishAck2Reason, UserProperties,
-};
 use rmqtt_codec::v5::ConnectAckReason;
+use rmqtt_codec::v5::{
+    Connect, ConnectAck, LastWill, Packet as PacketV5, PublishAck, PublishAck2, PublishAck2Reason,
+    PublishAckReason, SubscriptionOptions, UserProperties,
+};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time;
 
-use crate::mqtt::common::{QoS, QoSTest};
 use crate::mqtt::common::session::PacketIdCounter;
+use crate::mqtt::common::{QoS, QoSTest};
 use crate::transport::tcp_v5::{self, TcpTransportV5Writer};
 
 /// Incoming publish message
@@ -80,23 +80,9 @@ pub struct MqttV5Client {
 
 impl MqttV5Client {
     /// Connect to broker with default settings
-    pub async fn connect(
-        broker_addr: &str,
-        client_id: &str,
-        connect_timeout: Duration,
-    ) -> Result<Self> {
-        Self::connect_with_options(
-            broker_addr,
-            client_id,
-            connect_timeout,
-            true,
-            60,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
+    pub async fn connect(broker_addr: &str, client_id: &str, connect_timeout: Duration) -> Result<Self> {
+        Self::connect_with_options(broker_addr, client_id, connect_timeout, true, 60, None, None, None, None)
+            .await
     }
 
     /// Connect to broker with full options
@@ -143,11 +129,7 @@ impl MqttV5Client {
                 cert: None,
             };
 
-            writer
-                .lock()
-                .await
-                .send_packet(&PacketV5::Connect(Box::new(conn)))
-                .await?;
+            writer.lock().await.send_packet(&PacketV5::Connect(Box::new(conn))).await?;
         }
 
         //
@@ -240,12 +222,7 @@ impl MqttV5Client {
 
                         // SUBACK
                         PacketV5::SubscribeAck(suback) => {
-                            let tx = {
-                                suback_waiters
-                                    .lock()
-                                    .await
-                                    .remove(&suback.packet_id.get())
-                            };
+                            let tx = { suback_waiters.lock().await.remove(&suback.packet_id.get()) };
 
                             if let Some(tx) = tx {
                                 let _ = tx.send(Ok(SubscribeAck {
@@ -316,13 +293,7 @@ impl MqttV5Client {
     }
 
     /// Publish a message with QoS and retain flag
-    pub async fn publish(
-        &self,
-        topic: &str,
-        payload: &[u8],
-        qos: QoSTest,
-        retain: bool,
-    ) -> Result<()> {
+    pub async fn publish(&self, topic: &str, payload: &[u8], qos: QoSTest, retain: bool) -> Result<()> {
         let packet_id = if qos != QoS::AtMostOnce {
             Some(
                 NonZeroU16::new(u16::from(self.packet_id_counter.next()))
@@ -342,11 +313,7 @@ impl MqttV5Client {
             payload: Bytes::copy_from_slice(payload),
         };
 
-        self.writer
-            .lock()
-            .await
-            .send_packet(&PacketV5::Publish(Box::new(publish)))
-            .await?;
+        self.writer.lock().await.send_packet(&PacketV5::Publish(Box::new(publish))).await?;
 
         Ok(())
     }
@@ -373,17 +340,10 @@ impl MqttV5Client {
 
         // REGISTER ACK WAITER
         let (tx, rx) = oneshot::channel();
-        self.suback_waiters
-            .lock()
-            .await
-            .insert(packet_id.get(), tx);
+        self.suback_waiters.lock().await.insert(packet_id.get(), tx);
 
         // SEND SUBSCRIBE
-        self.writer
-            .lock()
-            .await
-            .send_packet(&subscribe_pkt)
-            .await?;
+        self.writer.lock().await.send_packet(&subscribe_pkt).await?;
 
         // WAIT SUBACK
         let ack = time::timeout(Duration::from_secs(15), rx)
@@ -405,22 +365,14 @@ impl MqttV5Client {
             user_properties: Vec::new(),
         });
 
-        self.writer
-            .lock()
-            .await
-            .send_packet(&unsub)
-            .await?;
+        self.writer.lock().await.send_packet(&unsub).await?;
 
         Ok(())
     }
 
     /// Send a PINGREQ
     pub async fn ping(&self) -> Result<()> {
-        self.writer
-            .lock()
-            .await
-            .send_packet(&PacketV5::PingRequest)
-            .await
+        self.writer.lock().await.send_packet(&PacketV5::PingRequest).await
     }
 
     /// Disconnect gracefully
@@ -451,20 +403,11 @@ impl MqttV5Client {
 
     /// Receive incoming publish
     pub async fn recv_message(&mut self) -> Result<IncomingMessage> {
-        self.message_rx
-            .recv()
-            .await
-            .ok_or_else(|| anyhow!("message channel closed"))
+        self.message_rx.recv().await.ok_or_else(|| anyhow!("message channel closed"))
     }
 
     /// Receive incoming publish with timeout
-    pub async fn recv_message_timeout(
-        &mut self,
-        timeout: Duration,
-    ) -> Option<IncomingMessage> {
-        time::timeout(timeout, self.recv_message())
-            .await
-            .ok()
-            .and_then(|r| r.ok())
+    pub async fn recv_message_timeout(&mut self, timeout: Duration) -> Option<IncomingMessage> {
+        time::timeout(timeout, self.recv_message()).await.ok().and_then(|r| r.ok())
     }
 }
