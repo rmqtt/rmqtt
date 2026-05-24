@@ -1,0 +1,34 @@
+[package]
+name = "rmqtt-test"
+publish = false
+version = "0.1.0"
+description = "Industrial-grade test harness and chaos engine for RMQTT broker"
+repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-test"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+exclude.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "mqtt_harness"
+path = "src/main.rs"
+
+[dependencies]
+rmqtt-codec.workspace = true
+tokio = { workspace = true, features = ["full"] }
+tokio-util = { workspace = true, features = ["codec"] }
+bytes = { workspace = true, features = ["serde"] }
+bytestring = { workspace = true, features = ["serde"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+chrono = { workspace = true, features = ["clock"] }
+rand = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+structopt = { workspace = true }
+futures = { workspace = true }
+parking_lot = { workspace = true }
