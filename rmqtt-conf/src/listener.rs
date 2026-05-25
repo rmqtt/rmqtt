@@ -269,6 +269,8 @@ pub struct ListenerInner {
     #[serde(default)]
     pub cert_cn_as_username: bool,
     #[serde(default)]
+    pub cert_subject_dn_as_username: bool,
+    #[serde(default)]
     pub collect_cert_info: bool,
 
     //QUIC max_idle_timeout
@@ -320,6 +322,7 @@ impl Default for ListenerInner {
             proxy_protocol_timeout: ListenerInner::proxy_protocol_timeout_default(),
 
             cert_cn_as_username: false,
+            cert_subject_dn_as_username: false,
             collect_cert_info: false,
             idle_timeout: ListenerInner::idle_timeout_default(),
         }

@@ -158,6 +158,14 @@ pub struct Builder {
     /// Use TLS Certificate CN as Username
     pub cert_cn_as_username: bool,
 
+    /// Use the full Subject DN of the TLS Certificate as Username.
+    /// Overrides `cert_cn_as_username` when both are set. Useful when
+    /// multiple CAs are trusted on the same listener and CNs may
+    /// collide — the full DN includes O / OU / CN and naturally
+    /// namespaces identities (e.g. `OU=ANS,CN=alice` vs
+    /// `OU=EnduranceUser,CN=alice`).
+    pub cert_subject_dn_as_username: bool,
+
     /// Collect TLS Certificate information
     pub collect_cert_info: bool,
 
@@ -228,6 +236,7 @@ impl Builder {
             proxy_protocol_timeout: Duration::from_secs(5),
 
             cert_cn_as_username: false,
+            cert_subject_dn_as_username: false,
             collect_cert_info: false,
 
             idle_timeout: Duration::from_secs(90),
@@ -446,6 +455,11 @@ impl Builder {
 
     pub fn cert_cn_as_username(mut self, cert_cn_as_username: bool) -> Self {
         self.cert_cn_as_username = cert_cn_as_username;
+        self
+    }
+
+    pub fn cert_subject_dn_as_username(mut self, v: bool) -> Self {
+        self.cert_subject_dn_as_username = v;
         self
     }
 
