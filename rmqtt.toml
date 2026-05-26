@@ -229,6 +229,12 @@ listener.tls.external.addr = "0.0.0.0:8883"
 # Default: false
 listener.tls.external.cert_cn_as_username = false
 
+# Whether to use the Subject Distinguished Name (DN) from the client certificate as the username
+# true  - enable this feature; the username will be extracted from the certificate Subject DN
+# false - disable this feature; the username must be provided in the CONNECT packet
+# Default: false
+listener.tls.external.cert_subject_dn_as_username = false
+
 # Whether to collect client certificate information (cert_info) and
 # include it in the MQTT connection metadata
 # true  - enable this feature; cert_info will be added to the MQTT CONNECT
