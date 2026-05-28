@@ -148,6 +148,7 @@ pub(crate) async fn listen_and_serve(
     laddr: SocketAddr,
     cfg: PluginConfigType,
     rx: oneshot::Receiver<()>,
+    started_tx: oneshot::Sender<()>,
 ) -> Result<()> {
     let (reuseaddr, reuseport, http_bearer_token) = {
         let cfg = cfg.read().await;
@@ -164,6 +165,7 @@ pub(crate) async fn listen_and_serve(
         rx.await.ok();
         handler.stop_graceful(None);
     });
+    let _ = started_tx.send(());
     let monitor = prome::Monitor::new();
     server.try_serve(route(scx, cfg, http_bearer_token, monitor)).await?;
     Ok(())
