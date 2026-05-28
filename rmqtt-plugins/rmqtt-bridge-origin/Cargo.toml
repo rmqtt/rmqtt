@@ -1,0 +1,17 @@
+[package]
+name = "rmqtt-bridge-origin"
+version.workspace = true
+description = "Bridge Origin plugin for RMQTT, identifies MQTT clients from bridge-ingress-mqtt or bridge-egress-mqtt connections"
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+rmqtt = { workspace = true, features = ["plugin"] }
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["sync"] }
+log.workspace = true
+async-trait.workspace = true
+anyhow.workspace = true
+serde_json.workspace = true

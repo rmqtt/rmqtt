@@ -4883,6 +4883,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "rmqtt-bridge-origin"
+version = "0.21.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "log",
+ "rmqtt",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "rmqtt-cluster-broadcast"
 version = "0.21.0"
 dependencies = [
@@ -5288,6 +5301,7 @@ dependencies = [
  "rmqtt-bridge-ingress-mqtt",
  "rmqtt-bridge-ingress-nats",
  "rmqtt-bridge-ingress-pulsar",
+ "rmqtt-bridge-origin",
  "rmqtt-cluster-broadcast",
  "rmqtt-cluster-raft",
  "rmqtt-conf",

@@ -51,6 +51,7 @@ rmqtt-bridge-ingress-pulsar.workspace = true
 rmqtt-bridge-ingress-nats.workspace = true
 rmqtt-bridge-egress-nats.workspace = true
 rmqtt-bridge-egress-reductstore.workspace = true
+rmqtt-bridge-origin.workspace = true
 rmqtt-message-storage = { workspace = true, features = ["ram", "redis", "redis-cluster"] }
 rmqtt-session-storage = { workspace = true, features = ["sled", "redis", "redis-cluster"] }
 rmqtt-sys-topic.workspace = true
@@ -78,6 +79,7 @@ rmqtt-bridge-ingress-pulsar = { }
 rmqtt-bridge-ingress-nats = { }
 rmqtt-bridge-egress-nats = { }
 rmqtt-bridge-egress-reductstore = { }
+rmqtt-bridge-origin = { }
 rmqtt-message-storage = { immutable = true }
 rmqtt-session-storage = { immutable = true }
 rmqtt-sys-topic = { }
