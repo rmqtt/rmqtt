@@ -73,6 +73,9 @@ pub use rmqtt_bridge_egress_nats as bridge_egress_nats;
 #[cfg(feature = "bridge-egress-reductstore")]
 pub use rmqtt_bridge_egress_reductstore as bridge_egress_reductstore;
 
+#[cfg(feature = "bridge-origin")]
+pub use rmqtt_bridge_origin as bridge_origin;
+
 // ---- Storage Plugins ----
 #[cfg(any(
     feature = "message-storage",

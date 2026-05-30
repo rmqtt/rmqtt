@@ -42,6 +42,8 @@ full = [
     "bridge-ingress-nats",
     "bridge-egress-nats",
     "bridge-egress-reductstore",
+    "bridge-origin",
+
     "p2p-messaging",
 
     "sys-topic",
@@ -86,6 +88,7 @@ bridge-ingress-pulsar = ["rmqtt-bridge-ingress-pulsar"]
 bridge-ingress-nats = ["rmqtt-bridge-ingress-nats"]
 bridge-egress-nats = ["rmqtt-bridge-egress-nats"]
 bridge-egress-reductstore = ["rmqtt-bridge-egress-reductstore"]
+bridge-origin = ["rmqtt-bridge-origin"]
 
 # ---- other plugins ----
 sys-topic = ["rmqtt-sys-topic"]
@@ -114,6 +117,7 @@ rmqtt-bridge-ingress-pulsar = { workspace = true, optional = true }
 rmqtt-bridge-ingress-nats = { workspace = true, optional = true }
 rmqtt-bridge-egress-nats = { workspace = true, optional = true }
 rmqtt-bridge-egress-reductstore = { workspace = true, optional = true }
+rmqtt-bridge-origin = { workspace = true, optional = true }
 rmqtt-message-storage = { workspace = true, optional = true }
 rmqtt-session-storage = { workspace = true, optional = true }
 rmqtt-sys-topic = { workspace = true, optional = true }

@@ -5095,6 +5095,7 @@ dependencies = [
  "rmqtt-bridge-ingress-mqtt",
  "rmqtt-bridge-ingress-nats",
  "rmqtt-bridge-ingress-pulsar",
+ "rmqtt-bridge-origin",
  "rmqtt-cluster-broadcast",
  "rmqtt-cluster-raft",
  "rmqtt-counter",

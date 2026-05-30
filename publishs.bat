@@ -19,6 +19,7 @@ cargo publish --registry crates-io --all-features --manifest-path rmqtt-plugins/
 cargo publish --registry crates-io --all-features --manifest-path rmqtt-plugins/rmqtt-bridge-ingress-nats/Cargo.toml
 cargo publish --registry crates-io --all-features --manifest-path rmqtt-plugins/rmqtt-bridge-egress-nats/Cargo.toml
 cargo publish --registry crates-io --all-features --manifest-path rmqtt-plugins/rmqtt-bridge-egress-reductstore/Cargo.toml
+cargo publish --registry crates-io --all-features --manifest-path rmqtt-plugins/rmqtt-bridge-origin/Cargo.toml
 cargo publish --registry crates-io --all-features --manifest-path rmqtt-plugins/rmqtt-message-storage/Cargo.toml
 cargo publish --registry crates-io --all-features --manifest-path rmqtt-plugins/rmqtt-session-storage/Cargo.toml
 cargo publish --registry crates-io --all-features --manifest-path rmqtt-plugins/rmqtt-sys-topic/Cargo.toml
