@@ -89,8 +89,17 @@ mod tests {
 
     #[test]
     fn test_plugins_default_startups_multiple() {
-        let opts = Options::parse_from(["test", "--plugins-default-startups", "rmqtt-acl", "--plugins-default-startups", "rmqtt-retainer"]);
-        assert_eq!(opts.plugins_default_startups, Some(vec!["rmqtt-acl".to_string(), "rmqtt-retainer".to_string()]));
+        let opts = Options::parse_from([
+            "test",
+            "--plugins-default-startups",
+            "rmqtt-acl",
+            "--plugins-default-startups",
+            "rmqtt-retainer",
+        ]);
+        assert_eq!(
+            opts.plugins_default_startups,
+            Some(vec!["rmqtt-acl".to_string(), "rmqtt-retainer".to_string()])
+        );
     }
 
     #[test]
@@ -105,8 +114,10 @@ mod tests {
     fn test_node_grpc_addrs_multiple() {
         let opts = Options::parse_from([
             "test",
-            "--node-grpc-addrs", "1@127.0.0.1:5363",
-            "--node-grpc-addrs", "2@127.0.0.1:5364",
+            "--node-grpc-addrs",
+            "1@127.0.0.1:5363",
+            "--node-grpc-addrs",
+            "2@127.0.0.1:5364",
         ]);
         let addrs = opts.node_grpc_addrs.unwrap();
         assert_eq!(addrs.len(), 2);
@@ -118,9 +129,12 @@ mod tests {
     fn test_raft_peer_addrs() {
         let opts = Options::parse_from([
             "test",
-            "--raft-peer-addrs", "1@127.0.0.1:6003",
-            "--raft-peer-addrs", "2@127.0.0.1:6004",
-            "--raft-peer-addrs", "3@127.0.0.1:6005",
+            "--raft-peer-addrs",
+            "1@127.0.0.1:6003",
+            "--raft-peer-addrs",
+            "2@127.0.0.1:6004",
+            "--raft-peer-addrs",
+            "3@127.0.0.1:6005",
         ]);
         let addrs = opts.raft_peer_addrs.unwrap();
         assert_eq!(addrs.len(), 3);
@@ -140,18 +154,28 @@ mod tests {
         let opts = Options::parse_from([
             "test",
             "-V",
-            "-f", "config.toml",
-            "--id", "99",
-            "--plugins-default-startups", "rmqtt-acl",
-            "--plugins-default-startups", "rmqtt-retainer",
-            "--node-grpc-addrs", "1@127.0.0.1:5363",
-            "--raft-peer-addrs", "2@127.0.0.1:6004",
-            "--raft-leader-id", "2",
+            "-f",
+            "config.toml",
+            "--id",
+            "99",
+            "--plugins-default-startups",
+            "rmqtt-acl",
+            "--plugins-default-startups",
+            "rmqtt-retainer",
+            "--node-grpc-addrs",
+            "1@127.0.0.1:5363",
+            "--raft-peer-addrs",
+            "2@127.0.0.1:6004",
+            "--raft-leader-id",
+            "2",
         ]);
         assert!(opts.version);
         assert_eq!(opts.cfg_name.as_deref(), Some("config.toml"));
         assert_eq!(opts.node_id, Some(99));
-        assert_eq!(opts.plugins_default_startups.as_deref(), Some(&["rmqtt-acl".to_string(), "rmqtt-retainer".to_string()][..]));
+        assert_eq!(
+            opts.plugins_default_startups.as_deref(),
+            Some(&["rmqtt-acl".to_string(), "rmqtt-retainer".to_string()][..])
+        );
         assert_eq!(opts.node_grpc_addrs.as_ref().map(|a| a.len()), Some(1));
         assert_eq!(opts.raft_peer_addrs.as_ref().map(|a| a.len()), Some(1));
         assert_eq!(opts.raft_leader_id, Some(2));
