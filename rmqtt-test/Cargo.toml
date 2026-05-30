@@ -29,6 +29,6 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 chrono = { workspace = true, features = ["clock"] }
 rand = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
-structopt = { workspace = true }
+clap = { workspace = true }
 futures = { workspace = true }
 parking_lot = { workspace = true }

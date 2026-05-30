@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use structopt::StructOpt;
+use clap::Parser;
 
 use rmqtt::args::CommandArgs;
 use rmqtt::context::ServerContext;
@@ -25,14 +25,14 @@ mod plugin {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let opts = Options::from_args();
+    let opts = Options::parse();
     if opts.version {
         println!("{} rustc/{}", Node::version(), Node::rustc_version());
         return Ok(());
     }
 
     //init config
-    let conf = Settings::init(Options::from_args()).expect("settings init failed");
+    let conf = Settings::init(Options::parse()).expect("settings init failed");
 
     //rustls crypto install default
     tls_provider::default_provider()
