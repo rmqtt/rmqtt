@@ -23,7 +23,7 @@ serde.workspace = true
 log.workspace = true
 serde_json.workspace = true
 ahash.workspace = true
-structopt.workspace = true
+clap.workspace = true
 bytestring.workspace = true
 
 

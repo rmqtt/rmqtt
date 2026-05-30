@@ -403,7 +403,7 @@ rmqtt-test/
 | bytes / bytestring | 网络字节处理 |
 | rmqtt-codec | MQTT 协议编解码 |
 | serde / serde_json | 序列化与 JSON 报告 |
-| structopt | CLI 参数解析 |
+| clap | CLI 参数解析 |
 | tracing / tracing-subscriber | 日志（含文件输出与分层过滤） |
 | anyhow / thiserror | 错误处理 |
 | rand | 混沌测试随机数 |

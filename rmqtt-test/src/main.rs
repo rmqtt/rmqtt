@@ -9,7 +9,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use structopt::StructOpt;
+use clap::Parser;
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
@@ -27,64 +27,247 @@ use framework::scheduler::TestScheduler;
 use framework::suite::TestSuite;
 use report::{write_detail_log, ConsoleReporter, HtmlReporter, JsonReporter};
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "mqtt_harness", about = "RMQTT Industrial-Grade Test Harness")]
+#[derive(Debug, Parser)]
+#[command(name = "mqtt_harness", about = "RMQTT Industrial-Grade Test Harness")]
 struct Opt {
     /// Broker address (default: 127.0.0.1:1883)
-    #[structopt(short, long, default_value = "127.0.0.1:1883")]
+    #[arg(short, long, default_value = "127.0.0.1:1883")]
     addr: String,
 
     /// Path to rmqttd binary
-    #[structopt(short, long)]
+    #[arg(short, long)]
     binary: Option<String>,
 
     /// Path to rmqtt.toml config
-    #[structopt(short = "c", long)]
+    #[arg(short = 'c', long)]
     config: Option<String>,
 
     /// Workspace root (for finding target/release/rmqttd)
-    #[structopt(long)]
+    #[arg(long)]
     workspace: Option<String>,
 
     /// Run only specific test suites (functional_v3, functional_v311, functional_v5, stress, chaos)
-    #[structopt(short, long, use_delimiter = true)]
+    #[arg(short, long)]
     suites: Vec<String>,
 
     /// Number of parallel workers
-    #[structopt(short, long, default_value = "4")]
+    #[arg(short, long, default_value = "4")]
     workers: usize,
 
     /// Verbose output
-    #[structopt(short, long)]
+    #[arg(short, long)]
     verbose: bool,
 
     /// Output JSON report to file
-    #[structopt(long)]
+    #[arg(long)]
     json: Option<String>,
 
     /// Output HTML report to file
-    #[structopt(long)]
+    #[arg(long)]
     html: Option<String>,
 
     /// Do not start/stop broker (assume it's already running)
-    #[structopt(long)]
+    #[arg(long)]
     no_broker: bool,
 
     /// Stress test client count
-    #[structopt(long, default_value = "100")]
+    #[arg(long, default_value = "100")]
     stress_clients: usize,
 
     /// Chaos test iterations
-    #[structopt(long, default_value = "5")]
+    #[arg(long, default_value = "5")]
     chaos_iterations: usize,
 
     /// Write detailed test log to file (includes packet traces for failed tests)
-    #[structopt(long, default_value = "test-detail.log")]
+    #[arg(long, default_value = "test-detail.log")]
     log_file: String,
 }
 
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+
+    #[test]
+    fn test_default() {
+        let opt = Opt::parse_from(["mqtt_harness"]);
+        assert_eq!(opt.addr, "127.0.0.1:1883");
+        assert!(opt.binary.is_none());
+        assert!(opt.config.is_none());
+        assert!(opt.workspace.is_none());
+        assert!(opt.suites.is_empty());
+        assert_eq!(opt.workers, 4);
+        assert!(!opt.verbose);
+        assert!(opt.json.is_none());
+        assert!(opt.html.is_none());
+        assert!(!opt.no_broker);
+        assert_eq!(opt.stress_clients, 100);
+        assert_eq!(opt.chaos_iterations, 5);
+        assert_eq!(opt.log_file, "test-detail.log");
+    }
+
+    #[test]
+    fn test_addr_short() {
+        let opt = Opt::parse_from(["mqtt_harness", "-a", "10.0.0.1:1883"]);
+        assert_eq!(opt.addr, "10.0.0.1:1883");
+    }
+
+    #[test]
+    fn test_addr_long() {
+        let opt = Opt::parse_from(["mqtt_harness", "--addr", "0.0.0.0:1883"]);
+        assert_eq!(opt.addr, "0.0.0.0:1883");
+    }
+
+    #[test]
+    fn test_binary_short() {
+        let opt = Opt::parse_from(["mqtt_harness", "-b", "./target/release/rmqttd"]);
+        assert_eq!(opt.binary.as_deref(), Some("./target/release/rmqttd"));
+    }
+
+    #[test]
+    fn test_binary_long() {
+        let opt = Opt::parse_from(["mqtt_harness", "--binary", "/usr/bin/rmqttd"]);
+        assert_eq!(opt.binary.as_deref(), Some("/usr/bin/rmqttd"));
+    }
+
+    #[test]
+    fn test_config_short() {
+        let opt = Opt::parse_from(["mqtt_harness", "-c", "config/rmqtt.toml"]);
+        assert_eq!(opt.config.as_deref(), Some("config/rmqtt.toml"));
+    }
+
+    #[test]
+    fn test_config_long() {
+        let opt = Opt::parse_from(["mqtt_harness", "--config", "/etc/rmqtt/rmqtt.toml"]);
+        assert_eq!(opt.config.as_deref(), Some("/etc/rmqtt/rmqtt.toml"));
+    }
+
+    #[test]
+    fn test_workspace() {
+        let opt = Opt::parse_from(["mqtt_harness", "--workspace", "/home/user/rmqtt"]);
+        assert_eq!(opt.workspace.as_deref(), Some("/home/user/rmqtt"));
+    }
+
+    #[test]
+    fn test_suites_short() {
+        let opt = Opt::parse_from(["mqtt_harness", "-s", "functional_v3", "-s", "functional_v5"]);
+        assert_eq!(opt.suites, vec!["functional_v3".to_string(), "functional_v5".to_string()]);
+    }
+
+    #[test]
+    fn test_suites_long() {
+        let opt = Opt::parse_from(["mqtt_harness", "--suites", "stress", "--suites", "chaos"]);
+        assert_eq!(opt.suites, vec!["stress".to_string(), "chaos".to_string()]);
+    }
+
+    #[test]
+    fn test_workers_short() {
+        let opt = Opt::parse_from(["mqtt_harness", "-w", "8"]);
+        assert_eq!(opt.workers, 8);
+    }
+
+    #[test]
+    fn test_workers_long() {
+        let opt = Opt::parse_from(["mqtt_harness", "--workers", "16"]);
+        assert_eq!(opt.workers, 16);
+    }
+
+    #[test]
+    fn test_verbose_short() {
+        let opt = Opt::parse_from(["mqtt_harness", "-v"]);
+        assert!(opt.verbose);
+    }
+
+    #[test]
+    fn test_verbose_long() {
+        let opt = Opt::parse_from(["mqtt_harness", "--verbose"]);
+        assert!(opt.verbose);
+    }
+
+    #[test]
+    fn test_json() {
+        let opt = Opt::parse_from(["mqtt_harness", "--json", "report.json"]);
+        assert_eq!(opt.json.as_deref(), Some("report.json"));
+    }
+
+    #[test]
+    fn test_html() {
+        let opt = Opt::parse_from(["mqtt_harness", "--html", "report.html"]);
+        assert_eq!(opt.html.as_deref(), Some("report.html"));
+    }
+
+    #[test]
+    fn test_no_broker() {
+        let opt = Opt::parse_from(["mqtt_harness", "--no-broker"]);
+        assert!(opt.no_broker);
+    }
+
+    #[test]
+    fn test_stress_clients() {
+        let opt = Opt::parse_from(["mqtt_harness", "--stress-clients", "500"]);
+        assert_eq!(opt.stress_clients, 500);
+    }
+
+    #[test]
+    fn test_chaos_iterations() {
+        let opt = Opt::parse_from(["mqtt_harness", "--chaos-iterations", "10"]);
+        assert_eq!(opt.chaos_iterations, 10);
+    }
+
+    #[test]
+    fn test_log_file() {
+        let opt = Opt::parse_from(["mqtt_harness", "--log-file", "custom.log"]);
+        assert_eq!(opt.log_file, "custom.log");
+    }
+
+    #[test]
+    fn test_all_options() {
+        let opt = Opt::parse_from([
+            "mqtt_harness",
+            "-a",
+            "0.0.0.0:1883",
+            "-b",
+            "rmqttd",
+            "-c",
+            "myconfig.toml",
+            "--workspace",
+            "/opt/rmqtt",
+            "-s",
+            "functional_v311",
+            "-s",
+            "stress",
+            "-w",
+            "10",
+            "-v",
+            "--json",
+            "out.json",
+            "--html",
+            "out.html",
+            "--no-broker",
+            "--stress-clients",
+            "200",
+            "--chaos-iterations",
+            "20",
+            "--log-file",
+            "detail.log",
+        ]);
+        assert_eq!(opt.addr, "0.0.0.0:1883");
+        assert_eq!(opt.binary.as_deref(), Some("rmqttd"));
+        assert_eq!(opt.config.as_deref(), Some("myconfig.toml"));
+        assert_eq!(opt.workspace.as_deref(), Some("/opt/rmqtt"));
+        assert_eq!(opt.suites, vec!["functional_v311".to_string(), "stress".to_string()]);
+        assert_eq!(opt.workers, 10);
+        assert!(opt.verbose);
+        assert_eq!(opt.json.as_deref(), Some("out.json"));
+        assert_eq!(opt.html.as_deref(), Some("out.html"));
+        assert!(opt.no_broker);
+        assert_eq!(opt.stress_clients, 200);
+        assert_eq!(opt.chaos_iterations, 20);
+        assert_eq!(opt.log_file, "detail.log");
+    }
+}
+
 fn main() {
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
 
     // Initialize logging: console (info+) + trace file (debug+ with packet traces)
     let trace_log_path = PathBuf::from("test-trace.log");
