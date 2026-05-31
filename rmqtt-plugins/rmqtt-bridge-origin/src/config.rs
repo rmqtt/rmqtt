@@ -1,7 +1,13 @@
+//! Configuration types for the bridge origin plugin.
+//!
+//! Defines markers used to identify ingress/egress bridge connections
+//! in session metadata, and the attribute key for storing origin info.
+
 use serde::{Deserialize, Serialize};
 
 use rmqtt::Result;
 
+/// Plugin configuration with ingress/egress markers and attribute key.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
     #[serde(default = "default_ingress_marker")]
@@ -16,6 +22,7 @@ pub struct PluginConfig {
 }
 
 impl PluginConfig {
+    /// Creates a new `PluginConfig` with the given marker and key values.
     #[allow(dead_code)]
     pub fn new(ingress_marker: String, egress_marker: String, attr_key: String) -> Self {
         Self { ingress_marker, egress_marker, attr_key }

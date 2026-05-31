@@ -1,5 +1,10 @@
-use async_trait::async_trait;
+//! gRPC message handler for the HTTP API plugin.
+//!
+//! Processes incoming inter-node gRPC messages (broker info, node info,
+//! health, stats, metrics, client queries, subscriptions, plugins) and
+//! returns encoded replies.
 
+use async_trait::async_trait;
 use rmqtt::{
     context::ServerContext,
     grpc::{Message as GrpcMessage, MessageReply as GrpcMessageReply, MessageType},

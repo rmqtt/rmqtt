@@ -1,3 +1,9 @@
+//! WebSocket stream adapter wrapping `tokio_tungstenite` for MQTT transport.
+//!
+//! Provides [`WsStream`] which implements [`AsyncRead`] and [`AsyncWrite`] over a
+//! WebSocket connection, translating WebSocket binary messages into a byte-stream
+//! interface suitable for MQTT protocol codecs.
+
 use std::io::{self, ErrorKind};
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -11,6 +17,10 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
 use tokio_util::bytes;
 
+/// WebSocket stream adapter implementing [`AsyncRead`] and [`AsyncWrite`] for MQTT.
+///
+/// Wraps a `tokio_tungstenite` `WebSocketStream` and translates binary WebSocket messages
+/// into a continuous byte stream, with internal buffering for fragmented messages.
 pub struct WsStream<S> {
     inner: WebSocketStream<S>,
     cached_data: Option<Bytes>,
@@ -18,10 +28,12 @@ pub struct WsStream<S> {
 }
 
 impl<S> WsStream<S> {
+    /// Creates a new `WsStream` wrapping the given WebSocket stream
     pub fn new(inner: WebSocketStream<S>) -> Self {
         Self { inner, cached_data: None, idx: 0 }
     }
 
+    /// Returns a reference to the underlying `WebSocketStream`
     pub fn get_inner(&self) -> &WebSocketStream<S> {
         &self.inner
     }

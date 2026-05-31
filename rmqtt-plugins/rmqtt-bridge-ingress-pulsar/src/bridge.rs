@@ -1,3 +1,9 @@
+//! Ingress bridge from Apache Pulsar.
+//!
+//! Consumes messages from Pulsar topics and forwards them as MQTT publish
+//! messages into the local broker. Translates Pulsar message properties
+//! into MQTT metadata (from, client ID, QoS, retain, user properties).
+
 use std::collections::{BTreeMap, HashSet};
 use std::convert::From as _;
 use std::net::SocketAddr;

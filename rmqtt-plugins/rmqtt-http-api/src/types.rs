@@ -1,3 +1,10 @@
+//! Shared types for the HTTP API plugin.
+//!
+//! Defines gRPC [`Message`] / [`MessageReply`] enums, API parameter structs
+//! ([`ClientSearchParams`], [`PublishParams`], [`SubscribeParams`],
+//! [`UnsubscribeParams`]), result types ([`ClientSearchResult`]), and
+//! [`PrometheusDataType`].
+
 use std::time::Duration;
 
 use anyhow::anyhow;
@@ -15,6 +22,10 @@ use rmqtt::{
     Result,
 };
 
+/// gRPC messages for the HTTP API plugin.
+///
+/// Each variant corresponds to a request type that can be forwarded to
+/// remote nodes.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Message<'a> {
     BrokerInfo,
@@ -35,16 +46,20 @@ pub enum Message<'a> {
 }
 
 impl Message<'_> {
+    /// Encodes this message into a byte vector using postcard.
+    /// Encodes this message into a byte vector using postcard.
     #[inline]
     pub fn encode(&self) -> Result<Vec<u8>> {
         postcard::to_stdvec(self).map_err(anyhow::Error::new)
     }
+    /// Decodes this message from a byte slice.
     #[inline]
     pub fn decode(data: &[u8]) -> Result<Message<'_>> {
         postcard::from_bytes::<Message>(data).map_err(anyhow::Error::new)
     }
 }
 
+/// gRPC reply messages for the HTTP API plugin.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum MessageReply {
     BrokerInfo(BrokerInfo),
@@ -65,16 +80,20 @@ pub enum MessageReply {
 }
 
 impl MessageReply {
+    /// Encodes this reply into a byte vector using postcard.
+    /// Encodes this reply into a byte vector using postcard.
     #[inline]
     pub fn encode(&self) -> Result<Vec<u8>> {
         postcard::to_stdvec(self).map_err(anyhow::Error::new)
     }
+    /// Decodes this reply from a byte slice.
     #[inline]
     pub fn decode(data: &[u8]) -> Result<MessageReply> {
         postcard::from_bytes::<MessageReply>(data).map_err(anyhow::Error::new)
     }
 }
 
+/// Search/filter parameters for listing clients via the HTTP API.
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
 pub struct ClientSearchParams {
     #[serde(default)]
@@ -123,6 +142,7 @@ pub struct ClientSearchParams {
     pub _lte_mqueue_len: Option<usize>, //Current length of message queue, Less than or equal search
 }
 
+/// A single client's information returned by the search API.
 #[derive(Deserialize, Serialize, Debug, Default)]
 pub struct ClientSearchResult {
     pub node_id: NodeId,
@@ -169,6 +189,7 @@ pub struct ClientSearchResult {
 }
 
 impl ClientSearchResult {
+    /// Serializes the last will as a JSON byte vector.
     #[inline]
     fn serialize_last_will<S>(last_will: &serde_json::Value, s: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -177,6 +198,7 @@ impl ClientSearchResult {
         serde_json::to_vec(last_will).map_err(ser::Error::custom)?.serialize(s)
     }
 
+    /// Deserializes the last will from a JSON byte vector.
     #[inline]
     pub fn deserialize_last_will<'de, D>(d: D) -> std::result::Result<serde_json::Value, D::Error>
     where
@@ -185,6 +207,7 @@ impl ClientSearchResult {
         serde_json::from_slice(&Vec::deserialize(d)?).map_err(de::Error::custom)
     }
 
+    /// Converts this search result to a JSON value for API responses.
     #[inline]
     pub fn to_json(&self) -> serde_json::Value {
         let data = serde_json::json!({
@@ -231,6 +254,7 @@ impl ClientSearchResult {
     }
 }
 
+/// Parameters for publishing an MQTT message via the HTTP API.
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
 pub struct PublishParams {
     //For topic and topics, with at least one of them specified
@@ -273,6 +297,7 @@ impl PublishParams {
     }
 }
 
+/// Parameters for subscribing to MQTT topics via the HTTP API.
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
 pub struct SubscribeParams {
     //For topic and topics, with at least one of them specified
@@ -291,6 +316,10 @@ impl SubscribeParams {
         0
     }
 
+    /// Returns the list of topic filters from the `topic` and/or `topics`
+    /// fields.
+    /// Returns the list of topic filters from the `topic` and/or `topics`
+    /// fields.
     #[inline]
     pub fn topics(&self) -> Result<Vec<TopicFilter>> {
         let mut topics = if let Some(topics) = &self.topics {
@@ -307,18 +336,25 @@ impl SubscribeParams {
         Ok(topics)
     }
 
+    /// Returns the QoS level parsed from the raw u8 value.
     #[inline]
     pub fn qos(&self) -> Result<QoS> {
         QoS::try_from(self.qos).map_err(|e| anyhow!(e))
     }
 }
 
+/// Parameters for unsubscribing from an MQTT topic via the HTTP API.
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
 pub struct UnsubscribeParams {
     pub topic: TopicFilter,
     pub clientid: ClientId,
 }
 
+/// Specifies which nodes' Prometheus data to include.
+///
+/// - `All`: data from every node.
+/// - `Sum`: aggregated sum across all nodes.
+/// - `Node(id)`: data from a specific node.
 #[derive(Deserialize, Serialize, Debug, Copy, Clone, Hash, Eq, PartialEq)]
 pub enum PrometheusDataType {
     All,

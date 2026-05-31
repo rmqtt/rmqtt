@@ -1,3 +1,9 @@
+//! MQTT v5 bridge client for egress forwarding.
+//!
+//! Implements a client that connects to a remote MQTT v5 broker,
+//! manages the connection lifecycle (connect, reconnect, close), and
+//! forwards publish messages from a command channel.
+
 use anyhow::anyhow;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -36,6 +42,9 @@ impl MqttConnector {
     }
 }
 
+/// An MQTT v5 bridge client.
+///
+/// Manages connection state, v5 sink for publishing, and closed flag.
 #[derive(Clone)]
 pub struct Client {
     pub(crate) cfg: Arc<Bridge>,
@@ -45,10 +54,12 @@ pub struct Client {
 }
 
 impl Client {
+    /// Returns `true` if the client connection has been closed.
     pub fn is_closed(&self) -> bool {
         self.closed.load(Ordering::SeqCst)
     }
 
+    /// Closes the client connection and marks it as closed.
     pub fn close(&self) -> bool {
         if let Some(sink) = self.sink.borrow().as_ref() {
             sink.close();
@@ -59,6 +70,9 @@ impl Client {
         }
     }
 
+    /// Creates a new v5 bridge client and establishes a connection.
+    ///
+    /// Returns a `CommandMailbox` for sending commands to the client.
     pub(crate) fn connect(
         cfg: Bridge,
         entry_idx: usize,

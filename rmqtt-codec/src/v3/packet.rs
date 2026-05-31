@@ -42,6 +42,7 @@ impl From<ConnectAckReason> for u8 {
 }
 
 impl ConnectAckReason {
+    /// Returns a human-readable description of the reason code
     pub fn reason(self) -> &'static str {
         match self {
             ConnectAckReason::ConnectionAccepted => "Connection Accepted",
@@ -201,6 +202,7 @@ impl From<Publish> for Packet {
 }
 
 impl Packet {
+    /// Returns the MQTT packet type byte for this packet
     pub fn packet_type(&self) -> u8 {
         match self {
             Packet::Connect(_) => packet_type::CONNECT,

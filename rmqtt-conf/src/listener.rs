@@ -1,3 +1,9 @@
+//! Network listener configuration for TCP, TLS, WebSocket, WSS, and QUIC protocols.
+//!
+//! Defines the configuration structures for each listener type, including
+//! connection limits, keepalive settings, QoS restrictions, TLS certificate
+//! paths, and proxy protocol support.
+
 use std::net::SocketAddr;
 use std::num::{NonZeroU16, NonZeroU32};
 use std::ops::Deref;
@@ -16,6 +22,11 @@ type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
 type Port = u16;
 
+/// Collection of all configured network listeners, organized by protocol.
+///
+/// Contains separate maps for TCP, TLS (TCP+SSL), WebSocket, WebSocket Secure,
+/// and QUIC listeners, each keyed by port number. Parsed from raw TOML config
+/// during the server initialization phase.
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct Listeners {
     #[serde(rename = "tcp")]
@@ -89,31 +100,40 @@ impl Listeners {
         }
     }
 
+    /// Returns a reference to the TCP listener for the given port, if configured.
     #[inline]
     pub fn tcp(&self, port: u16) -> Option<Listener> {
         self.tcps.get(&port).cloned()
     }
 
+    /// Returns the TLS (TCP+SSL) listener for the given port, if configured.
     #[inline]
     pub fn tls(&self, port: u16) -> Option<Listener> {
         self.tlss.get(&port).cloned()
     }
 
+    /// Returns the WebSocket listener for the given port, if configured.
     #[inline]
     pub fn ws(&self, port: u16) -> Option<Listener> {
         self.wss.get(&port).cloned()
     }
 
+    /// Returns the secure WebSocket (WSS) listener for the given port, if configured.
     #[inline]
     pub fn wss(&self, port: u16) -> Option<Listener> {
         self.wsss.get(&port).cloned()
     }
 
+    /// Returns the QUIC listener for the given port, if configured.
     #[inline]
     pub fn quic(&self, port: u16) -> Option<Listener> {
         self.quics.get(&port).cloned()
     }
 
+    /// Looks up a listener by port across all protocol types.
+    ///
+    /// Searches TCP, TLS, WebSocket, WSS, and QUIC in order and returns the
+    /// first match found.
     #[inline]
     pub fn get(&self, port: u16) -> Option<Listener> {
         if let Some(l) = self.tcp(port) {
@@ -141,6 +161,10 @@ impl Listeners {
     }
 }
 
+/// A single listener configuration, wrapping an `Arc<ListenerInner>`.
+///
+/// Provides thread-safe shared access to the underlying listener settings
+/// via dereferencing. Created during the initialization phase.
 #[derive(Debug, Clone, Default)]
 pub struct Listener {
     inner: Arc<ListenerInner>,
@@ -160,6 +184,11 @@ impl Deref for Listener {
     }
 }
 
+/// Detailed configuration for a single network listener.
+///
+/// Contains all tunable parameters including connection limits, keepalive
+/// intervals, QoS levels, TLS certificate paths, rate limiting, and
+/// MQTT session expiry settings.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ListenerInner {
     #[serde(default)]
@@ -443,6 +472,7 @@ impl ListenerInner {
         true
     }
 
+    /// Returns the handshake timeout in milliseconds as a `u16`, capped at `u16::MAX`.
     #[inline]
     pub fn handshake_timeout(&self) -> u16 {
         let millis = self.handshake_timeout.as_millis();

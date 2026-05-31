@@ -1,3 +1,10 @@
+//! Persistent session storage implementation.
+//!
+//! Provides [`StorageSessionManager`], [`StorageSession`], [`Basic`],
+//! [`StoredSessionInfo`], and [`StoredSessionInfos`] for persisting
+//! session data (subscriptions, disconnect info, offline messages) to an
+//! external storage backend.
+
 use std::ops::Deref;
 use std::sync::atomic::{AtomicI64, AtomicU8, Ordering};
 use std::sync::Arc;
@@ -596,6 +603,10 @@ impl SessionLike for StorageSession {
 //const EMPTY: u8 = u8::MIN;
 //const ALL: u8 = u8::MAX;
 
+/// Atomic bit-flag operations for `AtomicU8`.
+///
+/// Provides methods to set, clear, check, and exchange individual bits
+/// in an atomic unsigned 8-bit integer.
 pub trait AtomicFlags {
     type T;
     #[allow(dead_code)]

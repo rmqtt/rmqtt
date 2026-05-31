@@ -122,6 +122,7 @@ impl From<ConnectAckReason> for u8 {
 }
 
 impl ConnectAckReason {
+    /// Returns a human-readable description of the reason code
     pub fn reason(self) -> &'static str {
         match self {
             ConnectAckReason::Success => "Connection Accepted",

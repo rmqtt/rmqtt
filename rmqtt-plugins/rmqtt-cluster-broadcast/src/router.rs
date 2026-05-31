@@ -1,3 +1,5 @@
+//! Cluster-aware router that extends the default router with gRPC-based
+//! inter-node subscription lookups and route aggregation.
 use anyhow::anyhow;
 use std::time::Duration;
 

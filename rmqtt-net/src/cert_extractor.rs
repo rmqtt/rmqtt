@@ -1,9 +1,17 @@
+//! TLS certificate information extraction from network streams.
+//!
+//! Provides the [`TlsCertExtractor`] trait and its implementations for TLS and non-TLS
+//! stream types, enabling extraction of certificate metadata such as common name,
+//! organization, subject, and serial number.
+
 #[cfg(feature = "ws")]
 use crate::ws::WsStream;
 use rmqtt_codec::cert::CertInfo;
 
 /// Trait for extracting TLS certificate information from streams
 pub trait TlsCertExtractor {
+    /// Extracts certificate information (common name, organization, subject, serial)
+    /// from the underlying TLS session, if available.
     fn extract_cert_info(&self) -> Option<CertInfo>;
 }
 

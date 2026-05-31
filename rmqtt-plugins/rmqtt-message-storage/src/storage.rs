@@ -1,3 +1,9 @@
+//! Persistent message storage implementation.
+//!
+//! Provides [`StorageMessageManager`] and [`StorageMessageManagerInner`]
+//! for storing messages via the `rmqtt_storage` backend (Sled/Redis),
+//! with batch writes, topic-tree restoration, and expiry cleanup.
+
 use std::collections::BTreeSet;
 use std::convert::From as _;
 use std::ops::Deref;
@@ -40,6 +46,7 @@ const FORWARDED_PREFIX: &[u8] = b"fwd_";
 
 type Msg = ((From, Publish, Duration, MsgID), Option<Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>>);
 
+/// A persistent message manager backed by `rmqtt_storage`.
 #[derive(Clone)]
 pub struct StorageMessageManager {
     inner: Arc<StorageMessageManagerInner>,

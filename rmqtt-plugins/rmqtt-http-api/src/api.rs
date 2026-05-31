@@ -1,3 +1,9 @@
+//! HTTP API route handlers for the RMQTT management API.
+//!
+//! Defines the HTTP server, route tree, Bearer token authentication, and
+//! handler functions for brokers, nodes, clients, subscriptions, routes,
+//! MQTT actions, plugins, stats, and metrics.
+
 use std::convert::From as _;
 use std::io::ErrorKind;
 use std::net::SocketAddr;

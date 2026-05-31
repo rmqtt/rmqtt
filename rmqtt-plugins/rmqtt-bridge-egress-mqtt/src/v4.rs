@@ -1,3 +1,9 @@
+//! MQTT v3.1.1 bridge client for egress forwarding.
+//!
+//! Implements a client that connects to a remote MQTT v3.1.1 broker,
+//! manages the connection lifecycle (connect, reconnect, close), and
+//! forwards publish messages from a command channel.
+
 use anyhow::anyhow;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -24,6 +30,9 @@ use rmqtt::{
 use crate::bridge::{build_tls_connector, BridgePublish, Command, CommandMailbox};
 use crate::config::Bridge;
 
+/// An MQTT v3.1.1 bridge client.
+///
+/// Manages connection state, sink for publishing, and closed flag.
 #[derive(Clone)]
 pub struct Client {
     pub(crate) cfg: Arc<Bridge>,
@@ -47,10 +56,12 @@ impl MqttConnector {
 }
 
 impl Client {
+    /// Returns `true` if the client connection has been closed.
     pub fn is_closed(&self) -> bool {
         self.closed.load(Ordering::SeqCst)
     }
 
+    /// Closes the client connection and marks it as closed.
     pub fn close(&self) -> bool {
         if let Some(sink) = self.sink.borrow().as_ref() {
             sink.close();
@@ -61,6 +72,9 @@ impl Client {
         }
     }
 
+    /// Creates a new v3.1.1 bridge client and establishes a connection.
+    ///
+    /// Returns a `CommandMailbox` for sending commands to the client.
     pub(crate) fn connect(
         cfg: Bridge,
         entry_idx: usize,

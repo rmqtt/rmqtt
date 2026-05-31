@@ -6,7 +6,7 @@
 //! allowing for modularity and customization. The plugins are categorized into
 //! core, bridge, storage, utility, and cluster plugins, making it easy to extend
 //! the rmqtt functionality with different backend systems or protocols.
-//
+//!
 //! The following categories of plugins are available:
 //! - **Core Plugins**: Fundamental plugins for core functionality such as ACL,
 //!   retention, and HTTP API support.

@@ -1,3 +1,9 @@
+//! Configuration types for the NATS egress bridge plugin.
+//!
+//! Defines bridge connection parameters (NATS server addresses, TLS,
+//! authentication), per-entry routing with topic filters and NATS subject
+//! mapping, and options for forwarding MQTT metadata.
+
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -8,12 +14,17 @@ use crate::bridge::BridgeName;
 
 use rmqtt::utils::deserialize_duration_option;
 
+/// Top-level plugin configuration containing a list of bridge definitions.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
     #[serde(default)]
     pub bridges: Vec<Bridge>,
 }
 
+/// A NATS egress bridge definition.
+///
+/// Specifies connection parameters (server addresses, TLS, authentication),
+/// producer naming, and routing entries.
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Bridge {
     #[serde(default)]
@@ -62,6 +73,7 @@ pub struct Bridge {
 }
 
 impl Bridge {
+    /// Deserializes a file path from a string, returning `None` for empty strings.
     #[inline]
     pub fn deserialize_pathbuf<'de, D>(deserializer: D) -> std::result::Result<Option<PathBuf>, D::Error>
     where
@@ -76,6 +88,7 @@ impl Bridge {
     }
 }
 
+/// NATS authentication configuration (JWT, NKey, user/password, token).
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Auth {
     pub(crate) jwt: Option<String>,
@@ -86,6 +99,7 @@ pub struct Auth {
     pub(crate) token: Option<String>,
 }
 
+/// A routing entry pairing a local topic filter with a remote NATS subject.
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Entry {
     #[serde(default)]
@@ -95,6 +109,10 @@ pub struct Entry {
     pub remote: Remote,
 }
 
+/// Remote NATS subject configuration for a bridge entry.
+///
+/// Controls the target subject, metadata forwarding options, and
+/// topic level skipping.
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Remote {
     pub topic: String,
@@ -106,6 +124,7 @@ pub struct Remote {
     pub skip_levels: usize,
 }
 
+/// Local topic filter for a bridge entry.
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Local {
     #[serde(default)]

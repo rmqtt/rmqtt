@@ -1,3 +1,8 @@
+//! In-memory retainer implementation.
+//!
+//! Wraps [`DefaultRetainStorage`] to provide a [`RetainStorage`] that
+//! enforces configurable message count and payload size limits.
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;

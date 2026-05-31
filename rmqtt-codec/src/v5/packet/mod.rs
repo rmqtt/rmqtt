@@ -60,6 +60,7 @@ pub enum Packet {
 }
 
 impl Packet {
+    /// Returns the MQTT packet type byte for this packet
     pub fn packet_type(&self) -> u8 {
         match self {
             Packet::Connect(_) => packet_type::CONNECT,
@@ -153,6 +154,9 @@ impl From<Auth> for Packet {
     }
 }
 
+/// MQTT v5 property type identifiers
+///
+/// Defines byte codes for all property types defined in the MQTT v5.0 specification.
 pub(super) mod property_type {
     pub(crate) const UTF8_PAYLOAD: u8 = 0x01;
     pub(crate) const MSG_EXPIRY_INT: u8 = 0x02;

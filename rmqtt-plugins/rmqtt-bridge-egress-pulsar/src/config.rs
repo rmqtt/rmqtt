@@ -1,3 +1,9 @@
+//! Configuration types for the Apache Pulsar egress bridge plugin.
+//!
+//! Defines bridge connection parameters (server, authentication, TLS),
+//! entry routing with topic filters and remote Pulsar topic mapping,
+//! and message options (compression, ordering key, partition key).
+
 use std::collections::BTreeMap;
 
 use pulsar::compression::{Compression, CompressionLz4, CompressionSnappy, CompressionZlib, CompressionZstd};
@@ -11,12 +17,16 @@ use rmqtt::types::ClientId;
 
 use crate::bridge::BridgeName;
 
+/// Top-level plugin configuration containing a list of bridge definitions.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
     #[serde(default)]
     pub bridges: Vec<Bridge>,
 }
 
+/// A Pulsar egress bridge definition.
+///
+/// Specifies connection parameters (server, authentication, TLS) and entries.
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Bridge {
     #[serde(default)]
@@ -52,12 +62,14 @@ impl Bridge {
     }
 }
 
+/// Pulsar authentication configuration (Token or OAuth2).
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Auth {
     pub name: Option<AuthName>,
     pub data: Option<String>,
 }
 
+/// Supported Pulsar authentication methods.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AuthName {
@@ -65,6 +77,7 @@ pub enum AuthName {
     OAuth2,
 }
 
+/// Supported Pulsar compression codecs.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Comp {
@@ -75,6 +88,7 @@ pub enum Comp {
 }
 
 impl Comp {
+    /// Converts this enum to the Pulsar `Compression` type.
     pub fn to_pulsar_comp(&self) -> Compression {
         match self {
             Comp::Lz4 => Compression::Lz4(CompressionLz4::default()),
@@ -85,6 +99,7 @@ impl Comp {
     }
 }
 
+/// Producer options including metadata, compression, and access mode.
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Opts {
     #[serde(default)]
@@ -93,6 +108,7 @@ pub struct Opts {
     pub access_mode: Option<i32>,
 }
 
+/// A routing entry pairing a local topic filter with a remote Pulsar topic.
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Entry {
     #[serde(default)]
@@ -102,6 +118,10 @@ pub struct Entry {
     pub remote: Remote,
 }
 
+/// Remote Pulsar topic configuration for a bridge entry.
+///
+/// Controls the target topic, metadata forwarding, ordering key,
+/// partition key, schema version, compression, and skip levels.
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Remote {
     pub topic: String,
@@ -129,6 +149,8 @@ pub struct Remote {
 }
 
 impl Remote {
+    /// Deserializes an ordering key from a string ("clientid", "uuid", "random")
+    /// or an object with type and length.
     pub fn deserialize_ordering_key<'de, D>(deserializer: D) -> Result<Option<OrderingKey>, D::Error>
     where
         D: Deserializer<'de>,
@@ -167,6 +189,7 @@ impl Remote {
         Ok(ordering_key)
     }
 
+    /// Serializes an ordering key as a string ("clientid", "uuid", "random", or empty).
     #[inline]
     pub fn serialize_ordering_key<S>(
         ordering_key: &Option<OrderingKey>,
@@ -184,6 +207,7 @@ impl Remote {
         .serialize(serializer)
     }
 
+    /// Deserializes a string into bytes for schema version.
     pub fn deserialize_string_bytes<'de, D>(deserializer: D) -> Result<Option<Vec<u8>>, D::Error>
     where
         D: Deserializer<'de>,
@@ -193,12 +217,16 @@ impl Remote {
     }
 }
 
+/// Local topic filter for a bridge entry.
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Local {
     #[serde(default)]
     pub topic_filter: String,
 }
 
+/// Ordering key strategy for Pulsar message ordering.
+///
+/// Supports client ID-based, UUID-based, and random key generation.
 #[derive(Default, Debug, Clone)]
 pub(crate) enum OrderingKey {
     #[default]
@@ -208,6 +236,7 @@ pub(crate) enum OrderingKey {
 }
 
 impl OrderingKey {
+    /// Generates an ordering key based on the configured strategy.
     #[inline]
     pub(crate) fn generate(&self, clientid: &ClientId) -> Vec<u8> {
         match self {

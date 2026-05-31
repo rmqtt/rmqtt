@@ -1,3 +1,8 @@
+//! Configuration for the HTTP API plugin.
+//!
+//! Defines [`PluginConfig`] with HTTP server settings, message expiry,
+//! metrics sampling, and Prometheus cache intervals.
+
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -9,6 +14,10 @@ use rmqtt::{
     Result,
 };
 
+/// Top-level configuration for the HTTP API plugin.
+///
+/// Specifies the HTTP listen address, bearer token, message type for gRPC,
+/// metrics/Prometheus settings, and request logging options.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
     #[serde(default = "PluginConfig::max_row_limit_default")]
@@ -96,11 +105,14 @@ impl PluginConfig {
         Duration::from_secs(5)
     }
 
+    /// Serializes the configuration to a JSON value.
     #[inline]
     pub fn to_json(&self) -> Result<serde_json::Value> {
         Ok(serde_json::to_value(self)?)
     }
 
+    /// Returns `true` if any config values that require a hot-reload
+    /// (without restart) have changed.
     #[inline]
     pub fn changed(&self, other: &Self) -> bool {
         self.max_row_limit != other.max_row_limit
@@ -110,6 +122,8 @@ impl PluginConfig {
             || self.prometheus_metrics_cache_interval != other.prometheus_metrics_cache_interval
     }
 
+    /// Returns `true` if a full server restart is required (listen address
+    /// changed).
     #[inline]
     pub fn restart_enable(&self, other: &Self) -> bool {
         self.http_laddr != other.http_laddr

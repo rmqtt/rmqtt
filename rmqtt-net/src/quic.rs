@@ -1,3 +1,9 @@
+//! QUIC bidirectional stream adapter for MQTT over QUIC transport.
+//!
+//! Wraps Quinn's separate [`SendStream`] and [`RecvStream`] into a single [`QuinnBiStream`]
+//! that implements [`AsyncRead`] and [`AsyncWrite`], allowing it to be used as a uniform
+//! I/O transport for MQTT connections.
+
 use quinn::{RecvStream, SendStream};
 use std::{
     pin::Pin,
@@ -5,6 +11,10 @@ use std::{
 };
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
+/// Bidirectional QUIC stream wrapping separate send/recv streams into a unified I/O type.
+///
+/// Combines Quinn's [`SendStream`] and [`RecvStream`] into a single struct that
+/// implements [`AsyncRead`] and [`AsyncWrite`], enabling use as a transport for MQTT.
 #[allow(dead_code)]
 pub struct QuinnBiStream {
     send: SendStream,
@@ -12,6 +22,7 @@ pub struct QuinnBiStream {
 }
 
 impl QuinnBiStream {
+    /// Creates a new `QuinnBiStream` from Quinn send and receive stream halves
     #[allow(dead_code)]
     pub fn new(send: SendStream, recv: RecvStream) -> Self {
         Self { send, recv }

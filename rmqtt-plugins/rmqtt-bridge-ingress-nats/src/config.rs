@@ -1,3 +1,9 @@
+//! Configuration types for the NATS ingress bridge plugin.
+//!
+//! Defines bridge connection parameters (server addresses, TLS, authentication)
+//! and routing entries with NATS subject mapping and local MQTT topic
+//! configuration (including `${nats.subject}` pattern substitution).
+
 use std::borrow::Cow;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -10,12 +16,17 @@ use crate::bridge::BridgeName;
 
 use rmqtt::utils::{deserialize_duration, deserialize_duration_option};
 
+/// Top-level plugin configuration containing a list of bridge definitions.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
     #[serde(default)]
     pub bridges: Vec<Bridge>,
 }
 
+/// A NATS ingress bridge definition.
+///
+/// Specifies connection parameters (server addresses, TLS, authentication),
+/// consumer naming, and routing entries.
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Bridge {
     #[serde(default)]
@@ -71,6 +82,7 @@ impl Bridge {
         Duration::from_secs(300)
     }
 
+    /// Deserializes a file path from a string, returning `None` for empty strings.
     #[inline]
     pub fn deserialize_pathbuf<'de, D>(deserializer: D) -> std::result::Result<Option<PathBuf>, D::Error>
     where
@@ -85,6 +97,7 @@ impl Bridge {
     }
 }
 
+/// NATS authentication configuration (JWT, NKey, user/password, token).
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Auth {
     pub(crate) jwt: Option<String>,
@@ -95,6 +108,7 @@ pub struct Auth {
     pub(crate) token: Option<String>,
 }
 
+/// A routing entry pairing a remote NATS subject with a local MQTT topic.
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Entry {
     #[serde(default)]
@@ -106,6 +120,7 @@ pub struct Entry {
 
 type HasPattern = bool; //${remote.topic}
 
+/// Remote NATS subject configuration for an ingress entry.
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Remote {
     pub topic: String,

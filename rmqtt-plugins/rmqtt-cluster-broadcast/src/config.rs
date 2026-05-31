@@ -1,3 +1,8 @@
+//! Configuration for the cluster broadcast plugin.
+//!
+//! Defines [`PluginConfig`] with gRPC communication settings including
+//! node addresses, timeouts, batch sizes, and concurrency limits.
+
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -5,6 +10,10 @@ use rmqtt::grpc::MessageType;
 use rmqtt::utils::{deserialize_duration, NodeAddr};
 use rmqtt::Result;
 
+/// Configuration for the cluster broadcast plugin.
+///
+/// Specifies the gRPC message type, peer node addresses, client concurrency
+/// limits, timeouts, and batch sizes for inter-node communication.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
     #[serde(default = "PluginConfig::message_type_default")]
@@ -42,6 +51,7 @@ impl PluginConfig {
         128
     }
 
+    /// Serializes the configuration to a JSON value.
     #[inline]
     pub fn to_json(&self) -> Result<serde_json::Value> {
         Ok(serde_json::to_value(self)?)

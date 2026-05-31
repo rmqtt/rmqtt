@@ -1,6 +1,10 @@
-use async_trait::async_trait;
+//! Hook handler for processing cluster broadcast gRPC messages.
+//!
+//! Dispatches incoming inter-node messages (forwards, kick, health checks,
+//! subscription queries, etc.) to the appropriate local handlers.
 
 use crate::message::{BroadcastGrpcMessage, BroadcastGrpcMessageReply};
+use async_trait::async_trait;
 use rmqtt::context::ServerContext;
 use rmqtt::router::Router;
 use rmqtt::shared::Shared;

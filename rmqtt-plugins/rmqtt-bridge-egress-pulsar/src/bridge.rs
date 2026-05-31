@@ -1,3 +1,9 @@
+//! Egress bridge to Apache Pulsar.
+//!
+//! Routes MQTT publish messages to Pulsar topics. Manages Pulsar producers,
+//! authentication (Token, OAuth2), TLS configuration, and topic matching
+//! via a trie. MQTT metadata is forwarded as Pulsar message properties.
+
 use std::collections::HashSet;
 use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
@@ -83,6 +89,7 @@ impl SerializeMessage for Message<'_> {
     }
 }
 
+/// Commands for controlling a Pulsar producer.
 #[derive(Debug)]
 pub enum Command {
     Start,
@@ -90,6 +97,7 @@ pub enum Command {
     Message(From, Publish),
 }
 
+/// A Pulsar producer that forwards MQTT messages to a Pulsar topic.
 pub struct Producer {
     pub(crate) name: String,
     cfg_entry: Entry,
@@ -97,6 +105,7 @@ pub struct Producer {
 }
 
 impl Producer {
+    /// Creates a new Pulsar producer and spawns its message processing loop.
     pub(crate) async fn from(
         pulsar: Pulsar<TokioExecutor>,
         cfg: Arc<Bridge>,
@@ -193,6 +202,7 @@ impl Producer {
         log::info!("exit pulsar producer.")
     }
 
+    /// Sends an MQTT publish to the Pulsar producer, applying topic skip-levels.
     #[inline]
     pub(crate) async fn send(&self, f: &From, p: &Publish, topic: &Topic) -> Result<()> {
         let p = if self.cfg_entry.remote.skip_levels > 0 {
@@ -209,11 +219,13 @@ impl Producer {
     }
 }
 
+/// A named bridge instance identifier.
 pub(crate) type BridgeName = ByteString;
 type SourceKey = (BridgeName, EntryIndex);
 
 type EntryIndex = usize;
 
+/// Manages Pulsar producers and topic routing for bridge entries.
 #[derive(Clone)]
 pub(crate) struct BridgeManager {
     node_id: NodeId,
@@ -223,6 +235,7 @@ pub(crate) struct BridgeManager {
 }
 
 impl BridgeManager {
+    /// Creates a new `BridgeManager` with the given node ID and configuration.
     pub async fn new(node_id: NodeId, cfg: Arc<RwLock<PluginConfig>>) -> Self {
         Self {
             node_id,
@@ -262,6 +275,7 @@ impl BridgeManager {
         Ok(pulsar)
     }
 
+    /// Starts all bridge entries with automatic retry on failure.
     pub async fn start(&mut self) {
         while let Err(e) = self._start().await {
             log::error!("start bridge-egress-pulsar error, {e:?}");
@@ -306,6 +320,7 @@ impl BridgeManager {
         Ok(())
     }
 
+    /// Stops all bridge entries by sending close commands to producers.
     pub async fn stop(&mut self) {
         for mut entry in &mut self.sinks.iter_mut() {
             let ((bridge_name, entry_idx), producer) = entry.pair_mut();
@@ -317,11 +332,13 @@ impl BridgeManager {
         self.sinks.clear();
     }
 
+    /// Returns a reference to the internal producer map.
     #[allow(unused)]
     pub(crate) fn sinks(&self) -> &DashMap<SourceKey, Producer> {
         &self.sinks
     }
 
+    /// Routes an MQTT publish to matching Pulsar producers.
     #[inline]
     pub(crate) async fn send(&self, f: &From, p: &Publish) -> rmqtt::Result<()> {
         let topic = Topic::from_str(&p.topic)?;

@@ -1,3 +1,8 @@
+//! Prometheus metrics collection and formatting.
+//!
+//! Defines [`Monitor`] and [`MonitorData`] for collecting node status, stats,
+//! and metrics and exposing them in Prometheus text format.
+
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -24,6 +29,8 @@ use rmqtt::{
 use crate::api::{get_metrics_all, get_metrics_one, get_node, get_nodes_all, get_stats_all, get_stats_one};
 use crate::types::PrometheusDataType;
 
+/// Collects Prometheus metrics for all nodes or a specific node and returns
+/// them in the Prometheus text format.
 #[inline]
 pub async fn to_metrics(
     scx: &ServerContext,
@@ -274,6 +281,8 @@ impl MonitorData {
     }
 }
 
+/// A Prometheus monitor that caches node/stats/metrics data and refreshes
+/// it at configurable intervals.
 #[derive(Clone)]
 pub struct Monitor {
     last_refresh_time: Arc<AtomicI64>,
@@ -281,6 +290,7 @@ pub struct Monitor {
 }
 
 impl Monitor {
+    /// Creates a new empty monitor.
     pub fn new() -> Monitor {
         Self { last_refresh_time: Arc::new(AtomicI64::new(0)), catcheds: Arc::new(DashMap::default()) }
     }

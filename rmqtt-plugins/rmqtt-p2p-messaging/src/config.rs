@@ -1,3 +1,8 @@
+//! Configuration for the P2P messaging plugin.
+//!
+//! Defines [`PluginConfig`] and [`Mode`] for peer-to-peer message routing
+//! topic formats (prefix, suffix, or both).
+
 use serde::de::{self, Deserializer};
 use serde::ser::{self};
 use serde::{Deserialize, Serialize};

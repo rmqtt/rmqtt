@@ -1,3 +1,9 @@
+//! MQTT protocol stream dispatcher and version-specific stream implementations.
+//!
+//! Provides protocol version negotiation ([`Dispatcher::mqtt`]) and version-specific
+//! MQTT v3.1.1/v5.0 stream types ([`v3::MqttStream`], [`v5::MqttStream`]) with send/recv
+//! methods for all MQTT packet types.
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;

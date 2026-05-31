@@ -1,3 +1,9 @@
+//! Configuration for the retained messages plugin.
+//!
+//! Defines [`PluginConfig`], [`Config`], and [`RamConfig`] for configuring
+//! storage backend (RAM or persistent), message limits, payload size caps,
+//! and TTL for retained messages.
+
 use std::time::Duration;
 
 use serde::de::{self, Deserializer};
@@ -6,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use rmqtt::utils::{deserialize_duration_option, Bytesize};
 use rmqtt::Result;
 
+/// Top-level configuration for the retained messages plugin.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
     #[serde(
@@ -76,12 +83,14 @@ impl PluginConfig {
         }
     }
 
+    /// Serializes the configuration to a JSON value.
     #[inline]
     pub fn to_json(&self) -> Result<serde_json::Value> {
         Ok(serde_json::to_value(self)?)
     }
 }
 
+/// Storage backend selector for retained messages.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum Config {
     #[cfg(feature = "ram")]
@@ -90,5 +99,6 @@ pub enum Config {
     Storage(rmqtt_storage::Config),
 }
 
+/// RAM-only retainer configuration (no additional options).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RamConfig {}

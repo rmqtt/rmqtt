@@ -453,16 +453,20 @@ impl Builder {
         self
     }
 
+    /// Configures using the TLS certificate CN field as the MQTT username
     pub fn cert_cn_as_username(mut self, cert_cn_as_username: bool) -> Self {
         self.cert_cn_as_username = cert_cn_as_username;
         self
     }
 
+    /// Configures using the full TLS certificate Subject DN as the MQTT username.
+    /// Takes precedence over `cert_cn_as_username` when both are enabled.
     pub fn cert_subject_dn_as_username(mut self, v: bool) -> Self {
         self.cert_subject_dn_as_username = v;
         self
     }
 
+    /// Enables collection of TLS certificate metadata for connected clients
     pub fn collect_cert_info(mut self, collect_cert_info: bool) -> Self {
         self.collect_cert_info = collect_cert_info;
         self

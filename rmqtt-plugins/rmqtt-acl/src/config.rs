@@ -1,3 +1,9 @@
+//! Configuration types for the ACL plugin.
+//!
+//! Defines [`PluginConfig`], [`Rule`], [`Access`], [`User`], [`Control`],
+//! and [`Topics`] used to control publish/subscribe access based on client
+//! identity, IP address, protocol version, and topic filters.
+
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -18,16 +24,22 @@ use rmqtt::{
 
 type DashSet<V> = dashmap::DashSet<V, ahash::RandomState>;
 
+/// Placeholder for client ID in topic filters.
 pub const PH_C: &str = "%c";
+/// Placeholder for username in topic filters.
 pub const PH_U: &str = "%u";
 
+/// Top-level configuration for the ACL plugin.
+///
+/// Controls access rules, hook priority, and behavior when a publish
+/// is rejected.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
-    ///Disconnect if publishing is rejected
+    /// Disconnect the client if a publish is rejected by ACL rules.
     #[serde(default = "PluginConfig::disconnect_if_pub_rejected_default")]
     pub disconnect_if_pub_rejected: bool,
 
-    ///Hook priority
+    /// Hook execution priority.
     #[serde(default = "PluginConfig::priority_default")]
     pub priority: Priority,
 
@@ -78,6 +90,7 @@ impl PluginConfig {
         josn_rules
     }
 
+    /// Returns the parsed ACL rule list.
     #[inline]
     pub fn rules(&self) -> &Vec<Rule> {
         let (_rules, _) = &self.rules;
@@ -96,6 +109,8 @@ impl PluginConfig {
         rules.serialize(s)
     }
 
+    /// Deserializes ACL rules from a `serde_json::Value`, returning both the parsed
+    /// `Vec<Rule>` and the original JSON value for re-serialization.
     #[inline]
     pub fn deserialize_rules<'de, D>(
         deserializer: D,
@@ -107,6 +122,7 @@ impl PluginConfig {
         Self::parse_rules(json_rules).map_err(de::Error::custom)
     }
 
+    /// Serializes the configuration to a JSON value.
     #[inline]
     pub fn to_json(&self) -> Result<serde_json::Value> {
         Ok(serde_json::to_value(self)?)
@@ -125,6 +141,8 @@ impl PluginConfig {
     }
 }
 
+/// A single ACL rule specifying access permission, matching users, MQTT
+/// operation control, and topic filters.
 #[derive(Debug, Clone)]
 pub struct Rule {
     pub access: Access,
@@ -134,6 +152,7 @@ pub struct Rule {
 }
 
 impl Rule {
+    /// Adds a topic filter with the given client ID to this rule's topic tree.
     #[inline]
     pub async fn add_topic_filter(&self, topic_filter: &str, clientid: ClientId) -> Result<()> {
         let t = Topic::from_str(topic_filter)?;
@@ -141,6 +160,8 @@ impl Rule {
         Ok(())
     }
 
+    /// Removes all topic entries matching the given topic string for the
+    /// specified client ID.
     #[inline]
     pub async fn remove_topic(&self, topic: &str, clientid: &str) -> Result<()> {
         let mut topics = Vec::new();
@@ -161,11 +182,16 @@ impl Rule {
         Ok(())
     }
 
+    /// Adds a topic string to the exact-match set.
     #[inline]
     pub fn add_topic_to_eqs(&self, topic: String) {
         self.topics.eqs.insert(topic);
     }
 
+    /// Checks whether all user conditions in this rule are satisfied by the
+    /// given client `id`.
+    ///
+    /// Returns `(all_users_hit, superuser)`.
     #[inline]
     pub fn hit(
         &self,
@@ -211,12 +237,17 @@ impl std::convert::TryFrom<&serde_json::Value> for Rule {
     }
 }
 
+/// Whether the rule allows or denies access.
 #[derive(Debug, Clone, Copy)]
 pub enum Access {
     Allow,
     Deny,
 }
 
+/// A client matching criterion used in ACL rules.
+///
+/// Can match by username (optionally with password and superuser flag),
+/// client ID, IP address, MQTT protocol version, or match all clients.
 #[derive(Debug, Clone)]
 pub enum User {
     Username(UserName, Option<Password>, Superuser),
@@ -227,6 +258,9 @@ pub enum User {
 }
 
 impl User {
+    /// Checks whether this user criterion matches the given client `id`.
+    ///
+    /// Returns `(matched, superuser)`.
     #[inline]
     pub fn hit(
         &self,
@@ -268,6 +302,7 @@ impl User {
     }
 }
 
+/// The MQTT operation(s) an ACL rule applies to.
 #[derive(Debug, Clone, Copy)]
 pub enum Control {
     ///ALL
@@ -282,6 +317,10 @@ pub enum Control {
     Pubsub,
 }
 
+/// Topic filters associated with an ACL rule.
+///
+/// Supports exact-match topics (`eqs`), topic-tree matching (`tree`),
+/// and placeholder substitution for `%u` (username) and `%c` (client ID).
 #[derive(Debug, Clone)]
 pub struct Topics {
     pub all: bool,
@@ -293,6 +332,8 @@ pub struct Topics {
 }
 
 impl Topics {
+    /// Checks whether the given `topic_filter` string matches any topic in
+    /// this rule, optionally scoped to a specific `client_id`.
     pub async fn is_match(&self, topic_filter: &Topic, topic_filter_str: &str, client_id: &str) -> bool {
         if self.all {
             return true;

@@ -1,3 +1,9 @@
+//! Ingress bridge from NATS.
+//!
+//! Consumes messages from NATS subjects and forwards them as MQTT publish
+//! messages into the local broker. Translates NATS headers into MQTT
+//! metadata (from, client ID, QoS, retain, user properties).
+
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::convert::From as _;
@@ -32,7 +38,10 @@ use crate::config::{Bridge, Entry, PluginConfig};
 
 type ExpiryInterval = Duration;
 
+/// Type alias for the message tuple forwarded through the event system.
 pub type MessageType = (From, Publish, ExpiryInterval);
+
+/// Event that fires when a NATS message is consumed and translated to MQTT.
 pub type OnMessageEvent = Arc<Event<MessageType, ()>>;
 
 #[derive(Debug)]
@@ -131,6 +140,7 @@ impl Message {
     }
 }
 
+/// Commands for controlling the NATS consumer system lifecycle.
 #[derive(Debug)]
 pub enum SystemCommand {
     Start,
