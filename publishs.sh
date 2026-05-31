@@ -38,6 +38,7 @@ sleep 5
 
 cargo publish --registry crates-io --all-features --manifest-path rmqtt-bin/Cargo.toml
 
+# cargo publish --registry crates-io --all-features --manifest-path rmqtt-macros/Cargo.toml
 # cargo publish --registry crates-io --all-features --manifest-path rmqtt-utils/Cargo.toml
 # cargo publish --registry crates-io --all-features --manifest-path rmqtt-codec/Cargo.toml
 # cargo publish --registry crates-io --all-features --manifest-path rmqtt-net/Cargo.toml
