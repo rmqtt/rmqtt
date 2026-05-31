@@ -410,7 +410,6 @@ fn init_logging(log_path: &std::path::Path, verbose: bool) {
     }
 }
 
-
 #[cfg(test)]
 mod cli_tests {
     use super::*;
