@@ -31,9 +31,9 @@ RMQTT 的工业级验证与压测核心引擎（Test Harness + Chaos + Benchmark
 ./target/release/mqtt_harness --workspace . --suites stress
 ./target/release/mqtt_harness --workspace . --suites chaos
 
-# 运行多个套件（逗号分隔）
-./target/release/mqtt_harness --workspace . --suites functional_v3,functional_v311
-./target/release/mqtt_harness --no-broker --suites stress,chaos
+# 运行多个套件（可多次使用 --suites 参数）
+./target/release/mqtt_harness --workspace . --suites functional_v3 --suites functional_v311
+./target/release/mqtt_harness --no-broker --suites stress --suites chaos
 
 # 不指定则运行全部
 ./target/release/mqtt_harness --workspace .
@@ -93,7 +93,7 @@ OPTIONS:
     -b, --binary <BINARY>                rmqttd 二进制路径
     -c, --config <CONFIG>                rmqtt.toml 配置文件路径
         --workspace <WORKSPACE>          Workspace 根目录（用于定位 rmqttd）
-    -s, --suites <SUITES>...             指定测试套件（逗号分隔）
+    -s, --suites <SUITES>...             指定测试套件（可多次使用）
     -w, --workers <WORKERS>              并行 Worker 数 [default: 4]
         --json <JSON>                    输出 JSON 报告到文件
         --html <HTML>                    输出 HTML 报告到文件
