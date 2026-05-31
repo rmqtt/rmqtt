@@ -11,11 +11,11 @@ pub enum BroadcastGrpcMessage {
 impl BroadcastGrpcMessage {
     #[inline]
     pub fn encode(&self) -> Result<Vec<u8>> {
-        bincode::serialize(self).map_err(anyhow::Error::new)
+        postcard::to_stdvec(self).map_err(anyhow::Error::new)
     }
     #[inline]
     pub fn decode(data: &[u8]) -> Result<Self> {
-        bincode::deserialize::<Self>(data).map_err(anyhow::Error::new)
+        postcard::from_bytes::<Self>(data).map_err(anyhow::Error::new)
     }
 }
 
@@ -27,10 +27,10 @@ pub enum BroadcastGrpcMessageReply {
 impl BroadcastGrpcMessageReply {
     #[inline]
     pub fn encode(&self) -> Result<Vec<u8>> {
-        bincode::serialize(self).map_err(anyhow::Error::new)
+        postcard::to_stdvec(self).map_err(anyhow::Error::new)
     }
     #[inline]
     pub fn decode(data: &[u8]) -> Result<Self> {
-        bincode::deserialize::<Self>(data).map_err(anyhow::Error::new)
+        postcard::from_bytes::<Self>(data).map_err(anyhow::Error::new)
     }
 }

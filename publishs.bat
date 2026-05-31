@@ -37,6 +37,7 @@ timeout /t 5 /nobreak
 
 cargo publish --registry crates-io --all-features --manifest-path rmqtt-bin/Cargo.toml
 
+@REM cargo publish --registry crates-io --all-features --manifest-path rmqtt-macros/Cargo.toml
 @REM cargo publish --registry crates-io --all-features --manifest-path rmqtt-utils/Cargo.toml
 @REM cargo publish --registry crates-io --all-features --manifest-path rmqtt-codec/Cargo.toml
 @REM cargo publish --registry crates-io --all-features --manifest-path rmqtt-net/Cargo.toml

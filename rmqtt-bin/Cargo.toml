@@ -25,7 +25,7 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
 rmqtt = { workspace = true, features = ["full"] }
 rmqtt-conf.workspace = true
 rmqtt-net.workspace = true
-structopt.workspace = true
+clap.workspace = true
 log.workspace = true
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }

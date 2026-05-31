@@ -1,6 +1,6 @@
 [package]
 name = "rmqtt-conf"
-version = "0.3.4"
+version = "0.3.5"
 description = "Centralized configuration management system for RMQTT MQTT broker"
 edition.workspace = true
 license.workspace = true
@@ -23,7 +23,7 @@ serde.workspace = true
 log.workspace = true
 serde_json.workspace = true
 ahash.workspace = true
-structopt.workspace = true
+clap.workspace = true
 bytestring.workspace = true
 
 

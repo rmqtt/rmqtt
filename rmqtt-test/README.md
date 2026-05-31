@@ -31,9 +31,9 @@ RMQTT 的工业级验证与压测核心引擎（Test Harness + Chaos + Benchmark
 ./target/release/mqtt_harness --workspace . --suites stress
 ./target/release/mqtt_harness --workspace . --suites chaos
 
-# 运行多个套件（逗号分隔）
-./target/release/mqtt_harness --workspace . --suites functional_v3,functional_v311
-./target/release/mqtt_harness --no-broker --suites stress,chaos
+# 运行多个套件（可多次使用 --suites 参数）
+./target/release/mqtt_harness --workspace . --suites functional_v3 --suites functional_v311
+./target/release/mqtt_harness --no-broker --suites stress --suites chaos
 
 # 不指定则运行全部
 ./target/release/mqtt_harness --workspace .
@@ -93,7 +93,7 @@ OPTIONS:
     -b, --binary <BINARY>                rmqttd 二进制路径
     -c, --config <CONFIG>                rmqtt.toml 配置文件路径
         --workspace <WORKSPACE>          Workspace 根目录（用于定位 rmqttd）
-    -s, --suites <SUITES>...             指定测试套件（逗号分隔）
+    -s, --suites <SUITES>...             指定测试套件（可多次使用）
     -w, --workers <WORKERS>              并行 Worker 数 [default: 4]
         --json <JSON>                    输出 JSON 报告到文件
         --html <HTML>                    输出 HTML 报告到文件
@@ -403,7 +403,7 @@ rmqtt-test/
 | bytes / bytestring | 网络字节处理 |
 | rmqtt-codec | MQTT 协议编解码 |
 | serde / serde_json | 序列化与 JSON 报告 |
-| structopt | CLI 参数解析 |
+| clap | CLI 参数解析 |
 | tracing / tracing-subscriber | 日志（含文件输出与分层过滤） |
 | anyhow / thiserror | 错误处理 |
 | rand | 混沌测试随机数 |

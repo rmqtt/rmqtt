@@ -20,7 +20,7 @@
 //!
 //! 3. ​**​Message Types​**​:
 //!    - 22+ predefined message types for cluster operations
-//!    - Serialization/deserialization via bincode
+//!    - Serialization/deserialization via postcard
 //!    - Support for custom binary data payloads
 //!
 //! ## Key Features
@@ -281,11 +281,11 @@ pub enum Message {
 impl Message {
     #[inline]
     pub fn encode(&self, typ: MessageType) -> Result<Vec<u8>> {
-        Ok(bincode::serialize(&(typ, self))?)
+        Ok(postcard::to_stdvec(&(typ, self))?)
     }
     #[inline]
     pub fn decode(data: &[u8]) -> Result<(MessageType, Message)> {
-        Ok(bincode::deserialize::<(MessageType, Message)>(data)?)
+        Ok(postcard::from_bytes::<(MessageType, Message)>(data)?)
     }
 }
 
@@ -311,11 +311,11 @@ pub enum MessageReply {
 impl MessageReply {
     #[inline]
     pub fn encode(&self) -> Result<Vec<u8>> {
-        Ok(bincode::serialize(self)?)
+        Ok(postcard::to_stdvec(self)?)
     }
     #[inline]
     pub fn decode(data: &[u8]) -> Result<MessageReply> {
-        Ok(bincode::deserialize::<MessageReply>(data)?)
+        Ok(postcard::from_bytes::<MessageReply>(data)?)
     }
 }
 

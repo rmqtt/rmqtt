@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use async_trait::async_trait;
-use get_size::GetSize;
+use get_size2::GetSize;
 use rust_box::task_exec_queue::{Builder, SpawnExt, TaskExecQueue};
 use tokio::{sync::RwLock, time::sleep};
 

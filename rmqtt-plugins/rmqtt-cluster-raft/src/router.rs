@@ -263,7 +263,7 @@ impl Store for ClusterRouter {
     #[allow(clippy::result_large_err)]
     async fn apply(&mut self, message: &[u8]) -> RaftResult<Vec<u8>> {
         log::debug!("apply, message.len: {:?}", message.len());
-        let message: Message = bincode::deserialize(message).map_err(|e| Error::Other(e))?;
+        let message: Message = postcard::from_bytes(message).map_err(|e| Error::Other(Box::new(e)))?;
         match message {
             Message::HandshakeTryLock { id } => {
                 log::debug!("[Router.HandshakeTryLock] id: {id:?}");
@@ -352,7 +352,7 @@ impl Store for ClusterRouter {
             }
             Message::GetClientNodeId { client_id } => {
                 let node_id = self._client_node_id(client_id);
-                let data = bincode::serialize(&node_id).map_err(|e| Error::Other(e))?;
+                let data = postcard::to_stdvec(&node_id).map_err(|e| Error::Other(Box::new(e)))?;
                 return Ok(data);
             }
             Message::Ping => return MessageReply::Ping.encode().map_err(|_e| Error::Unknown),
@@ -364,11 +364,11 @@ impl Store for ClusterRouter {
     #[allow(clippy::result_large_err)]
     async fn query(&self, query: &[u8]) -> RaftResult<Vec<u8>> {
         log::debug!("query, message.len: {:?}", query.len());
-        let query: Message = bincode::deserialize(query).map_err(|e| Error::Other(e))?;
+        let query: Message = postcard::from_bytes(query).map_err(|e| Error::Other(Box::new(e)))?;
         match query {
             Message::GetClientNodeId { client_id } => {
                 let node_id = self._client_node_id(client_id);
-                let data = bincode::serialize(&node_id).map_err(|e| Error::Other(e))?;
+                let data = postcard::to_stdvec(&node_id).map_err(|e| Error::Other(Box::new(e)))?;
                 return Ok(data);
             }
             _ => {
@@ -432,13 +432,13 @@ impl Store for ClusterRouter {
                 .collect::<Vec<_>>();
 
             let (relations_bin, client_states_bin) = rayon::join(
-                || bincode::serialize(&relations).map(|data| compress(compression, data)),
-                || bincode::serialize(&client_states).map(|data| compress(compression, data)),
+                || postcard::to_stdvec(&relations).map(|data| compress(compression, data)),
+                || postcard::to_stdvec(&client_states).map(|data| compress(compression, data)),
             );
             let relations_bin = relations_bin??;
             let client_states_bin = client_states_bin??;
-            let topics_count_bin = bincode::serialize(&topics_count.as_ref())?;
-            let relations_count_bin = bincode::serialize(&relations_count.as_ref())?;
+            let topics_count_bin = postcard::to_stdvec(&topics_count.as_ref())?;
+            let relations_count_bin = postcard::to_stdvec(&relations_count.as_ref())?;
 
             let mut snapshot = Vec::new();
             encode_with_length_prefix(&relations_bin, &mut snapshot);
@@ -497,9 +497,9 @@ impl Store for ClusterRouter {
             let slice = &snapshot[start..start + len];
             if uncompress_enable {
                 let slice = uncompress(compression, slice)?;
-                Ok(bincode::deserialize(slice.as_ref())?)
+                Ok(postcard::from_bytes(slice.as_ref())?)
             } else {
-                Ok(bincode::deserialize(slice)?)
+                Ok(postcard::from_bytes(slice)?)
             }
         }
 

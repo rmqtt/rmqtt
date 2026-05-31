@@ -37,11 +37,11 @@ pub enum Message<'a> {
 impl Message<'_> {
     #[inline]
     pub fn encode(&self) -> Result<Vec<u8>> {
-        bincode::serialize(self).map_err(anyhow::Error::new)
+        postcard::to_stdvec(self).map_err(anyhow::Error::new)
     }
     #[inline]
     pub fn decode(data: &[u8]) -> Result<Message<'_>> {
-        bincode::deserialize::<Message>(data).map_err(anyhow::Error::new)
+        postcard::from_bytes::<Message>(data).map_err(anyhow::Error::new)
     }
 }
 
@@ -67,11 +67,11 @@ pub enum MessageReply {
 impl MessageReply {
     #[inline]
     pub fn encode(&self) -> Result<Vec<u8>> {
-        bincode::serialize(self).map_err(anyhow::Error::new)
+        postcard::to_stdvec(self).map_err(anyhow::Error::new)
     }
     #[inline]
     pub fn decode(data: &[u8]) -> Result<MessageReply> {
-        bincode::deserialize::<MessageReply>(data).map_err(anyhow::Error::new)
+        postcard::from_bytes::<MessageReply>(data).map_err(anyhow::Error::new)
     }
 }
 
