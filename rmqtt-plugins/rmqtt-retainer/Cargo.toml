@@ -21,7 +21,7 @@ redis = ["rmqtt-storage/redis"]
 
 [dependencies]
 rmqtt = { workspace = true, features = ["plugin", "retain"] }
-rmqtt-storage = { package = "rmqtt-storage", version = "0.7", default-features = false, features = ["ttl", "len"], optional = true}
+rmqtt-storage = { workspace = true, default-features = false, features = ["ttl", "len"], optional = true}
 #rmqtt-storage = { path = "../../../rmqtt-storage", default-features = false, features = ["ttl", "len"], optional = true}
 futures.workspace = true
 futures-time.workspace = true

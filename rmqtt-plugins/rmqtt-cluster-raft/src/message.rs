@@ -21,11 +21,11 @@ pub enum Message<'a> {
 impl<'a> Message<'a> {
     #[inline]
     pub fn encode(&self) -> Result<Vec<u8>> {
-        bincode::serialize(self).map_err(anyhow::Error::new)
+        postcard::to_stdvec(self).map_err(anyhow::Error::new)
     }
     #[inline]
     pub fn _decode(data: &'a [u8]) -> Result<Self> {
-        bincode::deserialize::<Self>(data).map_err(anyhow::Error::new)
+        postcard::from_bytes::<Self>(data).map_err(anyhow::Error::new)
     }
 }
 
@@ -39,11 +39,11 @@ pub enum MessageReply {
 impl MessageReply {
     #[inline]
     pub fn encode(&self) -> Result<Vec<u8>> {
-        bincode::serialize(self).map_err(anyhow::Error::new)
+        postcard::to_stdvec(self).map_err(anyhow::Error::new)
     }
     #[inline]
     pub fn decode(data: &[u8]) -> Result<MessageReply> {
-        bincode::deserialize::<MessageReply>(data).map_err(anyhow::Error::new)
+        postcard::from_bytes::<MessageReply>(data).map_err(anyhow::Error::new)
     }
 }
 
@@ -52,7 +52,7 @@ pub(crate) async fn get_client_node_id(raft_mailbox: Mailbox, client_id: &str) -
     let msg = Message::GetClientNodeId { client_id }.encode()?;
     let reply = raft_mailbox.query(msg).await.map_err(anyhow::Error::new)?;
     if !reply.is_empty() {
-        Ok(bincode::deserialize(&reply).map_err(anyhow::Error::new)?)
+        Ok(postcard::from_bytes(&reply).map_err(anyhow::Error::new)?)
     } else {
         Ok(None)
     }
@@ -78,11 +78,11 @@ pub enum RaftGrpcMessage {
 impl RaftGrpcMessage {
     #[inline]
     pub fn encode(&self) -> Result<Vec<u8>> {
-        bincode::serialize(self).map_err(anyhow::Error::new)
+        postcard::to_stdvec(self).map_err(anyhow::Error::new)
     }
     #[inline]
     pub fn decode(data: &[u8]) -> Result<Self> {
-        bincode::deserialize::<Self>(data).map_err(anyhow::Error::new)
+        postcard::from_bytes::<Self>(data).map_err(anyhow::Error::new)
     }
 }
 
@@ -94,10 +94,10 @@ pub enum RaftGrpcMessageReply {
 impl RaftGrpcMessageReply {
     #[inline]
     pub fn encode(&self) -> Result<Vec<u8>> {
-        bincode::serialize(self).map_err(anyhow::Error::new)
+        postcard::to_stdvec(self).map_err(anyhow::Error::new)
     }
     #[inline]
     pub fn decode(data: &[u8]) -> Result<Self> {
-        bincode::deserialize::<Self>(data).map_err(anyhow::Error::new)
+        postcard::from_bytes::<Self>(data).map_err(anyhow::Error::new)
     }
 }

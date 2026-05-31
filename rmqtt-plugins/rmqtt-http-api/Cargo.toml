@@ -23,5 +23,5 @@ bytes.workspace = true
 futures.workspace = true
 socket2.workspace = true
 prometheus.workspace = true
-bincode.workspace = true
+postcard.workspace = true
 

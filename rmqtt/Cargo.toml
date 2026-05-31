@@ -57,12 +57,12 @@ itertools.workspace = true
 dashmap.workspace = true
 ahash.workspace = true
 chrono = { workspace = true, features = ["clock"] }
-get-size = { workspace = true, features = ["derive"] }
+get-size2 = { workspace = true, features = ["derive"] }
 leaky-bucket.workspace = true
 governor.workspace = true
 uuid = { workspace = true, features = ["v4"] }
 systemstat.workspace = true
-bincode.workspace = true
+postcard.workspace = true
 prost.workspace = true
 rand.workspace = true
 prometheus.workspace = true

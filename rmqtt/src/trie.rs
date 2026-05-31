@@ -26,7 +26,7 @@
 //!
 //! - **Cluster-Ready Serialization**:
 //!   - `Serialize/Deserialize` implementations enable distributed state synchronization
-//!   - `bincode` compatible for network-efficient binary representation
+//!   - `postcard` compatible for network-efficient binary representation
 //!
 //! - **Memory Optimization**:
 //!   - Automatic node cleanup during removal operations
@@ -469,7 +469,7 @@ mod tests {
         println!("serialize topics.values_size(): {:?}", topics.values_size());
         let val_size = topics.values_size();
         let mut topics: TopicTree<NodeId> =
-            bincode::deserialize(&bincode::serialize(&topics).unwrap()).unwrap();
+            postcard::from_bytes(&postcard::to_stdvec(&topics).unwrap()).unwrap();
         println!("deserialize topics.values_size(): {:?}", topics.values_size());
         assert_eq!(val_size, topics.values_size());
         assert!(match_one(&topics, "/a/b/c", &[1]));
@@ -508,7 +508,7 @@ mod tests {
         topics.insert(&Topic::from_str("/ddl/22/#").unwrap(), ());
 
         let val_size = topics.values_size();
-        let topics: TopicTree<()> = bincode::deserialize(&bincode::serialize(&topics).unwrap()).unwrap();
+        let topics: TopicTree<()> = postcard::from_bytes(&postcard::to_stdvec(&topics).unwrap()).unwrap();
         assert_eq!(val_size, topics.values_size());
     }
 }

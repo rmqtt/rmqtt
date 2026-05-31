@@ -35,7 +35,7 @@ use bitflags::bitflags;
 use bytes::Bytes;
 use bytestring::ByteString;
 use futures::StreamExt;
-use get_size::GetSize;
+use get_size2::GetSize;
 use itertools::Itertools;
 use rmqtt_codec::cert::CertInfo;
 use serde::de::{self, Deserializer};
@@ -1624,7 +1624,7 @@ pub type To = Id;
 #[derive(Clone)]
 pub struct Id(Arc<_Id>);
 
-impl get_size::GetSize for Id {
+impl get_size2::GetSize for Id {
     fn get_heap_size(&self) -> usize {
         self.0.get_heap_size()
     }
@@ -1886,12 +1886,12 @@ impl StoredMessage {
 
     #[inline]
     pub fn encode(&self) -> Result<Vec<u8>> {
-        Ok(bincode::serialize(&self)?)
+        Ok(postcard::to_stdvec(&self)?)
     }
 
     #[inline]
     pub fn decode(data: &[u8]) -> Result<Self> {
-        Ok(bincode::deserialize(data)?)
+        Ok(postcard::from_bytes(data)?)
     }
 }
 
