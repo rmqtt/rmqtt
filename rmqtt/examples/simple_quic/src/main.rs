@@ -1,3 +1,6 @@
+//! Example: MQTT server with a QUIC (UDP) transport listener on port 9443.
+//! Demonstrates how to configure TLS certificates for QUIC connections.
+
 use rmqtt::{context::ServerContext, net::Builder, server::MqttServer, Result};
 use simple_logger::SimpleLogger;
 

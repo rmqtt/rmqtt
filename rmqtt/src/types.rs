@@ -1,4 +1,11 @@
-//! Some commonly used type definitions
+//! Common type definitions for the RMQTT broker.
+//!
+//! This module defines core data types shared across the broker:
+//! - Connection and session identifiers (`Id`, `ConnectInfo`, `From`)
+//! - MQTT packet wrappers (`Publish`, `Packet`, `Subscribe`, `Unsubscribe`)
+//! - Subscription and ACL result types (`SubscribeReturn`, `PublishAclResult`)
+//! - Protocol-specific type abstractions (`ConnectAckReason`, `SubscriptionOptions`)
+//! - Convenience type aliases for DashMap, HashMap, and common patterns
 
 use std::any::Any;
 use std::convert::From as _f;
@@ -63,10 +70,10 @@ pub type UserName = ByteString;
 pub type Superuser = bool;
 pub type Password = bytes::Bytes;
 pub type PacketId = u16;
-///topic name or topic filter
+/// Topic name or topic filter represented as a byte string.
 pub type TopicName = ByteString;
 pub type Topic = crate::topic::Topic;
-///topic filter
+/// Topic filter represented as a byte string.
 pub type TopicFilter = ByteString;
 pub type SharedGroup = ByteString;
 pub type LimitSubsCount = Option<usize>;
@@ -100,7 +107,7 @@ pub type HookUnsubscribeResult = Vec<Option<TopicFilter>>;
 pub type MessageSender = Sender<(From, Publish)>;
 pub type MessageQueue = Queue<(From, Publish)>;
 pub type MessageQueueType = Arc<MessageQueue>;
-pub type OutInflightType = Arc<RwLock<OutInflight>>; //@TODO 考虑去掉 RwLock
+pub type OutInflightType = Arc<RwLock<OutInflight>>; //@TODO Consider removing RwLock wrapper
 
 pub type ConnectInfoType = Arc<ConnectInfo>;
 pub type FitterType = Arc<dyn Fitter>;
@@ -109,6 +116,10 @@ pub type ListenerId = u16;
 
 pub(crate) const UNDEFINED: &str = "undefined";
 
+/// A sender for delivering messages to a specific MQTT session.
+///
+/// Wraps an unbounded MPSC sender with optional debug statistics tracking.
+/// When the `debug` feature is enabled, each send increments a session channel counter.
 #[derive(Clone)]
 pub struct SessionTx {
     #[cfg(feature = "debug")]
@@ -149,6 +160,10 @@ impl SessionTx {
     }
 }
 
+/// MQTT connection information for a client session.
+///
+/// Encapsulates the client identifier and protocol-specific CONNECT packet,
+/// supporting both MQTT v3.1.1 (`V3`) and v5.0 (`V5`) variants.
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 pub enum ConnectInfo {
     V3(Id, Box<ConnectV3>),
@@ -339,6 +354,10 @@ impl ConnectInfo {
     }
 }
 
+/// A disconnect request from a client.
+///
+/// Supports MQTT v3.1.1 (no reason code), v5.0 (with reason code and properties),
+/// and a fallback `Other` variant for custom disconnect reasons.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub enum Disconnect {
     V3,
@@ -368,6 +387,10 @@ impl Disconnect {
 
 pub type SubscribeAclResult = SubscribeReturn;
 
+/// Result of a publish ACL check.
+///
+/// Wraps a `PublishResult` indicating whether the publish operation was
+/// allowed or rejected, and whether the connection should be terminated.
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct PublishAclResult(pub PublishResult);
 
@@ -402,6 +425,11 @@ impl PublishAclResult {
     }
 }
 
+/// Authentication result for a connection attempt.
+///
+/// Indicates whether the client was authenticated (`Allow` with optional superuser
+/// and ACL rules), or the reason for rejection (`NotFound`, `BadUsernameOrPassword`,
+/// `NotAuthorized`).
 #[derive(Debug, Clone)]
 pub enum AuthResult {
     Allow(Superuser, Option<AuthInfo>),
@@ -411,6 +439,10 @@ pub enum AuthResult {
     NotAuthorized,
 }
 
+/// Result of checking whether a publish message has expired.
+///
+/// Returns either `Expiry` (message has expired) or `Remaining` with the
+/// remaining expiry interval.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MessageExpiryCheckResult {
     Expiry,
@@ -561,6 +593,10 @@ pub fn parse_topic_filter(
     Ok((topic, shared_group, limit_subs))
 }
 
+/// Subscription options for an MQTT topic filter.
+///
+/// Supports both MQTT v3.1.1 (`V3`) and v5.0 (`V5`) subscription option variants,
+/// including QoS, shared groups, and subscription identifiers.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub enum SubscriptionOptions {
     V3(SubOptionsV3),
@@ -717,6 +753,10 @@ impl SubscriptionOptions {
     }
 }
 
+/// MQTT v3.1.1 subscription options.
+///
+/// Contains the QoS level, optional shared subscription group (feature-gated),
+/// and optional subscription limit (feature-gated).
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct SubOptionsV3 {
     #[serde(
@@ -752,6 +792,10 @@ impl SubOptionsV3 {
     }
 }
 
+/// MQTT v5.0 subscription options.
+///
+/// Extends v3 options with No Local, Retain As Published, Retain Handling,
+/// and an optional subscription identifier per the MQTT v5.0 spec.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct SubOptionsV5 {
     #[serde(
@@ -870,6 +914,7 @@ impl std::convert::From<(&SubscriptionOptionsV5, Option<SharedGroup>, LimitSubsC
     }
 }
 
+/// A subscription request with topic filter and options.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Subscribe {
     pub topic_filter: TopicFilter,
@@ -911,6 +956,10 @@ impl Subscribe {
     }
 }
 
+/// Result of a subscribe operation.
+///
+/// Contains the ack reason code and, in case of re-subscription,
+/// the previous subscription options.
 #[derive(Clone, Debug)]
 pub struct SubscribeReturn {
     pub ack_reason: SubscribeAckReason,
@@ -970,6 +1019,7 @@ impl SubscribeReturn {
 //     pub topic_filter: (ByteString, SubscriptionOptionsV5),
 // }
 
+/// MQTT CONNACK reason code, wrapping both v3.1.1 and v5.0 variants.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ConnectAckReason {
     V3(ConnectAckReasonV3),
@@ -1019,6 +1069,7 @@ impl ConnectAckReason {
     }
 }
 
+/// An unsubscribe request with topic filter and optional shared group.
 #[derive(Clone, Debug)]
 pub struct Unsubscribe {
     pub topic_filter: TopicFilter,
@@ -1049,6 +1100,10 @@ impl Unsubscribe {
 //     V5(UnsubscribeAckV5),
 // }
 
+/// A reference to a client's Last Will and Testament message.
+///
+/// Wraps either an MQTT v3.1.1 or v5.0 last will message, providing
+/// a unified interface for accessing will properties.
 #[derive(Clone)]
 pub enum LastWill<'a> {
     V3(&'a LastWillV3),
@@ -1471,6 +1526,10 @@ where
     }
 }
 
+/// Result of processing a PUBLISH packet.
+///
+/// Contains the reason code, optional reason string, user properties,
+/// and whether the connection should be disconnected.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PublishResult {
     pub reason_code: PublishAckReason,
@@ -1511,6 +1570,7 @@ impl Default for PublishResult {
     }
 }
 
+/// A decoded MQTT packet from either protocol version.
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum Packet {
@@ -1518,6 +1578,7 @@ pub enum Packet {
     V5(codec::v5::Packet),
 }
 
+/// Origin type of a message, used for routing and tracing.
 #[derive(GetSize, Debug, Clone, Copy, Deserialize, Serialize)]
 pub enum FromType {
     Custom,
@@ -1547,6 +1608,7 @@ impl std::fmt::Display for FromType {
     }
 }
 
+/// Identifies the origin of a message, including type and client identity.
 #[derive(GetSize, Clone, Deserialize, Serialize)]
 pub struct From {
     typ: FromType,
@@ -1621,6 +1683,10 @@ impl std::fmt::Debug for From {
 
 pub type To = Id;
 
+/// Unique client identifier within the cluster.
+///
+/// Combines node ID, listener ID, addresses, client ID, username,
+/// and creation timestamp into a single identity object.
 #[derive(Clone)]
 pub struct Id(Arc<_Id>);
 
@@ -1799,6 +1865,7 @@ impl<'de> Deserialize<'de> for Id {
     }
 }
 
+/// Internal identifier fields stored behind an `Arc` in `Id`.
 #[derive(Debug, PartialEq, Eq, Hash, Clone, GetSize, Deserialize, Serialize)]
 pub struct _Id {
     pub node_id: NodeId,
@@ -1837,6 +1904,7 @@ fn get_option_addr_size_helper(s: &Option<SocketAddr>) -> usize {
     }
 }
 
+/// A retained message with its origin and publish data.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Retain {
     pub msg_id: Option<MsgID>,
@@ -1846,6 +1914,7 @@ pub struct Retain {
 
 pub type MsgID = usize;
 
+/// A persisted message in storage with expiry tracking.
 #[derive(Debug, Clone, Deserialize, Serialize, GetSize)]
 pub struct StoredMessage {
     pub msg_id: MsgID,
@@ -1895,6 +1964,10 @@ impl StoredMessage {
     }
 }
 
+/// An internal message sent between broker components.
+///
+/// Variants cover message forwarding, inflight re-delivery, session kicks,
+/// connection close notifications, subscription changes, and state transfer.
 #[derive(Debug)]
 pub enum Message {
     Forward(From, Publish),
@@ -1908,6 +1981,7 @@ pub enum Message {
     SessionStateTransfer(OfflineInfo, CleanStart),
 }
 
+/// Status information for an MQTT session.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SessionStatus {
     pub id: Id,
@@ -1915,6 +1989,7 @@ pub struct SessionStatus {
     pub handshaking: bool,
 }
 
+/// Parameters for searching subscriptions.
 #[derive(Deserialize, Serialize, Debug, Default, Clone)]
 pub struct SubsSearchParams {
     #[serde(default)]
@@ -1927,6 +2002,7 @@ pub struct SubsSearchParams {
     pub _match_topic: Option<String>,
 }
 
+/// A single subscription search result entry.
 #[derive(Deserialize, Serialize, Debug, Default)]
 pub struct SubsSearchResult {
     pub node_id: NodeId,
@@ -1949,13 +2025,20 @@ impl SubsSearchResult {
     }
 }
 
+/// A route mapping a node ID to a topic filter.
 #[derive(Deserialize, Serialize, Debug, Default, PartialEq, Eq, Hash, Clone)]
 pub struct Route {
     pub node_id: NodeId,
     pub topic: TopicFilter,
 }
 
+/// Thread-safe subscription map for a session.
+///
+/// Wraps a `HashMap<TopicFilter, SubscriptionOptions>` behind `Arc<RwLock>`
+/// for concurrent access.
 pub type SessionSubMap = HashMap<TopicFilter, SubscriptionOptions>;
+
+/// Thread-safe session subscription storage behind `Arc<RwLock>`.
 #[derive(Clone)]
 pub struct SessionSubs {
     subs: Arc<RwLock<SessionSubMap>>,

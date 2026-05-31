@@ -65,6 +65,17 @@ use crate::types::{
 use crate::utils::timestamp_millis;
 use crate::{Error, Result};
 
+/// Processes a new MQTT v5.0 connection through its full lifecycle.
+///
+/// Performs the protocol handshake with MQTT v5 features (session expiry,
+/// topic aliases, reason codes), sets up session state, and enters
+/// the main message processing loop. Handles connection refusal with
+/// appropriate CONNACK codes on failure.
+///
+/// # Arguments
+/// * `scx` - Server context for accessing shared state
+/// * `sink` - MQTT v5.0 stream for I/O operations
+/// * `lid` - Listener port identifier
 pub(crate) async fn process<Io>(
     scx: ServerContext,
     mut sink: v5::MqttStream<Io>,

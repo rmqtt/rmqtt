@@ -1,3 +1,6 @@
+//! Build script that reads plugin metadata from `Cargo.toml` and generates
+//! Rust code to register all plugins at startup.
+
 use std::fs::File;
 use std::io::prelude::*;
 

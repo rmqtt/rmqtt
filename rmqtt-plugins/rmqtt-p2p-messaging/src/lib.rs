@@ -1,3 +1,15 @@
+//! P2P (Peer-to-Peer) messaging plugin for RMQTT.
+//!
+//! Enables direct message exchange between MQTT clients without
+//! going through the publish/subscribe topic tree. Messages are
+//! routed directly to the target client by client ID.
+//!
+//! # Features
+//!
+//! - Direct client-to-client message routing.
+//! - Configurable P2P topic prefix (e.g., `$p2p/`).
+//! - Cross-node P2P delivery via cluster gRPC.
+//!
 #![deny(unsafe_code)]
 
 use std::sync::Arc;

@@ -1,3 +1,15 @@
+//! NATS ingress bridge plugin for RMQTT.
+//!
+//! Consumes messages from NATS subjects and publishes them
+//! as MQTT messages. Supports configurable subject-to-topic
+//! mapping and message format handling.
+//!
+//! # Features
+//!
+//! - NATS subscription with queue group support.
+//! - Subject-to-topic transformation with wildcard expansion.
+//! - Configurable NATS connection settings.
+//!
 #![deny(unsafe_code)]
 
 use std::ops::Deref;

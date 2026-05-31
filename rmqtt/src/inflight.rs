@@ -70,18 +70,36 @@ use crate::Result;
 
 type OutQueues = DequeMap<PacketId, OutInflightMessage>;
 
+/// Tracks the acknowledgment status of an inflight message.
+///
+/// Represents the current state in the QoS flow:
+/// - `UnAck`: Published but not yet acknowledged by the subscriber.
+/// - `UnReceived`: PUBREL sent but PUBREC not yet received (QoS 2 only).
+/// - `UnComplete`: QoS 2 handshake initiated but not completed.
 #[derive(Debug, Eq, PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub enum MomentStatus {
+    /// Published to subscriber, awaiting acknowledgment.
     UnAck,
+    /// PUBREL sent, awaiting PUBREC (QoS 2 only).
     UnReceived,
+    /// QoS 2 handshake in progress, awaiting completion.
     UnComplete,
 }
 
+/// An outbound inflight message with delivery tracking metadata.
+///
+/// Tracks a publish message that has been sent but not yet
+/// acknowledged by the receiver. Used for QoS 1 and QoS 2
+/// retransmission and deduplication logic.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutInflightMessage {
+    /// The publish message content.
     pub publish: Publish,
+    /// The source of the message (client, broker, or bridge).
     pub from: From,
+    /// Current delivery acknowledgment status.
     pub status: MomentStatus,
+    /// Last status update timestamp (milliseconds since epoch).
     pub update_time: TimestampMillis,
 }
 
@@ -104,6 +122,22 @@ impl OutInflightMessage {
     }
 }
 
+/// Manages outbound inflight messages for QoS 1 and QoS 2 delivery.
+///
+/// Provides packet ID generation, retransmission tracking via
+/// dual-interval timing (retry/expiry), and capacity-based flow control.
+///
+/// # Packet ID Management
+///
+/// Packet IDs are generated atomically via `AtomicU16` starting from 1,
+/// wrapping around when necessary. The system probes up to `u16::MAX`
+/// attempts before reporting exhaustion.
+///
+/// # Timeout Behavior
+///
+/// The effective check interval is `min(retry_interval, expiry_interval)`.
+/// When a timeout fires, [`pop_front_timeout`](OutInflight::pop_front_timeout)
+/// returns the expired message for retransmission or cleanup.
 #[derive(Clone)]
 pub struct OutInflight {
     cap: usize,
@@ -115,6 +149,13 @@ pub struct OutInflight {
 }
 
 impl OutInflight {
+    /// Create a new outbound inflight tracker.
+    ///
+    /// # Arguments
+    ///
+    /// * `cap` — Maximum concurrent outbound messages.
+    /// * `retry_interval` — Delay before retransmitting unacknowledged messages (ms).
+    /// * `expiry_interval` — Time after which messages expire (ms).
     #[inline]
     pub fn new(cap: usize, retry_interval: TimestampMillis, expiry_interval: TimestampMillis) -> Self {
         let interval = Self::interval(retry_interval, expiry_interval);
@@ -128,6 +169,7 @@ impl OutInflight {
         }
     }
 
+    /// Register a callback invoked when a message is pushed to the inflight queue.
     #[inline]
     pub fn on_push<F>(mut self, f: F) -> Self
     where
@@ -137,6 +179,7 @@ impl OutInflight {
         self
     }
 
+    /// Register a callback invoked when a message is popped from the inflight queue.
     #[inline]
     pub fn on_pop<F>(mut self, f: F) -> Self
     where
@@ -156,6 +199,9 @@ impl OutInflight {
         }
     }
 
+    /// Compute the timeout duration until the next inflight message expires.
+    ///
+    /// Returns `None` if no messages are queued or if intervals are zero.
     #[inline]
     pub fn get_timeout(&self) -> Option<Duration> {
         if self.interval == 0 {
@@ -304,7 +350,19 @@ impl OutInflight {
     }
 }
 
-//@TODO 大小限制，即同一个连接上接收消息的并发限制
+/// Tracks inbound inflight messages for QoS 2 deduplication.
+///
+///
+/// Maintains a set of packet IDs received from the client to detect
+/// duplicate PUBLISH packets (a requirement of the MQTT QoS 2 protocol).
+///
+/// # Flow Control
+///
+/// Enforces a `max_inflight` window to prevent the client from
+/// overwhelming the broker with concurrent QoS 2 publishes.
+///
+/// Size limit for concurrent inbound messages on a single connection.
+/// TODO: Make this configurable per listener/client.
 pub struct InInflight {
     cached: BTreeSet<NonZeroU16>,
     #[allow(dead_code)]

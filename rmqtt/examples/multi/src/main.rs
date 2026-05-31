@@ -1,3 +1,6 @@
+//! Example: MQTT server with multiple listeners (TCP, TLS, WebSocket, WSS).
+//! Demonstrates how to configure and bind several transport types on a single server.
+
 use rmqtt::{context::ServerContext, net::Builder, server::MqttServer, Result};
 use simple_logger::SimpleLogger;
 

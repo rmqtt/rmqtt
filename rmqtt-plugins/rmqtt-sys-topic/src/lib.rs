@@ -1,3 +1,16 @@
+//! System topic plugin for RMQTT.
+//!
+//! Publishes broker system status and metrics to `$SYS/` topics.
+//! Clients can subscribe to these topics to monitor broker health,
+//! statistics, and configuration.
+//!
+//! # Features
+//!
+//! - Publishes broker version, uptime, and node status.
+//! - Exposes connection, session, and subscription counts.
+//! - Periodic updates at configurable intervals.
+//! - Cluster-aware aggregated metrics.
+//!
 #![deny(unsafe_code)]
 
 use std::convert::From as _;

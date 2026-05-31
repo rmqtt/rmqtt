@@ -70,46 +70,108 @@ use crate::types::{
 use crate::utils::timestamp_millis;
 use crate::Result;
 
+/// Hook handler priority value.
+///
+/// Lower numerical values indicate higher priority.
+/// Priority 0 is the highest (executed first).
 pub type Priority = u32;
+
+/// Whether hook chain execution should continue.
+///
+/// `true` allows subsequent handlers to execute.
+/// `false` short-circuits the chain and returns the current result.
 pub type Proceed = bool;
+
+/// Return type for hook handler execution.
+///
+/// The first element indicates whether to continue processing
+/// subsequent handlers. The second element is the accumulated
+/// result passed through the handler chain.
 pub type ReturnType = (Proceed, Option<HookResult>);
 
+/// Manages the lifecycle and execution of all hook points in the broker.
+///
+/// Implementations organize hook handlers by [`Type`], execute them
+/// in priority order, and manage the accumulation of results across
+/// the handler chain.
+///
+/// # Hook Execution Flow
+///
+/// 1. A session-level event occurs (e.g., connect, publish, subscribe).
+/// 2. [`HookManager`] dispatches to the appropriate hook [`Type`].
+/// 3. Registered handlers execute in reverse priority order (highest first).
+/// 4. Each handler receives the accumulated result from previous handlers.
+/// 5. If any handler returns `proceed=false`, execution short-circuits.
+/// 6. The final result is returned to the caller.
+///
+/// # Thread Safety
+///
+/// All hook methods are async and require `Sync + Send` bounds
+/// to support concurrent session processing.
 #[async_trait]
 pub trait HookManager: Sync + Send {
+    /// Create a session-scoped [`Hook`] instance.
+    ///
+    /// The returned `Hook` is bound to the given [`Session`] and
+    /// provides convenient access to session-aware hook execution.
     fn hook(&self, s: Session) -> Arc<dyn Hook>;
 
+    /// Obtain a [`Register`] handle for registering hook handlers.
+    ///
+    /// The returned handle can add handlers with specific priorities,
+    /// and start/stop them in batch.
     fn register(&self) -> Box<dyn Register>;
 
-    ///Before the server startup
+    /// Triggered before the server starts accepting connections.
+    ///
+    /// Hook handlers can perform one-time initialization that must
+    /// complete before the broker begins operation.
     async fn before_startup(&self);
 
-    ///When a connect message is received
+    /// Triggered when a CONNECT packet is received from a client.
+    ///
+    /// Returns optional [`UserProperties`] that will be included
+    /// in the CONNACK response to the client.
     async fn client_connect(&self, connect_info: &ConnectInfo) -> Option<UserProperties>;
 
-    ///authenticate
+    /// Authenticate a connecting client.
+    ///
+    /// Returns a triple of (connection acknowledgment reason,
+    /// superuser status, optional authentication info).
+    /// If `allow_anonymous` is true and no username is provided,
+    /// authentication is automatically granted.
     async fn client_authenticate(
         &self,
         connect_info: &ConnectInfo,
         allow_anonymous: bool,
     ) -> (ConnectAckReason, Superuser, Option<AuthInfo>);
 
-    ///When sending mqtt:: connectack message
+    /// Triggered when a CONNACK is about to be sent to the client.
+    ///
+    /// Allows inspection or modification of the connection
+    /// acknowledgment reason code before it is transmitted.
     async fn client_connack(
         &self,
         connect_info: &ConnectInfo,
         return_code: ConnectAckReason,
     ) -> ConnectAckReason;
 
-    ///Publish message received
+    /// Intercept an incoming PUBLISH message.
+    ///
+    /// Returns `Some(Publish)` with a (possibly modified) message
+    /// to continue processing, or `None` to silently drop it.
     async fn message_publish(&self, s: Option<&Session>, from: From, publish: &Publish) -> Option<Publish>;
 
-    ///Publish message Dropped
+    /// Notify that a publish message was dropped before delivery.
+    ///
+    /// Triggered when a message could not be delivered to any
+    /// matching subscriber or was discarded for other reasons.
     async fn message_dropped(&self, to: Option<To>, from: From, p: Publish, reason: Reason);
 
-    ///Publish message nonsubscribed
+    /// Notify that a publish message had no matching subscribers.
     async fn message_nonsubscribed(&self, from: From);
 
-    ///grpc message received
+    /// Handle a gRPC message received from another cluster node.
     #[cfg(feature = "grpc")]
     async fn grpc_message_received(
         &self,
@@ -118,108 +180,228 @@ pub trait HookManager: Sync + Send {
     ) -> Result<grpc::MessageReply>;
 }
 
+/// Manages the registration lifecycle of hook handlers.
+///
+/// Provides methods to add handlers with configurable priority,
+/// and to start/stop all registered handlers atomically.
+///
+/// # Lifecycle
+///
+/// 1. `add` / `add_priority` — register a handler for a hook type.
+/// 2. `start` — enable all registered handlers (sets `enabled = true`).
+/// 3. `stop` — disable all registered handlers (sets `enabled = false`).
+///
+/// Handlers are not active until `start()` is called.
 #[async_trait]
 pub trait Register: Sync + Send {
+    /// Register a handler with default priority (0, highest).
     async fn add(&self, typ: Type, handler: Box<dyn Handler>) {
         self.add_priority(typ, 0, handler).await;
     }
 
+    /// Register a handler with a specific priority level.
+    ///
+    /// Lower priority values execute first.
     async fn add_priority(&self, typ: Type, priority: Priority, handler: Box<dyn Handler>);
 
+    /// Activate all registered handlers.
+    ///
+    /// After this call, handlers will begin receiving hook events.
     async fn start(&self) {}
 
+    /// Deactivate all registered handlers.
+    ///
+    /// After this call, handlers will stop receiving hook events.
     async fn stop(&self) {}
 }
 
+/// Processes hook events and returns results.
+///
+/// Implementations define custom behavior for specific hook points.
+/// Each handler receives the hook parameters and any accumulated
+/// result from previous handlers in the chain.
+///
+/// # Return Value
+///
+/// A `ReturnType` tuple:
+/// - First element (`Proceed`): `false` short-circuits the chain.
+/// - Second element: Updated accumulated result for subsequent handlers.
 #[async_trait]
 pub trait Handler: Sync + Send {
+    /// Execute this handler for the given hook event.
+    ///
+    /// # Arguments
+    ///
+    /// * `param` — The hook event context and parameters.
+    /// * `acc` — The accumulated result from prior handlers, if any.
+    ///
+    /// # Returns
+    ///
+    /// A `ReturnType` indicating whether to proceed and the
+    /// (possibly updated) accumulated result.
     async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType;
 }
 
+/// Session-scoped hook interface for client connection events.
+///
+/// A `Hook` instance is created per session via [`HookManager::hook`].
+/// It provides access to all session-level hook points without
+/// requiring the caller to pass session context explicitly.
+///
+/// # ACL Behavior
+///
+/// Superuser sessions automatically bypass ACL checks for
+/// both subscribe and publish operations.
 #[async_trait]
 pub trait Hook: Sync + Send {
-    ///session created
+    /// A new session has been created for this connection.
     async fn session_created(&self);
 
-    ///After the mqtt:: connectack message is sent, the connection is created successfully
+    /// The connection has been established after CONNACK was sent.
     async fn client_connected(&self);
 
-    ///Disconnect message received
+    /// A DISCONNECT packet has been received from the client.
     async fn client_disconnected(&self, r: Reason);
 
-    ///Session terminated
+    /// The session has been terminated (cleanup complete).
     async fn session_terminated(&self, r: Reason);
 
-    ///subscribe check acl
+    /// Check ACL for a subscribe request.
+    ///
+    /// Returns `Some(SubscribeAclResult)` with the ACL decision,
+    /// or `None` to allow by default.
+    /// Superuser sessions automatically pass this check.
     async fn client_subscribe_check_acl(&self, subscribe: &Subscribe) -> Option<SubscribeAclResult>;
 
-    ///publish check acl
+    /// Check ACL for a publish request.
+    ///
+    /// Returns the ACL decision for the given publish message.
+    /// Superuser sessions automatically pass this check.
     async fn message_publish_check_acl(&self, publish: &Publish) -> PublishAclResult;
 
-    ///Subscribe message received
+    /// A SUBSCRIBE packet has been received from the client.
+    ///
+    /// Returns an optional modified [`TopicFilter`] to replace
+    /// the original subscription.
     async fn client_subscribe(&self, subscribe: &Subscribe) -> Option<TopicFilter>;
 
-    ///Subscription succeeded
+    /// A subscription has been successfully added to the session.
     async fn session_subscribed(&self, subscribe: Subscribe);
 
-    ///Unsubscribe message received
+    /// An UNSUBSCRIBE packet has been received from the client.
+    ///
+    /// Returns an optional modified [`TopicFilter`] to replace
+    /// the original unsubscription.
     async fn client_unsubscribe(&self, unsubscribe: &Unsubscribe) -> Option<TopicFilter>;
 
-    ///Unsubscribe succeeded
+    /// An unsubscription has been successfully removed from the session.
     async fn session_unsubscribed(&self, unsubscribe: Unsubscribe);
 
-    ///Publish message received
+    /// An incoming PUBLISH message has been received.
+    ///
+    /// Returns `Some(Publish)` with a potentially modified message,
+    /// or `None` to drop the message silently.
     async fn message_publish(&self, from: From, p: &Publish) -> Option<Publish>;
 
-    ///Message delivered
+    /// A message has been delivered to the client.
+    ///
+    /// Returns `Some(Publish)` to replace the delivered message,
+    /// or `None` to keep the original.
     async fn message_delivered(&self, from: From, publish: &Publish) -> Option<Publish>;
 
-    ///Message acked
+    /// A message has been acknowledged by the client (QoS 1/2).
     async fn message_acked(&self, from: From, publish: &Publish);
 
-    ///Offline publish message
+    /// A publish message has been queued for offline delivery.
     async fn offline_message(&self, from: From, publish: &Publish);
 
-    ///Offline inflight messages
+    /// Offline inflight messages are being prepared for a reconnecting client.
+    ///
+    /// These are QoS 1/2 messages that were in-flight when the
+    /// client disconnected but not yet acknowledged.
     async fn offline_inflight_messages(&self, inflight_messages: Vec<OutInflightMessage>);
 
-    ///Message expiry check
+    /// Check whether a message has expired before delivery.
+    ///
+    /// Returns [`MessageExpiryCheckResult::Expiry`] if the message
+    /// should be discarded, or [`MessageExpiryCheckResult::Remaining`]
+    /// with the time left before expiry.
     async fn message_expiry_check(&self, from: From, publish: &Publish) -> MessageExpiryCheckResult;
 
-    ///Client Keepalive
+    /// The client's keepalive timer has triggered.
+    ///
+    /// `IsPing` indicates whether the client sent a ping request.
     async fn client_keepalive(&self, ping: IsPing);
 }
 
+/// Identifies the type of hook event.
+///
+/// Each variant corresponds to a specific point in the MQTT
+/// client or message lifecycle where plugins can intervene.
+///
+/// # Categories
+///
+/// - **Startup**: `BeforeStartup`
+/// - **Session lifecycle**: `SessionCreated`, `SessionTerminated`,
+///   `SessionSubscribed`, `SessionUnsubscribed`
+/// - **Client lifecycle**: `ClientAuthenticate` through `ClientKeepalive`
+/// - **Message lifecycle**: `MessagePublishCheckAcl` through `MessageNonsubscribed`
+/// - **Offline handling**: `OfflineMessage`, `OfflineInflightMessages`
+/// - **Cluster**: `GrpcMessageReceived`
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Deserialize, Serialize)]
 pub enum Type {
+    /// Before the server starts listening for connections.
     BeforeStartup,
 
+    /// A new client session has been created.
     SessionCreated,
+    /// A client session has been terminated.
     SessionTerminated,
+    /// A subscription has been added to a session.
     SessionSubscribed,
+    /// A subscription has been removed from a session.
     SessionUnsubscribed,
 
+    /// Authenticate a connecting client.
     ClientAuthenticate,
+    /// Process a received CONNECT packet.
     ClientConnect,
+    /// Modify the CONNACK reason code before sending.
     ClientConnack,
+    /// A client connection has been fully established.
     ClientConnected,
+    /// A client has disconnected.
     ClientDisconnected,
+    /// Process a received SUBSCRIBE packet.
     ClientSubscribe,
+    /// Process a received UNSUBSCRIBE packet.
     ClientUnsubscribe,
+    /// Check ACL permissions for a subscribe request.
     ClientSubscribeCheckAcl,
+    /// Client keepalive timeout or ping received.
     ClientKeepalive,
 
+    /// Check ACL permissions for a publish request.
     MessagePublishCheckAcl,
+    /// Process an incoming PUBLISH packet.
     MessagePublish,
+    /// A message was delivered to a subscriber.
     MessageDelivered,
+    /// A message was acknowledged by the subscriber.
     MessageAcked,
+    /// A message was dropped before delivery.
     MessageDropped,
+    /// Check whether a message has expired.
     MessageExpiryCheck,
+    /// A published message had no matching subscribers.
     MessageNonsubscribed,
 
+    /// A publish message queued for offline delivery.
     OfflineMessage,
+    /// Inflight messages loaded for a reconnecting client.
     OfflineInflightMessages,
 
+    /// A gRPC message received from another cluster node.
     GrpcMessageReceived,
 }
 
@@ -261,35 +443,70 @@ impl std::convert::From<&str> for Type {
     }
 }
 
+/// Hook execution parameters for handler callbacks.
+///
+/// Each variant carries the contextual data needed by handlers
+/// for a specific hook event. Parameters reference session state,
+/// message data, and other ephemeral event information.
+///
+/// # Lifetime
+///
+/// The lifetime `'a` is tied to the borrow of the session and
+/// message data. Handlers must not capture references that
+/// outlive the hook invocation.
 #[derive(Debug, Clone)]
 pub enum Parameter<'a> {
+    /// No parameters for server startup.
     BeforeStartup,
 
+    /// A new session was created.
     SessionCreated(&'a Session),
+    /// A session was terminated with the given reason.
     SessionTerminated(&'a Session, Reason),
+    /// A subscription was added.
     SessionSubscribed(&'a Session, Subscribe),
+    /// A subscription was removed.
     SessionUnsubscribed(&'a Session, Unsubscribe),
 
+    /// A CONNECT packet was received.
     ClientConnect(&'a ConnectInfo),
+    /// A CONNACK is about to be sent.
     ClientConnack(&'a ConnectInfo, &'a ConnectAckReason),
+    /// Authentication request.
     ClientAuthenticate(&'a ConnectInfo),
+    /// A client connection was established.
     ClientConnected(&'a Session),
+    /// A client disconnected.
     ClientDisconnected(&'a Session, Reason),
+    /// A SUBSCRIBE packet was received.
     ClientSubscribe(&'a Session, &'a Subscribe),
+    /// An UNSUBSCRIBE packet was received.
     ClientUnsubscribe(&'a Session, &'a Unsubscribe),
+    /// ACL check for a subscribe request.
     ClientSubscribeCheckAcl(&'a Session, &'a Subscribe),
+    /// Keepalive timer event.
     ClientKeepalive(&'a Session, IsPing),
 
+    /// ACL check for a publish request.
     MessagePublishCheckAcl(&'a Session, &'a Publish),
+    /// An incoming PUBLISH packet.
     MessagePublish(Option<&'a Session>, From, &'a Publish),
+    /// A message was delivered to a subscriber.
     MessageDelivered(&'a Session, From, &'a Publish),
+    /// A message was acknowledged.
     MessageAcked(&'a Session, From, &'a Publish),
+    /// A message was dropped.
     MessageDropped(Option<To>, From, Publish, Reason),
+    /// Expiry check for a publish message.
     MessageExpiryCheck(&'a Session, From, &'a Publish),
+    /// A published message had no subscribers.
     MessageNonsubscribed(From),
 
+    /// A message queued for offline delivery.
     OfflineMessage(&'a Session, From, &'a Publish),
+    /// Inflight messages for a reconnecting client.
     OfflineInflightMessages(&'a Session, Vec<OutInflightMessage>),
+    /// A gRPC cluster message.
     #[cfg(feature = "grpc")]
     GrpcMessageReceived(grpc::MessageType, grpc::Message),
 }
@@ -330,29 +547,46 @@ impl Parameter<'_> {
     }
 }
 
+/// Accumulated result from hook handler execution.
+///
+/// The variant indicates which hook type produced the result
+/// and carries type-specific data. This enum is accumulated
+/// across the handler chain: each handler may inspect and
+/// replace the current result.
+///
+/// # Handling
+///
+/// Callers match on the variant to extract the relevant data
+/// for the hook type they invoked. Unmatched variants should
+/// be treated as "no modification" by convention.
 #[derive(Debug)]
 pub enum HookResult {
-    ///User Properties, for ClientConnect
+    /// User properties returned from a `ClientConnect` hook.
     UserProperties(UserProperties),
-    ///Authentication failed, for ClientAuthenticate
+    /// Authentication result from a `ClientAuthenticate` hook.
     AuthResult(AuthResult),
-    ///ConnectAckReason, for ClientConnack
+    /// Modified connection acknowledgment reason code.
     ConnectAckReason(ConnectAckReason),
-    ///TopicFilters, for ClientSubscribe/ClientUnsubscribe
+    /// Modified topic filter from subscribe/unsubscribe hooks.
     TopicFilter(Option<TopicFilter>),
-    ///Subscribe AclResult, for ClientSubscribeCheckAcl
+    /// ACL decision for a subscribe request.
     SubscribeAclResult(SubscribeAclResult),
-    ///Publish AclResult, for MessagePublishCheckAcl
+    /// ACL decision for a publish request.
     PublishAclResult(PublishAclResult),
-    ///Publish, for MessagePublish/MessageDelivered
+    /// Modified publish message from publish/delivery hooks.
     Publish(Publish),
-    ///Message Expiry
+    /// Indicates the message has expired.
     MessageExpiry,
-    ///for GrpcMessageReceived
+    /// Reply to a gRPC cluster message.
     #[cfg(feature = "grpc")]
     GrpcMessageReply(Result<grpc::MessageReply>),
 }
 
+/// Internal registry entry for a single hook handler.
+///
+/// Tracks the handler instance and its enabled state.
+/// Handlers can be registered but disabled, allowing
+/// deferred activation via the [`Register`] lifecycle.
 struct HookEntry {
     handler: Box<dyn Handler>,
     enabled: bool,
@@ -366,6 +600,23 @@ impl HookEntry {
 
 type HandlerId = String;
 
+/// The default [`HookManager`] implementation.
+///
+/// Stores handlers in a concurrent map keyed by hook [`Type`],
+/// with each type having a sorted collection of `(Priority, HandlerId)` entries.
+///
+/// # Concurrency
+///
+/// Uses a two-level locking strategy:
+/// - Outer [`DashMap`] for lock-free sharded access by hook type.
+/// - Inner [`tokio::sync::RwLock`] protecting the `BTreeMap` of handlers
+///   for fine-grained concurrent reads during hook execution.
+///
+/// # Handler Execution
+///
+/// Handlers are executed in reverse BTreeMap order (highest priority first).
+/// Each handler receives the accumulated result from prior handlers.
+/// If any handler returns `proceed = false`, the chain short-circuits.
 #[derive(Clone)]
 pub struct DefaultHookManager {
     #[allow(clippy::type_complexity)]
@@ -569,6 +820,17 @@ impl HookManager for DefaultHookManager {
     }
 }
 
+/// Default [`Register`] implementation that manages handler lifecycle.
+///
+/// Tracks all registered handlers by type and ID, and provides
+/// batch enable/disable operations via [`start`](Register::start)
+/// and [`stop`](Register::stop).
+///
+/// # Implementation
+///
+/// Uses a [`DashSet`] to maintain a set of `(Type, (Priority, HandlerId))`
+/// tuples. On `start`/`stop`, iterates over the set and toggles the
+/// `enabled` flag on each entry's [`HookEntry`].
 pub struct DefaultHookRegister {
     manager: DefaultHookManager,
     type_ids: Arc<DashSet<(Type, (Priority, HandlerId))>>,
@@ -620,6 +882,18 @@ impl Register for DefaultHookRegister {
     }
 }
 
+/// Default [`Hook`] implementation bound to a specific session.
+///
+/// Wraps a [`DefaultHookManager`] and a [`Session`] reference,
+/// providing session-scoped hook execution. All hook methods
+/// delegate to the manager with the session as part of the
+/// execution parameter.
+///
+/// # ACL Integration
+///
+/// `client_subscribe_check_acl` and `message_publish_check_acl`
+/// automatically bypass ACL checks for superuser sessions before
+/// delegating to registered handlers.
 #[derive(Clone)]
 pub struct DefaultHook {
     manager: DefaultHookManager,

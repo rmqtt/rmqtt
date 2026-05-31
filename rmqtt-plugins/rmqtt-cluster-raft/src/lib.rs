@@ -1,5 +1,33 @@
+//! Raft-based cluster plugin for RMQTT.
+//!
+//! Implements distributed consensus and state machine replication
+//! using the Raft algorithm for cluster-wide coordination.
+//!
+//! # Architecture
+//!
+//! - **`ClusterPlugin`**: Main plugin implementing the [`Plugin`] trait.
+//! - **`ClusterRouter`**: Distributed topic routing via Raft consensus.
+//! - **`ClusterShared`**: Shared cluster state (sessions, subscriptions).
+//! - **`HookHandler`**: MQTT event hooks for cluster-aware processing.
+//!
+//! # Startup Flow
+//!
+//! 1. [`Plugin::init`] — Starts the Raft node (leader or follower),
+//!    registers hooks (`ClientDisconnected`, `SessionTerminated`,
+//!    `GrpcMessageReceived`), and begins health monitoring.
+//! 2. [`Plugin::start`] — Replaces the local router/shared state with
+//!    clustered versions, enables hooks, and pings the Raft cluster
+//!    to verify readiness.
+//! 3. [`Plugin::stop`] — Always returns `false`; a running cluster
+//!    cannot be cleanly stopped once started.
+//!
+//! # Raft Lifecycle
+//!
+//! - Runs in a dedicated OS thread with its own Tokio runtime.
+//! - Leader election and log replication are handled by `rmqtt-raft`.
+//! - Inter-node communication uses gRPC for message forwarding.
+//!
 #![deny(unsafe_code)]
-
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 use std::time::Duration;
@@ -37,6 +65,10 @@ type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
 register!(ClusterPlugin::new);
 
+/// Raft-based cluster consensus plugin.
+///
+/// Manages cluster membership, distributed routing, and state
+/// replication across RMQTT broker nodes.
 #[derive(Plugin)]
 struct ClusterPlugin {
     scx: ServerContext,
@@ -113,6 +145,19 @@ impl ClusterPlugin {
     }
 
     //raft init ...
+    /// Initialize the Raft node and attempt to join or lead the cluster.
+    ///
+    /// # Flow
+    ///
+    /// 1. Resolve this node's Raft listen address.
+    /// 2. Optionally verify it resolves.
+    /// 3. Create the Raft instance on a dedicated thread with its own
+    ///    Tokio runtime.
+    /// 4. Based on configuration:
+    ///    - If a leader is specified, verify the actual leader matches
+    ///      and join as a follower.
+    ///    - Otherwise, search for an existing leader. If none found,
+    ///      become the leader.
     async fn start_raft(
         scx: &ServerContext,
         cfg: Arc<PluginConfig>,
@@ -417,6 +462,10 @@ impl Plugin for ClusterPlugin {
     }
 }
 
+/// Parse a string address into a [`SocketAddr`] with retry logic.
+///
+/// Retries up to 10 times with randomized backoff (500-800ms)
+/// to handle DNS resolution delays during startup.
 async fn parse_addr(addr: &str) -> Result<SocketAddr> {
     for i in 0..10 {
         match addr.to_socket_addrs() {
@@ -437,6 +486,10 @@ async fn parse_addr(addr: &str) -> Result<SocketAddr> {
     Err(anyhow!(format!("Parsing address{:?} error", addr)))
 }
 
+/// Poll peer nodes to find the current Raft leader.
+///
+/// Attempts up to `rounds` iterations, sleeping 500ms between attempts.
+/// Returns `None` if no leader is found after all rounds.
 async fn find_actual_leader(
     raft: &Raft<ClusterRouter>,
     peer_addrs: Vec<String>,

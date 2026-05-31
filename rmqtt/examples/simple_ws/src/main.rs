@@ -1,3 +1,6 @@
+//! Example: MQTT server with WebSocket transport on port 8080.
+//! Demonstrates how to configure a plain WebSocket listener.
+
 use rmqtt::{context::ServerContext, net::Builder, server::MqttServer, Result};
 use simple_logger::SimpleLogger;
 

@@ -1,3 +1,15 @@
+//! Pulsar ingress bridge plugin for RMQTT.
+//!
+//! Consumes messages from Apache Pulsar topics and publishes
+//! them as MQTT messages. Supports configurable subscription
+//! types, message routing, and delivery guarantees.
+//!
+//! # Features
+//!
+//! - Pulsar consumer with configurable subscription type.
+//! - Topic mapping with wildcard support.
+//! - Message metadata extraction and forwarding.
+//!
 #![deny(unsafe_code)]
 
 use std::ops::Deref;

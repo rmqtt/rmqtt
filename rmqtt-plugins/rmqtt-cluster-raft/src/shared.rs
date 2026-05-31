@@ -1,3 +1,17 @@
+//! Raft cluster shared state management.
+//!
+//! Provides a distributed [`Shared`] implementation that coordinates
+//! sessions, subscriptions, and client state across cluster nodes
+//! using the Raft consensus protocol.
+//!
+//! # Key Responsibilities
+//!
+//! - Cross-node session lookup and lifecycle management.
+//! - Distributed subscription state synchronization.
+//! - Client status queries and health checking.
+//! - gRPC message forwarding between peers.
+//! - Raft proposal for state-changing operations.
+//!
 use std::sync::Arc;
 use std::time::Duration;
 

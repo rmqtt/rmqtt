@@ -81,54 +81,93 @@ use crate::session::Session;
 use crate::types::*;
 use crate::Result;
 
+/// Represents a client session entry in the shared state.
+///
+/// Provides atomic operations for session lifecycle management,
+/// including connection state transitions, subscription changes,
+/// and message publishing. Each entry is identified by a unique
+/// [`Id`] and can be locked for exclusive access.
 #[async_trait]
 pub trait Entry: Sync + Send {
+    /// Attempt to acquire an exclusive lock on this entry.
     async fn try_lock(&self) -> Result<Box<dyn Entry>>;
+    /// Return the unique identifier for this entry.
     fn id(&self) -> Id;
+    /// Check whether the stored session ID matches this entry's ID.
     fn id_same(&self) -> Option<bool>;
+    /// Replace the session and its associated sender channel.
     async fn set(&mut self, session: Session, tx: Tx) -> Result<()>;
+    /// Remove the session entry and return the previous session and sender.
     async fn remove(&mut self) -> Result<Option<(Session, Tx)>>;
+    /// Remove the session entry matching the given [`Id`].
     async fn remove_with(&mut self, id: &Id) -> Result<Option<(Session, Tx)>>;
+    /// Forcefully disconnect the client session.
+    ///
+    /// # Arguments
+    /// * `clean_start` - Whether to treat this as a clean start disconnect.
+    /// * `clear_subscriptions` - Whether to remove all subscriptions.
+    /// * `is_admin` - Whether the kick originates from an admin action.
     async fn kick(
         &mut self,
         clean_start: bool,
         clear_subscriptions: bool,
         is_admin: IsAdmin,
     ) -> Result<OfflineSession>;
+    /// Check whether the client is currently online.
     async fn online(&self) -> bool;
+    /// Check whether the client connection is active.
     async fn is_connected(&self) -> bool;
+    /// Retrieve an optional reference to the stored [`Session`].
     fn session(&self) -> Option<Session>;
+    /// Check whether an entry exists in the shared state.
     fn exist(&self) -> bool;
+    /// Retrieve the sender channel for delivering messages to this client.
     fn tx(&self) -> Option<Tx>;
+    /// Subscribe the client to a topic filter.
     async fn subscribe(&self, subscribe: &Subscribe) -> Result<SubscribeReturn>;
+    /// Unsubscribe the client from a topic filter.
     async fn unsubscribe(&self, unsubscribe: &Unsubscribe) -> Result<bool>;
+    /// Publish a message to this client.
     async fn publish(&self, from: From, p: Publish) -> std::result::Result<(), (From, Publish, Reason)>;
+    /// List all current subscriptions for this client.
     async fn subscriptions(&self) -> Option<Vec<SubsSearchResult>>;
 }
 
+/// Cluster-wide shared session state and message routing.
+///
+/// Provides the core interface for distributed session management,
+/// subscription tracking, and publish message forwarding across
+/// cluster nodes. Implementations manage client state storage,
+/// gRPC-based inter-node communication, and message delivery.
 #[async_trait]
 pub trait Shared: Sync + Send {
-    /// Entry of the id
+    /// Retrieve the session entry associated with the given client [`Id`].
     fn entry(&self, id: Id) -> Box<dyn Entry>;
 
-    /// Check if client_id exist
+    /// Check whether a session for the given `client_id` exists in the shared state.
     fn exist(&self, client_id: &str) -> bool;
 
-    /// Route and dispense publish message
+    /// Route a publish message to all matching subscribers on this node.
+    ///
+    /// Returns the set of subscribed client IDs that received the message,
+    /// or a list of delivery failures with reasons.
     async fn forwards(
         &self,
         from: From,
         publish: Publish,
     ) -> std::result::Result<SubscriptionClientIds, Vec<(To, From, Publish, Reason)>>;
 
-    ///Route and dispense publish message and return shared subscription relations
+    /// Route a publish message and return both the subscription relation map and subscriber IDs.
+    ///
+    /// Unlike [`forwards`](Self::forwards), this also separates out shared subscription groups
+    /// in the returned [`SubRelationsMap`] for caller-side processing.
     async fn forwards_and_get_shareds(
         &self,
         from: From,
         publish: Publish,
     ) -> std::result::Result<(SubRelationsMap, SubscriptionClientIds), Vec<(To, From, Publish, Reason)>>;
 
-    /// dispense publish message
+    /// Forward a publish message to a specific set of subscription relations.
     async fn forwards_to(
         &self,
         from: From,
@@ -136,24 +175,25 @@ pub trait Shared: Sync + Send {
         relations: SubRelations,
     ) -> std::result::Result<(), Vec<(To, From, Publish, Reason)>>;
 
-    /// Iter
+    /// Return an iterator over all client session entries.
     fn iter(&self) -> Box<dyn Iterator<Item = Box<dyn Entry>> + Sync + Send + '_>;
 
-    /// choose a session if exist
+    /// Pick a random connected session, if any exist.
     fn random_session(&self) -> Option<Session>;
 
-    /// Get session status with client id specific
+    /// Retrieve the session status for a specific client ID.
     async fn session_status(&self, client_id: &str) -> Option<SessionStatus>;
 
-    /// Count of th client States
+    /// Return the total number of client states currently tracked.
     async fn client_states_count(&self) -> usize;
 
-    /// Sessions count
+    /// Return the number of active sessions.
     fn sessions_count(&self) -> usize;
 
-    /// Subscriptions from SubSearchParams
+    /// Query subscriptions matching the given search parameters.
     async fn query_subscriptions(&self, q: &SubsSearchParams) -> Vec<SubsSearchResult>;
 
+    /// Return the total number of subscriptions across all sessions.
     async fn subscriptions_count(&self) -> usize;
 
     ///This node is not included
@@ -202,6 +242,11 @@ pub trait Shared: Sync + Send {
     ) -> Result<Vec<(MsgID, From, Publish)>>;
 }
 
+/// A locked reference to a client session entry.
+///
+/// Wraps an [`Entry`] with an optional mutex guard to ensure
+/// exclusive access during session operations. Used internally
+/// by [`DefaultShared`] to serialize access to a specific client's state.
 pub struct LockEntry {
     id: Id,
     shared: DefaultShared,
@@ -219,6 +264,12 @@ impl Drop for LockEntry {
 }
 
 impl LockEntry {
+    /// Create a new `LockEntry` wrapping the given session [`Id`].
+    ///
+    /// # Arguments
+    /// * `id` - The unique session identifier.
+    /// * `shared` - Reference to the shared state manager.
+    /// * `_locker` - Optional mutex guard for exclusive access.
     #[inline]
     pub fn new(id: Id, shared: DefaultShared, _locker: Option<OwnedMutexGuard<()>>) -> Self {
         Self { id, shared, _locker }
@@ -233,6 +284,7 @@ impl LockEntry {
         Ok(())
     }
 
+    /// Remove a peer entry identified by `with_id`, optionally clearing its subscriptions.
     #[inline]
     pub async fn _remove_with(&mut self, clear_subscriptions: bool, with_id: &Id) -> Option<(Session, Tx)> {
         if let Some((_, peer)) =
@@ -500,6 +552,11 @@ struct EntryItem {
     tx: Tx,
 }
 
+/// Default production implementation of the [`Shared`] trait for cluster-wide session management.
+///
+/// Uses a `DashMap` for lock-free concurrent client state storage,
+/// per-client mutexes for serialized access, and optional gRPC integration
+/// for inter-node message forwarding and subscription synchronization.
 #[derive(Clone)]
 pub struct DefaultShared {
     scx: Option<ServerContext>,
@@ -508,6 +565,7 @@ pub struct DefaultShared {
 }
 
 impl DefaultShared {
+    /// Create a new `DefaultShared` instance.
     #[inline]
     pub fn new(scx: Option<ServerContext>) -> DefaultShared {
         Self { scx, lockers: Arc::new(DashMap::default()), peers: Arc::new(DashMap::default()) }
@@ -522,11 +580,13 @@ impl DefaultShared {
         }
     }
 
+    /// Retrieve the sender channel and target [`To`] address for a given `client_id`.
     #[inline]
     pub fn tx(&self, client_id: &str) -> Option<(Tx, To)> {
         self.peers.get(client_id).map(|peer| (peer.tx.clone(), peer.s.id.clone()))
     }
 
+    /// Collect subscription client IDs from a [`SubRelationsMap`], resolving shared groups.
     #[inline]
     pub fn _collect_subscription_client_ids(&self, relations_map: &SubRelationsMap) -> SubscriptionClientIds {
         let sub_client_ids = relations_map
@@ -563,6 +623,7 @@ impl DefaultShared {
         }
     }
 
+    /// Merge two [`SubscriptionClientIds`] collections into one.
     #[inline]
     pub fn _merge_subscription_client_ids(
         &self,
@@ -871,6 +932,9 @@ impl Shared for DefaultShared {
     }
 }
 
+/// Iterator over all client session entries managed by [`DefaultShared`].
+///
+/// Wraps a `DashMap` iterator, yielding each entry as a `Box<dyn Entry>`.
 pub struct DefaultIter<'a> {
     shared: DefaultShared,
     ptr: dashmap::iter::Iter<'a, ClientId, EntryItem, ahash::RandomState>,
@@ -879,6 +943,7 @@ pub struct DefaultIter<'a> {
 impl Iterator for DefaultIter<'_> {
     type Item = Box<dyn Entry>;
 
+    /// Advance the iterator and return the next session entry.
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(item) = self.ptr.next() {

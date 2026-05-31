@@ -1,3 +1,17 @@
+//! HTTP API plugin for RMQTT.
+//!
+//! Provides a RESTful HTTP API for broker management and monitoring.
+//! Supports operations like querying client information, managing
+//! subscriptions, publishing messages, and retrieving metrics.
+//!
+//! # Features
+//!
+//! - Client management: list, kick, inspect sessions.
+//! - Message operations: publish, query retained messages.
+//! - Subscription management: list, add, remove subscriptions.
+//! - Metrics: broker statistics, node info, Prometheus endpoint.
+//! - Cluster-aware: queries span all nodes via gRPC.
+//!
 #![deny(unsafe_code)]
 
 use std::sync::Arc;

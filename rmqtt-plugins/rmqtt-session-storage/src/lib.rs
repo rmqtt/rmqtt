@@ -1,3 +1,18 @@
+//! Session storage plugin for RMQTT.
+//!
+//! Persists MQTT session state (subscriptions, inflight messages,
+//! offline messages) to configurable backends including:
+//! - **Sled**: Embedded database (default).
+//! - **Redis**: External Redis server.
+//! - **Redis Cluster**: Distributed Redis setup.
+//!
+//! # Features
+//!
+//! - Session state serialization/deserialization via postcard.
+//! - Automatic cleanup of expired sessions.
+//! - Configurable garbage collection intervals.
+//! - Lock-free concurrent access with async channels.
+//!
 #![deny(unsafe_code)]
 
 use std::convert::From as _;

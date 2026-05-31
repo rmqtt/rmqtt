@@ -1,3 +1,16 @@
+//! Retained message storage plugin for RMQTT.
+//!
+//! Provides persistent storage for MQTT retained messages with
+//! pluggable backends: in-memory (RAM), Sled embedded database,
+//! and Redis.
+//!
+//! # Features
+//!
+//! - Persistent storage of retained messages across restarts.
+//! - Configurable storage backend (ram, sled, redis).
+//! - Message expiry with configurable cleanup intervals.
+//! - Cluster-aware retained message synchronization.
+//!
 #![deny(unsafe_code)]
 
 use std::sync::atomic::{AtomicBool, Ordering};

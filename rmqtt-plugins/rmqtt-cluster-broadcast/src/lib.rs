@@ -1,3 +1,16 @@
+//! Broadcast cluster plugin for RMQTT.
+//!
+//! Implements cluster communication via a simpler broadcast-based
+//! approach (without Raft consensus). Messages are forwarded to
+//! all peer nodes via gRPC.
+//!
+//! # Architecture
+//!
+//! - Each node maintains gRPC connections to all peers.
+//! - Incoming MQTT events are broadcast to every peer node.
+//! - No distributed consensus — eventual consistency model.
+//! - Lighter weight than the Raft-based cluster plugin.
+//!
 #![deny(unsafe_code)]
 
 use std::sync::Arc;

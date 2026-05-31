@@ -1,3 +1,21 @@
+//! ACL (Access Control List) plugin for RMQTT.
+//!
+//! Provides rule-based publish/subscribe authorization using
+//! configurable allow/deny rules with topic pattern matching.
+//!
+//! # Rule Evaluation
+//!
+//! Rules are evaluated in order. The first matching rule determines
+//! the authorization decision. If no rules match, the default action
+//! (allow/deny) applies.
+//!
+//! Each rule specifies:
+//! - `action`: `allow` or `deny`
+//! - `username`: Optional client username match
+//! - `clientid`: Optional client ID match
+//! - `topic`: Topic filter for the rule
+//! - `action`: `publish` or `subscribe` (or both)
+//!
 #![deny(unsafe_code)]
 
 use std::str::FromStr;

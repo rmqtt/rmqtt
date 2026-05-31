@@ -52,19 +52,27 @@ use crate::types::{ClientId, From, MsgID, Publish, SharedGroup, TopicFilter};
 use crate::Result;
 
 #[async_trait]
+/// Defines the message storage and retrieval contract for the broker.
+///
+/// Provides operations for storing, retrieving, and managing MQTT messages
+/// with support for message deduplication, expiry-based cleanup, and
+/// cluster-aware storage coordination. All methods have no-op default
+/// implementations, making the trait easy to implement.
 pub trait MessageManager: Sync + Send {
+    /// Generate the next message ID for deduplication tracking.
     #[inline]
     fn next_msg_id(&self) -> MsgID {
         0
     }
 
-    ///Store messages
+    /// Persist a message for potential redelivery to reconnecting clients.
     ///
-    ///_msg_id           - MsgID <br>
-    ///_from             - From <br>
-    ///_p                - Message <br>
-    ///_expiry_interval  - Message expiration time <br>
-    ///_sub_client_ids   - Indicate that certain subscribed clients have already forwarded the specified message.
+    /// # Arguments
+    /// * `msg_id` - Unique message identifier for deduplication.
+    /// * `from` - Origin information identifying the publishing source.
+    /// * `p` - The MQTT publish packet content.
+    /// * `expiry_interval` - Duration after which the message expires.
+    /// * `sub_client_ids` - Optional set of subscribers that have already received this message.
     #[inline]
     async fn store(
         &self,
@@ -77,6 +85,12 @@ pub trait MessageManager: Sync + Send {
         Ok(())
     }
 
+    /// Retrieve stored messages for a specific client or shared subscription.
+    ///
+    /// # Arguments
+    /// * `client_id` - The target client identifier.
+    /// * `topic_filter` - Topic filter for matching messages.
+    /// * `group` - Optional shared subscription group name.
     #[inline]
     async fn get(
         &self,
@@ -87,28 +101,35 @@ pub trait MessageManager: Sync + Send {
         Ok(Vec::new())
     }
 
-    ///Indicate whether merging data from various nodes is needed during the 'get' operation.
+    /// Indicate whether merging data from various cluster nodes is needed during retrieval.
     #[inline]
     fn should_merge_on_get(&self) -> bool {
         false
     }
 
+    /// Return the current number of stored messages, or `-1` if unknown.
     #[inline]
     async fn count(&self) -> isize {
         -1
     }
 
+    /// Return the maximum storage capacity, or `-1` if unlimited.
     #[inline]
     async fn max(&self) -> isize {
         -1
     }
 
+    /// Indicate whether message storage is enabled.
     #[inline]
     fn enable(&self) -> bool {
         false
     }
 }
 
+/// A no-op default implementation of [`MessageManager`].
+///
+/// This implementation performs no actual storage, making it suitable
+/// for brokers that do not require message persistence.
 pub struct DefaultMessageManager {}
 
 impl Default for DefaultMessageManager {
@@ -118,6 +139,7 @@ impl Default for DefaultMessageManager {
 }
 
 impl DefaultMessageManager {
+    /// Create a new `DefaultMessageManager` instance.
     #[inline]
     pub fn new() -> DefaultMessageManager {
         Self {}

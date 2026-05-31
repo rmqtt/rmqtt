@@ -1,3 +1,19 @@
+//! Message storage plugin for RMQTT.
+//!
+//! Persists offline messages for MQTT clients with configurable
+//! storage backends:
+//! - **RAM**: In-memory storage (default, non-persistent).
+//! - **Redis**: External Redis server.
+//! - **Redis Cluster**: Distributed Redis setup.
+//!
+//! # Architecture
+//!
+//! - Plugins register `HookHandler` for hook events.
+//! - Messages are stored per `(client_id, topic_filter, shared_group)`
+//!   and are delivered when the client reconnects.
+//! - Supports message expiry with configurable TTL.
+//! - Uses an async channel for lock-free message ingestion.
+//!
 #![deny(unsafe_code)]
 
 use std::sync::Arc;

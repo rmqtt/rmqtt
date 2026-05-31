@@ -1,3 +1,20 @@
+//! HTTP-based authentication and ACL plugin for RMQTT.
+//!
+//! Delegates client authentication and publish/subscribe ACL checks
+//! to an external HTTP API. Supports flexible auth logic based on
+//! custom HTTP endpoint responses.
+//!
+//! # Architecture
+//!
+//! - Hooks into `ClientAuthenticate`, `ClientSubscribeCheckAcl`,
+//!   and `MessagePublishCheckAcl` events.
+//! - Sends HTTP POST requests to configurable URLs with client
+//!   credentials and connection metadata as JSON payload.
+//! - Caches authentication results with configurable TTL to reduce
+//!   HTTP call overhead.
+//! - Supports username/password, client ID, and certificate-based
+//!   authentication flows.
+//!
 #![deny(unsafe_code)]
 
 use std::sync::Arc;
