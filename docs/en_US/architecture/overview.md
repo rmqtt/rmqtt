@@ -185,8 +185,8 @@ stateDiagram-v2
     
     state Connecting {
         [*] --> VersionProbe: read CONNECT packet
-        VersionProbe --> v3: MQTT 3.1/3.1.1 detected
-        VersionProbe --> v5: MQTT 5.0 detected
+        VersionProbe --> v3: MQTT v3 detected
+        VersionProbe --> v5: MQTT v5 detected
     end
     
     Connecting --> Authenticating: version negotiated
@@ -223,7 +223,7 @@ stateDiagram-v2
     
     Disconnecting --> Cleanup: store session if expired
     Disconnecting --> Cleanup: store offline messages
-    Cleanup --> [*]: session terminated
+    Cleanup --> [*]: cleanup done
 ```
 
 ---

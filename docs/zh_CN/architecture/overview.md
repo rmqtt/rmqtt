@@ -176,8 +176,8 @@ stateDiagram-v2
     
     state Connecting {
         [*] --> VersionProbe: 读取 CONNECT 包
-        VersionProbe --> v3: MQTT 3.1/3.1.1 检测到
-        VersionProbe --> v5: MQTT 5.0 检测到
+        VersionProbe --> v3: MQTT v3 检测到
+        VersionProbe --> v5: MQTT v5 检测到
     end
     
     Connecting --> Authenticating: 版本协商完成
@@ -210,7 +210,7 @@ stateDiagram-v2
     Connected --> Disconnecting: 客户端断开
     
     Disconnecting --> Cleanup: 过期保存会话
-    Cleanup --> [*]: 会话终止
+    Cleanup --> [*]: 清理完成
 ```
 
 ---
