@@ -189,7 +189,7 @@ stateDiagram-v2
     end
     
     Authenticating --> Connected: CONNACK 已发送
-    Authenticating --> [*]: CONNACK 拒绝
+    Authenticating --> [*]
     
     state Connected {
         [*] --> Subscribing: 收到 SUBSCRIBE
@@ -210,7 +210,7 @@ stateDiagram-v2
     Connected --> Disconnecting: 客户端断开
     
     Disconnecting --> Cleanup: 过期保存会话
-    Cleanup --> [*]: 清理完成
+    Cleanup --> [*]
 ```
 
 ---

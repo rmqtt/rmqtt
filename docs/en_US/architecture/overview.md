@@ -198,7 +198,7 @@ stateDiagram-v2
     end
     
     Authenticating --> Connected: CONNACK sent
-    Authenticating --> [*]: CONNACK with failure
+    Authenticating --> [*]
     
     state Connected {
         [*] --> Subscribing: SUBSCRIBE received
@@ -223,7 +223,7 @@ stateDiagram-v2
     
     Disconnecting --> Cleanup: store session if expired
     Disconnecting --> Cleanup: store offline messages
-    Cleanup --> [*]: cleanup done
+    Cleanup --> [*]
 ```
 
 ---
