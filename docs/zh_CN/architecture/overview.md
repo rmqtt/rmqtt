@@ -62,9 +62,9 @@ graph TB
 
     MQTT & TLS & WS & QUIC --> Listener
     Listener --> Builder
-    Listener -->|accept()| Acceptor
-    Acceptor -->|tcp()/tls()| Dispatcher
-    Dispatcher -->|mqtt()| Server
+    Listener -->|accept| Acceptor
+    Acceptor -->|dispatch| Dispatcher
+    Dispatcher -->|mqtt| Server
 
     Dispatcher -.-> Codec
     Codec -.-> V3 & V5 & Version
@@ -176,42 +176,253 @@ stateDiagram-v2
     
     state Connecting {
         [*] --> VersionProbe: 读取 CONNECT 包
-        VersionProbe --> v3: MQTT 3.1/3.1.1 检测到
-        VersionProbe --> v5: MQTT 5.0 检测到
-    end
+        VersionProbe --> v3: MQTT v3 检测到
+        VersionProbe --> v5: MQTT v5 检测到
+    }
     
     Connecting --> Authenticating: 版本协商完成
     
     state Authenticating {
-        [*] --> CheckACL: hook::ClientAuthenticate
+        [*] --> CheckACL: ClientAuthenticate 钩子
         CheckACL --> Allowed: 规则匹配
         CheckACL --> Denied: 无规则或拒绝
-    end
+    }
     
     Authenticating --> Connected: CONNACK 已发送
-    Authenticating --> [*]: CONNACK 拒绝
+    Authenticating --> Disconnecting: 认证失败
     
     state Connected {
         [*] --> Subscribing: 收到 SUBSCRIBE
         Subscribing --> Active: SUBACK 已发送
         
         Active --> Publishing: 收到 PUBLISH
-        Publishing --> Active: PUBACK (QoS1) 或 PUBREC (QoS2)
+        Publishing --> Active: PUBACK 或 PUBREC
         
         Active --> Receiving: 从路由器收到消息
         Receiving --> Active: 已发送给客户端
         
+        Active --> Unsubscribing: 收到 UNSUBSCRIBE
+        Unsubscribing --> Active: UNSUBACK 已发送
+        
         Active --> Idle: 无活动
-        Idle --> Active: PINGREQ / PINGRESP
-    end
+        Idle --> Active: PINGREQ PINGRESP
+    }
     
     Connected --> Disconnecting: 收到 DISCONNECT
     Connected --> Disconnecting: 保活超时
     Connected --> Disconnecting: 客户端断开
     
-    Disconnecting --> Cleanup: expiry > 0 时保存会话
-    Cleanup --> [*]: session_terminated 钩子
+    Disconnecting --> Cleanup: 过期保存会话
+    Disconnecting --> Cleanup: 存储离线消息
+    Cleanup --> Terminated: 清理完成
+    Terminated --> [*]
 ```
+
+---
+
+## 钩子系统
+
+钩子系统是 RMQTT 的主要扩展机制，在消息处理管道的各个阶段提供了 10+ 个拦截点。
+
+### Hook Trait
+
+```rust
+#[async_trait]
+pub trait Handler: Send + Sync {
+    async fn hook(&self, param: &Type, acc: Option<()>) -> ReturnType;
+}
+```
+
+### 钩子类型
+
+| 钩子类型 | 触发时机 | 处理器返回 |
+|----------|----------|-----------|
+| `BeforeStartup` | Broker 初始化 | Continue |
+| `ClientConnect` | 收到 CONNECT | `(bool, Option<ConnAckReason>)` |
+| `ClientAuthenticate` | 发送 CONNACK 前 | `(bool, Option<ConnAckReason>)` |
+| `ClientConnack` | CONNACK 已发送 | Continue |
+| `ClientConnected` | 会话已建立 | Continue |
+| `ClientDisconnected` | 会话已结束 | Continue |
+| `ClientSubscribe` | 收到 SUBSCRIBE | Continue |
+| `ClientSubscribeCheckAcl` | 订阅 ACL 检查 | `(bool, Option<SubscribeAclResult>)` |
+| `ClientUnsubscribe` | 收到 UNSUBSCRIBE | Continue |
+| `MessagePublish` | 收到 PUBLISH | `(bool, Option<MessagePublishResult>)` |
+| `MessagePublishCheckAcl` | 发布 ACL 检查 | `(bool, Option<PublishAclResult>)` |
+| `MessageDelivered` | 消息已发送给客户端 | Continue |
+| `MessageAcked` | 客户端已确认 | Continue |
+| `MessageDropped` | 消息被丢弃 | Continue |
+| `SessionCreated` | 会话已创建 | Continue |
+| `SessionTerminated` | 会话已销毁 | Continue |
+| `SessionSubscribed` | 订阅已添加 | Continue |
+| `SessionUnsubscribed` | 订阅已移除 | Continue |
+| `OfflineMessage` | 离线消息已存储 | Continue |
+| `GrpcMessageReceived` | 跨节点 gRPC 消息 | `(bool, Option<Vec<u8>>)` |
+
+### 钩子注册优先级
+
+处理器可以注册时指定优先级。数值越小越先执行。`counter` 插件以 `Priority::MAX` 注册，确保它在最后执行。
+
+---
+
+## 插件系统
+
+### Plugin Trait
+
+```rust
+#[async_trait]
+pub trait Plugin: PackageInfo + Send + Sync {
+    async fn init(&mut self) -> Result<()>;         // 注册钩子
+    async fn get_config(&self) -> Result<Value>;     // 当前配置
+    async fn load_config(&mut self) -> Result<()>;   // 运行时重载
+    async fn start(&mut self) -> Result<()>;          // 激活钩子
+    async fn stop(&mut self) -> Result<bool>;         // 停用
+    async fn attrs(&self) -> Value;                   // 运行时属性
+    async fn send(&self, msg: Value) -> Result<Value>;// 插件间消息
+}
+```
+
+### 插件生命周期
+
+```mermaid
+sequenceDiagram
+    participant App as rmqttd
+    participant Plugin as 插件实例
+    participant Hook as 钩子系统
+    
+    App->>Plugin: new(scx, name)
+    Plugin->>Plugin: 从文件加载配置
+    Plugin-->>App: 实例
+    
+    App->>Plugin: init()
+    Plugin->>Hook: register(Type::X, handler)
+    Plugin-->>App: Ok(())
+    
+    App->>Plugin: start()
+    Plugin->>Hook: self.register.start()
+    Plugin-->>App: Ok(())
+    
+    Note over App,Plugin: 运行时：钩子自动触发
+    
+    App->>Plugin: load_config()
+    Plugin->>Plugin: 重载 TOML 配置
+    Plugin-->>App: Ok(())
+    
+    App->>Plugin: stop()
+    Plugin->>Hook: self.register.stop()
+    Plugin-->>App: bool (true=可停用, false=核心)
+```
+
+### 注册模式
+
+每个插件 crate 通过 `register!` 宏遵循相同的注册模式：
+
+```rust
+// 由 register!(MyPlugin::new) 生成
+pub async fn register_named(
+    scx: &ServerContext,
+    name: &'static str,
+    default_startup: bool,
+    immutable: bool,
+) -> Result<()>;
+
+pub async fn register(
+    scx: &ServerContext,
+    default_startup: bool,
+    immutable: bool,
+) -> Result<()>;
+```
+
+---
+
+## 消息流程
+
+```mermaid
+sequenceDiagram
+    participant Pub as 发布客户端
+    participant Broker as RMQTT
+    participant Sub as 订阅客户端
+    participant Store as 存储插件
+    participant Cluster as 集群插件
+
+    Pub->>Broker: CONNECT
+    Broker->>Broker: 版本检测 (v3/v5)
+    Broker->>Broker: ClientAuthenticate 钩子
+    Broker-->>Pub: CONNACK
+
+    Pub->>Broker: SUBSCRIBE (topic: "sensor/#")
+    Broker->>Broker: SubscribeCheckAcl 钩子
+    Broker->>Broker: 添加到订阅 Trie
+    Broker-->>Pub: SUBACK
+
+    Sub->>Broker: SUBSCRIBE (topic: "sensor/#")
+    Broker-->>Sub: SUBACK
+
+    Pub->>Broker: PUBLISH (topic: "sensor/temp", payload: 23.5)
+    Broker->>Broker: PublishCheckAcl 钩子
+    Broker->>Broker: MessagePublish 钩子
+    Broker->>Broker: 在 Trie 中匹配订阅
+    
+    par 并发投递
+        Broker->>Sub: 投递消息
+        Broker->>Sub: MessageDelivered 钩子
+    and 集群转发
+        Broker->>Cluster: 转发到集群节点
+        Cluster->>Cluster: Raft 共识或广播
+        Cluster-->>Broker: 已确认
+    end
+    
+    alt 客户端离线
+        Broker->>Store: 存储离线消息
+        Store-->>Broker: 已存储
+    end
+
+    Sub->>Broker: PUBACK (QoS 1) 或 PUBREC (QoS 2)
+    Broker->>Broker: MessageAcked 钩子
+    
+    Pub->>Broker: DISCONNECT
+    Broker->>Broker: ClientDisconnected 钩子
+    Broker->>Broker: SessionTerminated 钩子
+```
+
+---
+
+## 配置加载顺序
+
+```mermaid
+flowchart LR
+    A["/etc/rmqtt/rmqtt.{toml,json}"] --> C[Config Builder]
+    B["/etc/rmqtt.{toml,json}"] --> C
+    D["./rmqtt.{toml,json}"] --> C
+    E["-f / --config path"] --> C
+    F["RMQTT_* Env Vars"] --> C
+    C --> G[Settings 单例]
+```
+
+插件配置从 `{plugins.dir}/{name}.toml` 单独加载，支持 `rmqtt_plugin_{name}_*` 环境变量覆盖。
+
+---
+
+## Feature 标志
+
+核心 Broker（`rmqtt`）使用 Cargo feature 标志条件编译可选功能：
+
+| Feature | 启用内容 | 关键依赖 |
+|---------|----------|----------|
+| `default` | 最小构建（无额外功能） | — |
+| `metrics` | 指标收集 | `rmqtt-macros/metrics` |
+| `stats` | 运行时统计 | — |
+| `plugin` | 插件系统 | `rmqtt-macros/plugin` |
+| `grpc` | 节点间 gRPC | `rust-box/handy-grpc`、`msgstore` |
+| `tls` | TLS 传输 | `rmqtt-net/tls` |
+| `ws` | WebSocket 传输 | `rmqtt-net/ws` |
+| `quic` | QUIC 传输 | `rmqtt-net/quic` |
+| `delayed` | 延迟发布 | — |
+| `retain` | 保留消息 | — |
+| `msgstore` | 消息存储 | — |
+| `shared-subscription` | `$share/` 组 | — |
+| `auto-subscription` | 自动订阅 | — |
+| `limit-subscription` | 订阅限制 | — |
+| `full` | 以上所有 | — |
 
 ---
 
@@ -245,28 +456,6 @@ MQTT 编解码使用状态机模式：
 3. 两者都实现 `tokio_util::codec::Encoder/Decoder` 以支持异步流
 
 ---
-
-## Feature 标志
-
-核心 Broker（`rmqtt`）使用 Cargo feature 标志条件编译可选功能：
-
-| Feature | 启用内容 | 关键依赖 |
-|---------|----------|----------|
-| `default` | 最小构建（无额外功能） | — |
-| `metrics` | 指标收集 | `rmqtt-macros/metrics` |
-| `stats` | 运行时统计 | — |
-| `plugin` | 插件系统 | `rmqtt-macros/plugin` |
-| `grpc` | 节点间 gRPC | `rust-box/handy-grpc`、`msgstore` |
-| `tls` | TLS 传输 | `rmqtt-net/tls` |
-| `ws` | WebSocket 传输 | `rmqtt-net/ws` |
-| `quic` | QUIC 传输 | `rmqtt-net/quic` |
-| `delayed` | 延迟发布 | — |
-| `retain` | 保留消息 | — |
-| `msgstore` | 消息存储 | — |
-| `shared-subscription` | `$share/` 组 | — |
-| `auto-subscription` | 自动订阅 | — |
-| `limit-subscription` | 订阅限制 | — |
-| `full` | 以上所有 | — |
 
 ## 许可证
 

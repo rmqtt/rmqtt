@@ -62,9 +62,9 @@ graph TB
 
     MQTT & TLS & WS & QUIC --> Listener
     Listener --> Builder
-    Listener -->|accept()| Acceptor
-    Acceptor -->|tcp()/tls()| Dispatcher
-    Dispatcher -->|mqtt()| Server
+    Listener -->|accept| Acceptor
+    Acceptor -->|dispatch| Dispatcher
+    Dispatcher -->|mqtt| Server
 
     Dispatcher -.-> Codec
     Codec -.-> V3 & V5 & Version
@@ -185,45 +185,46 @@ stateDiagram-v2
     
     state Connecting {
         [*] --> VersionProbe: read CONNECT packet
-        VersionProbe --> v3: MQTT 3.1/3.1.1 detected
-        VersionProbe --> v5: MQTT 5.0 detected
-    end
+        VersionProbe --> v3: MQTT v3 detected
+        VersionProbe --> v5: MQTT v5 detected
+    }
     
     Connecting --> Authenticating: version negotiated
     
     state Authenticating {
-        [*] --> CheckACL: hook::ClientAuthenticate
+        [*] --> CheckACL: ClientAuthenticate hook
         CheckACL --> Allowed: rule matches
         CheckACL --> Denied: no rule or deny
-    end
+    }
     
     Authenticating --> Connected: CONNACK sent
-    Authenticating --> [*]: CONNACK with failure
+    Authenticating --> [*]
     
     state Connected {
         [*] --> Subscribing: SUBSCRIBE received
         Subscribing --> Active: SUBACK sent
         
         Active --> Publishing: PUBLISH received
-        Publishing --> Active: PUBACK (QoS1) or PUBREC (QoS2)
+        Publishing --> Active: PUBACK or PUBREC
         
-        Active --> Receiving: Message received from router
+        Active --> Receiving: Message from router
         Receiving --> Active: Sent to client
         
         Active --> Unsubscribing: UNSUBSCRIBE received
         Unsubscribing --> Active: UNSUBACK sent
         
         Active --> Idle: No activity
-        Idle --> Active: PINGREQ / PINGRESP
-    end
+        Idle --> Active: PINGREQ PINGRESP
+    }
     
     Connected --> Disconnecting: DISCONNECT received
     Connected --> Disconnecting: Keepalive timeout
     Connected --> Disconnecting: Client disconnect
     
-    Disconnecting --> Cleanup: store session if expiry > 0
+    Disconnecting --> Cleanup: store session if expired
     Disconnecting --> Cleanup: store offline messages
-    Cleanup --> [*]: session terminated hook
+    Cleanup --> Terminated: cleanup complete
+    Terminated --> [*]
 ```
 
 ---
