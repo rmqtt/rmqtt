@@ -178,7 +178,7 @@ stateDiagram-v2
         [*] --> VersionProbe: 读取 CONNECT 包
         VersionProbe --> v3: MQTT v3 检测到
         VersionProbe --> v5: MQTT v5 检测到
-    end
+    }
     
     Connecting --> Authenticating: 版本协商完成
     
@@ -186,10 +186,10 @@ stateDiagram-v2
         [*] --> CheckACL: ClientAuthenticate 钩子
         CheckACL --> Allowed: 规则匹配
         CheckACL --> Denied: 无规则或拒绝
-    end
+    }
     
     Authenticating --> Connected: CONNACK 已发送
-    Authenticating --> [*]
+    Authenticating --> Disconnecting: 认证失败
     
     state Connected {
         [*] --> Subscribing: 收到 SUBSCRIBE
@@ -201,16 +201,21 @@ stateDiagram-v2
         Active --> Receiving: 从路由器收到消息
         Receiving --> Active: 已发送给客户端
         
+        Active --> Unsubscribing: 收到 UNSUBSCRIBE
+        Unsubscribing --> Active: UNSUBACK 已发送
+        
         Active --> Idle: 无活动
         Idle --> Active: PINGREQ PINGRESP
-    end
+    }
     
     Connected --> Disconnecting: 收到 DISCONNECT
     Connected --> Disconnecting: 保活超时
     Connected --> Disconnecting: 客户端断开
     
     Disconnecting --> Cleanup: 过期保存会话
-    Cleanup --> [*]
+    Disconnecting --> Cleanup: 存储离线消息
+    Cleanup --> Terminated: 清理完成
+    Terminated --> [*]
 ```
 
 ---

@@ -187,7 +187,7 @@ stateDiagram-v2
         [*] --> VersionProbe: read CONNECT packet
         VersionProbe --> v3: MQTT v3 detected
         VersionProbe --> v5: MQTT v5 detected
-    end
+    }
     
     Connecting --> Authenticating: version negotiated
     
@@ -195,7 +195,7 @@ stateDiagram-v2
         [*] --> CheckACL: ClientAuthenticate hook
         CheckACL --> Allowed: rule matches
         CheckACL --> Denied: no rule or deny
-    end
+    }
     
     Authenticating --> Connected: CONNACK sent
     Authenticating --> [*]
@@ -215,7 +215,7 @@ stateDiagram-v2
         
         Active --> Idle: No activity
         Idle --> Active: PINGREQ PINGRESP
-    end
+    }
     
     Connected --> Disconnecting: DISCONNECT received
     Connected --> Disconnecting: Keepalive timeout
@@ -223,7 +223,8 @@ stateDiagram-v2
     
     Disconnecting --> Cleanup: store session if expired
     Disconnecting --> Cleanup: store offline messages
-    Cleanup --> [*]
+    Cleanup --> Terminated: cleanup complete
+    Terminated --> [*]
 ```
 
 ---
