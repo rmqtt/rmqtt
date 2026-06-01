@@ -12,28 +12,30 @@ RMQTT has three testing layers:
 
 ```mermaid
 graph TD
-    subgraph "Layer 1: Unit Tests"
-        UT1[rmqtt-codec tests<br/>v3/v5 encode/decode]
-        UT2[rmqtt-net tests<br/>builder, stream]
-        UT3[rmqtt-utils tests<br/>Bytesize, NodeAddr, parse]
-        UT4[Other crate tests<br/>cfg(test) modules]
+
+    subgraph L1["Layer 1: Unit Tests"]
+        UT1["rmqtt-codec tests<br>v3/v5 encode/decode"]
+        UT2["rmqtt-net tests<br>builder, stream"]
+        UT3["rmqtt-utils tests<br>Bytesize, NodeAddr, parse"]
+        UT4["Other crate tests<br>cargo test modules"]
     end
 
-    subgraph "Layer 2: Integration Tests"
-        IT1[mqtt_harness<br/>5 suite types]
-        IT2[functional_v3/311/v5<br/>Protocol compliance]
-        IT3[stress<br/>Load & performance]
-        IT4[chaos<br/>Fault injection]
+    subgraph L2["Layer 2: Integration Tests"]
+        IT1["mqtt_harness<br>5 suite types"]
+        IT2["functional_v3/311/v5<br>Protocol compliance"]
+        IT3["stress<br>Load & performance"]
+        IT4["chaos<br>Fault injection"]
     end
 
-    subgraph "Layer 3: Interoperability"
-        IP1[paho.mqtt.testing<br/>V3.1.1: 11 tests]
-        IP2[paho.mqtt.testing<br/>V5.0: 24 tests]
+    subgraph L3["Layer 3: Interoperability"]
+        IP1["paho.mqtt.testing<br>V3.1.1: 11 tests"]
+        IP2["paho.mqtt.testing<br>V5.0: 24 tests"]
     end
 
     UT1 --> IT1
     UT2 --> IT1
     UT3 --> IT1
+
     IT1 --> IP1
     IT1 --> IP2
 ```

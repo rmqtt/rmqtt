@@ -14,7 +14,7 @@ graph TD
         UT1[rmqtt-codec 测试<br/>v3/v5 编解码]
         UT2[rmqtt-net 测试<br/>构建器, 流]
         UT3[rmqtt-utils 测试<br/>Bytesize, NodeAddr, 解析]
-        UT4[其他 crate 测试<br/>cfg(test) 模块]
+        UT4[其他 crate 测试<br/>cargo test 模块]
     end
 
     subgraph "第二层: 集成测试"
