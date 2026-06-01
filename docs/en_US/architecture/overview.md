@@ -192,7 +192,7 @@ stateDiagram-v2
     Connecting --> Authenticating: version negotiated
     
     state Authenticating {
-        [*] --> CheckACL: hook::ClientAuthenticate
+        [*] --> CheckACL: ClientAuthenticate hook
         CheckACL --> Allowed: rule matches
         CheckACL --> Denied: no rule or deny
     end
@@ -205,16 +205,16 @@ stateDiagram-v2
         Subscribing --> Active: SUBACK sent
         
         Active --> Publishing: PUBLISH received
-        Publishing --> Active: PUBACK (QoS1) or PUBREC (QoS2)
+        Publishing --> Active: PUBACK or PUBREC
         
-        Active --> Receiving: Message received from router
+        Active --> Receiving: Message from router
         Receiving --> Active: Sent to client
         
         Active --> Unsubscribing: UNSUBSCRIBE received
         Unsubscribing --> Active: UNSUBACK sent
         
         Active --> Idle: No activity
-        Idle --> Active: PINGREQ / PINGRESP
+        Idle --> Active: PINGREQ PINGRESP
     end
     
     Connected --> Disconnecting: DISCONNECT received

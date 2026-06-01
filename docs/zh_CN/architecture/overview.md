@@ -183,7 +183,7 @@ stateDiagram-v2
     Connecting --> Authenticating: 版本协商完成
     
     state Authenticating {
-        [*] --> CheckACL: hook::ClientAuthenticate
+        [*] --> CheckACL: ClientAuthenticate 钩子
         CheckACL --> Allowed: 规则匹配
         CheckACL --> Denied: 无规则或拒绝
     end
@@ -196,13 +196,13 @@ stateDiagram-v2
         Subscribing --> Active: SUBACK 已发送
         
         Active --> Publishing: 收到 PUBLISH
-        Publishing --> Active: PUBACK (QoS1) 或 PUBREC (QoS2)
+        Publishing --> Active: PUBACK 或 PUBREC
         
         Active --> Receiving: 从路由器收到消息
         Receiving --> Active: 已发送给客户端
         
         Active --> Idle: 无活动
-        Idle --> Active: PINGREQ / PINGRESP
+        Idle --> Active: PINGREQ PINGRESP
     end
     
     Connected --> Disconnecting: 收到 DISCONNECT
