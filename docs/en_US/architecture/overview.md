@@ -221,9 +221,9 @@ stateDiagram-v2
     Connected --> Disconnecting: Keepalive timeout
     Connected --> Disconnecting: Client disconnect
     
-    Disconnecting --> Cleanup: store session if expiry > 0
+    Disconnecting --> Cleanup: store session if expired
     Disconnecting --> Cleanup: store offline messages
-    Cleanup --> [*]: session terminated hook
+    Cleanup --> [*]: session terminated
 ```
 
 ---

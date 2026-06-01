@@ -209,8 +209,8 @@ stateDiagram-v2
     Connected --> Disconnecting: 保活超时
     Connected --> Disconnecting: 客户端断开
     
-    Disconnecting --> Cleanup: expiry > 0 时保存会话
-    Cleanup --> [*]: session_terminated 钩子
+    Disconnecting --> Cleanup: 过期保存会话
+    Cleanup --> [*]: 会话终止
 ```
 
 ---
