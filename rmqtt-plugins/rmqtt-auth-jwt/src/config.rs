@@ -1,3 +1,8 @@
+//! Configuration types for the JWT authentication plugin.
+//!
+//! Defines [`PluginConfig`], [`ValidateClaims`], and related enums for
+//! configuring JWT verification (HMAC or public-key based).
+
 use std::fmt;
 
 use itertools::Itertools;
@@ -14,6 +19,10 @@ use rmqtt::{
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
+/// Top-level configuration for the JWT authentication plugin.
+///
+/// Supports HMAC-based and public-key (RSA/EC/EdDSA) JWT verification,
+/// along with custom claim validation rules.
 #[derive(Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
     ///Disconnect if publishing is rejected
@@ -68,7 +77,6 @@ impl fmt::Debug for PluginConfig {
 }
 
 impl PluginConfig {
-    #[inline]
     pub(crate) fn init_decoding_key(&mut self) -> Result<()> {
         match &self.encrypt {
             JWTEncrypt::HmacBased => {
@@ -243,6 +251,7 @@ impl PluginConfig {
         })
     }
 
+    /// Serializes the configuration to a JSON value.
     #[inline]
     pub fn to_json(&self) -> Result<serde_json::Value> {
         Ok(serde_json::to_value(self)?)

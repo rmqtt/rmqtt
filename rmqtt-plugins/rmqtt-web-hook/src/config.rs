@@ -1,3 +1,9 @@
+//! Configuration for the web-hook plugin.
+//!
+//! Defines [`PluginConfig`], [`Rule`], [`Url`], and [`UrlType`] for
+//! triggering HTTP/file callbacks on MQTT events (connect, publish,
+//! subscribe, etc.) with configurable retry and concurrency settings.
+
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,6 +19,7 @@ use rmqtt::{hook::Type, trie::TopicTree, types::Topic, utils::deserialize_durati
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
+/// Top-level configuration for the web-hook plugin.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
     #[serde(default = "PluginConfig::queue_capacity_default")]
@@ -68,11 +75,14 @@ impl PluginConfig {
         Ok(rules)
     }
 
+    /// Serializes the configuration to a JSON value.
     #[inline]
     pub fn to_json(&self) -> Result<serde_json::Value> {
         Ok(serde_json::to_value(self)?)
     }
 
+    /// Builds an `ExponentialBackoff` strategy from the configured retry
+    /// parameters.
     #[inline]
     pub fn get_backoff_strategy(&self) -> ExponentialBackoff {
         ExponentialBackoffBuilder::new()
@@ -81,12 +91,14 @@ impl PluginConfig {
             .build()
     }
 
+    /// Returns the configured URLs.
     #[allow(deprecated)]
     #[inline]
     pub fn urls(&self) -> &Vec<Url> {
         &self.urls
     }
 
+    /// Merges deprecated `http_urls` into the active `urls` list.
     #[allow(deprecated)]
     #[inline]
     pub fn merge_urls(&mut self) {
@@ -96,6 +108,8 @@ impl PluginConfig {
 
 type TopicsType = Option<(Arc<TopicTree<()>>, Vec<String>)>;
 
+/// A web-hook rule that maps an event action to a list of URLs and
+/// optional topic filters.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Rule {
     pub action: String,
@@ -140,6 +154,7 @@ impl Rule {
     }
 }
 
+/// A web-hook URL with a location and transport type.
 #[derive(Debug, Clone, Serialize)]
 pub struct Url {
     pub loc: ByteString,
@@ -147,6 +162,7 @@ pub struct Url {
 }
 
 impl Url {
+    /// Returns `true` if this URL is a file-based URL.
     #[inline]
     pub fn is_file(&self) -> bool {
         matches!(self.typ, UrlType::File)
@@ -173,6 +189,7 @@ impl<'de> Deserialize<'de> for Url {
     }
 }
 
+/// URL transport type (HTTP or file).
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum UrlType {

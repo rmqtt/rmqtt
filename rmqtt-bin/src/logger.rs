@@ -1,3 +1,9 @@
+//! Logger initialization for the RMQTT broker.
+//!
+//! Configures tracing-subscriber with console and/or file logging output,
+//! supporting configurable log levels, time formatting (UTC+8 default), and
+//! non-blocking file writing to prevent I/O from blocking the event loop.
+
 use std::path::Path;
 use std::sync::OnceLock;
 

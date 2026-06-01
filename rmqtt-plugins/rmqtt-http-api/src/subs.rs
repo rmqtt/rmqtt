@@ -1,3 +1,7 @@
+//! Subscribe and unsubscribe helpers for the HTTP API.
+//!
+//! Sends subscribe/unsubscribe requests to a client session via its message
+//! channel and returns the result.
 use anyhow::anyhow;
 use tokio::sync::oneshot;
 

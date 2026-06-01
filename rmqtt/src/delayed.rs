@@ -47,6 +47,10 @@ use crate::session::SessionState;
 use crate::types::{DelayedPublish, From, Publish, TopicName};
 use crate::Result;
 
+/// Trait for delayed message publishing using the `$delayed/<interval>/<topic>` topic scheme.
+///
+/// Implementors parse delay parameters from topic strings, schedule messages
+/// for future delivery, and provide access to the pending message count.
 #[async_trait]
 pub trait DelayedSender: Sync + Send {
     ///Parse the topic and extract the delayed sending parameters.
@@ -70,6 +74,10 @@ pub trait DelayedSender: Sync + Send {
     }
 }
 
+/// Default implementation of the delayed message sender.
+///
+/// Uses a priority queue (binary heap) to manage time-based delayed publishes,
+/// with a background task that periodically forwards expired messages.
 #[derive(Clone)]
 pub struct DefaultDelayedSender {
     scx: Option<ServerContext>,
@@ -77,6 +85,7 @@ pub struct DefaultDelayedSender {
 }
 
 impl DefaultDelayedSender {
+    /// Creates a new delayed sender and starts the background expiration task.
     #[inline]
     pub fn new(scx: Option<ServerContext>) -> DefaultDelayedSender {
         Self { scx, msgs: Arc::new(RwLock::new(BinaryHeap::default())) }.start()

@@ -1,3 +1,9 @@
+//! Configuration types for the Apache Pulsar ingress bridge plugin.
+//!
+//! Defines bridge connection parameters (server, authentication, TLS),
+//! entry routing with Pulsar topic subscription and local MQTT topic
+//! mapping (including `${pulsar.topic}` and `${pulsar.key}` patterns).
+
 use std::collections::BTreeMap;
 use std::time::Duration;
 

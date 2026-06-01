@@ -57,55 +57,67 @@ use crate::utils::Counter;
 use crate::Result;
 
 #[async_trait]
+/// Defines the message routing contract for topic-based subscription management.
+///
+/// Provides operations for adding/removing subscriptions, matching topics
+/// against subscriptions, querying subscription state, and aggregating
+/// routing metadata across cluster nodes. Implementations must be `Send + Sync`.
 pub trait Router: Sync + Send {
-    /// Id add with topic filter
+    /// Add a subscription by client ID with the given topic filter.
     async fn add(&self, topic_filter: &str, id: Id, opts: SubscriptionOptions) -> Result<()>;
 
-    /// Remove with id topic filter
+    /// Remove a subscription by client ID with the given topic filter.
     async fn remove(&self, topic_filter: &str, id: Id) -> Result<bool>;
 
-    /// Match with id and topic
+    /// Match subscriptions for a given client ID and topic name.
+    ///
+    /// Returns a map of matching subscription relations, grouped by node ID.
     async fn matches(&self, id: Id, topic: &TopicName) -> Result<SubRelationsMap>;
 
-    ///Check online or offline
+    /// Check whether a client is currently connected to the given node.
     async fn is_online(&self, node_id: NodeId, client_id: &str) -> bool;
 
-    /// Gets by limit
+    /// Get a limited number of unique routes (node ID + topic filter pairs).
     async fn gets(&self, limit: usize) -> Vec<Route>;
 
-    /// Get by topic
+    /// Get all routes matching the given topic.
     async fn get(&self, topic: &str) -> Result<Vec<Route>>;
 
-    ///query subscriptions
+    /// Query subscription relations matching the given search parameters.
     async fn query_subscriptions(&self, q: &SubsSearchParams) -> Vec<SubsSearchResult>;
 
-    /// Topics tree
+    /// Return the number of unique topic filters stored in the topic tree.
     async fn topics_tree(&self) -> usize;
 
-    ///Return number of subscribed topics
+    /// Return the atomic counter tracking the number of subscribed topics.
     fn topics(&self) -> Counter;
 
-    ///Returns the number of Subscription relationship
+    /// Return the atomic counter tracking the number of subscription relations.
     fn routes(&self) -> Counter;
 
-    /// merge Topics with another
+    /// Merge topic counters from another node for cluster-wide aggregation.
     fn merge_topics(&self, topics_map: &HashMap<NodeId, Counter>) -> Counter;
 
-    /// merge routes with another
+    /// Merge route counters from another node for cluster-wide aggregation.
     fn merge_routes(&self, routes_map: &HashMap<NodeId, Counter>) -> Counter;
 
-    ///get topic tree
+    /// List topic filter strings up to the given limit.
     async fn list_topics(&self, top: usize) -> Vec<String>;
 
-    ///get subscription relations
+    /// List subscription relations as JSON values, up to the given limit.
     async fn list_relations(&self, top: usize) -> Vec<serde_json::Value>;
 
-    ///all relations
+    /// Return a reference to the full subscription relations map.
     fn relations(&self) -> &AllRelationsMap;
 }
 
 #[allow(clippy::type_complexity)]
 #[derive(Clone)]
+/// Default implementation of the [`Router`] trait.
+///
+/// Stores subscriptions in a thread-safe trie ([`TopicTree`]) backed by `Arc<RwLock>`, with
+/// subscription relations held in a `DashMap`. Tracks topic and relation counts via atomic
+/// [`Counter`] instances. Supports both individual and shared-subscription routing.
 pub struct DefaultRouter {
     scx: Option<ServerContext>,
     pub topics: Arc<RwLock<TopicTree<()>>>,

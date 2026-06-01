@@ -1,3 +1,15 @@
+//! Pulsar egress bridge plugin for RMQTT.
+//!
+//! Forwards MQTT publish messages to Apache Pulsar topics.
+//! Supports configurable topic mapping, message key extraction,
+//! and Pulsar producer settings.
+//!
+//! # Features
+//!
+//! - MQTT topic to Pulsar topic mapping.
+//! - Configurable Pulsar producer settings (batching, compression).
+//! - Message ordering and deduplication support.
+//!
 #![deny(unsafe_code)]
 
 use std::ops::Deref;

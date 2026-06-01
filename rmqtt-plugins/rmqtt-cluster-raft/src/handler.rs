@@ -1,3 +1,15 @@
+//! Hook handlers for the Raft cluster plugin.
+//!
+//! Processes cluster-related MQTT hook events and translates them
+//! into Raft proposals for distributed state replication.
+//!
+//! # Hook Events Handled
+//!
+//! - `ClientDisconnected`: Proposes a `Disconnected` message to Raft.
+//! - `SessionTerminated`: Proposes a `SessionTerminated` message to Raft.
+//! - `GrpcMessageReceived`: Processes inter-node gRPC messages
+//!   including message forwarding, client kick, and health queries.
+//!
 use std::sync::Arc;
 
 use anyhow::anyhow;
@@ -18,6 +30,11 @@ use super::config::PluginConfig;
 use super::message::{Message, RaftGrpcMessage, RaftGrpcMessageReply};
 use super::{hook_message_dropped, shared::ClusterShared};
 
+/// Handles cluster-related hook events by translating them into
+/// Raft proposals or processing inter-node gRPC messages.
+///
+/// Uses exponential backoff retry for Raft proposals to handle
+/// transient leader election or network partitions.
 pub(crate) struct HookHandler {
     scx: ServerContext,
     exec: TaskExecQueue,

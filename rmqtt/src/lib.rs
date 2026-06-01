@@ -97,11 +97,15 @@ pub mod v3; // MQTT v3.1.1 implementation
 pub mod v5; // MQTT v5.0 implementation
 
 /// External Crate Re-exports
-pub use net::{Error, Result}; // Network error types
+pub use net::{Error, Result};
 
 /// Feature-gated Re-exports
-pub use rmqtt_codec as codec; // MQTT protocol codec
-#[cfg(any(feature = "metrics", feature = "plugin"))] // Macro utilities
+/// MQTT protocol codec
+pub use rmqtt_codec as codec;
+#[cfg(any(feature = "metrics", feature = "plugin"))]
+/// Macro utilities for metrics and plugin features
 pub use rmqtt_macros as macros;
-pub use rmqtt_net as net; // Network abstractions
-pub use rmqtt_utils as utils; // Common utilities
+/// Network abstractions (TCP, TLS, WebSocket, QUIC)
+pub use rmqtt_net as net;
+/// Common utility functions and types
+pub use rmqtt_utils as utils;

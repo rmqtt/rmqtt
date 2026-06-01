@@ -6,6 +6,7 @@ use crate::error::DecodeError;
 use crate::types::packet_type;
 use crate::utils::Decode;
 
+/// Dispatches MQTT v5 packet decoding based on the first byte's packet type
 pub(super) fn decode_packet(mut src: Bytes, first_byte: u8) -> Result<Packet, DecodeError> {
     match first_byte {
         packet_type::PUBLISH_START..=packet_type::PUBLISH_END => {

@@ -1,3 +1,15 @@
+//! NATS egress bridge plugin for RMQTT.
+//!
+//! Forwards MQTT publish messages to NATS subjects.
+//! Supports configurable topic-to-subject mapping and
+//! message format transformation.
+//!
+//! # Features
+//!
+//! - MQTT topic to NATS subject mapping with wildcard support.
+//! - Configurable NATS connection settings.
+//! - Message serialization to NATS compatible formats.
+//!
 #![deny(unsafe_code)]
 
 use std::ops::Deref;

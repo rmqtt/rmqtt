@@ -74,6 +74,10 @@ use crate::types::{
 use crate::utils::Counter;
 use crate::Result;
 
+/// gRPC server for inter-node cluster communication.
+///
+/// Listens on a configurable address and dispatches incoming
+/// messages to the appropriate handler based on [`MessageType`].
 #[derive(Clone)]
 pub struct GrpcServer {
     scx: ServerContext,
@@ -162,8 +166,13 @@ impl GrpcServer {
     }
 }
 
+/// Shared map of connected gRPC clients indexed by node ID.
 pub type GrpcClients = Arc<HashMap<NodeId, (Addr, GrpcClient)>>;
 
+/// A gRPC client connected to a remote cluster node.
+///
+/// Supports both request/response (duplex) and fire-and-forget
+/// message passing with configurable timeouts and concurrency limits.
 #[derive(Clone)]
 pub struct GrpcClient {
     mailbox: Mailbox,
@@ -255,11 +264,18 @@ impl GrpcClient {
     }
 }
 
-///Reserved within 1000
+/// Message type identifier for cluster communication.
+///
+/// Values below 1000 are reserved for internal broker messages.
 pub type MessageType = u64;
 
+/// Identifier for the `MessageGet` operation (value: 22).
 pub const MESSAGE_TYPE_MESSAGE_GET: u64 = 22;
 
+/// Cluster message payloads for inter-node operations.
+///
+/// Each variant represents a specific cluster operation:
+/// message forwarding, client management, state queries, etc.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Message {
     Forwards(From, Publish),
@@ -289,6 +305,7 @@ impl Message {
     }
 }
 
+/// Reply variants for cluster message responses.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum MessageReply {
     Success,
@@ -319,6 +336,10 @@ impl MessageReply {
     }
 }
 
+/// Convenience wrapper for sending a single cluster message.
+///
+/// Supports both request/response via [`send`](MessageSender::send)
+/// and fire-and-forget via [`notify`](MessageSender::notify).
 pub struct MessageSender {
     client: GrpcClient,
     msg_type: MessageType,
@@ -355,6 +376,11 @@ impl MessageSender {
     }
 }
 
+/// Broadcasts a cluster message to all connected peer nodes.
+///
+/// Supports:
+/// - `join_all`: Wait for all peers to respond.
+/// - `select_ok`: Return the first successful response.
 pub struct MessageBroadcaster {
     grpc_clients: GrpcClients,
     msg_type: MessageType,

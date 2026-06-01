@@ -1,3 +1,22 @@
+//! WebHook plugin for RMQTT.
+//!
+//! Forwards MQTT events (connect, publish, subscribe, disconnect)
+//! to external HTTP endpoints in real time. Supports configurable
+//! event filtering, retry with exponential backoff, batching, and
+//! payload transformation.
+//!
+//! # Architecture
+//!
+//! - Registers hook handlers for client lifecycle and message events.
+//! - Events are serialized to JSON and sent via HTTP POST.
+//! - Failed deliveries are retried using exponential backoff.
+//! - Optional file-based logging of all hooked events for auditing.
+//!
+//! # Configuration
+//!
+//! See [`config::PluginConfig`] for available options including
+//! URL templates, event filters, retry policies, and concurrency.
+//!
 #![deny(unsafe_code)]
 
 use std::path::Path;

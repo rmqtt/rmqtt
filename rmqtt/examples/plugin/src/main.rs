@@ -1,3 +1,7 @@
+//! Example: MQTT server with plugin support using individual crate imports.
+//! Demonstrates how to register plugins (ACL, HTTP API, Retainer) by importing
+//! each plugin crate directly (e.g. `rmqtt_acl`, `rmqtt_http_api`).
+
 use rmqtt::{context::ServerContext, net::Builder, server::MqttServer, Result};
 use simple_logger::SimpleLogger;
 

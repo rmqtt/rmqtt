@@ -1,3 +1,9 @@
+//! Persistent retainer implementation.
+//!
+//! Stores retained messages in an external storage backend (Sled/Redis)
+//! with batch writes, prefix-based topic matching, and optional TTL
+//! expiry. Also provides [`ValueCached`] for caching storage query results.
+
 use std::borrow::Cow;
 use std::convert::From as _;
 use std::future::Future;

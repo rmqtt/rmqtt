@@ -95,6 +95,12 @@ use crate::types::*;
 use crate::utils::timestamp_millis;
 use crate::Result;
 
+/// Runtime state for an active MQTT session.
+///
+/// Wraps a [`Session`] with its associated send/receive channels,
+/// hook system, topic aliases, and inbound inflight message tracker.
+/// Created when an MQTT CONNECT is processed and represents the
+/// full execution context for a connected client.
 pub struct SessionState {
     inner: Session,
     tx: Tx,
@@ -802,7 +808,7 @@ impl SessionState {
             }
             Packet::V5(v5::Packet::Auth(_)) => {
                 sink.v5_mut().send_auth(Auth::default()).await?;
-                //@TODO 考虑通过hook来实现Auth
+                //@TODO Consider implementing Auth through hooks
             }
             _ => {
                 return Err(format!("Received an unimplemented message, {pkt:?}").into());
@@ -1844,6 +1850,10 @@ impl SessionState {
     }
 }
 
+/// Thread-safe handle to an MQTT session.
+///
+/// Wraps an `Arc<_Session>` for efficient cloning and shared access.
+/// Derefs to `_Session` for field and method access.
 #[derive(Clone)]
 pub struct Session(Arc<_Session>);
 
@@ -1855,6 +1865,11 @@ impl Deref for Session {
     }
 }
 
+/// Internal session data shared across all [`Session`] clones.
+///
+/// Holds the client identifier, connection metadata, hook references,
+/// authentication info, topic alias tables, and the underlying
+/// [`SessionLike`] trait object that implements session behavior.
 pub struct _Session {
     inner: Arc<dyn SessionLike>,
     pub id: Id,
@@ -2042,6 +2057,11 @@ impl Session {
 }
 
 #[async_trait]
+/// Manages the lifecycle of MQTT sessions in the broker.
+///
+/// Defines operations for creating, resuming, and removing sessions,
+/// as well as checking session existence and retrieving session status.
+/// Implementations handle persistent session storage across reconnects.
 pub trait SessionManager: Sync + Send {
     #[allow(clippy::too_many_arguments)]
     async fn create(
@@ -2065,6 +2085,12 @@ pub trait SessionManager: Sync + Send {
     ) -> Result<Arc<dyn SessionLike>>;
 }
 
+/// Core session behavior trait implemented by MQTT protocol versions.
+///
+/// Defines the interface for session state management: subscription
+/// operations, connection metadata access, inflight message tracking,
+/// and disconnect handling. Implementations differ between MQTT v3.1.1
+/// and v5.0 to accommodate protocol-specific features.
 #[async_trait]
 pub trait SessionLike: Sync + Send + 'static {
     fn id(&self) -> &Id;
@@ -2114,6 +2140,11 @@ pub trait SessionLike: Sync + Send + 'static {
     async fn keepalive(&self, _ping: IsPing) {}
 }
 
+/// Information about an offline session, preserved for session resumption.
+///
+/// Captures the client's subscriptions, queued offline messages, in-flight
+/// QoS 1/2 messages, and session creation timestamp. Used by persistent
+/// session storage to restore state when a client reconnects.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct OfflineInfo {
     pub id: Id,
@@ -2136,6 +2167,11 @@ impl std::fmt::Debug for OfflineInfo {
     }
 }
 
+/// Default implementation of [`SessionManager`] for production use.
+///
+/// Relies on the broker's [`Shared`] state for session storage and
+/// retrieval. Session creation and resumption are delegated to the
+/// cluster-wide shared session infrastructure.
 pub struct DefaultSessionManager;
 
 #[async_trait]
@@ -2180,6 +2216,11 @@ impl SessionManager for DefaultSessionManager {
     }
 }
 
+/// Default implementation of [`SessionLike`] for MQTT sessions.
+///
+/// Manages session subscriptions, delivery queue, inflight message tracking,
+/// and connection lifecycle. Supports both MQTT v3.1.1 and v5.0 protocol
+/// versions through the session-like interface.
 pub struct DefaultSession {
     id: Id,
     scx: ServerContext,

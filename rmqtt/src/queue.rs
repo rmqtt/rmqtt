@@ -59,20 +59,43 @@ type DirectLimiter = RateLimiter<NotKeyed, InMemoryState, DefaultClock>;
 pub type Receiver<'a, T> =
     RatelimitedStream<'a, ReceiverStream<T>, InMemoryState, DefaultClock, NoOpMiddleware>;
 
+/// Defines the overflow policy when the bounded queue is full.
+///
+/// Selects which item to discard to make room for new entries.
 pub enum Policy {
-    //Discard current value
+    /// Discard the current (incoming) value.
     Current,
-    //Discard earliest value
+    /// Discard the earliest (front) value in the queue.
     Early,
 }
 
+/// Trait for queue overflow policy functions.
+///
+/// A `PolicyFn` receives a reference to the item being sent
+/// and returns the [`Policy`] to apply when the queue is full.
 pub trait PolicyFn<P>: 'static + Sync + Send + Fn(&P) -> Policy {}
 
 impl<T, P> PolicyFn<P> for T where T: 'static + Sync + Send + Clone + Fn(&P) -> Policy {}
 
+/// Trait for queue event notification callbacks.
+///
+/// Invoked on push and pop operations to track queue activity.
+/// Used for statistics and monitoring integration.
 pub trait OnEventFn: 'static + Sync + Send + Fn() {}
 impl<T> OnEventFn for T where T: 'static + Sync + Send + Clone + Fn() {}
 
+/// A bounded, asynchronous sender with configurable overflow policy.
+///
+/// Wraps a [`Queue<T>`] and an MPSC signal channel. When an item
+/// is successfully enqueued, a signal is sent on the MPSC channel
+/// to wake the receiver task.
+///
+/// # Overflow Behavior
+///
+/// When the queue is full, the behavior depends on the configured
+/// [`PolicyFn`]:
+/// - `Policy::Current` — The new item is rejected and returned as `Err`.
+/// - `Policy::Early` — The oldest item is evicted to make room.
 pub struct Sender<T> {
     tx: mpsc::Sender<()>,
     queue: Arc<Queue<T>>,
@@ -80,32 +103,42 @@ pub struct Sender<T> {
 }
 
 impl<T> Sender<T> {
+    /// Close the sender.
+    ///
+    /// Signals the receiver that no more items will be sent.
     #[inline]
     pub async fn close(&mut self) -> Result<()> {
         self.tx.close().await?;
         Ok(())
     }
 
+    /// Number of items currently in the queue.
     #[inline]
     pub fn len(&self) -> usize {
         self.queue.len()
     }
 
+    /// Whether the queue is empty.
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
+    /// Set a custom overflow policy function for this sender.
     #[inline]
     pub fn policy<F>(mut self, f: F) -> Self
     where
-        F: PolicyFn<T>, // + Clone,
+        F: PolicyFn<T>,
     {
         self.policy_fn = Arc::new(f);
         self
     }
 
-    ///If the queue is full, the data is discarded according to the policy
+    /// Send a value into the bounded queue.
+    ///
+    /// If the queue is full, the configured policy determines
+    /// which item is discarded. Returns `Ok(())` on success,
+    /// or `Err(T)` with the rejected item.
     #[inline]
     pub async fn send(&self, v: T) -> Result<(), T> {
         if let Err(v) = self.queue.push(v) {
@@ -130,12 +163,15 @@ impl<T> Sender<T> {
         Ok(())
     }
 
+    /// Pop and return the oldest item from the queue, if any.
     #[inline]
     pub fn pop(&self) -> Option<T> {
         self.queue.pop()
     }
 }
 
+/// Stream adapter that polls the underlying MPSC receiver and
+/// pops items from the bounded queue.
 pub struct ReceiverStream<T> {
     rx: mpsc::Receiver<()>,
     queue: Arc<Queue<T>>,
@@ -152,6 +188,16 @@ impl<T> Stream for ReceiverStream<T> {
     }
 }
 
+/// A rate limiter backed by the `governor` crate.
+///
+/// Creates bounded channels with token-bucket rate limiting
+/// for controlled consumer throughput.
+///
+/// # Rate Calculation
+///
+/// The replenish period per token is computed as:
+/// `replenish_n_per / burst`, ensuring an even distribution
+/// of capacity across the burst window.
 pub struct Limiter {
     l: DirectLimiter,
 }
@@ -181,6 +227,16 @@ impl Limiter {
     }
 }
 
+/// A thread-safe bounded FIFO queue with optional push/pop event hooks.
+///
+/// Uses [`parking_lot::Mutex`] for interior mutability and a
+/// [`VecDeque`] for O(1) amortized push/pop operations.
+///
+/// # Capacity Enforcement
+///
+/// When the queue reaches its capacity, [`push`](Queue::push) returns
+/// `Err(v)` and the caller must decide how to handle the overflow
+/// (typically via the enclosing [`Sender`]'s policy).
 pub struct Queue<T> {
     cap: usize,
     inner: Mutex<VecDeque<T>>,

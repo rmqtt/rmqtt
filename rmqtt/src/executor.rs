@@ -41,6 +41,10 @@ use crate::types::{DashMap, ListenerConfig, Port};
 
 type BusyLimit = isize;
 
+/// Per-port handshake task execution entry.
+///
+/// Wraps a [`TaskExecQueue`] with a busy limit threshold used
+/// to determine whether the port is saturated with handshakes.
 pub struct Entry {
     exec: TaskExecQueue,
     busy_limit: BusyLimit,
@@ -54,16 +58,30 @@ impl Deref for Entry {
     }
 }
 
+/// Manages per-port handshake task execution and busy-state detection.
+///
+/// Creates dedicated `TaskExecQueue` instances for each listener port and
+/// provides aggregated busy-state checking across all ports. The busy limit
+/// is derived from the listener's handshake capacity or a configured default.
 pub struct HandshakeExecutor {
     handshake_execs: DashMap<Port, Entry>,
     busy_limit: BusyLimit,
 }
 
 impl HandshakeExecutor {
+    /// Creates a new `HandshakeExecutor` with the specified busy limit.
+    ///
+    /// If `busy_limit` is 0, the limit will be dynamically calculated as
+    /// 35% of each listener's `max_handshaking_limit` configuration.
     pub fn new(busy_limit: isize) -> Self {
         Self { handshake_execs: DashMap::default(), busy_limit }
     }
 
+    /// Retrieves (or lazily creates) the handshake executor for the given port.
+    ///
+    /// # Arguments
+    /// * `name` - Listener port identifier
+    /// * `listen_cfg` - Listener configuration used to initialize the executor pool
     #[inline]
     pub fn get(&self, name: Port, listen_cfg: &ListenerConfig) -> TaskExecQueue {
         self.handshake_execs
@@ -90,11 +108,14 @@ impl HandshakeExecutor {
             .clone()
     }
 
+    /// Returns the total number of active handshake tasks across all ports.
+    /// Returns the total number of active handshake tasks across all ports.
     #[inline]
     pub fn active_count(&self) -> isize {
         self.handshake_execs.iter().map(|exec| exec.active_count()).sum()
     }
 
+    /// Returns the aggregate handshake processing rate across all ports.
     #[inline]
     pub async fn get_rate(&self) -> f64 {
         let mut rate = 0.0;
@@ -104,6 +125,14 @@ impl HandshakeExecutor {
         rate
     }
 
+    /// Checks whether the server is in a busy state.
+    ///
+    /// Returns `true` if any port's active handshake count exceeds its busy
+    /// limit, or if the shared extension indicates an overload condition.
+    /// Checks whether the server is in a busy state.
+    ///
+    /// Returns `true` if any port's active handshake count exceeds its busy limit
+    /// or if the shared subscription layer reports operation overload.
     #[inline]
     pub async fn is_busy(&self, scx: &ServerContext) -> bool {
         let _is_busy = self

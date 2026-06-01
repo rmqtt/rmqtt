@@ -1,3 +1,10 @@
+//! MQTT v3.1.1 packet decoding implementation
+//!
+//! This module handles the wire format decoding of all MQTT v3.1.1
+//! control packet types: Connect, ConnAck, Publish, PubAck, PubRec,
+//! PubRel, PubComp, Subscribe, SubAck, Unsubscribe, UnsubAck,
+//! PingReq, PingResp, and Disconnect.
+
 use std::num::NonZeroU16;
 
 use bytes::{Buf, Bytes};

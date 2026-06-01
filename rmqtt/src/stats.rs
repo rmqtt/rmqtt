@@ -57,47 +57,76 @@ use crate::context::TaskExecStats;
 use crate::types::{HashMap, NodeId};
 use crate::utils::Counter;
 
+/// Aggregated runtime statistics for the broker.
+///
+/// Tracks key performance indicators across connections, sessions,
+/// message flows, gRPC activity, and internal system state.
+/// Supports cluster-wide aggregation via per-node counter maps.
+///
+/// # Thread Safety
+///
+/// Uses atomic counters for lock-free updates on hot paths.
+/// Per-node maps provide distributed aggregation without contention.
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Stats {
+    /// Total completed TCP/TLS/WS handshakes.
     pub handshakings: Counter,
+    /// Currently active handshake negotiations.
     pub handshakings_active: Counter,
+    /// Handshake completion rate (ops/sec × 100).
     pub handshakings_rate: Counter,
+    /// Active MQTT connections.
     pub connections: Counter,
+    /// Active MQTT sessions (persistent + transient).
     pub sessions: Counter,
+    /// Current subscription count across all topics.
     pub subscriptions: Counter,
+    /// Shared subscription (`$share`) group count.
     pub subscriptions_shared: Counter,
+    /// Messages pending in offline delivery queues.
     pub message_queues: Counter,
+    /// Outbound QoS 1/2 messages awaiting acknowledgment.
     pub out_inflights: Counter,
+    /// Inbound QoS 2 messages awaiting completion.
     pub in_inflights: Counter,
+    /// Cluster message forwarding operations.
     pub forwards: Counter,
+    /// Stored offline messages (via message storage plugin).
     pub message_storages: Counter,
+    /// Retained messages currently stored.
     pub retaineds: Counter,
+    /// Delayed publish messages pending delivery.
     pub delayed_publishs: Counter,
+    /// Active gRPC server request handlers.
     pub grpc_server_actives: Counter,
+    /// Active gRPC client tasks, keyed by peer node ID.
     pub grpc_clients_actives: HashMap<NodeId, Counter>,
 
+    /// Subscription topic tree size, keyed by node ID.
     pub topics_map: HashMap<NodeId, Counter>,
+    /// Route table size, keyed by node ID.
     pub routes_map: HashMap<NodeId, Counter>,
 
+    /// Active tasks per named executor.
     pub execs_actives: HashMap<String, TaskExecStats>,
 
     #[cfg(feature = "debug")]
+    /// Client state machine transitions per node.
     debug_client_states_map: HashMap<NodeId, usize>,
     #[cfg(feature = "debug")]
+    /// Topic trie node count per node.
     debug_topics_tree_map: HashMap<NodeId, usize>,
     #[cfg(feature = "debug")]
     debug_shared_peers: Counter,
     #[cfg(feature = "debug")]
     debug_subscriptions: usize,
     #[cfg(feature = "debug")]
+    /// Active debug session notification channels.
     pub debug_session_channels: Counter,
-    // #[cfg(feature = "debug")]
-    // debug_server_exec_stats: Option<TaskExecStats>,
-    // #[cfg(feature = "debug")]
-    // debug_client_exec_stats: Option<TaskExecStats>,
 }
 
 impl Stats {
+    /// Creates a new `Stats` instance with all counters initialized to zero.
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -140,6 +169,10 @@ impl Stats {
         }
     }
 
+    /// Clone the current stats snapshot, aggregating live data from the server context.
+    ///
+    /// Reads current values from the router, gRPC clients, and executors
+    /// to produce a point-in-time snapshot of all metrics.
     #[inline]
     pub async fn clone(&self, scx: &ServerContext) -> Self {
         let node_id = scx.node.id;
@@ -261,6 +294,9 @@ impl Stats {
         }
     }
 
+    /// Merge another `Stats` instance into this one by adding all counters.
+    ///
+    /// Used for aggregating stats from multiple cluster nodes.
     #[inline]
     pub fn add(&mut self, other: Self) {
         self.handshakings.add(&other.handshakings);
@@ -297,6 +333,10 @@ impl Stats {
         }
     }
 
+    /// Serialize the stats snapshot to a JSON value for the management API.
+    ///
+    /// Aggregates per-node counters (topics, routes) into cluster-wide
+    /// totals and includes only the essential metrics for operators.
     #[allow(unused_mut)]
     #[inline]
     pub async fn to_json(&self, scx: &ServerContext) -> serde_json::Value {
@@ -346,6 +386,10 @@ impl Stats {
         })
     }
 
+    /// Serialize the system-level stats to a JSON value for the `$SYS` topic tree.
+    ///
+    /// Includes internal metrics such as gRPC activity and executor state.
+    /// When compiled with `debug` feature, additional diagnostic fields are included.
     #[allow(unused_mut)]
     #[inline]
     pub async fn to_sys_json(&self, _scx: &ServerContext) -> serde_json::Value {

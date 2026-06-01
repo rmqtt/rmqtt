@@ -1,105 +1,122 @@
+[**English**](README.md) | [简体中文](README-CN.md)
+
 # rmqtt-utils
 
-[![crates.io page](https://img.shields.io/crates/v/rmqtt-utils.svg)](https://crates.io/crates/rmqtt-utils/0.1.2)
-[![docs.rs page](https://docs.rs/rmqtt-utils/badge.svg)](https://docs.rs/rmqtt-utils/0.1.2/rmqtt_utils)
+[![crates.io page](https://img.shields.io/crates/v/rmqtt-utils.svg)](https://crates.io/crates/rmqtt-utils)
+[![docs.rs page](https://docs.rs/rmqtt-utils/badge.svg)](https://docs.rs/rmqtt-utils/latest/rmqtt_utils)
 
+Common utilities for the RMQTT MQTT broker: byte sizes, durations, timestamps, node addresses, env var expansion, and atomic counters.
 
-**`rmqtt-utils`** is a lightweight Rust utility crate designed to support common system-level operations with a focus on performance, reliability, and developer ergonomics. It is especially useful in distributed systems like MQTT brokers but is general-purpose enough for any Rust project.
-
-## ✨ Features
-
-- **📦 Byte Size Parsing & Formatting**  
-  Handle human-readable byte strings like `2G512M` via the `Bytesize` type, with full serde support.
-
-- **⏳ Flexible Duration Parsing**  
-  Convert strings like `1h30m15s` or `2w3d12h` into `std::time::Duration` objects.
-
-- **🕒 Timestamp Utilities**  
-  Retrieve and format current timestamps with second or millisecond precision.
-
-- **🌐 Cluster Node Addressing**  
-  Parse and represent cluster node addresses in the format `ID@host:port` via `NodeAddr`.
-
-- **📈 Thread-Safe Counter**  
-  Mergeable `Counter` type with internal atomic implementation, useful for metrics collection.
-
-- **🧰 Serde Helpers**  
-  Custom deserialization logic for durations, socket addresses, and other types.
-
----
-
-## 🧩 Key Components
-
-| Component         | Description                                                                 |
-|-------------------|-----------------------------------------------------------------------------|
-| `Bytesize`        | Parses `2G512M`-style strings and converts them to byte values              |
-| `to_duration`     | Parses complex duration strings like `2w3d12h` into `Duration`              |
-| `NodeAddr`        | Parses and stores cluster node IDs and addresses (`1@host:port`)            |
-| `Counter`         | Thread-safe integer counter with merge support                              |
-| `timestamp_secs`  | Returns current UNIX timestamp in seconds                                   |
-| `format_timestamp_now` | Returns the current UTC timestamp as a formatted string               |
-
----
-
-## 🛠 Usage Examples
+## Type aliases
 
 ```rust
-use rmqtt_utils::{
-    Bytesize, NodeAddr,
-    to_bytesize, to_duration,
-    timestamp_secs, format_timestamp_now
-};
-
-// Byte size parsing
-let size = Bytesize::try_from("2G512M").unwrap();
-assert_eq!(size.as_usize(), 2_684_354_560);
-
-// Duration parsing
-let duration = to_duration("1h30m15s").unwrap();
-assert_eq!(duration.as_secs(), 5415);
-
-// Node address parsing
-let node: NodeAddr = "1@mqtt-node:1883".parse().unwrap();
-assert_eq!(node.id, 1);
-
-// Current timestamp formatting
-let now = format_timestamp_now();
-println!("Now: {now}");
+pub type NodeId = u64;
+pub type Addr = ByteString;
+pub type Timestamp = i64;
+pub type TimestampMillis = i64;
 ```
 
----
-
-## 🛡 Safety & Reliability
-
-- ✅ `#![deny(unsafe_code)]` enforced — no unsafe blocks allowed
-- ✅ Robust error handling for parsing operations
-- ✅ Cross-platform compatibility
-- ✅ Accurate UTC timestamp formatting using [`chrono`](https://docs.rs/chrono)
-
----
-
-## 📦 Crate Usage
-
-Add the following to your `Cargo.toml`:
-
-```toml
-[dependencies]
-rmqtt-utils = "0.1" # Replace with the latest version
-```
-
-Then, in your code:
+## `Bytesize` — human-readable byte size
 
 ```rust
-use rmqtt_utils::{Bytesize, to_duration, NodeAddr, format_timestamp_now};
+#[derive(Clone, Copy, Default, Serialize, Deserialize)]
+pub struct Bytesize(pub usize);
+
+impl Bytesize {
+    pub fn as_u32(&self) -> u32;
+    pub fn as_u64(&self) -> u64;
+    pub fn as_usize(&self) -> usize;
+    pub fn string(&self) -> String;     // "3M", "2G1M512K", etc.
+}
+
+// From<usize>, TryFrom<&str>, FromStr, Deref<Target=usize>, DerefMut
 ```
 
----
+## `NodeAddr` — cluster node address (`ID@host:port`)
 
-## 🔗 Related Crates
+```rust
+#[derive(Clone, Serialize)]
+pub struct NodeAddr {
+    pub id: NodeId,       // u64
+    pub addr: Addr,       // ByteString — "host:port"
+}
+// FromStr: "1@127.0.0.1:1883".parse::<NodeAddr>()?
+// Serialize, Deserialize
+```
 
-This crate is designed to be used as part of the [`rmqtt`](https://github.com/rmqtt/rmqtt) MQTT broker project, but it is modular and reusable on its own.
+## Free functions
 
----
+```rust
+pub fn to_bytesize(text: &str) -> Result<usize, ParseSizeError>;
+// Supported suffixes: G, M, K, B. E.g. "2G512K" -> 2148007936
 
+pub fn to_duration(text: &str) -> Duration;
+// Supported: ms, s, m, h, d, w, f (fortnight). E.g. "1h30m15s" -> 5415s
 
+pub fn timestamp() -> Duration;              // SystemTime::now().duration_since(UNIX_EPOCH)
+pub fn timestamp_secs() -> Timestamp;        // i64 seconds
+pub fn timestamp_millis() -> TimestampMillis;// i64 milliseconds
 
+pub fn format_timestamp(t: Timestamp) -> String;              // "%Y-%m-%d %H:%M:%S"
+pub fn format_timestamp_now() -> String;
+pub fn format_timestamp_millis(t: TimestampMillis) -> String; // "%Y-%m-%d %H:%M:%S%.3f"
+pub fn format_timestamp_millis_now() -> String;
+
+pub fn expand_env_vars(value: &str) -> String;
+// Expands ${ENV:VAR_NAME} placeholders using regex. Logs warning for unset vars.
+```
+
+## Serde helpers
+
+```rust
+pub fn deserialize_duration<'de, D>(d) -> Result<Duration, D::Error>;
+pub fn deserialize_duration_option<'de, D>(d) -> Result<Option<Duration>, D::Error>;
+pub fn deserialize_addr<'de, D>(d) -> Result<SocketAddr, D::Error>;
+pub fn deserialize_addr_option<'de, D>(d) -> Result<Option<SocketAddr>, D::Error>;
+pub fn deserialize_datetime_option<'de, D>(d) -> Result<Option<Duration>, D::Error>;
+pub fn serialize_datetime_option<S>(t: &Option<Duration>, s) -> Result<S::Ok, S::Error>;
+pub fn deserialize_expand_env_vars<'de, D>(d) -> Result<String, D::Error>;
+pub fn deserialize_expand_env_vars_option<'de, D>(d) -> Result<Option<String>, D::Error>;
+```
+
+## `Counter` / `StatsMergeMode`
+
+```rust
+pub struct Counter(AtomicIsize, AtomicIsize, StatsMergeMode);
+// (current, max, merge_mode)
+
+impl Counter {
+    pub fn new() -> Self;                           // (0, 0, None)
+    pub fn new_with(c: isize, max: isize, m: StatsMergeMode) -> Self;
+
+    pub fn inc(&self);                              // current += 1, update max
+    pub fn incs(&self, c: isize);                   // current += c, update max
+    pub fn current_inc(&self);                      // current += 1, no max update
+    pub fn current_incs(&self, c: isize);
+    pub fn current_set(&self, c: isize);
+    pub fn sets(&self, c: isize);                   // set current, update max
+    pub fn dec(&self);
+    pub fn decs(&self, c: isize);
+    pub fn count_min(&self, c: isize);
+    pub fn count_max(&self, c: isize);
+    pub fn max_max(&self, m: isize);
+    pub fn max_min(&self, m: isize);
+
+    pub fn count(&self) -> isize;
+    pub fn max(&self) -> isize;
+    pub fn add(&self, other: &Self);                // atomic addition
+    pub fn set(&self, other: &Self);                // atomic replacement
+    pub fn merge(&self, other: &Self);              // merge using StatsMergeMode
+    pub fn to_json(&self) -> serde_json::Value;     // {"count":..., "max":...}
+}
+
+pub enum StatsMergeMode { None, Sum, Average, Max, Min }
+```
+
+## Safety
+
+`#![deny(unsafe_code)]` — zero unsafe code.
+
+## License
+
+MIT OR Apache-2.0

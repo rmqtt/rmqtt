@@ -1,3 +1,15 @@
+//! ReductStore egress bridge plugin for RMQTT.
+//!
+//! Forwards MQTT publish messages to ReductStore for time-series
+//! data storage and retrieval. Stores messages as blobs with
+//! timestamp-based indexing.
+//!
+//! # Features
+//!
+//! - Time-series storage of MQTT messages.
+//! - Configurable bucket and entry mapping.
+//! - Automatic timestamp extraction from message metadata.
+//!
 #![deny(unsafe_code)]
 
 use std::ops::Deref;

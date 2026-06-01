@@ -8,8 +8,14 @@ use crate::error::{DecodeError, EncodeError};
 use crate::types::{FixedHeader, QoS};
 use crate::utils::decode_variable_length;
 
+/// Mqtt v3.1.1 protocol codec implementing `tokio_util::codec` Decoder/Encoder
+///
+/// Handles MQTT v3.1.1 wire format framing including:
+/// - Fixed header decoding (packet type + remaining length)
+/// - Variable-length integer parsing
+/// - Configurable maximum packet size enforcement
+/// - Frame reassembly across multiple network reads
 #[derive(Debug, Clone)]
-/// Mqtt v3.1.1 protocol codec
 pub struct Codec {
     state: Cell<DecodeState>,
     max_size: Cell<u32>,

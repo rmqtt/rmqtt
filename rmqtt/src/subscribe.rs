@@ -52,6 +52,11 @@ use async_trait::async_trait;
 use crate::context::ServerContext;
 use crate::types::*;
 
+/// Defines the shared subscription selection strategy for a cluster node.
+///
+/// Implementations control how subscribers within a shared subscription group
+/// (`$share/{group}/{topic}`) are selected. The default implementation uses
+/// a random selection strategy with online status filtering.
 #[cfg(feature = "shared-subscription")]
 #[async_trait]
 pub trait SharedSubscription: Sync + Send {
@@ -107,6 +112,7 @@ pub trait SharedSubscription: Sync + Send {
     }
 }
 
+/// Default shared subscription implementation using random subscriber selection.
 #[cfg(feature = "shared-subscription")]
 pub struct DefaultSharedSubscription;
 
@@ -114,20 +120,31 @@ pub struct DefaultSharedSubscription;
 #[async_trait]
 impl SharedSubscription for DefaultSharedSubscription {}
 
+/// Defines auto-subscription behavior for newly connected clients.
+///
+/// Implementations specify which topics a client should be automatically
+/// subscribed to upon connection. This is useful for system topics or
+/// mandatory monitoring subscriptions.
 #[cfg(feature = "auto-subscription")]
 #[async_trait]
 pub trait AutoSubscription: Sync + Send {
+    /// Check whether auto-subscription is enabled for this client.
     #[inline]
     fn enable(&self) -> bool {
         false
     }
 
+    /// Return the list of subscriptions to apply automatically on client connect.
     #[inline]
     async fn subscribes(&self, _id: &Id) -> crate::Result<Vec<Subscribe>> {
         Ok(Vec::new())
     }
 }
 
+/// Default auto-subscription implementation that performs no automatic subscriptions.
+///
+/// All methods return their default (no-op) values: `enable()` returns `false`
+/// and `subscribes()` returns an empty vector.
 #[cfg(feature = "auto-subscription")]
 pub struct DefaultAutoSubscription;
 

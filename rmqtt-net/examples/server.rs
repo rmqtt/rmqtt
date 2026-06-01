@@ -1,3 +1,9 @@
+//! Example MQTT broker server demonstrating TCP, TLS, WebSocket, and QUIC listeners.
+//!
+//! This example creates listeners on multiple ports and protocols, accepts connections,
+//! determines the MQTT protocol version (v3.1.1 or v5.0), and processes packets with
+//! basic message routing logic.
+
 use std::num::NonZeroU16;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::Duration;

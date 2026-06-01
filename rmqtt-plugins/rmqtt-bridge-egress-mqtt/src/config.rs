@@ -1,3 +1,10 @@
+//! Configuration types for the MQTT egress bridge plugin.
+//!
+//! Defines bridge connection parameters (server address, TLS, credentials,
+//! MQTT version, keepalive), protocol-specific settings (v3/v5 last will,
+//! session management), and routing entries for forwarding messages to
+//! remote MQTT brokers.
+
 use std::num::NonZeroU32;
 use std::time::Duration;
 
@@ -22,12 +29,18 @@ use rmqtt::{
 
 use crate::bridge::BridgeName;
 
+/// Top-level plugin configuration containing a list of bridge definitions.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
     #[serde(default)]
     pub bridges: Vec<Bridge>,
 }
 
+/// An MQTT egress bridge definition.
+///
+/// Specifies connection parameters (server, TLS, credentials, keepalive),
+/// MQTT protocol version, per-version configuration (v3/v5), concurrent
+/// client limits, and routing entries.
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Bridge {
     #[serde(default)]
@@ -96,6 +109,7 @@ impl Bridge {
         Protocol(MQTT_LEVEL_311)
     }
 
+    /// Deserializes the MQTT version from a string ("v4" / "v5").
     #[inline]
     pub fn deserialize_mqtt_ver<'de, D>(deserializer: D) -> std::result::Result<Protocol, D::Error>
     where
@@ -111,6 +125,7 @@ impl Bridge {
         Ok(protocol)
     }
 
+    /// Deserializes a server address, parsing an optional `tcp://` or `tls://` prefix.
     #[inline]
     pub fn deserialize_server<'de, D>(deserializer: D) -> std::result::Result<ServerAddr, D::Error>
     where
@@ -134,6 +149,7 @@ impl Bridge {
     }
 }
 
+/// The transport protocol type for the remote server connection.
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub(crate) enum AddrType {
     #[default]
@@ -141,6 +157,7 @@ pub(crate) enum AddrType {
     Tls,
 }
 
+/// A server address with an associated transport type (TCP or TLS).
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub(crate) struct ServerAddr {
     pub typ: AddrType,
@@ -148,18 +165,21 @@ pub(crate) struct ServerAddr {
 }
 
 impl ServerAddr {
+    /// Returns `true` if the transport type is TCP.
     #[inline]
     #[allow(dead_code)]
     pub(crate) fn is_tcp(&self) -> bool {
         matches!(self.typ, AddrType::Tcp)
     }
 
+    /// Returns `true` if the transport type is TLS.
     #[inline]
     pub(crate) fn is_tls(&self) -> bool {
         matches!(self.typ, AddrType::Tls)
     }
 }
 
+/// MQTT v3.1.1-specific connection settings.
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct MoreV3 {
     #[serde(default = "MoreV3::clean_session_default")]
@@ -177,6 +197,7 @@ impl MoreV3 {
         true
     }
 
+    /// Serializes a v3 last will as a JSON object.
     #[inline]
     pub fn serialize_last_will<S>(
         v: &Option<LastWillV3>,
@@ -198,6 +219,7 @@ impl MoreV3 {
         josn_val.serialize(serializer)
     }
 
+    /// Deserializes a v3 last will from a JSON object.
     #[inline]
     pub fn deserialize_last_will<'de, D>(deserializer: D) -> std::result::Result<Option<LastWillV3>, D::Error>
     where
@@ -213,6 +235,7 @@ impl MoreV3 {
     }
 }
 
+/// MQTT v5-specific connection settings including session expiry and last will.
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct MoreV5 {
     #[serde(default = "MoreV5::clean_start_default")]
@@ -246,6 +269,7 @@ impl MoreV5 {
         Bytesize::from(1024 * 1024)
     }
 
+    /// Serializes a v5 last will as a JSON object including v5-specific fields.
     #[inline]
     pub fn serialize_last_will<S>(
         v: &Option<LastWillV5>,
@@ -274,6 +298,7 @@ impl MoreV5 {
         josn_val.serialize(serializer)
     }
 
+    /// Deserializes a v5 last will from a JSON object.
     #[inline]
     pub fn deserialize_last_will<'de, D>(deserializer: D) -> std::result::Result<Option<LastWillV5>, D::Error>
     where
@@ -327,6 +352,7 @@ impl MoreV5 {
     }
 }
 
+/// A routing entry pairing a local topic filter with a remote topic configuration.
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Entry {
     #[serde(default)]
@@ -338,6 +364,10 @@ pub struct Entry {
 
 impl Entry {}
 
+/// Remote topic configuration for a bridge entry.
+///
+/// Controls the target topic (with optional `${local.topic}` pattern), QoS,
+/// retain flag, and topic level skipping.
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Remote {
     #[serde(default, deserialize_with = "Remote::deserialize_qos")]
@@ -351,16 +381,19 @@ pub struct Remote {
 }
 
 impl Remote {
+    /// Returns the remote topic string.
     #[inline]
     pub fn topic(&self) -> &str {
         &self.topic.0
     }
 
+    /// Returns whether the topic contains the `${local.topic}` pattern.
     #[inline]
     pub fn topic_has_pattern(&self) -> bool {
         self.topic.1
     }
 
+    /// Builds the actual topic string, optionally replacing `${local.topic}`.
     #[inline]
     pub fn make_topic(&self, topic: &str) -> ntex::util::ByteString {
         if self.topic_has_pattern() {
@@ -370,11 +403,13 @@ impl Remote {
         }
     }
 
+    /// Determines the effective retain flag, preferring the configured value.
     #[inline]
     pub fn make_retain(&self, remote_retain: bool) -> bool {
         self.retain.unwrap_or(remote_retain)
     }
 
+    /// Determines the effective QoS, preferring the configured value.
     #[inline]
     pub fn make_qos(&self, remote_qos: rmqtt::types::QoS) -> QoS {
         self.qos.unwrap_or(match remote_qos {
@@ -384,6 +419,7 @@ impl Remote {
         })
     }
 
+    /// Deserializes QoS from a u8 value (0, 1, or 2).
     #[inline]
     pub fn deserialize_qos<'de, D>(deserializer: D) -> std::result::Result<Option<QoS>, D::Error>
     where
@@ -397,6 +433,7 @@ impl Remote {
         }
     }
 
+    /// Deserializes a topic string and detects whether it contains the `${local.topic}` pattern.
     #[inline]
     pub fn deserialize_topic<'de, D>(deserializer: D) -> std::result::Result<(String, HasPattern), D::Error>
     where
@@ -410,6 +447,7 @@ impl Remote {
 
 type HasPattern = bool; //${local.topic}
 
+/// Local topic filter for a bridge entry.
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Local {
     #[serde(default)]

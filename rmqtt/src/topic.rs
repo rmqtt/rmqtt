@@ -67,9 +67,12 @@ fn is_metadata<T: AsRef<str>>(s: T) -> bool {
     s.as_ref().starts_with('$')
 }
 
+/// Errors that may occur during MQTT topic parsing or validation.
 #[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum TopicError {
+    /// The topic string is malformed or violates MQTT spec rules.
     InvalidTopic(String),
+    /// A specific level within the topic is invalid.
     InvalidLevel(String),
 }
 
@@ -86,6 +89,10 @@ impl fmt::Display for TopicError {
     }
 }
 
+/// Represents a single level/segment within an MQTT topic.
+///
+/// Each level of a topic filter (delimited by `/`) is parsed into one of these variants,
+/// representing literal text, wildcards, or empty segments.
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Hash, Serialize, Deserialize)]
 pub enum Level {
     Normal(String),
@@ -96,10 +103,12 @@ pub enum Level {
 }
 
 impl Level {
+    /// Parse a level from a string reference.
     pub fn parse<T: AsRef<str>>(s: T) -> Result<Level, TopicError> {
         Level::from_str(s.as_ref())
     }
 
+    /// Create a normal (literal) level, rejecting wildcards and `$`-prefixed values.
     pub fn normal<T: AsRef<str>>(s: T) -> Result<Level, TopicError> {
         if s.as_ref().contains(['+', '#']) {
             return Err(TopicError::InvalidLevel(format!(
@@ -118,6 +127,7 @@ impl Level {
         Ok(Level::Normal(String::from(s.as_ref())))
     }
 
+    /// Create a metadata level (starting with `$`), rejecting wildcards.
     pub fn metadata<T: AsRef<str>>(s: T) -> Result<Level, TopicError> {
         if s.as_ref().contains(['+', '#']) {
             return Err(TopicError::InvalidLevel(format!(
@@ -136,6 +146,7 @@ impl Level {
         Ok(Level::Metadata(String::from(s.as_ref())))
     }
 
+    /// Return the underlying string value, if this is a `Normal` or `Metadata` level.
     #[inline]
     pub fn value(&self) -> Option<&str> {
         match *self {
@@ -144,16 +155,23 @@ impl Level {
         }
     }
 
+    /// Return `true` if this is a `Normal` level.
     #[inline]
     pub fn is_normal(&self) -> bool {
         matches!(*self, Level::Normal(_))
     }
 
+    /// Return `true` if this is a `Metadata` level (starting with `$`).
     #[inline]
     pub fn is_metadata(&self) -> bool {
         matches!(*self, Level::Metadata(_))
     }
 
+    /// Validate this level according to MQTT spec rules.
+    ///
+    /// A normal level must not contain `+`, `#`, or start with `$`.
+    /// A metadata level must start with `$` and not contain `+` or `#`.
+    /// Wildcard and blank levels are always valid.
     #[inline]
     pub fn is_valid(&self) -> bool {
         match *self {
@@ -191,15 +209,24 @@ macro_rules! matches {
     }};
 }
 
+/// A parsed MQTT topic filter represented as an ordered list of [`Level`] segments.
+///
+/// Topics are split on `/` delimiters and validated according to MQTT v3.1.1/v5.0
+/// specification rules for wildcards and system-level isolation.
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Hash, Serialize, Deserialize)]
 pub struct Topic(Vec<Level>);
 
 impl Topic {
+    /// Return a reference to the underlying vector of topic levels.
     #[inline]
     pub fn levels(&self) -> &Vec<Level> {
         &self.0
     }
 
+    /// Validate the entire topic according to MQTT specification rules.
+    ///
+    /// Checks that wildcards are positioned correctly (multi-level `#` must be last),
+    /// metadata levels only appear as the first segment, and each level is valid.
     #[inline]
     pub fn is_valid(&self) -> bool {
         self.0
@@ -215,10 +242,14 @@ impl Topic {
             .is_none()
     }
 
+    /// Check whether this topic filter matches another parsed topic.
     pub fn matches(&self, topic: &Topic) -> bool {
         matches!(self, &topic.0)
     }
 
+    /// Check whether this topic filter matches a topic string.
+    ///
+    /// The string is split on `/` and matched according to MQTT wildcard rules.
     pub fn matches_str<S: AsRef<str> + ?Sized>(&self, topic: &S) -> bool {
         matches!(self, topic.as_ref().split('/'))
     }

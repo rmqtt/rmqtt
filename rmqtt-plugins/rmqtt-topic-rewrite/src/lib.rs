@@ -1,3 +1,16 @@
+//! Topic rewrite plugin for RMQTT.
+//!
+//! Rewrites MQTT topics on subscribe and publish using configurable
+//! rules. Supports pattern-based matching, variable extraction,
+//! and topic remapping.
+//!
+//! # Features
+//!
+//! - Rewrite subscribe topic filters before ACL checking.
+//! - Rewrite publish topic names before routing.
+//! - Regex and pattern-based rule definitions.
+//! - Bidirectional topic transformation.
+//!
 #![deny(unsafe_code)]
 
 use std::ops::DerefMut;

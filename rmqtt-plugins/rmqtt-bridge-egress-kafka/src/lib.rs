@@ -1,3 +1,16 @@
+//! Kafka egress bridge plugin for RMQTT.
+//!
+//! Forwards MQTT publish messages to Apache Kafka topics.
+//! Supports configurable topic mapping, message transformation,
+//! and delivery guarantees.
+//!
+//! # Features
+//!
+//! - Topic-to-topic mapping between MQTT and Kafka.
+//! - Configurable Kafka producer settings (acks, batch size, etc.).
+//! - Message key extraction from MQTT payload or properties.
+//! - Delivery confirmation with retry on failure.
+//!
 #![deny(unsafe_code)]
 
 use std::ops::Deref;

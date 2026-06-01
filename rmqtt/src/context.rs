@@ -200,25 +200,32 @@ impl ServerContextBuilder {
         self
     }
 
-    /// Sets directory path for plugin loading
+    /// Sets plugin configuration via a directory path.
     #[cfg(feature = "plugin")]
     pub fn plugins_config_dir<N: Into<String>>(mut self, plugins_dir: N) -> Self {
         self.plugins_config = self.plugins_config.path(plugins_dir.into());
         self
     }
 
+    /// Sets plugin configuration via a key-value map of plugin name to TOML config string.
     #[cfg(feature = "plugin")]
     pub fn plugins_config_map(mut self, plugins_config_map: HashMap<String, String>) -> Self {
         self.plugins_config = self.plugins_config.map(plugins_config_map);
         self
     }
 
+    /// Adds a single plugin configuration entry to the plugin config map.
+    /// Adds a single plugin configuration entry to the plugin map.
     #[cfg(feature = "plugin")]
     pub fn plugins_config_map_add<N: Into<String>, C: Into<String>>(mut self, name: N, cfg: C) -> Self {
         self.plugins_config = self.plugins_config.add(name.into(), cfg.into());
         self
     }
 
+    /// Sets plugin configuration from a `PluginManagerConfig` instance.
+    /// Merges directory path and map entries into the existing configuration.
+    /// Sets the complete plugin configuration from a `PluginManagerConfig` instance.
+    /// Merges the path and map from the provided config into the builder.
     #[cfg(feature = "plugin")]
     pub fn plugins_config(mut self, plugins_config: PluginManagerConfig) -> Self {
         if let Some(path) = plugins_config.path {
@@ -379,6 +386,11 @@ impl ServerContext {
         }
     }
 
+    /// Retrieves or lazily creates a `TaskExecQueue` identified by the given key.
+    ///
+    /// If a queue for this key does not exist, it will be created with the
+    /// configured worker count and queue capacity, then spawned as a background
+    /// Tokio task.
     #[inline]
     pub fn get_exec<K: ExecKey>(&self, key: K) -> TaskExecQueue {
         self.execs
@@ -398,6 +410,7 @@ impl ServerContext {
             .clone()
     }
 
+    /// Returns a snapshot of all registered task execution queues as a map of name to queue.
     #[inline]
     pub fn execs(&self) -> HashMap<String, TaskExecQueue> {
         self.execs.iter().map(|entry| (entry.key().to_string(), entry.value().clone())).collect()
@@ -423,12 +436,22 @@ impl fmt::Debug for ServerContext {
     }
 }
 
+/// Number of worker threads for task execution.
 pub type ExecWorkers = usize;
+
+/// Maximum capacity for a task execution queue.
 pub type ExecQueueMax = usize;
 
+/// Key trait for identifying and configuring task execution queues.
+///
+/// Implementors provide a static key name and optional worker/queue parameters
+/// for lazy initialization of `TaskExecQueue` instances via `ServerContext::get_exec`.
 pub trait ExecKey {
+    /// Returns the static key name identifying this execution queue.
     fn get(&self) -> &'static str;
+    /// Returns the optional worker thread count for this queue.
     fn workers(&self) -> Option<ExecWorkers>;
+    /// Returns the optional maximum queue capacity for this queue.
     fn queue_max(&self) -> Option<ExecQueueMax>;
 }
 

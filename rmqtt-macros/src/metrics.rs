@@ -1,3 +1,8 @@
+//! Procedural macro implementation for the `#[derive(Metrics)]` macro.
+//!
+//! Generates methods on the annotated struct for atomic counter operations,
+//! JSON serialization, Prometheus metric export, and additive merging.
+
 use quote::quote;
 use syn::{parse_macro_input, Data, DeriveInput, Fields, FieldsNamed, Ident};
 

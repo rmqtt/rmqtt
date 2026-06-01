@@ -1,3 +1,8 @@
+//! Configuration for the message storage plugin.
+//!
+//! Defines [`PluginConfig`], [`Config`], and [`RamConfig`] for choosing
+//! between in-memory (RAM) and external storage backends.
+
 use serde::{
     de::{self, Deserializer},
     Deserialize, Serialize,
@@ -5,6 +10,7 @@ use serde::{
 
 use rmqtt::utils::Bytesize;
 
+/// Top-level configuration for the message storage plugin.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
     #[serde(
@@ -60,12 +66,14 @@ impl PluginConfig {
         }
     }
 
+    /// Serializes the configuration to a JSON value.
     #[inline]
     pub fn to_json(&self) -> serde_json::Value {
         serde_json::json!(self)
     }
 }
 
+/// Storage backend selector (RAM or external storage).
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub enum Config {
     #[cfg(feature = "ram")]
@@ -74,6 +82,7 @@ pub enum Config {
     Storage(rmqtt_storage::Config),
 }
 
+/// In-memory (RAM) storage configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RamConfig {
     pub cache_capacity: Bytesize,

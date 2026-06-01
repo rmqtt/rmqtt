@@ -1,3 +1,12 @@
+//! Error types for MQTT protocol encoding and decoding operations
+//!
+//! This module defines the error hierarchy used throughout the codec crate:
+//! - `HandshakeError`: Errors during the initial MQTT connection handshake
+//! - `ProtocolError`: Higher-level protocol errors (decode, encode, timeout)
+//! - `DecodeError`: Specific errors that occur when parsing MQTT packets from bytes
+//! - `EncodeError`: Specific errors that occur when serializing MQTT packets to bytes
+//! - `SendPacketError`: Errors that occur when preparing a packet for transmission
+
 use std::io;
 
 use bytestring::ByteString;
@@ -50,6 +59,7 @@ impl ToReasonCode for ProtocolError {
     }
 }
 
+/// Errors that occur when decoding/parsing MQTT packets from a byte stream
 #[derive(Debug, Clone, thiserror::Error, Deserialize, Serialize)]
 pub enum DecodeError {
     #[error("Invalid protocol")]
@@ -104,6 +114,7 @@ impl ToReasonCode for DecodeError {
     }
 }
 
+/// Errors that occur when encoding/serializing MQTT packets to a byte stream
 #[derive(Deserialize, Serialize, Debug, Clone, thiserror::Error)]
 pub enum EncodeError {
     #[error("Packet is bigger than peer's Maximum Packet Size")]
@@ -139,6 +150,9 @@ impl ToReasonCode for EncodeError {
     }
 }
 
+/// Errors that occur when sending MQTT packets
+///
+/// Wraps encoding errors that happen during packet transmission
 #[derive(Deserialize, Serialize, Debug, Clone, thiserror::Error)]
 pub enum SendPacketError {
     /// Encoder error

@@ -1,3 +1,8 @@
+//! Raft-consensus cluster router.
+//!
+//! Maintains client state (connection status, handshake locks) and topic
+//! subscription routes via the Raft log, providing cluster-wide consistency
+//! for session ownership and routing data.
 use std::borrow::Cow;
 use std::io::{Read, Write};
 use std::str::FromStr;

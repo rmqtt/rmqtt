@@ -1,3 +1,9 @@
+//! TLS certificate information extracted from MQTT client connections
+//!
+//! This module provides the `CertInfo` struct which holds X.509 certificate
+//! metadata extracted during TLS handshake, including the Common Name,
+//! subject distinguished name, serial number, and organization fields.
+
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -15,6 +21,7 @@ pub struct CertInfo {
 }
 
 impl CertInfo {
+    /// Creates a new `CertInfo` instance with default (empty) fields
     pub fn new() -> Self {
         Self::default()
     }

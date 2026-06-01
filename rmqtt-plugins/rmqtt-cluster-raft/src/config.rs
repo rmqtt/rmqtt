@@ -1,3 +1,9 @@
+//! Configuration types for the Raft-based cluster plugin.
+//!
+//! Defines [`PluginConfig`], [`Health`], [`RaftConfig`], and [`Compression`]
+//! for managing Raft consensus peers, gRPC communication, health checks,
+//! and snapshot compression.
+
 use std::time::Duration;
 
 use anyhow::anyhow;
@@ -14,6 +20,10 @@ use rmqtt::{
 };
 use rmqtt_raft::ReadOnlyOption;
 
+/// Top-level configuration for the Raft cluster plugin.
+///
+/// Includes node addressing, gRPC client settings, Raft peer addresses,
+/// leader ID, task queue parameters, and compression/health settings.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
     #[serde(default = "PluginConfig::worker_threads_default")]
@@ -67,6 +77,7 @@ pub struct PluginConfig {
 }
 
 impl PluginConfig {
+    /// Returns the leader peer address if `leader_id` is set.
     #[inline]
     pub fn leader(&self) -> Result<Option<&NodeAddr>> {
         if self.leader_id == 0 {
@@ -81,6 +92,7 @@ impl PluginConfig {
         }
     }
 
+    /// Serializes the configuration to a JSON value.
     #[inline]
     pub fn to_json(&self) -> Result<serde_json::Value> {
         Ok(serde_json::to_value(self)?)
@@ -121,6 +133,8 @@ impl PluginConfig {
         128
     }
 
+    /// Merges command-line arguments (node gRPC addrs, raft peer addrs,
+    /// leader ID) into this config.
     pub fn merge(&mut self, opts: &CommandArgs) {
         if let Some(node_grpc_addrs) = opts.node_grpc_addrs.as_ref() {
             self.node_grpc_addrs.clone_from(node_grpc_addrs);
@@ -134,6 +148,7 @@ impl PluginConfig {
     }
 }
 
+/// Health-check configuration for cluster node availability.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Health {
     #[serde(default = "Health::exit_on_node_unavailable_default")]
@@ -178,6 +193,10 @@ impl Health {
     }
 }
 
+/// Raft consensus configuration.
+///
+/// Mirrors `rmqtt_raft::Config` fields, allowing customization of gRPC
+/// transport, election/heartbeat ticks, snapshot intervals, and more.
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct RaftConfig {
     #[serde(default = "RaftConfig::grpc_reuseaddr_default")]
@@ -360,6 +379,8 @@ impl RaftConfig {
         false
     }
 
+    /// Deserializes a `ReadOnlyOption` from its string representation
+    /// ("safe" or "leasebased").
     pub fn deserialize_read_only_option<'de, D>(
         deserializer: D,
     ) -> std::result::Result<ReadOnlyOption, D::Error>
@@ -374,6 +395,7 @@ impl RaftConfig {
         }
     }
 
+    /// Serializes a `ReadOnlyOption` to its string representation.
     #[inline]
     pub fn serialize_read_only_option<S>(rop: &ReadOnlyOption, s: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -387,6 +409,7 @@ impl RaftConfig {
     }
 }
 
+/// Snapshot compression algorithm.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Compression {

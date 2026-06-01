@@ -7,9 +7,15 @@ use crate::error::EncodeError;
 use crate::types::packet_type;
 use crate::utils::{write_variable_length, Encode};
 
+/// Trait for encoding MQTT v5 packets with packet size limit enforcement
+///
+/// Unlike the base `Encode` trait, this allows encoding to be constrained
+/// by a maximum packet size, truncating or omitting properties as needed.
 pub(crate) trait EncodeLtd {
+    /// Returns the encoded size within the given size limit
     fn encoded_size(&self, limit: u32) -> usize;
 
+    /// Encodes the data into the buffer, respecting the size limit
     fn encode(&self, buf: &mut BytesMut, size: u32) -> Result<(), EncodeError>;
 }
 
@@ -116,6 +122,7 @@ impl EncodeLtd for Packet {
     }
 }
 
+/// Calculates encoded size of optional user properties and reason string, respecting size limit
 pub(crate) fn encoded_size_opt_props(
     user_props: &[UserProperty],
     reason_str: &Option<ByteString>,
@@ -141,6 +148,7 @@ pub(crate) fn encoded_size_opt_props(
     len
 }
 
+/// Encodes optional user properties and reason string, respecting size limit
 pub(crate) fn encode_opt_props(
     user_props: &[UserProperty],
     reason_str: &Option<ByteString>,

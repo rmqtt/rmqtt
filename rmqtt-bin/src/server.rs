@@ -1,3 +1,9 @@
+//! Binary entry point for the RMQTT broker.
+//!
+//! Parses CLI arguments, loads configuration, initializes the logger, creates
+//! the server context, registers plugins, binds listeners (TCP, TLS, WebSocket,
+//! WSS, QUIC), and starts the MQTT server. Handles OS signal-based shutdown.
+
 #![deny(unsafe_code)]
 
 use std::time::Duration;

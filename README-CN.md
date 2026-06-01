@@ -1,12 +1,11 @@
 # RMQTT Broker
 
 [![GitHub Release](https://img.shields.io/github/release/rmqtt/rmqtt?color=brightgreen)](https://github.com/rmqtt/rmqtt/releases)
-<a href="https://blog.rust-lang.org/2025/08/07/Rust-1.89.0/"><img alt="Rust Version" src="https://img.shields.io/badge/rust-1.89.0%2B-blue" /></a>
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/rmqtt/rmqtt)
-[![crates.io page](https://img.shields.io/crates/v/rmqtt.svg)](https://crates.io/crates/rmqtt)
-[![docs.rs page](https://docs.rs/rmqtt/badge.svg)](https://docs.rs/rmqtt/latest/rmqtt/)
+[![Rust Version](https://img.shields.io/badge/rust-1.89.0%2B-blue)](https://blog.rust-lang.org/2025/08/07/Rust-1.89.0/)
+[![crates.io](https://img.shields.io/crates/v/rmqtt.svg)](https://crates.io/crates/rmqtt)
+[![docs.rs](https://docs.rs/rmqtt/badge.svg)](https://docs.rs/rmqtt/latest/rmqtt/)
 
-[English](./README.md)  | 简体中文
+[English](README.md) | [**简体中文**](README-CN.md)
 
 *RMQTT* 是一款完全开源，高度可伸缩，高可用的分布式 MQTT 消息服务器，适用于 IoT、M2M 和移动应用程序，可以在单个服务节点上处理百万级别的并发客户端。
 
@@ -83,6 +82,31 @@ docker run -d --name rmqtt -p 1883:1883 -p 8883:8883 -p 11883:11883 -p 6060:6060
 
 节点IDs: 1, 2, 3; 节点IP Addrs: 172.17.0.3, 172.17.0.4, 172.17.0.5
 
+#### 通过 docker-compose 创建单节点
+
+```yaml
+# docker-compose.yaml
+version: '3'
+
+services:
+  rmqtt:
+    container_name: rmqtt
+    image: rmqtt/rmqtt:latest
+    volumes:
+      - /etc/localtime:/etc/localtime
+      - /app/rmqtt-single/etc/:/app/rmqtt/etc
+      - /app/rmqtt-single/log:/var/log/rmqtt
+    ports:
+      - "1883:1883"
+      - "8080:8080"
+      - "8883:8883"
+      - "11883:11883"
+      - "6060:6060"
+    restart: always
+    command: -f ./etc/rmqtt.toml --id 1
+    privileged: true
+```
+
 #### 通过 docker-compose 创建静态集群
 
 1. [下载配置模板](https://github.com/rmqtt/templates/blob/main/docker-compose-template/docker-compose-template-v0.7.zip)
@@ -114,22 +138,42 @@ curl "http://127.0.0.1:6066/api/v1/health/check"
 
 ```toml
 [dependencies]
-rmqtt = "0.18"
+rmqtt = "0.22"
 ```
 
-更多关于库模式的使用说明，请参考 [RMQTT 库使用文档](./rmqtt/README.md) 。
+更多关于库模式的使用说明，请参考 [RMQTT 库使用文档](./rmqtt/README-CN.md) 。
 
-## 体验
+## 插件系统
 
-[//]: # (- MQTT Broker：47.103.110.134:1883)
+RMQTT 内置 25 个插件，分为 6 大类：
 
-[//]: # (- Account: 无)
+| 分类 | 插件 |
+|------|------|
+| **认证** | ACL、HTTP 认证、JWT 认证 |
+| **存储** | Retainer、消息存储、会话存储 |
+| **集群** | Raft、广播 |
+| **桥接** | MQTT（入/出）、Kafka（入/出）、Pulsar（入/出）、NATS（出）、ReductStore（出） |
+| **API** | HTTP API、WebHook、系统主题 |
+| **功能** | Counter、自动订阅、主题重写、P2P 消息 |
 
-[//]: # (- HTTP APIs: http://47.103.110.134:6080/api/v1/)
+[插件开发指南 →](docs/zh_CN/development/plugin-development.md)
+
+## 文档资源
+
+| 资源 | 说明 |
+|------|------|
+| [架构概览](docs/zh_CN/architecture/overview.md) | 系统架构、模块设计、数据流 |
+| [配置指南](./rmqtt-conf/README-CN.md) | 所有配置项及默认值 |
+| [HTTP API 参考](docs/zh_CN/reference/http-api.md) | 36 个 REST API 端点 |
+| [贡献指南](CONTRIBUTING-CN.md) | 如何贡献代码 |
+| [更新日志](CHANGELOG.md) | 版本历史 |
+| [开发入门](docs/zh_CN/development/getting-started.md) | 构建、测试、开发工作流 |
+| [测试指南](docs/zh_CN/development/testing.md) | 单元测试、集成测试、互操作性 |
+| 子项目文档 | [rmqtt](./rmqtt/README-CN.md)、[rmqtt-bin](./rmqtt-bin/README-CN.md)、[rmqtt-codec](./rmqtt-codec/README-CN.md)、[rmqtt-net](./rmqtt-net/README-CN.md)、[rmqtt-conf](./rmqtt-conf/README-CN.md)、[rmqtt-utils](./rmqtt-utils/README-CN.md)、[rmqtt-macros](./rmqtt-macros/README-CN.md)、[rmqtt-test](./rmqtt-test/README-CN.md) |
 
 ## 测试
 
-### 功能测试
+### 互操作性测试
 
 #### paho.mqtt.testing(MQTT V3.1.1) [client_test.py](https://github.com/eclipse/paho.mqtt.testing/blob/master/interoperability/client_test.py)
 
@@ -179,6 +223,10 @@ rmqtt = "0.18"
   * 需要修改rmqtt-acl.toml配置，在第一行添加：["deny", "all", "subscribe", ["test/nosubscribe"]]
 
 
+### 集成测试框架
+
+`rmqtt-test` crate 提供了自定义测试框架，包含功能测试、压力测试和混沌测试套件。详见[测试报告](docs/zh_CN/testing-report.md)。
+
 ### 基准测试
 
 #### 环境
@@ -208,9 +256,6 @@ rmqtt = "0.18"
 
 [基准测试详细内容，请参阅](./docs/zh_CN/benchmark-testing.md)
 
-## ⭐ Star History
-[![Star History Chart](https://api.star-history.com/svg?repos=rmqtt/rmqtt&type=Date)](https://star-history.com/#rmqtt/rmqtt&Date)
-
 ---
 
 ## Credits
@@ -219,6 +264,6 @@ rmqtt = "0.18"
 
 - 在 0.13 及之前的版本，本项目依赖了维护的 ntex 和 ntex-mqtt fork 版本作为依赖库。
 
+## 许可证
 
-
-
+基于 [MIT](LICENSE-MIT) 或 [Apache 2.0](LICENSE-APACHE) 许可证。

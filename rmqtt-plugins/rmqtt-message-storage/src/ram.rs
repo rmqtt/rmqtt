@@ -1,3 +1,7 @@
+//! In-memory (RAM) message storage implementation.
+//!
+//! Provides [`RamMessageManager`] and [`RamMessageManagerInner`] for
+//! storing, retrieving, and expiring offline messages in memory.
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap};
 use std::convert::From as _f;
@@ -44,6 +48,7 @@ impl MessageEntry<'_> {
 
 type SubClientIds = Option<Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>>;
 
+/// An in-memory message manager that implements [`MessageManager`].
 #[derive(Clone)]
 pub struct RamMessageManager {
     inner: Arc<RamMessageManagerInner>,

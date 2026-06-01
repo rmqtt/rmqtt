@@ -1,7 +1,17 @@
+//! Command-line argument parsing for the RMQTT broker.
+//!
+//! Defines the `Options` struct using `clap::Parser` to handle CLI flags
+//! such as config file path, node ID, plugin startup list, and cluster
+//! peer addresses for gRPC and Raft.
+
 use clap::Parser;
 
 use rmqtt_utils::{NodeAddr, NodeId};
 
+/// Command-line options for the RMQTT broker.
+///
+/// Parsed from CLI arguments using `clap`. These values override settings
+/// from the configuration file where applicable.
 #[derive(Parser, Debug, Clone, Default)]
 #[command(disable_version_flag = true)]
 pub struct Options {

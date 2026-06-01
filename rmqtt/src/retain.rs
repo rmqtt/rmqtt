@@ -73,30 +73,55 @@ use crate::types::{HashMap, Retain, TimedValue, TopicFilter, TopicName};
 use crate::utils::{Counter, StatsMergeMode};
 use crate::Result;
 
+/// Abstraction for retained message storage backends.
+///
+/// Implementations can provide in-memory, plugin-backed, or
+/// distributed storage for retained messages.
+///
+/// # Default Behavior
+///
+/// The default in-memory implementation ([`DefaultRetainStorage`]) is
+/// functional but logs a warning recommending the `rmqtt-retainer`
+/// plugin for production use.
 #[async_trait]
 pub trait RetainStorage: Sync + Send {
-    ///Whether retain is supported
+    /// Whether retained message storage is enabled.
     #[inline]
     fn enable(&self) -> bool {
         false
     }
 
-    ///topic - concrete topic
+    /// Store a retained message for the given topic.
+    ///
+    /// If the payload is empty, the retained message is cleared.
     async fn set(&self, topic: &TopicName, retain: Retain, expiry_interval: Option<Duration>) -> Result<()>;
 
-    ///topic_filter - Topic filter
+    /// Retrieve all retained messages matching the given topic filter.
     async fn get(&self, topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>>;
 
+    /// Current count of retained messages.
     async fn count(&self) -> isize;
 
+    /// Maximum number of retained messages ever stored.
     async fn max(&self) -> isize;
 
+    /// How stats from this storage should be merged with other sources.
     #[inline]
     fn stats_merge_mode(&self) -> StatsMergeMode {
         StatsMergeMode::None
     }
 }
 
+/// Default in-memory retained message storage.
+///
+/// Uses a [`RetainTree`] (trie-like structure) for O(log n) topic
+/// operations and a [`Counter`] for atomic statistics tracking.
+///
+/// # Production Note
+///
+/// This is a simple in-memory implementation suitable for testing.
+/// Production deployments should use the `rmqtt-retainer` plugin
+/// for persistent and distributed storage.
 pub struct DefaultRetainStorage {
     pub messages: RwLock<RetainTree<TimedValue<Retain>>>,
     retaineds: Counter,
@@ -199,8 +224,28 @@ impl RetainStorage for DefaultRetainStorage {
     }
 }
 
+/// Trie-like tree structure for retained message storage.
+///
+/// Supports efficient topic-level insertion, removal, and
+/// wildcard pattern matching. The tree hierarchy mirrors
+/// the MQTT topic hierarchy.
+///
+/// # Performance
+///
+/// | Operation    | Complexity |
+/// |--------------|------------|
+/// | `insert()`   | O(k)       |
+/// | `remove()`   | O(k)       |
+/// | `matches()`  | O(k+m)     |
+/// | `retain()`   | O(n)       |
+///
+/// where k = topic depth, m = matching branches, n = total values.
 pub type RetainTree<V> = Node<V>;
 
+/// A single node in the retained message trie.
+///
+/// Each node optionally holds a value and maps topic levels
+/// to child nodes, forming a tree that represents the topic hierarchy.
 pub struct Node<V> {
     value: Option<V>,
     branches: HashMap<Level, Node<V>>,
@@ -217,6 +262,7 @@ impl<V> Node<V>
 where
     V: std::fmt::Debug + Clone,
 {
+    /// Insert a value at the given topic path, creating intermediate nodes as needed.
     #[inline]
     pub fn insert(&mut self, topic: &Topic, value: V) {
         let mut path = topic.levels().clone();
@@ -233,6 +279,10 @@ where
         }
     }
 
+    /// Remove the stored value at the given topic path.
+    ///
+    /// Prunes empty intermediate nodes after removal.
+    /// Returns the removed value, if any.
     #[inline]
     pub fn remove(&mut self, topic: &Topic) -> Option<V> {
         self._remove(topic.levels().as_ref())
@@ -256,7 +306,10 @@ where
         }
     }
 
-    //remove all pairs `v` for which `f(&mut v)` returns `false`.
+    /// Remove values for which the predicate returns `false`.
+    ///
+    /// Respects `max_limit` to cap the number of removals per call.
+    /// Returns the count of removed entries.
     #[inline]
     pub fn retain<F>(&mut self, max_limit: usize, mut f: F) -> usize
     where

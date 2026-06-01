@@ -1,3 +1,15 @@
+//! Bridge origin plugin for RMQTT.
+//!
+//! Tracks the origin of bridged messages to prevent infinite
+//! forwarding loops in bridge topologies. Each bridged message
+//! is tagged with its origin bridge ID.
+//!
+//! # Features
+//!
+//! - Origin tracking via message metadata.
+//! - Loop detection and prevention.
+//! - Support for complex bridge mesh topologies.
+//!
 #![deny(unsafe_code)]
 
 use std::sync::Arc;

@@ -1,3 +1,9 @@
+//! Configuration for the topic rewrite plugin.
+//!
+//! Defines [`PluginConfig`], [`Rule`], [`DestTopicItem`], [`Action`], and
+//! [`Regex`] for rewriting MQTT publish/subscribe topic filters based on
+//! configurable rules with regex capture groups and placeholders.
+
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
@@ -20,6 +26,7 @@ use rmqtt::{
 
 type Rules = Arc<RwLock<TopicTree<Rule>>>;
 
+/// Top-level configuration for the topic rewrite plugin.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
     #[serde(default = "PluginConfig::default_priority")]
@@ -37,6 +44,7 @@ impl PluginConfig {
         Priority::MAX
     }
 
+    /// Returns the parsed rewrite rules stored in a topic tree.
     #[inline]
     pub fn rules(&self) -> &Rules {
         let (_rules, _) = &self.rules;
@@ -52,6 +60,8 @@ impl PluginConfig {
         rules.serialize(s)
     }
 
+    /// Deserializes rewrite rules from JSON, building a topic tree indexed by
+    /// source topic filter.
     #[inline]
     pub fn deserialize_rules<'de, D>(
         deserializer: D,
@@ -89,6 +99,11 @@ impl PluginConfig {
     }
 }
 
+/// A segment of a destination topic in a rewrite rule.
+///
+/// Can be a literal string, a numbered capture-group placeholder (`$1`),
+/// or a substitution for client ID (`${clientid}`) or username
+/// (`${username}`).
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 pub enum DestTopicItem {
     Normal(String),
@@ -118,6 +133,10 @@ impl Default for DestTopicItem {
     }
 }
 
+/// A single topic rewrite rule.
+///
+/// Matches `source_topic_filter` and, if the regex matches, rewrites the
+/// topic to `dest_topic` using the parsed `dest_topic_items`.
 #[derive(Default, Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 pub struct Rule {
     pub action: Action,
@@ -187,6 +206,7 @@ impl std::convert::TryFrom<&serde_json::Value> for Rule {
     }
 }
 
+/// The direction(s) a rewrite rule applies to.
 #[derive(Default, Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Action {
@@ -210,15 +230,18 @@ impl std::convert::TryFrom<&serde_json::Value> for Action {
     }
 }
 
+/// An optional compiled regex for capture-group extraction in rewrite rules.
 #[derive(Default, Debug, Clone)]
 pub struct Regex(Option<regex::Regex>);
 
 impl Regex {
+    /// Creates a new `Regex` from an optional pattern string.
     fn new(re: Option<&str>) -> Result<Self> {
         let re = if let Some(re) = re { Some(regex::Regex::new(re).map_err(|e| anyhow!(e))?) } else { None };
         Ok(Self(re))
     }
 
+    /// Returns the inner compiled regex, if any.
     #[inline]
     pub fn get(&self) -> Option<&regex::Regex> {
         self.0.as_ref()

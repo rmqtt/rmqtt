@@ -1,6 +1,12 @@
+//! Logging configuration for the RMQTT broker.
+//!
+//! Defines log output destination (`To`), severity level (`Level`), and
+//! file path settings.
+
 use serde::de::{self, Deserializer};
 use serde::Deserialize;
 
+/// Log output configuration, including destination, level, and file path.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Log {
     #[serde(default = "Log::to_default")]
@@ -42,6 +48,9 @@ impl Log {
     fn file_default() -> String {
         "rmqtt.log".into()
     }
+    /// Returns the resolved log file path by joining directory and file name.
+    ///
+    /// Returns an empty string if the file name is empty.
     #[inline]
     pub fn filename(&self) -> String {
         let file = &self.file;
@@ -56,6 +65,9 @@ impl Log {
     }
 }
 
+/// Log output destination type.
+///
+/// Controls whether logs are written to the console, a file, both, or disabled.
 #[derive(Debug, Clone, Copy)]
 pub enum To {
     Off,
@@ -65,14 +77,17 @@ pub enum To {
 }
 
 impl To {
+    /// Returns `true` if the destination includes file output.
     #[inline]
     pub fn file(&self) -> bool {
         matches!(self, To::Both | To::File)
     }
+    /// Returns `true` if the destination includes console output.
     #[inline]
     pub fn console(&self) -> bool {
         matches!(self, To::Both | To::Console)
     }
+    /// Returns `true` if logging is disabled.
     #[inline]
     pub fn off(&self) -> bool {
         matches!(self, To::Off)
@@ -97,6 +112,9 @@ impl<'de> Deserialize<'de> for To {
     }
 }
 
+/// Log severity level.
+///
+/// Supports standard levels from Trace (most verbose) to Error (least verbose).
 #[derive(Debug, Clone, Copy)]
 pub enum Level {
     Trace,
@@ -107,6 +125,7 @@ pub enum Level {
 }
 
 impl Level {
+    /// Returns the string representation of this log level (e.g. "info", "debug").
     #[inline]
     pub fn as_str(&self) -> &'static str {
         match self {

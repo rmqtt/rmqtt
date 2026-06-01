@@ -1,3 +1,8 @@
+//! MQTT v3.1.1 bridge client for ingress subscription.
+//!
+//! Connects to a remote MQTT v3.1.1 broker, subscribes to configured topics,
+//! and forwards received messages into the local broker via an event system.
+
 use std::cell::RefCell;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::rc::Rc;
@@ -45,6 +50,7 @@ impl MqttConnector {
     }
 }
 
+/// An MQTT v3.1.1 ingress client that subscribes to remote topics.
 #[derive(Clone)]
 pub struct Client {
     pub(crate) cfg: Arc<Bridge>,
@@ -58,10 +64,12 @@ pub struct Client {
 }
 
 impl Client {
+    /// Returns `true` if the client connection has been closed.
     pub fn is_closed(&self) -> bool {
         self.closed.load(Ordering::SeqCst)
     }
 
+    /// Closes the client connection and marks it as closed.
     pub fn close(&self) -> bool {
         if let Some(sink) = self.sink.borrow().as_ref() {
             sink.close();

@@ -1,39 +1,82 @@
+[**English**](README.md) | [简体中文](README-CN.md)
+
 # rmqtt-codec
 
-[![crates.io page](https://img.shields.io/crates/v/rmqtt-codec.svg)](https://crates.io/crates/rmqtt-codec/0.1.1)
-[![docs.rs page](https://docs.rs/rmqtt-codec/badge.svg)](https://docs.rs/rmqtt-codec/0.1.1/rmqtt_codec)
+[![crates.io page](https://img.shields.io/crates/v/rmqtt-codec.svg)](https://crates.io/crates/rmqtt-codec)
+[![docs.rs page](https://docs.rs/rmqtt-codec/badge.svg)](https://docs.rs/rmqtt-codec/latest/rmqtt_codec)
 
+MQTT protocol codec — v3.1.1 / v5.0 encoding and decoding with handshake-based version negotiation.
 
-🚀 **rmqtt-codec** is a high-performance MQTT protocol codec library designed for async environments. It provides full 
-support for multiple MQTT versions with automatic negotiation and zero-copy efficiency, seamlessly integrating with the Tokio ecosystem.
+## Public types
 
-## ✨ Core Features
+### `MqttCodec` (enum)
 
-- **Multi-Version Support**: Full implementation of MQTT v3.1, v3.1.1, and v5.0 specifications
-- **Automatic Protocol Negotiation**: Smart version detection during the CONNECT handshake phase
-- **Zero-Copy Encoding/Decoding**: Efficient binary processing using `bytes::BytesMut` to minimize memory overhead
-- **Tokio Integration**: Built with `tokio_util::codec` for smooth async I/O operations
-- **Memory Safety**: Enforces strict message size limits (default 1MB) to prevent memory-related vulnerabilities
+```rust
+pub enum MqttCodec {
+    V3(v3::Codec),
+    V5(v5::Codec),
+    Version(version::VersionCodec),
+}
+```
 
-## 🧩 Architecture Components
+Implements `tokio_util::codec::Encoder<MqttPacket>` (error: `EncodeError`) and `tokio_util::codec::Decoder` (yields `(MqttPacket, u32)` — packet + consumed bytes; error: `DecodeError`).
 
-- `MqttCodec`: Main codec dispatcher for version-aware encoding and decoding
-- `MqttPacket`: Unified representation of all MQTT packet types across versions
-- `version::ProtocolVersion`: Handshake-based protocol version detection
-- `EncodeError` / `DecodeError`: Dedicated error types for robust error handling during encoding and decoding
+### `MqttPacket` (enum)
 
-## 📚 Crate Usage
+```rust
+pub enum MqttPacket {
+    V3(v3::Packet),
+    V5(v5::Packet),
+    Version(version::ProtocolVersion),
+}
+```
 
-Please add a dependency in 'Cargo. toml':
+## Public modules
+
+| Module | Contents |
+|--------|----------|
+| `v3` | `Codec`, `Packet` (Connect, ConnAck, Publish, PubAck, PubRec, PubRel, PubComp, Subscribe, SubAck, Unsubscribe, UnsubAck, PingRequest, PingResponse, Disconnect), `ConnAckReason` |
+| `v5` | `Codec`, `Packet` (same + Auth), `PublishProperties`, `Auth`, `DisconnectReasonCode`, `SubscribeAckReason`, `UserProperties`, `ToReasonCode` trait |
+| `version` | `VersionCodec`, `ProtocolVersion` (MQTT3, MQTT5) — handshake detection |
+| `error` | `HandshakeError`, `ProtocolError`, `DecodeError`, `EncodeError`, `SendPacketError` |
+| `types` | `QoS` (AtMostOnce=0, AtLeastOnce=1, ExactlyOnce=2), `Protocol` (wrapper around u8), `SubscribeReason`, `PacketId`, `Publish` |
+| `cert` | Certificate-related helpers |
+
+### Error types
+
+```rust
+pub enum HandshakeError { Protocol(ProtocolError), Timeout }
+pub enum ProtocolError { Decode(DecodeError), Encode(EncodeError), Timeout, ... }
+pub enum DecodeError { ... }
+pub enum EncodeError { MalformedPacket, UnsupportedVersion, ... }
+pub enum SendPacketError { Disconnected(ByteString), Full, ... }
+```
+
+## Usage
+
+```rust
+use bytes::BytesMut;
+use rmqtt_codec::{MqttCodec, MqttPacket, v3};
+use tokio_util::codec::{Encoder, Decoder};
+
+let mut codec = MqttCodec::V3(v3::Codec::new(1024 * 1024)); // max_packet_size
+let mut buf = BytesMut::new();
+codec.encode(MqttPacket::V3(v3::Packet::PingRequest), &mut buf).unwrap();
+```
+
+## Cargo.toml
 
 ```toml
 [dependencies]
-rmqtt-codec = "0.1"
+rmqtt-codec = "0.2"
 ```
 
-## 🔧 Use Cases
+## Dependencies
 
-- Embedded MQTT brokers or clients
-- High-performance message middleware
-- Protocol gateways or custom network services
+`tokio-util` (codec), `bytes`, `bytestring`, `serde`, `thiserror`, `bitflags`, `chrono`, `nonzero_ext`, `rmqtt-utils`.
 
+No features.
+
+## License
+
+MIT OR Apache-2.0

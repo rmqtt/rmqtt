@@ -13,7 +13,10 @@ mod packet;
 pub use self::codec::Codec;
 pub use self::packet::*;
 
+/// A key-value pair representing a single user property
 pub type UserProperty = (ByteString, ByteString);
+/// A list of user properties for MQTT v5 packets
 pub type UserProperties = Vec<UserProperty>;
 
-const RECEIVE_MAX_DEFAULT: NonZeroU16 = nonzero!(65535u16);
+/// Default maximum receive value (65535)
+pub(crate) const RECEIVE_MAX_DEFAULT: NonZeroU16 = nonzero!(65535u16);

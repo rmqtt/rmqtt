@@ -1,4 +1,8 @@
-use std::convert::From as _f;
+//! Cluster-aware shared subscription and session management.
+//!
+//! Defines [`ClusterLockEntry`] and [`ClusterShared`] which extend the local
+//! shared state (sessions/subscriptions) with gRPC-based inter-node
+//! forwarding, health checks, and subscription queries.
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -25,12 +29,16 @@ use super::{hook_message_dropped, kick};
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
+/// A locked session entry that broadcasts session operations (kick,
+/// online checks, subscription queries) to remote cluster nodes.
 pub struct ClusterLockEntry {
     inner: Box<dyn Entry>,
     cluster_shared: ClusterShared,
 }
 
 impl ClusterLockEntry {
+    /// Creates a new cluster lock entry wrapping an inner [`Entry`] and
+    /// a reference to the [`ClusterShared`] for inter-node communication.
     #[inline]
     pub fn new(inner: Box<dyn Entry>, cluster_shared: ClusterShared) -> Self {
         Self { inner, cluster_shared }
@@ -183,15 +191,20 @@ impl Entry for ClusterLockEntry {
     }
 }
 
+/// Cluster-aware shared subscription state that extends [`DefaultShared`]
+/// with gRPC-based forwarding to remote nodes.
 #[derive(Clone)]
 pub struct ClusterShared {
     inner: DefaultShared,
     scx: ServerContext,
     grpc_clients: GrpcClients,
+    /// The gRPC message type used for cluster communication.
     pub message_type: MessageType,
 }
 
 impl ClusterShared {
+    /// Creates a new [`ClusterShared`] wrapping a [`DefaultShared`] and
+    /// gRPC clients for inter-node communication.
     #[inline]
     pub(crate) fn new(
         scx: ServerContext,

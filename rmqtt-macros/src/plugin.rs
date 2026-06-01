@@ -1,3 +1,9 @@
+//! Procedural macro implementation for the `#[derive(Plugin)]` macro.
+//!
+//! Generates a `PackageInfo` trait implementation on the annotated struct,
+//! providing metadata (name, version, authors, license, repository, etc.)
+//! from Cargo environment variables.
+
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput};
 

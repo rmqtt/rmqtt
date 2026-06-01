@@ -16,6 +16,7 @@ pub struct Disconnect {
     pub user_properties: UserProperties,
 }
 
+/// Trait for types that can be mapped to a `DisconnectReasonCode`
 pub trait ToReasonCode {
     fn to_reason_code(&self) -> DisconnectReasonCode;
 }

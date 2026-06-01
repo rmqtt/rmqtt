@@ -1,3 +1,8 @@
+//! Client search and retrieval helpers for the HTTP API.
+//!
+//! Provides functions to look up individual clients by ID and search/filter
+//! across all connected sessions.
+
 use std::sync::Arc;
 
 use rmqtt::{

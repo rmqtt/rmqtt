@@ -1,3 +1,9 @@
+//! Message types for Raft-based cluster communication.
+//!
+//! Defines [`Message`] / [`MessageReply`] for session and subscription
+//! Raft proposals, and [`RaftGrpcMessage`] / [`RaftGrpcMessageReply`] for
+//! gRPC-level queries (e.g., health status).
+
 use serde::{Deserialize, Serialize};
 
 use rmqtt::types::{Id, NodeHealthStatus, NodeId, SubscriptionOptions};
@@ -5,6 +11,7 @@ use rmqtt::Result;
 
 use super::Mailbox;
 
+/// Raft-proposal messages for managing client state and subscriptions.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Message<'a> {
     HandshakeTryLock { id: Id },
@@ -19,16 +26,20 @@ pub enum Message<'a> {
 }
 
 impl<'a> Message<'a> {
+    /// Encodes this message into a byte vector using postcard.
+    /// Encodes this message into a byte vector using postcard.
     #[inline]
     pub fn encode(&self) -> Result<Vec<u8>> {
         postcard::to_stdvec(self).map_err(anyhow::Error::new)
     }
+    /// Decodes this message from a byte slice.
     #[inline]
     pub fn _decode(data: &'a [u8]) -> Result<Self> {
         postcard::from_bytes::<Self>(data).map_err(anyhow::Error::new)
     }
 }
 
+/// Reply messages for Raft [`Message`] proposals.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum MessageReply {
     Error(String),
@@ -37,10 +48,13 @@ pub enum MessageReply {
 }
 
 impl MessageReply {
+    /// Encodes this reply into a byte vector using postcard.
+    /// Encodes this reply into a byte vector using postcard.
     #[inline]
     pub fn encode(&self) -> Result<Vec<u8>> {
         postcard::to_stdvec(self).map_err(anyhow::Error::new)
     }
+    /// Decodes this reply from a byte slice.
     #[inline]
     pub fn decode(data: &[u8]) -> Result<MessageReply> {
         postcard::from_bytes::<MessageReply>(data).map_err(anyhow::Error::new)
@@ -60,6 +74,7 @@ pub(crate) async fn get_client_node_id(raft_mailbox: Mailbox, client_id: &str) -
 
 #[allow(dead_code)]
 #[inline]
+/// Sends a Ping proposal to the Raft cluster and returns the reply.
 pub async fn ping(raft_mailbox: &Mailbox) -> Result<Option<MessageReply>> {
     let msg = Message::Ping.encode()?;
     let reply = raft_mailbox.send_proposal(msg).await.map_err(anyhow::Error::new)?;
@@ -70,32 +85,39 @@ pub async fn ping(raft_mailbox: &Mailbox) -> Result<Option<MessageReply>> {
     }
 }
 
+/// gRPC-level messages for the Raft plugin (e.g., health status queries).
 #[derive(Serialize, Deserialize, Debug)]
 pub enum RaftGrpcMessage {
     GetNodeHealthStatus,
 }
 
 impl RaftGrpcMessage {
+    /// Encodes this gRPC message into a byte vector using postcard.
     #[inline]
     pub fn encode(&self) -> Result<Vec<u8>> {
         postcard::to_stdvec(self).map_err(anyhow::Error::new)
     }
+    /// Decodes this gRPC message from a byte slice.
     #[inline]
     pub fn decode(data: &[u8]) -> Result<Self> {
         postcard::from_bytes::<Self>(data).map_err(anyhow::Error::new)
     }
 }
 
+/// Reply messages for [`RaftGrpcMessage`].
 #[derive(Serialize, Deserialize, Debug)]
 pub enum RaftGrpcMessageReply {
     GetNodeHealthStatus(NodeHealthStatus),
 }
 
 impl RaftGrpcMessageReply {
+    /// Encodes this reply into a byte vector using postcard.
+    /// Encodes this reply into a byte vector using postcard.
     #[inline]
     pub fn encode(&self) -> Result<Vec<u8>> {
         postcard::to_stdvec(self).map_err(anyhow::Error::new)
     }
+    /// Decodes this reply from a byte slice.
     #[inline]
     pub fn decode(data: &[u8]) -> Result<Self> {
         postcard::from_bytes::<Self>(data).map_err(anyhow::Error::new)
