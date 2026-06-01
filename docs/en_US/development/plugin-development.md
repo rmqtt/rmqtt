@@ -1,4 +1,4 @@
-[**English**](plugin-development.md) | [简体中文](../zh_CN/development/plugin-development.md)
+[**English**](plugin-development.md) | [简体中文](../../zh_CN/development/plugin-development.md)
 
 # Plugin Development Guide
 

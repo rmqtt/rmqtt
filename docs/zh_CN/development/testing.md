@@ -1,4 +1,4 @@
-[English](../en_US/development/testing.md) | [**简体中文**](testing.md)
+[English](../../en_US/development/testing.md) | [**简体中文**](testing.md)
 
 # RMQTT 测试指南
 

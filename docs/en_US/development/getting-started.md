@@ -1,4 +1,4 @@
-[**English**](getting-started.md) | [简体中文](../zh_CN/development/getting-started.md)
+[**English**](getting-started.md) | [简体中文](../../zh_CN/development/getting-started.md)
 
 # Getting Started with RMQTT Development
 

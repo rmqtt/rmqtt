@@ -1,4 +1,4 @@
-[English](../en_US/development/plugin-development.md) | [**简体中文**](plugin-development.md)
+[English](../../en_US/development/plugin-development.md) | [**简体中文**](plugin-development.md)
 
 # 插件开发指南
 

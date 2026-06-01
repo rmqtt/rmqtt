@@ -1,4 +1,4 @@
-[**English**](overview.md) | [简体中文](../zh_CN/architecture/overview.md)
+[**English**](overview.md) | [简体中文](../../zh_CN/architecture/overview.md)
 
 # RMQTT Architecture Overview
 
