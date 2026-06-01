@@ -16,7 +16,7 @@ graph TD
         UT1[rmqtt-codec tests<br/>v3/v5 encode/decode]
         UT2[rmqtt-net tests<br/>builder, stream]
         UT3[rmqtt-utils tests<br/>Bytesize, NodeAddr, parse]
-        UT4[Other crate tests<br/>#\[cfg(test)\] modules]
+        UT4[Other crate tests<br/>cfg(test) modules]
     end
 
     subgraph "Layer 2: Integration Tests"
