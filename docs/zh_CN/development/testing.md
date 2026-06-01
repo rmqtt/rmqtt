@@ -10,24 +10,30 @@
 
 ```mermaid
 graph TD
-    subgraph "第一层: 单元测试"
-        UT1[rmqtt-codec 测试<br/>v3/v5 编解码]
-        UT2[rmqtt-net 测试<br/>构建器, 流]
-        UT3[rmqtt-utils 测试<br/>Bytesize, NodeAddr, 解析]
-        UT4[其他 crate 测试<br/>cargo test 模块]
+    subgraph L1["第一层: 单元测试"]
+        UT1["rmqtt-codec 测试 v3/v5 编解码"]
+        UT2["rmqtt-net 测试 构建器 流"]
+        UT3["rmqtt-utils 测试 Bytesize NodeAddr 解析"]
+        UT4["其他 crate 测试 cfg test 模块"]
     end
 
-    subgraph "第二层: 集成测试"
-        IT1[mqtt_harness<br/>5 套测试套件]
-        IT2[functional_v3/311/v5<br/>协议合规]
-        IT3[stress<br/>负载 & 性能]
-        IT4[chaos<br/>故障注入]
+    subgraph L2["第二层: 集成测试"]
+        IT1["mqtt_harness 5 套测试套件"]
+        IT2["functional v3 311 v5 协议合规"]
+        IT3["stress 负载 性能"]
+        IT4["chaos 故障注入"]
     end
 
-    subgraph "第三层: 互操作性"
-        IP1[paho.mqtt.testing<br/>V3.1.1: 11 测试]
-        IP2[paho.mqtt.testing<br/>V5.0: 24 测试]
+    subgraph L3["第三层: 互操作性"]
+        IP1["paho.mqtt.testing V3.1.1 11 测试"]
+        IP2["paho.mqtt.testing V5.0 24 测试"]
     end
+
+    UT1 --> IT1
+    UT2 --> IT1
+    UT3 --> IT1
+    IT1 --> IP1
+    IT1 --> IP2
 ```
 
 ---

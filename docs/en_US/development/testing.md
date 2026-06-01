@@ -12,30 +12,28 @@ RMQTT has three testing layers:
 
 ```mermaid
 graph TD
-
     subgraph L1["Layer 1: Unit Tests"]
-        UT1["rmqtt-codec tests<br>v3/v5 encode/decode"]
-        UT2["rmqtt-net tests<br>builder, stream"]
-        UT3["rmqtt-utils tests<br>Bytesize, NodeAddr, parse"]
-        UT4["Other crate tests<br>cargo test modules"]
+        UT1["rmqtt-codec tests v3/v5 encode decode"]
+        UT2["rmqtt-net tests builder stream"]
+        UT3["rmqtt-utils tests Bytesize NodeAddr parse"]
+        UT4["Other crate tests cfg test modules"]
     end
 
     subgraph L2["Layer 2: Integration Tests"]
-        IT1["mqtt_harness<br>5 suite types"]
-        IT2["functional_v3/311/v5<br>Protocol compliance"]
-        IT3["stress<br>Load & performance"]
-        IT4["chaos<br>Fault injection"]
+        IT1["mqtt_harness 5 suite types"]
+        IT2["functional v3 311 v5 Protocol compliance"]
+        IT3["stress Load performance"]
+        IT4["chaos Fault injection"]
     end
 
     subgraph L3["Layer 3: Interoperability"]
-        IP1["paho.mqtt.testing<br>V3.1.1: 11 tests"]
-        IP2["paho.mqtt.testing<br>V5.0: 24 tests"]
+        IP1["paho.mqtt.testing V3.1.1 11 tests"]
+        IP2["paho.mqtt.testing V5.0 24 tests"]
     end
 
     UT1 --> IT1
     UT2 --> IT1
     UT3 --> IT1
-
     IT1 --> IP1
     IT1 --> IP2
 ```
