@@ -1,4 +1,4 @@
-[**English**](http-api.md) | [简体中文](../zh_CN/reference/http-api.md)
+[**English**](http-api.md) | [简体中文](../../zh_CN/reference/http-api.md)
 
 # HTTP API Reference
 
