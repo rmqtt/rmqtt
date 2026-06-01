@@ -1,33 +1,33 @@
-[**English**](README.md) | [简体中文](README-CN.md)
+[English](README.md) | [**简体中文**](README-CN.md)
 
 # rmqtt-macros
 
 [![crates.io page](https://img.shields.io/crates/v/rmqtt-macros.svg)](https://crates.io/crates/rmqtt-macros)
 [![docs.rs page](https://docs.rs/rmqtt-macros/badge.svg)](https://docs.rs/rmqtt-macros/latest/rmqtt_macros)
 
-Procedural macros for the RMQTT ecosystem. Feature-gated.
+RMQTT 生态的过程宏。通过 feature 门控。
 
-## Derive macros
+## 派生宏
 
 ### `#[derive(Metrics)]` — feature `metrics`
 
-Generates `AtomicUsize`-based counters for each field. Generated methods:
+为每个字段生成基于 `AtomicUsize` 的计数器：
 
 ```rust,ignore
 impl MyStruct {
-    pub fn new() -> Self;                              // zero-init all fields
+    pub fn new() -> Self;                              // 全零初始化
     pub fn {field}_inc(&self);                         // fetch_add(1, SeqCst)
     pub fn {field}(&self) -> usize;                    // load(SeqCst)
     pub fn to_json(&self) -> serde_json::Value;        // {"field.name": value, ...}
-    pub fn add(&mut self, other: &Self);               // atomic add merge
+    pub fn add(&mut self, other: &Self);               // 原子合并
     pub fn build_prometheus_metrics(&self, label: &str, gauge_vec: &IntGaugeVec);
 }
-impl Clone for MyStruct { ... }                        // clone via AtomicUsize::new(load(...))
+impl Clone for MyStruct { ... }                        // 通过 AtomicUsize::new(load(...)) 克隆
 ```
 
 ### `#[derive(Plugin)]` — feature `plugin`
 
-Generates `impl rmqtt::plugin::PackageInfo` for the struct, reading metadata at compile time:
+生成 `impl rmqtt::plugin::PackageInfo`，编译时从 Cargo 环境变量读取包元数据：
 
 ```rust,ignore
 impl rmqtt::plugin::PackageInfo for MyStruct {
@@ -48,6 +48,6 @@ impl rmqtt::plugin::PackageInfo for MyStruct {
 rmqtt-macros = { version = "0.1", features = ["metrics", "plugin"] }
 ```
 
-## License
+## 许可证
 
 MIT OR Apache-2.0

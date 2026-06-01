@@ -1,13 +1,13 @@
-[**English**](README.md) | [简体中文](README-CN.md)
+[English](README.md) | [**简体中文**](README-CN.md)
 
 # rmqtt-utils
 
 [![crates.io page](https://img.shields.io/crates/v/rmqtt-utils.svg)](https://crates.io/crates/rmqtt-utils)
 [![docs.rs page](https://docs.rs/rmqtt-utils/badge.svg)](https://docs.rs/rmqtt-utils/latest/rmqtt_utils)
 
-Common utilities for the RMQTT MQTT broker: byte sizes, durations, timestamps, node addresses, env var expansion, and atomic counters.
+RMQTT MQTT Broker 通用工具：字节大小、持续时间、时间戳、节点地址、环境变量展开、原子计数器。
 
-## Type aliases
+## 类型别名
 
 ```rust
 pub type NodeId = u64;
@@ -16,7 +16,7 @@ pub type Timestamp = i64;
 pub type TimestampMillis = i64;
 ```
 
-## `Bytesize` — human-readable byte size
+## `Bytesize` — 人类可读字节大小
 
 ```rust
 #[derive(Clone, Copy, Default, Serialize, Deserialize)]
@@ -26,13 +26,13 @@ impl Bytesize {
     pub fn as_u32(&self) -> u32;
     pub fn as_u64(&self) -> u64;
     pub fn as_usize(&self) -> usize;
-    pub fn string(&self) -> String;     // "3M", "2G1M512K", etc.
+    pub fn string(&self) -> String;     // "3M", "2G1M512K"
 }
 
 // From<usize>, TryFrom<&str>, FromStr, Deref<Target=usize>, DerefMut
 ```
 
-## `NodeAddr` — cluster node address (`ID@host:port`)
+## `NodeAddr` — 集群节点地址（`ID@host:port`）
 
 ```rust
 #[derive(Clone, Serialize)]
@@ -44,18 +44,18 @@ pub struct NodeAddr {
 // Serialize, Deserialize
 ```
 
-## Free functions
+## 函数
 
 ```rust
 pub fn to_bytesize(text: &str) -> Result<usize, ParseSizeError>;
-// Supported suffixes: G, M, K, B. E.g. "2G512K" -> 2148007936
+// 支持后缀: G, M, K, B。如 "2G512K" -> 2148007936
 
 pub fn to_duration(text: &str) -> Duration;
-// Supported: ms, s, m, h, d, w, f (fortnight). E.g. "1h30m15s" -> 5415s
+// 支持: ms, s, m, h, d, w, f（两周）。如 "1h30m15s" -> 5415s
 
 pub fn timestamp() -> Duration;              // SystemTime::now().duration_since(UNIX_EPOCH)
-pub fn timestamp_secs() -> Timestamp;        // i64 seconds
-pub fn timestamp_millis() -> TimestampMillis;// i64 milliseconds
+pub fn timestamp_secs() -> Timestamp;        // i64 秒
+pub fn timestamp_millis() -> TimestampMillis;// i64 毫秒
 
 pub fn format_timestamp(t: Timestamp) -> String;              // "%Y-%m-%d %H:%M:%S"
 pub fn format_timestamp_now() -> String;
@@ -63,10 +63,10 @@ pub fn format_timestamp_millis(t: TimestampMillis) -> String; // "%Y-%m-%d %H:%M
 pub fn format_timestamp_millis_now() -> String;
 
 pub fn expand_env_vars(value: &str) -> String;
-// Expands ${ENV:VAR_NAME} placeholders using regex. Logs warning for unset vars.
+// 使用正则表达式展开 ${ENV:VAR_NAME} 占位符。未设置的环境变量记录 warning。
 ```
 
-## Serde helpers
+## Serde 辅助函数
 
 ```rust
 pub fn deserialize_duration<'de, D>(d) -> Result<Duration, D::Error>;
@@ -89,12 +89,12 @@ impl Counter {
     pub fn new() -> Self;                           // (0, 0, None)
     pub fn new_with(c: isize, max: isize, m: StatsMergeMode) -> Self;
 
-    pub fn inc(&self);                              // current += 1, update max
-    pub fn incs(&self, c: isize);                   // current += c, update max
-    pub fn current_inc(&self);                      // current += 1, no max update
+    pub fn inc(&self);                              // current += 1, 更新 max
+    pub fn incs(&self, c: isize);                   // current += c, 更新 max
+    pub fn current_inc(&self);                      // current += 1, 不更新 max
     pub fn current_incs(&self, c: isize);
     pub fn current_set(&self, c: isize);
-    pub fn sets(&self, c: isize);                   // set current, update max
+    pub fn sets(&self, c: isize);                   // 设置 current, 更新 max
     pub fn dec(&self);
     pub fn decs(&self, c: isize);
     pub fn count_min(&self, c: isize);
@@ -104,19 +104,19 @@ impl Counter {
 
     pub fn count(&self) -> isize;
     pub fn max(&self) -> isize;
-    pub fn add(&self, other: &Self);                // atomic addition
-    pub fn set(&self, other: &Self);                // atomic replacement
-    pub fn merge(&self, other: &Self);              // merge using StatsMergeMode
+    pub fn add(&self, other: &Self);                // 原子加法
+    pub fn set(&self, other: &Self);                // 原子替换
+    pub fn merge(&self, other: &Self);              // 按 StatsMergeMode 合并
     pub fn to_json(&self) -> serde_json::Value;     // {"count":..., "max":...}
 }
 
 pub enum StatsMergeMode { None, Sum, Average, Max, Min }
 ```
 
-## Safety
+## 安全性
 
-`#![deny(unsafe_code)]` — zero unsafe code.
+`#![deny(unsafe_code)]` — 零 unsafe 代码。
 
-## License
+## 许可证
 
 MIT OR Apache-2.0
