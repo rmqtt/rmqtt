@@ -62,9 +62,9 @@ graph TB
 
     MQTT & TLS & WS & QUIC --> Listener
     Listener --> Builder
-    Listener -->|accept()| Acceptor
-    Acceptor -->|tcp()/tls()| Dispatcher
-    Dispatcher -->|mqtt()| Server
+    Listener -->|accept| Acceptor
+    Acceptor -->|dispatch| Dispatcher
+    Dispatcher -->|mqtt| Server
 
     Dispatcher -.-> Codec
     Codec -.-> V3 & V5 & Version
