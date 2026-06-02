@@ -20,7 +20,7 @@ Welcome to the RMQTT documentation. This index provides a structured overview of
 |----------|-------------|
 | [Architecture Overview](architecture/overview.md) | System architecture, crate layers, core modules, session lifecycle |
 | [Plugin System](../architecture/overview.md#plugin-system) | Plugin trait, lifecycle, registration pattern |
-| [Hook System](../architecture/overview.md#hook-system) | All 18 hook types, handler registration, priority |
+| [Hook System](../architecture/overview.md#hook-system) | All 23 hook types, handler registration, priority |
 | [Message Flow](../architecture/overview.md#message-flow) | End-to-end publish/subscribe flow with diagrams |
 
 ---

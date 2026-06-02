@@ -148,7 +148,7 @@ rmqtt/src/
 ├── fitter.rs        # 主题过滤匹配引擎
 ├── inflight.rs      # 进行中消息追踪 (QoS 1/2)
 ├── queue.rs         # 带速率限制的消息队列
-├── hook.rs          # 钩子系统 — 10+ 扩展点
+├── hook.rs          # 钩子系统 — 23 个扩展点
 ├── extend.rs        # 扩展点存储 (10 个 RwLock 插槽)
 ├── executor.rs      # 异步任务执行器包装
 ├── types.rs         # 核心数据类型 (~3000 行)
@@ -222,7 +222,7 @@ stateDiagram-v2
 
 ## 钩子系统
 
-钩子系统是 RMQTT 的主要扩展机制，在消息处理管道的各个阶段提供了 10+ 个拦截点。
+钩子系统是 RMQTT 的主要扩展机制，在消息处理管道的各个阶段提供了 **23 个拦截点**。
 
 ### Hook Trait
 
@@ -245,17 +245,21 @@ pub trait Handler: Send + Sync {
 | `ClientDisconnected` | 会话已结束 | Continue |
 | `ClientSubscribe` | 收到 SUBSCRIBE | Continue |
 | `ClientSubscribeCheckAcl` | 订阅 ACL 检查 | `(bool, Option<SubscribeAclResult>)` |
+| `ClientKeepalive` | 保活超时或收到 ping | Continue |
 | `ClientUnsubscribe` | 收到 UNSUBSCRIBE | Continue |
 | `MessagePublish` | 收到 PUBLISH | `(bool, Option<MessagePublishResult>)` |
 | `MessagePublishCheckAcl` | 发布 ACL 检查 | `(bool, Option<PublishAclResult>)` |
 | `MessageDelivered` | 消息已发送给客户端 | Continue |
 | `MessageAcked` | 客户端已确认 | Continue |
 | `MessageDropped` | 消息被丢弃 | Continue |
+| `MessageExpiryCheck` | 检查消息是否过期 | Continue |
+| `MessageNonsubscribed` | 无匹配订阅者 | Continue |
 | `SessionCreated` | 会话已创建 | Continue |
 | `SessionTerminated` | 会话已销毁 | Continue |
 | `SessionSubscribed` | 订阅已添加 | Continue |
 | `SessionUnsubscribed` | 订阅已移除 | Continue |
 | `OfflineMessage` | 离线消息已存储 | Continue |
+| `OfflineInflightMessages` | 重连客户端加载 in-flight 消息 | Continue |
 | `GrpcMessageReceived` | 跨节点 gRPC 消息 | `(bool, Option<Vec<u8>>)` |
 
 ### 钩子注册优先级

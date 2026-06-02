@@ -153,7 +153,7 @@ rmqtt/src/
 ├── inflight.rs      # In-flight message tracking (QoS 1/2)
 ├── queue.rs         # Message queue with rate limiting
 │
-├── hook.rs          # Hook system — 10+ extension points
+├── hook.rs          # Hook system — 23 extension points
 ├── extend.rs        # Extension point storage (10 RwLock slots)
 ├── executor.rs      # Async task executor wrapper
 │
@@ -231,7 +231,7 @@ stateDiagram-v2
 
 ## Hook System
 
-The hook system is the primary extension mechanism. It provides 10+ interception points along the message processing pipeline.
+The hook system is the primary extension mechanism. It provides **23 interception points** along the message processing pipeline.
 
 ### Hook Trait
 
@@ -254,17 +254,21 @@ pub trait Handler: Send + Sync {
 | `ClientDisconnected` | Session ended | Continue |
 | `ClientSubscribe` | SUBSCRIBE received | Continue |
 | `ClientSubscribeCheckAcl` | Subscribe ACL check | `(bool, Option<SubscribeAclResult>)` |
+| `ClientKeepalive` | Keepalive timeout or ping received | Continue |
 | `ClientUnsubscribe` | UNSUBSCRIBE received | Continue |
 | `MessagePublish` | PUBLISH received | `(bool, Option<MessagePublishResult>)` |
 | `MessagePublishCheckAcl` | Publish ACL check | `(bool, Option<PublishAclResult>)` |
 | `MessageDelivered` | Message sent to client | Continue |
 | `MessageAcked` | Client acknowledged | Continue |
 | `MessageDropped` | Message dropped | Continue |
+| `MessageExpiryCheck` | Check if message has expired | Continue |
+| `MessageNonsubscribed` | No matching subscribers found | Continue |
 | `SessionCreated` | Session created | Continue |
 | `SessionTerminated` | Session destroyed | Continue |
 | `SessionSubscribed` | Subscription added | Continue |
 | `SessionUnsubscribed` | Subscription removed | Continue |
 | `OfflineMessage` | Offline message stored | Continue |
+| `OfflineInflightMessages` | Reconnecting client loads in-flight messages | Continue |
 | `GrpcMessageReceived` | Cross-node gRPC message | `(bool, Option<Vec<u8>>)` |
 
 ### Hook Registration Priority

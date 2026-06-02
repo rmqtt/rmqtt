@@ -121,7 +121,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1"
 ```bash
 $ curl -i -X GET "http://localhost:6060/api/v1/brokers"
 
-[{"datetime":"2022-07-24 23:01:31","node_id":1,"node_name":"1@127.0.0.1","node_status":"Running","sysdescr":"RMQTT Broker","uptime":"5 days 23 hours, 16 minutes, 3 seconds","version":"rmqtt/0.2.3-20220724094535"}]
+[{"datetime":"2022-07-24 23:01:31","node_id":1,"node_name":"1@127.0.0.1","running":true,"sysdescr":"RMQTT Broker","uptime":"5 days 23 hours, 16 minutes, 3 seconds","version":"rmqtt/0.21.0"}]
 ```
 
 获取节点 1 的基本信息：
@@ -129,7 +129,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1/brokers"
 ```bash
 $ curl -i -X GET "http://localhost:6060/api/v1/brokers/1"
 
-{"datetime":"2022-07-24 23:01:31","node_id":1,"node_name":"1@127.0.0.1","node_status":"Running","sysdescr":"RMQTT Broker","uptime":"5 days 23 hours, 17 minutes, 15 seconds","version":"rmqtt/0.2.3-20220724094535"}
+{"datetime":"2022-07-24 23:01:31","node_id":1,"node_name":"1@127.0.0.1","running":true,"sysdescr":"RMQTT Broker","uptime":"5 days 23 hours, 17 minutes, 15 seconds","version":"rmqtt/0.21.0"}
 ```
 
 ## 节点
@@ -173,7 +173,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1/brokers/1"
 ```bash
 $ curl -i -X GET "http://localhost:6060/api/v1/nodes"
 
-[{"boottime":"2022-06-30 05:20:24 UTC","connections":1,"disk_free":77382381568,"disk_total":88692346880,"load1":0.0224609375,"load15":0.0,"load5":0.0263671875,"memory_free":1457954816,"memory_total":2084057088,"memory_used":626102272,"node_id":1,"node_name":"1@127.0.0.1","node_status":"Running","uptime":"5 days 23 hours, 33 minutes, 0 seconds","version":"rmqtt/0.2.3-20220724094535"}]
+[{"boottime":"2022-06-30 05:20:24 UTC","connections":1,"disk_free":77382381568,"disk_total":88692346880,"load1":0.0224609375,"load15":0.0,"load5":0.0263671875,"memory_free":1457954816,"memory_total":2084057088,"memory_used":626102272,"node_id":1,"node_name":"1@127.0.0.1","running":true,"uptime":"5 days 23 hours, 33 minutes, 0 seconds","version":"rmqtt/0.21.0","rustc_version":"1.85.0"}]
 ```
 
 获取指定节点的状态：
@@ -181,7 +181,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1/nodes"
 ```bash
 $ curl -i -X GET "http://localhost:6060/api/v1/nodes/1"
 
-{"boottime":"2022-06-30 05:20:24 UTC","connections":1,"disk_free":77382381568,"disk_total":88692346880,"load1":0.0224609375,"load15":0.0,"load5":0.0263671875,"memory_free":1457954816,"memory_total":2084057088,"memory_used":626102272,"node_id":1,"node_name":"1@127.0.0.1","node_status":"Running","uptime":"5 days 23 hours, 33 minutes, 0 seconds","version":"rmqtt/0.2.3-20220724094535"}
+{"boottime":"2022-06-30 05:20:24 UTC","connections":1,"disk_free":77382381568,"disk_total":88692346880,"load1":0.0224609375,"load15":0.0,"load5":0.0263671875,"memory_free":1457954816,"memory_total":2084057088,"memory_used":626102272,"node_id":1,"node_name":"1@127.0.0.1","running":true,"uptime":"5 days 23 hours, 33 minutes, 0 seconds","version":"rmqtt/0.21.0"}
 ```
 
 ## 客户端
@@ -224,6 +224,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1/nodes/1"
 | [0].node_id             | Integer          | 客户端所连接的节点ID                                                                |
 | [0].clientid            | String           | 客户端标识符                                                                     |
 | [0].username            | String           | 客户端连接时使用的用户名                                                               | 
+| [0].superuser           | Boolean          | 客户端是否为超级用户                                                                 |
 | [0].proto_ver           | Integer          | 客户端使用的协议版本                                                                 |
 | [0].ip_address          | String           | 客户端的 IP 地址                                                                 |
 | [0].port                | Integer          | 客户端的端口                                                                     | 
@@ -233,6 +234,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1/nodes/1"
 | [0].connected           | Boolean          | 客户端是否处于连接状态                                                                |
 | [0].keepalive           | Integer          | 保持连接时间，单位：秒                                                                |
 | [0].clean_start         | Boolean          | 指示客户端是否使用了全新的会话                                                            |
+| [0].session_present     | Boolean          | 客户端是否连接到现有会话                                                                |
 | [0].expiry_interval     | Integer          | 会话过期间隔，单位：秒                                                                |
 | [0].created_at          | String           | 会话创建时间，格式为 "YYYY-MM-DD HH:mm:ss"                                           |
 | [0].subscriptions_cnt   | Integer          | 此客户端已建立的订阅数量                                                               |
@@ -241,7 +243,6 @@ $ curl -i -X GET "http://localhost:6060/api/v1/nodes/1"
 | [0].max_inflight        | Integer          | 飞行队列最大长度                                                                   |
 | [0].mqueue_len          | Integer          | 消息队列当前长度                                                                   |
 | [0].max_mqueue          | Integer          | 消息队列最大长度                                                                   |
-| [0].extra_attrs         | Integer          | 扩展属性数量                                                                     |
 | [0].last_will           | Json             | 遗嘱消息, 例如：{ "message": "dGVzdCAvdGVzdC9sd3QgLi4u", "qos": 1, "retain": false, "topic": "/test/lwt" } |
 
 
@@ -472,6 +473,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1/routes/foo%2f1"
 | encoding | String    | Optional | plain  | 消息正文使用的编码方式，目前仅支持 `plain` 与 `base64` 两种 |
 | qos      | Integer   | Optional | 0      | QoS 等级                                  |
 | retain   | Boolean   | Optional | false  | 是否为保留消息                                 |
+| properties | Object   | Optional |        | 发布属性 (MQTT v5)，包括：`message_expiry_interval`, `topic_alias`, `response_topic`, `correlation_data`, `user_properties` |
 
 **Success Response Body (JSON):**
 
@@ -568,6 +570,10 @@ true
 | [0].plugins.name      | String           | 插件名称                             |
 | [0].plugins.version   | String           | 插件版本                             |
 | [0].plugins.descr     | String           | 插件描述                             |
+| [0].plugins.authors   | String           | 插件作者                             |
+| [0].plugins.homepage  | String           | 插件主页                             |
+| [0].plugins.license   | String           | 插件许可证                            |
+| [0].plugins.repository| String           | 插件仓库                             |
 | [0].plugins.active    | Boolean          | 插件是否启动                           |
 | [0].plugins.inited    | Boolean          | 插件是否已经初始化                        |
 | [0].plugins.immutable | Boolean          | 插件是否不可变，不可变插件将不能被停止，不能修改配置，不能重启等 |
@@ -578,7 +584,7 @@ true
 ```bash
 $ curl -i -X GET "http://localhost:6060/api/v1/plugins"
 
-[{"node":1,"plugins":[{"active":false,"attrs":null,"descr":null,"immutable":true,"inited":false,"name":"rmqtt-cluster-raft","version":null},{"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-auth-http","version":null},{"active":true,"attrs":null,"descr":"","immutable":true,"inited":true,"name":"rmqtt-acl","version":"0.1.1"},{"active":true,"attrs":null,"descr":"","immutable":false,"inited":true,"name":"rmqtt-counter","version":"0.1.0"},{"active":true,"attrs":null,"descr":"","immutable":false,"inited":true,"name":"rmqtt-http-api","version":"0.1.1"},{"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-web-hook","version":null},{"active":false,"attrs":null,"descr":null,"immutable":true,"inited":false,"name":"rmqtt-cluster-broadcast","version":null}]}]
+[{"node":1,"plugins":[{"active":false,"attrs":null,"descr":null,"immutable":true,"inited":false,"name":"rmqtt-cluster-raft","version":null},{"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-auth-http","version":null},{"active":true,"attrs":null,"descr":"","immutable":true,"inited":true,"name":"rmqtt-acl","version":"0.21.0"},{"active":true,"attrs":null,"descr":"","immutable":false,"inited":true,"name":"rmqtt-counter","version":"0.21.0"},{"active":true,"attrs":null,"descr":"","immutable":false,"inited":true,"name":"rmqtt-http-api","version":"0.21.0"},{"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-web-hook","version":null},{"active":false,"attrs":null,"descr":null,"immutable":true,"inited":false,"name":"rmqtt-cluster-broadcast","version":null}]}]
 ```
 
 ### GET /api/v1/plugins/{node}
@@ -599,6 +605,10 @@ $ curl -i -X GET "http://localhost:6060/api/v1/plugins"
 | [0].name       | String           | 插件名称                           |
 | [0].version    | String           | 插件版本                           |
 | [0].descr      | String           | 插件描述                           |
+| [0].authors    | String           | 插件作者                           |
+| [0].homepage   | String           | 插件主页                           |
+| [0].license    | String           | 插件许可证                          |
+| [0].repository | String           | 插件仓库                           |
 | [0].active     | Boolean          | 插件是否启动                         |
 | [0].inited     | Boolean          | 插件是否已经初始化                      |
 | [0].immutable  | Boolean          | 插件是否不可变，不可变插件将不能被停止，不有修改配置，不能重启等 |
@@ -609,7 +619,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1/plugins"
 ```bash
 $ curl -i -X GET "http://localhost:6060/api/v1/plugins/1"
 
-[{"active":false,"attrs":null,"descr":null,"immutable":true,"inited":false,"name":"rmqtt-cluster-raft","version":null},{"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-auth-http","version":null},{"active":true,"attrs":null,"descr":"","immutable":true,"inited":true,"name":"rmqtt-acl","version":"0.1.1"},{"active":true,"attrs":null,"descr":"","immutable":false,"inited":true,"name":"rmqtt-counter","version":"0.1.0"},{"active":true,"attrs":null,"descr":"","immutable":false,"inited":true,"name":"rmqtt-http-api","version":"0.1.1"},{"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-web-hook","version":null},{"active":false,"attrs":null,"descr":null,"immutable":true,"inited":false,"name":"rmqtt-cluster-broadcast","version":null}]
+[{"active":false,"attrs":null,"descr":null,"immutable":true,"inited":false,"name":"rmqtt-cluster-raft","version":null},{"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-auth-http","version":null},{"active":true,"attrs":null,"descr":"","immutable":true,"inited":true,"name":"rmqtt-acl","version":"0.21.0"},{"active":true,"attrs":null,"descr":"","immutable":false,"inited":true,"name":"rmqtt-counter","version":"0.21.0"},{"active":true,"attrs":null,"descr":"","immutable":false,"inited":true,"name":"rmqtt-http-api","version":"0.21.0"},{"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-web-hook","version":null},{"active":false,"attrs":null,"descr":null,"immutable":true,"inited":false,"name":"rmqtt-cluster-broadcast","version":null}]
 ```
 
 ### GET /api/v1/plugins/{node}/{plugin}

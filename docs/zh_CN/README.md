@@ -20,7 +20,7 @@
 |----------|-------------|
 | [架构概览](architecture/overview.md) | 系统架构、crate 分层、核心模块、会话生命周期 |
 | [插件系统](../architecture/overview.md#插件系统) | Plugin trait、生命周期、注册模式 |
-| [钩子系统](../architecture/overview.md#钩子系统) | 18 种钩子类型、Handler 注册、优先级 |
+| [钩子系统](../architecture/overview.md#钩子系统) | 23 种钩子类型、Handler 注册、优先级 |
 
 ---
 

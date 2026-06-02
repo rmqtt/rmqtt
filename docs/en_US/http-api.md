@@ -123,7 +123,7 @@ Get the basic information of all nodes:
 ```bash
 $ curl -i -X GET "http://localhost:6060/api/v1/brokers"
 
-[{"datetime":"2022-07-24 23:01:31","node_id":1,"node_name":"1@127.0.0.1","node_status":"Running","sysdescr":"RMQTT Broker","uptime":"5 days 23 hours, 16 minutes, 3 seconds","version":"rmqtt/0.2.3-20220724094535"}]
+[{"datetime":"2022-07-24 23:01:31","node_id":1,"node_name":"1@127.0.0.1","running":true,"sysdescr":"RMQTT Broker","uptime":"5 days 23 hours, 16 minutes, 3 seconds","version":"rmqtt/0.21.0"}]
 ```
 
 Get the basic information of node 1 :
@@ -131,7 +131,7 @@ Get the basic information of node 1 :
 ```bash
 $ curl -i -X GET "http://localhost:6060/api/v1/brokers/1"
 
-{"datetime":"2022-07-24 23:01:31","node_id":1,"node_name":"1@127.0.0.1","node_status":"Running","sysdescr":"RMQTT Broker","uptime":"5 days 23 hours, 17 minutes, 15 seconds","version":"rmqtt/0.2.3-20220724094535"}
+{"datetime":"2022-07-24 23:01:31","node_id":1,"node_name":"1@127.0.0.1","running":true,"sysdescr":"RMQTT Broker","uptime":"5 days 23 hours, 17 minutes, 15 seconds","version":"rmqtt/0.21.0"}
 ```
 
 ## Node
@@ -175,7 +175,7 @@ Get the status of all nodes:
 ```bash
 $ curl -i -X GET "http://localhost:6060/api/v1/nodes"
 
-[{"boottime":"2022-06-30 05:20:24 UTC","connections":1,"disk_free":77382381568,"disk_total":88692346880,"load1":0.0224609375,"load15":0.0,"load5":0.0263671875,"memory_free":1457954816,"memory_total":2084057088,"memory_used":626102272,"node_id":1,"node_name":"1@127.0.0.1","node_status":"Running","uptime":"5 days 23 hours, 33 minutes, 0 seconds","version":"rmqtt/0.2.3-20220724094535"}]
+[{"boottime":"2022-06-30 05:20:24 UTC","connections":1,"disk_free":77382381568,"disk_total":88692346880,"load1":0.0224609375,"load15":0.0,"load5":0.0263671875,"memory_free":1457954816,"memory_total":2084057088,"memory_used":626102272,"node_id":1,"node_name":"1@127.0.0.1","running":true,"uptime":"5 days 23 hours, 33 minutes, 0 seconds","version":"rmqtt/0.21.0","rustc_version":"1.85.0"}]
 ```
 
 Get the status of the specified node:
@@ -183,7 +183,7 @@ Get the status of the specified node:
 ```bash
 $ curl -i -X GET "http://localhost:6060/api/v1/nodes/1"
 
-{"boottime":"2022-06-30 05:20:24 UTC","connections":1,"disk_free":77382381568,"disk_total":88692346880,"load1":0.0224609375,"load15":0.0,"load5":0.0263671875,"memory_free":1457954816,"memory_total":2084057088,"memory_used":626102272,"node_id":1,"node_name":"1@127.0.0.1","node_status":"Running","uptime":"5 days 23 hours, 33 minutes, 0 seconds","version":"rmqtt/0.2.3-20220724094535"}
+{"boottime":"2022-06-30 05:20:24 UTC","connections":1,"disk_free":77382381568,"disk_total":88692346880,"load1":0.0224609375,"load15":0.0,"load5":0.0263671875,"memory_free":1457954816,"memory_total":2084057088,"memory_used":626102272,"node_id":1,"node_name":"1@127.0.0.1","running":true,"uptime":"5 days 23 hours, 33 minutes, 0 seconds","version":"rmqtt/0.21.0","rustc_version":"1.85.0"}
 ```
 
 ## Client
@@ -226,6 +226,7 @@ Returns the information of all clients under the cluster.
 | [0].node_id             | Integer          | ID of the node to which the client is connected                                                                                   |
 | [0].clientid            | String           | Client identifier                                                                                                                 |
 | [0].username            | String           | User name of client when connecting                                                                                               |
+| [0].superuser           | Boolean          | Whether the client is a superuser                                                                                                 |
 | [0].proto_ver           | Integer          | Protocol version used by the client                                                                                               |
 | [0].ip_address          | String           | Client's IP address                                                                                                               |
 | [0].port                | Integer          | Client port                                                                                                                       | 
@@ -235,6 +236,7 @@ Returns the information of all clients under the cluster.
 | [0].connected           | Boolean          | Whether the client is connected                                                                                                   |
 | [0].keepalive           | Integer          | keepalive time, with the unit of second                                                                                           |
 | [0].clean_start         | Boolean          | Indicate whether the client is using a brand new session                                                                          |
+| [0].session_present     | Boolean          | Whether the client is connected to an existing session                                                                            |
 | [0].expiry_interval     | Integer          | Session expiration interval, with the unit of second                                                                              |
 | [0].created_at          | String           | Session creation time, in the format "YYYY-MM-DD HH:mm:ss"                                                                        |
 | [0].subscriptions_cnt   | Integer          | Number of subscriptions established by this client                                                                                |
@@ -243,7 +245,6 @@ Returns the information of all clients under the cluster.
 | [0].max_inflight        | Integer          | Maximum length of inflight                                                                                                        |
 | [0].mqueue_len          | Integer          | Current length of message queue                                                                                                   |
 | [0].max_mqueue          | Integer          | Maximum length of message queue                                                                                                   |
-| [0].extra_attrs         | Integer          | Number of Extended Attributes                                                                                                     |
 | [0].last_will           | Json             | Last Will Message, for example: { "message": "dGVzdCAvdGVzdC9sd3QgLi4u", "qos": 1, "retain": false, "topic": "/test/lwt" }        |
 
 **Examples:**
@@ -251,7 +252,7 @@ Returns the information of all clients under the cluster.
 ```bash
 $ curl -i -X GET "http://localhost:6060/api/v1/clients?_limit=10"
 
-[{"clean_start":true,"clientid":"be82ee31-7220-4cad-a724-aaad9a065012","connected":true,"connected_at":"2022-07-30 18:14:08","created_at":"2022-07-30 18:14:08","disconnected_at":"","expiry_interval":7200,"inflight":0,"ip_address":"183.193.169.110","keepalive":60,"max_inflight":16,"max_mqueue":1000,"max_subscriptions":0,"mqueue_len":0,"node_id":1,"port":10839,"proto_ver":4,"subscriptions_cnt":0,"username":"undefined"}]
+[{"clean_start":true,"session_present":true,"clientid":"be82ee31-7220-4cad-a724-aaad9a065012","connected":true,"connected_at":"2022-07-30 18:14:08","created_at":"2022-07-30 18:14:08","disconnected_at":"","expiry_interval":7200,"inflight":0,"ip_address":"183.193.169.110","keepalive":60,"max_inflight":16,"max_mqueue":1000,"max_subscriptions":0,"mqueue_len":0,"node_id":1,"port":10839,"proto_ver":4,"subscriptions_cnt":0,"superuser":false,"username":"undefined"}]
 ```
 
 ### GET /api/v1/clients/{clientid}
@@ -277,7 +278,7 @@ Query the specified client
 ```bash
 $ curl -i -X GET "http://localhost:6060/api/v1/clients/example1"
 
-{"clean_start":true,"clientid":"example1","connected":true,"connected_at":"2022-07-30 23:30:43","created_at":"2022-07-30 23:30:43","disconnected_at":"","expiry_interval":7200,"inflight":0,"ip_address":"183.193.169.110","keepalive":60,"max_inflight":16,"max_mqueue":1000,"max_subscriptions":0,"mqueue_len":0,"node_id":1,"port":11232,"proto_ver":4,"subscriptions_cnt":0,"username":"undefined"}
+{"clean_start":true,"session_present":true,"clientid":"example1","connected":true,"connected_at":"2022-07-30 23:30:43","created_at":"2022-07-30 23:30:43","disconnected_at":"","expiry_interval":7200,"inflight":0,"ip_address":"183.193.169.110","keepalive":60,"max_inflight":16,"max_mqueue":1000,"max_subscriptions":0,"mqueue_len":0,"node_id":1,"port":11232,"proto_ver":4,"subscriptions_cnt":0,"superuser":false,"username":"undefined"}
 ```
 
 ### DELETE /api/v1/clients/{clientid}
@@ -473,6 +474,7 @@ Publish MQTT message。
 | encoding | String    | Optional | plain  | The encoding used in the message body. Currently only plain and base64 are supported |
 | qos      | Integer   | Optional | 0      | QoS level                                  |
 | retain   | Boolean   | Optional | false  | Whether it is a retained message                                 |
+| properties | Object   | Optional |        | Publish properties (MQTT v5), including: `message_expiry_interval`, `topic_alias`, `response_topic`, `correlation_data`, `user_properties` |
 
 **Success Response Body (JSON):**
 
@@ -569,6 +571,10 @@ Returns information of all plugins in the cluster.
 | [0].plugins.name      | String           | Plugin name                                                                                                         |
 | [0].plugins.version   | String           | Plugin version                                                                                                      |
 | [0].plugins.descr     | String           | Plugin description                                                                                                  |
+| [0].plugins.authors   | String           | Plugin authors                                                                                                      |
+| [0].plugins.homepage  | String           | Plugin homepage                                                                                                     |
+| [0].plugins.license   | String           | Plugin license                                                                                                      |
+| [0].plugins.repository| String           | Plugin repository                                                                                                   |
 | [0].plugins.active    | Boolean          | Whether the plugin is active                                                                                        |
 | [0].plugins.inited    | Boolean          | Whether the plugin is initialized                                                                                   |
 | [0].plugins.immutable | Boolean          | Whether the plugin is immutable, Immutable plugins will not be able to be stopped, config modified, restarted, etc. |
@@ -579,7 +585,7 @@ Returns information of all plugins in the cluster.
 ```bash
 $ curl -i -X GET "http://localhost:6060/api/v1/plugins"
 
-[{"node":1,"plugins":[{"active":false,"attrs":null,"descr":null,"immutable":true,"inited":false,"name":"rmqtt-cluster-raft","version":null},{"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-auth-http","version":null},{"active":true,"attrs":null,"descr":"","immutable":true,"inited":true,"name":"rmqtt-acl","version":"0.1.1"},{"active":true,"attrs":null,"descr":"","immutable":false,"inited":true,"name":"rmqtt-counter","version":"0.1.0"},{"active":true,"attrs":null,"descr":"","immutable":false,"inited":true,"name":"rmqtt-http-api","version":"0.1.1"},{"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-web-hook","version":null},{"active":false,"attrs":null,"descr":null,"immutable":true,"inited":false,"name":"rmqtt-cluster-broadcast","version":null}]}]
+[{"node":1,"plugins":[{"active":false,"attrs":null,"descr":null,"immutable":true,"inited":false,"name":"rmqtt-cluster-raft","version":null},{"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-auth-http","version":null},{"active":true,"attrs":null,"descr":"","immutable":true,"inited":true,"name":"rmqtt-acl","version":"0.21.0"},{"active":true,"attrs":null,"descr":"","immutable":false,"inited":true,"name":"rmqtt-counter","version":"0.21.0"},{"active":true,"attrs":null,"descr":"","immutable":false,"inited":true,"name":"rmqtt-http-api","version":"0.21.0"},{"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-web-hook","version":null},{"active":false,"attrs":null,"descr":null,"immutable":true,"inited":false,"name":"rmqtt-cluster-broadcast","version":null}]}]
 ```
 
 ### GET /api/v1/plugins/{node}
@@ -600,6 +606,10 @@ Return the plugin information under the specified node
 | [0].name       | String           | Plugin name                       |
 | [0].version    | String           | Plugin version                      |
 | [0].descr      | String           | Plugin description                  |
+| [0].authors    | String           | Plugin authors                     |
+| [0].homepage   | String           | Plugin homepage                    |
+| [0].license    | String           | Plugin license                     |
+| [0].repository | String           | Plugin repository                  |
 | [0].active     | Boolean          | Whether the plugin is active                        |
 | [0].inited     | Boolean          | Whether the plugin is initialized                 |
 | [0].immutable  | Boolean          | Whether the plugin is immutable, Immutable plugins will not be able to be stopped, config modified, restarted, etc. |
@@ -610,7 +620,7 @@ Return the plugin information under the specified node
 ```bash
 $ curl -i -X GET "http://localhost:6060/api/v1/plugins/1"
 
-[{"active":false,"attrs":null,"descr":null,"immutable":true,"inited":false,"name":"rmqtt-cluster-raft","version":null},{"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-auth-http","version":null},{"active":true,"attrs":null,"descr":"","immutable":true,"inited":true,"name":"rmqtt-acl","version":"0.1.1"},{"active":true,"attrs":null,"descr":"","immutable":false,"inited":true,"name":"rmqtt-counter","version":"0.1.0"},{"active":true,"attrs":null,"descr":"","immutable":false,"inited":true,"name":"rmqtt-http-api","version":"0.1.1"},{"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-web-hook","version":null},{"active":false,"attrs":null,"descr":null,"immutable":true,"inited":false,"name":"rmqtt-cluster-broadcast","version":null}]
+[{"active":false,"attrs":null,"descr":null,"immutable":true,"inited":false,"name":"rmqtt-cluster-raft","version":null},{"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-auth-http","version":null},{"active":true,"attrs":null,"descr":"","immutable":true,"inited":true,"name":"rmqtt-acl","version":"0.21.0"},{"active":true,"attrs":null,"descr":"","immutable":false,"inited":true,"name":"rmqtt-counter","version":"0.21.0"},{"active":true,"attrs":null,"descr":"","immutable":false,"inited":true,"name":"rmqtt-http-api","version":"0.21.0"},{"active":false,"attrs":null,"descr":null,"immutable":false,"inited":false,"name":"rmqtt-web-hook","version":null},{"active":false,"attrs":null,"descr":null,"immutable":true,"inited":false,"name":"rmqtt-cluster-broadcast","version":null}]
 ```
 
 ### GET /api/v1/plugins/{node}/{plugin}

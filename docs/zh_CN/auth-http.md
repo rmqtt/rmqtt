@@ -29,7 +29,7 @@ plugins/rmqtt-auth-http.toml
 http_timeout = "5s"
 http_headers.accept = "*/*"
 http_headers.Cache-Control = "no-cache"
-http_headers.User-Agent = "RMQTT/0.8.0"
+http_headers.User-Agent = "RMQTT/0.21.0"
 http_headers.Connection = "keep-alive"
 
 ## Disconnect if publishing is rejected
@@ -283,7 +283,7 @@ HTTP API 基础请求信息，请求头。
 http_timeout = "5s"
 http_headers.accept = "*/*"
 http_headers.Cache-Control = "no-cache"
-http_headers.User-Agent = "RMQTT/0.8.0"
+http_headers.User-Agent = "RMQTT/0.21.0"
 http_headers.Connection = "keep-alive"
 
 # 如果发布消息被拒绝，则断开连接
