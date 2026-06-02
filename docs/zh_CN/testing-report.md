@@ -103,7 +103,7 @@ cargo build -p rmqtt-test --release
 | 磁盘 | 2 TB |
 | 容器 | Podman v4.4.1 |
 | 测试工具 | `rmqtt/rmqtt-bench:latest` (v0.1.3) |
-| MQTT Broker | `rmqtt/rmqtt:latest` (v0.3.0) |
+| MQTT Broker | `rmqtt/rmqtt:latest` (v0.21.0) |
 
 *测试客户端和 Broker 同机部署。*
 

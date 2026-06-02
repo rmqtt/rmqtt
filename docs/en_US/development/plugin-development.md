@@ -86,7 +86,7 @@ cd rmqtt-plugins/rmqtt-my-plugin
 ```toml
 [package]
 name = "rmqtt-my-plugin"
-version = "0.1.0"
+version.workspace = true
 description = "My custom RMQTT plugin"
 edition.workspace = true
 license.workspace = true

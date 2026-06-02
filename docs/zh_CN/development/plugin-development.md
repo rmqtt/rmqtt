@@ -29,7 +29,7 @@ new(scx, name) → load_config() → init() → start() → (运行态) → stop
 ```toml
 [package]
 name = "rmqtt-my-plugin"
-version = "0.1.0"
+version.workspace = true
 description = "My custom RMQTT plugin"
 
 [dependencies]

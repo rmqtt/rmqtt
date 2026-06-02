@@ -103,7 +103,7 @@ cargo build -p rmqtt-test --release
 | Disk | 2 TB |
 | Container | Podman v4.4.1 |
 | MQTT Bench | `docker.io/rmqtt/rmqtt-bench:latest` (v0.1.3) |
-| MQTT Broker | `docker.io/rmqtt/rmqtt:latest` (v0.3.0) |
+| MQTT Broker | `docker.io/rmqtt/rmqtt:latest` (v0.21.0) |
 
 *Note: MQTT Bench and MQTT Broker run on the same host.*
 
