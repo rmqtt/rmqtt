@@ -34,7 +34,7 @@ fn plugins(decoded: &toml::Value) {
             );
             // Use the extracted data to generate Rust code and add it to the inits vector
             inits.push(format!(
-                "    {plugin_id}::register_named(_scx, r#\"{name}\"#, {default_startup} || _default_startups.contains(&String::from(r#\"{name}\"#)), {immutable}).await.map_err(|e| anyhow::anyhow!(format!(r#\"Failed to register '{name}' plug-in, {{}} \"#, e.to_string())))?;"
+                "    {plugin_id}::register_named(_scx, r#\"{name}\"#, ({default_startup} || _default_startups.contains(&String::from(r#\"{name}\"#))) && !_disabled_default_startups.contains(&String::from(r#\"{name}\"#)), {immutable}).await.map_err(|e| anyhow::anyhow!(format!(r#\"Failed to register '{name}' plug-in, {{}} \"#, e.to_string())))?;"
             ));
         }
     }
@@ -45,7 +45,7 @@ fn plugins(decoded: &toml::Value) {
 
     plugin_rs.write_all(b"#[allow(clippy::all)]\n").unwrap();
     plugin_rs
-        .write_all(b"pub(crate) async fn registers(_scx: &rmqtt::context::ServerContext, _default_startups: Vec<String>) -> rmqtt::Result<()>{\n")
+        .write_all(b"pub(crate) async fn registers(_scx: &rmqtt::context::ServerContext, _default_startups: Vec<String>, _disabled_default_startups: Vec<String>) -> rmqtt::Result<()>{\n")
         .unwrap();
     plugin_rs.write_all(inits.join("\n").as_bytes()).unwrap();
     plugin_rs.write_all(b"\n    Ok(())\n}").unwrap();

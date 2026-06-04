@@ -94,6 +94,15 @@ plugins.default_startups = [
     "rmqtt-http-api"
 ]
 
+#Disable plugins that have default_startup = true in Cargo.toml
+#These plugins will NOT be started even if default_startup = true
+#Example: Uncomment to disable rmqtt-acl and rmqtt-counter
+#plugins.disabled_default_startups = [
+#    "rmqtt-acl",
+#    "rmqtt-counter",
+#]
+plugins.disabled_default_startups = []
+
 
 ##--------------------------------------------------------------------
 ## MQTT
