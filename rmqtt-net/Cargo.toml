@@ -47,6 +47,6 @@ rustls = { workspace = true, features = ["aws-lc-rs", "logging", "std", "tls12"]
 rustls = { workspace = true, features = ["ring", "logging", "std", "tls12"], optional = true }
 
 [dev-dependencies]
-simple_logger = "5"
+simple_logger = { workspace = true }
 tokio = { workspace = true,  features = ["full"] }
 once_cell.workspace = true
