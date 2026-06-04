@@ -133,8 +133,8 @@ url = { version = "2.5.4", default-features = false }
 systemstat = "0.2"
 itertools = "0.14"
 clap = { version = "4", features = ["derive"] }
-tokio-tungstenite = "0.27"
-pin-project-lite = "0.2"
+tokio-tungstenite = "0.29"
+
 bitflags = "2.9.2"
 leaky-bucket = "1.1.2"
 scc = "2.3.4"
@@ -143,7 +143,7 @@ prometheus = "0.14"
 futures-time = "3.0"
 nonzero_ext = "0.3"
 itoa = "1.0.15"
-simple_logger = { version = "5.0.0", default-features = false }
+simple_logger = "5.0.0"
 regex = "1.11.1"
 backoff = "0.4"
 webpki-roots = "0.26"

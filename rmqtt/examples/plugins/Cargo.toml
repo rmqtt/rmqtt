@@ -7,7 +7,7 @@ edition.workspace = true
 rmqtt = { workspace = true, features = ["plugin"] }
 rmqtt-plugins = { workspace = true, features = ["full"] }
 tokio = { version = "1", features = ["full"] }
-simple_logger = "5"
+simple_logger = { workspace = true }
 log = "0.4"
 
 
