@@ -80,7 +80,13 @@ async fn main() -> Result<()> {
     scx.node.start_grpc_server(scx.clone(), conf.rpc.server_addr, conf.rpc.reuseaddr, conf.rpc.reuseport);
 
     //register plugin
-    plugin::registers(&scx, conf.plugins.default_startups.clone()).await.expect("register plugin failed");
+    plugin::registers(
+        &scx,
+        conf.plugins.default_startups.clone(),
+        conf.plugins.disabled_default_startups.clone(),
+    )
+    .await
+    .expect("register plugin failed");
 
     let mut builder = MqttServer::new(scx);
 

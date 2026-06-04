@@ -316,6 +316,10 @@ pub struct Plugins {
     pub dir: String,
     #[serde(default)]
     pub default_startups: Vec<String>,
+    /// Plugins that should NOT be started even if they have `default_startup = true`
+    /// in `rmqtt-bin/Cargo.toml` metadata.
+    #[serde(default)]
+    pub disabled_default_startups: Vec<String>,
 }
 
 impl Plugins {
