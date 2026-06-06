@@ -2229,88 +2229,8 @@ impl SessionSubs {
     }
 }
 
-// pub struct ExtraData<K, T> {
-//     attrs: Arc<parking_lot::RwLock<HashMap<K, T>>>,
-// }
-//
-// impl<K, T> Deref for ExtraData<K, T> {
-//     type Target = Arc<parking_lot::RwLock<HashMap<K, T>>>;
-//     #[inline]
-//     fn deref(&self) -> &Self::Target {
-//         &self.attrs
-//     }
-// }
-//
-// impl<K, T> Serialize for ExtraData<K, T>
-// where
-//     K: serde::Serialize,
-//     T: serde::Serialize,
-// {
-//     #[inline]
-//     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-//     where
-//         S: Serializer,
-//     {
-//         self.attrs.read().deref().serialize(serializer)
-//     }
-// }
-//
-// impl<'de, K, T> Deserialize<'de> for ExtraData<K, T>
-// where
-//     K: Eq + Hash,
-//     K: serde::de::DeserializeOwned,
-//     T: serde::de::DeserializeOwned,
-// {
-//     #[inline]
-//     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-//     where
-//         D: Deserializer<'de>,
-//     {
-//         let v = HashMap::deserialize(deserializer)?;
-//         Ok(Self { attrs: Arc::new(parking_lot::RwLock::new(v)) })
-//     }
-// }
-//
-// impl<K, T> Default for ExtraData<K, T>
-// where
-//     K: Eq + Hash,
-// {
-//     fn default() -> Self {
-//         Self::new()
-//     }
-// }
-// impl<K, T> ExtraData<K, T>
-// where
-//     K: Eq + Hash,
-// {
-//     #[inline]
-//     pub fn new() -> Self {
-//         Self { attrs: Arc::new(parking_lot::RwLock::new(HashMap::default())) }
-//     }
-//
-//     #[inline]
-//     pub fn len(&self) -> usize {
-//         self.attrs.read().len()
-//     }
-//
-//     #[inline]
-//     pub fn is_empty(&self) -> bool {
-//         self.attrs.read().is_empty()
-//     }
-//
-//     #[inline]
-//     pub fn clear(&self) {
-//         self.attrs.write().clear()
-//     }
-//
-//     #[inline]
-//     pub fn insert(&self, key: K, value: T) {
-//         self.attrs.write().insert(key, value);
-//     }
-// }
-//
 pub struct ExtraAttrs {
-    attrs: HashMap<String, Box<dyn Any + Sync + Send>>,
+    attrs: HashMap<ByteString, Box<dyn Any + Sync + Send>>,
 }
 
 impl Default for ExtraAttrs {
@@ -2341,7 +2261,7 @@ impl ExtraAttrs {
     }
 
     #[inline]
-    pub fn insert<T: Any + Sync + Send>(&mut self, key: String, value: T) {
+    pub fn insert<T: Any + Sync + Send>(&mut self, key: ByteString, value: T) {
         self.attrs.insert(key, Box::new(value));
     }
 
@@ -2358,7 +2278,7 @@ impl ExtraAttrs {
     #[inline]
     pub fn get_default_mut<T: Any + Sync + Send, F: Fn() -> T>(
         &mut self,
-        key: String,
+        key: ByteString,
         def_fn: F,
     ) -> Option<&mut T> {
         self.attrs.entry(key).or_insert_with(|| Box::new(def_fn())).downcast_mut::<T>()

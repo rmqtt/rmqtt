@@ -4962,6 +4962,7 @@ version = "0.22.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bytestring",
  "log",
  "rmqtt",
  "serde",

@@ -3,6 +3,7 @@
 //! Defines markers used to identify ingress/egress bridge connections
 //! in session metadata, and the attribute key for storing origin info.
 
+use bytestring::ByteString;
 use serde::{Deserialize, Serialize};
 
 use rmqtt::Result;
@@ -18,13 +19,13 @@ pub struct PluginConfig {
 
     /// Key used to store BridgeOrigin in session.extra_attrs.
     #[serde(default = "default_attr_key")]
-    pub attr_key: String,
+    pub attr_key: ByteString,
 }
 
 impl PluginConfig {
     /// Creates a new `PluginConfig` with the given marker and key values.
     #[allow(dead_code)]
-    pub fn new(ingress_marker: String, egress_marker: String, attr_key: String) -> Self {
+    pub fn new(ingress_marker: String, egress_marker: String, attr_key: ByteString) -> Self {
         Self { ingress_marker, egress_marker, attr_key }
     }
 
@@ -42,7 +43,7 @@ fn default_egress_marker() -> String {
     ":egress:".into()
 }
 
-fn default_attr_key() -> String {
+fn default_attr_key() -> ByteString {
     "bridge_origin".into()
 }
 

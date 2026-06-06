@@ -143,9 +143,11 @@ impl Handler for BridgeOriginHandler {
                 };
 
                 if let Some(direction) = direction {
-                    let extra_attrs = session.extra_attrs.clone();
-                    let key = cfg.attr_key.clone();
-                    extra_attrs.write().await.insert::<BridgeOrigin>(key, BridgeOrigin { direction });
+                    session
+                        .extra_attrs
+                        .write()
+                        .await
+                        .insert::<BridgeOrigin>(cfg.attr_key.clone(), BridgeOrigin { direction });
                 }
             }
             _ => {
