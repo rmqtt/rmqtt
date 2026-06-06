@@ -66,7 +66,10 @@ impl Decoder for Codec {
                             // check max message size
                             let max_size = self.max_size.get();
                             if max_size != 0 && max_size < remaining_length {
-                                return Err(DecodeError::MaxSizeExceeded);
+                                return Err(DecodeError::MaxSizeExceeded {
+                                    size: remaining_length,
+                                    max: max_size,
+                                });
                             }
                             src.advance(consumed + 1);
                             self.state.set(DecodeState::Frame(FixedHeader { first_byte, remaining_length }));
@@ -131,7 +134,10 @@ mod tests {
 
         let mut buf = BytesMut::new();
         buf.extend_from_slice(b"\0\x09");
-        assert_eq!(codec.decode(&mut buf).map_err(|e| matches!(e, DecodeError::MaxSizeExceeded)), Err(true));
+        assert_eq!(
+            codec.decode(&mut buf).map_err(|e| matches!(e, DecodeError::MaxSizeExceeded { .. })),
+            Err(true)
+        );
     }
 
     #[test]

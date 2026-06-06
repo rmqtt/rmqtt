@@ -142,7 +142,10 @@ impl Decoder for Codec {
                                 log::debug!(
                                     "MaxSizeExceeded max-size: {max_in_size}, remaining: {remaining_length}"
                                 );
-                                return Err(DecodeError::MaxSizeExceeded);
+                                return Err(DecodeError::MaxSizeExceeded {
+                                    size: remaining_length,
+                                    max: max_in_size,
+                                });
                             }
                             src.advance(consumed + 1);
                             self.state.set(DecodeState::Frame(FixedHeader { first_byte, remaining_length }));
@@ -222,7 +225,7 @@ impl Encoder<Packet> for Codec {
         let max_size = if max_out_size != 0 { max_out_size } else { MAX_PACKET_SIZE };
         let content_size = item.encoded_size(max_size);
         if content_size > max_size as usize {
-            return Err(EncodeError::OverMaxPacketSize);
+            return Err(EncodeError::OverMaxPacketSize { size: content_size as u32, max: max_size });
         }
         dst.reserve(content_size + 5);
         item.encode(dst, content_size as u32)?; // safe: max_size <= u32 max value
@@ -239,6 +242,9 @@ mod tests {
         let mut codec = Codec::new(5, 5);
         let mut buf = BytesMut::new();
         buf.extend_from_slice(b"\0\x09");
-        assert_eq!(codec.decode(&mut buf).map_err(|e| matches!(e, DecodeError::MaxSizeExceeded)), Err(true));
+        assert_eq!(
+            codec.decode(&mut buf).map_err(|e| matches!(e, DecodeError::MaxSizeExceeded { .. })),
+            Err(true)
+        );
     }
 }

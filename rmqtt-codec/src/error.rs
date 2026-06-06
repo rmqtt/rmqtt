@@ -81,8 +81,8 @@ pub enum DecodeError {
     // MQTT v3 only
     #[error("Packet id is required")]
     PacketIdRequired,
-    #[error("Max size exceeded")]
-    MaxSizeExceeded,
+    #[error("Max size exceeded: size={size}, max={max}")]
+    MaxSizeExceeded { size: u32, max: u32 },
     #[error("utf8 error")]
     Utf8Error,
     #[error("io error, {:?}", _0)]
@@ -107,7 +107,7 @@ impl ToReasonCode for DecodeError {
             DecodeError::InvalidClientId => DisconnectReasonCode::NotAuthorized,
             DecodeError::UnsupportedPacketType => DisconnectReasonCode::ImplementationSpecificError,
             DecodeError::PacketIdRequired => DisconnectReasonCode::ProtocolError,
-            DecodeError::MaxSizeExceeded => DisconnectReasonCode::PacketTooLarge,
+            DecodeError::MaxSizeExceeded { .. } => DisconnectReasonCode::PacketTooLarge,
             DecodeError::Utf8Error => DisconnectReasonCode::PayloadFormatInvalid,
             DecodeError::Io(_) => DisconnectReasonCode::UnspecifiedError,
         }
@@ -117,8 +117,8 @@ impl ToReasonCode for DecodeError {
 /// Errors that occur when encoding/serializing MQTT packets to a byte stream
 #[derive(Deserialize, Serialize, Debug, Clone, thiserror::Error)]
 pub enum EncodeError {
-    #[error("Packet is bigger than peer's Maximum Packet Size")]
-    OverMaxPacketSize,
+    #[error("Packet is bigger than peer's Maximum Packet Size: size={size}, max={max}")]
+    OverMaxPacketSize { size: u32, max: u32 },
     #[error("Invalid length")]
     InvalidLength,
     #[error("Malformed packet")]
@@ -140,7 +140,7 @@ impl From<io::Error> for EncodeError {
 impl ToReasonCode for EncodeError {
     fn to_reason_code(&self) -> DisconnectReasonCode {
         match self {
-            EncodeError::OverMaxPacketSize => DisconnectReasonCode::PacketTooLarge,
+            EncodeError::OverMaxPacketSize { .. } => DisconnectReasonCode::PacketTooLarge,
             EncodeError::InvalidLength => DisconnectReasonCode::MalformedPacket,
             EncodeError::MalformedPacket => DisconnectReasonCode::MalformedPacket,
             EncodeError::PacketIdRequired => DisconnectReasonCode::ProtocolError,
