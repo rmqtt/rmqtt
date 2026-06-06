@@ -39,7 +39,7 @@
 - [主题重写](./docs/zh_CN/topic-rewrite.md);
 - [自动订阅](./docs/zh_CN/auto-subscription.md);
 - [P2P 消息传递](./docs/zh_CN/p2p-messaging.md);
-- 共享订阅($share/{Group}/{TopicFilter});
+- [共享订阅($share/{Group}/{TopicFilter})](./docs/zh_CN/shared-subscription.md);
 - 排它订阅($exclusive/{TopicFilter});
 - 限制订阅($limit/{LimitQuantity}/{TopicFilter});
 - 延迟发布($delayed/{DelayInterval}/{TopicName});

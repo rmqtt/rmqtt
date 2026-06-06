@@ -1,0 +1,19 @@
+# rmqtt-shared-subscription Plugin Configuration
+#
+# Supported strategies:
+#   random              - Random subscriber selection (basic load balancing)
+#   round_robin         - Sequential round-robin (default)
+#   round_robin_per_group - Per-node independent round-robin (large cluster)
+#   sticky              - Fixed subscriber per publisher (stateful processing)
+#   local               - Prefer publisher's node (reduce cross-node traffic)
+#   hash_clientid       - Hash by publisher ClientId (per-device ordering)
+#   hash_topic          - Hash by topic (topic sharding)
+
+# Selection strategy
+# Default: round_robin
+strategy = "sticky"
+
+# Maximum sticky bindings in the LRU cache (only applies to "sticky" strategy).
+# When the cache fills up, the least recently used binding is evicted.
+# Default: 100000
+sticky_cache_size = 100000

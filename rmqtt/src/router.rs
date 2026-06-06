@@ -236,8 +236,13 @@ impl DefaultRouter {
             for (group, mut s_subs) in groups.drain() {
                 log::debug!("group: {group}, s_subs: {s_subs:?}");
                 let group_cids = s_subs.iter().map(|(_, cid, _, _, _)| cid.clone()).collect();
-                if let Some((idx, is_online)) =
-                    self.context().extends.shared_subscription().await.choice(self.context(), &s_subs).await
+                if let Some((idx, is_online)) = self
+                    .context()
+                    .extends
+                    .shared_subscription()
+                    .await
+                    .choice(self.context(), &group, &this_id, topic_name, &s_subs)
+                    .await
                 {
                     let (node_id, client_id, opts, _, _) = s_subs.remove(idx);
                     collector_map.entry(node_id).or_default().add(

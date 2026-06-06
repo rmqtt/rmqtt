@@ -62,7 +62,6 @@ listener.tcp.external.session_expiry_interval = "2h"
 listener.tcp.external.message_retry_interval = "20s"
 listener.tcp.external.message_expiry_interval = "5m"
 listener.tcp.external.max_subscriptions = 0
-listener.tcp.external.shared_subscription = true
 listener.tcp.external.max_topic_aliases = 32
 
 ```
@@ -369,7 +368,6 @@ listener.tcp.external.session_expiry_interval = "2h"
 listener.tcp.external.message_retry_interval = "20s"
 listener.tcp.external.message_expiry_interval = "5m"
 listener.tcp.external.max_subscriptions = 0
-listener.tcp.external.shared_subscription = true
 listener.tcp.external.max_topic_aliases = 32
 
 ```

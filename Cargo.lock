@@ -2142,6 +2142,11 @@ name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+dependencies = [
+ "allocator-api2",
+ "equivalent",
+ "foldhash 0.2.0",
+]
 
 [[package]]
 name = "headers"
@@ -2786,6 +2791,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "616ec5685824bcc94416c6d4a7a446eea774a31efd7062c8480ba6fd06d7a6e5"
 dependencies = [
  "value-bag",
+]
+
+[[package]]
+name = "lru"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a860605968fce16869fd239cf4237a82f3ac470723415db603b0e8b6c8d4fb9"
+dependencies = [
+ "hashbrown 0.17.1",
 ]
 
 [[package]]
@@ -5274,6 +5288,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "rmqtt-shared-subscription"
+version = "0.22.0"
+dependencies = [
+ "async-trait",
+ "log",
+ "lru",
+ "rand 0.9.4",
+ "rmqtt",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "rmqtt-storage"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5416,6 +5444,7 @@ dependencies = [
  "rmqtt-p2p-messaging",
  "rmqtt-retainer",
  "rmqtt-session-storage",
+ "rmqtt-shared-subscription",
  "rmqtt-sys-topic",
  "rmqtt-topic-rewrite",
  "rmqtt-web-hook",

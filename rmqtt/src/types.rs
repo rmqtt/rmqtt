@@ -549,6 +549,7 @@ pub fn parse_topic_filter(
     let (topic, shared_group, limit_subs) = if shared_subscription || limit_subscription {
         let levels = topic_filter.splitn(3, '/').collect::<Vec<_>>();
         match (levels.first(), levels.get(1), levels.get(2)) {
+            #[cfg(feature = "shared-subscription")]
             (Some(&"$share"), group, tf) => match (shared_subscription, group, tf) {
                 (true, Some(group), Some(tf)) => {
                     let tf = TopicFilter::from(*tf);
@@ -561,6 +562,10 @@ pub fn parse_topic_filter(
                     return Err(anyhow!(format!("Shared subscription is not enabled, {:?}", topic_filter)));
                 }
             },
+            #[cfg(not(feature = "shared-subscription"))]
+            (Some(&"$share"), _, _) => {
+                return Err(anyhow!(format!("Shared subscription is not enabled, {:?}", topic_filter)));
+            }
             (Some(&"$limit"), limit, tf) => match (limit_subscription, limit, tf) {
                 (true, Some(limit), Some(tf)) => {
                     let tf = TopicFilter::from(*tf);
@@ -684,12 +689,14 @@ impl SubscriptionOptions {
     }
 
     #[inline]
-    #[cfg(feature = "shared-subscription")]
     pub fn has_shared_group(&self) -> bool {
+        #[cfg(feature = "shared-subscription")]
         match self {
             SubscriptionOptions::V3(opts) => opts.shared_group.is_some(),
             SubscriptionOptions::V5(opts) => opts.shared_group.is_some(),
         }
+        #[cfg(not(feature = "shared-subscription"))]
+        false
     }
 
     #[inline]
@@ -777,7 +784,7 @@ impl SubOptionsV3 {
         let mut obj = json!({
             "qos": self.qos.value(),
         });
-        #[cfg(any(feature = "limit-subscription", feature = "shared-subscription"))]
+        #[cfg(any(feature = "shared-subscription", feature = "limit-subscription"))]
         if let Some(obj) = obj.as_object_mut() {
             #[cfg(feature = "shared-subscription")]
             if let Some(g) = &self.shared_group {
@@ -1073,6 +1080,7 @@ impl ConnectAckReason {
 #[derive(Clone, Debug)]
 pub struct Unsubscribe {
     pub topic_filter: TopicFilter,
+    #[cfg(feature = "shared-subscription")]
     pub shared_group: Option<SharedGroup>,
 }
 
@@ -1083,14 +1091,25 @@ impl Unsubscribe {
         shared_subscription: bool,
         limit_subscription: bool,
     ) -> Result<Self> {
-        let (topic_filter, shared_group, _) =
+        let (topic_filter, _shared_group, _) =
             parse_topic_filter(topic_filter, shared_subscription, limit_subscription)?;
-        Ok(Unsubscribe { topic_filter, shared_group })
+        Ok(Unsubscribe {
+            topic_filter,
+            #[cfg(feature = "shared-subscription")]
+            shared_group: _shared_group,
+        })
     }
 
     #[inline]
     pub fn is_shared(&self) -> bool {
-        self.shared_group.is_some()
+        #[cfg(feature = "shared-subscription")]
+        {
+            self.shared_group.is_some()
+        }
+        #[cfg(not(feature = "shared-subscription"))]
+        {
+            false
+        }
     }
 }
 
@@ -1998,6 +2017,7 @@ pub struct SubsSearchParams {
     pub topic: Option<String>,
     //value is 0,1,2
     pub qos: Option<u8>,
+    #[cfg(feature = "shared-subscription")]
     pub share: Option<SharedGroup>,
     pub _match_topic: Option<String>,
 }

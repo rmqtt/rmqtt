@@ -91,6 +91,7 @@ plugins.default_startups = [
     #"rmqtt-bridge-origin",
     #"rmqtt-web-hook",
     #"rmqtt-p2p-messaging",
+    "rmqtt-shared-subscription",
     "rmqtt-http-api"
 ]
 
@@ -186,8 +187,6 @@ listener.tcp.external.message_expiry_interval = "5m"
 #The maximum number of topics that a single client is allowed to subscribe to
 #0 means unlimited, default value: 0
 listener.tcp.external.max_subscriptions = 0
-#Shared subscription switch, default value: true
-listener.tcp.external.shared_subscription = true
 #topic alias maximum, default value: 0, topic aliases not enabled. (MQTT 5.0)
 listener.tcp.external.max_topic_aliases = 32
 #Limit subscription switch, default value: false
@@ -225,7 +224,6 @@ listener.tcp.internal.max_session_expiry_interval = "0h"
 listener.tcp.internal.message_retry_interval = "30s"
 listener.tcp.internal.message_expiry_interval = "5m"
 listener.tcp.internal.max_subscriptions = 0
-listener.tcp.internal.shared_subscription = true
 listener.tcp.internal.max_topic_aliases = 0
 listener.tcp.internal.limit_subscription = false
 
