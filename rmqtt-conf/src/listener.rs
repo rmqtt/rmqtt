@@ -271,9 +271,6 @@ pub struct ListenerInner {
     #[serde(default = "ListenerInner::max_subscriptions_default")]
     pub max_subscriptions: usize,
 
-    #[serde(default = "ListenerInner::shared_subscription_default")]
-    pub shared_subscription: bool,
-
     #[serde(default)]
     pub max_topic_aliases: u16,
 
@@ -339,7 +336,6 @@ impl Default for ListenerInner {
             message_retry_interval: ListenerInner::message_retry_interval_default(),
             message_expiry_interval: ListenerInner::message_expiry_interval_default(),
             max_subscriptions: ListenerInner::max_subscriptions_default(),
-            shared_subscription: ListenerInner::shared_subscription_default(),
             max_topic_aliases: 0,
             cross_certificate: ListenerInner::cross_certificate_default(),
             cert: None,
@@ -466,10 +462,6 @@ impl ListenerInner {
     #[inline]
     fn max_subscriptions_default() -> usize {
         0
-    }
-    #[inline]
-    fn shared_subscription_default() -> bool {
-        true
     }
 
     /// Returns the handshake timeout in milliseconds as a `u16`, capped at `u16::MAX`.

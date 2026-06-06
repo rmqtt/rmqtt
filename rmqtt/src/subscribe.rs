@@ -46,32 +46,44 @@
 //! The architecture balances protocol compliance (MQTT 5.0 spec) with practical performance
 //! requirements, leveraging Rust's type system for safe concurrent operations.
 
+#[cfg(any(feature = "shared-subscription", feature = "auto-subscription"))]
 use async_trait::async_trait;
 
 #[cfg(feature = "shared-subscription")]
 use crate::context::ServerContext;
+#[cfg(any(feature = "shared-subscription", feature = "auto-subscription"))]
 use crate::types::*;
 
 /// Defines the shared subscription selection strategy for a cluster node.
 ///
 /// Implementations control how subscribers within a shared subscription group
 /// (`$share/{group}/{topic}`) are selected. The default implementation uses
-/// a random selection strategy with online status filtering.
+/// a round-robin selection strategy with online status filtering.
+///
+/// # Context Parameters
+///
+/// The `choice` method provides the following context for strategy decisions:
+/// - `group`: the shared subscription group name (e.g. `"group1"` in `$share/group1/topic`)
+/// - `publisher_id`: the publishing client's identity (contains `node_id` and `client_id`)
+/// - `topic`: the published topic name used for topic-based hashing
 #[cfg(feature = "shared-subscription")]
 #[async_trait]
 pub trait SharedSubscription: Sync + Send {
     ///Whether shared subscriptions are supported
     #[inline]
-    fn is_supported(&self, listen_cfg: &ListenerConfig) -> bool {
-        listen_cfg.shared_subscription
+    fn is_supported(&self, _listen_cfg: &ListenerConfig) -> bool {
+        false
     }
 
-    ///Shared subscription strategy, select a subscriber, default is "random"
-    #[inline]
+    ///Selects a subscriber from the shared subscription group.
+    ///Returns `Some((index, is_online))` or `None` if no subscriber is available.
     async fn choice(
         &self,
-        scx: &ServerContext,
-        ncs: &[(
+        _scx: &ServerContext,
+        _group: &SharedGroup,
+        _publisher_id: &Id,
+        _topic: &TopicName,
+        _ncs: &[(
             NodeId,
             ClientId,
             SubscriptionOptions,
@@ -79,40 +91,14 @@ pub trait SharedSubscription: Sync + Send {
             Option<IsOnline>,
         )],
     ) -> Option<(usize, IsOnline)> {
-        if ncs.is_empty() {
-            return None;
-        }
-
-        let mut tmp_ncs = ncs
-            .iter()
-            .enumerate()
-            .map(|(idx, (node_id, client_id, _, _, is_online))| (idx, node_id, client_id, is_online))
-            .collect::<Vec<_>>();
-
-        while !tmp_ncs.is_empty() {
-            let r_idx = if tmp_ncs.len() == 1 { 0 } else { (rand::random::<u64>() as usize) % tmp_ncs.len() };
-
-            let (idx, node_id, client_id, is_online) = tmp_ncs.remove(r_idx);
-
-            let is_online = if let Some(is_online) = is_online {
-                *is_online
-            } else {
-                scx.extends.router().await.is_online(*node_id, client_id).await
-            };
-
-            if is_online {
-                return Some((idx, true));
-            }
-
-            if tmp_ncs.is_empty() {
-                return Some((idx, is_online));
-            }
-        }
-        return None;
+        None
     }
 }
 
-/// Default shared subscription implementation using random subscriber selection.
+/// Default shared subscription implementation using round-robin selection.
+///
+/// Note: This is a best-effort single-node round-robin. For true round-robin
+/// across cluster nodes, use the `rmqtt-shared-subscription` plugin.
 #[cfg(feature = "shared-subscription")]
 pub struct DefaultSharedSubscription;
 

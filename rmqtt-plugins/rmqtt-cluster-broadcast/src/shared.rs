@@ -438,9 +438,13 @@ impl ClusterShared {
             //shared subscription choice
             let mut node_shared_subs: HashMap<NodeId, SubRelations> = HashMap::default();
             for (topic_filter, sub_groups) in shared_sub_groups.iter_mut() {
-                for (_group, subs) in sub_groups.iter_mut() {
-                    if let Some((idx, _is_online)) =
-                        scx.extends.shared_subscription().await.choice(&scx, subs).await
+                for (group, subs) in sub_groups.iter_mut() {
+                    if let Some((idx, _is_online)) = scx
+                        .extends
+                        .shared_subscription()
+                        .await
+                        .choice(&scx, group, &from.id, &publish.topic, subs)
+                        .await
                     {
                         let (node_id, client_id, opts, sub_ids, _is_online) = subs.remove(idx);
                         node_shared_subs.entry(node_id).or_default().push((

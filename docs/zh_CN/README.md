@@ -97,6 +97,7 @@
 |----------|-------------|
 | [主题重写](topic-rewrite.md) | 主题过滤器和名称重写 |
 | [自动订阅](auto-subscription.md) | 连接时自动订阅 |
+| [共享订阅](shared-subscription.md) | 负载均衡的消费者组 |
 | [P2P 消息](p2p-messaging.md) | 客户端间直接消息投递 |
 
 ---
@@ -139,6 +140,7 @@
 | | [rmqtt-web-hook](../rmqtt-plugins/rmqtt-web-hook/README-CN.md) | Webhook 通知 |
 | | [rmqtt-sys-topic](../rmqtt-plugins/rmqtt-sys-topic/README-CN.md) | 系统主题 |
 | **功能** | [rmqtt-counter](../rmqtt-plugins/rmqtt-counter/README-CN.md) | 指标计数器 |
+| **订阅** | [rmqtt-shared-subscription](../rmqtt-plugins/rmqtt-shared-subscription/README-CN.md) | 共享订阅策略 |
 | | [rmqtt-auto-subscription](../rmqtt-plugins/rmqtt-auto-subscription/README-CN.md) | 自动订阅 |
 | | [rmqtt-topic-rewrite](../rmqtt-plugins/rmqtt-topic-rewrite/README-CN.md) | 主题重写 |
 | | [rmqtt-p2p-messaging](../rmqtt-plugins/rmqtt-p2p-messaging/README-CN.md) | 点对点消息 |

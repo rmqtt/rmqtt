@@ -49,6 +49,7 @@ rmqtt-bridge-egress-nats = { path = "rmqtt-plugins/rmqtt-bridge-egress-nats"}
 rmqtt-bridge-egress-reductstore = { path = "rmqtt-plugins/rmqtt-bridge-egress-reductstore"}
 rmqtt-bridge-origin = { path = "rmqtt-plugins/rmqtt-bridge-origin"}
 rmqtt-p2p-messaging = { path = "rmqtt-plugins/rmqtt-p2p-messaging"}
+rmqtt-shared-subscription = { path = "rmqtt-plugins/rmqtt-shared-subscription" }
 
 
 [workspace.package]
@@ -98,6 +99,7 @@ rmqtt-topic-rewrite = "0.22.0"
 rmqtt-web-hook = "0.22.0"
 rmqtt-cluster-raft = "0.22.0"
 rmqtt-cluster-broadcast = "0.22.0"
+rmqtt-shared-subscription = "0.22.0"
 rmqtt-p2p-messaging = "0.22.0"
 
 tokio = { version = "1",  default-features = false }

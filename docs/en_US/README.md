@@ -98,6 +98,7 @@ Welcome to the RMQTT documentation. This index provides a structured overview of
 |----------|-------------|
 | [Topic Rewrite](topic-rewrite.md) | Topic filter and name rewriting |
 | [Auto Subscription](auto-subscription.md) | Automatic subscription on connect |
+| [Shared Subscription](shared-subscription.md) | Load-balanced consumer groups |
 | [P2P Messaging](p2p-messaging.md) | Direct client-to-client messaging |
 
 ---
@@ -140,7 +141,8 @@ Each crate has its own bilingual README:
 | | [rmqtt-web-hook](../rmqtt-plugins/rmqtt-web-hook/README.md) | Webhook notifications |
 | | [rmqtt-sys-topic](../rmqtt-plugins/rmqtt-sys-topic/README.md) | System topics |
 | **Utility** | [rmqtt-counter](../rmqtt-plugins/rmqtt-counter/README.md) | Metrics counters |
-| | [rmqtt-auto-subscription](../rmqtt-plugins/rmqtt-auto-subscription/README.md) | Auto-subscription |
+| **Subscription** | [rmqtt-shared-subscription](../rmqtt-plugins/rmqtt-shared-subscription/README.md) | Shared subscription strategies |
+| | [rmqtt-auto-subscription](../rmqtt-plugins/rmqtt-auto-subscription/README.md) | Auto-subscription on connect |
 | | [rmqtt-topic-rewrite](../rmqtt-plugins/rmqtt-topic-rewrite/README.md) | Topic rewrite |
 | | [rmqtt-p2p-messaging](../rmqtt-plugins/rmqtt-p2p-messaging/README.md) | P2P messaging |
 

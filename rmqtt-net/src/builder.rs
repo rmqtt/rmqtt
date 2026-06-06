@@ -133,8 +133,6 @@ pub struct Builder {
     pub message_expiry_interval: Duration,
     /// Maximum subscriptions per client (0 = unlimited)
     pub max_subscriptions: usize,
-    /// Enable shared subscription support
-    pub shared_subscription: bool,
     /// Maximum topic aliases (MQTTv5 feature)
     pub max_topic_aliases: u16,
     /// Enable subscription count limiting
@@ -222,7 +220,6 @@ impl Builder {
             message_retry_interval: Duration::from_secs(20),
             message_expiry_interval: Duration::from_secs(5 * 60),
             max_subscriptions: 0,
-            shared_subscription: true,
             max_topic_aliases: 0,
 
             limit_subscription: false,
@@ -402,12 +399,6 @@ impl Builder {
     /// Sets maximum subscriptions per client
     pub fn max_subscriptions(mut self, max_subscriptions: usize) -> Self {
         self.max_subscriptions = max_subscriptions;
-        self
-    }
-
-    /// Enables shared subscription support
-    pub fn shared_subscription(mut self, shared_subscription: bool) -> Self {
-        self.shared_subscription = shared_subscription;
         self
     }
 

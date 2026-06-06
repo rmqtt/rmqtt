@@ -40,7 +40,7 @@ and mobile applications that can handle millions of concurrent clients on a sing
 - [Topic Rewrite](./docs/en_US/topic-rewrite.md);
 - [Auto Subscription](./docs/en_US/auto-subscription.md);
 - [P2P Messaging](./docs/en_US/p2p-messaging.md);
-- Shared subscription($share/{Group}/{TopicFilter});
+- [Shared subscription($share/{Group}/{TopicFilter})](./docs/en_US/shared-subscription.md);
 - Exclusive subscription($exclusive/{TopicFilter});
 - Limit subscription($limit/{LimitQuantity}/{TopicFilter});
 - Delayed publish($delayed/{DelayInterval}/{TopicName});

@@ -135,7 +135,6 @@ impl Listeners {
 | `message_retry_interval` | `Duration` | `30s` | QoS 消息重试间隔 |
 | `message_expiry_interval` | `Duration` | `300s` | 消息过期时间；`0` → `u32::MAX` |
 | `max_subscriptions` | `usize` | `0`（不限） | 每客户端最大订阅数 |
-| `shared_subscription` | `bool` | `true` | 启用 `$share/` 订阅 |
 | `max_topic_aliases` | `u16` | `0` | 最大主题别名数 |
 | `cross_certificate` | `bool` | `false` | 验证交叉证书 |
 | `cert` | `Option<String>` | `None` | TLS 证书文件路径 |

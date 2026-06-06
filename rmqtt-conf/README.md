@@ -135,7 +135,6 @@ Fields via `Deref<Target = ListenerInner>`:
 | `message_retry_interval` | `Duration` | `30s` | QoS msg retry interval |
 | `message_expiry_interval` | `Duration` | `300s` | Message expiry; `0` → `u32::MAX` |
 | `max_subscriptions` | `usize` | `0` (unlimited) | Max subscriptions per client |
-| `shared_subscription` | `bool` | `true` | Enable `$share/` subscriptions |
 | `max_topic_aliases` | `u16` | `0` | Max topic aliases |
 | `cross_certificate` | `bool` | `false` | Verify cross certificates |
 | `cert` | `Option<String>` | `None` | TLS cert file path |

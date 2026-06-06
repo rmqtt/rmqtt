@@ -206,7 +206,6 @@ fn config_builder(cfg: &Listener) -> Builder {
         .message_retry_interval(cfg.message_retry_interval)
         .message_expiry_interval(cfg.message_expiry_interval)
         .max_subscriptions(cfg.max_subscriptions)
-        .shared_subscription(cfg.shared_subscription)
         .max_topic_aliases(cfg.max_topic_aliases)
         .tls_cross_certificate(cfg.cross_certificate)
         .tls_cert(cfg.cert.clone())

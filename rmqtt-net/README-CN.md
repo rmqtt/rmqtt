@@ -35,7 +35,7 @@ pub type Result<T> = anyhow::Result<T, Error>;
 
 | 方法 | 参数 | Builder 默认值 |
 |--------|--------|----------------|
-| `new()` | — | `max_connections=1_000_000, max_handshaking_limit=1_000, max_packet_size=1MB, backlog=512, nodelay=false, reuseaddr=None, reuseport=None, allow_anonymous=true, min_keepalive=0, max_keepalive=65535, allow_zero_keepalive=true, keepalive_backoff=0.75, max_inflight=16, handshake_timeout=30s, send_timeout=10s, max_mqueue_len=1000, max_clientid_len=65535, max_qos_allowed=2, max_topic_levels=0, session_expiry_interval=7200s, max_session_expiry_interval=0, message_retry_interval=20s, message_expiry_interval=300s, max_subscriptions=0, shared_subscription=true, max_topic_aliases=0, ...` |
+| `new()` | — | `max_connections=1_000_000, max_handshaking_limit=1_000, max_packet_size=1MB, backlog=512, nodelay=false, reuseaddr=None, reuseport=None, allow_anonymous=true, min_keepalive=0, max_keepalive=65535, allow_zero_keepalive=true, keepalive_backoff=0.75, max_inflight=16, handshake_timeout=30s, send_timeout=10s, max_mqueue_len=1000, max_clientid_len=65535, max_qos_allowed=2, max_topic_levels=0, session_expiry_interval=7200s, max_session_expiry_interval=0, message_retry_interval=20s, message_expiry_interval=300s, max_subscriptions=0, max_topic_aliases=0, ...` |
 | `.name(s)` | `impl Into<String>` | `""` |
 | `.laddr(a)` | `SocketAddr` | `0.0.0.0:1883` |
 | `.backlog(n)` | `i32` | `512` |
@@ -63,7 +63,6 @@ pub type Result<T> = anyhow::Result<T, Error>;
 | `.message_retry_interval(d)` | `Duration` | `20s` |
 | `.message_expiry_interval(d)` | `Duration` | `300s` |
 | `.max_subscriptions(n)` | `usize` | `0`（不限） |
-| `.shared_subscription(v)` | `bool` | `true` |
 | `.max_topic_aliases(v)` | `u16` | `0` |
 | `.limit_subscription(v)` | `bool` | `false` |
 | `.delayed_publish(v)` | `bool` | `false` |
