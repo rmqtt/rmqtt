@@ -11,7 +11,7 @@
 
 # Selection strategy
 # Default: round_robin
-strategy = "round_robin"
+strategy = "round_robin_per_group"
 
 # Maximum sticky bindings in the LRU cache (only applies to "sticky" strategy).
 # When the cache fills up, the least recently used binding is evicted.
