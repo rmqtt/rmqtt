@@ -511,7 +511,8 @@ impl Shared for ClusterShared {
         publish: Publish,
     ) -> std::result::Result<SubscriptionClientIds, Vec<(To, From, Publish, Reason)>> {
         log::debug!("[forwards] from: {from:?}, publish: {publish:?}");
-        if let Some(target_clientid) = publish.target_clientid.clone() {
+        if let Some(target_clientid) = &publish.target_clientid {
+            let target_clientid = target_clientid.clone();
             self.forward_to_target_client(from, publish, target_clientid).await
         } else {
             self.forward_to_subscriptions(from, publish).await
