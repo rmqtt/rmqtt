@@ -3,6 +3,14 @@
 ##--------------------------------------------------------------------
 
 ##--------------------------------------------------------------------
+## Task
+##--------------------------------------------------------------------
+#Concurrent task count for global task executor.
+task.exec_workers = 2
+#Queue capacity for global task executor.
+task.exec_queue_max = 10
+
+##--------------------------------------------------------------------
 ## Node
 ##--------------------------------------------------------------------
 #node id
@@ -41,6 +49,7 @@ plugins.default_startups = [
     #"rmqtt-session-storage",
     #"rmqtt-bridge-ingress-kafka",
     #"rmqtt-bridge-egress-kafka",
+    "rmqtt-shared-subscription",
     "rmqtt-web-hook"
 ]
 
@@ -111,5 +120,3 @@ listener.tcp.external.message_expiry_interval = "5m"
 #The maximum number of topics that a single client is allowed to subscribe to
 #0 means unlimited, default value: 0
 listener.tcp.external.max_subscriptions = 0
-#Shared subscription switch, default value: true
-listener.tcp.external.shared_subscription = true
