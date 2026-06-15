@@ -215,15 +215,7 @@ impl ClusterPlugin {
                 } else {
                     //The other nodes are leader.
                     let actual_leader_info = find_actual_leader(&raft, peer_addrs, 60).await?;
-                    let (actual_leader_id, actual_leader_addr) =
-                        actual_leader_info.ok_or_else(|| anyhow!("Leader does not exist"))?;
-                    if actual_leader_id != leader_info.id {
-                        return Err(anyhow!(format!(
-                            "Not the expected Leader, the expected one is {:?}",
-                            leader_info
-                        )));
-                    }
-                    Some((actual_leader_id, actual_leader_addr))
+                    Some(actual_leader_info.ok_or_else(|| anyhow!("Leader does not exist"))?)
                 }
             }
             None => {
