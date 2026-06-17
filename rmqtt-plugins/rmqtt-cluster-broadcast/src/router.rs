@@ -24,12 +24,18 @@ pub(crate) struct ClusterRouter {
     inner: DefaultRouter,
     grpc_clients: GrpcClients,
     message_type: MessageType,
+    rw_timeout: Duration,
 }
 
 impl ClusterRouter {
     #[inline]
-    pub(crate) fn new(scx: ServerContext, grpc_clients: GrpcClients, message_type: MessageType) -> Self {
-        Self { inner: DefaultRouter::new(Some(scx)), grpc_clients, message_type }
+    pub(crate) fn new(
+        scx: ServerContext,
+        grpc_clients: GrpcClients,
+        message_type: MessageType,
+        rw_timeout: Duration,
+    ) -> Self {
+        Self { inner: DefaultRouter::new(Some(scx)), grpc_clients, message_type, rw_timeout }
     }
 
     #[inline]
@@ -69,7 +75,7 @@ impl Router for ClusterRouter {
                     c.clone(),
                     self.message_type,
                     Message::RoutesGet(limit - routes.len()),
-                    Some(Duration::from_secs(10)),
+                    Some(self.rw_timeout),
                 )
                 .send()
                 .await;
@@ -99,7 +105,7 @@ impl Router for ClusterRouter {
             self.grpc_clients.clone(),
             self.message_type,
             Message::RoutesGetBy(TopicFilter::from(topic)),
-            Some(Duration::from_secs(10)),
+            Some(self.rw_timeout),
         )
         .join_all()
         .await

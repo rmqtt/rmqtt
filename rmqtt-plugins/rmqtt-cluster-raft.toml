@@ -16,7 +16,7 @@ node_grpc_batch_size = 128
 ##Client concurrent request limit
 node_grpc_client_concurrency_limit = 128
 ##Connect and send to server timeout
-node_grpc_client_timeout = "60s"
+node_grpc_client_timeout = "15s"
 
 # The list of Raft peer addresses for the nodes in the cluster.
 # Each entry contains the node ID and the corresponding IP address and port for Raft consensus communication.

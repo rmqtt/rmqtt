@@ -4984,6 +4984,7 @@ dependencies = [
  "log",
  "postcard",
  "rmqtt",
+ "rust-box",
  "serde",
  "serde_json",
  "tokio",

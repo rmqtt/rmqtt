@@ -33,6 +33,14 @@ pub struct PluginConfig {
     //#Maximum number of messages sent in batch
     #[serde(default = "PluginConfig::grpc_batch_size_default")]
     pub node_grpc_batch_size: usize,
+
+    //#Task execution queue workers
+    #[serde(default = "PluginConfig::task_exec_queue_workers_default")]
+    pub task_exec_queue_workers: usize,
+
+    //#Task execution queue max capacity
+    #[serde(default = "PluginConfig::task_exec_queue_max_default")]
+    pub task_exec_queue_max: usize,
 }
 
 impl PluginConfig {
@@ -49,6 +57,14 @@ impl PluginConfig {
 
     fn grpc_batch_size_default() -> usize {
         128
+    }
+
+    fn task_exec_queue_workers_default() -> usize {
+        500
+    }
+
+    fn task_exec_queue_max_default() -> usize {
+        100_000
     }
 
     /// Serializes the configuration to a JSON value.

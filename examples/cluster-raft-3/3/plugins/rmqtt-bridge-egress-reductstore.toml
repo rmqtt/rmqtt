@@ -1,0 +1,40 @@
+##--------------------------------------------------------------------
+## rmqtt-bridge-egress-reductstore
+##--------------------------------------------------------------------
+
+# See more keys and their definitions at https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/bridge-egress-reductstore.md
+
+[[bridges]]
+# Whether to enable
+enable = true
+# Bridge name
+name = "bridge_reductstore_1"
+
+# ReductStore server URL
+server = "https://127.0.0.1:8383"
+# API token for authentication
+#api_token = "my-token"
+# client.id
+client_id_prefix = "reductstore_egress_001"
+
+# Maximum limit of clients connected to the remote ReductStore server
+concurrent_client_limit = 3
+
+[bridges.properties]
+# Bucket name
+bucket = "default"
+# Entry name prefix
+entry_prefix = "mqtt/"
+
+[[bridges.entries]]
+#Local topic filter: All messages matching this topic filter will be forwarded.
+local.topic_filter = "local/topic/egress/reductstore/#"
+
+#remote.timestamp = 0
+#remote.labels = { "mqtt_topic" = "${local.topic}" }
+
+[[bridges.entries]]
+local.topic_filter = "local/topic/egress/reductstore/specific"
+
+#remote.timestamp = 0
+#remote.labels = { "mqtt_topic" = "${local.topic}" }

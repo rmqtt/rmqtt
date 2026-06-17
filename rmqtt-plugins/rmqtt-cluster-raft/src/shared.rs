@@ -22,16 +22,16 @@ use futures::future::FutureExt;
 use rust_box::task_exec_queue::{SpawnExt, TaskExecQueue};
 
 use rmqtt::context::ServerContext;
-use rmqtt::types::{ClientId, SubscriptionOptions};
+use rmqtt::types::{ClientId, SubscriptionOptions, TopicFilter};
 use rmqtt::{
     grpc::{GrpcClient, GrpcClients, Message, MessageBroadcaster, MessageReply, MessageSender, MessageType},
     router::Router,
     session::Session,
     shared::{DefaultShared, Entry, Shared},
     types::{
-        From, Id, IsAdmin, NodeId, NodeName, OfflineSession, Publish, Reason, SessionStatus, SubRelations,
-        SubRelationsMap, SubsSearchParams, SubsSearchResult, Subscribe, SubscribeReturn,
-        SubscriptionClientIds, To, Tx, Unsubscribe,
+        ForwardedCount, ForwardedRecipients, From, Id, IsAdmin, NodeId, NodeName, OfflineSession, Publish,
+        Reason, SessionStatus, SubRelations, SubRelationsMap, SubsSearchParams, SubsSearchResult, Subscribe,
+        SubscribeReturn, To, Tx, Unsubscribe,
     },
     types::{HealthInfo, MsgID, NodeHealthStatus, SharedGroup},
     Result,
@@ -186,12 +186,13 @@ impl Entry for ClusterLockEntry {
             if let Some(client) = self.cluster_shared.grpc_client(prev_node_id) {
                 let message_type = self.cluster_shared.message_type;
                 let id1 = id.clone();
+                let rw_timeout = self.cluster_shared.rw_timeout;
                 let kick_fut = async move {
                     let msg_sender = MessageSender::new(
                         client,
                         message_type,
                         Message::Kick(id1, clean_start, true, is_admin), //clear_subscriptions
-                        Some(Duration::from_secs(10)),
+                        Some(rw_timeout),
                     );
                     match msg_sender.send().await {
                         Ok(reply) => {
@@ -272,10 +273,15 @@ impl Entry for ClusterLockEntry {
                     client,
                     self.cluster_shared.message_type,
                     Message::SubscriptionsGet(id.client_id.clone()),
-                    Some(Duration::from_secs(10)),
+                    Some(self.cluster_shared.rw_timeout),
                 )
                 .send()
-                .await;
+                .spawn(&self.exec)
+                .result()
+                .await
+                .map_err(|e| anyhow!(e.to_string()))
+                .flatten();
+
                 match reply {
                     Ok(MessageReply::SubscriptionsGet(subs)) => subs,
                     Err(e) => {
@@ -351,13 +357,41 @@ impl ClusterShared {
         self.grpc_clients.get(&node_id).map(|(_, c)| c.clone())
     }
 
+    /// Converts [`SubRelations`] to [`ForwardedRecipients`].
+    ///
+    /// For shared-group subscriptions, each group member is emitted separately:
+    /// the actual subscriber carries `Some((topic_filter, shared_group))`,
+    /// while other group members carry `None`.
+    #[inline]
+    pub(crate) fn sub_relations_to_client_ids(relations: &SubRelations) -> ForwardedRecipients {
+        relations
+            .iter()
+            .flat_map(|(tf, cid, _, _, group_shared)| {
+                if let Some((group, _, cids)) = group_shared {
+                    cids.iter()
+                        .map(|g_cid| {
+                            if g_cid == cid {
+                                (g_cid.clone(), Some((tf.clone(), group.clone())))
+                            } else {
+                                (g_cid.clone(), None)
+                            }
+                        })
+                        .collect()
+                } else {
+                    vec![(cid.clone(), None)]
+                }
+            })
+            .collect()
+    }
+
     #[inline]
     async fn forward_to_target_client(
         &self,
+        msg_id: Option<MsgID>,
         from: From,
         publish: Publish,
         target_clientid: ClientId,
-    ) -> std::result::Result<SubscriptionClientIds, Vec<(To, From, Publish, Reason)>> {
+    ) -> std::result::Result<(), (ForwardedRecipients, Vec<(To, From, Publish, Reason)>)> {
         let mut opts = SubscriptionOptions::default();
         opts.set_qos(publish.qos);
         let relations = vec![(publish.topic.clone(), target_clientid.clone(), opts, None, None)];
@@ -366,7 +400,14 @@ impl ClusterShared {
 
         if target_nodeid == self.scx.node.id() {
             //forward this node
-            self.forwards_to(from, &publish, relations).await?;
+            self.forwards_to(from, &publish, relations, msg_id).await?;
+            if let Some(msg_id) = msg_id {
+                if let Err(e) =
+                    self.message_mark_forwarded(target_nodeid, msg_id, vec![(target_clientid, None)]).await
+                {
+                    log::warn!("message_mark_forwarded error, {e:?}");
+                }
+            }
         } else {
             //forward other node
             if let Some(target_client) = self.grpc_client(target_nodeid) {
@@ -378,10 +419,10 @@ impl ClusterShared {
                 let msg_sender = MessageSender::new(
                     target_client,
                     message_type,
-                    Message::ForwardsTo(from, publish, relations),
+                    Message::ForwardsTo(from, publish, relations, msg_id),
                     Some(rw_timeout),
                 )
-                .send();
+                .notify();
 
                 self.scx.stats.forwards.inc();
                 let scx = self.scx.clone();
@@ -402,15 +443,16 @@ impl ClusterShared {
             }
         }
 
-        Ok(Some(vec![(target_clientid, None)]))
+        Ok(())
     }
 
     #[inline]
     async fn forward_to_subscriptions(
         &self,
+        msg_id: Option<MsgID>,
         from: From,
         publish: Publish,
-    ) -> std::result::Result<SubscriptionClientIds, Vec<(To, From, Publish, Reason)>> {
+    ) -> std::result::Result<usize, (usize, Vec<(To, From, Publish, Reason)>)> {
         let topic = &publish.topic;
         let mut relations_map = match self.scx.extends.router().await.matches(from.id.clone(), topic).await {
             Ok(relations_map) => relations_map,
@@ -420,15 +462,20 @@ impl ClusterShared {
             }
         };
 
-        let sub_client_ids = self.inner()._collect_subscription_client_ids(&relations_map);
-
         let mut errs = Vec::new();
+        let mut forwardeds_len = 0;
 
         let this_node_id = self.scx.node.id();
         if let Some(relations) = relations_map.remove(&this_node_id) {
+            forwardeds_len += relations.len();
+            let subscribers = msg_id.map(|msg_id| (msg_id, Self::sub_relations_to_client_ids(&relations)));
             //forwards to local
-            if let Err(e) = self.forwards_to(from.clone(), &publish, relations).await {
+            if let Err((_, e)) = self.forwards_to(from.clone(), &publish, relations, msg_id).await {
                 errs.extend(e);
+            } else if let Some((msg_id, subscribers)) = subscribers {
+                if let Err(e) = self.message_mark_forwarded(this_node_id, msg_id, subscribers).await {
+                    log::warn!("message_mark_forwarded error, {e:?}");
+                }
             }
         }
         if !relations_map.is_empty() {
@@ -437,14 +484,15 @@ impl ClusterShared {
             //forwards to other nodes
             let mut fut_senders = Vec::new();
             for (node_id, relations) in relations_map {
+                forwardeds_len += relations.len();
                 if let Some(mut client) = self.grpc_client(node_id) {
                     let from = from.clone();
                     let publish = publish.clone();
                     let message_type = self.message_type;
                     let fut_sender = async move {
-                        let msg_sender = client.send_message(
+                        let msg_sender = client.notify(
                             message_type,
-                            Message::ForwardsTo(from, publish, relations),
+                            Message::ForwardsTo(from, publish, relations, msg_id),
                             Some(rw_timeout),
                         );
                         (node_id, msg_sender.await)
@@ -479,9 +527,9 @@ impl ClusterShared {
         }
 
         if errs.is_empty() {
-            Ok(sub_client_ids)
+            Ok(forwardeds_len)
         } else {
-            Err(errs)
+            Err((forwardeds_len, errs))
         }
     }
 }
@@ -507,16 +555,21 @@ impl Shared for ClusterShared {
     #[inline]
     async fn forwards(
         &self,
+        msg_id: Option<MsgID>,
         from: From,
         publish: Publish,
-    ) -> std::result::Result<SubscriptionClientIds, Vec<(To, From, Publish, Reason)>> {
+    ) -> std::result::Result<ForwardedCount, (ForwardedCount, Vec<(To, From, Publish, Reason)>)> {
         log::debug!("[forwards] from: {from:?}, publish: {publish:?}");
-        if let Some(target_clientid) = &publish.target_clientid {
+        let forwardeds_len = if let Some(target_clientid) = &publish.target_clientid {
             let target_clientid = target_clientid.clone();
-            self.forward_to_target_client(from, publish, target_clientid).await
+            self.forward_to_target_client(msg_id, from, publish, target_clientid)
+                .await
+                .map_err(|(_, errs)| (0, errs))?;
+            1
         } else {
-            self.forward_to_subscriptions(from, publish).await
-        }
+            self.forward_to_subscriptions(msg_id, from, publish).await?
+        };
+        Ok(forwardeds_len)
     }
 
     #[inline]
@@ -525,8 +578,36 @@ impl Shared for ClusterShared {
         from: From,
         publish: &Publish,
         relations: SubRelations,
-    ) -> std::result::Result<(), Vec<(To, From, Publish, Reason)>> {
-        self.inner.forwards_to(from, publish, relations).await
+        msg_id: Option<MsgID>,
+    ) -> std::result::Result<ForwardedRecipients, (ForwardedRecipients, Vec<(To, From, Publish, Reason)>)>
+    {
+        let from_node_id = from.node_id;
+        let is_this_node = from_node_id == self.scx.node.id();
+        let subscribers = if !is_this_node {
+            msg_id.map(|msg_id| (msg_id, Self::sub_relations_to_client_ids(&relations)))
+        } else {
+            None
+        };
+        let res = self.inner.forwards_to(from, publish, relations, msg_id).await;
+        if res.is_ok() {
+            if let Some((msg_id, subscribers)) = subscribers {
+                // fire-and-forget send ForwardsToAck ack
+                if let Some(client) = self.grpc_client(from_node_id) {
+                    let ack_msg = Message::ForwardsToAck(msg_id, self.scx.node.id(), subscribers);
+                    let sender =
+                        MessageSender::new(client, self.message_type, ack_msg, Some(self.rw_timeout));
+                    if let Err(e) = sender.notify().spawn(&self.forwards_exec).await {
+                        log::warn!(
+                            "Failed to send ForwardsToAck to node {}, msg_id={:?}, error: {:?}",
+                            from_node_id,
+                            msg_id,
+                            e.to_string()
+                        );
+                    }
+                }
+            }
+        }
+        res
     }
 
     #[inline]
@@ -534,7 +615,10 @@ impl Shared for ClusterShared {
         &self,
         from: From,
         publish: Publish,
-    ) -> std::result::Result<(SubRelationsMap, SubscriptionClientIds), Vec<(To, From, Publish, Reason)>> {
+    ) -> std::result::Result<
+        (SubRelationsMap, ForwardedRecipients),
+        (ForwardedRecipients, Vec<(To, From, Publish, Reason)>),
+    > {
         self.inner.forwards_and_get_shareds(from, publish).await
     }
 
@@ -580,7 +664,74 @@ impl Shared for ClusterShared {
         topic_filter: &str,
         group: Option<&SharedGroup>,
     ) -> Result<Vec<(MsgID, From, Publish)>> {
-        self.inner.message_load(client_id, topic_filter, group).await
+        let message_mgr = self.scx.extends.message_mgr().await;
+        if message_mgr.merge_on_read() {
+            let mut msgs = message_mgr.get(client_id, topic_filter, group).await?;
+            if !self.grpc_clients.is_empty() {
+                let grpc_clients = self.grpc_clients.clone();
+                let message_type = self.message_type;
+                let rw_timeout = self.rw_timeout;
+                let client_id = ClientId::from(client_id);
+                let topic_filter = TopicFilter::from(topic_filter);
+                let group = group.cloned();
+                let replys = async move {
+                    MessageBroadcaster::new(
+                        grpc_clients,
+                        message_type,
+                        Message::MessageGet(client_id, topic_filter, group),
+                        Some(rw_timeout),
+                    )
+                    .join_all()
+                    .await
+                }
+                .spawn(&self.exec)
+                .result()
+                .await
+                .map_err(|_| anyhow!("ClusterShared::message_load task execution failure"))?;
+                for (_, reply) in replys {
+                    let reply = reply?;
+                    match reply {
+                        MessageReply::Error(e) => return Err(anyhow!(e)),
+                        MessageReply::MessageGet(res) => {
+                            msgs.extend(res);
+                        }
+                        _ => {
+                            log::error!("unreachable!(), reply: {reply:?}");
+                            return Err(anyhow!("unreachable!()"));
+                        }
+                    }
+                }
+            }
+            Ok(msgs)
+        } else {
+            message_mgr.get(client_id, topic_filter, group).await
+        }
+    }
+
+    #[inline]
+    async fn message_mark_forwarded(
+        &self,
+        from_node_id: NodeId,
+        msg_id: MsgID,
+        subscribers: ForwardedRecipients,
+    ) -> Result<()> {
+        if from_node_id == self.scx.node.id() {
+            self.scx.extends.message_mgr().await.mark_forwarded(msg_id, subscribers).await
+        } else {
+            if let Some(client) = self.grpc_client(from_node_id) {
+                let ack_msg = Message::ForwardsToAck(msg_id, self.scx.node.id(), subscribers);
+                let sender = MessageSender::new(client, self.message_type, ack_msg, Some(self.rw_timeout));
+                if let Err(e) = sender.notify().spawn(&self.forwards_exec).await {
+                    log::warn!(
+                        "Failed to send ForwardsToAck to node {}, msg_id={:?}, error: {:?}",
+                        from_node_id,
+                        msg_id,
+                        e.to_string()
+                    );
+                }
+            }
+            Ok(())
+        }
     }
 
     #[inline]

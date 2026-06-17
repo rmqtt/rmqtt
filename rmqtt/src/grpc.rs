@@ -67,9 +67,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::context::ServerContext;
 use crate::types::{
-    Addr, CleanStart, ClearSubscriptions, ClientId, From, HashMap, Id, IsAdmin, MsgID, NodeId,
-    OfflineSession, Publish, Retain, Route, SessionStatus, SharedGroup, SubRelations, SubRelationsMap,
-    SubsSearchParams, SubsSearchResult, SubscriptionClientIds, TopicFilter, TopicName,
+    Addr, CleanStart, ClearSubscriptions, ClientId, ForwardedRecipients, From, HashMap, Id, IsAdmin, MsgID,
+    NodeId, OfflineSession, Publish, Retain, Route, SessionStatus, SharedGroup, SubRelations,
+    SubRelationsMap, SubsSearchParams, SubsSearchResult, TopicFilter, TopicName,
 };
 use crate::utils::Counter;
 use crate::Result;
@@ -142,27 +142,8 @@ impl GrpcServer {
 
     async fn on_recv_message(&self, req: Vec<u8>) -> Result<Option<Vec<u8>>> {
         let (typ, msg) = Message::decode(&req)?;
-        let reply = self.grpc_message_received(typ, msg).await?;
+        let reply = self.scx.extends.hook_mgr().grpc_message_received(typ, msg).await?;
         Ok(Some(reply.encode()?))
-    }
-
-    async fn grpc_message_received(&self, typ: MessageType, msg: Message) -> Result<MessageReply> {
-        match (typ, msg) {
-            (MESSAGE_TYPE_MESSAGE_GET, Message::MessageGet(client_id, topic_filter, group)) => {
-                match self
-                    .scx
-                    .extends
-                    .message_mgr()
-                    .await
-                    .get(&client_id, &topic_filter, group.as_ref())
-                    .await
-                {
-                    Err(e) => Ok(MessageReply::Error(e.to_string())),
-                    Ok(msgs) => Ok(MessageReply::MessageGet(msgs)),
-                }
-            }
-            (_, msg) => self.scx.extends.hook_mgr().grpc_message_received(typ, msg).await,
-        }
     }
 }
 
@@ -279,7 +260,8 @@ pub const MESSAGE_TYPE_MESSAGE_GET: u64 = 22;
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Message {
     Forwards(From, Publish),
-    ForwardsTo(From, Publish, SubRelations),
+    ForwardsTo(From, Publish, SubRelations, Option<MsgID>),
+    ForwardsToAck(MsgID, NodeId, ForwardedRecipients),
     Kick(Id, CleanStart, ClearSubscriptions, IsAdmin),
     GetRetains(TopicFilter),
     SubscriptionsSearch(SubsSearchParams),
@@ -309,7 +291,7 @@ impl Message {
 #[derive(Serialize, Deserialize, Debug)]
 pub enum MessageReply {
     Success,
-    Forwards(SubRelationsMap, SubscriptionClientIds),
+    Forwards(SubRelationsMap, ForwardedRecipients),
     Error(String),
     Kick(OfflineSession),
     GetRetains(Vec<(TopicName, Retain)>),
@@ -409,6 +391,19 @@ impl MessageBroadcaster {
             let msg = msg.clone();
             let fut =
                 async move { (*id, grpc_client.clone().send_message(msg_type, msg, self.timeout).await) };
+            senders.push(fut.boxed());
+        }
+        futures::future::join_all(senders).await
+    }
+
+    #[inline]
+    pub async fn notify_all(self) -> Vec<(NodeId, Result<()>)> {
+        let msg = self.msg;
+        let mut senders = Vec::new();
+        for (id, (_, grpc_client)) in self.grpc_clients.iter() {
+            let msg_type = self.msg_type;
+            let msg = msg.clone();
+            let fut = async move { (*id, grpc_client.clone().notify(msg_type, msg, self.timeout).await) };
             senders.push(fut.boxed());
         }
         futures::future::join_all(senders).await

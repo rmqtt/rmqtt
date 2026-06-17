@@ -1,0 +1,38 @@
+##--------------------------------------------------------------------
+## rmqtt-bridge-ingress-nats
+##--------------------------------------------------------------------
+
+# See more keys and their definitions at https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/bridge-ingress-nats.md
+
+[[bridges]]
+# Whether to enable
+enable = true
+# Bridge name
+name = "bridge_nats_ingress_1"
+
+# NATS server URL
+servers = "nats://127.0.0.1:4222"
+# client.id
+client_id_prefix = "nats_ingress_001"
+
+# Maximum limit of clients
+concurrent_client_limit = 3
+
+[bridges.properties]
+"message.timeout.ms" = "5000"
+
+[[bridges.entries]]
+#Remote topic filter: Subscribe to messages matching this NATS subject
+remote.topic = "remote-topic-ingress-nats"
+#remote.group_id = "group_id_001"
+#remote.start_partition = -1
+#remote.stop_partition = -1
+#remote.offset = "beginning"
+
+local.topic = "local/topic/ingress/nats/${remote.topic}"
+#local.retain = true
+
+[[bridges.entries]]
+remote.topic = "remote-topic-ingress-nats-specific"
+
+local.topic = "local/topic/ingress/nats/specific"

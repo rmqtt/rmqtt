@@ -145,16 +145,16 @@ rmqtt = "0.21"
 
 ## 插件系统
 
-RMQTT 内置 25 个插件，分为 6 大类：
+RMQTT 内置 26 个插件，分为 6 大类：
 
 | 分类 | 插件 |
 |------|------|
 | **认证** | ACL、HTTP 认证、JWT 认证 |
 | **存储** | Retainer、消息存储、会话存储 |
 | **集群** | Raft、广播 |
-| **桥接** | MQTT（入/出）、Kafka（入/出）、Pulsar（入/出）、NATS（出）、ReductStore（出） |
+| **桥接** | MQTT（入/出）、Kafka（入/出）、Pulsar（入/出）、NATS（入/出）、ReductStore（出）、桥接来源 |
 | **API** | HTTP API、WebHook、系统主题 |
-| **功能** | Counter、自动订阅、主题重写、P2P 消息 |
+| **功能** | Counter、自动订阅、主题重写、P2P 消息、共享订阅 |
 
 [插件开发指南 →](docs/zh_CN/development/plugin-development.md)
 
@@ -180,7 +180,6 @@ RMQTT 内置 25 个插件，分为 6 大类：
 * client_test.py Test.test_retained_messages          [OK]
 * client_test.py Test.test_zero_length_clientid       [OK]
 * client_test.py Test.will_message_test               [OK]
-* client_test.py Test.test_zero_length_clientid       [OK]
 * client_test.py Test.test_offline_message_queueing   [OK]
 * client_test.py Test.test_overlapping_subscriptions  [OK]
 * client_test.py Test.test_keepalive                  [OK]

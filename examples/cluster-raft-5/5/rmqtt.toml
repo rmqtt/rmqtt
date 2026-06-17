@@ -29,7 +29,7 @@ log.to = "both"
 # Value: trace, debug, info, warn, error
 log.level = "info"
 log.dir = "/var/log/rmqtt"
-log.file = "rmqtt_3.log"
+log.file = "rmqtt_5.log"
 
 
 ##--------------------------------------------------------------------

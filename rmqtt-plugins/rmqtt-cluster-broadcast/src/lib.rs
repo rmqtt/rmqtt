@@ -66,6 +66,7 @@ impl ClusterPlugin {
 
         let register = scx.extends.hook_mgr().register();
         let mut grpc_clients = HashMap::default();
+        let mut node_names = HashMap::default();
         let node_grpc_addrs = cfg.node_grpc_addrs.clone();
         for node_addr in &node_grpc_addrs {
             if node_addr.id != scx.node.id() {
@@ -87,11 +88,23 @@ impl ClusterPlugin {
                     ),
                 );
             }
+            node_names.insert(node_addr.id, format!("{}@{}", node_addr.id, node_addr.addr));
         }
         let grpc_clients = Arc::new(grpc_clients);
         let message_type = cfg.message_type;
-        let router = ClusterRouter::new(scx.clone(), grpc_clients.clone(), message_type);
-        let shared = ClusterShared::new(scx.clone(), grpc_clients.clone(), message_type);
+        let exec = scx.get_exec(("BC_EXEC", cfg.task_exec_queue_workers, cfg.task_exec_queue_max));
+        let router =
+            ClusterRouter::new(scx.clone(), grpc_clients.clone(), message_type, cfg.node_grpc_client_timeout);
+        let shared = ClusterShared::new(
+            scx.clone(),
+            exec,
+            grpc_clients.clone(),
+            message_type,
+            node_names,
+            cfg.task_exec_queue_max,
+            cfg.task_exec_queue_workers,
+            cfg.node_grpc_client_timeout,
+        );
         let cfg = Arc::new(RwLock::new(cfg));
         Ok(Self { scx, register, cfg, grpc_clients, shared, router })
     }

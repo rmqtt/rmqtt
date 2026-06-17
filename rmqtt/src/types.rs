@@ -98,7 +98,8 @@ pub type QoS = rmqtt_codec::types::QoS;
 pub type PublishReceiveTime = TimestampMillis;
 pub type Subscriptions = Vec<(TopicFilter, SubscriptionOptions)>;
 pub type TopicFilters = Vec<TopicFilter>;
-pub type SubscriptionClientIds = Option<Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>>;
+pub type ForwardedRecipients = Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>;
+pub type ForwardedCount = usize;
 pub type SubscriptionIdentifier = NonZeroU32;
 
 pub type HookSubscribeResult = Vec<Option<TopicFilter>>;

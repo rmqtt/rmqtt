@@ -18,3 +18,4 @@ target/
 !.github
 /CODEBUDDY.md
 /code-review-report
+/docs/architecture

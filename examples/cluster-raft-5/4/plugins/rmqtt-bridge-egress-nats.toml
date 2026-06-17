@@ -1,0 +1,34 @@
+##--------------------------------------------------------------------
+## rmqtt-bridge-egress-nats
+##--------------------------------------------------------------------
+
+# See more keys and their definitions at https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/bridge-egress-nats.md
+
+[[bridges]]
+# Whether to enable
+enable = true
+# Bridge name
+name = "bridge_nats_1"
+
+# NATS server URL
+servers = "nats://127.0.0.1:4222"
+# client.id
+client_id_prefix = "nats_egress_001"
+
+# Maximum limit of clients connected to the remote NATS server
+concurrent_client_limit = 3
+
+[bridges.properties]
+"message.timeout.ms" = "5000"
+
+[[bridges.entries]]
+#Local topic filter: All messages matching this topic filter will be forwarded.
+local.topic_filter = "local/topic/egress/nats/#"
+
+remote.topic = "remote-topic-egress-nats-${local.topic}"
+#remote.queue_timeout = "0m"
+
+[[bridges.entries]]
+local.topic_filter = "local/topic/egress/nats/specific"
+
+remote.topic = "remote-topic-egress-nats-specific"
