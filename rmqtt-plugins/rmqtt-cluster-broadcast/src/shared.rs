@@ -801,13 +801,13 @@ impl Shared for ClusterShared {
         &self,
         from_node_id: NodeId,
         msg_id: MsgID,
-        subscribers: ForwardedRecipients,
+        recipients: ForwardedRecipients,
     ) -> Result<()> {
         if from_node_id == self.scx.node.id() {
-            self.scx.extends.message_mgr().await.mark_forwarded(msg_id, subscribers).await
+            self.scx.extends.message_mgr().await.mark_forwarded(msg_id, recipients).await
         } else {
             if let Some(client) = self.grpc_client(from_node_id) {
-                let ack_msg = Message::ForwardsToAck(msg_id, self.scx.node.id(), subscribers);
+                let ack_msg = Message::ForwardsToAck(msg_id, self.scx.node.id(), recipients);
                 let sender = MessageSender::new(client, self.message_type, ack_msg, Some(self.rw_timeout));
                 if let Err(e) = sender.notify().spawn(&self.forwards_exec).await {
                     log::warn!(

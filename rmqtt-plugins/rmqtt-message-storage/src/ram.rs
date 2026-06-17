@@ -35,11 +35,18 @@ use rmqtt::{
 
 use crate::config::RamConfig;
 
-type FwdSessions = Option<ForwardedRecipients>;
-
 enum Msg {
-    Store { from: From, publish: Publish, expiry_interval: Duration, msg_id: MsgID, forwardeds: FwdSessions },
-    MarkForwarded { msg_id: MsgID, forwardeds: ForwardedRecipients },
+    Store {
+        from: From,
+        publish: Publish,
+        expiry_interval: Duration,
+        msg_id: MsgID,
+        recipients: Option<ForwardedRecipients>,
+    },
+    MarkForwarded {
+        msg_id: MsgID,
+        recipients: ForwardedRecipients,
+    },
 }
 
 /// An in-memory message manager that implements [`MessageManager`].
@@ -51,7 +58,11 @@ pub struct RamMessageManager {
 
 impl RamMessageManager {
     #[inline]
-    pub(crate) async fn new(cfg: RamConfig, cleanup_count: usize) -> Result<RamMessageManager> {
+    pub(crate) async fn new(
+        cfg: RamConfig,
+        cleanup_count: usize,
+        timeout: Duration,
+    ) -> Result<RamMessageManager> {
         let (exec, task_runner) = Builder::default().workers(1000).queue_max(300_000).build();
 
         tokio::spawn(async move {
@@ -73,6 +84,7 @@ impl RamMessageManager {
                 messages_bytes_size: Default::default(),
                 msg_tx,
                 msg_queue_count,
+                timeout,
             }),
             exec,
         };
@@ -89,6 +101,7 @@ impl RamMessageManager {
                         match msg {
                             Some(msg) => {
                                 let _ = msg_mgr._process(msg).await;
+                                msg_mgr.msg_queue_count.fetch_sub(1, Ordering::Relaxed);
                             }
                             None => {
                                 log::error!("Recv failed because receiver is gone");
@@ -158,6 +171,7 @@ pub struct RamMessageManagerInner {
     messages_bytes_size: AtomicIsize,
     msg_tx: mpsc::Sender<Msg>,
     msg_queue_count: Arc<AtomicIsize>,
+    timeout: Duration,
 }
 
 impl RamMessageManager {
@@ -302,7 +316,7 @@ impl RamMessageManager {
         publish: Publish,
         expiry_interval: Duration,
         msg_id: MsgID,
-        forwardeds: FwdSessions,
+        forwardeds: Option<ForwardedRecipients>,
     ) -> Result<()> {
         let mut topic = Topic::from_str(&publish.topic).map_err(|e| anyhow!(format!("{:?}", e)))?;
         topic.push(Level::Normal(msg_id.to_string()));
@@ -432,14 +446,14 @@ impl RamMessageManager {
     #[inline]
     async fn _process(&self, msg: Msg) -> Result<()> {
         match msg {
-            Msg::Store { from, publish, expiry_interval, msg_id, forwardeds } => {
-                if let Err(e) = self._set(from, publish, expiry_interval, msg_id, forwardeds).await {
+            Msg::Store { from, publish, expiry_interval, msg_id, recipients } => {
+                if let Err(e) = self._set(from, publish, expiry_interval, msg_id, recipients).await {
                     log::warn!("Store of the Publish message failed! {e:?}");
                 }
             }
-            Msg::MarkForwarded { msg_id, forwardeds } => {
+            Msg::MarkForwarded { msg_id, recipients } => {
                 if self.messages_exist(&msg_id).await {
-                    self.set_forwardeds(msg_id, forwardeds).await;
+                    self.set_forwardeds(msg_id, recipients).await;
                 }
             }
         }
@@ -455,49 +469,25 @@ impl MessageManager for RamMessageManager {
     }
 
     #[inline]
-    async fn mark_forwarded(&self, msg_id: MsgID, forwardeds: ForwardedRecipients) -> Result<()> {
-        // Send through msg_tx for batched processing; the batch processor
-        // will verify message existence before writing forwardeds.
-        // The channel ensures ordering so that any preceding Store for
-        // the same msg_id is already committed.
-        let res = self
-            .inner
-            .msg_tx
-            .clone()
-            .send(Msg::MarkForwarded { msg_id, forwardeds })
-            .timeout(futures_time::time::Duration::from_millis(3500))
-            .await
-            .map_err(|e| anyhow!(e));
-        match res {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(e)) => {
-                log::warn!("RamMessageManager mark_forwarded error, {e:?}");
-                Err(anyhow!(e))
-            }
-            Err(e) => {
-                log::warn!("RamMessageManager mark_forwarded timeout, {e:?}");
-                Err(e)
-            }
-        }
-    }
-
-    #[inline]
     async fn store(
         &self,
         msg_id: MsgID,
         from: From,
         p: Publish,
         expiry_interval: Duration,
-        subscribers: FwdSessions,
+        recipients: Option<ForwardedRecipients>,
     ) -> Result<()> {
-        let res = self
-            .inner
-            .msg_tx
-            .clone()
-            .send(Msg::Store { from, publish: p, expiry_interval, msg_id, forwardeds: subscribers })
-            .timeout(futures_time::time::Duration::from_millis(3500))
-            .await
-            .map_err(|_e| anyhow!("store timeout"));
+        let timeout = self.inner.timeout;
+        let mut tx = self.inner.msg_tx.clone();
+        let send_fut = tx.send(Msg::Store { from, publish: p, expiry_interval, msg_id, recipients });
+        let res = if timeout > Duration::ZERO {
+            send_fut
+                .timeout(futures_time::time::Duration::from(timeout))
+                .await
+                .map_err(|_e| anyhow!("store timeout"))
+        } else {
+            Ok(send_fut.await)
+        };
         match res {
             Ok(Ok(())) => {
                 self.msg_queue_count.fetch_add(1, Ordering::Relaxed);
@@ -522,6 +512,33 @@ impl MessageManager for RamMessageManager {
         group: Option<&SharedGroup>,
     ) -> Result<Vec<(MsgID, From, Publish)>> {
         self._get(client_id, topic_filter, group).await
+    }
+
+    #[inline]
+    async fn mark_forwarded(&self, msg_id: MsgID, forwardeds: ForwardedRecipients) -> Result<()> {
+        // Send through msg_tx for batched processing; the batch processor
+        // will verify message existence before writing forwardeds.
+        // The channel ensures ordering so that any preceding Store for
+        // the same msg_id is already committed.
+        let timeout = self.inner.timeout;
+        let mut tx = self.inner.msg_tx.clone();
+        let send_fut = tx.send(Msg::MarkForwarded { msg_id, recipients: forwardeds });
+        let res = if timeout > Duration::ZERO {
+            send_fut.timeout(futures_time::time::Duration::from(timeout)).await.map_err(|e| anyhow!(e))
+        } else {
+            Ok(send_fut.await)
+        };
+        match res {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(e)) => {
+                log::warn!("RamMessageManager mark_forwarded error, {e:?}");
+                Err(anyhow!(e))
+            }
+            Err(e) => {
+                log::warn!("RamMessageManager mark_forwarded timeout, {e:?}");
+                Err(e)
+            }
+        }
     }
 
     #[inline]
@@ -556,8 +573,9 @@ fn test_message_manager() {
 
     let runner = async move {
         let cfg = RamConfig::default();
-        let msg_mgr = Box::leak(Box::new(RamMessageManager::new(cfg, usize::MAX).await.unwrap()))
-            as &'static RamMessageManager;
+        let msg_mgr = Box::leak(Box::new(
+            RamMessageManager::new(cfg, usize::MAX, Duration::from_millis(5000)).await.unwrap(),
+        )) as &'static RamMessageManager;
         sleep(Duration::from_millis(10)).await;
         let f = From::from_custom(Id::from(1, ClientId::from("test-001")));
         let p = CodecPublish {
@@ -657,8 +675,9 @@ fn test_dedup_same_client() {
 
     let runner = async move {
         let cfg = RamConfig::default();
-        let msg_mgr = Box::leak(Box::new(RamMessageManager::new(cfg, usize::MAX).await.unwrap()))
-            as &'static RamMessageManager;
+        let msg_mgr = Box::leak(Box::new(
+            RamMessageManager::new(cfg, usize::MAX, Duration::from_millis(5000)).await.unwrap(),
+        )) as &'static RamMessageManager;
         sleep(Duration::from_millis(10)).await;
         let f = From::from_custom(Id::from(1, ClientId::from("pub-001")));
         let p = CodecPublish {
@@ -707,8 +726,9 @@ fn test_mark_forwarded_basic() {
 
     let runner = async move {
         let cfg = RamConfig::default();
-        let msg_mgr = Box::leak(Box::new(RamMessageManager::new(cfg, usize::MAX).await.unwrap()))
-            as &'static RamMessageManager;
+        let msg_mgr = Box::leak(Box::new(
+            RamMessageManager::new(cfg, usize::MAX, Duration::from_millis(5000)).await.unwrap(),
+        )) as &'static RamMessageManager;
         sleep(Duration::from_millis(10)).await;
         let f = From::from_custom(Id::from(1, ClientId::from("pub-001")));
         let p = CodecPublish {
@@ -747,8 +767,9 @@ fn test_mark_forwarded_basic() {
 fn test_mark_forwarded_non_existent() {
     let runner = async move {
         let cfg = RamConfig::default();
-        let msg_mgr = Box::leak(Box::new(RamMessageManager::new(cfg, usize::MAX).await.unwrap()))
-            as &'static RamMessageManager;
+        let msg_mgr = Box::leak(Box::new(
+            RamMessageManager::new(cfg, usize::MAX, Duration::from_millis(5000)).await.unwrap(),
+        )) as &'static RamMessageManager;
         sleep(Duration::from_millis(10)).await;
 
         // Calling mark_forwarded with a msg_id that was never stored
@@ -771,8 +792,9 @@ fn test_shared_subscription_dedup() {
 
     let runner = async move {
         let cfg = RamConfig::default();
-        let msg_mgr = Box::leak(Box::new(RamMessageManager::new(cfg, usize::MAX).await.unwrap()))
-            as &'static RamMessageManager;
+        let msg_mgr = Box::leak(Box::new(
+            RamMessageManager::new(cfg, usize::MAX, Duration::from_millis(5000)).await.unwrap(),
+        )) as &'static RamMessageManager;
         sleep(Duration::from_millis(10)).await;
         let f = From::from_custom(Id::from(1, ClientId::from("pub-001")));
         let p = CodecPublish {
@@ -826,8 +848,9 @@ fn test_message_expiry() {
 
     let runner = async move {
         let cfg = RamConfig::default();
-        let msg_mgr = Box::leak(Box::new(RamMessageManager::new(cfg, usize::MAX).await.unwrap()))
-            as &'static RamMessageManager;
+        let msg_mgr = Box::leak(Box::new(
+            RamMessageManager::new(cfg, usize::MAX, Duration::from_millis(5000)).await.unwrap(),
+        )) as &'static RamMessageManager;
         sleep(Duration::from_millis(10)).await;
         let f = From::from_custom(Id::from(1, ClientId::from("pub-001")));
         let p = CodecPublish {
@@ -868,8 +891,9 @@ fn test_wildcard_matching() {
 
     let runner = async move {
         let cfg = RamConfig::default();
-        let msg_mgr = Box::leak(Box::new(RamMessageManager::new(cfg, usize::MAX).await.unwrap()))
-            as &'static RamMessageManager;
+        let msg_mgr = Box::leak(Box::new(
+            RamMessageManager::new(cfg, usize::MAX, Duration::from_millis(5000)).await.unwrap(),
+        )) as &'static RamMessageManager;
         sleep(Duration::from_millis(10)).await;
         let f = From::from_custom(Id::from(1, ClientId::from("pub-001")));
         let mut p = CodecPublish {
@@ -920,8 +944,9 @@ fn test_wildcard_matching() {
 fn test_methods() {
     let runner = async move {
         let cfg = RamConfig::default();
-        let msg_mgr = Box::leak(Box::new(RamMessageManager::new(cfg, usize::MAX).await.unwrap()))
-            as &'static RamMessageManager;
+        let msg_mgr = Box::leak(Box::new(
+            RamMessageManager::new(cfg, usize::MAX, Duration::from_millis(5000)).await.unwrap(),
+        )) as &'static RamMessageManager;
         sleep(Duration::from_millis(10)).await;
 
         // Initial state

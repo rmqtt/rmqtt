@@ -267,7 +267,7 @@ pub trait Shared: Sync + Send {
         &self,
         from_node_id: NodeId,
         msg_id: MsgID,
-        subscribers: ForwardedRecipients,
+        recipients: ForwardedRecipients,
     ) -> Result<()>;
 }
 
@@ -982,11 +982,11 @@ impl Shared for DefaultShared {
         &self,
         from_node_id: NodeId,
         msg_id: MsgID,
-        subscribers: ForwardedRecipients,
+        recipients: ForwardedRecipients,
     ) -> Result<()> {
         let scx = self.context();
         if from_node_id == scx.node.id() {
-            scx.extends.message_mgr().await.mark_forwarded(msg_id, subscribers).await
+            scx.extends.message_mgr().await.mark_forwarded(msg_id, recipients).await
         } else {
             log::warn!("forward mark flag to node {}", from_node_id);
             Ok(())

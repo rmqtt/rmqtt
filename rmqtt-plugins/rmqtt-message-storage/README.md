@@ -55,6 +55,7 @@ File: `rmqtt-message-storage.toml`
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `cleanup_count` | integer | `5000` | Expired messages cleaned per cycle |
+| `timeout` | string | `"5s"` | Timeout for storage I/O operations. `"0s"` = no timeout |
 
 ## Dependencies
 

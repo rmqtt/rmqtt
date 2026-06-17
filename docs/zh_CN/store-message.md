@@ -41,6 +41,9 @@ storage.redis-cluster.prefix = "message-{node}"
 
 ##Quantity of expired messages cleared during each cleanup cycle.
 cleanup_count = 5000
+
+##存储 I/O 操作超时。0 = 不超时。
+timeout = "5s"
 ```
 
 当前支持“ram”、“redis”和“redis-cluster”三种存储引擎。“ram”是存储在本地内存，可以配置最大使用内存容量或最大消息数量，以及可以指示消息是否编码后再存储。
