@@ -38,7 +38,7 @@
 //! Typical Usage:
 //! 1. Implement `store()` for message persistence
 //! 2. Override `get()` for client-specific retrieval
-//! 3. Implement `should_merge_on_get()` for cluster coordination
+//! 3. Implement `merge_on_read()` for cluster coordination
 //! 4. Provide capacity monitoring via `count()`/`max()`
 //!
 //! Note: The default implementation performs no actual storage,
@@ -48,7 +48,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 
-use crate::types::{ClientId, From, MsgID, Publish, SharedGroup, TopicFilter};
+use crate::types::{ForwardedRecipients, From, MsgID, Publish, SharedGroup};
 use crate::Result;
 
 #[async_trait]
@@ -72,7 +72,7 @@ pub trait MessageManager: Sync + Send {
     /// * `from` - Origin information identifying the publishing source.
     /// * `p` - The MQTT publish packet content.
     /// * `expiry_interval` - Duration after which the message expires.
-    /// * `sub_client_ids` - Optional set of subscribers that have already received this message.
+    /// * `subscribers` - Optional set of subscribers that have already received this message.
     #[inline]
     async fn store(
         &self,
@@ -80,7 +80,7 @@ pub trait MessageManager: Sync + Send {
         _from: From,
         _p: Publish,
         _expiry_interval: Duration,
-        _sub_client_ids: Option<Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>>,
+        _subscribers: Option<ForwardedRecipients>,
     ) -> Result<()> {
         Ok(())
     }
@@ -101,9 +101,24 @@ pub trait MessageManager: Sync + Send {
         Ok(Vec::new())
     }
 
+    /// Mark a stored message as already forwarded to specific clients.
+    ///
+    /// Records which subscribers have received this message so they will
+    /// not receive it again via `get()`. Typically called after a shared
+    /// subscription forwards the message to its chosen member.
+    ///
+    /// # Arguments
+    /// * `msg_id` - The unique identifier of the stored message.
+    /// * `subscribers` - Subscribers that have received this message,
+    ///   with optional shared group subscription info.
+    #[inline]
+    async fn mark_forwarded(&self, _msg_id: MsgID, _subscribers: ForwardedRecipients) -> Result<()> {
+        Ok(())
+    }
+
     /// Indicate whether merging data from various cluster nodes is needed during retrieval.
     #[inline]
-    fn should_merge_on_get(&self) -> bool {
+    fn merge_on_read(&self) -> bool {
         false
     }
 

@@ -12,7 +12,7 @@ use rmqtt::types::Id;
 use rmqtt::{
     grpc::{Message, MessageReply},
     hook::{Handler, HookResult, Parameter, ReturnType},
-    types::{From, Publish, SubRelationsMap, SubscriptionClientIds},
+    types::{ForwardedRecipients, From, Publish, SubRelationsMap},
 };
 
 use super::{hook_message_dropped, router::ClusterRouter, shared::ClusterShared};
@@ -40,17 +40,42 @@ impl Handler for HookHandler {
                 }
                 match msg {
                     Message::Forwards(from, publish) => {
-                        let (shared_subs, subs_size) =
+                        let (shared_subs, recipients) =
                             forwards(&self.scx, from.clone(), publish.clone()).await;
                         let new_acc =
-                            HookResult::GrpcMessageReply(Ok(MessageReply::Forwards(shared_subs, subs_size)));
+                            HookResult::GrpcMessageReply(Ok(MessageReply::Forwards(shared_subs, recipients)));
                         return (false, Some(new_acc));
                     }
-                    Message::ForwardsTo(from, publish, sub_rels) => {
-                        if let Err(droppeds) =
-                            self.shared.inner().forwards_to(from.clone(), publish, sub_rels.clone()).await
+                    Message::ForwardsTo(from, publish, sub_rels, msg_id) => {
+                        if let Err((_, droppeds)) = self
+                            .shared
+                            .inner()
+                            .forwards_to(from.clone(), publish, sub_rels.clone(), *msg_id)
+                            .await
                         {
                             hook_message_dropped(&self.scx, droppeds).await;
+                        }
+                        return (false, acc);
+                    }
+                    Message::ForwardsToAck(msg_id, node_id, subscribers) => {
+                        log::debug!(
+                            "ForwardsToAck received: msg_id={:?}, node_id={}, subscribers={:?}",
+                            msg_id,
+                            node_id,
+                            subscribers
+                        );
+                        if let Err(e) = self
+                            .scx
+                            .extends
+                            .message_mgr()
+                            .await
+                            .mark_forwarded(*msg_id, subscribers.clone())
+                            .await
+                        {
+                            log::warn!(
+                                "mark_forwarded error, {e:?}, msg_id: {msg_id}, from node: {node_id}, \
+                                 subscribers: {subscribers:?}"
+                            );
                         }
                         return (false, acc);
                     }
@@ -130,6 +155,20 @@ impl Handler for HookHandler {
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::SessionStatus(status)));
                         return (false, Some(new_acc));
                     }
+                    Message::MessageGet(client_id, topic_filter, group) => {
+                        let msgs = self
+                            .scx
+                            .extends
+                            .message_mgr()
+                            .await
+                            .get(client_id, topic_filter, group.as_ref())
+                            .await;
+                        let new_acc = match msgs {
+                            Err(e) => HookResult::GrpcMessageReply(Err(e)),
+                            Ok(msgs) => HookResult::GrpcMessageReply(Ok(MessageReply::MessageGet(msgs))),
+                        };
+                        return (false, Some(new_acc));
+                    }
                     Message::Data(data) => {
                         let new_acc = match BroadcastGrpcMessage::decode(data) {
                             Err(e) => {
@@ -157,9 +196,6 @@ impl Handler for HookHandler {
                         };
                         return (false, Some(new_acc));
                     }
-                    _ => {
-                        log::error!("unimplemented, {param:?}")
-                    }
                 }
             }
             _ => {
@@ -174,12 +210,11 @@ async fn forwards(
     scx: &ServerContext,
     from: From,
     publish: Publish,
-) -> (SubRelationsMap, SubscriptionClientIds) {
-    log::debug!("forwards, From: {from:?}, publish: {publish:?}");
+) -> (SubRelationsMap, ForwardedRecipients) {
     match scx.extends.shared().await.forwards_and_get_shareds(from, publish).await {
-        Err(droppeds) => {
+        Err((recipients, droppeds)) => {
             hook_message_dropped(scx, droppeds).await;
-            (SubRelationsMap::default(), None)
+            (SubRelationsMap::default(), recipients)
         }
         Ok(relations_map) => relations_map,
     }

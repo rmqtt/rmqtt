@@ -147,16 +147,16 @@ For more details about using rmqtt in library mode, please refer to the [RMQTT L
 
 ## Plugin System
 
-RMQTT has 25 built-in plugins across 6 categories:
+RMQTT has 26 built-in plugins across 6 categories:
 
 | Category | Plugins |
 |----------|---------|
 | **Auth** | ACL, HTTP Auth, JWT Auth |
 | **Storage** | Retainer, Message Store, Session Store |
 | **Cluster** | Raft, Broadcast |
-| **Bridge** | MQTT (in/out), Kafka (in/out), Pulsar (in/out), NATS (out), ReductStore (out) |
+| **Bridge** | MQTT (in/out), Kafka (in/out), Pulsar (in/out), NATS (in/out), ReductStore (out), Bridge Origin |
 | **API** | HTTP API, WebHook, Sys Topic |
-| **Utility** | Counter, Auto Subscription, Topic Rewrite, P2P Messaging |
+| **Utility** | Counter, Auto Subscription, Topic Rewrite, P2P Messaging, Shared Subscription |
 
 [Plugin Development Guide →](docs/en_US/development/plugin-development.md)
 

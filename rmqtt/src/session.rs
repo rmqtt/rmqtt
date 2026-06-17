@@ -971,14 +971,13 @@ impl SessionState {
                 } else {
                     #[cfg(feature = "metrics")]
                     self.scx.metrics.client_publish_error_inc();
-                    if pub_res.disconnect {
-                        Err(MqttError::PublishAckReason(
+                    match pub_res.disconnect {
+                        true => Err(MqttError::PublishAckReason(
                             pub_res.reason_code,
                             pub_res.reason_string.unwrap_or_default(),
                         )
-                        .into())
-                    } else {
-                        Ok(pub_res)
+                        .into()),
+                        false => Ok(pub_res),
                     }
                 }
             }
@@ -1490,7 +1489,7 @@ impl SessionState {
             group,
             excludeds
         );
-        self._send_storaged_messages(storaged_messages, qos, excludeds).await?;
+        self._send_storaged_messages(storaged_messages, qos, excludeds, topic_filter, group).await?;
         Ok(())
     }
 
@@ -1501,6 +1500,8 @@ impl SessionState {
         storaged_messages: Vec<(MsgID, From, Publish)>,
         qos: QoS,
         excludeds: Option<Vec<(NodeId, MsgID)>>,
+        topic_filter: &str,
+        group: Option<&SharedGroup>,
     ) -> Result<()> {
         for (msg_id, from, mut publish) in storaged_messages {
             log::debug!(
@@ -1522,6 +1523,8 @@ impl SessionState {
                 continue;
             }
 
+            let from_node_id = from.node_id;
+
             publish.dup = false;
             publish.retain = false;
             publish.qos = publish.qos.less_value(qos);
@@ -1533,6 +1536,21 @@ impl SessionState {
                 self.scx.extends.shared().await.entry(self.id.clone()).publish(from, publish).await
             {
                 self.scx.extends.hook_mgr().message_dropped(Some(self.id.clone()), from, p, reason).await;
+            } else {
+                // Record successful delivery so the message is not
+                // redelivered on next reconnect. The node_id check is
+                // handled inside the shared implementation.
+                let opts = group.map(|g| (TopicFilter::from(topic_filter), g.clone()));
+                if let Err(e) = self
+                    .scx
+                    .extends
+                    .shared()
+                    .await
+                    .message_mark_forwarded(from_node_id, msg_id, vec![(self.id.client_id.clone(), opts)])
+                    .await
+                {
+                    log::warn!("{:?} mark_forwarded error: {e:?}", self.id);
+                }
             }
         }
 
@@ -1812,39 +1830,35 @@ impl SessionState {
             drop(retain);
         }
 
+        // Store FIRST (subscriber IDs will be recorded inside forwards()
+        // via mark_forwarded), ensuring subscriber tracking is tied
+        // to the forwarding result rather than deferred to a later store().
         #[cfg(feature = "msgstore")]
-        let stored_msg =
-            if let (Some(msg_id), Some(message_expiry_interval)) = (msg_id, message_expiry_interval) {
-                Some((msg_id, from.clone(), publish.clone(), message_expiry_interval))
-            } else {
-                None
-            };
-
-        let _sub_cids = match scx.extends.shared().await.forwards(from.clone(), publish).await {
-            Ok(None) => {
-                //hook, message_nonsubscribed
-                scx.extends.hook_mgr().message_nonsubscribed(from).await;
-                None
-            }
-            Ok(Some(sub_cids)) => Some(sub_cids),
-            Err(errs) => {
-                for (to, from, p, reason) in errs {
-                    //hook, Message dropped
-                    scx.extends.hook_mgr().message_dropped(Some(to), from, p, reason).await;
-                }
-                None
-            }
-        };
-
-        #[cfg(feature = "msgstore")]
-        if let Some((msg_id, from, p, expiry_interval)) = stored_msg {
-            //Store messages before they expire
-            if let Err(e) =
-                scx.extends.message_mgr().await.store(msg_id, from, p, expiry_interval, _sub_cids).await
+        if let (Some(msg_id), Some(message_expiry_interval)) = (msg_id, message_expiry_interval) {
+            if let Err(e) = scx
+                .extends
+                .message_mgr()
+                .await
+                .store(msg_id, from.clone(), publish.clone(), message_expiry_interval, None)
+                .await
             {
                 log::warn!("Failed to storage messages, {e:?}");
             }
         }
+
+        match scx.extends.shared().await.forwards(msg_id, from.clone(), publish).await {
+            Ok(0) => {
+                //hook, message_nonsubscribed
+                scx.extends.hook_mgr().message_nonsubscribed(from).await;
+            }
+            Ok(_count) => {}
+            Err((_subscriber_count, errs)) => {
+                for (to, from, p, reason) in errs {
+                    //hook, Message dropped
+                    scx.extends.hook_mgr().message_dropped(Some(to), from, p, reason).await;
+                }
+            }
+        };
 
         Ok(())
     }

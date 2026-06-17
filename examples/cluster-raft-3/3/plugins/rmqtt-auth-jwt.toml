@@ -1,0 +1,48 @@
+##--------------------------------------------------------------------
+## rmqtt-auth-jwt
+##--------------------------------------------------------------------
+
+# See more keys and their definitions at https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/auth-jwt.md
+
+#Disconnect if publishing is rejected
+disconnect_if_pub_rejected = true
+
+## From where the JWT string can be got
+## Value: username | password
+## Default: password
+from = "password"
+
+## Encryption method
+## Value: hmac-based | public-key
+## Default: hmac-based
+encrypt = "hmac-based"
+
+## HMAC Hash Secret.
+hmac_secret = "rmqttsecret"
+
+## Secret Base64 Encode
+## Value: true | false
+## Default: false
+hmac_base64 = false
+
+## RSA or ECDSA public key file.
+public_key = "./jwt_public_key.pem"
+
+## Disconnect After Expiration
+## Value: true | false
+## Default: false
+disconnect_if_expiry = false
+
+## The checklist of claims to validate
+### Basic Validation
+validate_claims.exp = true
+#validate_claims.nbf = true
+#validate_claims.sub = "user@rmqtt.com"
+#validate_claims.iss = ["https://rmqtt.com1", "https://rmqtt.com"]
+#validate_claims.aud = ["https://your-api.com", "mobile_app", "web_app"]
+
+### Extended Validation (with placeholders)
+#validate_claims.clientid = "${clientid}"
+#validate_claims.username = "${username}"
+#validate_claims.ipaddr = "${ipaddr}"
+#validate_claims.protocol = "${protocol}"

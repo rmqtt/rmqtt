@@ -17,4 +17,3 @@ storage.redis.prefix = "message-{node}"
 ##cleanup
 cleanup_count = 5000
 
-

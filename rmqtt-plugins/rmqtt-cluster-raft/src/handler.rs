@@ -145,11 +145,30 @@ impl Handler for HookHandler {
                     return (true, acc);
                 }
                 match msg {
-                    GrpcMessage::ForwardsTo(from, publish, sub_rels) => {
-                        if let Err(droppeds) =
-                            self.shared.forwards_to(from.clone(), publish, sub_rels.clone()).await
+                    GrpcMessage::ForwardsTo(from, publish, sub_rels, msg_id) => {
+                        if let Err((_, droppeds)) =
+                            self.shared.forwards_to(from.clone(), publish, sub_rels.clone(), *msg_id).await
                         {
                             hook_message_dropped(&self.scx, droppeds).await;
+                        }
+                        return (false, acc);
+                    }
+                    GrpcMessage::ForwardsToAck(msg_id, node_id, subscribers) => {
+                        log::debug!(
+                            "ForwardsToAck received: msg_id={:?}, node_id={}, subscribers={:?}",
+                            msg_id,
+                            node_id,
+                            subscribers
+                        );
+                        if let Err(e) = self
+                            .scx
+                            .extends
+                            .message_mgr()
+                            .await
+                            .mark_forwarded(*msg_id, subscribers.clone())
+                            .await
+                        {
+                            log::warn!("mark_forwarded error, {e:?}, msg_id: {msg_id}, from node: {node_id}, subscribers: {subscribers:?}");
                         }
                         return (false, acc);
                     }
@@ -170,6 +189,20 @@ impl Handler for HookHandler {
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::SubscriptionsGet(
                             entry.subscriptions().await,
                         )));
+                        return (false, Some(new_acc));
+                    }
+                    GrpcMessage::MessageGet(client_id, topic_filter, group) => {
+                        let msgs = self
+                            .scx
+                            .extends
+                            .message_mgr()
+                            .await
+                            .get(client_id, topic_filter, group.as_ref())
+                            .await;
+                        let new_acc = match msgs {
+                            Err(e) => HookResult::GrpcMessageReply(Err(e)),
+                            Ok(msgs) => HookResult::GrpcMessageReply(Ok(MessageReply::MessageGet(msgs))),
+                        };
                         return (false, Some(new_acc));
                     }
                     GrpcMessage::Data(data) => {

@@ -1,0 +1,59 @@
+##--------------------------------------------------------------------
+## rmqtt-bridge-egress-mqtt
+##--------------------------------------------------------------------
+
+# See more keys and their definitions at https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/bridge-egress-mqtt.md
+
+[[bridges]]
+# Whether to enable
+enable = true
+# Bridge name
+name = "bridge_mqtt_1"
+# Client ID prefix
+client_id_prefix = "egress_001"
+# Address and port of the remote MQTT broker
+server = "127.0.0.1:2883"
+# Username to connect to the remote MQTT broker
+username = "rmqtt_u"
+# Password to connect to the remote MQTT broker
+password = "public"
+
+# Maximum limit of clients connected to the remote MQTT broker
+concurrent_client_limit = 5
+# Connection timeout
+connect_timeout = "20s"
+# Keepalive interval
+keepalive = "60s"
+# Automatic reconnection interval
+reconnect_interval = "5s"
+# MQTT protocol version to use: v4, v5 corresponding to MQTT 3.1.1, 5.0
+mqtt_ver = "v5"
+
+# Clear session state on connection
+v5.clean_start = true
+# Session expiry interval
+v5.session_expiry_interval = "0s"
+# Limit the maximum number of QoS 1 and QoS 2 messages
+v5.receive_maximum = 16
+# Negotiate the maximum packet size
+v5.maximum_packet_size = "1M"
+# Negotiate the maximum number of topic aliases
+v5.topic_alias_maximum = 0
+
+[[bridges.entries]]
+#Local topic filter: All messages matching this topic filter will be forwarded.
+local.topic_filter = "local/topic/egress/#"
+
+# Choose 0, 1, 2, or not set (follow message QoS)
+remote.qos = 1
+# true/false, default: false
+remote.retain = false
+# Topic for messages forwarded to the remote MQTT server
+remote.topic = "remote/topic/egress/${local.topic}"
+
+[[bridges.entries]]
+local.topic_filter = "local/topic/egress/a"
+
+remote.qos = 1
+remote.retain = false
+remote.topic = "remote/topic/egress/a/${local.topic}"
