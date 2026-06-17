@@ -18,7 +18,7 @@ Sends HTTP requests (POST/GET/PUT) to configurable endpoints with client credent
 Add the dependency to `Cargo.toml`:
 
 ```toml
-rmqtt-auth-http = "0.22"
+rmqtt-auth-http = "0.21"
 ```
 
 Register the plugin in your broker startup code:

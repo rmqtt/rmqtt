@@ -13,7 +13,7 @@ Connects to a ReductStore HTTP API server and stores MQTT messages as time-serie
 ## Usage
 
 ```toml
-rmqtt-bridge-egress-reductstore = "0.22"
+rmqtt-bridge-egress-reductstore = "0.21"
 ```
 
 ```rust

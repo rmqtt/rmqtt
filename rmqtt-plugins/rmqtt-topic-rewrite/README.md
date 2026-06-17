@@ -30,7 +30,7 @@ Each rule specifies:
 Add the dependency to `Cargo.toml`:
 
 ```toml
-rmqtt-topic-rewrite = "0.22"
+rmqtt-topic-rewrite = "0.21"
 ```
 
 Register the plugin in your broker startup code:

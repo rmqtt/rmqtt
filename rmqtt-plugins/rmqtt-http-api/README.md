@@ -17,7 +17,7 @@ Uses the `salvo` HTTP framework to serve API endpoints. Starts the HTTP server d
 Add the dependency in `rmqttd/Cargo.toml`:
 
 ```toml
-rmqtt-http-api = "0.22"
+rmqtt-http-api = "0.21"
 ```
 
 Requires `rmqtt` features: `plugin`, `metrics`, `stats`, `grpc`, `shared-subscription`.

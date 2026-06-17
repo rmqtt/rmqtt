@@ -10,7 +10,7 @@
 
 ```toml
 [dependencies]
-rmqtt-session-storage = "0.22"
+rmqtt-session-storage = "0.21"
 ```
 
 ```rust

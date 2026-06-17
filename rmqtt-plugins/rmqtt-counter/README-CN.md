@@ -22,7 +22,7 @@
 需要 `rmqtt` 的 features：`plugin`、`metrics`。
 
 ```toml
-rmqtt-counter = "0.22"
+rmqtt-counter = "0.21"
 ```
 
 ### 注册

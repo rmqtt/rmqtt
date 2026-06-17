@@ -18,10 +18,10 @@
 
 ```toml
 # 直接依赖
-rmqtt-retainer = { version = "0.22", features = ["ram"] }
+rmqtt-retainer = { version = "0.21", features = ["ram"] }
 
 # 或通过元 crate
-rmqtt-plugins = { version = "0.22", features = ["retainer-ram"] }
+rmqtt-plugins = { version = "0.21", features = ["retainer-ram"] }
 ```
 
 可用的存储后端 Feature 标志：

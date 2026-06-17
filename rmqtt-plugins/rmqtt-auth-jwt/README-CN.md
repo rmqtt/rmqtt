@@ -34,7 +34,7 @@ RMQTT 的 JWT 认证插件。验证 JSON Web Token 进行客户端认证。
 在 `Cargo.toml` 中添加依赖：
 
 ```toml
-rmqtt-auth-jwt = "0.22"
+rmqtt-auth-jwt = "0.21"
 ```
 
 在代理启动代码中注册插件：

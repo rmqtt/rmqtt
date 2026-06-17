@@ -24,7 +24,7 @@ The plugin publishes various broker metrics under the `$SYS/` hierarchy, includi
 Add the dependency to `Cargo.toml`:
 
 ```toml
-rmqtt-sys-topic = "0.22"
+rmqtt-sys-topic = "0.21"
 ```
 
 Register the plugin in your broker startup code:

@@ -13,7 +13,7 @@ Connects to a NATS server, subscribes to configured subjects, and forwards recei
 ## Usage
 
 ```toml
-rmqtt-bridge-ingress-nats = "0.22"
+rmqtt-bridge-ingress-nats = "0.21"
 ```
 
 ```rust

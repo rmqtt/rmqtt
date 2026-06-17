@@ -22,7 +22,7 @@ Uses an async producer-consumer architecture. Handlers serialize events to JSON 
 
 ```toml
 [dependencies]
-rmqtt-web-hook = "0.22"
+rmqtt-web-hook = "0.21"
 ```
 
 ```rust

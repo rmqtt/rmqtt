@@ -34,7 +34,7 @@ Validates JWT tokens extracted from the client's password or username field. Sup
 Add the dependency to `Cargo.toml`:
 
 ```toml
-rmqtt-auth-jwt = "0.22"
+rmqtt-auth-jwt = "0.21"
 ```
 
 Register the plugin in your broker startup code:

@@ -22,7 +22,7 @@ Messages are further broken down by QoS level (0, 1, 2) and source type (Custom,
 Requires `rmqtt` features: `plugin`, `metrics`.
 
 ```toml
-rmqtt-counter = "0.22"
+rmqtt-counter = "0.21"
 ```
 
 ### Register

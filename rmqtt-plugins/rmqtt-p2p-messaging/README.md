@@ -27,7 +27,7 @@ When a client publishes to a P2P topic (e.g., `p2p/target-client-id/sensors/temp
 Add the dependency to `Cargo.toml`:
 
 ```toml
-rmqtt-p2p-messaging = "0.22"
+rmqtt-p2p-messaging = "0.21"
 ```
 
 Register the plugin in your broker startup code:
