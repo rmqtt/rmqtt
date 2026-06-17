@@ -24,7 +24,7 @@ RMQTT 的系统主题插件。以 `$SYS/` MQTT 主题发布代理指标，用于
 在 `Cargo.toml` 中添加依赖：
 
 ```toml
-rmqtt-sys-topic = "0.22"
+rmqtt-sys-topic = "0.21"
 ```
 
 在代理启动代码中注册插件：

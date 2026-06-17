@@ -10,7 +10,7 @@ Message persistence plugin. Stores unexpired messages for offline clients.
 
 ```toml
 [dependencies]
-rmqtt-message-storage = { version = "0.22", features = ["ram"] }
+rmqtt-message-storage = { version = "0.21", features = ["ram"] }
 # or: features = ["redis", "redis-cluster"]
 ```
 

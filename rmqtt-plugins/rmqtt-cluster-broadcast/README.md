@@ -10,7 +10,7 @@ Broadcast cluster plugin. Provides high-throughput distributed clustering via me
 
 ```toml
 [dependencies]
-rmqtt-cluster-broadcast = "0.22"
+rmqtt-cluster-broadcast = "0.21"
 ```
 
 ```rust

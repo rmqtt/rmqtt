@@ -9,7 +9,7 @@ NATS 入站桥接插件。从 NATS 主题消费消息并发布到本地 RMQTT Br
 ## 使用方式
 
 ```toml
-rmqtt-bridge-ingress-nats = "0.22"
+rmqtt-bridge-ingress-nats = "0.21"
 ```
 
 ```rust

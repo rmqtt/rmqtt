@@ -193,12 +193,12 @@ impl RamMessageManager {
                     let messages_count = self.messages_count();
                     let messages_bytes = self.messages_bytes_size_get();
                     if messages_count > self.cfg.cache_max_count {
-                        log::warn!(
+                        log::debug!(
                             "The number of messages exceeds the maximum limit, the number of messages is: {}, the limit is: {}",
                             messages_count, self.cfg.cache_max_count
                         );
                     } else if messages_bytes > self.cfg.cache_capacity.as_usize() {
-                        log::warn!(
+                        log::debug!(
                             "The total number of bytes in the message exceeds the limit, total message bytes are: {:?}, the limit is: {:?}",
                             Bytesize::from(messages_bytes), self.cfg.cache_capacity
                         );

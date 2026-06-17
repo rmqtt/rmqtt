@@ -18,10 +18,10 @@ Add the dependency in `rmqttd/Cargo.toml` or enable via the `rmqtt-plugins` meta
 
 ```toml
 # Direct dependency
-rmqtt-retainer = { version = "0.22", features = ["ram"] }
+rmqtt-retainer = { version = "0.21", features = ["ram"] }
 
 # Or via meta-crate
-rmqtt-plugins = { version = "0.22", features = ["retainer-ram"] }
+rmqtt-plugins = { version = "0.21", features = ["retainer-ram"] }
 ```
 
 Available feature flags for storage backends:

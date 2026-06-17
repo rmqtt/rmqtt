@@ -111,8 +111,17 @@ raft_peer_addrs = ["1@127.0.0.1:6003", "2@127.0.0.1:6004", "3@127.0.0.1:6005"]
 #If this listening address is not specified, the address of the node corresponding to `raft_peer_addrs` will be used.
 #laddr = "0.0.0.0:6003"
 
-#Specify a leader id, when the value is 0 or not specified, the first node
-#will be designated as the Leader. Default value: 0
+# 指定领导者节点 ID。
+#
+# 此选项主要用于单机伪集群部署场景，即在同一台机器上运行多个集群节点进行测试或开发。
+#
+# 在真实的分布式集群中，领导者选举会自动进行，通常不需要设置此选项。
+#
+# 当值为 0 或未指定时，集群配置中的第一个节点将被指定为领导者。
+#
+# 也可以通过 CLI 参数 `--raft-leader-id` 覆盖。
+#
+# 默认值：0
 leader_id = 0
 
 #Handshake lock timeout
@@ -164,7 +173,7 @@ raft.priority = 0
 
 - 'laddr' 用于指定Raft监听地址，如果不指定，将默认使用'raft_peer_addrs'中配置的地址。
 
-- 'leader_id' 指定一个 leader ID，当值为 0 或未指定时，默认为第一个启动的节点。
+- 'leader_id' 指定领导者节点 ID。此选项主要用于单机伪集群部署场景（在同一台机器上运行多个集群节点进行测试或开发）。在真实的分布式集群中，领导者选举会自动进行，通常不需要设置此选项。当值为 0 或未指定时，集群配置中的第一个节点将被指定为领导者。也可以通过 CLI 参数 `--raft-leader-id` 覆盖。
 
 - 'compression' 指定一种用于压缩快照的算法，取值：zstd、lz4、zlib、snappy。不设置将不会进行压缩。
 

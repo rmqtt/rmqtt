@@ -10,7 +10,7 @@
 
 ```toml
 [dependencies]
-rmqtt-message-storage = { version = "0.22", features = ["ram"] }
+rmqtt-message-storage = { version = "0.21", features = ["ram"] }
 # 或：features = ["redis", "redis-cluster"]
 ```
 
