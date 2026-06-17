@@ -14,7 +14,7 @@ Runs Raft in a dedicated OS thread with its own Tokio runtime. Supports configur
 
 ```toml
 [dependencies]
-rmqtt-cluster-raft = "0.22"
+rmqtt-cluster-raft = "0.21"
 ```
 
 Requires `rmqtt` features: `plugin`, `grpc`, `stats`, `msgstore`.
@@ -45,7 +45,7 @@ File: `rmqtt-cluster-raft.toml`
 | `task_exec_queue_workers` | integer | `500` | Task execution queue workers |
 | `task_exec_queue_max` | integer | `100_000` | Task execution queue max capacity |
 | `compression` | string | `"zstd"` | Snapshot compression algorithm |
-| `leader_id` | integer | `0` | Specify a leader ID (0 = auto-select first node) |
+| `leader_id` | integer | `0` | Specify a leader node ID. Intended for single-host pseudo-cluster dev/testing (0 = auto-select first node in config). Overridable via `--raft-leader-id` CLI flag |
 
 Compression algorithms: `lz4_flex`, `lz4`, `zstd`, `snap`, `flate2`
 

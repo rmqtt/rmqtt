@@ -124,8 +124,20 @@ raft_peer_addrs = ["1@127.0.0.1:6003", "2@127.0.0.1:6004", "3@127.0.0.1:6005"]
 #If this listening address is not specified, the address of the node corresponding to `raft_peer_addrs` will be used.
 #laddr = "0.0.0.0:6003"
 
-#Specify a leader id, when the value is 0 or not specified, the first node
-#will be designated as the Leader. Default value: 0
+# Specify the leader node ID.
+#
+# This option is primarily intended for single-host pseudo-cluster deployments,
+# where multiple cluster nodes run on the same machine for testing or development.
+#
+# In a real distributed cluster, leader election is performed automatically and
+# this option is typically unnecessary.
+#
+# When the value is 0 or not specified, the first node in the cluster
+# configuration will be designated as the Leader.
+#
+# It can also be overridden via the CLI flag `--raft-leader-id`.
+#
+# Default value: 0
 leader_id = 0
 
 #Handshake lock timeout
@@ -178,7 +190,7 @@ raft.priority = 0
 
 - `'laddr'` specifies the Raft listening address. If not specified, it will default to the address configured in `'raft_peer_addrs'`.
 
-- `'leader_id'` specifies a leader ID. If the value is 0 or unspecified, it defaults to the first node started.
+- `'leader_id'` specifies a leader node ID. This option is primarily intended for single-host pseudo-cluster deployments where multiple cluster nodes run on the same machine for testing or development. In a real distributed cluster, leader election is performed automatically and this option is typically unnecessary. When the value is 0 or not specified, the first node in the cluster configuration will be designated as the Leader. It can also be overridden via the CLI flag `--raft-leader-id`.
 
 - `'compression'` specifies an algorithm for compressing snapshots. Possible values are: `zstd`, `lz4`, `zlib`, 
    and `snappy`. If not set, no compression will be performed.

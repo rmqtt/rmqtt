@@ -10,7 +10,7 @@ Session persistence plugin. Stores client session state using Sled, Redis, or Re
 
 ```toml
 [dependencies]
-rmqtt-session-storage = "0.22"
+rmqtt-session-storage = "0.21"
 ```
 
 ```rust

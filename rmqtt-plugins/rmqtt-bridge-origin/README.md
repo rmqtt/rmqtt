@@ -13,7 +13,7 @@ Checks the client_id against configurable marker substrings to classify clients 
 ## Usage
 
 ```toml
-rmqtt-bridge-origin = "0.22"
+rmqtt-bridge-origin = "0.21"
 ```
 
 ```rust

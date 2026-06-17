@@ -17,13 +17,13 @@
 在 `rmqttd/Cargo.toml` 中添加依赖：
 
 ```toml
-rmqtt-acl = "0.22"
+rmqtt-acl = "0.21"
 ```
 
 或通过 `rmqtt-plugins` 元 crate 启用：
 
 ```toml
-rmqtt-plugins = { version = "0.22", features = ["acl"] }
+rmqtt-plugins = { version = "0.21", features = ["acl"] }
 ```
 
 ### 注册

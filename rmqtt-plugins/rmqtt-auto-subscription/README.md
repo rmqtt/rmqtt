@@ -25,7 +25,7 @@ Topic filter expressions can use `${clientid}` to represent the client ID and `$
 Add the dependency to `Cargo.toml`:
 
 ```toml
-rmqtt-auto-subscription = "0.22"
+rmqtt-auto-subscription = "0.21"
 ```
 
 Register the plugin in your broker startup code:

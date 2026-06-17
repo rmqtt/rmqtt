@@ -44,7 +44,7 @@ pub struct Inner {
 | `--plugins-default-startups` | `plugins_default_startups` | `Option<Vec<String>>` | `None` |
 | `--node-grpc-addrs` | `node_grpc_addrs` | `Option<Vec<NodeAddr>>` | `None` |
 | `--raft-peer-addrs` | `raft_peer_addrs` | `Option<Vec<NodeAddr>>` | `None` |
-| `--raft-leader-id` | `raft_leader_id` | `Option<NodeId>` (u64) | `None` |
+| `--raft-leader-id` | `raft_leader_id` | `Option<NodeId>` (u64) | `None` | Specify a leader node ID. Intended for single-host pseudo-cluster dev/testing (0 = auto-select first node in config). Overrides `leader_id` in plugin config |
 
 ### `Task` — executor config
 

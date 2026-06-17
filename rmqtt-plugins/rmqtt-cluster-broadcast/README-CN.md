@@ -10,7 +10,7 @@
 
 ```toml
 [dependencies]
-rmqtt-cluster-broadcast = "0.22"
+rmqtt-cluster-broadcast = "0.21"
 ```
 
 ```rust

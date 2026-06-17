@@ -17,13 +17,13 @@ Rules are evaluated in order — the first matching rule determines the result. 
 Add the dependency in `rmqttd/Cargo.toml`:
 
 ```toml
-rmqtt-acl = "0.22"
+rmqtt-acl = "0.21"
 ```
 
 Or enable via the `rmqtt-plugins` meta-crate:
 
 ```toml
-rmqtt-plugins = { version = "0.22", features = ["acl"] }
+rmqtt-plugins = { version = "0.21", features = ["acl"] }
 ```
 
 ### Register
