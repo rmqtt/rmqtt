@@ -134,6 +134,12 @@ pub struct RamConfig {
     pub encode: bool,
     #[serde(default = "RamConfig::merge_on_read_default")]
     pub merge_on_read: bool,
+
+    /// Maximum number of pending tasks in the TaskExecQueue.
+    /// Beyond this, new tasks are rejected.
+    /// Default: 300_000
+    #[serde(default = "RamConfig::queue_max_default")]
+    pub queue_max: usize,
 }
 
 impl Default for RamConfig {
@@ -144,6 +150,7 @@ impl Default for RamConfig {
             cache_max_count: usize::MAX,
             encode: false,
             merge_on_read: true,
+            queue_max: Self::queue_max_default(),
         }
     }
 }
@@ -151,5 +158,9 @@ impl Default for RamConfig {
 impl RamConfig {
     fn merge_on_read_default() -> bool {
         true
+    }
+
+    fn queue_max_default() -> usize {
+        300_000
     }
 }

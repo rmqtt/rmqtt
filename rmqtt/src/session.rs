@@ -91,6 +91,8 @@ use crate::hook::Hook;
 use crate::inflight::{InInflight, MomentStatus, OutInflight, OutInflightMessage};
 use crate::net::MqttError;
 use crate::queue::{self, Limiter, Policy};
+#[cfg(feature = "msgstore")]
+use crate::shared::MessageLoadCallback;
 use crate::types::*;
 use crate::utils::timestamp_millis;
 use crate::Result;
@@ -1375,8 +1377,13 @@ impl SessionState {
             #[cfg(feature = "msgstore")]
             if self.scx.extends.message_mgr().await.enable() {
                 //Send messages before they expire
-                self.send_storaged_messages(&sub.topic_filter, qos, sub.opts.shared_group(), _excludeds)
-                    .await?;
+                self.send_storaged_messages(
+                    sub.topic_filter.clone(),
+                    qos,
+                    sub.opts.shared_group(),
+                    _excludeds,
+                )
+                .await?;
             }
 
             //hook, session_subscribed
@@ -1413,7 +1420,9 @@ impl SessionState {
 
                 //Send messages before they expire
                 #[cfg(feature = "msgstore")]
-                if let Err(e) = self.send_storaged_messages(tf, opts.qos(), opts.shared_group(), None).await {
+                if let Err(e) =
+                    self.send_storaged_messages(tf.clone(), opts.qos(), opts.shared_group(), None).await
+                {
                     log::warn!("transfer_session_state, router.add, {e:?}");
                 }
             }
@@ -1474,86 +1483,81 @@ impl SessionState {
     #[cfg(feature = "msgstore")]
     async fn send_storaged_messages(
         &self,
-        topic_filter: &str,
+        topic_filter: TopicFilter,
         qos: QoS,
         group: Option<&SharedGroup>,
         excludeds: Option<Vec<(NodeId, MsgID)>>,
     ) -> Result<()> {
-        let storaged_messages =
-            self.scx.extends.shared().await.message_load(&self.id.client_id, topic_filter, group).await?;
-        log::debug!(
-            "{:?} storaged_messages: {:?}, topic_filter: {}, group: {:?}, excludeds: {:?}",
-            self.id,
-            storaged_messages.len(),
-            topic_filter,
-            group,
-            excludeds
-        );
-        self._send_storaged_messages(storaged_messages, qos, excludeds, topic_filter, group).await?;
+        let scx = self.scx.clone();
+        let group = group.cloned();
+        let id = self.id.clone();
+        tokio::spawn(async move {
+            let now = std::time::Instant::now();
+            let handler = SendStoragedMessagesHandler {
+                scx: scx.clone(),
+                id: id.clone(),
+                qos,
+                excludeds,
+                topic_filter: topic_filter.clone(),
+                group: group.clone(),
+            };
+            if let Err(e) = scx
+                .extends
+                .shared()
+                .await
+                .message_load_with(&id.client_id, &topic_filter, group.as_ref(), Arc::new(handler))
+                .await
+            {
+                log::warn!("message_load_with failed, {e:?}");
+            }
+            let elaps = now.elapsed();
+            if elaps.as_secs() > 3 {
+                log::warn!("message_load_with cost time: {:?}", elaps);
+            }
+        });
         Ok(())
     }
 
     #[inline]
     #[cfg(feature = "msgstore")]
-    async fn _send_storaged_messages(
+    #[allow(dead_code)]
+    async fn send_storaged_messages_old(
         &self,
-        storaged_messages: Vec<(MsgID, From, Publish)>,
+        topic_filter: TopicFilter,
         qos: QoS,
-        excludeds: Option<Vec<(NodeId, MsgID)>>,
-        topic_filter: &str,
         group: Option<&SharedGroup>,
+        excludeds: Option<Vec<(NodeId, MsgID)>>,
     ) -> Result<()> {
-        for (msg_id, from, mut publish) in storaged_messages {
-            log::debug!(
-                "{:?} msg_id: {}, from:{:?}, publish:{:?}, excluded: {}",
-                self.id,
-                msg_id,
-                from,
-                publish,
-                excludeds
-                    .as_ref()
-                    .map(|excludeds| excludeds.contains(&(from.node_id, msg_id)))
-                    .unwrap_or_default()
-            );
-            if excludeds
-                .as_ref()
-                .map(|excludeds| excludeds.contains(&(from.node_id, msg_id)))
-                .unwrap_or_default()
-            {
-                continue;
+        let scx = self.scx.clone();
+        let group = group.cloned();
+        let id = self.id.clone();
+        tokio::spawn(async move {
+            let now = std::time::Instant::now();
+            let storaged_messages =
+                scx.extends.shared().await.message_load(&id.client_id, &topic_filter, group.as_ref()).await;
+            let elaps = now.elapsed();
+            if elaps.as_secs() > 3 {
+                log::warn!("message_load cost time: {:?}", elaps);
             }
 
-            let from_node_id = from.node_id;
-
-            publish.dup = false;
-            publish.retain = false;
-            publish.qos = publish.qos.less_value(qos);
-            publish.packet_id = None;
-
-            log::debug!("{:?} persistent.publish: {:?}", self.id, publish);
-
-            if let Err((from, p, reason)) =
-                self.scx.extends.shared().await.entry(self.id.clone()).publish(from, publish).await
-            {
-                self.scx.extends.hook_mgr().message_dropped(Some(self.id.clone()), from, p, reason).await;
-            } else {
-                // Record successful delivery so the message is not
-                // redelivered on next reconnect. The node_id check is
-                // handled inside the shared implementation.
-                let opts = group.map(|g| (TopicFilter::from(topic_filter), g.clone()));
-                if let Err(e) = self
-                    .scx
-                    .extends
-                    .shared()
-                    .await
-                    .message_mark_forwarded(from_node_id, msg_id, vec![(self.id.client_id.clone(), opts)])
-                    .await
-                {
-                    log::warn!("{:?} mark_forwarded error: {e:?}", self.id);
+            let storaged_messages = match storaged_messages {
+                Err(e) => {
+                    log::error!("message_load failed, {e:?}");
+                    return;
                 }
-            }
-        }
-
+                Ok(storaged_messages) => storaged_messages,
+            };
+            _send_storaged_messages(
+                &scx,
+                id,
+                storaged_messages,
+                qos,
+                excludeds,
+                &topic_filter,
+                group.as_ref(),
+            )
+            .await;
+        });
         Ok(())
     }
 
@@ -1829,7 +1833,6 @@ impl SessionState {
             }
             drop(retain);
         }
-
         // Store FIRST (subscriber IDs will be recorded inside forwards()
         // via mark_forwarded), ensuring subscriber tracking is tied
         // to the forwarding result rather than deferred to a later store().
@@ -1919,6 +1922,94 @@ impl fmt::Debug for Session {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Session {:?}", self.id)
+    }
+}
+
+#[inline]
+#[cfg(feature = "msgstore")]
+async fn _send_storaged_messages(
+    scx: &ServerContext,
+    id: Id,
+    storaged_messages: Vec<(MsgID, From, Publish)>,
+    qos: QoS,
+    excludeds: Option<Vec<(NodeId, MsgID)>>,
+    topic_filter: &str,
+    group: Option<&SharedGroup>,
+) {
+    for (msg_id, from, mut publish) in storaged_messages {
+        log::debug!(
+            "{:?} msg_id: {}, from:{:?}, publish:{:?}, excluded: {}",
+            id,
+            msg_id,
+            from,
+            publish,
+            excludeds
+                .as_ref()
+                .map(|excludeds| excludeds.contains(&(from.node_id, msg_id)))
+                .unwrap_or_default()
+        );
+        if excludeds.as_ref().map(|excludeds| excludeds.contains(&(from.node_id, msg_id))).unwrap_or_default()
+        {
+            continue;
+        }
+
+        let from_node_id = from.node_id;
+
+        publish.dup = false;
+        publish.retain = false;
+        publish.qos = publish.qos.less_value(qos);
+        publish.packet_id = None;
+
+        log::debug!("{:?} persistent.publish: {:?}", id, publish);
+
+        if let Err((from, p, reason)) =
+            scx.extends.shared().await.entry(id.clone()).publish(from, publish).await
+        {
+            scx.extends.hook_mgr().message_dropped(Some(id.clone()), from, p, reason).await;
+        } else {
+            // Record successful delivery so the message is not
+            // redelivered on next reconnect. The node_id check is
+            // handled inside the shared implementation.
+            let opts = group.map(|g| (TopicFilter::from(topic_filter), g.clone()));
+            if let Err(e) = scx
+                .extends
+                .shared()
+                .await
+                .message_mark_forwarded(from_node_id, msg_id, vec![(id.client_id.clone(), opts)])
+                .await
+            {
+                log::warn!("{:?} mark_forwarded error: {e:?}", id);
+            }
+        }
+    }
+}
+
+/// Handler for [`MessageLoadCallback`] used by [`send_storaged_messages`].
+#[cfg(feature = "msgstore")]
+struct SendStoragedMessagesHandler {
+    scx: ServerContext,
+    id: Id,
+    qos: QoS,
+    excludeds: Option<Vec<(NodeId, MsgID)>>,
+    topic_filter: TopicFilter,
+    group: Option<SharedGroup>,
+}
+
+#[cfg(feature = "msgstore")]
+#[async_trait]
+impl MessageLoadCallback for SendStoragedMessagesHandler {
+    async fn on_messages(&self, msgs: Vec<(MsgID, From, Publish)>) -> Result<()> {
+        _send_storaged_messages(
+            &self.scx,
+            self.id.clone(),
+            msgs,
+            self.qos,
+            self.excludeds.clone(),
+            &self.topic_filter,
+            self.group.as_ref(),
+        )
+        .await;
+        Ok(())
     }
 }
 

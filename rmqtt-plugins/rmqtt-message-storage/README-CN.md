@@ -35,6 +35,8 @@ rmqtt_message_storage::register(&scx, true, false).await?;
 | `storage.ram.cache_capacity` | string | `"3G"` | 内存缓存容量 |
 | `storage.ram.cache_max_count` | integer | `1_000_000` | 最大缓存条目数 |
 | `storage.ram.encode` | boolean | `true` | 启用消息编码 |
+| `storage.ram.workers` | integer | `1000` | 任务执行队列的工作线程数 |
+| `storage.ram.queue_max` | integer | `300000` | 任务队列最大积压量（背压保护） |
 
 ### Redis 后端
 

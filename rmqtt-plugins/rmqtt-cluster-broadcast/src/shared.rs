@@ -12,12 +12,11 @@ use rust_box::task_exec_queue::{SpawnExt, TaskExecQueue};
 
 use rmqtt::context::ServerContext;
 use rmqtt::net::MqttError;
-use rmqtt::shared::{DefaultShared, Shared};
+use rmqtt::shared::{DefaultShared, Entry, MessageLoadCallback, Shared};
 use rmqtt::types::{HealthInfo, MsgID, NodeHealthStatus};
 use rmqtt::{
     grpc::{GrpcClient, GrpcClients, Message, MessageBroadcaster, MessageReply, MessageSender, MessageType},
     session::Session,
-    shared::Entry,
     types::{
         ClientId, ForwardedCount, ForwardedRecipients, From, Id, IsAdmin, IsOnline, NodeId, NodeName,
         OfflineSession, Publish, Reason, SessionStatus, SharedGroup, SharedGroupType, SubRelations,
@@ -793,6 +792,55 @@ impl Shared for ClusterShared {
             Ok(msgs)
         } else {
             message_mgr.get(client_id, topic_filter, group).await
+        }
+    }
+
+    #[inline]
+    async fn message_load_with(
+        &self,
+        client_id: &str,
+        topic_filter: &str,
+        group: Option<&SharedGroup>,
+        cb: Arc<dyn MessageLoadCallback>,
+    ) -> Result<()> {
+        let message_mgr = self.scx.extends.message_mgr().await;
+        if message_mgr.merge_on_read() {
+            let msgs = message_mgr.get(client_id, topic_filter, group).await?;
+            cb.on_messages(msgs).await?;
+
+            if !self.grpc_clients.is_empty() {
+                let cb2 = cb.clone();
+                MessageBroadcaster::new(
+                    self.grpc_clients.clone(),
+                    self.message_type,
+                    Message::MessageGet(
+                        ClientId::from(client_id),
+                        TopicFilter::from(topic_filter),
+                        group.cloned(),
+                    ),
+                    Some(self.rw_timeout),
+                )
+                .join_all_with_async(move |reply| {
+                    let msgs = match reply {
+                        Ok(MessageReply::MessageGet(msgs)) => msgs,
+                        Ok(other) => {
+                            log::error!("unexpected reply: {other:?}");
+                            vec![]
+                        }
+                        Err(e) => {
+                            log::warn!("Message::MessageGet failed, {e:?}");
+                            vec![]
+                        }
+                    };
+                    let cb2 = cb2.clone();
+                    async move { cb2.on_messages(msgs).await }
+                })
+                .await;
+            }
+            Ok(())
+        } else {
+            let msgs = message_mgr.get(client_id, topic_filter, group).await?;
+            cb.on_messages(msgs).await
         }
     }
 

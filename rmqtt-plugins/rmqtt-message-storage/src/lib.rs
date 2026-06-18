@@ -183,9 +183,8 @@ impl MessageMgr {
                 let topic_values = mgr.topic_tree.read().await.values_size();
                 let forwardeds = mgr.forwardeds_count().await;
                 let expiries = mgr.expiries.read().await.len();
-                let exec_active_count = mgr.exec.active_count();
-                let exec_waiting_count = mgr.exec.waiting_count();
                 let messages_bytes_size = mgr.messages_bytes_size_get();
+                let msg_queue_count = mgr.msg_queue_count_get();
                 serde_json::json!({
                     "storage_engine": "Ram",
                     "message": {
@@ -196,9 +195,8 @@ impl MessageMgr {
                         "forwardeds": forwardeds,
                         "expiries": expiries,
                         "bytes_size": messages_bytes_size,
+                        "msg_queue_count": msg_queue_count,
                     },
-                    "exec_active_count": exec_active_count,
-                    "exec_waiting_count": exec_waiting_count,
                 })
             }
             #[cfg(any(feature = "redis", feature = "redis-cluster"))]
