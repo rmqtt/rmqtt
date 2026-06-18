@@ -31,6 +31,10 @@ storage.ram.cache_capacity = "3G"
 storage.ram.cache_max_count = 1_000_000
 storage.ram.encode = true
 
+##Maximum pending messages in the in-memory channel (back-pressure limit).
+##默认值: 300000
+#storage.ram.queue_max = 300_000
+
 ##redis
 storage.redis.url = "redis://127.0.0.1:6379/"
 storage.redis.prefix = "message-{node}"

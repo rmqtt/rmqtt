@@ -139,6 +139,21 @@ pub trait Entry: Sync + Send {
 /// subscription tracking, and publish message forwarding across
 /// cluster nodes. Implementations manage client state storage,
 /// gRPC-based inter-node communication, and message delivery.
+///
+/// Async callback trait for processing messages loaded by `message_load_with`.
+///
+/// Implementations receive batches of loaded messages and can use `await`
+/// internally — unlike the sync `Arc<dyn Fn(...)>` approach.
+#[cfg(feature = "msgstore")]
+#[async_trait]
+pub trait MessageLoadCallback: Send + Sync + 'static {
+    /// Called for each batch of loaded messages.
+    ///
+    /// # Arguments
+    /// * `msgs` - A batch of messages from local storage or a remote peer.
+    async fn on_messages(&self, msgs: Vec<(MsgID, From, Publish)>) -> Result<()>;
+}
+
 #[async_trait]
 pub trait Shared: Sync + Send {
     /// Retrieve the session entry associated with the given client [`Id`].
@@ -251,6 +266,18 @@ pub trait Shared: Sync + Send {
         topic_filter: &str,
         group: Option<&SharedGroup>,
     ) -> Result<Vec<(MsgID, From, Publish)>>;
+
+    #[cfg(feature = "msgstore")]
+    async fn message_load_with(
+        &self,
+        client_id: &str,
+        topic_filter: &str,
+        group: Option<&SharedGroup>,
+        cb: Arc<dyn MessageLoadCallback>,
+    ) -> Result<()> {
+        let msgs = self.message_load(client_id, topic_filter, group).await?;
+        cb.on_messages(msgs).await
+    }
 
     /// Mark a message as successfully forwarded to the given subscribers.
     /// Delegates to [`MessageManager::mark_forwarded`] so that forwarding
@@ -974,6 +1001,20 @@ impl Shared for DefaultShared {
         let scx = self.context();
         let message_mgr = scx.extends.message_mgr().await;
         message_mgr.get(client_id, topic_filter, group).await
+    }
+
+    #[cfg(feature = "msgstore")]
+    async fn message_load_with(
+        &self,
+        client_id: &str,
+        topic_filter: &str,
+        group: Option<&SharedGroup>,
+        cb: Arc<dyn MessageLoadCallback>,
+    ) -> Result<()> {
+        let scx = self.context();
+        let message_mgr = scx.extends.message_mgr().await;
+        let msgs = message_mgr.get(client_id, topic_filter, group).await?;
+        cb.on_messages(msgs).await
     }
 
     #[inline]

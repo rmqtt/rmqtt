@@ -18,7 +18,6 @@ use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt};
 use futures_time::{self, future::FutureExt};
 use get_size2::GetSize;
-use rust_box::task_exec_queue::{Builder, TaskExecQueue};
 use tokio::{sync::RwLock, time::sleep};
 
 use rmqtt::{
@@ -53,7 +52,6 @@ enum Msg {
 #[derive(Clone)]
 pub struct RamMessageManager {
     inner: Arc<RamMessageManagerInner>,
-    pub(crate) exec: TaskExecQueue,
 }
 
 impl RamMessageManager {
@@ -63,13 +61,7 @@ impl RamMessageManager {
         cleanup_count: usize,
         timeout: Duration,
     ) -> Result<RamMessageManager> {
-        let (exec, task_runner) = Builder::default().workers(1000).queue_max(300_000).build();
-
-        tokio::spawn(async move {
-            task_runner.await;
-        });
-
-        let (msg_tx, msg_rx) = mpsc::channel::<Msg>(300_000);
+        let (msg_tx, msg_rx) = mpsc::channel::<Msg>(cfg.queue_max);
         let msg_queue_count = Arc::new(AtomicIsize::new(0));
 
         let this = Self {
@@ -86,7 +78,6 @@ impl RamMessageManager {
                 msg_queue_count,
                 timeout,
             }),
-            exec,
         };
 
         Ok(this.serve(cleanup_count, msg_rx))
@@ -191,6 +182,11 @@ impl RamMessageManager {
     }
 
     #[inline]
+    pub(crate) fn msg_queue_count_get(&self) -> isize {
+        self.msg_queue_count.load(Ordering::SeqCst)
+    }
+
+    #[inline]
     async fn remove_expired_messages(&self, max_limit: usize) -> Result<usize> {
         let now = timestamp_millis();
         let inner = self.inner.as_ref();
@@ -277,6 +273,7 @@ impl RamMessageManager {
         }
     }
 
+    #[allow(dead_code)]
     #[inline]
     fn messages_get(&self, msg_id: &MsgID) -> Result<Option<StoredMessage>> {
         if self.cfg.encode {
@@ -286,6 +283,21 @@ impl RamMessageManager {
                 Ok(None)
             }
         } else if let Some(msg) = self.messages.get(msg_id) {
+            Ok(Some(msg.get().0.clone()))
+        } else {
+            Ok(None)
+        }
+    }
+
+    #[inline]
+    async fn messages_get_async(&self, msg_id: &MsgID) -> Result<Option<StoredMessage>> {
+        if self.cfg.encode {
+            if let Some(msg) = self.messages_encode.get_async(msg_id).await {
+                Ok(Some(StoredMessage::decode(&msg.get().0).map_err(|e| anyhow!(e))?))
+            } else {
+                Ok(None)
+            }
+        } else if let Some(msg) = self.messages.get_async(msg_id).await {
             Ok(Some(msg.get().0.clone()))
         } else {
             Ok(None)
@@ -370,6 +382,7 @@ impl RamMessageManager {
             topic.push(Level::SingleWildcard);
         }
 
+        let now = std::time::Instant::now();
         let msg_ids = {
             inner
                 .topic_tree
@@ -380,42 +393,63 @@ impl RamMessageManager {
                 .map(|(_, msg_id)| *msg_id)
                 .collect::<Vec<_>>()
         };
+        let elaps = now.elapsed();
+        if elaps.as_millis() > 100 {
+            log::warn!(
+                "slow matches operation, client_id: {}, topic_filter: {}, group: {:?}, elapsed: {:?}",
+                client_id,
+                topic_filter,
+                group,
+                elaps
+            );
+        }
 
-        let matcheds = msg_ids
-            .into_iter()
-            .filter_map(|msg_id| {
-                if let Ok(Some(msg)) = self.messages_get(&msg_id) {
-                    // Use get() instead of entry().or_default() to avoid
-                    // creating an empty BTreeMap orphan in forwardeds.
-                    let is_forwarded = self.inner.forwardeds.get(&msg_id).is_some_and(|cids| {
-                        if cids.contains_key(client_id) {
-                            true
-                        } else if let Some(group) = group {
-                            //Check if subscription is shared
-                            cids.iter().any(|(_, tf_g)| {
-                                tf_g.as_ref().is_some_and(|(tf, g)| g == group && tf == topic_filter)
-                            })
-                        } else {
-                            false
-                        }
-                    });
+        let count = msg_ids.len();
+        let mut matcheds = Vec::with_capacity(count);
 
-                    log::debug!("is_forwarded: {is_forwarded}");
-                    if is_forwarded
-                        || msg.is_expiry()
-                        || msg.publish.target_clientid.as_ref().is_some_and(|t_cid| t_cid != client_id)
-                    {
-                        None
+        for (i, msg_id) in msg_ids.into_iter().enumerate() {
+            if (i & 1023) == 1023 {
+                tokio::task::yield_now().await;
+            }
+            let now = std::time::Instant::now();
+            if let Ok(Some(msg)) = self.messages_get_async(&msg_id).await {
+                // Use get() instead of entry().or_default() to avoid
+                // creating an empty BTreeMap orphan in forwardeds.
+                let is_forwarded = self.inner.forwardeds.get_async(&msg_id).await.is_some_and(|cids| {
+                    if cids.contains_key(client_id) {
+                        true
+                    } else if let Some(group) = group {
+                        //Check if subscription is shared
+                        cids.iter().any(|(_, tf_g)| {
+                            tf_g.as_ref().is_some_and(|(tf, g)| g == group && tf == topic_filter)
+                        })
                     } else {
-                        // Record is deferred to the caller after
-                        // confirming successful delivery.
-                        Some((msg_id, msg.from, msg.publish))
+                        false
                     }
-                } else {
-                    None
+                });
+
+                log::debug!("is_forwarded: {is_forwarded}, is_expiry: {}", msg.is_expiry());
+                if is_forwarded
+                    || msg.is_expiry()
+                    || msg.publish.target_clientid.as_ref().is_some_and(|t_cid| t_cid != client_id)
+                {
+                    continue;
                 }
-            })
-            .collect::<Vec<_>>();
+                // Record is deferred to the caller after
+                // confirming successful delivery.
+                matcheds.push((msg_id, msg.from, msg.publish));
+            }
+            let elaps = now.elapsed();
+            if elaps.as_millis() > 100 {
+                log::warn!(
+                "slow messages_get_async operation, client_id: {}, topic_filter: {}, group: {:?}, elapsed: {:?}",
+                client_id,
+                topic_filter,
+                group,
+                elaps
+            );
+            }
+        }
         Ok(matcheds)
     }
 
@@ -437,9 +471,9 @@ impl RamMessageManager {
             inner.forwardeds.len(),
             self.messages_bytes_size_get(),
             inner.id_gen.load(Ordering::Relaxed),
-            self.exec.waiting_count(),
-            self.exec.active_count(),
-            self.exec.rate().await
+            0,
+            0,
+            0,
         )
     }
 
@@ -511,7 +545,19 @@ impl MessageManager for RamMessageManager {
         topic_filter: &str,
         group: Option<&SharedGroup>,
     ) -> Result<Vec<(MsgID, From, Publish)>> {
-        self._get(client_id, topic_filter, group).await
+        let now = std::time::Instant::now();
+        let res = self._get(client_id, topic_filter, group).await;
+        let elaps = now.elapsed();
+        if elaps.as_secs() > 1 {
+            log::warn!(
+                "slow message fetch operation, client_id: {}, topic_filter: {}, group: {:?}, elapsed: {:?}",
+                client_id,
+                topic_filter,
+                group,
+                elaps
+            );
+        }
+        res
     }
 
     #[inline]
@@ -529,7 +575,10 @@ impl MessageManager for RamMessageManager {
             Ok(send_fut.await)
         };
         match res {
-            Ok(Ok(())) => Ok(()),
+            Ok(Ok(())) => {
+                self.msg_queue_count.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }
             Ok(Err(e)) => {
                 log::warn!("RamMessageManager mark_forwarded error, {e:?}");
                 Err(anyhow!(e))
@@ -557,7 +606,7 @@ impl MessageManager for RamMessageManager {
 
     #[inline]
     async fn max(&self) -> isize {
-        self.exec.completed_count().await
+        self.messages_count() as isize
     }
 
     #[inline]

@@ -27,7 +27,7 @@ use rmqtt::{
     grpc::{GrpcClient, GrpcClients, Message, MessageBroadcaster, MessageReply, MessageSender, MessageType},
     router::Router,
     session::Session,
-    shared::{DefaultShared, Entry, Shared},
+    shared::{DefaultShared, Entry, MessageLoadCallback, Shared},
     types::{
         ForwardedCount, ForwardedRecipients, From, Id, IsAdmin, NodeId, NodeName, OfflineSession, Publish,
         Reason, SessionStatus, SubRelations, SubRelationsMap, SubsSearchParams, SubsSearchResult, Subscribe,
@@ -666,6 +666,11 @@ impl Shared for ClusterShared {
     ) -> Result<Vec<(MsgID, From, Publish)>> {
         let message_mgr = self.scx.extends.message_mgr().await;
         if message_mgr.merge_on_read() {
+            log::debug!(
+                "message_load start, client_id: {client_id}, grpc_clients: {}, rw_timeout: {:?}",
+                self.grpc_clients.len(),
+                self.rw_timeout
+            );
             let mut msgs = message_mgr.get(client_id, topic_filter, group).await?;
             if !self.grpc_clients.is_empty() {
                 let grpc_clients = self.grpc_clients.clone();
@@ -681,23 +686,27 @@ impl Shared for ClusterShared {
                         Message::MessageGet(client_id, topic_filter, group),
                         Some(rw_timeout),
                     )
-                    .join_all()
+                    .join_all_with(|r| r)
                     .await
                 }
                 .spawn(&self.exec)
                 .result()
                 .await
                 .map_err(|_| anyhow!("ClusterShared::message_load task execution failure"))?;
-                for (_, reply) in replys {
-                    let reply = reply?;
+
+                for (node_id, reply) in replys {
                     match reply {
-                        MessageReply::Error(e) => return Err(anyhow!(e)),
-                        MessageReply::MessageGet(res) => {
+                        Err(e) => {
+                            log::warn!("Message::MessageGet failed, node_id: {node_id}, {e:?}")
+                        }
+                        Ok(MessageReply::Error(e)) => {
+                            log::warn!("Message::MessageGet failed, node_id: {node_id}, {e:?}")
+                        }
+                        Ok(MessageReply::MessageGet(res)) => {
                             msgs.extend(res);
                         }
                         _ => {
-                            log::error!("unreachable!(), reply: {reply:?}");
-                            return Err(anyhow!("unreachable!()"));
+                            log::error!("unreachable!(), node_id: {node_id}, reply: {reply:?}");
                         }
                     }
                 }
@@ -705,6 +714,74 @@ impl Shared for ClusterShared {
             Ok(msgs)
         } else {
             message_mgr.get(client_id, topic_filter, group).await
+        }
+    }
+
+    #[inline]
+    async fn message_load_with(
+        &self,
+        client_id: &str,
+        topic_filter: &str,
+        group: Option<&SharedGroup>,
+        cb: Arc<dyn MessageLoadCallback>,
+    ) -> Result<()> {
+        let message_mgr = self.scx.extends.message_mgr().await;
+        if message_mgr.merge_on_read() {
+            log::debug!(
+                "message_load_with start, client_id: {client_id}, grpc_clients: {}, rw_timeout: {:?}",
+                self.grpc_clients.len(),
+                self.rw_timeout
+            );
+            let msgs = message_mgr.get(client_id, topic_filter, group).await?;
+            cb.on_messages(msgs).await?;
+
+            if !self.grpc_clients.is_empty() {
+                let grpc_clients = self.grpc_clients.clone();
+                let message_type = self.message_type;
+                let rw_timeout = self.rw_timeout;
+                let client_id = ClientId::from(client_id);
+                let topic_filter = TopicFilter::from(topic_filter);
+                let group = group.cloned();
+                let cb2 = cb.clone();
+                let replys: Vec<(NodeId, Result<()>)> = async move {
+                    MessageBroadcaster::new(
+                        grpc_clients,
+                        message_type,
+                        Message::MessageGet(client_id, topic_filter, group),
+                        Some(rw_timeout),
+                    )
+                    .join_all_with_async(move |reply| {
+                        let msgs = match reply {
+                            Ok(MessageReply::MessageGet(msgs)) => msgs,
+                            Ok(other) => {
+                                log::error!("unexpected reply: {other:?}");
+                                vec![]
+                            }
+                            Err(e) => {
+                                log::warn!("Message::MessageGet failed, {e:?}");
+                                vec![]
+                            }
+                        };
+                        let cb2 = cb2.clone();
+                        async move { cb2.on_messages(msgs).await }
+                    })
+                    .await
+                }
+                .spawn(&self.exec)
+                .result()
+                .await
+                .map_err(|_| anyhow!("ClusterShared::message_load_with task execution failure"))?;
+
+                for (node_id, result) in replys {
+                    if let Err(e) = result {
+                        log::warn!("Message::MessageGet failed, node_id: {node_id}, {e:?}")
+                    }
+                }
+            }
+            Ok(())
+        } else {
+            let msgs = message_mgr.get(client_id, topic_filter, group).await?;
+            cb.on_messages(msgs).await
         }
     }
 

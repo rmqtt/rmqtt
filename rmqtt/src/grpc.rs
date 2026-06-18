@@ -49,10 +49,13 @@
 //!
 //! Note: All message types below 1000 are reserved for internal use.
 //!
+use std::future::Future;
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures::stream::FuturesUnordered;
 use futures::FutureExt;
 use futures::StreamExt;
 use rust_box::handy_grpc::client::Mailbox;
@@ -73,6 +76,9 @@ use crate::types::{
 };
 use crate::utils::Counter;
 use crate::Result;
+
+/// Internal type alias for async join_all_with handler futures.
+type JoinAllWithAsyncFut<R> = FuturesUnordered<Pin<Box<dyn Future<Output = (NodeId, Result<R>)> + Send>>>;
 
 /// gRPC server for inter-node cluster communication.
 ///
@@ -407,6 +413,67 @@ impl MessageBroadcaster {
             senders.push(fut.boxed());
         }
         futures::future::join_all(senders).await
+    }
+
+    #[inline]
+    pub async fn join_all_with<R, F>(self, handler: F) -> Vec<(NodeId, Result<R>)>
+    where
+        R: Send + Sync + 'static,
+        F: Fn(Result<MessageReply>) -> Result<R> + Send + Sync,
+    {
+        let msg = self.msg;
+        let msg_type = self.msg_type;
+        let timeout = self.timeout;
+
+        let mut futures = FuturesUnordered::new();
+        for (id, (_, grpc_client)) in self.grpc_clients.iter() {
+            let mut client = grpc_client.clone();
+            let msg = msg.clone();
+            futures.push(async move { (*id, client.send_message(msg_type, msg, timeout).await) });
+        }
+
+        let mut results = Vec::new();
+
+        while let Some((id, reply)) = futures.next().await {
+            let r = handler(reply);
+            results.push((id, r));
+        }
+
+        results
+    }
+
+    /// Join all peers with an **async** handler that processes each reply as it arrives.
+    ///
+    /// Unlike `join_all_with`, the handler returns a `Future` so callers can `.await`
+    /// inside the handler — useful for feeding messages into an async callback.
+    #[inline]
+    pub async fn join_all_with_async<R, Fut, F>(self, handler: F) -> Vec<(NodeId, Result<R>)>
+    where
+        R: Send + Sync + 'static,
+        Fut: Future<Output = Result<R>> + Send + 'static,
+        F: Fn(Result<MessageReply>) -> Fut + Send + Sync + 'static,
+    {
+        let msg = self.msg;
+        let msg_type = self.msg_type;
+        let timeout = self.timeout;
+
+        let handler = Arc::new(handler);
+        let mut futures: JoinAllWithAsyncFut<R> = JoinAllWithAsyncFut::new();
+        for (&id, (_, grpc_client)) in self.grpc_clients.iter() {
+            let mut client = grpc_client.clone();
+            let msg = msg.clone();
+            let handler = Arc::clone(&handler);
+            futures.push(Box::pin(async move {
+                let reply = client.send_message(msg_type, msg, timeout).await;
+                (id, handler(reply).await)
+            }));
+        }
+
+        let mut results = Vec::with_capacity(futures.len());
+        while let Some(result) = futures.next().await {
+            results.push(result);
+        }
+        results
     }
 
     #[inline]
