@@ -8,7 +8,9 @@ use serde::{
     Deserialize, Serialize,
 };
 
-use rmqtt::utils::Bytesize;
+use std::time::Duration;
+
+use rmqtt::utils::{deserialize_duration, Bytesize};
 
 /// Top-level configuration for the message storage plugin.
 #[derive(Debug, Clone, Deserialize)]
@@ -20,6 +22,9 @@ pub struct PluginConfig {
     pub storage: Option<Config>,
     #[serde(default = "PluginConfig::cleanup_count_default")]
     pub cleanup_count: usize,
+    /// Timeout for storage I/O operations. 0 = no timeout. Examples: "5s", "500ms".
+    #[serde(default = "PluginConfig::timeout_default", deserialize_with = "deserialize_duration")]
+    pub timeout: Duration,
 }
 
 impl PluginConfig {
@@ -32,6 +37,10 @@ impl PluginConfig {
 
     fn cleanup_count_default() -> usize {
         2000
+    }
+
+    fn timeout_default() -> Duration {
+        Duration::from_millis(5000)
     }
 
     #[inline]
@@ -103,6 +112,7 @@ impl PluginConfig {
         serde_json::json!({
             "storage": storage,
             "cleanup_count": self.cleanup_count,
+            "timeout": format!("{:?}", self.timeout),
         })
     }
 }

@@ -55,6 +55,7 @@ rmqtt_message_storage::register(&scx, true, false).await?;
 | 选项 | 类型 | 默认值 | 描述 |
 |------|------|--------|------|
 | `cleanup_count` | integer | `5000` | 每轮清理的过期消息数量 |
+| `timeout` | string | `"5s"` | 存储 I/O 操作超时。`"0s"` = 不超时 |
 
 ## 依赖
 

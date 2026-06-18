@@ -72,7 +72,7 @@ pub trait MessageManager: Sync + Send {
     /// * `from` - Origin information identifying the publishing source.
     /// * `p` - The MQTT publish packet content.
     /// * `expiry_interval` - Duration after which the message expires.
-    /// * `subscribers` - Optional set of subscribers that have already received this message.
+    /// * `recipients` - Optional set of recipients that have already received this message.
     #[inline]
     async fn store(
         &self,
@@ -80,7 +80,7 @@ pub trait MessageManager: Sync + Send {
         _from: From,
         _p: Publish,
         _expiry_interval: Duration,
-        _subscribers: Option<ForwardedRecipients>,
+        _recipients: Option<ForwardedRecipients>,
     ) -> Result<()> {
         Ok(())
     }
@@ -103,16 +103,16 @@ pub trait MessageManager: Sync + Send {
 
     /// Mark a stored message as already forwarded to specific clients.
     ///
-    /// Records which subscribers have received this message so they will
+    /// Records which recipients have received this message so they will
     /// not receive it again via `get()`. Typically called after a shared
     /// subscription forwards the message to its chosen member.
     ///
     /// # Arguments
     /// * `msg_id` - The unique identifier of the stored message.
-    /// * `subscribers` - Subscribers that have received this message,
+    /// * `recipients` - Recipients that have received this message,
     ///   with optional shared group subscription info.
     #[inline]
-    async fn mark_forwarded(&self, _msg_id: MsgID, _subscribers: ForwardedRecipients) -> Result<()> {
+    async fn mark_forwarded(&self, _msg_id: MsgID, _recipients: ForwardedRecipients) -> Result<()> {
         Ok(())
     }
 

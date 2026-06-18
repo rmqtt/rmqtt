@@ -55,11 +55,11 @@ enum Msg {
         publish: Publish,
         expiry_interval: Duration,
         msg_id: MsgID,
-        forwardeds: Option<ForwardedRecipients>,
+        recipients: Option<ForwardedRecipients>,
     },
     MarkForwarded {
         msg_id: MsgID,
-        forwardeds: ForwardedRecipients,
+        recipients: ForwardedRecipients,
     },
 }
 
@@ -75,6 +75,8 @@ pub struct StorageMessageManager {
     pub(crate) exec: TaskExecQueue,
     /// One sender per worker.  Index = `msg_id % WORKER_COUNT`.
     worker_txs: Arc<Vec<mpsc::Sender<Msg>>>,
+    /// Timeout for storage I/O operations. 0 = no timeout. Examples: "5s", "500ms".
+    timeout: Duration,
 }
 
 impl StorageMessageManager {
@@ -105,6 +107,7 @@ impl StorageMessageManager {
         });
 
         let msg_queue_count = Arc::new(AtomicIsize::new(0));
+        let timeout = cfg.timeout;
 
         // Build the shared inner state first, so workers can clone it.
         let inner = Arc::new(StorageMessageManagerInner {
@@ -114,6 +117,7 @@ impl StorageMessageManager {
             messages_received_max,
             msg_queue_count: msg_queue_count.clone(),
             id_generater,
+            timeout,
         });
 
         // Spawn N worker tasks — one per routing bucket.
@@ -193,7 +197,7 @@ impl StorageMessageManager {
             }
         });
 
-        Ok(Self { inner, exec, worker_txs: Arc::new(worker_txs) })
+        Ok(Self { inner, exec, worker_txs: Arc::new(worker_txs), timeout })
     }
 
     /// Route a message to the worker responsible for its `msg_id`.
@@ -206,7 +210,15 @@ impl StorageMessageManager {
         let idx = msg_id & (WORKER_COUNT - 1); // power-of-two fast modulo
         let mut tx = self.worker_txs[idx].clone();
         let fut = tx.send(msg);
-        match fut.timeout(futures_time::time::Duration::from_millis(3500)).await {
+        let timeout = self.timeout;
+        let res = if timeout > Duration::ZERO {
+            fut.timeout(futures_time::time::Duration::from(timeout))
+                .await
+                .map_err(|e| anyhow::anyhow!("route_msg timeout (worker {}): {:?}", idx, e))
+        } else {
+            Ok(fut.await)
+        };
+        match res {
             Ok(Ok(())) => {
                 // Count every message that successfully enters the channel.
                 // The worker will fetch_sub(1) for each message it processes,
@@ -220,7 +232,7 @@ impl StorageMessageManager {
             }
             Err(e) => {
                 log::warn!("route_msg: send timeout (worker {}): {:?}", idx, e);
-                Err(anyhow::anyhow!(e))
+                Err(e)
             }
         }
     }
@@ -244,6 +256,9 @@ pub struct StorageMessageManagerInner {
     pub(crate) msg_queue_count: Arc<AtomicIsize>,
 
     id_generater: AtomicUsize,
+
+    /// Timeout for storage I/O operations. 0 = no timeout. Examples: "5s", "500ms".
+    timeout: Duration,
 }
 
 impl StorageMessageManagerInner {
@@ -347,15 +362,19 @@ impl StorageMessageManagerInner {
     /// same `msg_id` land on the same worker, sequential processing
     /// eliminates the race condition that caused the "not found in storage" warning.
     async fn _process_single(&self, msg: Msg) -> Result<()> {
+        let timeout = self.timeout;
         match msg {
-            Msg::Store { from, publish, expiry_interval, msg_id, forwardeds } => {
+            Msg::Store { from, publish, expiry_interval, msg_id, recipients } => {
                 // Persist the msg_id counter so a restart can resume without reuse.
-                if let Err(e) = self
-                    .storage_save_msg_id()
-                    .timeout(futures_time::time::Duration::from_millis(5000))
-                    .await
-                    .map_err(|_e| anyhow!("storage_save_msg_id timeout"))?
-                {
+                let result = if timeout > Duration::ZERO {
+                    self.storage_save_msg_id()
+                        .timeout(futures_time::time::Duration::from(timeout))
+                        .await
+                        .map_err(|_e| anyhow!("storage_save_msg_id timeout"))?
+                } else {
+                    self.storage_save_msg_id().await
+                };
+                if let Err(e) = result {
                     log::warn!("save message id error, {e:?}");
                     return Ok(());
                 }
@@ -373,31 +392,41 @@ impl StorageMessageManagerInner {
 
                 // received messages
                 let msg_key = msg_id.to_be_bytes();
-                let msg_map = match self
-                    .storage_db
-                    .map(msg_key, Some(expiry_interval.as_millis() as TimestampMillis))
-                    .timeout(futures_time::time::Duration::from_millis(5000))
-                    .await
-                    .map_err(|_e| anyhow!("storage_db.map timeout"))?
-                {
-                    Ok(map) => map,
-                    Err(e) => {
-                        log::warn!("store to db error, map_expire(..), {e:?}, message: {smsg:?}");
-                        return Ok(());
+                let msg_map = {
+                    let map_fut =
+                        self.storage_db.map(msg_key, Some(expiry_interval.as_millis() as TimestampMillis));
+                    let map_result = if timeout > Duration::ZERO {
+                        map_fut
+                            .timeout(futures_time::time::Duration::from(timeout))
+                            .await
+                            .map_err(|_e| anyhow!("storage_db.map timeout"))?
+                    } else {
+                        map_fut.await
+                    };
+                    match map_result {
+                        Ok(map) => map,
+                        Err(e) => {
+                            log::warn!("store to db error, map_expire(..), {e:?}, message: {smsg:?}");
+                            return Ok(());
+                        }
                     }
                 };
-                if let Err(e) = msg_map
-                    .insert(DATA, &smsg)
-                    .timeout(futures_time::time::Duration::from_millis(5000))
-                    .await
-                    .map_err(|_e| anyhow!("map.insert timeout"))?
-                {
+                let insert_result = if timeout > Duration::ZERO {
+                    msg_map
+                        .insert(DATA, &smsg)
+                        .timeout(futures_time::time::Duration::from(timeout))
+                        .await
+                        .map_err(|_e| anyhow!("map.insert timeout"))?
+                } else {
+                    msg_map.insert(DATA, &smsg).await
+                };
+                if let Err(e) = insert_result {
                     log::warn!("store to db error, {e:?}, message: {smsg:?}");
                     return Ok(());
                 }
 
-                if let Some(forwardeds) = forwardeds {
-                    self._forwardeds(&msg_map, forwardeds).await?;
+                if let Some(recipients) = recipients {
+                    self._forwardeds(&msg_map, recipients).await?;
                 }
 
                 // topic
@@ -406,46 +435,58 @@ impl StorageMessageManagerInner {
                 self.topic_list.write().await.insert((expiry_time_at, topic));
 
                 self.messages_received_count_add(1);
-                if let Err(e) = self
-                    .storage_messages_counter_add(1)
-                    .timeout(futures_time::time::Duration::from_millis(5000))
-                    .await
-                    .map_err(|_e| anyhow!("storage_messages_counter_add timeout"))?
-                {
+                let counter_result = if timeout > Duration::ZERO {
+                    self.storage_messages_counter_add(1)
+                        .timeout(futures_time::time::Duration::from(timeout))
+                        .await
+                        .map_err(|_e| anyhow!("storage_messages_counter_add timeout"))?
+                } else {
+                    self.storage_messages_counter_add(1).await
+                };
+                if let Err(e) = counter_result {
                     log::warn!("messages_received_counter add error, {e:?}");
                 }
             }
-            Msg::MarkForwarded { msg_id, forwardeds } => {
+            Msg::MarkForwarded { msg_id, recipients } => {
                 let msg_key = msg_id.to_be_bytes();
-                let msg_map = match self
-                    .storage_db
-                    .map(msg_key, None)
-                    .timeout(futures_time::time::Duration::from_millis(5000))
-                    .await
-                    .map_err(|_e| anyhow!("add_forwardeds map timeout"))?
-                {
-                    Ok(map) => map,
-                    Err(e) => {
-                        log::warn!("add_forwardeds map error, {e:?}");
-                        return Ok(());
+                let msg_map = {
+                    let map_fut = self.storage_db.map(msg_key, None);
+                    let map_result = if timeout > Duration::ZERO {
+                        map_fut
+                            .timeout(futures_time::time::Duration::from(timeout))
+                            .await
+                            .map_err(|_e| anyhow!("add_forwardeds map timeout"))?
+                    } else {
+                        map_fut.await
+                    };
+                    match map_result {
+                        Ok(map) => map,
+                        Err(e) => {
+                            log::warn!("add_forwardeds map error, {e:?}");
+                            return Ok(());
+                        }
                     }
                 };
-                match msg_map
-                    .contains_key(DATA)
-                    .timeout(futures_time::time::Duration::from_millis(5000))
-                    .await
-                    .map_err(|_e| anyhow!("add_forwardeds contains_key timeout"))?
-                {
+                let contains_result = if timeout > Duration::ZERO {
+                    msg_map
+                        .contains_key(DATA)
+                        .timeout(futures_time::time::Duration::from(timeout))
+                        .await
+                        .map_err(|_e| anyhow!("add_forwardeds contains_key timeout"))?
+                } else {
+                    msg_map.contains_key(DATA).await
+                };
+                match contains_result {
                     Ok(true) => {
-                        if let Err(e) = self._forwardeds(&msg_map, forwardeds).await {
+                        if let Err(e) = self._forwardeds(&msg_map, recipients).await {
                             log::warn!("add_forwardeds _forwardeds error, {e:?}");
                         }
                     }
                     Ok(false) => {
                         log::warn!(
-                            "add_forwardeds: msg_id {:?} not found in storage, forwardeds: {:?}",
+                            "add_forwardeds: msg_id {:?} not found in storage, recipients: {:?}",
                             msg_id,
-                            forwardeds
+                            recipients
                         );
                     }
                     Err(e) => {
@@ -459,13 +500,18 @@ impl StorageMessageManagerInner {
 
     #[inline]
     async fn _forwardeds(&self, msg_map: &StorageMap, forwardeds: ForwardedRecipients) -> Result<()> {
+        let timeout = self.timeout;
         for (client_id, opts) in forwardeds {
-            if let Err(e) = msg_map
-                .insert(Self::make_forwarded_key(&client_id), &opts)
-                .timeout(futures_time::time::Duration::from_millis(5000))
-                .await
-                .map_err(|_e| anyhow!("_forwardeds insert timeout"))?
-            {
+            let insert_result = if timeout > Duration::ZERO {
+                msg_map
+                    .insert(Self::make_forwarded_key(&client_id), &opts)
+                    .timeout(futures_time::time::Duration::from(timeout))
+                    .await
+                    .map_err(|_e| anyhow!("_forwardeds insert timeout"))?
+            } else {
+                msg_map.insert(Self::make_forwarded_key(&client_id), &opts).await
+            };
+            if let Err(e) = insert_result {
                 log::warn!(
                     "_forwardeds error, client_id: {:?}, msg_map name: {:?}, error: {:?}",
                     client_id,
@@ -582,25 +628,15 @@ impl MessageManager for StorageMessageManager {
     }
 
     #[inline]
-    async fn mark_forwarded(&self, msg_id: MsgID, subscribers: ForwardedRecipients) -> Result<()> {
-        // Route to the worker responsible for this msg_id.
-        // Because the worker processes messages sequentially (one batch at a time),
-        // the corresponding `Store` for the same `msg_id` is guaranteed
-        // to have been processed before this `MarkForwarded`.
-        let msg = Msg::MarkForwarded { msg_id, forwardeds: subscribers };
-        self.route_msg(msg).await
-    }
-
-    #[inline]
     async fn store(
         &self,
         msg_id: MsgID,
         from: From,
         p: Publish,
         expiry_interval: Duration,
-        subscribers: Option<ForwardedRecipients>,
+        recipients: Option<ForwardedRecipients>,
     ) -> Result<()> {
-        let msg = Msg::Store { from, publish: p, expiry_interval, msg_id, forwardeds: subscribers };
+        let msg = Msg::Store { from, publish: p, expiry_interval, msg_id, recipients };
         self.route_msg(msg).await
     }
 
@@ -616,11 +652,15 @@ impl MessageManager for StorageMessageManager {
         let client_id = ClientId::from(client_id);
         let topic_filter = TopicFilter::from(topic_filter);
         let group = group.cloned();
+        let timeout = self.timeout;
         let matcheds = async move { inner._get(&client_id, &topic_filter, group.as_ref()).await }
             .spawn(&self.exec)
-            .result()
-            .timeout(futures_time::time::Duration::from_millis(3000))
-            .await;
+            .result();
+        let matcheds = if timeout > Duration::ZERO {
+            matcheds.timeout(futures_time::time::Duration::from(timeout)).await
+        } else {
+            Ok(matcheds.await)
+        };
         let matcheds = match matcheds {
             Ok(Ok(Ok(res))) => res,
             Ok(Ok(Err(e))) => {
@@ -644,6 +684,16 @@ impl MessageManager for StorageMessageManager {
             );
         }
         Ok(matcheds)
+    }
+
+    #[inline]
+    async fn mark_forwarded(&self, msg_id: MsgID, recipients: ForwardedRecipients) -> Result<()> {
+        // Route to the worker responsible for this msg_id.
+        // Because the worker processes messages sequentially (one batch at a time),
+        // the corresponding `Store` for the same `msg_id` is guaranteed
+        // to have been processed before this `MarkForwarded`.
+        let msg = Msg::MarkForwarded { msg_id, recipients };
+        self.route_msg(msg).await
     }
 
     #[inline]

@@ -42,6 +42,9 @@ storage.redis-cluster.prefix = "message-{node}"
 
 ##Quantity of expired messages cleared during each cleanup cycle.
 cleanup_count = 5000
+
+##Timeout for storage I/O operations. 0 = no timeout.
+timeout = "5s"
 ```
 
 Currently, three storage engines are supported: "ram," "redis," and "redis-cluster." "ram" is stored in local memory and 
