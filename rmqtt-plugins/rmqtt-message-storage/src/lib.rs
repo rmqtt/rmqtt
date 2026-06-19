@@ -65,18 +65,12 @@ impl StoragePlugin {
         let result: Result<(MessageMgr, Arc<PluginConfig>)> = match cfg.storage.clone() {
             #[cfg(feature = "ram")]
             Some(config::Config::Ram(ram_cfg)) => {
-                if !ram_cfg.merge_on_read {
-                    log::warn!(
-                        "merge_on_read=false is not recommended when storage.type='ram', merge_on_read: {}",
-                        ram_cfg.merge_on_read
-                    );
-                }
                 let message_mgr =
                     RamMessageManager::new(ram_cfg.clone(), cfg.cleanup_count, cfg.timeout).await?;
                 Ok((MessageMgr::Ram(message_mgr), Arc::new(cfg)))
             }
             #[cfg(any(feature = "redis", feature = "redis-cluster"))]
-            Some(config::Config::Storage(mut s_cfg, _)) => {
+            Some(config::Config::Storage(mut s_cfg)) => {
                 let node_id = scx.node.id();
                 #[cfg(feature = "redis")]
                 {
@@ -93,8 +87,7 @@ impl StoragePlugin {
                 })?;
 
                 let cfg = Arc::new(cfg);
-                let message_mgr =
-                    StorageMessageManager::new(node_id, cfg.clone(), storage_db.clone()).await?;
+                let message_mgr = StorageMessageManager::new(cfg.clone(), storage_db.clone()).await?;
                 Ok((MessageMgr::Storage(message_mgr), cfg))
             }
             None => Err(anyhow!("No storage engine specified (ram, redis, or redis-cluster)")),
@@ -205,8 +198,6 @@ impl MessageMgr {
                 let msg_queue_count = mgr.msg_queue_count.load(std::sync::atomic::Ordering::Relaxed);
                 let topic_nodes = mgr.topic_tree.read().await.nodes_size();
                 let receiveds = mgr.topic_tree.read().await.values_size();
-                let exec_active_count = mgr.exec.active_count();
-                let exec_waiting_count = mgr.exec.waiting_count();
                 let storage_info = mgr.storage_info().await;
                 let cost_time = format!("{:?}", now.elapsed());
                 serde_json::json!({
@@ -217,8 +208,6 @@ impl MessageMgr {
                         "receiveds": receiveds,
                         "cost_time":cost_time,
                     },
-                    "exec_active_count": exec_active_count,
-                    "exec_waiting_count": exec_waiting_count,
                     "circuit_breaker": {
                         "enabled": mgr.circuit_breaker.config().enabled,
                         "state": format!("{:?}", mgr.circuit_breaker.state()),

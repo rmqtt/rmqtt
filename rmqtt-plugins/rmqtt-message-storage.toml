@@ -8,7 +8,7 @@ storage.type = "ram"
 ##ram
 storage.ram.cache_capacity = "3G"
 storage.ram.cache_max_count = 1_000_000
-storage.ram.encode = true
+storage.ram.encode = false
 
 ##Maximum pending messages in the in-memory channel (back-pressure limit).
 ##Beyond this, new store requests are rejected.

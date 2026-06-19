@@ -28,6 +28,8 @@ File: `rmqtt-cluster-broadcast.toml`
 | `node_grpc_batch_size` | integer | `128` | Maximum messages sent in batch |
 | `node_grpc_client_concurrency_limit` | integer | `128` | Client concurrent request limit |
 | `node_grpc_client_timeout` | string | `"60s"` | Connect and send timeout |
+| `task_exec_queue_workers` | integer | `500` | Task execution queue workers |
+| `task_exec_queue_max` | integer | `100_000` | Task execution queue max capacity |
 
 ## Dependencies
 

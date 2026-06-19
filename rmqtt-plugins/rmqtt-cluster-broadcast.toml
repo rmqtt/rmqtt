@@ -15,4 +15,10 @@ node_grpc_client_concurrency_limit = 128
 ##Connect and send to server timeout
 node_grpc_client_timeout = "15s"
 
+##Task execution queue workers
+task_exec_queue_workers = 500
+
+##Task execution queue max capacity
+task_exec_queue_max = 100_000
+
 
