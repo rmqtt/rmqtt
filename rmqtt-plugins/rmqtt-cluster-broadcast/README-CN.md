@@ -28,6 +28,8 @@ rmqtt_cluster_broadcast::register(&scx, true, false).await?;
 | `node_grpc_batch_size` | integer | `128` | 批量发送的最大消息数 |
 | `node_grpc_client_concurrency_limit` | integer | `128` | 客户端并发请求限制 |
 | `node_grpc_client_timeout` | string | `"60s"` | 连接和发送超时 |
+| `task_exec_queue_workers` | integer | `500` | 任务执行队列工作线程数 |
+| `task_exec_queue_max` | integer | `100_000` | 任务执行队列最大容量 |
 
 ## 依赖
 

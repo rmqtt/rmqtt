@@ -33,9 +33,8 @@ File: `rmqtt-message-storage.toml`
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `storage.ram.cache_capacity` | string | `"3G"` | In-memory cache capacity |
-| `storage.ram.cache_max_count` | integer | `1_000_000` | Maximum cache entry count |
-| `storage.ram.encode` | boolean | `true` | Enable message encoding |
-| `storage.ram.workers` | integer | `1000` | Task execution queue worker threads |
+| `storage.ram.cache_max_count` | integer | `1_000_000` | Maximum cache entry count (unlimited) |
+| `storage.ram.encode` | boolean | `false` | Enable message encoding |
 | `storage.ram.queue_max` | integer | `300000` | Maximum task queue backlog (back-pressure limit) |
 
 ### Redis Backend

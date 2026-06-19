@@ -59,7 +59,7 @@ impl PluginConfig {
     }
 
     fn cleanup_count_default() -> usize {
-        2000
+        5000
     }
 
     fn timeout_default() -> Duration {
@@ -105,19 +105,9 @@ impl PluginConfig {
             }
             #[cfg(any(feature = "redis", feature = "redis-cluster"))]
             Some("redis") | Some("redis-cluster") => {
-                let backend_key = match typ {
-                    Some("redis") => "redis",
-                    _ => "redis-cluster",
-                };
-                let merge_on_read = storage
-                    .as_object()
-                    .and_then(|obj| obj.get(backend_key))
-                    .and_then(|v| v.get("merge_on_read"))
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(true);
                 match serde_json::from_value::<rmqtt_storage::Config>(storage) {
                     Err(e) => Err(de::Error::custom(e.to_string())),
-                    Ok(s_cfg) => Ok(Some(Config::Storage(s_cfg, merge_on_read))),
+                    Ok(s_cfg) => Ok(Some(Config::Storage(s_cfg))),
                 }
             }
             _ => Err(de::Error::custom(format!("Unsupported storage type, {typ:?}"))),
@@ -134,16 +124,7 @@ impl PluginConfig {
                 "ram": ram,
             }),
             #[cfg(any(feature = "redis", feature = "redis-cluster"))]
-            Some(Config::Storage(s_cfg, merge_on_read)) => {
-                let mut map = serde_json::to_value(s_cfg).unwrap_or_default();
-                if let Some(obj) = map.as_object_mut() {
-                    let backend_key = if obj.contains_key("redis") { "redis" } else { "redis-cluster" };
-                    if let Some(backend) = obj.get_mut(backend_key).and_then(|v| v.as_object_mut()) {
-                        backend.insert("merge_on_read".to_string(), serde_json::json!(*merge_on_read));
-                    }
-                }
-                map
-            }
+            Some(Config::Storage(s_cfg)) => serde_json::to_value(s_cfg).unwrap_or_default(),
             None => serde_json::Value::Null,
             #[allow(unreachable_patterns)]
             _ => serde_json::Value::Null,
@@ -166,7 +147,7 @@ pub enum Config {
     #[cfg(feature = "ram")]
     Ram(RamConfig),
     #[cfg(any(feature = "redis", feature = "redis-cluster"))]
-    Storage(rmqtt_storage::Config, bool),
+    Storage(rmqtt_storage::Config),
 }
 
 /// In-memory (RAM) storage configuration.
@@ -175,8 +156,6 @@ pub struct RamConfig {
     pub cache_capacity: Bytesize,
     pub cache_max_count: usize,
     pub encode: bool,
-    #[serde(default = "RamConfig::merge_on_read_default")]
-    pub merge_on_read: bool,
 
     /// Maximum number of pending tasks in the TaskExecQueue.
     /// Beyond this, new tasks are rejected.
@@ -189,20 +168,15 @@ impl Default for RamConfig {
     #[inline]
     fn default() -> Self {
         RamConfig {
-            cache_capacity: Bytesize::from(1024 * 1024 * 1024 * 2),
+            cache_capacity: Bytesize::from(1024 * 1024 * 1024 * 3),
             cache_max_count: usize::MAX,
             encode: false,
-            merge_on_read: true,
             queue_max: Self::queue_max_default(),
         }
     }
 }
 
 impl RamConfig {
-    fn merge_on_read_default() -> bool {
-        true
-    }
-
     fn queue_max_default() -> usize {
         300_000
     }
