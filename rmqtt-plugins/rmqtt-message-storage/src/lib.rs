@@ -207,7 +207,7 @@ impl MessageMgr {
                 let receiveds = mgr.topic_tree.read().await.values_size();
                 let exec_active_count = mgr.exec.active_count();
                 let exec_waiting_count = mgr.exec.waiting_count();
-                let storage_info = mgr.storage_db.info().await.unwrap_or_default();
+                let storage_info = mgr.storage_info().await;
                 let cost_time = format!("{:?}", now.elapsed());
                 serde_json::json!({
                     "storage_info": storage_info,
@@ -218,7 +218,11 @@ impl MessageMgr {
                         "cost_time":cost_time,
                     },
                     "exec_active_count": exec_active_count,
-                    "exec_waiting_count": exec_waiting_count
+                    "exec_waiting_count": exec_waiting_count,
+                    "circuit_breaker": {
+                        "enabled": mgr.circuit_breaker.config().enabled,
+                        "state": format!("{:?}", mgr.circuit_breaker.state()),
+                    },
                 })
             }
             #[allow(unreachable_patterns)]

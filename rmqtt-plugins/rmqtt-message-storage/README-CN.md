@@ -59,6 +59,30 @@ rmqtt_message_storage::register(&scx, true, false).await?;
 | `cleanup_count` | integer | `5000` | 每轮清理的过期消息数量 |
 | `timeout` | string | `"5s"` | 存储 I/O 操作超时。`"0s"` = 不超时 |
 
+### 熔断器
+
+保护 Broker 在 Redis 后端不可用时不会被阻塞。电路 OPEN 时，
+store/mark_forwarded/get 会立即返回，不碰 Redis。熔断器会自动探测恢复。
+
+| 选项 | 类型 | 默认值 | 描述 |
+|------|------|--------|------|
+| `circuit_breaker_enabled` | boolean | `true` | 启用熔断器 |
+| `circuit_failure_threshold` | integer | `10` | 连续失败次数超过此值后跳闸到 OPEN |
+| `circuit_reset_timeout` | string | `"15s"` | OPEN 状态下等待多久后进入探测（HALF_OPEN） |
+| `circuit_half_open_success_threshold` | integer | `3` | HALF_OPEN 状态下连续成功次数达到此值后关闭电路 |
+
+#### 状态机
+
+```
+CLOSED ── 失败次数 ≥ 阈值 ──► OPEN ── 超时 ──► HALF_OPEN
+  ▲                                                    │
+  └─────────── 成功次数 ≥ 阈值 ◄────────────────────────┘
+```
+
+- **CLOSED**：正常运行，统计失败次数。
+- **OPEN**：所有操作跳过 Redis；worker 直接丢弃积压消息不等待。
+- **HALF_OPEN**：允许探测请求；连续成功达到阈值后关闭，任意失败立即回到 OPEN。
+
 ## 依赖
 
 `rmqtt`（features：`plugin`、`msgstore`）、redis（可选）
