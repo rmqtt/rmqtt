@@ -25,6 +25,29 @@ pub struct PluginConfig {
     /// Timeout for storage I/O operations. 0 = no timeout. Examples: "5s", "500ms".
     #[serde(default = "PluginConfig::timeout_default", deserialize_with = "deserialize_duration")]
     pub timeout: Duration,
+
+    // ─── Circuit breaker ─────────────────────────────────────────────────────
+    /// Enable circuit breaker for Redis storage operations.
+    /// When enabled and the circuit is OPEN, store/mark_forwarded/get
+    /// return immediately without touching Redis.
+    #[serde(default = "PluginConfig::circuit_breaker_enabled_default")]
+    pub circuit_breaker_enabled: bool,
+
+    /// Consecutive failures before tripping to OPEN.
+    #[serde(default = "PluginConfig::circuit_failure_threshold_default")]
+    pub circuit_failure_threshold: usize,
+
+    /// Duration in OPEN state before transitioning to HALF_OPEN (probe).
+    /// Example: "30s", "1m".
+    #[serde(
+        default = "PluginConfig::circuit_reset_timeout_default",
+        deserialize_with = "deserialize_duration"
+    )]
+    pub circuit_reset_timeout: Duration,
+
+    /// Consecutive probe successes in HALF_OPEN before closing the circuit.
+    #[serde(default = "PluginConfig::circuit_half_open_success_threshold_default")]
+    pub circuit_half_open_success_threshold: usize,
 }
 
 impl PluginConfig {
@@ -41,6 +64,22 @@ impl PluginConfig {
 
     fn timeout_default() -> Duration {
         Duration::from_millis(5000)
+    }
+
+    fn circuit_breaker_enabled_default() -> bool {
+        true
+    }
+
+    fn circuit_failure_threshold_default() -> usize {
+        10
+    }
+
+    fn circuit_reset_timeout_default() -> Duration {
+        Duration::from_secs(15)
+    }
+
+    fn circuit_half_open_success_threshold_default() -> usize {
+        3
     }
 
     #[inline]
@@ -113,6 +152,10 @@ impl PluginConfig {
             "storage": storage,
             "cleanup_count": self.cleanup_count,
             "timeout": format!("{:?}", self.timeout),
+            "circuit_breaker_enabled": self.circuit_breaker_enabled,
+            "circuit_failure_threshold": self.circuit_failure_threshold,
+            "circuit_reset_timeout": format!("{:?}", self.circuit_reset_timeout),
+            "circuit_half_open_success_threshold": self.circuit_half_open_success_threshold,
         })
     }
 }

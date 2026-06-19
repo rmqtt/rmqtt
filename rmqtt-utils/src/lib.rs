@@ -6,6 +6,7 @@
 //! - **Timestamp Utilities**: Precise timestamp handling with millisecond resolution
 //! - **Network Addressing**: Cluster node address parsing ([`NodeAddr`]) and socket address handling
 //! - **Counter Implementation**: Thread-safe counter with merge modes ([`Counter`])
+//! - **Circuit Breaker**: Lock-free fast-fail degradation for external service calls ([`CircuitBreaker`])
 //!
 //! ## Key Components:
 //! - `Bytesize`: Handles 2G512M-style conversions with serialization support
@@ -80,8 +81,10 @@ use serde::{
     Deserialize, Serialize,
 };
 
+mod circuit_breaker;
 mod counter;
 
+pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
 pub use counter::{Counter, StatsMergeMode};
 
 /// Cluster node identifier type (64-bit unsigned integer)

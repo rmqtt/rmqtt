@@ -28,3 +28,22 @@ cleanup_count = 5000
 
 ##Timeout for storage I/O operations. 0 = no timeout. Examples: "5s", "500ms".
 timeout = "5s"
+
+##─── Circuit breaker ─────────────────────────────────────────────────────────
+##Enable circuit breaker. When Redis fails consecutively beyond the threshold,
+##the broker stops waiting for Redis and returns immediately.
+##Default: true
+#circuit_breaker_enabled = true
+
+##Consecutive storage failures before tripping the circuit to OPEN (fast-fail).
+##Default: 10
+#circuit_failure_threshold = 10
+
+##Duration to wait in OPEN state before allowing a probe (HALF_OPEN).
+##Default: "15s"
+#circuit_reset_timeout = "15s"
+
+##Consecutive probe successes needed to close the circuit.
+##Higher values avoid premature recovery on flaky connections.
+##Default: 3
+#circuit_half_open_success_threshold = 3

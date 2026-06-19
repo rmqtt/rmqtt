@@ -113,6 +113,43 @@ impl Counter {
 pub enum StatsMergeMode { None, Sum, Average, Max, Min }
 ```
 
+## `CircuitBreaker` — 无锁熔断器
+
+```rust
+#[derive(Debug, Clone)]
+pub struct CircuitBreakerConfig {
+    pub enabled: bool,                           // 默认: false
+    pub failure_threshold: usize,                // 默认: 10
+    pub reset_timeout: Duration,                 // 默认: 15s
+    pub half_open_success_threshold: usize,      // 默认: 3
+}
+
+pub enum CircuitState { Closed, Open, HalfOpen }
+
+impl CircuitBreaker {
+    pub fn new(config: CircuitBreakerConfig) -> Self;
+
+    /// 返回 true 表示电路 OPEN，调用方应跳过外部操作。
+    /// 副作用：reset_timeout 到期后自动将 OPEN → HALF_OPEN。
+    pub fn is_blocked(&self) -> bool;
+    pub fn record_success(&self);
+    pub fn record_failure(&self);
+    pub fn state(&self) -> CircuitState;
+    pub fn reset(&self);
+    pub fn config(&self) -> &CircuitBreakerConfig;
+}
+```
+
+纯原子操作、零锁的熔断器，用于主动故障检测。
+状态机：`Closed ⇄ Open ⇄ HalfOpen`。通过 `Arc<CircuitBreaker>` 跨线程共享。
+`rmqtt-message-storage` 使用它来避免 Redis 不可用时阻塞 Broker。
+
+| 状态 | 行为 |
+|------|------|
+| **Closed** | 正常放行，统计连续失败次数 |
+| **Open** | `is_blocked()` 返回 `true`，调用方快速跳过外部操作 |
+| **HalfOpen** | 探测阶段，放行请求；连续成功足够次后关闭，任意失败立即回到 Open |
+
 ## 安全性
 
 `#![deny(unsafe_code)]` — 零 unsafe 代码。

@@ -113,6 +113,45 @@ impl Counter {
 pub enum StatsMergeMode { None, Sum, Average, Max, Min }
 ```
 
+## `CircuitBreaker` — lock‑free fast‑fail degradation
+
+```rust
+#[derive(Debug, Clone)]
+pub struct CircuitBreakerConfig {
+    pub enabled: bool,                           // default: false
+    pub failure_threshold: usize,                // default: 10
+    pub reset_timeout: Duration,                 // default: 15s
+    pub half_open_success_threshold: usize,      // default: 3
+}
+
+pub enum CircuitState { Closed, Open, HalfOpen }
+
+impl CircuitBreaker {
+    pub fn new(config: CircuitBreakerConfig) -> Self;
+
+    /// Returns true if the circuit is OPEN and the caller should skip
+    /// the external operation. Side‑effect: transitions OPEN → HALF_OPEN
+    /// after reset_timeout has elapsed.
+    pub fn is_blocked(&self) -> bool;
+    pub fn record_success(&self);
+    pub fn record_failure(&self);
+    pub fn state(&self) -> CircuitState;
+    pub fn reset(&self);
+    pub fn config(&self) -> &CircuitBreakerConfig;
+}
+```
+
+A pure‑atomics, zero‑lock circuit breaker for proactive failure detection.
+State machine: `Closed ⇄ Open ⇄ HalfOpen`. Shared safely across threads
+via `Arc<CircuitBreaker>`. Used by `rmqtt-message-storage` to avoid
+blocking the broker when Redis is unreachable.
+
+| State | Behaviour |
+|-------|-----------|
+| **Closed** | Normal operation. Counts consecutive failures. |
+| **Open** | `is_blocked()` returns `true`. All callers skip the external op. |
+| **HalfOpen** | Probe phase. Allows requests through; closes after enough consecutive successes or re‑opens on any failure. |
+
 ## Safety
 
 `#![deny(unsafe_code)]` — zero unsafe code.

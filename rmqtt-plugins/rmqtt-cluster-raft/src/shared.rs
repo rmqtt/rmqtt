@@ -754,7 +754,7 @@ impl Shared for ClusterShared {
                         let msgs = match reply {
                             Ok(MessageReply::MessageGet(msgs)) => msgs,
                             Ok(other) => {
-                                log::error!("unexpected reply: {other:?}");
+                                log::warn!("unexpected reply: {other:?}");
                                 vec![]
                             }
                             Err(e) => {

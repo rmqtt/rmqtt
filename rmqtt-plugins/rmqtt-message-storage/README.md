@@ -59,6 +59,32 @@ File: `rmqtt-message-storage.toml`
 | `cleanup_count` | integer | `5000` | Expired messages cleaned per cycle |
 | `timeout` | string | `"5s"` | Timeout for storage I/O operations. `"0s"` = no timeout |
 
+### Circuit Breaker
+
+Protects the broker from blocking when the Redis backend becomes unreachable.
+When the circuit is OPEN, store/mark_forwarded/get return immediately without
+touching Redis. The circuit automatically probes for recovery.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `circuit_breaker_enabled` | boolean | `true` | Enable circuit breaker |
+| `circuit_failure_threshold` | integer | `10` | Consecutive failures before tripping to OPEN |
+| `circuit_reset_timeout` | string | `"15s"` | Wait duration in OPEN before probing (HALF_OPEN) |
+| `circuit_half_open_success_threshold` | integer | `3` | Consecutive probe successes to close the circuit |
+
+#### State Machine
+
+```
+CLOSED ── failure_count ≥ threshold ──► OPEN ── timeout ──► HALF_OPEN
+  ▲                                                               │
+  └────────────── success × threshold ◄───────────────────────────┘
+```
+
+- **CLOSED**: normal operation, failures are counted.
+- **OPEN**: all operations skip Redis immediately; workers drain backlog without waiting.
+- **HALF_OPEN**: probe requests are allowed; if enough succeed the circuit closes,
+  if any fails it re-opens.
+
 ## Dependencies
 
 `rmqtt` (features: `plugin`, `msgstore`), redis (optional)
