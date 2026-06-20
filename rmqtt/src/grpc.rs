@@ -256,9 +256,6 @@ impl GrpcClient {
 /// Values below 1000 are reserved for internal broker messages.
 pub type MessageType = u64;
 
-/// Identifier for the `MessageGet` operation (value: 22).
-pub const MESSAGE_TYPE_MESSAGE_GET: u64 = 22;
-
 /// Cluster message payloads for inter-node operations.
 ///
 /// Each variant represents a specific cluster operation:

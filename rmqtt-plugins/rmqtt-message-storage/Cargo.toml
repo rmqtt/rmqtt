@@ -23,7 +23,6 @@ serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["sync", "time"] }
 rmqtt-storage = { workspace = true, default-features = false, features = ["ttl"], optional = true}
 #rmqtt-storage = { path = "../../../rmqtt-storage", default-features = false, features = ["ttl"], optional = true}
-rust-box = { workspace = true, features = ["task-exec-queue", "task-exec-queue-rate"] }
 futures.workspace = true
 futures-time.workspace = true
 async-trait.workspace = true

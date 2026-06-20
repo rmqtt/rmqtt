@@ -20,7 +20,7 @@ use futures::{SinkExt, StreamExt};
 use futures_time::{self, future::FutureExt};
 use tokio::sync::RwLock;
 
-use rmqtt_storage::DefaultStorageDB;
+use rmqtt_storage::{DefaultStorageDB, StorageType};
 
 use rmqtt::{
     retain::RetainStorage,
@@ -53,6 +53,7 @@ impl Retainer {
         cfg: Arc<RwLock<PluginConfig>>,
         storage_db: DefaultStorageDB,
         retain_enable: Arc<AtomicBool>,
+        storage_type: StorageType,
     ) -> Result<Retainer> {
         let (msg_tx, msg_rx) = mpsc::channel::<Msg>(300_000);
         let msg_queue_count = Arc::new(AtomicIsize::new(0));
@@ -66,6 +67,7 @@ impl Retainer {
             retain_enable,
             storage_messages_count,
             storage_messages_max,
+            storage_type,
         });
         Self { inner }.serve(msg_rx)
     }
@@ -130,10 +132,9 @@ pub struct RetainerInner {
     msg_tx: mpsc::Sender<Msg>,
     pub(crate) msg_queue_count: Arc<AtomicIsize>,
     retain_enable: Arc<AtomicBool>,
-    // retain_count: Arc<AtomicUsize>,
-    // retain_count_utime: Arc<AtomicI64>,
     storage_messages_count: ValueCached<usize>,
     storage_messages_max: ValueCached<isize>,
+    storage_type: StorageType,
 }
 
 impl RetainerInner {
@@ -348,6 +349,18 @@ impl RetainStorage for Retainer {
         true
     }
 
+    #[inline]
+    fn merge_on_read(&self) -> bool {
+        match self.storage_type {
+            #[cfg(feature = "sled")]
+            StorageType::Sled => true,
+            #[cfg(feature = "redis")]
+            StorageType::Redis => false,
+            #[allow(unreachable_patterns)]
+            _ => false,
+        }
+    }
+
     ///topic - concrete topic
     async fn set(&self, topic: &TopicName, retain: Retain, expiry_interval: Option<Duration>) -> Result<()> {
         if !self.retain_enable.load(Ordering::SeqCst) {
@@ -405,7 +418,14 @@ impl RetainStorage for Retainer {
 
     #[inline]
     fn stats_merge_mode(&self) -> StatsMergeMode {
-        StatsMergeMode::Max
+        match self.storage_type {
+            #[cfg(feature = "sled")]
+            StorageType::Sled => StatsMergeMode::Sum,
+            #[cfg(feature = "redis")]
+            StorageType::Redis => StatsMergeMode::Max,
+            #[allow(unreachable_patterns)]
+            _ => StatsMergeMode::None,
+        }
     }
 }
 

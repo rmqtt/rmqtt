@@ -844,6 +844,56 @@ impl Shared for ClusterShared {
         }
     }
 
+    async fn retain_load_with(
+        &self,
+        topic_filter: &TopicFilter,
+        cb: Arc<dyn rmqtt::shared::RetainLoadCallback>,
+    ) -> Result<Vec<(NodeId, MsgID)>> {
+        let retain_mgr = self.scx.extends.retain().await;
+        if retain_mgr.merge_on_read() {
+            let retains = retain_mgr.get(topic_filter).await?;
+            let mut excludeds = cb.on_retains(retains).await?;
+
+            if !self.grpc_clients.is_empty() {
+                let cb2 = cb.clone();
+                let replys = MessageBroadcaster::new(
+                    self.grpc_clients.clone(),
+                    self.message_type,
+                    Message::GetRetains(topic_filter.clone()),
+                    Some(self.rw_timeout),
+                )
+                .join_all_with_async(move |reply| {
+                    let retains = match reply {
+                        Ok(MessageReply::GetRetains(retains)) => retains,
+                        Ok(other) => {
+                            log::warn!("unexpected reply: {other:?}");
+                            vec![]
+                        }
+                        Err(e) => {
+                            log::warn!("Message::GetRetains failed, {e:?}");
+                            vec![]
+                        }
+                    };
+                    let cb2 = cb2.clone();
+                    async move { cb2.on_retains(retains).await }
+                })
+                .await;
+
+                for (node_id, result) in replys {
+                    match result {
+                        Ok(mut ids) => excludeds.append(&mut ids),
+                        Err(e) => log::warn!("Message::GetRetains failed, node_id: {node_id}, {e:?}"),
+                    }
+                }
+            }
+
+            Ok(excludeds)
+        } else {
+            let retains = retain_mgr.get(topic_filter).await?;
+            cb.on_retains(retains).await
+        }
+    }
+
     #[inline]
     async fn message_mark_forwarded(
         &self,
