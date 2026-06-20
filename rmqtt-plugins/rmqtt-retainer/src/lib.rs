@@ -70,7 +70,7 @@ impl RetainerPlugin {
 
         let (retainer, support_cluster) = match &mut cfg.write().await.storage {
             #[cfg(feature = "ram")]
-            Some(Config::Ram) => (Retainer::Ram(RamRetainer::new(cfg.clone(), retain_enable.clone())), false),
+            Some(Config::Ram) => (Retainer::Ram(RamRetainer::new(cfg.clone(), retain_enable.clone())), true),
             #[cfg(any(feature = "sled", feature = "redis"))]
             Some(Config::Storage(s_cfg)) => {
                 let node_id = scx.node.id();
@@ -78,7 +78,7 @@ impl RetainerPlugin {
                     #[cfg(feature = "sled")]
                     StorageType::Sled => {
                         s_cfg.sled.path = s_cfg.sled.path.replace("{node}", &format!("{node_id}"));
-                        false
+                        true
                     }
                     #[cfg(feature = "redis")]
                     StorageType::Redis => {
@@ -91,8 +91,14 @@ impl RetainerPlugin {
                 let storage_db = init_db(s_cfg).await?;
                 (
                     Retainer::Storage(
-                        storage::Retainer::new(node_id, cfg.clone(), storage_db, retain_enable.clone())
-                            .await?,
+                        storage::Retainer::new(
+                            node_id,
+                            cfg.clone(),
+                            storage_db,
+                            retain_enable.clone(),
+                            s_cfg.typ.clone(),
+                        )
+                        .await?,
                     ),
                     support_cluster,
                 )

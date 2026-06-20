@@ -91,6 +91,12 @@ pub trait RetainStorage: Sync + Send {
         false
     }
 
+    /// Whether merging retentions from remote cluster nodes is needed during retrieval.
+    #[inline]
+    fn merge_on_read(&self) -> bool {
+        false
+    }
+
     /// Store a retained message for the given topic.
     ///
     /// If the payload is empty, the retained message is cleared.

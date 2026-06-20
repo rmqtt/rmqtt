@@ -181,7 +181,14 @@ impl Handler for HookHandler {
                         return (false, Some(new_acc));
                     }
                     GrpcMessage::GetRetains(topic_filter) => {
-                        log::error!("unreachable!(), GrpcMessage::GetRetains({topic_filter})");
+                        let retains = self.scx.extends.retain().await.get(topic_filter).await;
+                        let new_acc = match retains {
+                            Err(e) => HookResult::GrpcMessageReply(Err(e)),
+                            Ok(retains) => {
+                                HookResult::GrpcMessageReply(Ok(MessageReply::GetRetains(retains)))
+                            }
+                        };
+                        return (false, Some(new_acc));
                     }
                     GrpcMessage::SubscriptionsGet(clientid) => {
                         let id = Id::from(self.scx.node.id(), clientid.clone());

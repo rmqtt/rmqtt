@@ -10,6 +10,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use tokio::sync::RwLock;
 
+use rmqtt::utils::StatsMergeMode;
 use rmqtt::{
     retain::DefaultRetainStorage,
     retain::RetainStorage,
@@ -42,6 +43,11 @@ impl RamRetainer {
 impl RetainStorage for RamRetainer {
     #[inline]
     fn enable(&self) -> bool {
+        true
+    }
+
+    #[inline]
+    fn merge_on_read(&self) -> bool {
         true
     }
 
@@ -94,5 +100,10 @@ impl RetainStorage for RamRetainer {
     #[inline]
     async fn max(&self) -> isize {
         self.inner.max().await
+    }
+
+    #[inline]
+    fn stats_merge_mode(&self) -> StatsMergeMode {
+        StatsMergeMode::Sum
     }
 }

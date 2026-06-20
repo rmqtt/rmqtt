@@ -114,7 +114,14 @@ impl Handler for HookHandler {
                         return (false, Some(new_acc));
                     }
                     Message::GetRetains(topic_filter) => {
-                        log::error!("unreachable!(), Message::GetRetains({topic_filter})");
+                        let retains = self.scx.extends.retain().await.get(topic_filter).await;
+                        let new_acc = match retains {
+                            Err(e) => HookResult::GrpcMessageReply(Err(e)),
+                            Ok(retains) => {
+                                HookResult::GrpcMessageReply(Ok(MessageReply::GetRetains(retains)))
+                            }
+                        };
+                        return (false, Some(new_acc));
                     }
                     Message::Online(clientid) => {
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::Online(

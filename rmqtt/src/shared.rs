@@ -154,6 +154,14 @@ pub trait MessageLoadCallback: Send + Sync + 'static {
     async fn on_messages(&self, msgs: Vec<(MsgID, From, Publish)>) -> Result<()>;
 }
 
+#[cfg(feature = "retain")]
+#[async_trait]
+pub trait RetainLoadCallback: Send + Sync + 'static {
+    /// Called with the loaded batch of retain messages (topic + retain data).
+    /// Returns the extracted (NodeId, MsgID) pairs for caller-side tracking.
+    async fn on_retains(&self, retains: Vec<(TopicName, Retain)>) -> Result<Vec<(NodeId, MsgID)>>;
+}
+
 #[async_trait]
 pub trait Shared: Sync + Send {
     /// Retrieve the session entry associated with the given client [`Id`].
@@ -278,6 +286,13 @@ pub trait Shared: Sync + Send {
         let msgs = self.message_load(client_id, topic_filter, group).await?;
         cb.on_messages(msgs).await
     }
+
+    #[cfg(feature = "retain")]
+    async fn retain_load_with(
+        &self,
+        topic_filter: &TopicFilter,
+        cb: Arc<dyn RetainLoadCallback>,
+    ) -> Result<Vec<(NodeId, MsgID)>>;
 
     /// Mark a message as successfully forwarded to the given subscribers.
     /// Delegates to [`MessageManager::mark_forwarded`] so that forwarding
@@ -1015,6 +1030,18 @@ impl Shared for DefaultShared {
         let message_mgr = scx.extends.message_mgr().await;
         let msgs = message_mgr.get(client_id, topic_filter, group).await?;
         cb.on_messages(msgs).await
+    }
+
+    #[cfg(feature = "retain")]
+    async fn retain_load_with(
+        &self,
+        topic_filter: &TopicFilter,
+        cb: Arc<dyn RetainLoadCallback>,
+    ) -> Result<Vec<(NodeId, MsgID)>> {
+        let scx = self.context();
+        let retain_mgr = scx.extends.retain().await;
+        let retains = retain_mgr.get(topic_filter).await?;
+        cb.on_retains(retains).await
     }
 
     #[inline]

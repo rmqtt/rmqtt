@@ -9,7 +9,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-rmqtt = { workspace = true, features = ["plugin", "grpc", "stats", "msgstore"] }
+rmqtt = { workspace = true, features = ["plugin", "grpc", "stats", "msgstore", "retain", "shared-subscription"] }
 serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["sync"] }
 rmqtt-raft = { version = "0.7.2", features = ["reuse"] }
