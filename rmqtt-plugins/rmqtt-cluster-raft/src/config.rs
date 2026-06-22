@@ -126,7 +126,7 @@ impl PluginConfig {
         128
     }
     fn grpc_client_timeout_default() -> Duration {
-        Duration::from_secs(60)
+        Duration::from_secs(10)
     }
 
     fn grpc_batch_size_default() -> usize {
