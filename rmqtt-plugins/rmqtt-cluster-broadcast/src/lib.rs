@@ -135,6 +135,14 @@ impl Plugin for ClusterPlugin {
         self.register.start().await;
         *self.scx.extends.shared_mut().await = Box::new(self.shared.clone());
         *self.scx.extends.router_mut().await = Box::new(self.router.clone());
+
+        // Async retain sync from peers (fire-and-forget)
+        let shared = self.shared.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            shared.sync_retains_from_peers().await;
+        });
+
         Ok(())
     }
 

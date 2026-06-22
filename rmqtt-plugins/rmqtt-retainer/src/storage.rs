@@ -195,6 +195,7 @@ impl RetainerInner {
                     log::warn!("store to db error, insert(..), {e:?}, message: {smsg:?}");
                     continue;
                 };
+
                 if let Some(expiry_interval_millis) = expiry_interval_millis {
                     if let Err(e) =
                         self.storage_db.expire(store_topic_name.as_slice(), expiry_interval_millis).await
@@ -340,6 +341,63 @@ impl RetainerInner {
         }
         Ok(retains)
     }
+
+    #[inline]
+    async fn _get_all_paginated(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<(Vec<(TopicName, Retain, Option<Duration>)>, bool)> {
+        let mut db = self.storage_db.clone();
+        let mut iter = match db.scan(RETAIN_MESSAGES_PREFIX.to_vec()).await {
+            Err(e) => {
+                log::error!("get_all_paginated scan error: {e:?}");
+                return Ok((Vec::new(), false));
+            }
+            Ok(iter) => iter,
+        };
+
+        // Collect all matching keys first, then drop the iterator to release
+        // the mutable borrow on `db`, so we can call `db.get` later.
+        let mut matched_keys = Vec::new();
+        while let Some(key) = iter.next().await {
+            match key {
+                Ok(key) if key.starts_with(RETAIN_MESSAGES_PREFIX) => {
+                    matched_keys.push(key);
+                }
+                Ok(_) => {}
+                Err(e) => log::error!("get_all_paginated iter error: {e:?}"),
+            }
+        }
+        drop(iter);
+
+        let total = matched_keys.len();
+        let has_more = offset + limit < total;
+
+        let mut items = Vec::with_capacity(limit);
+        for key in matched_keys.into_iter().skip(offset).take(limit) {
+            match db.get::<_, StoredMsg>(key.as_slice()).await {
+                Ok(Some((retain, expiry_time_at))) => {
+                    let topic_name = TopicName::from(
+                        String::from_utf8_lossy(&key[RETAIN_MESSAGES_PREFIX.len()..]).as_ref(),
+                    );
+                    let remaining = expiry_time_at.and_then(|exp| {
+                        let now = timestamp_millis();
+                        if exp > now {
+                            Some(Duration::from_millis((exp - now) as u64))
+                        } else {
+                            None
+                        }
+                    });
+                    items.push((topic_name, retain, remaining));
+                }
+                Ok(None) => {}
+                Err(e) => log::error!("get_all_paginated get error: {e:?}"),
+            }
+        }
+
+        Ok((items, has_more))
+    }
 }
 
 #[async_trait]
@@ -353,11 +411,21 @@ impl RetainStorage for Retainer {
     fn merge_on_read(&self) -> bool {
         match self.storage_type {
             #[cfg(feature = "sled")]
-            StorageType::Sled => true,
+            StorageType::Sled => false,
             #[cfg(feature = "redis")]
             StorageType::Redis => false,
             #[allow(unreachable_patterns)]
             _ => false,
+        }
+    }
+
+    #[inline]
+    fn need_sync(&self) -> bool {
+        match self.storage_type {
+            #[cfg(feature = "redis")]
+            StorageType::Redis => false,
+            #[allow(unreachable_patterns)]
+            _ => true,
         }
     }
 
@@ -420,12 +488,24 @@ impl RetainStorage for Retainer {
     fn stats_merge_mode(&self) -> StatsMergeMode {
         match self.storage_type {
             #[cfg(feature = "sled")]
-            StorageType::Sled => StatsMergeMode::Sum,
+            StorageType::Sled => StatsMergeMode::Max,
             #[cfg(feature = "redis")]
             StorageType::Redis => StatsMergeMode::Max,
             #[allow(unreachable_patterns)]
             _ => StatsMergeMode::None,
         }
+    }
+
+    async fn get_all_paginated(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<(Vec<(TopicName, Retain, Option<Duration>)>, bool)> {
+        if !self.retain_enable.load(Ordering::SeqCst) {
+            log::error!("{ERR_NOT_SUPPORTED}");
+            return Ok((Vec::new(), false));
+        }
+        self._get_all_paginated(offset, limit).await
     }
 }
 

@@ -294,6 +294,22 @@ pub trait Shared: Sync + Send {
         cb: Arc<dyn RetainLoadCallback>,
     ) -> Result<Vec<(NodeId, MsgID)>>;
 
+    /// Broadcast a retained message update to all cluster peers.
+    ///
+    /// Called after the local node has written a retain: propagates the new
+    /// value to remote nodes so they can keep their local stores up to date.
+    /// Default implementation is a no-op (single-node mode).
+    #[cfg(feature = "retain")]
+    async fn retain_set_broadcast(
+        &self,
+        topic: &TopicName,
+        retain: &Retain,
+        expiry_interval: Option<Duration>,
+    ) -> Result<()> {
+        let _ = (topic, retain, expiry_interval);
+        Ok(())
+    }
+
     /// Mark a message as successfully forwarded to the given subscribers.
     /// Delegates to [`MessageManager::mark_forwarded`] so that forwarding
     /// results are persisted and subsequent `get()` calls will not redeliver

@@ -48,6 +48,11 @@ impl RetainStorage for RamRetainer {
 
     #[inline]
     fn merge_on_read(&self) -> bool {
+        false
+    }
+
+    #[inline]
+    fn need_sync(&self) -> bool {
         true
     }
 
@@ -92,6 +97,18 @@ impl RetainStorage for RamRetainer {
         }
     }
 
+    async fn get_all_paginated(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<(Vec<(TopicName, Retain, Option<Duration>)>, bool)> {
+        if !self.retain_enable.load(Ordering::SeqCst) {
+            log::warn!("{ERR_NOT_SUPPORTED}");
+            return Ok((Vec::new(), false));
+        }
+        self.inner.get_all_paginated(offset, limit).await
+    }
+
     #[inline]
     async fn count(&self) -> isize {
         self.inner.count().await
@@ -104,6 +121,6 @@ impl RetainStorage for RamRetainer {
 
     #[inline]
     fn stats_merge_mode(&self) -> StatsMergeMode {
-        StatsMergeMode::Sum
+        StatsMergeMode::Max
     }
 }

@@ -847,6 +847,26 @@ impl Shared for ClusterShared {
         }
     }
 
+    async fn retain_set_broadcast(
+        &self,
+        topic: &TopicName,
+        retain: &Retain,
+        expiry_interval: Option<Duration>,
+    ) -> Result<()> {
+        if self.grpc_clients.is_empty() {
+            return Ok(());
+        }
+        let msg = Message::SetRetain(topic.clone(), retain.clone(), expiry_interval);
+        for (node_id, (_, client)) in self.grpc_clients.iter() {
+            let sender =
+                MessageSender::new(client.clone(), self.message_type, msg.clone(), Some(self.rw_timeout));
+            if let Err(e) = sender.notify().await {
+                log::warn!("retain_set_broadcast to node {node_id} failed, {e:?}");
+            }
+        }
+        Ok(())
+    }
+
     #[inline]
     async fn message_mark_forwarded(
         &self,
@@ -970,5 +990,68 @@ impl Shared for ClusterShared {
     fn operation_is_busy(&self) -> bool {
         self.exec.active_count() > self.exec_queue_workers_busy_limit
             || self.exec.waiting_count() > self.exec_queue_busy_limit
+    }
+}
+
+impl ClusterShared {
+    /// Pull all retained messages from peer nodes and merge into local storage.
+    ///
+    /// Called once at startup (with a small delay) so a new or restarted node
+    /// catches up on retains that were published while it was offline.
+    pub(crate) async fn sync_retains_from_peers(&self) {
+        if self.grpc_clients.is_empty() {
+            return;
+        }
+        {
+            let retain_mgr = self.scx.extends.retain().await;
+            if !retain_mgr.enable() || !retain_mgr.need_sync() {
+                return;
+            }
+        }
+        const CHUNK: usize = 5000;
+        for (node_id, (_, client)) in self.grpc_clients.iter() {
+            let mut offset = 0;
+            loop {
+                let mut c = client.clone();
+                let result = c
+                    .send_message(
+                        self.message_type,
+                        Message::GetAllRetains { offset, limit: CHUNK },
+                        Some(self.rw_timeout),
+                    )
+                    .await;
+                match result {
+                    Ok(MessageReply::GetAllRetainsChunk { items, has_more, .. }) => {
+                        for (topic, retain, expiry) in items {
+                            let current =
+                                self.scx.extends.retain().await.get(&topic).await.unwrap_or_default();
+                            let should_update = match current.first() {
+                                Some((_, existing)) => {
+                                    retain.publish.create_time.unwrap_or(0)
+                                        > existing.publish.create_time.unwrap_or(0)
+                                }
+                                None => true,
+                            };
+                            if should_update {
+                                let _ = self.scx.extends.retain().await.set(&topic, retain, expiry).await;
+                            }
+                        }
+                        if !has_more {
+                            break;
+                        }
+                        offset += CHUNK;
+                    }
+                    Ok(other) => {
+                        log::warn!("sync_retains_from_peers unexpected reply from {node_id}: {other:?}");
+                        break;
+                    }
+                    Err(e) => {
+                        log::warn!("sync_retains_from_peers failed from {node_id}: {e:?}");
+                        break;
+                    }
+                }
+            }
+            log::info!("sync_retains_from_peers from {node_id}: completed");
+        }
     }
 }

@@ -97,6 +97,17 @@ pub trait RetainStorage: Sync + Send {
         false
     }
 
+    /// Whether retain storage needs cluster-wide synchronization at startup.
+    ///
+    /// Returns `true` (default) if the storage is local (in-memory, per-node Sled)
+    /// and needs proactive sync of retains from peer nodes when a new node joins.
+    /// Returns `false` if the storage is shared (e.g., Redis) so all nodes already
+    /// see the same data and no startup sync is needed.
+    #[inline]
+    fn need_sync(&self) -> bool {
+        true
+    }
+
     /// Store a retained message for the given topic.
     ///
     /// If the payload is empty, the retained message is cleared.
@@ -104,6 +115,19 @@ pub trait RetainStorage: Sync + Send {
 
     /// Retrieve all retained messages matching the given topic filter.
     async fn get(&self, topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>>;
+
+    /// Retrieve a paginated snapshot of all non-expired retained messages.
+    ///
+    /// Returns `(items, has_more)`. Used by cluster plugins to synchronize
+    /// the retain store between nodes. Default implementation returns empty.
+    async fn get_all_paginated(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<(Vec<(TopicName, Retain, Option<Duration>)>, bool)> {
+        let _ = (offset, limit);
+        Ok((Vec::new(), false))
+    }
 
     /// Current count of retained messages.
     async fn count(&self) -> isize;
@@ -197,6 +221,39 @@ impl DefaultRetainStorage {
             })
             .collect::<Vec<(TopicName, Retain)>>();
         Ok(retains)
+    }
+
+    /// Return a paginated snapshot of all stored (non-expired) messages.
+    ///
+    /// Uses the wildcard `#` filter to match all topics.
+    #[inline]
+    pub async fn get_all_paginated(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<(Vec<(TopicName, Retain, Option<Duration>)>, bool)> {
+        let topic = match Topic::from_str("#") {
+            Err(e) => return Err(anyhow::anyhow!(e)),
+            Ok(t) => t,
+        };
+        let messages = self.messages.read().await;
+        let all: Vec<(TopicName, Retain, Option<Duration>)> = messages
+            .matches(&topic)
+            .into_iter()
+            .filter_map(|(t, tv)| {
+                if tv.is_expired() {
+                    return None;
+                }
+                let topic = TopicName::from(t.to_string());
+                let remaining = tv.remaining();
+                let retain = tv.into_value();
+                Some((topic, retain, remaining))
+            })
+            .collect();
+        let total = all.len();
+        let has_more = offset + limit < total;
+        let items = all.into_iter().skip(offset).take(limit).collect();
+        Ok((items, has_more))
     }
 }
 

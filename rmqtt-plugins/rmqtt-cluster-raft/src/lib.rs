@@ -379,6 +379,14 @@ impl Plugin for ClusterPlugin {
         *self.scx.extends.router_mut().await = Box::new(self.router.clone());
         *self.scx.extends.shared_mut().await = Box::new(self.shared.clone());
         self.register.start().await;
+
+        // Async retain sync from peers (fire-and-forget)
+        let shared = self.shared.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            shared.sync_retains_from_peers().await;
+        });
+
         let status = raft_mailbox.status().await.map_err(anyhow::Error::new)?;
         log::info!("raft status: {status:?}");
         if !status.is_started() {

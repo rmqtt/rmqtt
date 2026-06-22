@@ -2318,6 +2318,23 @@ impl<V> TimedValue<V> {
     pub fn is_expired(&self) -> bool {
         self.1.map(|e| Instant::now() >= e).unwrap_or(false)
     }
+
+    /// Returns the absolute deadline, if set.
+    pub fn deadline(&self) -> Option<Instant> {
+        self.1
+    }
+
+    /// Returns the remaining duration until expiry, if set and not yet expired.
+    pub fn remaining(&self) -> Option<Duration> {
+        self.1.and_then(|d| {
+            let now = Instant::now();
+            if d > now {
+                Some(d.duration_since(now))
+            } else {
+                None
+            }
+        })
+    }
 }
 
 impl<V> PartialEq for TimedValue<V>
