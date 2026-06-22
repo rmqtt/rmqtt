@@ -13,7 +13,8 @@ use rust_box::task_exec_queue::{SpawnExt, TaskExecQueue};
 use rmqtt::context::ServerContext;
 use rmqtt::net::MqttError;
 use rmqtt::shared::{DefaultShared, Entry, MessageLoadCallback, Shared};
-use rmqtt::types::{HealthInfo, MsgID, NodeHealthStatus};
+use rmqtt::types::{HealthInfo, MsgID, NodeHealthStatus, Retain, TopicName};
+
 use rmqtt::{
     grpc::{GrpcClient, GrpcClients, Message, MessageBroadcaster, MessageReply, MessageSender, MessageType},
     session::Session,
@@ -851,47 +852,64 @@ impl Shared for ClusterShared {
     ) -> Result<Vec<(NodeId, MsgID)>> {
         let retain_mgr = self.scx.extends.retain().await;
         if retain_mgr.merge_on_read() {
-            let retains = retain_mgr.get(topic_filter).await?;
-            let mut excludeds = cb.on_retains(retains).await?;
+            let mut all_retains = retain_mgr.get(topic_filter).await?;
 
             if !self.grpc_clients.is_empty() {
-                let cb2 = cb.clone();
                 let replys = MessageBroadcaster::new(
                     self.grpc_clients.clone(),
                     self.message_type,
                     Message::GetRetains(topic_filter.clone()),
                     Some(self.rw_timeout),
                 )
-                .join_all_with_async(move |reply| {
-                    let retains = match reply {
-                        Ok(MessageReply::GetRetains(retains)) => retains,
+                .join_all_with_async(move |reply| async move {
+                    match reply {
+                        Ok(MessageReply::GetRetains(retains)) => Ok(retains),
                         Ok(other) => {
                             log::warn!("unexpected reply: {other:?}");
-                            vec![]
+                            Ok(vec![])
                         }
                         Err(e) => {
                             log::warn!("Message::GetRetains failed, {e:?}");
-                            vec![]
+                            Ok(vec![])
                         }
-                    };
-                    let cb2 = cb2.clone();
-                    async move { cb2.on_retains(retains).await }
+                    }
                 })
                 .await;
 
                 for (node_id, result) in replys {
                     match result {
-                        Ok(mut ids) => excludeds.append(&mut ids),
+                        Ok(mut remote_retains) => all_retains.append(&mut remote_retains),
                         Err(e) => log::warn!("Message::GetRetains failed, node_id: {node_id}, {e:?}"),
                     }
                 }
             }
 
-            Ok(excludeds)
+            let deduped = rmqtt::shared::dedup_retains_by_topic(all_retains);
+            cb.on_retains(deduped).await
         } else {
             let retains = retain_mgr.get(topic_filter).await?;
             cb.on_retains(retains).await
         }
+    }
+
+    async fn retain_set_broadcast(
+        &self,
+        topic: &TopicName,
+        retain: &Retain,
+        expiry_interval: Option<Duration>,
+    ) -> Result<()> {
+        if self.grpc_clients.is_empty() {
+            return Ok(());
+        }
+        let msg = Message::SetRetain(topic.clone(), retain.clone(), expiry_interval);
+        for (node_id, (_, client)) in self.grpc_clients.iter() {
+            let sender =
+                MessageSender::new(client.clone(), self.message_type, msg.clone(), Some(self.rw_timeout));
+            if let Err(e) = sender.notify().await {
+                log::warn!("retain_set_broadcast to node {node_id} failed, {e:?}");
+            }
+        }
+        Ok(())
     }
 
     #[inline]
@@ -999,5 +1017,68 @@ impl Shared for ClusterShared {
     #[inline]
     fn node_name(&self, id: NodeId) -> String {
         self.node_names.get(&id).cloned().unwrap_or_default()
+    }
+}
+
+impl ClusterShared {
+    /// Pull all retained messages from peer nodes and merge into local storage.
+    ///
+    /// Called once at startup (with a small delay) so a new or restarted node
+    /// catches up on retains that were published while it was offline.
+    pub(crate) async fn sync_retains_from_peers(&self) {
+        if self.grpc_clients.is_empty() {
+            return;
+        }
+        {
+            let retain_mgr = self.scx.extends.retain().await;
+            if !retain_mgr.enable() || !retain_mgr.need_sync() {
+                return;
+            }
+        }
+        const CHUNK: usize = 5000;
+        for (node_id, (_, client)) in self.grpc_clients.iter() {
+            let mut offset = 0;
+            loop {
+                let mut c = client.clone();
+                let result = c
+                    .send_message(
+                        self.message_type,
+                        Message::GetAllRetains { offset, limit: CHUNK },
+                        Some(self.rw_timeout),
+                    )
+                    .await;
+                match result {
+                    Ok(MessageReply::GetAllRetainsChunk { items, has_more, .. }) => {
+                        for (topic, retain, expiry) in items {
+                            let current =
+                                self.scx.extends.retain().await.get(&topic).await.unwrap_or_default();
+                            let should_update = match current.first() {
+                                Some((_, existing)) => {
+                                    retain.publish.create_time.unwrap_or(0)
+                                        > existing.publish.create_time.unwrap_or(0)
+                                }
+                                None => true,
+                            };
+                            if should_update {
+                                let _ = self.scx.extends.retain().await.set(&topic, retain, expiry).await;
+                            }
+                        }
+                        if !has_more {
+                            break;
+                        }
+                        offset += CHUNK;
+                    }
+                    Ok(other) => {
+                        log::warn!("sync_retains_from_peers unexpected reply from {node_id}: {other:?}");
+                        break;
+                    }
+                    Err(e) => {
+                        log::warn!("sync_retains_from_peers failed from {node_id}: {e:?}");
+                        break;
+                    }
+                }
+            }
+            log::info!("sync_retains_from_peers from {node_id}: completed");
+        }
     }
 }

@@ -103,6 +103,10 @@ impl RetainerPlugin {
                     support_cluster,
                 )
             }
+            #[allow(unreachable_patterns)]
+            Some(other) => {
+                return Err(anyhow!("Unsupported storage engine: {other:?} (feature not enabled)"))
+            }
             None => return Err(anyhow!("No storage engine specified (ram, sled, or redis)")),
         };
 
@@ -234,6 +238,8 @@ impl Retainer {
             Retainer::Ram(r) => r.remove_expired_messages().await,
             #[cfg(any(feature = "sled", feature = "redis"))]
             Retainer::Storage(_r) => 0,
+            #[allow(unreachable_patterns)]
+            _ => 0,
         }
     }
 
@@ -270,6 +276,8 @@ impl Retainer {
                     },
                 })
             }
+            #[allow(unreachable_patterns)]
+            _ => json!({ "storage_engine": "unknown" }),
         }
     }
 }

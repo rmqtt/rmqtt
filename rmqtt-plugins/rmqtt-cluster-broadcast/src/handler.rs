@@ -123,6 +123,38 @@ impl Handler for HookHandler {
                         };
                         return (false, Some(new_acc));
                     }
+                    Message::GetAllRetains { offset, limit } => {
+                        let retain_mgr = self.scx.extends.retain().await;
+                        let (items, has_more) =
+                            retain_mgr.get_all_paginated(*offset, *limit).await.unwrap_or_default();
+                        let total_hint = retain_mgr.count().await.max(0) as usize;
+                        let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::GetAllRetainsChunk {
+                            items,
+                            has_more,
+                            total_hint,
+                        }));
+                        return (false, Some(new_acc));
+                    }
+                    Message::SetRetain(topic, retain, expiry_interval) => {
+                        let retain_mgr = self.scx.extends.retain().await;
+                        let current_retains = retain_mgr.get(topic).await.unwrap_or_default();
+                        let should_update = match current_retains.first() {
+                            Some((_, existing)) => {
+                                let incoming_ts = retain.publish.create_time.unwrap_or(0);
+                                let existing_ts = existing.publish.create_time.unwrap_or(0);
+                                incoming_ts > existing_ts
+                            }
+                            None => true,
+                        };
+                        if should_update {
+                            if let Err(e) = retain_mgr.set(topic, retain.clone(), *expiry_interval).await {
+                                log::warn!("Failed to apply remote retain: {e:?}");
+                            }
+                        }
+                        let new_acc =
+                            HookResult::GrpcMessageReply(Ok(MessageReply::SetRetain(should_update)));
+                        return (false, Some(new_acc));
+                    }
                     Message::Online(clientid) => {
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::Online(
                             self.scx.extends.router().await.is_online(self.scx.node.id(), clientid).await,

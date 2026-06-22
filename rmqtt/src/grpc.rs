@@ -180,7 +180,6 @@ impl GrpcClient {
         );
         let mut c = Client::new(server_addr.into())
             .connect_timeout(client_timeout)
-            .timeout(client_timeout)
             .concurrency_limit(client_concurrency_limit)
             .chunk_size(1024 * 1024 * 2)
             .connect_lazy()?;
@@ -281,6 +280,8 @@ pub enum Message {
     ForwardsToAck(MsgID, NodeId, ForwardedRecipients),
     Kick(Id, CleanStart, ClearSubscriptions, IsAdmin),
     GetRetains(TopicFilter),
+    GetAllRetains { offset: usize, limit: usize },
+    SetRetain(TopicName, Retain, Option<Duration>),
     SubscriptionsSearch(SubsSearchParams),
     SubscriptionsGet(ClientId),
     RoutesGet(usize),
@@ -312,6 +313,12 @@ pub enum MessageReply {
     Error(String),
     Kick(OfflineSession),
     GetRetains(Vec<(TopicName, Retain)>),
+    GetAllRetainsChunk {
+        items: Vec<(TopicName, Retain, Option<Duration>)>,
+        has_more: bool,
+        total_hint: usize,
+    },
+    SetRetain(bool),
     SubscriptionsSearch(Vec<SubsSearchResult>),
     SubscriptionsGet(Option<Vec<SubsSearchResult>>),
     RoutesGet(Vec<Route>),

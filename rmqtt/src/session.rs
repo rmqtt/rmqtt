@@ -1727,13 +1727,14 @@ impl SessionState {
         {
             let retain = scx.extends.retain().await;
             if retain.enable() && publish.retain {
-                retain
-                    .set(
-                        &publish.topic,
-                        Retain { msg_id, from: from.clone(), publish: publish.clone() },
-                        message_expiry_interval,
-                    )
-                    .await?;
+                let retain_msg = Retain { msg_id, from: from.clone(), publish: publish.clone() };
+                retain.set(&publish.topic, retain_msg.clone(), message_expiry_interval).await?;
+                let _ = scx
+                    .extends
+                    .shared()
+                    .await
+                    .retain_set_broadcast(&publish.topic, &retain_msg, message_expiry_interval)
+                    .await;
             }
             drop(retain);
         }
