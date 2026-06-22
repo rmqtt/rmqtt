@@ -1029,56 +1029,84 @@ impl ClusterShared {
         if self.grpc_clients.is_empty() {
             return;
         }
-        {
-            let retain_mgr = self.scx.extends.retain().await;
-            if !retain_mgr.enable() || !retain_mgr.need_sync() {
-                return;
-            }
+        let retain_mgr = self.scx.extends.retain().await;
+        if !retain_mgr.enable() || !retain_mgr.need_sync() {
+            return;
         }
+        drop(retain_mgr);
+
         const CHUNK: usize = 5000;
-        for (node_id, (_, client)) in self.grpc_clients.iter() {
-            let mut offset = 0;
-            loop {
-                let mut c = client.clone();
-                let result = c
-                    .send_message(
-                        self.message_type,
-                        Message::GetAllRetains { offset, limit: CHUNK },
-                        Some(self.rw_timeout),
-                    )
-                    .await;
-                match result {
-                    Ok(MessageReply::GetAllRetainsChunk { items, has_more, .. }) => {
-                        for (topic, retain, expiry) in items {
-                            let current =
-                                self.scx.extends.retain().await.get(&topic).await.unwrap_or_default();
-                            let should_update = match current.first() {
-                                Some((_, existing)) => {
-                                    retain.publish.create_time.unwrap_or(0)
-                                        > existing.publish.create_time.unwrap_or(0)
+        let shared = self.clone();
+        let peers: Vec<_> =
+            self.grpc_clients.iter().map(|(node_id, (_, client))| (*node_id, client.clone())).collect();
+
+        let handles: Vec<_> = peers
+            .into_iter()
+            .map(|(node_id, client)| {
+                let shared = shared.clone();
+                tokio::spawn(async move {
+                    let mut offset = 0;
+                    loop {
+                        let mut c = client.clone();
+                        let result = c
+                            .send_message(
+                                shared.message_type,
+                                Message::GetAllRetains { offset, limit: CHUNK },
+                                Some(shared.rw_timeout),
+                            )
+                            .await;
+                        match result {
+                            Ok(MessageReply::GetAllRetainsChunk { items, has_more, .. }) => {
+                                for (topic, retain, expiry) in items {
+                                    let current = shared
+                                        .scx
+                                        .extends
+                                        .retain()
+                                        .await
+                                        .get(&topic)
+                                        .await
+                                        .unwrap_or_default();
+                                    let should_update = match current.first() {
+                                        Some((_, existing)) => {
+                                            retain.publish.create_time.unwrap_or(0)
+                                                > existing.publish.create_time.unwrap_or(0)
+                                        }
+                                        None => true,
+                                    };
+                                    if should_update {
+                                        let _ = shared
+                                            .scx
+                                            .extends
+                                            .retain()
+                                            .await
+                                            .set(&topic, retain, expiry)
+                                            .await;
+                                    }
                                 }
-                                None => true,
-                            };
-                            if should_update {
-                                let _ = self.scx.extends.retain().await.set(&topic, retain, expiry).await;
+                                if !has_more {
+                                    break;
+                                }
+                                offset += CHUNK;
+                            }
+                            Ok(other) => {
+                                log::warn!(
+                                    "sync_retains_from_peers unexpected reply from {node_id}: {other:?}"
+                                );
+                                break;
+                            }
+                            Err(e) => {
+                                log::warn!("sync_retains_from_peers failed from {node_id}: {e:?}");
+                                break;
                             }
                         }
-                        if !has_more {
-                            break;
-                        }
-                        offset += CHUNK;
                     }
-                    Ok(other) => {
-                        log::warn!("sync_retains_from_peers unexpected reply from {node_id}: {other:?}");
-                        break;
-                    }
-                    Err(e) => {
-                        log::warn!("sync_retains_from_peers failed from {node_id}: {e:?}");
-                        break;
-                    }
-                }
-            }
-            log::info!("sync_retains_from_peers from {node_id}: completed");
+                    log::info!("sync_retains_from_peers from {node_id}: completed");
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            let _ = handle.await;
         }
     }
 }

@@ -42,7 +42,7 @@ plugins.default_startups = [
     "rmqtt-retainer",
     "rmqtt-cluster-broadcast",
     #"rmqtt-auth-http",
-    "rmqtt-message-storage",
+    #"rmqtt-message-storage",
     "rmqtt-shared-subscription",
     "rmqtt-p2p-messaging",
     "rmqtt-web-hook"
