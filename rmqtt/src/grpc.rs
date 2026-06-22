@@ -180,6 +180,7 @@ impl GrpcClient {
         );
         let mut c = Client::new(server_addr.into())
             .connect_timeout(client_timeout)
+            .timeout(client_timeout)
             .concurrency_limit(client_concurrency_limit)
             .chunk_size(1024 * 1024 * 2)
             .connect_lazy()?;
@@ -221,6 +222,12 @@ impl GrpcClient {
         msg: Message,
         timeout: Option<Duration>,
     ) -> Result<MessageReply> {
+        // Fast-fail if the duplex request queue is full (peer node may be down).
+        if self.duplex_mailbox.req_queue_is_full() {
+            return Err(anyhow::anyhow!(
+                "send_message failed: duplex request queue is full (peer node may be down)"
+            ));
+        }
         let req = msg.encode(typ)?;
         let reply = if let Some(timeout) = timeout {
             tokio::time::timeout(timeout, self.duplex_mailbox.send(req)).await??
@@ -241,6 +248,13 @@ impl GrpcClient {
     }
     #[inline]
     async fn _notify(&mut self, typ: MessageType, msg: Message, timeout: Option<Duration>) -> Result<()> {
+        // Fast-fail if the transfer queue is full (e.g. the peer node is down).
+        // mailbox.send().await blocks indefinitely when the queue is full because
+        // poll_ready returns Pending until the consumer drains it — and a dead node
+        // never will.  Returning an error immediately prevents worker starvation.
+        if self.mailbox.req_queue_is_full() {
+            return Err(anyhow::anyhow!("notify failed: transfer queue is full (peer node may be down)"));
+        }
         let req = msg.encode(typ)?;
         if let Some(timeout) = timeout {
             tokio::time::timeout(timeout, self.mailbox.send(req)).await??;
