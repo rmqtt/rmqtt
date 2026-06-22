@@ -22,7 +22,7 @@ use futures::future::FutureExt;
 use rust_box::task_exec_queue::{SpawnExt, TaskExecQueue};
 
 use rmqtt::context::ServerContext;
-use rmqtt::types::{ClientId, SubscriptionOptions, TopicFilter};
+use rmqtt::types::{ClientId, Retain, SubscriptionOptions, TopicFilter, TopicName};
 use rmqtt::{
     grpc::{GrpcClient, GrpcClients, Message, MessageBroadcaster, MessageReply, MessageSender, MessageType},
     router::Router,
@@ -797,36 +797,32 @@ impl Shared for ClusterShared {
                 self.grpc_clients.len(),
                 self.rw_timeout
             );
-            let retains = retain_mgr.get(topic_filter).await?;
-            let mut excludeds = cb.on_retains(retains).await?;
+            let mut all_retains = retain_mgr.get(topic_filter).await?;
 
             if !self.grpc_clients.is_empty() {
                 let grpc_clients = self.grpc_clients.clone();
                 let message_type = self.message_type;
                 let rw_timeout = self.rw_timeout;
                 let topic_filter = topic_filter.clone();
-                let cb2 = cb.clone();
-                let replys: Vec<(NodeId, Result<Vec<(NodeId, MsgID)>>)> = async move {
+                let replys: Vec<(NodeId, Result<Vec<(TopicName, Retain)>>)> = async move {
                     MessageBroadcaster::new(
                         grpc_clients,
                         message_type,
                         Message::GetRetains(topic_filter),
                         Some(rw_timeout),
                     )
-                    .join_all_with_async(move |reply| {
-                        let retains = match reply {
-                            Ok(MessageReply::GetRetains(retains)) => retains,
+                    .join_all_with_async(move |reply| async move {
+                        match reply {
+                            Ok(MessageReply::GetRetains(retains)) => Ok(retains),
                             Ok(other) => {
                                 log::warn!("unexpected reply: {other:?}");
-                                vec![]
+                                Ok(vec![])
                             }
                             Err(e) => {
                                 log::warn!("Message::GetRetains failed, {e:?}");
-                                vec![]
+                                Ok(vec![])
                             }
-                        };
-                        let cb2 = cb2.clone();
-                        async move { cb2.on_retains(retains).await }
+                        }
                     })
                     .await
                 }
@@ -837,13 +833,14 @@ impl Shared for ClusterShared {
 
                 for (node_id, result) in replys {
                     match result {
-                        Ok(mut ids) => excludeds.append(&mut ids),
+                        Ok(mut remote_retains) => all_retains.append(&mut remote_retains),
                         Err(e) => log::warn!("Message::GetRetains failed, node_id: {node_id}, {e:?}"),
                     }
                 }
             }
 
-            Ok(excludeds)
+            let deduped = rmqtt::shared::dedup_retains_by_topic(all_retains);
+            cb.on_retains(deduped).await
         } else {
             let retains = retain_mgr.get(topic_filter).await?;
             cb.on_retains(retains).await

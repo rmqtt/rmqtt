@@ -1083,3 +1083,80 @@ impl Iterator for DefaultIter<'_> {
         }
     }
 }
+
+/// Deduplicate retained messages by topic, keeping the one with the latest `create_time`.
+///
+/// When clustering with node-local retain storage (ram/sled), the same topic may be
+/// present on multiple nodes. This helper collapses those duplicates so a subscriber
+/// receives only the newest retained message per topic.
+#[cfg(feature = "retain")]
+pub fn dedup_retains_by_topic(retains: Vec<(TopicName, Retain)>) -> Vec<(TopicName, Retain)> {
+    let mut latest_idx: HashMap<TopicName, usize> = HashMap::default();
+    for (idx, (topic, retain)) in retains.iter().enumerate() {
+        let incoming_ts = retain.publish.create_time.unwrap_or(0);
+        let keep = match latest_idx.get(topic) {
+            Some(&existing_idx) => {
+                let existing_ts = retains[existing_idx].1.publish.create_time.unwrap_or(0);
+                incoming_ts > existing_ts
+            }
+            None => true,
+        };
+        if keep {
+            latest_idx.insert(topic.clone(), idx);
+        }
+    }
+    let mut indices: Vec<usize> = latest_idx.into_values().collect();
+    indices.sort_unstable();
+    indices.into_iter().map(|idx| retains[idx].clone()).collect()
+}
+
+#[cfg(all(test, feature = "retain"))]
+mod tests {
+    use super::*;
+    use crate::codec::types::{Publish as CodecPublish, QoS};
+    use crate::types::{ClientId, From, Id, Publish, Retain};
+    use bytes::Bytes;
+    use std::collections::HashMap as StdHashMap;
+
+    fn make_retain(topic: &str, payload: &str, create_time: i64) -> (TopicName, Retain) {
+        let topic = TopicName::from(topic);
+        let codec_publish = CodecPublish {
+            dup: false,
+            retain: true,
+            qos: QoS::AtMostOnce,
+            topic: topic.clone(),
+            packet_id: None,
+            payload: Bytes::from(payload.to_string()),
+            properties: None,
+        };
+        let publish = Publish::from(codec_publish).create_time(create_time);
+        let retain =
+            Retain { msg_id: None, from: From::from_custom(Id::from(0, ClientId::from_static(""))), publish };
+        (topic, retain)
+    }
+
+    #[test]
+    fn test_dedup_retains_by_topic_keeps_latest() {
+        let retains = vec![
+            make_retain("a/b", "old", 100),
+            make_retain("a/b", "new", 200),
+            make_retain("a/c", "other", 150),
+        ];
+        let deduped = dedup_retains_by_topic(retains);
+        assert_eq!(deduped.len(), 2);
+        let map: StdHashMap<String, String> = deduped
+            .into_iter()
+            .map(|(t, r)| (t.to_string(), String::from_utf8(r.publish.payload.to_vec()).unwrap()))
+            .collect();
+        assert_eq!(map.get("a/b").unwrap(), "new");
+        assert_eq!(map.get("a/c").unwrap(), "other");
+    }
+
+    #[test]
+    fn test_dedup_retains_by_topic_first_wins_on_equal_time() {
+        let retains = vec![make_retain("a/b", "first", 100), make_retain("a/b", "second", 100)];
+        let deduped = dedup_retains_by_topic(retains);
+        assert_eq!(deduped.len(), 1);
+        assert_eq!(deduped[0].1.publish.payload.as_ref(), b"first");
+    }
+}
