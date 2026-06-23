@@ -856,6 +856,11 @@ impl Shared for ClusterShared {
         if self.grpc_clients.is_empty() {
             return Ok(());
         }
+
+        if !self.scx.extends.retain().await.need_sync() {
+            return Ok(());
+        }
+
         let msg = Message::SetRetain(topic.clone(), retain.clone(), expiry_interval);
         for (node_id, (_, client)) in self.grpc_clients.iter() {
             let sender =
