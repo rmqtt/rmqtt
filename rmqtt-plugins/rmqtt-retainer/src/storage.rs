@@ -18,6 +18,7 @@ use async_trait::async_trait;
 use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt};
 use futures_time::{self, future::FutureExt};
+use rust_box::task_exec_queue::{SpawnExt, TaskExecQueue};
 use tokio::sync::RwLock;
 
 use rmqtt_storage::{DefaultStorageDB, StorageType};
@@ -54,6 +55,7 @@ impl Retainer {
         storage_db: DefaultStorageDB,
         retain_enable: Arc<AtomicBool>,
         storage_type: StorageType,
+        exec: TaskExecQueue,
     ) -> Result<Retainer> {
         let (msg_tx, msg_rx) = mpsc::channel::<Msg>(300_000);
         let msg_queue_count = Arc::new(AtomicIsize::new(0));
@@ -68,6 +70,7 @@ impl Retainer {
             storage_messages_count,
             storage_messages_max,
             storage_type,
+            exec,
         });
         Self { inner }.serve(msg_rx)
     }
@@ -135,6 +138,7 @@ pub struct RetainerInner {
     storage_messages_count: ValueCached<usize>,
     storage_messages_max: ValueCached<isize>,
     storage_type: StorageType,
+    exec: TaskExecQueue,
 }
 
 impl RetainerInner {
@@ -290,6 +294,32 @@ impl RetainerInner {
     #[inline]
     async fn get_message(&self, topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>> {
         let topic = Topic::from_str(topic_filter)?;
+
+        // Precise topic short circuit - GET directly without wildcard, O (1) single Redis query
+        if !topic_filter.contains(['+', '#']) {
+            let exact_key = [RETAIN_MESSAGES_PREFIX, topic_filter.as_bytes()].concat();
+            return match self.storage_db.get::<_, StoredMsg>(exact_key.as_slice()).await {
+                Ok(Some((retain, expiry_time_at))) => {
+                    let retains = if let Some(expiry_time_at) = expiry_time_at {
+                        if expiry_time_at > timestamp_millis() {
+                            vec![(TopicName::from(topic_filter.as_ref()), retain)]
+                        } else {
+                            Vec::new()
+                        }
+                    } else {
+                        vec![(TopicName::from(topic_filter.as_ref()), retain)]
+                    };
+                    Ok(retains)
+                }
+                Ok(None) => Ok(Vec::new()),
+                Err(e) => {
+                    log::error!("get_message exact get error: {e:?}");
+                    Ok(Vec::new())
+                }
+            };
+        }
+
+        // Wildcard path: Follow SCAN+MATCH unchanged
         let topic_filter_pattern = Self::topic_filter_to_pattern(topic_filter);
         let mut matched_topics = Vec::new();
         let mut db = self.storage_db.clone();
@@ -465,7 +495,13 @@ impl RetainStorage for Retainer {
             log::error!("{ERR_NOT_SUPPORTED}");
             Ok(Vec::new())
         } else {
-            Ok(self.get_message(topic_filter).await?)
+            let this = self.clone();
+            let tf = topic_filter.clone();
+            async move { this.get_message(&tf).await }
+                .spawn(&self.exec)
+                .result()
+                .await
+                .map_err(|e| anyhow!(e.to_string()))?
         }
     }
 

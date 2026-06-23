@@ -211,7 +211,22 @@ impl GrpcClient {
         defer! {
             active_tasks.dec();
         }
-        self._send_message(typ, msg, timeout).await
+        self._send_message(typ, msg, timeout, false).await
+    }
+
+    #[inline]
+    pub async fn quick_send_message(
+        &mut self,
+        typ: MessageType,
+        msg: Message,
+        timeout: Option<Duration>,
+    ) -> Result<MessageReply> {
+        let active_tasks = self.active_tasks.clone();
+        active_tasks.inc();
+        defer! {
+            active_tasks.dec();
+        }
+        self._send_message(typ, msg, timeout, true).await
     }
 
     #[inline]
@@ -220,7 +235,18 @@ impl GrpcClient {
         typ: MessageType,
         msg: Message,
         timeout: Option<Duration>,
+        quick: bool,
     ) -> Result<MessageReply> {
+        if quick {
+            let req = msg.encode(typ)?;
+            let reply = if let Some(timeout) = timeout {
+                tokio::time::timeout(timeout, self.duplex_mailbox.quick_send(req)).await??
+            } else {
+                self.duplex_mailbox.quick_send(req).await?
+            };
+            return MessageReply::decode(&reply);
+        }
+
         // Fast-fail if the duplex request queue is full (peer node may be down).
         if self.duplex_mailbox.req_queue_is_full() {
             return Err(anyhow::anyhow!(
@@ -243,10 +269,42 @@ impl GrpcClient {
         defer! {
             active_tasks.dec();
         }
-        self._notify(typ, msg, timeout).await
+        self._notify(typ, msg, timeout, false).await
     }
+
     #[inline]
-    async fn _notify(&mut self, typ: MessageType, msg: Message, timeout: Option<Duration>) -> Result<()> {
+    pub async fn quick_notify(
+        &mut self,
+        typ: MessageType,
+        msg: Message,
+        timeout: Option<Duration>,
+    ) -> Result<()> {
+        let active_tasks = self.active_tasks.clone();
+        active_tasks.inc();
+        defer! {
+            active_tasks.dec();
+        }
+        self._notify(typ, msg, timeout, true).await
+    }
+
+    #[inline]
+    async fn _notify(
+        &mut self,
+        typ: MessageType,
+        msg: Message,
+        timeout: Option<Duration>,
+        quick: bool,
+    ) -> Result<()> {
+        if quick {
+            let req = msg.encode(typ)?;
+            if let Some(timeout) = timeout {
+                tokio::time::timeout(timeout, self.mailbox.quick_send(req)).await??;
+            } else {
+                self.mailbox.quick_send(req).await?;
+            };
+            return Ok(());
+        }
+
         // Fast-fail if the transfer queue is full (e.g. the peer node is down).
         // mailbox.send().await blocks indefinitely when the queue is full because
         // poll_ready returns Pending until the consumer drains it — and a dead node
@@ -351,17 +409,33 @@ pub struct MessageSender {
     msg_type: MessageType,
     msg: Message,
     timeout: Option<Duration>,
+    quick: bool,
 }
 
 impl MessageSender {
     #[inline]
     pub fn new(client: GrpcClient, msg_type: MessageType, msg: Message, timeout: Option<Duration>) -> Self {
-        Self { client, msg_type, msg, timeout }
+        Self { client, msg_type, msg, timeout, quick: false }
+    }
+
+    #[inline]
+    pub fn new_quick(
+        client: GrpcClient,
+        msg_type: MessageType,
+        msg: Message,
+        timeout: Option<Duration>,
+    ) -> Self {
+        Self { client, msg_type, msg, timeout, quick: true }
     }
 
     #[inline]
     pub async fn send(mut self) -> Result<MessageReply> {
-        match self.client.send_message(self.msg_type, self.msg, self.timeout).await {
+        let reply = if self.quick {
+            self.client.quick_send_message(self.msg_type, self.msg, self.timeout).await
+        } else {
+            self.client.send_message(self.msg_type, self.msg, self.timeout).await
+        };
+        match reply {
             Ok(reply) => Ok(reply),
             Err(e) => {
                 log::warn!("error sending message, {e:?}");
@@ -372,7 +446,13 @@ impl MessageSender {
 
     #[inline]
     pub async fn notify(mut self) -> Result<()> {
-        match self.client.notify(self.msg_type, self.msg, self.timeout).await {
+        let reply = if self.quick {
+            self.client.quick_notify(self.msg_type, self.msg, self.timeout).await
+        } else {
+            self.client.notify(self.msg_type, self.msg, self.timeout).await
+        };
+
+        match reply {
             Ok(()) => Ok(()),
             Err(e) => {
                 log::warn!("error notify message, {e:?}");
@@ -392,6 +472,7 @@ pub struct MessageBroadcaster {
     msg_type: MessageType,
     msg: Message,
     timeout: Option<Duration>,
+    quick: bool,
 }
 
 impl MessageBroadcaster {
@@ -403,18 +484,36 @@ impl MessageBroadcaster {
         timeout: Option<Duration>,
     ) -> Self {
         assert!(!grpc_clients.is_empty(), "gRPC clients is empty!");
-        Self { grpc_clients, msg_type, msg, timeout }
+        Self { grpc_clients, msg_type, msg, timeout, quick: false }
+    }
+
+    #[inline]
+    pub fn new_quick(
+        grpc_clients: GrpcClients,
+        msg_type: MessageType,
+        msg: Message,
+        timeout: Option<Duration>,
+    ) -> Self {
+        assert!(!grpc_clients.is_empty(), "gRPC clients is empty!");
+        Self { grpc_clients, msg_type, msg, timeout, quick: true }
     }
 
     #[inline]
     pub async fn join_all(self) -> Vec<(NodeId, Result<MessageReply>)> {
         let msg = self.msg;
+        let quick = self.quick;
         let mut senders = Vec::new();
         for (id, (_, grpc_client)) in self.grpc_clients.iter() {
             let msg_type = self.msg_type;
             let msg = msg.clone();
-            let fut =
-                async move { (*id, grpc_client.clone().send_message(msg_type, msg, self.timeout).await) };
+            let fut = async move {
+                let reply = if quick {
+                    grpc_client.clone().quick_send_message(msg_type, msg, self.timeout).await
+                } else {
+                    grpc_client.clone().send_message(msg_type, msg, self.timeout).await
+                };
+                (*id, reply)
+            };
             senders.push(fut.boxed());
         }
         futures::future::join_all(senders).await
@@ -423,11 +522,19 @@ impl MessageBroadcaster {
     #[inline]
     pub async fn notify_all(self) -> Vec<(NodeId, Result<()>)> {
         let msg = self.msg;
+        let quick = self.quick;
         let mut senders = Vec::new();
         for (id, (_, grpc_client)) in self.grpc_clients.iter() {
             let msg_type = self.msg_type;
             let msg = msg.clone();
-            let fut = async move { (*id, grpc_client.clone().notify(msg_type, msg, self.timeout).await) };
+            let fut = async move {
+                let reply = if quick {
+                    grpc_client.clone().quick_notify(msg_type, msg, self.timeout).await
+                } else {
+                    grpc_client.clone().notify(msg_type, msg, self.timeout).await
+                };
+                (*id, reply)
+            };
             senders.push(fut.boxed());
         }
         futures::future::join_all(senders).await
@@ -440,6 +547,7 @@ impl MessageBroadcaster {
         F: Fn(Result<MessageReply>) -> Result<R> + Send + Sync,
     {
         let msg = self.msg;
+        let quick = self.quick;
         let msg_type = self.msg_type;
         let timeout = self.timeout;
 
@@ -447,7 +555,14 @@ impl MessageBroadcaster {
         for (id, (_, grpc_client)) in self.grpc_clients.iter() {
             let mut client = grpc_client.clone();
             let msg = msg.clone();
-            futures.push(async move { (*id, client.send_message(msg_type, msg, timeout).await) });
+            futures.push(async move {
+                let reply = if quick {
+                    client.quick_send_message(msg_type, msg, timeout).await
+                } else {
+                    client.send_message(msg_type, msg, timeout).await
+                };
+                (*id, reply)
+            });
         }
 
         let mut results = Vec::new();
@@ -473,6 +588,7 @@ impl MessageBroadcaster {
     {
         let msg = self.msg;
         let msg_type = self.msg_type;
+        let quick = self.quick;
         let timeout = self.timeout;
 
         let handler = Arc::new(handler);
@@ -482,7 +598,11 @@ impl MessageBroadcaster {
             let msg = msg.clone();
             let handler = Arc::clone(&handler);
             futures.push(Box::pin(async move {
-                let reply = client.send_message(msg_type, msg, timeout).await;
+                let reply = if quick {
+                    client.quick_send_message(msg_type, msg, timeout).await
+                } else {
+                    client.send_message(msg_type, msg, timeout).await
+                };
                 (id, handler(reply).await)
             }));
         }
@@ -501,15 +621,19 @@ impl MessageBroadcaster {
         F: Fn(MessageReply) -> Result<R> + Send + Sync,
     {
         let msg = self.msg;
+        let quick = self.quick;
         let mut senders = Vec::new();
         let max_idx = self.grpc_clients.len() - 1;
         for (i, (_, (_, grpc_client))) in self.grpc_clients.iter().enumerate() {
             if i == max_idx {
-                senders.push(Self::send(grpc_client, self.msg_type, msg, self.timeout, &check_fn).boxed());
+                senders.push(
+                    Self::send(grpc_client, self.msg_type, msg, self.timeout, quick, &check_fn).boxed(),
+                );
                 break;
             } else {
                 senders.push(
-                    Self::send(grpc_client, self.msg_type, msg.clone(), self.timeout, &check_fn).boxed(),
+                    Self::send(grpc_client, self.msg_type, msg.clone(), self.timeout, quick, &check_fn)
+                        .boxed(),
                 );
             }
         }
@@ -523,13 +647,20 @@ impl MessageBroadcaster {
         typ: MessageType,
         msg: Message,
         timeout: Option<Duration>,
+        quick: bool,
         check_fn: &F,
     ) -> Result<R>
     where
         R: std::any::Any + Send + Sync,
         F: Fn(MessageReply) -> Result<R> + Send + Sync,
     {
-        match grpc_client.clone().send_message(typ, msg, timeout).await {
+        let reply = if quick {
+            grpc_client.clone().quick_send_message(typ, msg, timeout).await
+        } else {
+            grpc_client.clone().send_message(typ, msg, timeout).await
+        };
+
+        match reply {
             Ok(r) => {
                 log::debug!("OK reply: {r:?}");
                 check_fn(r)

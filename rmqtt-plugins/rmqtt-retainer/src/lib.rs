@@ -89,6 +89,7 @@ impl RetainerPlugin {
                     _ => return Err(anyhow::anyhow!("unsupported storage type")),
                 };
                 let storage_db = init_db(s_cfg).await?;
+                let exec = scx.get_exec(("RETAINER_EXEC", 1000, 100_000));
                 (
                     Retainer::Storage(
                         storage::Retainer::new(
@@ -97,6 +98,7 @@ impl RetainerPlugin {
                             storage_db,
                             retain_enable.clone(),
                             s_cfg.typ.clone(),
+                            exec,
                         )
                         .await?,
                     ),

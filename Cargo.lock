@@ -5267,6 +5267,7 @@ dependencies = [
  "log",
  "rmqtt",
  "rmqtt-storage",
+ "rust-box",
  "serde",
  "serde_json",
  "tokio",
