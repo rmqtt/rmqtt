@@ -215,6 +215,7 @@ pub struct ClusterShared {
     scx: ServerContext,
     exec: TaskExecQueue,
     forwards_exec: TaskExecQueue,
+    retainer_exec: TaskExecQueue,
     grpc_clients: GrpcClients,
     /// The gRPC message type used for cluster communication.
     pub message_type: MessageType,
@@ -241,11 +242,13 @@ impl ClusterShared {
     ) -> ClusterShared {
         let scx1 = scx.clone();
         let forwards_exec = scx.get_exec("BC_FORWARDS_EXEC");
+        let retainer_exec = scx.get_exec("BC_RETAINER_EXEC");
         Self {
             inner: DefaultShared::new(Some(scx1)),
             scx,
             exec,
             forwards_exec,
+            retainer_exec,
             grpc_clients,
             message_type,
             node_names: Arc::new(node_names),
@@ -856,26 +859,36 @@ impl Shared for ClusterShared {
             let mut all_retains = retain_mgr.get(topic_filter).await?;
 
             if !self.grpc_clients.is_empty() {
-                let replys = MessageBroadcaster::new(
-                    self.grpc_clients.clone(),
-                    self.message_type,
-                    Message::GetRetains(topic_filter.clone()),
-                    Some(self.rw_timeout),
-                )
-                .join_all_with_async(move |reply| async move {
-                    match reply {
-                        Ok(MessageReply::GetRetains(retains)) => Ok(retains),
-                        Ok(other) => {
-                            log::warn!("unexpected reply: {other:?}");
-                            Ok(vec![])
+                let grpc_clients = self.grpc_clients.clone();
+                let message_type = self.message_type;
+                let rw_timeout = self.rw_timeout;
+                let topic_filter = topic_filter.clone();
+                let replys: Vec<(NodeId, Result<Vec<(TopicName, Retain)>>)> = async move {
+                    MessageBroadcaster::new(
+                        grpc_clients,
+                        message_type,
+                        Message::GetRetains(topic_filter),
+                        Some(rw_timeout),
+                    )
+                    .join_all_with_async(move |reply| async move {
+                        match reply {
+                            Ok(MessageReply::GetRetains(retains)) => Ok(retains),
+                            Ok(other) => {
+                                log::warn!("unexpected reply: {other:?}");
+                                Ok(vec![])
+                            }
+                            Err(e) => {
+                                log::warn!("Message::GetRetains failed, {e:?}");
+                                Ok(vec![])
+                            }
                         }
-                        Err(e) => {
-                            log::warn!("Message::GetRetains failed, {e:?}");
-                            Ok(vec![])
-                        }
-                    }
-                })
-                .await;
+                    })
+                    .await
+                }
+                .spawn(&self.retainer_exec)
+                .result()
+                .await
+                .map_err(|_| anyhow!("ClusterShared::retain_load_with task execution failure"))?;
 
                 for (node_id, result) in replys {
                     match result {
@@ -913,8 +926,8 @@ impl Shared for ClusterShared {
                         msg.clone(),
                         Some(self.rw_timeout),
                     );
-                    if let Err(e) = sender.notify().await {
-                        log::warn!("retain_set_broadcast to node {node_id} failed, {e:?}");
+                    if let Err(e) = sender.notify().spawn(&self.retainer_exec).await {
+                        log::warn!("retain_set_broadcast to node {node_id} failed, {e}");
                     }
                 }
             }
@@ -932,8 +945,8 @@ impl Shared for ClusterShared {
                         msg.clone(),
                         Some(self.rw_timeout),
                     );
-                    if let Err(e) = sender.notify().await {
-                        log::warn!("retain_set_broadcast(topic) to node {node_id} failed, {e:?}");
+                    if let Err(e) = sender.notify().spawn(&self.retainer_exec).await {
+                        log::warn!("retain_set_broadcast(topic) to node {node_id} failed, {e}");
                     }
                 }
             }
