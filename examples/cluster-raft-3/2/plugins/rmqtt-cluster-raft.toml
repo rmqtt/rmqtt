@@ -51,3 +51,9 @@ raft.read_only_option = "Safe"
 raft.skip_bcast_commit = false
 raft.batch_append = false
 raft.priority = 0
+
+##gRPC circuit breaker settings
+node_grpc_circuit_breaker_enabled = true
+node_grpc_circuit_failure_threshold = 10
+node_grpc_circuit_reset_timeout = "15s"
+node_grpc_circuit_half_open_success_threshold = 3

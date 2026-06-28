@@ -14,6 +14,11 @@ node_grpc_batch_size = 128
 node_grpc_client_concurrency_limit = 128
 ##Connect and send to server timeout
 node_grpc_client_timeout = "15s"
+##gRPC circuit breaker settings
+node_grpc_circuit_breaker_enabled = true
+node_grpc_circuit_failure_threshold = 10
+node_grpc_circuit_reset_timeout = "15s"
+node_grpc_circuit_half_open_success_threshold = 3
 
 ##Task execution queue workers
 task_exec_queue_workers = 500

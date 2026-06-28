@@ -75,7 +75,7 @@ use crate::types::{
     NodeId, OfflineSession, Publish, Retain, Route, SessionStatus, SharedGroup, SubRelations,
     SubRelationsMap, SubsSearchParams, SubsSearchResult, TopicFilter, TopicName,
 };
-use crate::utils::Counter;
+use crate::utils::{CircuitBreaker, Counter};
 use crate::Result;
 
 /// Internal type alias for async join_all_with handler futures.
@@ -195,6 +195,7 @@ pub struct GrpcClient {
     mailbox: Mailbox,
     duplex_mailbox: DuplexMailbox,
     active_tasks: Arc<Counter>,
+    circuit_breaker: Arc<CircuitBreaker>,
 }
 
 impl GrpcClient {
@@ -204,6 +205,7 @@ impl GrpcClient {
         server_addr: &str,
         client_timeout: Duration,
         client_concurrency_limit: usize,
+        circuit_breaker: Arc<CircuitBreaker>,
     ) -> Result<Self> {
         log::info!(
             "GrpcClient::new server_addr: {server_addr}, client_concurrency_limit: {client_concurrency_limit}"
@@ -216,7 +218,7 @@ impl GrpcClient {
         let duplex_mailbox = c.duplex_transfer_start(100_000).await;
         let mailbox = c.transfer_start(100_000).await;
         let active_tasks = Arc::new(Counter::new());
-        Ok(Self { mailbox, duplex_mailbox, active_tasks })
+        Ok(Self { mailbox, duplex_mailbox, active_tasks, circuit_breaker })
     }
 
     #[inline]
@@ -227,6 +229,11 @@ impl GrpcClient {
     #[inline]
     pub fn transfer_queue_len(&self) -> usize {
         self.mailbox.req_queue_len()
+    }
+
+    #[inline]
+    pub fn circuit_breaker(&self) -> &CircuitBreaker {
+        &self.circuit_breaker
     }
 
     #[inline]
@@ -267,30 +274,33 @@ impl GrpcClient {
         timeout: Option<Duration>,
         quick: bool,
     ) -> Result<MessageReply> {
-        if quick {
-            let req = msg.encode(typ)?;
-            let reply = if let Some(timeout) = timeout {
-                tokio::time::timeout(timeout, self.duplex_mailbox.quick_send(req)).await??
-            } else {
-                self.duplex_mailbox.quick_send(req).await?
-            };
-            return MessageReply::decode(&reply);
+        if self.circuit_breaker.is_blocked() {
+            return Err(anyhow::anyhow!("gRPC circuit breaker is OPEN, skipping send_message"));
         }
 
-        // Fast-fail if the duplex request queue is full (peer node may be down).
-        // if self.duplex_mailbox.req_queue_is_full() {
-        //     return Err(anyhow::anyhow!(
-        //         "send_message failed: duplex request queue is full (peer node may be down)"
-        //     ));
-        // }
+        let req = msg.encode(typ)?; // encoding error → fast exit, NOT a CB failure
 
-        let req = msg.encode(typ)?;
-        let reply = if let Some(timeout) = timeout {
-            tokio::time::timeout(timeout, self.duplex_mailbox.send(req)).await??
-        } else {
-            self.duplex_mailbox.send(req).await?
-        };
-        MessageReply::decode(&reply)
+        let result = async {
+            let reply = if quick {
+                if let Some(timeout) = timeout {
+                    tokio::time::timeout(timeout, self.duplex_mailbox.quick_send(req)).await??
+                } else {
+                    self.duplex_mailbox.quick_send(req).await?
+                }
+            } else if let Some(timeout) = timeout {
+                tokio::time::timeout(timeout, self.duplex_mailbox.send(req)).await??
+            } else {
+                self.duplex_mailbox.send(req).await?
+            };
+            MessageReply::decode(&reply) // decode failure → CB failure (bad network response)
+        }
+        .await;
+
+        match &result {
+            Ok(_) => self.circuit_breaker.record_success(),
+            Err(_) => self.circuit_breaker.record_failure(),
+        }
+        result
     }
 
     #[inline]
@@ -326,31 +336,33 @@ impl GrpcClient {
         timeout: Option<Duration>,
         quick: bool,
     ) -> Result<()> {
-        if quick {
-            let req = msg.encode(typ)?;
-            if let Some(timeout) = timeout {
-                tokio::time::timeout(timeout, self.mailbox.quick_send(req)).await??;
-            } else {
-                self.mailbox.quick_send(req).await?;
-            };
-            return Ok(());
+        if self.circuit_breaker.is_blocked() {
+            return Err(anyhow::anyhow!("gRPC circuit breaker is OPEN, skipping notify"));
         }
 
-        // Fast-fail if the transfer queue is full (e.g. the peer node is down).
-        // mailbox.send().await blocks indefinitely when the queue is full because
-        // poll_ready returns Pending until the consumer drains it — and a dead node
-        // never will.  Returning an error immediately prevents worker starvation.
-        // if self.mailbox.req_queue_is_full() {
-        //     return Err(anyhow::anyhow!("notify failed: transfer queue is full (peer node may be down)"));
-        // }
+        let req = msg.encode(typ)?; // encoding error → fast exit, NOT a CB failure
 
-        let req = msg.encode(typ)?;
-        if let Some(timeout) = timeout {
-            tokio::time::timeout(timeout, self.mailbox.send(req)).await??;
-        } else {
-            self.mailbox.send(req).await?;
-        };
-        Ok(())
+        let result = async {
+            if quick {
+                if let Some(timeout) = timeout {
+                    tokio::time::timeout(timeout, self.mailbox.quick_send(req)).await??;
+                } else {
+                    self.mailbox.quick_send(req).await?;
+                };
+            } else if let Some(timeout) = timeout {
+                tokio::time::timeout(timeout, self.mailbox.send(req)).await??;
+            } else {
+                self.mailbox.send(req).await?;
+            }
+            Ok(())
+        }
+        .await;
+
+        match &result {
+            Ok(_) => self.circuit_breaker.record_success(),
+            Err(_) => self.circuit_breaker.record_failure(),
+        }
+        result
     }
 }
 
