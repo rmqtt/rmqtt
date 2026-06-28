@@ -271,7 +271,8 @@ impl Consumer {
         }
 
         if let (Some(jwt), Some(seed)) = (cfg.auth.jwt.as_ref(), cfg.auth.jwt_seed.as_ref()) {
-            let key_pair = Arc::new(nkeys::KeyPair::from_seed(seed).map_err(|e: nkeys::error::Error| anyhow!(e))?);
+            let key_pair =
+                Arc::new(nkeys::KeyPair::from_seed(seed).map_err(|e: nkeys::error::Error| anyhow!(e))?);
             opts = opts.jwt(jwt.into(), move |nonce| {
                 let key_pair = key_pair.clone();
                 async move { key_pair.sign(&nonce).map_err(async_nats::AuthError::new) }

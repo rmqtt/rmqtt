@@ -15,7 +15,10 @@ use bytestring::ByteString;
 use event_notify::Event;
 use futures::StreamExt;
 use itertools::Itertools;
-use pulsar::{authentication::oauth2::OAuth2Authentication, authentication::oauth2::OAuth2Params, consumer, Authentication, Pulsar, TokioExecutor};
+use pulsar::{
+    authentication::oauth2::OAuth2Authentication, authentication::oauth2::OAuth2Params, consumer,
+    Authentication, Pulsar, TokioExecutor,
+};
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 
