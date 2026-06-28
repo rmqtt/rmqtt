@@ -67,6 +67,7 @@ use rust_box::handy_grpc::{
 use rust_box::mpsc::priority_channel as channel;
 use scopeguard::defer;
 use serde::{Deserialize, Serialize};
+use strum::EnumCount;
 
 use crate::context::ServerContext;
 use crate::types::{
@@ -101,9 +102,24 @@ impl GrpcServer {
         reuseport: bool,
     ) -> Result<()> {
         let runner = async move {
-            let (tx, mut rx) = channel::<Priority, GrpcMessage>(300_000);
+            let (tx, mut rx) = channel::<Priority, GrpcMessage>(100_000);
+
+            #[cfg(feature = "rate-counter")]
+            {
+                let counters = self.scx.stats.grpc_message_counters.clone();
+                tokio::spawn(async move {
+                    let interval = Duration::from_millis(1500);
+                    loop {
+                        tokio::time::sleep(interval).await;
+                        for (_, c) in counters.iter() {
+                            c.tick(interval);
+                        }
+                    }
+                });
+            }
+
             let recv_data_fut = async move {
-                let exec = self.scx.get_exec("GRPC_SERVER_EXEC");
+                let exec = self.scx.get_exec(("GRPC_SERVER_EXEC", 5_000, 50_000));
                 while let Some((_, (data, reply_tx))) = rx.next().await {
                     #[cfg(feature = "stats")]
                     self.scx.stats.grpc_server_actives.inc();
@@ -148,7 +164,21 @@ impl GrpcServer {
 
     async fn on_recv_message(&self, req: Vec<u8>) -> Result<Option<Vec<u8>>> {
         let (typ, msg) = Message::decode(&req)?;
+
+        #[cfg(feature = "rate-counter")]
+        let vid = msg.variant_id();
+        #[cfg(feature = "rate-counter")]
+        if let Some(c) = self.scx.stats.grpc_message_counters.get(&vid) {
+            c.inc();
+        }
+
         let reply = self.scx.extends.hook_mgr().grpc_message_received(typ, msg).await?;
+
+        #[cfg(feature = "rate-counter")]
+        if let Some(c) = self.scx.stats.grpc_message_counters.get(&vid) {
+            c.dec();
+        }
+
         Ok(Some(reply.encode()?))
     }
 }
@@ -248,11 +278,12 @@ impl GrpcClient {
         }
 
         // Fast-fail if the duplex request queue is full (peer node may be down).
-        if self.duplex_mailbox.req_queue_is_full() {
-            return Err(anyhow::anyhow!(
-                "send_message failed: duplex request queue is full (peer node may be down)"
-            ));
-        }
+        // if self.duplex_mailbox.req_queue_is_full() {
+        //     return Err(anyhow::anyhow!(
+        //         "send_message failed: duplex request queue is full (peer node may be down)"
+        //     ));
+        // }
+
         let req = msg.encode(typ)?;
         let reply = if let Some(timeout) = timeout {
             tokio::time::timeout(timeout, self.duplex_mailbox.send(req)).await??
@@ -309,9 +340,10 @@ impl GrpcClient {
         // mailbox.send().await blocks indefinitely when the queue is full because
         // poll_ready returns Pending until the consumer drains it — and a dead node
         // never will.  Returning an error immediately prevents worker starvation.
-        if self.mailbox.req_queue_is_full() {
-            return Err(anyhow::anyhow!("notify failed: transfer queue is full (peer node may be down)"));
-        }
+        // if self.mailbox.req_queue_is_full() {
+        //     return Err(anyhow::anyhow!("notify failed: transfer queue is full (peer node may be down)"));
+        // }
+
         let req = msg.encode(typ)?;
         if let Some(timeout) = timeout {
             tokio::time::timeout(timeout, self.mailbox.send(req)).await??;
@@ -331,15 +363,26 @@ pub type MessageType = u64;
 ///
 /// Each variant represents a specific cluster operation:
 /// message forwarding, client management, state queries, etc.
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, EnumCount)]
 pub enum Message {
     Forwards(From, Publish),
     ForwardsTo(From, Publish, SubRelations, Option<MsgID>),
     ForwardsToAck(MsgID, NodeId, ForwardedRecipients),
     Kick(Id, CleanStart, ClearSubscriptions, IsAdmin),
     GetRetains(TopicFilter),
-    GetAllRetains { offset: usize, limit: usize },
+    GetAllRetains {
+        offset: usize,
+        limit: usize,
+    },
     SetRetain(TopicName, Retain, Option<Duration>),
+    /// Lightweight topic-only retain sync — set (for shared backends like Redis).
+    /// Carries the topic name and expiry — the receiver unconditionally
+    /// inserts the topic into its in-memory index without querying Redis.
+    SetRetainTopicAdd(TopicName, Option<Duration>),
+    /// Lightweight topic-only retain sync — remove (for shared backends like Redis).
+    /// Carries only the topic name — the receiver unconditionally removes
+    /// the topic from its in-memory index.
+    SetRetainTopicRemove(TopicName),
     SubscriptionsSearch(SubsSearchParams),
     SubscriptionsGet(ClientId),
     RoutesGet(usize),
@@ -361,6 +404,72 @@ impl Message {
     pub fn decode(data: &[u8]) -> Result<(MessageType, Message)> {
         Ok(postcard::from_bytes::<(MessageType, Message)>(data)?)
     }
+
+    /// Returns a unique byte ID for each enum variant, used as the key
+    /// in [`Stats::grpc_message_counters`] for per-variant rate tracking.
+    #[inline]
+    pub fn variant_id(&self) -> u8 {
+        match self {
+            Message::Forwards(..) => 0,
+            Message::ForwardsTo(..) => 1,
+            Message::ForwardsToAck(..) => 2,
+            Message::Kick(..) => 3,
+            Message::GetRetains(..) => 4,
+            Message::GetAllRetains { .. } => 5,
+            Message::SetRetain(..) => 6,
+            Message::SetRetainTopicAdd(..) => 7,
+            Message::SetRetainTopicRemove(..) => 8,
+            Message::SubscriptionsSearch(..) => 9,
+            Message::SubscriptionsGet(..) => 10,
+            Message::RoutesGet(..) => 11,
+            Message::RoutesGetBy(..) => 12,
+            Message::NumberOfClients => 13,
+            Message::NumberOfSessions => 14,
+            Message::Online(..) => 15,
+            Message::SessionStatus(..) => 16,
+            Message::MessageGet(..) => 17,
+            Message::Data(..) => 18,
+        }
+    }
+
+    /// Returns the display name for a given variant ID (inverse of [`variant_id`]).
+    ///
+    /// Used by [`Stats::to_sys_json`] to label per-variant rate counters.
+    #[inline]
+    pub fn variant_id_to_name(id: u8) -> &'static str {
+        match id {
+            0 => "Forwards",
+            1 => "ForwardsTo",
+            2 => "ForwardsToAck",
+            3 => "Kick",
+            4 => "GetRetains",
+            5 => "GetAllRetains",
+            6 => "SetRetain",
+            7 => "SetRetainTopicAdd",
+            8 => "SetRetainTopicRemove",
+            9 => "SubscriptionsSearch",
+            10 => "SubscriptionsGet",
+            11 => "RoutesGet",
+            12 => "RoutesGetBy",
+            13 => "NumberOfClients",
+            14 => "NumberOfSessions",
+            15 => "Online",
+            16 => "SessionStatus",
+            17 => "MessageGet",
+            18 => "Data",
+            _ => "Unknown",
+        }
+    }
+
+    /// Shorthand: returns the display name of this variant.
+    #[inline]
+    pub fn variant_name(&self) -> &'static str {
+        Self::variant_id_to_name(self.variant_id())
+    }
+
+    /// Total number of [`Message`] variants — used to pre-allocate
+    /// per-variant rate counters in [`crate::stats::Stats`].
+    pub const VARIANT_COUNT: usize = <Self as EnumCount>::COUNT;
 }
 
 /// Reply variants for cluster message responses.

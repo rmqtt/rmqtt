@@ -268,6 +268,16 @@ impl CircuitBreaker {
         }
     }
 
+    #[inline]
+    pub fn failure_count(&self) -> usize {
+        self.failure_count.load(Ordering::SeqCst)
+    }
+
+    #[inline]
+    pub fn success_count(&self) -> usize {
+        self.success_count.load(Ordering::SeqCst)
+    }
+
     /// Manually reset the circuit breaker to CLOSED state.
     ///
     /// This is useful after administrative recovery of the downstream service.

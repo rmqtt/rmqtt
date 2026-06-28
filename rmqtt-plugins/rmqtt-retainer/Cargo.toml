@@ -14,10 +14,11 @@ license.workspace = true
 all-features = true
 
 [features]
-default = []
+default = ["rate-counter"]
 ram = []
 sled = ["rmqtt-storage/sled"]
 redis = ["rmqtt-storage/redis"]
+rate-counter = []
 
 [dependencies]
 rmqtt = { workspace = true, features = ["plugin", "retain"] }

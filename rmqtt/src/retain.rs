@@ -82,6 +82,19 @@ use crate::Result;
 ///
 /// The default in-memory implementation ([`DefaultRetainStorage`]) is
 /// functional but logs a warning recommending the `rmqtt-retainer`
+/// What type of retain synchronization a storage backend requires.
+///
+/// - `Full`: send the full retain message (`SetRetain`) — for local-only
+///   backends like in-memory (Ram) or per-node Sled.
+/// - `TopicOnly`: send only the topic name (`SetRetainTopic`) — for shared
+///   backends like Redis where the retain data is already visible to all
+///   nodes, but the in-memory topic index must be kept in sync.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetainSyncMode {
+    Full,
+    TopicOnly,
+}
+
 /// plugin for production use.
 #[async_trait]
 pub trait RetainStorage: Sync + Send {
@@ -139,6 +152,36 @@ pub trait RetainStorage: Sync + Send {
     #[inline]
     fn stats_merge_mode(&self) -> StatsMergeMode {
         StatsMergeMode::None
+    }
+
+    /// What type of retain synchronization this storage requires from the
+    /// cluster plugin when [`retain_set_broadcast`] is called.
+    ///
+    /// [`retain_set_broadcast`]: crate::shared::ClusterShared::retain_set_broadcast
+    #[inline]
+    fn retain_sync_mode(&self) -> RetainSyncMode {
+        RetainSyncMode::Full
+    }
+
+    /// Handle a topic-only retain sync notification from a cluster peer.
+    ///
+    /// Called when the cluster plugin receives `SetRetainTopicAdd` or
+    /// `SetRetainTopicRemove` — only used when [`retain_sync_mode`] returns
+    /// `TopicOnly`. The storage backend should unconditionally insert or
+    /// remove the topic from its in-memory index **without** querying the
+    /// shared storage, since the actual retain data is already in Redis.
+    ///
+    /// - `is_set = true` : retain exists, insert into index
+    /// - `is_set = false`: retain deleted, remove from index
+    ///
+    /// [`retain_sync_mode`]: Self::retain_sync_mode
+    async fn sync_retain_topic(
+        &self,
+        _topic: &TopicName,
+        _expiry_interval: Option<Duration>,
+        _is_set: bool,
+    ) -> Result<()> {
+        Ok(())
     }
 }
 

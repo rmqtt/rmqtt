@@ -9,7 +9,7 @@ use std::time::Duration;
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
 
-use rmqtt::utils::{deserialize_duration_option, Bytesize};
+use rmqtt::utils::{deserialize_duration, deserialize_duration_option, Bytesize};
 use rmqtt::Result;
 
 /// Top-level configuration for the retained messages plugin.
@@ -35,6 +35,33 @@ pub struct PluginConfig {
     // If not specified, the message expiration time will be used by default.
     #[serde(default, deserialize_with = "deserialize_duration_option")]
     pub retained_message_ttl: Option<Duration>,
+
+    // Maximum number of messages per batch (default: 500).
+    #[serde(default = "PluginConfig::batch_messages_limit_default")]
+    pub batch_messages_limit: usize,
+
+    // ─── Circuit breaker ─────────────────────────────────────────────────
+    /// Enable circuit breaker for storage operations. When enabled and the
+    /// circuit is OPEN, all retain store/get operations fast-fail without
+    /// touching the storage backend.
+    #[serde(default = "PluginConfig::circuit_breaker_enabled_default")]
+    pub circuit_breaker_enabled: bool,
+
+    /// Consecutive storage failures before tripping the circuit to OPEN.
+    #[serde(default = "PluginConfig::circuit_failure_threshold_default")]
+    pub circuit_failure_threshold: usize,
+
+    /// Duration in OPEN state before transitioning to HALF_OPEN (probe).
+    /// Example: "15s", "1m".
+    #[serde(
+        default = "PluginConfig::circuit_reset_timeout_default",
+        deserialize_with = "deserialize_duration"
+    )]
+    pub circuit_reset_timeout: Duration,
+
+    /// Consecutive probe successes in HALF_OPEN before closing the circuit.
+    #[serde(default = "PluginConfig::circuit_half_open_success_threshold_default")]
+    pub circuit_half_open_success_threshold: usize,
 }
 
 impl PluginConfig {
@@ -51,6 +78,26 @@ impl PluginConfig {
 
     fn max_payload_size_default() -> Bytesize {
         Bytesize::from(1024 * 1024)
+    }
+
+    fn batch_messages_limit_default() -> usize {
+        500
+    }
+
+    fn circuit_breaker_enabled_default() -> bool {
+        true
+    }
+
+    fn circuit_failure_threshold_default() -> usize {
+        10
+    }
+
+    fn circuit_reset_timeout_default() -> Duration {
+        Duration::from_secs(15)
+    }
+
+    fn circuit_half_open_success_threshold_default() -> usize {
+        3
     }
 
     #[inline]

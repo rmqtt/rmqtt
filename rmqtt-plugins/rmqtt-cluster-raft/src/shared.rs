@@ -22,6 +22,7 @@ use futures::future::FutureExt;
 use rust_box::task_exec_queue::{SpawnExt, TaskExecQueue};
 
 use rmqtt::context::ServerContext;
+use rmqtt::retain::RetainSyncMode;
 use rmqtt::types::{ClientId, Retain, SubscriptionOptions, TopicFilter, TopicName};
 use rmqtt::{
     grpc::{GrpcClient, GrpcClients, Message, MessageBroadcaster, MessageReply, MessageSender, MessageType},
@@ -306,6 +307,7 @@ pub struct ClusterShared {
     scx: ServerContext,
     exec: TaskExecQueue,
     forwards_exec: TaskExecQueue,
+    retainer_exec: TaskExecQueue,
     inner: DefaultShared,
     router: ClusterRouter,
     grpc_clients: GrpcClients,
@@ -332,10 +334,12 @@ impl ClusterShared {
     ) -> ClusterShared {
         let scx1 = scx.clone();
         let forwards_exec = scx.get_exec("RAFT_FORWARDS_EXEC");
+        let retainer_exec = scx.get_exec("RAFT_RETAINER_EXEC");
         Self {
             scx,
             exec,
             forwards_exec,
+            retainer_exec,
             inner: DefaultShared::new(Some(scx1)),
             router,
             grpc_clients,
@@ -826,7 +830,7 @@ impl Shared for ClusterShared {
                     })
                     .await
                 }
-                .spawn(&self.exec)
+                .spawn(&self.retainer_exec)
                 .result()
                 .await
                 .map_err(|_| anyhow!("ClusterShared::retain_load_with task execution failure"))?;
@@ -857,16 +861,39 @@ impl Shared for ClusterShared {
             return Ok(());
         }
 
-        if !self.scx.extends.retain().await.need_sync() {
-            return Ok(());
-        }
-
-        let msg = Message::SetRetain(topic.clone(), retain.clone(), expiry_interval);
-        for (node_id, (_, client)) in self.grpc_clients.iter() {
-            let sender =
-                MessageSender::new(client.clone(), self.message_type, msg.clone(), Some(self.rw_timeout));
-            if let Err(e) = sender.notify().await {
-                log::warn!("retain_set_broadcast to node {node_id} failed, {e:?}");
+        match self.scx.extends.retain().await.retain_sync_mode() {
+            RetainSyncMode::Full => {
+                let msg = Message::SetRetain(topic.clone(), retain.clone(), expiry_interval);
+                for (node_id, (_, client)) in self.grpc_clients.iter() {
+                    let sender = MessageSender::new(
+                        client.clone(),
+                        self.message_type,
+                        msg.clone(),
+                        Some(self.rw_timeout),
+                    );
+                    if let Err(e) = sender.notify().spawn(&self.retainer_exec).await {
+                        log::warn!("retain_set_broadcast to node {node_id} failed, {}", e);
+                    }
+                }
+            }
+            RetainSyncMode::TopicOnly => {
+                let is_set = !retain.publish.payload.is_empty();
+                let msg = if is_set {
+                    Message::SetRetainTopicAdd(topic.clone(), expiry_interval)
+                } else {
+                    Message::SetRetainTopicRemove(topic.clone())
+                };
+                for (node_id, (_, client)) in self.grpc_clients.iter() {
+                    let sender = MessageSender::new(
+                        client.clone(),
+                        self.message_type,
+                        msg.clone(),
+                        Some(self.rw_timeout),
+                    );
+                    if let Err(e) = sender.notify().spawn(&self.retainer_exec).await {
+                        log::warn!("retain_set_broadcast(topic) to node {node_id} failed, {}", e);
+                    }
+                }
             }
         }
         Ok(())

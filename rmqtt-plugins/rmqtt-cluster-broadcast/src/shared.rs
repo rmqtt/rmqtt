@@ -12,6 +12,7 @@ use rust_box::task_exec_queue::{SpawnExt, TaskExecQueue};
 
 use rmqtt::context::ServerContext;
 use rmqtt::net::MqttError;
+use rmqtt::retain::RetainSyncMode;
 use rmqtt::shared::{DefaultShared, Entry, MessageLoadCallback, Shared};
 use rmqtt::types::{HealthInfo, MsgID, NodeHealthStatus, Retain, TopicName};
 
@@ -902,16 +903,39 @@ impl Shared for ClusterShared {
             return Ok(());
         }
 
-        if !self.scx.extends.retain().await.need_sync() {
-            return Ok(());
-        }
-
-        let msg = Message::SetRetain(topic.clone(), retain.clone(), expiry_interval);
-        for (node_id, (_, client)) in self.grpc_clients.iter() {
-            let sender =
-                MessageSender::new(client.clone(), self.message_type, msg.clone(), Some(self.rw_timeout));
-            if let Err(e) = sender.notify().await {
-                log::warn!("retain_set_broadcast to node {node_id} failed, {e:?}");
+        match self.scx.extends.retain().await.retain_sync_mode() {
+            RetainSyncMode::Full => {
+                let msg = Message::SetRetain(topic.clone(), retain.clone(), expiry_interval);
+                for (node_id, (_, client)) in self.grpc_clients.iter() {
+                    let sender = MessageSender::new(
+                        client.clone(),
+                        self.message_type,
+                        msg.clone(),
+                        Some(self.rw_timeout),
+                    );
+                    if let Err(e) = sender.notify().await {
+                        log::warn!("retain_set_broadcast to node {node_id} failed, {e:?}");
+                    }
+                }
+            }
+            RetainSyncMode::TopicOnly => {
+                let is_set = !retain.publish.payload.is_empty();
+                let msg = if is_set {
+                    Message::SetRetainTopicAdd(topic.clone(), expiry_interval)
+                } else {
+                    Message::SetRetainTopicRemove(topic.clone())
+                };
+                for (node_id, (_, client)) in self.grpc_clients.iter() {
+                    let sender = MessageSender::new(
+                        client.clone(),
+                        self.message_type,
+                        msg.clone(),
+                        Some(self.rw_timeout),
+                    );
+                    if let Err(e) = sender.notify().await {
+                        log::warn!("retain_set_broadcast(topic) to node {node_id} failed, {e:?}");
+                    }
+                }
             }
         }
         Ok(())

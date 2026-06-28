@@ -156,6 +156,53 @@ blocking the broker when Redis is unreachable.
 
 `#![deny(unsafe_code)]` — zero unsafe code.
 
+## `RateCounter` — lock‑free throughput & in‑flight tracker
+
+```rust
+use std::time::Duration;
+use rmqtt_utils::RateCounter;
+
+let rc = RateCounter::new();
+
+// Task arrives: track throughput, in-flight, and peak
+rc.incs(42);
+assert_eq!(rc.total(), 42);
+assert_eq!(rc.current(), 42);
+assert_eq!(rc.max(), 42);
+
+// Higher peak
+rc.incs(10);
+assert_eq!(rc.max(), 52);
+
+// Task completes: in-flight decreases, peak unchanged
+rc.decs(20);
+assert_eq!(rc.current(), 32);
+assert_eq!(rc.max(), 52);
+
+// Compute per-second rate over a 3 s interval
+rc.tick(Duration::from_secs(3));
+assert!((rc.speed() - 17.333).abs() < 1e-12);
+```
+
+A pure‑atomics, zero‑lock rate counter that tracks:
+- **`total`**: Cumulative count since construction or reset.
+- **`speed`**: Per‑second throughput, computed by calling `tick(interval)` at a known sampling interval.
+- **`current`**: Current in‑flight / active count (incremented by `inc`/`incs`, decremented by `dec`/`decs`).
+- **`max`**: Historical peak of the `current` field.
+
+`Clone` shares the underlying atomics via `Arc` — ideal for passing into `tokio::spawn`.  
+`snapshot()` creates an independent deep copy with the same values but new atomics.  
+Serde serialises/deserialises as a snapshot (safe for cross‑node transfer).
+
+| Method | Effect |
+|--------|--------|
+| `inc()` / `incs(n)` | Increment `total` and `current`; update `max` |
+| `dec()` / `decs(n)` | Decrement `current` only |
+| `tick(interval)` | Compute `speed = (total - last_total) / interval` |
+| `reset()` | Zero all counters |
+| `total()` / `speed()` / `current()` / `max()` | Read individual counters |
+| `snapshot()` | Create independent deep copy |
+
 ## License
 
 MIT OR Apache-2.0
