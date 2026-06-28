@@ -66,7 +66,6 @@ rmqtt-p2p-messaging.workspace = true
 [package.metadata.plugins]
 rmqtt-acl = { default_startup = true }
 rmqtt-retainer = { }
-rmqtt-http-api = { default_startup = true }
 rmqtt-counter = { default_startup = true }
 rmqtt-auth-http = { }
 rmqtt-auth-jwt = { }
@@ -90,6 +89,7 @@ rmqtt-web-hook = { }
 rmqtt-cluster-raft = { immutable = true }
 rmqtt-cluster-broadcast = { immutable = true }
 rmqtt-p2p-messaging = { }
+rmqtt-http-api = { default_startup = true }
 #rmqtt-plugin-template = { }
 
 [build-dependencies]
