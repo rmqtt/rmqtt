@@ -28,7 +28,7 @@ use rmqtt::Result;
 // ── ValueCached ──
 
 #[derive(Clone)]
-pub(crate) struct ValueCached<T> {
+pub struct ValueCached<T> {
     inner: Arc<RwLock<ValueCachedInner<T>>>,
     /// Atomic flag: `false` = idle, `true` = a background refresh is running.
     /// Stays `true` until the spawned task finishes and writes the cache.
@@ -202,7 +202,7 @@ impl<T> ValueCachedInner<T> {
 /// Return type of [`ValueCached::call`] / [`ValueCached::call_timeout`].
 ///
 /// Always constructed without awaiting — the caller is never blocked.
-pub(crate) struct ValueRef<'a, T> {
+pub struct ValueRef<'a, T> {
     val_guard: tokio::sync::RwLockReadGuard<'a, ValueCachedInner<T>>,
     /// Whether a cached value existed at the time of the snapshot.
     #[allow(dead_code)]
@@ -282,8 +282,8 @@ mod tests {
             )
             .await;
 
-        // No cached value yet — get() should be Err.
-        assert!(r.get().is_err(), "first call should return Err");
+        // No cached value yet — get() should return Ok(None).
+        assert!(r.get().unwrap().is_none(), "first call should return None (no cached value)");
         assert!(!r.has_value(), "has_value should be false");
         assert!(r.spawned(), "should have spawned a background refresh");
         // Drop r to release the read lock so the background task can write.
@@ -294,7 +294,7 @@ mod tests {
 
         // Now the cache should have the value.
         let r2 = cached.call_timeout(async { Ok(99usize) }, Duration::from_millis(500)).await;
-        assert_eq!(*r2.get().unwrap(), 42, "should return the stored 42, not 99");
+        assert_eq!(*r2.get().unwrap().unwrap(), 42, "should return the stored 42, not 99");
         assert!(called.load(Ordering::Acquire), "the closure should have been called");
     }
 
@@ -333,7 +333,7 @@ mod tests {
             )
             .await;
 
-        assert_eq!(*r.get().unwrap(), 42, "should return the cached value");
+        assert_eq!(*r.get().unwrap().unwrap(), 42, "should return the cached value");
         assert!(!r.spawned(), "should NOT have spawned a refresh");
         assert!(!called.load(Ordering::Acquire), "the closure should NOT have been called");
     }
@@ -367,7 +367,7 @@ mod tests {
             .await;
 
         // Must return the stale 10 immediately, never Err.
-        assert_eq!(*r.get().unwrap(), 10, "should return stale value 10, not wait for 20");
+        assert_eq!(*r.get().unwrap().unwrap(), 10, "should return stale value 10, not wait for 20");
         assert!(r.spawned(), "should have spawned a background refresh");
         assert!(!called.load(Ordering::Acquire), "the closure may not have run yet");
         // Drop r to release the read lock so the background task can write.
@@ -378,7 +378,7 @@ mod tests {
 
         // Now the cache should have the fresh value 20.
         let r2 = cached.call_timeout(async { Ok(99usize) }, Duration::from_millis(500)).await;
-        assert_eq!(*r2.get().unwrap(), 20, "should now return the refreshed value 20");
+        assert_eq!(*r2.get().unwrap().unwrap(), 20, "should now return the refreshed value 20");
     }
 
     /// 4. CAS prevents redundant background refreshes.
@@ -427,8 +427,8 @@ mod tests {
         );
 
         // Both should return the stale value 1.
-        assert_eq!(*r1.get().unwrap(), 1, "r1: stale value");
-        assert_eq!(*r2.get().unwrap(), 1, "r2: stale value");
+        assert_eq!(*r1.get().unwrap().unwrap(), 1, "r1: stale value");
+        assert_eq!(*r2.get().unwrap().unwrap(), 1, "r2: stale value");
 
         // At least one should have spawned.
         assert!(r1.spawned() || r2.spawned(), "at least one call should spawn");
@@ -474,7 +474,7 @@ mod tests {
 
         // Immediately after drop: still stale (bg task may still be sleeping).
         let r = cached.call_timeout(async { Ok(99usize) }, Duration::from_millis(500)).await;
-        assert_eq!(*r.get().unwrap(), 1, "still stale before refresh completes");
+        assert_eq!(*r.get().unwrap().unwrap(), 1, "still stale before refresh completes");
         drop(r);
 
         // Wait for the slow refresh to finish.
@@ -483,7 +483,7 @@ mod tests {
 
         // Now the value should be 2.
         let r = cached.call_timeout(async { Ok(99usize) }, Duration::from_millis(500)).await;
-        assert_eq!(*r.get().unwrap(), 2, "cache should now have the refreshed value");
+        assert_eq!(*r.get().unwrap().unwrap(), 2, "cache should now have the refreshed value");
     }
 
     /// 6. When the refresh closure fails, the error is cached.
@@ -515,7 +515,7 @@ mod tests {
         let r = cached.call_timeout(async { Ok(3usize) }, Duration::from_millis(500)).await;
         match r.get() {
             Err(e) => assert!(e.to_string().contains("storage error"), "error should be preserved"),
-            Ok(v) => panic!("expected error, got Ok({v})"),
+            Ok(v) => panic!("expected error, got Ok({v:?})"),
         }
     }
 
@@ -531,15 +531,15 @@ mod tests {
             let r = cached
                 .call_timeout_sync(|| -> Result<usize> { Ok(42usize) }, Duration::from_millis(500))
                 .await;
-            // No value yet (first call).
-            assert!(r.get().is_err() || *r.get().unwrap() == 42);
+            // No value yet (first call, sync variant spawns blocking task).
+            assert!(r.get().unwrap().is_none(), "first call should return None");
             drop(r);
         }
         wait().await;
 
         // Now the value should be available.
         let r = cached.call_timeout_sync(|| Ok(99usize), Duration::from_millis(500)).await;
-        assert_eq!(*r.get().unwrap(), 42, "should have the cached value from spawn_blocking");
+        assert_eq!(*r.get().unwrap().unwrap(), 42, "should have the cached value from spawn_blocking");
     }
 
     /// 8. Multiple expiry cycles work correctly.
@@ -558,7 +558,7 @@ mod tests {
         tokio::time::sleep(SHORT).await;
         {
             let r = cached.call_timeout(async { Ok(2usize) }, Duration::from_millis(500)).await;
-            assert_eq!(*r.get().unwrap(), 1, "stale 1 before refresh");
+            assert_eq!(*r.get().unwrap().unwrap(), 1, "stale 1 before refresh");
             assert!(r.spawned());
             drop(r);
         }
@@ -568,13 +568,13 @@ mod tests {
         tokio::time::sleep(SHORT).await;
         {
             let r = cached.call_timeout(async { Ok(3usize) }, Duration::from_millis(500)).await;
-            assert_eq!(*r.get().unwrap(), 2, "stale 2 before refresh");
+            assert_eq!(*r.get().unwrap().unwrap(), 2, "stale 2 before refresh");
             assert!(r.spawned());
             drop(r);
         }
         wait().await;
 
         let r = cached.call_timeout(async { Ok(99usize) }, Duration::from_millis(500)).await;
-        assert_eq!(*r.get().unwrap(), 3, "final value should be 3");
+        assert_eq!(*r.get().unwrap().unwrap(), 3, "final value should be 3");
     }
 }

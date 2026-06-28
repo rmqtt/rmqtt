@@ -15,7 +15,7 @@ use bytestring::ByteString;
 use event_notify::Event;
 use futures::StreamExt;
 use itertools::Itertools;
-use pulsar::{authentication::oauth2::OAuth2Authentication, consumer, Authentication, Pulsar, TokioExecutor};
+use pulsar::{authentication::oauth2::OAuth2Authentication, authentication::oauth2::OAuth2Params, consumer, Authentication, Pulsar, TokioExecutor};
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 
@@ -290,9 +290,9 @@ impl Consumer {
             .with_options(cfg_entry.remote.options)
             .build::<Vec<u8>>()
             .await
-            .map_err(|e| anyhow!(e))?;
+            .map_err(|e: pulsar::Error| anyhow!(e))?;
 
-        consumer.check_connection().await.map_err(|e| anyhow!(e))?;
+        consumer.check_connection().await.map_err(|e: pulsar::Error| anyhow!(e))?;
         log::info!("connection ok");
 
         let (cmd_tx, cmd_rx) = mpsc::channel(100_000);
@@ -456,7 +456,7 @@ impl BridgeManager {
             }
             Some(AuthName::OAuth2) => {
                 let oauth2_cfg = cfg.auth.data.clone().ok_or(anyhow!("oauth2 config is not exist"))?;
-                let oauth2_json = serde_json::from_str(oauth2_cfg.as_str()).map_err(|e| {
+                let oauth2_json = serde_json::from_str::<OAuth2Params>(oauth2_cfg.as_str()).map_err(|e| {
                     anyhow!(format!("invalid oauth2 config [{}], {:?}", oauth2_cfg.as_str(), e))
                 })?;
                 builder = builder.with_auth_provider(OAuth2Authentication::client_credentials(oauth2_json));
@@ -470,7 +470,7 @@ impl BridgeManager {
         builder = builder.with_tls_hostname_verification_enabled(cfg.tls_hostname_verification_enabled);
         builder = builder.with_allow_insecure_connection(cfg.allow_insecure_connection);
 
-        let pulsar: Pulsar<_> = builder.build().await.map_err(|e| anyhow!(e))?;
+        let pulsar: Pulsar<_> = builder.build().await.map_err(|e: pulsar::Error| anyhow!(e))?;
         Ok(pulsar)
     }
 
