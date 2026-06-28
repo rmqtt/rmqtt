@@ -6,9 +6,20 @@
 
 保留消息存储插件。支持 RAM、Sled（嵌入式）和 Redis 三种后端。替换 Broker 默认的 retain 引擎，提供重启后持久化能力。
 
+所有后端均支持单机和集群模式。集群模式下，本地存储后端（ram、sled）使用完整保留同步，Redis 使用轻量级仅主题同步。
+
 ## 概述
 
-在 `BeforeStartup` Hook 中注入持久化 retain 存储。后台任务每 10 秒定期清理过期的保留消息。仅 Redis 后端支持集群模式。
+在 `BeforeStartup` Hook 中注入持久化 retain 存储。后台任务每 10 秒定期清理过期的保留消息。
+
+### 架构说明（v0.22.0+）
+
+- **内存主题 Trie 索引**：启动时通过扫描已存储的保留消息构建。为订阅查询提供快速通配符匹配，替代了之前的 SCAN+MATCH 方式。
+- **批量存储**：消息收集后通过 `batch_insert` / `batch_remove` 批量处理，由 `batch_messages_limit` 控制。
+- **速率计数器**：跟踪处理吞吐量（通过 `rate-counter` 特性默认启用）。
+- **RetainSyncMode**：
+  - `Full`：完整保留消息广播（ram、sled）。
+  - `TopicOnly`：仅主题名称同步（共享存储的 Redis）。
 
 ## 使用方法
 
@@ -18,19 +29,25 @@
 
 ```toml
 # 直接依赖
-rmqtt-retainer = { version = "0.21", features = ["ram"] }
+rmqtt-retainer = { version = "0.22", features = ["ram"] }
 
 # 或通过元 crate
-rmqtt-plugins = { version = "0.21", features = ["retainer-ram"] }
+rmqtt-plugins = { version = "0.22", features = ["retainer-ram"] }
 ```
 
 可用的存储后端 Feature 标志：
 
 | Feature | 后端 | 持久化 | 集群支持 |
 |---------|------|--------|----------|
-| `ram` | 内存 HashMap | 否（重启丢失） | 否 |
-| `sled` | Sled 嵌入式数据库（磁盘） | 是 | 否 |
+| `ram` | 内存 HashMap | 否（重启丢失） | 是 |
+| `sled` | Sled 嵌入式数据库（磁盘） | 是 | 是 |
 | `redis` | Redis 远程存储 | 是 | 是 |
+
+其他特性：
+
+| Feature | 说明 |
+|---------|------|
+| `rate-counter` | 启用吞吐量速率计数器（默认启用） |
 
 ### 注册
 
@@ -56,6 +73,11 @@ rmqtt_retainer::register_named(&scx, "rmqtt-retainer", true, false).await?;
 | `max_retained_messages` | `u64` | `0`（无限制） | 最大保留消息数。超出后现有消息可被替换，但无法为新主题存储保留消息。 |
 | `max_payload_size` | `string` | `"1MB"` | 保留消息的最大 Payload 大小。超出后该消息将被视为普通消息处理。 |
 | `retained_message_ttl` | `string` | `"0m"`（不过期） | 保留消息的 TTL。未设置时默认使用消息过期时间。 |
+| `batch_messages_limit` | `usize` | `500` | 单次批量存储操作的最大消息数 |
+| `circuit_breaker_enabled` | `bool` | `true` | 启用熔断器，检测存储后端故障 |
+| `circuit_failure_threshold` | `usize` | `10` | 触发熔断器 OPEN 所需的连续失败次数 |
+| `circuit_reset_timeout` | `string` | `"15s"` | OPEN 状态持续时间，之后进入 HALF_OPEN 状态探针 |
+| `circuit_half_open_success_threshold` | `usize` | `3` | 关闭熔断器所需的连续探针成功次数 |
 
 ### 配置来源
 
@@ -71,7 +93,7 @@ rmqtt_retainer::register_named(&scx, "rmqtt-retainer", true, false).await?;
 # RAM 模式（默认）
 storage.type = "ram"
 
-# Sled 模式（持久化，单节点）
+# Sled 模式（持久化）
 storage.type = "sled"
 storage.sled.path = "/var/log/rmqtt/.cache/retain/{node}"
 storage.sled.cache_capacity = "3G"
@@ -85,6 +107,13 @@ storage.redis.prefix = "retain"
 max_retained_messages = 10000
 max_payload_size = "1MB"
 retained_message_ttl = "24h"
+batch_messages_limit = 500
+
+# 熔断器（默认启用）
+#circuit_breaker_enabled = true
+#circuit_failure_threshold = 10
+#circuit_reset_timeout = "15s"
+#circuit_half_open_success_threshold = 3
 ```
 
 ## 依赖

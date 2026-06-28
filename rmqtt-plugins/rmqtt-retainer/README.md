@@ -6,9 +6,22 @@
 
 Retained message storage plugin. Supports RAM, Sled (embedded), and Redis backends. Replaces the default retain engine with persistent storage.
 
+All backends support both single-node and cluster mode. In cluster mode, local backends (ram, sled) use full retain synchronization, while Redis uses lightweight topic-only synchronization.
+
 ## Overview
 
-Intercepts the `BeforeStartup` hook to inject a persistent retain store. A background task periodically (every 10s) cleans expired retained messages. Only the Redis backend supports cluster mode.
+Intercepts the `BeforeStartup` hook to inject a persistent retain store. A background task periodically (every 10s) cleans expired retained messages.
+
+### Architecture (v0.22.0+)
+
+- **In-Memory Topic Trie Index**: Built on startup by scanning stored retain messages. Provides fast wildcard matching for subscription queries, replacing the previous SCAN+MATCH approach.
+- **Batch Storage**: Messages are collected and processed in batches (`batch_insert` / `batch_remove`), controlled by `batch_messages_limit`.
+- **Rate Counter**: Tracks processing throughput (enabled by default via the `rate-counter` feature).
+- **RetainSyncMode**:
+  - `Full`: Full retain payload broadcast (ram, sled).
+  - `TopicOnly`: Lightweight topic-name sync only (Redis with shared storage).
+- **Circuit Breaker**: Built-in storage failure detection with automatic fast-fail degradation and recovery.
+  See configuration below.
 
 ## Usage
 
@@ -18,19 +31,25 @@ Add the dependency in `rmqttd/Cargo.toml` or enable via the `rmqtt-plugins` meta
 
 ```toml
 # Direct dependency
-rmqtt-retainer = { version = "0.21", features = ["ram"] }
+rmqtt-retainer = { version = "0.22", features = ["ram"] }
 
 # Or via meta-crate
-rmqtt-plugins = { version = "0.21", features = ["retainer-ram"] }
+rmqtt-plugins = { version = "0.22", features = ["retainer-ram"] }
 ```
 
 Available feature flags for storage backends:
 
 | Feature | Backend | Persistence | Cluster Support |
 |---------|---------|-------------|-----------------|
-| `ram` | In-memory HashMap | No (lost on restart) | No |
-| `sled` | Sled embedded DB (disk) | Yes | No |
+| `ram` | In-memory HashMap | No (lost on restart) | Yes |
+| `sled` | Sled embedded DB (disk) | Yes | Yes |
 | `redis` | Redis remote store | Yes | Yes |
+
+Additional features:
+
+| Feature | Description |
+|---------|-------------|
+| `rate-counter` | Enable throughput rate counter (enabled by default) |
 
 ### Register
 
@@ -56,6 +75,11 @@ File: `rmqtt-retainer.toml` (in the plugin config directory). Loaded via `scx.pl
 | `max_retained_messages` | `u64` | `0` (unlimited) | Maximum retained messages. After exceeding, existing messages can be replaced but new topics cannot be stored. |
 | `max_payload_size` | `string` | `"1MB"` | Maximum payload size for retained messages. Exceeding this causes the message to be treated as a regular message. |
 | `retained_message_ttl` | `string` | `"0m"` (no expiry) | TTL for retained messages. If not set, defaults to the message expiry interval. |
+| `batch_messages_limit` | `usize` | `500` | Maximum number of messages per batch store operation |
+| `circuit_breaker_enabled` | `bool` | `true` | Enable circuit breaker for storage failure detection |
+| `circuit_failure_threshold` | `usize` | `10` | Consecutive failures before tripping the circuit to OPEN |
+| `circuit_reset_timeout` | `string` | `"15s"` | Duration in OPEN state before transitioning to HALF_OPEN |
+| `circuit_half_open_success_threshold` | `usize` | `3` | Consecutive probe successes needed to close the circuit |
 
 ### Configuration Source
 
@@ -71,7 +95,7 @@ The plugin loads configuration via `scx.plugins.load_config_default::<PluginConf
 # RAM mode (default)
 storage.type = "ram"
 
-# Sled mode (persistent, single-node)
+# Sled mode (persistent)
 storage.type = "sled"
 storage.sled.path = "/var/log/rmqtt/.cache/retain/{node}"
 storage.sled.cache_capacity = "3G"
@@ -85,6 +109,13 @@ storage.redis.prefix = "retain"
 max_retained_messages = 10000
 max_payload_size = "1MB"
 retained_message_ttl = "24h"
+batch_messages_limit = 500
+
+# Circuit breaker (enabled by default)
+#circuit_breaker_enabled = true
+#circuit_failure_threshold = 10
+#circuit_reset_timeout = "15s"
+#circuit_half_open_success_threshold = 3
 ```
 
 ## Dependencies

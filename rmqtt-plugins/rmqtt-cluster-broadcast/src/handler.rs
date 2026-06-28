@@ -137,22 +137,26 @@ impl Handler for HookHandler {
                     }
                     Message::SetRetain(topic, retain, expiry_interval) => {
                         let retain_mgr = self.scx.extends.retain().await;
-                        let current_retains = retain_mgr.get(topic).await.unwrap_or_default();
-                        let should_update = match current_retains.first() {
-                            Some((_, existing)) => {
-                                let incoming_ts = retain.publish.create_time.unwrap_or(0);
-                                let existing_ts = existing.publish.create_time.unwrap_or(0);
-                                incoming_ts > existing_ts
-                            }
-                            None => true,
-                        };
-                        if should_update {
-                            if let Err(e) = retain_mgr.set(topic, retain.clone(), *expiry_interval).await {
-                                log::warn!("Failed to apply remote retain: {e:?}");
-                            }
+                        if let Err(e) = retain_mgr.set(topic, retain.clone(), *expiry_interval).await {
+                            log::warn!("Failed to apply remote retain: {e:?}");
                         }
-                        let new_acc =
-                            HookResult::GrpcMessageReply(Ok(MessageReply::SetRetain(should_update)));
+                        let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::SetRetain(true)));
+                        return (false, Some(new_acc));
+                    }
+                    Message::SetRetainTopicAdd(topic, expiry_interval) => {
+                        let retain_mgr = self.scx.extends.retain().await;
+                        if let Err(e) = retain_mgr.sync_retain_topic(topic, *expiry_interval, true).await {
+                            log::warn!("Failed to sync retain topic (add): {e:?}");
+                        }
+                        let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::SetRetain(true)));
+                        return (false, Some(new_acc));
+                    }
+                    Message::SetRetainTopicRemove(topic) => {
+                        let retain_mgr = self.scx.extends.retain().await;
+                        if let Err(e) = retain_mgr.sync_retain_topic(topic, None, false).await {
+                            log::warn!("Failed to sync retain topic (remove): {e:?}");
+                        }
+                        let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::SetRetain(true)));
                         return (false, Some(new_acc));
                     }
                     Message::Online(clientid) => {

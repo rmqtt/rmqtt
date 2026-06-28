@@ -19,7 +19,7 @@ all-features = true
 [features]
 default = []
 debug = []
-full = ["metrics", "stats", "plugin", "grpc", "tls", "ws", "quic", "delayed", "retain", "msgstore", "shared-subscription", "auto-subscription", "limit-subscription"]
+full = ["metrics", "stats", "plugin", "grpc", "tls", "ws", "quic", "delayed", "retain", "msgstore", "shared-subscription", "auto-subscription", "limit-subscription", "rate-counter"]
 metrics = ["rmqtt-macros/metrics"]
 stats = []
 plugin = ["rmqtt-macros/plugin"]
@@ -33,6 +33,7 @@ msgstore = []
 shared-subscription = []
 auto-subscription = []
 limit-subscription = []
+rate-counter = ["stats"]
 macros = ["dep:rmqtt-macros", "metrics", "plugin"]
 
 [dependencies]
@@ -70,6 +71,7 @@ url.workspace = true
 config = { workspace = true, features = ["toml"] }
 scopeguard.workspace = true
 parking_lot.workspace = true
+strum = { workspace = true, features = ["derive"] }
 
 [build-dependencies]
 chrono = { workspace = true, features = ["clock"] }

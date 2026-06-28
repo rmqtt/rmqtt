@@ -56,6 +56,8 @@ use crate::context::ServerContext;
 use crate::context::TaskExecStats;
 use crate::types::{HashMap, NodeId};
 use crate::utils::Counter;
+#[cfg(feature = "rate-counter")]
+use rmqtt_utils::{RateCounter, StatsMergeMode};
 
 /// Aggregated runtime statistics for the broker.
 ///
@@ -110,6 +112,10 @@ pub struct Stats {
     /// Active tasks per named executor.
     pub execs_actives: HashMap<String, TaskExecStats>,
 
+    /// Per-variant gRPC message rate counters (set/retains, forwards, etc.).
+    #[cfg(feature = "rate-counter")]
+    pub grpc_message_counters: HashMap<u8, RateCounter>,
+
     #[cfg(feature = "debug")]
     /// Client state machine transitions per node.
     debug_client_states_map: HashMap<NodeId, usize>,
@@ -151,6 +157,15 @@ impl Stats {
             routes_map: HashMap::default(),
 
             execs_actives: HashMap::default(),
+
+            #[cfg(feature = "rate-counter")]
+            grpc_message_counters: {
+                let mut m = HashMap::default();
+                for id in 0..crate::grpc::Message::VARIANT_COUNT as u8 {
+                    m.insert(id, RateCounter::new_with_mode(StatsMergeMode::Sum));
+                }
+                m
+            },
 
             #[cfg(feature = "debug")]
             debug_client_states_map: HashMap::default(),
@@ -277,6 +292,13 @@ impl Stats {
 
             execs_actives,
 
+            #[cfg(feature = "rate-counter")]
+            grpc_message_counters: self
+                .grpc_message_counters
+                .iter()
+                .map(|(k, v)| (*k, v.snapshot()))
+                .collect(),
+
             #[cfg(feature = "debug")]
             debug_client_states_map,
             #[cfg(feature = "debug")]
@@ -330,6 +352,11 @@ impl Stats {
             self.debug_shared_peers.add(&other.debug_shared_peers);
             self.debug_subscriptions += other.debug_subscriptions;
             self.debug_session_channels.add(&other.debug_session_channels);
+        }
+
+        #[cfg(feature = "rate-counter")]
+        for (k, v) in other.grpc_message_counters {
+            self.grpc_message_counters.entry(k).and_modify(|self_v| self_v.merge(&v)).or_insert(v);
         }
     }
 
@@ -406,6 +433,23 @@ impl Stats {
 
             "execs_actives": self.execs_actives,
         });
+
+        #[cfg(feature = "rate-counter")]
+        {
+            if !self.grpc_message_counters.is_empty() {
+                if let Some(obj) = json_val.as_object_mut() {
+                    let counters_json: HashMap<String, serde_json::Value> = self
+                        .grpc_message_counters
+                        .iter()
+                        .map(|(vid, c)| {
+                            let name = crate::grpc::Message::variant_id_to_name(*vid);
+                            (name.to_string(), c.to_json())
+                        })
+                        .collect();
+                    obj.insert("grpc_message_rates".into(), json!(counters_json));
+                }
+            }
+        }
 
         #[cfg(feature = "debug")]
         {

@@ -83,9 +83,11 @@ use serde::{
 
 mod circuit_breaker;
 mod counter;
+mod rate_counter;
 
 pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
 pub use counter::{Counter, StatsMergeMode};
+pub use rate_counter::RateCounter;
 
 /// Cluster node identifier type (64-bit unsigned integer)
 pub type NodeId = u64;

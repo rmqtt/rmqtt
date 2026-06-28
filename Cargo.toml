@@ -71,7 +71,7 @@ rmqtt-codec = "0.2.2"
 rmqtt-net = "0.3.5"
 rmqtt-conf = "0.3.5"
 rmqtt-macros = "0.1.2"
-rmqtt-utils = "0.1.5"
+rmqtt-utils = "0.1.6"
 rmqtt-storage = { version = "0.8",  default-features = false }
 
 rmqtt-plugins = "0.22.0"
@@ -150,7 +150,7 @@ regex = "1.11.1"
 backoff = "0.4"
 webpki-roots = "0.26"
 toml = "0.9"
-rust-box = "0.16"
+rust-box = "0.18"
 scopeguard = "1"
 rayon = "1.11.0"
 parking_lot = "0.12.4"
@@ -158,6 +158,7 @@ proxy-protocol = "0.5"
 jsonwebtoken = "9.3.1"
 quinn = "0.11.6"
 time = "0.3"
+strum = "0.26"
 
 [profile.dev]
 opt-level = 0

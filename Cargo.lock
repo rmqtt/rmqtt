@@ -2073,9 +2073,9 @@ dependencies = [
 
 [[package]]
 name = "handy-grpc"
-version = "0.6.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac3f5fcb27468550a33fa3dccbb7300906906bc1b362534f9b8124a3c2b0e070"
+checksum = "fb91361ecff6baecebbf478190025c5094f0308af741be37b06b2b288db5b7c0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4185,9 +4185,9 @@ dependencies = [
 
 [[package]]
 name = "queue-ext"
-version = "0.4.1"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "120b0b73691c04d1b3895c9c1131b1e553f0f93f09ffe2ba594992db585624c8"
+checksum = "9921bcd7fb7b6f7ecec0cb47399d6c0e0f41a8eb1a1514ddaece943f3e9c45e3"
 dependencies = [
  "futures",
  "log",
@@ -4714,6 +4714,7 @@ dependencies = [
  "scopeguard",
  "serde",
  "serde_json",
+ "strum",
  "systemstat",
  "thiserror 1.0.69",
  "tokio",
@@ -5379,7 +5380,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-utils"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "bytestring",
@@ -5481,9 +5482,9 @@ dependencies = [
 
 [[package]]
 name = "rust-box"
-version = "0.16.0"
+version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72ebcad8abcd40b368b6d1fc9cf6105faa380a965bf0ff2bb3703aa6cd6425a3"
+checksum = "a7b78e9d7746dd59d7a11c80544ae7789f0f943bf45c915f9cccf79d6c908014"
 dependencies = [
  "dequemap",
  "handy-grpc",
@@ -6384,6 +6385,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
+name = "strum"
+version = "0.26.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8fec0f0aef304996cf250b31b5a10dee7980c85da9d759361292b8bca5a18f06"
+dependencies = [
+ "strum_macros",
+]
+
+[[package]]
+name = "strum_macros"
+version = "0.26.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c6bee85a5a24955dc440386795aa378cd9cf82acd5f764469152d2270e581be"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "rustversion",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6474,9 +6497,9 @@ dependencies = [
 
 [[package]]
 name = "task-exec-queue"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3dcac8481d475b2d71d5072b2abe429681f827be6c54fa258754164486629a9"
+checksum = "e24624639a5626a1db333bd3f29a339f42c098389ef6dd34040bd4dfb67f8a0a"
 dependencies = [
  "ahash",
  "box-counter",

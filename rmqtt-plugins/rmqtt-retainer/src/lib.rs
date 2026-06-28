@@ -13,7 +13,6 @@
 //!
 #![deny(unsafe_code)]
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -24,10 +23,12 @@ use tokio::sync::RwLock;
 
 use rmqtt::{
     context::ServerContext,
-    hook::{Handler, HookResult, Parameter, Register, ReturnType, Type},
+    hook::Register,
     macros::Plugin,
     plugin::Plugin,
-    register, Result,
+    register,
+    utils::{CircuitBreaker, CircuitBreakerConfig},
+    Result,
 };
 
 #[cfg(feature = "ram")]
@@ -35,6 +36,7 @@ use ram::RamRetainer;
 #[cfg(any(feature = "sled", feature = "redis"))]
 use rmqtt_storage::{init_db, StorageType};
 
+#[cfg_attr(not(any(feature = "ram", feature = "sled", feature = "redis")), allow(unused_imports))]
 use config::{Config, PluginConfig};
 use rmqtt::plugin::PackageInfo;
 use rmqtt::retain::RetainStorage;
@@ -44,6 +46,8 @@ mod config;
 mod ram;
 #[cfg(any(feature = "sled", feature = "redis"))]
 mod storage;
+#[cfg_attr(not(any(feature = "sled", feature = "redis")), allow(dead_code))]
+mod value_cached;
 
 register!(RetainerPlugin::new);
 
@@ -53,12 +57,14 @@ struct RetainerPlugin {
     register: Box<dyn Register>,
     cfg: Arc<RwLock<PluginConfig>>,
     retainer: Retainer,
-    support_cluster: bool,
-    retain_enable: Arc<AtomicBool>,
 }
 
 impl RetainerPlugin {
     #[inline]
+    #[cfg_attr(
+        not(any(feature = "ram", feature = "sled", feature = "redis")),
+        allow(unused, unreachable_code)
+    )]
     async fn new<N: Into<String>>(scx: ServerContext, name: N) -> Result<Self> {
         let name = name.into();
 
@@ -66,53 +72,63 @@ impl RetainerPlugin {
         log::info!("{name} RetainerPlugin cfg: {cfg:?}");
         let register = scx.extends.hook_mgr().register();
         let cfg = Arc::new(RwLock::new(cfg));
-        let retain_enable = Arc::new(AtomicBool::new(false));
 
-        let (retainer, support_cluster) = match &mut cfg.write().await.storage {
-            #[cfg(feature = "ram")]
-            Some(Config::Ram) => (Retainer::Ram(RamRetainer::new(cfg.clone(), retain_enable.clone())), true),
-            #[cfg(any(feature = "sled", feature = "redis"))]
-            Some(Config::Storage(s_cfg)) => {
-                let node_id = scx.node.id();
-                let support_cluster = match s_cfg.typ {
-                    #[cfg(feature = "sled")]
-                    StorageType::Sled => {
-                        s_cfg.sled.path = s_cfg.sled.path.replace("{node}", &format!("{node_id}"));
-                        true
-                    }
-                    #[cfg(feature = "redis")]
-                    StorageType::Redis => {
-                        s_cfg.redis.prefix = s_cfg.redis.prefix.replace("{node}", &format!("{node_id}"));
-                        true
-                    }
-                    #[allow(unreachable_patterns)]
-                    _ => return Err(anyhow::anyhow!("unsupported storage type")),
-                };
-                let storage_db = init_db(s_cfg).await?;
-                let exec = scx.get_exec(("RETAINER_EXEC", 1000, 100_000));
-                (
+        let retainer = {
+            let cfg_guard = cfg.read().await;
+            let batch_messages_limit = cfg_guard.batch_messages_limit;
+            // Build the circuit breaker here (before cfg.write() below) to
+            // avoid deadlock: tokio::sync::RwLock is NOT reentrant, and
+            // cfg.write() is held inside the match block.
+            let circuit_breaker = CircuitBreaker::new(CircuitBreakerConfig {
+                enabled: cfg_guard.circuit_breaker_enabled,
+                failure_threshold: cfg_guard.circuit_failure_threshold,
+                reset_timeout: cfg_guard.circuit_reset_timeout,
+                half_open_success_threshold: cfg_guard.circuit_half_open_success_threshold,
+            });
+            drop(cfg_guard);
+
+            match &mut cfg.write().await.storage {
+                #[cfg(feature = "ram")]
+                Some(Config::Ram) => Retainer::Ram(RamRetainer::new(cfg.clone())),
+                #[cfg(any(feature = "sled", feature = "redis"))]
+                Some(Config::Storage(s_cfg)) => {
+                    let node_id = scx.node.id();
+                    match s_cfg.typ {
+                        #[cfg(feature = "sled")]
+                        StorageType::Sled => {
+                            s_cfg.sled.path = s_cfg.sled.path.replace("{node}", &format!("{node_id}"));
+                        }
+                        #[cfg(feature = "redis")]
+                        StorageType::Redis => {
+                            s_cfg.redis.prefix = s_cfg.redis.prefix.replace("{node}", &format!("{node_id}"));
+                        }
+                        #[allow(unreachable_patterns)]
+                        _ => return Err(anyhow::anyhow!("unsupported storage type")),
+                    };
+                    let storage_db = init_db(s_cfg).await?;
+                    let exec = scx.get_exec(("RETAINER_EXEC", 1000, 10_000));
                     Retainer::Storage(
                         storage::Retainer::new(
                             node_id,
                             cfg.clone(),
                             storage_db,
-                            retain_enable.clone(),
                             s_cfg.typ.clone(),
                             exec,
+                            batch_messages_limit,
+                            circuit_breaker,
                         )
                         .await?,
-                    ),
-                    support_cluster,
-                )
+                    )
+                }
+                #[allow(unreachable_patterns)]
+                Some(other) => {
+                    return Err(anyhow!("Unsupported storage engine: {other:?} (feature not enabled)"))
+                }
+                None => return Err(anyhow!("No storage engine specified (ram, sled, or redis)")),
             }
-            #[allow(unreachable_patterns)]
-            Some(other) => {
-                return Err(anyhow!("Unsupported storage engine: {other:?} (feature not enabled)"))
-            }
-            None => return Err(anyhow!("No storage engine specified (ram, sled, or redis)")),
         };
 
-        Ok(Self { scx, register, cfg, retainer, support_cluster, retain_enable })
+        Ok(Self { scx, register, cfg, retainer })
     }
 }
 
@@ -121,23 +137,13 @@ impl Plugin for RetainerPlugin {
     #[inline]
     async fn init(&mut self) -> Result<()> {
         log::info!("{} init", self.name());
-        self.register
-            .add(
-                Type::BeforeStartup,
-                Box::new(RetainHandler::new(
-                    self.scx.clone(),
-                    self.support_cluster,
-                    self.retain_enable.clone(),
-                )),
-            )
-            .await;
 
-        let retainer = self.retainer.clone();
+        let _retainer = self.retainer.clone();
         //I run every 10 seconds
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_secs(10)).await;
-                let removeds = retainer.remove_expired_messages().await;
+                let removeds = _retainer.remove_expired_messages().await;
                 if removeds > 0 {
                     log::debug!(
                         "{:?} remove_expired_messages, removed count: {}",
@@ -165,6 +171,10 @@ impl Plugin for RetainerPlugin {
     }
 
     #[inline]
+    #[cfg_attr(
+        not(any(feature = "ram", feature = "sled", feature = "redis")),
+        allow(unused, unreachable_code)
+    )]
     async fn start(&mut self) -> Result<()> {
         log::info!("{} start", self.name());
         let r: Box<dyn RetainStorage> = match self.retainer.clone() {
@@ -192,39 +202,6 @@ impl Plugin for RetainerPlugin {
     }
 }
 
-struct RetainHandler {
-    scx: ServerContext,
-    support_cluster: bool,
-    retain_enable: Arc<AtomicBool>,
-}
-
-impl RetainHandler {
-    fn new(scx: ServerContext, support_cluster: bool, retain_enable: Arc<AtomicBool>) -> Self {
-        Self { scx, support_cluster, retain_enable }
-    }
-}
-
-#[async_trait]
-impl Handler for RetainHandler {
-    async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
-        match param {
-            Parameter::BeforeStartup => {
-                let grpc_enable = self.scx.extends.shared().await.grpc_enable();
-                if grpc_enable && !self.support_cluster {
-                    log::warn!("{ERR_NOT_SUPPORTED}");
-                    self.retain_enable.store(false, Ordering::SeqCst);
-                } else {
-                    self.retain_enable.store(true, Ordering::SeqCst);
-                }
-            }
-            _ => {
-                log::error!("unimplemented, {param:?}")
-            }
-        }
-        (true, acc)
-    }
-}
-
 #[derive(Clone)]
 enum Retainer {
     #[cfg(feature = "ram")]
@@ -245,6 +222,7 @@ impl Retainer {
         }
     }
 
+    #[allow(unused_mut)]
     async fn info(&self) -> serde_json::Value {
         match self {
             #[cfg(feature = "ram")]
@@ -267,22 +245,37 @@ impl Retainer {
             Retainer::Storage(r) => {
                 let msg_max = r.max().await;
                 let msg_count = r.count().await;
-                let msg_queue_count = r.msg_queue_count.load(Ordering::Relaxed);
-                let storage_info = r.storage_db.info().await.unwrap_or_default();
-                json!({
+                let storage_info = r.info().await;
+                let topics_size = r.topics.read().await.values_size();
+                let cb_state = format!("{:?}", r.circuit_breaker.state());
+                let cb_enabled = r.circuit_breaker.config().enabled;
+                let cb_failure_count = r.circuit_breaker.failure_count();
+                let cb_success_count = r.circuit_breaker.success_count();
+                let mut info = json!({
                     "storage_info": storage_info,
-                    "msg_queue_count": msg_queue_count,
+                    "topics_size": topics_size,
+                    "circuit_breaker": {
+                        "success_count": cb_success_count,
+                        "failure_count": cb_failure_count,
+                        "state": cb_state,
+                        "enabled": cb_enabled,
+                    },
                     "message": {
                         "max": msg_max,
                         "count": msg_count,
                     },
-                })
+                });
+
+                #[cfg(feature = "rate-counter")]
+                {
+                    info.as_object_mut().unwrap().insert("set_rate".into(), r.set_rate_counter.to_json());
+                    info.as_object_mut().unwrap().insert("sync_rate".into(), r.sync_rate_counter.to_json());
+                }
+
+                info
             }
             #[allow(unreachable_patterns)]
             _ => json!({ "storage_engine": "unknown" }),
         }
     }
 }
-
-pub(crate) const ERR_NOT_SUPPORTED: &str =
-    "The storage engine of the 'rmqtt-retainer' plugin does not support cluster mode!";

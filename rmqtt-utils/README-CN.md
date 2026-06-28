@@ -150,6 +150,53 @@ impl CircuitBreaker {
 | **Open** | `is_blocked()` 返回 `true`，调用方快速跳过外部操作 |
 | **HalfOpen** | 探测阶段，放行请求；连续成功足够次后关闭，任意失败立即回到 Open |
 
+## `RateCounter` — 无锁吞吐量和并发跟踪器
+
+```rust
+use std::time::Duration;
+use rmqtt_utils::RateCounter;
+
+let rc = RateCounter::new();
+
+// 任务到达：跟踪吞吐量、并发数和峰值
+rc.incs(42);
+assert_eq!(rc.total(), 42);
+assert_eq!(rc.current(), 42);
+assert_eq!(rc.max(), 42);
+
+// 更高峰值
+rc.incs(10);
+assert_eq!(rc.max(), 52);
+
+// 任务完成：并发数减少，峰值不变
+rc.decs(20);
+assert_eq!(rc.current(), 32);
+assert_eq!(rc.max(), 52);
+
+// 计算 3 秒间隔内的每秒速率
+rc.tick(Duration::from_secs(3));
+assert!((rc.speed() - 17.333).abs() < 1e-12);
+```
+
+纯原子操作、零锁的速率计数器，跟踪以下指标：
+- **`total`**：自创建或重置以来的累计计数。
+- **`speed`**：每秒吞吐量，通过以已知采样间隔调用 `tick(interval)` 计算。
+- **`current`**：当前并发/活跃计数（`inc`/`incs` 增加，`dec`/`decs` 减少）。
+- **`max`**：`current` 的历史峰值。
+
+`Clone` 通过 `Arc` 共享底层原子变量 — 非常适合传入 `tokio::spawn`。
+`snapshot()` 创建独立的深拷贝（值相同，新原子变量）。
+Serde 序列化/反序列化为快照（可安全跨节点传输）。
+
+| 方法 | 作用 |
+|------|------|
+| `inc()` / `incs(n)` | 增加 `total` 和 `current`；更新 `max` |
+| `dec()` / `decs(n)` | 仅减少 `current` |
+| `tick(interval)` | 计算 `speed = (total - last_total) / interval` |
+| `reset()` | 清零所有计数器 |
+| `total()` / `speed()` / `current()` / `max()` | 读取单个计数器值 |
+| `snapshot()` | 创建独立的深拷贝 |
+
 ## 安全性
 
 `#![deny(unsafe_code)]` — 零 unsafe 代码。
