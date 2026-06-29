@@ -32,6 +32,8 @@ use crate::context::ServerContext;
 use crate::grpc::{GrpcClient, GrpcServer};
 use crate::types::{NodeId, TimestampMillis};
 use crate::utils::timestamp_millis;
+#[cfg(feature = "grpc")]
+use crate::utils::CircuitBreaker;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -103,8 +105,9 @@ impl Node {
         connect_timeout: Duration,
         client_concurrency_limit: usize,
         _batch_size: usize,
+        circuit_breaker: std::sync::Arc<CircuitBreaker>,
     ) -> crate::Result<GrpcClient> {
-        GrpcClient::new(remote_addr, connect_timeout, client_concurrency_limit).await
+        GrpcClient::new(remote_addr, connect_timeout, client_concurrency_limit, circuit_breaker).await
     }
 
     #[cfg(feature = "grpc")]
