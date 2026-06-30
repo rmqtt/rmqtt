@@ -84,7 +84,7 @@ impl Router for ClusterRouter {
                         routes.extend(ress);
                     }
                     Err(e) => {
-                        log::warn!("gets, error: {e:?}");
+                        log::warn!("gets, error: {e}");
                     }
                     _ => {
                         log::error!("unreachable!(), reply: {reply:?}");

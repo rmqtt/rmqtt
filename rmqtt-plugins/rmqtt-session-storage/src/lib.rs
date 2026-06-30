@@ -126,16 +126,16 @@ impl StoragePlugin {
                     log::debug!("map_stored_key: {id_key:?}");
                     let basic = match m.get::<_, Basic>(BASIC).await {
                         Err(e) => {
-                            log::warn!("{id_key:?} load offline session basic info error, {e:?}");
+                            log::warn!("{id_key:?} load offline session basic info error, {e}");
                             if let Err(e) = storage_db.map_remove(m.name()).await {
-                                log::warn!("{id_key:?} remove offline session info error, {e:?}");
+                                log::warn!("{id_key:?} remove offline session info error, {e}");
                             }
                             continue;
                         }
                         Ok(None) => {
                             log::warn!("{id_key:?} offline session basic info is None");
                             if let Err(e) = storage_db.map_remove(m.name()).await {
-                                log::warn!("{id_key:?} remove offline session info error, {e:?}");
+                                log::warn!("{id_key:?} remove offline session info error, {e}");
                             }
                             continue;
                         }
@@ -153,7 +153,7 @@ impl StoragePlugin {
                         }
                         Ok(None) => {}
                         Err(e) => {
-                            log::warn!("{id_key:?} load offline session last time error, {e:?}");
+                            log::warn!("{id_key:?} load offline session last time error, {e}");
                         }
                     }
 
@@ -164,7 +164,7 @@ impl StoragePlugin {
                         }
                         Ok(None) => {}
                         Err(e) => {
-                            log::warn!("{id_key:?} load offline session subscription info error, {e:?}");
+                            log::warn!("{id_key:?} load offline session subscription info error, {e}");
                         }
                     }
 
@@ -175,7 +175,7 @@ impl StoragePlugin {
                         }
                         Ok(None) => {}
                         Err(e) => {
-                            log::warn!("{id_key:?} load offline session disconnect info error, {e:?}");
+                            log::warn!("{id_key:?} load offline session disconnect info error, {e}");
                         }
                     }
 
@@ -186,14 +186,14 @@ impl StoragePlugin {
                         }
                         Ok(None) => {}
                         Err(e) => {
-                            log::warn!("{id_key:?} load offline session inflight messages error, {e:?}");
+                            log::warn!("{id_key:?} load offline session inflight messages error, {e}");
                         }
                     }
 
                     self.stored_session_infos.add(s_info);
                 }
                 Err(e) => {
-                    log::warn!("load offline session info error, {e:?}");
+                    log::warn!("load offline session info error, {e}");
                 }
             }
         }
@@ -213,20 +213,20 @@ impl StoragePlugin {
                             log::debug!("{id_key:?} stored_session_infos, set_offline_messages res: {ok}");
                             if !ok {
                                 if let Err(e) = storage_db.list_remove(l.name()).await {
-                                    log::warn!("{id_key:?} remove offline messages error, {e:?}");
+                                    log::warn!("{id_key:?} remove offline messages error, {e}");
                                 }
                             }
                         }
                         Err(e) => {
-                            log::warn!("{id_key:?} load offline messages error, {e:?}");
+                            log::warn!("{id_key:?} load offline messages error, {e}");
                             if let Err(e) = storage_db.list_remove(l.name()).await {
-                                log::warn!("{id_key:?} remove offline messages error, {e:?}");
+                                log::warn!("{id_key:?} remove offline messages error, {e}");
                             }
                         }
                     }
                 }
                 Err(e) => {
-                    log::warn!("load offline messages error, {e:?}");
+                    log::warn!("load offline messages error, {e}");
                 }
             }
         }
@@ -257,7 +257,7 @@ impl StoragePlugin {
                         RebuildChanType::Session(session, session_expiry_interval)  => {
                             match SessionState::offline_restart(session.clone(), session_expiry_interval).await {
                                 Err(e) => {
-                                    log::warn!("Rebuild offline sessions error, {e:?}");
+                                    log::warn!("Rebuild offline sessions error, {e}");
                                 },
                                 Ok(msg_tx) => {
                                     let mut session_entry =
@@ -592,11 +592,11 @@ impl StorageHandler {
                     );
                     let storage_db = self.storage_db.clone();
                     if let Err(e) = storage_db.map_remove(make_map_stored_key(stored.id_key.as_ref())).await {
-                        log::warn!("{id:?} remove map error, {e:?}");
+                        log::warn!("{id:?} remove map error, {e}");
                     }
                     if let Err(e) = storage_db.list_remove(make_list_stored_key(stored.id_key.as_ref())).await
                     {
-                        log::warn!("{id:?} remove list error, {e:?}");
+                        log::warn!("{id:?} remove list error, {e}");
                     }
                     //session is expiry
                     continue;
@@ -633,7 +633,7 @@ impl StorageHandler {
                 {
                     Ok(s) => s,
                     Err(e) => {
-                        log::warn!("rebuild session offline message error, create session error, {e:?}");
+                        log::warn!("rebuild session offline message error, create session error, {e}");
                         continue;
                     }
                 };
@@ -659,7 +659,7 @@ impl StorageHandler {
                     ))
                     .await
                 {
-                    log::error!("rebuild offline sessions error, {e:?}");
+                    log::error!("rebuild offline sessions error, {e}");
                 }
             }
         }

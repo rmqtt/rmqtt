@@ -319,11 +319,11 @@ async fn sys_publish(
             if let Err(e) =
                 SessionState::forwards(&scx, from, p, storage_available, Some(message_expiry_interval)).await
             {
-                log::warn!("{e:?}");
+                log::warn!("{e}");
             }
         }
         Err(e) => {
-            log::error!("{e:?}");
+            log::error!("{e}");
         }
     }
 }

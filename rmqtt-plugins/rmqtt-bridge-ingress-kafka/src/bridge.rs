@@ -243,7 +243,7 @@ impl Consumer {
                 msg = consumer.recv() => {
                     match msg{
                         Err(e) => {
-                            log::error!("{name}/{client_id} Kafka error: {e:?}");
+                            log::error!("{name}/{client_id} Kafka error: {e}");
                             tokio::time::sleep(Duration::from_millis(1000)).await;
                         },
                         Ok(m) => {
@@ -256,7 +256,7 @@ impl Consumer {
 
                             if !enable_auto_commit {
                                 if let Err(e) = consumer.commit_message(&m, CommitMode::Async){
-                                    log::error!("{name}/{client_id} Kafka commit_message error: {e:?}");
+                                    log::error!("{name}/{client_id} Kafka commit_message error: {e}");
                                 }
                             }
                         }
@@ -443,7 +443,7 @@ impl BridgeManager {
             log::debug!("stop bridge_name: {bridge_name:?}, entry_idx: {entry_idx:?}",);
             if let Err(e) = mailbox.stop().await {
                 log::error!(
-                    "stop BridgeKafkaIngressPlugin error, bridge_name: {bridge_name}, entry_idx: {entry_idx}, {e:?}"
+                    "stop BridgeKafkaIngressPlugin error, bridge_name: {bridge_name}, entry_idx: {entry_idx}, {e}"
                 );
             }
         }
@@ -472,7 +472,7 @@ async fn send_publish(scx: ServerContext, from: From, msg: Publish, expiry_inter
     let storage_available = scx.extends.message_mgr().await.enable();
 
     if let Err(e) = SessionState::forwards(&scx, from, msg, storage_available, Some(expiry_interval)).await {
-        log::warn!("{e:?}");
+        log::warn!("{e}");
     }
 }
 

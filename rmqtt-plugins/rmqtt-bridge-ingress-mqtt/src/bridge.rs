@@ -140,7 +140,7 @@ impl BridgeManager {
 
     pub async fn start(&mut self) {
         while let Err(e) = self._start().await {
-            log::error!("start bridge-ingress-mqtt error, {e:?}");
+            log::error!("start bridge-ingress-mqtt error, {e}");
             self.stop().await;
             tokio::time::sleep(Duration::from_millis(3000)).await;
         }
@@ -232,7 +232,7 @@ impl BridgeManager {
             );
             if let Err(e) = mailbox.stop().await {
                 log::error!(
-                    "stop BridgeMqttIngressPlugin error, bridge_name: {bridge_name}, entry_idx: {entry_idx}, client_no: {client_no}, {e:?}"
+                    "stop BridgeMqttIngressPlugin error, bridge_name: {bridge_name}, entry_idx: {entry_idx}, client_no: {client_no}, {e}"
                 );
             }
         }
@@ -289,7 +289,7 @@ async fn send_publish(scx: ServerContext, cfg: Arc<Bridge>, entry_idx: usize, f:
     let storage_available = scx.extends.message_mgr().await.enable();
 
     if let Err(e) = SessionState::forwards(&scx, f, msg, storage_available, Some(expiry_interval)).await {
-        log::warn!("{e:?}");
+        log::warn!("{e}");
     }
 }
 

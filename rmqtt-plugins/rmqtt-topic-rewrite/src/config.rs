@@ -76,7 +76,7 @@ impl PluginConfig {
             for rule_cfg in rules_cfg {
                 let r = Rule::try_from(rule_cfg).map_err(de::Error::custom)?;
                 let tf = Topic::from_str(r.source_topic_filter.as_ref())
-                    .map_err(|e| de::Error::custom(format!("{e:?}")))?;
+                    .map_err(|e| de::Error::custom(format!("{e}")))?;
 
                 if source_topic_filters.contains(&tf) {
                     return Err(de::Error::custom(format!(

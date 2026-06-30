@@ -115,7 +115,7 @@ impl RamMessageManager {
                     tokio::runtime::Handle::current().block_on(async move {
                         match msg_mgr.remove_expired_messages(max_limit).await {
                             Err(e) => {
-                                log::warn!("remove expired messages error, {e:?}");
+                                log::warn!("remove expired messages error, {e}");
                                 0
                             }
                             Ok(removed) => removed,
@@ -482,7 +482,7 @@ impl RamMessageManager {
         match msg {
             Msg::Store { from, publish, expiry_interval, msg_id, recipients } => {
                 if let Err(e) = self._set(from, publish, expiry_interval, msg_id, recipients).await {
-                    log::warn!("Store of the Publish message failed! {e:?}");
+                    log::warn!("Store of the Publish message failed! {e}");
                 }
             }
             Msg::MarkForwarded { msg_id, recipients } => {
@@ -528,11 +528,11 @@ impl MessageManager for RamMessageManager {
                 Ok(())
             }
             Ok(Err(e)) => {
-                log::warn!("RamMessageManager store error, {e:?}");
+                log::warn!("RamMessageManager store error, {e}");
                 Err(anyhow!(e))
             }
             Err(e) => {
-                log::warn!("RamMessageManager store timeout, {e:?}");
+                log::warn!("RamMessageManager store timeout, {e}");
                 Err(e)
             }
         }
@@ -580,11 +580,11 @@ impl MessageManager for RamMessageManager {
                 Ok(())
             }
             Ok(Err(e)) => {
-                log::warn!("RamMessageManager mark_forwarded error, {e:?}");
+                log::warn!("RamMessageManager mark_forwarded error, {e}");
                 Err(anyhow!(e))
             }
             Err(e) => {
-                log::warn!("RamMessageManager mark_forwarded timeout, {e:?}");
+                log::warn!("RamMessageManager mark_forwarded timeout, {e}");
                 Err(e)
             }
         }

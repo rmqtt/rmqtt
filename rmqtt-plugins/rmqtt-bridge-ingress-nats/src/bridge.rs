@@ -329,7 +329,7 @@ impl Consumer {
                 match cmd{
                     Some(Command::Close) => {
                         if let Err(e) = consumer.close().await {
-                            log::warn!("{name}/{consumer_name} consumer close error, {e:?}");
+                            log::warn!("{name}/{consumer_name} consumer close error, {e}");
                         }
                         log::info!("{name}/{consumer_name} Command(Close) nats exit event loop");
                         return;
@@ -349,7 +349,7 @@ impl Consumer {
                     Some(data) => {
                         let msg = match Message::deserialize_message(self.scx.node.id(), data, &entry) {
                             Err(e) => {
-                                log::warn!("{name}/{consumer_name} nats consumer deserialize message error: {e:?}");
+                                log::warn!("{name}/{consumer_name} nats consumer deserialize message error: {e}");
                                 continue
                             },
                             Ok(msg) => msg
@@ -358,7 +358,7 @@ impl Consumer {
                         log::debug!("{:?} {}/{} msg: {:?}", std::thread::current().id(), name, consumer_name, msg);
 
                         if let Err(e) = Self::process_message(&cfg, &entry, msg, &on_message) {
-                            log::warn!("{name}/{consumer_name} nats consumer process message error: {e:?}");
+                            log::warn!("{name}/{consumer_name} nats consumer process message error: {e}");
                         }
 
                     }
@@ -367,11 +367,11 @@ impl Consumer {
             }
         }
         if let Err(e) = consumer.close().await {
-            log::warn!("{name}/{consumer_name} consumer close error, {e:?}");
+            log::warn!("{name}/{consumer_name} consumer close error, {e}");
         }
         log::info!("{name}/{consumer_name} nats exit event loop");
         if let Err(e) = sys_cmd_tx.send(SystemCommand::Restart).await {
-            log::warn!("{name}/{consumer_name} consumer Send(SystemCommand::Restart) error, {e:?}");
+            log::warn!("{name}/{consumer_name} consumer Send(SystemCommand::Restart) error, {e}");
         }
     }
 
@@ -427,7 +427,7 @@ impl BridgeManager {
 
     pub async fn start(&mut self, sys_cmd_tx: mpsc::Sender<SystemCommand>) {
         while let Err(e) = self._start(sys_cmd_tx.clone()).await {
-            log::error!("start bridge-ingress-nats error, {e:?}");
+            log::error!("start bridge-ingress-nats error, {e}");
             self.stop().await;
             tokio::time::sleep(Duration::from_millis(3000)).await;
         }
@@ -481,7 +481,7 @@ impl BridgeManager {
             log::debug!("stop bridge_name: {bridge_name:?}, entry_idx: {entry_idx:?}",);
             if let Err(e) = mailbox.stop().await {
                 log::warn!(
-                    "stop BridgeNatsIngressPlugin error, bridge_name: {bridge_name}, entry_idx: {entry_idx}, {e:?}"
+                    "stop BridgeNatsIngressPlugin error, bridge_name: {bridge_name}, entry_idx: {entry_idx}, {e}"
                 );
             }
         }
@@ -515,7 +515,7 @@ async fn send_publish(scx: ServerContext, from: From, msg: Publish, expiry_inter
     let storage_available = scx.extends.message_mgr().await.enable();
 
     if let Err(e) = SessionState::forwards(&scx, from, msg, storage_available, Some(expiry_interval)).await {
-        log::warn!("{e:?}");
+        log::warn!("{e}");
     }
 }
 

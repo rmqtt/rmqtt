@@ -95,7 +95,7 @@ where
             Err((ack_code, e)) => {
                 refused_ack(&scx, &mut sink, None, ack_code, e.to_string()).await?;
                 if let Err(e) = sink.close().await {
-                    log::info!("{lid} close io error, {e:?}");
+                    log::info!("{lid} close io error, {e}");
                 }
                 return Err(e);
             }
@@ -173,9 +173,9 @@ where
                 .map_err(|e| (ConnectAckReason::V5(ConnectAckReasonV5::ServerUnavailable), e))?;
             Ok((state, keep_alive))
         }
-        Ok(Err(e)) => {
-            log::info!("{id:?} Connection Refused, handshake error, reason: {e:?}");
-            Err(e)
+        Ok(Err((ack_code, e))) => {
+            log::info!("{id:?} Connection Refused, handshake error, reason: {ack_code:?}, {e}");
+            Err((ack_code, e))
         }
         Err(e) => {
             #[cfg(feature = "metrics")]

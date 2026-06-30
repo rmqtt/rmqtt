@@ -158,7 +158,7 @@ impl<T> Sender<T> {
                 }
             }
         } else if let Err(e) = self.tx.clone().try_send(()) {
-            log::warn!("channel is full, {e:?}");
+            log::warn!("channel is full, {e}");
         }
         Ok(())
     }
@@ -220,7 +220,7 @@ impl Limiter {
         (0..queue.len()).for_each(|_| {
             if let Err(e) = tx.clone().try_send(()) {
                 //send offline message
-                log::warn!("channel is full, {e:?}");
+                log::warn!("channel is full, {e}");
             }
         });
         (Sender { tx, queue, policy_fn: Arc::new(|_v: &T| -> Policy { Policy::Current }) }, s)

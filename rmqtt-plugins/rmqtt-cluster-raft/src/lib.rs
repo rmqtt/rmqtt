@@ -309,7 +309,7 @@ impl ClusterPlugin {
                 tokio::time::sleep(unavailable_check_interval).await;
                 match raft_mailbox.status().await {
                     Err(e) => {
-                        log::error!("Error retrieving cluster status, {e:?}");
+                        log::error!("Error retrieving cluster status, {e}");
                     }
                     Ok(s) => {
                         if s.available() {
@@ -410,14 +410,14 @@ impl Plugin for ClusterPlugin {
                         return Ok(());
                     }
                     message::MessageReply::Error(e) => {
-                        log::warn!("ping failed, {e:?}");
+                        log::warn!("ping failed, {e}");
                     }
                     _ => {
                         log::error!("unreachable!()");
                     }
                 },
                 Err(e) => {
-                    log::warn!("ping failed, {e:?}");
+                    log::warn!("ping failed, {e}");
                 }
             }
             sleep(Duration::from_millis(500)).await;
@@ -487,7 +487,7 @@ async fn parse_addr(addr: &str) -> Result<SocketAddr> {
                 }
             }
             Err(e) => {
-                log::warn!("Round: {i}, {e:?}");
+                log::warn!("Round: {i}, {e}");
             }
         }
         tokio::time::sleep(Duration::from_millis((rand::random::<u64>() % 300) + 500)).await;

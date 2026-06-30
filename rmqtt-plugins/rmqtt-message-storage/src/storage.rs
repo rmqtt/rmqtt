@@ -325,7 +325,7 @@ impl StorageMessageManagerInner {
                         if !smsg.is_expiry() {
                             let topic = match Topic::from_str(&smsg.publish.topic) {
                                 Err(e) => {
-                                    log::warn!("Topic::from_str error, {e:?}");
+                                    log::warn!("Topic::from_str error, {e}");
                                     continue;
                                 }
                                 Ok(mut topic) => {
@@ -339,11 +339,11 @@ impl StorageMessageManagerInner {
                     }
                     Ok(None) => {}
                     Err(e) => {
-                        log::warn!("Restore topic tree error, {e:?}");
+                        log::warn!("Restore topic tree error, {e}");
                     }
                 },
                 Err(e) => {
-                    log::warn!("Restore topic tree error, {e:?}");
+                    log::warn!("Restore topic tree error, {e}");
                 }
             }
         }
@@ -412,7 +412,7 @@ impl StorageMessageManagerInner {
 
                 let mut topic = match Topic::from_str(&publish.topic) {
                     Err(e) => {
-                        log::warn!("Topic::from_str error, {e:?}");
+                        log::warn!("Topic::from_str error, {e}");
                         return Ok(());
                     }
                     Ok(topic) => topic,
@@ -430,13 +430,13 @@ impl StorageMessageManagerInner {
                 )
                 .await
                 .map_err(|e| {
-                    log::warn!("store to db error, map_expire(..), {e:?}, message: {smsg:?}");
+                    log::warn!("store to db error, map_expire(..), {e}, message: {smsg:?}");
                     anyhow!("storage_db.map error: {:?}", e)
                 })?;
 
                 Self::with_timeout(msg_map.insert(DATA, &smsg), timeout, "map.insert").await.map_err(
                     |e| {
-                        log::warn!("store to db error, {e:?}, message: {smsg:?}");
+                        log::warn!("store to db error, {e}, message: {smsg:?}");
                         anyhow!("msg_map.insert error: {:?}", e)
                     },
                 )?;
@@ -521,7 +521,7 @@ impl StorageMessageManagerInner {
                             match self._is_forwarded(&mut msg_map, client_id, topic_filter, group).await {
                                 Ok(v) => v,
                                 Err(e) => {
-                                    log::warn!("_get _is_forwarded error, {e:?}");
+                                    log::warn!("_get _is_forwarded error, {e}");
                                     storage_err.fetch_add(1, Ordering::Relaxed);
                                     return None;
                                 }
@@ -547,7 +547,7 @@ impl StorageMessageManagerInner {
                                 }
                                 Ok(None) => None,
                                 Err(e) => {
-                                    log::warn!("_get_message error, {e:?}");
+                                    log::warn!("_get_message error, {e}");
                                     storage_err.fetch_add(1, Ordering::Relaxed);
                                     None
                                 }
@@ -555,7 +555,7 @@ impl StorageMessageManagerInner {
                         }
                     }
                     Err(e) => {
-                        log::warn!("_get new map error, {e:?}");
+                        log::warn!("_get new map error, {e}");
                         storage_err.fetch_add(1, Ordering::Relaxed);
                         None
                     }
@@ -604,7 +604,7 @@ impl StorageMessageManagerInner {
                     }
                     Ok((_, None)) => {}
                     Err(e) => {
-                        log::warn!("traverse forwardeds error, {e:?}");
+                        log::warn!("traverse forwardeds error, {e}");
                         return Err(anyhow!(e));
                     }
                 }
@@ -685,7 +685,7 @@ impl MessageManager for StorageMessageManager {
                 return Err(e);
             }
             Err(e) => {
-                log::warn!("StorageMessageManager get timeout, {e:?}");
+                log::warn!("StorageMessageManager get timeout, {e}");
                 self.circuit_breaker.record_failure();
                 vec![]
             }

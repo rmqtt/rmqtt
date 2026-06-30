@@ -163,7 +163,7 @@ impl Handler for HookHandler {
                 let p = if let Some(HookResult::Publish(publish)) = &acc { publish } else { p };
                 log::debug!("{:?} message publish, {:?}", s.map(|s| &s.id), p);
                 if let Err(e) = self.bridge_mgr.send(f, p).await {
-                    log::error!("{e:?}");
+                    log::error!("{e}");
                 }
             }
             _ => {

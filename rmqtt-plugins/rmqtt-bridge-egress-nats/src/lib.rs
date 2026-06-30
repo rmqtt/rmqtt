@@ -65,7 +65,7 @@ impl BridgeNatsEgressPlugin {
                     match cmd {
                         Command::Start => loop {
                             if let Err(e) = bridge_mgr.start().await {
-                                log::error!("start bridge-egress-nats error, {e:?}");
+                                log::error!("start bridge-egress-nats error, {e}");
                                 tokio::time::sleep(Duration::from_secs(3)).await;
                             } else {
                                 log::info!("start bridge-egress-nats ok.");
@@ -160,7 +160,7 @@ impl Handler for HookHandler {
                 let p = if let Some(HookResult::Publish(publish)) = &acc { publish } else { p };
                 log::debug!("{:?} message publish, {:?}", s.map(|s| &s.id), p);
                 if let Err(e) = self.bridge_mgr.send(f, p).await {
-                    log::error!("{e:?}");
+                    log::error!("{e}");
                 }
             }
             _ => {

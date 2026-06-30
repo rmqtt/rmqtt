@@ -866,7 +866,7 @@ impl Register for DefaultHookRegister {
                 self.type_ids.insert((typ, (priority, id)));
             }
             Err(e) => {
-                log::error!("Hook add handler fail, {e:?}");
+                log::error!("Hook add handler fail, {e}");
             }
         }
     }

@@ -157,7 +157,7 @@ impl Handler for P2PMessagingHandler {
                     }
                     Ok(None) => {}
                     Err(e) => {
-                        log::warn!("{e:?}");
+                        log::warn!("{e}");
                     }
                 }
             }

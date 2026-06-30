@@ -512,7 +512,7 @@ impl Entry for LockEntry {
                 match s.to_offline_info().await {
                     Ok(offline_info) => Ok(OfflineSession::Exist(Some(offline_info))),
                     Err(e) => {
-                        log::error!("get offline info error, {e:?}");
+                        log::error!("get offline info error, {e}");
                         Ok(OfflineSession::Exist(None))
                     }
                 }
@@ -754,7 +754,7 @@ impl Shared for DefaultShared {
                         if let Err(e) =
                             scx.extends.message_mgr().await.mark_forwarded(msg_id, recipients).await
                         {
-                            log::warn!("forwards: mark_forwarded error, msg_id: {:?}, {e:?}", msg_id);
+                            log::warn!("forwards: mark_forwarded error, msg_id: {:?}, {e}", msg_id);
                         }
                     }
                 }
@@ -792,7 +792,7 @@ impl Shared for DefaultShared {
                         if let Err(e) =
                             scx.extends.message_mgr().await.mark_forwarded(msg_id, recipients).await
                         {
-                            log::warn!("forwards: mark_forwarded error, msg_id: {:?}, {e:?}", msg_id);
+                            log::warn!("forwards: mark_forwarded error, msg_id: {:?}, {e}", msg_id);
                         }
                     }
                 }

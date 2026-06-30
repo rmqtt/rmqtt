@@ -346,7 +346,7 @@ impl ClusterShared {
                         }
                         Err(e) => {
                             log::error!(
-                                "forwards Message::Forwards to other node, from: {from:?}, error: {e:?}"
+                                "forwards Message::Forwards to other node, from: {from:?}, error: {e}"
                             );
                         }
                     }
@@ -401,7 +401,7 @@ impl ClusterShared {
                 (relations, shared_relations, forwardeds)
             }
             Err(e) => {
-                log::warn!("forwards, from:{from:?}, topic:{topic:?}, error: {e:?}");
+                log::warn!("forwards, from:{from:?}, topic:{topic:?}, error: {e}");
                 (Vec::new(), Vec::new(), Vec::new())
             }
         };
@@ -506,7 +506,7 @@ impl ClusterShared {
                         }
                     }
                     Err(e) => {
-                        log::error!("forwards Message::Forwards to other node, from: {from:?}, error: {e:?}");
+                        log::error!("forwards Message::Forwards to other node, from: {from:?}, error: {e}");
                     }
                 }
             }
@@ -564,7 +564,7 @@ impl ClusterShared {
                 let ress = futures::future::join_all(delivers).await;
                 for res in ress {
                     if let Err(e) = res {
-                        log::error!("deliver shared subscriptions error, {e:?}");
+                        log::error!("deliver shared subscriptions error, {e}");
                     }
                 }
                 scx.stats.forwards.dec();
@@ -617,7 +617,7 @@ impl Shared for ClusterShared {
             if !forwardeds.is_empty() {
                 if let Err(e) = self.scx.extends.message_mgr().await.mark_forwarded(msg_id, forwardeds).await
                 {
-                    log::warn!("forwards: mark_forwarded error, msg_id: {:?}, {e:?}", msg_id);
+                    log::warn!("forwards: mark_forwarded error, msg_id: {:?}, {e}", msg_id);
                 }
             }
         }
@@ -743,7 +743,7 @@ impl Shared for ClusterShared {
                         replys.extend(subs);
                     }
                     Err(e) => {
-                        log::warn!("query_subscriptions, error: {e:?}");
+                        log::warn!("query_subscriptions, error: {e}");
                     }
                     _ => {
                         log::error!("unreachable!(), reply: {reply:?}");
@@ -833,7 +833,7 @@ impl Shared for ClusterShared {
                             vec![]
                         }
                         Err(e) => {
-                            log::warn!("Message::MessageGet failed, {e:?}");
+                            log::warn!("Message::MessageGet failed, {e}");
                             vec![]
                         }
                     };
@@ -878,7 +878,7 @@ impl Shared for ClusterShared {
                                 Ok(vec![])
                             }
                             Err(e) => {
-                                log::warn!("Message::GetRetains failed, {e:?}");
+                                log::warn!("Message::GetRetains failed, {e}");
                                 Ok(vec![])
                             }
                         }
@@ -893,7 +893,7 @@ impl Shared for ClusterShared {
                 for (node_id, result) in replys {
                     match result {
                         Ok(mut remote_retains) => all_retains.append(&mut remote_retains),
-                        Err(e) => log::warn!("Message::GetRetains failed, node_id: {node_id}, {e:?}"),
+                        Err(e) => log::warn!("Message::GetRetains failed, node_id: {node_id}, {e}"),
                     }
                 }
             }
@@ -1030,7 +1030,7 @@ impl Shared for ClusterShared {
                     }
                 },
                 Err(e) => {
-                    log::error!("Get GrpcMessage::GetNodeHealthStatus from other node, error: {e:?}");
+                    log::error!("Get GrpcMessage::GetNodeHealthStatus from other node, error: {e}");
                     nodes_health_infos.push(NodeHealthStatus {
                         node_id,
                         running: false,
@@ -1137,7 +1137,7 @@ impl ClusterShared {
                                 break;
                             }
                             Err(e) => {
-                                log::warn!("sync_retains_from_peers failed from {node_id}: {e:?}");
+                                log::warn!("sync_retains_from_peers failed from {node_id}: {e}");
                                 break;
                             }
                         }

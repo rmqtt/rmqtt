@@ -218,7 +218,7 @@ impl BridgeManager {
             let ((bridge_name, entry_idx), producer) = entry.pair_mut();
             log::debug!("stop bridge_name: {bridge_name:?}, entry_idx: {entry_idx:?}",);
             if let Err(e) = producer.tx.send(Command::Close).await {
-                log::error!("{e:?}");
+                log::error!("{e}");
             }
         }
         self.sinks.clear();

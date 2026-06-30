@@ -133,7 +133,7 @@ impl Entry for ClusterLockEntry {
             let reply = RaftMessageReply::decode(&reply)?;
             match reply {
                 RaftMessageReply::Error(e) => {
-                    log::error!("RaftMessage::Connected reply: {e:?}");
+                    log::error!("RaftMessage::Connected reply: {e}");
                     return Err(anyhow!(e));
                 }
                 _ => {
@@ -209,7 +209,7 @@ impl Entry for ClusterLockEntry {
                         }
                         Err(e) => {
                             log::error!(
-                                "{id:?} Message::Kick from other node, prev_node_id: {prev_node_id:?}, error: {e:?}"
+                                "{id:?} Message::Kick from other node, prev_node_id: {prev_node_id:?}, error: {e}"
                             );
                             OfflineSession::NotExist
                         }
@@ -286,7 +286,7 @@ impl Entry for ClusterLockEntry {
                 match reply {
                     Ok(MessageReply::SubscriptionsGet(subs)) => subs,
                     Err(e) => {
-                        log::warn!("Message::SubscriptionsGet, error: {e:?}");
+                        log::warn!("Message::SubscriptionsGet, error: {e}");
                         None
                     }
                     _ => {
@@ -409,7 +409,7 @@ impl ClusterShared {
                 if let Err(e) =
                     self.message_mark_forwarded(target_nodeid, msg_id, vec![(target_clientid, None)]).await
                 {
-                    log::warn!("message_mark_forwarded error, {e:?}");
+                    log::warn!("message_mark_forwarded error, {e}");
                 }
             }
         } else {
@@ -433,7 +433,7 @@ impl ClusterShared {
                 let forwards_fut = async move {
                     if let Err(e) = msg_sender.await {
                         log::warn!(
-                            "forwards Message::ForwardsTo to other node, to: {target_nodeid:?}, error: {e:?}"
+                            "forwards Message::ForwardsTo to other node, to: {target_nodeid:?}, error: {e}"
                         );
                         //@TODO messasge dropped
                     }
@@ -461,7 +461,7 @@ impl ClusterShared {
         let mut relations_map = match self.scx.extends.router().await.matches(from.id.clone(), topic).await {
             Ok(relations_map) => relations_map,
             Err(e) => {
-                log::warn!("forwards, from:{from:?}, topic:{topic:?}, error: {e:?}");
+                log::warn!("forwards, from:{from:?}, topic:{topic:?}, error: {e}");
                 SubRelationsMap::default()
             }
         };
@@ -478,7 +478,7 @@ impl ClusterShared {
                 errs.extend(e);
             } else if let Some((msg_id, subscribers)) = subscribers {
                 if let Err(e) = self.message_mark_forwarded(this_node_id, msg_id, subscribers).await {
-                    log::warn!("message_mark_forwarded error, {e:?}");
+                    log::warn!("message_mark_forwarded error, {e}");
                 }
             }
         }
@@ -519,7 +519,7 @@ impl ClusterShared {
                     for (node_id, reply) in replys {
                         if let Err(e) = reply {
                             log::warn!(
-                                "forwards Message::ForwardsTo to other node, from: {from:?}, to: {node_id:?}, error: {e:?}"
+                                "forwards Message::ForwardsTo to other node, from: {from:?}, to: {node_id:?}, error: {e}"
                             );
                             //@TODO messasge dropped
                         }
@@ -701,10 +701,10 @@ impl Shared for ClusterShared {
                 for (node_id, reply) in replys {
                     match reply {
                         Err(e) => {
-                            log::warn!("Message::MessageGet failed, node_id: {node_id}, {e:?}")
+                            log::warn!("Message::MessageGet failed, node_id: {node_id}, {e}")
                         }
                         Ok(MessageReply::Error(e)) => {
-                            log::warn!("Message::MessageGet failed, node_id: {node_id}, {e:?}")
+                            log::warn!("Message::MessageGet failed, node_id: {node_id}, {e}")
                         }
                         Ok(MessageReply::MessageGet(res)) => {
                             msgs.extend(res);
@@ -762,7 +762,7 @@ impl Shared for ClusterShared {
                                 vec![]
                             }
                             Err(e) => {
-                                log::warn!("Message::MessageGet failed, {e:?}");
+                                log::warn!("Message::MessageGet failed, {e}");
                                 vec![]
                             }
                         };
@@ -778,7 +778,7 @@ impl Shared for ClusterShared {
 
                 for (node_id, result) in replys {
                     if let Err(e) = result {
-                        log::warn!("Message::MessageGet failed, node_id: {node_id}, {e:?}")
+                        log::warn!("Message::MessageGet failed, node_id: {node_id}, {e}")
                     }
                 }
             }
@@ -823,7 +823,7 @@ impl Shared for ClusterShared {
                                 Ok(vec![])
                             }
                             Err(e) => {
-                                log::warn!("Message::GetRetains failed, {e:?}");
+                                log::warn!("Message::GetRetains failed, {e}");
                                 Ok(vec![])
                             }
                         }
@@ -838,7 +838,7 @@ impl Shared for ClusterShared {
                 for (node_id, result) in replys {
                     match result {
                         Ok(mut remote_retains) => all_retains.append(&mut remote_retains),
-                        Err(e) => log::warn!("Message::GetRetains failed, node_id: {node_id}, {e:?}"),
+                        Err(e) => log::warn!("Message::GetRetains failed, node_id: {node_id}, {e}"),
                     }
                 }
             }
@@ -989,7 +989,7 @@ impl Shared for ClusterShared {
                     }
                 },
                 Err(e) => {
-                    log::error!("Get RaftGrpcMessage::GetRaftStatus from other node, error: {e:?}");
+                    log::error!("Get RaftGrpcMessage::GetRaftStatus from other node, error: {e}");
                     nodes_health_infos.push(NodeHealthStatus {
                         node_id,
                         running: false,
@@ -1100,7 +1100,7 @@ impl ClusterShared {
                                 break;
                             }
                             Err(e) => {
-                                log::warn!("sync_retains_from_peers failed from {node_id}: {e:?}");
+                                log::warn!("sync_retains_from_peers failed from {node_id}: {e}");
                                 break;
                             }
                         }
