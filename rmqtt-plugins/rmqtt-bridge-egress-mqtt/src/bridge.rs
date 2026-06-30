@@ -117,7 +117,7 @@ impl BridgeManager {
     /// Starts all bridge entries with automatic retry on failure.
     pub async fn start(&mut self) {
         while let Err(e) = self._start().await {
-            log::error!("start bridge-egress-mqtt error, {e:?}");
+            log::error!("start bridge-egress-mqtt error, {e}");
             self.stop().await;
             tokio::time::sleep(Duration::from_millis(3000)).await;
         }
@@ -177,7 +177,7 @@ impl BridgeManager {
                 );
                 if let Err(e) = mailbox.stop().await {
                     log::error!(
-                    "stop BridgeMqttIngressPlugin error, bridge_name: {bridge_name}, entry_idx: {entry_idx}, client_no: {client_no}, {e:?}"
+                    "stop BridgeMqttIngressPlugin error, bridge_name: {bridge_name}, entry_idx: {entry_idx}, client_no: {client_no}, {e}"
                 );
                 }
             }

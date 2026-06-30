@@ -68,7 +68,7 @@ impl Handler for HookHandler {
                     let msg = Message::Disconnected { id: s.id.clone() }.encode();
                     match msg {
                         Err(e) => {
-                            log::warn!("HookHandler, Message::Disconnected, message encode error, {e:?}");
+                            log::warn!("HookHandler, Message::Disconnected, message encode error, {e}");
                         }
                         Ok(msg) => {
                             let raft_mailbox = self.raft_mailbox.clone();
@@ -93,7 +93,7 @@ impl Handler for HookHandler {
                                     .await
                                 {
                                     log::warn!(
-                                        "HookHandler, Message::Disconnected, raft mailbox send error, {e:?}"
+                                        "HookHandler, Message::Disconnected, raft mailbox send error, {e}"
                                     );
                                 }
                             });
@@ -106,7 +106,7 @@ impl Handler for HookHandler {
                 let msg = Message::SessionTerminated { id: s.id.clone() }.encode();
                 match msg {
                     Err(e) => {
-                        log::warn!("HookHandler, Message::SessionTerminated, message encode error, {e:?}");
+                        log::warn!("HookHandler, Message::SessionTerminated, message encode error, {e}");
                     }
                     Ok(msg) => {
                         let raft_mailbox = self.raft_mailbox.clone();
@@ -131,7 +131,7 @@ impl Handler for HookHandler {
                                 .await
                             {
                                 log::warn!(
-                                    "HookHandler, Message::SessionTerminated, raft mailbox send error, {e:?}"
+                                    "HookHandler, Message::SessionTerminated, raft mailbox send error, {e}"
                                 );
                             }
                         });
@@ -168,7 +168,7 @@ impl Handler for HookHandler {
                             .mark_forwarded(*msg_id, subscribers.clone())
                             .await
                         {
-                            log::warn!("mark_forwarded error, {e:?}, msg_id: {msg_id}, from node: {node_id}, subscribers: {subscribers:?}");
+                            log::warn!("mark_forwarded error, {e}, msg_id: {msg_id}, from node: {node_id}, subscribers: {subscribers:?}");
                         }
                         return (false, acc);
                     }
@@ -206,7 +206,7 @@ impl Handler for HookHandler {
                         if let Err(e) =
                             self.scx.extends.retain().await.set(topic, retain.clone(), *expiry_interval).await
                         {
-                            log::warn!("Failed to apply remote retain: {e:?}");
+                            log::warn!("Failed to apply remote retain: {e}");
                         }
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::SetRetain(true)));
                         return (false, Some(new_acc));
@@ -220,7 +220,7 @@ impl Handler for HookHandler {
                             .sync_retain_topic(topic, *expiry_interval, true)
                             .await
                         {
-                            log::warn!("Failed to sync retain topic (add): {e:?}");
+                            log::warn!("Failed to sync retain topic (add): {e}");
                         }
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::SetRetain(true)));
                         return (false, Some(new_acc));
@@ -229,7 +229,7 @@ impl Handler for HookHandler {
                         if let Err(e) =
                             self.scx.extends.retain().await.sync_retain_topic(topic, None, false).await
                         {
-                            log::warn!("Failed to sync retain topic (remove): {e:?}");
+                            log::warn!("Failed to sync retain topic (remove): {e}");
                         }
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::SetRetain(true)));
                         return (false, Some(new_acc));
@@ -259,7 +259,7 @@ impl Handler for HookHandler {
                     GrpcMessage::Data(data) => {
                         let new_acc = match RaftGrpcMessage::decode(data) {
                             Err(e) => {
-                                log::error!("Message::decode, error: {e:?}");
+                                log::error!("Message::decode, error: {e}");
                                 HookResult::GrpcMessageReply(Ok(MessageReply::Error(e.to_string())))
                             }
                             Ok(RaftGrpcMessage::GetNodeHealthStatus) => {

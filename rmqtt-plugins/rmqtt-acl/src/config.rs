@@ -75,14 +75,14 @@ impl PluginConfig {
                 match rules {
                     Some(Ok(rules)) => rules,
                     Some(Err(e)) => {
-                        log::error!("{e:?}");
+                        log::error!("{e}");
                         Default::default()
                     }
                     None => Default::default(),
                 }
             }
             Err(e) => {
-                log::error!("{e:?}");
+                log::error!("{e}");
                 Default::default()
             }
         };

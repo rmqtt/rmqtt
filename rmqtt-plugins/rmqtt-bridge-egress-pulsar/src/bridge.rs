@@ -278,7 +278,7 @@ impl BridgeManager {
     /// Starts all bridge entries with automatic retry on failure.
     pub async fn start(&mut self) {
         while let Err(e) = self._start().await {
-            log::error!("start bridge-egress-pulsar error, {e:?}");
+            log::error!("start bridge-egress-pulsar error, {e}");
             self.stop().await;
             tokio::time::sleep(Duration::from_millis(3000)).await;
         }
@@ -326,7 +326,7 @@ impl BridgeManager {
             let ((bridge_name, entry_idx), producer) = entry.pair_mut();
             log::debug!("stop bridge_name: {bridge_name:?}, entry_idx: {entry_idx:?}",);
             if let Err(e) = producer.tx.send(Command::Close).await {
-                log::error!("{e:?}");
+                log::error!("{e}");
             }
         }
         self.sinks.clear();

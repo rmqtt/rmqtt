@@ -228,7 +228,7 @@ impl Retainer {
                 match msg_mgr._batch_store_new(msgs).await {
                     Ok(()) => msg_mgr.circuit_breaker.record_success(),
                     Err(e) => {
-                        log::warn!("batch store failed, {e:?}");
+                        log::warn!("batch store failed, {e}");
                         msg_mgr.circuit_breaker.record_failure();
                     }
                 }
@@ -323,7 +323,7 @@ impl RetainerInner {
                     .await
                     .map_err(|_e| anyhow!("storage_db.remove timeout"))?
                 {
-                    log::warn!("remove from db error, remove(..), {e:?}, topic_name: {topic_name:?}");
+                    log::warn!("remove from db error, remove(..), {e}, topic_name: {topic_name:?}");
                     return Err(e);
                 };
                 // Remove from in-memory topics tree
@@ -342,7 +342,7 @@ impl RetainerInner {
                     }
                     Ok(true) => {}
                     Err(e) => {
-                        log::warn!("store to db error, check_constraints(..), {e:?}, message: {retain:?}");
+                        log::warn!("store to db error, check_constraints(..), {e}, message: {retain:?}");
                         continue;
                     }
                 }
@@ -365,7 +365,7 @@ impl RetainerInner {
                     .await
                     .map_err(|_e| anyhow!("storage_db.insert timeout"))?
                 {
-                    log::warn!("store to db error, insert(..), {e:?}, message: {smsg:?}");
+                    log::warn!("store to db error, insert(..), {e}, message: {smsg:?}");
                     return Err(e);
                 };
 
@@ -377,7 +377,7 @@ impl RetainerInner {
                         .await
                         .map_err(|_e| anyhow!("set expire timeout"))?
                     {
-                        log::warn!("store to db error, expire(..), {e:?}, message: {smsg:?}");
+                        log::warn!("store to db error, expire(..), {e}, message: {smsg:?}");
                         return Err(e);
                     }
                 }
@@ -400,7 +400,7 @@ impl RetainerInner {
             .await
             .map_err(|_e| anyhow!("storage_messages_max_add timeout"))?
         {
-            log::warn!("messages_received_counter add error, {e:?}");
+            log::warn!("messages_received_counter add error, {e}");
             return Err(e);
         }
 
@@ -440,7 +440,7 @@ impl RetainerInner {
                     }
                     Ok(true) => {}
                     Err(e) => {
-                        log::warn!("store to db error, check_constraints(..), {e:?}, message: {retain:?}");
+                        log::warn!("store to db error, check_constraints(..), {e}, message: {retain:?}");
                         continue;
                     }
                 }
@@ -481,7 +481,7 @@ impl RetainerInner {
                 .timeout(futures_time::time::Duration::from_millis(5000))
                 .await
                 .map_err(|_e| anyhow!("storage_db.batch_remove timeout"))?
-                .map_err(|e| anyhow!("batch_remove error: {e:?}"))?;
+                .map_err(|e| anyhow!("batch_remove error: {e}"))?;
         }
 
         // Batch insert — failure propagates to the serve loop.
@@ -491,7 +491,7 @@ impl RetainerInner {
                 .timeout(futures_time::time::Duration::from_millis(5000))
                 .await
                 .map_err(|_e| anyhow!("storage_db.batch_insert timeout"))?
-                .map_err(|e| anyhow!("batch_insert error: {e:?}"))?;
+                .map_err(|e| anyhow!("batch_insert error: {e}"))?;
 
             // Set TTL for inserted messages
             for (key, ms) in expire_tasks {
@@ -502,7 +502,7 @@ impl RetainerInner {
                     .await
                     .map_err(|_e| anyhow!("set expire timeout"))?
                 {
-                    log::warn!("store to db error, expire(..), {e:?}");
+                    log::warn!("store to db error, expire(..), {e}");
                     return Err(e);
                 }
             }
@@ -514,7 +514,7 @@ impl RetainerInner {
             .await
             .map_err(|_e| anyhow!("storage_messages_max_add timeout"))?
         {
-            log::warn!("messages_received_counter add error, {e:?}");
+            log::warn!("messages_received_counter add error, {e}");
             return Err(e);
         }
 
@@ -631,7 +631,7 @@ impl RetainerInner {
                 }
                 Ok(None) => Ok(Vec::new()),
                 Err(e) => {
-                    log::error!("get_message exact get error: {e:?}");
+                    log::error!("get_message exact get error: {e}");
                     Err(e)
                 }
             }
@@ -668,7 +668,7 @@ impl RetainerInner {
                         // }
                     }
                     Err(e) => {
-                        log::error!("get_message get error: {e:?}");
+                        log::error!("get_message get error: {e}");
                         return Err(e);
                     }
                 }
@@ -688,7 +688,7 @@ impl RetainerInner {
         let mut iter = match db.scan([RETAIN_MESSAGES_PREFIX, topic_filter_pattern.as_bytes()].concat()).await
         {
             Err(e) => {
-                log::error!("get_all_paginated scan error: {e:?}");
+                log::error!("get_all_paginated scan error: {e}");
                 return Ok((Vec::new(), false));
             }
             Ok(iter) => iter,
@@ -703,7 +703,7 @@ impl RetainerInner {
                     matched_keys.push(key);
                 }
                 Ok(_) => {}
-                Err(e) => log::error!("get_all_paginated iter error: {e:?}"),
+                Err(e) => log::error!("get_all_paginated iter error: {e}"),
             }
         }
         drop(iter);
@@ -729,7 +729,7 @@ impl RetainerInner {
                     items.push((topic_name, retain, remaining));
                 }
                 Ok(None) => {}
-                Err(e) => log::error!("get_all_paginated get error: {e:?}"),
+                Err(e) => log::error!("get_all_paginated get error: {e}"),
             }
         }
 
@@ -747,7 +747,7 @@ impl RetainerInner {
         let mut iter = match db.scan([RETAIN_MESSAGES_PREFIX, topic_filter_pattern.as_bytes()].concat()).await
         {
             Err(e) => {
-                log::warn!("rebuild_topics scan error: {e:?}");
+                log::warn!("rebuild_topics scan error: {e}");
                 return Err(e);
             }
             Ok(iter) => iter,
@@ -760,7 +760,7 @@ impl RetainerInner {
             let key = match key {
                 Ok(k) => k,
                 Err(e) => {
-                    log::warn!("rebuild_topics iter error: {e:?}");
+                    log::warn!("rebuild_topics iter error: {e}");
                     continue;
                 }
             };
@@ -867,7 +867,7 @@ impl RetainStorage for Retainer {
                 Ok(())
             }
             Err(e) => {
-                log::error!("Retainer set error, {e:?}");
+                log::error!("Retainer set error, {e}");
                 Err(anyhow!(e.to_string()))
             }
         }
@@ -960,7 +960,7 @@ impl RetainStorage for Retainer {
         match value_ref.get() {
             Ok(max) => max.copied().unwrap_or(-1),
             Err(e) => {
-                log::warn!("retainer max error: {e:?}");
+                log::warn!("retainer max error: {e}");
                 -1
             }
         }

@@ -114,7 +114,7 @@ impl SessionManager for StorageSessionManager {
                 let s1 = s.clone();
                 tokio::spawn(async move {
                     if let Err(e) = s1.save_to_db().await {
-                        log::error!("Save session info error to db, {e:?}");
+                        log::error!("Save session info error to db, {e}");
                     }
                     if let Some(last_id) = last_id {
                         log::debug!("Remove last offline session info from db, last_id: {last_id:?}",);
@@ -125,7 +125,7 @@ impl SessionManager for StorageSessionManager {
                         if let Ok(map) = map {
                             if let Err(e) = map.clear().await {
                                 log::warn!(
-                                    "Remove last offline session info error from db, last_id: {last_id:?}, {e:?}"
+                                    "Remove last offline session info error from db, last_id: {last_id:?}, {e}"
                                 );
                             }
                         }
@@ -133,7 +133,7 @@ impl SessionManager for StorageSessionManager {
                         if let Ok(list) = list {
                             if let Err(e) = list.clear().await {
                                 log::warn!(
-                                    "Remove last offline session info error from db, last_id: {last_id:?}, {e:?}"
+                                    "Remove last offline session info error from db, last_id: {last_id:?}, {e}"
                                 );
                             }
                         }
@@ -255,7 +255,7 @@ impl StorageSession {
     #[inline]
     async fn save_basic_info(&self) {
         if let Err(e) = self._save_basic_info().await {
-            log::error!("save basic info error, {e:?}");
+            log::error!("save basic info error, {e}");
         }
     }
 

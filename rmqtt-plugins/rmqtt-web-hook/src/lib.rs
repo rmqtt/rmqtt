@@ -177,7 +177,7 @@ impl WebHookPlugin {
             )
             .await
             {
-                log::warn!("Failed to build the web-hook message, {e:?}");
+                log::warn!("Failed to build the web-hook message, {e}");
             }
         }
         .spawn(exec)
@@ -467,7 +467,7 @@ impl WebHookHandler {
             let data = match serde_json::to_vec(body.as_ref()) {
                 Ok(data) => data,
                 Err(e) => {
-                    log::warn!("write hook message failure, {e:?}");
+                    log::warn!("write hook message failure, {e}");
                     return;
                 }
             };
@@ -504,7 +504,7 @@ impl WebHookHandler {
         .await
         {
             fails.current_inc();
-            log::warn!("send web hook message failure, {e:?}");
+            log::warn!("send web hook message failure, {e}");
         }
     }
 
@@ -776,7 +776,7 @@ impl Handler for WebHookHandler {
         if let Some((topic, body)) = bodys {
             let tx = self.tx.read().await.clone();
             if let Err(e) = tx.send((typ, topic, body)).await {
-                log::warn!("web-hook send error, typ: {typ:?}, {e:?}");
+                log::warn!("web-hook send error, typ: {typ:?}, {e}");
             } else {
                 self.chan_queue_count.fetch_add(1, Ordering::SeqCst);
             }

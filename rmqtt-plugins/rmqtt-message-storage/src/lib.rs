@@ -82,7 +82,7 @@ impl StoragePlugin {
                         s_cfg.redis_cluster.prefix.replace("{node}", &format!("{node_id}"));
                 }
                 let storage_db = init_db(&s_cfg).await.map_err(|e| {
-                    log::error!("{name} init storage db error, {e:?}");
+                    log::error!("{name} init storage db error, {e}");
                     e
                 })?;
 

@@ -235,7 +235,7 @@ impl Client {
                     break;
                 }
                 Err(e) => {
-                    log::info!("{client_id} Subscribe error, {e:?}");
+                    log::info!("{client_id} Subscribe error, {e}");
                     break;
                 }
             }
@@ -274,7 +274,7 @@ impl Client {
             }))
             .await
         {
-            log::error!("Start ev_loop error! {e:?}");
+            log::error!("Start ev_loop error! {e}");
         }
     }
 }

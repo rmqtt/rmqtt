@@ -134,7 +134,7 @@ impl Producer {
                     log::debug!("{name} delivery ok, delivery: {delivery:?}");
                 }
                 Err((e, msg)) => {
-                    log::error!("{name} delivery error: {e:?}, message: {msg:?}");
+                    log::error!("{name} delivery error: {e}, message: {msg:?}");
                 }
             };
         }

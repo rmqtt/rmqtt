@@ -70,7 +70,7 @@ impl HttpApiPlugin {
         let http_laddr = cfg.read().await.http_laddr;
         tokio::spawn(async move {
             if let Err(e) = api::listen_and_serve(scx, http_laddr, cfg, shutdown_rx, started_tx).await {
-                log::error!("{e:?}");
+                log::error!("{e}");
             }
             log::info!("Exit HTTP API Server, ..., http://{http_laddr:?}");
         });

@@ -73,7 +73,7 @@ impl Handler for HookHandler {
                             .await
                         {
                             log::warn!(
-                                "mark_forwarded error, {e:?}, msg_id: {msg_id}, from node: {node_id}, \
+                                "mark_forwarded error, {e}, msg_id: {msg_id}, from node: {node_id}, \
                                  subscribers: {subscribers:?}"
                             );
                         }
@@ -93,7 +93,7 @@ impl Handler for HookHandler {
                                 }
                             }
                             Err(e) => {
-                                log::warn!("{id:?}, try_lock error, {e:?}");
+                                log::warn!("{id:?}, try_lock error, {e}");
                                 HookResult::GrpcMessageReply(Err(e))
                             }
                         };
@@ -138,7 +138,7 @@ impl Handler for HookHandler {
                     Message::SetRetain(topic, retain, expiry_interval) => {
                         let retain_mgr = self.scx.extends.retain().await;
                         if let Err(e) = retain_mgr.set(topic, retain.clone(), *expiry_interval).await {
-                            log::warn!("Failed to apply remote retain: {e:?}");
+                            log::warn!("Failed to apply remote retain: {e}");
                         }
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::SetRetain(true)));
                         return (false, Some(new_acc));
@@ -146,7 +146,7 @@ impl Handler for HookHandler {
                     Message::SetRetainTopicAdd(topic, expiry_interval) => {
                         let retain_mgr = self.scx.extends.retain().await;
                         if let Err(e) = retain_mgr.sync_retain_topic(topic, *expiry_interval, true).await {
-                            log::warn!("Failed to sync retain topic (add): {e:?}");
+                            log::warn!("Failed to sync retain topic (add): {e}");
                         }
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::SetRetain(true)));
                         return (false, Some(new_acc));
@@ -154,7 +154,7 @@ impl Handler for HookHandler {
                     Message::SetRetainTopicRemove(topic) => {
                         let retain_mgr = self.scx.extends.retain().await;
                         if let Err(e) = retain_mgr.sync_retain_topic(topic, None, false).await {
-                            log::warn!("Failed to sync retain topic (remove): {e:?}");
+                            log::warn!("Failed to sync retain topic (remove): {e}");
                         }
                         let new_acc = HookResult::GrpcMessageReply(Ok(MessageReply::SetRetain(true)));
                         return (false, Some(new_acc));
@@ -215,7 +215,7 @@ impl Handler for HookHandler {
                     Message::Data(data) => {
                         let new_acc = match BroadcastGrpcMessage::decode(data) {
                             Err(e) => {
-                                log::error!("Message::decode, error: {e:?}");
+                                log::error!("Message::decode, error: {e}");
                                 HookResult::GrpcMessageReply(Ok(MessageReply::Error(e.to_string())))
                             }
                             Ok(BroadcastGrpcMessage::GetNodeHealthStatus) => {

@@ -189,7 +189,7 @@ impl Router for ClusterRouter {
             })
             .await
             {
-                log::warn!("[Router.remove] Failed to send Message::Remove, id: {id:?}, {e:?}");
+                log::warn!("[Router.remove] Failed to send Message::Remove, id: {id:?}, {e}");
             }
         });
         Ok(true)
@@ -560,7 +560,7 @@ impl Store for ClusterRouter {
         let mut topics = self.inner.topics.write().await;
         self.inner.relations.clear();
         for (topic_filter, relation) in relations {
-            let topic = Topic::from_str(&topic_filter).map_err(|e| Error::Msg(format!("{e:?}")))?;
+            let topic = Topic::from_str(&topic_filter).map_err(|e| Error::Msg(format!("{e}")))?;
             self.inner.relations.insert(topic_filter, relation);
             topics.insert(&topic, ());
         }

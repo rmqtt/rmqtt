@@ -120,7 +120,7 @@ impl Node {
     ) {
         tokio::spawn(async move {
             if let Err(e) = GrpcServer::new(scx).listen_and_serve(server_addr, reuseaddr, reuseport).await {
-                log::error!("listen and serve failure, {e:?}, laddr: {server_addr:?}");
+                log::error!("listen and serve failure, {e}, laddr: {server_addr:?}");
             }
         });
     }

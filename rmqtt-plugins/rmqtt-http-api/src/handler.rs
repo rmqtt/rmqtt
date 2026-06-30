@@ -40,7 +40,7 @@ impl Handler for HookHandler {
                     GrpcMessage::Data(data) => {
                         let new_acc = match Message::decode(data) {
                             Err(e) => {
-                                log::error!("Message::decode, error: {e:?}");
+                                log::error!("Message::decode, error: {e}");
                                 HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(e.to_string())))
                             }
                             Ok(Message::BrokerInfo) => {

@@ -149,7 +149,7 @@ impl GrpcServer {
                         .run()
                         .await
                     {
-                        log::warn!("Run gRPC receiver error, {e:?}");
+                        log::warn!("Run gRPC receiver error, {e}");
                     }
                     tokio::time::sleep(Duration::from_secs(3)).await;
                 }
@@ -559,7 +559,7 @@ impl MessageSender {
         match reply {
             Ok(reply) => Ok(reply),
             Err(e) => {
-                log::warn!("error sending message, {e:?}");
+                log::warn!("error sending message, {e}");
                 Err(e)
             }
         }
@@ -576,7 +576,7 @@ impl MessageSender {
         match reply {
             Ok(()) => Ok(()),
             Err(e) => {
-                log::warn!("error notify message, {e:?}");
+                log::warn!("error notify message, {e}");
                 Err(e)
             }
         }
@@ -787,7 +787,7 @@ impl MessageBroadcaster {
                 check_fn(r)
             }
             Err(e) => {
-                log::debug!("ERROR reply: {e:?}");
+                log::debug!("ERROR reply: {e}");
                 Err(e)
             }
         }

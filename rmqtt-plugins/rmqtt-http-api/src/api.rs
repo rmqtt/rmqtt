@@ -498,7 +498,7 @@ async fn _get_broker(
                     serde_json::Value::String("Invalid Result".into())
                 }
                 Err(e) => {
-                    log::warn!("Get GrpcMessage::BrokerInfo from other node, error: {e:?}");
+                    log::warn!("Get GrpcMessage::BrokerInfo from other node, error: {e}");
                     serde_json::Value::String(e.to_string())
                 }
             };
@@ -538,7 +538,7 @@ async fn _get_brokers(scx: &ServerContext, message_type: MessageType) -> Result<
                 Ok(serde_json::Value::String("Invalid Result".into()))
             }
             (id, Err(e)) => {
-                log::warn!("Get GrpcMessage::BrokerInfo from other node({id}), error: {e:?}");
+                log::warn!("Get GrpcMessage::BrokerInfo from other node({id}), error: {e}");
                 Ok(serde_json::Value::String(e.to_string()))
             }
         })
@@ -617,7 +617,7 @@ async fn _get_nodes(scx: &ServerContext, message_type: MessageType) -> Result<Ve
                 Err(anyhow!("Invalid Result"))
             }
             (id, Err(e)) => {
-                log::warn!("Get GrpcMessage::NodeInfo from other node({id}), error: {e:?}");
+                log::warn!("Get GrpcMessage::NodeInfo from other node({id}), error: {e}");
                 Ok(serde_json::Value::String(e.to_string()))
             }
         })
@@ -660,7 +660,7 @@ pub(crate) async fn get_node(
                     Err(anyhow!("Invalid Result"))
                 }
                 Err(e) => {
-                    log::warn!("Get GrpcMessage::NodeInfo from other node, error: {e:?}");
+                    log::warn!("Get GrpcMessage::NodeInfo from other node, error: {e}");
                     Err(e)
                 }
             }
@@ -702,7 +702,7 @@ pub(crate) async fn get_nodes_all(
                 Err(anyhow!("Invalid Result"))
             }
             (id, Err(e)) => {
-                log::warn!("Get GrpcMessage::NodeInfo from other node({id}), error: {e:?}");
+                log::warn!("Get GrpcMessage::NodeInfo from other node({id}), error: {e}");
                 Ok(Err(e))
             }
         })
@@ -776,7 +776,7 @@ async fn check_health_one(
                     Err(anyhow!("Invalid Result"))
                 }
                 Err(e) => {
-                    log::warn!("Get GrpcMessage::NodeHealthStatus from other node, error: {e:?}");
+                    log::warn!("Get GrpcMessage::NodeHealthStatus from other node, error: {e}");
                     Err(e)
                 }
             }
@@ -946,7 +946,7 @@ async fn _search_clients(
                     }
                 },
                 Err(e) => {
-                    log::warn!("Get GrpcMessage::ClientSearch, error: {e:?}");
+                    log::warn!("Get GrpcMessage::ClientSearch, error: {e}");
                 }
                 Ok(reply) => {
                     log::warn!("Get GrpcMessage::ClientSearch from other node({id}), reply: {reply:?}");
@@ -1263,7 +1263,7 @@ async fn _publish(
             if let Err(e) =
                 SessionState::forwards(scx, from, p1, storage_available, Some(message_expiry_interval)).await
             {
-                log::warn!("{e:?}");
+                log::warn!("{e}");
             }
         };
         futs.push(fut);
@@ -1934,7 +1934,7 @@ async fn _get_stats_sum(
                     continue;
                 }
                 (id, Err(e)) => {
-                    log::warn!("Get GrpcMessage::StateInfo from other node({id}), error: {e:?}");
+                    log::warn!("Get GrpcMessage::StateInfo from other node({id}), error: {e}");
                     nodes.insert(id, serde_json::Value::String(e.to_string()));
                 }
             };
@@ -2030,7 +2030,7 @@ pub(crate) async fn get_stats_one(
                     Err(anyhow!("Invalid Result"))
                 }
                 Err(e) => {
-                    log::warn!("Get GrpcMessage::StateInfo from other node, error: {e:?}");
+                    log::warn!("Get GrpcMessage::StateInfo from other node, error: {e}");
                     Err(e)
                 }
             }
@@ -2076,7 +2076,7 @@ pub(crate) async fn get_stats_all(
                     continue;
                 }
                 (id, Err(e)) => {
-                    log::warn!("Get GrpcMessage::StateInfo from other node({id}), error: {e:?}");
+                    log::warn!("Get GrpcMessage::StateInfo from other node({id}), error: {e}");
                     Err(e)
                 }
             };
@@ -2240,7 +2240,7 @@ pub(crate) async fn get_metrics_one(
                     Err(anyhow!("Invalid Result"))
                 }
                 Err(e) => {
-                    log::warn!("Get GrpcMessage::MetricsInfo from other node, error: {e:?}");
+                    log::warn!("Get GrpcMessage::MetricsInfo from other node, error: {e}");
                     Err(e)
                 }
             }
@@ -2283,7 +2283,7 @@ pub(crate) async fn get_metrics_all(
                     continue;
                 }
                 (id, Err(e)) => {
-                    log::warn!("Get GrpcMessage::MetricsInfo from other node({id}), error: {e:?}");
+                    log::warn!("Get GrpcMessage::MetricsInfo from other node({id}), error: {e}");
                     Err(e)
                 }
             };
@@ -2331,7 +2331,7 @@ async fn _get_metrics_sum(scx: &ServerContext, message_type: MessageType) -> Res
                     log::info!("Get GrpcMessage::MetricsInfo from other node({id}), reply: {reply:?}");
                 }
                 (id, Err(e)) => {
-                    log::warn!("Get GrpcMessage::MetricsInfo from other node({id}), error: {e:?}");
+                    log::warn!("Get GrpcMessage::MetricsInfo from other node({id}), error: {e}");
                 }
             };
         }

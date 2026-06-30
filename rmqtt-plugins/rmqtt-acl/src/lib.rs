@@ -140,7 +140,7 @@ impl Handler for AclHandler {
                             }
                             if let Err(e) = rule.add_topic_filter(&tf, client_id.clone()).await {
                                 log::error!(
-                                    "acl config error, build_placeholders, add topic filter error, {e:?}"
+                                    "acl config error, build_placeholders, add topic filter error, {e}"
                                 );
                             }
                             log::debug!("topic filter: {tf}");
@@ -179,7 +179,7 @@ impl Handler for AclHandler {
                     for topic_filter in topic_filters {
                         for rule in self.cfg.read().await.rules() {
                             if let Err(e) = rule.remove_topic(topic_filter.as_str(), &client_id).await {
-                                log::error!("remove topic filter error, {e:?}");
+                                log::error!("remove topic filter error, {e}");
                             }
                         }
                     }

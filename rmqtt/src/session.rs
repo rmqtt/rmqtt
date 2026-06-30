@@ -208,7 +208,7 @@ impl SessionState {
         self.scx.connections.dec();
 
         if let Err(e) = sink.close().await {
-            log::info!("{} close io error, {e:?}", self.id);
+            log::info!("{} close io error, {e}", self.id);
         }
 
         let disconnect = self.disconnect().await.unwrap_or(None);
@@ -756,7 +756,7 @@ impl SessionState {
                 let status = match self.subscribes_v3(topic_filters).await {
                     Ok(status) => status,
                     Err(e) => {
-                        log::warn!("{} Subscribe Refused, reason: {e:?}", self.id);
+                        log::warn!("{} Subscribe Refused, reason: {e}", self.id);
                         return Err(Reason::SubscribeFailed(Some(e.to_string().into())));
                     }
                 };
@@ -765,7 +765,7 @@ impl SessionState {
             Packet::V5(v5::Packet::Subscribe(subs)) => {
                 let ack = match self.subscribes_v5(subs).await {
                     Err(e) => {
-                        log::warn!("{} Subscribe Refused, reason: {e:?}", self.id);
+                        log::warn!("{} Subscribe Refused, reason: {e}", self.id);
                         return Err(Reason::SubscribeFailed(Some(e.to_string().into())));
                     }
                     Ok(ack) => ack,
@@ -1392,7 +1392,7 @@ impl SessionState {
                     "{id:?} transfer_session_state, router.add ... topic_filter: {tf:?}, opts: {opts:?}"
                 );
                 if let Err(e) = self.scx.extends.router().await.add(tf, id, opts.clone()).await {
-                    log::warn!("transfer_session_state, router.add, {e:?}");
+                    log::warn!("transfer_session_state, router.add, {e}");
                 }
 
                 //Send messages before they expire
@@ -1400,7 +1400,7 @@ impl SessionState {
                 if let Err(e) =
                     self.send_storaged_messages(tf.clone(), opts.qos(), opts.shared_group(), None).await
                 {
-                    log::warn!("transfer_session_state, router.add, {e:?}");
+                    log::warn!("transfer_session_state, router.add, {e}");
                 }
             }
         }
@@ -1414,7 +1414,7 @@ impl SessionState {
         while let Some(msg) = offline_info.inflight_messages.pop() {
             if !matches!(msg.status, MomentStatus::UnComplete) {
                 if let Err(e) = self.reforward(msg).await {
-                    log::warn!("transfer_session_state, reforward error, {e:?}");
+                    log::warn!("transfer_session_state, reforward error, {e}");
                 }
             }
         }
@@ -1455,7 +1455,7 @@ impl SessionState {
                 .message_load_with(&id.client_id, &topic_filter, group.as_ref(), Arc::new(handler))
                 .await
             {
-                log::warn!("message_load_with failed, {e:?}");
+                log::warn!("message_load_with failed, {e}");
             }
             let elaps = now.elapsed();
             if elaps.as_secs() > 3 {
@@ -1750,7 +1750,7 @@ impl SessionState {
                 .store(msg_id, from.clone(), publish.clone(), message_expiry_interval, None)
                 .await
             {
-                log::warn!("Failed to storage messages, {e:?}");
+                log::warn!("Failed to storage messages, {e}");
             }
         }
 
@@ -1817,7 +1817,7 @@ impl Drop for _Session {
         let s = self.inner.clone();
         tokio::spawn(async move {
             if let Err(e) = s.on_drop().await {
-                log::error!("{id:?} session clear error, {e:?}");
+                log::error!("{id:?} session clear error, {e}");
             }
         });
     }
@@ -1883,7 +1883,7 @@ async fn _send_storaged_messages(
                 .message_mark_forwarded(from_node_id, msg_id, vec![(id.client_id.clone(), opts)])
                 .await
             {
-                log::warn!("{:?} mark_forwarded error: {e:?}", id);
+                log::warn!("{:?} mark_forwarded error: {e}", id);
             }
         }
     }
@@ -2060,7 +2060,7 @@ async fn _send_subscribe_messages(
             .message_load_with(&id.client_id, &topic_filter, shared_group.as_ref(), Arc::new(handler))
             .await
         {
-            log::warn!("message_load_with failed, {e:?}");
+            log::warn!("message_load_with failed, {e}");
         }
         let elaps = now.elapsed();
         if elaps.as_secs() > 3 {
