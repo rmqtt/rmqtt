@@ -786,6 +786,7 @@ impl StoredSessionInfos {
 
     #[inline]
     pub fn retain_latests(&mut self) -> Vec<StoredKey> {
+        let now = std::time::Instant::now();
         let mut removeds = Vec::new();
         for mut entry in self.0.iter_mut() {
             let storeds = entry.value_mut();
@@ -803,7 +804,7 @@ impl StoredSessionInfos {
                 }
             }
         }
-        log::info!("retain_latests removeds: {:?}", removeds.len());
+        log::info!("retain_latests removeds: {:?}, cost: {:?}", removeds.len(), now.elapsed());
         removeds
     }
 }

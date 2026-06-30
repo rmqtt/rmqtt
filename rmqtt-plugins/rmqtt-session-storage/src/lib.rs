@@ -67,7 +67,6 @@ struct StoragePlugin {
     stored_session_infos: StoredSessionInfos,
     register: Box<dyn Register>,
     session_mgr: StorageSessionManager,
-    rebuild_tx: mpsc::Sender<RebuildChanType>,
 }
 
 impl StoragePlugin {
@@ -109,11 +108,11 @@ impl StoragePlugin {
         let session_mgr = StorageSessionManager::new(storage_db.clone(), stored_session_infos.clone());
 
         let cfg = Arc::new(cfg);
-        let rebuild_tx = Self::start_local_runtime(scx.clone());
-        Ok(Self { scx, cfg, storage_db, stored_session_infos, register, session_mgr, rebuild_tx })
+        Ok(Self { scx, cfg, storage_db, stored_session_infos, register, session_mgr })
     }
 
     async fn load_offline_session_infos(&mut self) -> Result<()> {
+        let now = std::time::Instant::now();
         log::info!("{:?} load_offline_session_infos ...", self.name());
         let storage_db = self.storage_db.clone();
         let mut iter_storage_db = storage_db.clone();
@@ -236,7 +235,11 @@ impl StoragePlugin {
             storage_db.map_remove(make_map_stored_key(removed_key.as_ref())).await?;
             storage_db.list_remove(make_list_stored_key(removed_key.as_ref())).await?;
         }
-        log::info!("stored_session_infos len: {:?}", self.stored_session_infos.len());
+        log::info!(
+            "stored_session_infos len: {:?}, cost: {:?}",
+            self.stored_session_infos.len(),
+            now.elapsed()
+        );
 
         Ok(())
     }
@@ -251,6 +254,7 @@ impl StoragePlugin {
             let local_set = tokio::task::LocalSet::new();
 
             local_set.block_on(&local_rt, async {
+                let now = std::time::Instant::now();
                 let exec = scx.get_exec("SESSION_REBUILD_EXEC");
                 while let Some(msg) = rx.next().await {
                     match msg {
@@ -284,13 +288,13 @@ impl StoragePlugin {
                                 }
                             }
                         },
-                        RebuildChanType::Done(done_tx) => {
-                            let _ = exec.flush().await;
-                            let _ = done_tx.send(());
-                            log::info!(
-                                "Rebuild offline sessions, completed_count: {}, active_count: {}, waiting_count: {}, rate: {:?}",
-                                exec.completed_count().await, exec.active_count(), exec.waiting_count(), exec.rate().await
-                            );
+                            RebuildChanType::Done(done_tx) => {
+                                let _ = exec.flush().await;
+                                let _ = done_tx.send(());
+                                log::info!(
+                                    "Rebuild offline sessions, completed_count: {}, active_count: {}, waiting_count: {}, rate: {:?}, cost: {:?}",
+                                    exec.completed_count().await, exec.active_count(), exec.waiting_count(), exec.rate().await, now.elapsed()
+                                );
                         }
                     }
                 }
@@ -306,6 +310,8 @@ impl Plugin for StoragePlugin {
     #[inline]
     async fn init(&mut self) -> Result<()> {
         log::info!("{} init", self.name());
+        let rebuild_tx = Self::start_local_runtime(self.scx.clone());
+
         self.register
             .add(
                 Type::BeforeStartup,
@@ -314,7 +320,7 @@ impl Plugin for StoragePlugin {
                     self.storage_db.clone(),
                     self.cfg.clone(),
                     self.stored_session_infos.clone(),
-                    self.rebuild_tx.clone(),
+                    rebuild_tx.clone(),
                 )),
             )
             .await;
@@ -430,11 +436,16 @@ impl Plugin for StoragePlugin {
         }
 
         let (session_count, offline_session_count, offline_message_count, storage_info) =
-            match tokio::time::timeout(Duration::from_secs(1), stats(&self.storage_db)).await {
+            match tokio::time::timeout(Duration::from_secs(10), stats(&self.storage_db)).await {
                 Ok((session_count, offline_session_count, offline_message_count, storage_info)) => {
                     (session_count, offline_session_count, offline_message_count, storage_info)
                 }
-                Err(_) => ("Elapsed".into(), "Elapsed".into(), "Elapsed".into(), serde_json::Value::Null),
+                Err(_) => (
+                    "timeout(10s)".into(),
+                    "timeout(10s)".into(),
+                    "timeout(10s)".into(),
+                    serde_json::Value::Null,
+                ),
             };
 
         json!({
@@ -550,6 +561,7 @@ impl StorageHandler {
 
     //Rebuild offline sessions.
     async fn rebuild_offline_sessions(&self, rebuild_done_tx: oneshot::Sender<()>) {
+        let now = std::time::Instant::now();
         let mut offline_sessions_count = 0;
         for mut entry in self.stored_session_infos.iter_mut() {
             let (_, storeds) = entry.pair_mut();
@@ -663,7 +675,7 @@ impl StorageHandler {
                 }
             }
         }
-        log::info!("offline_sessions_count: {offline_sessions_count}");
+        log::info!("offline_sessions_count: {offline_sessions_count}, cost: {:?}", now.elapsed());
         let _ = self.rebuild_tx.clone().send(RebuildChanType::Done(rebuild_done_tx)).await;
     }
 }
@@ -673,6 +685,7 @@ impl Handler for StorageHandler {
     async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
         match param {
             Parameter::BeforeStartup => {
+                let now = std::time::Instant::now();
                 log::info!(
                     "BeforeStartup storage_type: {:?}, stored_session_infos len: {}",
                     self.cfg.storage.typ,
@@ -681,6 +694,7 @@ impl Handler for StorageHandler {
                 let (rebuild_done_tx, rebuild_done_rx) = oneshot::channel::<()>();
                 self.rebuild_offline_sessions(rebuild_done_tx).await;
                 let _ = rebuild_done_rx.await;
+                log::info!("BeforeStartup rebuild total cost: {:?}", now.elapsed());
             }
             _ => {
                 log::error!("unimplemented, {param:?}")
