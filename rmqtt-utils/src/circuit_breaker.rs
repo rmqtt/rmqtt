@@ -11,12 +11,15 @@
 //!       │                                  ┌──────────────┐
 //!       │         record_success()         │  HALF_OPEN    │
 //!       ◄──────────────── (≥ threshold) ───│ (probe phase) │
-//!                                          └──────────────┘
+//!                                          └──────┬───────┘
+//!                                     reset_timeout │ (probe stuck)
+//!                                                   ▼
+//!                                                OPEN
 //! ```
 //!
 //! - **CLOSED**: Normal operation. Counts consecutive failures.
 //! - **OPEN**: Fail fast — all callers skip the external operation.
-//! - **HALF_OPEN**: Allow probe requests. If enough consecutive successes occur, transition
+//! - **HALF_OPEN**: Allow requests through. If enough consecutive successes occur, transition
 //!   back to CLOSED. If any failure occurs, transition back to OPEN.
 //!
 //! ## Zero-Lock Design
@@ -128,11 +131,6 @@ pub struct CircuitBreaker {
     failure_count: AtomicUsize,
     opened_at: AtomicI64,
     success_count: AtomicUsize,
-    /// Permits available for HALF_OPEN probe requests.
-    /// Initialised to `half_open_success_threshold` when transitioning OPEN→HALF_OPEN,
-    /// and decremented atomically for each probe request. When zero, the circuit is
-    /// blocked until the probe phase ends (success → CLOSED, failure → OPEN).
-    half_open_permits: AtomicUsize,
     config: CircuitBreakerConfig,
 }
 
@@ -142,7 +140,6 @@ impl fmt::Debug for CircuitBreaker {
             .field("state", &self.state())
             .field("failure_count", &self.failure_count.load(Ordering::Relaxed))
             .field("success_count", &self.success_count.load(Ordering::Relaxed))
-            .field("half_open_permits", &self.half_open_permits.load(Ordering::Relaxed))
             .field("config", &self.config)
             .finish()
     }
@@ -157,7 +154,6 @@ impl CircuitBreaker {
             failure_count: AtomicUsize::new(0),
             opened_at: AtomicI64::new(0),
             success_count: AtomicUsize::new(0),
-            half_open_permits: AtomicUsize::new(0),
             config,
         }
     }
@@ -166,12 +162,10 @@ impl CircuitBreaker {
     /// the external operation.
     ///
     /// Side effects (atomic transitions):
-    /// - OPEN → HALF_OPEN after `reset_timeout` has elapsed (at most one thread
-    ///   performs the transition via `compare_exchange`; the transitioning thread
-    ///   is implicitly granted one permit).
-    /// - HALF_OPEN → may decrement `half_open_permits`; when permits are exhausted,
-    ///   subsequent callers are blocked until the probe phase resolves.
-    /// - CLOSED → no transition.
+    /// - OPEN → HALF_OPEN after `reset_timeout` has elapsed (via atomic store —
+    ///   multiple threads may race through, but all are allowed through in
+    ///   HALF_OPEN state).
+    /// - CLOSED, HALF_OPEN → no transition.
     #[inline]
     pub fn is_blocked(&self) -> bool {
         if !self.config.enabled {
@@ -182,56 +176,30 @@ impl CircuitBreaker {
 
         match state {
             CLOSED => false,
-            HALF_OPEN => self.try_acquire_permit(),
+            HALF_OPEN => false,
             OPEN => {
                 // Check whether it is time to attempt a probe.
                 let elapsed_ms = (crate::timestamp_millis() - self.opened_at.load(Ordering::Relaxed)) as u64;
                 let reset_ms = self.config.reset_timeout.as_millis() as u64;
 
-                if elapsed_ms < reset_ms {
-                    return true;
-                }
-
-                // CAS transition from OPEN → HALF_OPEN.
-                // Only one thread wins; the winner initialises permits to
-                // (threshold - 1) since it consumes one permit itself.
-                match self.state.compare_exchange(OPEN, HALF_OPEN, Ordering::SeqCst, Ordering::SeqCst) {
-                    Ok(_) => {
-                        self.success_count.store(0, Ordering::Release);
-                        self.half_open_permits.store(
-                            self.config.half_open_success_threshold.saturating_sub(1),
-                            Ordering::Release,
-                        );
-                        false
-                    }
-                    Err(HALF_OPEN) => self.try_acquire_permit(),
-                    Err(other) => {
-                        log::warn!("circuit breaker: CAS OPEN→HALF_OPEN unexpected state {}", other);
-                        false
-                    }
+                if elapsed_ms >= reset_ms {
+                    // Reset success counter before entering HALF_OPEN.
+                    self.success_count.store(0, Ordering::Release);
+                    self.state.store(HALF_OPEN, Ordering::Release);
+                    false
+                } else {
+                    true
                 }
             }
             _ => false,
         }
     }
 
-    /// Try to acquire one permit from the HALF_OPEN permit pool.
-    ///
-    /// Returns `false` (not blocked) if a permit was successfully claimed,
-    /// `true` (blocked) if the permit pool is exhausted.
-    #[inline]
-    fn try_acquire_permit(&self) -> bool {
-        self.half_open_permits
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |p| if p > 0 { Some(p - 1) } else { None })
-            .is_err()
-    }
-
     /// Record a successful call.
     ///
     /// - **CLOSED**: reset the `failure_count` to 0.
     /// - **HALF_OPEN**: increment success count; if it reaches
-    ///   `half_open_success_threshold`, transition to CLOSED, reset all counters
-    ///   and clear the permit pool.
+    ///   `half_open_success_threshold`, transition to CLOSED and reset all counters.
     /// - **OPEN**: no-op.
     #[inline]
     pub fn record_success(&self) {
@@ -247,7 +215,6 @@ impl CircuitBreaker {
                     self.state.store(CLOSED, Ordering::Release);
                     self.failure_count.store(0, Ordering::Release);
                     self.success_count.store(0, Ordering::Release);
-                    self.half_open_permits.store(0, Ordering::Release);
                     log::info!("circuit breaker: CLOSED (recovered)");
                 }
             }
@@ -285,7 +252,6 @@ impl CircuitBreaker {
             HALF_OPEN => {
                 self.state.store(OPEN, Ordering::Release);
                 self.opened_at.store(timestamp_millis(), Ordering::Release);
-                self.half_open_permits.store(0, Ordering::Release);
                 log::warn!("circuit breaker: OPEN (half-open probe failed)");
             }
             OPEN => {
@@ -325,7 +291,6 @@ impl CircuitBreaker {
         self.failure_count.store(0, Ordering::Release);
         self.success_count.store(0, Ordering::Release);
         self.opened_at.store(0, Ordering::Release);
-        self.half_open_permits.store(0, Ordering::Release);
         log::info!("circuit breaker: CLOSED (manual reset)");
     }
 
@@ -343,7 +308,6 @@ impl CircuitBreaker {
             "state": format!("{:?}", self.state()),
             "failure_count": self.failure_count(),
             "success_count": self.success_count(),
-            "half_open_permits": self.half_open_permits.load(Ordering::Relaxed),
         })
     }
 }
@@ -488,85 +452,5 @@ mod tests {
         cb.record_failure();
         cb.record_failure();
         assert_eq!(cb.state(), CircuitState::Open);
-    }
-
-    #[test]
-    fn test_half_open_concurrency_limited() {
-        // Verifies that at most half_open_success_threshold probe requests
-        // are allowed through concurrently in HALF_OPEN state.
-        let cb = CircuitBreaker::new(CircuitBreakerConfig {
-            enabled: true,
-            failure_threshold: 1,
-            reset_timeout: Duration::from_millis(1),
-            half_open_success_threshold: 3,
-        });
-
-        // Trip → wait → HALF_OPEN
-        cb.record_failure();
-        std::thread::sleep(Duration::from_millis(5));
-
-        // First call: CAS transitions to HALF_OPEN, consumes 1 permit → allowed
-        assert!(!cb.is_blocked());
-        assert_eq!(cb.state(), CircuitState::HalfOpen);
-
-        // Next 2 calls should be allowed (permits = 3 - 1 = 2 remaining)
-        assert!(!cb.is_blocked(), "2nd probe should be allowed");
-        assert!(!cb.is_blocked(), "3rd probe should be allowed");
-
-        // Now permits should be exhausted → 4th call blocked
-        assert!(cb.is_blocked(), "4th probe should be blocked (no permits)");
-        assert!(cb.is_blocked(), "5th probe should remain blocked");
-    }
-
-    #[test]
-    fn test_half_open_permits_reset_on_success_close() {
-        // After all permitted probes succeed and circuit closes,
-        // permits are cleared and next is_blocked calls are not blocked.
-        let cb = CircuitBreaker::new(CircuitBreakerConfig {
-            enabled: true,
-            failure_threshold: 1,
-            reset_timeout: Duration::from_millis(1),
-            half_open_success_threshold: 2,
-        });
-
-        // Trip → wait → HALF_OPEN
-        cb.record_failure();
-        std::thread::sleep(Duration::from_millis(5));
-        assert!(!cb.is_blocked(), "first probe allowed");
-        assert!(!cb.is_blocked(), "second probe allowed");
-        assert!(cb.is_blocked(), "third probe blocked (permits exhausted)");
-
-        // 2 successes → CLOSED
-        cb.record_success(); // c=1, still HALF_OPEN
-        cb.record_success(); // c=2 → CLOSED
-        assert_eq!(cb.state(), CircuitState::Closed);
-
-        // Back to CLOSED - not blocked
-        assert!(!cb.is_blocked());
-    }
-
-    #[test]
-    fn test_race_reset_during_open_to_half_open() {
-        // Verify that a concurrent reset() during the OPEN→HALF_OPEN transition
-        // does NOT trigger unreachable!() / panic.
-        let cb = CircuitBreaker::new(CircuitBreakerConfig {
-            enabled: true,
-            failure_threshold: 1,
-            reset_timeout: Duration::from_millis(1),
-            half_open_success_threshold: 2,
-        });
-
-        // Trip to OPEN
-        cb.record_failure();
-        std::thread::sleep(Duration::from_millis(5));
-
-        // Simulate: someone calls reset() right before is_blocked()
-        // checks the CAS. The CAS sees CLOSED (not OPEN), and should
-        // log a warning + return false instead of panicking.
-        cb.reset();
-
-        // is_blocked() should not panic - it should just return false
-        // since state is now CLOSED.
-        assert!(!cb.is_blocked(), "after reset should not be blocked");
     }
 }

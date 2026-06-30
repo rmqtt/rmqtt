@@ -564,7 +564,7 @@ impl StorageHandler {
                         continue;
                     };
 
-                log::info!("{id:?} listen_cfg: {listen_cfg:?}");
+                log::debug!("{id:?} listen_cfg: {listen_cfg:?}");
 
                 //create fitter
                 let fitter = self.scx.extends.fitter_mgr().await.create(

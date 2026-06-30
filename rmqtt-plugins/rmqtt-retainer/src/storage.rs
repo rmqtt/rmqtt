@@ -34,11 +34,11 @@ use rmqtt::{
 use crate::config::PluginConfig;
 use crate::value_cached::ValueCached;
 
-type Msg = (TopicName, Retain, Option<Duration>);
+pub(crate) type Msg = (TopicName, Retain, Option<Duration>);
 
 /// Cluster sync message: updates the in-memory topics tree only (no Redis).
 /// Sent via a dedicated unbounded channel to avoid blocking on batch_store I/O.
-enum SyncMsg {
+pub(crate) enum SyncMsg {
     Add(TopicName, Option<Duration>),
     Remove(TopicName),
 }
@@ -62,9 +62,8 @@ impl Retainer {
         storage_db: DefaultStorageDB,
         storage_type: StorageType,
         exec: TaskExecQueue,
-        batch_messages_limit: usize,
         circuit_breaker: CircuitBreaker,
-    ) -> Result<Retainer> {
+    ) -> Result<(Retainer, mpsc::Receiver<Msg>, mpsc::Receiver<SyncMsg>)> {
         let (msg_tx, msg_rx) = mpsc::channel::<Msg>(5_000);
         let (sync_tx, sync_rx) = mpsc::channel::<SyncMsg>(10_000);
         let storage_messages_count = ValueCached::new(Duration::from_millis(3000));
@@ -89,17 +88,9 @@ impl Retainer {
             abstract_info,
         });
         let retainer = Self { inner };
-        retainer.serve(exec, msg_rx, sync_rx, batch_messages_limit);
+        // serve() is called later from RetainerPlugin::init()
 
-        // Rebuild topics tree from storage on startup.
-        let rebuild = retainer.clone();
-        // tokio::spawn(async move {
-        if let Err(e) = rebuild.rebuild_topics().await {
-            log::error!("rebuild_topics error: {e:?}");
-        }
-        // });
-
-        Ok(retainer)
+        Ok((retainer, msg_rx, sync_rx))
     }
 
     #[inline]
@@ -136,9 +127,8 @@ impl Retainer {
         info
     }
 
-    fn serve(
+    pub(crate) fn serve(
         &self,
-        _exec: TaskExecQueue,
         mut msg_rx: mpsc::Receiver<Msg>,
         mut sync_rx: mpsc::Receiver<SyncMsg>,
         batch_messages_limit: usize,
@@ -749,7 +739,7 @@ impl RetainerInner {
     /// Rebuild the in-memory `topics` tree by scanning all stored retain
     /// messages. Called once at startup.
     #[inline]
-    async fn rebuild_topics(&self) -> Result<()> {
+    pub(crate) async fn rebuild_topics(&self) -> Result<()> {
         let start = std::time::Instant::now();
         log::info!("Rebuilding topics tree from storage ...");
         let mut db = self.storage_db.clone();
@@ -781,7 +771,6 @@ impl RetainerInner {
         drop(iter);
 
         let mut topics = self.topics.write().await;
-        let _h_rt = WriteHold::new("rebuild_topics");
         for key in keys {
             let topic_str = String::from_utf8_lossy(&key[RETAIN_MESSAGES_PREFIX.len()..]);
             let topic = match Topic::from_str(topic_str.as_ref()) {
