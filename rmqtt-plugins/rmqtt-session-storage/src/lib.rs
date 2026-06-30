@@ -254,6 +254,7 @@ impl StoragePlugin {
             let local_set = tokio::task::LocalSet::new();
 
             local_set.block_on(&local_rt, async {
+                let now = std::time::Instant::now();
                 let exec = scx.get_exec("SESSION_REBUILD_EXEC");
                 while let Some(msg) = rx.next().await {
                     match msg {
@@ -287,13 +288,13 @@ impl StoragePlugin {
                                 }
                             }
                         },
-                        RebuildChanType::Done(done_tx) => {
-                            let _ = exec.flush().await;
-                            let _ = done_tx.send(());
-                            log::info!(
-                                "Rebuild offline sessions, completed_count: {}, active_count: {}, waiting_count: {}, rate: {:?}",
-                                exec.completed_count().await, exec.active_count(), exec.waiting_count(), exec.rate().await
-                            );
+                            RebuildChanType::Done(done_tx) => {
+                                let _ = exec.flush().await;
+                                let _ = done_tx.send(());
+                                log::info!(
+                                    "Rebuild offline sessions, completed_count: {}, active_count: {}, waiting_count: {}, rate: {:?}, cost: {:?}",
+                                    exec.completed_count().await, exec.active_count(), exec.waiting_count(), exec.rate().await, now.elapsed()
+                                );
                         }
                     }
                 }
@@ -560,6 +561,7 @@ impl StorageHandler {
 
     //Rebuild offline sessions.
     async fn rebuild_offline_sessions(&self, rebuild_done_tx: oneshot::Sender<()>) {
+        let now = std::time::Instant::now();
         let mut offline_sessions_count = 0;
         for mut entry in self.stored_session_infos.iter_mut() {
             let (_, storeds) = entry.pair_mut();
@@ -673,7 +675,7 @@ impl StorageHandler {
                 }
             }
         }
-        log::info!("offline_sessions_count: {offline_sessions_count}");
+        log::info!("offline_sessions_count: {offline_sessions_count}, cost: {:?}", now.elapsed());
         let _ = self.rebuild_tx.clone().send(RebuildChanType::Done(rebuild_done_tx)).await;
     }
 }
@@ -683,6 +685,7 @@ impl Handler for StorageHandler {
     async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
         match param {
             Parameter::BeforeStartup => {
+                let now = std::time::Instant::now();
                 log::info!(
                     "BeforeStartup storage_type: {:?}, stored_session_infos len: {}",
                     self.cfg.storage.typ,
@@ -691,6 +694,7 @@ impl Handler for StorageHandler {
                 let (rebuild_done_tx, rebuild_done_rx) = oneshot::channel::<()>();
                 self.rebuild_offline_sessions(rebuild_done_tx).await;
                 let _ = rebuild_done_rx.await;
+                log::info!("BeforeStartup rebuild total cost: {:?}", now.elapsed());
             }
             _ => {
                 log::error!("unimplemented, {param:?}")
