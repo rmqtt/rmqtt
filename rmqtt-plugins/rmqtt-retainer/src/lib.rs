@@ -41,6 +41,11 @@ use config::{Config, PluginConfig};
 use rmqtt::plugin::PackageInfo;
 use rmqtt::retain::RetainStorage;
 
+#[cfg(any(feature = "sled", feature = "redis"))]
+use futures::channel::mpsc;
+#[cfg(any(feature = "sled", feature = "redis"))]
+use storage::{Msg, SyncMsg};
+
 mod config;
 #[cfg(feature = "ram")]
 mod ram;
@@ -57,6 +62,8 @@ struct RetainerPlugin {
     register: Box<dyn Register>,
     cfg: Arc<RwLock<PluginConfig>>,
     retainer: Retainer,
+    #[cfg(any(feature = "sled", feature = "redis"))]
+    serve_state: Option<ServeState>,
 }
 
 impl RetainerPlugin {
@@ -72,6 +79,9 @@ impl RetainerPlugin {
         log::info!("{name} RetainerPlugin cfg: {cfg:?}");
         let register = scx.extends.hook_mgr().register();
         let cfg = Arc::new(RwLock::new(cfg));
+
+        #[cfg(any(feature = "sled", feature = "redis"))]
+        let mut serve_state: Option<ServeState> = None;
 
         let retainer = {
             let cfg_guard = cfg.read().await;
@@ -107,18 +117,17 @@ impl RetainerPlugin {
                     };
                     let storage_db = init_db(s_cfg).await?;
                     let exec = scx.get_exec(("RETAINER_EXEC", 1000, 10_000));
-                    Retainer::Storage(
-                        storage::Retainer::new(
-                            node_id,
-                            cfg.clone(),
-                            storage_db,
-                            s_cfg.typ.clone(),
-                            exec,
-                            batch_messages_limit,
-                            circuit_breaker,
-                        )
-                        .await?,
+                    let (r, msg_rx, sync_rx) = storage::Retainer::new(
+                        node_id,
+                        cfg.clone(),
+                        storage_db,
+                        s_cfg.typ.clone(),
+                        exec,
+                        circuit_breaker,
                     )
+                    .await?;
+                    serve_state = Some(ServeState { msg_rx, sync_rx, batch_messages_limit });
+                    Retainer::Storage(r)
                 }
                 #[allow(unreachable_patterns)]
                 Some(other) => {
@@ -128,7 +137,14 @@ impl RetainerPlugin {
             }
         };
 
-        Ok(Self { scx, register, cfg, retainer })
+        Ok(Self {
+            scx,
+            register,
+            cfg,
+            retainer,
+            #[cfg(any(feature = "sled", feature = "redis"))]
+            serve_state,
+        })
     }
 }
 
@@ -137,6 +153,18 @@ impl Plugin for RetainerPlugin {
     #[inline]
     async fn init(&mut self) -> Result<()> {
         log::info!("{} init", self.name());
+
+        // Start bg message processing tasks (deferred from new()).
+        #[cfg(any(feature = "sled", feature = "redis"))]
+        if let Some(state) = self.serve_state.take() {
+            if let Retainer::Storage(r) = &self.retainer {
+                r.serve(state.msg_rx, state.sync_rx, state.batch_messages_limit);
+            }
+        }
+
+        // Rebuild topics tree from storage (startup-time initialization).
+        // This must complete before start() exposes RetainStorage to other plugins.
+        self.retainer.rebuild_topics().await?;
 
         let _retainer = self.retainer.clone();
         //I run every 10 seconds
@@ -210,7 +238,26 @@ enum Retainer {
     Storage(storage::Retainer),
 }
 
+/// Deferred serve state: holds channel receivers between new() and init().
+#[cfg(any(feature = "sled", feature = "redis"))]
+struct ServeState {
+    msg_rx: mpsc::Receiver<Msg>,
+    sync_rx: mpsc::Receiver<SyncMsg>,
+    batch_messages_limit: usize,
+}
+
 impl Retainer {
+    async fn rebuild_topics(&self) -> Result<()> {
+        match self {
+            #[cfg(feature = "ram")]
+            Retainer::Ram(_r) => Ok(()),
+            #[cfg(any(feature = "sled", feature = "redis"))]
+            Retainer::Storage(r) => r.rebuild_topics().await,
+            #[allow(unreachable_patterns)]
+            _ => Ok(()),
+        }
+    }
+
     async fn remove_expired_messages(&self) -> usize {
         match self {
             #[cfg(feature = "ram")]

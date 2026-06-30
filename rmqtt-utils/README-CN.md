@@ -148,7 +148,7 @@ impl CircuitBreaker {
 |------|------|
 | **Closed** | 正常放行，统计连续失败次数 |
 | **Open** | `is_blocked()` 返回 `true`，调用方快速跳过外部操作 |
-| **HalfOpen** | 探测阶段，放行请求；连续成功足够次后关闭，任意失败立即回到 Open |
+| **HalfOpen** | 放行所有请求（不限流）；连续成功 `half_open_success_threshold` 次后关闭，任意失败立即回到 Open |
 
 ## `RateCounter` — 无锁吞吐量和并发跟踪器
 

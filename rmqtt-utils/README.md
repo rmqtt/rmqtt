@@ -150,7 +150,7 @@ blocking the broker when Redis is unreachable.
 |-------|-----------|
 | **Closed** | Normal operation. Counts consecutive failures. |
 | **Open** | `is_blocked()` returns `true`. All callers skip the external op. |
-| **HalfOpen** | Probe phase. Allows requests through; closes after enough consecutive successes or re‑opens on any failure. |
+| **HalfOpen** | All requests pass through (no rate limiting); closes after `half_open_success_threshold` consecutive successes, or re‑opens on any failure. |
 
 ## Safety
 
