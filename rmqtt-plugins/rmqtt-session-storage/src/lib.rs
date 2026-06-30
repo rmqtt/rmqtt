@@ -67,7 +67,6 @@ struct StoragePlugin {
     stored_session_infos: StoredSessionInfos,
     register: Box<dyn Register>,
     session_mgr: StorageSessionManager,
-    rebuild_tx: mpsc::Sender<RebuildChanType>,
 }
 
 impl StoragePlugin {
@@ -109,11 +108,11 @@ impl StoragePlugin {
         let session_mgr = StorageSessionManager::new(storage_db.clone(), stored_session_infos.clone());
 
         let cfg = Arc::new(cfg);
-        let rebuild_tx = Self::start_local_runtime(scx.clone());
-        Ok(Self { scx, cfg, storage_db, stored_session_infos, register, session_mgr, rebuild_tx })
+        Ok(Self { scx, cfg, storage_db, stored_session_infos, register, session_mgr })
     }
 
     async fn load_offline_session_infos(&mut self) -> Result<()> {
+        let now = std::time::Instant::now();
         log::info!("{:?} load_offline_session_infos ...", self.name());
         let storage_db = self.storage_db.clone();
         let mut iter_storage_db = storage_db.clone();
@@ -236,7 +235,11 @@ impl StoragePlugin {
             storage_db.map_remove(make_map_stored_key(removed_key.as_ref())).await?;
             storage_db.list_remove(make_list_stored_key(removed_key.as_ref())).await?;
         }
-        log::info!("stored_session_infos len: {:?}", self.stored_session_infos.len());
+        log::info!(
+            "stored_session_infos len: {:?}, cost: {:?}",
+            self.stored_session_infos.len(),
+            now.elapsed()
+        );
 
         Ok(())
     }
@@ -306,6 +309,8 @@ impl Plugin for StoragePlugin {
     #[inline]
     async fn init(&mut self) -> Result<()> {
         log::info!("{} init", self.name());
+        let rebuild_tx = Self::start_local_runtime(self.scx.clone());
+
         self.register
             .add(
                 Type::BeforeStartup,
@@ -314,7 +319,7 @@ impl Plugin for StoragePlugin {
                     self.storage_db.clone(),
                     self.cfg.clone(),
                     self.stored_session_infos.clone(),
-                    self.rebuild_tx.clone(),
+                    rebuild_tx.clone(),
                 )),
             )
             .await;
@@ -430,11 +435,16 @@ impl Plugin for StoragePlugin {
         }
 
         let (session_count, offline_session_count, offline_message_count, storage_info) =
-            match tokio::time::timeout(Duration::from_secs(1), stats(&self.storage_db)).await {
+            match tokio::time::timeout(Duration::from_secs(10), stats(&self.storage_db)).await {
                 Ok((session_count, offline_session_count, offline_message_count, storage_info)) => {
                     (session_count, offline_session_count, offline_message_count, storage_info)
                 }
-                Err(_) => ("Elapsed".into(), "Elapsed".into(), "Elapsed".into(), serde_json::Value::Null),
+                Err(_) => (
+                    "timeout(10s)".into(),
+                    "timeout(10s)".into(),
+                    "timeout(10s)".into(),
+                    serde_json::Value::Null,
+                ),
             };
 
         json!({
