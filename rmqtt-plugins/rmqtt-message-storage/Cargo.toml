@@ -14,8 +14,9 @@ all-features = true
 [features]
 default = []
 ram = []
-redis = ["rmqtt-storage/redis"]
+redis = ["rmqtt-storage/redis", "circuit-breaker"]
 redis-cluster = ["redis", "rmqtt-storage/redis-cluster"]
+circuit-breaker = ["rmqtt-storage/circuit-breaker"]
 
 [dependencies]
 rmqtt = { workspace = true, features = ["plugin", "msgstore", "retain"] }

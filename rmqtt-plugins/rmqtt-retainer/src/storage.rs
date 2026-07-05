@@ -19,7 +19,11 @@ use futures_time::{self, future::FutureExt};
 use rust_box::task_exec_queue::{SpawnExt, TaskExecQueue};
 use tokio::sync::RwLock;
 
-use rmqtt_storage::{DefaultStorageDB, StorageType};
+#[cfg(feature = "circuit-breaker")]
+pub(crate) use rmqtt_storage::CircuitBrokenDB as StorageDb;
+#[cfg(not(feature = "circuit-breaker"))]
+pub(crate) use rmqtt_storage::DefaultStorageDB as StorageDb;
+use rmqtt_storage::{StorageDB as _, StorageType};
 
 #[cfg(feature = "rate-counter")]
 use rmqtt::utils::RateCounter;
@@ -27,7 +31,7 @@ use rmqtt::{
     retain::RetainStorage,
     retain::{RetainSyncMode, RetainTree},
     types::{NodeId, Retain, TimedValue, TimestampMillis, Topic, TopicFilter, TopicName},
-    utils::{timestamp_millis, CircuitBreaker, StatsMergeMode},
+    utils::{timestamp_millis, StatsMergeMode},
     Result,
 };
 
@@ -59,10 +63,9 @@ impl Retainer {
     pub(crate) async fn new(
         _node_id: NodeId,
         cfg: Arc<RwLock<PluginConfig>>,
-        storage_db: DefaultStorageDB,
+        storage_db: StorageDb,
         storage_type: StorageType,
         exec: TaskExecQueue,
-        circuit_breaker: CircuitBreaker,
     ) -> Result<(Retainer, mpsc::Receiver<Msg>, mpsc::Receiver<SyncMsg>)> {
         let (msg_tx, msg_rx) = mpsc::channel::<Msg>(5_000);
         let (sync_tx, sync_rx) = mpsc::channel::<SyncMsg>(10_000);
@@ -80,7 +83,6 @@ impl Retainer {
             storage_type,
             exec: exec.clone(),
             topics: Arc::new(RwLock::new(RetainTree::default())),
-            circuit_breaker,
             #[cfg(feature = "rate-counter")]
             set_rate_counter: RateCounter::new(),
             #[cfg(feature = "rate-counter")]
@@ -112,10 +114,6 @@ impl Retainer {
 
     #[inline]
     pub(crate) async fn info(&self) -> serde_json::Value {
-        if self.circuit_breaker.is_blocked() {
-            return serde_json::Value::Null;
-        }
-
         let this = self.inner.clone();
         let cached = self.abstract_info.clone();
         let info = cached
@@ -212,25 +210,13 @@ impl Retainer {
                 let msgs = std::mem::take(&mut merger_msgs);
                 let batch_size = msgs.len();
 
-                // When the circuit breaker is OPEN, skip all storage operations
-                // without touching Redis/Sled. This prevents the channel backlog
-                // (cap=5000) from blocking the serve loop while each batch waits
-                // for a storage timeout.
-                // is_blocked() also handles OPEN→HALF_OPEN transitions, so when a
-                // probe is due, the next batch will be processed normally.
-                if msg_mgr.circuit_breaker.is_blocked() {
-                    #[cfg(feature = "rate-counter")]
-                    rate_counter.decs(batch_size as i64);
-                    continue;
-                }
-
+                // When the backing storage is unreachable, storage operations
+                // will fast-fail through the rmqtt-storage circuit breaker.
+                // The serve loop simply logs the error and continues, preventing
+                // the channel backlog from blocking indefinitely.
                 let start = Instant::now();
-                match msg_mgr._batch_store_new(msgs).await {
-                    Ok(()) => msg_mgr.circuit_breaker.record_success(),
-                    Err(e) => {
-                        log::warn!("batch store failed, {e}");
-                        msg_mgr.circuit_breaker.record_failure();
-                    }
+                if let Err(e) = msg_mgr._batch_store_new(msgs).await {
+                    log::warn!("batch store failed, {e}");
                 }
 
                 #[cfg(feature = "rate-counter")]
@@ -255,7 +241,7 @@ impl Deref for Retainer {
 
 pub struct RetainerInner {
     cfg: Arc<RwLock<PluginConfig>>,
-    pub(crate) storage_db: DefaultStorageDB,
+    pub(crate) storage_db: StorageDb,
     msg_tx: mpsc::Sender<Msg>,
     /// Dedicated channel for retain-sync messages (no Redis, no blocking).
     sync_tx: mpsc::Sender<SyncMsg>,
@@ -268,8 +254,6 @@ pub struct RetainerInner {
     /// stored (no retain data). Used for fast wildcard matching and
     /// cluster-aware topic synchronization.
     pub(crate) topics: Arc<RwLock<RetainTree<TimedValue<()>>>>,
-    /// Circuit breaker for storage failure detection and fast-fail degradation.
-    pub(crate) circuit_breaker: CircuitBreaker,
     /// Rate counter for tracking message processing throughput.
     #[cfg(feature = "rate-counter")]
     pub(crate) set_rate_counter: RateCounter,
@@ -474,7 +458,8 @@ impl RetainerInner {
         }
 
         // Batch remove — failure propagates to the serve loop so the
-        // circuit breaker can record the failure and eventually trip OPEN.
+        // circuit breaker (via CircuitBrokenDB) can record the failure
+        // and eventually trip OPEN.
         if !remove_keys.is_empty() {
             self.storage_db
                 .batch_remove(remove_keys)
@@ -546,24 +531,12 @@ impl RetainerInner {
 
     #[inline]
     async fn _len(&self) -> Result<usize> {
-        let len = self
-            .storage_db
+        self.storage_db
             .len()
             .timeout(futures_time::time::Duration::from_millis(3000))
             .await
             .map_err(|_e| anyhow!("db.len timeout"))
-            .flatten();
-
-        match len {
-            Ok(len) => {
-                self.circuit_breaker.record_success();
-                Ok(len)
-            }
-            Err(_) => {
-                self.circuit_breaker.record_failure();
-                Ok(0)
-            }
-        }
+            .flatten()
     }
 
     #[inline]
@@ -574,23 +547,13 @@ impl RetainerInner {
 
     #[inline]
     async fn storage_messages_max_get(&self) -> Result<isize> {
-        let val = self
-            .storage_db
+        self.storage_db
             .counter_get(RETAIN_MESSAGES_MAX)
             .timeout(futures_time::time::Duration::from_millis(3000))
             .await
             .map_err(|_e| anyhow!("storage_messages_max_get timeout"))
-            .flatten();
-        match val {
-            Ok(val) => {
-                self.circuit_breaker.record_success();
-                Ok(val.unwrap_or_default())
-            }
-            Err(_) => {
-                self.circuit_breaker.record_failure();
-                Ok(0)
-            }
-        }
+            .flatten()
+            .map(|v| v.unwrap_or_default())
     }
 
     #[inline]
@@ -802,24 +765,12 @@ impl RetainerInner {
     /// notification carries the operation direction.
     #[inline]
     async fn _abstract_info(&self) -> Result<serde_json::Value> {
-        let info = self
-            .storage_db
+        self.storage_db
             .info()
             .timeout(futures_time::time::Duration::from_millis(3000))
             .await
             .map_err(|_e| anyhow!("get info timeout"))
-            .flatten();
-
-        match info {
-            Ok(info) => {
-                self.circuit_breaker.record_success();
-                Ok(info)
-            }
-            Err(e) => {
-                self.circuit_breaker.record_failure();
-                Err(e)
-            }
-        }
+            .flatten()
     }
 }
 
@@ -854,10 +805,6 @@ impl RetainStorage for Retainer {
 
     ///topic - concrete topic
     async fn set(&self, topic: &TopicName, retain: Retain, expiry_interval: Option<Duration>) -> Result<()> {
-        if self.circuit_breaker.is_blocked() {
-            return Ok(());
-        }
-
         let res =
             self.msg_tx.clone().send((topic.clone(), retain, expiry_interval)).await.map_err(|e| anyhow!(e));
         match res {
@@ -875,11 +822,6 @@ impl RetainStorage for Retainer {
 
     ///topic_filter - Topic filter
     async fn get(&self, topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>> {
-        // Circuit breaker OPEN: return empty without calling get_message.
-        if self.circuit_breaker.is_blocked() {
-            return Ok(Vec::new());
-        }
-
         let this = self.clone();
         let tf = topic_filter.clone();
         let result = async move { this.get_message(&tf).await }
@@ -896,19 +838,16 @@ impl RetainStorage for Retainer {
                 match inner {
                     Ok(Ok(retains)) => {
                         // Task succeeded, get_message returned Ok
-                        self.circuit_breaker.record_success();
                         Ok(retains)
                     }
                     Ok(Err(e)) => {
                         // Task succeeded, but get_message returned Err (storage failure)
                         log::warn!("retainer get_message error: {:?}", e);
-                        self.circuit_breaker.record_failure();
                         Ok(Vec::new())
                     }
                     Err(_e) => {
                         // Task failed (panic, etc.)
                         log::warn!("retainer get task error");
-                        self.circuit_breaker.record_failure();
                         Ok(Vec::new())
                     }
                 }
@@ -916,7 +855,6 @@ impl RetainStorage for Retainer {
             Err(_) => {
                 // Timeout
                 log::warn!("retainer get timeout");
-                self.circuit_breaker.record_failure();
                 Ok(Vec::new())
             }
         }
@@ -927,9 +865,6 @@ impl RetainStorage for Retainer {
         offset: usize,
         limit: usize,
     ) -> Result<(Vec<(TopicName, Retain, Option<Duration>)>, bool)> {
-        if self.circuit_breaker.is_blocked() {
-            return Ok((Vec::new(), false));
-        }
         self._get_all_paginated(offset, limit)
             .timeout(futures_time::time::Duration::from_secs(60))
             .await
@@ -938,17 +873,11 @@ impl RetainStorage for Retainer {
 
     #[inline]
     async fn count(&self) -> isize {
-        if self.circuit_breaker.is_blocked() {
-            return -1;
-        }
         self.get_retain_count().await as isize
     }
 
     #[inline]
     async fn max(&self) -> isize {
-        if self.circuit_breaker.is_blocked() {
-            return -1;
-        }
         let this = self.inner.clone();
 
         let val = self.storage_messages_max.clone();

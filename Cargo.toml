@@ -72,7 +72,7 @@ rmqtt-net = "0.3.5"
 rmqtt-conf = "0.3.5"
 rmqtt-macros = "0.1.2"
 rmqtt-utils = "0.1.6"
-rmqtt-storage = { version = "0.9",  default-features = false }
+rmqtt-storage = { version = "0.10.2",  default-features = false }
 
 rmqtt-plugins = "0.22.0"
 rmqtt-acl = "0.22.0"

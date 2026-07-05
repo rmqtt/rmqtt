@@ -6,7 +6,7 @@
 //! external storage backend.
 
 use std::ops::Deref;
-use std::sync::atomic::{AtomicI64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -28,7 +28,8 @@ use rmqtt::{
     utils::timestamp_millis,
     Result,
 };
-use rmqtt_storage::{DefaultStorageDB, List, Map, StorageList, StorageMap};
+
+use super::{List, Map, StorageDB, StorageDb, StorageList, StorageMap};
 
 use crate::{make_list_stored_key, make_map_stored_key, OfflineMessageOptionType};
 
@@ -40,13 +41,13 @@ pub(crate) const INFLIGHT_MESSAGES: &[u8] = b"5";
 
 #[derive(Clone)]
 pub(crate) struct StorageSessionManager {
-    storage_db: DefaultStorageDB,
+    storage_db: StorageDb,
     _stored_session_infos: StoredSessionInfos,
 }
 
 impl StorageSessionManager {
     pub(crate) fn new(
-        storage_db: DefaultStorageDB,
+        storage_db: StorageDb,
         _stored_session_infos: StoredSessionInfos,
     ) -> StorageSessionManager {
         Self { storage_db, _stored_session_infos }
@@ -97,9 +98,9 @@ impl SessionManager for StorageSessionManager {
             Ok(Arc::new(inner))
         } else {
             let id_str = inner.id().to_string();
-            let session_info_map = self.storage_db.map(make_map_stored_key(id_str.as_str()), None).await?;
+            let session_info_map = self.storage_db.map(make_map_stored_key(id_str.as_str()), None).await;
             let offline_messages_list =
-                self.storage_db.list(make_list_stored_key(id_str.as_str()), None).await?;
+                self.storage_db.list(make_list_stored_key(id_str.as_str()), None).await;
 
             //Only when 'clean_session' is equal to false or 'clean_start' is equal to false, the
             // session information persistence feature will be initiated.
@@ -122,20 +123,16 @@ impl SessionManager for StorageSessionManager {
                         let map = s1.storage_db.map(make_map_stored_key(last_id.to_string()), None).await;
                         let list = s1.storage_db.list(make_list_stored_key(last_id.to_string()), None).await;
 
-                        if let Ok(map) = map {
-                            if let Err(e) = map.clear().await {
-                                log::warn!(
-                                    "Remove last offline session info error from db, last_id: {last_id:?}, {e}"
-                                );
-                            }
+                        if let Err(e) = map.clear().await {
+                            log::warn!(
+                                "Remove last offline session info error from db, last_id: {last_id:?}, {e}"
+                            );
                         }
 
-                        if let Ok(list) = list {
-                            if let Err(e) = list.clear().await {
-                                log::warn!(
-                                    "Remove last offline session info error from db, last_id: {last_id:?}, {e}"
-                                );
-                            }
+                        if let Err(e) = list.clear().await {
+                            log::warn!(
+                                "Remove last offline session info error from db, last_id: {last_id:?}, {e}"
+                            );
                         }
                     }
                 });
@@ -179,10 +176,12 @@ pub struct StorageSession {
     inner: DefaultSession,
     fitter: FitterType,
     //----------------------------------
-    storage_db: DefaultStorageDB,
+    storage_db: StorageDb,
     session_info_map: StorageMap,
     offline_messages_list: StorageList,
-    last_time: AtomicI64,
+    last_time: Arc<AtomicI64>,
+    /// Tracks consecutive write failures. Used to detect backend recovery and trigger full resync.
+    write_failures: Arc<AtomicU64>,
 }
 
 impl StorageSession {
@@ -190,7 +189,7 @@ impl StorageSession {
     fn new(
         inner: DefaultSession,
         fitter: FitterType,
-        storage_db: DefaultStorageDB,
+        storage_db: StorageDb,
         session_info_map: StorageMap,
         offline_messages_list: StorageList,
     ) -> Self {
@@ -200,7 +199,38 @@ impl StorageSession {
             storage_db,
             session_info_map,
             offline_messages_list,
-            last_time: AtomicI64::new(timestamp_millis()),
+            last_time: Arc::new(AtomicI64::new(timestamp_millis())),
+            write_failures: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    #[inline]
+    async fn _update_last_time(
+        id: Id,
+        basic: &Basic,
+        subs: &SessionSubMap,
+        last_time: Arc<AtomicI64>,
+        session_info_map: StorageMap,
+        write_failures: Arc<AtomicU64>,
+    ) {
+        let now = last_time.load(Ordering::SeqCst);
+        match session_info_map.insert(LAST_TIME, &now).await {
+            Ok(()) => {
+                // Check if we were in a write-failure state — atomically reset and detect recovery
+                if write_failures.swap(0, Ordering::AcqRel) > 0 {
+                    log::info!("{:?} backend recovered, resyncing session data", id);
+                    // Full resync: rewrite all critical session data
+                    Self::_full_sync(&id, &session_info_map, basic, subs, write_failures.as_ref()).await;
+                    if write_failures.load(Ordering::Acquire) > 0 {
+                        log::warn!("{:?} partial resync failure, will retry", id);
+                    }
+                }
+                log::debug!("{:?} update last time", id);
+            }
+            Err(e) => {
+                log::warn!("{:?} save last time to db error, {e}", id);
+                write_failures.store(1, Ordering::Release);
+            }
         }
     }
 
@@ -209,18 +239,36 @@ impl StorageSession {
         let now = timestamp_millis();
         let old = self.last_time.swap(now, Ordering::SeqCst);
         if save_enable || (now - old) > (1000 * 60) {
+            let basic = match self.make_basic_info().await {
+                Ok(b) => b,
+                Err(e) => {
+                    log::error!("{}", e);
+                    return;
+                }
+            };
+            let subs = self.inner.subscriptions.read().await.clone();
             let id = self.id().clone();
+            let last_time = self.last_time.clone();
             let session_info_map = self.session_info_map.clone();
-            tokio::spawn(async move { Self::_update_last_time(&id, session_info_map, now).await });
-            log::debug!("{:?} update last time", self.id());
+            let write_failures = self.write_failures.clone();
+
+            tokio::spawn(async move {
+                Self::_update_last_time(id, &basic, &subs, last_time, session_info_map, write_failures).await;
+            });
         }
     }
 
     #[inline]
-    async fn _update_last_time(id: &Id, session_info_map: StorageMap, now: TimestampMillis) {
-        if let Err(e) = session_info_map.insert(LAST_TIME, &now).await {
-            log::warn!("{id:?} save last time to db error, {e}");
-        }
+    async fn _full_sync(
+        id: &Id,
+        session_info_map: &StorageMap,
+        basic: &Basic,
+        subs: &SessionSubMap,
+        write_failures: &AtomicU64,
+    ) {
+        log::info!("{:?} full_sync ...", id);
+        Self::_save_basic_info(session_info_map, basic, write_failures).await;
+        Self::_save_subscriptions(session_info_map, subs, write_failures).await;
     }
 
     #[inline]
@@ -246,55 +294,61 @@ impl StorageSession {
     #[inline]
     pub(crate) async fn save_to_db(&self) -> Result<()> {
         self.update_last_time(true).await;
-        self.save_basic_info().await;
-        self.save_subscriptions().await;
+        self.save_basic_info().await?;
+        let subs = self.inner.subscriptions.read().await.clone();
+        Self::_save_subscriptions(&self.session_info_map, &subs, self.write_failures.as_ref()).await;
         log::debug!("{:?} save to db ...", self.id());
         Ok(())
     }
 
     #[inline]
-    async fn save_basic_info(&self) {
-        if let Err(e) = self._save_basic_info().await {
-            log::error!("save basic info error, {e}");
-        }
-    }
-
-    #[inline]
-    async fn _save_basic_info(&self) -> Result<()> {
-        let basic = Basic {
+    async fn make_basic_info(&self) -> Result<Basic> {
+        Ok(Basic {
             id: self.id().clone(),
             conn_info: self.connect_info().await?,
             created_at: self.created_at().await?,
             connected_at: self.connected_at().await?,
-        };
-        self.session_info_map.insert(BASIC, &basic).await?;
+        })
+    }
+
+    #[inline]
+    async fn save_basic_info(&self) -> Result<()> {
+        let basic = self.make_basic_info().await?;
+        Self::_save_basic_info(&self.session_info_map, &basic, self.write_failures.as_ref()).await;
         Ok(())
+    }
+
+    #[inline]
+    async fn _save_basic_info(session_info_map: &StorageMap, basic: &Basic, write_failures: &AtomicU64) {
+        if let Err(e) = session_info_map.insert(BASIC, basic).await {
+            log::error!("save basic info error, {e}");
+            write_failures.store(1, Ordering::Release);
+        }
     }
 
     #[inline]
     async fn save_subscriptions(&self) {
         let subs = self.inner.subscriptions.clone();
         let session_info_map = self.session_info_map.clone();
+        let write_failures = self.write_failures.clone();
         tokio::spawn(async move {
             let subs = subs.read().await.clone();
-            match tokio::time::timeout(
-                Duration::from_secs(8),
-                Self::_save_subscriptions(&session_info_map, &subs),
-            )
-            .await
-            {
-                Ok(()) => {}
-                Err(e) => {
-                    log::error!("save subscriptions error, {e}");
-                }
-            }
+            Self::_save_subscriptions(&session_info_map, &subs, &write_failures).await;
         });
     }
 
     #[inline]
-    async fn _save_subscriptions(session_info_map: &StorageMap, subs: &SessionSubMap) {
-        if let Err(e) = session_info_map.insert(SESSION_SUB_MAP, subs).await {
-            log::error!("save subscriptions error, {e}");
+    async fn _save_subscriptions(
+        session_info_map: &StorageMap,
+        subs: &SessionSubMap,
+        write_failures: &AtomicU64,
+    ) {
+        match session_info_map.insert(SESSION_SUB_MAP, subs).await {
+            Ok(()) => {} // success
+            Err(e) => {
+                log::error!("save subscriptions error, {e}");
+                write_failures.fetch_add(1, Ordering::Release);
+            }
         }
     }
 
@@ -308,9 +362,11 @@ impl StorageSession {
     async fn save_disconnect_info(&self) {
         let session_info_map = self.session_info_map.clone();
         let disconnect_info = self.inner.disconnect_info.read().await.clone();
+        let write_failures = self.write_failures.clone();
         tokio::spawn(async move {
             if let Err(e) = Self::_save_disconnect_info(session_info_map, &disconnect_info).await {
                 log::error!("save disconnect info error, {e}");
+                write_failures.fetch_add(1, Ordering::Release);
             }
         });
     }
@@ -555,6 +611,7 @@ impl SessionLike for StorageSession {
         let offline_messages_list = self.offline_messages_list.clone();
         let session_info_map = self.session_info_map.clone();
         let disconnect_info = self._disconnect_info().await;
+        let write_failures = self.write_failures.clone();
 
         tokio::spawn(async move {
             if let Err(e) = Self::_disconnected_set(
@@ -566,7 +623,8 @@ impl SessionLike for StorageSession {
             )
             .await
             {
-                log::error!("{id:?} disconnected set error, {e}")
+                log::error!("{id:?} disconnected set error, {e}");
+                write_failures.fetch_add(1, Ordering::Release);
             }
         });
 
@@ -588,6 +646,10 @@ impl SessionLike for StorageSession {
     async fn keepalive(&self, ping: IsPing) {
         log::debug!("ping: {ping}");
         if ping {
+            // tokio::spawn(async move {
+            //     Self::_update_last_time(id, &basic, &subs, ping, last_time, session_info_map, write_failures)
+            //         .await;
+            // });
             self.update_last_time(true).await;
         } else {
             self.update_last_time(false).await;

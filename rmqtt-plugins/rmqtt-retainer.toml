@@ -33,15 +33,40 @@ retained_message_ttl = "0m"
 batch_messages_limit = 500
 
 ##─── Circuit breaker ──────────────────────────────────────────────
-##Enable circuit breaker. When storage fails consecutively beyond the threshold,
-##all retain operations fast-fail without touching the storage backend.
-#circuit_breaker_enabled = true
-
-##Consecutive storage failures before tripping the circuit to OPEN (fast-fail).
-#circuit_failure_threshold = 10
-
+##Optional circuit-breaker tuning.
+##When this section is absent (or commented out), the built-in
+##CircuitBreakerConfig::default() is used verbatim.
+##Only the fields you explicitly set override the defaults.
+##
+##Failure rate threshold (0.0 – 1.0). Default: 0.25
+#circuit_breaker.failure_rate_threshold = 0.25
+##
+##Sliding window type: "CountBased" or "TimeBased". Default: "TimeBased"
+#circuit_breaker.sliding_window_type = "TimeBased"
+##
+##Sliding window size (number of calls). Default: 20
+#circuit_breaker.sliding_window_size = 20
+##
+##Sliding window duration for TimeBased mode.
+##Only used when sliding_window_type is "TimeBased".
+##Calls older than this duration are excluded from the failure rate.
+##Default: "45s"
+#circuit_breaker.sliding_window_duration = "45s"
+##
+##Minimum number of calls before the breaker can trip.
+##Prevents premature tripping during low-traffic periods.
+##Default: 10
+#circuit_breaker.minimum_number_of_calls = 10
+##
 ##Duration in OPEN state before transitioning to HALF_OPEN (probe).
-#circuit_reset_timeout = "15s"
-
-##Consecutive probe successes needed to close the circuit.
-#circuit_half_open_success_threshold = 3
+##Default: "30s"
+#circuit_breaker.wait_duration_in_open = "30s"
+##
+##Slow call duration threshold. Default: "2s"
+#circuit_breaker.slow_call_duration_threshold = "2s"
+##
+##Slow call rate threshold (0.0 – 1.0). 1.0 = disabled. Default: 1.0
+#circuit_breaker.slow_call_rate_threshold = 1.0
+##
+##Per-operation timeout. Set to "0s" to disable. Default: "8s"
+#circuit_breaker.operation_timeout = "8s"

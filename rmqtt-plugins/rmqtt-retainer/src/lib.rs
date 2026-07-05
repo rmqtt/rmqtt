@@ -21,22 +21,13 @@ use async_trait::async_trait;
 use serde_json::{self, json};
 use tokio::sync::RwLock;
 
-use rmqtt::{
-    context::ServerContext,
-    hook::Register,
-    macros::Plugin,
-    plugin::Plugin,
-    register,
-    utils::{CircuitBreaker, CircuitBreakerConfig},
-    Result,
-};
+use rmqtt::{context::ServerContext, hook::Register, macros::Plugin, plugin::Plugin, register, Result};
 
 #[cfg(feature = "ram")]
 use ram::RamRetainer;
 #[cfg(any(feature = "sled", feature = "redis"))]
 use rmqtt_storage::{init_db, StorageType};
 
-#[cfg_attr(not(any(feature = "ram", feature = "sled", feature = "redis")), allow(unused_imports))]
 use config::{Config, PluginConfig};
 use rmqtt::plugin::PackageInfo;
 use rmqtt::retain::RetainStorage;
@@ -51,7 +42,6 @@ mod config;
 mod ram;
 #[cfg(any(feature = "sled", feature = "redis"))]
 mod storage;
-#[cfg_attr(not(any(feature = "sled", feature = "redis")), allow(dead_code))]
 mod value_cached;
 
 register!(RetainerPlugin::new);
@@ -68,10 +58,6 @@ struct RetainerPlugin {
 
 impl RetainerPlugin {
     #[inline]
-    #[cfg_attr(
-        not(any(feature = "ram", feature = "sled", feature = "redis")),
-        allow(unused, unreachable_code)
-    )]
     async fn new<N: Into<String>>(scx: ServerContext, name: N) -> Result<Self> {
         let name = name.into();
 
@@ -86,15 +72,8 @@ impl RetainerPlugin {
         let retainer = {
             let cfg_guard = cfg.read().await;
             let batch_messages_limit = cfg_guard.batch_messages_limit;
-            // Build the circuit breaker here (before cfg.write() below) to
-            // avoid deadlock: tokio::sync::RwLock is NOT reentrant, and
-            // cfg.write() is held inside the match block.
-            let circuit_breaker = CircuitBreaker::new(CircuitBreakerConfig {
-                enabled: cfg_guard.circuit_breaker_enabled,
-                failure_threshold: cfg_guard.circuit_failure_threshold,
-                reset_timeout: cfg_guard.circuit_reset_timeout,
-                half_open_success_threshold: cfg_guard.circuit_half_open_success_threshold,
-            });
+            #[cfg(feature = "circuit-breaker")]
+            let cb_config = cfg_guard.to_cb_config();
             drop(cfg_guard);
 
             match &mut cfg.write().await.storage {
@@ -116,16 +95,14 @@ impl RetainerPlugin {
                         _ => return Err(anyhow::anyhow!("unsupported storage type")),
                     };
                     let storage_db = init_db(s_cfg).await?;
+
+                    #[cfg(feature = "circuit-breaker")]
+                    let storage_db = storage::StorageDb::new(storage_db, cb_config);
+
                     let exec = scx.get_exec(("RETAINER_EXEC", 1000, 10_000));
-                    let (r, msg_rx, sync_rx) = storage::Retainer::new(
-                        node_id,
-                        cfg.clone(),
-                        storage_db,
-                        s_cfg.typ.clone(),
-                        exec,
-                        circuit_breaker,
-                    )
-                    .await?;
+                    let (r, msg_rx, sync_rx) =
+                        storage::Retainer::new(node_id, cfg.clone(), storage_db, s_cfg.typ.clone(), exec)
+                            .await?;
                     serve_state = Some(ServeState { msg_rx, sync_rx, batch_messages_limit });
                     Retainer::Storage(r)
                 }
@@ -294,19 +271,11 @@ impl Retainer {
                 let msg_count = r.count().await;
                 let storage_info = r.info().await;
                 let topics_size = r.topics.read().await.values_size();
-                let cb_state = format!("{:?}", r.circuit_breaker.state());
-                let cb_enabled = r.circuit_breaker.config().enabled;
-                let cb_failure_count = r.circuit_breaker.failure_count();
-                let cb_success_count = r.circuit_breaker.success_count();
+                // storage_info from CircuitBrokenDB already includes
+                // a "circuit_breaker" field with state/metrics/config.
                 let mut info = json!({
                     "storage_info": storage_info,
                     "topics_size": topics_size,
-                    "circuit_breaker": {
-                        "success_count": cb_success_count,
-                        "failure_count": cb_failure_count,
-                        "state": cb_state,
-                        "enabled": cb_enabled,
-                    },
                     "message": {
                         "max": msg_max,
                         "count": msg_count,
