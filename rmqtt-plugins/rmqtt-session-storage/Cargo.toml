@@ -12,10 +12,11 @@ license.workspace = true
 all-features = true
 
 [features]
-default = ["rmqtt-storage"]
+default = ["rmqtt-storage", "circuit-breaker"]
 sled = ["rmqtt-storage/sled"]
 redis = ["rmqtt-storage/redis"]
 redis-cluster = ["redis", "rmqtt-storage/redis-cluster"]
+circuit-breaker = ["rmqtt-storage/circuit-breaker"]
 
 [dependencies]
 rmqtt = { workspace = true, features = ["plugin"] }

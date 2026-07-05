@@ -27,13 +27,17 @@ use rmqtt::{
         ForwardedRecipients, From, MsgID, Publish, SharedGroup, StoredMessage, TimestampMillis, Topic,
         TopicFilter,
     },
-    utils::{timestamp_millis, CircuitBreaker, CircuitBreakerConfig},
+    utils::timestamp_millis,
     Result,
 };
-use serde_json::{self, json};
 
 use rmqtt::topic::Level;
-use rmqtt_storage::{DefaultStorageDB, Map, StorageMap};
+#[cfg(feature = "circuit-breaker")]
+pub(crate) use rmqtt_storage::{CircuitBrokenDB as StorageDb, CircuitBrokenMap as StorageMap};
+#[cfg(not(feature = "circuit-breaker"))]
+pub(crate) use rmqtt_storage::{DefaultStorageDB as StorageDb, StorageMap};
+
+use rmqtt_storage::{Map, StorageDB as _};
 
 use crate::config::PluginConfig;
 
@@ -86,10 +90,7 @@ impl StorageMessageManager {
     /// a `MarkForwarded` message is guaranteed to execute **after** the
     /// corresponding `Store` message for the same `msg_id`.
     #[inline]
-    pub(crate) async fn new(
-        cfg: Arc<PluginConfig>,
-        storage_db: DefaultStorageDB,
-    ) -> Result<StorageMessageManager> {
+    pub(crate) async fn new(cfg: Arc<PluginConfig>, storage_db: StorageDb) -> Result<StorageMessageManager> {
         let id_generater = StorageMessageManagerInner::storage_new_msg_id_generater(&storage_db).await?;
         log::info!("current msg_id: {}", id_generater.load(Ordering::SeqCst));
         let messages_received_max =
@@ -98,14 +99,6 @@ impl StorageMessageManager {
 
         let msg_queue_count = Arc::new(AtomicIsize::new(0));
         let timeout = cfg.timeout;
-
-        // Build the circuit breaker from config.
-        let circuit_breaker = CircuitBreaker::new(CircuitBreakerConfig {
-            enabled: cfg.circuit_breaker_enabled,
-            failure_threshold: cfg.circuit_failure_threshold,
-            reset_timeout: cfg.circuit_reset_timeout,
-            half_open_success_threshold: cfg.circuit_half_open_success_threshold,
-        });
 
         // Build the shared inner state first, so workers can clone it.
         let inner = Arc::new(StorageMessageManagerInner {
@@ -116,7 +109,6 @@ impl StorageMessageManager {
             msg_queue_count: msg_queue_count.clone(),
             id_generater,
             timeout,
-            circuit_breaker,
         });
 
         // Spawn N worker tasks — one per routing bucket.
@@ -136,22 +128,12 @@ impl StorageMessageManager {
                 while let Some(msg) = rx.next().await {
                     inner.msg_queue_count.fetch_sub(1, Ordering::Relaxed);
 
-                    // When the circuit breaker is OPEN, skip all queued messages
-                    // without touching Redis. This prevents the channel backlog
-                    // (64×5000 = 320K messages) from blocking workers for hours
-                    // while each message waits for a Redis timeout.
-                    // is_blocked() also handles OPEN→HALF_OPEN transitions,
-                    // so when a probe is due, the next message will be processed.
-                    if inner.circuit_breaker.is_blocked() {
-                        continue;
-                    }
-
-                    match inner._process_single(msg).await {
-                        Ok(()) => inner.circuit_breaker.record_success(),
-                        Err(e) => {
-                            log::warn!("worker {} _process_single error: {:?}", i, e);
-                            inner.circuit_breaker.record_failure();
-                        }
+                    // When the backing storage is unreachable, storage operations
+                    // will fast-fail through the rmqtt-storage circuit breaker.
+                    // The worker simply logs the error and continues, preventing
+                    // the channel backlog from blocking workers indefinitely.
+                    if let Err(e) = inner._process_single(msg).await {
+                        log::warn!("worker {} _process_single error: {:?}", i, e);
                     }
                 }
 
@@ -261,7 +243,7 @@ impl Deref for StorageMessageManager {
 }
 
 pub struct StorageMessageManagerInner {
-    pub(crate) storage_db: DefaultStorageDB,
+    pub(crate) storage_db: StorageDb,
     pub(crate) topic_tree: TopicTreeType,
     topic_list: TopicListType,
 
@@ -273,9 +255,6 @@ pub struct StorageMessageManagerInner {
 
     /// Timeout for storage I/O operations. 0 = no timeout. Examples: "5s", "500ms".
     timeout: Duration,
-
-    /// Circuit breaker for Redis failure detection and fast-fall degradation.
-    pub(crate) circuit_breaker: CircuitBreaker,
 }
 
 impl StorageMessageManagerInner {
@@ -299,6 +278,28 @@ impl StorageMessageManagerInner {
                 .map_err(Into::into)
         } else {
             fut.await.map_err(Into::into)
+        }
+    }
+
+    /// Execute an async operation with an optional timeout.
+    ///
+    /// Like [`with_timeout`], but accepts a future that does NOT return `Result`.
+    /// The timeout error becomes the outer `anyhow::Error`.
+    ///
+    /// * When `timeout > Duration::ZERO`, wraps the future with the given timeout,
+    ///   converting timeout errors to `anyhow::Error`.
+    /// * When `timeout == Duration::ZERO`, runs the future directly.
+    #[inline]
+    async fn with_timeout_direct<F, T>(fut: F, timeout: Duration, err_msg: &'static str) -> Result<T>
+    where
+        F: std::future::Future<Output = T>,
+    {
+        if timeout > Duration::ZERO {
+            fut.timeout(futures_time::time::Duration::from(timeout))
+                .await
+                .map_err(|_e| anyhow!("{} timeout", err_msg))
+        } else {
+            Ok(fut.await)
         }
     }
 
@@ -359,7 +360,7 @@ impl StorageMessageManagerInner {
     }
 
     #[inline]
-    async fn storage_new_msg_id_generater(storage_db: &DefaultStorageDB) -> Result<AtomicUsize> {
+    async fn storage_new_msg_id_generater(storage_db: &StorageDb) -> Result<AtomicUsize> {
         if let Some(curr_msg_id) = storage_db.get::<_, usize>("id_generater").await? {
             Ok(AtomicUsize::new(curr_msg_id))
         } else {
@@ -379,7 +380,7 @@ impl StorageMessageManagerInner {
     }
 
     #[inline]
-    async fn storage_new_messages_counter(storage_db: &DefaultStorageDB) -> Result<AtomicIsize> {
+    async fn storage_new_messages_counter(storage_db: &StorageDb) -> Result<AtomicIsize> {
         let max = storage_db.counter_get("messages_received_max").await?.unwrap_or_default();
         Ok(AtomicIsize::new(max))
     }
@@ -423,7 +424,7 @@ impl StorageMessageManagerInner {
 
                 // received messages
                 let msg_key = msg_id.to_be_bytes();
-                let msg_map = Self::with_timeout(
+                let msg_map = Self::with_timeout_direct(
                     self.storage_db.map(msg_key, Some(expiry_interval.as_millis() as TimestampMillis)),
                     timeout,
                     "storage_db.map",
@@ -456,10 +457,13 @@ impl StorageMessageManagerInner {
             }
             Msg::MarkForwarded { msg_id, recipients } => {
                 let msg_key = msg_id.to_be_bytes();
-                let msg_map =
-                    Self::with_timeout(self.storage_db.map(msg_key, None), timeout, "add_forwardeds map")
-                        .await
-                        .map_err(|e| anyhow!("add_forwardeds map error: {:?}", e))?;
+                let msg_map = Self::with_timeout_direct(
+                    self.storage_db.map(msg_key, None),
+                    timeout,
+                    "add_forwardeds map",
+                )
+                .await
+                .map_err(|e| anyhow!("add_forwardeds map error: {:?}", e))?;
 
                 let found =
                     Self::with_timeout(msg_map.contains_key(DATA), timeout, "add_forwardeds contains_key")
@@ -509,54 +513,34 @@ impl StorageMessageManagerInner {
             inner.topic_tree.read().await.matches(&topic).into_iter().map(|(_t, msg_id)| msg_id).collect();
 
         log::debug!("_get matcheds msg_ids: {matcheds:?}");
-        let storage_err_count = AtomicUsize::new(0);
-        let matcheds: Vec<_> = futures::future::join_all(matcheds.into_iter().map(|msg_id| {
-            let storage_err = &storage_err_count;
-            async move {
-                let msg_key = msg_id.to_be_bytes();
-                let msg_map = self.storage_db.map(msg_key, None).await;
-                match msg_map {
-                    Ok(mut msg_map) => {
-                        let is_forwarded =
-                            match self._is_forwarded(&mut msg_map, client_id, topic_filter, group).await {
-                                Ok(v) => v,
-                                Err(e) => {
-                                    log::warn!("_get _is_forwarded error, {e}");
-                                    storage_err.fetch_add(1, Ordering::Relaxed);
-                                    return None;
-                                }
-                            };
+        let matcheds: Vec<_> = futures::future::join_all(matcheds.into_iter().map(|msg_id| async move {
+            let msg_key = msg_id.to_be_bytes();
+            let mut msg_map = self.storage_db.map(msg_key, None).await;
+            let is_forwarded = match self._is_forwarded(&mut msg_map, client_id, topic_filter, group).await {
+                Ok(v) => v,
+                Err(e) => {
+                    log::warn!("_get _is_forwarded error, {e}");
+                    return None;
+                }
+            };
 
-                        if is_forwarded {
+            if is_forwarded {
+                None
+            } else {
+                match inner._get_message(&msg_map).await {
+                    Ok(Some(msg)) => {
+                        log::debug!("_get msg: {:?}, msg.is_expiry(): {}", msg, msg.is_expiry());
+                        if msg.is_expiry()
+                            || msg.publish.target_clientid.as_ref().is_some_and(|t_cid| t_cid != client_id)
+                        {
                             None
                         } else {
-                            match inner._get_message(&msg_map).await {
-                                Ok(Some(msg)) => {
-                                    log::debug!("_get msg: {:?}, msg.is_expiry(): {}", msg, msg.is_expiry());
-                                    if msg.is_expiry()
-                                        || msg
-                                            .publish
-                                            .target_clientid
-                                            .as_ref()
-                                            .is_some_and(|t_cid| t_cid != client_id)
-                                    {
-                                        None
-                                    } else {
-                                        Some((msg_id, msg.from, msg.publish))
-                                    }
-                                }
-                                Ok(None) => None,
-                                Err(e) => {
-                                    log::warn!("_get_message error, {e}");
-                                    storage_err.fetch_add(1, Ordering::Relaxed);
-                                    None
-                                }
-                            }
+                            Some((msg_id, msg.from, msg.publish))
                         }
                     }
+                    Ok(None) => None,
                     Err(e) => {
-                        log::warn!("_get new map error, {e}");
-                        storage_err.fetch_add(1, Ordering::Relaxed);
+                        log::warn!("_get_message error, {e}");
                         None
                     }
                 }
@@ -566,14 +550,6 @@ impl StorageMessageManagerInner {
         .into_iter()
         .flatten()
         .collect();
-
-        if storage_err_count.load(Ordering::Relaxed) > 0 {
-            self.circuit_breaker.record_failure();
-        } else if !matcheds.is_empty() {
-            // Only record success if we actually touched Redis.
-            // Zero matcheds = no map() calls = unknown Redis state.
-            self.circuit_breaker.record_success();
-        }
 
         Ok(matcheds)
     }
@@ -618,13 +594,9 @@ impl StorageMessageManagerInner {
         msg_map.get::<_, StoredMessage>(DATA).await
     }
 
-    /// Return storage backend info, with circuit breaker fast-path.
-    /// When the circuit is OPEN, skip the Redis call and return an "unavailable"
-    /// marker instead of waiting for a timeout.
+    /// Return storage backend info, including circuit breaker state (when applicable)
+    /// via `CircuitBrokenDB::info()`.
     pub(crate) async fn storage_info(&self) -> serde_json::Value {
-        if self.circuit_breaker.is_blocked() {
-            return json!({"status": "unavailable"});
-        }
         self.storage_db.info().await.unwrap_or_default()
     }
 }
@@ -645,10 +617,6 @@ impl MessageManager for StorageMessageManager {
         expiry_interval: Duration,
         recipients: Option<ForwardedRecipients>,
     ) -> Result<()> {
-        if self.circuit_breaker.is_blocked() {
-            log::debug!("circuit breaker OPEN: skip store for msg_id {:?}", msg_id);
-            return Ok(());
-        }
         let msg = Msg::Store { from, publish: p, expiry_interval, msg_id, recipients };
         self.route_msg(msg).await
     }
@@ -660,10 +628,6 @@ impl MessageManager for StorageMessageManager {
         topic_filter: &str,
         group: Option<&SharedGroup>,
     ) -> Result<Vec<(MsgID, From, Publish)>> {
-        if self.circuit_breaker.is_blocked() {
-            log::debug!("circuit breaker OPEN: skip get");
-            return Ok(vec![]);
-        }
         let now = std::time::Instant::now();
         let timeout = self.timeout;
 
@@ -686,7 +650,6 @@ impl MessageManager for StorageMessageManager {
             }
             Err(e) => {
                 log::warn!("StorageMessageManager get timeout, {e}");
-                self.circuit_breaker.record_failure();
                 vec![]
             }
         };
@@ -699,10 +662,6 @@ impl MessageManager for StorageMessageManager {
 
     #[inline]
     async fn mark_forwarded(&self, msg_id: MsgID, recipients: ForwardedRecipients) -> Result<()> {
-        if self.circuit_breaker.is_blocked() {
-            log::debug!("circuit breaker OPEN: skip mark_forwarded for msg_id {:?}", msg_id);
-            return Ok(());
-        }
         // Route to the worker responsible for this msg_id.
         // Because the worker processes messages sequentially (one batch at a time),
         // the corresponding `Store` for the same `msg_id` is guaranteed

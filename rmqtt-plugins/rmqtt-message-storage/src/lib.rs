@@ -31,6 +31,8 @@ use rmqtt::{
 
 #[cfg(any(feature = "redis", feature = "redis-cluster"))]
 use rmqtt_storage::init_db;
+#[cfg(any(feature = "redis", feature = "redis-cluster"))]
+use storage::StorageDb;
 
 use config::PluginConfig;
 #[cfg(feature = "ram")]
@@ -85,6 +87,9 @@ impl StoragePlugin {
                     log::error!("{name} init storage db error, {e}");
                     e
                 })?;
+
+                #[cfg(feature = "circuit-breaker")]
+                let storage_db = StorageDb::new(storage_db, cfg.to_cb_config());
 
                 let cfg = Arc::new(cfg);
                 let message_mgr = StorageMessageManager::new(cfg.clone(), storage_db.clone()).await?;
@@ -207,10 +212,6 @@ impl MessageMgr {
                         "topic_nodes": topic_nodes,
                         "receiveds": receiveds,
                         "cost_time":cost_time,
-                    },
-                    "circuit_breaker": {
-                        "enabled": mgr.circuit_breaker.config().enabled,
-                        "state": format!("{:?}", mgr.circuit_breaker.state()),
                     },
                 })
             }

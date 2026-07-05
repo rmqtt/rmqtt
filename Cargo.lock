@@ -5306,9 +5306,9 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-storage"
-version = "0.9.0"
+version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "550399d8a60b45b6c4e7eb81363e417d6b66baa876a89c41b3813e10ca05619f"
+checksum = "510886f2ecb83d282eade327d3c73d5c2c0ac64c45e8ee2022101a4f9f4a7ed1"
 dependencies = [
  "ahash",
  "anyhow",
@@ -5324,6 +5324,8 @@ dependencies = [
  "serde_json",
  "sled",
  "tokio",
+ "tower",
+ "tower-resilience-circuitbreaker",
 ]
 
 [[package]]
@@ -6971,6 +6973,29 @@ name = "tower-layer"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "121c2a6cda46980bb0fcd1647ffaf6cd3fc79a013de288782836f6df9c48780e"
+
+[[package]]
+name = "tower-resilience-circuitbreaker"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1c89ebacecf47734e7a562f615997bd54e1867ca26fb596f309d63ca5f6f42a"
+dependencies = [
+ "futures",
+ "thiserror 2.0.18",
+ "tokio",
+ "tower",
+ "tower-resilience-core",
+]
+
+[[package]]
+name = "tower-resilience-core"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13d51ef3353f58a987373162f9f68d6c9e555d1e09a215c224bf4e1f9e135138"
+dependencies = [
+ "thiserror 2.0.18",
+ "tokio",
+]
 
 [[package]]
 name = "tower-service"

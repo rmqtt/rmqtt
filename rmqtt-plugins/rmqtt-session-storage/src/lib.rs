@@ -37,7 +37,16 @@ use rmqtt::{
     Result,
 };
 
-use rmqtt_storage::{init_db, DefaultStorageDB, List, Map, StorageType};
+#[cfg(feature = "circuit-breaker")]
+pub(crate) use rmqtt_storage::{
+    init_db, CircuitBrokenDB as StorageDb, CircuitBrokenList as StorageList, CircuitBrokenMap as StorageMap,
+    List, Map, StorageDB, StorageType,
+};
+
+#[cfg(not(feature = "circuit-breaker"))]
+pub(crate) use rmqtt_storage::{
+    init_db, DefaultStorageDB as StorageDb, List, Map, StorageDB, StorageList, StorageMap, StorageType,
+};
 
 use config::PluginConfig;
 use rmqtt::context::ServerContext;
@@ -63,7 +72,7 @@ register!(StoragePlugin::new);
 struct StoragePlugin {
     scx: ServerContext,
     cfg: Arc<PluginConfig>,
-    storage_db: DefaultStorageDB,
+    storage_db: StorageDb,
     stored_session_infos: StoredSessionInfos,
     register: Box<dyn Register>,
     session_mgr: StorageSessionManager,
@@ -99,7 +108,16 @@ impl StoragePlugin {
                 log::error!("{name} init storage db error, {e}");
                 return Err(e);
             }
-            Ok(db) => db,
+            Ok(db) => {
+                #[cfg(feature = "circuit-breaker")]
+                {
+                    StorageDb::new(db, cfg.to_cb_config())
+                }
+                #[cfg(not(feature = "circuit-breaker"))]
+                {
+                    db
+                }
+            }
         };
 
         let stored_session_infos = StoredSessionInfos::new();
@@ -295,6 +313,7 @@ impl StoragePlugin {
                                     "Rebuild offline sessions, completed_count: {}, active_count: {}, waiting_count: {}, rate: {:?}, cost: {:?}",
                                     exec.completed_count().await, exec.active_count(), exec.waiting_count(), exec.rate().await, now.elapsed()
                                 );
+                                break;
                         }
                     }
                 }
@@ -364,7 +383,7 @@ impl Plugin for StoragePlugin {
 
     #[inline]
     async fn attrs(&self) -> serde_json::Value {
-        async fn stats(storage_db: &DefaultStorageDB) -> (String, String, String, serde_json::Value) {
+        async fn stats(storage_db: &StorageDb) -> (String, String, String) {
             let max_limit = 1000;
             let mut session_count = 0;
             let mut storage_db_map = storage_db.clone();
@@ -430,21 +449,25 @@ impl Plugin for StoragePlugin {
                 format!("{offline_message_count}")
             };
 
-            let storage_info = storage_db.info().await.unwrap_or_default();
-
-            (session_count, offline_session_count, offline_message_count, storage_info)
+            (session_count, offline_session_count, offline_message_count)
         }
 
         let (session_count, offline_session_count, offline_message_count, storage_info) =
             match tokio::time::timeout(Duration::from_secs(10), stats(&self.storage_db)).await {
-                Ok((session_count, offline_session_count, offline_message_count, storage_info)) => {
-                    (session_count, offline_session_count, offline_message_count, storage_info)
-                }
+                Ok((session_count, offline_session_count, offline_message_count)) => (
+                    session_count,
+                    offline_session_count,
+                    offline_message_count,
+                    self.storage_db.info().await.unwrap_or_default(),
+                ),
                 Err(_) => (
                     "timeout(10s)".into(),
                     "timeout(10s)".into(),
                     "timeout(10s)".into(),
-                    serde_json::Value::Null,
+                    match self.storage_db.info().await {
+                        Ok(info) => info,
+                        Err(e) => serde_json::Value::String(e.to_string()),
+                    },
                 ),
             };
 
@@ -459,11 +482,11 @@ impl Plugin for StoragePlugin {
 
 struct OfflineMessageHandler {
     cfg: Arc<PluginConfig>,
-    storage_db: DefaultStorageDB,
+    storage_db: StorageDb,
 }
 
 impl OfflineMessageHandler {
-    fn new(cfg: Arc<PluginConfig>, storage_db: DefaultStorageDB) -> Self {
+    fn new(cfg: Arc<PluginConfig>, storage_db: StorageDb) -> Self {
         Self { cfg, storage_db }
     }
 }
@@ -486,22 +509,16 @@ impl Handler for OfflineMessageHandler {
                 let p = (*p).clone();
                 let f = f.clone();
                 tokio::spawn(async move {
-                    match storage_db.list(list_stored_key.as_ref(), None).await {
-                        Ok(offlines_list) => {
-                            let res = offlines_list
-                                .push_limit::<OfflineMessageOptionType>(
-                                    &Some((id.client_id.clone(), f, p)),
-                                    max_mqueue_len,
-                                    true,
-                                )
-                                .await;
-                            if let Err(e) = res {
-                                log::warn!("{id:?} save offline messages error, {e}")
-                            }
-                        }
-                        Err(e) => {
-                            log::warn!("{id:?} save offline messages error, {e}")
-                        }
+                    let offlines_list = storage_db.list(list_stored_key.as_ref(), None).await;
+                    let res = offlines_list
+                        .push_limit::<OfflineMessageOptionType>(
+                            &Some((id.client_id.clone(), f, p)),
+                            max_mqueue_len,
+                            true,
+                        )
+                        .await;
+                    if let Err(e) = res {
+                        log::warn!("{id:?} save offline messages error, {e}")
                     }
                 });
             }
@@ -519,15 +536,9 @@ impl Handler for OfflineMessageHandler {
                 let inflight_messages = inflight_messages.clone();
                 let id = s.id.clone();
                 tokio::spawn(async move {
-                    match storage_db.map(map_stored_key.as_ref(), None).await {
-                        Ok(m) => {
-                            if let Err(e) = m.insert(INFLIGHT_MESSAGES, &inflight_messages).await {
-                                log::warn!("{id:?} save offline inflight messages error, {e}")
-                            }
-                        }
-                        Err(e) => {
-                            log::warn!("{id:?} save offline inflight messages error, {e}")
-                        }
+                    let m = storage_db.map(map_stored_key.as_ref(), None).await;
+                    if let Err(e) = m.insert(INFLIGHT_MESSAGES, &inflight_messages).await {
+                        log::warn!("{id:?} save offline inflight messages error, {e}")
                     }
                 });
             }
@@ -542,7 +553,7 @@ impl Handler for OfflineMessageHandler {
 
 struct StorageHandler {
     scx: ServerContext,
-    storage_db: DefaultStorageDB,
+    storage_db: StorageDb,
     cfg: Arc<PluginConfig>,
     stored_session_infos: StoredSessionInfos,
     rebuild_tx: mpsc::Sender<RebuildChanType>,
@@ -551,7 +562,7 @@ struct StorageHandler {
 impl StorageHandler {
     fn new(
         scx: ServerContext,
-        storage_db: DefaultStorageDB,
+        storage_db: StorageDb,
         cfg: Arc<PluginConfig>,
         stored_session_infos: StoredSessionInfos,
         rebuild_tx: mpsc::Sender<RebuildChanType>,

@@ -16,9 +16,10 @@ all-features = true
 [features]
 default = ["rate-counter"]
 ram = []
-sled = ["rmqtt-storage/sled"]
-redis = ["rmqtt-storage/redis"]
+sled = ["rmqtt-storage/sled", "circuit-breaker"]
+redis = ["rmqtt-storage/redis", "circuit-breaker"]
 rate-counter = []
+circuit-breaker = ["rmqtt-storage/circuit-breaker"]
 
 [dependencies]
 rmqtt = { workspace = true, features = ["plugin", "retain"] }
