@@ -60,29 +60,36 @@ File: `rmqtt-message-storage.toml`
 
 ### Circuit Breaker
 
-Protects the broker from blocking when the Redis backend becomes unreachable.
-When the circuit is OPEN, store/mark_forwarded/get return immediately without
-touching Redis. The circuit automatically probes for recovery.
+Protects the broker from blocking when the storage backend becomes unreachable.
+The breaker uses a sliding window to track the call failure rate. When the failure
+rate exceeds the threshold and the minimum number of calls has been reached, the
+circuit trips to OPEN and all storage operations fast-fail. The circuit automatically
+probes for recovery.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `circuit_breaker_enabled` | boolean | `true` | Enable circuit breaker |
-| `circuit_failure_threshold` | integer | `10` | Consecutive failures before tripping to OPEN |
-| `circuit_reset_timeout` | string | `"15s"` | Wait duration in OPEN before probing (HALF_OPEN) |
-| `circuit_half_open_success_threshold` | integer | `3` | Consecutive probe successes to close the circuit |
+| `circuit_breaker.failure_rate_threshold` | `f64` | `0.25` | Failure rate threshold (0.0–1.0) for tripping to OPEN |
+| `circuit_breaker.sliding_window_type` | `string` | `"TimeBased"` | Sliding window type: `CountBased` or `TimeBased` |
+| `circuit_breaker.sliding_window_size` | `usize` | `20` | Sliding window size (number of calls) |
+| `circuit_breaker.sliding_window_duration` | `string` | `"45s"` | Sliding window duration (TimeBased mode only) |
+| `circuit_breaker.minimum_number_of_calls` | `usize` | `10` | Minimum calls before the breaker can trip |
+| `circuit_breaker.wait_duration_in_open` | `string` | `"30s"` | Duration in OPEN before probing (HALF_OPEN) |
+| `circuit_breaker.slow_call_duration_threshold` | `string` | `"2s"` | Slow call duration threshold |
+| `circuit_breaker.slow_call_rate_threshold` | `f64` | `1.0` | Slow call rate threshold (1.0 = disabled) |
+| `circuit_breaker.operation_timeout` | `string` | `"8s"` | Per-operation timeout (`"0s"` to disable) |
 
 #### State Machine
 
 ```
-CLOSED ── failure_count ≥ threshold ──► OPEN ── timeout ──► HALF_OPEN
-  ▲                                                               │
-  └────────────── success × threshold ◄───────────────────────────┘
+CLOSED ── failure_rate ≥ threshold (min_calls met) ──► OPEN ── wait_duration ──► HALF_OPEN
+  ▲                                                                            │
+  └────────────────── probe success ◄──────────────────────────────────────────┘
 ```
 
-- **CLOSED**: normal operation, failures are counted.
-- **OPEN**: all operations skip Redis immediately; workers drain backlog without waiting.
-- **HALF_OPEN**: probe requests are allowed; if enough succeed the circuit closes,
-  if any fails it re-opens.
+- **CLOSED**: normal operation; calls are tracked in the sliding window.
+- **OPEN**: all operations fast-fail without touching the storage backend.
+- **HALF_OPEN**: a limited number of probe requests are allowed; if they succeed the
+  circuit closes, if any fail it re-opens.
 
 ## Dependencies
 

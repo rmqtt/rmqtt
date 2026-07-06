@@ -52,24 +52,49 @@ max_payload_size = "1MB"
 
 # TTL for retained messages. Set to 0 for no expiration.
 # If not specified, the message expiration time will be used by default.
-#retained_message_ttl = "0m"
+retained_message_ttl = "0m"
 
 # Maximum number of messages per batch (default: 500).
-#batch_messages_limit = 500
+batch_messages_limit = 500
 
 ##─── Circuit breaker ──────────────────────────────────────────────
-##Enable circuit breaker. When storage fails consecutively beyond the threshold,
-##all retain operations fast-fail without touching the storage backend.
-#circuit_breaker_enabled = true
-
-##Consecutive storage failures before tripping the circuit to OPEN (fast-fail).
-#circuit_failure_threshold = 10
-
+##Optional circuit-breaker tuning.
+##When this section is absent (or commented out), the built-in
+##CircuitBreakerConfig::default() is used verbatim.
+##Only the fields you explicitly set override the defaults.
+##
+##Failure rate threshold (0.0 – 1.0). Default: 0.25
+#circuit_breaker.failure_rate_threshold = 0.25
+##
+##Sliding window type: "CountBased" or "TimeBased". Default: "TimeBased"
+#circuit_breaker.sliding_window_type = "TimeBased"
+##
+##Sliding window size (number of calls). Default: 20
+#circuit_breaker.sliding_window_size = 20
+##
+##Sliding window duration for TimeBased mode.
+##Only used when sliding_window_type is "TimeBased".
+##Calls older than this duration are excluded from the failure rate.
+##Default: "45s"
+#circuit_breaker.sliding_window_duration = "45s"
+##
+##Minimum number of calls before the breaker can trip.
+##Prevents premature tripping during low-traffic periods.
+##Default: 10
+#circuit_breaker.minimum_number_of_calls = 10
+##
 ##Duration in OPEN state before transitioning to HALF_OPEN (probe).
-#circuit_reset_timeout = "15s"
-
-##Consecutive probe successes needed to close the circuit.
-#circuit_half_open_success_threshold = 3
+##Default: "30s"
+#circuit_breaker.wait_duration_in_open = "30s"
+##
+##Slow call duration threshold. Default: "2s"
+#circuit_breaker.slow_call_duration_threshold = "2s"
+##
+##Slow call rate threshold (0.0 – 1.0). 1.0 = disabled. Default: 1.0
+#circuit_breaker.slow_call_rate_threshold = 1.0
+##
+##Per-operation timeout. Set to "0s" to disable. Default: "8s"
+#circuit_breaker.operation_timeout = "8s"
 ```
 
 当前支持 "ram"、"sled" 和 "redis" 三种存储模式。"ram" 是存储在内存。"sled" 是存储在本地磁盘，需要配置存储位置和在内存中的缓存容量，适当大小可以提高读写效率。
@@ -80,7 +105,7 @@ max_payload_size = "1MB"
 
 "batch_messages_limit" 限制单次批量存储操作处理的最大消息数（默认值：500）。当大量保留消息同时到达时，会按此大小分组进行批量处理以提高效率。
 
-**熔断器（Circuit Breaker）** 防止存储后端不可用时发生级联故障。当连续存储失败次数超过 `circuit_failure_threshold`（默认值：10）时，熔断器进入 **OPEN** 状态，所有保留消息操作（set/get）快速失败，不再访问存储后端。经过 `circuit_reset_timeout`（默认值：`"15s"`）后，熔断器进入 **HALF_OPEN** 状态并允许探针请求。如果探针成功，熔断器关闭；否则重新打开。`circuit_half_open_success_threshold`（默认值：3）控制关闭熔断器所需的连续探针成功次数。
+**熔断器（Circuit Breaker）** 防止存储后端不可用时发生级联故障。熔断器使用滑动窗口统计调用失败率，当失败率超过 `circuit_breaker.failure_rate_threshold`（默认值：0.25，即 25%）且达到 `circuit_breaker.minimum_number_of_calls`（默认值：10）最小调用次数时，熔断器进入 **OPEN** 状态，所有保留消息操作快速失败，不再访问存储后端。经过 `circuit_breaker.wait_duration_in_open`（默认值：`"30s"`）后，熔断器进入 **HALF_OPEN** 状态并允许探针请求。如果探针成功，熔断器关闭；否则重新打开。此外，`circuit_breaker.slow_call_duration_threshold`（默认值：`"2s"`）配合 `circuit_breaker.slow_call_rate_threshold` 可检测慢调用，`circuit_breaker.operation_timeout`（默认值：`"8s"`）为每个操作设置超时。滑动窗口类型可选 `CountBased`（按调用次数）或 `TimeBased`（按时间，默认），通过 `circuit_breaker.sliding_window_type` 配置。
 
 如果 RMQTT 部署为单机模式，"ram"、"sled" 和 "redis" 都是支持的。集群模式下同样支持所有三种存储模式；
 对于 "redis" 模式，使用轻量级的仅主题同步机制来减少节点间流量。

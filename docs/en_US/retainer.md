@@ -56,24 +56,49 @@ max_payload_size = "1MB"
 
 # TTL for retained messages. Set to 0 for no expiration.
 # If not specified, the message expiration time will be used by default.
-#retained_message_ttl = "0m"
+retained_message_ttl = "0m"
 
 # Maximum number of messages per batch (default: 500).
-#batch_messages_limit = 500
+batch_messages_limit = 500
 
 ##─── Circuit breaker ──────────────────────────────────────────────
-##Enable circuit breaker. When storage fails consecutively beyond the threshold,
-##all retain operations fast-fail without touching the storage backend.
-#circuit_breaker_enabled = true
-
-##Consecutive storage failures before tripping the circuit to OPEN (fast-fail).
-#circuit_failure_threshold = 10
-
+##Optional circuit-breaker tuning.
+##When this section is absent (or commented out), the built-in
+##CircuitBreakerConfig::default() is used verbatim.
+##Only the fields you explicitly set override the defaults.
+##
+##Failure rate threshold (0.0 – 1.0). Default: 0.25
+#circuit_breaker.failure_rate_threshold = 0.25
+##
+##Sliding window type: "CountBased" or "TimeBased". Default: "TimeBased"
+#circuit_breaker.sliding_window_type = "TimeBased"
+##
+##Sliding window size (number of calls). Default: 20
+#circuit_breaker.sliding_window_size = 20
+##
+##Sliding window duration for TimeBased mode.
+##Only used when sliding_window_type is "TimeBased".
+##Calls older than this duration are excluded from the failure rate.
+##Default: "45s"
+#circuit_breaker.sliding_window_duration = "45s"
+##
+##Minimum number of calls before the breaker can trip.
+##Prevents premature tripping during low-traffic periods.
+##Default: 10
+#circuit_breaker.minimum_number_of_calls = 10
+##
 ##Duration in OPEN state before transitioning to HALF_OPEN (probe).
-#circuit_reset_timeout = "15s"
-
-##Consecutive probe successes needed to close the circuit.
-#circuit_half_open_success_threshold = 3
+##Default: "30s"
+#circuit_breaker.wait_duration_in_open = "30s"
+##
+##Slow call duration threshold. Default: "2s"
+#circuit_breaker.slow_call_duration_threshold = "2s"
+##
+##Slow call rate threshold (0.0 – 1.0). 1.0 = disabled. Default: 1.0
+#circuit_breaker.slow_call_rate_threshold = 1.0
+##
+##Per-operation timeout. Set to "0s" to disable. Default: "8s"
+#circuit_breaker.operation_timeout = "8s"
 ```
 
 Currently, three storage modes are supported: "ram", "sled", and "redis".
@@ -89,7 +114,7 @@ time for retained messages. A value of `"0m"` means no expiration. If not specif
 "batch_messages_limit" limits the maximum number of messages processed in a single batch store operation (default: 500).
 When a large number of retained messages arrive at once, they are grouped into batches of this size for efficient processing.
 
-The **Circuit Breaker** prevents cascading failures when the storage backend becomes unavailable. When the number of consecutive storage failures exceeds `circuit_failure_threshold` (default: 10), the circuit trips to **OPEN** state and all retain operations (set/get) fast-fail without touching the storage. After `circuit_reset_timeout` (default: `"15s"`), the circuit transitions to **HALF_OPEN** and allows a probe request. If the probe succeeds, the circuit closes; otherwise it re-opens. `circuit_half_open_success_threshold` (default: 3) controls how many consecutive probe successes are needed to close the circuit.
+The **Circuit Breaker** prevents cascading failures when the storage backend becomes unavailable. The breaker uses a sliding window to track the call failure rate. When the failure rate exceeds `circuit_breaker.failure_rate_threshold` (default: 0.25, i.e. 25%) and the minimum number of calls `circuit_breaker.minimum_number_of_calls` (default: 10) has been reached, the circuit trips to **OPEN** state and all retain operations fast-fail without touching the storage. After `circuit_breaker.wait_duration_in_open` (default: `"30s"`), the circuit transitions to **HALF_OPEN** and allows a probe request. If the probe succeeds, the circuit closes; otherwise it re-opens. Additionally, `circuit_breaker.slow_call_duration_threshold` (default: `"2s"`) combined with `circuit_breaker.slow_call_rate_threshold` can detect slow calls, and `circuit_breaker.operation_timeout` (default: `"8s"`) sets a per-operation timeout. The sliding window type can be `CountBased` (by call count) or `TimeBased` (by time, default), configured via `circuit_breaker.sliding_window_type`.
 
 If RMQTT is deployed in single-node mode, then "ram", "sled", and "redis" are all supported storage modes. 
 In cluster mode, all three storage modes are also supported; for "redis" mode, a lightweight topic-only 

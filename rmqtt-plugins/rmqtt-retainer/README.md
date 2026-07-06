@@ -76,10 +76,15 @@ File: `rmqtt-retainer.toml` (in the plugin config directory). Loaded via `scx.pl
 | `max_payload_size` | `string` | `"1MB"` | Maximum payload size for retained messages. Exceeding this causes the message to be treated as a regular message. |
 | `retained_message_ttl` | `string` | `"0m"` (no expiry) | TTL for retained messages. If not set, defaults to the message expiry interval. |
 | `batch_messages_limit` | `usize` | `500` | Maximum number of messages per batch store operation |
-| `circuit_breaker_enabled` | `bool` | `true` | Enable circuit breaker for storage failure detection |
-| `circuit_failure_threshold` | `usize` | `10` | Consecutive failures before tripping the circuit to OPEN |
-| `circuit_reset_timeout` | `string` | `"15s"` | Duration in OPEN state before transitioning to HALF_OPEN |
-| `circuit_half_open_success_threshold` | `usize` | `3` | Consecutive probe successes needed to close the circuit |
+| `circuit_breaker.failure_rate_threshold` | `f64` | `0.25` | Failure rate threshold (0.0–1.0) for tripping the circuit to OPEN |
+| `circuit_breaker.sliding_window_type` | `string` | `"TimeBased"` | Sliding window type: `CountBased` or `TimeBased` |
+| `circuit_breaker.sliding_window_size` | `usize` | `20` | Sliding window size (number of calls) |
+| `circuit_breaker.sliding_window_duration` | `string` | `"45s"` | Sliding window duration (TimeBased mode only) |
+| `circuit_breaker.minimum_number_of_calls` | `usize` | `10` | Minimum calls before the breaker can trip |
+| `circuit_breaker.wait_duration_in_open` | `string` | `"30s"` | Duration in OPEN state before transitioning to HALF_OPEN |
+| `circuit_breaker.slow_call_duration_threshold` | `string` | `"2s"` | Slow call duration threshold |
+| `circuit_breaker.slow_call_rate_threshold` | `f64` | `1.0` | Slow call rate threshold (1.0 = disabled) |
+| `circuit_breaker.operation_timeout` | `string` | `"8s"` | Per-operation timeout (`"0s"` to disable) |
 
 ### Configuration Source
 
@@ -111,11 +116,16 @@ max_payload_size = "1MB"
 retained_message_ttl = "24h"
 batch_messages_limit = 500
 
-# Circuit breaker (enabled by default)
-#circuit_breaker_enabled = true
-#circuit_failure_threshold = 10
-#circuit_reset_timeout = "15s"
-#circuit_half_open_success_threshold = 3
+# Circuit breaker (sliding-window model, uses defaults if commented out)
+#circuit_breaker.failure_rate_threshold = 0.25
+#circuit_breaker.sliding_window_type = "TimeBased"
+#circuit_breaker.sliding_window_size = 20
+#circuit_breaker.sliding_window_duration = "45s"
+#circuit_breaker.minimum_number_of_calls = 10
+#circuit_breaker.wait_duration_in_open = "30s"
+#circuit_breaker.slow_call_duration_threshold = "2s"
+#circuit_breaker.slow_call_rate_threshold = 1.0
+#circuit_breaker.operation_timeout = "8s"
 ```
 
 ## Dependencies

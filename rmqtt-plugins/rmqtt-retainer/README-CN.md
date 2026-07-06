@@ -20,6 +20,7 @@
 - **RetainSyncMode**：
   - `Full`：完整保留消息广播（ram、sled）。
   - `TopicOnly`：仅主题名称同步（共享存储的 Redis）。
+- **熔断器（Circuit Breaker）**：内置滑动窗口熔断器，检测存储后端故障并自动快速失败降级和恢复。参见下方配置说明。
 
 ## 使用方法
 
@@ -74,10 +75,15 @@ rmqtt_retainer::register_named(&scx, "rmqtt-retainer", true, false).await?;
 | `max_payload_size` | `string` | `"1MB"` | 保留消息的最大 Payload 大小。超出后该消息将被视为普通消息处理。 |
 | `retained_message_ttl` | `string` | `"0m"`（不过期） | 保留消息的 TTL。未设置时默认使用消息过期时间。 |
 | `batch_messages_limit` | `usize` | `500` | 单次批量存储操作的最大消息数 |
-| `circuit_breaker_enabled` | `bool` | `true` | 启用熔断器，检测存储后端故障 |
-| `circuit_failure_threshold` | `usize` | `10` | 触发熔断器 OPEN 所需的连续失败次数 |
-| `circuit_reset_timeout` | `string` | `"15s"` | OPEN 状态持续时间，之后进入 HALF_OPEN 状态探针 |
-| `circuit_half_open_success_threshold` | `usize` | `3` | 关闭熔断器所需的连续探针成功次数 |
+| `circuit_breaker.failure_rate_threshold` | `f64` | `0.25` | 失败率阈值 (0.0–1.0)，超过后熔断器跳闸到 OPEN |
+| `circuit_breaker.sliding_window_type` | `string` | `"TimeBased"` | 滑动窗口类型：`CountBased` 或 `TimeBased` |
+| `circuit_breaker.sliding_window_size` | `usize` | `20` | 滑动窗口大小（调用次数） |
+| `circuit_breaker.sliding_window_duration` | `string` | `"45s"` | 滑动窗口持续时间（仅 TimeBased 模式） |
+| `circuit_breaker.minimum_number_of_calls` | `usize` | `10` | 熔断器跳闸前的最小调用次数 |
+| `circuit_breaker.wait_duration_in_open` | `string` | `"30s"` | OPEN 状态持续时间，之后进入 HALF_OPEN 状态 |
+| `circuit_breaker.slow_call_duration_threshold` | `string` | `"2s"` | 慢调用持续时间阈值 |
+| `circuit_breaker.slow_call_rate_threshold` | `f64` | `1.0` | 慢调用率阈值（1.0 = 禁用） |
+| `circuit_breaker.operation_timeout` | `string` | `"8s"` | 单次操作超时（`"0s"` 禁用） |
 
 ### 配置来源
 
@@ -109,11 +115,16 @@ max_payload_size = "1MB"
 retained_message_ttl = "24h"
 batch_messages_limit = 500
 
-# 熔断器（默认启用）
-#circuit_breaker_enabled = true
-#circuit_failure_threshold = 10
-#circuit_reset_timeout = "15s"
-#circuit_half_open_success_threshold = 3
+# 熔断器（滑动窗口模型，注释掉时使用默认值）
+#circuit_breaker.failure_rate_threshold = 0.25
+#circuit_breaker.sliding_window_type = "TimeBased"
+#circuit_breaker.sliding_window_size = 20
+#circuit_breaker.sliding_window_duration = "45s"
+#circuit_breaker.minimum_number_of_calls = 10
+#circuit_breaker.wait_duration_in_open = "30s"
+#circuit_breaker.slow_call_duration_threshold = "2s"
+#circuit_breaker.slow_call_rate_threshold = 1.0
+#circuit_breaker.operation_timeout = "8s"
 ```
 
 ## 依赖
