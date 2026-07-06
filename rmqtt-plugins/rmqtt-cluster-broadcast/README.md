@@ -27,7 +27,11 @@ File: `rmqtt-cluster-broadcast.toml`
 | `node_grpc_addrs` | array of string | `["1@127.0.0.1:5363", "2@127.0.0.1:5364", "3@127.0.0.1:5365"]` | Cluster node gRPC addresses |
 | `node_grpc_batch_size` | integer | `128` | Maximum messages sent in batch |
 | `node_grpc_client_concurrency_limit` | integer | `128` | Client concurrent request limit |
-| `node_grpc_client_timeout` | string | `"60s"` | Connect and send timeout |
+| `node_grpc_client_timeout` | string | `"15s"` | Connect and send timeout |
+| `node_grpc_circuit_breaker_enabled` | boolean | `true` | Enable gRPC circuit breaker |
+| `node_grpc_circuit_failure_threshold` | integer | `10` | Consecutive failures before tripping to OPEN |
+| `node_grpc_circuit_reset_timeout` | string | `"15s"` | Duration in OPEN before probing (HALF_OPEN) |
+| `node_grpc_circuit_half_open_success_threshold` | integer | `3` | Consecutive probe successes to close the circuit |
 | `task_exec_queue_workers` | integer | `500` | Task execution queue workers |
 | `task_exec_queue_max` | integer | `100_000` | Task execution queue max capacity |
 
