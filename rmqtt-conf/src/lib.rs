@@ -63,6 +63,8 @@ pub struct Inner {
     pub plugins: Plugins,
     #[serde(default)]
     pub mqtt: Mqtt,
+    #[serde(default)]
+    pub circuit_breaker: CircuitBreaker,
     #[serde(default, skip)]
     pub opts: Options,
 }
@@ -150,6 +152,7 @@ impl Settings {
         log::info!("exec_queue_max is {}", cfg.task.exec_queue_max);
         log::info!("node.busy config is: {:?}", cfg.node.busy);
         log::info!("node.rpc config is: {:?}", cfg.rpc);
+        log::info!("circuit_breaker config is: {:?}", cfg.circuit_breaker);
 
         if cfg.opts.node_grpc_addrs.is_some() {
             log::info!("node_grpc_addrs is {:?}", cfg.opts.node_grpc_addrs);
@@ -423,5 +426,105 @@ impl Mqtt {
 
     fn max_sessions_default() -> isize {
         0
+    }
+}
+
+/// Unified circuit-breaker configuration for centralized tuning.
+///
+/// Parsed from the `circuit_breaker.*` keys of `rmqtt.toml`.
+/// Used by gRPC inter-node calls, retainer, message-storage,
+/// session-storage, and other circuit-breaker-enabled subsystems.
+///
+/// The model is **sliding-window failure-rate**: calls are tracked within a
+/// sliding window (count-based or time-based), and when the failure rate
+/// exceeds `failure_rate_threshold` (and `minimum_number_of_calls` has been
+/// reached), the circuit opens. After `wait_duration_in_open` elapses, a
+/// probe is allowed (HALF_OPEN). Slow calls beyond `slow_call_duration_threshold`
+/// are also counted as failures when their rate exceeds
+/// `slow_call_rate_threshold`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CircuitBreaker {
+    /// Failure rate threshold (0.0 – 1.0). When exceeded, circuit opens.
+    #[serde(default = "CircuitBreaker::failure_rate_threshold_default")]
+    pub failure_rate_threshold: f64,
+
+    /// Sliding window type: `"CountBased"` or `"TimeBased"`.
+    #[serde(default = "CircuitBreaker::sliding_window_type_default")]
+    pub sliding_window_type: String,
+
+    /// Sliding window size (number of calls) for `CountBased` type.
+    #[serde(default = "CircuitBreaker::sliding_window_size_default")]
+    pub sliding_window_size: usize,
+
+    /// Sliding window duration for `TimeBased` type (e.g. `"45s"`).
+    #[serde(
+        default = "CircuitBreaker::sliding_window_duration_default",
+        deserialize_with = "deserialize_duration"
+    )]
+    pub sliding_window_duration: Duration,
+
+    /// Minimum calls before the breaker can trip.
+    #[serde(default = "CircuitBreaker::minimum_number_of_calls_default")]
+    pub minimum_number_of_calls: usize,
+
+    /// Duration in OPEN state before transitioning to HALF_OPEN (probe).
+    #[serde(
+        default = "CircuitBreaker::wait_duration_in_open_default",
+        deserialize_with = "deserialize_duration"
+    )]
+    pub wait_duration_in_open: Duration,
+
+    /// Slow call duration threshold. Calls exceeding this are considered slow.
+    #[serde(
+        default = "CircuitBreaker::slow_call_duration_threshold_default",
+        deserialize_with = "deserialize_duration"
+    )]
+    pub slow_call_duration_threshold: Duration,
+
+    /// Slow call rate threshold (0.0 – 1.0). `1.0` = disabled.
+    #[serde(default = "CircuitBreaker::slow_call_rate_threshold_default")]
+    pub slow_call_rate_threshold: f64,
+}
+
+impl Default for CircuitBreaker {
+    #[inline]
+    fn default() -> Self {
+        Self {
+            failure_rate_threshold: Self::failure_rate_threshold_default(),
+            sliding_window_type: Self::sliding_window_type_default(),
+            sliding_window_size: Self::sliding_window_size_default(),
+            sliding_window_duration: Self::sliding_window_duration_default(),
+            minimum_number_of_calls: Self::minimum_number_of_calls_default(),
+            wait_duration_in_open: Self::wait_duration_in_open_default(),
+            slow_call_duration_threshold: Self::slow_call_duration_threshold_default(),
+            slow_call_rate_threshold: Self::slow_call_rate_threshold_default(),
+        }
+    }
+}
+
+impl CircuitBreaker {
+    fn failure_rate_threshold_default() -> f64 {
+        0.35
+    }
+    fn sliding_window_type_default() -> String {
+        "TimeBased".to_string()
+    }
+    fn sliding_window_size_default() -> usize {
+        20
+    }
+    fn sliding_window_duration_default() -> Duration {
+        Duration::from_secs(45)
+    }
+    fn minimum_number_of_calls_default() -> usize {
+        10
+    }
+    fn wait_duration_in_open_default() -> Duration {
+        Duration::from_secs(30)
+    }
+    fn slow_call_duration_threshold_default() -> Duration {
+        Duration::from_secs(2)
+    }
+    fn slow_call_rate_threshold_default() -> f64 {
+        1.0
     }
 }

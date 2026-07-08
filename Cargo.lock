@@ -4718,6 +4718,8 @@ dependencies = [
  "systemstat",
  "thiserror 1.0.69",
  "tokio",
+ "tower",
+ "tower-resilience-circuitbreaker",
  "url",
  "uuid",
 ]

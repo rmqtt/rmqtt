@@ -47,49 +47,15 @@ storage.redis.prefix = "session-{node}"
 storage.redis-cluster.urls = ["redis://127.0.0.1:6380/", "redis://127.0.0.1:6381/", "redis://127.0.0.1:6382/"]
 storage.redis-cluster.prefix = "session-{node}"
 
-##─── Circuit breaker ─────────────────────────────────────────────────────────
-##Uncomment the following section to customize circuit-breaker behaviour.
-##When the whole section is absent, the upstream default is used verbatim.
-
-##Failure rate threshold (0.0 – 1.0). When exceeded, circuit opens.
-##Default: 0.25
-#circuit_breaker.failure_rate_threshold = 0.25
-
-##Sliding window type: "CountBased" or "TimeBased".
-##  CountBased — window slides after N calls (sliding_window_size).
-##  TimeBased  — window slides after a fixed duration (e.g. 45s).
-##Default: "TimeBased"
-#circuit_breaker.sliding_window_type = "TimeBased"
-
-##Sliding window size (number of calls) for CountBased type.
-##For TimeBased, this value sets the max tracked calls (fallback for minimum_number_of_calls).
-##Default: 20
-#circuit_breaker.sliding_window_size = 20
-
-##Sliding window duration for TimeBased type (e.g. "45s").
-##Only used when sliding_window_type is "TimeBased".
-##Default: "45s"
-#circuit_breaker.sliding_window_duration = "45s"
-
-##Minimum calls before the breaker can trip.
-##Default: 10
-#circuit_breaker.minimum_number_of_calls = 10
-
-##Duration in OPEN state before transitioning to HALF_OPEN (probe).
-##Default: "30s"
-#circuit_breaker.wait_duration_in_open = "30s"
-
-##Slow call duration threshold.
-##Default: "2s"
-#circuit_breaker.slow_call_duration_threshold = "2s"
-
-##Slow call rate threshold (0.0 – 1.0). 1.0 = disabled.
-##Default: 1.0
-#circuit_breaker.slow_call_rate_threshold = 1.0
-
-##Per-operation timeout. Set to "0s" to disable.
+##All circuit-breaker parameters (failure rate, window, etc.) are inherited
+##from the global `[circuit_breaker]` section in `rmqtt.toml`.
+##Only the backend operation timeout can be overridden here.
+##
+##Backend storage operation timeout. If a storage call exceeds this duration
+##it is aborted and counted as a failure by the circuit breaker.
+##Set to "0s" to disable.
 ##Default: "15s"
-#circuit_breaker.operation_timeout = "15s"
+#backend_timeout = "15s"
 ```
 
 Currently, three storage engines are supported: "sled," "redis," and "redis-cluster." "sled" is stored locally, requiring 
@@ -97,7 +63,7 @@ configuration for the storage location and in-memory cache size, with an appropr
 Prefix configuration enables different rmqtt nodes to use the same Redis storage service. `{node}` will be replaced with 
 the current node identifier.
 
-The **Circuit Breaker** prevents cascading failures when the storage backend becomes unavailable. The breaker uses a sliding window to track the call failure rate. When the failure rate exceeds `circuit_breaker.failure_rate_threshold` (default: 0.25) and the minimum number of calls `circuit_breaker.minimum_number_of_calls` (default: 10) has been reached, the circuit trips to **OPEN** state and all session storage operations fast-fail. After `circuit_breaker.wait_duration_in_open` (default: `"30s"`) the circuit transitions to **HALF_OPEN** for probe testing. `circuit_breaker.operation_timeout` (default: `"15s"`) sets a per-operation timeout.
+The Circuit Breaker parameters (failure rate threshold, sliding window type/size, minimum calls, OPEN duration, slow call threshold, etc.) are inherited from the global `[circuit_breaker]` section in `rmqtt.toml`. Only the backend storage operation timeout can be overridden via `backend_timeout` (default: `"15s"`, set to `"0s"` to disable).
 
 
 By default, this plugin is not enabled. To activate it, you must add the `rmqtt-session-storage` entry to the

@@ -53,8 +53,10 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 use std::time::Duration;
 
+#[allow(unused_imports)]
 use futures::stream::FuturesUnordered;
 use futures::FutureExt;
 use futures::StreamExt;
@@ -68,14 +70,21 @@ use rust_box::mpsc::priority_channel as channel;
 use scopeguard::defer;
 use serde::{Deserialize, Serialize};
 use strum::EnumCount;
+use tower::{Layer, Service, ServiceExt};
+use tower_resilience_circuitbreaker::{
+    CircuitBreaker as TowerCB, CircuitBreakerError, CircuitBreakerLayer, CircuitMetrics, CircuitState,
+    DefaultClassifier, SlidingWindowType,
+};
 
+use crate::context::CircuitBreakerConfig;
 use crate::context::ServerContext;
+use crate::context::WindowConfig;
 use crate::types::{
     Addr, CleanStart, ClearSubscriptions, ClientId, ForwardedRecipients, From, HashMap, Id, IsAdmin, MsgID,
     NodeId, OfflineSession, Publish, Retain, Route, SessionStatus, SharedGroup, SubRelations,
     SubRelationsMap, SubsSearchParams, SubsSearchResult, TopicFilter, TopicName,
 };
-use crate::utils::{CircuitBreaker, Counter};
+use crate::utils::Counter;
 use crate::Result;
 
 /// Internal type alias for async join_all_with handler futures.
@@ -186,16 +195,131 @@ impl GrpcServer {
 /// Shared map of connected gRPC clients indexed by node ID.
 pub type GrpcClients = Arc<HashMap<NodeId, (Addr, GrpcClient)>>;
 
+// ─── Tower Service wrappers for circuit-breaker integration ───────────────────
+
+/// Encoded gRPC request passed to the circuit-breaker-wrapped service.
+///
+/// Encoding happens *before* entering the service so that encode errors
+/// are NOT counted as circuit-breaker failures.
+struct GrpcCall {
+    req: Vec<u8>,
+    timeout: Option<Duration>,
+    quick: bool,
+}
+
+/// Inner service for duplex (request/response) gRPC calls.
+#[derive(Clone)]
+struct GrpcSendService {
+    duplex_mailbox: DuplexMailbox,
+}
+
+impl Service<GrpcCall> for GrpcSendService {
+    type Response = MessageReply;
+    type Error = anyhow::Error;
+    type Future = Pin<Box<dyn Future<Output = std::result::Result<MessageReply, anyhow::Error>> + Send>>;
+
+    #[inline]
+    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<std::result::Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, call: GrpcCall) -> Self::Future {
+        let mut mailbox = self.duplex_mailbox.clone();
+        Box::pin(async move {
+            let reply = if call.quick {
+                if let Some(timeout) = call.timeout {
+                    tokio::time::timeout(timeout, mailbox.quick_send(call.req)).await??
+                } else {
+                    mailbox.quick_send(call.req).await?
+                }
+            } else if let Some(timeout) = call.timeout {
+                tokio::time::timeout(timeout, mailbox.send(call.req)).await??
+            } else {
+                mailbox.send(call.req).await?
+            };
+            MessageReply::decode(&reply)
+        })
+    }
+}
+
+/// Inner service for fire-and-forget gRPC notifications.
+#[derive(Clone)]
+struct GrpcNotifyService {
+    mailbox: Mailbox,
+}
+
+impl Service<GrpcCall> for GrpcNotifyService {
+    type Response = ();
+    type Error = anyhow::Error;
+    type Future = Pin<Box<dyn Future<Output = std::result::Result<(), anyhow::Error>> + Send>>;
+
+    #[inline]
+    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<std::result::Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, call: GrpcCall) -> Self::Future {
+        let mut mailbox = self.mailbox.clone();
+        Box::pin(async move {
+            if call.quick {
+                if let Some(timeout) = call.timeout {
+                    tokio::time::timeout(timeout, mailbox.quick_send(call.req)).await??;
+                } else {
+                    mailbox.quick_send(call.req).await?;
+                };
+            } else if let Some(timeout) = call.timeout {
+                tokio::time::timeout(timeout, mailbox.send(call.req)).await??;
+            } else {
+                mailbox.send(call.req).await?;
+            }
+            Ok(())
+        })
+    }
+}
+
+/// Build a `CircuitBreakerLayer` from a `CircuitBreakerConfig`.
+///
+/// This is the single place where the tower Layer is constructed from
+/// the user-facing configuration struct. Each call produces a new
+/// Layer (lightweight, cloning config only — actual breaker state
+/// is created when `layer.layer(service)` is called).
+fn build_circuit_breaker_layer(config: &CircuitBreakerConfig) -> CircuitBreakerLayer {
+    let mut builder = CircuitBreakerLayer::builder()
+        .failure_rate_threshold(config.failure_rate_threshold)
+        .minimum_number_of_calls(config.minimum_number_of_calls)
+        .wait_duration_in_open(config.wait_duration_in_open)
+        .slow_call_duration_threshold(config.slow_call_duration_threshold)
+        .slow_call_rate_threshold(config.slow_call_rate_threshold)
+        .name(&config.name);
+
+    match &config.window {
+        WindowConfig::CountBased(w) => {
+            builder = builder
+                .sliding_window_type(SlidingWindowType::CountBased)
+                .sliding_window_size(w.sliding_window_size);
+        }
+        WindowConfig::TimeBased(w) => {
+            builder = builder
+                .sliding_window_type(SlidingWindowType::TimeBased)
+                .sliding_window_size(w.sliding_window_size)
+                .sliding_window_duration(w.sliding_window_duration);
+        }
+    }
+
+    builder.build()
+}
+
 /// A gRPC client connected to a remote cluster node.
 ///
 /// Supports both request/response (duplex) and fire-and-forget
 /// message passing with configurable timeouts and concurrency limits.
+/// Circuit-breaker protection is integrated via Tower middleware.
 #[derive(Clone)]
 pub struct GrpcClient {
     mailbox: Mailbox,
-    duplex_mailbox: DuplexMailbox,
+    send_service: TowerCB<GrpcSendService, DefaultClassifier>,
+    notify_service: TowerCB<GrpcNotifyService, DefaultClassifier>,
     active_tasks: Arc<Counter>,
-    circuit_breaker: Arc<CircuitBreaker>,
 }
 
 impl GrpcClient {
@@ -205,7 +329,7 @@ impl GrpcClient {
         server_addr: &str,
         client_timeout: Duration,
         client_concurrency_limit: usize,
-        circuit_breaker: Arc<CircuitBreaker>,
+        cb_config: &CircuitBreakerConfig,
     ) -> Result<Self> {
         log::info!(
             "GrpcClient::new server_addr: {server_addr}, client_concurrency_limit: {client_concurrency_limit}"
@@ -218,7 +342,15 @@ impl GrpcClient {
         let duplex_mailbox = c.duplex_transfer_start(100_000).await;
         let mailbox = c.transfer_start(100_000).await;
         let active_tasks = Arc::new(Counter::new());
-        Ok(Self { mailbox, duplex_mailbox, active_tasks, circuit_breaker })
+
+        // Build circuit-breaker layer from config (not a pre-built layer).
+        let cb_layer = build_circuit_breaker_layer(cb_config);
+
+        // Each layer() call creates an independent circuit-breaker state.
+        let send_service = cb_layer.layer(GrpcSendService { duplex_mailbox: duplex_mailbox.clone() });
+        let notify_service = cb_layer.layer(GrpcNotifyService { mailbox: mailbox.clone() });
+
+        Ok(Self { mailbox, send_service, notify_service, active_tasks })
     }
 
     #[inline]
@@ -231,9 +363,38 @@ impl GrpcClient {
         self.mailbox.req_queue_len()
     }
 
+    /// Returns the current circuit-breaker state (sync, lock-free).
     #[inline]
-    pub fn circuit_breaker(&self) -> &CircuitBreaker {
-        &self.circuit_breaker
+    pub fn circuit_breaker_state(&self) -> CircuitState {
+        self.send_service.state_sync()
+    }
+
+    /// Returns `true` if the circuit breaker is currently OPEN.
+    #[inline]
+    pub fn circuit_breaker_is_open(&self) -> bool {
+        self.send_service.is_open()
+    }
+
+    /// Returns a snapshot of circuit-breaker metrics for observability.
+    #[inline]
+    pub async fn circuit_breaker_metrics(&self) -> CircuitMetrics {
+        self.send_service.metrics().await
+    }
+
+    /// Serializes circuit-breaker state to JSON for the admin API.
+    #[inline]
+    pub async fn circuit_breaker_json(&self) -> serde_json::Value {
+        let m = self.send_service.metrics().await;
+        serde_json::json!({
+            "state": format!("{:?}", m.state),
+            "is_open": m.state == CircuitState::Open,
+            "total_calls": m.total_calls,
+            "failure_count": m.failure_count,
+            "success_count": m.success_count,
+            "slow_call_count": m.slow_call_count,
+            "failure_rate": m.failure_rate,
+            "slow_call_rate": m.slow_call_rate,
+        })
     }
 
     #[inline]
@@ -274,33 +435,16 @@ impl GrpcClient {
         timeout: Option<Duration>,
         quick: bool,
     ) -> Result<MessageReply> {
-        if self.circuit_breaker.is_blocked() {
-            return Err(anyhow::anyhow!("gRPC circuit breaker is OPEN, skipping send_message"));
-        }
-
         let req = msg.encode(typ)?; // encoding error → fast exit, NOT a CB failure
 
-        let result = async {
-            let reply = if quick {
-                if let Some(timeout) = timeout {
-                    tokio::time::timeout(timeout, self.duplex_mailbox.quick_send(req)).await??
-                } else {
-                    self.duplex_mailbox.quick_send(req).await?
-                }
-            } else if let Some(timeout) = timeout {
-                tokio::time::timeout(timeout, self.duplex_mailbox.send(req)).await??
-            } else {
-                self.duplex_mailbox.send(req).await?
-            };
-            MessageReply::decode(&reply) // decode failure → CB failure (bad network response)
-        }
-        .await;
+        let result = self.send_service.clone().ready().await?.call(GrpcCall { req, timeout, quick }).await;
 
-        match &result {
-            Ok(_) => self.circuit_breaker.record_success(),
-            Err(_) => self.circuit_breaker.record_failure(),
-        }
-        result
+        result.map_err(|e| match e {
+            CircuitBreakerError::OpenCircuit => {
+                anyhow::anyhow!("gRPC circuit breaker is OPEN, skipping send_message")
+            }
+            CircuitBreakerError::Inner(e) => e,
+        })
     }
 
     #[inline]
@@ -336,33 +480,16 @@ impl GrpcClient {
         timeout: Option<Duration>,
         quick: bool,
     ) -> Result<()> {
-        if self.circuit_breaker.is_blocked() {
-            return Err(anyhow::anyhow!("gRPC circuit breaker is OPEN, skipping notify"));
-        }
-
         let req = msg.encode(typ)?; // encoding error → fast exit, NOT a CB failure
 
-        let result = async {
-            if quick {
-                if let Some(timeout) = timeout {
-                    tokio::time::timeout(timeout, self.mailbox.quick_send(req)).await??;
-                } else {
-                    self.mailbox.quick_send(req).await?;
-                };
-            } else if let Some(timeout) = timeout {
-                tokio::time::timeout(timeout, self.mailbox.send(req)).await??;
-            } else {
-                self.mailbox.send(req).await?;
-            }
-            Ok(())
-        }
-        .await;
+        let result = self.notify_service.clone().ready().await?.call(GrpcCall { req, timeout, quick }).await;
 
-        match &result {
-            Ok(_) => self.circuit_breaker.record_success(),
-            Err(_) => self.circuit_breaker.record_failure(),
-        }
-        result
+        result.map_err(|e| match e {
+            CircuitBreakerError::OpenCircuit => {
+                anyhow::anyhow!("gRPC circuit breaker is OPEN, skipping notify")
+            }
+            CircuitBreakerError::Inner(e) => e,
+        })
     }
 }
 

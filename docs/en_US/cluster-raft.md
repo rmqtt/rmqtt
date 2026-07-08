@@ -114,11 +114,6 @@ node_grpc_batch_size = 128
 node_grpc_client_concurrency_limit = 128
 ##Connect and send to server timeout
 node_grpc_client_timeout = "10s"
-##gRPC circuit breaker settings
-node_grpc_circuit_breaker_enabled = true
-node_grpc_circuit_failure_threshold = 10
-node_grpc_circuit_reset_timeout = "15s"
-node_grpc_circuit_half_open_success_threshold = 3
 
 # The list of Raft peer addresses for the nodes in the cluster.
 # Each entry contains the node ID and the corresponding IP address and port for Raft consensus communication.
@@ -192,8 +187,6 @@ raft.priority = 0
 
 - `'node_grpc_addrs'` is primarily used for message forwarding during publish, while `'raft_peer_addrs'` is used for 
    synchronizing raft cluster messages.
-
-- `'node_grpc_circuit_breaker_enabled'` and related settings configure the gRPC client circuit breaker. Each peer node has an independent breaker. When gRPC calls to a node fail consecutively more than `node_grpc_circuit_failure_threshold` (default: 10) times, the breaker opens and subsequent requests to that node fast-fail. After `node_grpc_circuit_reset_timeout` (default: `"15s"`) the breaker enters half-open state, requiring `node_grpc_circuit_half_open_success_threshold` (default: 3) consecutive successes to close.
 
 - `'laddr'` specifies the Raft listening address. If not specified, it will default to the address configured in `'raft_peer_addrs'`.
 

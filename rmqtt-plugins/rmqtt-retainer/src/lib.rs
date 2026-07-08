@@ -73,7 +73,7 @@ impl RetainerPlugin {
             let cfg_guard = cfg.read().await;
             let batch_messages_limit = cfg_guard.batch_messages_limit;
             #[cfg(feature = "circuit-breaker")]
-            let cb_config = cfg_guard.to_cb_config();
+            let cb_config = cfg_guard.to_cb_config(&scx.circuit_breaker_config);
             drop(cfg_guard);
 
             match &mut cfg.write().await.storage {

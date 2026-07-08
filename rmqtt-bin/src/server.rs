@@ -11,7 +11,9 @@ use std::time::Duration;
 use clap::Parser;
 
 use rmqtt::args::CommandArgs;
-use rmqtt::context::ServerContext;
+use rmqtt::context::{
+    CircuitBreakerConfig, CountBasedWindowConfig, ServerContext, TimeBasedWindowConfig, WindowConfig,
+};
 use rmqtt::net::{tls_provider, Builder};
 use rmqtt::node::Node;
 use rmqtt::server::MqttServer;
@@ -61,6 +63,29 @@ async fn main() -> Result<()> {
 
     let _ = Settings::logs();
 
+    // Build circuit-breaker config from global settings.
+    let cb_config = {
+        let cb = &Settings::instance().circuit_breaker;
+        let window = match cb.sliding_window_type.as_str() {
+            "CountBased" => WindowConfig::CountBased(CountBasedWindowConfig {
+                sliding_window_size: cb.sliding_window_size,
+            }),
+            _ => WindowConfig::TimeBased(TimeBasedWindowConfig {
+                sliding_window_duration: cb.sliding_window_duration,
+                sliding_window_size: cb.sliding_window_size,
+            }),
+        };
+        CircuitBreakerConfig {
+            failure_rate_threshold: cb.failure_rate_threshold,
+            window,
+            minimum_number_of_calls: cb.minimum_number_of_calls,
+            wait_duration_in_open: cb.wait_duration_in_open,
+            slow_call_duration_threshold: cb.slow_call_duration_threshold,
+            slow_call_rate_threshold: cb.slow_call_rate_threshold,
+            name: "grpc".into(),
+        }
+    };
+
     //init ServerContext
     let scx = ServerContext::new()
         .args(config_args(conf))
@@ -73,6 +98,7 @@ async fn main() -> Result<()> {
         .mqtt_delayed_publish_immediate(conf.mqtt.delayed_publish_immediate)
         .mqtt_max_sessions(conf.mqtt.max_sessions)
         .plugins_config_dir(conf.plugins.dir.as_str())
+        .circuit_breaker_config(cb_config)
         .build()
         .await;
 

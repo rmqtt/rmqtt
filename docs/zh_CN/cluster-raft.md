@@ -101,11 +101,6 @@ node_grpc_batch_size = 128
 node_grpc_client_concurrency_limit = 128
 ##Connect and send to server timeout
 node_grpc_client_timeout = "10s"
-##gRPC circuit breaker settings
-node_grpc_circuit_breaker_enabled = true
-node_grpc_circuit_failure_threshold = 10
-node_grpc_circuit_reset_timeout = "15s"
-node_grpc_circuit_half_open_success_threshold = 3
 
 # The list of Raft peer addresses for the nodes in the cluster.
 # Each entry contains the node ID and the corresponding IP address and port for Raft consensus communication.
@@ -175,8 +170,6 @@ raft.priority = 0
 ```
 
 - 'node_grpc_addrs' 主要用于Publish消息转发，'raft_peer_addrs'用于raft集群消息的同步。
-
-- 'node_grpc_circuit_breaker_enabled' 等配置项用于 gRPC 客户端熔断器。每个 peer 节点拥有独立的熔断器，当 gRPC 调用连续失败超过 `node_grpc_circuit_failure_threshold`（默认值：10）次时，熔断器打开，后续对该节点的请求快速失败。经过 `node_grpc_circuit_reset_timeout`（默认值：`"15s"`）后进入半开状态，需要 `node_grpc_circuit_half_open_success_threshold`（默认值：3）次连续成功才能关闭熔断器。
 
 - 'laddr' 用于指定Raft监听地址，如果不指定，将默认使用'raft_peer_addrs'中配置的地址。
 
