@@ -111,7 +111,7 @@ impl StoragePlugin {
             Ok(db) => {
                 #[cfg(feature = "circuit-breaker")]
                 {
-                    StorageDb::new(db, cfg.to_cb_config())
+                    StorageDb::new(db, cfg.to_cb_config(&scx.circuit_breaker_config))
                 }
                 #[cfg(not(feature = "circuit-breaker"))]
                 {

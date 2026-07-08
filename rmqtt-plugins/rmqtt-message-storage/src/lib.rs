@@ -89,7 +89,7 @@ impl StoragePlugin {
                 })?;
 
                 #[cfg(feature = "circuit-breaker")]
-                let storage_db = StorageDb::new(storage_db, cfg.to_cb_config());
+                let storage_db = StorageDb::new(storage_db, cfg.to_cb_config(&scx.circuit_breaker_config));
 
                 let cfg = Arc::new(cfg);
                 let message_mgr = StorageMessageManager::new(cfg.clone(), storage_db.clone()).await?;

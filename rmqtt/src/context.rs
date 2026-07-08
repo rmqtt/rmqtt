@@ -57,6 +57,7 @@ use std::fmt;
 use std::iter::Sum;
 use std::ops::Deref;
 use std::sync::Arc;
+use std::time::Duration;
 
 use rust_box::task_exec_queue::{Builder, TaskExecQueue};
 use serde::{Deserialize, Serialize};
@@ -79,7 +80,6 @@ use crate::shared::DefaultShared;
 use crate::stats::Stats;
 use crate::types::{DashMap, HashMap, ListenerConfig, ListenerId, NodeId};
 use crate::utils::Counter;
-
 /// Builder for constructing ServerContext with configurable parameters
 /// # Example
 /// ```
@@ -114,6 +114,11 @@ pub struct ServerContextBuilder {
     /// plugins config, path or configMap<plugin_name, toml_string>
     #[cfg(feature = "plugin")]
     pub plugins_config: PluginManagerConfig,
+
+    /// Circuit-breaker configuration for gRPC clients.
+    /// Built by `rmqtt-bin` from `Settings::instance().circuit_breaker`.
+    /// Defaults to `CircuitBreakerConfig::default()` when not explicitly set.
+    pub circuit_breaker_config: CircuitBreakerConfig,
 }
 
 impl Default for ServerContextBuilder {
@@ -137,6 +142,7 @@ impl ServerContextBuilder {
             mqtt_delayed_publish_immediate: true,
             #[cfg(feature = "plugin")]
             plugins_config: PluginManagerConfig::default(),
+            circuit_breaker_config: CircuitBreakerConfig::default(),
         }
     }
 
@@ -207,6 +213,12 @@ impl ServerContextBuilder {
         self
     }
 
+    /// Sets the circuit-breaker configuration for gRPC clients.
+    pub fn circuit_breaker_config(mut self, config: CircuitBreakerConfig) -> Self {
+        self.circuit_breaker_config = config;
+        self
+    }
+
     /// Sets plugin configuration via a key-value map of plugin name to TOML config string.
     #[cfg(feature = "plugin")]
     pub fn plugins_config_map(mut self, plugins_config_map: HashMap<String, String>) -> Self {
@@ -263,6 +275,8 @@ impl ServerContextBuilder {
 
                 task_exec_workers: self.task_exec_workers,
                 task_exec_queue_max: self.task_exec_queue_max,
+
+                circuit_breaker_config: self.circuit_breaker_config,
             }),
         }
         .config()
@@ -319,6 +333,11 @@ pub struct ServerContextInner {
 
     task_exec_workers: usize,
     task_exec_queue_max: usize,
+
+    /// Circuit-breaker configuration for gRPC clients.
+    /// The `CircuitBreakerLayer` is built from this config on first use.
+    /// Defaults to `CircuitBreakerConfig::default()` when not explicitly set.
+    pub circuit_breaker_config: CircuitBreakerConfig,
 }
 
 impl Deref for ServerContext {
@@ -544,5 +563,115 @@ impl Sum for TaskExecStats {
 impl Sum<&'static TaskExecStats> for TaskExecStats {
     fn sum<I: Iterator<Item = &'static TaskExecStats>>(iter: I) -> Self {
         iter.fold(TaskExecStats::default(), |acc, x| acc.add2(x))
+    }
+}
+
+// ─── Circuit Breaker Configuration ───────────────────────────────────────
+
+/// Unified circuit-breaker configuration for gRPC client resilience.
+///
+/// This is a pure-configuration struct. The actual `CircuitBreakerLayer`
+/// (from `tower_resilience_circuitbreaker`) is built from this config
+/// in `GrpcClient::new()`.
+///
+/// The model is **sliding-window failure-rate**: calls are tracked within a
+/// sliding window (count-based or time-based), and when the failure rate
+/// exceeds `failure_rate_threshold` (and `minimum_number_of_calls` has been
+/// reached), the circuit opens. After `wait_duration_in_open` elapses, a
+/// probe is allowed (HALF_OPEN). Slow calls beyond `slow_call_duration_threshold`
+/// are also counted as failures when their rate exceeds
+/// `slow_call_rate_threshold`.
+#[derive(Debug, Clone)]
+pub struct CircuitBreakerConfig {
+    /// Failure rate threshold (0.0 – 1.0). Default: 0.25
+    pub failure_rate_threshold: f64,
+    /// Sliding window configuration (enum — see [`WindowConfig`]).
+    /// Default: `WindowConfig::TimeBased` with [`TimeBasedWindowConfig`] defaults.
+    pub window: WindowConfig,
+    /// Minimum number of calls before the breaker can trip. Default: 10
+    pub minimum_number_of_calls: usize,
+    /// Duration the breaker stays Open before transitioning to HalfOpen. Default: 30 s
+    pub wait_duration_in_open: Duration,
+    /// Slow call duration threshold. Default: 2 s
+    pub slow_call_duration_threshold: Duration,
+    /// Slow call rate threshold. Default: 1.0 (disabled)
+    pub slow_call_rate_threshold: f64,
+    /// Name label for observability. Default: "grpc"
+    pub name: String,
+}
+
+/// CountBased 滑动窗口专有配置。
+///
+/// 仅在 `WindowConfig::CountBased` 时生效。
+#[derive(Debug, Clone)]
+pub struct CountBasedWindowConfig {
+    /// 滑动窗口大小（调用次数）。默认: 20
+    pub sliding_window_size: usize,
+}
+
+impl Default for CountBasedWindowConfig {
+    fn default() -> Self {
+        Self { sliding_window_size: 20 }
+    }
+}
+
+impl From<CountBasedWindowConfig> for WindowConfig {
+    fn from(cfg: CountBasedWindowConfig) -> Self {
+        Self::CountBased(cfg)
+    }
+}
+
+/// TimeBased 滑动窗口专有配置。
+///
+/// 仅在 `WindowConfig::TimeBased` 时生效。
+#[derive(Debug, Clone)]
+pub struct TimeBasedWindowConfig {
+    /// 滑动窗口时间跨度。默认: 45s
+    pub sliding_window_duration: Duration,
+    /// 最大跟踪调用数（影响 `minimum_number_of_calls` 默认值）。默认: 20
+    pub sliding_window_size: usize,
+}
+
+impl Default for TimeBasedWindowConfig {
+    fn default() -> Self {
+        Self { sliding_window_duration: Duration::from_secs(45), sliding_window_size: 20 }
+    }
+}
+
+impl From<TimeBasedWindowConfig> for WindowConfig {
+    fn from(cfg: TimeBasedWindowConfig) -> Self {
+        Self::TimeBased(cfg)
+    }
+}
+
+/// 滑动窗口配置枚举。
+///
+/// - `CountBased` — 基于调用次数的滑动窗口
+/// - `TimeBased` — 基于时间跨度的滑动窗口
+#[derive(Debug, Clone)]
+pub enum WindowConfig {
+    /// 基于调用次数的滑动窗口（携带 `CountBasedWindowConfig`）
+    CountBased(CountBasedWindowConfig),
+    /// 基于时间跨度的滑动窗口（携带 `TimeBasedWindowConfig`）
+    TimeBased(TimeBasedWindowConfig),
+}
+
+impl Default for WindowConfig {
+    fn default() -> Self {
+        Self::TimeBased(TimeBasedWindowConfig::default())
+    }
+}
+
+impl Default for CircuitBreakerConfig {
+    fn default() -> Self {
+        Self {
+            failure_rate_threshold: 0.25,
+            window: WindowConfig::default(),
+            minimum_number_of_calls: 10,
+            wait_duration_in_open: Duration::from_secs(30),
+            slow_call_duration_threshold: Duration::from_secs(2),
+            slow_call_rate_threshold: 1.0,
+            name: "grpc".into(),
+        }
     }
 }

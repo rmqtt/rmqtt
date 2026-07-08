@@ -66,15 +66,7 @@ rmqtt_message_storage::register(&scx, true, false).await?;
 
 | 选项 | 类型 | 默认值 | 描述 |
 |------|------|--------|------|
-| `circuit_breaker.failure_rate_threshold` | `f64` | `0.25` | 失败率阈值 (0.0–1.0)，超过后跳闸到 OPEN |
-| `circuit_breaker.sliding_window_type` | `string` | `"TimeBased"` | 滑动窗口类型：`CountBased` 或 `TimeBased` |
-| `circuit_breaker.sliding_window_size` | `usize` | `20` | 滑动窗口大小（调用次数） |
-| `circuit_breaker.sliding_window_duration` | `string` | `"45s"` | 滑动窗口持续时间（仅 TimeBased 模式） |
-| `circuit_breaker.minimum_number_of_calls` | `usize` | `10` | 熔断器跳闸前的最小调用次数 |
-| `circuit_breaker.wait_duration_in_open` | `string` | `"30s"` | OPEN 状态下等待多久后进入探测（HALF_OPEN） |
-| `circuit_breaker.slow_call_duration_threshold` | `string` | `"2s"` | 慢调用持续时间阈值 |
-| `circuit_breaker.slow_call_rate_threshold` | `f64` | `1.0` | 慢调用率阈值（1.0 = 禁用） |
-| `circuit_breaker.operation_timeout` | `string` | `"8s"` | 单次操作超时（`"0s"` 禁用） |
+| `backend_timeout` | `string` | `"8s"` | Backend storage operation timeout (`"0s"` to disable) |
 
 #### 状态机
 

@@ -49,7 +49,6 @@ use rmqtt::{
     plugin::{PackageInfo, Plugin},
     register,
     types::{From, NodeId, Publish, Reason, To},
-    utils::{CircuitBreaker, CircuitBreakerConfig},
     Result,
 };
 use rmqtt_raft::{Mailbox, Raft};
@@ -100,17 +99,15 @@ impl ClusterPlugin {
 
         let node_grpc_addrs = cfg.node_grpc_addrs.clone();
         log::info!("node_grpc_addrs: {node_grpc_addrs:?}");
+
+        // Read circuit-breaker config from ServerContext.
+        let cb_config = &scx.circuit_breaker_config;
+
         for node_addr in &node_grpc_addrs {
             if node_addr.id != scx.node.id() {
                 let batch_size = cfg.node_grpc_batch_size;
                 let client_concurrency_limit = cfg.node_grpc_client_concurrency_limit;
                 let client_timeout = cfg.node_grpc_client_timeout;
-                let circuit_breaker = Arc::new(CircuitBreaker::new(CircuitBreakerConfig {
-                    enabled: cfg.node_grpc_circuit_breaker_enabled,
-                    failure_threshold: cfg.node_grpc_circuit_failure_threshold,
-                    reset_timeout: cfg.node_grpc_circuit_reset_timeout,
-                    half_open_success_threshold: cfg.node_grpc_circuit_half_open_success_threshold,
-                }));
                 grpc_clients.insert(
                     node_addr.id,
                     (
@@ -121,7 +118,7 @@ impl ClusterPlugin {
                                 client_timeout,
                                 client_concurrency_limit,
                                 batch_size,
-                                circuit_breaker.clone(),
+                                cb_config,
                             )
                             .await?,
                     ),
@@ -452,7 +449,7 @@ impl Plugin for ClusterPlugin {
                 "transfer_queue_len": c.transfer_queue_len(),
                 "active_tasks_count": c.active_tasks().count(),
                 "active_tasks_max": c.active_tasks().max(),
-                "circuit_breaker": c.circuit_breaker().to_json(),
+                "circuit_breaker": c.circuit_breaker_json().await,
             });
             nodes.insert(*node_id, stats);
         }

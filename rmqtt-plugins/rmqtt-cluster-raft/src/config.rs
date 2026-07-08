@@ -63,28 +63,6 @@ pub struct PluginConfig {
     #[serde(default = "PluginConfig::task_exec_queue_max_default")]
     pub task_exec_queue_max: usize,
 
-    // ─── gRPC circuit breaker ──────────────────────────────────────────────
-    /// Enable circuit breaker for gRPC client. When enabled and the
-    /// circuit is OPEN, all gRPC requests fast-fail without sending.
-    #[serde(default = "PluginConfig::node_grpc_circuit_breaker_enabled_default")]
-    pub node_grpc_circuit_breaker_enabled: bool,
-
-    /// Consecutive gRPC failures before tripping the circuit to OPEN.
-    #[serde(default = "PluginConfig::node_grpc_circuit_failure_threshold_default")]
-    pub node_grpc_circuit_failure_threshold: usize,
-
-    /// Duration in OPEN state before transitioning to HALF_OPEN (probe).
-    /// Example: "15s", "1m".
-    #[serde(
-        default = "PluginConfig::node_grpc_circuit_reset_timeout_default",
-        deserialize_with = "deserialize_duration"
-    )]
-    pub node_grpc_circuit_reset_timeout: Duration,
-
-    /// Consecutive probe successes in HALF_OPEN before closing the circuit.
-    #[serde(default = "PluginConfig::node_grpc_circuit_half_open_success_threshold_default")]
-    pub node_grpc_circuit_half_open_success_threshold: usize,
-
     #[serde(default)]
     pub verify_addr: bool,
 
@@ -138,22 +116,6 @@ impl PluginConfig {
 
     fn task_exec_queue_max_default() -> usize {
         100_000
-    }
-
-    fn node_grpc_circuit_breaker_enabled_default() -> bool {
-        true
-    }
-
-    fn node_grpc_circuit_failure_threshold_default() -> usize {
-        10
-    }
-
-    fn node_grpc_circuit_reset_timeout_default() -> Duration {
-        Duration::from_secs(15)
-    }
-
-    fn node_grpc_circuit_half_open_success_threshold_default() -> usize {
-        3
     }
 
     fn raft_default() -> RaftConfig {

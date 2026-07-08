@@ -75,15 +75,7 @@ rmqtt_retainer::register_named(&scx, "rmqtt-retainer", true, false).await?;
 | `max_payload_size` | `string` | `"1MB"` | 保留消息的最大 Payload 大小。超出后该消息将被视为普通消息处理。 |
 | `retained_message_ttl` | `string` | `"0m"`（不过期） | 保留消息的 TTL。未设置时默认使用消息过期时间。 |
 | `batch_messages_limit` | `usize` | `500` | 单次批量存储操作的最大消息数 |
-| `circuit_breaker.failure_rate_threshold` | `f64` | `0.25` | 失败率阈值 (0.0–1.0)，超过后熔断器跳闸到 OPEN |
-| `circuit_breaker.sliding_window_type` | `string` | `"TimeBased"` | 滑动窗口类型：`CountBased` 或 `TimeBased` |
-| `circuit_breaker.sliding_window_size` | `usize` | `20` | 滑动窗口大小（调用次数） |
-| `circuit_breaker.sliding_window_duration` | `string` | `"45s"` | 滑动窗口持续时间（仅 TimeBased 模式） |
-| `circuit_breaker.minimum_number_of_calls` | `usize` | `10` | 熔断器跳闸前的最小调用次数 |
-| `circuit_breaker.wait_duration_in_open` | `string` | `"30s"` | OPEN 状态持续时间，之后进入 HALF_OPEN 状态 |
-| `circuit_breaker.slow_call_duration_threshold` | `string` | `"2s"` | 慢调用持续时间阈值 |
-| `circuit_breaker.slow_call_rate_threshold` | `f64` | `1.0` | 慢调用率阈值（1.0 = 禁用） |
-| `circuit_breaker.operation_timeout` | `string` | `"8s"` | 单次操作超时（`"0s"` 禁用） |
+| `backend_timeout` | `string` | `"8s"` | Backend storage operation timeout (`"0s"` to disable) |
 
 ### 配置来源
 
@@ -115,16 +107,15 @@ max_payload_size = "1MB"
 retained_message_ttl = "24h"
 batch_messages_limit = 500
 
-# 熔断器（滑动窗口模型，注释掉时使用默认值）
-#circuit_breaker.failure_rate_threshold = 0.25
-#circuit_breaker.sliding_window_type = "TimeBased"
-#circuit_breaker.sliding_window_size = 20
-#circuit_breaker.sliding_window_duration = "45s"
-#circuit_breaker.minimum_number_of_calls = 10
-#circuit_breaker.wait_duration_in_open = "30s"
-#circuit_breaker.slow_call_duration_threshold = "2s"
-#circuit_breaker.slow_call_rate_threshold = 1.0
-#circuit_breaker.operation_timeout = "8s"
+##All circuit-breaker parameters (failure rate, window, etc.) are inherited
+##from the global `[circuit_breaker]` section in `rmqtt.toml`.
+##Only the backend operation timeout can be overridden here.
+##
+##Backend storage operation timeout. If a storage call (Sled/Redis)
+##exceeds this duration it is aborted and counted as a failure by the
+##circuit breaker. Set to "0s" to disable.
+##Default: "8s"
+#backend_timeout = "8s"
 ```
 
 ## 依赖
