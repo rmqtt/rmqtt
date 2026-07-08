@@ -47,18 +47,15 @@ storage.redis-cluster.prefix = "message-{node}"
 ##Quantity of expired messages cleared during each cleanup cycle.
 cleanup_count = 5000
 
-##Timeout for storage I/O operations. 0 = no timeout.
-timeout = "5s"
+##Timeout for storage I/O operations, channel sends, and circuit breaker
+##per-operation timeout. 0 = no timeout. Examples: "5s", "500ms".
+##Default: "15s"
+#backend_timeout = "15s"
 
+##─── Circuit breaker ────────────────────────────────────────────────────────
 ##All circuit-breaker parameters (failure rate, window, etc.) are inherited
 ##from the global `[circuit_breaker]` section in `rmqtt.toml`.
-##Only the backend operation timeout can be overridden here.
-##
-##Backend storage operation timeout. If a storage call exceeds this duration
-##it is aborted and counted as a failure by the circuit breaker.
-##Set to "0s" to disable.
-##Default: "8s"
-#backend_timeout = "8s"
+##The per-operation timeout uses `backend_timeout` above.
 ```
 
 Currently, three storage engines are supported: "ram," "redis," and "redis-cluster." "ram" is stored in local memory and 
@@ -66,9 +63,9 @@ can be configured with maximum memory usage or maximum message count, and it can
 before storage. Prefix configuration allows different rmqtt nodes to use the same Redis storage service. `{node}` will be 
 replaced by the identifier of the current node.
 
-`timeout` configures the timeout for storage I/O operations. Set to `0` for no timeout.
+`backend_timeout` (default: `"15s"`) configures the timeout for storage I/O operations, channel sends, and the circuit breaker per-operation timeout. Set to `"0s"` for no timeout.
 
-The Circuit Breaker parameters (failure rate threshold, sliding window type/size, minimum calls, OPEN duration, slow call threshold, etc.) are inherited from the global `[circuit_breaker]` section in `rmqtt.toml`. Only the backend storage operation timeout can be overridden via `backend_timeout` (default: `"8s"`, set to `"0s"` to disable).
+The Circuit Breaker parameters (failure rate threshold, sliding window type/size, minimum calls, OPEN duration, slow call threshold, etc.) are inherited from the global `[circuit_breaker]` section in `rmqtt.toml`. The per-operation timeout uses the `backend_timeout` setting.
 
 
 By default, this plugin is not enabled. To activate it, you must add the `rmqtt-message-storage` entry to the

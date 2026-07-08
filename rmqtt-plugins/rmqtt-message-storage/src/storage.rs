@@ -98,7 +98,7 @@ impl StorageMessageManager {
         log::info!("messages_received_max: {}", messages_received_max.load(Ordering::SeqCst));
 
         let msg_queue_count = Arc::new(AtomicIsize::new(0));
-        let timeout = cfg.timeout;
+        let timeout = cfg.backend_timeout;
 
         // Build the shared inner state first, so workers can clone it.
         let inner = Arc::new(StorageMessageManagerInner {
@@ -205,6 +205,14 @@ impl StorageMessageManager {
         };
         let idx = msg_id & (WORKER_COUNT - 1); // power-of-two fast modulo
         let mut tx = self.worker_txs[idx].clone();
+
+        // Increment BEFORE send so that the worker's fetch_sub can never
+        // race ahead of the corresponding fetch_add.  If send fails we roll
+        // the counter back.  This prevents msg_queue_count from going
+        // negative when workers drain the channel faster than route_msg
+        // tasks are rescheduled (e.g. circuit-breaker OPEN, fast-fail path).
+        self.msg_queue_count.fetch_add(1, Ordering::Relaxed);
+
         let fut = tx.send(msg);
         let timeout = self.timeout;
         let res = if timeout > Duration::ZERO {
@@ -215,18 +223,14 @@ impl StorageMessageManager {
             Ok(fut.await)
         };
         match res {
-            Ok(Ok(())) => {
-                // Count every message that successfully enters the channel.
-                // The worker will fetch_sub(1) for each message it processes,
-                // so increment and decrement are always balanced.
-                self.msg_queue_count.fetch_add(1, Ordering::Relaxed);
-                Ok(())
-            }
+            Ok(Ok(())) => Ok(()),
             Ok(Err(e)) => {
+                self.msg_queue_count.fetch_sub(1, Ordering::Relaxed);
                 log::warn!("route_msg: send error (worker {}): {:?}", idx, e);
                 Err(anyhow::anyhow!(e))
             }
             Err(e) => {
+                self.msg_queue_count.fetch_sub(1, Ordering::Relaxed);
                 log::warn!("route_msg: send timeout (worker {}): {:?}", idx, e);
                 Err(e)
             }

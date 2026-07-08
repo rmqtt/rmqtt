@@ -13,14 +13,14 @@ All notable changes to RMQTT are documented in this file.
 - **Retainer In-Memory Topic Trie**: Built a `RetainTree` index in memory on startup for O(1) exact-topic lookups and fast wildcard matching, replacing the previous SCAN+MATCH approach.
 - **Retainer Batch Storage**: Messages are collected into a channel and processed in batches via `batch_insert` / `batch_remove`, controlled by `batch_messages_limit`.
 - **Rate Counter**: Added `rmqtt-utils::RateCounter` (lock-free `AtomicU64`) for tracking message processing throughput. Enabled by default via the `rate-counter` feature.
-- **Message Storage Timeout**: Added configurable `timeout` for storage I/O operations in `rmqtt-message-storage`.
+- **Message Storage Timeout**: Added configurable `backend_timeout` for storage I/O operations, channel sends, and circuit breaker per-operation timeout in `rmqtt-message-storage`. Unified the previous separate `timeout` and `backend_timeout` fields into a single `backend_timeout` (default: `"15s"`).
 - **Cluster Broadcast Exec Queues**: Added `exec` and `forwards_exec` `TaskExecQueue` to `rmqtt-cluster-broadcast` for queue back-pressure management and busyness detection, aligning with `rmqtt-cluster-raft`.
 - **Retainer Enabled by Default**: `rmqtt-retainer` is now included in `plugins.default_startups` by default.
 
 ### Refactoring
 
 - **Circuit Breaker Simplification**: Simplified `CircuitBreaker` in `rmqtt-utils` — consolidated configuration into `CircuitBreakerConfig` with sliding-window semantics (failure rate, slow call detection, per-operation timeout).
-- **Message Storage Refactor**: Removed `merge_on_read` and `TaskExecQueue` from `rmqtt-message-storage`; added `with_timeout` wrapper for storage operations; introduced async callback support and back-pressure limits.
+- **Message Storage Refactor**: Removed `merge_on_read` and `TaskExecQueue` from `rmqtt-message-storage`; added `with_timeout` wrapper for storage operations; introduced async callback support and back-pressure limits. Unified `timeout` and `backend_timeout` into a single `backend_timeout` field.
 - **Session Storage Improvements**: Added detailed timing metrics for rebuild operations; improved init timing and timeout handling.
 - **Error Logging Normalization**: Normalized error logging across the workspace to use `Display` instead of `Debug` formatting.
 - **Cluster Retain Exec Queue**: Added a dedicated `retainer_exec` `TaskExecQueue` in `rmqtt-cluster-raft` for retain operations, separating from the main `exec` queue.
@@ -28,7 +28,7 @@ All notable changes to RMQTT are documented in this file.
 ### Configuration Changes
 
 - `rmqtt-retainer.toml`: Circuit breaker config changed from flat fields (`circuit_breaker_enabled`, `circuit_failure_threshold`, `circuit_reset_timeout`, `circuit_half_open_success_threshold`) to nested `circuit_breaker.*` sliding-window format. `retained_message_ttl` and `batch_messages_limit` are now uncommented by default.
-- `rmqtt-message-storage.toml`: `storage.ram.encode` default changed from `true` to `false`. Added `circuit_breaker.*` section.
+- `rmqtt-message-storage.toml`: `storage.ram.encode` default changed from `true` to `false`. Added `circuit_breaker.*` section. Unified `timeout` and `backend_timeout` into a single `backend_timeout` field (default: `"15s"`).
 - `rmqtt-session-storage.toml`: Added `circuit_breaker.*` section.
 - `rmqtt-cluster-broadcast.toml` / `rmqtt-cluster-raft.toml`: Added gRPC circuit breaker settings (`node_grpc_circuit_breaker_enabled`, etc.). `rmqtt-cluster-raft.toml`: `node_grpc_client_timeout` default changed from `"60s"` to `"10s"`. `raft.snapshot_interval` default changed from `"600s"` to `"300s"`.
 

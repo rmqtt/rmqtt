@@ -68,7 +68,7 @@ impl StoragePlugin {
             #[cfg(feature = "ram")]
             Some(config::Config::Ram(ram_cfg)) => {
                 let message_mgr =
-                    RamMessageManager::new(ram_cfg.clone(), cfg.cleanup_count, cfg.timeout).await?;
+                    RamMessageManager::new(ram_cfg.clone(), cfg.cleanup_count, cfg.backend_timeout).await?;
                 Ok((MessageMgr::Ram(message_mgr), Arc::new(cfg)))
             }
             #[cfg(any(feature = "redis", feature = "redis-cluster"))]

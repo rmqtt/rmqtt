@@ -30,16 +30,10 @@ pub struct PluginConfig {
     pub storage: Option<Config>,
     #[serde(default = "PluginConfig::cleanup_count_default")]
     pub cleanup_count: usize,
-    /// Timeout for storage I/O operations. 0 = no timeout. Examples: "5s", "500ms".
-    #[serde(default = "PluginConfig::timeout_default", deserialize_with = "deserialize_duration")]
-    pub timeout: Duration,
-
-    // ─── Backend timeout (circuit breaker) ───────────────────────────────
-    /// Backend storage operation timeout (circuit breaker).
-    ///
-    /// Each storage call (Redis get/set/delete) that exceeds this
-    /// duration is aborted and counted as a failure by the circuit breaker.
-    /// Set to `"0s"` to disable. Default: `"8s"`.
+    /// Timeout for storage I/O operations and channel sends.
+    /// Also used as the circuit breaker's per-operation timeout when
+    /// the `circuit-breaker` feature is enabled.
+    /// `0` = no timeout. Examples: `"5s"`, `"500ms"`. Default: `"15s"`.
     #[serde(default = "PluginConfig::backend_timeout_default", deserialize_with = "deserialize_duration")]
     pub backend_timeout: Duration,
 }
@@ -56,12 +50,8 @@ impl PluginConfig {
         5000
     }
 
-    fn timeout_default() -> Duration {
-        Duration::from_millis(5000)
-    }
-
     fn backend_timeout_default() -> Duration {
-        Duration::from_secs(8)
+        Duration::from_secs(15)
     }
 
     #[inline]
@@ -114,7 +104,6 @@ impl PluginConfig {
         serde_json::json!({
             "storage": storage,
             "cleanup_count": self.cleanup_count,
-            "timeout": format!("{:?}", self.timeout),
             "backend_timeout": format!("{:?}", self.backend_timeout),
         })
     }

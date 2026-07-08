@@ -46,26 +46,23 @@ storage.redis-cluster.prefix = "message-{node}"
 ##Quantity of expired messages cleared during each cleanup cycle.
 cleanup_count = 5000
 
-##存储 I/O 操作超时。0 = 不超时。
-timeout = "5s"
+##Timeout for storage I/O operations, channel sends, and circuit breaker
+##per-operation timeout. 0 = no timeout. Examples: "5s", "500ms".
+##Default: "15s"
+#backend_timeout = "15s"
 
+##─── Circuit breaker ────────────────────────────────────────────────────────
 ##All circuit-breaker parameters (failure rate, window, etc.) are inherited
 ##from the global `[circuit_breaker]` section in `rmqtt.toml`.
-##Only the backend operation timeout can be overridden here.
-##
-##Backend storage operation timeout. If a storage call exceeds this duration
-##it is aborted and counted as a failure by the circuit breaker.
-##Set to "0s" to disable.
-##Default: "8s"
-#backend_timeout = "8s"
+##The per-operation timeout uses `backend_timeout` above.
 ```
 
 当前支持"ram"、"redis"和"redis-cluster"三种存储引擎。"ram"是存储在本地内存，可以配置最大使用内存容量或最大消息数量，以及可以指示消息是否编码后再存储。
 前缀配置方便不同rmqtt节点使用同一套redis存储服务。{node}将被替换为当前节点标识。
 
-`timeout` 配置存储 I/O 操作的超时时间，设为 `0` 表示不超时。
+`backend_timeout`（默认值：`"15s"`）配置存储 I/O 操作、channel 发送及熔断器单次操作的超时时间，设为 `"0s"` 表示不超时。
 
-熔断器（Circuit Breaker）参数继承自主配置文件 `rmqtt.toml` 中的全局 `[circuit_breaker]` 配置段（失败率阈值、滑动窗口类型/大小、最小调用次数、OPEN 持续时间、慢调用阈值等）。插件仅允许覆盖存储后端操作超时 `backend_timeout`（默认值：`"8s"`，设为 `"0s"` 可禁用超时）。
+熔断器（Circuit Breaker）参数继承自主配置文件 `rmqtt.toml` 中的全局 `[circuit_breaker]` 配置段（失败率阈值、滑动窗口类型/大小、最小调用次数、OPEN 持续时间、慢调用阈值等）。单次操作超时使用上述 `backend_timeout` 设置。
 
 默认情况下并没有启动此插件，如果要开启此插件，必须在主配置文件“rmqtt.toml”中的“plugins.default_startups”配置中添加“rmqtt-message-storage”项，如：
 ```bash

@@ -56,7 +56,7 @@ File: `rmqtt-message-storage.toml`
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `cleanup_count` | integer | `5000` | Expired messages cleaned per cycle |
-| `timeout` | string | `"5s"` | Timeout for storage I/O operations. `"0s"` = no timeout |
+| `backend_timeout` | string | `"15s"` | Timeout for storage I/O operations, channel sends, and circuit breaker per-operation timeout. `"0s"` = no timeout |
 
 ### Circuit Breaker
 
@@ -66,9 +66,9 @@ rate exceeds the threshold and the minimum number of calls has been reached, the
 circuit trips to OPEN and all storage operations fast-fail. The circuit automatically
 probes for recovery.
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `backend_timeout` | `string` | `"8s"` | Backend storage operation timeout (`"0s"` to disable) |
+The per-operation timeout uses the `backend_timeout` setting (see Cleanup section above).
+All other circuit-breaker parameters (failure rate threshold, sliding window, etc.) are
+inherited from the global `[circuit_breaker]` section in `rmqtt.toml`.
 
 #### State Machine
 

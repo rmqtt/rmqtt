@@ -26,5 +26,7 @@ storage.redis-cluster.prefix = "message-{node}"
 ##Quantity of expired messages cleared during each cleanup cycle.
 cleanup_count = 5000
 
-##Timeout for storage I/O operations. 0 = no timeout. Examples: "5s", "500ms".
-timeout = "5s"
+##Timeout for storage I/O operations, channel sends, and circuit breaker
+##per-operation timeout. 0 = no timeout. Examples: "5s", "500ms".
+##Default: "15s"
+#backend_timeout = "15s"
