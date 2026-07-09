@@ -30,8 +30,8 @@ use rmqtt::{
     session::Session,
     shared::{DefaultShared, Entry, MessageLoadCallback, Shared},
     types::{
-        ForwardedCount, ForwardedRecipients, From, Id, IsAdmin, NodeId, NodeName, OfflineSession, Publish,
-        Reason, SessionStatus, SubRelations, SubRelationsMap, SubsSearchParams, SubsSearchResult, Subscribe,
+        ForwardedCount, ForwardedRecipients, From, Id, IsAdmin, NodeId, OfflineSession, Publish, Reason,
+        SessionStatus, SubRelations, SubRelationsMap, SubsSearchParams, SubsSearchResult, Subscribe,
         SubscribeReturn, To, Tx, Unsubscribe,
     },
     types::{HealthInfo, MsgID, NodeHealthStatus, SharedGroup},
@@ -42,7 +42,8 @@ use super::message::{
     get_client_node_id, Message as RaftMessage, MessageReply as RaftMessageReply, RaftGrpcMessage,
     RaftGrpcMessageReply,
 };
-use super::{ClusterRouter, HashMap};
+use super::nodes::ClusterNodeManager;
+use super::ClusterRouter;
 
 pub struct ClusterLockEntry {
     scx: ServerContext,
@@ -310,8 +311,7 @@ pub struct ClusterShared {
     retainer_exec: TaskExecQueue,
     inner: DefaultShared,
     router: ClusterRouter,
-    grpc_clients: GrpcClients,
-    node_names: Arc<HashMap<NodeId, NodeName>>,
+    nodes: ClusterNodeManager,
     pub(crate) message_type: MessageType,
     exec_queue_busy_limit: isize,
     exec_queue_workers_busy_limit: isize,
@@ -325,8 +325,7 @@ impl ClusterShared {
         scx: ServerContext,
         exec: TaskExecQueue,
         router: ClusterRouter,
-        grpc_clients: GrpcClients,
-        node_names: HashMap<NodeId, NodeName>,
+        nodes: ClusterNodeManager,
         message_type: MessageType,
         exec_queue_max: usize,
         exec_queue_workers: usize,
@@ -342,8 +341,7 @@ impl ClusterShared {
             retainer_exec,
             inner: DefaultShared::new(Some(scx1)),
             router,
-            grpc_clients,
-            node_names: Arc::new(node_names),
+            nodes,
             message_type,
             exec_queue_busy_limit: (exec_queue_max as f64 * 0.7) as isize,
             exec_queue_workers_busy_limit: (exec_queue_workers as f64 * 0.9) as isize,
@@ -358,7 +356,7 @@ impl ClusterShared {
 
     #[inline]
     pub(crate) fn grpc_client(&self, node_id: u64) -> Option<GrpcClient> {
-        self.grpc_clients.get(&node_id).map(|(_, c)| c.clone())
+        self.nodes.grpc_client(node_id)
     }
 
     /// Converts [`SubRelations`] to [`ForwardedRecipients`].
@@ -672,12 +670,12 @@ impl Shared for ClusterShared {
         if message_mgr.merge_on_read() {
             log::debug!(
                 "message_load start, client_id: {client_id}, grpc_clients: {}, rw_timeout: {:?}",
-                self.grpc_clients.len(),
+                self.nodes.grpc_clients().len(),
                 self.rw_timeout
             );
             let mut msgs = message_mgr.get(client_id, topic_filter, group).await?;
-            if !self.grpc_clients.is_empty() {
-                let grpc_clients = self.grpc_clients.clone();
+            let grpc_clients = self.nodes.grpc_clients();
+            if !grpc_clients.is_empty() {
                 let message_type = self.message_type;
                 let rw_timeout = self.rw_timeout;
                 let client_id = ClientId::from(client_id);
@@ -733,14 +731,14 @@ impl Shared for ClusterShared {
         if message_mgr.merge_on_read() {
             log::debug!(
                 "message_load_with start, client_id: {client_id}, grpc_clients: {}, rw_timeout: {:?}",
-                self.grpc_clients.len(),
+                self.nodes.grpc_clients().len(),
                 self.rw_timeout
             );
             let msgs = message_mgr.get(client_id, topic_filter, group).await?;
             cb.on_messages(msgs).await?;
 
-            if !self.grpc_clients.is_empty() {
-                let grpc_clients = self.grpc_clients.clone();
+            let grpc_clients = self.nodes.grpc_clients();
+            if !grpc_clients.is_empty() {
                 let message_type = self.message_type;
                 let rw_timeout = self.rw_timeout;
                 let client_id = ClientId::from(client_id);
@@ -802,13 +800,13 @@ impl Shared for ClusterShared {
         if retain_mgr.merge_on_read() {
             log::debug!(
                 "retain_load_with start, topic_filter: {topic_filter}, grpc_clients: {}, rw_timeout: {:?}",
-                self.grpc_clients.len(),
+                self.nodes.grpc_clients().len(),
                 self.rw_timeout
             );
             let mut all_retains = retain_mgr.get(topic_filter).await?;
 
-            if !self.grpc_clients.is_empty() {
-                let grpc_clients = self.grpc_clients.clone();
+            let grpc_clients = self.nodes.grpc_clients();
+            if !grpc_clients.is_empty() {
                 let message_type = self.message_type;
                 let rw_timeout = self.rw_timeout;
                 let topic_filter = topic_filter.clone();
@@ -865,14 +863,15 @@ impl Shared for ClusterShared {
         retain: &Retain,
         expiry_interval: Option<Duration>,
     ) -> Result<()> {
-        if self.grpc_clients.is_empty() {
+        let grpc_clients = self.nodes.grpc_clients();
+        if grpc_clients.is_empty() {
             return Ok(());
         }
 
         match self.scx.extends.retain().await.retain_sync_mode() {
             RetainSyncMode::Full => {
                 let msg = Message::SetRetain(topic.clone(), retain.clone(), expiry_interval);
-                for (node_id, (_, client)) in self.grpc_clients.iter() {
+                for (node_id, (_, client)) in grpc_clients.iter() {
                     let sender = MessageSender::new(
                         client.clone(),
                         self.message_type,
@@ -891,7 +890,7 @@ impl Shared for ClusterShared {
                 } else {
                     Message::SetRetainTopicRemove(topic.clone())
                 };
-                for (node_id, (_, client)) in self.grpc_clients.iter() {
+                for (node_id, (_, client)) in grpc_clients.iter() {
                     let sender = MessageSender::new(
                         client.clone(),
                         self.message_type,
@@ -939,12 +938,12 @@ impl Shared for ClusterShared {
     }
     #[inline]
     fn get_grpc_clients(&self) -> GrpcClients {
-        self.grpc_clients.clone()
+        self.nodes.grpc_clients()
     }
 
     #[inline]
     fn node_name(&self, id: NodeId) -> String {
-        self.node_names.get(&id).cloned().unwrap_or_default()
+        self.nodes.node_name(id)
     }
 
     #[inline]
@@ -962,7 +961,7 @@ impl Shared for ClusterShared {
 
         let data = RaftGrpcMessage::GetNodeHealthStatus.encode()?;
         let replys = MessageBroadcaster::new(
-            self.grpc_clients.clone(),
+            self.nodes.grpc_clients(),
             self.message_type,
             Message::Data(data),
             Some(Duration::from_secs(5)),
@@ -1039,7 +1038,8 @@ impl ClusterShared {
     /// Called once at startup (with a small delay) so a new or restarted node
     /// catches up on retains that were published while it was offline.
     pub(crate) async fn sync_retains_from_peers(&self) {
-        if self.grpc_clients.is_empty() {
+        let grpc_clients = self.nodes.grpc_clients();
+        if grpc_clients.is_empty() {
             return;
         }
         let retain_mgr = self.scx.extends.retain().await;
@@ -1051,7 +1051,7 @@ impl ClusterShared {
         const CHUNK: usize = 5000;
         let shared = self.clone();
         let peers: Vec<_> =
-            self.grpc_clients.iter().map(|(node_id, (_, client))| (*node_id, client.clone())).collect();
+            grpc_clients.iter().map(|(node_id, (_, client))| (*node_id, client.clone())).collect();
 
         let handles: Vec<_> = peers
             .into_iter()

@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use rmqtt::types::{Id, NodeHealthStatus, NodeId, SubscriptionOptions};
+use rmqtt::types::{Addr, Id, NodeHealthStatus, NodeId, SubscriptionOptions};
 use rmqtt::Result;
 
 use super::Mailbox;
@@ -23,6 +23,17 @@ pub enum Message<'a> {
     //get client node id
     GetClientNodeId { client_id: &'a str },
     Ping,
+    NodeUp { node: ClusterNode },
+    NodeDown { id: NodeId },
+    NodeRemove { id: NodeId },
+}
+
+/// Business-layer cluster node metadata replicated through Raft.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ClusterNode {
+    pub id: NodeId,
+    pub grpc_addr: Addr,
+    pub raft_addr: Addr,
 }
 
 impl<'a> Message<'a> {

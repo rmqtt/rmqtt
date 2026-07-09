@@ -5070,10 +5070,12 @@ dependencies = [
  "lz4",
  "lz4_flex",
  "postcard",
+ "prost",
  "rand 0.9.4",
  "rayon",
  "rmqtt",
  "rmqtt-raft",
+ "rmqtt-raft-core",
  "rust-box",
  "serde",
  "serde_json",
@@ -5082,6 +5084,7 @@ dependencies = [
  "slog-term",
  "snap",
  "tokio",
+ "tonic",
  "zstd",
 ]
 

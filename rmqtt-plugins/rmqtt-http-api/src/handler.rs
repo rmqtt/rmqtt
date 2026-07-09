@@ -256,6 +256,21 @@ impl Handler for HookHandler {
                                     HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(e.to_string())))
                                 }
                             },
+                            Ok(Message::SendPluginMessage { name, msg }) => {
+                                match self.scx.plugins.send(name, msg).await {
+                                    Ok(reply) => match MessageReply::SendPluginMessage(reply).encode() {
+                                        Ok(ress) => {
+                                            HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
+                                        }
+                                        Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
+                                            e.to_string(),
+                                        ))),
+                                    },
+                                    Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
+                                        e.to_string(),
+                                    ))),
+                                }
+                            }
                         };
                         return (false, Some(new_acc));
                     }

@@ -21,6 +21,7 @@ log.workspace = true
 async-trait.workspace = true
 anyhow.workspace = true
 bytes.workspace = true
+prost.workspace = true
 bytestring.workspace = true
 futures.workspace = true
 rand.workspace = true
@@ -28,6 +29,8 @@ dashmap.workspace = true
 ahash.workspace = true
 postcard.workspace = true
 rayon.workspace = true
+tikv-raft = { version = "0.8.1", package = "rmqtt-raft-core", default-features = false, features = ["prost-codec"] }
+tonic = "0.13"
 
 slog = "2.7"
 slog-term = "2.9"

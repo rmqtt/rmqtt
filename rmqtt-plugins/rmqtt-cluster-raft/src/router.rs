@@ -31,7 +31,8 @@ use rmqtt_raft::{Error, Mailbox, Result as RaftResult, Store};
 use tokio::task::{block_in_place, spawn_blocking};
 
 use super::config::Compression;
-use super::message::{Message, MessageReply};
+use super::message::{ClusterNode, Message, MessageReply};
+use super::nodes::ClusterNodeManager;
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 type DashMap<K, V> = dashmap::DashMap<K, V, ahash::RandomState>;
@@ -62,6 +63,7 @@ pub(crate) struct ClusterRouter {
     add_exec: TaskExecQueue,
     remove_exec: TaskExecQueue,
     backoff_strategy: ExponentialBackoff,
+    nodes: ClusterNodeManager,
     raft_mailbox: Arc<RwLock<Option<Mailbox>>>,
     client_states: Arc<DashMap<ClientId, ClientStatus>>,
     pub try_lock_timeout: Duration,
@@ -73,6 +75,7 @@ impl ClusterRouter {
     pub(crate) fn new(
         scx: ServerContext,
         backoff_strategy: ExponentialBackoff,
+        nodes: ClusterNodeManager,
         try_lock_timeout: Duration,
         compression: Option<Compression>,
     ) -> Self {
@@ -83,6 +86,7 @@ impl ClusterRouter {
             add_exec,
             remove_exec,
             backoff_strategy,
+            nodes,
             raft_mailbox: Arc::new(RwLock::new(None)),
             client_states: Arc::new(DashMap::default()),
             try_lock_timeout,
@@ -137,6 +141,49 @@ impl ClusterRouter {
     #[inline]
     pub(crate) fn get_target_node_id(&self, target_clientid: &str) -> Option<NodeId> {
         self.client_states.get(target_clientid).map(|entry| entry.id.node_id)
+    }
+
+    async fn remove_node_state(&self, node_id: NodeId) {
+        let client_ids =
+            self.client_states
+                .iter()
+                .filter_map(|entry| {
+                    if entry.value().id.node_id == node_id {
+                        Some(entry.key().clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+        for client_id in client_ids {
+            self.client_states.remove(&client_id);
+        }
+
+        let removals = self
+            .inner
+            .relations
+            .iter()
+            .flat_map(|entry| {
+                let topic_filter = entry.key().clone();
+                entry
+                    .value()
+                    .iter()
+                    .filter_map(move |(_, (id, _))| {
+                        if id.node_id == node_id {
+                            Some((topic_filter.clone(), id.clone()))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+
+        for (topic_filter, id) in removals {
+            if let Err(e) = self.inner.remove(&topic_filter, id).await {
+                log::warn!("remove node route failed, node_id: {node_id}, topic_filter: {topic_filter}, {e}");
+            }
+        }
     }
 }
 
@@ -355,6 +402,19 @@ impl Store for ClusterRouter {
                 log::debug!("[Router.remove] topic_filter: {topic_filter:?}, id: {id:?}",);
                 self.inner.remove(topic_filter, id).await?;
             }
+            Message::NodeUp { node } => {
+                log::info!("[Router.NodeUp] node: {node:?}");
+                self.nodes.upsert(node).await.map_err(|e| Error::Anyhow(e.into()))?;
+            }
+            Message::NodeDown { id } => {
+                log::info!("[Router.NodeDown] id: {id}");
+                self.nodes.remove(id);
+            }
+            Message::NodeRemove { id } => {
+                log::info!("[Router.NodeRemove] id: {id}");
+                self.nodes.remove(id);
+                self.remove_node_state(id).await;
+            }
             Message::GetClientNodeId { client_id } => {
                 let node_id = self._client_node_id(client_id);
                 let data = postcard::to_stdvec(&node_id).map_err(|e| Error::Other(Box::new(e)))?;
@@ -423,6 +483,7 @@ impl Store for ClusterRouter {
         let client_states = self.client_states.clone();
         let topics_count = self.inner.topics_count.clone();
         let relations_count = self.inner.relations_count.clone();
+        let cluster_nodes = self.nodes.snapshot_nodes();
         let snapshot: Vec<u8> = spawn_blocking(move || {
             let relations = relations
                 .iter()
@@ -444,12 +505,14 @@ impl Store for ClusterRouter {
             let client_states_bin = client_states_bin??;
             let topics_count_bin = postcard::to_stdvec(&topics_count.as_ref())?;
             let relations_count_bin = postcard::to_stdvec(&relations_count.as_ref())?;
+            let cluster_nodes_bin = postcard::to_stdvec(&cluster_nodes)?;
 
             let mut snapshot = Vec::new();
             encode_with_length_prefix(&relations_bin, &mut snapshot);
             encode_with_length_prefix(&client_states_bin, &mut snapshot);
             encode_with_length_prefix(&topics_count_bin, &mut snapshot);
             encode_with_length_prefix(&relations_count_bin, &mut snapshot);
+            encode_with_length_prefix(&cluster_nodes_bin, &mut snapshot);
 
             Ok(snapshot)
         })
@@ -526,6 +589,14 @@ impl Store for ClusterRouter {
 
             let relations_count_len = read_len(snapshot, topics_count_start + topics_count_len)?;
             let relations_count_start = size_of::<usize>() + topics_count_start + topics_count_len;
+            let cluster_nodes_len_start = relations_count_start + relations_count_len;
+            let (cluster_nodes_start, cluster_nodes_len) =
+                if snapshot.len() >= cluster_nodes_len_start + size_of::<usize>() {
+                    let len = read_len(snapshot, cluster_nodes_len_start)?;
+                    (cluster_nodes_len_start + size_of::<usize>(), len)
+                } else {
+                    (snapshot.len(), 0)
+                };
 
             let (relations, client_states) = rayon::join(
                 || decode_with_length_prefix(snapshot, relations_start, relations_len, true, compression),
@@ -545,16 +616,22 @@ impl Store for ClusterRouter {
                 decode_with_length_prefix(snapshot, topics_count_start, topics_count_len, false, None)?;
             let relations_count: Counter =
                 decode_with_length_prefix(snapshot, relations_count_start, relations_count_len, false, None)?;
+            let cluster_nodes: Vec<ClusterNode> = if cluster_nodes_len > 0 {
+                decode_with_length_prefix(snapshot, cluster_nodes_start, cluster_nodes_len, false, None)?
+            } else {
+                Vec::new()
+            };
 
             log::info!("relations: {:?}", relations.len());
             log::info!("client_states: {:?}", client_states.len());
             log::info!("topics_count: {topics_count:?}",);
             log::info!("relations_count: {relations_count:?}");
+            log::info!("cluster_nodes: {:?}", cluster_nodes.len());
 
-            Ok((relations, client_states, topics_count, relations_count))
+            Ok((relations, client_states, topics_count, relations_count, cluster_nodes))
         });
 
-        let (relations, client_states, topics_count, relations_count) = res?;
+        let (relations, client_states, topics_count, relations_count, cluster_nodes) = res?;
 
         self.inner.topics_count.set(&topics_count);
         let mut topics = self.inner.topics.write().await;
@@ -569,6 +646,9 @@ impl Store for ClusterRouter {
         self.client_states.clear();
         for (client_id, content) in client_states {
             self.client_states.insert(client_id, content);
+        }
+        if !cluster_nodes.is_empty() {
+            self.nodes.restore_nodes(cluster_nodes).await.map_err(|e| Error::Anyhow(e.into()))?;
         }
 
         log::info!(
