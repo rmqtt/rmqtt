@@ -69,7 +69,7 @@ impl Router for ClusterRouter {
     #[inline]
     async fn gets(&self, limit: usize) -> Vec<Route> {
         let mut routes = self.inner.gets(limit).await;
-        for (_id, (_addr, c)) in self.grpc_clients.iter() {
+        for (_addr, c) in self.grpc_clients.values() {
             if routes.len() < limit {
                 let reply = MessageSender::new(
                     c.clone(),
@@ -146,7 +146,7 @@ impl Router for ClusterRouter {
     #[inline]
     fn merge_topics(&self, topics_map: &HashMap<NodeId, Counter>) -> Counter {
         let topics = Counter::new();
-        for (_, counter) in topics_map.iter() {
+        for counter in topics_map.values() {
             topics.add(counter);
         }
         topics
@@ -155,7 +155,7 @@ impl Router for ClusterRouter {
     #[inline]
     fn merge_routes(&self, routes_map: &HashMap<NodeId, Counter>) -> Counter {
         let routes = Counter::new();
-        for (_, counter) in routes_map.iter() {
+        for counter in routes_map.values() {
             routes.add(counter);
         }
         routes

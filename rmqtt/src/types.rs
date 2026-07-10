@@ -2187,7 +2187,7 @@ impl SessionSubs {
         {
             let subs = self.subs.read().await;
             #[allow(unused_variables)]
-            for (_, opts) in subs.iter() {
+            for opts in subs.values() {
                 #[cfg(feature = "stats")]
                 scx.stats.subscriptions.dec();
                 #[cfg(feature = "shared-subscription")]
