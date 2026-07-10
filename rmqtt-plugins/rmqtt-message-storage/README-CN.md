@@ -56,7 +56,7 @@ rmqtt_message_storage::register(&scx, true, false).await?;
 | 选项 | 类型 | 默认值 | 描述 |
 |------|------|--------|------|
 | `cleanup_count` | integer | `5000` | 每轮清理的过期消息数量 |
-| `timeout` | string | `"5s"` | 存储 I/O 操作超时。`"0s"` = 不超时 |
+| `backend_timeout` | string | `"15s"` | 存储 I/O 操作、channel 发送及熔断器单次操作的超时。`"0s"` = 不超时 |
 
 ### 熔断器
 
@@ -64,9 +64,8 @@ rmqtt_message_storage::register(&scx, true, false).await?;
 当失败率超过阈值且达到最小调用次数时，熔断器跳转到 OPEN 状态，所有存储操作快速
 失败。熔断器会自动探测恢复。
 
-| 选项 | 类型 | 默认值 | 描述 |
-|------|------|--------|------|
-| `backend_timeout` | `string` | `"8s"` | Backend storage operation timeout (`"0s"` to disable) |
+单次操作超时使用上方清理部分的 `backend_timeout` 设置。其余熔断器参数（失败率阈值、
+滑动窗口等）继承自主配置文件 `rmqtt.toml` 中的全局 `[circuit_breaker]` 配置段。
 
 #### 状态机
 

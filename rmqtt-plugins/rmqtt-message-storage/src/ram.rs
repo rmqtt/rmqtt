@@ -513,6 +513,10 @@ impl MessageManager for RamMessageManager {
     ) -> Result<()> {
         let timeout = self.inner.timeout;
         let mut tx = self.inner.msg_tx.clone();
+
+        // Increment BEFORE send so fetch_sub can never race ahead.
+        self.msg_queue_count.fetch_add(1, Ordering::Relaxed);
+
         let send_fut = tx.send(Msg::Store { from, publish: p, expiry_interval, msg_id, recipients });
         let res = if timeout > Duration::ZERO {
             send_fut
@@ -523,15 +527,14 @@ impl MessageManager for RamMessageManager {
             Ok(send_fut.await)
         };
         match res {
-            Ok(Ok(())) => {
-                self.msg_queue_count.fetch_add(1, Ordering::Relaxed);
-                Ok(())
-            }
+            Ok(Ok(())) => Ok(()),
             Ok(Err(e)) => {
+                self.msg_queue_count.fetch_sub(1, Ordering::Relaxed);
                 log::warn!("RamMessageManager store error, {e}");
                 Err(anyhow!(e))
             }
             Err(e) => {
+                self.msg_queue_count.fetch_sub(1, Ordering::Relaxed);
                 log::warn!("RamMessageManager store timeout, {e}");
                 Err(e)
             }
@@ -568,6 +571,10 @@ impl MessageManager for RamMessageManager {
         // the same msg_id is already committed.
         let timeout = self.inner.timeout;
         let mut tx = self.inner.msg_tx.clone();
+
+        // Increment BEFORE send so fetch_sub can never race ahead.
+        self.msg_queue_count.fetch_add(1, Ordering::Relaxed);
+
         let send_fut = tx.send(Msg::MarkForwarded { msg_id, recipients: forwardeds });
         let res = if timeout > Duration::ZERO {
             send_fut.timeout(futures_time::time::Duration::from(timeout)).await.map_err(|e| anyhow!(e))
@@ -575,15 +582,14 @@ impl MessageManager for RamMessageManager {
             Ok(send_fut.await)
         };
         match res {
-            Ok(Ok(())) => {
-                self.msg_queue_count.fetch_add(1, Ordering::Relaxed);
-                Ok(())
-            }
+            Ok(Ok(())) => Ok(()),
             Ok(Err(e)) => {
+                self.msg_queue_count.fetch_sub(1, Ordering::Relaxed);
                 log::warn!("RamMessageManager mark_forwarded error, {e}");
                 Err(anyhow!(e))
             }
             Err(e) => {
+                self.msg_queue_count.fetch_sub(1, Ordering::Relaxed);
                 log::warn!("RamMessageManager mark_forwarded timeout, {e}");
                 Err(e)
             }
