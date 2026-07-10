@@ -120,7 +120,7 @@ impl GrpcServer {
                     let interval = Duration::from_millis(1500);
                     loop {
                         tokio::time::sleep(interval).await;
-                        for (_, c) in counters.iter() {
+                        for c in counters.values() {
                             c.tick(interval);
                         }
                     }

@@ -117,7 +117,7 @@ async fn main() -> Result<()> {
     let mut builder = MqttServer::new(scx);
 
     //tcp
-    for (_, listen_cfg) in Settings::instance().listeners.tcps.iter() {
+    for listen_cfg in Settings::instance().listeners.tcps.values() {
         let listener = match config_builder(listen_cfg).bind() {
             Ok(l) => l.tcp()?,
             Err(e) => {
@@ -129,7 +129,7 @@ async fn main() -> Result<()> {
     }
 
     //tls
-    for (_, listen_cfg) in Settings::instance().listeners.tlss.iter() {
+    for listen_cfg in Settings::instance().listeners.tlss.values() {
         let listener = match config_builder(listen_cfg).bind() {
             Ok(l) => l.tls()?,
             Err(e) => {
@@ -141,7 +141,7 @@ async fn main() -> Result<()> {
     }
 
     //websocket
-    for (_, listen_cfg) in Settings::instance().listeners.wss.iter() {
+    for listen_cfg in Settings::instance().listeners.wss.values() {
         let listener = match config_builder(listen_cfg).bind() {
             Ok(l) => l.ws()?,
             Err(e) => {
@@ -153,7 +153,7 @@ async fn main() -> Result<()> {
     }
 
     //tls-websocket
-    for (_, listen_cfg) in Settings::instance().listeners.wsss.iter() {
+    for listen_cfg in Settings::instance().listeners.wsss.values() {
         let listener = match config_builder(listen_cfg).bind() {
             Ok(l) => l.wss()?,
             Err(e) => {
@@ -165,7 +165,7 @@ async fn main() -> Result<()> {
     }
 
     //MQTT over QUIC
-    for (_, listen_cfg) in Settings::instance().listeners.quics.iter() {
+    for listen_cfg in Settings::instance().listeners.quics.values() {
         let listener = match config_builder(listen_cfg).bind_quic() {
             Ok(l) => l,
             Err(e) => {

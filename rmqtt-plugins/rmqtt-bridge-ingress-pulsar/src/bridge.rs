@@ -134,7 +134,7 @@ impl Message {
             PayloadFormat::Json => {
                 let payload_json: serde_json::Value =
                     serde_json::from_slice(payload.data.as_slice()).map_err(|e| anyhow!(e))?;
-                log::debug!("payload_topic_names: {:?}", &cfg_entry.local.payload_topic_names);
+                log::debug!("payload_topic_names: {:?}", cfg_entry.local.payload_topic_names);
                 let payload_topics = cfg_entry
                     .local
                     .payload_topic_names

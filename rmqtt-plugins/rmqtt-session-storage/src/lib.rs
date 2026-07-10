@@ -264,60 +264,59 @@ impl StoragePlugin {
 
     fn start_local_runtime(scx: ServerContext) -> mpsc::Sender<RebuildChanType> {
         let (tx, mut rx) = futures::channel::mpsc::channel::<RebuildChanType>(100_000);
-        std::thread::spawn(move || {
-            let local_rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("tokio runtime build failed");
-            let local_set = tokio::task::LocalSet::new();
+        let exec = scx.get_exec("SESSION_REBUILD_EXEC");
+        tokio::spawn(async move {
+            let now = std::time::Instant::now();
+            while let Some(msg) = rx.next().await {
+                match msg {
+                    RebuildChanType::Session(session, session_expiry_interval) => {
+                        match SessionState::offline_restart(session.clone(), session_expiry_interval).await {
+                            Err(e) => {
+                                log::warn!("Rebuild offline sessions error, {e}");
+                            }
+                            Ok(msg_tx) => {
+                                let mut session_entry = scx.extends.shared().await.entry(session.id.clone());
 
-            local_set.block_on(&local_rt, async {
-                let now = std::time::Instant::now();
-                let exec = scx.get_exec("SESSION_REBUILD_EXEC");
-                while let Some(msg) = rx.next().await {
-                    match msg {
-                        RebuildChanType::Session(session, session_expiry_interval)  => {
-                            match SessionState::offline_restart(session.clone(), session_expiry_interval).await {
-                                Err(e) => {
-                                    log::warn!("Rebuild offline sessions error, {e}");
-                                },
-                                Ok(msg_tx) => {
-                                    let mut session_entry =
-                                        scx.extends.shared().await.entry(session.id.clone());
-
-                                    let id = session_entry.id().clone();
-                                    let task_fut = async move {
-                                        if let Err(e) = session_entry.set(session, msg_tx).await {
-                                            log::warn!("{:?} Rebuild offline sessions error, {:?}", session_entry.id(), e);
-                                        }
-                                    };
-                                    if let Err(e) = exec.spawn(task_fut).await {
-                                        log::warn!("{:?} Rebuild offline sessions error, {:?}", id, e.to_string());
+                                let id = session_entry.id().clone();
+                                let task_fut = async move {
+                                    if let Err(e) = session_entry.set(session, msg_tx).await {
+                                        log::warn!(
+                                            "{:?} Rebuild offline sessions error, {:?}",
+                                            session_entry.id(),
+                                            e
+                                        );
                                     }
+                                };
+                                if let Err(e) = exec.spawn(task_fut).await {
+                                    log::warn!(
+                                        "{:?} Rebuild offline sessions error, {:?}",
+                                        id,
+                                        e.to_string()
+                                    );
+                                }
 
-                                    let completed_count = exec.completed_count().await;
-                                    if completed_count > 0 && completed_count % 5000 == 0 {
-                                        log::info!(
+                                let completed_count = exec.completed_count().await;
+                                if completed_count > 0 && completed_count % 5000 == 0 {
+                                    log::info!(
                                         "{:?} Rebuild offline sessions, completed_count: {}, active_count: {}, waiting_count: {}, rate: {:?}",
                                         id,
                                         exec.completed_count().await, exec.active_count(), exec.waiting_count(), exec.rate().await
                                     );
-                                    }
                                 }
                             }
-                        },
-                            RebuildChanType::Done(done_tx) => {
-                                let _ = exec.flush().await;
-                                let _ = done_tx.send(());
-                                log::info!(
+                        }
+                    }
+                    RebuildChanType::Done(done_tx) => {
+                        let _ = exec.flush().await;
+                        let _ = done_tx.send(());
+                        log::info!(
                                     "Rebuild offline sessions, completed_count: {}, active_count: {}, waiting_count: {}, rate: {:?}, cost: {:?}",
                                     exec.completed_count().await, exec.active_count(), exec.waiting_count(), exec.rate().await, now.elapsed()
                                 );
-                                break;
-                        }
+                        break;
                     }
                 }
-            });
+            }
             log::info!("Offline session rebuilding finished");
         });
         tx

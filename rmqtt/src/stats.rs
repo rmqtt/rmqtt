@@ -372,7 +372,7 @@ impl Stats {
         let routes = router.merge_routes(&self.routes_map);
 
         let grpc_clients_actives = Counter::new();
-        for (_, c) in self.grpc_clients_actives.iter() {
+        for c in self.grpc_clients_actives.values() {
             grpc_clients_actives.add(c);
         }
 
@@ -421,7 +421,7 @@ impl Stats {
     #[inline]
     pub async fn to_sys_json(&self, _scx: &ServerContext) -> serde_json::Value {
         let grpc_clients_actives = Counter::new();
-        for (_, c) in self.grpc_clients_actives.iter() {
+        for c in self.grpc_clients_actives.values() {
             grpc_clients_actives.add(c);
         }
 

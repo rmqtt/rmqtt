@@ -477,7 +477,7 @@ impl Entry for LockEntry {
             is_admin
         );
 
-        if let Some(peer_tx) = self.tx().and_then(|tx| if tx.is_closed() { None } else { Some(tx) }) {
+        if let Some(peer_tx) = self.tx().filter(|tx| !tx.is_closed()) {
             let (tx, rx) = oneshot::channel();
             if let Ok(()) = peer_tx.unbounded_send(Message::Kick(tx, self.id.clone(), clean_start, is_admin))
             {

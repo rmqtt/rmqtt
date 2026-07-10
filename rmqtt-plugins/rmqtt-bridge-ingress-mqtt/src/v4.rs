@@ -110,7 +110,7 @@ impl Client {
             "server_addr: {}, server_addr: {}, cfg.server: {:?}",
             client.server_addr,
             server_addr,
-            &client.cfg.server
+            client.cfg.server
         );
 
         let mut builder = v3::client::MqttConnector::new(client.cfg.server.addr.clone())
