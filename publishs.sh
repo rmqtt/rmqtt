@@ -11,6 +11,7 @@ cargo publish --registry crates-io --all-features --manifest-path rmqtt-plugins/
 cargo publish --registry crates-io --all-features --manifest-path rmqtt-plugins/rmqtt-auth-http/Cargo.toml
 cargo publish --registry crates-io --all-features --manifest-path rmqtt-plugins/rmqtt-auth-jwt/Cargo.toml
 cargo publish --registry crates-io --all-features --manifest-path rmqtt-plugins/rmqtt-auto-subscription/Cargo.toml
+cargo publish --registry crates-io --all-features --manifest-path rmqtt-plugins/rmqtt-shared-subscription/Cargo.toml
 cargo publish --registry crates-io --all-features --manifest-path rmqtt-plugins/rmqtt-bridge-egress-kafka/Cargo.toml
 cargo publish --registry crates-io --all-features --manifest-path rmqtt-plugins/rmqtt-bridge-ingress-kafka/Cargo.toml
 cargo publish --registry crates-io --all-features --manifest-path rmqtt-plugins/rmqtt-bridge-egress-mqtt/Cargo.toml

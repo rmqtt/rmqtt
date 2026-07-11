@@ -46,6 +46,8 @@ full = [
 
     "p2p-messaging",
 
+    "shared-subscription",
+
     "sys-topic",
     "topic-rewrite",
     "web-hook",
@@ -91,6 +93,7 @@ bridge-egress-reductstore = ["rmqtt-bridge-egress-reductstore"]
 bridge-origin = ["rmqtt-bridge-origin"]
 
 # ---- other plugins ----
+shared-subscription = ["rmqtt-shared-subscription"]
 sys-topic = ["rmqtt-sys-topic"]
 topic-rewrite = ["rmqtt-topic-rewrite"]
 web-hook = ["rmqtt-web-hook"]
@@ -121,6 +124,7 @@ rmqtt-bridge-origin = { workspace = true, optional = true }
 rmqtt-message-storage = { workspace = true, optional = true }
 rmqtt-session-storage = { workspace = true, optional = true }
 rmqtt-sys-topic = { workspace = true, optional = true }
+rmqtt-shared-subscription = { workspace = true, optional = true }
 rmqtt-topic-rewrite = { workspace = true, optional = true }
 rmqtt-web-hook = { workspace = true, optional = true }
 rmqtt-cluster-raft = { workspace = true, optional = true }
