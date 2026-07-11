@@ -40,6 +40,8 @@ use rmqtt::{
     Result,
 };
 
+use salvo::serve_static::StaticDir;
+
 use super::prome::{Monitor, PROME_MONITOR};
 use super::types::{
     ClientSearchParams, ClientSearchResult, Message, MessageReply, PrometheusDataType, PublishParams,
@@ -156,9 +158,14 @@ pub(crate) async fn listen_and_serve(
     rx: oneshot::Receiver<()>,
     started_tx: oneshot::Sender<()>,
 ) -> Result<()> {
-    let (reuseaddr, reuseport, http_bearer_token) = {
+    let (reuseaddr, reuseport, http_bearer_token, dashboard_static_dir) = {
         let cfg = cfg.read().await;
-        (cfg.http_reuseaddr, cfg.http_reuseport, cfg.http_bearer_token.clone())
+        (
+            cfg.http_reuseaddr,
+            cfg.http_reuseport,
+            cfg.http_bearer_token.clone(),
+            cfg.dashboard_static_dir.clone(),
+        )
     };
     log::info!("HTTP API Listening on {laddr}, reuseaddr: {reuseaddr}, reuseport: {reuseport}");
 
@@ -173,7 +180,27 @@ pub(crate) async fn listen_and_serve(
     });
     let _ = started_tx.send(());
     let monitor = prome::Monitor::new();
-    server.try_serve(route(scx, cfg, http_bearer_token, monitor)).await?;
+    let api_router = route(scx, cfg, http_bearer_token, monitor);
+
+    let mut root_router = Router::new().push(api_router);
+
+    // Mount Dashboard SPA static files if configured
+    if let Some(dir) = &dashboard_static_dir {
+        let path = std::path::Path::new(dir);
+        if path.exists() {
+            root_router = root_router.push(
+                Router::with_path("dashboard/{**path}").get(StaticDir::new([dir]).defaults("index.html")),
+            );
+            log::info!(
+                "Dashboard SPA mounted at /dashboard/, serving from: {dir}, canonical: {:?}",
+                path.canonicalize()
+            );
+        } else {
+            log::warn!("Dashboard static dir not found: {dir}, skipping dashboard mount");
+        }
+    }
+
+    server.try_serve(root_router).await?;
     Ok(())
 }
 

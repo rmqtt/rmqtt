@@ -57,6 +57,11 @@ pub struct PluginConfig {
         deserialize_with = "deserialize_duration"
     )]
     pub prometheus_metrics_cache_interval: Duration,
+
+    /// Optional static directory for the Dashboard SPA.
+    /// If set, http-api serves the contents at `/dashboard/`.
+    #[serde(default)]
+    pub dashboard_static_dir: Option<String>,
 }
 
 impl PluginConfig {
@@ -120,12 +125,13 @@ impl PluginConfig {
             || self.metrics_sample_interval != other.metrics_sample_interval
             || self.http_request_log != other.http_request_log
             || self.prometheus_metrics_cache_interval != other.prometheus_metrics_cache_interval
+            || self.dashboard_static_dir != other.dashboard_static_dir
     }
 
     /// Returns `true` if a full server restart is required (listen address
     /// changed).
     #[inline]
     pub fn restart_enable(&self, other: &Self) -> bool {
-        self.http_laddr != other.http_laddr
+        self.http_laddr != other.http_laddr || self.dashboard_static_dir != other.dashboard_static_dir
     }
 }

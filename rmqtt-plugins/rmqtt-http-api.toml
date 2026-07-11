@@ -20,3 +20,7 @@ message_expiry_interval = "5m"
 ## Default: "5s"
 prometheus_metrics_cache_interval = "5s"
 
+## Dashboard SPA static files directory
+## Path is relative to the server's working directory (CWD).
+## Set to "" or comment out to disable the dashboard.
+dashboard_static_dir = "./rmqtt-dashboard/"
