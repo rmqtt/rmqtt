@@ -106,6 +106,9 @@ pub use rmqtt_web_hook as web_hook;
 #[cfg(feature = "p2p-messaging")]
 pub use rmqtt_p2p_messaging as p2p_messaging;
 
+#[cfg(feature = "shared-subscription")]
+pub use rmqtt_shared_subscription as shared_subscription;
+
 // ---- Cluster Plugins ----
 #[cfg(feature = "cluster-raft")]
 pub use rmqtt_cluster_raft as cluster_raft;
