@@ -828,6 +828,10 @@ impl Shared for ClusterShared {
                 .join_all_with_async(move |reply| {
                     let msgs = match reply {
                         Ok(MessageReply::MessageGet(msgs)) => msgs,
+                        Ok(MessageReply::Success) => {
+                            log::debug!("unexpected reply: Success");
+                            vec![]
+                        }
                         Ok(other) => {
                             log::warn!("unexpected reply: {other:?}");
                             vec![]
@@ -873,6 +877,10 @@ impl Shared for ClusterShared {
                     .join_all_with_async(move |reply| async move {
                         match reply {
                             Ok(MessageReply::GetRetains(retains)) => Ok(retains),
+                            Ok(MessageReply::Success) => {
+                                log::debug!("unexpected reply: Success");
+                                Ok(vec![])
+                            }
                             Ok(other) => {
                                 log::warn!("unexpected reply: {other:?}");
                                 Ok(vec![])
@@ -1129,6 +1137,12 @@ impl ClusterShared {
                                     break;
                                 }
                                 offset += CHUNK;
+                            }
+                            Ok(MessageReply::Success) => {
+                                log::debug!(
+                                    "sync_retains_from_peers unexpected reply from {node_id}: Success"
+                                );
+                                break;
                             }
                             Ok(other) => {
                                 log::warn!(
