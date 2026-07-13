@@ -43,6 +43,7 @@ pub enum Message<'a> {
     ReloadPluginConfig { name: &'a str },
     LoadPlugin { name: &'a str },
     UnloadPlugin { name: &'a str },
+    SendPluginMessage { name: &'a str, msg: serde_json::Value },
 }
 
 impl Message<'_> {
@@ -77,6 +78,7 @@ pub enum MessageReply {
     ReloadPluginConfig,
     LoadPlugin,
     UnloadPlugin(bool),
+    SendPluginMessage(serde_json::Value),
 }
 
 impl MessageReply {

@@ -123,7 +123,8 @@ fn route(
                 .push(Router::with_path("{node}/{plugin}/config").get(node_plugin_config))
                 .push(Router::with_path("{node}/{plugin}/config/reload").put(node_plugin_config_reload))
                 .push(Router::with_path("{node}/{plugin}/load").put(node_plugin_load))
-                .push(Router::with_path("{node}/{plugin}/unload").put(node_plugin_unload)),
+                .push(Router::with_path("{node}/{plugin}/unload").put(node_plugin_unload))
+                .push(Router::with_path("{node}/{plugin}/send").post(node_plugin_send)),
         )
         .push(
             Router::with_path("stats")
@@ -1892,6 +1893,79 @@ async fn _node_plugin_unload(
             reply => {
                 log::info!("Unload GrpcMessage::UnloadPlugin from other node({node_id}), reply: {reply:?}");
                 Ok(false)
+            }
+        }
+    }
+}
+
+#[handler]
+async fn node_plugin_send(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> std::result::Result<(), salvo::Error> {
+    let (scx, cfg) = get_scx_cfg(depot)?;
+    let message_type = cfg.read().await.message_type;
+    let node_id = if let Some(node_id) = req.param::<NodeId>("node") {
+        node_id
+    } else {
+        res.status_code(StatusCode::NOT_FOUND);
+        return Ok(());
+    };
+    let name = if let Some(name) = req.param::<String>("plugin") {
+        name
+    } else {
+        res.status_code(StatusCode::NOT_FOUND);
+        return Ok(());
+    };
+    if name != "rmqtt-cluster-raft" {
+        res.render(StatusError::bad_request().detail("plugin send is only supported for rmqtt-cluster-raft"));
+        return Ok(());
+    }
+    let msg = match req.parse_json::<serde_json::Value>().await {
+        Ok(msg) => msg,
+        Err(e) => {
+            res.render(StatusError::bad_request().detail(e.to_string()));
+            return Ok(());
+        }
+    };
+
+    match _node_plugin_send(scx, node_id, &name, msg, message_type).await {
+        Ok(r) => res.render(Json(r)),
+        Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+    }
+    Ok(())
+}
+
+async fn _node_plugin_send(
+    scx: &ServerContext,
+    node_id: NodeId,
+    name: &str,
+    msg: serde_json::Value,
+    message_type: MessageType,
+) -> Result<serde_json::Value> {
+    if node_id == scx.node.id() {
+        scx.plugins.send(name, msg).await
+    } else {
+        let c = get_grpc_client(scx, node_id).await?;
+        let msg = Message::SendPluginMessage { name, msg }.encode()?;
+        let reply =
+            MessageSender::new_quick(c, message_type, GrpcMessage::Data(msg), Some(Duration::from_secs(10)))
+                .send()
+                .await?;
+        match reply {
+            GrpcMessageReply::Data(msg) => match MessageReply::decode(&msg)? {
+                MessageReply::SendPluginMessage(reply) => Ok(reply),
+                _ => {
+                    log::error!("unreachable!(), msg: {msg:?}");
+                    Err(anyhow!("unreachable!()"))
+                }
+            },
+            reply => {
+                log::info!(
+                    "Send GrpcMessage::SendPluginMessage from other node({node_id}), reply: {reply:?}"
+                );
+                Err(anyhow!("invalid reply"))
             }
         }
     }

@@ -29,6 +29,7 @@
 //!
 #![deny(unsafe_code)]
 use std::net::{SocketAddr, ToSocketAddrs};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -41,9 +42,9 @@ use rust_box::task_exec_queue::TaskExecQueue;
 use serde_json::{self, json};
 use tokio::time::sleep;
 
+use nodes::ClusterNodeManager;
 use rmqtt::{
     context::ServerContext,
-    grpc::GrpcClients,
     hook::{Register, Type},
     macros::Plugin,
     plugin::{PackageInfo, Plugin},
@@ -58,6 +59,8 @@ use shared::ClusterShared;
 mod config;
 mod handler;
 mod message;
+mod nodes;
+mod raft_admin;
 mod router;
 mod shared;
 
@@ -74,10 +77,11 @@ struct ClusterPlugin {
     scx: ServerContext,
     register: Box<dyn Register>,
     cfg: Arc<PluginConfig>,
-    grpc_clients: GrpcClients,
+    nodes: ClusterNodeManager,
     shared: ClusterShared,
     router: ClusterRouter,
     raft_mailbox: Option<Mailbox>,
+    draining: Arc<AtomicBool>,
     exec: TaskExecQueue,
     backoff_strategy: ExponentialBackoff,
 }
@@ -94,59 +98,33 @@ impl ClusterPlugin {
         let exec = scx.get_exec(("RAFT_EXEC", cfg.task_exec_queue_workers, cfg.task_exec_queue_max));
 
         let register = scx.extends.hook_mgr().register();
-        let mut grpc_clients = HashMap::default();
-        let mut node_names = HashMap::default();
-
-        let node_grpc_addrs = cfg.node_grpc_addrs.clone();
-        log::info!("node_grpc_addrs: {node_grpc_addrs:?}");
-
-        // Read circuit-breaker config from ServerContext.
-        let cb_config = &scx.circuit_breaker_config;
-
-        for node_addr in &node_grpc_addrs {
-            if node_addr.id != scx.node.id() {
-                let batch_size = cfg.node_grpc_batch_size;
-                let client_concurrency_limit = cfg.node_grpc_client_concurrency_limit;
-                let client_timeout = cfg.node_grpc_client_timeout;
-                grpc_clients.insert(
-                    node_addr.id,
-                    (
-                        node_addr.addr.clone(),
-                        scx.node
-                            .new_grpc_client(
-                                &node_addr.addr,
-                                client_timeout,
-                                client_concurrency_limit,
-                                batch_size,
-                                cb_config,
-                            )
-                            .await?,
-                    ),
-                );
-            }
-            node_names.insert(node_addr.id, format!("{}@{}", node_addr.id, node_addr.addr));
-        }
-        let grpc_clients = Arc::new(grpc_clients);
+        let nodes = ClusterNodeManager::new(scx.clone(), &cfg);
+        nodes.seed_from_config(&cfg.node_grpc_addrs, &cfg.raft_peer_addrs).await?;
         let backoff_strategy = ExponentialBackoffBuilder::new()
             .with_max_elapsed_time(Some(Duration::from_secs(60)))
             .with_multiplier(2.5)
             .build();
-        let router =
-            ClusterRouter::new(scx.clone(), backoff_strategy.clone(), cfg.try_lock_timeout, cfg.compression);
+        let router = ClusterRouter::new(
+            scx.clone(),
+            backoff_strategy.clone(),
+            nodes.clone(),
+            cfg.try_lock_timeout,
+            cfg.compression,
+        );
         let shared = ClusterShared::new(
             scx.clone(),
             exec.clone(),
             router.clone(),
-            grpc_clients.clone(),
-            node_names,
+            nodes.clone(),
             cfg.message_type,
             cfg.task_exec_queue_max,
             cfg.task_exec_queue_workers,
             cfg.node_grpc_client_timeout,
         );
         let raft_mailbox = None;
+        let draining = Arc::new(AtomicBool::new(false));
         let cfg = Arc::new(cfg);
-        Ok(Self { scx, register, cfg, grpc_clients, shared, router, raft_mailbox, exec, backoff_strategy })
+        Ok(Self { scx, register, cfg, nodes, shared, router, raft_mailbox, draining, exec, backoff_strategy })
     }
 
     //raft init ...
@@ -404,6 +382,11 @@ impl Plugin for ClusterPlugin {
                 Ok(reply) => match message::MessageReply::decode(&reply)? {
                     message::MessageReply::Ping => {
                         log::info!("ping ok");
+                        let local_node = self
+                            .nodes
+                            .local_node_from_config(&self.cfg.node_grpc_addrs, &self.cfg.raft_peer_addrs)?;
+                        let node_up = message::Message::NodeUp { node: local_node }.encode()?;
+                        raft_mailbox.send_proposal(node_up).await.map_err(anyhow::Error::new)?;
                         return Ok(());
                     }
                     message::MessageReply::Error(e) => {
@@ -444,7 +427,8 @@ impl Plugin for ClusterPlugin {
         }
 
         let mut nodes = HashMap::default();
-        for (node_id, (_, c)) in self.grpc_clients.iter() {
+        let grpc_clients = self.nodes.grpc_clients();
+        for (node_id, (_, c)) in grpc_clients.iter() {
             let stats = json!({
                 "transfer_queue_len": c.transfer_queue_len(),
                 "active_tasks_count": c.active_tasks().count(),
@@ -456,6 +440,7 @@ impl Plugin for ClusterPlugin {
 
         json!({
             "grpc_clients": nodes,
+            "cluster_nodes": self.nodes.to_json(),
             "raft_status": raft_status,
             "raft_pears": pears,
             "client_states": self.router.states_count(),
@@ -465,6 +450,190 @@ impl Plugin for ClusterPlugin {
                 "completed_count": self.exec.completed_count().await,
             }
         })
+    }
+
+    #[inline]
+    async fn send(&self, msg: serde_json::Value) -> Result<serde_json::Value> {
+        let action = msg.get("action").and_then(|v| v.as_str()).ok_or_else(|| anyhow!("missing action"))?;
+        let raft_mailbox = self.raft_mailbox();
+        match action {
+            "node_up" => {
+                let node: message::ClusterNode =
+                    serde_json::from_value(msg.get("node").cloned().unwrap_or_else(|| {
+                        json!({
+                            "id": msg.get("id").cloned().unwrap_or_default(),
+                            "grpc_addr": msg.get("grpc_addr").cloned().unwrap_or_default(),
+                            "raft_addr": msg.get("raft_addr").cloned().unwrap_or_default(),
+                        })
+                    }))?;
+                let proposal = message::Message::NodeUp { node }.encode()?;
+                raft_mailbox.send_proposal(proposal).await.map_err(anyhow::Error::new)?;
+                Ok(json!({"ok": true}))
+            }
+            "node_down" => {
+                let id = msg.get("id").and_then(|v| v.as_u64()).ok_or_else(|| anyhow!("missing id"))?;
+                let proposal = message::Message::NodeDown { id }.encode()?;
+                raft_mailbox.send_proposal(proposal).await.map_err(anyhow::Error::new)?;
+                Ok(json!({"ok": true, "id": id, "raft_membership_changed": false}))
+            }
+            "node_remove" => {
+                let id = msg.get("id").and_then(|v| v.as_u64()).unwrap_or_else(|| self.scx.node.id());
+                if id != self.scx.node.id() {
+                    return Err(anyhow!(
+                        "node_remove must be sent to target node {id}; \
+                         use action=force_node_remove for business-only cleanup of an unreachable node"
+                    ));
+                }
+                self.leave_cluster(&raft_mailbox).await
+            }
+            "force_node_remove" => {
+                let id = msg.get("id").and_then(|v| v.as_u64()).ok_or_else(|| anyhow!("missing id"))?;
+                if id == self.scx.node.id() {
+                    return Err(anyhow!("force_node_remove cannot remove the local node; use action=leave"));
+                }
+                let proposal = message::Message::NodeRemove { id }.encode()?;
+                raft_mailbox.send_proposal(proposal).await.map_err(anyhow::Error::new)?;
+                Ok(json!({"ok": true, "id": id, "raft_membership_changed": false}))
+            }
+            "drain" | "node_drain" => self.drain_node(&raft_mailbox).await,
+            "undrain" | "resume" | "node_up_local" => self.undrain_node(&raft_mailbox).await,
+            "drain_status" => Ok(self.drain_status(&raft_mailbox).await),
+            "leave" | "node_leave" => self.leave_cluster(&raft_mailbox).await,
+            "nodes" => Ok(self.nodes.to_json()),
+            other => Err(anyhow!("unknown action: {other}")),
+        }
+    }
+}
+
+impl ClusterPlugin {
+    async fn drain_node(&self, raft_mailbox: &Mailbox) -> Result<serde_json::Value> {
+        let id = self.scx.node.id();
+        let proposal = message::Message::NodeDown { id }.encode()?;
+        raft_mailbox.send_proposal(proposal).await.map_err(anyhow::Error::new)?;
+        self.draining.store(true, Ordering::SeqCst);
+        Ok(json!({
+            "ok": true,
+            "id": id,
+            "draining": true,
+            "raft_membership_changed": false,
+            "note": "node is removed from the business gRPC peer table; operator should remove external traffic and wait for drain_status.safe_to_leave"
+        }))
+    }
+
+    async fn undrain_node(&self, raft_mailbox: &Mailbox) -> Result<serde_json::Value> {
+        let node = self.nodes.local_node_from_config(&self.cfg.node_grpc_addrs, &self.cfg.raft_peer_addrs)?;
+        let id = node.id;
+        let proposal = message::Message::NodeUp { node }.encode()?;
+        raft_mailbox.send_proposal(proposal).await.map_err(anyhow::Error::new)?;
+        self.draining.store(false, Ordering::SeqCst);
+        Ok(json!({
+            "ok": true,
+            "id": id,
+            "draining": false,
+            "raft_membership_changed": false,
+        }))
+    }
+
+    async fn drain_status(&self, raft_mailbox: &Mailbox) -> serde_json::Value {
+        let stats = &self.scx.stats;
+        let connections = stats.connections.count();
+        let sessions = stats.sessions.count();
+        let handshakings_active = stats.handshakings_active.count();
+        let message_queues = stats.message_queues.count();
+        let out_inflights = stats.out_inflights.count();
+        let in_inflights = stats.in_inflights.count();
+        let forwards = stats.forwards.count();
+        let message_storages = stats.message_storages.count();
+        let delayed_publishs = stats.delayed_publishs.count();
+        let safe_to_leave = connections == 0
+            && sessions == 0
+            && handshakings_active == 0
+            && message_queues == 0
+            && out_inflights == 0
+            && in_inflights == 0
+            && forwards == 0;
+        let raft_status = raft_mailbox.status().await.ok();
+
+        json!({
+            "id": self.scx.node.id(),
+            "draining": self.draining.load(Ordering::SeqCst),
+            "safe_to_leave": safe_to_leave,
+            "raft_membership_present": raft_status
+                .as_ref()
+                .map(|status| status.peers.contains_key(&self.scx.node.id()))
+                .unwrap_or(false),
+            "raft_leader_id": raft_status.as_ref().map(|status| status.leader_id),
+            "counts": {
+                "connections": connections,
+                "sessions": sessions,
+                "handshakings_active": handshakings_active,
+                "message_queues": message_queues,
+                "out_inflights": out_inflights,
+                "in_inflights": in_inflights,
+                "forwards": forwards,
+                "message_storages": message_storages,
+                "delayed_publishs": delayed_publishs,
+            },
+            "operator_next_step": if safe_to_leave { "leave" } else { "wait" },
+        })
+    }
+
+    async fn leave_cluster(&self, raft_mailbox: &Mailbox) -> Result<serde_json::Value> {
+        let id = self.scx.node.id();
+        let local_node =
+            self.nodes.local_node_from_config(&self.cfg.node_grpc_addrs, &self.cfg.raft_peer_addrs)?;
+
+        let proposal = message::Message::NodeRemove { id }.encode()?;
+        raft_mailbox.send_proposal(proposal).await.map_err(anyhow::Error::new)?;
+
+        if let Err(e) = self.remove_self_from_raft(raft_mailbox).await {
+            let restore = message::Message::NodeUp { node: local_node }.encode()?;
+            if let Err(restore_err) = raft_mailbox.send_proposal(restore).await {
+                log::error!(
+                    "raft leave failed and failed to restore business node metadata, id: {id}, \
+                     leave_error: {e}, restore_error: {restore_err}"
+                );
+            }
+            return Err(e);
+        }
+
+        Ok(json!({"ok": true, "id": id, "raft_membership_changed": true}))
+    }
+
+    async fn remove_self_from_raft(&self, raft_mailbox: &Mailbox) -> Result<()> {
+        let status = raft_mailbox.status().await.map_err(anyhow::Error::new)?;
+        if status.is_leader() {
+            return raft_mailbox.leave().await.map_err(anyhow::Error::new);
+        }
+
+        let leader_id = status.leader_id;
+        let leader_addr = status
+            .peers
+            .get(&leader_id)
+            .and_then(|peer| peer.as_ref().map(|peer| peer.addr.to_string()))
+            .or_else(|| {
+                self.cfg
+                    .raft_peer_addrs
+                    .iter()
+                    .find(|peer| peer.id == leader_id)
+                    .map(|peer| peer.addr.to_string())
+            })
+            .ok_or_else(|| anyhow!("raft leader address not found, leader_id: {leader_id}"))?;
+
+        log::info!(
+            "request raft leader to remove local node, node_id: {}, leader_id: {}, leader_addr: {}",
+            self.scx.node.id(),
+            leader_id,
+            leader_addr
+        );
+        raft_admin::remove_node(
+            &leader_addr,
+            self.scx.node.id(),
+            self.cfg.raft.grpc_timeout.unwrap_or(Duration::from_secs(6)),
+            self.cfg.raft.grpc_concurrency_limit.unwrap_or(200),
+            self.cfg.raft.grpc_message_size.unwrap_or(50 * 1024 * 1024),
+        )
+        .await
     }
 }
 
