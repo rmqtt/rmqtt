@@ -182,7 +182,21 @@
           </div>
         </div>
 
-        <!-- ─── Tab 3: 指标 ─── -->
+        <!-- ─── Tab 3: 状态（实时当前值） ─── -->
+        <div v-show="activeTab === 'status'">
+          <div v-for="group in statusGroups" :key="group.key" class="metric-section">
+            <h3 class="section-title">{{ group.label }}</h3>
+            <div class="metric-grid">
+              <div v-for="m in group.items" :key="m.key" class="metric-card">
+                <div class="metric-label">{{ m.label }}</div>
+                <div class="metric-value">{{ getStat(m.key + '.count') }}</div>
+                <div class="metric-sub">峰值 {{ getStat(m.key + '.max') }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ─── Tab 4: 指标（累计值） ─── -->
         <div v-show="activeTab === 'metrics'">
           <div v-for="group in metricGroups" :key="group.key" class="metric-section">
             <h3 class="section-title">{{ group.label }}</h3>
@@ -212,6 +226,7 @@
         return [
           { key: 'overview', label: $t('overview.title') },
           { key: 'nodes',    label: $t('overview.nodes_title') },
+          { key: 'status',   label: $t('overview.status_title') },
           { key: 'metrics',  label: $t('overview.metrics_title') },
         ];
       });
@@ -232,6 +247,7 @@
       const delRate = ref('0');
       const totalConnections = ref(0);
       const metricsData = ref({});
+      const statusData = ref({});
 
       // 时间范围
       const timeRanges = [
@@ -251,29 +267,63 @@
       const selectedNode = ref(null);
       const showNodeDetail = ref(false);
 
-      // 指标分组（改用 $t 支持 i18n）
+      // 指标分组：来自 /api/v1/metrics/sum 的累计值（只增不减）
       const metricGroups = Vue.computed(function() {
         void localeState.version;
         return [
-          { key: 'connections', label: $t('overview.group_connections'), items: [
-            { key: 'connections.count', label: $t('overview.online_sessions') },
-            { key: 'sessions.count', label: $t('overview.sessions_count') },
-            { key: 'handshakings.count', label: $t('overview.handshakings_count') },
-            { key: 'handshakings.max', label: $t('overview.handshakings_max') },
-            { key: 'handshakings_active.count', label: $t('overview.handshakings_active_count') },
-            { key: 'handshakings_rate.count', label: $t('overview.handshakings_rate_count') },
-            { key: 'handshakings_rate.max', label: $t('overview.handshakings_rate_max') },
+          { key: 'clients', label: '客户端生命周期', items: [
+            { key: 'client.authenticate', label: '认证尝试' },
+            { key: 'client.connect', label: '连接成功' },
+            { key: 'client.connected', label: '已连接（累计）' },
+            { key: 'client.disconnected', label: '已断开（累计）' },
+            { key: 'client.subscribe', label: '订阅操作' },
+            { key: 'client.unsubscribe', label: '取消订阅' },
+          ]},
+          { key: 'sessions', label: '会话', items: [
+            { key: 'session.created', label: '创建' },
+            { key: 'session.resumed', label: '恢复' },
+            { key: 'session.terminated', label: '终止' },
+            { key: 'session.subscribed', label: '订阅变更' },
+            { key: 'session.unsubscribed', label: '取消订阅' },
           ]},
           { key: 'messages', label: $t('overview.group_messages'), items: [
-            { key: 'messages_publish', label: $t('overview.messages_publish') },
-            { key: 'messages_delivered', label: $t('overview.messages_delivered') },
+            { key: 'messages.publish', label: $t('overview.messages_publish') },
+            { key: 'messages.delivered', label: $t('overview.messages_delivered') },
+            { key: 'messages.acked', label: '确认消息数' },
             { key: 'messages.dropped', label: $t('overview.messages_discarded') },
+            { key: 'messages.nonsubscribed', label: '无订阅者丢弃' },
           ]},
-          { key: 'subs', label: $t('overview.group_subs'), items: [
-            { key: 'subscriptions_count', label: $t('overview.subscriptions_count') },
-            { key: 'subscriptions_shared.count', label: $t('overview.shared_subscriptions_count') },
+        ];
+      });
+
+      // 状态分组：来自 /api/v1/stats/sum 的实时当前值
+      const statusGroups = Vue.computed(function() {
+        void localeState.version;
+        return [
+          { key: 'conn_sessions', label: $t('overview.group_connections'), items: [
+            { key: 'connections', label: $t('overview.connections_count') },
+            { key: 'sessions', label: $t('overview.sessions_count') },
+            { key: 'handshakings', label: $t('overview.handshakings_count') },
+            { key: 'handshakings_active', label: $t('overview.handshakings_active_count') },
+            { key: 'handshakings_rate', label: $t('overview.handshakings_rate_count') },
           ]},
-          // 报文统计 — 暂缺后端数据源（无 packet 级计数器）
+          { key: 'subs_routes', label: $t('overview.group_topics_routes'), items: [
+            { key: 'subscriptions', label: $t('overview.subscriptions_count') },
+            { key: 'subscriptions_shared', label: $t('overview.shared_subscriptions_count') },
+            { key: 'topics', label: $t('overview.topics_count') },
+            { key: 'routes', label: $t('overview.routes_count') },
+          ]},
+          { key: 'queues', label: $t('overview.group_queues'), items: [
+            { key: 'message_queues', label: $t('overview.queues_count') },
+            { key: 'out_inflights', label: $t('overview.out_inflights_count') },
+            { key: 'in_inflights', label: $t('overview.in_inflights_count') },
+            { key: 'forwards', label: $t('overview.forwards_count') },
+          ]},
+          { key: 'storage', label: $t('overview.group_storage'), items: [
+            { key: 'retaineds', label: $t('overview.retained_count') },
+            { key: 'message_storages', label: $t('overview.message_storages_count') },
+            { key: 'delayed_publishs', label: $t('overview.delayed_publishs_count') },
+          ]},
         ];
       });
 
@@ -316,6 +366,14 @@
         var alt = key.indexOf('.') >= 0 ? key.replace(/\./g, '_') : key.replace(/_/g, '.');
         v = metricsData.value[alt];
         return v != null ? v : '-';
+      }
+
+      function getStat(key) {
+        var v = statusData.value[key];
+        if (v == null) return '-';
+        // 握手速率是后端已 /100 的浮点数，保留 1 位小数
+        if (typeof v === 'number' && v % 1 !== 0) return v.toFixed(1);
+        return v;
       }
 
       function formatCpu(load) {
@@ -507,6 +565,8 @@
               sharedSubscriptions: raw['subscriptions_shared.count'] ?? 0,
               retained: raw['retaineds.count'] ?? 0,
             };
+            // 赋值给状态 Tab 数据源
+            statusData.value = raw;
             // 设备连接速率使用 handshakings_rate.count，并在仪表盘上标记 handshakings_rate.max
             var hsRate = raw['handshakings_rate.count'];
             var hsRateMax = raw['handshakings_rate.max'];
@@ -527,16 +587,6 @@
           var metricsSum = await http.get('/metrics/sum').catch(function() { return null; });
           if (metricsSum) {
             metricsData.value = metricsSum;
-
-            // 合并 stats 中的字段（handshakings、sessions、subscriptions 等供 getMetric 查找）
-            if (statsData) {
-              var s = statsData.stats || statsData;
-              Object.keys(s).forEach(function(k) {
-                if (metricsData.value[k] === undefined) {
-                  metricsData.value[k] = s[k];
-                }
-              });
-            }
 
             // 纯实时模式：用 metrics/sum 追加 chartData
             if (isLiveMode) {
@@ -622,6 +672,7 @@
           };
           if (areaColor) series.areaStyle = { color: areaColor };
           chart.setOption({
+            animation: false,
             tooltip: customTooltip || { trigger: 'axis', textStyle: { color: '#000' }, confine: true },
             grid: { left: 42, right: 30, top: 24, bottom: 20 },
             xAxis: {
@@ -755,7 +806,8 @@
       return {
         tabs, activeTab,
         stats, nodes, nodesOnline, nodesTotal, pubRate, delRate,
-        totalConnections, metricsData, metricGroups, getMetric,
+        totalConnections, statusData, statusGroups, getStat,
+        metricsData, metricGroups, getMetric,
         timeRanges, timeRange, setTimeRange,
         selectedNode, showNodeDetail, showNode,
         formatCpu, formatBytes, formatUptime, nodeColor,

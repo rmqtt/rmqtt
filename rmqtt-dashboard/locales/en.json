@@ -125,7 +125,19 @@
     "messages_delivered": "Delivered Messages",
     "messages_discarded": "Discarded Messages",
     "subscriptions_count": "Subscriptions",
-    "shared_subscriptions_count": "Shared Subscriptions"
+    "shared_subscriptions_count": "Shared Subscriptions",
+
+    "status_title": "Status",
+    "group_topics_routes": "Subscriptions & Routes",
+    "group_queues": "Message Queues",
+    "group_storage": "Storage",
+    "routes_count": "Routes",
+    "queues_count": "Queue Depth",
+    "out_inflights_count": "Outgoing Inflight",
+    "in_inflights_count": "Incoming Inflight",
+    "forwards_count": "Forwards",
+    "message_storages_count": "Message Storage",
+    "delayed_publishs_count": "Delayed Publish"
   },
   "gauge": {
     "connections": "Connections",

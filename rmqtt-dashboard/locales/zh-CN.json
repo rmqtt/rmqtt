@@ -131,7 +131,19 @@
     "messages_delivered": "投递消息数",
     "messages_discarded": "丢弃消息数",
     "subscriptions_count": "订阅数",
-    "shared_subscriptions_count": "共享订阅数"
+    "shared_subscriptions_count": "共享订阅数",
+
+    "status_title": "状态",
+    "group_topics_routes": "订阅与路由",
+    "group_queues": "消息队列",
+    "group_storage": "存储",
+    "routes_count": "路由数",
+    "queues_count": "消息队列",
+    "out_inflights_count": "出方向飞行",
+    "in_inflights_count": "入方向飞行",
+    "forwards_count": "转发中",
+    "message_storages_count": "消息存储",
+    "delayed_publishs_count": "延迟发布"
   },
   "gauge": {
     "connections": "设备连接",
