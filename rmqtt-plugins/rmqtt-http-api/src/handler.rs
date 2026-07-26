@@ -277,6 +277,7 @@ impl Handler for HookHandler {
                                             query.end_ts,
                                             query.limit,
                                             self.flush_interval_ms,
+                                            query.merge_window,
                                         )
                                         .await
                                     }
@@ -308,6 +309,7 @@ impl Handler for HookHandler {
                                             query.end_ts,
                                             query.limit,
                                             self.flush_interval_ms,
+                                            query.merge_window,
                                         )
                                         .await
                                     }

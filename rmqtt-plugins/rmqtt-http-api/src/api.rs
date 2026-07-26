@@ -2540,15 +2540,17 @@ pub(crate) async fn query_history_local(
     end_ts: u64,
     limit: usize,
     interval_ms: u64,
+    merge_window: Option<u64>,
 ) -> HistoryData {
-    let from_rounded = (start_ts / interval_ms) * interval_ms;
-    let to_rounded = (end_ts / interval_ms) * interval_ms;
-    let expected_count = ((to_rounded - from_rounded) / interval_ms + 1) as usize;
+    let step_ms = merge_window.map(|s| s * 1000).unwrap_or(interval_ms);
+    let from_rounded = (start_ts / step_ms) * step_ms;
+    let to_rounded = (end_ts / step_ms) * step_ms;
+    let expected_count = ((to_rounded - from_rounded) / step_ms + 1) as usize;
     let mut entries: Vec<(u64, serde_json::Value)> = Vec::with_capacity(expected_count.min(limit));
 
     let guard = cache.read().await;
     for i in 0..expected_count {
-        let ts = from_rounded + i as u64 * interval_ms;
+        let ts = from_rounded + i as u64 * step_ms;
         if let Some(entry) = guard.peek(&ts) {
             if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&entry.json) {
                 if let Some(obj) = val.as_object_mut() {
@@ -2582,30 +2584,19 @@ async fn get_stats_history(
     let interval_ms = cfg.read().await.flush_interval.as_millis() as u64;
 
     let id = req.param::<NodeId>("id");
-    let start_end_limit = parse_time_params(req);
+    let (start_ts, end_ts, limit, merge_window) = { parse_time_params(req) };
 
     if let Some(ref hc) = hc {
         if let Some(node_id) = id {
             let data = if node_id == scx.node.id() {
-                query_history_local(
-                    &hc.stats,
-                    node_id,
-                    start_end_limit.0,
-                    start_end_limit.1,
-                    start_end_limit.2,
-                    interval_ms,
-                )
-                .await
+                query_history_local(&hc.stats, node_id, start_ts, end_ts, limit, interval_ms, merge_window)
+                    .await
             } else {
                 query_history_remote(
                     scx,
                     message_type,
                     node_id,
-                    Message::StatsHistoryQuery(HistoryQuery {
-                        start_ts: start_end_limit.0,
-                        end_ts: start_end_limit.1,
-                        limit: start_end_limit.2,
-                    }),
+                    Message::StatsHistoryQuery(HistoryQuery { start_ts, end_ts, limit, merge_window }),
                 )
                 .await
             };
@@ -2618,26 +2609,18 @@ async fn get_stats_history(
             });
             res.render(Json(result));
         } else {
-            let msg_encoded = Message::StatsHistoryQuery(HistoryQuery {
-                start_ts: start_end_limit.0,
-                end_ts: start_end_limit.1,
-                limit: start_end_limit.2,
-            })
-            .encode()
-            .unwrap_or_default();
+            let msg_encoded =
+                Message::StatsHistoryQuery(HistoryQuery { start_ts, end_ts, limit, merge_window })
+                    .encode()
+                    .unwrap_or_default();
             let local_node_id = scx.node.id();
-            let params = HistoryQueryParams {
-                start_ts: start_end_limit.0,
-                end_ts: start_end_limit.1,
-                limit: start_end_limit.2,
-                interval_ms,
-            };
+            let params = HistoryQueryParams { start_ts, end_ts, limit, interval_ms, merge_window };
             let results =
                 query_history_all_nodes(scx, message_type, &hc.stats, &params, msg_encoded, local_node_id)
                     .await;
             res.render(Json(json!({
-                "from": start_end_limit.0,
-                "to": start_end_limit.1,
+                "from": start_ts,
+                "to": end_ts,
                 "nodes": results,
             })));
         }
@@ -2660,16 +2643,18 @@ async fn get_stats_history_sum(
     let message_type = cfg.read().await.message_type;
     let interval_ms = cfg.read().await.flush_interval.as_millis() as u64;
 
-    let (start_ts, end_ts, limit) = { parse_time_params(req) };
+    let (start_ts, end_ts, limit, merge_window) = { parse_time_params(req) };
 
     if let Some(ref hc) = hc {
-        let params = HistoryQueryParams { start_ts, end_ts, limit, interval_ms };
+        let params = HistoryQueryParams { start_ts, end_ts, limit, interval_ms, merge_window };
         let nodes_data = query_history_all_nodes(
             scx,
             message_type,
             &hc.stats,
             &params,
-            Message::StatsHistoryQuery(HistoryQuery { start_ts, end_ts, limit }).encode().unwrap_or_default(),
+            Message::StatsHistoryQuery(HistoryQuery { start_ts, end_ts, limit, merge_window })
+                .encode()
+                .unwrap_or_default(),
             scx.node.id(),
         )
         .await;
@@ -2704,30 +2689,19 @@ async fn get_metrics_history(
     let interval_ms = cfg.read().await.flush_interval.as_millis() as u64;
 
     let id = req.param::<NodeId>("id");
-    let start_end_limit = parse_time_params(req);
+    let (start_ts, end_ts, limit, merge_window) = { parse_time_params(req) };
 
     if let Some(ref hc) = hc {
         if let Some(node_id) = id {
             let data = if node_id == scx.node.id() {
-                query_history_local(
-                    &hc.metrics,
-                    node_id,
-                    start_end_limit.0,
-                    start_end_limit.1,
-                    start_end_limit.2,
-                    interval_ms,
-                )
-                .await
+                query_history_local(&hc.metrics, node_id, start_ts, end_ts, limit, interval_ms, merge_window)
+                    .await
             } else {
                 query_history_remote(
                     scx,
                     message_type,
                     node_id,
-                    Message::MetricsHistoryQuery(HistoryQuery {
-                        start_ts: start_end_limit.0,
-                        end_ts: start_end_limit.1,
-                        limit: start_end_limit.2,
-                    }),
+                    Message::MetricsHistoryQuery(HistoryQuery { start_ts, end_ts, limit, merge_window }),
                 )
                 .await
             };
@@ -2740,30 +2714,21 @@ async fn get_metrics_history(
             });
             res.render(Json(result));
         } else {
-            let params = HistoryQueryParams {
-                start_ts: start_end_limit.0,
-                end_ts: start_end_limit.1,
-                limit: start_end_limit.2,
-                interval_ms,
-            };
+            let params = HistoryQueryParams { start_ts, end_ts, limit, interval_ms, merge_window };
             let results = query_history_all_nodes(
                 scx,
                 message_type,
                 &hc.metrics,
                 &params,
-                Message::MetricsHistoryQuery(HistoryQuery {
-                    start_ts: start_end_limit.0,
-                    end_ts: start_end_limit.1,
-                    limit: start_end_limit.2,
-                })
-                .encode()
-                .unwrap_or_default(),
+                Message::MetricsHistoryQuery(HistoryQuery { start_ts, end_ts, limit, merge_window })
+                    .encode()
+                    .unwrap_or_default(),
                 scx.node.id(),
             )
             .await;
             res.render(Json(json!({
-                "from": start_end_limit.0,
-                "to": start_end_limit.1,
+                "from": start_ts,
+                "to": end_ts,
                 "nodes": results,
             })));
         }
@@ -2786,16 +2751,16 @@ async fn get_metrics_history_sum(
     let message_type = cfg.read().await.message_type;
     let interval_ms = cfg.read().await.flush_interval.as_millis() as u64;
 
-    let (start_ts, end_ts, limit) = { parse_time_params(req) };
+    let (start_ts, end_ts, limit, merge_window) = { parse_time_params(req) };
 
     if let Some(ref hc) = hc {
-        let params = HistoryQueryParams { start_ts, end_ts, limit, interval_ms };
+        let params = HistoryQueryParams { start_ts, end_ts, limit, interval_ms, merge_window };
         let nodes_data = query_history_all_nodes(
             scx,
             message_type,
             &hc.metrics,
             &params,
-            Message::MetricsHistoryQuery(HistoryQuery { start_ts, end_ts, limit })
+            Message::MetricsHistoryQuery(HistoryQuery { start_ts, end_ts, limit, merge_window })
                 .encode()
                 .unwrap_or_default(),
             scx.node.id(),
@@ -2824,7 +2789,7 @@ async fn get_metrics_history_sum(
 
 /// Parses query string time parameters: `minutes`, `hours`, `days`.
 /// Returns `(start_ts, end_ts, limit)`.
-fn parse_time_params(req: &Request) -> (u64, u64, usize) {
+fn parse_time_params(req: &Request) -> (u64, u64, usize, Option<u64>) {
     let now = timestamp_millis() as u64;
     let default_duration_ms = 5 * 60 * 1000u64; // 5 minutes
 
@@ -2837,8 +2802,9 @@ fn parse_time_params(req: &Request) -> (u64, u64, usize) {
 
     let start_ts = now.saturating_sub(duration_ms);
     let limit = req.query::<usize>("limit").unwrap_or(1000);
+    let merge_window = req.query::<u64>("merge_window");
 
-    (start_ts, now, limit)
+    (start_ts, now, limit, merge_window)
 }
 
 /// Sends a history query to a single remote node via gRPC and returns the
@@ -2882,6 +2848,7 @@ struct HistoryQueryParams {
     end_ts: u64,
     limit: usize,
     interval_ms: u64,
+    merge_window: Option<u64>,
 }
 
 /// Queries all known nodes (local + remote via gRPC broadcast) and returns
@@ -2908,6 +2875,7 @@ async fn query_history_all_nodes(
         params.end_ts,
         params.limit,
         params.interval_ms,
+        params.merge_window,
     )
     .await;
     nodes.insert(local_node_id, local_data);

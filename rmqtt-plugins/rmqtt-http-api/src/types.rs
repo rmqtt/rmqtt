@@ -393,6 +393,9 @@ pub struct HistoryQuery {
     pub end_ts: u64,
     /// Maximum number of data points to return
     pub limit: usize,
+    /// Merge window in seconds — returns data merged at this granularity.
+    /// When `None`, uses the node's `flush_interval`.
+    pub merge_window: Option<u64>,
 }
 
 /// History data returned by a node for a history query.

@@ -558,6 +558,7 @@ tr:hover td { background: var(--bg-hover); }
 .chart-toolbar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 12px;
 }

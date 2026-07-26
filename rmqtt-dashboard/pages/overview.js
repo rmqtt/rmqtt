@@ -235,10 +235,15 @@
 
       // 时间范围
       const timeRanges = [
+        { key: '15m', label: '15m' },
+        { key: '30m', label: '30m' },
         { key: '1h', label: '1h' },
         { key: '6h', label: '6h' },
         { key: '12h', label: '12h' },
         { key: '1d', label: '1d' },
+        { key: '3d', label: '3d' },
+        { key: '7d', label: '7d' },
+        { key: '15d', label: '15d' },
       ];
       const timeRange = ref('1h');
 
@@ -251,9 +256,8 @@
         void localeState.version;
         return [
           { key: 'connections', label: $t('overview.group_connections'), items: [
-            { key: 'client_connected', label: $t('overview.client_connected') },
-            { key: 'client_disconnected', label: $t('overview.client_disconnected') },
-            { key: 'sessions_count', label: $t('overview.sessions_count') },
+            { key: 'connections.count', label: $t('overview.online_sessions') },
+            { key: 'sessions.count', label: $t('overview.sessions_count') },
             { key: 'handshakings.count', label: $t('overview.handshakings_count') },
             { key: 'handshakings.max', label: $t('overview.handshakings_max') },
             { key: 'handshakings_active.count', label: $t('overview.handshakings_active_count') },
@@ -263,24 +267,27 @@
           { key: 'messages', label: $t('overview.group_messages'), items: [
             { key: 'messages_publish', label: $t('overview.messages_publish') },
             { key: 'messages_delivered', label: $t('overview.messages_delivered') },
-            { key: 'messages_discarded', label: $t('overview.messages_discarded') },
+            { key: 'messages.dropped', label: $t('overview.messages_discarded') },
           ]},
           { key: 'subs', label: $t('overview.group_subs'), items: [
             { key: 'subscriptions_count', label: $t('overview.subscriptions_count') },
-            { key: 'shared_subscriptions_count', label: $t('overview.shared_subscriptions_count') },
+            { key: 'subscriptions_shared.count', label: $t('overview.shared_subscriptions_count') },
           ]},
-          { key: 'packets', label: $t('overview.group_packets'), items: [
-            { key: 'packets_connect', label: 'CONNECT' },
-            { key: 'packets_publish', label: 'PUBLISH' },
-            { key: 'packets_subscribe', label: 'SUBSCRIBE' },
-            { key: 'packets_pingreq', label: 'PINGREQ' },
-          ]},
+          // 报文统计 — 暂缺后端数据源（无 packet 级计数器）
         ];
       });
 
-      // 历史数据
-      const metricsHistory = ref([]);
-      const MAX_POINTS = 60;
+      // 历史数据（用于图表渲染，来自 history API + live poll）
+      const chartData = ref([]);
+      let isLiveMode = false;     // 历史 API 不可用时回退纯实时模式
+      const CHART_POINTS = 360;   // 图表固定点数上限
+      let maxChartPoints = CHART_POINTS + 20;    // 动态上限
+      let notMergeNext = false;   // 切换时间范围时强制重建图表（避免合并动画产生竖线）
+      let currentMergeWindow = 5; // 当前选中时间范围的 merge_window（秒）
+      let currentLatestMinutes = 1; // 获取最新一个合并点时的回溯分钟数
+      let liveHistoryTimer = null; // history 轮询定时器
+      let lastLiveSnapshot = null; // 上次实时 metrics 快照，用于计算速率
+      let liveRates = { inRate: 0, outRate: 0, inHistory: [], outHistory: [] };
 
       // 兼容 metrics API 返回的 dot 格式（messages.publish）和 underscore 格式（messages_publish）
       function ms(v, key) {
@@ -304,6 +311,10 @@
 
       function getMetric(key) {
         var v = metricsData.value[key];
+        if (v != null) return v;
+        // 兼容下划线/点号格式差异（后端 Metrics to_json() 将 _ 替换为 .）
+        var alt = key.indexOf('.') >= 0 ? key.replace(/\./g, '_') : key.replace(/_/g, '.');
+        v = metricsData.value[alt];
         return v != null ? v : '-';
       }
 
@@ -347,7 +358,132 @@
         return colors[(id - 1) % colors.length];
       }
 
-      function setTimeRange(key) { timeRange.value = key; }
+      function pad(n) { return n.toString().padStart(2, '0'); }
+
+      function setTimeRange(key) {
+        timeRange.value = key;
+        notMergeNext = true;
+        fetchHistory();
+      }
+
+      function getTimeParams(key) {
+        if (key.endsWith('m')) {
+          var m = parseInt(key);
+          return { minutes: m, merge_window: 5, latest_minutes: 1, limit: 2000 };
+        }
+        if (key.endsWith('h')) {
+          var h = parseInt(key);
+          var mw = h <= 1 ? 10 : h <= 6 ? 60 : 120;
+          var lm = h <= 1 ? 1 : h <= 6 ? 2 : 3;
+          return { hours: h, merge_window: mw, latest_minutes: lm, limit: 2000 };
+        }
+        if (key.endsWith('d')) {
+          var d = parseInt(key);
+          var mw = d <= 1 ? 240 : d <= 3 ? 720 : d <= 7 ? 1680 : 3600;
+          var lm = d <= 1 ? 5 : d <= 3 ? 20 : d <= 7 ? 30 : 70;
+          return { days: d, merge_window: mw, latest_minutes: lm, limit: 2000 };
+        }
+        return { minutes: 60, merge_window: 10, latest_minutes: 1, limit: 2000 };
+      }
+
+      async function fetchHistory() {
+        var params = getTimeParams(timeRange.value);
+        currentMergeWindow = params.merge_window;
+        currentLatestMinutes = params.latest_minutes;
+        var qs = '';
+        if (params.minutes) qs += 'minutes=' + params.minutes;
+        else if (params.hours) qs += 'hours=' + params.hours;
+        else if (params.days) qs += 'days=' + params.days;
+        qs += '&limit=' + params.limit + '&merge_window=' + params.merge_window;
+
+        var [statsRes, metricsRes] = await Promise.all([
+          http.get('/stats/history/sum?' + qs).catch(function() { return null; }),
+          http.get('/metrics/history/sum?' + qs).catch(function() { return null; }),
+        ]);
+
+        if (!statsRes || !metricsRes || statsRes.error || metricsRes.error) {
+          // History 未配置 — 回退纯实时模式
+          isLiveMode = true;
+          chartData.value = [];
+          updateCharts();
+          return;
+        }
+
+        isLiveMode = false;
+
+        // 按 ts 建立 stats 查找表
+        var statsMap = {};
+        if (statsRes.data) {
+          statsRes.data.forEach(function(d) {
+            statsMap[d.ts] = {
+              connections: d['connections.count'] ?? d.connections_count ?? 0,
+              topics: d['topics.count'] ?? d.topics_count ?? 0,
+              subscriptions: d['subscriptions.count'] ?? d.subscriptions_count ?? 0,
+            };
+          });
+        }
+
+        // 按 ts 合并 metrics + stats
+        var merged = [];
+        if (metricsRes.data) {
+          metricsRes.data.forEach(function(d) {
+            var s = statsMap[d.ts] || {};
+            merged.push({
+              time: d.ts,
+              msgIn: d['messages.publish'] ?? d.messages_publish ?? 0,
+              msgOut: d['messages.delivered'] ?? d.messages_delivered ?? 0,
+              msgDropped: d['messages.dropped'] ?? d.messages_dropped ?? 0,
+              connections: s.connections ?? 0,
+              topics: s.topics ?? 0,
+              subscriptions: s.subscriptions ?? 0,
+            });
+          });
+        }
+
+        chartData.value = merged.reverse();
+        maxChartPoints = CHART_POINTS + 20;
+        updateCharts();
+        // 切换范围后重新启动 history 轮询
+        startLiveHistoryPolling();
+      }
+
+      // 每 merge_window 秒通过 history API 获取最新一个合并点
+      async function fetchLatestHistory() {
+        if (isLiveMode) return;
+        var qs = 'minutes=' + currentLatestMinutes + '&limit=1&merge_window=' + currentMergeWindow;
+        var [statsRes, metricsRes] = await Promise.all([
+          http.get('/stats/history/sum?' + qs).catch(function() { return null; }),
+          http.get('/metrics/history/sum?' + qs).catch(function() { return null; }),
+        ]);
+        if (!metricsRes || !metricsRes.data || metricsRes.data.length === 0) return;
+        var point = metricsRes.data[metricsRes.data.length - 1];
+        var s = {};
+        if (statsRes && statsRes.data && statsRes.data.length > 0) {
+          var sp = statsRes.data[statsRes.data.length - 1];
+          s.connections = sp['connections.count'] ?? sp.connections_count ?? 0;
+          s.topics = sp['topics.count'] ?? sp.topics_count ?? 0;
+          s.subscriptions = sp['subscriptions.count'] ?? sp.subscriptions_count ?? 0;
+        }
+        chartData.value.push({
+          time: point.ts,
+          msgIn: point['messages.publish'] ?? point.messages_publish ?? 0,
+          msgOut: point['messages.delivered'] ?? point.messages_delivered ?? 0,
+          msgDropped: point['messages.dropped'] ?? point.messages_dropped ?? 0,
+          connections: s.connections ?? 0,
+          topics: s.topics ?? 0,
+          subscriptions: s.subscriptions ?? 0,
+        });
+        if (chartData.value.length > maxChartPoints) {
+          chartData.value.splice(0, chartData.value.length - maxChartPoints);
+        }
+        updateCharts();
+      }
+
+      function startLiveHistoryPolling() {
+        if (liveHistoryTimer) clearInterval(liveHistoryTimer);
+        if (isLiveMode) return;
+        liveHistoryTimer = setInterval(fetchLatestHistory, currentMergeWindow * 1000);
+      }
 
       function showNode(n) {
         selectedNode.value = n;
@@ -391,66 +527,93 @@
           var metricsSum = await http.get('/metrics/sum').catch(function() { return null; });
           if (metricsSum) {
             metricsData.value = metricsSum;
-            var now = Date.now();
-            metricsHistory.value.push({
-              time: now,
-              msgIn: ms(metricsSum, 'messages.publish'),
-              msgOut: ms(metricsSum, 'messages.delivered'),
-              msgDropped: ms(metricsSum, 'messages.dropped'),
-              connections: stats.value.connections,
-              topics: stats.value.topics,
-              subscriptions: stats.value.subscriptions,
-            });
-            if (metricsHistory.value.length > MAX_POINTS) metricsHistory.value.shift();
 
-            var arr = metricsHistory.value;
-            if (arr.length >= 2) {
-              var prev = arr[arr.length - 2];
-              var curr = arr[arr.length - 1];
-              var elapsed = (curr.time - prev.time) / 1000;
-              var pubRate = (curr.msgIn - prev.msgIn) / elapsed;
-              var delRate = (curr.msgOut - prev.msgOut) / elapsed;
-
-              // 计算全部相邻差值的速率，用于条形图显示真实波动
-              var inRates = [], outRates = [];
-              for (var i = 1; i < arr.length; i++) {
-                var dt = (arr[i].time - arr[i-1].time) / 1000;
-                if (dt > 0) {
-                  inRates.push({ t: arr[i].time, v: (arr[i].msgIn - arr[i-1].msgIn) / dt, c: Math.round(arr[i].msgIn - arr[i-1].msgIn) });
-                  outRates.push({ t: arr[i].time, v: (arr[i].msgOut - arr[i-1].msgOut) / dt, c: Math.round(arr[i].msgOut - arr[i-1].msgOut) });
+            // 合并 stats 中的字段（handshakings、sessions、subscriptions 等供 getMetric 查找）
+            if (statsData) {
+              var s = statsData.stats || statsData;
+              Object.keys(s).forEach(function(k) {
+                if (metricsData.value[k] === undefined) {
+                  metricsData.value[k] = s[k];
                 }
-              }
+              });
+            }
 
-              if (msgRatePanel) {
-                msgRatePanel.update({
-                  inRate: +pubRate.toFixed(1),
-                  outRate: +delRate.toFixed(1),
-                  inHistory: inRates,
-                  outHistory: outRates,
-                  publish: ms(metricsSum, 'messages.publish'),
-                  delivered: ms(metricsSum, 'messages.delivered'),
-                  acked: ms(metricsSum, 'messages.acked'),
-                });
+            // 纯实时模式：用 metrics/sum 追加 chartData
+            if (isLiveMode) {
+              chartData.value.push({
+                time: Date.now(),
+                msgIn: ms(metricsSum, 'messages.publish'),
+                msgOut: ms(metricsSum, 'messages.delivered'),
+                msgDropped: ms(metricsSum, 'messages.dropped'),
+                connections: stats.value.connections,
+                topics: stats.value.topics,
+                subscriptions: stats.value.subscriptions,
+              });
+              if (chartData.value.length > CHART_POINTS) chartData.value.shift();
+            }
+
+            // 用实时 metrics 数据计算每 2s 的速率（独立于 chartData）
+            var pubTotal = ms(metricsSum, 'messages.publish');
+            var delTotal = ms(metricsSum, 'messages.delivered');
+            if (lastLiveSnapshot) {
+              var dt = (Date.now() - lastLiveSnapshot.time) / 1000;
+              if (dt > 0) {
+                var pubDelta = Math.max(0, pubTotal - lastLiveSnapshot.publish);
+                var delDelta = Math.max(0, delTotal - lastLiveSnapshot.delivered);
+                var pubRate = pubDelta / dt;
+                var delRate = delDelta / dt;
+                liveRates.inRate = pubRate;
+                liveRates.outRate = delRate;
+                liveRates.inHistory.push({ t: Date.now(), v: pubRate, c: Math.round(pubDelta) });
+                liveRates.outHistory.push({ t: Date.now(), v: delRate, c: Math.round(delDelta) });
+                // 保留最近 60 个点用于柱状图
+                if (liveRates.inHistory.length > 60) liveRates.inHistory.shift();
+                if (liveRates.outHistory.length > 60) liveRates.outHistory.shift();
               }
             }
-          }
+            lastLiveSnapshot = { time: Date.now(), publish: pubTotal, delivered: delTotal };
 
-          updateCharts();
+            if (msgRatePanel) {
+              msgRatePanel.update({
+                inRate: +liveRates.inRate.toFixed(1),
+                outRate: +liveRates.outRate.toFixed(1),
+                inHistory: liveRates.inHistory,
+                outHistory: liveRates.outHistory,
+                publish: pubTotal,
+                delivered: delTotal,
+              acked: ms(metricsSum, 'messages.acked'),
+            });
+          }
+        }
+
+        updateCharts();
         } catch (e) {
           console.error('fetch overview error:', e);
         }
       }
 
+      function getRangeMs(key) {
+        if (key.endsWith('m')) return parseInt(key) * 60000;
+        if (key.endsWith('h')) return parseInt(key) * 3600000;
+        if (key.endsWith('d')) return parseInt(key) * 86400000;
+        return 3600000;
+      }
+
       function updateCharts() {
-        var data = metricsHistory.value;
+        var data = chartData.value;
         if (data.length < 2) return;
 
-        var times = data.map(function(d) {
-          var t = new Date(d.time);
-          return t.getHours().toString().padStart(2,'0') + ':' + t.getMinutes().toString().padStart(2,'0');
-        });
+        // 切换时间范围时强制重建图表，避免合并动画产生竖线
+        var notMerge = notMergeNext;
+        notMergeNext = false;
 
-        function updateLineChart(chart, seriesName, values, color, areaColor) {
+        // history 模式下按选中时间范围固定 X 轴窗口，live-only 模式自动缩放
+        var now = Date.now();
+        var rangeMs = isLiveMode ? 0 : getRangeMs(timeRange.value);
+        var xMin = rangeMs > 0 ? now - rangeMs : undefined;
+        var xMax = rangeMs > 0 ? now : undefined;
+
+        function updateLineChart(chart, seriesName, values, color, areaColor, customTooltip) {
           if (!chart) return;
           var series = {
             name: seriesName, type: 'line', data: values, smooth: true,
@@ -459,28 +622,105 @@
           };
           if (areaColor) series.areaStyle = { color: areaColor };
           chart.setOption({
-            tooltip: { trigger: 'axis', textStyle: { color: '#000' }, confine: true },
-            grid: { left: 40, right: 16, top: 24, bottom: 20 },
-            xAxis: { data: times, axisLabel: { color: '#8899aa', fontSize: 11 }, axisLine: { lineStyle: { color: '#2a3245' } } },
-            yAxis: { type: 'value', splitLine: { lineStyle: { color: '#2a3245' } }, axisLabel: { color: '#8899aa' } },
+            tooltip: customTooltip || { trigger: 'axis', textStyle: { color: '#000' }, confine: true },
+            grid: { left: 42, right: 30, top: 24, bottom: 20 },
+            xAxis: {
+              type: 'value',
+              min: xMin,
+              max: xMax,
+              interval: rangeMs > 0 ? rangeMs / 3 : undefined,
+              axisLabel: {
+                align: 'center',
+                formatter: function(value) {
+                  var d = new Date(value);
+                  return pad(d.getMonth() + 1) + '/' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+                },
+                color: '#8899aa',
+                fontSize: 11,
+              },
+              axisLine: { lineStyle: { color: '#2a3245' } },
+              axisTick: { show: false },
+              splitLine: { show: false },
+            },
+            yAxis: {
+              type: 'value',
+              splitLine: { show: false },
+              axisLabel: {
+                color: '#8899aa',
+                formatter: function(v) {
+                  if (v === 0) return '0';
+                  var abs = Math.abs(v);
+                  var sign = v < 0 ? '-' : '';
+                  // < 10000 直接显示整数，最多 4 位 "9999"
+                  if (abs < 10000) return sign + Math.round(abs).toString();
+                  // < 100000 用 k，"10.0k"~"99.9k"（5 位含小数点）
+                  if (abs < 100000) {
+                    return sign + (Math.floor(abs / 100) / 10).toFixed(1) + 'k';
+                  }
+                  // >= 100000 用 M/B/T，"X.X 单位"始终 ≤ 5 位
+                  var units = ['M', 'B', 'T'];
+                  var div = 1000000;
+                  for (var i = 0; i < units.length; i++) {
+                    var val = abs / div;
+                    if (val < 100) {
+                      return sign + val.toFixed(1) + units[i];
+                    }
+                    div *= 1000;
+                  }
+                  return sign + (abs / div).toFixed(1) + units[units.length - 1];
+                },
+              },
+            },
             legend: { show: false },
             series: [series],
-          }, true);
+          }, notMerge);
         }
 
-        var msgIn = data.map(function(d, i) { return i > 0 ? d.msgIn - data[i-1].msgIn : 0; });
-        var msgOut = data.map(function(d, i) { return i > 0 ? d.msgOut - data[i-1].msgOut : 0; });
-        var msgDropped = data.map(function(d, i) { return i > 0 ? d.msgDropped - data[i-1].msgDropped : 0; });
+        // 窗口内消息总数（不再是每秒速率，因为历史和实时间隔已统一为 merge_window）
+        function toRate(prev, curr, field) {
+          return [curr.time, Math.max(0, (curr[field] - prev[field]))];
+        }
+        var msgIn = data.length > 1 ? data.slice(1).map(function(d, i) {
+          return toRate(data[i], d, 'msgIn');
+        }) : [];
+        var msgOut = data.length > 1 ? data.slice(1).map(function(d, i) {
+          return toRate(data[i], d, 'msgOut');
+        }) : [];
+        var msgDropped = data.length > 1 ? data.slice(1).map(function(d, i) {
+          return toRate(data[i], d, 'msgDropped');
+        }) : [];
 
-        updateLineChart(chartMsgIn, $t('overview.msg_in_trend'), msgIn, '#3b82f6');
-        updateLineChart(chartMsgOut, $t('overview.msg_out_trend'), msgOut, '#22c55e');
-        updateLineChart(chartMsgDropped, $t('overview.msg_dropped_trend'), msgDropped, '#ef4444');
-        updateLineChart(chartConnections, $t('overview.connections_trend'), data.map(function(d) { return d.connections; }), '#f59e0b', 'rgba(245,158,11,0.1)');
-        updateLineChart(chartTopics, $t('overview.topics_trend'), data.map(function(d) { return d.topics; }), '#8b5cf6');
-        updateLineChart(chartSubscriptions, $t('overview.subscriptions_trend'), data.map(function(d) { return d.subscriptions; }), '#06b6d4');
+        // 生成消息流 tooltip：MM/DD HH:mm:ss + N秒内消息总数
+        function makeMsgTooltip(field) {
+          return {
+            trigger: 'axis',
+            confine: true,
+            formatter: function(params) {
+              var p = params[0];
+              if (!p || p.dataIndex == null) return '';
+              var idx = p.dataIndex;
+              var curr = data[idx + 1];
+              var prev = data[idx];
+              if (!prev || !curr) return '';
+              var t = new Date(curr.time);
+              var ts = pad(t.getMonth() + 1) + '/' + pad(t.getDate()) + ' ' + pad(t.getHours()) + ':' + pad(t.getMinutes()) + ':' + pad(t.getSeconds());
+              var dt = Math.round((curr.time - prev.time) / 1000);
+              var total = Math.max(0, Math.round(curr[field] - prev[field]));
+              return ts + '<br/>' + dt + '秒内消息总数：' + total;
+            }
+          };
+        }
+
+        updateLineChart(chartMsgIn, $t('overview.msg_in_trend'), msgIn, '#3b82f6', null, makeMsgTooltip('msgIn'));
+        updateLineChart(chartMsgOut, $t('overview.msg_out_trend'), msgOut, '#22c55e', null, makeMsgTooltip('msgOut'));
+        updateLineChart(chartMsgDropped, $t('overview.msg_dropped_trend'), msgDropped, '#ef4444', null, makeMsgTooltip('msgDropped'));
+        updateLineChart(chartConnections, $t('overview.connections_trend'), data.map(function(d) { return [d.time, d.connections]; }), '#f59e0b', 'rgba(245,158,11,0.1)');
+        updateLineChart(chartTopics, $t('overview.topics_trend'), data.map(function(d) { return [d.time, d.topics]; }), '#8b5cf6');
+        updateLineChart(chartSubscriptions, $t('overview.subscriptions_trend'), data.map(function(d) { return [d.time, d.subscriptions]; }), '#06b6d4');
       }
 
       onMounted(function() {
+        fetchHistory();
         fetchData();
         nextTick(function() {
           gaugeConn = new window.GaugeChart(document.getElementById('gaugeConnContainer'), 'gauge.connections', 'gauge.unit');
@@ -493,12 +733,14 @@
           chartTopics = echarts.init(document.getElementById('chartTopics'));
           chartSubscriptions = echarts.init(document.getElementById('chartSubscriptions'));
           fetchData();
+          startLiveHistoryPolling();
         });
         timer = setInterval(fetchData, 2000);
       });
 
       onUnmounted(function() {
         if (timer) clearInterval(timer);
+        if (liveHistoryTimer) clearInterval(liveHistoryTimer);
         if (gaugeConn) gaugeConn.dispose();
         if (msgRatePanel) msgRatePanel.dispose();
         if (ringChart) ringChart.dispose();
