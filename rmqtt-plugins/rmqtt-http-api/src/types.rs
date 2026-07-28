@@ -34,15 +34,32 @@ pub enum Message<'a> {
     StatsInfo,
     MetricsInfo,
     ClientSearch(Box<ClientSearchParams>),
-    ClientGet { clientid: &'a str },
+    ClientGet {
+        clientid: &'a str,
+    },
     Subscribe(SubscribeParams),
     Unsubscribe(UnsubscribeParams),
     GetPlugins,
-    GetPlugin { name: &'a str },
-    GetPluginConfig { name: &'a str },
-    ReloadPluginConfig { name: &'a str },
-    LoadPlugin { name: &'a str },
-    UnloadPlugin { name: &'a str },
+    GetPlugin {
+        name: &'a str,
+    },
+    GetPluginConfig {
+        name: &'a str,
+    },
+    ReloadPluginConfig {
+        name: &'a str,
+    },
+    LoadPlugin {
+        name: &'a str,
+    },
+    UnloadPlugin {
+        name: &'a str,
+    },
+    // ── History query messages ─────────────────────────────────────────
+    /// Query another node's Stats history
+    StatsHistoryQuery(HistoryQuery),
+    /// Query another node's Metrics history
+    MetricsHistoryQuery(HistoryQuery),
 }
 
 impl Message<'_> {
@@ -77,6 +94,11 @@ pub enum MessageReply {
     ReloadPluginConfig,
     LoadPlugin,
     UnloadPlugin(bool),
+    // ── History query replies ──────────────────────────────────────────
+    /// Stats history data from a node
+    StatsHistoryReply(HistoryData),
+    /// Metrics history data from a node
+    MetricsHistoryReply(HistoryData),
 }
 
 impl MessageReply {
@@ -362,6 +384,36 @@ pub enum PrometheusDataType {
     Sum,
 }
 
+/// Query parameters for fetching history data from a remote node via gRPC.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct HistoryQuery {
+    /// Start timestamp (milliseconds, inclusive)
+    pub start_ts: u64,
+    /// End timestamp (milliseconds, inclusive)
+    pub end_ts: u64,
+    /// Maximum number of data points to return
+    pub limit: usize,
+    /// Merge window in seconds — returns data merged at this granularity.
+    /// When `None`, uses the node's `flush_interval`.
+    pub merge_window: Option<u64>,
+}
+
+/// History data returned by a node for a history query.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct HistoryData {
+    /// Node that produced this data
+    pub node: NodeId,
+    /// Start of the query window
+    pub from: u64,
+    /// End of the query window
+    pub to: u64,
+    /// Number of data points returned
+    pub count: usize,
+    /// JSON data points, each is a flattened Stats/Metrics snapshot
+    /// with a "ts" field for the timestamp.
+    pub data: Vec<serde_json::Value>,
+}
+
 // #[inline]
 // fn format_timestamp(t: i64) -> String {
 //     if t <= 0 {
@@ -375,3 +427,55 @@ pub enum PrometheusDataType {
 //         }
 //     }
 // }
+
+// ════════════════════════════════════════════════════════════════════════
+//  LRU Cache types for history optimisation
+// ════════════════════════════════════════════════════════════════════════
+
+/// Bit flags for cache entry persistence state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct EntryFlags(u8);
+
+impl EntryFlags {
+    pub const NONE: u8 = 0b00;
+    pub const PENDING: u8 = 0b01;
+    pub const FAILED: u8 = 0b10;
+
+    #[inline]
+    pub const fn new(bits: u8) -> Self {
+        Self(bits)
+    }
+
+    #[inline]
+    #[allow(dead_code)]
+    pub fn is_pending(self) -> bool {
+        self.0 & Self::PENDING != 0
+    }
+    #[inline]
+    #[allow(dead_code)]
+    pub fn is_failed(self) -> bool {
+        self.0 & Self::FAILED != 0
+    }
+
+    /// Returns `true` if the entry needs recovery attention (has FAILED bit set).
+    #[inline]
+    pub fn needs_recovery(self) -> bool {
+        self.0 & Self::FAILED != 0
+    }
+}
+
+/// A single history data point in the LRU cache.
+#[derive(Clone, Debug)]
+pub(crate) struct CacheEntry {
+    /// JSON-serialised Stats or Metrics snapshot.
+    pub json: String,
+    /// Persistence state flags.
+    pub flags: EntryFlags,
+}
+
+impl CacheEntry {
+    #[inline]
+    pub fn new(json: String) -> Self {
+        Self { json, flags: EntryFlags::new(EntryFlags::PENDING) }
+    }
+}

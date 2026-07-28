@@ -48,6 +48,9 @@ rmqtt_http_api::register_named(&scx, "rmqtt-http-api", true, false).await?;
 | `message_expiry_interval` | `string` | `"5m"` | 发布操作消息的默认过期时间 |
 | `metrics_sample_interval` | `string` | `"5s"` | 指标采样间隔 |
 | `prometheus_metrics_cache_interval` | `string` | `"5s"` | Prometheus 指标数据缓存间隔 |
+| `storage` | `object` | — | 历史数据存储配置（可选，不配置则不启用历史功能） |
+| `flush_interval` | `string` | `"5s"` | 历史数据刷盘间隔 |
+| `history_retention` | `string` | `"7d"` | 历史数据保留时长。Warmup 从存储加载时，会检查每条数据的时间戳是否在 `history_retention` 范围内，已过期的数据不会被加载到缓存并从存储中删除。 |
 
 ### 配置来源
 

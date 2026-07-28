@@ -48,6 +48,9 @@ File: `rmqtt-http-api.toml` (in the plugin config directory). Loaded via `scx.pl
 | `message_expiry_interval` | `string` | `"5m"` | Default message expiration interval for publish operations |
 | `metrics_sample_interval` | `string` | `"5s"` | Metrics sampling interval |
 | `prometheus_metrics_cache_interval` | `string` | `"5s"` | Prometheus metrics data caching interval |
+| `storage` | `object` | — | History data storage config (optional; omit to disable history) |
+| `flush_interval` | `string` | `"5s"` | History flush interval |
+| `history_retention` | `string` | `"7d"` | History data retention. During warmup, each data point's timestamp is checked against this duration — expired entries are discarded from the cache and removed from storage. |
 
 ### Configuration Source
 
