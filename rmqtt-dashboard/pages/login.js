@@ -1,5 +1,5 @@
 /* ============================================================
-   RMQTT Dashboard — 登录页
+   RMQTT Dashboard — 登录页（国际化）
    用户输入 http-api 的 Bearer Token
    ============================================================ */
 window.LoginPage = Vue.defineComponent({
@@ -8,44 +8,59 @@ window.LoginPage = Vue.defineComponent({
     <div class="login-page">
       <div class="login-card">
         <h1>RMQTT</h1>
-        <p>输入 Bearer Token 登录 Dashboard</p>
+        <p>{{ $t('login.subtitle') }}</p>
         <div class="form-group">
-          <label>Bearer Token</label>
-          <input class="form-input" type="password" v-model="token"
-                 placeholder="请输入 Token" @keyup.enter="login" />
+          <label>{{ $t('login.title') }}</label>
+          <div class="password-wrapper">
+            <input class="form-input" :type="showToken ? 'text' : 'password'" v-model="token"
+                   :placeholder="$t('login.token_placeholder')" @keyup.enter="login" />
+            <button class="password-toggle" type="button" @click="showToken = !showToken"
+                    :title="showToken ? $t('login.hide_token') : $t('login.show_token')">
+              <span v-text="showToken ? '🙈' : '👁'"></span>
+            </button>
+          </div>
         </div>
         <div class="form-group" v-if="error" style="color:var(--red);font-size:13px;">
           {{ error }}
         </div>
         <button class="btn btn-primary" @click="login" :disabled="loading">
-          {{ loading ? '验证中...' : '登录' }}
+          {{ loading ? $t('login.verifying') : $t('login.submit') }}
         </button>
       </div>
     </div>
   `,
   setup() {
     const token = Vue.ref('');
+    const showToken = Vue.ref(false);
     const loading = Vue.ref(false);
     const error = Vue.ref('');
 
+    // $t 在 setup 中不可用，用 window.i18n.$t
+    function $t(key, params) { return window.i18n.$t(key, params); }
+
     async function login() {
-      if (!token.value.trim()) { error.value = '请输入 Token'; return; }
+      if (!token.value.trim()) { error.value = $t('login.error_empty'); return; }
       loading.value = true;
       error.value = '';
       try {
-        // 用 /api/v1/brokers 验证 Token 有效性
+        // 先保存 Token，再验证——确保验证请求携带 Authorization 头
+        store.setToken(token.value.trim());
         const result = await http.get('/brokers');
         if (result) {
-          store.setToken(token.value.trim());
           location.hash = '#/';
+        } else {
+          // result 为 null 说明 http.js 捕获了 401 并清除了 Token
+          throw new Error('Unauthorized');
         }
       } catch (e) {
-        error.value = 'Token 无效或服务不可用';
+        // 验证失败，清除无效 Token
+        store.clearToken();
+        error.value = $t('login.error_invalid');
       } finally {
         loading.value = false;
       }
     }
 
-    return { token, loading, error, login };
+    return { token, showToken, loading, error, login };
   },
 });

@@ -1,6 +1,5 @@
 /* ============================================================
    RMQTT Dashboard — 节点详情弹窗组件
-   点击节点表行 → 弹窗展示完整节点信息
    ============================================================ */
 ;(function() {
   'use strict';
@@ -21,28 +20,28 @@
           </div>
           <div class="modal-body">
             <table class="detail-table">
-              <tr><td class="dt-label">节点 ID</td><td>{{ node.node_id }}</td></tr>
-              <tr><td class="dt-label">名称</td><td>{{ node.node_name || node.name }}</td></tr>
+              <tr><td class="dt-label">{{ $t('node_detail.node_id') }}</td><td>{{ node.node_id }}</td></tr>
+              <tr><td class="dt-label">{{ $t('node_detail.name') }}</td><td>{{ node.node_name || node.name }}</td></tr>
               <tr>
-                <td class="dt-label">状态</td>
+                <td class="dt-label">{{ $t('node_detail.status') }}</td>
                 <td>
                   <span :class="(node.node_status === 'Running' || node.running) ? 'status-online' : 'status-offline'">
-                    {{ (node.node_status === 'Running' || node.running) ? '● 在线' : '○ 离线' }}
+                    {{ (node.node_status === 'Running' || node.running) ? $t('node_detail.online') : $t('node_detail.offline') }}
                   </span>
                 </td>
               </tr>
-              <tr><td class="dt-label">版本</td><td>{{ node.version || '-' }}</td></tr>
-              <tr><td class="dt-label">连接数</td><td>{{ node.connections || 0 }}</td></tr>
-              <tr><td class="dt-label">CPU</td><td>{{ formatCpu(node.cpuload != null ? node.cpuload : node.load1) }}</td></tr>
-              <tr><td class="dt-label">内存</td><td>{{ formatMem(node) }}</td></tr>
-              <tr><td class="dt-label">运行时间</td><td>{{ formatUptime(node.uptime) }}</td></tr>
-              <tr><td class="dt-label">Rust 版本</td><td>{{ node.rustc_version || '-' }}</td></tr>
-              <tr><td class="dt-label">系统描述</td><td>{{ node.sysdescr || '-' }}</td></tr>
-              <tr><td class="dt-label">日期时间</td><td>{{ node.datetime || '-' }}</td></tr>
+              <tr><td class="dt-label">{{ $t('node_detail.version') }}</td><td>{{ node.version || '-' }}</td></tr>
+              <tr><td class="dt-label">{{ $t('node_detail.connections') }}</td><td>{{ node.connections || 0 }}</td></tr>
+              <tr><td class="dt-label">{{ $t('node_detail.cpu') }}</td><td>{{ formatCpu(node.cpuload != null ? node.cpuload : node.load1) }}</td></tr>
+              <tr><td class="dt-label">{{ $t('node_detail.memory') }}</td><td>{{ formatMem(node) }}</td></tr>
+              <tr><td class="dt-label">{{ $t('node_detail.uptime') }}</td><td>{{ formatUptime(node.uptime) }}</td></tr>
+              <tr><td class="dt-label">{{ $t('node_detail.rust_version') }}</td><td>{{ node.rustc_version || '-' }}</td></tr>
+              <tr><td class="dt-label">{{ $t('node_detail.sys_desc') }}</td><td>{{ node.sysdescr || '-' }}</td></tr>
+              <tr><td class="dt-label">{{ $t('node_detail.datetime') }}</td><td>{{ node.datetime || '-' }}</td></tr>
             </table>
           </div>
           <div class="modal-footer">
-            <button class="btn btn-primary" @click="$emit('close')">关闭</button>
+            <button class="btn btn-primary" @click="$emit('close')">{{ $t('node_detail.close') }}</button>
           </div>
         </div>
       </div>

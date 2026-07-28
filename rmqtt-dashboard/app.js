@@ -210,6 +210,14 @@ const App = Vue.defineComponent({
     this.onHashChange();
     window.addEventListener('hashchange', () => this.onHashChange());
 
+    // 启动时自动验证已有 Token 是否仍有效
+    if (store.isLoggedIn()) {
+      http.get('/brokers').catch(function() {
+        store.clearToken();
+        location.hash = '#/login';
+      });
+    }
+
     window.addEventListener('locale-changed', () => {
       this.localeVersion++;
       this.localeState.version++;
@@ -277,7 +285,7 @@ const App = Vue.defineComponent({
             <div class="topbar-right">
               <!-- 快速搜索 -->
               <div class="quick-search" :class="{ active: showSearch }">
-                <button class="btn-icon search-toggle" :title="$t('common.search')" @click="toggleSearch">&#128269;</button>
+                <button class="btn-icon search-toggle disabled" title="Search (unavailable)" tabindex="-1">&#128269;</button>
                 <div v-if="showSearch" class="search-overlay" @click.self="showSearch = false"></div>
                 <div v-if="showSearch" class="search-panel">
                   <input id="quickSearchInput" class="search-input" type="text"
@@ -321,7 +329,7 @@ const App = Vue.defineComponent({
             </div>
           </template>
 
-          <component :is="currentPage.component"></component>
+          <component :is="currentPage.component" :key="localeVersion"></component>
         </app-layout>
       </template>
     </div>

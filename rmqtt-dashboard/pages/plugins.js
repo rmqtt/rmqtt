@@ -26,8 +26,8 @@ window.PluginsPage = Vue.defineComponent({
               </td>
               <td>
                 <button class="btn-icon" style="width:auto;padding:4px 12px;font-size:12px;"
-                        @click="viewConfig(p)" title="查看配置">
-                  配置
+                        @click="viewConfig(p)" :title="$t('plugins.config')">
+                  {{ $t('plugins.config') }}
                 </button>
               </td>
             </tr>

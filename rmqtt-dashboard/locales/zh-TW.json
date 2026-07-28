@@ -54,7 +54,9 @@
     "submit": "登入",
     "verifying": "驗證中...",
     "error_empty": "Token 不能為空",
-    "error_invalid": "Token 無效或服務不可用"
+    "error_invalid": "Token 無效或服務不可用",
+    "hide_token": "隱藏 Token",
+    "show_token": "顯示 Token"
   },
   "overview": {
     "title": "叢集概覽",
@@ -115,7 +117,26 @@
     "messages_delivered": "投遞消息數",
     "messages_discarded": "丟棄消息數",
     "subscriptions_count": "訂閱數",
-    "shared_subscriptions_count": "共享訂閱數"
+    "shared_subscriptions_count": "共享訂閱數",
+    "clients_connected": "Connections",
+    "clients_sub": "Active Connections",
+    "msg_rate": "Messages/sec",
+    "msg_rate_sub": "Last 1 min average",
+    "subscribers": "Subscriptions",
+    "subscribers_sub": "Active Subscriptions",
+    "node_count": "Nodes",
+    "node_count_sub": "Online/Total",
+    "status_title": "Status",
+    "group_topics_routes": "Subscriptions & Routes",
+    "group_queues": "Message Queues",
+    "group_storage": "Storage",
+    "routes_count": "Routes",
+    "queues_count": "Queue Depth",
+    "out_inflights_count": "Outgoing Inflight",
+    "in_inflights_count": "Incoming Inflight",
+    "forwards_count": "Forwards",
+    "message_storages_count": "Message Storage",
+    "delayed_publishs_count": "Delayed Publish"
   },
   "gauge": {
     "connections": "設備連接",
@@ -140,7 +161,7 @@
     "filter_online": "在線",
     "filter_offline": "離線",
     "search": "搜尋",
-    "client_id": "ClientID",
+    "client_id": "客戶端 ID",
     "node": "節點",
     "ip": "IP",
     "protocol": "協議",
@@ -151,13 +172,37 @@
     "disconnect": "踢出",
     "disconnect_confirm": "確認踢出客戶端 {clientId} ？",
     "disconnect_fail": "踢出失敗: {msg}",
-    "no_results": "暫無數據"
+    "no_results": "暫無數據",
+    "filter_proto_all": "協議: 全部",
+    "filter_proto_3": "MQTT 3",
+    "filter_proto_4": "MQTT 4",
+    "filter_proto_5": "MQTT 5",
+    "reset": "重置",
+    "limit": "限制",
+    "advanced": "進階篩選",
+    "fuzzy_cid": "ClientID（模糊匹配）",
+    "fuzzy_user": "Username（模糊匹配）",
+    "clean_start": "Clean start: 全部",
+    "session": "Session present: 全部",
+    "created_at": "建立時間:",
+    "placeholder_cid": "ClientID",
+    "placeholder_user": "Username",
+    "placeholder_ip": "IP 位址",
+    "placeholder_fuzzy_cid": "例如 sensor-",
+    "placeholder_fuzzy_user": "例如 john",
+    "username": "使用者名稱",
+    "ip_port": "IP:Port",
+    "proto_short": "協議",
+    "subs": "訂閱",
+    "expiry": "過期",
+    "ka": "Keepalive",
+    "connected_at": "連線時間"
   },
   "subscriptions": {
     "title": "訂閱",
     "search_placeholder": "搜尋 ClientID...",
     "search": "搜尋",
-    "client_id": "ClientID",
+    "client_id": "客戶端 ID",
     "topic": "Topic",
     "qos": "QoS",
     "node": "節點",
@@ -166,7 +211,16 @@
     "unsubscribe": "取消",
     "unsubscribe_confirm": "取消 {clientId} 對 {topic} 的訂閱？",
     "unsubscribe_fail": "取消訂閱失敗: {msg}",
-    "no_results": "暫無數據"
+    "no_results": "暫無數據",
+    "unsub_btn": "Unsub",
+    "unsub_confirm": "Unsubscribe {clientId} from {topic}?",
+    "placeholder_topic_exact": "主题（精确匹配）",
+    "placeholder_topic_pattern": "主题（通配匹配，如 sensor/#）",
+    "placeholder_share": "共享组",
+    "qos_all": "QoS: 全部",
+    "qos_0": "QoS 0",
+    "qos_1": "QoS 1",
+    "qos_2": "QoS 2"
   },
   "publish": {
     "title": "發布消息",
@@ -194,7 +248,8 @@
     "config_loading": "載入中...",
     "config_fail": "獲取失敗: {msg}",
     "close": "關閉",
-    "no_results": "暫無數據"
+    "no_results": "暫無數據",
+    "action": "Action"
   },
   "common": {
     "online": "在線",
@@ -212,5 +267,21 @@
     "retry": "重試",
     "close": "關閉",
     "dashboard": "Dashboard"
+  },
+  "node_detail": {
+    "cpu": "CPU",
+    "node_id": "节点 ID",
+    "name": "名称",
+    "status": "状态",
+    "version": "版本",
+    "connections": "连接数",
+    "memory": "内存",
+    "uptime": "运行时间",
+    "rust_version": "Rust 版本",
+    "sys_desc": "系统描述",
+    "datetime": "日期时间",
+    "close": "关闭",
+    "online": "在线",
+    "offline": "离线"
   }
 }

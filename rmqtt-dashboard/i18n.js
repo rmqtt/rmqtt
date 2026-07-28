@@ -21,7 +21,7 @@
     'ar': 'ar', 'ar-sa': 'ar', 'ar-eg': 'ar', 'ar-ae': 'ar',
     'bn': 'bn', 'bn-bd': 'bn', 'bn-in': 'bn',
   };
-  const FALLBACK = 'zh-CN';
+  const FALLBACK = 'en';
 
   class I18n {
     constructor() {
@@ -35,10 +35,10 @@
     async init() {
       var self = this;
       const saved = window.store?.getLocale();
-      const detected = navigator.language || navigator.userLanguage || FALLBACK;
-      this.locale = LOCALE_MAP[(saved || '').toLowerCase()]
-                 || LOCALE_MAP[detected.toLowerCase()]
-                 || FALLBACK;
+      // 优先使用用户之前保存的偏好；首次访问默认为英文
+      this.locale = saved
+        ? (LOCALE_MAP[saved.toLowerCase()] || FALLBACK)
+        : FALLBACK;
       // 预加载所有语言包，切换时无需再次 HTTP 请求
       var locales = ['zh-CN', 'zh-TW', 'en', 'ru', 'fr', 'es', 'de', 'pt', 'it', 'hi', 'ar', 'bn'];
       await Promise.all(locales.map(function(l) { return self._load(l); }));

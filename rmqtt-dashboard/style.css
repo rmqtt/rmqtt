@@ -107,6 +107,10 @@ body {
   background: rgba(255,255,255,0.08);
   color: var(--text);
 }
+/* 搜索按钮暂时禁用 */
+.search-toggle.disabled {
+  opacity: .35; cursor: not-allowed; pointer-events: none;
+}
 .node-badge {
   color: #fff; padding: 2px 10px;
   border-radius: 12px; font-size: 12px; font-weight: 600;
@@ -206,9 +210,57 @@ tr:hover td { background: var(--bg-hover); }
 
 /* ─── 搜索栏 ─── */
 .search-bar {
-  display: flex; gap: 8px; margin-bottom: 16px;
+  display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px;
 }
-.search-bar .form-input { max-width: 300px; }
+.search-bar .form-input { max-width: none; }
+.search-row {
+  display: flex; flex-wrap: wrap; gap: 8px;
+}
+.search-advanced-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; color: var(--accent); cursor: pointer;
+  padding: 4px 0; user-select: none;
+}
+.search-advanced-toggle:hover { opacity: .8; }
+.search-advanced-arrow {
+  font-size: 10px; transition: transform .15s;
+}
+.search-advanced-arrow.open {
+  transform: rotate(90deg);
+}
+.search-advanced-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 9px; background: var(--accent); color: #fff;
+  font-size: 11px; font-weight: 500;
+}
+.search-advanced-panel {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.filter-row {
+  display: flex; flex-wrap: wrap; gap: 12px;
+}
+.filter-group {
+  display: flex; flex-direction: column; gap: 4px;
+  flex: 1; min-width: 180px;
+}
+.filter-label {
+  font-size: 12px; color: var(--text-muted); margin-bottom: 4px;
+}
+.filter-check-input {
+  display: flex; align-items: center; gap: 6px;
+}
+.filter-check-input input[type="checkbox"] {
+  margin: 0; cursor: pointer;
+}
+.filter-check-input .form-input {
+  flex: 1;
+}
+.filter-check-input .form-input:disabled {
+  opacity: .45; cursor: not-allowed;
+}
 
 /* ─── 登录页 ─── */
 .login-page {
@@ -222,6 +274,22 @@ tr:hover td { background: var(--bg-hover); }
 .login-card h1 { text-align: center; margin-bottom: 4px; color: var(--accent); }
 .login-card p { text-align: center; color: var(--text-muted); margin-bottom: 28px; font-size: 13px; }
 .login-card .btn { width: 100%; }
+
+/* ─── 密码输入切换 ─── */
+.password-wrapper {
+  position: relative;
+}
+.password-wrapper .form-input {
+  padding-right: 36px;
+}
+.password-toggle {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; cursor: pointer; padding: 4px;
+  font-size: 16px; line-height: 1; color: var(--text-muted);
+  transition: color .15s;
+}
+.password-toggle:hover { color: var(--text); }
+.password-toggle:focus { outline: none; }
 
 /* ─── 语言选择器（自定义下拉） ─── */
 .lang-select-wrapper {

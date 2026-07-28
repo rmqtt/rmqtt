@@ -54,7 +54,9 @@
     "submit": "Войти",
     "verifying": "Проверка...",
     "error_empty": "Token не может быть пустым",
-    "error_invalid": "Неверный токен или сервис недоступен"
+    "error_invalid": "Неверный токен или сервис недоступен",
+    "hide_token": "Скрыть Token",
+    "show_token": "Показать Token"
   },
   "overview": {
     "title": "Обзор кластера",
@@ -115,7 +117,26 @@
     "messages_delivered": "Доставлено",
     "messages_discarded": "Отброшено",
     "subscriptions_count": "Подписки",
-    "shared_subscriptions_count": "Общие подписки"
+    "shared_subscriptions_count": "Общие подписки",
+    "clients_connected": "Connections",
+    "clients_sub": "Active Connections",
+    "msg_rate": "Messages/sec",
+    "msg_rate_sub": "Last 1 min average",
+    "subscribers": "Subscriptions",
+    "subscribers_sub": "Active Subscriptions",
+    "node_count": "Nodes",
+    "node_count_sub": "Online/Total",
+    "status_title": "Status",
+    "group_topics_routes": "Subscriptions & Routes",
+    "group_queues": "Message Queues",
+    "group_storage": "Storage",
+    "routes_count": "Routes",
+    "queues_count": "Queue Depth",
+    "out_inflights_count": "Outgoing Inflight",
+    "in_inflights_count": "Incoming Inflight",
+    "forwards_count": "Forwards",
+    "message_storages_count": "Message Storage",
+    "delayed_publishs_count": "Delayed Publish"
   },
   "gauge": {
     "connections": "Соединения",
@@ -140,7 +161,7 @@
     "filter_online": "Онлайн",
     "filter_offline": "Офлайн",
     "search": "Поиск",
-    "client_id": "ClientID",
+    "client_id": "ID клиента",
     "node": "Узел",
     "ip": "IP",
     "protocol": "Протокол",
@@ -151,7 +172,31 @@
     "disconnect": "Отключить",
     "disconnect_confirm": "Отключить клиента {clientId}?",
     "disconnect_fail": "Ошибка отключения: {msg}",
-    "no_results": "Нет данных"
+    "no_results": "Нет данных",
+    "filter_proto_all": "Протокол: все",
+    "filter_proto_3": "MQTT 3",
+    "filter_proto_4": "MQTT 4",
+    "filter_proto_5": "MQTT 5",
+    "reset": "Сбросить",
+    "limit": "Лимит",
+    "advanced": "Расширенные фильтры",
+    "fuzzy_cid": "ClientID (нечеткий поиск)",
+    "fuzzy_user": "Username (нечеткий поиск)",
+    "clean_start": "Clean start: все",
+    "session": "Session present: все",
+    "created_at": "Создан:",
+    "placeholder_cid": "ClientID",
+    "placeholder_user": "Username",
+    "placeholder_ip": "IP адрес",
+    "placeholder_fuzzy_cid": "напр. sensor-",
+    "placeholder_fuzzy_user": "напр. john",
+    "username": "Имя пользователя",
+    "ip_port": "IP:Port",
+    "proto_short": "Протокол",
+    "subs": "Подписки",
+    "expiry": "Срок",
+    "ka": "Keepalive",
+    "connected_at": "Подключен"
   },
   "subscriptions": {
     "title": "Подписки",
@@ -166,7 +211,16 @@
     "unsubscribe": "Отписаться",
     "unsubscribe_confirm": "Отписать {clientId} от {topic}?",
     "unsubscribe_fail": "Ошибка отписки: {msg}",
-    "no_results": "Нет данных"
+    "no_results": "Нет данных",
+    "unsub_btn": "Unsub",
+    "unsub_confirm": "Unsubscribe {clientId} from {topic}?",
+    "placeholder_topic_exact": "Topic (exact)",
+    "placeholder_topic_pattern": "Topic (match, e.g. sensor/)",
+    "placeholder_share": "Share group",
+    "qos_all": "QoS: all",
+    "qos_0": "QoS 0",
+    "qos_1": "QoS 1",
+    "qos_2": "QoS 2"
   },
   "publish": {
     "title": "Публикация",
@@ -194,7 +248,8 @@
     "config_loading": "Загрузка...",
     "config_fail": "Ошибка: {msg}",
     "close": "Закрыть",
-    "no_results": "Нет данных"
+    "no_results": "Нет данных",
+    "action": "Action"
   },
   "common": {
     "online": "Онлайн",
@@ -212,5 +267,21 @@
     "retry": "Повторить",
     "close": "Закрыть",
     "dashboard": "Dashboard"
+  },
+  "node_detail": {
+    "cpu": "CPU",
+    "node_id": "Node ID",
+    "name": "Name",
+    "status": "Status",
+    "version": "Version",
+    "connections": "Connections",
+    "memory": "Memory",
+    "uptime": "Uptime",
+    "rust_version": "Rust Version",
+    "sys_desc": "System Description",
+    "datetime": "Date/Time",
+    "close": "Close",
+    "online": "Online",
+    "offline": "Offline"
   }
 }
