@@ -48,20 +48,24 @@ window.ClientsPage = Vue.defineComponent({
         <div class="search-advanced-panel" v-if="showAdvanced">
           <div class="filter-row">
             <div class="filter-group">
-              <span class="filter-label">{{ $t('clients.fuzzy_cid') }}</span>
-              <div class="filter-check-input">
-                <input type="checkbox" id="fuzzyCid" v-model="useFuzzyClientid" />
+              <div class="filter-check-input" @click="useFuzzyClientid = true">
+                <input type="checkbox" id="fuzzyCid" v-model="useFuzzyClientid"
+                       @click.stop
+                       :aria-label="$t('clients.fuzzy_cid')" />
                 <input class="form-input" v-model="fuzzyClientid"
-                       :placeholder="$t('clients.placeholder_fuzzy_cid')"
+                       :placeholder="$t('clients.fuzzy_cid')"
+                       :style="!useFuzzyClientid ? { pointerEvents: 'none' } : {}"
                        :disabled="!useFuzzyClientid" @keyup.enter="loadClients" />
               </div>
             </div>
             <div class="filter-group">
-              <span class="filter-label">{{ $t('clients.fuzzy_user') }}</span>
-              <div class="filter-check-input">
-                <input type="checkbox" id="fuzzyUser" v-model="useFuzzyUsername" />
+              <div class="filter-check-input" @click="useFuzzyUsername = true">
+                <input type="checkbox" id="fuzzyUser" v-model="useFuzzyUsername"
+                       @click.stop
+                       :aria-label="$t('clients.fuzzy_user')" />
                 <input class="form-input" v-model="fuzzyUsername"
-                       :placeholder="$t('clients.placeholder_fuzzy_user')"
+                       :placeholder="$t('clients.fuzzy_user')"
+                       :style="!useFuzzyUsername ? { pointerEvents: 'none' } : {}"
                        :disabled="!useFuzzyUsername" @keyup.enter="loadClients" />
               </div>
             </div>
@@ -84,6 +88,14 @@ window.ClientsPage = Vue.defineComponent({
                    style="flex:1;max-width:200px;" />
             <span style="margin:0 6px;color:var(--text-muted);">~</span>
             <input class="form-input" type="datetime-local" v-model="createdLte"
+                   style="flex:1;max-width:200px;" />
+          </div>
+          <div class="filter-row" style="align-items:center;">
+            <span class="filter-label" style="margin-bottom:0;">{{ $t('clients.connected_at') }}</span>
+            <input class="form-input" type="datetime-local" v-model="connectedGte"
+                   style="flex:1;max-width:200px;" />
+            <span style="margin:0 6px;color:var(--text-muted);">~</span>
+            <input class="form-input" type="datetime-local" v-model="connectedLte"
                    style="flex:1;max-width:200px;" />
           </div>
         </div>
@@ -158,6 +170,8 @@ window.ClientsPage = Vue.defineComponent({
     const sessionPresent = Vue.ref('');
     const createdGte = Vue.ref('');
     const createdLte = Vue.ref('');
+    const connectedGte = Vue.ref('');
+    const connectedLte = Vue.ref('');
 
     const clients = Vue.ref([]);
 
@@ -170,6 +184,8 @@ window.ClientsPage = Vue.defineComponent({
       if (sessionPresent.value !== '') n++;
       if (createdGte.value) n++;
       if (createdLte.value) n++;
+      if (connectedGte.value) n++;
+      if (connectedLte.value) n++;
       return n || '';
     });
 
@@ -201,8 +217,10 @@ window.ClientsPage = Vue.defineComponent({
         if (protoVer.value !== '')        params.proto_ver = +protoVer.value;
         if (cleanStart.value !== '')      params.clean_start = cleanStart.value === 'true';
         if (sessionPresent.value !== '')  params.session_present = sessionPresent.value === 'true';
-        if (createdGte.value)             params._gte_created_at = new Date(createdGte.value).toISOString();
-        if (createdLte.value)             params._lte_created_at = new Date(createdLte.value).toISOString();
+        if (createdGte.value)             params._gte_created_at = createdGte.value.replace('T', ' ') + ':00';
+        if (createdLte.value)             params._lte_created_at = createdLte.value.replace('T', ' ') + ':00';
+        if (connectedGte.value)           params._gte_connected_at = connectedGte.value.replace('T', ' ') + ':00';
+        if (connectedLte.value)           params._lte_connected_at = connectedLte.value.replace('T', ' ') + ':00';
 
         var data = await http.get('/clients', params);
         clients.value = Array.isArray(data) ? data : [];
@@ -226,6 +244,8 @@ window.ClientsPage = Vue.defineComponent({
       sessionPresent.value = '';
       createdGte.value = '';
       createdLte.value = '';
+      connectedGte.value = '';
+      connectedLte.value = '';
       loadClients();
     }
 
@@ -244,7 +264,7 @@ window.ClientsPage = Vue.defineComponent({
     return { clientid, username, ipAddress, filterOnline, protoVer, pageSize,
              showAdvanced, useFuzzyClientid, fuzzyClientid,
              useFuzzyUsername, fuzzyUsername, cleanStart, sessionPresent,
-             createdGte, createdLte, clients, advancedActiveCount,
+             createdGte, createdLte, connectedGte, connectedLte, clients, advancedActiveCount,
              loadClients, reset, kick, fmtExpiry, $t };
   },
 });
