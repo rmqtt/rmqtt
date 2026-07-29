@@ -200,6 +200,17 @@ tr:hover td { background: var(--bg-hover); }
 .form-input:focus, .form-select:focus, .form-textarea:focus {
   outline: none; border-color: var(--accent);
 }
+
+/* ─── 原生日期选择器图标暗色适配 ─── */
+.form-input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+}
+[data-theme="dark"] .form-input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}
+[data-theme="light"] .form-input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  filter: invert(0);
+}
 .btn {
   padding: 8px 20px; border: none; border-radius: var(--radius);
   font-size: 14px; cursor: pointer; transition: .15s;
