@@ -8,7 +8,7 @@ rmqtt-net = { workspace = true, features = ["quic"] }
 rmqtt-codec.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tokio-util = { workspace = true, features = ["codec"] }
-simple_logger = "5"
+simple_logger = { workspace = true }
 log.workspace = true
 quinn.workspace = true
 futures.workspace = true

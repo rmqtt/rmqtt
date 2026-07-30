@@ -49,10 +49,20 @@ use crate::codec::types::{Publish, MQTT_LEVEL_5};
 use crate::types::{ConnectInfo, Disconnect, FitterType, Id, ListenerConfig};
 use crate::Result;
 
+/// Manager trait for creating `Fitter` instances per connection.
+///
+/// Implementors define how connection-specific parameter negotiators are
+/// created based on connection info and listener configuration.
 pub trait FitterManager: Sync + Send {
+    /// Creates a new `Fitter` for the given connection.
     fn create(&self, conn_info: Arc<ConnectInfo>, id: Id, cfg: ListenerConfig) -> FitterType;
 }
 
+/// Trait for MQTT connection parameter negotiation.
+///
+/// Implementors provide protocol version-aware policies for keepalive,
+/// message queue limits, inflight windows, expiry intervals, and topic
+/// alias handling. Each connection gets its own `Fitter` instance.
 #[async_trait]
 pub trait Fitter: Sync + Send {
     ///keep_alive - is client input value, unit: seconds
@@ -82,6 +92,7 @@ pub trait Fitter: Sync + Send {
     fn max_server_topic_aliases(&self) -> u16;
 }
 
+/// Default implementation of `FitterManager` that creates `DefaultFitter` instances.
 pub struct DefaultFitterManager;
 
 impl FitterManager for DefaultFitterManager {
@@ -91,6 +102,11 @@ impl FitterManager for DefaultFitterManager {
     }
 }
 
+/// Default implementation of the `Fitter` trait using listener-specific configuration.
+///
+/// Provides protocol version-aware negotiation for keepalive, message queue limits,
+/// inflight windows, expiry intervals, and topic alias settings based on the
+/// associated `ListenerConfig` and `ConnectInfo`.
 #[derive(Clone)]
 pub struct DefaultFitter {
     conn_info: Arc<ConnectInfo>,
@@ -98,6 +114,7 @@ pub struct DefaultFitter {
 }
 
 impl DefaultFitter {
+    /// Creates a new `DefaultFitter` for the given connection and listener config.
     #[inline]
     pub fn new(conn_info: Arc<ConnectInfo>, _id: Id, listen_cfg: ListenerConfig) -> Self {
         Self { conn_info, listen_cfg }

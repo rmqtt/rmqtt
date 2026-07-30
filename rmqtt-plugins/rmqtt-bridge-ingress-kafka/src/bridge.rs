@@ -1,3 +1,12 @@
+//! Ingress bridge from Kafka.
+//!
+//! Consumes messages from Kafka topics and forwards them as MQTT publish
+//! messages into the local broker. Translates Kafka headers into MQTT
+//! metadata (from, client ID, QoS, retain, user properties).
+//!
+//! The bridge supports partition assignment, offset management,
+//! and auto-commit configuration.
+
 use std::collections::HashSet;
 use std::convert::From as _;
 use std::net::SocketAddr;
@@ -33,15 +42,20 @@ use crate::config::{Bridge, Entry, PluginConfig, MESSAGE_KEY, PARTITION_UNASSIGN
 
 type ExpiryInterval = Duration;
 
+/// Type alias for the message tuple sent through the event system.
 pub type MessageType = (ServerContext, From, Publish, ExpiryInterval);
+
+/// Event that fires when a Kafka message is consumed and translated to MQTT.
 pub type OnMessageEvent = Arc<Event<MessageType, ()>>;
 
+/// Commands for controlling a Kafka consumer.
 #[derive(Debug)]
 pub enum Command {
     Start,
     Close,
 }
 
+/// Mailbox for sending commands to a Kafka consumer.
 #[derive(Clone)]
 pub struct CommandMailbox {
     pub(crate) client_id: ClientId,
@@ -49,16 +63,19 @@ pub struct CommandMailbox {
 }
 
 impl CommandMailbox {
+    /// Creates a new `CommandMailbox` with a channel sender and client ID.
     pub(crate) fn new(cmd_tx: mpsc::Sender<Command>, client_id: ClientId) -> Self {
         CommandMailbox { cmd_tx, client_id }
     }
 
+    /// Sends a command to the Kafka consumer.
     #[inline]
     pub(crate) async fn send(&mut self, cmd: Command) -> Result<()> {
         self.cmd_tx.send(cmd).await.map_err(|e| anyhow!(e))?;
         Ok(())
     }
 
+    /// Sends a `Close` command to stop the consumer.
     #[inline]
     pub(crate) async fn stop(&mut self) -> Result<()> {
         self.send(Command::Close).await
@@ -83,6 +100,7 @@ impl KafkaConsumerContext for SourceContext {
     }
 }
 
+/// A Kafka consumer that reads messages and forwards them as MQTT publishes.
 pub struct Consumer {
     scx: ServerContext,
     pub(crate) client_id: ByteString,
@@ -92,6 +110,10 @@ pub struct Consumer {
 }
 
 impl Consumer {
+    /// Creates a new Kafka consumer and starts the event processing loop.
+    ///
+    /// Configures Kafka client from bridge settings, subscribes to topics
+    /// and partitions, and returns a `CommandMailbox` for lifecycle control.
     pub(crate) async fn connect(
         scx: ServerContext,
         cfg: Arc<Bridge>,
@@ -221,7 +243,7 @@ impl Consumer {
                 msg = consumer.recv() => {
                     match msg{
                         Err(e) => {
-                            log::error!("{name}/{client_id} Kafka error: {e:?}");
+                            log::error!("{name}/{client_id} Kafka error: {e}");
                             tokio::time::sleep(Duration::from_millis(1000)).await;
                         },
                         Ok(m) => {
@@ -234,7 +256,7 @@ impl Consumer {
 
                             if !enable_auto_commit {
                                 if let Err(e) = consumer.commit_message(&m, CommitMode::Async){
-                                    log::error!("{name}/{client_id} Kafka commit_message error: {e:?}");
+                                    log::error!("{name}/{client_id} Kafka commit_message error: {e}");
                                 }
                             }
                         }
@@ -353,11 +375,13 @@ impl Consumer {
     }
 }
 
+/// A named bridge instance identifier.
 pub(crate) type BridgeName = ByteString;
 type SourceKey = (BridgeName, EntryIndex);
 
 type EntryIndex = usize;
 
+/// Manages Kafka consumers and topic routing for bridge entries.
 #[derive(Clone)]
 pub(crate) struct BridgeManager {
     scx: ServerContext,
@@ -367,10 +391,12 @@ pub(crate) struct BridgeManager {
 }
 
 impl BridgeManager {
+    /// Creates a new `BridgeManager` with the server context and configuration.
     pub async fn new(scx: ServerContext, node_id: NodeId, cfg: Arc<RwLock<PluginConfig>>) -> Self {
         Self { scx, node_id, cfg: cfg.clone(), sources: Arc::new(DashMap::default()) }
     }
 
+    /// Starts all configured bridge entries by creating Kafka consumers.
     pub async fn start(&mut self) -> Result<()> {
         let bridges = self.cfg.read().await.bridges.clone();
         let mut bridge_names: HashSet<&str> = HashSet::default();
@@ -410,19 +436,21 @@ impl BridgeManager {
         )
     }
 
+    /// Stops all bridge entries by sending close commands to consumers.
     pub async fn stop(&mut self) {
         for mut entry in &mut self.sources.iter_mut() {
             let ((bridge_name, entry_idx), mailbox) = entry.pair_mut();
             log::debug!("stop bridge_name: {bridge_name:?}, entry_idx: {entry_idx:?}",);
             if let Err(e) = mailbox.stop().await {
                 log::error!(
-                    "stop BridgeKafkaIngressPlugin error, bridge_name: {bridge_name}, entry_idx: {entry_idx}, {e:?}"
+                    "stop BridgeKafkaIngressPlugin error, bridge_name: {bridge_name}, entry_idx: {entry_idx}, {e}"
                 );
             }
         }
         self.sources.clear();
     }
 
+    /// Returns a reference to the internal source (consumer mailbox) map.
     #[allow(unused)]
     pub(crate) fn sources(&self) -> &DashMap<SourceKey, CommandMailbox> {
         &self.sources
@@ -444,10 +472,11 @@ async fn send_publish(scx: ServerContext, from: From, msg: Publish, expiry_inter
     let storage_available = scx.extends.message_mgr().await.enable();
 
     if let Err(e) = SessionState::forwards(&scx, from, msg, storage_available, Some(expiry_interval)).await {
-        log::warn!("{e:?}");
+        log::warn!("{e}");
     }
 }
 
+/// Converts values to their string representation for Kafka headers.
 pub trait AsStr {
     fn as_str(&self) -> &str;
 }

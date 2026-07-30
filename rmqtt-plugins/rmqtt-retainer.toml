@@ -3,7 +3,7 @@
 ##--------------------------------------------------------------------
 #
 # Single node mode         - ram, sled, redis
-# Multi-node cluster mode  - redis
+# Multi-node cluster mode  - ram, sled, redis
 #
 
 ##ram, sled, redis
@@ -28,3 +28,17 @@ max_payload_size = "1MB"
 # TTL for retained messages. Set to 0 for no expiration.
 # If not specified, the message expiration time will be used by default.
 retained_message_ttl = "0m"
+
+# Maximum number of messages per batch (default: 500).
+batch_messages_limit = 500
+
+##─── Backend timeout (circuit breaker) ──────────────────────────────────────
+##All circuit-breaker parameters (failure rate, window, etc.) are inherited
+##from the global `[circuit_breaker]` section in `rmqtt.toml`.
+##Only the backend operation timeout can be overridden here.
+##
+##Backend storage operation timeout. If a storage call (Sled/Redis)
+##exceeds this duration it is aborted and counted as a failure by the
+##circuit breaker. Set to "0s" to disable.
+##Default: "8s"
+#backend_timeout = "8s"

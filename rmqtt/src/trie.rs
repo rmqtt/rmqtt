@@ -26,7 +26,7 @@
 //!
 //! - **Cluster-Ready Serialization**:
 //!   - `Serialize/Deserialize` implementations enable distributed state synchronization
-//!   - `bincode` compatible for network-efficient binary representation
+//!   - `postcard` compatible for network-efficient binary representation
 //!
 //! - **Memory Optimization**:
 //!   - Automatic node cleanup during removal operations
@@ -64,8 +64,22 @@ use crate::types::TopicFilter;
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 type ValueSet<K> = std::collections::BTreeSet<K>;
 
+/// A topic trie tree, alias for [`Node<V>`].
+///
+/// Provides O(k) insertion/removal and efficient wildcard matching
+/// for MQTT topic-based subscription storage.
 pub type TopicTree<V> = Node<V>;
 
+/// A node in the topic trie tree.
+///
+/// Each node holds a set of values (subscribers) at its level and
+/// branches to child nodes keyed by [`Level`]. Leaf nodes contain
+/// the values associated with a complete topic path, while interior
+/// nodes route matching through wildcard and literal branches.
+///
+/// # Type Parameters
+/// * `V` — The value type stored at each leaf (typically a subscriber
+///   identifier). Must implement `Ord`, `Hash`, `Eq`, `Clone`, and `Debug`.
 #[derive(Serialize, Deserialize)]
 pub struct Node<V: Ord> {
     values: ValueSet<V>,
@@ -202,6 +216,11 @@ where
 
 type Item<'a, V> = (Vec<&'a Level>, Vec<&'a V>);
 
+/// Iterator-style matcher over the topic trie.
+///
+/// Created by [`Node::matches`], this struct lazily evaluates
+/// wildcard and literal branches against a topic path to find
+/// all matching subscription entries.
 pub struct Matcher<'a, V: Ord> {
     node: &'a Node<V>,
     path: &'a [Level],
@@ -222,6 +241,9 @@ where
     }
 }
 
+/// Conversion trait from a level vector to its string representation.
+///
+/// Joins the levels with `/` separator to reconstruct a topic string.
 pub trait VecToString {
     fn to_string(&self) -> String;
 }
@@ -240,6 +262,7 @@ impl VecToString for &[Level] {
     }
 }
 
+/// Conversion trait from a level vector to [`Topic`] and [`TopicFilter`].
 pub trait VecToTopic {
     fn to_topic(&self) -> Topic;
     fn to_topic_filter(&self) -> TopicFilter;
@@ -257,6 +280,11 @@ impl VecToTopic for Vec<&Level> {
     }
 }
 
+/// Lazily-evaluated iterator over matched subscription entries.
+///
+/// Traverses the trie depth-first, yielding `(levels, values)` pairs
+/// for each matching subscription path. Handles multi-level (`#`) and
+/// single-level (`+`) wildcards per the MQTT specification.
 pub struct MatchedIter<'a, V: Ord> {
     node: &'a Node<V>,
     path: &'a [Level],
@@ -469,7 +497,7 @@ mod tests {
         println!("serialize topics.values_size(): {:?}", topics.values_size());
         let val_size = topics.values_size();
         let mut topics: TopicTree<NodeId> =
-            bincode::deserialize(&bincode::serialize(&topics).unwrap()).unwrap();
+            postcard::from_bytes(&postcard::to_stdvec(&topics).unwrap()).unwrap();
         println!("deserialize topics.values_size(): {:?}", topics.values_size());
         assert_eq!(val_size, topics.values_size());
         assert!(match_one(&topics, "/a/b/c", &[1]));
@@ -508,7 +536,7 @@ mod tests {
         topics.insert(&Topic::from_str("/ddl/22/#").unwrap(), ());
 
         let val_size = topics.values_size();
-        let topics: TopicTree<()> = bincode::deserialize(&bincode::serialize(&topics).unwrap()).unwrap();
+        let topics: TopicTree<()> = postcard::from_bytes(&postcard::to_stdvec(&topics).unwrap()).unwrap();
         assert_eq!(val_size, topics.values_size());
     }
 }

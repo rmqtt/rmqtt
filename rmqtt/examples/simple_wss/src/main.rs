@@ -1,3 +1,6 @@
+//! Example: MQTT server with secure WebSocket (WSS) transport on port 8443.
+//! Demonstrates how to configure TLS for WebSocket connections.
+
 use rmqtt::{context::ServerContext, net::Builder, server::MqttServer, Result};
 use simple_logger::SimpleLogger;
 

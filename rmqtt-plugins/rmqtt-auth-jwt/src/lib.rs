@@ -1,3 +1,16 @@
+//! JWT-based authentication plugin for RMQTT.
+//!
+//! Authenticates MQTT clients using JSON Web Tokens (JWT).
+//! Supports token validation, expiry checking, and claim-based
+//! authorization for publish/subscribe operations.
+//!
+//! # Features
+//!
+//! - Configurable JWT secret/key for token verification.
+//! - Support for standard JWT claims (iss, sub, exp, etc.).
+//! - Custom claim extraction for ACL decisions.
+//! - Username extraction from JWT claims.
+//!
 #![deny(unsafe_code)]
 
 use std::borrow::Cow;

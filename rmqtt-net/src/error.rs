@@ -1,3 +1,8 @@
+//! MQTT error types for protocol, I/O, and session-level failures.
+//!
+//! Defines [`MqttError`] with variants covering handshake, protocol, encoding/decoding,
+//! timeout, and resource-limit errors, along with conversion to MQTTv5 disconnect reason codes.
+
 use bytestring::ByteString;
 use std::num::NonZeroU16;
 

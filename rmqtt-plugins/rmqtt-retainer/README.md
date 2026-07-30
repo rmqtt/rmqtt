@@ -1,0 +1,128 @@
+[**English**](README.md) | [简体中文](README-CN.md)
+
+# rmqtt-retainer
+
+[![crates.io](https://img.shields.io/crates/v/rmqtt-retainer.svg)](https://crates.io/crates/rmqtt-retainer)
+
+Retained message storage plugin. Supports RAM, Sled (embedded), and Redis backends. Replaces the default retain engine with persistent storage.
+
+All backends support both single-node and cluster mode. In cluster mode, local backends (ram, sled) use full retain synchronization, while Redis uses lightweight topic-only synchronization.
+
+## Overview
+
+Intercepts the `BeforeStartup` hook to inject a persistent retain store. A background task periodically (every 10s) cleans expired retained messages.
+
+### Architecture (v0.22.0+)
+
+- **In-Memory Topic Trie Index**: Built on startup by scanning stored retain messages. Provides fast wildcard matching for subscription queries, replacing the previous SCAN+MATCH approach.
+- **Batch Storage**: Messages are collected and processed in batches (`batch_insert` / `batch_remove`), controlled by `batch_messages_limit`.
+- **Rate Counter**: Tracks processing throughput (enabled by default via the `rate-counter` feature).
+- **RetainSyncMode**:
+  - `Full`: Full retain payload broadcast (ram, sled).
+  - `TopicOnly`: Lightweight topic-name sync only (Redis with shared storage).
+- **Circuit Breaker**: Built-in storage failure detection with automatic fast-fail degradation and recovery.
+  See configuration below.
+
+## Usage
+
+### Build
+
+Add the dependency in `rmqttd/Cargo.toml` or enable via the `rmqtt-plugins` meta-crate:
+
+```toml
+# Direct dependency
+rmqtt-retainer = { version = "0.22", features = ["ram"] }
+
+# Or via meta-crate
+rmqtt-plugins = { version = "0.22", features = ["retainer-ram"] }
+```
+
+Available feature flags for storage backends:
+
+| Feature | Backend | Persistence | Cluster Support |
+|---------|---------|-------------|-----------------|
+| `ram` | In-memory HashMap | No (lost on restart) | Yes |
+| `sled` | Sled embedded DB (disk) | Yes | Yes |
+| `redis` | Redis remote store | Yes | Yes |
+
+Additional features:
+
+| Feature | Description |
+|---------|-------------|
+| `rate-counter` | Enable throughput rate counter (enabled by default) |
+
+### Register
+
+```rust
+rmqtt_retainer::register(&scx, true, false).await?;
+// or with explicit name:
+rmqtt_retainer::register_named(&scx, "rmqtt-retainer", true, false).await?;
+```
+
+Parameters: `(scx, default_startup, immutable)`.
+
+## Configuration
+
+File: `rmqtt-retainer.toml` (in the plugin config directory). Loaded via `scx.plugins.load_config_default::<PluginConfig>("rmqtt-retainer")`.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `storage.type` | `string` | `"ram"` | Backend type: `ram`, `sled`, `redis` |
+| `storage.sled.path` | `string` | `"/var/log/rmqtt/.cache/retain/{node}"` | Sled database path (supports `{node}` placeholder for node ID) |
+| `storage.sled.cache_capacity` | `string` | `"3G"` | Sled cache capacity (e.g. `"3G"`, `"512MB"`) |
+| `storage.redis.url` | `string` | `"redis://127.0.0.1:6379/"` | Redis connection URL |
+| `storage.redis.prefix` | `string` | `"retain"` | Redis key prefix |
+| `max_retained_messages` | `u64` | `0` (unlimited) | Maximum retained messages. After exceeding, existing messages can be replaced but new topics cannot be stored. |
+| `max_payload_size` | `string` | `"1MB"` | Maximum payload size for retained messages. Exceeding this causes the message to be treated as a regular message. |
+| `retained_message_ttl` | `string` | `"0m"` (no expiry) | TTL for retained messages. If not set, defaults to the message expiry interval. |
+| `batch_messages_limit` | `usize` | `500` | Maximum number of messages per batch store operation |
+| `backend_timeout` | `string` | `"8s"` | Backend storage operation timeout (`"0s"` to disable) |
+
+### Configuration Source
+
+The plugin loads configuration via `scx.plugins.load_config_default::<PluginConfig>("rmqtt-retainer")`, supporting:
+
+1. `{plugins.dir}/rmqtt-retainer.toml` (file, optional — falls back to defaults if missing)
+2. `rmqtt_plugin_rmqtt_retainer_*` environment variables (maps TOML keys to env vars with underscore prefix)
+3. Inline config via `ServerContext::plugins_config_map_add()`
+
+### Example
+
+```toml
+# RAM mode (default)
+storage.type = "ram"
+
+# Sled mode (persistent)
+storage.type = "sled"
+storage.sled.path = "/var/log/rmqtt/.cache/retain/{node}"
+storage.sled.cache_capacity = "3G"
+
+# Redis mode (persistent, cluster-compatible)
+storage.type = "redis"
+storage.redis.url = "redis://127.0.0.1:6379/"
+storage.redis.prefix = "retain"
+
+# Limits
+max_retained_messages = 10000
+max_payload_size = "1MB"
+retained_message_ttl = "24h"
+batch_messages_limit = 500
+
+##All circuit-breaker parameters (failure rate, window, etc.) are inherited
+##from the global `[circuit_breaker]` section in `rmqtt.toml`.
+##Only the backend operation timeout can be overridden here.
+##
+##Backend storage operation timeout. If a storage call (Sled/Redis)
+##exceeds this duration it is aborted and counted as a failure by the
+##circuit breaker. Set to "0s" to disable.
+##Default: "8s"
+#backend_timeout = "8s"
+```
+
+## Dependencies
+
+`rmqtt` (features: `plugin`, `retain`), `rmqtt-storage`, `serde`, `tokio`, `sled` (optional), `redis` (optional)
+
+## License
+
+MIT OR Apache-2.0

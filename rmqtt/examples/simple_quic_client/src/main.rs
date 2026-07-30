@@ -1,3 +1,8 @@
+//! Example: MQTT client over QUIC transport.
+//! Connects to a QUIC-enabled MQTT server, sends a CONNECT and PUBLISH
+//! packet, and receives CONNACK / PUBACK responses. Includes a
+//! `SkipServerVerification` helper for testing with self-signed certificates.
+
 use bytes::Bytes;
 use bytestring::ByteString;
 use futures::{SinkExt, StreamExt};

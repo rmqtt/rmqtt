@@ -1,11 +1,20 @@
+//! Binary entry point for the RMQTT broker.
+//!
+//! Parses CLI arguments, loads configuration, initializes the logger, creates
+//! the server context, registers plugins, binds listeners (TCP, TLS, WebSocket,
+//! WSS, QUIC), and starts the MQTT server. Handles OS signal-based shutdown.
+
 #![deny(unsafe_code)]
 
+use anyhow::anyhow;
 use std::time::Duration;
 
-use structopt::StructOpt;
+use clap::Parser;
 
 use rmqtt::args::CommandArgs;
-use rmqtt::context::ServerContext;
+use rmqtt::context::{
+    CircuitBreakerConfig, CountBasedWindowConfig, ServerContext, TimeBasedWindowConfig, WindowConfig,
+};
 use rmqtt::net::{tls_provider, Builder};
 use rmqtt::node::Node;
 use rmqtt::server::MqttServer;
@@ -25,14 +34,22 @@ mod plugin {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let opts = Options::from_args();
+    if let Err(e) = run().await {
+        log::error!("{e}");
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+async fn run() -> Result<()> {
+    let opts = Options::parse();
     if opts.version {
         println!("{} rustc/{}", Node::version(), Node::rustc_version());
         return Ok(());
     }
 
     //init config
-    let conf = Settings::init(Options::from_args()).expect("settings init failed");
+    let conf = Settings::init(Options::parse()).expect("settings init failed");
 
     //rustls crypto install default
     tls_provider::default_provider()
@@ -40,7 +57,7 @@ async fn main() -> Result<()> {
         .expect("Failed to install the default Rustls crypto backend because it is already installed.");
 
     //init log
-    let (_guard, _logger) = logger::logger_init(&conf.log).expect("logger init failed");
+    logger::logger_init(&conf.log).expect("logger init failed");
 
     //node info
     let node = Node::new(
@@ -55,6 +72,29 @@ async fn main() -> Result<()> {
 
     let _ = Settings::logs();
 
+    // Build circuit-breaker config from global settings.
+    let cb_config = {
+        let cb = &Settings::instance().circuit_breaker;
+        let window = match cb.sliding_window_type.as_str() {
+            "CountBased" => WindowConfig::CountBased(CountBasedWindowConfig {
+                sliding_window_size: cb.sliding_window_size,
+            }),
+            _ => WindowConfig::TimeBased(TimeBasedWindowConfig {
+                sliding_window_duration: cb.sliding_window_duration,
+                sliding_window_size: cb.sliding_window_size,
+            }),
+        };
+        CircuitBreakerConfig {
+            failure_rate_threshold: cb.failure_rate_threshold,
+            window,
+            minimum_number_of_calls: cb.minimum_number_of_calls,
+            wait_duration_in_open: cb.wait_duration_in_open,
+            slow_call_duration_threshold: cb.slow_call_duration_threshold,
+            slow_call_rate_threshold: cb.slow_call_rate_threshold,
+            name: "grpc".into(),
+        }
+    };
+
     //init ServerContext
     let scx = ServerContext::new()
         .args(config_args(conf))
@@ -67,6 +107,7 @@ async fn main() -> Result<()> {
         .mqtt_delayed_publish_immediate(conf.mqtt.delayed_publish_immediate)
         .mqtt_max_sessions(conf.mqtt.max_sessions)
         .plugins_config_dir(conf.plugins.dir.as_str())
+        .circuit_breaker_config(cb_config)
         .build()
         .await;
 
@@ -74,33 +115,69 @@ async fn main() -> Result<()> {
     scx.node.start_grpc_server(scx.clone(), conf.rpc.server_addr, conf.rpc.reuseaddr, conf.rpc.reuseport);
 
     //register plugin
-    plugin::registers(&scx, conf.plugins.default_startups.clone()).await.expect("register plugin failed");
+    plugin::registers(
+        &scx,
+        conf.plugins.default_startups.clone(),
+        conf.plugins.disabled_default_startups.clone(),
+    )
+    .await
+    .expect("register plugin failed");
 
     let mut builder = MqttServer::new(scx);
 
     //tcp
-    for (_, listen_cfg) in Settings::instance().listeners.tcps.iter() {
-        builder = builder.listener(config_builder(listen_cfg).bind()?.tcp()?);
+    for listen_cfg in Settings::instance().listeners.tcps.values() {
+        let listener = match config_builder(listen_cfg).bind() {
+            Ok(l) => l.tcp()?,
+            Err(e) => {
+                return Err(anyhow!("Failed to bind TCP listener on {}: {}", listen_cfg.addr, e));
+            }
+        };
+        builder = builder.listener(listener);
     }
 
     //tls
-    for (_, listen_cfg) in Settings::instance().listeners.tlss.iter() {
-        builder = builder.listener(config_builder(listen_cfg).bind()?.tls()?);
+    for listen_cfg in Settings::instance().listeners.tlss.values() {
+        let listener = match config_builder(listen_cfg).bind() {
+            Ok(l) => l.tls()?,
+            Err(e) => {
+                return Err(anyhow!("Failed to bind TLS listener on {}: {}", listen_cfg.addr, e));
+            }
+        };
+        builder = builder.listener(listener);
     }
 
     //websocket
-    for (_, listen_cfg) in Settings::instance().listeners.wss.iter() {
-        builder = builder.listener(config_builder(listen_cfg).bind()?.ws()?);
+    for listen_cfg in Settings::instance().listeners.wss.values() {
+        let listener = match config_builder(listen_cfg).bind() {
+            Ok(l) => l.ws()?,
+            Err(e) => {
+                return Err(anyhow!("Failed to bind WebSocket listener on {}: {}", listen_cfg.addr, e));
+            }
+        };
+        builder = builder.listener(listener);
     }
 
     //tls-websocket
-    for (_, listen_cfg) in Settings::instance().listeners.wsss.iter() {
-        builder = builder.listener(config_builder(listen_cfg).bind()?.wss()?);
+    for listen_cfg in Settings::instance().listeners.wsss.values() {
+        let listener = match config_builder(listen_cfg).bind() {
+            Ok(l) => l.wss()?,
+            Err(e) => {
+                return Err(anyhow!("Failed to bind WSS listener on {}: {}", listen_cfg.addr, e));
+            }
+        };
+        builder = builder.listener(listener);
     }
 
     //MQTT over QUIC
-    for (_, listen_cfg) in Settings::instance().listeners.quics.iter() {
-        builder = builder.listener(config_builder(listen_cfg).bind_quic()?);
+    for listen_cfg in Settings::instance().listeners.quics.values() {
+        let listener = match config_builder(listen_cfg).bind_quic() {
+            Ok(l) => l,
+            Err(e) => {
+                return Err(anyhow!("Failed to bind QUIC listener on {}: {}", listen_cfg.addr, e));
+            }
+        };
+        builder = builder.listener(listener);
     }
 
     builder.build().start();
@@ -158,7 +235,6 @@ fn config_builder(cfg: &Listener) -> Builder {
         .message_retry_interval(cfg.message_retry_interval)
         .message_expiry_interval(cfg.message_expiry_interval)
         .max_subscriptions(cfg.max_subscriptions)
-        .shared_subscription(cfg.shared_subscription)
         .max_topic_aliases(cfg.max_topic_aliases)
         .tls_cross_certificate(cfg.cross_certificate)
         .tls_cert(cfg.cert.clone())
@@ -169,6 +245,7 @@ fn config_builder(cfg: &Listener) -> Builder {
         .proxy_protocol(cfg.proxy_protocol)
         .proxy_protocol_timeout(cfg.proxy_protocol_timeout)
         .cert_cn_as_username(cfg.cert_cn_as_username)
+        .cert_subject_dn_as_username(cfg.cert_subject_dn_as_username)
         .collect_cert_info(cfg.collect_cert_info)
         .idle_timeout(cfg.idle_timeout)
 }

@@ -1,0 +1,58 @@
+##--------------------------------------------------------------------
+## rmqtt-bridge-ingress-mqtt
+##--------------------------------------------------------------------
+
+# See more keys and their definitions at https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/bridge-ingress-mqtt.md
+
+[[bridges]]
+# Whether to enable
+enable = true
+# Bridge name
+name = "bridge_mqtt_ingress_1"
+# Client ID prefix
+client_id_prefix = "ingress_001"
+# Address and port of the remote MQTT broker
+server = "127.0.0.1:3883"
+# Username to connect to the remote MQTT broker
+username = "rmqtt_u"
+# Password to connect to the remote MQTT broker
+password = "public"
+
+# Maximum limit of clients connected to the remote MQTT broker
+concurrent_client_limit = 3
+# Connection timeout
+connect_timeout = "20s"
+# Keepalive interval
+keepalive = "60s"
+# Automatic reconnection interval
+reconnect_interval = "5s"
+# MQTT protocol version to use: v4, v5
+mqtt_ver = "v5"
+
+# Clear session state on connection
+v5.clean_start = true
+# Session expiry interval
+v5.session_expiry_interval = "0s"
+# Limit the maximum number of QoS 1 and QoS 2 messages
+v5.receive_maximum = 16
+# Negotiate the maximum packet size
+v5.maximum_packet_size = "1M"
+
+[[bridges.entries]]
+#Remote topic filter: Subscribe to messages matching this topic filter from the remote MQTT server.
+remote.topic = "remote/topic/ingress/#"
+#remote.group_id = "group_id_001"
+#remote.start_partition = -1
+#remote.stop_partition = -1
+#remote.offset = "beginning"
+
+#local.qos = 1
+local.topic = "local/topic1/ingress/${remote.topic}"
+
+[[bridges.entries]]
+remote.topic = "remote/topic/ingress/specific"
+#remote.group_id = "group_id_002"
+
+#local.qos = 1
+local.topic = "local/topic/ingress/specific"
+local.retain = false

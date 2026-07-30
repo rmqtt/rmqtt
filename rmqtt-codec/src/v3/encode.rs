@@ -1,3 +1,10 @@
+//! MQTT v3.1.1 packet encoding implementation
+//!
+//! This module handles wire format encoding of all MQTT v3.1.1
+//! control packet types: Connect, ConnAck, Publish, PubAck, PubRec,
+//! PubRel, PubComp, Subscribe, SubAck, Unsubscribe, UnsubAck,
+//! PingReq, PingResp, and Disconnect.
+
 // use ntex_bytes::{BufMut, ByteString, BytesMut};
 use bytes::{BufMut, BytesMut};
 use bytestring::ByteString;

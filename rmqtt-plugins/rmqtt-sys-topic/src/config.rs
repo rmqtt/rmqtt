@@ -1,3 +1,8 @@
+//! Configuration for the system topic plugin.
+//!
+//! Defines [`PluginConfig`] for publishing system metrics (QoS, intervals,
+//! expiry) on the `$SYS/` topic tree.
+
 use std::time::Duration;
 
 use serde::{
@@ -11,6 +16,7 @@ use rmqtt::{
     Result,
 };
 
+/// Top-level configuration for the system topic plugin.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
     #[serde(
@@ -75,6 +81,8 @@ impl PluginConfig {
         Ok(qos)
     }
 
+    /// Deserializes the publish interval from a duration string, enforcing a
+    /// minimum of 1 second.
     #[inline]
     pub fn deserialize_publish_interval<'de, D>(deserializer: D) -> std::result::Result<Duration, D::Error>
     where

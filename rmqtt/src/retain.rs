@@ -73,30 +73,128 @@ use crate::types::{HashMap, Retain, TimedValue, TopicFilter, TopicName};
 use crate::utils::{Counter, StatsMergeMode};
 use crate::Result;
 
+/// Abstraction for retained message storage backends.
+///
+/// Implementations can provide in-memory, plugin-backed, or
+/// distributed storage for retained messages.
+///
+/// # Default Behavior
+///
+/// The default in-memory implementation ([`DefaultRetainStorage`]) is
+/// functional but logs a warning recommending the `rmqtt-retainer`
+/// What type of retain synchronization a storage backend requires.
+///
+/// - `Full`: send the full retain message (`SetRetain`) — for local-only
+///   backends like in-memory (Ram) or per-node Sled.
+/// - `TopicOnly`: send only the topic name (`SetRetainTopic`) — for shared
+///   backends like Redis where the retain data is already visible to all
+///   nodes, but the in-memory topic index must be kept in sync.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetainSyncMode {
+    Full,
+    TopicOnly,
+}
+
+/// plugin for production use.
 #[async_trait]
 pub trait RetainStorage: Sync + Send {
-    ///Whether retain is supported
+    /// Whether retained message storage is enabled.
     #[inline]
     fn enable(&self) -> bool {
         false
     }
 
-    ///topic - concrete topic
+    /// Whether merging retentions from remote cluster nodes is needed during retrieval.
+    #[inline]
+    fn merge_on_read(&self) -> bool {
+        false
+    }
+
+    /// Whether retain storage needs cluster-wide synchronization at startup.
+    ///
+    /// Returns `true` (default) if the storage is local (in-memory, per-node Sled)
+    /// and needs proactive sync of retains from peer nodes when a new node joins.
+    /// Returns `false` if the storage is shared (e.g., Redis) so all nodes already
+    /// see the same data and no startup sync is needed.
+    #[inline]
+    fn need_sync(&self) -> bool {
+        true
+    }
+
+    /// Store a retained message for the given topic.
+    ///
+    /// If the payload is empty, the retained message is cleared.
     async fn set(&self, topic: &TopicName, retain: Retain, expiry_interval: Option<Duration>) -> Result<()>;
 
-    ///topic_filter - Topic filter
+    /// Retrieve all retained messages matching the given topic filter.
     async fn get(&self, topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>>;
 
+    /// Retrieve a paginated snapshot of all non-expired retained messages.
+    ///
+    /// Returns `(items, has_more)`. Used by cluster plugins to synchronize
+    /// the retain store between nodes. Default implementation returns empty.
+    async fn get_all_paginated(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<(Vec<(TopicName, Retain, Option<Duration>)>, bool)> {
+        let _ = (offset, limit);
+        Ok((Vec::new(), false))
+    }
+
+    /// Current count of retained messages.
     async fn count(&self) -> isize;
 
+    /// Maximum number of retained messages ever stored.
     async fn max(&self) -> isize;
 
+    /// How stats from this storage should be merged with other sources.
     #[inline]
     fn stats_merge_mode(&self) -> StatsMergeMode {
         StatsMergeMode::None
     }
+
+    /// What type of retain synchronization this storage requires from the
+    /// cluster plugin when [`retain_set_broadcast`] is called.
+    ///
+    /// [`retain_set_broadcast`]: crate::shared::ClusterShared::retain_set_broadcast
+    #[inline]
+    fn retain_sync_mode(&self) -> RetainSyncMode {
+        RetainSyncMode::Full
+    }
+
+    /// Handle a topic-only retain sync notification from a cluster peer.
+    ///
+    /// Called when the cluster plugin receives `SetRetainTopicAdd` or
+    /// `SetRetainTopicRemove` — only used when [`retain_sync_mode`] returns
+    /// `TopicOnly`. The storage backend should unconditionally insert or
+    /// remove the topic from its in-memory index **without** querying the
+    /// shared storage, since the actual retain data is already in Redis.
+    ///
+    /// - `is_set = true` : retain exists, insert into index
+    /// - `is_set = false`: retain deleted, remove from index
+    ///
+    /// [`retain_sync_mode`]: Self::retain_sync_mode
+    async fn sync_retain_topic(
+        &self,
+        _topic: &TopicName,
+        _expiry_interval: Option<Duration>,
+        _is_set: bool,
+    ) -> Result<()> {
+        Ok(())
+    }
 }
 
+/// Default in-memory retained message storage.
+///
+/// Uses a [`RetainTree`] (trie-like structure) for O(log n) topic
+/// operations and a [`Counter`] for atomic statistics tracking.
+///
+/// # Production Note
+///
+/// This is a simple in-memory implementation suitable for testing.
+/// Production deployments should use the `rmqtt-retainer` plugin
+/// for persistent and distributed storage.
 pub struct DefaultRetainStorage {
     pub messages: RwLock<RetainTree<TimedValue<Retain>>>,
     retaineds: Counter,
@@ -167,6 +265,39 @@ impl DefaultRetainStorage {
             .collect::<Vec<(TopicName, Retain)>>();
         Ok(retains)
     }
+
+    /// Return a paginated snapshot of all stored (non-expired) messages.
+    ///
+    /// Uses the wildcard `#` filter to match all topics.
+    #[inline]
+    pub async fn get_all_paginated(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<(Vec<(TopicName, Retain, Option<Duration>)>, bool)> {
+        let topic = match Topic::from_str("#") {
+            Err(e) => return Err(anyhow::anyhow!(e)),
+            Ok(t) => t,
+        };
+        let messages = self.messages.read().await;
+        let all: Vec<(TopicName, Retain, Option<Duration>)> = messages
+            .matches(&topic)
+            .into_iter()
+            .filter_map(|(t, tv)| {
+                if tv.is_expired() {
+                    return None;
+                }
+                let topic = TopicName::from(t.to_string());
+                let remaining = tv.remaining();
+                let retain = tv.into_value();
+                Some((topic, retain, remaining))
+            })
+            .collect();
+        let total = all.len();
+        let has_more = offset + limit < total;
+        let items = all.into_iter().skip(offset).take(limit).collect();
+        Ok((items, has_more))
+    }
 }
 
 #[async_trait]
@@ -199,8 +330,28 @@ impl RetainStorage for DefaultRetainStorage {
     }
 }
 
+/// Trie-like tree structure for retained message storage.
+///
+/// Supports efficient topic-level insertion, removal, and
+/// wildcard pattern matching. The tree hierarchy mirrors
+/// the MQTT topic hierarchy.
+///
+/// # Performance
+///
+/// | Operation    | Complexity |
+/// |--------------|------------|
+/// | `insert()`   | O(k)       |
+/// | `remove()`   | O(k)       |
+/// | `matches()`  | O(k+m)     |
+/// | `retain()`   | O(n)       |
+///
+/// where k = topic depth, m = matching branches, n = total values.
 pub type RetainTree<V> = Node<V>;
 
+/// A single node in the retained message trie.
+///
+/// Each node optionally holds a value and maps topic levels
+/// to child nodes, forming a tree that represents the topic hierarchy.
 pub struct Node<V> {
     value: Option<V>,
     branches: HashMap<Level, Node<V>>,
@@ -217,6 +368,7 @@ impl<V> Node<V>
 where
     V: std::fmt::Debug + Clone,
 {
+    /// Insert a value at the given topic path, creating intermediate nodes as needed.
     #[inline]
     pub fn insert(&mut self, topic: &Topic, value: V) {
         let mut path = topic.levels().clone();
@@ -233,6 +385,10 @@ where
         }
     }
 
+    /// Remove the stored value at the given topic path.
+    ///
+    /// Prunes empty intermediate nodes after removal.
+    /// Returns the removed value, if any.
     #[inline]
     pub fn remove(&mut self, topic: &Topic) -> Option<V> {
         self._remove(topic.levels().as_ref())
@@ -256,7 +412,10 @@ where
         }
     }
 
-    //remove all pairs `v` for which `f(&mut v)` returns `false`.
+    /// Remove values for which the predicate returns `false`.
+    ///
+    /// Respects `max_limit` to cap the number of removals per call.
+    /// Returns the count of removed entries.
     #[inline]
     pub fn retain<F>(&mut self, max_limit: usize, mut f: F) -> usize
     where

@@ -1,5 +1,10 @@
-use async_trait::async_trait;
+//! gRPC message handler for the HTTP API plugin.
+//!
+//! Processes incoming inter-node gRPC messages (broker info, node info,
+//! health, stats, metrics, client queries, subscriptions, plugins, and
+//! history queries) and returns encoded replies.
 
+use async_trait::async_trait;
 use rmqtt::{
     context::ServerContext,
     grpc::{Message as GrpcMessage, MessageReply as GrpcMessageReply, MessageType},
@@ -7,18 +12,27 @@ use rmqtt::{
 };
 
 use super::{
-    clients, plugin, subs,
-    types::{Message, MessageReply},
+    api, clients,
+    flusher::HistoryCaches,
+    plugin, subs,
+    types::{HistoryData, Message, MessageReply},
 };
 
 pub(crate) struct HookHandler {
     scx: ServerContext,
     pub message_type: MessageType,
+    hc: Option<HistoryCaches>,
+    flush_interval_ms: u64,
 }
 
 impl HookHandler {
-    pub(crate) fn new(scx: ServerContext, message_type: MessageType) -> Self {
-        Self { scx, message_type }
+    pub(crate) fn new(
+        scx: ServerContext,
+        message_type: MessageType,
+        hc: Option<HistoryCaches>,
+        flush_interval_ms: u64,
+    ) -> Self {
+        Self { scx, message_type, hc, flush_interval_ms }
     }
 }
 
@@ -35,7 +49,7 @@ impl Handler for HookHandler {
                     GrpcMessage::Data(data) => {
                         let new_acc = match Message::decode(data) {
                             Err(e) => {
-                                log::error!("Message::decode, error: {e:?}");
+                                log::error!("Message::decode, error: {e}");
                                 HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(e.to_string())))
                             }
                             Ok(Message::BrokerInfo) => {
@@ -251,6 +265,71 @@ impl Handler for HookHandler {
                                     HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(e.to_string())))
                                 }
                             },
+                            // ── History query handlers ─────────────────
+                            Ok(Message::StatsHistoryQuery(query)) => {
+                                let node_id = self.scx.node.id();
+                                let data = match &self.hc {
+                                    Some(hc) => {
+                                        api::query_history_local(
+                                            &hc.stats,
+                                            node_id,
+                                            query.start_ts,
+                                            query.end_ts,
+                                            query.limit,
+                                            self.flush_interval_ms,
+                                            query.merge_window,
+                                        )
+                                        .await
+                                    }
+                                    None => HistoryData {
+                                        node: node_id,
+                                        from: query.start_ts,
+                                        to: query.end_ts,
+                                        count: 0,
+                                        data: vec![],
+                                    },
+                                };
+                                match MessageReply::StatsHistoryReply(data).encode() {
+                                    Ok(ress) => {
+                                        HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
+                                    }
+                                    Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
+                                        e.to_string(),
+                                    ))),
+                                }
+                            }
+                            Ok(Message::MetricsHistoryQuery(query)) => {
+                                let node_id = self.scx.node.id();
+                                let data = match &self.hc {
+                                    Some(hc) => {
+                                        api::query_history_local(
+                                            &hc.metrics,
+                                            node_id,
+                                            query.start_ts,
+                                            query.end_ts,
+                                            query.limit,
+                                            self.flush_interval_ms,
+                                            query.merge_window,
+                                        )
+                                        .await
+                                    }
+                                    None => HistoryData {
+                                        node: node_id,
+                                        from: query.start_ts,
+                                        to: query.end_ts,
+                                        count: 0,
+                                        data: vec![],
+                                    },
+                                };
+                                match MessageReply::MetricsHistoryReply(data).encode() {
+                                    Ok(ress) => {
+                                        HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
+                                    }
+                                    Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
+                                        e.to_string(),
+                                    ))),
+                                }
+                            }
                         };
                         return (false, Some(new_acc));
                     }

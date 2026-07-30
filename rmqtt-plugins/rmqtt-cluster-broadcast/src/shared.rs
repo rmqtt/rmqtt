@@ -1,21 +1,29 @@
-use std::convert::From as _f;
+//! Cluster-aware shared subscription and session management.
+//!
+//! Defines [`ClusterLockEntry`] and [`ClusterShared`] which extend the local
+//! shared state (sessions/subscriptions) with gRPC-based inter-node
+//! forwarding, health checks, and subscription queries.
+use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::anyhow;
 use async_trait::async_trait;
+use rust_box::task_exec_queue::{SpawnExt, TaskExecQueue};
 
 use rmqtt::context::ServerContext;
 use rmqtt::net::MqttError;
-use rmqtt::shared::{DefaultShared, Shared};
-use rmqtt::types::{HealthInfo, MsgID, NodeHealthStatus};
+use rmqtt::retain::RetainSyncMode;
+use rmqtt::shared::{DefaultShared, Entry, MessageLoadCallback, Shared};
+use rmqtt::types::{HealthInfo, MsgID, NodeHealthStatus, Retain, TopicName};
+
 use rmqtt::{
-    grpc::{GrpcClients, Message, MessageBroadcaster, MessageReply, MessageSender, MessageType},
+    grpc::{GrpcClient, GrpcClients, Message, MessageBroadcaster, MessageReply, MessageSender, MessageType},
     session::Session,
-    shared::Entry,
     types::{
-        ClientId, From, Id, IsAdmin, IsOnline, NodeId, OfflineSession, Publish, Reason, SessionStatus,
-        SharedGroup, SharedGroupType, SubRelations, SubRelationsMap, SubsSearchParams, SubsSearchResult,
-        Subscribe, SubscribeReturn, SubscriptionClientIds, SubscriptionIdentifier, SubscriptionOptions, To,
-        TopicFilter, Tx, Unsubscribe,
+        ClientId, ForwardedCount, ForwardedRecipients, From, Id, IsAdmin, IsOnline, NodeId, NodeName,
+        OfflineSession, Publish, Reason, SessionStatus, SharedGroup, SharedGroupType, SubRelations,
+        SubRelationsMap, SubsSearchParams, SubsSearchResult, Subscribe, SubscribeReturn,
+        SubscriptionIdentifier, SubscriptionOptions, To, TopicFilter, Tx, Unsubscribe,
     },
     Result,
 };
@@ -25,12 +33,16 @@ use super::{hook_message_dropped, kick};
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
+/// A locked session entry that broadcasts session operations (kick,
+/// online checks, subscription queries) to remote cluster nodes.
 pub struct ClusterLockEntry {
     inner: Box<dyn Entry>,
     cluster_shared: ClusterShared,
 }
 
 impl ClusterLockEntry {
+    /// Creates a new cluster lock entry wrapping an inner [`Entry`] and
+    /// a reference to the [`ClusterShared`] for inter-node communication.
     #[inline]
     pub fn new(inner: Box<dyn Entry>, cluster_shared: ClusterShared) -> Self {
         Self { inner, cluster_shared }
@@ -88,13 +100,17 @@ impl Entry for ClusterLockEntry {
             log::debug!("{:?} broadcast kick reply kicked: {:?}", self.id(), kicked);
             return Ok(OfflineSession::Exist(kicked));
         }
-
+        // self.cluster_shared.exec
         match kick(
             self.cluster_shared.grpc_clients.clone(),
             self.cluster_shared.message_type,
             Message::Kick(self.id(), clean_start, true, is_admin),
         )
+        .spawn(&self.cluster_shared.exec)
+        .result()
         .await
+        .map_err(|e| anyhow!(e.to_string()))
+        .flatten()
         {
             Ok(kicked) => {
                 log::debug!("{:?} broadcast kick reply kicked: {:?}", self.id(), kicked);
@@ -117,7 +133,7 @@ impl Entry for ClusterLockEntry {
             self.cluster_shared.grpc_clients.clone(),
             self.cluster_shared.message_type,
             Message::Online(self.id().client_id.clone()),
-            Some(Duration::from_secs(10)),
+            Some(self.cluster_shared.rw_timeout),
         )
         .select_ok(|reply: MessageReply| -> Result<bool> {
             if let MessageReply::Online(true) = reply {
@@ -126,7 +142,11 @@ impl Entry for ClusterLockEntry {
                 Err(MqttError::None.into())
             }
         })
+        .spawn(&self.cluster_shared.exec)
+        .result()
         .await
+        .map_err(|e| anyhow!(e.to_string()))
+        .flatten()
         .unwrap_or(false)
     }
 
@@ -169,7 +189,7 @@ impl Entry for ClusterLockEntry {
             self.cluster_shared.grpc_clients.clone(),
             self.cluster_shared.message_type,
             Message::SubscriptionsGet(self.id().client_id.clone()),
-            Some(Duration::from_secs(10)),
+            Some(self.cluster_shared.rw_timeout),
         )
         .select_ok(|reply: MessageReply| -> Result<Option<Vec<SubsSearchResult>>> {
             if let MessageReply::SubscriptionsGet(Some(subs)) = reply {
@@ -178,28 +198,64 @@ impl Entry for ClusterLockEntry {
                 Err(MqttError::None.into())
             }
         })
+        .spawn(&self.cluster_shared.exec)
+        .result()
         .await
+        .map_err(|e| anyhow!(e.to_string()))
+        .flatten()
         .unwrap_or(None)
     }
 }
 
+/// Cluster-aware shared subscription state that extends [`DefaultShared`]
+/// with gRPC-based forwarding to remote nodes.
 #[derive(Clone)]
 pub struct ClusterShared {
     inner: DefaultShared,
     scx: ServerContext,
+    exec: TaskExecQueue,
+    forwards_exec: TaskExecQueue,
+    retainer_exec: TaskExecQueue,
     grpc_clients: GrpcClients,
+    /// The gRPC message type used for cluster communication.
     pub message_type: MessageType,
+    node_names: Arc<HashMap<NodeId, NodeName>>,
+    exec_queue_busy_limit: isize,
+    exec_queue_workers_busy_limit: isize,
+    rw_timeout: Duration,
 }
 
 impl ClusterShared {
+    /// Creates a new [`ClusterShared`] wrapping a [`DefaultShared`] and
+    /// gRPC clients for inter-node communication.
+    #[allow(clippy::too_many_arguments)]
     #[inline]
     pub(crate) fn new(
         scx: ServerContext,
+        exec: TaskExecQueue,
         grpc_clients: GrpcClients,
         message_type: MessageType,
+        node_names: HashMap<NodeId, NodeName>,
+        exec_queue_max: usize,
+        exec_queue_workers: usize,
+        rw_timeout: Duration,
     ) -> ClusterShared {
         let scx1 = scx.clone();
-        Self { inner: DefaultShared::new(Some(scx1)), scx, grpc_clients, message_type }
+        let forwards_exec = scx.get_exec("BC_FORWARDS_EXEC");
+        let retainer_exec = scx.get_exec("BC_RETAINER_EXEC");
+        Self {
+            inner: DefaultShared::new(Some(scx1)),
+            scx,
+            exec,
+            forwards_exec,
+            retainer_exec,
+            grpc_clients,
+            message_type,
+            node_names: Arc::new(node_names),
+            exec_queue_busy_limit: (exec_queue_max as f64 * 0.7) as isize,
+            exec_queue_workers_busy_limit: (exec_queue_workers as f64 * 0.9) as isize,
+            rw_timeout,
+        }
     }
 
     #[inline]
@@ -208,27 +264,62 @@ impl ClusterShared {
     }
 
     #[inline]
+    pub(crate) fn grpc_client(&self, node_id: u64) -> Option<GrpcClient> {
+        self.grpc_clients.get(&node_id).map(|(_, c)| c.clone())
+    }
+
+    /// Converts [`SubRelations`] to [`ForwardedRecipients`].
+    ///
+    /// For shared-group subscriptions, each group member is emitted separately:
+    /// the actual subscriber carries `Some((topic_filter, shared_group))`,
+    /// while other group members carry `None`.
+    #[inline]
+    pub(crate) fn sub_relations_to_client_ids(relations: &SubRelations) -> ForwardedRecipients {
+        relations
+            .iter()
+            .flat_map(|(tf, cid, _, _, group_shared)| {
+                if let Some((group, _, cids)) = group_shared {
+                    cids.iter()
+                        .map(|g_cid| {
+                            if g_cid == cid {
+                                (g_cid.clone(), Some((tf.clone(), group.clone())))
+                            } else {
+                                (g_cid.clone(), None)
+                            }
+                        })
+                        .collect()
+                } else {
+                    vec![(cid.clone(), None)]
+                }
+            })
+            .collect()
+    }
+
+    #[inline]
     async fn forward_to_target_client(
         &self,
+        msg_id: Option<MsgID>,
         from: From,
         publish: Publish,
         target_clientid: ClientId,
-    ) -> std::result::Result<SubscriptionClientIds, Vec<(To, From, Publish, Reason)>> {
+    ) -> std::result::Result<ForwardedRecipients, (ForwardedRecipients, Vec<(To, From, Publish, Reason)>)>
+    {
         let mut opts = SubscriptionOptions::default();
         opts.set_qos(publish.qos);
         let relations = vec![(publish.topic.clone(), target_clientid.clone(), opts, None, None)];
 
         //forwards to local
         if self.exist(&target_clientid) {
-            let local_res = self.inner.forwards_to(from.clone(), &publish, relations.clone()).await;
-            log::debug!("forwards, from: {from:?}, local_res: {local_res:?}");
-            Ok(Some(vec![(target_clientid, None)]))
+            let recipients = self.inner.forwards_to(from.clone(), &publish, relations, msg_id).await?;
+            Ok(recipients)
         } else {
             //forward other nodes
             let grpc_clients = self.grpc_clients.clone();
             let message_type = self.message_type;
+            let rw_timeout = self.rw_timeout;
             // let inner = self.inner.clone();
             let scx = self.scx.clone();
+            let (forwardeds_tx, forwardeds_rx) = tokio::sync::oneshot::channel();
             let broadcast_fut = async move {
                 scx.stats.forwards.inc();
                 //forwards to other node and get shared subscription relations
@@ -236,53 +327,55 @@ impl ClusterShared {
                     grpc_clients.clone(),
                     message_type,
                     Message::Forwards(from.clone(), publish.clone()),
-                    Some(Duration::from_secs(10)),
+                    Some(rw_timeout),
                 )
                 .join_all()
                 .await;
                 scx.stats.forwards.dec();
 
-                let mut all_sub_client_ids = Vec::new();
+                let mut all_forwardeds = Vec::new();
                 for (_, reply) in replys {
                     match reply {
                         Ok(reply) => {
-                            if let MessageReply::Forwards(o_relations_map, o_sub_client_ids) = reply {
+                            if let MessageReply::Forwards(o_relations_map, o_forwardeds) = reply {
                                 log::debug!(
-                                    "other noade relations: {o_relations_map:?}, o_sub_client_ids: {o_sub_client_ids:?}"
+                                    "other noade relations: {o_relations_map:?}, o_forwardeds: {o_forwardeds:?}"
                                     );
-                                if let Some(o_sub_client_ids) = o_sub_client_ids {
-                                    all_sub_client_ids.extend(o_sub_client_ids);
-                                }
+                                all_forwardeds.extend(o_forwardeds);
                             }
                         }
                         Err(e) => {
                             log::error!(
-                                "forwards Message::Forwards to other node, from: {from:?}, error: {e:?}"
+                                "forwards Message::Forwards to other node, from: {from:?}, error: {e}"
                             );
                         }
                     }
                 }
 
-                all_sub_client_ids
+                let _ = forwardeds_tx.send(all_forwardeds);
             };
 
-            let sub_client_ids = broadcast_fut.await;
-            log::debug!("sub_client_ids: {sub_client_ids:?}");
-            Ok(Some(sub_client_ids))
+            if let Err(e) = self.forwards_exec.spawn(broadcast_fut).await {
+                log::warn!("{:?}", e.to_string());
+            }
+
+            Ok(forwardeds_rx.await.unwrap_or_default())
         }
     }
 
     #[inline]
     async fn forward_to_subscriptions(
         &self,
+        msg_id: Option<MsgID>,
         from: From,
         publish: Publish,
-    ) -> std::result::Result<SubscriptionClientIds, Vec<(To, From, Publish, Reason)>> {
+    ) -> std::result::Result<ForwardedRecipients, (ForwardedRecipients, Vec<(To, From, Publish, Reason)>)>
+    {
         let this_node_id = self.scx.node.id();
         let topic = &publish.topic;
         log::debug!("forwards, from: {:?}, topic: {:?}", from, topic.to_string());
         //Matching subscriptions
-        let (relations, shared_relations, sub_client_ids) = match self
+        let (relations, shared_relations, forwardeds) = match self
             .scx
             .extends
             .router()
@@ -292,7 +385,7 @@ impl ClusterShared {
         {
             Ok(mut relations_map) => {
                 //let subs_size: SubscriptionSize = relations_map.values().map(|subs| subs.len()).sum();
-                let sub_client_ids = self.inner()._collect_subscription_client_ids(&relations_map);
+                let forwardeds = self.inner()._collect_subscription_client_ids(&relations_map);
                 let mut relations = SubRelations::new();
                 let mut shared_relations = Vec::new();
                 for (node_id, rels) in relations_map.drain() {
@@ -305,26 +398,26 @@ impl ClusterShared {
                         }
                     }
                 }
-                (relations, shared_relations, sub_client_ids)
+                (relations, shared_relations, forwardeds)
             }
             Err(e) => {
-                log::warn!("forwards, from:{from:?}, topic:{topic:?}, error: {e:?}");
-                (Vec::new(), Vec::new(), None)
+                log::warn!("forwards, from:{from:?}, topic:{topic:?}, error: {e}");
+                (Vec::new(), Vec::new(), Vec::new())
             }
         };
 
         log::debug!("relations: {}, shared_relations:{}", relations.len(), shared_relations.len());
 
         //forwards to local
-        let local_res = self.inner.forwards_to(from.clone(), &publish, relations).await;
-        log::debug!("forwards, from: {from:?}, local_res: {local_res:?}");
+        self.inner.forwards_to(from.clone(), &publish, relations, msg_id).await?;
 
         //forwards to remote
         let grpc_clients = self.grpc_clients.clone();
         let message_type = self.message_type;
         let inner = self.inner.clone();
         let scx = self.scx.clone();
-        let (sub_client_ids_tx, sub_client_ids_rx) = tokio::sync::oneshot::channel();
+        let rw_timeout = self.rw_timeout;
+        let (forwardeds_tx, forwardeds_rx) = tokio::sync::oneshot::channel();
         let broadcast_fut = async move {
             scx.stats.forwards.inc();
             //forwards to other node and get shared subscription relations
@@ -332,7 +425,7 @@ impl ClusterShared {
                 grpc_clients.clone(),
                 message_type,
                 Message::Forwards(from.clone(), publish.clone()),
-                Some(Duration::from_secs(10)),
+                Some(rw_timeout),
             )
             .join_all()
             .await;
@@ -390,17 +483,15 @@ impl ClusterShared {
                 };
 
             add_to_shared_sub_groups(&mut shared_sub_groups, shared_relations);
-            let mut all_sub_client_ids = Vec::new();
+            let mut all_forwardeds = Vec::new();
             for (_, reply) in replys {
                 match reply {
                     Ok(reply) => {
-                        if let MessageReply::Forwards(mut o_relations_map, o_sub_client_ids) = reply {
+                        if let MessageReply::Forwards(mut o_relations_map, o_forwardeds) = reply {
                             log::debug!(
-                                "other noade relations: {o_relations_map:?}, o_sub_client_ids: {o_sub_client_ids:?}"
+                                "other noade relations: {o_relations_map:?}, o_forwardeds: {o_forwardeds:?}"
                             );
-                            if let Some(o_sub_client_ids) = o_sub_client_ids {
-                                all_sub_client_ids.extend(o_sub_client_ids);
-                            }
+                            all_forwardeds.extend(o_forwardeds);
 
                             for (node_id, rels) in o_relations_map.drain() {
                                 for (topic_filter, client_id, opts, sub_ids, group) in rels {
@@ -415,19 +506,23 @@ impl ClusterShared {
                         }
                     }
                     Err(e) => {
-                        log::error!("forwards Message::Forwards to other node, from: {from:?}, error: {e:?}");
+                        log::error!("forwards Message::Forwards to other node, from: {from:?}, error: {e}");
                     }
                 }
             }
 
-            let _ = sub_client_ids_tx.send(all_sub_client_ids);
+            let _ = forwardeds_tx.send(all_forwardeds);
 
             //shared subscription choice
             let mut node_shared_subs: HashMap<NodeId, SubRelations> = HashMap::default();
             for (topic_filter, sub_groups) in shared_sub_groups.iter_mut() {
-                for (_group, subs) in sub_groups.iter_mut() {
-                    if let Some((idx, _is_online)) =
-                        scx.extends.shared_subscription().await.choice(&scx, subs).await
+                for (group, subs) in sub_groups.iter_mut() {
+                    if let Some((idx, _is_online)) = scx
+                        .extends
+                        .shared_subscription()
+                        .await
+                        .choice(&scx, group, &from.id, &publish.topic, subs)
+                        .await
                     {
                         let (node_id, client_id, opts, sub_ids, _is_online) = subs.remove(idx);
                         node_shared_subs.entry(node_id).or_default().push((
@@ -444,7 +539,7 @@ impl ClusterShared {
 
             //send to this node
             if let Some(sub_rels) = node_shared_subs.remove(&this_node_id) {
-                if let Err(droppeds) = inner.forwards_to(from.clone(), &publish, sub_rels).await {
+                if let Err((_, droppeds)) = inner.forwards_to(from.clone(), &publish, sub_rels, None).await {
                     hook_message_dropped(&scx, droppeds).await;
                 }
             }
@@ -457,8 +552,8 @@ impl ClusterShared {
                         MessageSender::new(
                             grpc_client.clone(),
                             message_type,
-                            Message::ForwardsTo(from.clone(), publish.clone(), sub_rels),
-                            Some(Duration::from_secs(60)),
+                            Message::ForwardsTo(from.clone(), publish.clone(), sub_rels, None),
+                            Some(rw_timeout),
                         )
                         .send(),
                     );
@@ -469,20 +564,21 @@ impl ClusterShared {
                 let ress = futures::future::join_all(delivers).await;
                 for res in ress {
                     if let Err(e) = res {
-                        log::error!("deliver shared subscriptions error, {e:?}");
+                        log::error!("deliver shared subscriptions error, {e}");
                     }
                 }
                 scx.stats.forwards.dec();
             }
         };
 
-        tokio::spawn(broadcast_fut);
+        if let Err(e) = self.forwards_exec.spawn(broadcast_fut).await {
+            log::warn!("{:?}", e.to_string());
+        }
 
-        let sub_client_ids =
-            self.inner()._merge_subscription_client_ids(sub_client_ids, sub_client_ids_rx.await.ok());
+        let forwardeds =
+            self.inner()._merge_subscription_client_ids(forwardeds, forwardeds_rx.await.unwrap_or_default());
 
-        local_res?;
-        Ok(sub_client_ids)
+        Ok(forwardeds)
     }
 }
 
@@ -501,14 +597,31 @@ impl Shared for ClusterShared {
     #[inline]
     async fn forwards(
         &self,
+        msg_id: Option<MsgID>,
         from: From,
         publish: Publish,
-    ) -> std::result::Result<SubscriptionClientIds, Vec<(To, From, Publish, Reason)>> {
-        if let Some(target_clientid) = publish.target_clientid.clone() {
-            self.forward_to_target_client(from, publish, target_clientid).await
+    ) -> std::result::Result<ForwardedCount, (ForwardedCount, Vec<(To, From, Publish, Reason)>)> {
+        let (subscriber_count, forwardeds) = if let Some(target_clientid) = publish.target_clientid.clone() {
+            match self.forward_to_target_client(msg_id, from, publish, target_clientid).await {
+                Ok(forwardeds) => (1, forwardeds),
+                Err((forwardeds, errs)) => return Err((forwardeds.len(), errs)),
+            }
         } else {
-            self.forward_to_subscriptions(from, publish).await
+            match self.forward_to_subscriptions(msg_id, from, publish).await {
+                Ok(forwardeds) => (forwardeds.len(), forwardeds),
+                Err((forwardeds, errs)) => return Err((forwardeds.len(), errs)),
+            }
+        };
+        // Record subscriber IDs after successful forwarding.
+        if let Some(msg_id) = msg_id {
+            if !forwardeds.is_empty() {
+                if let Err(e) = self.scx.extends.message_mgr().await.mark_forwarded(msg_id, forwardeds).await
+                {
+                    log::warn!("forwards: mark_forwarded error, msg_id: {:?}, {e}", msg_id);
+                }
+            }
         }
+        Ok(subscriber_count)
     }
 
     #[inline]
@@ -516,7 +629,10 @@ impl Shared for ClusterShared {
         &self,
         from: From,
         publish: Publish,
-    ) -> std::result::Result<(SubRelationsMap, SubscriptionClientIds), Vec<(To, From, Publish, Reason)>> {
+    ) -> std::result::Result<
+        (SubRelationsMap, ForwardedRecipients),
+        (ForwardedRecipients, Vec<(To, From, Publish, Reason)>),
+    > {
         self.inner.forwards_and_get_shareds(from, publish).await
     }
 
@@ -526,8 +642,36 @@ impl Shared for ClusterShared {
         from: From,
         publish: &Publish,
         relations: SubRelations,
-    ) -> std::result::Result<(), Vec<(To, From, Publish, Reason)>> {
-        self.inner.forwards_to(from, publish, relations).await
+        msg_id: Option<MsgID>,
+    ) -> std::result::Result<ForwardedRecipients, (ForwardedRecipients, Vec<(To, From, Publish, Reason)>)>
+    {
+        let from_node_id = from.node_id;
+        let is_this_node = from_node_id == self.scx.node.id();
+        let subscribers = if !is_this_node {
+            msg_id.map(|msg_id| (msg_id, Self::sub_relations_to_client_ids(&relations)))
+        } else {
+            None
+        };
+        let res = self.inner.forwards_to(from, publish, relations, msg_id).await;
+        if res.is_ok() {
+            if let Some((msg_id, subscribers)) = subscribers {
+                // fire-and-forget send ForwardsToAck ack
+                if let Some(client) = self.grpc_client(from_node_id) {
+                    let ack_msg = Message::ForwardsToAck(msg_id, self.scx.node.id(), subscribers);
+                    let sender =
+                        MessageSender::new(client, self.message_type, ack_msg, Some(self.rw_timeout));
+                    if let Err(e) = sender.notify().spawn(&self.forwards_exec).await {
+                        log::warn!(
+                            "Failed to send ForwardsToAck to node {}, msg_id={:?}, error: {:?}",
+                            from_node_id,
+                            msg_id,
+                            e.to_string()
+                        );
+                    }
+                }
+            }
+        }
+        res
     }
 
     #[inline]
@@ -549,7 +693,7 @@ impl Shared for ClusterShared {
             self.grpc_clients.clone(),
             self.message_type,
             Message::SessionStatus(ClientId::from(client_id)),
-            Some(Duration::from_secs(10)),
+            Some(self.rw_timeout),
         )
         .select_ok(|reply: MessageReply| -> Result<SessionStatus> {
             if let MessageReply::SessionStatus(Some(status)) = reply {
@@ -558,8 +702,12 @@ impl Shared for ClusterShared {
                 Err(MqttError::None.into())
             }
         })
+        .spawn(&self.exec)
+        .result()
         .await
+        .map(|ss| ss.ok())
         .ok()
+        .flatten()
     }
 
     #[inline]
@@ -586,7 +734,7 @@ impl Shared for ClusterShared {
                     c,
                     self.message_type,
                     Message::SubscriptionsSearch(q),
-                    Some(Duration::from_secs(10)),
+                    Some(self.rw_timeout),
                 )
                 .send()
                 .await;
@@ -595,7 +743,7 @@ impl Shared for ClusterShared {
                         replys.extend(subs);
                     }
                     Err(e) => {
-                        log::warn!("query_subscriptions, error: {e:?}");
+                        log::warn!("query_subscriptions, error: {e}");
                     }
                     _ => {
                         log::error!("unreachable!(), reply: {reply:?}");
@@ -616,7 +764,228 @@ impl Shared for ClusterShared {
         topic_filter: &str,
         group: Option<&SharedGroup>,
     ) -> Result<Vec<(MsgID, From, Publish)>> {
-        self.inner.message_load(client_id, topic_filter, group).await
+        let message_mgr = self.scx.extends.message_mgr().await;
+        if message_mgr.merge_on_read() {
+            let mut msgs = message_mgr.get(client_id, topic_filter, group).await?;
+            if !self.grpc_clients.is_empty() {
+                let replys = MessageBroadcaster::new(
+                    self.grpc_clients.clone(),
+                    self.message_type,
+                    Message::MessageGet(
+                        ClientId::from(client_id),
+                        TopicFilter::from(topic_filter),
+                        group.cloned(),
+                    ),
+                    Some(self.rw_timeout),
+                )
+                .join_all()
+                .await;
+                for (_, reply) in replys {
+                    let reply = reply?;
+                    match reply {
+                        MessageReply::Error(e) => return Err(anyhow!(e)),
+                        MessageReply::MessageGet(res) => {
+                            msgs.extend(res);
+                        }
+                        _ => {
+                            log::error!("unreachable!(), reply: {reply:?}");
+                            return Err(anyhow!("unreachable!()"));
+                        }
+                    }
+                }
+            }
+            Ok(msgs)
+        } else {
+            message_mgr.get(client_id, topic_filter, group).await
+        }
+    }
+
+    #[inline]
+    async fn message_load_with(
+        &self,
+        client_id: &str,
+        topic_filter: &str,
+        group: Option<&SharedGroup>,
+        cb: Arc<dyn MessageLoadCallback>,
+    ) -> Result<()> {
+        let message_mgr = self.scx.extends.message_mgr().await;
+        if message_mgr.merge_on_read() {
+            let msgs = message_mgr.get(client_id, topic_filter, group).await?;
+            cb.on_messages(msgs).await?;
+
+            if !self.grpc_clients.is_empty() {
+                let cb2 = cb.clone();
+                MessageBroadcaster::new(
+                    self.grpc_clients.clone(),
+                    self.message_type,
+                    Message::MessageGet(
+                        ClientId::from(client_id),
+                        TopicFilter::from(topic_filter),
+                        group.cloned(),
+                    ),
+                    Some(self.rw_timeout),
+                )
+                .join_all_with_async(move |reply| {
+                    let msgs = match reply {
+                        Ok(MessageReply::MessageGet(msgs)) => msgs,
+                        Ok(MessageReply::Success) => {
+                            log::debug!("unexpected reply: Success");
+                            vec![]
+                        }
+                        Ok(other) => {
+                            log::warn!("unexpected reply: {other:?}");
+                            vec![]
+                        }
+                        Err(e) => {
+                            log::warn!("Message::MessageGet failed, {e}");
+                            vec![]
+                        }
+                    };
+                    let cb2 = cb2.clone();
+                    async move { cb2.on_messages(msgs).await }
+                })
+                .await;
+            }
+            Ok(())
+        } else {
+            let msgs = message_mgr.get(client_id, topic_filter, group).await?;
+            cb.on_messages(msgs).await
+        }
+    }
+
+    async fn retain_load_with(
+        &self,
+        topic_filter: &TopicFilter,
+        cb: Arc<dyn rmqtt::shared::RetainLoadCallback>,
+    ) -> Result<Vec<(NodeId, MsgID)>> {
+        let retain_mgr = self.scx.extends.retain().await;
+        if retain_mgr.merge_on_read() {
+            let mut all_retains = retain_mgr.get(topic_filter).await?;
+
+            if !self.grpc_clients.is_empty() {
+                let grpc_clients = self.grpc_clients.clone();
+                let message_type = self.message_type;
+                let rw_timeout = self.rw_timeout;
+                let topic_filter = topic_filter.clone();
+                let replys: Vec<(NodeId, Result<Vec<(TopicName, Retain)>>)> = async move {
+                    MessageBroadcaster::new(
+                        grpc_clients,
+                        message_type,
+                        Message::GetRetains(topic_filter),
+                        Some(rw_timeout),
+                    )
+                    .join_all_with_async(move |reply| async move {
+                        match reply {
+                            Ok(MessageReply::GetRetains(retains)) => Ok(retains),
+                            Ok(MessageReply::Success) => {
+                                log::debug!("unexpected reply: Success");
+                                Ok(vec![])
+                            }
+                            Ok(other) => {
+                                log::warn!("unexpected reply: {other:?}");
+                                Ok(vec![])
+                            }
+                            Err(e) => {
+                                log::warn!("Message::GetRetains failed, {e}");
+                                Ok(vec![])
+                            }
+                        }
+                    })
+                    .await
+                }
+                .spawn(&self.retainer_exec)
+                .result()
+                .await
+                .map_err(|_| anyhow!("ClusterShared::retain_load_with task execution failure"))?;
+
+                for (node_id, result) in replys {
+                    match result {
+                        Ok(mut remote_retains) => all_retains.append(&mut remote_retains),
+                        Err(e) => log::warn!("Message::GetRetains failed, node_id: {node_id}, {e}"),
+                    }
+                }
+            }
+
+            let deduped = rmqtt::shared::dedup_retains_by_topic(all_retains);
+            cb.on_retains(deduped).await
+        } else {
+            let retains = retain_mgr.get(topic_filter).await?;
+            cb.on_retains(retains).await
+        }
+    }
+
+    async fn retain_set_broadcast(
+        &self,
+        topic: &TopicName,
+        retain: &Retain,
+        expiry_interval: Option<Duration>,
+    ) -> Result<()> {
+        if self.grpc_clients.is_empty() {
+            return Ok(());
+        }
+
+        match self.scx.extends.retain().await.retain_sync_mode() {
+            RetainSyncMode::Full => {
+                let msg = Message::SetRetain(topic.clone(), retain.clone(), expiry_interval);
+                for (node_id, (_, client)) in self.grpc_clients.iter() {
+                    let sender = MessageSender::new(
+                        client.clone(),
+                        self.message_type,
+                        msg.clone(),
+                        Some(self.rw_timeout),
+                    );
+                    if let Err(e) = sender.notify().spawn(&self.retainer_exec).await {
+                        log::warn!("retain_set_broadcast to node {node_id} failed, {e}");
+                    }
+                }
+            }
+            RetainSyncMode::TopicOnly => {
+                let is_set = !retain.publish.payload.is_empty();
+                let msg = if is_set {
+                    Message::SetRetainTopicAdd(topic.clone(), expiry_interval)
+                } else {
+                    Message::SetRetainTopicRemove(topic.clone())
+                };
+                for (node_id, (_, client)) in self.grpc_clients.iter() {
+                    let sender = MessageSender::new(
+                        client.clone(),
+                        self.message_type,
+                        msg.clone(),
+                        Some(self.rw_timeout),
+                    );
+                    if let Err(e) = sender.notify().spawn(&self.retainer_exec).await {
+                        log::warn!("retain_set_broadcast(topic) to node {node_id} failed, {e}");
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[inline]
+    async fn message_mark_forwarded(
+        &self,
+        from_node_id: NodeId,
+        msg_id: MsgID,
+        recipients: ForwardedRecipients,
+    ) -> Result<()> {
+        if from_node_id == self.scx.node.id() {
+            self.scx.extends.message_mgr().await.mark_forwarded(msg_id, recipients).await
+        } else {
+            if let Some(client) = self.grpc_client(from_node_id) {
+                let ack_msg = Message::ForwardsToAck(msg_id, self.scx.node.id(), recipients);
+                let sender = MessageSender::new(client, self.message_type, ack_msg, Some(self.rw_timeout));
+                if let Err(e) = sender.notify().spawn(&self.forwards_exec).await {
+                    log::warn!(
+                        "Failed to send ForwardsToAck to node {}, msg_id={:?}, error: {:?}",
+                        from_node_id,
+                        msg_id,
+                        e.to_string()
+                    );
+                }
+            }
+            Ok(())
+        }
     }
 
     #[inline]
@@ -669,7 +1038,7 @@ impl Shared for ClusterShared {
                     }
                 },
                 Err(e) => {
-                    log::error!("Get GrpcMessage::GetNodeHealthStatus from other node, error: {e:?}");
+                    log::error!("Get GrpcMessage::GetNodeHealthStatus from other node, error: {e}");
                     nodes_health_infos.push(NodeHealthStatus {
                         node_id,
                         running: false,
@@ -687,5 +1056,113 @@ impl Shared for ClusterShared {
     async fn health_status(&self) -> Result<NodeHealthStatus> {
         let node_id = self.scx.node.id();
         Ok(NodeHealthStatus { node_id, running: true, leader_id: None, descr: None })
+    }
+
+    #[inline]
+    fn operation_is_busy(&self) -> bool {
+        self.exec.active_count() > self.exec_queue_workers_busy_limit
+            || self.exec.waiting_count() > self.exec_queue_busy_limit
+    }
+
+    #[inline]
+    fn node_name(&self, id: NodeId) -> String {
+        self.node_names.get(&id).cloned().unwrap_or_default()
+    }
+}
+
+impl ClusterShared {
+    /// Pull all retained messages from peer nodes and merge into local storage.
+    ///
+    /// Called once at startup (with a small delay) so a new or restarted node
+    /// catches up on retains that were published while it was offline.
+    pub(crate) async fn sync_retains_from_peers(&self) {
+        if self.grpc_clients.is_empty() {
+            return;
+        }
+        let retain_mgr = self.scx.extends.retain().await;
+        if !retain_mgr.enable() || !retain_mgr.need_sync() {
+            return;
+        }
+        drop(retain_mgr);
+
+        const CHUNK: usize = 5000;
+        let shared = self.clone();
+        let peers: Vec<_> =
+            self.grpc_clients.iter().map(|(node_id, (_, client))| (*node_id, client.clone())).collect();
+
+        let handles: Vec<_> = peers
+            .into_iter()
+            .map(|(node_id, client)| {
+                let shared = shared.clone();
+                tokio::spawn(async move {
+                    let mut offset = 0;
+                    loop {
+                        let mut c = client.clone();
+                        let result = c
+                            .send_message(
+                                shared.message_type,
+                                Message::GetAllRetains { offset, limit: CHUNK },
+                                Some(shared.rw_timeout),
+                            )
+                            .await;
+                        match result {
+                            Ok(MessageReply::GetAllRetainsChunk { items, has_more, .. }) => {
+                                for (topic, retain, expiry) in items {
+                                    let current = shared
+                                        .scx
+                                        .extends
+                                        .retain()
+                                        .await
+                                        .get(&topic)
+                                        .await
+                                        .unwrap_or_default();
+                                    let should_update = match current.first() {
+                                        Some((_, existing)) => {
+                                            retain.publish.create_time.unwrap_or(0)
+                                                > existing.publish.create_time.unwrap_or(0)
+                                        }
+                                        None => true,
+                                    };
+                                    if should_update {
+                                        let _ = shared
+                                            .scx
+                                            .extends
+                                            .retain()
+                                            .await
+                                            .set(&topic, retain, expiry)
+                                            .await;
+                                    }
+                                }
+                                if !has_more {
+                                    break;
+                                }
+                                offset += CHUNK;
+                            }
+                            Ok(MessageReply::Success) => {
+                                log::debug!(
+                                    "sync_retains_from_peers unexpected reply from {node_id}: Success"
+                                );
+                                break;
+                            }
+                            Ok(other) => {
+                                log::warn!(
+                                    "sync_retains_from_peers unexpected reply from {node_id}: {other:?}"
+                                );
+                                break;
+                            }
+                            Err(e) => {
+                                log::warn!("sync_retains_from_peers failed from {node_id}: {e}");
+                                break;
+                            }
+                        }
+                    }
+                    log::info!("sync_retains_from_peers from {node_id}: completed");
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            let _ = handle.await;
+        }
     }
 }

@@ -1,3 +1,21 @@
+//! ACL (Access Control List) plugin for RMQTT.
+//!
+//! Provides rule-based publish/subscribe authorization using
+//! configurable allow/deny rules with topic pattern matching.
+//!
+//! # Rule Evaluation
+//!
+//! Rules are evaluated in order. The first matching rule determines
+//! the authorization decision. If no rules match, the default action
+//! (allow/deny) applies.
+//!
+//! Each rule specifies:
+//! - `action`: `allow` or `deny`
+//! - `username`: Optional client username match
+//! - `clientid`: Optional client ID match
+//! - `topic`: Topic filter for the rule
+//! - `action`: `publish` or `subscribe` (or both)
+//!
 #![deny(unsafe_code)]
 
 use std::str::FromStr;
@@ -122,7 +140,7 @@ impl Handler for AclHandler {
                             }
                             if let Err(e) = rule.add_topic_filter(&tf, client_id.clone()).await {
                                 log::error!(
-                                    "acl config error, build_placeholders, add topic filter error, {e:?}"
+                                    "acl config error, build_placeholders, add topic filter error, {e}"
                                 );
                             }
                             log::debug!("topic filter: {tf}");
@@ -161,7 +179,7 @@ impl Handler for AclHandler {
                     for topic_filter in topic_filters {
                         for rule in self.cfg.read().await.rules() {
                             if let Err(e) = rule.remove_topic(topic_filter.as_str(), &client_id).await {
-                                log::error!("remove topic filter error, {e:?}");
+                                log::error!("remove topic filter error, {e}");
                             }
                         }
                     }

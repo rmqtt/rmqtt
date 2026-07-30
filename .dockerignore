@@ -2,3 +2,6 @@
 .github
 **/*.rs.bk
 
+target/
+!target/aarch64-unknown-linux-musl/release/rmqttd
+!target/x86_64-unknown-linux-musl/release/rmqttd

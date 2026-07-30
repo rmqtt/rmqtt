@@ -1,3 +1,6 @@
+//! Example: MQTT server with TLS encrypted TCP transport on port 8883.
+//! Demonstrates how to configure TLS key and certificate files.
+
 use rmqtt::{context::ServerContext, net::Builder, server::MqttServer, Result};
 use simple_logger::SimpleLogger;
 

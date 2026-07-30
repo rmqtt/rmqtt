@@ -30,7 +30,11 @@ storage.type = "ram"
 ##ram
 storage.ram.cache_capacity = "3G"
 storage.ram.cache_max_count = 1_000_000
-storage.ram.encode = true
+storage.ram.encode = false
+
+##Maximum pending messages in the in-memory channel (back-pressure limit).
+##Default: 300000
+#storage.ram.queue_max = 300_000
 
 ##redis
 storage.redis.url = "redis://127.0.0.1:6379/"
@@ -42,12 +46,26 @@ storage.redis-cluster.prefix = "message-{node}"
 
 ##Quantity of expired messages cleared during each cleanup cycle.
 cleanup_count = 5000
+
+##Timeout for storage I/O operations, channel sends, and circuit breaker
+##per-operation timeout. 0 = no timeout. Examples: "5s", "500ms".
+##Default: "15s"
+#backend_timeout = "15s"
+
+##─── Circuit breaker ────────────────────────────────────────────────────────
+##All circuit-breaker parameters (failure rate, window, etc.) are inherited
+##from the global `[circuit_breaker]` section in `rmqtt.toml`.
+##The per-operation timeout uses `backend_timeout` above.
 ```
 
 Currently, three storage engines are supported: "ram," "redis," and "redis-cluster." "ram" is stored in local memory and 
 can be configured with maximum memory usage or maximum message count, and it can specify whether messages should be encoded 
 before storage. Prefix configuration allows different rmqtt nodes to use the same Redis storage service. `{node}` will be 
 replaced by the identifier of the current node.
+
+`backend_timeout` (default: `"15s"`) configures the timeout for storage I/O operations, channel sends, and the circuit breaker per-operation timeout. Set to `"0s"` for no timeout.
+
+The Circuit Breaker parameters (failure rate threshold, sliding window type/size, minimum calls, OPEN duration, slow call threshold, etc.) are inherited from the global `[circuit_breaker]` section in `rmqtt.toml`. The per-operation timeout uses the `backend_timeout` setting.
 
 
 By default, this plugin is not enabled. To activate it, you must add the `rmqtt-message-storage` entry to the

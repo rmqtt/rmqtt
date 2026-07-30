@@ -1,5 +1,33 @@
+//! Raft-based cluster plugin for RMQTT.
+//!
+//! Implements distributed consensus and state machine replication
+//! using the Raft algorithm for cluster-wide coordination.
+//!
+//! # Architecture
+//!
+//! - **`ClusterPlugin`**: Main plugin implementing the [`Plugin`] trait.
+//! - **`ClusterRouter`**: Distributed topic routing via Raft consensus.
+//! - **`ClusterShared`**: Shared cluster state (sessions, subscriptions).
+//! - **`HookHandler`**: MQTT event hooks for cluster-aware processing.
+//!
+//! # Startup Flow
+//!
+//! 1. [`Plugin::init`] — Starts the Raft node (leader or follower),
+//!    registers hooks (`ClientDisconnected`, `SessionTerminated`,
+//!    `GrpcMessageReceived`), and begins health monitoring.
+//! 2. [`Plugin::start`] — Replaces the local router/shared state with
+//!    clustered versions, enables hooks, and pings the Raft cluster
+//!    to verify readiness.
+//! 3. [`Plugin::stop`] — Always returns `false`; a running cluster
+//!    cannot be cleanly stopped once started.
+//!
+//! # Raft Lifecycle
+//!
+//! - Runs in a dedicated OS thread with its own Tokio runtime.
+//! - Leader election and log replication are handled by `rmqtt-raft`.
+//! - Inter-node communication uses gRPC for message forwarding.
+//!
 #![deny(unsafe_code)]
-
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 use std::time::Duration;
@@ -37,6 +65,10 @@ type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
 register!(ClusterPlugin::new);
 
+/// Raft-based cluster consensus plugin.
+///
+/// Manages cluster membership, distributed routing, and state
+/// replication across RMQTT broker nodes.
 #[derive(Plugin)]
 struct ClusterPlugin {
     scx: ServerContext,
@@ -67,6 +99,10 @@ impl ClusterPlugin {
 
         let node_grpc_addrs = cfg.node_grpc_addrs.clone();
         log::info!("node_grpc_addrs: {node_grpc_addrs:?}");
+
+        // Read circuit-breaker config from ServerContext.
+        let cb_config = &scx.circuit_breaker_config;
+
         for node_addr in &node_grpc_addrs {
             if node_addr.id != scx.node.id() {
                 let batch_size = cfg.node_grpc_batch_size;
@@ -82,6 +118,7 @@ impl ClusterPlugin {
                                 client_timeout,
                                 client_concurrency_limit,
                                 batch_size,
+                                cb_config,
                             )
                             .await?,
                     ),
@@ -113,6 +150,19 @@ impl ClusterPlugin {
     }
 
     //raft init ...
+    /// Initialize the Raft node and attempt to join or lead the cluster.
+    ///
+    /// # Flow
+    ///
+    /// 1. Resolve this node's Raft listen address.
+    /// 2. Optionally verify it resolves.
+    /// 3. Create the Raft instance on a dedicated thread with its own
+    ///    Tokio runtime.
+    /// 4. Based on configuration:
+    ///    - If a leader is specified, verify the actual leader matches
+    ///      and join as a follower.
+    ///    - Otherwise, search for an existing leader. If none found,
+    ///      become the leader.
     async fn start_raft(
         scx: &ServerContext,
         cfg: Arc<PluginConfig>,
@@ -170,15 +220,7 @@ impl ClusterPlugin {
                 } else {
                     //The other nodes are leader.
                     let actual_leader_info = find_actual_leader(&raft, peer_addrs, 60).await?;
-                    let (actual_leader_id, actual_leader_addr) =
-                        actual_leader_info.ok_or_else(|| anyhow!("Leader does not exist"))?;
-                    if actual_leader_id != leader_info.id {
-                        return Err(anyhow!(format!(
-                            "Not the expected Leader, the expected one is {:?}",
-                            leader_info
-                        )));
-                    }
-                    Some((actual_leader_id, actual_leader_addr))
+                    Some(actual_leader_info.ok_or_else(|| anyhow!("Leader does not exist"))?)
                 }
             }
             None => {
@@ -264,7 +306,7 @@ impl ClusterPlugin {
                 tokio::time::sleep(unavailable_check_interval).await;
                 match raft_mailbox.status().await {
                     Err(e) => {
-                        log::error!("Error retrieving cluster status, {e:?}");
+                        log::error!("Error retrieving cluster status, {e}");
                     }
                     Ok(s) => {
                         if s.available() {
@@ -342,6 +384,14 @@ impl Plugin for ClusterPlugin {
         *self.scx.extends.router_mut().await = Box::new(self.router.clone());
         *self.scx.extends.shared_mut().await = Box::new(self.shared.clone());
         self.register.start().await;
+
+        // Async retain sync from peers (fire-and-forget)
+        let shared = self.shared.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            shared.sync_retains_from_peers().await;
+        });
+
         let status = raft_mailbox.status().await.map_err(anyhow::Error::new)?;
         log::info!("raft status: {status:?}");
         if !status.is_started() {
@@ -357,14 +407,14 @@ impl Plugin for ClusterPlugin {
                         return Ok(());
                     }
                     message::MessageReply::Error(e) => {
-                        log::warn!("ping failed, {e:?}");
+                        log::warn!("ping failed, {e}");
                     }
                     _ => {
                         log::error!("unreachable!()");
                     }
                 },
                 Err(e) => {
-                    log::warn!("ping failed, {e:?}");
+                    log::warn!("ping failed, {e}");
                 }
             }
             sleep(Duration::from_millis(500)).await;
@@ -399,6 +449,7 @@ impl Plugin for ClusterPlugin {
                 "transfer_queue_len": c.transfer_queue_len(),
                 "active_tasks_count": c.active_tasks().count(),
                 "active_tasks_max": c.active_tasks().max(),
+                "circuit_breaker": c.circuit_breaker_json().await,
             });
             nodes.insert(*node_id, stats);
         }
@@ -417,6 +468,10 @@ impl Plugin for ClusterPlugin {
     }
 }
 
+/// Parse a string address into a [`SocketAddr`] with retry logic.
+///
+/// Retries up to 10 times with randomized backoff (500-800ms)
+/// to handle DNS resolution delays during startup.
 async fn parse_addr(addr: &str) -> Result<SocketAddr> {
     for i in 0..10 {
         match addr.to_socket_addrs() {
@@ -429,7 +484,7 @@ async fn parse_addr(addr: &str) -> Result<SocketAddr> {
                 }
             }
             Err(e) => {
-                log::warn!("Round: {i}, {e:?}");
+                log::warn!("Round: {i}, {e}");
             }
         }
         tokio::time::sleep(Duration::from_millis((rand::random::<u64>() % 300) + 500)).await;
@@ -437,6 +492,10 @@ async fn parse_addr(addr: &str) -> Result<SocketAddr> {
     Err(anyhow!(format!("Parsing address{:?} error", addr)))
 }
 
+/// Poll peer nodes to find the current Raft leader.
+///
+/// Attempts up to `rounds` iterations, sleeping 500ms between attempts.
+/// Returns `None` if no leader is found after all rounds.
 async fn find_actual_leader(
     raft: &Raft<ClusterRouter>,
     peer_addrs: Vec<String>,

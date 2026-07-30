@@ -1,3 +1,12 @@
+//! Error types for MQTT protocol encoding and decoding operations
+//!
+//! This module defines the error hierarchy used throughout the codec crate:
+//! - `HandshakeError`: Errors during the initial MQTT connection handshake
+//! - `ProtocolError`: Higher-level protocol errors (decode, encode, timeout)
+//! - `DecodeError`: Specific errors that occur when parsing MQTT packets from bytes
+//! - `EncodeError`: Specific errors that occur when serializing MQTT packets to bytes
+//! - `SendPacketError`: Errors that occur when preparing a packet for transmission
+
 use std::io;
 
 use bytestring::ByteString;
@@ -50,6 +59,7 @@ impl ToReasonCode for ProtocolError {
     }
 }
 
+/// Errors that occur when decoding/parsing MQTT packets from a byte stream
 #[derive(Debug, Clone, thiserror::Error, Deserialize, Serialize)]
 pub enum DecodeError {
     #[error("Invalid protocol")]
@@ -71,8 +81,8 @@ pub enum DecodeError {
     // MQTT v3 only
     #[error("Packet id is required")]
     PacketIdRequired,
-    #[error("Max size exceeded")]
-    MaxSizeExceeded,
+    #[error("Max size exceeded: size={size}, max={max}")]
+    MaxSizeExceeded { size: u32, max: u32 },
     #[error("utf8 error")]
     Utf8Error,
     #[error("io error, {:?}", _0)]
@@ -97,17 +107,18 @@ impl ToReasonCode for DecodeError {
             DecodeError::InvalidClientId => DisconnectReasonCode::NotAuthorized,
             DecodeError::UnsupportedPacketType => DisconnectReasonCode::ImplementationSpecificError,
             DecodeError::PacketIdRequired => DisconnectReasonCode::ProtocolError,
-            DecodeError::MaxSizeExceeded => DisconnectReasonCode::PacketTooLarge,
+            DecodeError::MaxSizeExceeded { .. } => DisconnectReasonCode::PacketTooLarge,
             DecodeError::Utf8Error => DisconnectReasonCode::PayloadFormatInvalid,
             DecodeError::Io(_) => DisconnectReasonCode::UnspecifiedError,
         }
     }
 }
 
+/// Errors that occur when encoding/serializing MQTT packets to a byte stream
 #[derive(Deserialize, Serialize, Debug, Clone, thiserror::Error)]
 pub enum EncodeError {
-    #[error("Packet is bigger than peer's Maximum Packet Size")]
-    OverMaxPacketSize,
+    #[error("Packet is bigger than peer's Maximum Packet Size: size={size}, max={max}")]
+    OverMaxPacketSize { size: u32, max: u32 },
     #[error("Invalid length")]
     InvalidLength,
     #[error("Malformed packet")]
@@ -129,7 +140,7 @@ impl From<io::Error> for EncodeError {
 impl ToReasonCode for EncodeError {
     fn to_reason_code(&self) -> DisconnectReasonCode {
         match self {
-            EncodeError::OverMaxPacketSize => DisconnectReasonCode::PacketTooLarge,
+            EncodeError::OverMaxPacketSize { .. } => DisconnectReasonCode::PacketTooLarge,
             EncodeError::InvalidLength => DisconnectReasonCode::MalformedPacket,
             EncodeError::MalformedPacket => DisconnectReasonCode::MalformedPacket,
             EncodeError::PacketIdRequired => DisconnectReasonCode::ProtocolError,
@@ -139,6 +150,9 @@ impl ToReasonCode for EncodeError {
     }
 }
 
+/// Errors that occur when sending MQTT packets
+///
+/// Wraps encoding errors that happen during packet transmission
 #[derive(Deserialize, Serialize, Debug, Clone, thiserror::Error)]
 pub enum SendPacketError {
     /// Encoder error

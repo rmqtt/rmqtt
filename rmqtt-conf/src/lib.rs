@@ -1,5 +1,13 @@
 #![deny(unsafe_code)]
 
+//! Configuration management for the RMQTT broker.
+//!
+//! This crate provides a centralized configuration system that:
+//! - Loads settings from TOML files and environment variables
+//! - Manages MQTT, networking, clustering, and plugin configuration
+//! - Provides a singleton `Settings` instance accessible globally
+//! - Supports dynamic plugin configuration loading
+
 use std::fmt;
 use std::net::SocketAddr;
 use std::ops::Deref;
@@ -26,9 +34,18 @@ pub mod options;
 
 static SETTINGS: OnceCell<Settings> = OnceCell::new();
 
+/// Global server configuration singleton.
+///
+/// Wraps an `Arc<Inner>` for thread-safe shared access.
+/// Must be initialized via `Settings::init()` before use.
 #[derive(Clone)]
 pub struct Settings(Arc<Inner>);
 
+/// Internal configuration data structure.
+///
+/// Contains all server configuration sections: task executor, node identity,
+/// RPC networking, logging, listeners, plugins, and MQTT settings.
+/// Deserialized directly from TOML configuration files and environment variables.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Inner {
     #[serde(default)]
@@ -46,6 +63,8 @@ pub struct Inner {
     pub plugins: Plugins,
     #[serde(default)]
     pub mqtt: Mqtt,
+    #[serde(default)]
+    pub circuit_breaker: CircuitBreaker,
     #[serde(default, skip)]
     pub opts: Options,
 }
@@ -97,6 +116,10 @@ impl Settings {
     }
 
     #[inline]
+    /// Returns a reference to the global `Settings` instance.
+    ///
+    /// # Panics
+    /// Panics if `Settings` has not been initialized via `init()`.
     pub fn instance() -> &'static Self {
         match SETTINGS.get() {
             Some(c) => c,
@@ -106,12 +129,20 @@ impl Settings {
         }
     }
 
+    /// Initializes the global `Settings` singleton with the given options.
+    ///
+    /// This must be called once before [`Settings::instance()`] can be used.
+    /// Returns a reference to the initialized singleton on success.
     #[inline]
     pub fn init(opts: Options) -> Result<&'static Self> {
         SETTINGS.set(Settings::new(opts)?).map_err(|_| anyhow!("Settings init failed"))?;
         SETTINGS.get().ok_or_else(|| anyhow!("Settings init failed"))
     }
 
+    /// Logs the current configuration settings at INFO level.
+    ///
+    /// Outputs node ID, executor configuration, RPC settings, and overrides
+    /// from command-line options (gRPC addresses, Raft peer addresses, leader ID).
     #[inline]
     pub fn logs() -> Result<()> {
         let cfg = Self::instance();
@@ -121,6 +152,7 @@ impl Settings {
         log::info!("exec_queue_max is {}", cfg.task.exec_queue_max);
         log::info!("node.busy config is: {:?}", cfg.node.busy);
         log::info!("node.rpc config is: {:?}", cfg.rpc);
+        log::info!("circuit_breaker config is: {:?}", cfg.circuit_breaker);
 
         if cfg.opts.node_grpc_addrs.is_some() {
             log::info!("node_grpc_addrs is {:?}", cfg.opts.node_grpc_addrs);
@@ -142,13 +174,14 @@ impl fmt::Debug for Settings {
     }
 }
 
+/// Task executor configuration for the global thread pool.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Task {
-    //Concurrent task count for global task executor.
+    /// Concurrent task count for global task executor.
     #[serde(default = "Task::exec_workers_default")]
     pub exec_workers: usize,
 
-    //Queue capacity for global task executor.
+    /// Queue capacity for global task executor.
     #[serde(default = "Task::exec_queue_max_default")]
     pub exec_queue_max: usize,
 }
@@ -169,6 +202,7 @@ impl Task {
     }
 }
 
+/// Cluster node identity and busy-state configuration.
 #[derive(Default, Debug, Clone, Deserialize)]
 pub struct Node {
     #[serde(default)]
@@ -190,6 +224,10 @@ impl Node {
     // }
 }
 
+/// Busy-state detection configuration for load-aware decisions.
+///
+/// Controls how the broker determines if it is overloaded, based on
+/// system load average, CPU load, and connection handshaking volume.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Busy {
     //Busy status check switch
@@ -238,6 +276,7 @@ impl Busy {
     }
 }
 
+/// RPC (gRPC) network configuration for inter-node communication.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Rpc {
     #[serde(default = "Rpc::server_addr_default", deserialize_with = "deserialize_addr")]
@@ -273,12 +312,17 @@ impl Rpc {
     }
 }
 
+/// Plugin directory and default startup configuration.
 #[derive(Default, Debug, Clone, Deserialize)]
 pub struct Plugins {
     #[serde(default = "Plugins::dir_default")]
     pub dir: String,
     #[serde(default)]
     pub default_startups: Vec<String>,
+    /// Plugins that should NOT be started even if they have `default_startup = true`
+    /// in `rmqtt-bin/Cargo.toml` metadata.
+    #[serde(default)]
+    pub disabled_default_startups: Vec<String>,
 }
 
 impl Plugins {
@@ -286,11 +330,18 @@ impl Plugins {
         "./plugins/".into()
     }
 
+    /// Loads a plugin configuration from file, returning an error if the file is missing.
+    ///
+    /// The configuration file is expected at `{plugins.dir}/{name}.toml`.
+    /// Environment variables with prefix `rmqtt_plugin_{name}` are also sourced.
     pub fn load_config<'de, T: serde::Deserialize<'de>>(&self, name: &str) -> Result<T> {
         let (cfg, _) = self.load_config_with_required(name, true, &[])?;
         Ok(cfg)
     }
 
+    /// Loads a plugin configuration from file, using defaults if the file is missing.
+    ///
+    /// Logs a warning when the configuration file does not exist.
     pub fn load_config_default<'de, T: serde::Deserialize<'de>>(&self, name: &str) -> Result<T> {
         let (cfg, def) = self.load_config_with_required(name, false, &[])?;
         if def {
@@ -299,6 +350,10 @@ impl Plugins {
         Ok(cfg)
     }
 
+    /// Loads a plugin config with additional environment variable list keys.
+    ///
+    /// The `env_list_keys` parameter specifies which environment variables should
+    /// be parsed as lists (space-separated). Fails if the config file is missing.
     pub fn load_config_with<'de, T: serde::Deserialize<'de>>(
         &self,
         name: &str,
@@ -308,6 +363,10 @@ impl Plugins {
         Ok(cfg)
     }
 
+    /// Loads a plugin config with defaults and additional environment list keys.
+    ///
+    /// The `env_list_keys` parameter specifies which environment variables should
+    /// be parsed as lists (space-separated). Logs a warning if the config file is missing.
     pub fn load_config_default_with<'de, T: serde::Deserialize<'de>>(
         &self,
         name: &str,
@@ -345,6 +404,7 @@ impl Plugins {
     }
 }
 
+/// MQTT protocol-level configuration settings.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Mqtt {
     #[serde(default = "Mqtt::delayed_publish_max_default")]
@@ -366,5 +426,105 @@ impl Mqtt {
 
     fn max_sessions_default() -> isize {
         0
+    }
+}
+
+/// Unified circuit-breaker configuration for centralized tuning.
+///
+/// Parsed from the `circuit_breaker.*` keys of `rmqtt.toml`.
+/// Used by gRPC inter-node calls, retainer, message-storage,
+/// session-storage, and other circuit-breaker-enabled subsystems.
+///
+/// The model is **sliding-window failure-rate**: calls are tracked within a
+/// sliding window (count-based or time-based), and when the failure rate
+/// exceeds `failure_rate_threshold` (and `minimum_number_of_calls` has been
+/// reached), the circuit opens. After `wait_duration_in_open` elapses, a
+/// probe is allowed (HALF_OPEN). Slow calls beyond `slow_call_duration_threshold`
+/// are also counted as failures when their rate exceeds
+/// `slow_call_rate_threshold`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CircuitBreaker {
+    /// Failure rate threshold (0.0 – 1.0). When exceeded, circuit opens.
+    #[serde(default = "CircuitBreaker::failure_rate_threshold_default")]
+    pub failure_rate_threshold: f64,
+
+    /// Sliding window type: `"CountBased"` or `"TimeBased"`.
+    #[serde(default = "CircuitBreaker::sliding_window_type_default")]
+    pub sliding_window_type: String,
+
+    /// Sliding window size (number of calls) for `CountBased` type.
+    #[serde(default = "CircuitBreaker::sliding_window_size_default")]
+    pub sliding_window_size: usize,
+
+    /// Sliding window duration for `TimeBased` type (e.g. `"45s"`).
+    #[serde(
+        default = "CircuitBreaker::sliding_window_duration_default",
+        deserialize_with = "deserialize_duration"
+    )]
+    pub sliding_window_duration: Duration,
+
+    /// Minimum calls before the breaker can trip.
+    #[serde(default = "CircuitBreaker::minimum_number_of_calls_default")]
+    pub minimum_number_of_calls: usize,
+
+    /// Duration in OPEN state before transitioning to HALF_OPEN (probe).
+    #[serde(
+        default = "CircuitBreaker::wait_duration_in_open_default",
+        deserialize_with = "deserialize_duration"
+    )]
+    pub wait_duration_in_open: Duration,
+
+    /// Slow call duration threshold. Calls exceeding this are considered slow.
+    #[serde(
+        default = "CircuitBreaker::slow_call_duration_threshold_default",
+        deserialize_with = "deserialize_duration"
+    )]
+    pub slow_call_duration_threshold: Duration,
+
+    /// Slow call rate threshold (0.0 – 1.0). `1.0` = disabled.
+    #[serde(default = "CircuitBreaker::slow_call_rate_threshold_default")]
+    pub slow_call_rate_threshold: f64,
+}
+
+impl Default for CircuitBreaker {
+    #[inline]
+    fn default() -> Self {
+        Self {
+            failure_rate_threshold: Self::failure_rate_threshold_default(),
+            sliding_window_type: Self::sliding_window_type_default(),
+            sliding_window_size: Self::sliding_window_size_default(),
+            sliding_window_duration: Self::sliding_window_duration_default(),
+            minimum_number_of_calls: Self::minimum_number_of_calls_default(),
+            wait_duration_in_open: Self::wait_duration_in_open_default(),
+            slow_call_duration_threshold: Self::slow_call_duration_threshold_default(),
+            slow_call_rate_threshold: Self::slow_call_rate_threshold_default(),
+        }
+    }
+}
+
+impl CircuitBreaker {
+    fn failure_rate_threshold_default() -> f64 {
+        0.35
+    }
+    fn sliding_window_type_default() -> String {
+        "TimeBased".to_string()
+    }
+    fn sliding_window_size_default() -> usize {
+        20
+    }
+    fn sliding_window_duration_default() -> Duration {
+        Duration::from_secs(45)
+    }
+    fn minimum_number_of_calls_default() -> usize {
+        10
+    }
+    fn wait_duration_in_open_default() -> Duration {
+        Duration::from_secs(30)
+    }
+    fn slow_call_duration_threshold_default() -> Duration {
+        Duration::from_secs(2)
+    }
+    fn slow_call_rate_threshold_default() -> f64 {
+        1.0
     }
 }

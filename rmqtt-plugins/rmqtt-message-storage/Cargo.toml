@@ -14,23 +14,23 @@ all-features = true
 [features]
 default = []
 ram = []
-redis = ["rmqtt-storage/redis"]
+redis = ["rmqtt-storage/redis", "circuit-breaker"]
 redis-cluster = ["redis", "rmqtt-storage/redis-cluster"]
+circuit-breaker = ["rmqtt-storage/circuit-breaker"]
 
 [dependencies]
 rmqtt = { workspace = true, features = ["plugin", "msgstore", "retain"] }
 serde = { workspace = true, features = ["derive"] }
 tokio = { workspace = true, features = ["sync", "time"] }
-rmqtt-storage = { version = "0.7.4", default-features = false, features = ["ttl"], optional = true}
+rmqtt-storage = { workspace = true, default-features = false, features = ["ttl"], optional = true}
 #rmqtt-storage = { path = "../../../rmqtt-storage", default-features = false, features = ["ttl"], optional = true}
-rust-box.workspace = true
 futures.workspace = true
 futures-time.workspace = true
 async-trait.workspace = true
 log.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
-get-size.workspace = true
+get-size2.workspace = true
 scc.workspace = true
 
 [dev-dependencies]

@@ -1,3 +1,15 @@
+//! Auto-subscription plugin for RMQTT.
+//!
+//! Automatically subscribes clients to predefined topics on
+//! connection. Useful for systems where clients should always
+//! receive certain system or control messages.
+//!
+//! # Configuration
+//!
+//! Subscription rules are defined in the plugin config and can
+//! target specific client IDs, usernames, or IP addresses.
+//! Supports both standard and shared subscriptions.
+//!
 #![deny(unsafe_code)]
 
 use std::sync::Arc;

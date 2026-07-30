@@ -1,0 +1,7 @@
+##--------------------------------------------------------------------
+## rmqtt-counter
+##--------------------------------------------------------------------
+
+# Counter plugin tracks and exposes runtime metrics via hook event counting.
+# Monitors message flow, client operations, and system events.
+# No configuration options are required - all defaults are used.

@@ -133,8 +133,6 @@ pub struct Builder {
     pub message_expiry_interval: Duration,
     /// Maximum subscriptions per client (0 = unlimited)
     pub max_subscriptions: usize,
-    /// Enable shared subscription support
-    pub shared_subscription: bool,
     /// Maximum topic aliases (MQTTv5 feature)
     pub max_topic_aliases: u16,
     /// Enable subscription count limiting
@@ -157,6 +155,14 @@ pub struct Builder {
 
     /// Use TLS Certificate CN as Username
     pub cert_cn_as_username: bool,
+
+    /// Use the full Subject DN of the TLS Certificate as Username.
+    /// Overrides `cert_cn_as_username` when both are set. Useful when
+    /// multiple CAs are trusted on the same listener and CNs may
+    /// collide — the full DN includes O / OU / CN and naturally
+    /// namespaces identities (e.g. `OU=ANS,CN=alice` vs
+    /// `OU=EnduranceUser,CN=alice`).
+    pub cert_subject_dn_as_username: bool,
 
     /// Collect TLS Certificate information
     pub collect_cert_info: bool,
@@ -214,7 +220,6 @@ impl Builder {
             message_retry_interval: Duration::from_secs(20),
             message_expiry_interval: Duration::from_secs(5 * 60),
             max_subscriptions: 0,
-            shared_subscription: true,
             max_topic_aliases: 0,
 
             limit_subscription: false,
@@ -228,6 +233,7 @@ impl Builder {
             proxy_protocol_timeout: Duration::from_secs(5),
 
             cert_cn_as_username: false,
+            cert_subject_dn_as_username: false,
             collect_cert_info: false,
 
             idle_timeout: Duration::from_secs(90),
@@ -396,12 +402,6 @@ impl Builder {
         self
     }
 
-    /// Enables shared subscription support
-    pub fn shared_subscription(mut self, shared_subscription: bool) -> Self {
-        self.shared_subscription = shared_subscription;
-        self
-    }
-
     /// Configures maximum topic aliases (MQTTv5)
     pub fn max_topic_aliases(mut self, max_topic_aliases: u16) -> Self {
         self.max_topic_aliases = max_topic_aliases;
@@ -444,11 +444,20 @@ impl Builder {
         self
     }
 
+    /// Configures using the TLS certificate CN field as the MQTT username
     pub fn cert_cn_as_username(mut self, cert_cn_as_username: bool) -> Self {
         self.cert_cn_as_username = cert_cn_as_username;
         self
     }
 
+    /// Configures using the full TLS certificate Subject DN as the MQTT username.
+    /// Takes precedence over `cert_cn_as_username` when both are enabled.
+    pub fn cert_subject_dn_as_username(mut self, v: bool) -> Self {
+        self.cert_subject_dn_as_username = v;
+        self
+    }
+
+    /// Enables collection of TLS certificate metadata for connected clients
     pub fn collect_cert_info(mut self, collect_cert_info: bool) -> Self {
         self.collect_cert_info = collect_cert_info;
         self
@@ -479,8 +488,6 @@ impl Builder {
             SocketAddr::V4(_) => Socket::new(Domain::IPV4, Type::STREAM, None)?,
             SocketAddr::V6(_) => Socket::new(Domain::IPV6, Type::STREAM, None)?,
         };
-
-        builder.set_linger(Some(Duration::from_secs(10)))?;
 
         builder.set_nonblocking(true)?;
 
@@ -815,8 +822,12 @@ where
             Err(_) => return Err(crate::MqttError::ReadTimeout.into()),
         };
 
-        let cert_info =
-            Self::get_extract_cert_info(&tls_s, self.cfg.cert_cn_as_username, self.cfg.collect_cert_info);
+        let cert_info = Self::get_extract_cert_info(
+            &tls_s,
+            self.cfg.cert_cn_as_username,
+            self.cfg.cert_subject_dn_as_username,
+            self.cfg.collect_cert_info,
+        );
 
         Ok(Dispatcher::new(tls_s, self.remote_addr, cert_info, self.cfg))
     }
@@ -857,8 +868,12 @@ where
             Err(_) => return Err(crate::MqttError::ReadTimeout.into()),
         };
 
-        let cert_info =
-            Self::get_extract_cert_info(&tls_s, self.cfg.cert_cn_as_username, self.cfg.collect_cert_info);
+        let cert_info = Self::get_extract_cert_info(
+            &tls_s,
+            self.cfg.cert_cn_as_username,
+            self.cfg.cert_subject_dn_as_username,
+            self.cfg.collect_cert_info,
+        );
 
         match tokio::time::timeout(self.cfg.handshake_timeout, accept_hdr_async(tls_s, on_handshake)).await {
             Ok(Ok(ws_stream)) => {
@@ -883,9 +898,10 @@ where
     fn get_extract_cert_info<C: TlsCertExtractor>(
         io: &C,
         cert_cn_as_username: bool,
+        cert_subject_dn_as_username: bool,
         collect_cert_info: bool,
     ) -> Option<CertInfo> {
-        if cert_cn_as_username || collect_cert_info {
+        if cert_cn_as_username || cert_subject_dn_as_username || collect_cert_info {
             // Extract cert info BEFORE consuming self
             let cert_info: Option<CertInfo> = io.extract_cert_info();
             // Certificate info is now available in s.cert_info
@@ -954,11 +970,11 @@ fn handle_header_v1(addr: v1::ProxyAddresses) -> Option<(SocketAddr, SocketAddr)
             None
         }
         Ipv4 { source, destination } => {
-            log::debug!("[tcp]accept proxy-protocol-v1: {} => {}", &source, &destination);
+            log::debug!("[tcp]accept proxy-protocol-v1: {} => {}", source, destination);
             Some((SocketAddr::V4(source), SocketAddr::V4(destination)))
         }
         Ipv6 { source, destination } => {
-            log::debug!("[tcp]accept proxy-protocol-v1: {} => {}", &source, &destination);
+            log::debug!("[tcp]accept proxy-protocol-v1: {} => {}", source, destination);
             Some((SocketAddr::V6(source), SocketAddr::V6(destination)))
         }
     }
@@ -998,11 +1014,11 @@ fn handle_header_v2(
 
     match addr {
         Address::Ipv4 { source, destination } => {
-            log::debug!("[tcp]accept proxy-protocol-v2: {} => {}", &source, &destination);
+            log::debug!("[tcp]accept proxy-protocol-v2: {} => {}", source, destination);
             Some((SocketAddr::V4(source), SocketAddr::V4(destination)))
         }
         Address::Ipv6 { source, destination } => {
-            log::debug!("[tcp]accept proxy-protocol-v2: {} => {}", &source, &destination);
+            log::debug!("[tcp]accept proxy-protocol-v2: {} => {}", source, destination);
             Some((SocketAddr::V6(source), SocketAddr::V6(destination)))
         }
         Address::Unspec => {

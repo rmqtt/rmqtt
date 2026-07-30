@@ -1,3 +1,15 @@
+//! Counter plugin for RMQTT.
+//!
+//! Tracks and exposes runtime metrics via hook event counting.
+//! Monitors message flow, client operations, and system events
+//! for observability and debugging.
+//!
+//! # Features
+//!
+//! - Counts publish, subscribe, unsubscribe, connect, and disconnect events.
+//! - Exposes counters via the management API.
+//! - Supports per-event-type and aggregate statistics.
+//!
 #![deny(unsafe_code)]
 
 use async_trait::async_trait;

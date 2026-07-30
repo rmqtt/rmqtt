@@ -1,0 +1,13 @@
+##--------------------------------------------------------------------
+## rmqtt-bridge-origin
+##--------------------------------------------------------------------
+
+# See more keys and their definitions at https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/bridge-origin.md
+
+# The maximum number of bridge workers.
+# Default: number of CPU cores
+#worker_count = 4
+
+# The maximum queue capacity for bridge operations.
+# Default: 200_000
+#queue_capacity = 200_000

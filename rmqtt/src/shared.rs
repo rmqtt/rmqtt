@@ -76,84 +76,158 @@ use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::context::ServerContext;
 #[cfg(feature = "grpc")]
-use crate::grpc::{self, GrpcClients, MessageBroadcaster, MessageReply, MESSAGE_TYPE_MESSAGE_GET};
+use crate::grpc::GrpcClients;
 use crate::session::Session;
 use crate::types::*;
 use crate::Result;
 
+/// Represents a client session entry in the shared state.
+///
+/// Provides atomic operations for session lifecycle management,
+/// including connection state transitions, subscription changes,
+/// and message publishing. Each entry is identified by a unique
+/// [`Id`] and can be locked for exclusive access.
 #[async_trait]
 pub trait Entry: Sync + Send {
+    /// Attempt to acquire an exclusive lock on this entry.
     async fn try_lock(&self) -> Result<Box<dyn Entry>>;
+    /// Return the unique identifier for this entry.
     fn id(&self) -> Id;
+    /// Check whether the stored session ID matches this entry's ID.
     fn id_same(&self) -> Option<bool>;
+    /// Replace the session and its associated sender channel.
     async fn set(&mut self, session: Session, tx: Tx) -> Result<()>;
+    /// Remove the session entry and return the previous session and sender.
     async fn remove(&mut self) -> Result<Option<(Session, Tx)>>;
+    /// Remove the session entry matching the given [`Id`].
     async fn remove_with(&mut self, id: &Id) -> Result<Option<(Session, Tx)>>;
+    /// Forcefully disconnect the client session.
+    ///
+    /// # Arguments
+    /// * `clean_start` - Whether to treat this as a clean start disconnect.
+    /// * `clear_subscriptions` - Whether to remove all subscriptions.
+    /// * `is_admin` - Whether the kick originates from an admin action.
     async fn kick(
         &mut self,
         clean_start: bool,
         clear_subscriptions: bool,
         is_admin: IsAdmin,
     ) -> Result<OfflineSession>;
+    /// Check whether the client is currently online.
     async fn online(&self) -> bool;
+    /// Check whether the client connection is active.
     async fn is_connected(&self) -> bool;
+    /// Retrieve an optional reference to the stored [`Session`].
     fn session(&self) -> Option<Session>;
+    /// Check whether an entry exists in the shared state.
     fn exist(&self) -> bool;
+    /// Retrieve the sender channel for delivering messages to this client.
     fn tx(&self) -> Option<Tx>;
+    /// Subscribe the client to a topic filter.
     async fn subscribe(&self, subscribe: &Subscribe) -> Result<SubscribeReturn>;
+    /// Unsubscribe the client from a topic filter.
     async fn unsubscribe(&self, unsubscribe: &Unsubscribe) -> Result<bool>;
+    /// Publish a message to this client.
     async fn publish(&self, from: From, p: Publish) -> std::result::Result<(), (From, Publish, Reason)>;
+    /// List all current subscriptions for this client.
     async fn subscriptions(&self) -> Option<Vec<SubsSearchResult>>;
+}
+
+/// Cluster-wide shared session state and message routing.
+///
+/// Provides the core interface for distributed session management,
+/// subscription tracking, and publish message forwarding across
+/// cluster nodes. Implementations manage client state storage,
+/// gRPC-based inter-node communication, and message delivery.
+///
+/// Async callback trait for processing messages loaded by `message_load_with`.
+///
+/// Implementations receive batches of loaded messages and can use `await`
+/// internally — unlike the sync `Arc<dyn Fn(...)>` approach.
+#[cfg(feature = "msgstore")]
+#[async_trait]
+pub trait MessageLoadCallback: Send + Sync + 'static {
+    /// Called for each batch of loaded messages.
+    ///
+    /// # Arguments
+    /// * `msgs` - A batch of messages from local storage or a remote peer.
+    async fn on_messages(&self, msgs: Vec<(MsgID, From, Publish)>) -> Result<()>;
+}
+
+#[cfg(feature = "retain")]
+#[async_trait]
+pub trait RetainLoadCallback: Send + Sync + 'static {
+    /// Called with the loaded batch of retain messages (topic + retain data).
+    /// Returns the extracted (NodeId, MsgID) pairs for caller-side tracking.
+    async fn on_retains(&self, retains: Vec<(TopicName, Retain)>) -> Result<Vec<(NodeId, MsgID)>>;
 }
 
 #[async_trait]
 pub trait Shared: Sync + Send {
-    /// Entry of the id
+    /// Retrieve the session entry associated with the given client [`Id`].
     fn entry(&self, id: Id) -> Box<dyn Entry>;
 
-    /// Check if client_id exist
+    /// Check whether a session for the given `client_id` exists in the shared state.
     fn exist(&self, client_id: &str) -> bool;
 
-    /// Route and dispense publish message
+    /// Route a publish message to all matching subscribers on this node.
+    ///
+    /// Returns the number of subscribers that received the message,
+    /// or a tuple of (subscriber_count, delivery_failures).
+    /// When `msg_id` is provided, records subscriber IDs via `mark_forwarded`
+    /// after successful forwarding, ensuring subscriber tracking is tied to
+    /// the forwarding result rather than deferred to a later `store()` call.
     async fn forwards(
         &self,
+        msg_id: Option<MsgID>,
         from: From,
         publish: Publish,
-    ) -> std::result::Result<SubscriptionClientIds, Vec<(To, From, Publish, Reason)>>;
+    ) -> std::result::Result<ForwardedCount, (ForwardedCount, Vec<(To, From, Publish, Reason)>)>;
 
-    ///Route and dispense publish message and return shared subscription relations
+    /// Route a publish message and return both the subscription relation map and subscriber IDs.
+    ///
+    /// Unlike [`forwards`](Self::forwards), this also separates out shared subscription groups
+    /// in the returned [`SubRelationsMap`] for caller-side processing.
     async fn forwards_and_get_shareds(
         &self,
         from: From,
         publish: Publish,
-    ) -> std::result::Result<(SubRelationsMap, SubscriptionClientIds), Vec<(To, From, Publish, Reason)>>;
+    ) -> std::result::Result<
+        (SubRelationsMap, ForwardedRecipients),
+        (ForwardedRecipients, Vec<(To, From, Publish, Reason)>),
+    >;
 
-    /// dispense publish message
+    /// Forward a publish message to a specific set of subscription relations.
+    ///
+    /// Returns the list of subscriber sessions that received the message,
+    /// or a tuple of (successful_sessions, delivery_failures).
     async fn forwards_to(
         &self,
         from: From,
         publish: &Publish,
         relations: SubRelations,
-    ) -> std::result::Result<(), Vec<(To, From, Publish, Reason)>>;
+        msg_id: Option<MsgID>,
+    ) -> std::result::Result<ForwardedRecipients, (ForwardedRecipients, Vec<(To, From, Publish, Reason)>)>;
 
-    /// Iter
+    /// Return an iterator over all client session entries.
     fn iter(&self) -> Box<dyn Iterator<Item = Box<dyn Entry>> + Sync + Send + '_>;
 
-    /// choose a session if exist
+    /// Pick a random connected session, if any exist.
     fn random_session(&self) -> Option<Session>;
 
-    /// Get session status with client id specific
+    /// Retrieve the session status for a specific client ID.
     async fn session_status(&self, client_id: &str) -> Option<SessionStatus>;
 
-    /// Count of th client States
+    /// Return the total number of client states currently tracked.
     async fn client_states_count(&self) -> usize;
 
-    /// Sessions count
+    /// Return the number of active sessions.
     fn sessions_count(&self) -> usize;
 
-    /// Subscriptions from SubSearchParams
+    /// Query subscriptions matching the given search parameters.
     async fn query_subscriptions(&self, q: &SubsSearchParams) -> Vec<SubsSearchResult>;
 
+    /// Return the total number of subscriptions across all sessions.
     async fn subscriptions_count(&self) -> usize;
 
     ///This node is not included
@@ -200,8 +274,66 @@ pub trait Shared: Sync + Send {
         topic_filter: &str,
         group: Option<&SharedGroup>,
     ) -> Result<Vec<(MsgID, From, Publish)>>;
+
+    #[cfg(feature = "msgstore")]
+    async fn message_load_with(
+        &self,
+        client_id: &str,
+        topic_filter: &str,
+        group: Option<&SharedGroup>,
+        cb: Arc<dyn MessageLoadCallback>,
+    ) -> Result<()> {
+        let msgs = self.message_load(client_id, topic_filter, group).await?;
+        cb.on_messages(msgs).await
+    }
+
+    #[cfg(feature = "retain")]
+    async fn retain_load_with(
+        &self,
+        topic_filter: &TopicFilter,
+        cb: Arc<dyn RetainLoadCallback>,
+    ) -> Result<Vec<(NodeId, MsgID)>>;
+
+    /// Broadcast a retained message update to all cluster peers.
+    ///
+    /// Called after the local node has written a retain: propagates the new
+    /// value to remote nodes so they can keep their local stores up to date.
+    /// Default implementation is a no-op (single-node mode).
+    #[cfg(feature = "retain")]
+    async fn retain_set_broadcast(
+        &self,
+        topic: &TopicName,
+        retain: &Retain,
+        expiry_interval: Option<Duration>,
+    ) -> Result<()> {
+        let _ = (topic, retain, expiry_interval);
+        Ok(())
+    }
+
+    /// Mark a message as successfully forwarded to the given subscribers.
+    /// Delegates to [`MessageManager::mark_forwarded`] so that forwarding
+    /// results are persisted and subsequent `get()` calls will not redeliver
+    /// the same message to these clients.
+    ///
+    /// # Arguments
+    /// * `msg_id` - Unique identifier of the forwarded message.
+    /// * `subscribers` - Subscribers (with optional shared group info) that
+    ///   have received the message, typically collected from shared subscription
+    ///   forwarding.
+    #[cfg(feature = "msgstore")]
+    async fn message_mark_forwarded(
+        &self,
+        from_node_id: NodeId,
+        msg_id: MsgID,
+        recipients: ForwardedRecipients,
+    ) -> Result<()>;
 }
 
+/// A locked reference to a client session entry.
+///
+/// Wraps an [`Entry`] with an optional mutex guard to ensure
+/// exclusive access during session operations. Used internally
+/// by [`DefaultShared`] to serialize access to a specific client's state.
 pub struct LockEntry {
     id: Id,
     shared: DefaultShared,
@@ -219,6 +351,12 @@ impl Drop for LockEntry {
 }
 
 impl LockEntry {
+    /// Create a new `LockEntry` wrapping the given session [`Id`].
+    ///
+    /// # Arguments
+    /// * `id` - The unique session identifier.
+    /// * `shared` - Reference to the shared state manager.
+    /// * `_locker` - Optional mutex guard for exclusive access.
     #[inline]
     pub fn new(id: Id, shared: DefaultShared, _locker: Option<OwnedMutexGuard<()>>) -> Self {
         Self { id, shared, _locker }
@@ -233,6 +371,7 @@ impl LockEntry {
         Ok(())
     }
 
+    /// Remove a peer entry identified by `with_id`, optionally clearing its subscriptions.
     #[inline]
     pub async fn _remove_with(&mut self, clear_subscriptions: bool, with_id: &Id) -> Option<(Session, Tx)> {
         if let Some((_, peer)) =
@@ -338,7 +477,7 @@ impl Entry for LockEntry {
             is_admin
         );
 
-        if let Some(peer_tx) = self.tx().and_then(|tx| if tx.is_closed() { None } else { Some(tx) }) {
+        if let Some(peer_tx) = self.tx().filter(|tx| !tx.is_closed()) {
             let (tx, rx) = oneshot::channel();
             if let Ok(()) = peer_tx.unbounded_send(Message::Kick(tx, self.id.clone(), clean_start, is_admin))
             {
@@ -373,7 +512,7 @@ impl Entry for LockEntry {
                 match s.to_offline_info().await {
                     Ok(offline_info) => Ok(OfflineSession::Exist(Some(offline_info))),
                     Err(e) => {
-                        log::error!("get offline info error, {e:?}");
+                        log::error!("get offline info error, {e}");
                         Ok(OfflineSession::Exist(None))
                     }
                 }
@@ -500,6 +639,11 @@ struct EntryItem {
     tx: Tx,
 }
 
+/// Default production implementation of the [`Shared`] trait for cluster-wide session management.
+///
+/// Uses a `DashMap` for lock-free concurrent client state storage,
+/// per-client mutexes for serialized access, and optional gRPC integration
+/// for inter-node message forwarding and subscription synchronization.
 #[derive(Clone)]
 pub struct DefaultShared {
     scx: Option<ServerContext>,
@@ -508,6 +652,7 @@ pub struct DefaultShared {
 }
 
 impl DefaultShared {
+    /// Create a new `DefaultShared` instance.
     #[inline]
     pub fn new(scx: Option<ServerContext>) -> DefaultShared {
         Self { scx, lockers: Arc::new(DashMap::default()), peers: Arc::new(DashMap::default()) }
@@ -522,14 +667,16 @@ impl DefaultShared {
         }
     }
 
+    /// Retrieve the sender channel and target [`To`] address for a given `client_id`.
     #[inline]
     pub fn tx(&self, client_id: &str) -> Option<(Tx, To)> {
         self.peers.get(client_id).map(|peer| (peer.tx.clone(), peer.s.id.clone()))
     }
 
+    /// Collect subscription client IDs from a [`SubRelationsMap`], resolving shared groups.
     #[inline]
-    pub fn _collect_subscription_client_ids(&self, relations_map: &SubRelationsMap) -> SubscriptionClientIds {
-        let sub_client_ids = relations_map
+    pub fn _collect_subscription_client_ids(&self, relations_map: &SubRelationsMap) -> ForwardedRecipients {
+        relations_map
             .values()
             .flat_map(|subs| {
                 subs.iter().flat_map(|(tf, cid, _, _, group_shared)| {
@@ -554,34 +701,20 @@ impl DefaultShared {
                     }
                 })
             })
-            .collect::<Vec<_>>();
-        log::debug!("_collect_subscription_client_ids sub_client_ids: {sub_client_ids:?}");
-        if sub_client_ids.is_empty() {
-            None
-        } else {
-            Some(sub_client_ids)
-        }
+            .collect()
     }
 
+    /// Merge two [`ForwardedRecipients`] collections into one.
     #[inline]
     pub fn _merge_subscription_client_ids(
         &self,
-        sub_client_ids: SubscriptionClientIds,
-        o_sub_client_ids: SubscriptionClientIds,
-    ) -> SubscriptionClientIds {
-        let sub_client_ids = match (sub_client_ids, o_sub_client_ids) {
-            (Some(sub_client_ids), None) => Some(sub_client_ids),
-            (Some(mut sub_client_ids), Some(o_sub_client_ids)) => {
-                if !o_sub_client_ids.is_empty() {
-                    sub_client_ids.extend(o_sub_client_ids);
-                }
-                Some(sub_client_ids)
-            }
-            (None, Some(o_sub_client_ids)) => Some(o_sub_client_ids),
-            (None, None) => None,
-        };
-        log::debug!("_merge_subscription_client_ids sub_client_ids: {sub_client_ids:?}");
-        sub_client_ids.filter(|sub_client_ids| !sub_client_ids.is_empty())
+        mut forwardeds: ForwardedRecipients,
+        o_forwardeds: ForwardedRecipients,
+    ) -> ForwardedRecipients {
+        if !o_forwardeds.is_empty() {
+            forwardeds.extend(o_forwardeds);
+        }
+        forwardeds
     }
 }
 
@@ -598,18 +731,42 @@ impl Shared for DefaultShared {
     }
 
     #[inline]
+    #[allow(unused_variables)]
     async fn forwards(
         &self,
+        msg_id: Option<MsgID>,
         from: From,
         publish: Publish,
-    ) -> std::result::Result<SubscriptionClientIds, Vec<(To, From, Publish, Reason)>> {
+    ) -> std::result::Result<ForwardedCount, (ForwardedCount, Vec<(To, From, Publish, Reason)>)> {
         let scx = self.context();
-        let sub_client_ids = if let Some(target_clientid) = &publish.target_clientid {
+        let from_node_id = from.node_id;
+        let recipients_count = if let Some(target_clientid) = &publish.target_clientid {
             let mut opts = SubscriptionOptions::default();
             opts.set_qos(publish.qos);
             let relations = vec![(publish.topic.clone(), target_clientid.clone(), opts, None, None)];
-            self.forwards_to(from, &publish, relations).await?;
-            Some(vec![(target_clientid.clone(), None)])
+            let recipients =
+                self.forwards_to(from, &publish, relations, None).await.map_err(|(_, errs)| (0, errs))?;
+
+            if from_node_id == scx.node.id() {
+                #[cfg(feature = "msgstore")]
+                if let Some(msg_id) = msg_id {
+                    if !recipients.is_empty() {
+                        if let Err(e) =
+                            scx.extends.message_mgr().await.mark_forwarded(msg_id, recipients).await
+                        {
+                            log::warn!("forwards: mark_forwarded error, msg_id: {:?}, {e}", msg_id);
+                        }
+                    }
+                }
+                1
+            } else {
+                log::warn!(
+                    "Received message from remote node, msg_id: {:?}, from node: {:?}",
+                    msg_id,
+                    from_node_id
+                );
+                0
+            }
         } else {
             let mut relations_map =
                 match scx.extends.router().await.matches(from.id.clone(), &publish.topic).await {
@@ -620,19 +777,46 @@ impl Shared for DefaultShared {
                     }
                 };
 
-            let sub_cids = self._collect_subscription_client_ids(&relations_map);
-
             let this_node_id = scx.node.id();
-            if let Some(relations) = relations_map.remove(&this_node_id) {
-                self.forwards_to(from, &publish, relations).await?;
-            }
+            let recipients_count = if let Some(relations) = relations_map.remove(&this_node_id) {
+                let (recipients, errs) = match self.forwards_to(from, &publish, relations, None).await {
+                    Ok(recipients) => (recipients, None),
+                    Err((recipients, errs)) => (recipients, Some(errs)),
+                };
+
+                let recipients_count = recipients.len();
+
+                #[cfg(feature = "msgstore")]
+                if let Some(msg_id) = msg_id {
+                    if !recipients.is_empty() {
+                        if let Err(e) =
+                            scx.extends.message_mgr().await.mark_forwarded(msg_id, recipients).await
+                        {
+                            log::warn!("forwards: mark_forwarded error, msg_id: {:?}, {e}", msg_id);
+                        }
+                    }
+                }
+
+                if let Some(errs) = errs {
+                    return Err((recipients_count, errs));
+                }
+
+                recipients_count
+            } else {
+                0
+            };
             if !relations_map.is_empty() {
-                log::warn!("forwards, relations_map:{relations_map:?}");
+                log::warn!(
+                    "Received message from remote node, msg_id: {:?}, from node: {:?}, relations_map:{relations_map:?}",
+                    msg_id,
+                    from_node_id
+                );
             }
 
-            sub_cids
+            recipients_count
         };
-        Ok(sub_client_ids)
+
+        Ok(recipients_count)
     }
 
     #[inline]
@@ -640,15 +824,16 @@ impl Shared for DefaultShared {
         &self,
         from: From,
         publish: Publish,
-    ) -> std::result::Result<(SubRelationsMap, SubscriptionClientIds), Vec<(To, From, Publish, Reason)>> {
-        log::debug!("forwards_and_get_shareds, from: {:?}, topic: {:?}", from, publish.topic);
-
+    ) -> std::result::Result<
+        (SubRelationsMap, ForwardedRecipients),
+        (ForwardedRecipients, Vec<(To, From, Publish, Reason)>),
+    > {
         if let Some(target_clientid) = &publish.target_clientid {
             let mut opts = SubscriptionOptions::default();
             opts.set_qos(publish.qos);
             let relations = vec![(publish.topic.clone(), target_clientid.clone(), opts, None, None)];
-            self.forwards_to(from, &publish, relations).await?;
-            Ok((SubRelationsMap::default(), Some(vec![(target_clientid.clone(), None)])))
+            let recipients = self.forwards_to(from, &publish, relations, None).await?;
+            Ok((SubRelationsMap::default(), recipients))
         } else {
             let relations_map =
                 match self.context().extends.router().await.matches(from.id.clone(), &publish.topic).await {
@@ -658,8 +843,6 @@ impl Shared for DefaultShared {
                         SubRelationsMap::default()
                     }
                 };
-
-            let sub_client_ids = self._collect_subscription_client_ids(&relations_map);
 
             let mut relations = SubRelations::new();
             let mut sub_relations_map = SubRelationsMap::default();
@@ -679,11 +862,13 @@ impl Shared for DefaultShared {
                 }
             }
 
-            if !relations.is_empty() {
-                self.forwards_to(from, &publish, relations).await?;
-            }
+            let recipients = if !relations.is_empty() {
+                self.forwards_to(from, &publish, relations, None).await?
+            } else {
+                ForwardedRecipients::default()
+            };
 
-            Ok((sub_relations_map, sub_client_ids))
+            Ok((sub_relations_map, recipients))
         }
     }
 
@@ -693,10 +878,13 @@ impl Shared for DefaultShared {
         from: From,
         publish: &Publish,
         mut relations: SubRelations,
-    ) -> std::result::Result<(), Vec<(To, From, Publish, Reason)>> {
+        _msg_id: Option<MsgID>,
+    ) -> std::result::Result<ForwardedRecipients, (ForwardedRecipients, Vec<(To, From, Publish, Reason)>)>
+    {
         let mut errs = Vec::new();
+        let mut ok_recipients: ForwardedRecipients = Vec::new();
 
-        for (topic_filter, client_id, opts, sub_ids, _) in relations.drain(..) {
+        for (topic_filter, client_id, opts, sub_ids, group_shared) in relations.drain(..) {
             let retain = if let Some(retain_as_published) = opts.retain_as_published() {
                 //MQTT V5: Retain As Publish
                 if retain_as_published {
@@ -751,13 +939,26 @@ impl Shared for DefaultShared {
                 if let Message::Forward(from, p) = e.into_inner() {
                     errs.push((to, from, p, Reason::from_static("Connection Tx is closed")));
                 }
+            } else {
+                // Collect successful session info with shared group expansion
+                if let Some((group, _, cids)) = &group_shared {
+                    for g_cid in cids {
+                        if g_cid == &client_id {
+                            ok_recipients.push((g_cid.clone(), Some((topic_filter.clone(), group.clone()))));
+                        } else {
+                            ok_recipients.push((g_cid.clone(), None));
+                        }
+                    }
+                } else {
+                    ok_recipients.push((client_id, None));
+                }
             }
         }
 
         if errs.is_empty() {
-            Ok(())
+            Ok(ok_recipients)
         } else {
-            Err(errs)
+            Err((ok_recipients, errs))
         }
     }
 
@@ -830,47 +1031,56 @@ impl Shared for DefaultShared {
     ) -> Result<Vec<(MsgID, From, Publish)>> {
         let scx = self.context();
         let message_mgr = scx.extends.message_mgr().await;
-        if message_mgr.should_merge_on_get() {
-            #[allow(unused_mut)]
-            let mut msgs = message_mgr.get(client_id, topic_filter, group).await?;
-            #[cfg(feature = "grpc")]
-            {
-                let grpc_clients = scx.extends.shared().await.get_grpc_clients();
-                if !grpc_clients.is_empty() {
-                    let replys = MessageBroadcaster::new(
-                        grpc_clients,
-                        MESSAGE_TYPE_MESSAGE_GET,
-                        grpc::Message::MessageGet(
-                            ClientId::from(client_id),
-                            TopicFilter::from(topic_filter),
-                            group.cloned(),
-                        ),
-                        Some(Duration::from_secs(10)),
-                    )
-                    .join_all()
-                    .await;
-                    for (_, reply) in replys {
-                        let reply = reply?;
-                        match reply {
-                            MessageReply::Error(e) => return Err(anyhow!(e)),
-                            MessageReply::MessageGet(res) => {
-                                msgs.extend(res);
-                            }
-                            _ => {
-                                log::error!("unreachable!(), reply: {reply:?}");
-                                return Err(anyhow!("unreachable!()"));
-                            }
-                        }
-                    }
-                }
-            }
-            Ok(msgs)
+        message_mgr.get(client_id, topic_filter, group).await
+    }
+
+    #[cfg(feature = "msgstore")]
+    async fn message_load_with(
+        &self,
+        client_id: &str,
+        topic_filter: &str,
+        group: Option<&SharedGroup>,
+        cb: Arc<dyn MessageLoadCallback>,
+    ) -> Result<()> {
+        let scx = self.context();
+        let message_mgr = scx.extends.message_mgr().await;
+        let msgs = message_mgr.get(client_id, topic_filter, group).await?;
+        cb.on_messages(msgs).await
+    }
+
+    #[cfg(feature = "retain")]
+    async fn retain_load_with(
+        &self,
+        topic_filter: &TopicFilter,
+        cb: Arc<dyn RetainLoadCallback>,
+    ) -> Result<Vec<(NodeId, MsgID)>> {
+        let scx = self.context();
+        let retain_mgr = scx.extends.retain().await;
+        let retains = retain_mgr.get(topic_filter).await?;
+        cb.on_retains(retains).await
+    }
+
+    #[inline]
+    #[cfg(feature = "msgstore")]
+    async fn message_mark_forwarded(
+        &self,
+        from_node_id: NodeId,
+        msg_id: MsgID,
+        recipients: ForwardedRecipients,
+    ) -> Result<()> {
+        let scx = self.context();
+        if from_node_id == scx.node.id() {
+            scx.extends.message_mgr().await.mark_forwarded(msg_id, recipients).await
         } else {
-            message_mgr.get(client_id, topic_filter, group).await
+            log::warn!("forward mark flag to node {}", from_node_id);
+            Ok(())
         }
     }
 }
 
+/// Iterator over all client session entries managed by [`DefaultShared`].
+///
+/// Wraps a `DashMap` iterator, yielding each entry as a `Box<dyn Entry>`.
 pub struct DefaultIter<'a> {
     shared: DefaultShared,
     ptr: dashmap::iter::Iter<'a, ClientId, EntryItem, ahash::RandomState>,
@@ -879,6 +1089,7 @@ pub struct DefaultIter<'a> {
 impl Iterator for DefaultIter<'_> {
     type Item = Box<dyn Entry>;
 
+    /// Advance the iterator and return the next session entry.
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(item) = self.ptr.next() {
@@ -886,5 +1097,82 @@ impl Iterator for DefaultIter<'_> {
         } else {
             None
         }
+    }
+}
+
+/// Deduplicate retained messages by topic, keeping the one with the latest `create_time`.
+///
+/// When clustering with node-local retain storage (ram/sled), the same topic may be
+/// present on multiple nodes. This helper collapses those duplicates so a subscriber
+/// receives only the newest retained message per topic.
+#[cfg(feature = "retain")]
+pub fn dedup_retains_by_topic(retains: Vec<(TopicName, Retain)>) -> Vec<(TopicName, Retain)> {
+    let mut latest_idx: HashMap<TopicName, usize> = HashMap::default();
+    for (idx, (topic, retain)) in retains.iter().enumerate() {
+        let incoming_ts = retain.publish.create_time.unwrap_or(0);
+        let keep = match latest_idx.get(topic) {
+            Some(&existing_idx) => {
+                let existing_ts = retains[existing_idx].1.publish.create_time.unwrap_or(0);
+                incoming_ts > existing_ts
+            }
+            None => true,
+        };
+        if keep {
+            latest_idx.insert(topic.clone(), idx);
+        }
+    }
+    let mut indices: Vec<usize> = latest_idx.into_values().collect();
+    indices.sort_unstable();
+    indices.into_iter().map(|idx| retains[idx].clone()).collect()
+}
+
+#[cfg(all(test, feature = "retain"))]
+mod tests {
+    use super::*;
+    use crate::codec::types::{Publish as CodecPublish, QoS};
+    use crate::types::{ClientId, From, Id, Publish, Retain};
+    use bytes::Bytes;
+    use std::collections::HashMap as StdHashMap;
+
+    fn make_retain(topic: &str, payload: &str, create_time: i64) -> (TopicName, Retain) {
+        let topic = TopicName::from(topic);
+        let codec_publish = CodecPublish {
+            dup: false,
+            retain: true,
+            qos: QoS::AtMostOnce,
+            topic: topic.clone(),
+            packet_id: None,
+            payload: Bytes::from(payload.to_string()),
+            properties: None,
+        };
+        let publish = Publish::from(codec_publish).create_time(create_time);
+        let retain =
+            Retain { msg_id: None, from: From::from_custom(Id::from(0, ClientId::from_static(""))), publish };
+        (topic, retain)
+    }
+
+    #[test]
+    fn test_dedup_retains_by_topic_keeps_latest() {
+        let retains = vec![
+            make_retain("a/b", "old", 100),
+            make_retain("a/b", "new", 200),
+            make_retain("a/c", "other", 150),
+        ];
+        let deduped = dedup_retains_by_topic(retains);
+        assert_eq!(deduped.len(), 2);
+        let map: StdHashMap<String, String> = deduped
+            .into_iter()
+            .map(|(t, r)| (t.to_string(), String::from_utf8(r.publish.payload.to_vec()).unwrap()))
+            .collect();
+        assert_eq!(map.get("a/b").unwrap(), "new");
+        assert_eq!(map.get("a/c").unwrap(), "other");
+    }
+
+    #[test]
+    fn test_dedup_retains_by_topic_first_wins_on_equal_time() {
+        let retains = vec![make_retain("a/b", "first", 100), make_retain("a/b", "second", 100)];
+        let deduped = dedup_retains_by_topic(retains);
+        assert_eq!(deduped.len(), 1);
+        assert_eq!(deduped[0].1.publish.payload.as_ref(), b"first");
     }
 }

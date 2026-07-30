@@ -8,11 +8,20 @@ authors.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+default = ["rmqtt-storage"]
+redb = ["rmqtt-storage/redb", "circuit-breaker"]
+sled = ["rmqtt-storage/sled", "circuit-breaker"]
+redis = ["rmqtt-storage/redis", "circuit-breaker"]
+redis-cluster = ["redis", "rmqtt-storage/redis-cluster"]
+circuit-breaker = ["rmqtt-storage/circuit-breaker"]
+
 [dependencies]
 rmqtt = { workspace = true, features = ["plugin", "metrics", "stats", "grpc", "shared-subscription" ] }
-tokio = { workspace = true, features = ["sync" ] }
+tokio = { workspace = true, features = ["sync", "time" ] }
 serde = { workspace = true, features = ["derive"] }
-salvo = { version = "0.76", features = ["affix-state"] }
+salvo = { version = "0.90", features = ["affix-state", "serve-static"] }
+rmqtt-storage = { workspace = true, default-features = false, features = ["ttl"], optional = true}
 async-trait.workspace = true
 log.workspace = true
 serde_json.workspace = true
@@ -22,5 +31,6 @@ bytes.workspace = true
 futures.workspace = true
 socket2.workspace = true
 prometheus.workspace = true
-bincode.workspace = true
-
+postcard.workspace = true
+rust-embed = "8"
+lru = "0.18"

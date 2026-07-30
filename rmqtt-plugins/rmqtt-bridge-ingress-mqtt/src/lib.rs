@@ -1,3 +1,16 @@
+//! MQTT ingress bridge plugin for RMQTT.
+//!
+//! Connects to a remote MQTT broker as a client and forwards
+//! received messages into the local RMQTT broker. Supports
+//! topic remapping, QoS downgrade, and dual-protocol (v3/v5).
+//!
+//! # Features
+//!
+//! - Bridge client with configurable remote broker URL.
+//! - Bidirectional topic mapping and filtering.
+//! - MQTT v3.1.1 and v5.0 protocol support.
+//! - Automatic reconnection with backoff.
+//!
 #![deny(unsafe_code)]
 
 use std::ops::Deref;

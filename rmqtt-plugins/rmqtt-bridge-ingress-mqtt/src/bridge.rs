@@ -1,3 +1,9 @@
+//! Ingress bridge from remote MQTT brokers.
+//!
+//! Subscribes to topics on remote MQTT brokers (v3.1.1 or v5) and forwards
+//! received publish messages into the local broker. Manages client connections,
+//! message translation, and event-driven message dispatch.
+
 use std::convert::From as _;
 use std::net::SocketAddr;
 use std::rc::Rc;
@@ -36,12 +42,14 @@ use crate::config::{Bridge, PluginConfig};
 use crate::v4::Client as ClientV4;
 use crate::v5::Client as ClientV5;
 
+/// Commands for controlling a bridge client connection.
 #[derive(Debug)]
 pub enum Command {
     Connect,
     Close,
 }
 
+/// Mailbox for sending commands to a bridge client.
 #[derive(Clone)]
 pub struct CommandMailbox {
     pub(crate) client_id: ClientId,
@@ -65,12 +73,14 @@ impl CommandMailbox {
     }
 }
 
+/// A publish message variant for MQTT v3 or v5.
 #[derive(Debug)]
 pub enum BridgePublish {
     V3(PublishV3),
     V5(PublishV5),
 }
 
+/// A bridge client variant for MQTT v4 or v5.
 #[derive(Clone)]
 pub enum BridgeClient {
     V4(ClientV4),
@@ -107,11 +117,13 @@ impl BridgeClient {
     }
 }
 
+/// Event type for handling incoming bridge publish messages.
 pub type OnMessageEvent =
     Rc<Event<(BridgeClient, Option<SocketAddr>, Option<SocketAddr>, BridgePublish), ()>>;
 
 type SourceKey = (String, usize, usize); //BridgeName, entry_idx, client_no
 
+/// Manages bridge client connections for ingress MQTT.
 #[derive(Clone)]
 pub(crate) struct BridgeManager {
     scx: ServerContext,
@@ -128,7 +140,7 @@ impl BridgeManager {
 
     pub async fn start(&mut self) {
         while let Err(e) = self._start().await {
-            log::error!("start bridge-ingress-mqtt error, {e:?}");
+            log::error!("start bridge-ingress-mqtt error, {e}");
             self.stop().await;
             tokio::time::sleep(Duration::from_millis(3000)).await;
         }
@@ -220,7 +232,7 @@ impl BridgeManager {
             );
             if let Err(e) = mailbox.stop().await {
                 log::error!(
-                    "stop BridgeMqttIngressPlugin error, bridge_name: {bridge_name}, entry_idx: {entry_idx}, client_no: {client_no}, {e:?}"
+                    "stop BridgeMqttIngressPlugin error, bridge_name: {bridge_name}, entry_idx: {entry_idx}, client_no: {client_no}, {e}"
                 );
             }
         }
@@ -277,7 +289,7 @@ async fn send_publish(scx: ServerContext, cfg: Arc<Bridge>, entry_idx: usize, f:
     let storage_available = scx.extends.message_mgr().await.enable();
 
     if let Err(e) = SessionState::forwards(&scx, f, msg, storage_available, Some(expiry_interval)).await {
-        log::warn!("{e:?}");
+        log::warn!("{e}");
     }
 }
 

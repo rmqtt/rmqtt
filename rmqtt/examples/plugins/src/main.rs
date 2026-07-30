@@ -1,3 +1,7 @@
+//! Example: MQTT server with plugin support using the `rmqtt_plugins` meta-crate.
+//! Demonstrates how to register plugins (ACL, HTTP API, Retainer, P2P Messaging)
+//! via the unified `rmqtt_plugins` module path.
+
 use rmqtt::{context::ServerContext, net::Builder, server::MqttServer, Result};
 use simple_logger::SimpleLogger;
 

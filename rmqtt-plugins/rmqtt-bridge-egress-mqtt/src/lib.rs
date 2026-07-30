@@ -1,3 +1,16 @@
+//! MQTT egress bridge plugin for RMQTT.
+//!
+//! Forwards MQTT publish messages from the local broker to a
+//! remote MQTT broker. Supports topic remapping, QoS translation,
+//! and automatic reconnection.
+//!
+//! # Features
+//!
+//! - Outbound bridge client with configurable remote URL.
+//! - Topic rewriting and filtering.
+//! - MQTT v3.1.1 and v5.0 protocol support.
+//! - Configurable reconnection and backoff strategy.
+//!
 #![deny(unsafe_code)]
 
 use std::ops::Deref;
@@ -150,7 +163,7 @@ impl Handler for HookHandler {
                 let p = if let Some(HookResult::Publish(publish)) = &acc { publish } else { p };
                 log::debug!("{:?} message publish, {:?}", s.map(|s| &s.id), p);
                 if let Err(e) = self.bridge_mgr.send(f, p).await {
-                    log::error!("{e:?}");
+                    log::error!("{e}");
                 }
             }
             _ => {

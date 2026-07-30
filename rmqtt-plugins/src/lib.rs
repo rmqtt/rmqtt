@@ -6,7 +6,7 @@
 //! allowing for modularity and customization. The plugins are categorized into
 //! core, bridge, storage, utility, and cluster plugins, making it easy to extend
 //! the rmqtt functionality with different backend systems or protocols.
-//
+//!
 //! The following categories of plugins are available:
 //! - **Core Plugins**: Fundamental plugins for core functionality such as ACL,
 //!   retention, and HTTP API support.
@@ -73,6 +73,9 @@ pub use rmqtt_bridge_egress_nats as bridge_egress_nats;
 #[cfg(feature = "bridge-egress-reductstore")]
 pub use rmqtt_bridge_egress_reductstore as bridge_egress_reductstore;
 
+#[cfg(feature = "bridge-origin")]
+pub use rmqtt_bridge_origin as bridge_origin;
+
 // ---- Storage Plugins ----
 #[cfg(any(
     feature = "message-storage",
@@ -102,6 +105,9 @@ pub use rmqtt_web_hook as web_hook;
 
 #[cfg(feature = "p2p-messaging")]
 pub use rmqtt_p2p_messaging as p2p_messaging;
+
+#[cfg(feature = "shared-subscription")]
+pub use rmqtt_shared_subscription as shared_subscription;
 
 // ---- Cluster Plugins ----
 #[cfg(feature = "cluster-raft")]

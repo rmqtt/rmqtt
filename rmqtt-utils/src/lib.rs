@@ -6,6 +6,7 @@
 //! - **Timestamp Utilities**: Precise timestamp handling with millisecond resolution
 //! - **Network Addressing**: Cluster node address parsing ([`NodeAddr`]) and socket address handling
 //! - **Counter Implementation**: Thread-safe counter with merge modes ([`Counter`])
+//! - **Rate Counter**: Lock-free per-second rate tracking ([`RateCounter`])
 //!
 //! ## Key Components:
 //! - `Bytesize`: Handles 2G512M-style conversions with serialization support
@@ -81,8 +82,10 @@ use serde::{
 };
 
 mod counter;
+mod rate_counter;
 
 pub use counter::{Counter, StatsMergeMode};
+pub use rate_counter::RateCounter;
 
 /// Cluster node identifier type (64-bit unsigned integer)
 pub type NodeId = u64;
@@ -294,6 +297,7 @@ pub fn to_bytesize(text: &str) -> Result<usize, ParseSizeError> {
         .sum()
 }
 
+/// Errors that can occur when parsing a byte size string.
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum ParseSizeError {
     InvalidFormat,
@@ -655,6 +659,10 @@ pub fn expand_env_vars(value: &str) -> String {
         .into_owned()
 }
 
+/// Deserializes a string with `${ENV:VAR}` placeholders expanded from environment variables.
+///
+/// Returns the expanded string. Unset environment variables log a warning
+/// and are replaced with an empty string.
 #[inline]
 pub fn deserialize_expand_env_vars<'de, D>(deserializer: D) -> Result<String, D::Error>
 where
@@ -664,6 +672,9 @@ where
     Ok(expand_env_vars(&v))
 }
 
+/// Deserializes an optional string with `${ENV:VAR}` placeholders expanded.
+///
+/// Returns `None` if the resulting expanded string is empty.
 #[inline]
 pub fn deserialize_expand_env_vars_option<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where

@@ -11,6 +11,10 @@ use crate::v5::{encode::*, property_type as pt, UserProperties};
 
 pub(crate) type Publish = crate::types::Publish;
 
+/// Properties for MQTT v5 PUBLISH packets
+///
+/// Contains optional metadata like topic aliases, message expiry, content type,
+/// and user properties as defined in the MQTT v5.0 specification.
 #[derive(Debug, PartialEq, Eq, Clone, Default, Serialize, Deserialize)]
 pub struct PublishProperties {
     pub topic_alias: Option<NonZeroU16>,
@@ -48,6 +52,9 @@ impl Publish {
     }
 }
 
+/// Converts a `UserProperties` vector into `PublishProperties`
+///
+/// This allows user properties to be set on a `PublishProperties` using `.into()`.
 impl std::convert::From<UserProperties> for PublishProperties {
     fn from(props: UserProperties) -> Self {
         PublishProperties { user_properties: props, ..Default::default() }

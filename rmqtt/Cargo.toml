@@ -19,11 +19,11 @@ all-features = true
 [features]
 default = []
 debug = []
-full = ["metrics", "stats", "plugin", "grpc", "tls", "ws", "quic", "delayed", "retain", "msgstore", "shared-subscription", "auto-subscription", "limit-subscription"]
+full = ["metrics", "stats", "plugin", "grpc", "tls", "ws", "quic", "delayed", "retain", "msgstore", "shared-subscription", "auto-subscription", "limit-subscription", "rate-counter"]
 metrics = ["rmqtt-macros/metrics"]
 stats = []
 plugin = ["rmqtt-macros/plugin"]
-grpc = ["rust-box/handy-grpc", "rust-box/mpsc", "msgstore"]
+grpc = ["rust-box/handy-grpc", "rust-box/mpsc", "msgstore", "dep:tower"]
 tls = ["rmqtt-net/tls"]
 ws = ["rmqtt-net/ws"]
 quic = ["rmqtt-net/quic"]
@@ -33,6 +33,7 @@ msgstore = []
 shared-subscription = []
 auto-subscription = []
 limit-subscription = []
+rate-counter = ["stats"]
 macros = ["dep:rmqtt-macros", "metrics", "plugin"]
 
 [dependencies]
@@ -57,12 +58,12 @@ itertools.workspace = true
 dashmap.workspace = true
 ahash.workspace = true
 chrono = { workspace = true, features = ["clock"] }
-get-size = { workspace = true, features = ["derive"] }
+get-size2 = { workspace = true, features = ["derive"] }
 leaky-bucket.workspace = true
 governor.workspace = true
 uuid = { workspace = true, features = ["v4"] }
 systemstat.workspace = true
-bincode.workspace = true
+postcard.workspace = true
 prost.workspace = true
 rand.workspace = true
 prometheus.workspace = true
@@ -70,6 +71,11 @@ url.workspace = true
 config = { workspace = true, features = ["toml"] }
 scopeguard.workspace = true
 parking_lot.workspace = true
+strum = { workspace = true, features = ["derive"] }
+
+# Circuit breaker
+tower-resilience-circuitbreaker.workspace = true
+tower = { workspace = true, optional = true }
 
 [build-dependencies]
 chrono = { workspace = true, features = ["clock"] }

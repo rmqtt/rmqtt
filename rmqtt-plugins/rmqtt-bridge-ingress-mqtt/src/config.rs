@@ -1,3 +1,9 @@
+//! Configuration types for the MQTT ingress bridge plugin.
+//!
+//! Defines bridge connection parameters (server, TLS, credentials, keepalive),
+//! MQTT protocol version, per-version settings (v3/v5), and routing entries
+//! mapping remote topics to local MQTT topics (including `${remote.topic}` pattern).
+
 use anyhow::anyhow;
 use std::num::NonZeroU32;
 use std::time::Duration;

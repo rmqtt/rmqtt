@@ -1,10 +1,15 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+//! In-memory retainer implementation.
+//!
+//! Wraps [`DefaultRetainStorage`] to provide a [`RetainStorage`] that
+//! enforces configurable message count and payload size limits.
+
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use tokio::sync::RwLock;
 
+use rmqtt::utils::StatsMergeMode;
 use rmqtt::{
     retain::DefaultRetainStorage,
     retain::RetainStorage,
@@ -12,19 +17,18 @@ use rmqtt::{
     Result,
 };
 
-use crate::{PluginConfig, ERR_NOT_SUPPORTED};
+use crate::PluginConfig;
 
 #[derive(Clone)]
 pub(crate) struct RamRetainer {
     pub(crate) inner: Arc<DefaultRetainStorage>,
     cfg: Arc<RwLock<PluginConfig>>,
-    retain_enable: Arc<AtomicBool>,
 }
 
 impl RamRetainer {
     #[inline]
-    pub(crate) fn new(cfg: Arc<RwLock<PluginConfig>>, retain_enable: Arc<AtomicBool>) -> RamRetainer {
-        Self { inner: Arc::new(DefaultRetainStorage::new()), cfg, retain_enable }
+    pub(crate) fn new(cfg: Arc<RwLock<PluginConfig>>) -> RamRetainer {
+        Self { inner: Arc::new(DefaultRetainStorage::new()), cfg }
     }
 
     #[inline]
@@ -40,13 +44,18 @@ impl RetainStorage for RamRetainer {
         true
     }
 
+    #[inline]
+    fn merge_on_read(&self) -> bool {
+        false
+    }
+
+    #[inline]
+    fn need_sync(&self) -> bool {
+        true
+    }
+
     ///topic - concrete topic
     async fn set(&self, topic: &TopicName, retain: Retain, expiry_interval: Option<Duration>) -> Result<()> {
-        if !self.retain_enable.load(Ordering::SeqCst) {
-            log::warn!("{ERR_NOT_SUPPORTED}");
-            return Ok(());
-        }
-
         let (max_retained_messages, max_payload_size, retained_message_ttl) = {
             let cfg = self.cfg.read().await;
             (cfg.max_retained_messages, *cfg.max_payload_size, cfg.retained_message_ttl)
@@ -73,12 +82,15 @@ impl RetainStorage for RamRetainer {
 
     ///topic_filter - Topic filter
     async fn get(&self, topic_filter: &TopicFilter) -> Result<Vec<(TopicName, Retain)>> {
-        if !self.retain_enable.load(Ordering::SeqCst) {
-            log::warn!("{ERR_NOT_SUPPORTED}");
-            Ok(Vec::new())
-        } else {
-            Ok(self.inner.get_message(topic_filter).await?)
-        }
+        Ok(self.inner.get_message(topic_filter).await?)
+    }
+
+    async fn get_all_paginated(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<(Vec<(TopicName, Retain, Option<Duration>)>, bool)> {
+        self.inner.get_all_paginated(offset, limit).await
     }
 
     #[inline]
@@ -89,5 +101,10 @@ impl RetainStorage for RamRetainer {
     #[inline]
     async fn max(&self) -> isize {
         self.inner.max().await
+    }
+
+    #[inline]
+    fn stats_merge_mode(&self) -> StatsMergeMode {
+        StatsMergeMode::Max
     }
 }

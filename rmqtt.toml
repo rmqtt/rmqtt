@@ -88,10 +88,21 @@ plugins.default_startups = [
     #"rmqtt-bridge-egress-nats",
     #"rmqtt-bridge-ingress-nats",
     #"rmqtt-bridge-egress-reductstore",
+    #"rmqtt-bridge-origin",
     #"rmqtt-web-hook",
     #"rmqtt-p2p-messaging",
+    "rmqtt-shared-subscription",
     "rmqtt-http-api"
 ]
+
+#Disable plugins that have default_startup = true in Cargo.toml
+#These plugins will NOT be started even if default_startup = true
+#Example: Uncomment to disable rmqtt-acl and rmqtt-counter
+#plugins.disabled_default_startups = [
+#    "rmqtt-acl",
+#    "rmqtt-counter",
+#]
+plugins.disabled_default_startups = []
 
 
 ##--------------------------------------------------------------------
@@ -108,6 +119,47 @@ mqtt.delayed_publish_immediate = true
 #Maximum session limit, 0: no limit, default value: 0.
 mqtt.max_sessions = 0
 
+##--------------------------------------------------------------------
+## Circuit breaker
+##--------------------------------------------------------------------
+##Uncomment the following section to customize circuit-breaker behaviour.
+##When the whole section is absent, the upstream default is used verbatim.
+
+##Failure rate threshold (0.0 – 1.0). When exceeded, circuit opens.
+##Default: 0.35
+#circuit_breaker.failure_rate_threshold = 0.35
+
+##Sliding window type: "CountBased" or "TimeBased".
+##  CountBased — window slides after N calls (sliding_window_size).
+##  TimeBased  — window slides after a fixed duration (e.g. 45s).
+##Default: "TimeBased"
+#circuit_breaker.sliding_window_type = "TimeBased"
+
+##Sliding window size (number of calls) for CountBased type.
+##For TimeBased, this value sets the max tracked calls (fallback for minimum_number_of_calls).
+##Default: 20
+#circuit_breaker.sliding_window_size = 20
+
+##Sliding window duration for TimeBased type (e.g. "45s").
+##Only used when sliding_window_type is "TimeBased".
+##Default: "45s"
+#circuit_breaker.sliding_window_duration = "45s"
+
+##Minimum calls before the breaker can trip.
+##Default: 10
+#circuit_breaker.minimum_number_of_calls = 10
+
+##Duration in OPEN state before transitioning to HALF_OPEN (probe).
+##Default: "30s"
+#circuit_breaker.wait_duration_in_open = "30s"
+
+##Slow call duration threshold.
+##Default: "2s"
+#circuit_breaker.slow_call_duration_threshold = "2s"
+
+##Slow call rate threshold (0.0 – 1.0). 1.0 = disabled.
+##Default: 1.0
+#circuit_breaker.slow_call_rate_threshold = 1.0
 
 ##--------------------------------------------------------------------
 ## Listeners
@@ -176,8 +228,6 @@ listener.tcp.external.message_expiry_interval = "5m"
 #The maximum number of topics that a single client is allowed to subscribe to
 #0 means unlimited, default value: 0
 listener.tcp.external.max_subscriptions = 0
-#Shared subscription switch, default value: true
-listener.tcp.external.shared_subscription = true
 #topic alias maximum, default value: 0, topic aliases not enabled. (MQTT 5.0)
 listener.tcp.external.max_topic_aliases = 32
 #Limit subscription switch, default value: false
@@ -215,7 +265,6 @@ listener.tcp.internal.max_session_expiry_interval = "0h"
 listener.tcp.internal.message_retry_interval = "30s"
 listener.tcp.internal.message_expiry_interval = "5m"
 listener.tcp.internal.max_subscriptions = 0
-listener.tcp.internal.shared_subscription = true
 listener.tcp.internal.max_topic_aliases = 0
 listener.tcp.internal.limit_subscription = false
 
@@ -228,6 +277,12 @@ listener.tls.external.addr = "0.0.0.0:8883"
 # false - disable this feature; the username must be provided in the CONNECT packet
 # Default: false
 listener.tls.external.cert_cn_as_username = false
+
+# Whether to use the Subject Distinguished Name (DN) from the client certificate as the username
+# true  - enable this feature; the username will be extracted from the certificate Subject DN
+# false - disable this feature; the username must be provided in the CONNECT packet
+# Default: false
+listener.tls.external.cert_subject_dn_as_username = false
 
 # Whether to collect client certificate information (cert_info) and
 # include it in the MQTT connection metadata

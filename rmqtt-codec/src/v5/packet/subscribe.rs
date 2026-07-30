@@ -22,6 +22,10 @@ pub struct Subscribe {
     pub topic_filters: Vec<(ByteString, SubscriptionOptions)>,
 }
 
+/// Subscription options for MQTT v5 SUBSCRIBE packets
+///
+/// Contains per-subscription options including QoS, no-local, retain-as-published,
+/// and retain handling as defined in the MQTT v5.0 specification.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct SubscriptionOptions {
     pub qos: QoS,
@@ -42,6 +46,9 @@ impl Default for SubscriptionOptions {
 }
 
 prim_enum! {
+    /// Retain handling options for MQTT v5 subscriptions
+    ///
+    /// Controls how retained messages are sent when a subscription is established.
     pub enum RetainHandling {
         AtSubscribe = 0,
         AtSubscribeNew = 1,

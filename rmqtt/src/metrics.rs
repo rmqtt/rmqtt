@@ -59,6 +59,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::macros::Metrics;
 
+/// Central metrics collector for the MQTT broker.
+///
+/// Tracks 50+ operational counters across client lifecycle, session management,
+/// and message processing (publish/delivery/ack flows). All counters use atomic
+/// operations for lock-free thread safety. Metrics are organized into categories
+/// matching the main broker data flows.
 #[derive(Serialize, Deserialize, Debug, Default, Metrics)]
 pub struct Metrics {
     client_authenticate: AtomicUsize,

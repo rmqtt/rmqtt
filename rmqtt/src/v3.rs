@@ -50,6 +50,16 @@ use crate::types::{
 use crate::utils::timestamp_millis;
 use crate::{Error, Result};
 
+/// Processes a new MQTT v3.1.1 connection through its full lifecycle.
+///
+/// Performs the protocol handshake, sets up session state, and enters
+/// the main message processing loop. Handles connection refusal with
+/// appropriate CONNACK codes on failure.
+///
+/// # Arguments
+/// * `scx` - Server context for accessing shared state
+/// * `sink` - MQTT v3.1.1 stream for I/O operations
+/// * `lid` - Listener port identifier
 pub(crate) async fn process<Io>(
     scx: ServerContext,
     mut sink: v3::MqttStream<Io>,
@@ -69,7 +79,7 @@ where
             Err((ack_code, e)) => {
                 refused_ack_v3(&scx, &mut sink, None, ack_code, e.to_string()).await?;
                 if let Err(e) = sink.close().await {
-                    log::info!("{lid} close io error, {e:?}");
+                    log::info!("{lid} close io error, {e}");
                 }
                 return Err(e);
             }
@@ -155,9 +165,9 @@ where
                 .map_err(|e| (ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable), e))?;
             Ok((state, keep_alive))
         }
-        Ok(Err(e)) => {
-            log::info!("{id:?} Connection Refused, handshake error, reason: {e:?}");
-            Err(e)
+        Ok(Err((ack_code, e))) => {
+            log::info!("{id:?} Connection Refused, handshake error, reason: {ack_code:?}, {e}");
+            Err((ack_code, e))
         }
         Err(e) => {
             #[cfg(feature = "metrics")]

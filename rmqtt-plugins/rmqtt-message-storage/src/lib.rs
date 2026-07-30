@@ -1,26 +1,44 @@
+//! Message storage plugin for RMQTT.
+//!
+//! Persists offline messages for MQTT clients with configurable
+//! storage backends:
+//! - **RAM**: In-memory storage (default, non-persistent).
+//! - **Redis**: External Redis server.
+//! - **Redis Cluster**: Distributed Redis setup.
+//!
+//! # Architecture
+//!
+//! - Plugins register `HookHandler` for hook events.
+//! - Messages are stored per `(client_id, topic_filter, shared_group)`
+//!   and are delivered when the client reconnects.
+//! - Supports message expiry with configurable TTL.
+//! - Uses an async channel for lock-free message ingestion.
+//!
 #![deny(unsafe_code)]
 
 use std::sync::Arc;
 
 use anyhow::anyhow;
 use async_trait::async_trait;
-use serde_json::{self, json};
 
 use rmqtt::{
     context::ServerContext,
     hook::Register,
     macros::Plugin,
-    message::MessageManager,
     plugin::{PackageInfo, Plugin},
     register, Result,
 };
 
 #[cfg(any(feature = "redis", feature = "redis-cluster"))]
 use rmqtt_storage::init_db;
+#[cfg(any(feature = "redis", feature = "redis-cluster"))]
+use storage::StorageDb;
 
-use config::{Config, PluginConfig};
+use config::PluginConfig;
 #[cfg(feature = "ram")]
 use ram::RamMessageManager;
+#[cfg(feature = "ram")]
+use rmqtt::message::MessageManager;
 #[cfg(any(feature = "redis", feature = "redis-cluster"))]
 use storage::StorageMessageManager;
 
@@ -44,16 +62,17 @@ impl StoragePlugin {
     #[inline]
     async fn new<S: Into<String>>(scx: ServerContext, name: S) -> Result<Self> {
         let name = name.into();
-        let mut cfg = scx.plugins.read_config_default::<PluginConfig>(&name)?;
+        let cfg = scx.plugins.read_config_default::<PluginConfig>(&name)?;
 
-        let (message_mgr, cfg) = match &mut cfg.storage {
+        let result: Result<(MessageMgr, Arc<PluginConfig>)> = match cfg.storage.clone() {
             #[cfg(feature = "ram")]
-            Some(Config::Ram(ram_cfg)) => {
-                let message_mgr = RamMessageManager::new(ram_cfg.clone(), cfg.cleanup_count).await?;
-                (MessageMgr::Ram(message_mgr), Arc::new(cfg))
+            Some(config::Config::Ram(ram_cfg)) => {
+                let message_mgr =
+                    RamMessageManager::new(ram_cfg.clone(), cfg.cleanup_count, cfg.backend_timeout).await?;
+                Ok((MessageMgr::Ram(message_mgr), Arc::new(cfg)))
             }
             #[cfg(any(feature = "redis", feature = "redis-cluster"))]
-            Some(Config::Storage(s_cfg)) => {
+            Some(config::Config::Storage(mut s_cfg)) => {
                 let node_id = scx.node.id();
                 #[cfg(feature = "redis")]
                 {
@@ -64,21 +83,24 @@ impl StoragePlugin {
                     s_cfg.redis_cluster.prefix =
                         s_cfg.redis_cluster.prefix.replace("{node}", &format!("{node_id}"));
                 }
-                let storage_db = match init_db(s_cfg).await {
-                    Err(e) => {
-                        log::error!("{name} init storage db error, {e:?}");
-                        return Err(e);
-                    }
-                    Ok(db) => db,
-                };
+                let storage_db = init_db(&s_cfg).await.map_err(|e| {
+                    log::error!("{name} init storage db error, {e}");
+                    e
+                })?;
+
+                #[cfg(feature = "circuit-breaker")]
+                let storage_db = StorageDb::new(storage_db, cfg.to_cb_config(&scx.circuit_breaker_config));
 
                 let cfg = Arc::new(cfg);
-                let message_mgr =
-                    StorageMessageManager::new(node_id, cfg.clone(), storage_db.clone(), true).await?;
-                (MessageMgr::Storage(message_mgr), cfg)
+                let message_mgr = StorageMessageManager::new(cfg.clone(), storage_db.clone()).await?;
+                Ok((MessageMgr::Storage(message_mgr), cfg))
             }
-            None => return Err(anyhow!("No storage engine specified (ram, redis, or redis-cluster)")),
+            None => Err(anyhow!("No storage engine specified (ram, redis, or redis-cluster)")),
+            #[allow(unreachable_patterns)]
+            Some(_) => Err(anyhow!("Unsupported storage engine config")),
         };
+
+        let (message_mgr, cfg) = result?;
         log::info!("{name} StoragePlugin cfg: {cfg:?}");
         let register = scx.extends.hook_mgr().register();
         Ok(Self { scx, cfg, register, message_mgr })
@@ -100,15 +122,17 @@ impl Plugin for StoragePlugin {
     }
 
     #[inline]
+    #[allow(unreachable_code)]
     async fn start(&mut self) -> Result<()> {
         log::info!("{} start", self.name());
-        let mgr: Box<dyn MessageManager> = match &self.message_mgr {
+        *self.scx.extends.message_mgr_mut().await = match &self.message_mgr {
             #[cfg(any(feature = "redis", feature = "redis-cluster"))]
             MessageMgr::Storage(mgr) => Box::new(mgr.clone()),
             #[cfg(feature = "ram")]
             MessageMgr::Ram(mgr) => Box::new(mgr.clone()),
+            #[allow(unreachable_patterns)]
+            _ => unreachable!("no storage backend enabled"),
         };
-        *self.scx.extends.message_mgr_mut().await = mgr;
         self.register.start().await;
         Ok(())
     }
@@ -141,6 +165,8 @@ impl MessageMgr {
             }
             #[cfg(feature = "ram")]
             MessageMgr::Ram(_) => {}
+            #[allow(unreachable_patterns)]
+            _ => {}
         }
         Ok(())
     }
@@ -155,10 +181,9 @@ impl MessageMgr {
                 let topic_values = mgr.topic_tree.read().await.values_size();
                 let forwardeds = mgr.forwardeds_count().await;
                 let expiries = mgr.expiries.read().await.len();
-                let exec_active_count = mgr.exec.active_count();
-                let exec_waiting_count = mgr.exec.waiting_count();
                 let messages_bytes_size = mgr.messages_bytes_size_get();
-                json!({
+                let msg_queue_count = mgr.msg_queue_count_get();
+                serde_json::json!({
                     "storage_engine": "Ram",
                     "message": {
                         "topic_nodes": topic_nodes,
@@ -168,9 +193,8 @@ impl MessageMgr {
                         "forwardeds": forwardeds,
                         "expiries": expiries,
                         "bytes_size": messages_bytes_size,
+                        "msg_queue_count": msg_queue_count,
                     },
-                    "exec_active_count": exec_active_count,
-                    "exec_waiting_count": exec_waiting_count,
                 })
             }
             #[cfg(any(feature = "redis", feature = "redis-cluster"))]
@@ -179,11 +203,9 @@ impl MessageMgr {
                 let msg_queue_count = mgr.msg_queue_count.load(std::sync::atomic::Ordering::Relaxed);
                 let topic_nodes = mgr.topic_tree.read().await.nodes_size();
                 let receiveds = mgr.topic_tree.read().await.values_size();
-                let exec_active_count = mgr.exec.active_count();
-                let exec_waiting_count = mgr.exec.waiting_count();
-                let storage_info = mgr.storage_db.info().await.unwrap_or_default();
+                let storage_info = mgr.storage_info().await;
                 let cost_time = format!("{:?}", now.elapsed());
-                json!({
+                serde_json::json!({
                     "storage_info": storage_info,
                     "msg_queue_count": msg_queue_count,
                     "message": {
@@ -191,10 +213,10 @@ impl MessageMgr {
                         "receiveds": receiveds,
                         "cost_time":cost_time,
                     },
-                    "exec_active_count": exec_active_count,
-                    "exec_waiting_count": exec_waiting_count
                 })
             }
+            #[allow(unreachable_patterns)]
+            _ => serde_json::Value::Null,
         }
     }
 }

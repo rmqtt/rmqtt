@@ -1,3 +1,16 @@
+//! Broadcast cluster plugin for RMQTT.
+//!
+//! Implements cluster communication via a simpler broadcast-based
+//! approach (without Raft consensus). Messages are forwarded to
+//! all peer nodes via gRPC.
+//!
+//! # Architecture
+//!
+//! - Each node maintains gRPC connections to all peers.
+//! - Incoming MQTT events are broadcast to every peer node.
+//! - No distributed consensus — eventual consistency model.
+//! - Lighter weight than the Raft-based cluster plugin.
+//!
 #![deny(unsafe_code)]
 
 use std::sync::Arc;
@@ -53,7 +66,12 @@ impl ClusterPlugin {
 
         let register = scx.extends.hook_mgr().register();
         let mut grpc_clients = HashMap::default();
+        let mut node_names = HashMap::default();
         let node_grpc_addrs = cfg.node_grpc_addrs.clone();
+
+        // Read circuit-breaker config from ServerContext.
+        let cb_config = &scx.circuit_breaker_config;
+
         for node_addr in &node_grpc_addrs {
             if node_addr.id != scx.node.id() {
                 let batch_size = cfg.node_grpc_batch_size;
@@ -69,16 +87,29 @@ impl ClusterPlugin {
                                 client_timeout,
                                 client_concurrency_limit,
                                 batch_size,
+                                cb_config,
                             )
                             .await?,
                     ),
                 );
             }
+            node_names.insert(node_addr.id, format!("{}@{}", node_addr.id, node_addr.addr));
         }
         let grpc_clients = Arc::new(grpc_clients);
         let message_type = cfg.message_type;
-        let router = ClusterRouter::new(scx.clone(), grpc_clients.clone(), message_type);
-        let shared = ClusterShared::new(scx.clone(), grpc_clients.clone(), message_type);
+        let exec = scx.get_exec(("BC_EXEC", cfg.task_exec_queue_workers, cfg.task_exec_queue_max));
+        let router =
+            ClusterRouter::new(scx.clone(), grpc_clients.clone(), message_type, cfg.node_grpc_client_timeout);
+        let shared = ClusterShared::new(
+            scx.clone(),
+            exec,
+            grpc_clients.clone(),
+            message_type,
+            node_names,
+            cfg.task_exec_queue_max,
+            cfg.task_exec_queue_workers,
+            cfg.node_grpc_client_timeout,
+        );
         let cfg = Arc::new(RwLock::new(cfg));
         Ok(Self { scx, register, cfg, grpc_clients, shared, router })
     }
@@ -109,6 +140,14 @@ impl Plugin for ClusterPlugin {
         self.register.start().await;
         *self.scx.extends.shared_mut().await = Box::new(self.shared.clone());
         *self.scx.extends.router_mut().await = Box::new(self.router.clone());
+
+        // Async retain sync from peers (fire-and-forget)
+        let shared = self.shared.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            shared.sync_retains_from_peers().await;
+        });
+
         Ok(())
     }
 
@@ -126,6 +165,7 @@ impl Plugin for ClusterPlugin {
                 "transfer_queue_len": c.transfer_queue_len(),
                 "active_tasks_count": c.active_tasks().count(),
                 "active_tasks_max": c.active_tasks().max(),
+                "circuit_breaker": c.circuit_breaker_json().await,
             });
             nodes.insert(format!("{id}-{addr}"), stats);
         }

@@ -1,0 +1,88 @@
+[English](README.md) | [**简体中文**](README-CN.md)
+
+# rmqtt-message-storage
+
+[![crates.io](https://img.shields.io/crates/v/rmqtt-message-storage.svg)](https://crates.io/crates/rmqtt-message-storage)
+
+消息持久化插件。存储未过期的离线客户端消息。
+
+## 使用
+
+```toml
+[dependencies]
+rmqtt-message-storage = { version = "0.21", features = ["ram"] }
+# 或：features = ["redis", "redis-cluster"]
+```
+
+```rust
+rmqtt_message_storage::register(&scx, true, false).await?;
+```
+
+## 配置
+
+文件：`rmqtt-message-storage.toml`
+
+### 存储类型
+
+| 选项 | 类型 | 默认值 | 描述 |
+|------|------|--------|------|
+| `storage.type` | string | `"ram"` | 后端存储类型：`ram`、`redis` 或 `redis-cluster` |
+
+### RAM 后端
+
+| 选项 | 类型 | 默认值 | 描述 |
+|------|------|--------|------|
+| `storage.ram.cache_capacity` | string | `"3G"` | 内存缓存容量 |
+| `storage.ram.cache_max_count` | integer | `1_000_000` | 最大缓存条目数（无限制） |
+| `storage.ram.encode` | boolean | `false` | 启用消息编码 |
+| `storage.ram.queue_max` | integer | `300000` | 任务队列最大积压量（背压保护） |
+
+### Redis 后端
+
+| 选项 | 类型 | 默认值 | 描述 |
+|------|------|--------|------|
+| `storage.redis.url` | string | `"redis://127.0.0.1:6379/"` | Redis 服务器 URL |
+| `storage.redis.prefix` | string | `"message-{node}"` | 键前缀（`{node}` = 节点 ID 占位符） |
+
+### Redis 集群后端
+
+| 选项 | 类型 | 默认值 | 描述 |
+|------|------|--------|------|
+| `storage.redis-cluster.urls` | array of string | `["redis://127.0.0.1:6380/", ...]` | Redis 集群节点 URL |
+| `storage.redis-cluster.prefix` | string | `"message-{node}"` | 键前缀 |
+
+### 清理
+
+| 选项 | 类型 | 默认值 | 描述 |
+|------|------|--------|------|
+| `cleanup_count` | integer | `5000` | 每轮清理的过期消息数量 |
+| `backend_timeout` | string | `"15s"` | 存储 I/O 操作、channel 发送及熔断器单次操作的超时。`"0s"` = 不超时 |
+
+### 熔断器
+
+保护 Broker 在存储后端不可用时不会被阻塞。熔断器使用滑动窗口统计调用失败率，
+当失败率超过阈值且达到最小调用次数时，熔断器跳转到 OPEN 状态，所有存储操作快速
+失败。熔断器会自动探测恢复。
+
+单次操作超时使用上方清理部分的 `backend_timeout` 设置。其余熔断器参数（失败率阈值、
+滑动窗口等）继承自主配置文件 `rmqtt.toml` 中的全局 `[circuit_breaker]` 配置段。
+
+#### 状态机
+
+```
+CLOSED ── 失败率 ≥ 阈值 (满足最小调用数) ──► OPEN ── 等待时间 ──► HALF_OPEN
+  ▲                                                                     │
+  └─────────────────── 探测成功 ◄───────────────────────────────────────┘
+```
+
+- **CLOSED**：正常运行；调用在滑动窗口中被跟踪。
+- **OPEN**：所有操作快速失败，不访问存储后端。
+- **HALF_OPEN**：允许有限数量的探测请求；成功则关闭熔断器，失败则重新打开。
+
+## 依赖
+
+`rmqtt`（features：`plugin`、`msgstore`）、redis（可选）
+
+## 许可证
+
+MIT OR Apache-2.0

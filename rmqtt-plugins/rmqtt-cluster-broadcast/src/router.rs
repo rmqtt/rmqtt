@@ -1,3 +1,5 @@
+//! Cluster-aware router that extends the default router with gRPC-based
+//! inter-node subscription lookups and route aggregation.
 use anyhow::anyhow;
 use std::time::Duration;
 
@@ -22,12 +24,18 @@ pub(crate) struct ClusterRouter {
     inner: DefaultRouter,
     grpc_clients: GrpcClients,
     message_type: MessageType,
+    rw_timeout: Duration,
 }
 
 impl ClusterRouter {
     #[inline]
-    pub(crate) fn new(scx: ServerContext, grpc_clients: GrpcClients, message_type: MessageType) -> Self {
-        Self { inner: DefaultRouter::new(Some(scx)), grpc_clients, message_type }
+    pub(crate) fn new(
+        scx: ServerContext,
+        grpc_clients: GrpcClients,
+        message_type: MessageType,
+        rw_timeout: Duration,
+    ) -> Self {
+        Self { inner: DefaultRouter::new(Some(scx)), grpc_clients, message_type, rw_timeout }
     }
 
     #[inline]
@@ -61,13 +69,13 @@ impl Router for ClusterRouter {
     #[inline]
     async fn gets(&self, limit: usize) -> Vec<Route> {
         let mut routes = self.inner.gets(limit).await;
-        for (_id, (_addr, c)) in self.grpc_clients.iter() {
+        for (_addr, c) in self.grpc_clients.values() {
             if routes.len() < limit {
                 let reply = MessageSender::new(
                     c.clone(),
                     self.message_type,
                     Message::RoutesGet(limit - routes.len()),
-                    Some(Duration::from_secs(10)),
+                    Some(self.rw_timeout),
                 )
                 .send()
                 .await;
@@ -76,7 +84,7 @@ impl Router for ClusterRouter {
                         routes.extend(ress);
                     }
                     Err(e) => {
-                        log::warn!("gets, error: {e:?}");
+                        log::warn!("gets, error: {e}");
                     }
                     _ => {
                         log::error!("unreachable!(), reply: {reply:?}");
@@ -97,7 +105,7 @@ impl Router for ClusterRouter {
             self.grpc_clients.clone(),
             self.message_type,
             Message::RoutesGetBy(TopicFilter::from(topic)),
-            Some(Duration::from_secs(10)),
+            Some(self.rw_timeout),
         )
         .join_all()
         .await
@@ -138,7 +146,7 @@ impl Router for ClusterRouter {
     #[inline]
     fn merge_topics(&self, topics_map: &HashMap<NodeId, Counter>) -> Counter {
         let topics = Counter::new();
-        for (_, counter) in topics_map.iter() {
+        for counter in topics_map.values() {
             topics.add(counter);
         }
         topics
@@ -147,7 +155,7 @@ impl Router for ClusterRouter {
     #[inline]
     fn merge_routes(&self, routes_map: &HashMap<NodeId, Counter>) -> Counter {
         let routes = Counter::new();
-        for (_, counter) in routes_map.iter() {
+        for counter in routes_map.values() {
             routes.add(counter);
         }
         routes

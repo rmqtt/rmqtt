@@ -38,7 +38,7 @@
 //! Typical Usage:
 //! 1. Implement `store()` for message persistence
 //! 2. Override `get()` for client-specific retrieval
-//! 3. Implement `should_merge_on_get()` for cluster coordination
+//! 3. Implement `merge_on_read()` for cluster coordination
 //! 4. Provide capacity monitoring via `count()`/`max()`
 //!
 //! Note: The default implementation performs no actual storage,
@@ -48,23 +48,31 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 
-use crate::types::{ClientId, From, MsgID, Publish, SharedGroup, TopicFilter};
+use crate::types::{ForwardedRecipients, From, MsgID, Publish, SharedGroup};
 use crate::Result;
 
 #[async_trait]
+/// Defines the message storage and retrieval contract for the broker.
+///
+/// Provides operations for storing, retrieving, and managing MQTT messages
+/// with support for message deduplication, expiry-based cleanup, and
+/// cluster-aware storage coordination. All methods have no-op default
+/// implementations, making the trait easy to implement.
 pub trait MessageManager: Sync + Send {
+    /// Generate the next message ID for deduplication tracking.
     #[inline]
     fn next_msg_id(&self) -> MsgID {
         0
     }
 
-    ///Store messages
+    /// Persist a message for potential redelivery to reconnecting clients.
     ///
-    ///_msg_id           - MsgID <br>
-    ///_from             - From <br>
-    ///_p                - Message <br>
-    ///_expiry_interval  - Message expiration time <br>
-    ///_sub_client_ids   - Indicate that certain subscribed clients have already forwarded the specified message.
+    /// # Arguments
+    /// * `msg_id` - Unique message identifier for deduplication.
+    /// * `from` - Origin information identifying the publishing source.
+    /// * `p` - The MQTT publish packet content.
+    /// * `expiry_interval` - Duration after which the message expires.
+    /// * `recipients` - Optional set of recipients that have already received this message.
     #[inline]
     async fn store(
         &self,
@@ -72,11 +80,17 @@ pub trait MessageManager: Sync + Send {
         _from: From,
         _p: Publish,
         _expiry_interval: Duration,
-        _sub_client_ids: Option<Vec<(ClientId, Option<(TopicFilter, SharedGroup)>)>>,
+        _recipients: Option<ForwardedRecipients>,
     ) -> Result<()> {
         Ok(())
     }
 
+    /// Retrieve stored messages for a specific client or shared subscription.
+    ///
+    /// # Arguments
+    /// * `client_id` - The target client identifier.
+    /// * `topic_filter` - Topic filter for matching messages.
+    /// * `group` - Optional shared subscription group name.
     #[inline]
     async fn get(
         &self,
@@ -87,28 +101,50 @@ pub trait MessageManager: Sync + Send {
         Ok(Vec::new())
     }
 
-    ///Indicate whether merging data from various nodes is needed during the 'get' operation.
+    /// Mark a stored message as already forwarded to specific clients.
+    ///
+    /// Records which recipients have received this message so they will
+    /// not receive it again via `get()`. Typically called after a shared
+    /// subscription forwards the message to its chosen member.
+    ///
+    /// # Arguments
+    /// * `msg_id` - The unique identifier of the stored message.
+    /// * `recipients` - Recipients that have received this message,
+    ///   with optional shared group subscription info.
     #[inline]
-    fn should_merge_on_get(&self) -> bool {
+    async fn mark_forwarded(&self, _msg_id: MsgID, _recipients: ForwardedRecipients) -> Result<()> {
+        Ok(())
+    }
+
+    /// Indicate whether merging data from various cluster nodes is needed during retrieval.
+    #[inline]
+    fn merge_on_read(&self) -> bool {
         false
     }
 
+    /// Return the current number of stored messages, or `-1` if unknown.
     #[inline]
     async fn count(&self) -> isize {
         -1
     }
 
+    /// Return the maximum storage capacity, or `-1` if unlimited.
     #[inline]
     async fn max(&self) -> isize {
         -1
     }
 
+    /// Indicate whether message storage is enabled.
     #[inline]
     fn enable(&self) -> bool {
         false
     }
 }
 
+/// A no-op default implementation of [`MessageManager`].
+///
+/// This implementation performs no actual storage, making it suitable
+/// for brokers that do not require message persistence.
 pub struct DefaultMessageManager {}
 
 impl Default for DefaultMessageManager {
@@ -118,6 +154,7 @@ impl Default for DefaultMessageManager {
 }
 
 impl DefaultMessageManager {
+    /// Create a new `DefaultMessageManager` instance.
     #[inline]
     pub fn new() -> DefaultMessageManager {
         Self {}

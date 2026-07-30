@@ -10,7 +10,7 @@
 | 磁盘          |                                           | 2T                                                              |
 | 容器          | podman                                    | v4.4.1                                                          |
 | MQTT Bench  | docker.io/rmqtt/rmqtt-bench:latest        | v0.1.3                                                          |
-| MQTT Broker | docker.io/rmqtt/rmqtt:latest              | v0.3.0                                                         |
+| MQTT Broker | docker.io/rmqtt/rmqtt:latest              | v0.21.0                                                        |
 | 其它          | MQTT Bench和MQTT Broker同服         |                                                                 |
 
 
@@ -62,7 +62,6 @@ listener.tcp.external.session_expiry_interval = "2h"
 listener.tcp.external.message_retry_interval = "20s"
 listener.tcp.external.message_expiry_interval = "5m"
 listener.tcp.external.max_subscriptions = 0
-listener.tcp.external.shared_subscription = true
 listener.tcp.external.max_topic_aliases = 32
 
 ```
@@ -370,7 +369,6 @@ listener.tcp.external.session_expiry_interval = "2h"
 listener.tcp.external.message_retry_interval = "20s"
 listener.tcp.external.message_expiry_interval = "5m"
 listener.tcp.external.max_subscriptions = 0
-listener.tcp.external.shared_subscription = true
 listener.tcp.external.max_topic_aliases = 32
 
 ```

@@ -1,3 +1,8 @@
+//! Procedural macro implementation for the `#[derive(Metrics)]` macro.
+//!
+//! Generates methods on the annotated struct for atomic counter operations,
+//! JSON serialization, Prometheus metric export, and additive merging.
+
 use quote::quote;
 use syn::{parse_macro_input, Data, DeriveInput, Fields, FieldsNamed, Ident};
 
@@ -89,7 +94,7 @@ pub(crate) fn build(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             let attr_name = f.ident.as_ref().map(|i| i.to_string().replace('_', "."));
             quote!(
                 metrics_gauge_vec
-                    .with_label_values(&[&label, #attr_name])
+                    .with_label_values(&[label, #attr_name])
                     .set(self.#name.load(Ordering::SeqCst) as i64);
             )
         })

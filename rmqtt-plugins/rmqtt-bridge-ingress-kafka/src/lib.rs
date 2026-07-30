@@ -1,3 +1,15 @@
+//! Kafka ingress bridge plugin for RMQTT.
+//!
+//! Consumes messages from Apache Kafka topics and publishes them
+//! as MQTT messages. Supports configurable topic mapping,
+//! consumer group management, and offset management.
+//!
+//! # Features
+//!
+//! - Kafka consumer with configurable group ID and offset reset.
+//! - MQTT QoS mapping for bridge reliability.
+//! - Message format transformation (JSON, Avro, raw bytes).
+//!
 #![deny(unsafe_code)]
 
 use std::ops::Deref;
@@ -51,7 +63,7 @@ impl BridgeKafkaIngressPlugin {
                     match cmd {
                         Command::Start => {
                             if let Err(e) = bridge_mgr.start().await {
-                                log::error!("{name} start bridge error, {e:?}");
+                                log::error!("{name} start bridge error, {e}");
                             }
                         }
                         Command::Close => {

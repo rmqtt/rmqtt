@@ -113,7 +113,7 @@ node_grpc_batch_size = 128
 ##Client concurrent request limit
 node_grpc_client_concurrency_limit = 128
 ##Connect and send to server timeout
-node_grpc_client_timeout = "60s"
+node_grpc_client_timeout = "10s"
 
 # The list of Raft peer addresses for the nodes in the cluster.
 # Each entry contains the node ID and the corresponding IP address and port for Raft consensus communication.
@@ -124,8 +124,20 @@ raft_peer_addrs = ["1@127.0.0.1:6003", "2@127.0.0.1:6004", "3@127.0.0.1:6005"]
 #If this listening address is not specified, the address of the node corresponding to `raft_peer_addrs` will be used.
 #laddr = "0.0.0.0:6003"
 
-#Specify a leader id, when the value is 0 or not specified, the first node
-#will be designated as the Leader. Default value: 0
+# Specify the leader node ID.
+#
+# This option is primarily intended for single-host pseudo-cluster deployments,
+# where multiple cluster nodes run on the same machine for testing or development.
+#
+# In a real distributed cluster, leader election is performed automatically and
+# this option is typically unnecessary.
+#
+# When the value is 0 or not specified, the first node in the cluster
+# configuration will be designated as the Leader.
+#
+# It can also be overridden via the CLI flag `--raft-leader-id`.
+#
+# Default value: 0
 leader_id = 0
 
 #Handshake lock timeout
@@ -155,7 +167,7 @@ raft.grpc_breaker_threshold = 5
 raft.grpc_breaker_retry_interval = "2500ms"
 raft.proposal_batch_size = 60
 raft.proposal_batch_timeout = "200ms"
-raft.snapshot_interval = "600s"
+raft.snapshot_interval = "300s"
 raft.heartbeat = "100ms"
 
 raft.election_tick = 10
@@ -178,7 +190,7 @@ raft.priority = 0
 
 - `'laddr'` specifies the Raft listening address. If not specified, it will default to the address configured in `'raft_peer_addrs'`.
 
-- `'leader_id'` specifies a leader ID. If the value is 0 or unspecified, it defaults to the first node started.
+- `'leader_id'` specifies a leader node ID. This option is primarily intended for single-host pseudo-cluster deployments where multiple cluster nodes run on the same machine for testing or development. In a real distributed cluster, leader election is performed automatically and this option is typically unnecessary. When the value is 0 or not specified, the first node in the cluster configuration will be designated as the Leader. It can also be overridden via the CLI flag `--raft-leader-id`.
 
 - `'compression'` specifies an algorithm for compressing snapshots. Possible values are: `zstd`, `lz4`, `zlib`, 
    and `snappy`. If not set, no compression will be performed.

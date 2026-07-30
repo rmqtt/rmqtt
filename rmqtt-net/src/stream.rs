@@ -1,3 +1,9 @@
+//! MQTT protocol stream dispatcher and version-specific stream implementations.
+//!
+//! Provides protocol version negotiation ([`Dispatcher::mqtt`]) and version-specific
+//! MQTT v3.1.1/v5.0 stream types ([`v3::MqttStream`], [`v5::MqttStream`]) with send/recv
+//! methods for all MQTT packet types.
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -275,8 +281,13 @@ pub mod v3 {
                 Ok(Some(Packet::Connect(mut connect))) => {
                     #[cfg(feature = "tls")]
                     {
-                        if self.cfg.cert_cn_as_username {
-                            if let Some(cert) = &self.cert_info {
+                        // Subject DN takes precedence over CN when both
+                        // flags are set: full DN includes O/OU/CN and is
+                        // self-namespacing across CAs.
+                        if let Some(cert) = &self.cert_info {
+                            if self.cfg.cert_subject_dn_as_username && !cert.subject.is_empty() {
+                                connect.username = Some(cert.subject.clone().into());
+                            } else if self.cfg.cert_cn_as_username {
                                 if let Some(cn) = &cert.common_name {
                                     connect.username = Some(cn.clone().into());
                                 }
@@ -497,8 +508,13 @@ pub mod v5 {
                 Ok(Some(Packet::Connect(mut connect))) => {
                     #[cfg(feature = "tls")]
                     {
-                        if self.cfg.cert_cn_as_username {
-                            if let Some(cert) = &self.cert_info {
+                        // Subject DN takes precedence over CN when both
+                        // flags are set: full DN includes O/OU/CN and is
+                        // self-namespacing across CAs.
+                        if let Some(cert) = &self.cert_info {
+                            if self.cfg.cert_subject_dn_as_username && !cert.subject.is_empty() {
+                                connect.username = Some(cert.subject.clone().into());
+                            } else if self.cfg.cert_cn_as_username {
                                 if let Some(cn) = &cert.common_name {
                                     connect.username = Some(cn.clone().into());
                                 }

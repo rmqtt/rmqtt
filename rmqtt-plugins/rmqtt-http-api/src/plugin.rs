@@ -1,3 +1,7 @@
+//! Plugin information helpers for the HTTP API.
+//!
+//! Provides functions to list all loaded plugins, get a specific plugin's
+//! info, and retrieve a plugin's raw JSON configuration.
 use rmqtt::context::ServerContext;
 use rmqtt::plugin::PluginInfo;
 use rmqtt::Result;

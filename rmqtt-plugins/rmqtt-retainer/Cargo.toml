@@ -14,15 +14,18 @@ license.workspace = true
 all-features = true
 
 [features]
-default = []
+default = ["rate-counter"]
 ram = []
-sled = ["rmqtt-storage/sled"]
-redis = ["rmqtt-storage/redis"]
+sled = ["rmqtt-storage/sled", "circuit-breaker"]
+redis = ["rmqtt-storage/redis", "circuit-breaker"]
+rate-counter = []
+circuit-breaker = ["rmqtt-storage/circuit-breaker"]
 
 [dependencies]
 rmqtt = { workspace = true, features = ["plugin", "retain"] }
-rmqtt-storage = { package = "rmqtt-storage", version = "0.7", default-features = false, features = ["ttl", "len"], optional = true}
+rmqtt-storage = { workspace = true, default-features = false, features = ["ttl", "len"], optional = true}
 #rmqtt-storage = { path = "../../../rmqtt-storage", default-features = false, features = ["ttl", "len"], optional = true}
+rust-box = { workspace = true, features = ["task-exec-queue"] }
 futures.workspace = true
 futures-time.workspace = true
 tokio.workspace = true

@@ -1,3 +1,9 @@
+//! HTTP API route handlers for the RMQTT management API.
+//!
+//! Defines the HTTP server, route tree, Bearer token authentication, and
+//! handler functions for brokers, nodes, clients, subscriptions, routes,
+//! MQTT actions, plugins, stats, metrics, and history.
+
 use std::convert::From as _;
 use std::io::ErrorKind;
 use std::net::SocketAddr;
@@ -34,12 +40,19 @@ use rmqtt::{
     Result,
 };
 
+use salvo::serve_static::{static_embed, StaticDir};
+
+use super::embed::DashboardAssets;
+use super::flusher::{HistoryCache, HistoryCaches};
 use super::prome::{Monitor, PROME_MONITOR};
 use super::types::{
-    ClientSearchParams, ClientSearchResult, Message, MessageReply, PrometheusDataType, PublishParams,
-    SubscribeParams, UnsubscribeParams,
+    ClientSearchParams, ClientSearchResult, HistoryData, HistoryQuery, Message, MessageReply,
+    PrometheusDataType, PublishParams, SubscribeParams, UnsubscribeParams,
 };
 use super::{clients, plugin, prome, subs, PluginConfigType};
+
+/// Depot key for the history caches + storage handle.
+const HISTORY_CACHES: &str = "HISTORY_CACHES";
 
 struct BearerValidator {
     token: String,
@@ -67,6 +80,7 @@ fn route(
     cfg: PluginConfigType,
     token: Option<String>,
     monitor: prome::Monitor,
+    history_caches: Option<HistoryCaches>,
 ) -> Router {
     let mut router = Router::with_path("api/v1")
         .hoop(affix_state::inject((scx, cfg)))
@@ -74,6 +88,10 @@ fn route(
         .hoop(api_logger);
     if let Some(token) = token {
         router = router.hoop(BearerValidator::new(&token));
+    }
+    // Inject history caches so query handlers can access LRU + storage.
+    if let Some(hc) = history_caches {
+        router = router.hoop(affix_state::insert(HISTORY_CACHES, hc));
     }
     router
         .get(list_apis)
@@ -127,6 +145,12 @@ fn route(
                         .push(Router::with_path("{id}").get(get_sys_stats)),
                 )
                 .push(Router::with_path("sum").get(get_stats_sum))
+                .push(
+                    Router::with_path("history")
+                        .get(get_stats_history)
+                        .push(Router::with_path("sum").get(get_stats_history_sum))
+                        .push(Router::with_path("{id}").get(get_stats_history)),
+                )
                 .push(Router::with_path("{id}").get(get_stats)),
         )
         .push(
@@ -139,6 +163,12 @@ fn route(
                         .push(Router::with_path("{id}").get(get_prometheus_metrics)),
                 )
                 .push(Router::with_path("sum").get(get_metrics_sum))
+                .push(
+                    Router::with_path("history")
+                        .get(get_metrics_history)
+                        .push(Router::with_path("sum").get(get_metrics_history_sum))
+                        .push(Router::with_path("{id}").get(get_metrics_history)),
+                )
                 .push(Router::with_path("{id}").get(get_metrics)),
         )
 }
@@ -147,11 +177,18 @@ pub(crate) async fn listen_and_serve(
     scx: ServerContext,
     laddr: SocketAddr,
     cfg: PluginConfigType,
+    history_caches: Option<HistoryCaches>,
     rx: oneshot::Receiver<()>,
+    started_tx: oneshot::Sender<()>,
 ) -> Result<()> {
-    let (reuseaddr, reuseport, http_bearer_token) = {
+    let (reuseaddr, reuseport, http_bearer_token, dashboard_static_dir) = {
         let cfg = cfg.read().await;
-        (cfg.http_reuseaddr, cfg.http_reuseport, cfg.http_bearer_token.clone())
+        (
+            cfg.http_reuseaddr,
+            cfg.http_reuseport,
+            cfg.http_bearer_token.clone(),
+            cfg.dashboard_static_dir.clone(),
+        )
     };
     log::info!("HTTP API Listening on {laddr}, reuseaddr: {reuseaddr}, reuseport: {reuseport}");
 
@@ -164,8 +201,47 @@ pub(crate) async fn listen_and_serve(
         rx.await.ok();
         handler.stop_graceful(None);
     });
+    let _ = started_tx.send(());
     let monitor = prome::Monitor::new();
-    server.try_serve(route(scx, cfg, http_bearer_token, monitor)).await?;
+    let api_router = route(scx, cfg, http_bearer_token, monitor, history_caches);
+
+    let mut root_router = Router::new().push(api_router);
+
+    // Mount Dashboard SPA — prefer filesystem directory (dev hot-reload) over embedded assets.
+    // If dashboard_static_dir is configured AND the directory exists, use StaticDir
+    // (supports live editing of dashboard files during development).
+    // Otherwise, fall back to assets embedded via rust-embed (production mode, no config needed).
+    let dashboard_mounted = if let Some(dir) = &dashboard_static_dir {
+        let path = std::path::Path::new(dir);
+        if path.exists() {
+            root_router = root_router.push(
+                Router::with_path("dashboard/{**path}").get(StaticDir::new([dir]).defaults("index.html")),
+            );
+            root_router = root_router
+                .push(Router::with_path("{**path}").get(StaticDir::new([dir]).defaults("index.html")));
+            log::info!("Dashboard SPA mounted from filesystem: {dir}, canonical: {:?}", path.canonicalize());
+            true
+        } else {
+            log::warn!(
+                "Dashboard static dir configured but not found: {dir}, falling back to embedded assets"
+            );
+            false
+        }
+    } else {
+        false
+    };
+
+    if !dashboard_mounted {
+        root_router = root_router.push(
+            Router::with_path("dashboard/{*path}")
+                .get(static_embed::<DashboardAssets>().fallback("index.html")),
+        );
+        root_router = root_router
+            .push(Router::with_path("{*path}").get(static_embed::<DashboardAssets>().fallback("index.html")));
+        log::info!("Dashboard SPA mounted from embedded assets (rust-embed)");
+    }
+
+    server.try_serve(root_router).await?;
     Ok(())
 }
 
@@ -376,6 +452,30 @@ async fn list_apis(res: &mut Response) {
           "path": "/api/v1/metrics/prometheus",
           "descr": "Get prometheus metrics from the cluster"
         },
+        {
+          "name": "get_stats_history",
+          "method": "GET",
+          "path": "/api/v1/stats/history[/{id}]",
+          "descr": "Get historical stats (all nodes or a specific node)"
+        },
+        {
+          "name": "get_stats_history_sum",
+          "method": "GET",
+          "path": "/api/v1/stats/history/sum",
+          "descr": "Get aggregated historical stats across all nodes"
+        },
+        {
+          "name": "get_metrics_history",
+          "method": "GET",
+          "path": "/api/v1/metrics/history[/{id}]",
+          "descr": "Get historical metrics (all nodes or a specific node)"
+        },
+        {
+          "name": "get_metrics_history_sum",
+          "method": "GET",
+          "path": "/api/v1/metrics/history/sum",
+          "descr": "Get aggregated historical metrics across all nodes"
+        },
 
 
     ]);
@@ -396,6 +496,15 @@ fn get_monitor(depot: &Depot) -> std::result::Result<Monitor, salvo::Error> {
         Some(e) => salvo::Error::Io(std::io::Error::new(ErrorKind::NotFound, format!("{e:?}"))),
     })?;
     Ok(m)
+}
+
+/// Returns the history caches (LRU + storage) from the depot, or `None`
+/// if history is not configured.
+fn get_history_caches(depot: &Depot) -> Option<HistoryCaches> {
+    match depot.get::<HistoryCaches>(HISTORY_CACHES) {
+        Ok(hc) => Some(hc.clone()),
+        _ => None,
+    }
 }
 
 #[handler]
@@ -469,7 +578,7 @@ async fn _get_broker(
         let grpc_clients = scx.extends.shared().await.get_grpc_clients();
         if let Some((_, c)) = grpc_clients.get(&id) {
             let msg = Message::BrokerInfo.encode()?;
-            let reply = MessageSender::new(
+            let reply = MessageSender::new_quick(
                 c.clone(),
                 message_type,
                 GrpcMessage::Data(msg),
@@ -490,7 +599,7 @@ async fn _get_broker(
                     serde_json::Value::String("Invalid Result".into())
                 }
                 Err(e) => {
-                    log::warn!("Get GrpcMessage::BrokerInfo from other node, error: {e:?}");
+                    log::warn!("Get GrpcMessage::BrokerInfo from other node, error: {e}");
                     serde_json::Value::String(e.to_string())
                 }
             };
@@ -507,7 +616,7 @@ async fn _get_brokers(scx: &ServerContext, message_type: MessageType) -> Result<
     let grpc_clients = scx.extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
         let msg = Message::BrokerInfo.encode()?;
-        let replys = MessageBroadcaster::new(
+        let replys = MessageBroadcaster::new_quick(
             grpc_clients,
             message_type,
             GrpcMessage::Data(msg),
@@ -530,7 +639,7 @@ async fn _get_brokers(scx: &ServerContext, message_type: MessageType) -> Result<
                 Ok(serde_json::Value::String("Invalid Result".into()))
             }
             (id, Err(e)) => {
-                log::warn!("Get GrpcMessage::BrokerInfo from other node({id}), error: {e:?}");
+                log::warn!("Get GrpcMessage::BrokerInfo from other node({id}), error: {e}");
                 Ok(serde_json::Value::String(e.to_string()))
             }
         })
@@ -586,7 +695,7 @@ async fn _get_nodes(scx: &ServerContext, message_type: MessageType) -> Result<Ve
     let grpc_clients = scx.extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
         let msg = Message::NodeInfo.encode()?;
-        let replys = MessageBroadcaster::new(
+        let replys = MessageBroadcaster::new_quick(
             grpc_clients,
             message_type,
             GrpcMessage::Data(msg),
@@ -609,7 +718,7 @@ async fn _get_nodes(scx: &ServerContext, message_type: MessageType) -> Result<Ve
                 Err(anyhow!("Invalid Result"))
             }
             (id, Err(e)) => {
-                log::warn!("Get GrpcMessage::NodeInfo from other node({id}), error: {e:?}");
+                log::warn!("Get GrpcMessage::NodeInfo from other node({id}), error: {e}");
                 Ok(serde_json::Value::String(e.to_string()))
             }
         })
@@ -631,7 +740,7 @@ pub(crate) async fn get_node(
         let grpc_clients = scx.extends.shared().await.get_grpc_clients();
         if let Some((_, c)) = grpc_clients.get(&id) {
             let msg = Message::NodeInfo.encode()?;
-            let reply = MessageSender::new(
+            let reply = MessageSender::new_quick(
                 c.clone(),
                 message_type,
                 GrpcMessage::Data(msg),
@@ -652,7 +761,7 @@ pub(crate) async fn get_node(
                     Err(anyhow!("Invalid Result"))
                 }
                 Err(e) => {
-                    log::warn!("Get GrpcMessage::NodeInfo from other node, error: {e:?}");
+                    log::warn!("Get GrpcMessage::NodeInfo from other node, error: {e}");
                     Err(e)
                 }
             }
@@ -671,7 +780,7 @@ pub(crate) async fn get_nodes_all(
     let grpc_clients = scx.extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
         let msg = Message::NodeInfo.encode()?;
-        let replys = MessageBroadcaster::new(
+        let replys = MessageBroadcaster::new_quick(
             grpc_clients,
             message_type,
             GrpcMessage::Data(msg),
@@ -694,7 +803,7 @@ pub(crate) async fn get_nodes_all(
                 Err(anyhow!("Invalid Result"))
             }
             (id, Err(e)) => {
-                log::warn!("Get GrpcMessage::NodeInfo from other node({id}), error: {e:?}");
+                log::warn!("Get GrpcMessage::NodeInfo from other node({id}), error: {e}");
                 Ok(Err(e))
             }
         })
@@ -747,7 +856,7 @@ async fn check_health_one(
         let grpc_clients = scx.extends.shared().await.get_grpc_clients();
         if let Some((_, c)) = grpc_clients.get(&id) {
             let msg = Message::NodeHealthStatus.encode()?;
-            let reply = MessageSender::new(
+            let reply = MessageSender::new_quick(
                 c.clone(),
                 message_type,
                 GrpcMessage::Data(msg),
@@ -768,7 +877,7 @@ async fn check_health_one(
                     Err(anyhow!("Invalid Result"))
                 }
                 Err(e) => {
-                    log::warn!("Get GrpcMessage::NodeHealthStatus from other node, error: {e:?}");
+                    log::warn!("Get GrpcMessage::NodeHealthStatus from other node, error: {e}");
                     Err(e)
                 }
             }
@@ -833,7 +942,7 @@ async fn _get_client(
     let grpc_clients = scx.extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
         let q = Message::ClientGet { clientid }.encode()?;
-        let reply = MessageBroadcaster::new(
+        let reply = MessageBroadcaster::new_quick(
             grpc_clients,
             message_type,
             GrpcMessage::Data(q),
@@ -920,7 +1029,7 @@ async fn _search_clients(
             q._limit -= replys.len();
 
             let q = Message::ClientSearch(Box::new(q.clone())).encode()?;
-            let reply = MessageSender::new(
+            let reply = MessageSender::new_quick(
                 c.clone(),
                 message_type,
                 GrpcMessage::Data(q),
@@ -938,7 +1047,7 @@ async fn _search_clients(
                     }
                 },
                 Err(e) => {
-                    log::warn!("Get GrpcMessage::ClientSearch, error: {e:?}");
+                    log::warn!("Get GrpcMessage::ClientSearch, error: {e}");
                 }
                 Ok(reply) => {
                     log::warn!("Get GrpcMessage::ClientSearch from other node({id}), reply: {reply:?}");
@@ -1255,7 +1364,7 @@ async fn _publish(
             if let Err(e) =
                 SessionState::forwards(scx, from, p1, storage_available, Some(message_expiry_interval)).await
             {
-                log::warn!("{e:?}");
+                log::warn!("{e}");
             }
         };
         futs.push(fut);
@@ -1344,9 +1453,10 @@ async fn _subscribe_on_other_node(
 ) -> Result<HashMap<TopicFilter, (bool, Option<String>)>> {
     let c = get_grpc_client(scx, node_id).await?;
     let q = Message::Subscribe(params).encode()?;
-    let reply = MessageSender::new(c, message_type, GrpcMessage::Data(q), Some(Duration::from_secs(15)))
-        .send()
-        .await?;
+    let reply =
+        MessageSender::new_quick(c, message_type, GrpcMessage::Data(q), Some(Duration::from_secs(15)))
+            .send()
+            .await?;
     match reply {
         GrpcMessageReply::Data(res) => match MessageReply::decode(&res)? {
             MessageReply::Subscribe(ress) => Ok(ress),
@@ -1415,9 +1525,10 @@ async fn _unsubscribe_on_other_node(
 ) -> Result<()> {
     let c = get_grpc_client(scx, node_id).await?;
     let q = Message::Unsubscribe(params).encode()?;
-    let reply = MessageSender::new(c, message_type, GrpcMessage::Data(q), Some(Duration::from_secs(15)))
-        .send()
-        .await?;
+    let reply =
+        MessageSender::new_quick(c, message_type, GrpcMessage::Data(q), Some(Duration::from_secs(15)))
+            .send()
+            .await?;
     match reply {
         GrpcMessageReply::Data(res) => match MessageReply::decode(&res)? {
             MessageReply::Unsubscribe => Ok(()),
@@ -1459,7 +1570,7 @@ async fn _all_plugins(scx: &ServerContext, message_type: MessageType) -> Result<
     let grpc_clients = scx.extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
         let msg = Message::GetPlugins.encode()?;
-        let replys = MessageBroadcaster::new(
+        let replys = MessageBroadcaster::new_quick(
             grpc_clients,
             message_type,
             GrpcMessage::Data(msg),
@@ -1529,7 +1640,7 @@ async fn _node_plugins(
         let c = get_grpc_client(scx, node_id).await?;
         let msg = Message::GetPlugins.encode()?;
         let reply =
-            MessageSender::new(c, message_type, GrpcMessage::Data(msg), Some(Duration::from_secs(10)))
+            MessageSender::new_quick(c, message_type, GrpcMessage::Data(msg), Some(Duration::from_secs(10)))
                 .send()
                 .await?;
         match reply {
@@ -1590,7 +1701,7 @@ async fn _node_plugin_info(
         let c = get_grpc_client(scx, node_id).await?;
         let msg = Message::GetPlugin { name }.encode()?;
         let reply =
-            MessageSender::new(c, message_type, GrpcMessage::Data(msg), Some(Duration::from_secs(10)))
+            MessageSender::new_quick(c, message_type, GrpcMessage::Data(msg), Some(Duration::from_secs(10)))
                 .send()
                 .await?;
         match reply {
@@ -1658,7 +1769,7 @@ async fn _node_plugin_config(
         let c = get_grpc_client(scx, node_id).await?;
         let msg = Message::GetPluginConfig { name }.encode()?;
         let reply =
-            MessageSender::new(c, message_type, GrpcMessage::Data(msg), Some(Duration::from_secs(10)))
+            MessageSender::new_quick(c, message_type, GrpcMessage::Data(msg), Some(Duration::from_secs(10)))
                 .send()
                 .await?;
         match reply {
@@ -1719,7 +1830,7 @@ async fn _node_plugin_config_reload(
         let c = get_grpc_client(scx, node_id).await?;
         let msg = Message::ReloadPluginConfig { name }.encode()?;
         let reply =
-            MessageSender::new(c, message_type, GrpcMessage::Data(msg), Some(Duration::from_secs(15)))
+            MessageSender::new_quick(c, message_type, GrpcMessage::Data(msg), Some(Duration::from_secs(15)))
                 .send()
                 .await?;
         match reply {
@@ -1781,7 +1892,7 @@ async fn _node_plugin_load(
         let c = get_grpc_client(scx, node_id).await?;
         let msg = Message::LoadPlugin { name }.encode()?;
         let reply =
-            MessageSender::new(c, message_type, GrpcMessage::Data(msg), Some(Duration::from_secs(10)))
+            MessageSender::new_quick(c, message_type, GrpcMessage::Data(msg), Some(Duration::from_secs(10)))
                 .send()
                 .await?;
         match reply {
@@ -1841,7 +1952,7 @@ async fn _node_plugin_unload(
         let c = get_grpc_client(scx, node_id).await?;
         let msg = Message::UnloadPlugin { name }.encode()?;
         let reply =
-            MessageSender::new(c, message_type, GrpcMessage::Data(msg), Some(Duration::from_secs(10)))
+            MessageSender::new_quick(c, message_type, GrpcMessage::Data(msg), Some(Duration::from_secs(10)))
                 .send()
                 .await?;
         match reply {
@@ -1893,7 +2004,7 @@ async fn _get_stats_sum(
     let grpc_clients = scx.extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
         let msg = Message::StatsInfo.encode()?;
-        for reply in MessageBroadcaster::new(
+        for reply in MessageBroadcaster::new_quick(
             grpc_clients,
             message_type,
             GrpcMessage::Data(msg),
@@ -1924,7 +2035,7 @@ async fn _get_stats_sum(
                     continue;
                 }
                 (id, Err(e)) => {
-                    log::warn!("Get GrpcMessage::StateInfo from other node({id}), error: {e:?}");
+                    log::warn!("Get GrpcMessage::StateInfo from other node({id}), error: {e}");
                     nodes.insert(id, serde_json::Value::String(e.to_string()));
                 }
             };
@@ -1999,10 +2110,14 @@ pub(crate) async fn get_stats_one(
         let grpc_clients = scx.extends.shared().await.get_grpc_clients();
         if let Some(c) = grpc_clients.get(&id).map(|(_, c)| c.clone()) {
             let msg = Message::StatsInfo.encode()?;
-            let reply =
-                MessageSender::new(c, message_type, GrpcMessage::Data(msg), Some(Duration::from_secs(10)))
-                    .send()
-                    .await;
+            let reply = MessageSender::new_quick(
+                c,
+                message_type,
+                GrpcMessage::Data(msg),
+                Some(Duration::from_secs(10)),
+            )
+            .send()
+            .await;
             match reply {
                 Ok(GrpcMessageReply::Data(msg)) => match MessageReply::decode(&msg)? {
                     MessageReply::StatsInfo(node_status, stats) => Ok(Some((node_status, stats))),
@@ -2016,7 +2131,7 @@ pub(crate) async fn get_stats_one(
                     Err(anyhow!("Invalid Result"))
                 }
                 Err(e) => {
-                    log::warn!("Get GrpcMessage::StateInfo from other node, error: {e:?}");
+                    log::warn!("Get GrpcMessage::StateInfo from other node, error: {e}");
                     Err(e)
                 }
             }
@@ -2040,7 +2155,7 @@ pub(crate) async fn get_stats_all(
     let grpc_clients = scx.extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
         let msg = Message::StatsInfo.encode()?;
-        for reply in MessageBroadcaster::new(
+        for reply in MessageBroadcaster::new_quick(
             grpc_clients,
             message_type,
             GrpcMessage::Data(msg),
@@ -2062,7 +2177,7 @@ pub(crate) async fn get_stats_all(
                     continue;
                 }
                 (id, Err(e)) => {
-                    log::warn!("Get GrpcMessage::StateInfo from other node({id}), error: {e:?}");
+                    log::warn!("Get GrpcMessage::StateInfo from other node({id}), error: {e}");
                     Err(e)
                 }
             };
@@ -2205,10 +2320,14 @@ pub(crate) async fn get_metrics_one(
         let grpc_clients = scx.extends.shared().await.get_grpc_clients();
         if let Some(c) = grpc_clients.get(&id).map(|(_, c)| c.clone()) {
             let msg = Message::MetricsInfo.encode()?;
-            let reply =
-                MessageSender::new(c, message_type, GrpcMessage::Data(msg), Some(Duration::from_secs(10)))
-                    .send()
-                    .await;
+            let reply = MessageSender::new_quick(
+                c,
+                message_type,
+                GrpcMessage::Data(msg),
+                Some(Duration::from_secs(10)),
+            )
+            .send()
+            .await;
             match reply {
                 Ok(GrpcMessageReply::Data(msg)) => match MessageReply::decode(&msg)? {
                     MessageReply::MetricsInfo(metrics) => Ok(Some(metrics)),
@@ -2222,7 +2341,7 @@ pub(crate) async fn get_metrics_one(
                     Err(anyhow!("Invalid Result"))
                 }
                 Err(e) => {
-                    log::warn!("Get GrpcMessage::MetricsInfo from other node, error: {e:?}");
+                    log::warn!("Get GrpcMessage::MetricsInfo from other node, error: {e}");
                     Err(e)
                 }
             }
@@ -2243,7 +2362,7 @@ pub(crate) async fn get_metrics_all(
     let grpc_clients = scx.extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
         let msg = Message::MetricsInfo.encode()?;
-        let replys = MessageBroadcaster::new(
+        let replys = MessageBroadcaster::new_quick(
             grpc_clients,
             message_type,
             GrpcMessage::Data(msg),
@@ -2265,7 +2384,7 @@ pub(crate) async fn get_metrics_all(
                     continue;
                 }
                 (id, Err(e)) => {
-                    log::warn!("Get GrpcMessage::MetricsInfo from other node({id}), error: {e:?}");
+                    log::warn!("Get GrpcMessage::MetricsInfo from other node({id}), error: {e}");
                     Err(e)
                 }
             };
@@ -2292,7 +2411,7 @@ async fn _get_metrics_sum(scx: &ServerContext, message_type: MessageType) -> Res
     let grpc_clients = scx.extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
         let msg = Message::MetricsInfo.encode()?;
-        for reply in MessageBroadcaster::new(
+        for reply in MessageBroadcaster::new_quick(
             grpc_clients,
             message_type,
             GrpcMessage::Data(msg),
@@ -2313,7 +2432,7 @@ async fn _get_metrics_sum(scx: &ServerContext, message_type: MessageType) -> Res
                     log::info!("Get GrpcMessage::MetricsInfo from other node({id}), reply: {reply:?}");
                 }
                 (id, Err(e)) => {
-                    log::warn!("Get GrpcMessage::MetricsInfo from other node({id}), error: {e:?}");
+                    log::warn!("Get GrpcMessage::MetricsInfo from other node({id}), error: {e}");
                 }
             };
         }
@@ -2401,4 +2520,456 @@ async fn get_grpc_client(scx: &ServerContext, node_id: NodeId) -> Result<GrpcCli
         .get(&node_id)
         .map(|(_, c)| c.clone())
         .ok_or_else(|| anyhow!("node grpc client is not exist!"))
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+//  History query helpers & HTTP handlers
+// ═════════════════════════════════════════════════════════════════════════
+
+/// Queries the local LRU cache for history data points in the given time range.
+///
+/// Unlike the old version, this does **no Storage IO** — it reads exclusively
+/// from the in-memory LRU cache (stats_cache or metrics_cache).
+///
+/// `interval_ms` is the flush interval in milliseconds (e.g. 5000 for 5s),
+/// used to round timestamps and compute the step between consecutive keys.
+pub(crate) async fn query_history_local(
+    cache: &HistoryCache,
+    node_id: NodeId,
+    start_ts: u64,
+    end_ts: u64,
+    limit: usize,
+    interval_ms: u64,
+    merge_window: Option<u64>,
+) -> HistoryData {
+    let step_ms = merge_window.map(|s| s * 1000).unwrap_or(interval_ms);
+    let from_rounded = (start_ts / step_ms) * step_ms;
+    let to_rounded = (end_ts / step_ms) * step_ms;
+    let expected_count = ((to_rounded - from_rounded) / step_ms + 1) as usize;
+    let mut entries: Vec<(u64, serde_json::Value)> = Vec::with_capacity(expected_count.min(limit));
+
+    let guard = cache.read().await;
+    for i in 0..expected_count {
+        let ts = from_rounded + i as u64 * step_ms;
+        if let Some(entry) = guard.peek(&ts) {
+            if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&entry.json) {
+                if let Some(obj) = val.as_object_mut() {
+                    obj.insert("ts".into(), json!(ts));
+                }
+                entries.push((ts, val));
+            }
+        }
+    }
+    drop(guard);
+
+    // Sort descending by timestamp (newest first).
+    entries.sort_by_key(|b| std::cmp::Reverse(b.0));
+    entries.truncate(limit);
+
+    let data: Vec<serde_json::Value> = entries.into_iter().map(|(_, v)| v).collect();
+    HistoryData { node: node_id, from: start_ts, to: end_ts, count: data.len(), data }
+}
+
+// ── Stats history ──────────────────────────────────────────────────────
+
+#[handler]
+async fn get_stats_history(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> std::result::Result<(), salvo::Error> {
+    let hc = get_history_caches(depot);
+    let (scx, cfg) = get_scx_cfg(depot)?;
+    let message_type = cfg.read().await.message_type;
+    let interval_ms = cfg.read().await.flush_interval.as_millis() as u64;
+
+    let id = req.param::<NodeId>("id");
+    let (start_ts, end_ts, limit, merge_window) = { parse_time_params(req) };
+
+    if let Some(ref hc) = hc {
+        if let Some(node_id) = id {
+            let data = if node_id == scx.node.id() {
+                query_history_local(&hc.stats, node_id, start_ts, end_ts, limit, interval_ms, merge_window)
+                    .await
+            } else {
+                query_history_remote(
+                    scx,
+                    message_type,
+                    node_id,
+                    Message::StatsHistoryQuery(HistoryQuery { start_ts, end_ts, limit, merge_window }),
+                )
+                .await
+            };
+            let result = json!({
+                "from": data.from,
+                "to": data.to,
+                "node": data.node,
+                "count": data.count,
+                "data": data.data,
+            });
+            res.render(Json(result));
+        } else {
+            let msg_encoded =
+                Message::StatsHistoryQuery(HistoryQuery { start_ts, end_ts, limit, merge_window })
+                    .encode()
+                    .unwrap_or_default();
+            let local_node_id = scx.node.id();
+            let params = HistoryQueryParams { start_ts, end_ts, limit, interval_ms, merge_window };
+            let results =
+                query_history_all_nodes(scx, message_type, &hc.stats, &params, msg_encoded, local_node_id)
+                    .await;
+            res.render(Json(json!({
+                "from": start_ts,
+                "to": end_ts,
+                "nodes": results,
+            })));
+        }
+    } else {
+        res.render(Json(json!({
+            "error": "history storage is not configured"
+        })));
+    }
+    Ok(())
+}
+
+#[handler]
+async fn get_stats_history_sum(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> std::result::Result<(), salvo::Error> {
+    let hc = get_history_caches(depot);
+    let (scx, cfg) = get_scx_cfg(depot)?;
+    let message_type = cfg.read().await.message_type;
+    let interval_ms = cfg.read().await.flush_interval.as_millis() as u64;
+
+    let (start_ts, end_ts, limit, merge_window) = { parse_time_params(req) };
+
+    if let Some(ref hc) = hc {
+        let params = HistoryQueryParams { start_ts, end_ts, limit, interval_ms, merge_window };
+        let nodes_data = query_history_all_nodes(
+            scx,
+            message_type,
+            &hc.stats,
+            &params,
+            Message::StatsHistoryQuery(HistoryQuery { start_ts, end_ts, limit, merge_window })
+                .encode()
+                .unwrap_or_default(),
+            scx.node.id(),
+        )
+        .await;
+
+        let (aggregated, node_count) = aggregate_history_data(&nodes_data);
+        res.render(Json(json!({
+            "from": start_ts,
+            "to": end_ts,
+            "node_count": node_count,
+            "count": aggregated.len(),
+            "data": aggregated,
+        })));
+    } else {
+        res.render(Json(json!({
+            "error": "history storage is not configured"
+        })));
+    }
+    Ok(())
+}
+
+// ── Metrics history ────────────────────────────────────────────────────
+
+#[handler]
+async fn get_metrics_history(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> std::result::Result<(), salvo::Error> {
+    let hc = get_history_caches(depot);
+    let (scx, cfg) = get_scx_cfg(depot)?;
+    let message_type = cfg.read().await.message_type;
+    let interval_ms = cfg.read().await.flush_interval.as_millis() as u64;
+
+    let id = req.param::<NodeId>("id");
+    let (start_ts, end_ts, limit, merge_window) = { parse_time_params(req) };
+
+    if let Some(ref hc) = hc {
+        if let Some(node_id) = id {
+            let data = if node_id == scx.node.id() {
+                query_history_local(&hc.metrics, node_id, start_ts, end_ts, limit, interval_ms, merge_window)
+                    .await
+            } else {
+                query_history_remote(
+                    scx,
+                    message_type,
+                    node_id,
+                    Message::MetricsHistoryQuery(HistoryQuery { start_ts, end_ts, limit, merge_window }),
+                )
+                .await
+            };
+            let result = json!({
+                "from": data.from,
+                "to": data.to,
+                "node": data.node,
+                "count": data.count,
+                "data": data.data,
+            });
+            res.render(Json(result));
+        } else {
+            let params = HistoryQueryParams { start_ts, end_ts, limit, interval_ms, merge_window };
+            let results = query_history_all_nodes(
+                scx,
+                message_type,
+                &hc.metrics,
+                &params,
+                Message::MetricsHistoryQuery(HistoryQuery { start_ts, end_ts, limit, merge_window })
+                    .encode()
+                    .unwrap_or_default(),
+                scx.node.id(),
+            )
+            .await;
+            res.render(Json(json!({
+                "from": start_ts,
+                "to": end_ts,
+                "nodes": results,
+            })));
+        }
+    } else {
+        res.render(Json(json!({
+            "error": "history storage is not configured"
+        })));
+    }
+    Ok(())
+}
+
+#[handler]
+async fn get_metrics_history_sum(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> std::result::Result<(), salvo::Error> {
+    let hc = get_history_caches(depot);
+    let (scx, cfg) = get_scx_cfg(depot)?;
+    let message_type = cfg.read().await.message_type;
+    let interval_ms = cfg.read().await.flush_interval.as_millis() as u64;
+
+    let (start_ts, end_ts, limit, merge_window) = { parse_time_params(req) };
+
+    if let Some(ref hc) = hc {
+        let params = HistoryQueryParams { start_ts, end_ts, limit, interval_ms, merge_window };
+        let nodes_data = query_history_all_nodes(
+            scx,
+            message_type,
+            &hc.metrics,
+            &params,
+            Message::MetricsHistoryQuery(HistoryQuery { start_ts, end_ts, limit, merge_window })
+                .encode()
+                .unwrap_or_default(),
+            scx.node.id(),
+        )
+        .await;
+
+        let (aggregated, node_count) = aggregate_history_data(&nodes_data);
+        res.render(Json(json!({
+            "from": start_ts,
+            "to": end_ts,
+            "node_count": node_count,
+            "count": aggregated.len(),
+            "data": aggregated,
+        })));
+    } else {
+        res.render(Json(json!({
+            "error": "history storage is not configured"
+        })));
+    }
+    Ok(())
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+//  Shared helpers
+// ═════════════════════════════════════════════════════════════════════════
+
+/// Parses query string time parameters: `minutes`, `hours`, `days`.
+/// Returns `(start_ts, end_ts, limit)`.
+fn parse_time_params(req: &Request) -> (u64, u64, usize, Option<u64>) {
+    let now = timestamp_millis() as u64;
+    let default_duration_ms = 5 * 60 * 1000u64; // 5 minutes
+
+    let duration_ms = req
+        .query::<u64>("minutes")
+        .map(|m| m * 60 * 1000)
+        .or_else(|| req.query::<u64>("hours").map(|h| h * 60 * 60 * 1000))
+        .or_else(|| req.query::<u64>("days").map(|d| d * 24 * 60 * 60 * 1000))
+        .unwrap_or(default_duration_ms);
+
+    let start_ts = now.saturating_sub(duration_ms);
+    let limit = req.query::<usize>("limit").unwrap_or(1000);
+    let merge_window = req.query::<u64>("merge_window");
+
+    (start_ts, now, limit, merge_window)
+}
+
+/// Sends a history query to a single remote node via gRPC and returns the
+/// result. Returns empty data on error.
+async fn query_history_remote(
+    scx: &ServerContext,
+    message_type: MessageType,
+    node_id: NodeId,
+    msg: Message<'_>,
+) -> HistoryData {
+    let grpc_clients = scx.extends.shared().await.get_grpc_clients();
+    if let Some(client) = grpc_clients.get(&node_id).map(|(_, c)| c.clone()) {
+        match msg.encode() {
+            Ok(encoded) => {
+                if let Ok(GrpcMessageReply::Data(reply_data)) = MessageSender::new_quick(
+                    client,
+                    message_type,
+                    GrpcMessage::Data(encoded),
+                    Some(Duration::from_secs(10)),
+                )
+                .send()
+                .await
+                {
+                    if let Ok(MessageReply::StatsHistoryReply(d)) | Ok(MessageReply::MetricsHistoryReply(d)) =
+                        MessageReply::decode(&reply_data)
+                    {
+                        return d;
+                    }
+                }
+            }
+            Err(e) => log::error!("encode history query error: {e}"),
+        }
+    }
+    HistoryData { node: node_id, from: 0, to: 0, count: 0, data: vec![] }
+}
+
+/// Query parameters shared by stats/metrics history lookups.
+#[derive(Copy, Clone)]
+struct HistoryQueryParams {
+    start_ts: u64,
+    end_ts: u64,
+    limit: usize,
+    interval_ms: u64,
+    merge_window: Option<u64>,
+}
+
+/// Queries all known nodes (local + remote via gRPC broadcast) and returns
+/// a map of `node_id → HistoryData`.
+///
+/// The caller must provide a `msg_encoded` (a pre-encoded `Message` for the
+/// remote side) and a `extract_fn` that picks the correct `HistoryData`
+/// variant from a decoded `MessageReply`.
+async fn query_history_all_nodes(
+    scx: &ServerContext,
+    message_type: MessageType,
+    cache: &HistoryCache,
+    params: &HistoryQueryParams,
+    msg_encoded: Vec<u8>,
+    local_node_id: NodeId,
+) -> HashMap<NodeId, HistoryData> {
+    let mut nodes = HashMap::default();
+
+    // 1. Query local storage.
+    let local_data = query_history_local(
+        cache,
+        local_node_id,
+        params.start_ts,
+        params.end_ts,
+        params.limit,
+        params.interval_ms,
+        params.merge_window,
+    )
+    .await;
+    nodes.insert(local_node_id, local_data);
+
+    // 2. Broadcast to all remote nodes.
+    let grpc_clients = scx.extends.shared().await.get_grpc_clients();
+    if !grpc_clients.is_empty() {
+        for reply in MessageBroadcaster::new_quick(
+            grpc_clients,
+            message_type,
+            GrpcMessage::Data(msg_encoded),
+            Some(Duration::from_secs(10)),
+        )
+        .join_all()
+        .await
+        {
+            match reply {
+                (id, Ok(GrpcMessageReply::Data(data))) => {
+                    if let Ok(reply_msg) = MessageReply::decode(&data) {
+                        match reply_msg {
+                            MessageReply::StatsHistoryReply(d) | MessageReply::MetricsHistoryReply(d) => {
+                                nodes.insert(id, d);
+                            }
+                            _ => {
+                                log::info!("unexpected history reply from node({id})");
+                            }
+                        }
+                    }
+                }
+                (id, Ok(reply)) => {
+                    log::info!("unexpected grpc reply from node({id}): {reply:?}");
+                }
+                (id, Err(e)) => {
+                    log::warn!("history query from node({id}) error: {e}");
+                }
+            }
+        }
+    }
+
+    nodes
+}
+
+/// Aggregates per-node history data into a single time series by summing
+/// numeric fields at each timestamp. Returns `(data_points, node_count)`.
+fn aggregate_history_data(nodes_data: &HashMap<NodeId, HistoryData>) -> (Vec<serde_json::Value>, usize) {
+    let node_count = nodes_data.len();
+    if node_count == 0 {
+        return (vec![], 0);
+    }
+
+    // Group values by timestamp.
+    let mut grouped: HashMap<u64, Vec<&serde_json::Value>> = HashMap::default();
+    for data in nodes_data.values() {
+        for point in &data.data {
+            if let Some(ts) = point.get("ts").and_then(|v| v.as_u64()) {
+                grouped.entry(ts).or_default().push(point);
+            }
+        }
+    }
+
+    // For each unique timestamp, sum all numeric fields.
+    let mut result: Vec<(u64, serde_json::Value)> = Vec::with_capacity(grouped.len());
+    for (ts, points) in grouped {
+        let mut merged = serde_json::Map::new();
+        merged.insert("ts".into(), json!(ts));
+
+        for point in points {
+            if let Some(obj) = point.as_object() {
+                for (k, v) in obj {
+                    if k == "ts" {
+                        continue;
+                    }
+                    match v {
+                        serde_json::Value::Number(n) => {
+                            let val = n.as_f64().unwrap_or(0.0);
+                            let entry = merged.entry(k.clone()).or_insert_with(|| json!(0.0_f64));
+                            if let Some(existing) = entry.as_f64() {
+                                *entry = json!(existing + val);
+                            }
+                        }
+                        _ => {
+                            // Non-numeric fields (strings, arrays) take the first value.
+                            merged.entry(k.clone()).or_insert_with(|| v.clone());
+                        }
+                    }
+                }
+            }
+        }
+        result.push((ts, serde_json::Value::Object(merged)));
+    }
+
+    // Sort descending by timestamp.
+    result.sort_by_key(|b| std::cmp::Reverse(b.0));
+
+    let data: Vec<serde_json::Value> = result.into_iter().map(|(_, v)| v).collect();
+    (data, node_count)
 }

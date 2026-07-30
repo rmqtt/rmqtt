@@ -1,3 +1,8 @@
+//! Configuration types for the HTTP authentication / ACL plugin.
+//!
+//! Defines [`PluginConfig`], [`Retry`], [`Req`], and [`ContentType`] used to
+//! configure outbound HTTP requests for authentication and access control.
+
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -11,6 +16,10 @@ use rmqtt::{hook::Priority, utils::deserialize_duration, Result};
 
 type HashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
 
+/// Top-level configuration for the HTTP auth/ACL plugin.
+///
+/// Specifies HTTP endpoints for authentication and ACL checks, along with
+/// request retry, headers, and error-handling behaviour.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginConfig {
     ///Disconnect if publishing is rejected
@@ -44,6 +53,7 @@ pub struct PluginConfig {
 }
 
 impl PluginConfig {
+    /// Returns the configured HTTP headers, or `None` if empty.
     pub fn headers(&self) -> Option<&HeaderMap> {
         let (headers, _) = &self.http_headers;
         if !headers.is_empty() {
@@ -85,6 +95,8 @@ impl PluginConfig {
         headers.serialize(s)
     }
 
+    /// Deserializes HTTP headers from a string-to-string map, parsing each
+    /// entry into a `HeaderName` / `HeaderValue` pair.
     #[inline]
     pub fn deserialize_http_headers<'de, D>(
         deserializer: D,
@@ -102,12 +114,14 @@ impl PluginConfig {
         Ok((headers, hs))
     }
 
+    /// Serializes the configuration to a JSON value.
     #[inline]
     pub fn to_json(&self) -> Result<serde_json::Value> {
         Ok(serde_json::to_value(self)?)
     }
 }
 
+/// Retry policy for HTTP requests.
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Retry {
     #[serde(default = "Retry::times_default")]
@@ -132,6 +146,7 @@ impl Retry {
     }
 }
 
+/// Content type variant for HTTP request bodies.
 #[derive(Debug, Clone)]
 pub enum ContentType {
     Json,
@@ -140,6 +155,9 @@ pub enum ContentType {
 
 type Headers = (Option<ContentType>, HeaderMap, HashMap<String, String>);
 
+/// An HTTP request definition for authentication or ACL checks.
+///
+/// Includes URL, HTTP method, custom headers, and query/form parameters.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Req {
     #[serde(serialize_with = "Req::serialize_url", deserialize_with = "Req::deserialize_url")]
@@ -156,10 +174,12 @@ pub struct Req {
 }
 
 impl Req {
+    /// Returns `true` if the request method is GET.
     pub fn is_get(&self) -> bool {
         self.method == Method::GET
     }
 
+    /// Returns the request-specific HTTP headers, or `None` if empty.
     pub fn headers(&self) -> Option<&HeaderMap> {
         let (_, headers, _) = &self.headers;
         if !headers.is_empty() {
@@ -169,6 +189,7 @@ impl Req {
         }
     }
 
+    /// Returns `true` if the request body content type is JSON.
     pub fn json_body(&self) -> bool {
         matches!(self.headers, (Some(ContentType::Json), _, _))
     }
@@ -181,6 +202,7 @@ impl Req {
         url.to_string().serialize(s)
     }
 
+    /// Deserializes a URL from its string representation.
     #[inline]
     pub fn deserialize_url<'de, D>(deserializer: D) -> std::result::Result<Url, D::Error>
     where
@@ -198,6 +220,7 @@ impl Req {
         method.to_string().serialize(s)
     }
 
+    /// Deserializes an HTTP method from its uppercase string representation.
     #[inline]
     pub fn deserialize_method<'de, D>(deserializer: D) -> std::result::Result<Method, D::Error>
     where
@@ -216,6 +239,8 @@ impl Req {
         headers.serialize(s)
     }
 
+    /// Deserializes HTTP headers and detects the content type
+    /// (JSON or form-encoded) from the `Content-Type` header.
     #[inline]
     pub fn deserialize_headers<'de, D>(deserializer: D) -> std::result::Result<Headers, D::Error>
     where

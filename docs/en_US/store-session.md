@@ -46,12 +46,24 @@ storage.redis.prefix = "session-{node}"
 ##redis-cluster
 storage.redis-cluster.urls = ["redis://127.0.0.1:6380/", "redis://127.0.0.1:6381/", "redis://127.0.0.1:6382/"]
 storage.redis-cluster.prefix = "session-{node}"
+
+##All circuit-breaker parameters (failure rate, window, etc.) are inherited
+##from the global `[circuit_breaker]` section in `rmqtt.toml`.
+##Only the backend operation timeout can be overridden here.
+##
+##Backend storage operation timeout. If a storage call exceeds this duration
+##it is aborted and counted as a failure by the circuit breaker.
+##Set to "0s" to disable.
+##Default: "15s"
+#backend_timeout = "15s"
 ```
 
 Currently, three storage engines are supported: "sled," "redis," and "redis-cluster." "sled" is stored locally, requiring 
 configuration for the storage location and in-memory cache size, with an appropriate size improving read and write efficiency.
 Prefix configuration enables different rmqtt nodes to use the same Redis storage service. `{node}` will be replaced with 
 the current node identifier.
+
+The Circuit Breaker parameters (failure rate threshold, sliding window type/size, minimum calls, OPEN duration, slow call threshold, etc.) are inherited from the global `[circuit_breaker]` section in `rmqtt.toml`. Only the backend storage operation timeout can be overridden via `backend_timeout` (default: `"15s"`, set to `"0s"` to disable).
 
 
 By default, this plugin is not enabled. To activate it, you must add the `rmqtt-session-storage` entry to the

@@ -1,3 +1,9 @@
+//! Ingress bridge from Apache Pulsar.
+//!
+//! Consumes messages from Pulsar topics and forwards them as MQTT publish
+//! messages into the local broker. Translates Pulsar message properties
+//! into MQTT metadata (from, client ID, QoS, retain, user properties).
+
 use std::collections::{BTreeMap, HashSet};
 use std::convert::From as _;
 use std::net::SocketAddr;
@@ -9,7 +15,10 @@ use bytestring::ByteString;
 use event_notify::Event;
 use futures::StreamExt;
 use itertools::Itertools;
-use pulsar::{authentication::oauth2::OAuth2Authentication, consumer, Authentication, Pulsar, TokioExecutor};
+use pulsar::{
+    authentication::oauth2::OAuth2Authentication, authentication::oauth2::OAuth2Params, consumer,
+    Authentication, Pulsar, TokioExecutor,
+};
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 
@@ -125,7 +134,7 @@ impl Message {
             PayloadFormat::Json => {
                 let payload_json: serde_json::Value =
                     serde_json::from_slice(payload.data.as_slice()).map_err(|e| anyhow!(e))?;
-                log::debug!("payload_topic_names: {:?}", &cfg_entry.local.payload_topic_names);
+                log::debug!("payload_topic_names: {:?}", cfg_entry.local.payload_topic_names);
                 let payload_topics = cfg_entry
                     .local
                     .payload_topic_names
@@ -284,9 +293,9 @@ impl Consumer {
             .with_options(cfg_entry.remote.options)
             .build::<Vec<u8>>()
             .await
-            .map_err(|e| anyhow!(e))?;
+            .map_err(|e: pulsar::Error| anyhow!(e))?;
 
-        consumer.check_connection().await.map_err(|e| anyhow!(e))?;
+        consumer.check_connection().await.map_err(|e: pulsar::Error| anyhow!(e))?;
         log::info!("connection ok");
 
         let (cmd_tx, cmd_rx) = mpsc::channel(100_000);
@@ -327,7 +336,7 @@ impl Consumer {
                     match cmd{
                         Some(Command::Close) => {
                             if let Err(e) = consumer.close().await {
-                                log::warn!("{name}/{consumer_name} consumer close error, {e:?}");
+                                log::warn!("{name}/{consumer_name} consumer close error, {e}");
                             }
                             log::info!("{name}/{consumer_name} Command(Close) pulsar exit event loop");
                             return;
@@ -345,20 +354,20 @@ impl Consumer {
                             break
                         }
                         Some(Err(e)) => {
-                            log::error!("{name}/{consumer_name} pulsar consumer recv error: {e:?}");
+                            log::error!("{name}/{consumer_name} pulsar consumer recv error: {e}");
                             break
                         },
                         Some(Ok(data)) => {
                             let data: consumer::Message<Vec<u8>> = data;
 
                             if let Err(e) = consumer.ack(&data).await {
-                                log::error!("{name}/{consumer_name} pulsar consumer recv message error: {e:?}");
+                                log::error!("{name}/{consumer_name} pulsar consumer recv message error: {e}");
                                 break
                             }
 
                             let msg = match Message::deserialize_message(self.scx.node.id(), &data, &entry) {
                                 Err(e) => {
-                                    log::warn!("{name}/{consumer_name} pulsar consumer deserialize message error: {e:?}");
+                                    log::warn!("{name}/{consumer_name} pulsar consumer deserialize message error: {e}");
                                     continue
                                 },
                                 Ok(msg) => msg
@@ -367,7 +376,7 @@ impl Consumer {
                             log::debug!("{:?} {}/{} msg: {:?}", std::thread::current().id(), name, consumer_name, msg);
 
                             if let Err(e) = Self::process_message(&cfg, &entry, msg, &on_message) {
-                                log::warn!("{name}/{consumer_name} pulsar consumer process message error: {e:?}");
+                                log::warn!("{name}/{consumer_name} pulsar consumer process message error: {e}");
                             }
                         }
                     }
@@ -375,11 +384,11 @@ impl Consumer {
             }
         }
         if let Err(e) = consumer.close().await {
-            log::warn!("{name}/{consumer_name} consumer close error, {e:?}");
+            log::warn!("{name}/{consumer_name} consumer close error, {e}");
         }
         log::info!("{name}/{consumer_name} pulsar exit event loop");
         if let Err(e) = sys_cmd_tx.send(SystemCommand::Restart).await {
-            log::warn!("{name}/{consumer_name} consumer Send(SystemCommand::Restart) error, {e:?}");
+            log::warn!("{name}/{consumer_name} consumer Send(SystemCommand::Restart) error, {e}");
         }
     }
 
@@ -450,7 +459,7 @@ impl BridgeManager {
             }
             Some(AuthName::OAuth2) => {
                 let oauth2_cfg = cfg.auth.data.clone().ok_or(anyhow!("oauth2 config is not exist"))?;
-                let oauth2_json = serde_json::from_str(oauth2_cfg.as_str()).map_err(|e| {
+                let oauth2_json = serde_json::from_str::<OAuth2Params>(oauth2_cfg.as_str()).map_err(|e| {
                     anyhow!(format!("invalid oauth2 config [{}], {:?}", oauth2_cfg.as_str(), e))
                 })?;
                 builder = builder.with_auth_provider(OAuth2Authentication::client_credentials(oauth2_json));
@@ -464,13 +473,13 @@ impl BridgeManager {
         builder = builder.with_tls_hostname_verification_enabled(cfg.tls_hostname_verification_enabled);
         builder = builder.with_allow_insecure_connection(cfg.allow_insecure_connection);
 
-        let pulsar: Pulsar<_> = builder.build().await.map_err(|e| anyhow!(e))?;
+        let pulsar: Pulsar<_> = builder.build().await.map_err(|e: pulsar::Error| anyhow!(e))?;
         Ok(pulsar)
     }
 
     pub async fn start(&mut self, sys_cmd_tx: mpsc::Sender<SystemCommand>) {
         while let Err(e) = self._start(sys_cmd_tx.clone()).await {
-            log::error!("start bridge-ingress-pulsar error, {e:?}");
+            log::error!("start bridge-ingress-pulsar error, {e}");
             self.stop().await;
             tokio::time::sleep(Duration::from_millis(3000)).await;
         }
@@ -527,7 +536,7 @@ impl BridgeManager {
             log::debug!("stop bridge_name: {bridge_name:?}, entry_idx: {entry_idx:?}",);
             if let Err(e) = mailbox.stop().await {
                 log::warn!(
-                    "stop BridgePulsarIngressPlugin error, bridge_name: {bridge_name}, entry_idx: {entry_idx}, {e:?}"
+                    "stop BridgePulsarIngressPlugin error, bridge_name: {bridge_name}, entry_idx: {entry_idx}, {e}"
                 );
             }
         }
@@ -561,7 +570,7 @@ async fn send_publish(scx: ServerContext, from: From, msg: Publish, expiry_inter
     let storage_available = scx.extends.message_mgr().await.enable();
 
     if let Err(e) = SessionState::forwards(&scx, from, msg, storage_available, Some(expiry_interval)).await {
-        log::warn!("{e:?}");
+        log::warn!("{e}");
     }
 }
 

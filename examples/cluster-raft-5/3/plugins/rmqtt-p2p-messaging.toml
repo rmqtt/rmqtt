@@ -1,0 +1,14 @@
+##--------------------------------------------------------------------
+## rmqtt-p2p-messaging
+##--------------------------------------------------------------------
+
+# See more keys and their definitions at https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/p2p-messaging.md
+
+# P2P message routing mode.
+# Determines where the `p2p` segment appears in the MQTT topic.
+# Values: "prefix" | "suffix" | "both"
+#   prefix: p2p/{clientid}/{topic}
+#   suffix: {topic}/p2p/{clientid}
+#   both: supports both prefix and suffix formats
+# Default: "prefix"
+mode = "prefix"

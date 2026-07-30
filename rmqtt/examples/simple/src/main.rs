@@ -1,3 +1,6 @@
+//! Example: Minimal MQTT server with a single TCP listener on port 1883.
+//! This is the simplest possible RMQTT server setup.
+
 use rmqtt::{context::ServerContext, net::Builder, server::MqttServer, Result};
 use simple_logger::SimpleLogger;
 

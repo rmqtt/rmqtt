@@ -82,6 +82,7 @@ use tokio::sync::RwLock;
 use tokio::time::{Duration, Instant};
 
 use crate::acl::AuthInfo;
+use crate::codec::v5::RetainHandling;
 use crate::codec::{
     v3,
     v5::{self, Auth, PublishAck2, PublishAck2Reason, SubscribeAckReason, ToReasonCode, UserProperties},
@@ -91,10 +92,20 @@ use crate::hook::Hook;
 use crate::inflight::{InInflight, MomentStatus, OutInflight, OutInflightMessage};
 use crate::net::MqttError;
 use crate::queue::{self, Limiter, Policy};
+#[cfg(feature = "msgstore")]
+use crate::shared::MessageLoadCallback;
+#[cfg(feature = "retain")]
+use crate::shared::RetainLoadCallback;
 use crate::types::*;
 use crate::utils::timestamp_millis;
 use crate::Result;
 
+/// Runtime state for an active MQTT session.
+///
+/// Wraps a [`Session`] with its associated send/receive channels,
+/// hook system, topic aliases, and inbound inflight message tracker.
+/// Created when an MQTT CONNECT is processed and represents the
+/// full execution context for a connected client.
 pub struct SessionState {
     inner: Session,
     tx: Tx,
@@ -197,7 +208,7 @@ impl SessionState {
         self.scx.connections.dec();
 
         if let Err(e) = sink.close().await {
-            log::info!("{} close io error, {e:?}", self.id);
+            log::info!("{} close io error, {e}", self.id);
         }
 
         let disconnect = self.disconnect().await.unwrap_or(None);
@@ -745,7 +756,7 @@ impl SessionState {
                 let status = match self.subscribes_v3(topic_filters).await {
                     Ok(status) => status,
                     Err(e) => {
-                        log::warn!("{} Subscribe Refused, reason: {e:?}", self.id);
+                        log::warn!("{} Subscribe Refused, reason: {e}", self.id);
                         return Err(Reason::SubscribeFailed(Some(e.to_string().into())));
                     }
                 };
@@ -754,7 +765,7 @@ impl SessionState {
             Packet::V5(v5::Packet::Subscribe(subs)) => {
                 let ack = match self.subscribes_v5(subs).await {
                     Err(e) => {
-                        log::warn!("{} Subscribe Refused, reason: {e:?}", self.id);
+                        log::warn!("{} Subscribe Refused, reason: {e}", self.id);
                         return Err(Reason::SubscribeFailed(Some(e.to_string().into())));
                     }
                     Ok(ack) => ack,
@@ -802,7 +813,7 @@ impl SessionState {
             }
             Packet::V5(v5::Packet::Auth(_)) => {
                 sink.v5_mut().send_auth(Auth::default()).await?;
-                //@TODO 考虑通过hook来实现Auth
+                //@TODO Consider implementing Auth through hooks
             }
             _ => {
                 return Err(format!("Received an unimplemented message, {pkt:?}").into());
@@ -965,14 +976,13 @@ impl SessionState {
                 } else {
                     #[cfg(feature = "metrics")]
                     self.scx.metrics.client_publish_error_inc();
-                    if pub_res.disconnect {
-                        Err(MqttError::PublishAckReason(
+                    match pub_res.disconnect {
+                        true => Err(MqttError::PublishAckReason(
                             pub_res.reason_code,
                             pub_res.reason_string.unwrap_or_default(),
                         )
-                        .into())
-                    } else {
-                        Ok(pub_res)
+                        .into()),
+                        false => Ok(pub_res),
                     }
                 }
             }
@@ -1331,49 +1341,28 @@ impl SessionState {
 
         #[allow(unused_variables)]
         if let Some(qos) = sub_ret.success() {
-            //send retain messages
-            #[cfg(feature = "retain")]
-            let _excludeds = if self.scx.extends.retain().await.enable() {
-                use crate::codec::v5::RetainHandling;
-                //MQTT V5: Retain Handling
-                let send_retain_enable = match sub.opts.retain_handling() {
-                    Some(RetainHandling::AtSubscribe) => true,
-                    Some(RetainHandling::AtSubscribeNew) => sub_ret.prev_opts.is_none(),
-                    Some(RetainHandling::NoAtSubscribe) => false,
-                    None => true, //MQTT V3
-                };
-                log::debug!(
-                    "send_retain_enable: {}, sub_ret.prev_opts: {:?}",
-                    send_retain_enable,
-                    sub_ret.prev_opts
-                );
-                let excludeds = if send_retain_enable {
-                    let retain_messages = self.scx.extends.retain().await.get(&sub.topic_filter).await?;
-                    let excludeds = retain_messages
-                        .iter()
-                        .filter_map(|(_, r)| r.msg_id.map(|msg_id| (r.from.node_id, msg_id)))
-                        .collect::<Vec<_>>();
-                    self.send_retain_messages(retain_messages, qos).await?;
-                    excludeds
-                } else {
-                    Vec::new()
-                };
-
-                log::debug!("{:?} excludeds: {:?}", self.id, excludeds);
-                Some(excludeds)
-            } else {
-                None
-            };
-            #[cfg(not(feature = "retain"))]
-            let _excludeds: Option<Vec<(NodeId, MsgID)>> = None;
-
-            #[cfg(feature = "msgstore")]
-            if self.scx.extends.message_mgr().await.enable() {
-                //Send messages before they expire
-                self.send_storaged_messages(&sub.topic_filter, qos, sub.opts.shared_group(), _excludeds)
-                    .await?;
+            #[cfg(any(feature = "retain", feature = "msgstore"))]
+            {
+                //send retain messages + sent storaged messages (fire-and-forget)
+                let scx = self.scx.clone();
+                let id = self.id.clone();
+                let sub_topic_filter = sub.topic_filter.clone();
+                let sub_shared_group = sub.opts.shared_group().cloned();
+                let retain_handling = sub.opts.retain_handling();
+                let prev_opts_is_none = sub_ret.prev_opts.is_none();
+                tokio::spawn(async move {
+                    _send_subscribe_messages(
+                        scx,
+                        id,
+                        sub_topic_filter,
+                        sub_shared_group,
+                        retain_handling,
+                        prev_opts_is_none,
+                        qos,
+                    )
+                    .await;
+                });
             }
-
             //hook, session_subscribed
             self.hook.session_subscribed(sub).await;
         }
@@ -1403,13 +1392,15 @@ impl SessionState {
                     "{id:?} transfer_session_state, router.add ... topic_filter: {tf:?}, opts: {opts:?}"
                 );
                 if let Err(e) = self.scx.extends.router().await.add(tf, id, opts.clone()).await {
-                    log::warn!("transfer_session_state, router.add, {e:?}");
+                    log::warn!("transfer_session_state, router.add, {e}");
                 }
 
                 //Send messages before they expire
                 #[cfg(feature = "msgstore")]
-                if let Err(e) = self.send_storaged_messages(tf, opts.qos(), opts.shared_group(), None).await {
-                    log::warn!("transfer_session_state, router.add, {e:?}");
+                if let Err(e) =
+                    self.send_storaged_messages(tf.clone(), opts.qos(), opts.shared_group(), None).await
+                {
+                    log::warn!("transfer_session_state, router.add, {e}");
                 }
             }
         }
@@ -1423,7 +1414,7 @@ impl SessionState {
         while let Some(msg) = offline_info.inflight_messages.pop() {
             if !matches!(msg.status, MomentStatus::UnComplete) {
                 if let Err(e) = self.reforward(msg).await {
-                    log::warn!("transfer_session_state, reforward error, {e:?}");
+                    log::warn!("transfer_session_state, reforward error, {e}");
                 }
             }
         }
@@ -1436,100 +1427,41 @@ impl SessionState {
     }
 
     #[inline]
-    #[cfg(feature = "retain")]
-    async fn send_retain_messages(&self, retains: Vec<(TopicName, Retain)>, qos: QoS) -> Result<()> {
-        for (topic, mut retain) in retains {
-            log::debug!("{:?} topic:{:?}, retain:{:?}", self.id, topic, retain);
-
-            retain.publish.dup = false;
-            retain.publish.retain = true;
-            retain.publish.qos = retain.publish.qos.less_value(qos);
-            retain.publish.topic = topic;
-            retain.publish.packet_id = None;
-            retain.publish.create_time = Some(timestamp_millis());
-
-            log::debug!("{:?} retain.publish: {:?}", self.id, retain.publish);
-
-            if let Err((from, p, reason)) = self
-                .scx
-                .extends
-                .shared()
-                .await
-                .entry(self.id.clone())
-                .publish(retain.from, retain.publish)
-                .await
-            {
-                self.scx.extends.hook_mgr().message_dropped(Some(self.id.clone()), from, p, reason).await;
-            }
-        }
-        Ok(())
-    }
-
-    #[inline]
     #[cfg(feature = "msgstore")]
     async fn send_storaged_messages(
         &self,
-        topic_filter: &str,
+        topic_filter: TopicFilter,
         qos: QoS,
         group: Option<&SharedGroup>,
         excludeds: Option<Vec<(NodeId, MsgID)>>,
     ) -> Result<()> {
-        let storaged_messages =
-            self.scx.extends.shared().await.message_load(&self.id.client_id, topic_filter, group).await?;
-        log::debug!(
-            "{:?} storaged_messages: {:?}, topic_filter: {}, group: {:?}, excludeds: {:?}",
-            self.id,
-            storaged_messages.len(),
-            topic_filter,
-            group,
-            excludeds
-        );
-        self._send_storaged_messages(storaged_messages, qos, excludeds).await?;
-        Ok(())
-    }
-
-    #[inline]
-    #[cfg(feature = "msgstore")]
-    async fn _send_storaged_messages(
-        &self,
-        storaged_messages: Vec<(MsgID, From, Publish)>,
-        qos: QoS,
-        excludeds: Option<Vec<(NodeId, MsgID)>>,
-    ) -> Result<()> {
-        for (msg_id, from, mut publish) in storaged_messages {
-            log::debug!(
-                "{:?} msg_id: {}, from:{:?}, publish:{:?}, excluded: {}",
-                self.id,
-                msg_id,
-                from,
-                publish,
-                excludeds
-                    .as_ref()
-                    .map(|excludeds| excludeds.contains(&(from.node_id, msg_id)))
-                    .unwrap_or_default()
-            );
-            if excludeds
-                .as_ref()
-                .map(|excludeds| excludeds.contains(&(from.node_id, msg_id)))
-                .unwrap_or_default()
+        let scx = self.scx.clone();
+        let group = group.cloned();
+        let id = self.id.clone();
+        tokio::spawn(async move {
+            let now = std::time::Instant::now();
+            let handler = SendStoragedMessagesHandler {
+                scx: scx.clone(),
+                id: id.clone(),
+                qos,
+                excludeds,
+                topic_filter: topic_filter.clone(),
+                group: group.clone(),
+            };
+            if let Err(e) = scx
+                .extends
+                .shared()
+                .await
+                .message_load_with(&id.client_id, &topic_filter, group.as_ref(), Arc::new(handler))
+                .await
             {
-                continue;
+                log::warn!("message_load_with failed, {e}");
             }
-
-            publish.dup = false;
-            publish.retain = false;
-            publish.qos = publish.qos.less_value(qos);
-            publish.packet_id = None;
-
-            log::debug!("{:?} persistent.publish: {:?}", self.id, publish);
-
-            if let Err((from, p, reason)) =
-                self.scx.extends.shared().await.entry(self.id.clone()).publish(from, publish).await
-            {
-                self.scx.extends.hook_mgr().message_dropped(Some(self.id.clone()), from, p, reason).await;
+            let elaps = now.elapsed();
+            if elaps.as_secs() > 3 {
+                log::warn!("message_load_with cost time: {:?}", elaps);
             }
-        }
-
+        });
         Ok(())
     }
 
@@ -1795,55 +1727,55 @@ impl SessionState {
         {
             let retain = scx.extends.retain().await;
             if retain.enable() && publish.retain {
-                retain
-                    .set(
-                        &publish.topic,
-                        Retain { msg_id, from: from.clone(), publish: publish.clone() },
-                        message_expiry_interval,
-                    )
-                    .await?;
+                let retain_msg = Retain { msg_id, from: from.clone(), publish: publish.clone() };
+                retain.set(&publish.topic, retain_msg.clone(), message_expiry_interval).await?;
+                let _ = scx
+                    .extends
+                    .shared()
+                    .await
+                    .retain_set_broadcast(&publish.topic, &retain_msg, message_expiry_interval)
+                    .await;
             }
             drop(retain);
         }
-
+        // Store FIRST (subscriber IDs will be recorded inside forwards()
+        // via mark_forwarded), ensuring subscriber tracking is tied
+        // to the forwarding result rather than deferred to a later store().
         #[cfg(feature = "msgstore")]
-        let stored_msg =
-            if let (Some(msg_id), Some(message_expiry_interval)) = (msg_id, message_expiry_interval) {
-                Some((msg_id, from.clone(), publish.clone(), message_expiry_interval))
-            } else {
-                None
-            };
+        if let (Some(msg_id), Some(message_expiry_interval)) = (msg_id, message_expiry_interval) {
+            if let Err(e) = scx
+                .extends
+                .message_mgr()
+                .await
+                .store(msg_id, from.clone(), publish.clone(), message_expiry_interval, None)
+                .await
+            {
+                log::warn!("Failed to storage messages, {e}");
+            }
+        }
 
-        let _sub_cids = match scx.extends.shared().await.forwards(from.clone(), publish).await {
-            Ok(None) => {
+        match scx.extends.shared().await.forwards(msg_id, from.clone(), publish).await {
+            Ok(0) => {
                 //hook, message_nonsubscribed
                 scx.extends.hook_mgr().message_nonsubscribed(from).await;
-                None
             }
-            Ok(Some(sub_cids)) => Some(sub_cids),
-            Err(errs) => {
+            Ok(_count) => {}
+            Err((_subscriber_count, errs)) => {
                 for (to, from, p, reason) in errs {
                     //hook, Message dropped
                     scx.extends.hook_mgr().message_dropped(Some(to), from, p, reason).await;
                 }
-                None
             }
         };
-
-        #[cfg(feature = "msgstore")]
-        if let Some((msg_id, from, p, expiry_interval)) = stored_msg {
-            //Store messages before they expire
-            if let Err(e) =
-                scx.extends.message_mgr().await.store(msg_id, from, p, expiry_interval, _sub_cids).await
-            {
-                log::warn!("Failed to storage messages, {e:?}");
-            }
-        }
 
         Ok(())
     }
 }
 
+/// Thread-safe handle to an MQTT session.
+///
+/// Wraps an `Arc<_Session>` for efficient cloning and shared access.
+/// Derefs to `_Session` for field and method access.
 #[derive(Clone)]
 pub struct Session(Arc<_Session>);
 
@@ -1855,6 +1787,11 @@ impl Deref for Session {
     }
 }
 
+/// Internal session data shared across all [`Session`] clones.
+///
+/// Holds the client identifier, connection metadata, hook references,
+/// authentication info, topic alias tables, and the underlying
+/// [`SessionLike`] trait object that implements session behavior.
 pub struct _Session {
     inner: Arc<dyn SessionLike>,
     pub id: Id,
@@ -1880,7 +1817,7 @@ impl Drop for _Session {
         let s = self.inner.clone();
         tokio::spawn(async move {
             if let Err(e) = s.on_drop().await {
-                log::error!("{id:?} session clear error, {e:?}");
+                log::error!("{id:?} session clear error, {e}");
             }
         });
     }
@@ -1890,6 +1827,245 @@ impl fmt::Debug for Session {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Session {:?}", self.id)
+    }
+}
+
+#[inline]
+#[cfg(feature = "msgstore")]
+async fn _send_storaged_messages(
+    scx: &ServerContext,
+    id: Id,
+    storaged_messages: Vec<(MsgID, From, Publish)>,
+    qos: QoS,
+    excludeds: Option<Vec<(NodeId, MsgID)>>,
+    topic_filter: &str,
+    group: Option<&SharedGroup>,
+) {
+    for (msg_id, from, mut publish) in storaged_messages {
+        log::debug!(
+            "{:?} msg_id: {}, from:{:?}, publish:{:?}, excluded: {}",
+            id,
+            msg_id,
+            from,
+            publish,
+            excludeds
+                .as_ref()
+                .map(|excludeds| excludeds.contains(&(from.node_id, msg_id)))
+                .unwrap_or_default()
+        );
+        if excludeds.as_ref().map(|excludeds| excludeds.contains(&(from.node_id, msg_id))).unwrap_or_default()
+        {
+            continue;
+        }
+
+        let from_node_id = from.node_id;
+
+        publish.dup = false;
+        publish.retain = false;
+        publish.qos = publish.qos.less_value(qos);
+        publish.packet_id = None;
+
+        log::debug!("{:?} persistent.publish: {:?}", id, publish);
+
+        if let Err((from, p, reason)) =
+            scx.extends.shared().await.entry(id.clone()).publish(from, publish).await
+        {
+            scx.extends.hook_mgr().message_dropped(Some(id.clone()), from, p, reason).await;
+        } else {
+            // Record successful delivery so the message is not
+            // redelivered on next reconnect. The node_id check is
+            // handled inside the shared implementation.
+            let opts = group.map(|g| (TopicFilter::from(topic_filter), g.clone()));
+            if let Err(e) = scx
+                .extends
+                .shared()
+                .await
+                .message_mark_forwarded(from_node_id, msg_id, vec![(id.client_id.clone(), opts)])
+                .await
+            {
+                log::warn!("{:?} mark_forwarded error: {e}", id);
+            }
+        }
+    }
+}
+
+/// Handler for [`MessageLoadCallback`] used by [`send_storaged_messages`].
+#[cfg(feature = "msgstore")]
+struct SendStoragedMessagesHandler {
+    scx: ServerContext,
+    id: Id,
+    qos: QoS,
+    excludeds: Option<Vec<(NodeId, MsgID)>>,
+    topic_filter: TopicFilter,
+    group: Option<SharedGroup>,
+}
+
+#[cfg(feature = "msgstore")]
+#[async_trait]
+impl MessageLoadCallback for SendStoragedMessagesHandler {
+    async fn on_messages(&self, msgs: Vec<(MsgID, From, Publish)>) -> Result<()> {
+        _send_storaged_messages(
+            &self.scx,
+            self.id.clone(),
+            msgs,
+            self.qos,
+            self.excludeds.clone(),
+            &self.topic_filter,
+            self.group.as_ref(),
+        )
+        .await;
+        Ok(())
+    }
+}
+
+/// Sends retain messages to a subscriber, adjusting fields as needed.
+///
+/// # Arguments
+/// * `scx` - The server context.
+/// * `id` - The subscriber's session ID.
+/// * `retains` - The retain messages to send.
+/// * `qos` - The maximum QoS to use.
+#[cfg(feature = "retain")]
+#[inline]
+async fn _send_retain_messages(
+    scx: &ServerContext,
+    id: &Id,
+    retains: Vec<(TopicName, Retain)>,
+    qos: QoS,
+) -> Result<()> {
+    for (topic, mut retain) in retains {
+        log::debug!("{:?} topic:{:?}, retain:{:?}", id, topic, retain);
+
+        retain.publish.dup = false;
+        retain.publish.retain = true;
+        retain.publish.qos = retain.publish.qos.less_value(qos);
+        retain.publish.topic = topic;
+        retain.publish.packet_id = None;
+        retain.publish.create_time = Some(timestamp_millis());
+
+        log::debug!("{:?} retain.publish: {:?}", id, retain.publish);
+
+        if let Err((from, p, reason)) =
+            scx.extends.shared().await.entry(id.clone()).publish(retain.from, retain.publish).await
+        {
+            scx.extends.hook_mgr().message_dropped(Some(id.clone()), from, p, reason).await;
+        }
+    }
+    Ok(())
+}
+
+/// Standalone retain excludeds loader — does not require `SessionState` reference.
+#[cfg(feature = "retain")]
+#[inline]
+async fn _send_retain_excludeds(
+    scx: &ServerContext,
+    id: &Id,
+    topic_filter: &TopicFilter,
+    retain_handling: Option<RetainHandling>,
+    prev_opts_is_none: bool,
+    qos: QoS,
+) -> Result<Option<Vec<(NodeId, MsgID)>>> {
+    if !scx.extends.retain().await.enable() {
+        return Ok(None);
+    }
+
+    //MQTT V5: Retain Handling
+    let send_retain_enable = match retain_handling {
+        Some(RetainHandling::AtSubscribe) => true,
+        Some(RetainHandling::AtSubscribeNew) => prev_opts_is_none,
+        Some(RetainHandling::NoAtSubscribe) => false,
+        None => true, //MQTT V3
+    };
+    log::debug!("send_retain_enable: {}, prev_opts.is_none: {}", send_retain_enable, prev_opts_is_none,);
+
+    let excludeds = if send_retain_enable {
+        let handler = SendRetainMessagesHandler { scx: scx.clone(), id: id.clone(), qos };
+        scx.extends.shared().await.retain_load_with(topic_filter, Arc::new(handler)).await?
+    } else {
+        Vec::new()
+    };
+
+    log::debug!("{:?} excludeds: {:?}", id, excludeds);
+    Ok(Some(excludeds))
+}
+
+/// Handler for [`RetainLoadCallback`] used to load and send retain messages on subscribe.
+#[cfg(feature = "retain")]
+struct SendRetainMessagesHandler {
+    scx: ServerContext,
+    id: Id,
+    qos: QoS,
+}
+
+#[cfg(feature = "retain")]
+#[async_trait]
+impl RetainLoadCallback for SendRetainMessagesHandler {
+    async fn on_retains(&self, retains: Vec<(TopicName, Retain)>) -> Result<Vec<(NodeId, MsgID)>> {
+        let excludeds = retains
+            .iter()
+            .filter_map(|(_, r)| r.msg_id.map(|msg_id| (r.from.node_id, msg_id)))
+            .collect::<Vec<_>>();
+
+        _send_retain_messages(&self.scx, &self.id, retains, self.qos).await?;
+
+        Ok(excludeds)
+    }
+}
+
+/// Fire-and-forget handler for sending retain + storaged messages on subscribe.
+///
+/// Runs inside a `tokio::spawn` so the subscribe response is not blocked.
+/// Logs errors internally — no error propagation to the caller.
+#[inline]
+#[allow(unused_variables)]
+#[cfg(any(feature = "retain", feature = "msgstore"))]
+async fn _send_subscribe_messages(
+    scx: ServerContext,
+    id: Id,
+    topic_filter: TopicFilter,
+    shared_group: Option<SharedGroup>,
+    retain_handling: Option<RetainHandling>,
+    prev_opts_is_none: bool,
+    qos: QoS,
+) {
+    #[cfg(feature = "retain")]
+    let excludeds =
+        match _send_retain_excludeds(&scx, &id, &topic_filter, retain_handling, prev_opts_is_none, qos).await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                log::warn!("{:?} retain excludeds error: {:?}", id, e);
+                None
+            }
+        };
+
+    #[cfg(not(feature = "retain"))]
+    let excludeds: Option<Vec<(NodeId, MsgID)>> = None;
+
+    #[cfg(feature = "msgstore")]
+    if scx.extends.message_mgr().await.enable() {
+        let now = std::time::Instant::now();
+        let handler = SendStoragedMessagesHandler {
+            scx: scx.clone(),
+            id: id.clone(),
+            qos,
+            excludeds,
+            topic_filter: topic_filter.clone(),
+            group: shared_group.clone(),
+        };
+        if let Err(e) = scx
+            .extends
+            .shared()
+            .await
+            .message_load_with(&id.client_id, &topic_filter, shared_group.as_ref(), Arc::new(handler))
+            .await
+        {
+            log::warn!("message_load_with failed, {e}");
+        }
+        let elaps = now.elapsed();
+        if elaps.as_secs() > 3 {
+            log::warn!("message_load_with cost time: {:?}", elaps);
+        }
     }
 }
 
@@ -2042,6 +2218,11 @@ impl Session {
 }
 
 #[async_trait]
+/// Manages the lifecycle of MQTT sessions in the broker.
+///
+/// Defines operations for creating, resuming, and removing sessions,
+/// as well as checking session existence and retrieving session status.
+/// Implementations handle persistent session storage across reconnects.
 pub trait SessionManager: Sync + Send {
     #[allow(clippy::too_many_arguments)]
     async fn create(
@@ -2065,6 +2246,12 @@ pub trait SessionManager: Sync + Send {
     ) -> Result<Arc<dyn SessionLike>>;
 }
 
+/// Core session behavior trait implemented by MQTT protocol versions.
+///
+/// Defines the interface for session state management: subscription
+/// operations, connection metadata access, inflight message tracking,
+/// and disconnect handling. Implementations differ between MQTT v3.1.1
+/// and v5.0 to accommodate protocol-specific features.
 #[async_trait]
 pub trait SessionLike: Sync + Send + 'static {
     fn id(&self) -> &Id;
@@ -2114,6 +2301,11 @@ pub trait SessionLike: Sync + Send + 'static {
     async fn keepalive(&self, _ping: IsPing) {}
 }
 
+/// Information about an offline session, preserved for session resumption.
+///
+/// Captures the client's subscriptions, queued offline messages, in-flight
+/// QoS 1/2 messages, and session creation timestamp. Used by persistent
+/// session storage to restore state when a client reconnects.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct OfflineInfo {
     pub id: Id,
@@ -2136,6 +2328,11 @@ impl std::fmt::Debug for OfflineInfo {
     }
 }
 
+/// Default implementation of [`SessionManager`] for production use.
+///
+/// Relies on the broker's [`Shared`] state for session storage and
+/// retrieval. Session creation and resumption are delegated to the
+/// cluster-wide shared session infrastructure.
 pub struct DefaultSessionManager;
 
 #[async_trait]
@@ -2180,6 +2377,11 @@ impl SessionManager for DefaultSessionManager {
     }
 }
 
+/// Default implementation of [`SessionLike`] for MQTT sessions.
+///
+/// Manages session subscriptions, delivery queue, inflight message tracking,
+/// and connection lifecycle. Supports both MQTT v3.1.1 and v5.0 protocol
+/// versions through the session-like interface.
 pub struct DefaultSession {
     id: Id,
     scx: ServerContext,
