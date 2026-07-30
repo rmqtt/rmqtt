@@ -5,6 +5,7 @@
 const { createApp } = Vue;
 
 // 页面组件注册表（title 通过 $t(titleKey) 获取）
+// 支持 {path, component, titleKey, isLogin} 格式，以及函数式匹配
 const pageRegistry = {
   '#/login':    { component: 'LoginPage',        titleKey: 'login.title',     isLogin: true },
   '#/':         { component: 'OverviewPage',     titleKey: 'nav.overview',    isLogin: false },
