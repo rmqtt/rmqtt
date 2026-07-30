@@ -1144,3 +1144,126 @@ tr:hover td { background: var(--bg-hover); }
   .ring-layout { flex-direction: column; }
   .sidebar { width: 60px !important; }
 }
+
+/* ─── Node Info Page ─── */
+.node-info-page {
+  padding: 0;
+}
+
+.node-info-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.node-detail-back {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+.node-detail-back .back-link {
+  margin-bottom: 0;
+}
+
+.refresh-btn {
+  font-size: 20px;
+  cursor: pointer;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 12px;
+  color: var(--text);
+  line-height: 1;
+}
+.refresh-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+.node-info-columns {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+.node-info-columns .info-section {
+  flex: 1;
+  min-width: 0;
+}
+
+.back-link {
+  display: inline-block;
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 14px;
+  margin-bottom: 20px;
+  user-select: none;
+}
+.back-link:hover {
+  color: var(--accent-hover);
+}
+
+.info-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 24px;
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 16px 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.info-grid,
+.stats-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.info-row,
+.stats-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+.info-row:last-child,
+.stats-row:last-child {
+  border-bottom: none;
+}
+
+.info-label,
+.stats-label {
+  color: var(--text-muted);
+  white-space: nowrap;
+  min-width: 100px;
+}
+
+.info-value,
+.stats-value {
+  color: var(--text);
+  font-weight: 600;
+  text-align: right;
+  font-family: monospace;
+}
+
+.loading-text,
+.error-text {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+.error-text {
+  color: var(--red);
+}

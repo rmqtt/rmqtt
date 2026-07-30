@@ -9,7 +9,6 @@
 
   window.OverviewPage = Vue.defineComponent({
     name: 'OverviewPage',
-    components: { NodeDetail: window.NodeDetail },
     template: `
       <div>
         <!-- 标签栏 -->
@@ -41,7 +40,7 @@
                 <span class="node-name">{{ nodes.length }} {{ $t('overview.nodes_count') }}</span>
               </div>
               <h3>{{ $t('overview.node_info') }}</h3>
-              <a class="node-info-link" @click="activeTab = 'nodes'">{{ $t('overview.view_node_list') }}</a>
+              <a class="node-info-link" @click="goToNodeList">{{ $t('overview.view_node_list') }}</a>
             </div>
             <div v-for="n in nodes" :key="n.node_id" class="node-info-body">
               <div class="node-info-icon">
@@ -65,10 +64,6 @@
                   <span class="node-info-value">{{ n.node_name || '-' }}</span>
                 </div>
                 <div class="node-info-item">
-                  <span class="node-info-label">{{ $t('overview.node_role') }}</span>
-                  <span class="node-info-value">core</span>
-                </div>
-                <div class="node-info-item">
                   <span class="node-info-label">{{ $t('overview.node_uptime') }}</span>
                   <span class="node-info-value">{{ formatUptime(n.uptime) }}</span>
                 </div>
@@ -79,10 +74,6 @@
                 <div class="node-info-item">
                   <span class="node-info-label">{{ $t('overview.connections_count') }}</span>
                   <span class="node-info-value">{{ n.connections != null ? n.connections : '-' }}</span>
-                </div>
-                <div class="node-info-item">
-                  <span class="node-info-label">{{ $t('overview.max_fds') }}</span>
-                  <span class="node-info-value">-</span>
                 </div>
                 <div class="node-info-item">
                   <span class="node-info-label">{{ $t('overview.cpu_load') }}</span>
@@ -132,54 +123,74 @@
 
         <!-- ─── Tab 2: 节点 ─── -->
         <div v-show="activeTab === 'nodes'">
-          <div class="ring-section">
-            <h3 class="section-title">{{ $t('overview.node_distribution') }}</h3>
-            <div class="ring-layout">
-              <div class="ring-chart-box" id="ringContainer"></div>
-              <div class="ring-legend">
-                <div v-for="n in nodes" :key="n.node_id" class="ring-legend-item">
-                  <span class="ring-dot" :style="{ background: nodeColor(n.node_id) }"></span>
-                  <span class="ring-name">{{ n.node_name }}</span>
-                  <span class="ring-value">{{ n.connections || 0 }}</span>
+          <!-- ── 节点列表 ── -->
+          <template v-if="!selectedNodeId">
+            <h3 class="section-title">{{ $t('overview.nodes') }}</h3>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>{{ $t('overview.node_name_th') }}</th>
+                    <th>{{ $t('overview.node_version') }}</th>
+                    <th>{{ $t('overview.status') }}</th>
+                    <th>{{ $t('overview.connections_count') }}</th>
+                    <th>{{ $t('overview.os_cpu_load') }}</th>
+                    <th>{{ $t('overview.os_memory') }}</th>
+                    <th>{{ $t('overview.uptime') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="n in nodes" :key="n.node_id" class="clickable-row" @click="showNodeDetail(n.node_id)">
+                    <td>{{ n.node_name }}</td>
+                    <td>{{ n.version || '-' }}</td>
+                    <td><span :class="n.running ? 'status-online' : 'status-offline'">
+                      {{ n.running ? $t('overview.online') : $t('overview.offline') }}
+                    </span></td>
+                    <td>{{ n.connections }}</td>
+                    <td>{{ formatCpuLoad(n.load1, n.load5, n.load15) }}</td>
+                    <td>{{ formatBytes(n.memory_used) }}/{{ formatBytes(n.memory_total) }}</td>
+                    <td>{{ formatUptime(n.uptime) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </template>
+          <!-- ── 节点详情 ── -->
+          <template v-else>
+            <div class="node-detail-back">
+              <a class="back-link" @click="hideNodeDetail">&larr; 返回节点列表</a>
+              <button class="btn-icon refresh-btn" @click="refreshNodeDetail" title="刷新">&#x21bb;</button>
+            </div>
+            <div v-if="nodeDetailLoading" class="loading-text">加载中...</div>
+            <div v-else-if="nodeDetailError" class="error-text">加载失败: {{ nodeDetailError }}</div>
+            <template v-else>
+              <div class="node-info-columns">
+                <div class="info-section">
+                  <h3 class="section-title">节点信息</h3>
+                  <div class="info-grid">
+                    <div class="info-row"><span class="info-label">节点名称</span><span class="info-value">{{ nodeDetail.node_name || '-' }}</span></div>
+                    <div class="info-row"><span class="info-label">状态</span><span class="info-value"><span :class="nodeDetail.running ? 'status-online' : 'status-offline'">{{ nodeDetail.running ? '● 在线' : '○ 离线' }}</span></span></div>
+                    <div class="info-row"><span class="info-label">版本</span><span class="info-value">{{ nodeDetail.version || '-' }}</span></div>
+                    <div class="info-row"><span class="info-label">Rust 版本</span><span class="info-value">{{ nodeDetail.rustc_version || '-' }}</span></div>
+                    <div class="info-row"><span class="info-label">操作系统 CPU 负载</span><span class="info-value">{{ formatCpuLoad(nodeDetail.load1, nodeDetail.load5, nodeDetail.load15) }}</span></div>
+                    <div class="info-row"><span class="info-label">操作系统内存</span><span class="info-value">{{ formatBytes(nodeDetail.memory_used) }} / {{ formatBytes(nodeDetail.memory_total) }}</span></div>
+                    <div class="info-row"><span class="info-label">磁盘</span><span class="info-value">{{ formatBytes(nodeDetail.disk_free) }} / {{ formatBytes(nodeDetail.disk_total) }}</span></div>
+                    <div class="info-row"><span class="info-label">运行时长</span><span class="info-value">{{ formatUptime(nodeDetail.uptime) || '-' }}</span></div>
+                    <div class="info-row"><span class="info-label">启动时间</span><span class="info-value">{{ formatBoottime(nodeDetail.boottime) || '-' }}</span></div>
+                  </div>
                 </div>
-                <div class="ring-total">
-                  <span>{{ $t('overview.total') }}</span>
-                  <span class="ring-total-value">{{ totalConnections }}</span>
+                <div class="info-section">
+                  <h3 class="section-title">节点统计</h3>
+                  <div class="stats-grid">
+                    <div v-for="s in nodeStatsItems" :key="s.key" class="stats-row">
+                      <span class="stats-label">{{ s.label }}</span>
+                      <span class="stats-value">{{ s.count }} / {{ s.max }}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
-          <h3 class="section-title">{{ $t('overview.nodes') }}</h3>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>{{ $t('overview.node_id') }}</th>
-                  <th>{{ $t('overview.node_name_th') }}</th>
-                  <th>{{ $t('overview.status') }}</th>
-                  <th>{{ $t('overview.connections_count') }}</th>
-                  <th>{{ $t('overview.msg_per_sec') }}</th>
-                  <th>{{ $t('overview.cpu') }}</th>
-                  <th>{{ $t('overview.memory') }}</th>
-                  <th>{{ $t('overview.uptime') }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="n in nodes" :key="n.node_id" class="clickable-row" @click="showNode(n)">
-                  <td>{{ n.node_id }}</td>
-                  <td>{{ n.node_name }}</td>
-                  <td><span :class="n.running ? 'status-online' : 'status-offline'">
-                    {{ n.running ? $t('overview.online') : $t('overview.offline') }}
-                  </span></td>
-                  <td>{{ n.connections }}</td>
-                  <td>-</td>
-                  <td>{{ formatCpu(n.load1) }}</td>
-                  <td>{{ formatBytes(n.memory_used) }}/{{ formatBytes(n.memory_total) }}</td>
-                  <td>{{ formatUptime(n.uptime) }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+            </template>
+          </template>
         </div>
 
         <!-- ─── Tab 3: 状态（实时当前值） ─── -->
@@ -209,9 +220,6 @@
           </div>
         </div>
 
-        <!-- 节点详情弹窗 -->
-        <node-detail :node="selectedNode" :visible="showNodeDetail" @close="showNodeDetail = false" />
-      </div>
     `,
     setup() {
       // 标签页
@@ -262,10 +270,6 @@
         { key: '15d', label: '15d' },
       ];
       const timeRange = ref('1h');
-
-      // 节点详情
-      const selectedNode = ref(null);
-      const showNodeDetail = ref(false);
 
       // 指标分组：来自 /api/v1/metrics/sum 的累计值（只增不减）
       const metricGroups = Vue.computed(function() {
@@ -357,7 +361,6 @@
       let chartSubscriptions = null;
       let gaugeConn = null;
       let msgRatePanel = null;
-      let ringChart = null;
 
       function getMetric(key) {
         var v = metricsData.value[key];
@@ -376,8 +379,9 @@
         return v;
       }
 
-      function formatCpu(load) {
-        return load != null ? load.toFixed(1) + '%' : '-';
+      function formatCpuLoad(load1, load5, load15) {
+        if (load1 == null) return '-';
+        return load1.toFixed(2) + '/' + load5.toFixed(2) + '/' + load15.toFixed(2);
       }
 
       function formatBytes(bytes) {
@@ -411,9 +415,10 @@
         return result.trim() || '-';
       }
 
-      function nodeColor(id) {
-        var colors = ['#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ef4444','#06b6d4'];
-        return colors[(id - 1) % colors.length];
+      function formatBoottime(str) {
+        if (!str) return '-';
+        // "2026-07-16 12:34:55.2054752 +00:00:00" → "2026-07-16 12:34:55"
+        return str.replace(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}).*$/, '$1');
       }
 
       function pad(n) { return n.toString().padStart(2, '0'); }
@@ -543,9 +548,81 @@
         liveHistoryTimer = setInterval(fetchLatestHistory, currentMergeWindow * 1000);
       }
 
-      function showNode(n) {
-        selectedNode.value = n;
-        showNodeDetail.value = true;
+      const selectedNodeId = ref(null);
+      const nodeDetail = ref(null);
+      const nodeStats = ref({});
+      const nodeDetailLoading = ref(false);
+      const nodeDetailError = ref(null);
+
+      const nodeStatsItems = Vue.computed(function() {
+        void localeState.version;
+        var s = nodeStats.value;
+        var keys = [
+          { key: 'connections', label: '连接数' },
+          { key: 'sessions', label: '会话' },
+          { key: 'topics', label: '主题数' },
+          { key: 'subscriptions', label: '订阅' },
+          { key: 'retaineds', label: '保留消息' },
+          { key: 'subscriptions_shared', label: '共享订阅' },
+        ];
+        return keys.map(function(item) {
+          var count = s[item.key + '.count'];
+          var max = s[item.key + '.max'];
+          return {
+            key: item.key,
+            label: item.label,
+            count: count != null ? count : '-',
+            max: max != null ? max : '-',
+          };
+        });
+      });
+
+      async function showNodeDetail(nodeId) {
+        selectedNodeId.value = nodeId;
+        nodeDetailLoading.value = true;
+        nodeDetailError.value = null;
+        nodeDetail.value = null;
+        nodeStats.value = {};
+
+        try {
+          var [nodeRes, statsRes] = await Promise.all([
+            http.get('/nodes/' + nodeId).catch(function() { return null; }),
+            http.get('/stats/' + nodeId).catch(function() { return null; }),
+          ]);
+
+          if (nodeRes) {
+            nodeDetail.value = nodeRes;
+          } else {
+            nodeDetailError.value = '节点信息获取失败';
+          }
+
+          if (statsRes && statsRes.stats) {
+            nodeStats.value = statsRes.stats;
+          }
+
+          nodeDetailLoading.value = false;
+        } catch (e) {
+          nodeDetailError.value = e.message || '未知错误';
+          nodeDetailLoading.value = false;
+        }
+      }
+
+      function hideNodeDetail() {
+        selectedNodeId.value = null;
+        nodeDetail.value = null;
+        nodeStats.value = {};
+        nodeDetailError.value = null;
+      }
+
+      function refreshNodeDetail() {
+        if (selectedNodeId.value) {
+          showNodeDetail(selectedNodeId.value);
+        }
+      }
+
+      function goToNodeList() {
+        hideNodeDetail();
+        activeTab.value = 'nodes';
       }
 
       async function fetchData() {
@@ -580,7 +657,6 @@
             nodesOnline.value = list.filter(function(n) { return n.running; }).length;
             nodesTotal.value = list.length;
             totalConnections.value = list.reduce(function(s, n) { return s + (n.connections || 0); }, 0);
-            if (ringChart) ringChart.update(list);
           }
 
           // 获取指标（使用 metrics/sum 汇总数据）
@@ -776,7 +852,6 @@
         nextTick(function() {
           gaugeConn = new window.GaugeChart(document.getElementById('gaugeConnContainer'), 'gauge.connections', 'gauge.unit');
           msgRatePanel = new window.MsgRatePanel(document.getElementById('msgRateContainer'));
-          ringChart = window.RingChart.init(document.getElementById('ringContainer'));
           chartMsgIn = echarts.init(document.getElementById('chartMsgIn'));
           chartMsgOut = echarts.init(document.getElementById('chartMsgOut'));
           chartMsgDropped = echarts.init(document.getElementById('chartMsgDropped'));
@@ -794,7 +869,6 @@
         if (liveHistoryTimer) clearInterval(liveHistoryTimer);
         if (gaugeConn) gaugeConn.dispose();
         if (msgRatePanel) msgRatePanel.dispose();
-        if (ringChart) ringChart.dispose();
         if (chartMsgIn) chartMsgIn.dispose();
         if (chartMsgOut) chartMsgOut.dispose();
         if (chartMsgDropped) chartMsgDropped.dispose();
@@ -809,8 +883,10 @@
         totalConnections, statusData, statusGroups, getStat,
         metricsData, metricGroups, getMetric,
         timeRanges, timeRange, setTimeRange,
-        selectedNode, showNodeDetail, showNode,
-        formatCpu, formatBytes, formatUptime, nodeColor,
+        selectedNodeId, nodeDetail, nodeDetailLoading, nodeDetailError,
+        nodeStatsItems, showNodeDetail, hideNodeDetail, refreshNodeDetail,
+        goToNodeList,
+        formatCpuLoad, formatBytes, formatUptime, formatBoottime,
         $t,
       };
     },
