@@ -138,7 +138,9 @@
     "in_inflights_count": "Incoming Inflight",
     "forwards_count": "Forwards",
     "message_storages_count": "Message Storage",
-    "delayed_publishs_count": "Delayed Publish"
+    "delayed_publishs_count": "Delayed Publish",
+    "all_nodes": "所有節點",
+    "node_filter": "節點篩選"
   },
   "gauge": {
     "connections": "設備連接",
@@ -198,7 +200,22 @@
     "subs": "訂閱",
     "expiry": "過期",
     "ka": "Keepalive",
-    "connected_at": "連線時間"
+    "connected_at": "連線時間",
+    "detail_title": "客戶端詳情",
+    "back": "返回",
+    "connection_info": "連線資訊",
+    "session_info": "會話資訊",
+    "current_subs": "目前訂閱",
+    "superuser": "超級使用者",
+    "address": "位址",
+    "disconnected_at": "斷線時間",
+    "disconnect_reason": "斷線原因",
+    "last_will": "遺囑訊息",
+    "session_expiry": "會話過期",
+    "session_created": "會話建立時間",
+    "subs_count": "訂閱數",
+    "keepalive": "保活",
+    "not_found": "用戶端 {clientId} 不存在或已被移除"
   },
   "subscriptions": {
     "title": "訂閱",
@@ -285,5 +302,15 @@
     "close": "关闭",
     "online": "在线",
     "offline": "离线"
+  },
+  "datetime": {
+    "title": "選擇日期時間",
+    "now": "現在",
+    "clear": "清除",
+    "hour": "時",
+    "minute": "分",
+    "today": "回到今天",
+    "prev_month": "上一個月",
+    "next_month": "下一個月"
   }
 }

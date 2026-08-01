@@ -138,7 +138,9 @@
     "in_inflights_count": "Incoming Inflight",
     "forwards_count": "Forwards",
     "message_storages_count": "Message Storage",
-    "delayed_publishs_count": "Delayed Publish"
+    "delayed_publishs_count": "Delayed Publish",
+    "all_nodes": "جميع العقد",
+    "node_filter": "تصفية حسب العقدة"
   },
   "gauge": {
     "connections": "الاتصالات",
@@ -198,7 +200,22 @@
     "subs": "الاشتراكات",
     "expiry": "الانتهاء",
     "ka": "Keepalive",
-    "connected_at": "وقت الاتصال"
+    "connected_at": "وقت الاتصال",
+    "detail_title": "تفاصيل العميل",
+    "back": "رجوع",
+    "connection_info": "الاتصال",
+    "session_info": "الجلسة",
+    "current_subs": "الاشتراكات الحالية",
+    "superuser": "مستخدم متميز",
+    "address": "العنوان",
+    "disconnected_at": "انقطع الاتصال في",
+    "disconnect_reason": "سبب الانقطاع",
+    "last_will": "الوصية الأخيرة",
+    "session_expiry": "انتهاء الجلسة",
+    "session_created": "تاريخ إنشاء الجلسة",
+    "subs_count": "الاشتراكات",
+    "keepalive": "الإبقاء على الاتصال",
+    "not_found": "العميل {clientId} غير موجود أو تمت إزالته"
   },
   "subscriptions": {
     "title": "الاشتراكات",
@@ -285,5 +302,15 @@
     "close": "Close",
     "online": "Online",
     "offline": "Offline"
+  },
+  "datetime": {
+    "title": "تحديد التاريخ والوقت",
+    "now": "الآن",
+    "clear": "مسح",
+    "hour": "ساعة",
+    "minute": "دقيقة",
+    "today": "الانتقال إلى اليوم",
+    "prev_month": "الشهر السابق",
+    "next_month": "الشهر التالي"
   }
 }

@@ -10,6 +10,7 @@ const pageRegistry = {
   '#/login':    { component: 'LoginPage',        titleKey: 'login.title',     isLogin: true },
   '#/':         { component: 'OverviewPage',     titleKey: 'nav.overview',    isLogin: false },
   '#/clients':  { component: 'ClientsPage',      titleKey: 'nav.clients',     isLogin: false },
+  '#/clients/detail': { component: 'ClientDetailPage', titleKey: 'clients.detail_title', isLogin: false },
   '#/subscriptions': { component: 'SubscriptionsPage', titleKey: 'nav.subscriptions', isLogin: false },
   '#/publish':  { component: 'PublishPage',      titleKey: 'nav.publish',     isLogin: false },
   '#/plugins':  { component: 'PluginsPage',      titleKey: 'nav.plugins',     isLogin: false },
@@ -24,6 +25,7 @@ const App = Vue.defineComponent({
     LoginPage,
     OverviewPage,
     ClientsPage,
+    ClientDetailPage: window.ClientDetailPage,
     SubscriptionsPage,
     PublishPage,
     PluginsPage,
@@ -53,7 +55,9 @@ const App = Vue.defineComponent({
   },
   computed: {
     currentPageSpec() {
-      return pageRegistry[this.currentHash] || pageRegistry['#/'];
+      // 路由按 ? 拆分：'#/clients/detail?clientid=xxx' → '#/clients/detail'
+      const path = (this.currentHash || '').split('?')[0];
+      return pageRegistry[path] || pageRegistry['#/'];
     },
     currentPage() {
       return this.currentPageSpec;
@@ -346,5 +350,6 @@ const App = Vue.defineComponent({
   app.use(window.i18n);
   app.component('pagination', window.Pagination);
   app.component('metric-card', window.MetricCard);
+  app.component('datetime-picker', window.DatetimePicker);
   app.mount('#app');
 })();

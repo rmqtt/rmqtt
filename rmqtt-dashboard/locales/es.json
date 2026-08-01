@@ -138,7 +138,9 @@
     "in_inflights_count": "Incoming Inflight",
     "forwards_count": "Forwards",
     "message_storages_count": "Message Storage",
-    "delayed_publishs_count": "Delayed Publish"
+    "delayed_publishs_count": "Delayed Publish",
+    "all_nodes": "Todos los nodos",
+    "node_filter": "Filtro de nodo"
   },
   "gauge": {
     "connections": "Conexiones",
@@ -198,7 +200,22 @@
     "subs": "Subs",
     "expiry": "Expiry",
     "ka": "KA",
-    "connected_at": "Connected at"
+    "connected_at": "Connected at",
+    "detail_title": "Detalles del cliente",
+    "back": "Volver",
+    "connection_info": "Conexión",
+    "session_info": "Sesión",
+    "current_subs": "Suscripciones actuales",
+    "superuser": "Superusuario",
+    "address": "Dirección",
+    "disconnected_at": "Desconectado a las",
+    "disconnect_reason": "Motivo de desconexión",
+    "last_will": "Última voluntad",
+    "session_expiry": "Caducidad de sesión",
+    "session_created": "Sesión creada",
+    "subs_count": "Suscripciones",
+    "keepalive": "Keepalive",
+    "not_found": "Cliente {clientId} no encontrado o eliminado"
   },
   "subscriptions": {
     "title": "Suscripciones",
@@ -285,5 +302,15 @@
     "close": "Close",
     "online": "Online",
     "offline": "Offline"
+  },
+  "datetime": {
+    "title": "Seleccionar fecha y hora",
+    "now": "Ahora",
+    "clear": "Limpiar",
+    "hour": "Hora",
+    "minute": "Minuto",
+    "today": "Ir a hoy",
+    "prev_month": "Mes anterior",
+    "next_month": "Mes siguiente"
   }
 }

@@ -138,7 +138,9 @@
     "in_inflights_count": "Incoming Inflight",
     "forwards_count": "Forwards",
     "message_storages_count": "Message Storage",
-    "delayed_publishs_count": "Delayed Publish"
+    "delayed_publishs_count": "Delayed Publish",
+    "all_nodes": "सभी नोड",
+    "node_filter": "नोड फ़िल्टर"
   },
   "gauge": {
     "connections": "कनेक्शन",
@@ -198,7 +200,22 @@
     "subs": "Subs",
     "expiry": "Expiry",
     "ka": "KA",
-    "connected_at": "Connected at"
+    "connected_at": "Connected at",
+    "detail_title": "क्लाइंट विवरण",
+    "back": "वापस",
+    "connection_info": "कनेक्शन",
+    "session_info": "सत्र",
+    "current_subs": "वर्तमान सदस्यताएँ",
+    "superuser": "सुपरयूज़र",
+    "address": "पता",
+    "disconnected_at": "डिस्कनेक्ट हुआ",
+    "disconnect_reason": "डिस्कनेक्ट कारण",
+    "last_will": "अंतिम इच्छा",
+    "session_expiry": "सत्र समाप्ति",
+    "session_created": "सत्र बनाया गया",
+    "subs_count": "सदस्यताएँ",
+    "keepalive": "कीपअलाइव",
+    "not_found": "क्लाइंट {clientId} नहीं मिला या हटा दिया गया"
   },
   "subscriptions": {
     "title": "सब्सक्रिप्शन",
@@ -285,5 +302,15 @@
     "close": "Close",
     "online": "Online",
     "offline": "Offline"
+  },
+  "datetime": {
+    "title": "दिनांक और समय चुनें",
+    "now": "अभी",
+    "clear": "साफ़ करें",
+    "hour": "घंटा",
+    "minute": "मिनट",
+    "today": "आज पर जाएँ",
+    "prev_month": "पिछला महीना",
+    "next_month": "अगला महीना"
   }
 }

@@ -138,7 +138,9 @@
     "in_inflights_count": "Incoming Inflight",
     "forwards_count": "Forwards",
     "message_storages_count": "Message Storage",
-    "delayed_publishs_count": "Delayed Publish"
+    "delayed_publishs_count": "Delayed Publish",
+    "all_nodes": "Все узлы",
+    "node_filter": "Фильтр узлов"
   },
   "gauge": {
     "connections": "Соединения",
@@ -198,7 +200,22 @@
     "subs": "Подписки",
     "expiry": "Срок",
     "ka": "Keepalive",
-    "connected_at": "Подключен"
+    "connected_at": "Подключен",
+    "detail_title": "Сведения о клиенте",
+    "back": "Назад",
+    "connection_info": "Подключение",
+    "session_info": "Сессия",
+    "current_subs": "Текущие подписки",
+    "superuser": "Суперпользователь",
+    "address": "Адрес",
+    "disconnected_at": "Отключён в",
+    "disconnect_reason": "Причина отключения",
+    "last_will": "Последняя воля",
+    "session_expiry": "Истечение сессии",
+    "session_created": "Сессия создана",
+    "subs_count": "Подписки",
+    "keepalive": "Keepalive",
+    "not_found": "Клиент {clientId} не найден или удалён"
   },
   "subscriptions": {
     "title": "Подписки",
@@ -285,5 +302,15 @@
     "close": "Close",
     "online": "Online",
     "offline": "Offline"
+  },
+  "datetime": {
+    "title": "Выбор даты и времени",
+    "now": "Сейчас",
+    "clear": "Очистить",
+    "hour": "Час",
+    "minute": "Минута",
+    "today": "К сегодняшнему дню",
+    "prev_month": "Предыдущий месяц",
+    "next_month": "Следующий месяц"
   }
 }

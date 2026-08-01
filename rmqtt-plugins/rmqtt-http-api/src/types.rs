@@ -95,10 +95,14 @@ pub enum MessageReply {
     LoadPlugin,
     UnloadPlugin(bool),
     // ── History query replies ──────────────────────────────────────────
-    /// Stats history data from a node
-    StatsHistoryReply(HistoryData),
-    /// Metrics history data from a node
-    MetricsHistoryReply(HistoryData),
+    /// Stats history data from a node.
+    ///
+    /// The [`HistoryData`] is transported as its **JSON string** because
+    /// postcard cannot deserialize `serde_json::Value` (it requires
+    /// `deserialize_any`, which postcard explicitly does not implement).
+    StatsHistoryReply(String),
+    /// Metrics history data from a node (same JSON-string transport).
+    MetricsHistoryReply(String),
 }
 
 impl MessageReply {

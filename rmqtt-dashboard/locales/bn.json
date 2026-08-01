@@ -138,7 +138,9 @@
     "in_inflights_count": "Incoming Inflight",
     "forwards_count": "Forwards",
     "message_storages_count": "Message Storage",
-    "delayed_publishs_count": "Delayed Publish"
+    "delayed_publishs_count": "Delayed Publish",
+    "all_nodes": "সব নোড",
+    "node_filter": "নোড ফিল্টার"
   },
   "gauge": {
     "connections": "সংযোগ",
@@ -198,7 +200,22 @@
     "subs": "Subs",
     "expiry": "Expiry",
     "ka": "KA",
-    "connected_at": "Connected at"
+    "connected_at": "Connected at",
+    "detail_title": "ক্লায়েন্ট বিবরণ",
+    "back": "ফিরে যান",
+    "connection_info": "সংযোগ",
+    "session_info": "সেশন",
+    "current_subs": "বর্তমান সাবস্ক্রিপশন",
+    "superuser": "সুপারইউজার",
+    "address": "ঠিকানা",
+    "disconnected_at": "সংযোগ বিচ্ছিন্ন হয়েছে",
+    "disconnect_reason": "সংযোগ বিচ্ছিন্ন হওয়ার কারণ",
+    "last_will": "শেষ ইচ্ছা",
+    "session_expiry": "সেশন মেয়াদ",
+    "session_created": "সেশন তৈরি হয়েছে",
+    "subs_count": "সাবস্ক্রিপশন",
+    "keepalive": "কিপঅ্যালাইভ",
+    "not_found": "ক্লায়েন্ট {clientId} পাওয়া যায়নি বা সরানো হয়েছে"
   },
   "subscriptions": {
     "title": "সাবস্ক্রিপশন",
@@ -285,5 +302,15 @@
     "close": "Close",
     "online": "Online",
     "offline": "Offline"
+  },
+  "datetime": {
+    "title": "তারিখ এবং সময় নির্বাচন করুন",
+    "now": "এখন",
+    "clear": "মুছুন",
+    "hour": "ঘণ্টা",
+    "minute": "মিনিট",
+    "today": "আজকে যান",
+    "prev_month": "আগের মাস",
+    "next_month": "পরের মাস"
   }
 }

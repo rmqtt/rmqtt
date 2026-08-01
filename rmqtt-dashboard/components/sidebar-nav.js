@@ -154,7 +154,9 @@
         return !!this.defaultExpanded[groupKey];
       },
       isActive: function(hash) {
-        return this.currentHash === hash;
+        // 忽略 query 参数：'#/clients/detail?clientid=x' 时 '客户端' 菜单保持高亮
+        const cur = (this.currentHash || '').split('?')[0];
+        return cur === hash;
       },
       isDisabled: function(item) {
         return item.disabled === true;
