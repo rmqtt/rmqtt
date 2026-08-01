@@ -289,7 +289,9 @@ impl Handler for HookHandler {
                                         data: vec![],
                                     },
                                 };
-                                match MessageReply::StatsHistoryReply(data).encode() {
+                                // postcard 无法反序列化 serde_json::Value，跨节点用 JSON 字符串传输
+                                let data_json = serde_json::to_string(&data).unwrap_or_default();
+                                match MessageReply::StatsHistoryReply(data_json).encode() {
                                     Ok(ress) => {
                                         HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
                                     }
@@ -321,7 +323,9 @@ impl Handler for HookHandler {
                                         data: vec![],
                                     },
                                 };
-                                match MessageReply::MetricsHistoryReply(data).encode() {
+                                // postcard 无法反序列化 serde_json::Value，跨节点用 JSON 字符串传输
+                                let data_json = serde_json::to_string(&data).unwrap_or_default();
+                                match MessageReply::MetricsHistoryReply(data_json).encode() {
                                     Ok(ress) => {
                                         HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
                                     }

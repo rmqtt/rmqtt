@@ -92,6 +92,12 @@
             <button v-for="r in timeRanges" :key="r.key"
                     class="time-btn" :class="{ active: timeRange === r.key }"
                     @click="setTimeRange(r.key)">{{ r.label }}</button>
+            <span style="flex:1;"></span>
+            <select class="form-select" v-model="chartNode" style="width:160px;"
+                    @change="onChartNodeChange" :title="$t('overview.node_filter')">
+              <option value="">{{ $t('overview.all_nodes') }}</option>
+              <option v-for="n in nodes" :key="n.node_id" :value="n.node_id">{{ n.node_name || n.node_id }}</option>
+            </select>
           </div>
           <div class="chart-grid">
             <div class="chart-card">
@@ -270,6 +276,29 @@
         { key: '15d', label: '15d' },
       ];
       const timeRange = ref('1h');
+      // 折线图节点筛选：'' = 所有节点（sum），否则具体节点（单节点 history）
+      const chartNode = ref('');
+
+      function onChartNodeChange() {
+        notMergeNext = true;
+        chartData.value = [];
+        fetchHistory();
+      }
+
+      // 依据选中节点生成 history 接口路径与查询串
+      function historyPaths(qs) {
+        if (chartNode.value) {
+          var id = encodeURIComponent(chartNode.value);
+          return {
+            stats: '/stats/history/' + id + '?' + qs,
+            metrics: '/metrics/history/' + id + '?' + qs,
+          };
+        }
+        return {
+          stats: '/stats/history/sum?' + qs,
+          metrics: '/metrics/history/sum?' + qs,
+        };
+      }
 
       // 指标分组：来自 /api/v1/metrics/sum 的累计值（只增不减）
       const metricGroups = Vue.computed(function() {
@@ -460,8 +489,8 @@
         qs += '&limit=' + params.limit + '&merge_window=' + params.merge_window;
 
         var [statsRes, metricsRes] = await Promise.all([
-          http.get('/stats/history/sum?' + qs).catch(function() { return null; }),
-          http.get('/metrics/history/sum?' + qs).catch(function() { return null; }),
+          http.get(historyPaths(qs).stats).catch(function() { return null; }),
+          http.get(historyPaths(qs).metrics).catch(function() { return null; }),
         ]);
 
         if (!statsRes || !metricsRes || statsRes.error || metricsRes.error) {
@@ -489,7 +518,9 @@
         // 按 ts 合并 metrics + stats
         var merged = [];
         if (metricsRes.data) {
-          metricsRes.data.forEach(function(d) {
+          // 丢弃最新桶：可能尚未聚合完所有节点数据，避免折线末尾出现低谷/跳变
+          var histData = metricsRes.data.slice(1);
+          histData.forEach(function(d) {
             var s = statsMap[d.ts] || {};
             merged.push({
               time: d.ts,
@@ -510,31 +541,90 @@
         startLiveHistoryPolling();
       }
 
-      // 每 merge_window 秒通过 history API 获取最新一个合并点
+      // 实时轮询每次拉取最近 N 个合并点：
+      //   与已有序列重叠的 ts 以最大值为准调整该点（节点数据晚到补齐时修正），
+      //   未重叠的新点按 ts 升序追加在末尾。
+      const HISTORY_LATEST_POINTS = 3;
+
       async function fetchLatestHistory() {
         if (isLiveMode) return;
-        var qs = 'minutes=' + currentLatestMinutes + '&limit=1&merge_window=' + currentMergeWindow;
+        var qs = 'minutes=' + currentLatestMinutes +
+                 '&limit=' + HISTORY_LATEST_POINTS + '&merge_window=' + currentMergeWindow;
         var [statsRes, metricsRes] = await Promise.all([
-          http.get('/stats/history/sum?' + qs).catch(function() { return null; }),
-          http.get('/metrics/history/sum?' + qs).catch(function() { return null; }),
+          http.get(historyPaths(qs).stats).catch(function() { return null; }),
+          http.get(historyPaths(qs).metrics).catch(function() { return null; }),
         ]);
         if (!metricsRes || !metricsRes.data || metricsRes.data.length === 0) return;
-        var point = metricsRes.data[metricsRes.data.length - 1];
-        var s = {};
-        if (statsRes && statsRes.data && statsRes.data.length > 0) {
-          var sp = statsRes.data[statsRes.data.length - 1];
-          s.connections = sp['connections.count'] ?? sp.connections_count ?? 0;
-          s.topics = sp['topics.count'] ?? sp.topics_count ?? 0;
-          s.subscriptions = sp['subscriptions.count'] ?? sp.subscriptions_count ?? 0;
+
+        // stats 按 ts 建索引，与 metrics 的合并桶对齐
+        var statsByTs = {};
+        if (statsRes && statsRes.data) {
+          statsRes.data.forEach(function(sp) {
+            statsByTs[sp.ts] = {
+              connections: sp['connections.count'] ?? sp.connections_count ?? 0,
+              topics: sp['topics.count'] ?? sp.topics_count ?? 0,
+              subscriptions: sp['subscriptions.count'] ?? sp.subscriptions_count ?? 0,
+            };
+          });
         }
-        chartData.value.push({
-          time: point.ts,
-          msgIn: point['messages.publish'] ?? point.messages_publish ?? 0,
-          msgOut: point['messages.delivered'] ?? point.messages_delivered ?? 0,
-          msgDropped: point['messages.dropped'] ?? point.messages_dropped ?? 0,
-          connections: s.connections ?? 0,
-          topics: s.topics ?? 0,
-          subscriptions: s.subscriptions ?? 0,
+
+        // 已有序列的 ts → index 索引
+        var idxByTs = {};
+        for (var i = 0; i < chartData.value.length; i++) {
+          idxByTs[chartData.value[i].time] = i;
+        }
+
+        // 后端返回降序（最新在前），转升序处理
+        var points = metricsRes.data.slice().sort(function(a, b) { return a.ts - b.ts; });
+
+        // 丢弃最新桶：可能尚未聚合完所有节点数据，不画半成品；下一轮它完整后再画
+        points.pop();
+        if (points.length === 0) return;
+
+        var toAppend = [];
+
+        points.forEach(function(point) {
+          var s = statsByTs[point.ts] || {};
+          var np = {
+            time: point.ts,
+            msgIn: point['messages.publish'] ?? point.messages_publish ?? 0,
+            msgOut: point['messages.delivered'] ?? point.messages_delivered ?? 0,
+            msgDropped: point['messages.dropped'] ?? point.messages_dropped ?? 0,
+            connections: s.connections ?? 0,
+            topics: s.topics ?? 0,
+            subscriptions: s.subscriptions ?? 0,
+          };
+          var idx = idxByTs[point.ts];
+          if (idx != null) {
+            // 重叠：以最大值为准调整该点的位置（只大不小）
+            var old = chartData.value[idx];
+            chartData.value[idx] = {
+              time: point.ts,
+              msgIn: Math.max(old.msgIn, np.msgIn),
+              msgOut: Math.max(old.msgOut, np.msgOut),
+              msgDropped: Math.max(old.msgDropped, np.msgDropped),
+              connections: Math.max(old.connections, np.connections),
+              topics: Math.max(old.topics, np.topics),
+              subscriptions: Math.max(old.subscriptions, np.subscriptions),
+            };
+          } else {
+            toAppend.push(np);
+          }
+        });
+
+        // 未重叠的新点按 ts 升序插入正确位置（保持序列单调），
+        // 避免轮询返回的桶比末尾旧（如大时间范围早期点被 maxChartPoints 截断过）时乱序
+        toAppend.sort(function(a, b) { return a.time - b.time; });
+        toAppend.forEach(function(np) {
+          var insertAt = -1;
+          for (var j = 0; j < chartData.value.length; j++) {
+            if (chartData.value[j].time > np.time) { insertAt = j; break; }
+          }
+          if (insertAt === -1) {
+            chartData.value.push(np);
+          } else {
+            chartData.value.splice(insertAt, 0, np);
+          }
         });
         if (chartData.value.length > maxChartPoints) {
           chartData.value.splice(0, chartData.value.length - maxChartPoints);
@@ -838,12 +928,29 @@
           };
         }
 
+        // 生成连接数/主题数/订阅数类 tooltip：MM/DD HH:mm:ss + 当前值
+        function makeValueTooltip() {
+          return {
+            trigger: 'axis',
+            confine: true,
+            formatter: function(params) {
+              var p = params[0];
+              if (!p || p.value == null || p.value[0] == null) return '';
+              var t = new Date(p.value[0]);
+              var ts = pad(t.getMonth() + 1) + '/' + pad(t.getDate()) + ' ' + pad(t.getHours()) + ':' + pad(t.getMinutes()) + ':' + pad(t.getSeconds());
+              var val = p.value[1];
+              if (typeof val === 'number' && val % 1 !== 0) val = +val.toFixed(2);
+              return ts + '<br/>' + (p.seriesName || '') + '：' + val;
+            }
+          };
+        }
+
         updateLineChart(chartMsgIn, $t('overview.msg_in_trend'), msgIn, '#3b82f6', null, makeMsgTooltip('msgIn'));
         updateLineChart(chartMsgOut, $t('overview.msg_out_trend'), msgOut, '#22c55e', null, makeMsgTooltip('msgOut'));
         updateLineChart(chartMsgDropped, $t('overview.msg_dropped_trend'), msgDropped, '#ef4444', null, makeMsgTooltip('msgDropped'));
-        updateLineChart(chartConnections, $t('overview.connections_trend'), data.map(function(d) { return [d.time, d.connections]; }), '#f59e0b', 'rgba(245,158,11,0.1)');
-        updateLineChart(chartTopics, $t('overview.topics_trend'), data.map(function(d) { return [d.time, d.topics]; }), '#8b5cf6');
-        updateLineChart(chartSubscriptions, $t('overview.subscriptions_trend'), data.map(function(d) { return [d.time, d.subscriptions]; }), '#06b6d4');
+        updateLineChart(chartConnections, $t('overview.connections_trend'), data.map(function(d) { return [d.time, d.connections]; }), '#f59e0b', 'rgba(245,158,11,0.1)', makeValueTooltip());
+        updateLineChart(chartTopics, $t('overview.topics_trend'), data.map(function(d) { return [d.time, d.topics]; }), '#8b5cf6', null, makeValueTooltip());
+        updateLineChart(chartSubscriptions, $t('overview.subscriptions_trend'), data.map(function(d) { return [d.time, d.subscriptions]; }), '#06b6d4', null, makeValueTooltip());
       }
 
       onMounted(function() {
@@ -883,6 +990,7 @@
         totalConnections, statusData, statusGroups, getStat,
         metricsData, metricGroups, getMetric,
         timeRanges, timeRange, setTimeRange,
+        chartNode, onChartNodeChange,
         selectedNodeId, nodeDetail, nodeDetailLoading, nodeDetailError,
         nodeStatsItems, showNodeDetail, hideNodeDetail, refreshNodeDetail,
         goToNodeList,

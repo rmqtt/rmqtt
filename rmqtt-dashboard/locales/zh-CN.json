@@ -138,7 +138,9 @@
     "in_inflights_count": "入方向飞行",
     "forwards_count": "转发中",
     "message_storages_count": "消息存储",
-    "delayed_publishs_count": "延迟发布"
+    "delayed_publishs_count": "延迟发布",
+    "all_nodes": "所有节点",
+    "node_filter": "节点筛选"
   },
   "gauge": {
     "connections": "设备连接",
@@ -198,7 +200,22 @@
     "disconnect": "踢出",
     "disconnect_confirm": "确认踢出客户端 {clientId} ？",
     "disconnect_fail": "踢出失败: {msg}",
-    "no_results": "暂无数据"
+    "no_results": "暂无数据",
+    "detail_title": "客户端详情",
+    "back": "返回",
+    "connection_info": "连接信息",
+    "session_info": "会话信息",
+    "current_subs": "当前订阅",
+    "superuser": "超级用户",
+    "address": "地址",
+    "disconnected_at": "断开时间",
+    "disconnect_reason": "断开原因",
+    "last_will": "遗嘱消息",
+    "session_expiry": "会话过期",
+    "session_created": "会话创建时间",
+    "subs_count": "订阅数",
+    "keepalive": "保活",
+    "not_found": "客户端 {clientId} 不存在或已被移除"
   },
   "subscriptions": {
     "title": "订阅",
@@ -285,5 +302,15 @@
     "close": "关闭",
     "online": "在线",
     "offline": "离线"
+  },
+  "datetime": {
+    "title": "选择日期时间",
+    "now": "现在",
+    "clear": "清空",
+    "hour": "时",
+    "minute": "分",
+    "today": "回到今天",
+    "prev_month": "上一月",
+    "next_month": "下一月"
   }
 }

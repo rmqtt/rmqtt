@@ -11,7 +11,7 @@ node.id = 1
 ##--------------------------------------------------------------------
 ## RPC
 ##--------------------------------------------------------------------
-rpc.server_addr = "0.0.0.0:5363"
+rpc.server_addr = "0.0.0.0:5364"
 rpc.server_workers = 4
 #Maximum number of messages sent in batch
 rpc.batch_size = 128
@@ -40,6 +40,7 @@ plugins.dir = "./plugins/"
 plugins.default_startups = [
     #"rmqtt-retainer",
     "rmqtt-cluster-raft",
+    "rmqtt-http-api",
     #"rmqtt-auth-http",
     #"rmqtt-sys-topic",
     #"rmqtt-message-storage",
@@ -70,7 +71,7 @@ mqtt.max_sessions = 0
 
 ##--------------------------------------------------------------------
 ## MQTT/TCP - External TCP Listener for MQTT Protocol
-listener.tcp.external.addr = "0.0.0.0:1883"
+listener.tcp.external.addr = "0.0.0.0:1884"
 #Number of worker threads
 listener.tcp.external.workers = 8
 #The maximum number of concurrent connections allowed by the listener.

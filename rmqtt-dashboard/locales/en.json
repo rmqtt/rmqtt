@@ -138,7 +138,9 @@
     "in_inflights_count": "Incoming Inflight",
     "forwards_count": "Forwards",
     "message_storages_count": "Message Storage",
-    "delayed_publishs_count": "Delayed Publish"
+    "delayed_publishs_count": "Delayed Publish",
+    "all_nodes": "All Nodes",
+    "node_filter": "Node filter"
   },
   "gauge": {
     "connections": "Connections",
@@ -198,7 +200,22 @@
     "disconnect": "Kick",
     "disconnect_confirm": "Kick out client {clientId}?",
     "disconnect_fail": "Kick out failed: {msg}",
-    "no_results": "No data"
+    "no_results": "No data",
+    "detail_title": "Client Detail",
+    "back": "Back",
+    "connection_info": "Connection",
+    "session_info": "Session",
+    "current_subs": "Current Subscriptions",
+    "superuser": "Superuser",
+    "address": "Address",
+    "disconnected_at": "Disconnected at",
+    "disconnect_reason": "Disconnect reason",
+    "last_will": "Last Will",
+    "session_expiry": "Session Expiry",
+    "session_created": "Session created",
+    "subs_count": "Subscriptions",
+    "keepalive": "Keepalive",
+    "not_found": "Client {clientId} not found or has been removed"
   },
   "subscriptions": {
     "title": "Subscriptions",
@@ -285,5 +302,15 @@
     "close": "Close",
     "online": "Online",
     "offline": "Offline"
+  },
+  "datetime": {
+    "title": "Select Date & Time",
+    "now": "Now",
+    "clear": "Clear",
+    "hour": "Hour",
+    "minute": "Minute",
+    "today": "Go to today",
+    "prev_month": "Previous month",
+    "next_month": "Next month"
   }
 }

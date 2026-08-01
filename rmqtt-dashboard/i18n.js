@@ -28,7 +28,7 @@
       this.locale = FALLBACK;
       this._messages = {};
       this._cache = {};
-      this._localeVer = 3;  // 语言文件版本号，修改后递增以绕过浏览器缓存
+      this._localeVer = 6;  // 语言文件版本号，修改后递增以绕过浏览器缓存
     }
 
     /** 初始化：检测语言 → 预加载全部语言包 */

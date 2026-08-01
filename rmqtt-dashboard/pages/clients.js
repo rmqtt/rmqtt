@@ -84,19 +84,19 @@ window.ClientsPage = Vue.defineComponent({
           </div>
           <div class="filter-row" style="align-items:center;">
             <span class="filter-label" style="margin-bottom:0;">{{ $t('clients.created_at') }}</span>
-            <input class="form-input" type="datetime-local" v-model="createdGte"
-                   style="flex:1;max-width:200px;" />
+            <datetime-picker v-model="createdGte" style="flex:1;max-width:200px;"
+                             :placeholder="$t('datetime.title')" />
             <span style="margin:0 6px;color:var(--text-muted);">~</span>
-            <input class="form-input" type="datetime-local" v-model="createdLte"
-                   style="flex:1;max-width:200px;" />
+            <datetime-picker v-model="createdLte" style="flex:1;max-width:200px;"
+                             :placeholder="$t('datetime.title')" />
           </div>
           <div class="filter-row" style="align-items:center;">
             <span class="filter-label" style="margin-bottom:0;">{{ $t('clients.connected_at') }}</span>
-            <input class="form-input" type="datetime-local" v-model="connectedGte"
-                   style="flex:1;max-width:200px;" />
+            <datetime-picker v-model="connectedGte" style="flex:1;max-width:200px;"
+                             :placeholder="$t('datetime.title')" />
             <span style="margin:0 6px;color:var(--text-muted);">~</span>
-            <input class="form-input" type="datetime-local" v-model="connectedLte"
-                   style="flex:1;max-width:200px;" />
+            <datetime-picker v-model="connectedLte" style="flex:1;max-width:200px;"
+                             :placeholder="$t('datetime.title')" />
           </div>
         </div>
       </div>
@@ -119,7 +119,7 @@ window.ClientsPage = Vue.defineComponent({
             </tr>
           </thead>
           <tbody>
-            <tr v-for="c in clients" :key="c.clientid">
+            <tr v-for="c in clients" :key="c.clientid" style="cursor:pointer;" @click="goDetail(c.clientid)">
               <td><code style="font-size:12px;">{{ c.clientid }}</code></td>
               <td style="font-size:12px;">{{ c.username || '-' }}</td>
               <td style="font-size:12px;">{{ c.node_id ?? '-' }}</td>
@@ -134,7 +134,7 @@ window.ClientsPage = Vue.defineComponent({
               <td style="font-size:12px;white-space:nowrap;">{{ c.connected_at || c.created_at || '-' }}</td>
               <td>
                 <button class="btn-icon" style="width:auto;padding:3px 10px;font-size:11px;"
-                        v-if="c.connected" @click="kick(c.clientid)"
+                        @click.stop="kick(c.clientid)"
                         :title="$t('clients.disconnect')">
                   {{ $t('clients.disconnect') }}
                 </button>
@@ -259,12 +259,29 @@ window.ClientsPage = Vue.defineComponent({
       }
     }
 
-    Vue.onMounted(loadClients);
+    // 点击行进入客户端详情页
+    function goDetail(clientid) {
+      location.hash = '#/clients/detail?clientid=' + encodeURIComponent(clientid);
+    }
+
+    Vue.onMounted(function() {
+      // 消费快速搜索跳转携带的 clientid（#/clients?clientid=xxx）
+      var qs = location.hash.split('?')[1];
+      if (qs) {
+        var q = new URLSearchParams(qs).get('clientid');
+        if (q) {
+          clientid.value = q;
+          loadClients();
+          return;
+        }
+      }
+      loadClients();
+    });
 
     return { clientid, username, ipAddress, filterOnline, protoVer, pageSize,
              showAdvanced, useFuzzyClientid, fuzzyClientid,
              useFuzzyUsername, fuzzyUsername, cleanStart, sessionPresent,
              createdGte, createdLte, connectedGte, connectedLte, clients, advancedActiveCount,
-             loadClients, reset, kick, fmtExpiry, $t };
+             loadClients, reset, kick, goDetail, fmtExpiry, $t };
   },
 });

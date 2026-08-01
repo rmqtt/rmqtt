@@ -2828,10 +2828,14 @@ async fn query_history_remote(
                 .send()
                 .await
                 {
-                    if let Ok(MessageReply::StatsHistoryReply(d)) | Ok(MessageReply::MetricsHistoryReply(d)) =
+                    // 跨节点传输的是 JSON 字符串化的 HistoryData
+                    // （postcard 无法反序列化 serde_json::Value）
+                    if let Ok(MessageReply::StatsHistoryReply(s)) | Ok(MessageReply::MetricsHistoryReply(s)) =
                         MessageReply::decode(&reply_data)
                     {
-                        return d;
+                        if let Ok(d) = serde_json::from_str::<HistoryData>(&s) {
+                            return d;
+                        }
                     }
                 }
             }
@@ -2896,8 +2900,13 @@ async fn query_history_all_nodes(
                 (id, Ok(GrpcMessageReply::Data(data))) => {
                     if let Ok(reply_msg) = MessageReply::decode(&data) {
                         match reply_msg {
-                            MessageReply::StatsHistoryReply(d) | MessageReply::MetricsHistoryReply(d) => {
-                                nodes.insert(id, d);
+                            // 跨节点传输的是 JSON 字符串化的 HistoryData
+                            MessageReply::StatsHistoryReply(s) | MessageReply::MetricsHistoryReply(s) => {
+                                if let Ok(d) = serde_json::from_str::<HistoryData>(&s) {
+                                    nodes.insert(id, d);
+                                } else {
+                                    log::warn!("invalid history data from node({id})");
+                                }
                             }
                             _ => {
                                 log::info!("unexpected history reply from node({id})");
@@ -2918,12 +2927,22 @@ async fn query_history_all_nodes(
     nodes
 }
 
-/// Aggregates per-node history data into a single time series by summing
-/// numeric fields at each timestamp. Returns `(data_points, node_count)`.
+/// Aggregates per-node history data into a single time series.
+///
+/// Numeric fields are summed across nodes at each timestamp, except for
+/// cluster-wide fields that all nodes report identically (the shared topic /
+/// route tables): those take the maximum instead of a sum.
+/// Returns `(data_points, node_count)`.
 fn aggregate_history_data(nodes_data: &HashMap<NodeId, HistoryData>) -> (Vec<serde_json::Value>, usize) {
     let node_count = nodes_data.len();
     if node_count == 0 {
         return (vec![], 0);
+    }
+
+    // Cluster-shared quantities: every node reports the same value for the
+    // shared topic/route tables, so summing would over-count (N nodes → N×).
+    fn take_max(key: &str) -> bool {
+        matches!(key, "topics.count" | "topics.max" | "routes.count" | "routes.max")
     }
 
     // Group values by timestamp.
@@ -2936,7 +2955,7 @@ fn aggregate_history_data(nodes_data: &HashMap<NodeId, HistoryData>) -> (Vec<ser
         }
     }
 
-    // For each unique timestamp, sum all numeric fields.
+    // For each unique timestamp, merge all numeric fields.
     let mut result: Vec<(u64, serde_json::Value)> = Vec::with_capacity(grouped.len());
     for (ts, points) in grouped {
         let mut merged = serde_json::Map::new();
@@ -2953,7 +2972,11 @@ fn aggregate_history_data(nodes_data: &HashMap<NodeId, HistoryData>) -> (Vec<ser
                             let val = n.as_f64().unwrap_or(0.0);
                             let entry = merged.entry(k.clone()).or_insert_with(|| json!(0.0_f64));
                             if let Some(existing) = entry.as_f64() {
-                                *entry = json!(existing + val);
+                                *entry = if take_max(k) {
+                                    json!(existing.max(val))
+                                } else {
+                                    json!(existing + val)
+                                };
                             }
                         }
                         _ => {
