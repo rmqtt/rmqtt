@@ -142,7 +142,19 @@
     "message_storages_count": "Message Storage",
     "delayed_publishs_count": "Delayed Publish",
     "all_nodes": "सभी नोड",
-    "node_filter": "नोड फ़िल्टर"
+    "node_filter": "नोड फ़िल्टर",
+    "features_title": "सुविधा समर्थन",
+    "features_consistent": "सभी नोड संगत",
+    "features_inconsistent": "नोड असंगत",
+    "features_all_nodes": "सभी नोड्स पर सक्षम",
+    "features_nodes": "नोड सक्षम",
+    "features_retain": "रिटेन किए गए संदेश",
+    "features_message_storage": "संदेश भंडारण",
+    "features_session_storage": "सत्र भंडारण",
+    "features_delayed": "विलंबित संदेश",
+    "features_shared_subscription": "साझा सदस्यता",
+    "features_auto_subscription": "स्वचालित सदस्यता",
+    "features_tab_title": "सुविधा समर्थन"
   },
   "gauge": {
     "connections": "कनेक्शन",
@@ -303,7 +315,8 @@
     "datetime": "Date/Time",
     "close": "Close",
     "online": "Online",
-    "offline": "Offline"
+    "offline": "Offline",
+    "features_title": "सुविधा समर्थन"
   },
   "datetime": {
     "title": "दिनांक और समय चुनें",
@@ -314,5 +327,24 @@
     "today": "आज पर जाएँ",
     "prev_month": "पिछला महीना",
     "next_month": "अगला महीना"
+  },
+  "retains": {
+    "not_enabled": "रिटेन किए गए संदेश सक्षम नहीं हैं (rmqtt-retainer प्लगइन लोड करें)",
+    "topic_filter_placeholder": "विषय फ़िल्टर (जैसे /iot/#, खाली = सभी)",
+    "search": "खोजें",
+    "topic": "विषय",
+    "payload": "पेलोड",
+    "ttl": "TTL",
+    "action": "क्रिया",
+    "view": "देखें",
+    "prev": "पिछला",
+    "next": "अगला",
+    "page_range": "{start} ~ {end} आइटम",
+    "page_more": "और",
+    "page_end": "अंतिम पृष्ठ",
+    "no_results": "कोई रिटेन संदेश नहीं",
+    "create_time": "निर्मित",
+    "client_id": "क्लाइंट ID",
+    "publish_time": "प्रकाशित समय"
   }
 }

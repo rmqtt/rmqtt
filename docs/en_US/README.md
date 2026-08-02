@@ -89,6 +89,7 @@ Welcome to the RMQTT documentation. This index provides a structured overview of
 | Document | Description |
 |----------|-------------|
 | [HTTP API](http-api.md) | RESTful management API reference |
+| [Dashboard](dashboard.md) | Built-in web management UI |
 | [WebHook](web-hook.md) | HTTP event notifications |
 | [System Topics](sys-topic.md) | `$SYS/` monitoring metrics |
 

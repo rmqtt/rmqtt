@@ -380,7 +380,7 @@ async fn _handshake(
     let shared_subscription_available = {
         #[cfg(feature = "shared-subscription")]
         {
-            state.scx.extends.shared_subscription().await.is_supported(state.listen_cfg())
+            state.scx.extends.shared_subscription().await.is_supported()
         }
         #[cfg(not(feature = "shared-subscription"))]
         {

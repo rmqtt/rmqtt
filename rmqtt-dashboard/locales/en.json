@@ -142,7 +142,19 @@
     "message_storages_count": "Message Storage",
     "delayed_publishs_count": "Delayed Publish",
     "all_nodes": "All Nodes",
-    "node_filter": "Node filter"
+    "node_filter": "Node filter",
+    "features_title": "Feature Support",
+    "features_consistent": "All nodes consistent",
+    "features_inconsistent": "Nodes inconsistent",
+    "features_all_nodes": "Enabled on all nodes",
+    "features_nodes": "nodes enabled",
+    "features_retain": "Retained Messages",
+    "features_message_storage": "Message Storage",
+    "features_session_storage": "Session Storage",
+    "features_delayed": "Delayed Messages",
+    "features_shared_subscription": "Shared Subscriptions",
+    "features_auto_subscription": "Auto Subscription",
+    "features_tab_title": "Feature Support"
   },
   "gauge": {
     "connections": "Connections",
@@ -303,7 +315,8 @@
     "datetime": "Date/Time",
     "close": "Close",
     "online": "Online",
-    "offline": "Offline"
+    "offline": "Offline",
+    "features_title": "Feature Support"
   },
   "datetime": {
     "title": "Select Date & Time",
@@ -314,5 +327,24 @@
     "today": "Go to today",
     "prev_month": "Previous month",
     "next_month": "Next month"
+  },
+  "retains": {
+    "not_enabled": "Retained messages are not enabled (load the rmqtt-retainer plugin)",
+    "topic_filter_placeholder": "Topic filter (e.g. /iot/#, empty = all)",
+    "search": "Search",
+    "topic": "Topic",
+    "payload": "Payload",
+    "ttl": "TTL",
+    "action": "Action",
+    "view": "View",
+    "prev": "Prev",
+    "next": "Next",
+    "page_range": "{start} ~ {end} items",
+    "page_more": "more",
+    "page_end": "last page",
+    "no_results": "No retained messages",
+    "create_time": "Created At",
+    "client_id": "Client ID",
+    "publish_time": "Published At"
   }
 }

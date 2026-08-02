@@ -142,7 +142,19 @@
     "message_storages_count": "Message Storage",
     "delayed_publishs_count": "Delayed Publish",
     "all_nodes": "সব নোড",
-    "node_filter": "নোড ফিল্টার"
+    "node_filter": "নোড ফিল্টার",
+    "features_title": "বৈশিষ্ট্য সমর্থন",
+    "features_consistent": "সব নোড সামঞ্জস্যপূর্ণ",
+    "features_inconsistent": "নোড অসামঞ্জস্যপূর্ণ",
+    "features_all_nodes": "সব নোডে সক্রিয়",
+    "features_nodes": "নোড সক্রিয়",
+    "features_retain": "ধরে রাখা বার্তা",
+    "features_message_storage": "বার্তা স্টোরেজ",
+    "features_session_storage": "সেশন স্টোরেজ",
+    "features_delayed": "বিলম্বিত বার্তা",
+    "features_shared_subscription": "শেয়ার্ড সাবস্ক্রিপশন",
+    "features_auto_subscription": "স্বয়ংক্রিয় সাবস্ক্রিপশন",
+    "features_tab_title": "বৈশিষ্ট্য সমর্থন"
   },
   "gauge": {
     "connections": "সংযোগ",
@@ -303,7 +315,8 @@
     "datetime": "Date/Time",
     "close": "Close",
     "online": "Online",
-    "offline": "Offline"
+    "offline": "Offline",
+    "features_title": "বৈশিষ্ট্য সমর্থন"
   },
   "datetime": {
     "title": "তারিখ এবং সময় নির্বাচন করুন",
@@ -314,5 +327,24 @@
     "today": "আজকে যান",
     "prev_month": "আগের মাস",
     "next_month": "পরের মাস"
+  },
+  "retains": {
+    "not_enabled": "ধরে রাখা বার্তা সক্রিয় নেই (rmqtt-retainer প্লাগইন লোড করুন)",
+    "topic_filter_placeholder": "টপিক ফিল্টার (যেমন /iot/#, খালি = সব)",
+    "search": "অনুসন্ধান",
+    "topic": "টপিক",
+    "payload": "পেলোড",
+    "ttl": "TTL",
+    "action": "অ্যাকশন",
+    "view": "দেখুন",
+    "prev": "পূর্ববর্তী",
+    "next": "পরবর্তী",
+    "page_range": "{start} ~ {end} আইটেম",
+    "page_more": "আরও",
+    "page_end": "শেষ পৃষ্ঠা",
+    "no_results": "কোনো ধরে রাখা বার্তা নেই",
+    "create_time": "তৈরির সময়",
+    "client_id": "ক্লায়েন্ট ID",
+    "publish_time": "প্রকাশের সময়"
   }
 }

@@ -46,8 +46,9 @@ use super::embed::DashboardAssets;
 use super::flusher::{HistoryCache, HistoryCaches};
 use super::prome::{Monitor, PROME_MONITOR};
 use super::types::{
-    ClientSearchParams, ClientSearchResult, HistoryData, HistoryQuery, Message, MessageReply,
-    PrometheusDataType, PublishParams, SubscribeParams, UnsubscribeParams,
+    ClientSearchParams, ClientSearchResult, FeatureConflict, FeatureValueGroup, Features, FeaturesInfo,
+    FeaturesInfoOrError, FeaturesSummary, HistoryData, HistoryQuery, Message, MessageReply,
+    PrometheusDataType, PublishParams, RetainInfo, RetainQueryParams, SubscribeParams, UnsubscribeParams,
 };
 use super::{clients, plugin, prome, subs, PluginConfigType};
 
@@ -98,6 +99,9 @@ fn route(
         .push(Router::with_path("brokers").get(get_brokers).push(Router::with_path("{id}").get(get_brokers)))
         .push(Router::with_path("nodes").get(get_nodes).push(Router::with_path("{id}").get(get_nodes)))
         .push(
+            Router::with_path("features").get(get_features).push(Router::with_path("{id}").get(get_features)),
+        )
+        .push(
             Router::with_path("health/check")
                 .get(check_health)
                 .push(Router::with_path("{id}").get(check_health)),
@@ -119,6 +123,7 @@ fn route(
                 .push(Router::with_path("{clientid}").get(get_client_subscriptions)),
         )
         .push(Router::with_path("routes").get(get_routes).push(Router::with_path("{topic}").get(get_route)))
+        .push(Router::with_path("retains").get(get_retains))
         .push(
             Router::with_path("mqtt")
                 .push(Router::with_path("publish").post(publish))
@@ -280,6 +285,12 @@ async fn list_apis(res: &mut Response) {
             "descr": "Returns the status of the node"
         },
         {
+            "name": "get_features",
+            "method": "GET",
+            "path": "/api/v1/features[/{node}]",
+            "descr": "Returns the supported feature state (retain/message_storage/session_storage/delayed/shared_subscription/auto_subscription) of cluster nodes"
+        },
+        {
             "name": "check_health",
             "method": "GET",
             "path": "/api/v1/health/check/{node}",
@@ -345,6 +356,12 @@ async fn list_apis(res: &mut Response) {
             "method": "GET",
             "path": "/api/v1/routes/{topic}",
             "descr": "Get routing information from the cluster"
+        },
+        {
+            "name": "get_retains",
+            "method": "GET",
+            "path": "/api/v1/retains",
+            "descr": "Query retained messages with optional topic_filter/offset/limit"
         },
 
         {
@@ -813,6 +830,210 @@ pub(crate) async fn get_nodes_all(
     Ok(nodes)
 }
 
+/// Build the feature support state of the current node.
+#[inline]
+pub(crate) async fn build_features(scx: &ServerContext) -> FeaturesInfo {
+    let extends = &scx.extends;
+    FeaturesInfo {
+        node_id: scx.node.id(),
+        node_name: scx.node.name(scx, scx.node.id()).await,
+        features: Features {
+            retain: extends.retain().await.enable(),
+            message_storage: extends.message_mgr().await.enable(),
+            session_storage: extends.session_mgr().await.enable(),
+            delayed: extends.delayed_sender().await.enable(),
+            shared_subscription: extends.shared_subscription().await.is_supported(),
+            auto_subscription: extends.auto_subscription().await.enable(),
+        },
+    }
+}
+
+/// Query the feature support state of a single node (local or remote).
+#[inline]
+async fn get_feature(
+    scx: &ServerContext,
+    message_type: MessageType,
+    id: NodeId,
+) -> Result<Option<FeaturesInfo>> {
+    if id == scx.node.id() {
+        Ok(Some(build_features(scx).await))
+    } else {
+        let grpc_clients = scx.extends.shared().await.get_grpc_clients();
+        if let Some((_, c)) = grpc_clients.get(&id) {
+            let msg = Message::Features.encode()?;
+            let reply = MessageSender::new_quick(
+                c.clone(),
+                message_type,
+                GrpcMessage::Data(msg),
+                Some(Duration::from_secs(10)),
+            )
+            .send()
+            .await;
+            match reply {
+                Ok(GrpcMessageReply::Data(msg)) => match MessageReply::decode(&msg)? {
+                    MessageReply::Features(features_info) => Ok(Some(features_info)),
+                    _ => {
+                        log::error!("unreachable!(), msg: {msg:?}");
+                        Err(anyhow!("unreachable!()"))
+                    }
+                },
+                Ok(reply) => {
+                    log::info!("Get GrpcMessage::Features from other node({id}), reply: {reply:?}");
+                    Err(anyhow!("Invalid Result"))
+                }
+                Err(e) => {
+                    log::warn!("Get GrpcMessage::Features from other node, error: {e}");
+                    Err(e)
+                }
+            }
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+/// Query the feature support state of all cluster nodes.
+#[inline]
+async fn get_features_all(
+    scx: &ServerContext,
+    message_type: MessageType,
+) -> Result<Vec<Result<FeaturesInfo>>> {
+    let mut features = vec![Ok(build_features(scx).await)];
+    let grpc_clients = scx.extends.shared().await.get_grpc_clients();
+    if !grpc_clients.is_empty() {
+        let msg = Message::Features.encode()?;
+        let replys = MessageBroadcaster::new_quick(
+            grpc_clients,
+            message_type,
+            GrpcMessage::Data(msg),
+            Some(Duration::from_secs(10)),
+        )
+        .join_all()
+        .await
+        .drain(..)
+        .map(|reply| match reply {
+            (_, Ok(GrpcMessageReply::Data(msg))) => match MessageReply::decode(&msg) {
+                Ok(MessageReply::Features(features_info)) => Ok(Ok(features_info)),
+                Err(e) => Err(e),
+                _ => {
+                    log::error!("unreachable!(), msg: {msg:?}");
+                    Err(anyhow!("unreachable!()"))
+                }
+            },
+            (id, Ok(reply)) => {
+                log::info!("Get GrpcMessage::Features from other node({id}), reply: {reply:?}");
+                Err(anyhow!("Invalid Result"))
+            }
+            (id, Err(e)) => {
+                log::warn!("Get GrpcMessage::Features from other node({id}), error: {e}");
+                Ok(Err(e))
+            }
+        })
+        .collect::<Result<Vec<_>>>()?;
+        features.extend(replys);
+    }
+    Ok(features)
+}
+
+/// A feature field getter: `(JSON key, function extracting the bool flag)`.
+type FeatureGetter = (&'static str, fn(&Features) -> bool);
+
+/// Compare feature flags across the successfully-reached nodes and report
+/// which fields differ. Fields are compared per node; a field is conflicting
+/// when some nodes report `true` while others report `false`.
+#[inline]
+fn summarize_features(successes: &[FeaturesInfo]) -> (bool, Vec<FeatureConflict>) {
+    let feature_getters: [FeatureGetter; 6] = [
+        ("retain", |f| f.retain),
+        ("message_storage", |f| f.message_storage),
+        ("session_storage", |f| f.session_storage),
+        ("delayed", |f| f.delayed),
+        ("shared_subscription", |f| f.shared_subscription),
+        ("auto_subscription", |f| f.auto_subscription),
+    ];
+
+    let mut conflicts = Vec::new();
+    for (name, getter) in feature_getters {
+        let mut true_nodes = Vec::new();
+        let mut false_nodes = Vec::new();
+        for info in successes {
+            if getter(&info.features) {
+                true_nodes.push(info.node_id);
+            } else {
+                false_nodes.push(info.node_id);
+            }
+        }
+        if !true_nodes.is_empty() && !false_nodes.is_empty() {
+            conflicts.push(FeatureConflict {
+                feature: name.to_string(),
+                values: vec![
+                    FeatureValueGroup { value: true, node_ids: true_nodes },
+                    FeatureValueGroup { value: false, node_ids: false_nodes },
+                ],
+            });
+        }
+    }
+    (conflicts.is_empty(), conflicts)
+}
+
+/// Query which broker features are supported.
+///
+/// `GET /api/v1/features` returns the feature support state of every cluster
+/// node plus a cluster-wide consistency summary (`consistent` / `conflicts`);
+/// `GET /api/v1/features/{node}` targets a single node.
+#[handler]
+async fn get_features(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> std::result::Result<(), salvo::Error> {
+    let (scx, cfg) = get_scx_cfg(depot)?;
+    let message_type = cfg.read().await.message_type;
+
+    let id = req.param::<NodeId>("id");
+    if let Some(id) = id {
+        match get_feature(scx, message_type, id).await {
+            Ok(Some(features_info)) => res.render(Json(features_info)),
+            Ok(None) => {
+                res.status_code(StatusCode::NOT_FOUND);
+            }
+            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+        }
+    } else {
+        match get_features_all(scx, message_type).await {
+            Ok(features_infos) => {
+                let mut nodes: Vec<FeaturesInfoOrError> = Vec::with_capacity(features_infos.len());
+                let mut successes: Vec<FeaturesInfo> = Vec::new();
+                for item in features_infos {
+                    match item {
+                        Ok(features_info) => {
+                            successes.push(features_info.clone());
+                            nodes.push(FeaturesInfoOrError::Info(features_info));
+                        }
+                        Err(e) => nodes.push(FeaturesInfoOrError::Error(e.to_string())),
+                    }
+                }
+                let (consistent, conflicts) = summarize_features(&successes);
+                if !consistent {
+                    log::warn!(
+                        "features inconsistent across cluster (node_count: {}): {:?}",
+                        successes.len(),
+                        conflicts
+                    );
+                }
+                res.render(Json(FeaturesSummary {
+                    consistent,
+                    node_count: successes.len(),
+                    conflicts,
+                    nodes,
+                }))
+            }
+            Err(e) => res.render(StatusError::service_unavailable().detail(e.to_string())),
+        }
+    }
+    Ok(())
+}
+
 #[handler]
 async fn check_health(
     req: &mut Request,
@@ -1256,6 +1477,77 @@ async fn get_route(
     } else {
         res.render(StatusError::bad_request())
     }
+    Ok(())
+}
+
+/// Query retained messages with an optional topic filter and pagination.
+///
+/// Query parameters:
+/// - `topic_filter`: topic filter supporting `#` / `+` wildcards (default `#`).
+/// - `offset`: pagination offset (default `0`).
+/// - `limit`: page size (default and cap: `max_row_limit`).
+///
+/// Response: `{ "items": [RetainInfo...], "has_more": bool }`.
+///
+/// Cluster semantics: retained messages are broadcast-synced to every node,
+/// so a single-node query already covers the whole cluster. Storage backends
+/// whose `merge_on_read()` returns `true` (future shared-backend case) will
+/// return merged data automatically through `RetainStorage::get`.
+#[handler]
+async fn get_retains(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> std::result::Result<(), salvo::Error> {
+    let (scx, cfg) = get_scx_cfg(depot)?;
+    let max_row_limit = cfg.read().await.max_row_limit;
+    let mut q = match req.parse_queries::<RetainQueryParams>() {
+        Ok(q) => q,
+        Err(e) => {
+            res.render(StatusError::bad_request().detail(e.to_string()));
+            return Ok(());
+        }
+    };
+    if q.limit == 0 || q.limit > max_row_limit {
+        q.limit = max_row_limit;
+    }
+
+    let retain_mgr = scx.extends.retain().await;
+    let topic_filter_all = q.topic_filter.is_empty() || q.topic_filter == "#";
+    let (items, has_more) = if topic_filter_all {
+        // Full-range path: storage-level pagination with remaining TTL.
+        match retain_mgr.get_all_paginated(q.offset, q.limit).await {
+            Ok((list, has_more)) => (
+                list.into_iter().map(|(t, r, ttl)| RetainInfo::from_paginated(t, r, ttl)).collect::<Vec<_>>(),
+                has_more,
+            ),
+            Err(e) => {
+                res.render(StatusError::service_unavailable().detail(e.to_string()));
+                return Ok(());
+            }
+        }
+    } else {
+        // Topic-filtered path: fetch all matches, paginate in memory.
+        match retain_mgr.get(&q.topic_filter).await {
+            Ok(all) => {
+                let total = all.len();
+                let has_more = q.offset + q.limit < total;
+                let items = all
+                    .into_iter()
+                    .skip(q.offset)
+                    .take(q.limit)
+                    .map(|(t, r)| RetainInfo::from_get(t, r))
+                    .collect::<Vec<_>>();
+                (items, has_more)
+            }
+            Err(e) => {
+                res.render(StatusError::service_unavailable().detail(e.to_string()));
+                return Ok(());
+            }
+        }
+    };
+
+    res.render(Json(json!({"items": items, "has_more": has_more})));
     Ok(())
 }
 

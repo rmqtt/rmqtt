@@ -84,6 +84,9 @@ All endpoints are prefixed with `/api/v1`.
 | **Nodes** | | |
 | GET | `/nodes` | Return status of all nodes in the cluster |
 | GET | `/nodes/{id}` | Return status of a specific node |
+| **Features** | | |
+| GET | `/features` | Return feature support state of all cluster nodes |
+| GET | `/features/{id}` | Return feature support state of a specific node |
 | **Health** | | |
 | GET | `/health/check` | Health check for the cluster |
 | GET | `/health/check/{id}` | Health check for a specific node |
@@ -100,6 +103,8 @@ All endpoints are prefixed with `/api/v1`.
 | **Routes** | | |
 | GET | `/routes` | Return all routing information from the cluster |
 | GET | `/routes/{topic}` | Get routing information for a specific topic |
+| **Retained Messages** | | |
+| GET | `/retains` | Query retained messages with `topic_filter` / `offset` / `limit` params |
 | **MQTT Operations** | | |
 | POST | `/mqtt/publish` | Publish an MQTT message |
 | POST | `/mqtt/subscribe` | Subscribe to an MQTT topic for a session |
@@ -126,6 +131,82 @@ All endpoints are prefixed with `/api/v1`.
 | GET | `/metrics/prometheus` | Get Prometheus metrics from the cluster |
 | GET | `/metrics/prometheus/sum` | Summarize Prometheus metrics |
 | GET | `/metrics/prometheus/{id}` | Get Prometheus metrics for a specific node |
+
+### Retained Message Query
+
+`GET /retains` queries retained messages:
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `topic_filter` | string | `#` | Topic filter supporting `#` / `+` wildcards; empty or `#` uses the full-range pagination path |
+| `offset` | usize | `0` | Pagination offset |
+| `limit` | usize | `max_row_limit` | Page size, capped at `max_row_limit` |
+
+Response example:
+
+```json
+{
+  "items": [
+    {
+      "topic": "/iot/b/x",
+      "msg_id": 1024,
+      "from": { "typ": "client", "id": { "node_id": 1, "client_id": "c1" } },
+      "publish": {
+        "topic": "/iot/b/x",
+        "qos": 1,
+        "retain": true,
+        "dup": false,
+        "payload": "<base64 encoded>",
+        "create_time": 1780000000000,
+        "properties": null
+      },
+      "remaining_ttl": 3599
+    }
+  ],
+  "has_more": false
+}
+```
+
+> Note: the `topic_filter=#` (full-range) path paginates at the storage layer and includes `remaining_ttl` (seconds); the filtered path paginates in memory with `remaining_ttl` as `null`. Retained messages are broadcast-synced across cluster nodes, so a single-node query already covers the whole cluster.
+
+### Feature Support Query
+
+`GET /features` returns the feature support state of every cluster node plus a cluster-wide consistency summary:
+
+```json
+{
+  "consistent": false,
+  "node_count": 3,
+  "conflicts": [
+    {
+      "feature": "retain",
+      "values": [
+        { "value": true,  "node_ids": [1, 2] },
+        { "value": false, "node_ids": [3] }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "node_id": 1,
+      "node_name": "rmqtt@127.0.0.1",
+      "features": {
+        "retain": true,
+        "message_storage": false,
+        "session_storage": false,
+        "delayed": true,
+        "shared_subscription": true,
+        "auto_subscription": false
+      }
+    }
+  ]
+}
+```
+
+- `consistent`: whether all reachable nodes report identical feature flags; `false` indicates config drift or a partially-failed plugin on some node
+- `conflicts`: feature fields whose values differ, grouped by value with node lists (empty when `consistent` is `true`)
+- `nodes`: per-node details; unreachable nodes appear as error strings and are excluded from the consistency check
+- A `features inconsistent across cluster` warning log is emitted when an inconsistency is detected
 
 ### Authentication
 

@@ -27,19 +27,83 @@ plugins/rmqtt-http-api.toml
 
 # See more keys and their definitions at https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/http-api.md
 
-##Number of worker threads
-workers = 1
 ## Max Row Limit
 max_row_limit = 10_000
-## HTTP Listener
+## HTTP Listener address
 http_laddr = "0.0.0.0:6060"
+## HTTP bearer token for API authentication.
+## When set, all HTTP API requests must include an `Authorization: Bearer <token>` header.
+## When not set (default), no authentication is required.
+#http_bearer_token = "public"
+
+## Enable TCP SO_REUSEADDR on the HTTP listener.
+## Default: true
+# http_reuseaddr = true
+
+## Enable TCP SO_REUSEPORT on the HTTP listener.
+## Default: false
+# http_reuseport = false
+
 ## Indicates whether to print HTTP request logs
 http_request_log = false
-## If set, will check request header Authorization value == Bearer $http_bearer_token, default value is undefined
-#http_bearer_token = bearer_token
+
+## Metrics sample interval for collecting and caching internal metrics.
+## Default: "5s"
+# metrics_sample_interval = "5s"
+
+## gRPC message type identifier for HTTP API messages.
+## Default: 99
+# message_type = 99
 
 ##Message expiration time, 0 means no expiration
 message_expiry_interval = "5m"
+
+## Prometheus metrics data caching interval.
+## Default: "5s"
+prometheus_metrics_cache_interval = "5s"
+
+## Dashboard static directory (optional).
+## By default (when unset), the Dashboard SPA is served from assets embedded
+## directly into the binary via rust-embed at compile time, so no external
+## files are needed.
+## If set, the plugin loads the Dashboard SPA from this external directory
+## at the `/dashboard/` path instead, allowing swapping the frontend build
+## without recompiling the binary.
+# dashboard_static_dir = "/path/to/dashboard/dist"
+
+##─── Stats/Metrics History Persistence (optional) ───────────────────────
+## When `storage` is configured, the plugin periodically snapshots Stats
+## and Metrics, converts them to JSON, and writes them to the backend with
+## TTL-based expiration. History query APIs
+## (`/api/v1/stats/history`, `/api/v1/metrics/history`, etc.) become available.
+## To disable, omit the entire `storage` section.
+
+##─── Redb backend ──────────────────────────────────────────────────────
+storage.type = "redb"
+storage.redb.path = "/var/log/rmqtt/.cache/http-api-history/{node}.redb"
+
+##─── Sled backend ──────────────────────────────────────────────────────
+#storage.type = "sled"
+#storage.sled.path = "/var/log/rmqtt/.cache/http-api-history/{node}.sled"
+#storage.sled.cache_capacity = "1G"
+
+##─── Redis backend ──────────────────────────────────────────────────────
+# storage.type = "redis"
+# storage.redis.url = "redis://127.0.0.1:6379/"
+# storage.redis.prefix = "http-api-history-{node}"
+
+##─── Redis Cluster backend ──────────────────────────────────────────────
+# storage.type = "redis-cluster"
+# storage.redis-cluster.urls = ["redis://127.0.0.1:6380/", "redis://127.0.0.1:6381/"]
+# storage.redis-cluster.prefix = "http-api-history-{node}"
+
+##─── Flush interval (how often to snapshot Stats/Metrics) ───────────────
+## Default: "5s"
+# flush_interval = "5s"
+
+##─── History retention (TTL for each data point) ────────────────────────
+## Default: "7d"
+# history_retention = "7d"
 ```
 
 ## 响应码
@@ -182,6 +246,92 @@ $ curl -i -X GET "http://localhost:6060/api/v1/nodes"
 $ curl -i -X GET "http://localhost:6060/api/v1/nodes/1"
 
 {"boottime":"2022-06-30 05:20:24 UTC","connections":1,"disk_free":77382381568,"disk_total":88692346880,"load1":0.0224609375,"load15":0.0,"load5":0.0263671875,"memory_free":1457954816,"memory_total":2084057088,"memory_used":626102272,"node_id":1,"node_name":"1@127.0.0.1","running":true,"uptime":"5 days 23 hours, 33 minutes, 0 seconds","version":"rmqtt/0.21.0","rustc_version":"1.85.0"}
+```
+
+## 功能支持
+
+### GET /api/v1/features
+
+返回集群各节点的功能支持状态及一致性汇总。功能支持状态由各功能的 trait 实现（`enable()` / `is_supported()`）决定。
+
+**Parameters:** 无
+
+**Success Response Body (JSON):**
+
+| Name          | Type | Description |
+|---------------|------|-------------|
+| consistent    | Bool | 所有可达节点功能状态是否完全一致；`false` 说明存在节点配置漂移或插件加载失败 |
+| node_count    | Integer | 参与一致性比较的节点数量 |
+| conflicts     | Array | 取值不一致的字段（按值分组列出节点）；`consistent` 为 `true` 时为空数组 |
+| - conflicts[i].feature | String | 功能名称，如 `retain` |
+| - conflicts[i].values  | Array | 取值分组，每组包含 `value`（Bool）与 `node_ids`（Integer Array） |
+| nodes         | Array | 逐节点明细；不可达节点为错误字符串且不参与一致性比较 |
+| - nodes[i].node_id    | Integer | 节点ID |
+| - nodes[i].node_name  | String | 节点名称 |
+| - nodes[i].features   | Object | 六项功能支持状态：`retain`、`message_storage`、`session_storage`、`delayed`、`shared_subscription`、`auto_subscription` |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/features"
+```
+
+```json
+{
+  "consistent": false,
+  "node_count": 3,
+  "conflicts": [
+    {
+      "feature": "retain",
+      "values": [
+        { "value": true,  "node_ids": [1, 2] },
+        { "value": false, "node_ids": [3] }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "node_id": 1,
+      "node_name": "rmqtt@127.0.0.1",
+      "features": {
+        "retain": true,
+        "message_storage": false,
+        "session_storage": false,
+        "delayed": true,
+        "shared_subscription": true,
+        "auto_subscription": false
+      }
+    }
+  ]
+}
+```
+
+> 说明：检测到不一致时后端会输出 `features inconsistent across cluster` 警告日志。单节点查询使用 `GET /api/v1/features/{node}`，直接返回该节点的 `FeaturesInfo` 对象（不含一致性汇总）。
+
+### GET /api/v1/features/{node}
+
+返回指定节点的功能支持状态。
+
+**Path Parameters:**
+
+| Name | Type | Required | Description |
+| ---- | --------- | -------- |-------------|
+| node | Integer    | True      | 节点ID，如：1 |
+
+**Success Response Body (JSON):**
+
+| Name          | Type | Description |
+|---------------|------|-------------|
+| node_id       | Integer | 节点ID |
+| node_name     | String | 节点名称 |
+| features      | Object | 六项功能支持状态：`retain`、`message_storage`、`session_storage`、`delayed`、`shared_subscription`、`auto_subscription` |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/features/1"
+
+{"node_id":1,"node_name":"rmqtt@127.0.0.1","features":{"retain":true,"message_storage":false,"session_storage":false,"delayed":true,"shared_subscription":true,"auto_subscription":false}}
 ```
 
 ## 健康检查
@@ -544,6 +694,66 @@ $ curl -i -X GET "http://localhost:6060/api/v1/routes/foo%2f1"
 
 [{"node_id":1,"topic":"foo/#"},{"node_id":1,"topic":"foo/+"}]
 ```
+
+## 保留消息
+
+### GET /api/v1/retains
+
+查询保留消息。保留消息在集群中通过广播保持各节点同步，单节点查询即覆盖全集群。
+
+**Query String Parameters:**
+
+| Name          | Type    | Required | Default       | Description |
+|---------------|---------|----------|---------------|-------------|
+| topic_filter  | String  | False    | `#`           | 主题过滤器，支持 `#` / `+` 通配；为空或 `#` 时走全量分页 |
+| offset        | Integer | False    | 0             | 分页偏移量 |
+| limit         | Integer | False    | `max_row_limit` | 每页条数，超出 `max_row_limit` 时收敛 |
+
+**Success Response Body (JSON):**
+
+| Name                     | Type | Description |
+|--------------------------|------|-------------|
+| items                    | Array | 保留消息列表 |
+| - items[i].topic         | String | 主题 |
+| - items[i].msg_id        | Integer | 消息ID |
+| - items[i].from          | Object | 发布者信息（`id.node_id` / `id.client_id`） |
+| - items[i].publish       | Object | 消息内容，`payload` 为 base64 编码 |
+| - items[i].publish.qos   | Integer | QoS 等级 |
+| - items[i].publish.retain | Bool | retain 标记 |
+| - items[i].publish.create_time | Integer | 发布时间（毫秒时间戳） |
+| - items[i].remaining_ttl | Integer/Null | 剩余存活时间（秒）；全量分页路径返回，过滤路径为 `null` |
+| has_more                 | Bool | 是否还有更多数据 |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/retains?topic_filter=%2Fiot%2Fb%2Fx&offset=0&limit=10"
+```
+
+```json
+{
+  "items": [
+    {
+      "topic": "/iot/b/x",
+      "msg_id": 1024,
+      "from": { "typ": "client", "id": { "node_id": 1, "client_id": "c1" } },
+      "publish": {
+        "topic": "/iot/b/x",
+        "qos": 1,
+        "retain": true,
+        "dup": false,
+        "payload": "<base64 编码>",
+        "create_time": 1780000000000,
+        "properties": null
+      },
+      "remaining_ttl": 3599
+    }
+  ],
+  "has_more": false
+}
+```
+
+> 说明：`topic_filter=#`（全量）路径由存储层分页并附带 `remaining_ttl`（剩余秒数）；指定 `topic_filter` 的过滤路径在内存分页，`remaining_ttl` 为 `null`。查询需要启用 `rmqtt-retainer` 插件。
 
 ## 消息发布
 

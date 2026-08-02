@@ -11,6 +11,36 @@
       visible: { type: Boolean, default: false },
     },
     emits: ['close'],
+    data: function() {
+      return {
+        features: null,
+        featuresLoading: false,
+        featuresError: null,
+      };
+    },
+    watch: {
+      visible: function(val) {
+        if (val) this.fetchFeatures();
+      },
+    },
+    computed: {
+      featureItems: function() {
+        var self = this;
+        var f = this.features;
+        if (!f) return [];
+        var keys = [
+          { key: 'retain',                labelKey: 'overview.features_retain' },
+          { key: 'message_storage',       labelKey: 'overview.features_message_storage' },
+          { key: 'session_storage',       labelKey: 'overview.features_session_storage' },
+          { key: 'delayed',               labelKey: 'overview.features_delayed' },
+          { key: 'shared_subscription',   labelKey: 'overview.features_shared_subscription' },
+          { key: 'auto_subscription',     labelKey: 'overview.features_auto_subscription' },
+        ];
+        return keys.map(function(item) {
+          return { key: item.key, label: self.$t(item.labelKey), enabled: !!f[item.key] };
+        });
+      },
+    },
     template: `
       <div v-if="visible && node" class="modal-overlay" @click.self="$emit('close')">
         <div class="modal-panel">
@@ -39,6 +69,19 @@
               <tr><td class="dt-label">{{ $t('node_detail.sys_desc') }}</td><td>{{ node.sysdescr || '-' }}</td></tr>
               <tr><td class="dt-label">{{ $t('node_detail.datetime') }}</td><td>{{ node.datetime || '-' }}</td></tr>
             </table>
+            <h4 class="detail-subs-header" style="margin-top:16px;">{{ $t('node_detail.features_title') }}</h4>
+            <table class="detail-table" v-if="features">
+              <tr v-for="f in featureItems" :key="f.key">
+                <td class="dt-label">{{ f.label }}</td>
+                <td>
+                  <span class="feature-badge" :class="f.enabled ? 'badge-on' : 'badge-off'">
+                    {{ f.enabled ? $t('common.enabled') : $t('common.disabled') }}
+                  </span>
+                </td>
+              </tr>
+            </table>
+            <div v-else-if="featuresLoading" class="loading-text">{{ $t('common.loading') }}...</div>
+            <div v-else-if="featuresError" class="error-text">{{ featuresError }}</div>
           </div>
           <div class="modal-footer">
             <button class="btn btn-primary" @click="$emit('close')">{{ $t('node_detail.close') }}</button>
@@ -47,6 +90,25 @@
       </div>
     `,
     methods: {
+      fetchFeatures: function() {
+        var self = this;
+        var nodeId = this.node && this.node.node_id;
+        if (nodeId == null) return;
+        this.featuresLoading = true;
+        this.featuresError = null;
+        this.features = null;
+        http.get('/features/' + nodeId).then(function(res) {
+          if (res && typeof res === 'object' && res.features) {
+            self.features = res.features;
+          } else {
+            self.featuresError = '功能支持信息获取失败';
+          }
+          self.featuresLoading = false;
+        }).catch(function(e) {
+          self.featuresError = (e && e.message) || '功能支持信息获取失败';
+          self.featuresLoading = false;
+        });
+      },
       formatCpu: function(load) {
         return load != null ? load.toFixed(1) + '%' : '-';
       },

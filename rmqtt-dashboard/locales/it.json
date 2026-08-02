@@ -142,7 +142,19 @@
     "message_storages_count": "Message Storage",
     "delayed_publishs_count": "Delayed Publish",
     "all_nodes": "Tutti i nodi",
-    "node_filter": "Filtro nodo"
+    "node_filter": "Filtro nodo",
+    "features_title": "Supporto funzioni",
+    "features_consistent": "Tutti i nodi coerenti",
+    "features_inconsistent": "Nodi incoerenti",
+    "features_all_nodes": "Abilitato su tutti i nodi",
+    "features_nodes": "nodi abilitati",
+    "features_retain": "Messaggi trattenuti",
+    "features_message_storage": "Archiviazione messaggi",
+    "features_session_storage": "Archiviazione sessioni",
+    "features_delayed": "Messaggi ritardati",
+    "features_shared_subscription": "Sottoscrizioni condivise",
+    "features_auto_subscription": "Sottoscrizione automatica",
+    "features_tab_title": "Supporto funzioni"
   },
   "gauge": {
     "connections": "Connessioni",
@@ -303,7 +315,8 @@
     "datetime": "Date/Time",
     "close": "Close",
     "online": "Online",
-    "offline": "Offline"
+    "offline": "Offline",
+    "features_title": "Supporto funzioni"
   },
   "datetime": {
     "title": "Seleziona data e ora",
@@ -314,5 +327,24 @@
     "today": "Vai a oggi",
     "prev_month": "Mese precedente",
     "next_month": "Mese successivo"
+  },
+  "retains": {
+    "not_enabled": "Messaggi trattenuti non abilitati (caricare il plugin rmqtt-retainer)",
+    "topic_filter_placeholder": "Filtro argomento (es. /iot/#, vuoto = tutti)",
+    "search": "Cerca",
+    "topic": "Argomento",
+    "payload": "Carico utile",
+    "ttl": "TTL",
+    "action": "Azione",
+    "view": "Vedi",
+    "prev": "Indietro",
+    "next": "Avanti",
+    "page_range": "{start} ~ {end} elementi",
+    "page_more": "altro",
+    "page_end": "ultima pagina",
+    "no_results": "Nessun messaggio trattenuto",
+    "create_time": "Creato il",
+    "client_id": "ID cliente",
+    "publish_time": "Pubblicato il"
   }
 }
