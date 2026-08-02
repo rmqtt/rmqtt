@@ -1068,12 +1068,10 @@ impl SessionState {
         &mut self,
         topic_filters: Vec<(ByteString, QoS)>,
     ) -> Result<Vec<v3::SubscribeReturnCode>> {
-        #[allow(unused_variables)]
-        let listen_cfg = self.listen_cfg();
         let shared_subscription = {
             #[cfg(feature = "shared-subscription")]
             {
-                self.scx.extends.shared_subscription().await.is_supported(listen_cfg)
+                self.scx.extends.shared_subscription().await.is_supported()
             }
             #[cfg(not(feature = "shared-subscription"))]
             {
@@ -1084,7 +1082,7 @@ impl SessionState {
         let limit_subscription = {
             #[cfg(feature = "limit-subscription")]
             {
-                listen_cfg.limit_subscription
+                self.listen_cfg().limit_subscription
             }
             #[cfg(not(feature = "limit-subscription"))]
             {
@@ -1114,12 +1112,10 @@ impl SessionState {
 
     #[inline]
     async fn subscribes_v5(&mut self, subs: v5::Subscribe) -> Result<v5::SubscribeAck> {
-        #[allow(unused_variables)]
-        let listen_cfg = self.listen_cfg();
         let shared_subscription = {
             #[cfg(feature = "shared-subscription")]
             {
-                self.scx.extends.shared_subscription().await.is_supported(listen_cfg)
+                self.scx.extends.shared_subscription().await.is_supported()
             }
             #[cfg(not(feature = "shared-subscription"))]
             {
@@ -1130,7 +1126,7 @@ impl SessionState {
         let limit_subscription = {
             #[cfg(feature = "limit-subscription")]
             {
-                listen_cfg.limit_subscription
+                self.listen_cfg().limit_subscription
             }
             #[cfg(not(feature = "limit-subscription"))]
             {
@@ -1164,18 +1160,17 @@ impl SessionState {
 
     #[inline]
     async fn unsubscribes_v3(&mut self, topic_filters: Vec<ByteString>) -> Result<()> {
-        let listen_cfg = self.listen_cfg();
         let shared_subscription = {
             #[cfg(feature = "shared-subscription")]
             {
-                self.scx.extends.shared_subscription().await.is_supported(listen_cfg)
+                self.scx.extends.shared_subscription().await.is_supported()
             }
             #[cfg(not(feature = "shared-subscription"))]
             {
                 false
             }
         };
-        let limit_subscription = listen_cfg.limit_subscription;
+        let limit_subscription = self.listen_cfg().limit_subscription;
         for topic_filter in &topic_filters {
             let unsub = Unsubscribe::from(topic_filter, shared_subscription, limit_subscription)?;
             self.unsubscribe(unsub).await?;
@@ -1184,18 +1179,17 @@ impl SessionState {
     }
 
     async fn unsubscribes_v5(&mut self, unsubs: v5::Unsubscribe) -> Result<v5::UnsubscribeAck> {
-        let listen_cfg = self.listen_cfg();
         let shared_subscription = {
             #[cfg(feature = "shared-subscription")]
             {
-                self.scx.extends.shared_subscription().await.is_supported(listen_cfg)
+                self.scx.extends.shared_subscription().await.is_supported()
             }
             #[cfg(not(feature = "shared-subscription"))]
             {
                 false
             }
         };
-        let limit_subscription = listen_cfg.limit_subscription;
+        let limit_subscription = self.listen_cfg().limit_subscription;
         for topic_filter in &unsubs.topic_filters {
             let unsub = Unsubscribe::from(topic_filter, shared_subscription, limit_subscription)?;
             self.unsubscribe(unsub).await?;
@@ -2224,6 +2218,13 @@ impl Session {
 /// as well as checking session existence and retrieving session status.
 /// Implementations handle persistent session storage across reconnects.
 pub trait SessionManager: Sync + Send {
+    /// Whether session persistence is enabled (e.g. provided by the
+    /// `rmqtt-session-storage` plugin). Defaults to `false`.
+    #[inline]
+    fn enable(&self) -> bool {
+        false
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn create(
         &self,

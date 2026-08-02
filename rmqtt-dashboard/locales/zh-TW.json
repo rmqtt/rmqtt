@@ -142,7 +142,19 @@
     "message_storages_count": "Message Storage",
     "delayed_publishs_count": "Delayed Publish",
     "all_nodes": "所有節點",
-    "node_filter": "節點篩選"
+    "node_filter": "節點篩選",
+    "features_title": "功能支援狀態",
+    "features_consistent": "所有節點功能設定一致",
+    "features_inconsistent": "部分節點功能設定不一致",
+    "features_all_nodes": "全部節點已啟用",
+    "features_nodes": "個節點已啟用",
+    "features_retain": "保留訊息",
+    "features_message_storage": "訊息儲存",
+    "features_session_storage": "工作階段儲存",
+    "features_delayed": "延遲訊息",
+    "features_shared_subscription": "共享訂閱",
+    "features_auto_subscription": "自動訂閱",
+    "features_tab_title": "功能支援狀態"
   },
   "gauge": {
     "connections": "設備連接",
@@ -303,7 +315,8 @@
     "datetime": "日期时间",
     "close": "关闭",
     "online": "在线",
-    "offline": "离线"
+    "offline": "离线",
+    "features_title": "功能支援"
   },
   "datetime": {
     "title": "選擇日期時間",
@@ -314,5 +327,24 @@
     "today": "回到今天",
     "prev_month": "上一個月",
     "next_month": "下一個月"
+  },
+  "retains": {
+    "not_enabled": "保留訊息功能未啟用（需載入 rmqtt-retainer 外掛）",
+    "topic_filter_placeholder": "主題篩選器（如 /iot/#，留空 = 全部）",
+    "search": "查詢",
+    "topic": "主題",
+    "payload": "內容",
+    "ttl": "剩餘TTL",
+    "action": "操作",
+    "view": "檢視",
+    "prev": "上一頁",
+    "next": "下一頁",
+    "page_range": "第 {start} ~ {end} 條",
+    "page_more": "還有更多",
+    "page_end": "已是最後一頁",
+    "no_results": "暫無保留訊息",
+    "create_time": "建立時間",
+    "client_id": "客戶端 ID",
+    "publish_time": "發佈時間"
   }
 }

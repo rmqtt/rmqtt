@@ -87,6 +87,21 @@ window.NodeInfoPage = Vue.defineComponent({
                 </div>
               </div>
             </div>
+
+            <!-- ── 功能支持 ── -->
+            <div class="info-section">
+              <h3 class="section-title">{{ $t('node_detail.features_title') }}</h3>
+              <div v-if="featuresLoading" class="loading-text">{{ $t('common.loading') }}...</div>
+              <div v-else-if="featuresError" class="error-text">{{ featuresError }}</div>
+              <div v-else-if="features" class="feature-grid">
+                <div v-for="f in featureItems" :key="f.key" class="feature-row">
+                  <span class="feature-label">{{ f.label }}</span>
+                  <span class="feature-badge" :class="f.enabled ? 'badge-on' : 'badge-off'">
+                    {{ f.enabled ? $t('common.enabled') : $t('common.disabled') }}
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         </template>
       </div>
@@ -102,6 +117,31 @@ window.NodeInfoPage = Vue.defineComponent({
       const stats = ref({});
       const loading = ref(true);
       const error = ref(null);
+      const features = ref(null);
+      const featuresLoading = ref(false);
+      const featuresError = ref(null);
+
+      const FEATURES = [
+        { key: 'retain',                labelKey: 'overview.features_retain' },
+        { key: 'message_storage',       labelKey: 'overview.features_message_storage' },
+        { key: 'session_storage',       labelKey: 'overview.features_session_storage' },
+        { key: 'delayed',               labelKey: 'overview.features_delayed' },
+        { key: 'shared_subscription',   labelKey: 'overview.features_shared_subscription' },
+        { key: 'auto_subscription',     labelKey: 'overview.features_auto_subscription' },
+      ];
+
+      const featureItems = Vue.computed(function() {
+        void localeState.version;
+        var f = features.value;
+        if (!f) return [];
+        return FEATURES.map(function(item) {
+          return {
+            key: item.key,
+            label: $t(item.labelKey),
+            enabled: !!f[item.key],
+          };
+        });
+      });
 
       const statsItems = [
         { key: 'connections',      label: '连接数' },
@@ -171,11 +211,14 @@ window.NodeInfoPage = Vue.defineComponent({
 
         loading.value = true;
         error.value = null;
+        featuresLoading.value = true;
+        featuresError.value = null;
 
         try {
-          var [nodeRes, statsRes] = await Promise.all([
+          var [nodeRes, statsRes, featuresRes] = await Promise.all([
             http.get('/nodes/' + nodeId).catch(function() { return null; }),
             http.get('/stats/' + nodeId).catch(function() { return null; }),
+            http.get('/features/' + nodeId).catch(function() { return null; }),
           ]);
 
           if (nodeRes) {
@@ -190,10 +233,18 @@ window.NodeInfoPage = Vue.defineComponent({
             stats.value = statsRes.stats;
           }
 
+          if (featuresRes && typeof featuresRes === 'object' && featuresRes.features) {
+            features.value = featuresRes.features;
+          } else {
+            featuresError.value = '功能支持信息获取失败';
+          }
+
           loading.value = false;
+          featuresLoading.value = false;
         } catch (e) {
           error.value = e.message || '未知错误';
           loading.value = false;
+          featuresLoading.value = false;
         }
       }
 
@@ -229,6 +280,10 @@ window.NodeInfoPage = Vue.defineComponent({
         stats,
         loading,
         error,
+        features,
+        featuresLoading,
+        featuresError,
+        featureItems,
         statsItems: statsItemsWithValues,
         formatCpuLoad,
         formatBytes,

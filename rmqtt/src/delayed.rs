@@ -53,6 +53,13 @@ use crate::Result;
 /// for future delivery, and provide access to the pending message count.
 #[async_trait]
 pub trait DelayedSender: Sync + Send {
+    /// Whether delayed message publishing is enabled. Defaults to `false`
+    /// (the default implementation is a no-op).
+    #[inline]
+    fn enable(&self) -> bool {
+        false
+    }
+
     ///Parse the topic and extract the delayed sending parameters.
     fn parse(&self, publish: Publish) -> Result<Publish>;
 
@@ -147,6 +154,11 @@ impl DefaultDelayedSender {
 
 #[async_trait]
 impl DelayedSender for DefaultDelayedSender {
+    #[inline]
+    fn enable(&self) -> bool {
+        true
+    }
+
     #[inline]
     fn parse(&self, mut publish: Publish) -> Result<Publish> {
         let items = publish.topic.splitn(3, '/').collect::<Vec<_>>();

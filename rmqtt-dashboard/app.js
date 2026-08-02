@@ -12,6 +12,7 @@ const pageRegistry = {
   '#/clients':  { component: 'ClientsPage',      titleKey: 'nav.clients',     isLogin: false },
   '#/clients/detail': { component: 'ClientDetailPage', titleKey: 'clients.detail_title', isLogin: false },
   '#/subscriptions': { component: 'SubscriptionsPage', titleKey: 'nav.subscriptions', isLogin: false },
+  '#/retains':   { component: 'RetainsPage',      titleKey: 'nav.retained',    isLogin: false },
   '#/publish':  { component: 'PublishPage',      titleKey: 'nav.publish',     isLogin: false },
   '#/plugins':  { component: 'PluginsPage',      titleKey: 'nav.plugins',     isLogin: false },
 };
@@ -27,6 +28,7 @@ const App = Vue.defineComponent({
     ClientsPage,
     ClientDetailPage: window.ClientDetailPage,
     SubscriptionsPage,
+    RetainsPage: window.RetainsPage,
     PublishPage,
     PluginsPage,
   },

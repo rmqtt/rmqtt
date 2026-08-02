@@ -236,6 +236,58 @@
           </div>
         </div>
 
+        <!-- ─── Tab 5: 功能支持状态 ─── -->
+        <div v-show="activeTab === 'features'">
+          <div class="features-card" v-if="featuresData">
+            <div class="features-card-head">
+              <h3>{{ $t('overview.features_title') }}</h3>
+              <span v-if="featuresConsistent !== null" class="features-consistency"
+                    :class="featuresConsistent ? 'consistency-ok' : 'consistency-warn'">
+                {{ featuresConsistent ? $t('overview.features_consistent') : $t('overview.features_inconsistent') }}
+              </span>
+            </div>
+            <div v-if="featuresConsistent === false" class="features-alert">
+              <div v-for="c in featuresConflicts" :key="c.feature" class="features-conflict-row">
+                <span class="conflict-feature">{{ featureLabel(c.feature) }}</span>
+                <span v-for="g in c.values" :key="String(g.value)" class="conflict-group"
+                      :class="g.value ? 'conflict-on' : 'conflict-off'">
+                  {{ g.value ? $t('common.enabled') : $t('common.disabled') }}:
+                  {{ g.node_ids.join(', ') }}
+                </span>
+              </div>
+            </div>
+            <div class="features-summary">
+              <div v-for="f in featureSummaryItems" :key="f.key" class="feature-item">
+                <span class="feature-dot" :class="'dot-' + f.state"></span>
+                <span class="feature-name">{{ f.label }}</span>
+                <span class="feature-desc">{{ f.desc }}</span>
+              </div>
+            </div>
+            <!-- 功能 × 节点 矩阵 -->
+            <div class="table-wrap" style="margin-top:16px;">
+              <table class="features-matrix">
+                <thead>
+                  <tr>
+                    <th class="fm-feature-th">{{ $t('overview.features_tab_title') }}</th>
+                    <th v-for="n in featureMatrixNodes" :key="n.node_id">{{ n.node_name || n.node_id }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="f in featureSummaryItems" :key="f.key">
+                    <td class="fm-feature">{{ f.label }}</td>
+                    <td v-for="n in featureMatrixNodes" :key="n.node_id" class="fm-cell">
+                      <span class="feature-badge" :class="n.features[f.key] ? 'badge-on' : 'badge-off'">
+                        {{ n.features[f.key] ? $t('common.enabled') : $t('common.disabled') }}
+                      </span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div v-else class="loading-text">{{ $t('common.loading') }}...</div>
+        </div>
+
     `,
     setup() {
       // 标签页
@@ -252,6 +304,7 @@
           { key: 'nodes',    label: $t('overview.nodes_title') },
           { key: 'status',   label: $t('overview.status_title') },
           { key: 'metrics',  label: $t('overview.metrics_title') },
+          { key: 'features', label: $t('overview.features_tab_title') },
         ];
       });
       const activeTab = ref('overview');
@@ -267,6 +320,66 @@
       const nodes = ref([]);
       const nodesOnline = ref(0);
       const nodesTotal = ref(0);
+      // 功能支持状态（GET /features 返回的 FeaturesSummary 对象）
+      const featuresData = ref(null);
+      const FEATURES = [
+        { key: 'retain',                labelKey: 'overview.features_retain' },
+        { key: 'message_storage',       labelKey: 'overview.features_message_storage' },
+        { key: 'session_storage',       labelKey: 'overview.features_session_storage' },
+        { key: 'delayed',               labelKey: 'overview.features_delayed' },
+        { key: 'shared_subscription',   labelKey: 'overview.features_shared_subscription' },
+        { key: 'auto_subscription',     labelKey: 'overview.features_auto_subscription' },
+      ];
+
+      const featuresConsistent = Vue.computed(function() {
+        void localeState.version;
+        var d = featuresData.value;
+        return d && typeof d === 'object' ? !!d.consistent : null;
+      });
+
+      const featuresConflicts = Vue.computed(function() {
+        void localeState.version;
+        var d = featuresData.value;
+        return (d && Array.isArray(d.conflicts)) ? d.conflicts : [];
+      });
+
+      // 每个功能项的启用节点数汇总（on=全部启用 / off=全部禁用 / partial=部分启用 / unknown=无数据）
+      const featureSummaryItems = Vue.computed(function() {
+        void localeState.version;
+        var d = featuresData.value;
+        var infos = (d && Array.isArray(d.nodes))
+          ? d.nodes.filter(function(n) { return n && typeof n === 'object' && n.features; })
+          : [];
+        var total = infos.length;
+        return FEATURES.map(function(f) {
+          var enabled = infos.filter(function(n) { return n.features[f.key]; }).length;
+          var state = total === 0 ? 'unknown' : (enabled === total ? 'on' : (enabled === 0 ? 'off' : 'partial'));
+          var desc;
+          if (total === 0) {
+            desc = '-';
+          } else if (enabled === total) {
+            desc = $t('overview.features_all_nodes');
+          } else if (enabled === 0) {
+            desc = $t('common.disabled');
+          } else {
+            desc = enabled + '/' + total + ' ' + $t('overview.features_nodes');
+          }
+          return { key: f.key, label: $t(f.labelKey), state: state, desc: desc };
+        });
+      });
+
+      function featureLabel(key) {
+        return $t('overview.features_' + key);
+      }
+
+      // 功能矩阵表的节点列（仅包含成功返回 features 的节点）
+      const featureMatrixNodes = Vue.computed(function() {
+        void localeState.version;
+        var d = featuresData.value;
+        return (d && Array.isArray(d.nodes))
+          ? d.nodes.filter(function(n) { return n && typeof n === 'object' && n.features; })
+          : [];
+      });
       const pubRate = ref('0');
       const delRate = ref('0');
       const totalConnections = ref(0);
@@ -732,9 +845,10 @@
 
       async function fetchData() {
         try {
-          var [statsData, nodesData] = await Promise.all([
+          var [statsData, nodesData, featuresRes] = await Promise.all([
             http.get('/stats/sum').catch(function() { return null; }),
             http.get('/nodes').catch(function() { return null; }),
+            http.get('/features').catch(function() { return null; }),
           ]);
 
           if (statsData) {
@@ -762,6 +876,9 @@
             nodesOnline.value = list.filter(function(n) { return n.running; }).length;
             nodesTotal.value = list.length;
             totalConnections.value = list.reduce(function(s, n) { return s + (n.connections || 0); }, 0);
+          }
+          if (featuresRes && typeof featuresRes === 'object') {
+            featuresData.value = featuresRes;
           }
 
           // 获取指标（使用 metrics/sum 汇总数据）
@@ -1023,6 +1140,8 @@
         selectedNodeId, nodeDetail, nodeDetailLoading, nodeDetailError,
         nodeStatsItems, showNodeDetail, hideNodeDetail, refreshNodeDetail,
         goToNodeList,
+        featuresData, featuresConsistent, featuresConflicts, featureSummaryItems, featureLabel,
+        featureMatrixNodes,
         formatCpuLoad, formatBytes, formatUptime, formatBoottime,
         $t,
       };

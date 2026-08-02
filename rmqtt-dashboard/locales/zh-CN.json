@@ -142,7 +142,19 @@
     "message_storages_count": "消息存储",
     "delayed_publishs_count": "延迟发布",
     "all_nodes": "所有节点",
-    "node_filter": "节点筛选"
+    "node_filter": "节点筛选",
+    "features_title": "功能支持状态",
+    "features_consistent": "所有节点功能配置一致",
+    "features_inconsistent": "部分节点功能配置不一致",
+    "features_all_nodes": "全部节点已启用",
+    "features_nodes": "个节点已启用",
+    "features_retain": "保留消息",
+    "features_message_storage": "消息存储",
+    "features_session_storage": "会话存储",
+    "features_delayed": "延迟消息",
+    "features_shared_subscription": "共享订阅",
+    "features_auto_subscription": "自动订阅",
+    "features_tab_title": "功能支持状态"
   },
   "gauge": {
     "connections": "设备连接",
@@ -303,7 +315,8 @@
     "datetime": "日期时间",
     "close": "关闭",
     "online": "在线",
-    "offline": "离线"
+    "offline": "离线",
+    "features_title": "功能支持"
   },
   "datetime": {
     "title": "选择日期时间",
@@ -314,5 +327,24 @@
     "today": "回到今天",
     "prev_month": "上一月",
     "next_month": "下一月"
+  },
+  "retains": {
+    "not_enabled": "保留消息功能未启用（需加载 rmqtt-retainer 插件）",
+    "topic_filter_placeholder": "主题过滤器（如 /iot/#，留空 = 全部）",
+    "search": "查询",
+    "topic": "主题",
+    "payload": "内容",
+    "ttl": "剩余TTL",
+    "action": "操作",
+    "view": "查看",
+    "prev": "上一页",
+    "next": "下一页",
+    "page_range": "第 {start} ~ {end} 条",
+    "page_more": "还有更多",
+    "page_end": "已是最后一页",
+    "no_results": "暂无保留消息",
+    "create_time": "创建时间",
+    "client_id": "客户端 ID",
+    "publish_time": "发布时间"
   }
 }

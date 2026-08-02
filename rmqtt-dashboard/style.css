@@ -1401,3 +1401,185 @@ tr:hover td { background: var(--bg-hover); }
   font-size: 13px; color: var(--text-muted);
 }
 .detail-subs-header b { color: var(--text); font-weight: 600; }
+
+/* ═══ 功能支持状态（overview 集群概览 + node-info 节点详情） ═══ */
+.features-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 24px;
+}
+.features-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  gap: 12px;
+}
+.features-card-head h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+.features-consistency {
+  font-size: 13px;
+  padding: 4px 12px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+.consistency-ok {
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 15%, transparent);
+}
+.consistency-warn {
+  color: #f59e0b;
+  background: color-mix(in srgb, #f59e0b 15%, transparent);
+}
+.features-alert {
+  background: color-mix(in srgb, #f59e0b 8%, transparent);
+  border: 1px solid color-mix(in srgb, #f59e0b 30%, transparent);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.features-conflict-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 4px 0;
+  font-size: 13px;
+}
+.conflict-feature {
+  font-weight: 600;
+  color: var(--text);
+  min-width: 90px;
+}
+.conflict-group {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.conflict-on {
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 15%, transparent);
+}
+.conflict-off {
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 15%, transparent);
+}
+.features-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px 20px;
+}
+.feature-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.feature-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.dot-on { background: var(--green); }
+.dot-off { background: var(--text-muted); }
+.dot-partial { background: #f59e0b; }
+.dot-unknown { background: var(--text-muted); opacity: 0.4; }
+.feature-name {
+  color: var(--text);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.feature-desc {
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* 单节点功能支持（node-info 页） */
+.feature-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.feature-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+.feature-row:last-child { border-bottom: none; }
+.feature-label {
+  color: var(--text-muted);
+  white-space: nowrap;
+  min-width: 100px;
+}
+.feature-badge {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+.badge-on {
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 15%, transparent);
+}
+.badge-off {
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-muted) 15%, transparent);
+}
+
+/* 功能 × 节点 矩阵表（功能支持状态 Tab） */
+.features-matrix {
+  width: 100%;
+  border-collapse: collapse;
+}
+.features-matrix th,
+.features-matrix td {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  font-size: 13px;
+  text-align: center;
+  white-space: nowrap;
+}
+.features-matrix .fm-feature-th {
+  text-align: left;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.features-matrix .fm-feature {
+  text-align: left;
+  color: var(--text);
+  font-weight: 500;
+}
+.features-matrix .fm-cell {
+  color: var(--text);
+}
+
+/* 分页条（retains 页） */
+.pager-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+.pager-info {
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+

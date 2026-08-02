@@ -17,7 +17,7 @@ redis-cluster = ["redis", "rmqtt-storage/redis-cluster"]
 circuit-breaker = ["rmqtt-storage/circuit-breaker"]
 
 [dependencies]
-rmqtt = { workspace = true, features = ["plugin", "metrics", "stats", "grpc", "shared-subscription" ] }
+rmqtt = { workspace = true, features = ["plugin", "metrics", "stats", "grpc", "shared-subscription", "retain", "msgstore", "delayed", "auto-subscription"] }
 tokio = { workspace = true, features = ["sync", "time" ] }
 serde = { workspace = true, features = ["derive"] }
 salvo = { version = "0.90", features = ["affix-state", "serve-static"] }

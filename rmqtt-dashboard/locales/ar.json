@@ -142,7 +142,19 @@
     "message_storages_count": "Message Storage",
     "delayed_publishs_count": "Delayed Publish",
     "all_nodes": "جميع العقد",
-    "node_filter": "تصفية حسب العقدة"
+    "node_filter": "تصفية حسب العقدة",
+    "features_title": "دعم الميزات",
+    "features_consistent": "جميع العقد متسقة",
+    "features_inconsistent": "عقد غير متسقة",
+    "features_all_nodes": "مفعّل على جميع العقد",
+    "features_nodes": "عقد مفعّلة",
+    "features_retain": "الرسائل المحفوظة",
+    "features_message_storage": "تخزين الرسائل",
+    "features_session_storage": "تخزين الجلسات",
+    "features_delayed": "الرسائل المؤجلة",
+    "features_shared_subscription": "الاشتراكات المشتركة",
+    "features_auto_subscription": "الاشتراك التلقائي",
+    "features_tab_title": "دعم الميزات"
   },
   "gauge": {
     "connections": "الاتصالات",
@@ -303,7 +315,8 @@
     "datetime": "Date/Time",
     "close": "Close",
     "online": "Online",
-    "offline": "Offline"
+    "offline": "Offline",
+    "features_title": "دعم الميزات"
   },
   "datetime": {
     "title": "تحديد التاريخ والوقت",
@@ -314,5 +327,24 @@
     "today": "الانتقال إلى اليوم",
     "prev_month": "الشهر السابق",
     "next_month": "الشهر التالي"
+  },
+  "retains": {
+    "not_enabled": "الرسائل المحفوظة غير مفعّلة (قم بتحميل إضافة rmqtt-retainer)",
+    "topic_filter_placeholder": "مرشح الموضوع (مثل /iot/#، فارغ = الكل)",
+    "search": "بحث",
+    "topic": "الموضوع",
+    "payload": "الحمولة",
+    "ttl": "TTL",
+    "action": "إجراء",
+    "view": "عرض",
+    "prev": "السابق",
+    "next": "التالي",
+    "page_range": "{start} ~ {end} عناصر",
+    "page_more": "المزيد",
+    "page_end": "آخر صفحة",
+    "no_results": "لا توجد رسائل محفوظة",
+    "create_time": "تاريخ الإنشاء",
+    "client_id": "معرف العميل",
+    "publish_time": "وقت النشر"
   }
 }

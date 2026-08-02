@@ -24,11 +24,14 @@ prometheus_metrics_cache_interval = "5s"
 |--------|------|------|
 | `GET` | `/api/v1` | API 列表 |
 | `GET` | `/api/v1/brokers` | 集群节点信息 |
+| `GET` | `/api/v1/features` | 功能支持状态（含集群一致性汇总） |
+| `GET` | `/api/v1/features/{id}` | 指定节点功能支持状态 |
 | `GET` | `/api/v1/health/check` | 健康检查 |
 | `GET` | `/api/v1/clients` | 搜索客户端 |
 | `DELETE` | `/api/v1/clients/{clientid}` | 踢出客户端 |
 | `GET` | `/api/v1/subscriptions` | 订阅列表 |
 | `GET` | `/api/v1/routes` | 路由表 |
+| `GET` | `/api/v1/retains` | 查询保留消息 |
 | `POST` | `/api/v1/mqtt/publish` | 发布消息 |
 | `POST` | `/api/v1/mqtt/subscribe` | 订阅主题 |
 | `POST` | `/api/v1/mqtt/unsubscribe` | 取消订阅 |
@@ -38,7 +41,7 @@ prometheus_metrics_cache_interval = "5s"
 | `GET` | `/api/v1/metrics` | 指标（JSON） |
 | `GET` | `/api/v1/metrics/prometheus` | 指标（Prometheus 格式） |
 
-完整端点列表共 36 个。详情见英文版文档。
+完整端点列表共 36 个（含 `stats/history`、`metrics/history` 等）。详情见英文版文档。
 
 ## 许可证
 

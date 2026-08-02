@@ -142,7 +142,19 @@
     "message_storages_count": "Message Storage",
     "delayed_publishs_count": "Delayed Publish",
     "all_nodes": "Alle Knoten",
-    "node_filter": "Knotenfilter"
+    "node_filter": "Knotenfilter",
+    "features_title": "Funktionsunterstützung",
+    "features_consistent": "Alle Knoten konsistent",
+    "features_inconsistent": "Knoten inkonsistent",
+    "features_all_nodes": "Auf allen Knoten aktiviert",
+    "features_nodes": "Knoten aktiviert",
+    "features_retain": "Zurückgehaltene Nachrichten",
+    "features_message_storage": "Nachrichtenspeicher",
+    "features_session_storage": "Sitzungsspeicher",
+    "features_delayed": "Verzögerte Nachrichten",
+    "features_shared_subscription": "Gemeinsame Abonnements",
+    "features_auto_subscription": "Automatisches Abonnement",
+    "features_tab_title": "Funktionsunterstützung"
   },
   "gauge": {
     "connections": "Verbindungen",
@@ -303,7 +315,8 @@
     "datetime": "Date/Time",
     "close": "Close",
     "online": "Online",
-    "offline": "Offline"
+    "offline": "Offline",
+    "features_title": "Funktionsunterstützung"
   },
   "datetime": {
     "title": "Datum und Uhrzeit auswählen",
@@ -314,5 +327,24 @@
     "today": "Zu heute",
     "prev_month": "Vorheriger Monat",
     "next_month": "Nächster Monat"
+  },
+  "retains": {
+    "not_enabled": "Zurückgehaltene Nachrichten nicht aktiviert (rmqtt-retainer-Plugin laden)",
+    "topic_filter_placeholder": "Themenfilter (z. B. /iot/#, leer = alle)",
+    "search": "Suchen",
+    "topic": "Thema",
+    "payload": "Nutzdaten",
+    "ttl": "TTL",
+    "action": "Aktion",
+    "view": "Ansehen",
+    "prev": "Zurück",
+    "next": "Weiter",
+    "page_range": "{start} ~ {end} Elemente",
+    "page_more": "mehr",
+    "page_end": "letzte Seite",
+    "no_results": "Keine zurückgehaltenen Nachrichten",
+    "create_time": "Erstellt am",
+    "client_id": "Client-ID",
+    "publish_time": "Veröffentlicht um"
   }
 }

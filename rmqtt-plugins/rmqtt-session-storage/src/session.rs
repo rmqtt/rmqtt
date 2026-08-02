@@ -56,6 +56,11 @@ impl StorageSessionManager {
 
 #[async_trait]
 impl SessionManager for StorageSessionManager {
+    #[inline]
+    fn enable(&self) -> bool {
+        true
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn create(
         &self,

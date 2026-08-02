@@ -141,6 +141,17 @@ plugins.default_startups = [
 ]
 ```
 
+### Querying Retained Messages via HTTP API
+
+When the `rmqtt-http-api` plugin is enabled, retained messages can be queried with `GET /api/v1/retains`:
+
+- Parameters: `topic_filter` (topic filter supporting `#` / `+` wildcards, default `#`), `offset`, `limit` (clamped to `max_row_limit` when exceeded)
+- Response: `items` (topic, msg_id, publisher, base64-encoded payload, create_time, remaining_ttl) plus `has_more`
+- The full pagination path (`topic_filter=#`) is served from the storage layer and includes `remaining_ttl`; filtered queries paginate in memory and `remaining_ttl` is `null`
+- Retained messages are kept synchronized across the cluster via broadcast, so querying a single node covers the whole cluster
+
+See the [HTTP API documentation](http-api.md#retained-messages) for details.
+
 
 
 

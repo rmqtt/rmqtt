@@ -93,6 +93,17 @@ impl Handler for HookHandler {
                                     ))),
                                 }
                             }
+                            Ok(Message::Features) => {
+                                let features_info = super::api::build_features(&self.scx).await;
+                                match MessageReply::Features(features_info).encode() {
+                                    Ok(ress) => {
+                                        HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
+                                    }
+                                    Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
+                                        e.to_string(),
+                                    ))),
+                                }
+                            }
                             Ok(Message::StatsInfo) => {
                                 let node_status = self.scx.node.status(&self.scx).await;
                                 let stats = self.scx.stats.clone(&self.scx).await;
