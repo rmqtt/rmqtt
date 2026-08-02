@@ -96,6 +96,8 @@
     "msg_in_trend": "Входящие",
     "msg_out_trend": "Исходящие",
     "msg_dropped_trend": "Отброшено",
+    "msg_dropped_abnormal": "Аварийный сброс",
+    "msg_dropped_nonsub": "Без подписчиков",
     "connections_trend": "Соединения",
     "topics_trend": "Топики",
     "subscriptions_trend": "Подписки",

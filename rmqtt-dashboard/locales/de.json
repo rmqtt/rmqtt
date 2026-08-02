@@ -104,6 +104,8 @@
     "msg_in_trend": "Nachr. Rein",
     "msg_out_trend": "Nachr. Raus",
     "msg_dropped_trend": "Nachr. Verw.",
+    "msg_dropped_abnormal": "Abnormal verw.",
+    "msg_dropped_nonsub": "Ohne Abonnenten",
     "connections_trend": "Verbindungen",
     "topics_trend": "Topics",
     "subscriptions_trend": "Abonnements",

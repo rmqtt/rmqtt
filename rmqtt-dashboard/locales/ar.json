@@ -104,6 +104,8 @@
     "msg_in_trend": "رسائل واردة",
     "msg_out_trend": "رسائل صادرة",
     "msg_dropped_trend": "رسائل مرفوضة",
+    "msg_dropped_abnormal": "إسقاط غير طبيعي",
+    "msg_dropped_nonsub": "بدون مشترك",
     "connections_trend": "الاتصالات",
     "topics_trend": "المواضيع",
     "subscriptions_trend": "الاشتراكات",
