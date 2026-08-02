@@ -96,6 +96,8 @@
     "msg_in_trend": "消息流入",
     "msg_out_trend": "消息流出",
     "msg_dropped_trend": "消息丟棄",
+    "msg_dropped_abnormal": "異常丟棄",
+    "msg_dropped_nonsub": "無訂閱者丟棄",
     "connections_trend": "連接數",
     "topics_trend": "主題數",
     "subscriptions_trend": "訂閱數",

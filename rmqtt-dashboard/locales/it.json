@@ -104,6 +104,8 @@
     "msg_in_trend": "Msg In",
     "msg_out_trend": "Msg Out",
     "msg_dropped_trend": "Msg Scartate",
+    "msg_dropped_abnormal": "Scarto anormale",
+    "msg_dropped_nonsub": "Senza sottoscrittore",
     "connections_trend": "Connessioni",
     "topics_trend": "Topic",
     "subscriptions_trend": "Sottoscrizioni",

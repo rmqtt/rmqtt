@@ -104,6 +104,8 @@
     "msg_in_trend": "Msg ইন",
     "msg_out_trend": "Msg আউট",
     "msg_dropped_trend": "Msg বাদ",
+    "msg_dropped_abnormal": "অস্বাভাবিক ড্রপ",
+    "msg_dropped_nonsub": "সাবস্ক্রাইবারহীন",
     "connections_trend": "সংযোগ",
     "topics_trend": "টপিক",
     "subscriptions_trend": "সাবস্ক্রিপশন",

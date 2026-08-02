@@ -104,6 +104,8 @@
     "msg_in_trend": "Msg इन",
     "msg_out_trend": "Msg आउट",
     "msg_dropped_trend": "Msg ड्रॉप",
+    "msg_dropped_abnormal": "असामान्य ड्रॉप",
+    "msg_dropped_nonsub": "बिना सब्सक्राइबर",
     "connections_trend": "कनेक्शन",
     "topics_trend": "टॉपिक",
     "subscriptions_trend": "सदस्यता",

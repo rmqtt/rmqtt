@@ -109,7 +109,17 @@
               <div class="chart-box" id="chartMsgOut"></div>
             </div>
             <div class="chart-card">
-              <h3>{{ $t('overview.msg_dropped_trend') }}</h3>
+              <div class="chart-card-head">
+                <h3>{{ $t('overview.msg_dropped_trend') }}</h3>
+                <div class="seg-tabs" role="tablist" :aria-label="$t('overview.msg_dropped_trend')">
+                  <button type="button" role="tab" :aria-selected="droppedTab === 'abnormal'"
+                          class="seg-btn" :class="{ active: droppedTab === 'abnormal' }"
+                          @click="switchDroppedTab('abnormal')">{{ $t('overview.msg_dropped_abnormal') }}</button>
+                  <button type="button" role="tab" :aria-selected="droppedTab === 'nonsub'"
+                          class="seg-btn" :class="{ active: droppedTab === 'nonsub' }"
+                          @click="switchDroppedTab('nonsub')">{{ $t('overview.msg_dropped_nonsub') }}</button>
+                </div>
+              </div>
               <div class="chart-box" id="chartMsgDropped"></div>
             </div>
             <div class="chart-card">
@@ -362,6 +372,8 @@
 
       // 历史数据（用于图表渲染，来自 history API + live poll）
       const chartData = ref([]);
+      // 消息丢弃面板切换：'abnormal' 异常丢弃（转发失败/过期/异常）| 'nonsub' 无订阅者丢弃
+      const droppedTab = ref('abnormal');
       let isLiveMode = false;     // 历史 API 不可用时回退纯实时模式
       const CHART_POINTS = 360;   // 图表固定点数上限
       let maxChartPoints = CHART_POINTS + 20;    // 动态上限
@@ -527,6 +539,7 @@
               msgIn: d['messages.publish'] ?? d.messages_publish ?? 0,
               msgOut: d['messages.delivered'] ?? d.messages_delivered ?? 0,
               msgDropped: d['messages.dropped'] ?? d.messages_dropped ?? 0,
+              msgNonSub: d['messages.nonsubscribed'] ?? d.messages_nonsubscribed ?? 0,
               connections: s.connections ?? 0,
               topics: s.topics ?? 0,
               subscriptions: s.subscriptions ?? 0,
@@ -544,7 +557,7 @@
       // 实时轮询每次拉取最近 N 个合并点：
       //   与已有序列重叠的 ts 以最大值为准调整该点（节点数据晚到补齐时修正），
       //   未重叠的新点按 ts 升序追加在末尾。
-      const HISTORY_LATEST_POINTS = 3;
+      const HISTORY_LATEST_POINTS = 5;
 
       async function fetchLatestHistory() {
         if (isLiveMode) return;
@@ -590,6 +603,7 @@
             msgIn: point['messages.publish'] ?? point.messages_publish ?? 0,
             msgOut: point['messages.delivered'] ?? point.messages_delivered ?? 0,
             msgDropped: point['messages.dropped'] ?? point.messages_dropped ?? 0,
+            msgNonSub: point['messages.nonsubscribed'] ?? point.messages_nonsubscribed ?? 0,
             connections: s.connections ?? 0,
             topics: s.topics ?? 0,
             subscriptions: s.subscriptions ?? 0,
@@ -603,6 +617,7 @@
               msgIn: Math.max(old.msgIn, np.msgIn),
               msgOut: Math.max(old.msgOut, np.msgOut),
               msgDropped: Math.max(old.msgDropped, np.msgDropped),
+              msgNonSub: Math.max(old.msgNonSub, np.msgNonSub),
               connections: Math.max(old.connections, np.connections),
               topics: Math.max(old.topics, np.topics),
               subscriptions: Math.max(old.subscriptions, np.subscriptions),
@@ -761,6 +776,7 @@
                 msgIn: ms(metricsSum, 'messages.publish'),
                 msgOut: ms(metricsSum, 'messages.delivered'),
                 msgDropped: ms(metricsSum, 'messages.dropped'),
+                msgNonSub: ms(metricsSum, 'messages.nonsubscribed'),
                 connections: stats.value.connections,
                 topics: stats.value.topics,
                 subscriptions: stats.value.subscriptions,
@@ -813,6 +829,14 @@
         if (key.endsWith('h')) return parseInt(key) * 3600000;
         if (key.endsWith('d')) return parseInt(key) * 86400000;
         return 3600000;
+      }
+
+      // 切换消息丢弃面板 tab：强制重建图表，避免合并动画产生竖线
+      function switchDroppedTab(tab) {
+        if (droppedTab.value === tab) return;
+        droppedTab.value = tab;
+        notMergeNext = true;
+        updateCharts();
       }
 
       function updateCharts() {
@@ -903,8 +927,12 @@
         var msgOut = data.length > 1 ? data.slice(1).map(function(d, i) {
           return toRate(data[i], d, 'msgOut');
         }) : [];
+        // 消息丢弃面板按 tab 选择数据字段与颜色（异常丢弃 / 无订阅者丢弃）
+        var droppedField = droppedTab.value === 'nonsub' ? 'msgNonSub' : 'msgDropped';
+        var droppedColor = droppedTab.value === 'nonsub' ? '#f59e0b' : '#ef4444';
+        var droppedName = $t(droppedTab.value === 'nonsub' ? 'overview.msg_dropped_nonsub' : 'overview.msg_dropped_abnormal');
         var msgDropped = data.length > 1 ? data.slice(1).map(function(d, i) {
-          return toRate(data[i], d, 'msgDropped');
+          return toRate(data[i], d, droppedField);
         }) : [];
 
         // 生成消息流 tooltip：MM/DD HH:mm:ss + N秒内消息总数
@@ -947,7 +975,7 @@
 
         updateLineChart(chartMsgIn, $t('overview.msg_in_trend'), msgIn, '#3b82f6', null, makeMsgTooltip('msgIn'));
         updateLineChart(chartMsgOut, $t('overview.msg_out_trend'), msgOut, '#22c55e', null, makeMsgTooltip('msgOut'));
-        updateLineChart(chartMsgDropped, $t('overview.msg_dropped_trend'), msgDropped, '#ef4444', null, makeMsgTooltip('msgDropped'));
+        updateLineChart(chartMsgDropped, droppedName, msgDropped, droppedColor, null, makeMsgTooltip(droppedField));
         updateLineChart(chartConnections, $t('overview.connections_trend'), data.map(function(d) { return [d.time, d.connections]; }), '#f59e0b', 'rgba(245,158,11,0.1)', makeValueTooltip());
         updateLineChart(chartTopics, $t('overview.topics_trend'), data.map(function(d) { return [d.time, d.topics]; }), '#8b5cf6', null, makeValueTooltip());
         updateLineChart(chartSubscriptions, $t('overview.subscriptions_trend'), data.map(function(d) { return [d.time, d.subscriptions]; }), '#06b6d4', null, makeValueTooltip());
@@ -990,6 +1018,7 @@
         totalConnections, statusData, statusGroups, getStat,
         metricsData, metricGroups, getMetric,
         timeRanges, timeRange, setTimeRange,
+        droppedTab, switchDroppedTab,
         chartNode, onChartNodeChange,
         selectedNodeId, nodeDetail, nodeDetailLoading, nodeDetailError,
         nodeStatsItems, showNodeDetail, hideNodeDetail, refreshNodeDetail,

@@ -666,6 +666,38 @@ tr:hover td { background: var(--bg-hover); }
   color: #fff;
 }
 
+/* 消息丢弃面板分段切换 */
+.chart-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.chart-card-head h3 { margin-bottom: 0; }
+.seg-tabs {
+  display: flex;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2px;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.seg-btn {
+  background: transparent;
+  border: none;
+  border-radius: calc(var(--radius) - 3px);
+  color: var(--text-muted);
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: .15s;
+  white-space: nowrap;
+}
+.seg-btn:hover { color: var(--text); background: var(--bg-hover); }
+.seg-btn.active { background: var(--accent); color: #fff; }
+
 /* 环形图区域 */
 .ring-section {
   background: var(--bg-card);
