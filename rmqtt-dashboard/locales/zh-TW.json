@@ -299,7 +299,10 @@
     "error": "請求失敗",
     "retry": "重試",
     "close": "關閉",
-    "dashboard": "Dashboard"
+    "dashboard": "Dashboard",
+    "confirm": "確定",
+    "cancel": "取消",
+    "confirm_title": "確認操作"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -345,6 +348,9 @@
     "no_results": "暫無保留訊息",
     "create_time": "建立時間",
     "client_id": "客戶端 ID",
-    "publish_time": "發佈時間"
+    "publish_time": "發佈時間",
+    "delete": "刪除",
+    "delete_confirm": "確定刪除主題 {topic} 的保留訊息嗎？",
+    "delete_fail": "刪除失敗：{msg}"
   }
 }

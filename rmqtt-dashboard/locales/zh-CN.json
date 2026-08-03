@@ -299,7 +299,10 @@
     "error": "请求失败",
     "retry": "重试",
     "close": "关闭",
-    "dashboard": "Dashboard"
+    "dashboard": "Dashboard",
+    "confirm": "确定",
+    "cancel": "取消",
+    "confirm_title": "确认操作"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -345,6 +348,9 @@
     "no_results": "暂无保留消息",
     "create_time": "创建时间",
     "client_id": "客户端 ID",
-    "publish_time": "发布时间"
+    "publish_time": "发布时间",
+    "delete": "删除",
+    "delete_confirm": "确定删除主题 {topic} 的保留消息吗？",
+    "delete_fail": "删除失败：{msg}"
   }
 }

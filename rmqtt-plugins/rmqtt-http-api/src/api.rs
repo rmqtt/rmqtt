@@ -33,7 +33,7 @@ use rmqtt::{
     stats::Stats,
     types::NodeId,
     types::{
-        ClientId, CodecPublish, From, HashMap, Id, NodeHealthStatus, Publish, QoS, SubsSearchParams,
+        ClientId, CodecPublish, From, HashMap, Id, NodeHealthStatus, Publish, QoS, Retain, SubsSearchParams,
         TopicFilter, TopicName, UserName,
     },
     utils::timestamp_millis,
@@ -123,7 +123,7 @@ fn route(
                 .push(Router::with_path("{clientid}").get(get_client_subscriptions)),
         )
         .push(Router::with_path("routes").get(get_routes).push(Router::with_path("{topic}").get(get_route)))
-        .push(Router::with_path("retains").get(get_retains))
+        .push(Router::with_path("retains").get(get_retains).delete(delete_retain))
         .push(
             Router::with_path("mqtt")
                 .push(Router::with_path("publish").post(publish))
@@ -362,6 +362,12 @@ async fn list_apis(res: &mut Response) {
             "method": "GET",
             "path": "/api/v1/retains",
             "descr": "Query retained messages with optional topic_filter/offset/limit"
+        },
+        {
+            "name": "delete_retain",
+            "method": "DELETE",
+            "path": "/api/v1/retains?topic={topic}",
+            "descr": "Delete a retained message by exact topic (cluster-wide)"
         },
 
         {
@@ -1548,6 +1554,104 @@ async fn get_retains(
     };
 
     res.render(Json(json!({"items": items, "has_more": has_more})));
+    Ok(())
+}
+
+/// Delete a retained message by exact topic.
+///
+/// Query parameters:
+/// - `topic`: concrete topic name (wildcards `#` / `+` are NOT allowed).
+///
+/// Deletion follows the MQTT convention: publishing an empty-payload retained
+/// message on the topic clears it from storage via `RetainStorage::set`.
+/// The deletion is then propagated to all cluster peers through
+/// `retain_set_broadcast`, so every node removes its local copy.
+///
+/// Responses:
+/// - `200`: deleted successfully.
+/// - `400`: missing or wildcard topic.
+/// - `404`: no retained message exists for the topic.
+/// - `503`: retain storage unavailable.
+#[handler]
+async fn delete_retain(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> std::result::Result<(), salvo::Error> {
+    let (scx, cfg) = get_scx_cfg(depot)?;
+    let http_laddr = cfg.read().await.http_laddr;
+
+    let topic = match req.query::<String>("topic") {
+        Some(t) if !t.trim().is_empty() => TopicName::from(t.trim()),
+        _ => {
+            res.render(StatusError::bad_request().detail("topic is required"));
+            return Ok(());
+        }
+    };
+
+    // Deletion requires a concrete topic; wildcards are not supported.
+    let topic_str = topic.to_string();
+    if topic_str.contains('#') || topic_str.contains('+') {
+        res.render(
+            StatusError::bad_request()
+                .detail("topic must be a concrete topic, wildcards '#' and '+' are not allowed"),
+        );
+        return Ok(());
+    }
+
+    let retain_mgr = scx.extends.retain().await;
+    if !retain_mgr.enable() {
+        res.render(StatusError::service_unavailable().detail("retain storage is not enabled"));
+        return Ok(());
+    }
+
+    // Return 404 when no retained message exists for the exact topic.
+    match retain_mgr.get(&topic).await {
+        Ok(list) => {
+            if !list.iter().any(|(t, _)| t == &topic) {
+                res.render(
+                    StatusError::not_found().detail(format!("retain message not found for topic: {topic}")),
+                );
+                return Ok(());
+            }
+        }
+        Err(e) => {
+            res.render(StatusError::service_unavailable().detail(e.to_string()));
+            return Ok(());
+        }
+    }
+
+    // Empty-payload retained publish clears the retain store (MQTT semantics).
+    let from = From::from_admin(Id::new(
+        scx.node.id(),
+        http_laddr.port(),
+        Some(http_laddr),
+        None,
+        ClientId::default(),
+        Some(UserName::from("admin")),
+    ));
+    let p = CodecPublish {
+        dup: false,
+        retain: true,
+        qos: QoS::AtMostOnce,
+        topic: topic.clone(),
+        packet_id: None,
+        payload: bytes::Bytes::new(),
+        properties: Some(PublishProperties::default()),
+    };
+    let retain = Retain { msg_id: None, from, publish: <CodecPublish as Into<Publish>>::into(p) };
+
+    if let Err(e) = retain_mgr.set(&topic, retain.clone(), None).await {
+        res.render(StatusError::service_unavailable().detail(e.to_string()));
+        return Ok(());
+    }
+
+    // Propagate the deletion to cluster peers so their local stores stay in sync.
+    if let Err(e) = scx.extends.shared().await.retain_set_broadcast(&topic, &retain, None).await {
+        log::warn!("retain delete broadcast to cluster peers failed, {e}");
+    }
+
+    res.render(Text::Plain("ok"));
     Ok(())
 }
 

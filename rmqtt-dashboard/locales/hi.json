@@ -299,7 +299,10 @@
     "error": "अनुरोध विफल",
     "retry": "पुनः प्रयास करें",
     "close": "बंद करें",
-    "dashboard": "डैशबोर्ड"
+    "dashboard": "डैशबोर्ड",
+    "confirm": "पुष्टि करें",
+    "cancel": "रद्द करें",
+    "confirm_title": "पुष्टि"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -345,6 +348,9 @@
     "no_results": "कोई रिटेन संदेश नहीं",
     "create_time": "निर्मित",
     "client_id": "क्लाइंट ID",
-    "publish_time": "प्रकाशित समय"
+    "publish_time": "प्रकाशित समय",
+    "delete": "हटाएं",
+    "delete_confirm": "क्या आप {topic} विषय का रखा गया संदेश हटाना चाहते हैं?",
+    "delete_fail": "संदेश हटाने में विफल: {msg}"
   }
 }

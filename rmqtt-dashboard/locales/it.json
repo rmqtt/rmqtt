@@ -299,7 +299,10 @@
     "error": "Richiesta fallita",
     "retry": "Riprova",
     "close": "Chiudi",
-    "dashboard": "Dashboard"
+    "dashboard": "Dashboard",
+    "confirm": "Conferma",
+    "cancel": "Annulla",
+    "confirm_title": "Conferma"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -345,6 +348,9 @@
     "no_results": "Nessun messaggio trattenuto",
     "create_time": "Creato il",
     "client_id": "ID cliente",
-    "publish_time": "Pubblicato il"
+    "publish_time": "Pubblicato il",
+    "delete": "Elimina",
+    "delete_confirm": "Eliminare il messaggio conservato per l'argomento {topic}?",
+    "delete_fail": "Eliminazione non riuscita: {msg}"
   }
 }

@@ -40,7 +40,7 @@ window.RetainsPage = Vue.defineComponent({
 
       <!-- 列表 -->
       <div class="table-wrap" style="overflow-x:auto;">
-        <table style="min-width:800px;">
+        <table style="min-width:900px;">
           <thead>
             <tr>
               <th style="min-width:160px;">{{ $t('retains.topic') }}</th>
@@ -48,7 +48,7 @@ window.RetainsPage = Vue.defineComponent({
               <th style="width:50px;">QoS</th>
               <th style="width:90px;">{{ $t('retains.ttl') }}</th>
               <th style="width:140px;">{{ $t('retains.publish_time') }}</th>
-              <th style="width:70px;">{{ $t('retains.action') }}</th>
+              <th style="width:150px;text-align:center;">{{ $t('retains.action') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -61,8 +61,12 @@ window.RetainsPage = Vue.defineComponent({
               </td>
               <td style="text-align:center;font-size:12px;">{{ formatTime(item.publish?.create_time) }}</td>
               <td>
-                <button class="btn-icon" style="width:auto;padding:3px 10px;font-size:11px;color:var(--accent);"
-                        @click.stop="showDetail(item)">&#128065; {{ $t('retains.view') }}</button>
+                <div style="display:inline-flex;gap:6px;">
+                  <button class="btn-icon" style="width:auto;padding:3px 10px;font-size:11px;color:var(--accent);"
+                          @click.stop="showDetail(item)">&#128065; {{ $t('retains.view') }}</button>
+                  <button class="btn-icon" style="width:auto;padding:3px 10px;font-size:11px;color:#e74c3c;"
+                          @click.stop="removeRetain(item)">&#128465; {{ $t('retains.delete') }}</button>
+                </div>
               </td>
             </tr>
             <tr v-if="!loading && items.length === 0">
@@ -218,6 +222,21 @@ window.RetainsPage = Vue.defineComponent({
       detail.value = item;
     }
 
+    // 删除保留消息：确认浮层 → DELETE /retains?topic=xxx → 刷新列表
+    async function removeRetain(item) {
+      if (!await window.$confirm($t('retains.delete_confirm', { topic: item.topic }))) return;
+      try {
+        await http.del('/retains?topic=' + encodeURIComponent(item.topic));
+        // 当前页仅剩 1 条且非首页 → 回退一页，避免空页
+        if (items.value.length === 1 && offset.value > 0) offset.value -= pageSize.value;
+        load();
+      } catch (e) {
+        alert($t('retains.delete_fail', { msg: e.message }));
+        // 404 说明消息已被删除（如其他端操作），刷新同步
+        if (e.message.indexOf('404') === 0) load();
+      }
+    }
+
     // 检测 retain 功能是否启用（请求 /features）
     async function checkFeature() {
       try {
@@ -243,7 +262,7 @@ window.RetainsPage = Vue.defineComponent({
     return {
       topicFilter, pageSize, offset, items, hasMore, loading, error, detail, featureDisabled,
       payloadPreview, payloadFull, formatTime, formatFrom, formatProperties,
-      load, search, prevPage, nextPage, reset, showDetail, $t,
+      load, search, prevPage, nextPage, reset, showDetail, removeRetain, $t,
     };
   },
 });

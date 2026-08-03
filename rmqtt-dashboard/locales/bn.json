@@ -299,7 +299,10 @@
     "error": "অনুরোধ ব্যর্থ",
     "retry": "পুনরায় চেষ্টা করুন",
     "close": "বন্ধ করুন",
-    "dashboard": "ড্যাশবোর্ড"
+    "dashboard": "ড্যাশবোর্ড",
+    "confirm": "নিশ্চিত করুন",
+    "cancel": "বাতিল",
+    "confirm_title": "নিশ্চিতকরণ"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -345,6 +348,9 @@
     "no_results": "কোনো ধরে রাখা বার্তা নেই",
     "create_time": "তৈরির সময়",
     "client_id": "ক্লায়েন্ট ID",
-    "publish_time": "প্রকাশের সময়"
+    "publish_time": "প্রকাশের সময়",
+    "delete": "মুছুন",
+    "delete_confirm": "{topic} বিষয়ের জন্য সংরক্ষিত বার্তাটি মুছবেন?",
+    "delete_fail": "বার্তা মুছতে ব্যর্থ হয়েছে: {msg}"
   }
 }

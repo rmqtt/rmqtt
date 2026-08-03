@@ -299,7 +299,10 @@
     "error": "Error en la solicitud",
     "retry": "Reintentar",
     "close": "Cerrar",
-    "dashboard": "Dashboard"
+    "dashboard": "Dashboard",
+    "confirm": "Confirmar",
+    "cancel": "Cancelar",
+    "confirm_title": "Confirmación"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -345,6 +348,9 @@
     "no_results": "Sin mensajes retenidos",
     "create_time": "Creado en",
     "client_id": "ID de cliente",
-    "publish_time": "Publicado el"
+    "publish_time": "Publicado el",
+    "delete": "Eliminar",
+    "delete_confirm": "¿Eliminar el mensaje retenido para el tema {topic}?",
+    "delete_fail": "Error al eliminar: {msg}"
   }
 }

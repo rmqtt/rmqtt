@@ -299,7 +299,10 @@
     "error": "فشل الطلب",
     "retry": "إعادة المحاولة",
     "close": "إغلاق",
-    "dashboard": "لوحة التحكم"
+    "dashboard": "لوحة التحكم",
+    "confirm": "تأكيد",
+    "cancel": "إلغاء",
+    "confirm_title": "تأكيد"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -345,6 +348,9 @@
     "no_results": "لا توجد رسائل محفوظة",
     "create_time": "تاريخ الإنشاء",
     "client_id": "معرف العميل",
-    "publish_time": "وقت النشر"
+    "publish_time": "وقت النشر",
+    "delete": "حذف",
+    "delete_confirm": "هل تريد حذف الرسالة المحفوظة للموضوع {topic}؟",
+    "delete_fail": "فشل حذف الرسالة: {msg}"
   }
 }

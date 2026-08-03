@@ -239,7 +239,7 @@ window.ClientDetailPage = Vue.defineComponent({
     }
 
     async function kick() {
-      if (!confirm($t('clients.disconnect_confirm', { clientId: clientid }))) return;
+      if (!await window.$confirm($t('clients.disconnect_confirm', { clientId: clientid }))) return;
       try {
         await http.del('/clients/' + encodeURIComponent(clientid));
         refresh();
@@ -249,7 +249,7 @@ window.ClientDetailPage = Vue.defineComponent({
     }
 
     async function unsub(s) {
-      if (!confirm($t('subscriptions.unsub_confirm', { clientId: s.clientid, topic: s.topic }))) return;
+      if (!await window.$confirm($t('subscriptions.unsub_confirm', { clientId: s.clientid, topic: s.topic }))) return;
       try {
         await http.post('/mqtt/unsubscribe', { clientid: s.clientid, topic: s.topic });
         refresh();
