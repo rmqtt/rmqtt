@@ -299,7 +299,10 @@
     "error": "Falha na requisição",
     "retry": "Tentar novamente",
     "close": "Fechar",
-    "dashboard": "Dashboard"
+    "dashboard": "Dashboard",
+    "confirm": "Confirmar",
+    "cancel": "Cancelar",
+    "confirm_title": "Confirmação"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -345,6 +348,9 @@
     "no_results": "Sem mensagens retidas",
     "create_time": "Criado em",
     "client_id": "ID do cliente",
-    "publish_time": "Publicado em"
+    "publish_time": "Publicado em",
+    "delete": "Excluir",
+    "delete_confirm": "Excluir a mensagem retida para o tópico {topic}?",
+    "delete_fail": "Falha ao excluir: {msg}"
   }
 }

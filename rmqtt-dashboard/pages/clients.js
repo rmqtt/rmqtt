@@ -250,7 +250,7 @@ window.ClientsPage = Vue.defineComponent({
     }
 
     async function kick(clientid) {
-      if (!confirm($t('clients.disconnect_confirm', { clientId: clientid }))) return;
+      if (!await window.$confirm($t('clients.disconnect_confirm', { clientId: clientid }))) return;
       try {
         await http.del('/clients/' + encodeURIComponent(clientid));
         loadClients();

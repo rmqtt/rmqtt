@@ -106,15 +106,19 @@ window.SubscriptionsPage = Vue.defineComponent({
     }
 
     async function unsub(s) {
-      if (!confirm($t('subscriptions.unsub_confirm', { clientId: s.clientid, topic: s.topic }))) return;
+      if (!await window.$confirm($t('subscriptions.unsub_confirm', { clientId: s.clientid, topic: s.topic }))) return;
+      // 先立即从本地列表移除该行，获得即时反馈（不等网络请求）
+      subs.value = subs.value.filter(function(x) {
+        return !(x.clientid === s.clientid && x.topic === s.topic);
+      });
       try {
         await http.post('/mqtt/unsubscribe', {
           clientid: s.clientid,
           topic: s.topic,
         });
-        loadSubs();
       } catch (e) {
         alert($t('subscriptions.unsubscribe_fail', { msg: e.message }));
+        loadSubs(); // 失败时重载列表：若后端未删，该行会重新出现
       }
     }
 

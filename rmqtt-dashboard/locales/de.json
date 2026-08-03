@@ -299,7 +299,10 @@
     "error": "Anfrage fehlgeschlagen",
     "retry": "Wiederholen",
     "close": "Schließen",
-    "dashboard": "Dashboard"
+    "dashboard": "Dashboard",
+    "confirm": "Bestätigen",
+    "cancel": "Abbrechen",
+    "confirm_title": "Bestätigung"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -345,6 +348,9 @@
     "no_results": "Keine zurückgehaltenen Nachrichten",
     "create_time": "Erstellt am",
     "client_id": "Client-ID",
-    "publish_time": "Veröffentlicht um"
+    "publish_time": "Veröffentlicht um",
+    "delete": "Löschen",
+    "delete_confirm": "Retained-Message für Thema {topic} löschen?",
+    "delete_fail": "Löschen fehlgeschlagen: {msg}"
   }
 }

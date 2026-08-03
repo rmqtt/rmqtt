@@ -299,7 +299,10 @@
     "error": "Request failed",
     "retry": "Retry",
     "close": "Close",
-    "dashboard": "Dashboard"
+    "dashboard": "Dashboard",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "confirm_title": "Confirmation"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -345,6 +348,9 @@
     "no_results": "No retained messages",
     "create_time": "Created At",
     "client_id": "Client ID",
-    "publish_time": "Published At"
+    "publish_time": "Published At",
+    "delete": "Delete",
+    "delete_confirm": "Delete retained message for topic {topic}?",
+    "delete_fail": "Delete failed: {msg}"
   }
 }

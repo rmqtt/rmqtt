@@ -299,7 +299,10 @@
     "error": "Ошибка запроса",
     "retry": "Повторить",
     "close": "Закрыть",
-    "dashboard": "Dashboard"
+    "dashboard": "Dashboard",
+    "confirm": "Подтвердить",
+    "cancel": "Отмена",
+    "confirm_title": "Подтверждение"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -345,6 +348,9 @@
     "no_results": "Нет retained-сообщений",
     "create_time": "Создано",
     "client_id": "ID клиента",
-    "publish_time": "Опубликовано"
+    "publish_time": "Опубликовано",
+    "delete": "Удалить",
+    "delete_confirm": "Удалить сохранённое сообщение для темы {topic}?",
+    "delete_fail": "Не удалось удалить: {msg}"
   }
 }

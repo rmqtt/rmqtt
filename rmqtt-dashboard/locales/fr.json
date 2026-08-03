@@ -299,7 +299,10 @@
     "error": "Échec de la requête",
     "retry": "Réessayer",
     "close": "Fermer",
-    "dashboard": "Dashboard"
+    "dashboard": "Dashboard",
+    "confirm": "Confirmer",
+    "cancel": "Annuler",
+    "confirm_title": "Confirmation"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -345,6 +348,9 @@
     "no_results": "Aucun message retenu",
     "create_time": "Créé à",
     "client_id": "ID client",
-    "publish_time": "Publié à"
+    "publish_time": "Publié à",
+    "delete": "Supprimer",
+    "delete_confirm": "Supprimer le message retenu pour le sujet {topic} ?",
+    "delete_fail": "Échec de la suppression : {msg}"
   }
 }
