@@ -398,6 +398,16 @@ impl InInflight {
         }
     }
 
+    /// Check whether a packet id is already tracked in the inbound inflight set.
+    ///
+    /// Used by the QoS 2 duplicate detection path ([MQTT-4.3.3-10]): when a
+    /// PUBLISH with the same Packet Identifier arrives before the exchange is
+    /// complete, the broker must answer PUBREC without delivering again.
+    #[inline]
+    pub(crate) fn exist(&self, pid: &NonZeroU16) -> bool {
+        self.cached.contains(pid)
+    }
+
     #[inline]
     pub(crate) fn remove(&mut self, pid: &NonZeroU16) -> bool {
         #[allow(clippy::needless_bool)]

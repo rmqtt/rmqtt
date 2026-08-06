@@ -73,6 +73,13 @@ pub struct MqttV311Client {
     /// Ack waiters for SUBACK
     suback_waiters: Arc<Mutex<HashMap<u16, oneshot::Sender<Result<SubscribeAck>>>>>,
 
+    /// Whether to automatically answer incoming PUBREL with PUBCOMP (QoS 2 part 2).
+    /// Disabling allows tests to leave a QoS 2 exchange incomplete.
+    auto_pubcomp: Arc<AtomicBool>,
+
+    /// Incoming PUBREL packet id receiver (broker -> client, QoS 2 part 2)
+    pubrel_rx: mpsc::UnboundedReceiver<NonZeroU16>,
+
     connack: ConnectAck,
 }
 
@@ -101,6 +108,8 @@ impl MqttV311Client {
         let (message_tx, message_rx) = mpsc::unbounded_channel();
         let suback_waiters: Arc<Mutex<HashMap<u16, oneshot::Sender<Result<SubscribeAck>>>>> =
             Arc::new(Mutex::new(HashMap::new()));
+        let auto_pubcomp = Arc::new(AtomicBool::new(true));
+        let (pubrel_tx, pubrel_rx) = mpsc::unbounded_channel();
 
         //
         // SEND CONNECT
@@ -146,6 +155,8 @@ impl MqttV311Client {
             let writer = writer.clone();
             let connected = connected.clone();
             let suback_waiters = suback_waiters.clone();
+            let auto_pubcomp = auto_pubcomp.clone();
+            let pubrel_tx = pubrel_tx.clone();
 
             tokio::spawn(async move {
                 loop {
@@ -187,10 +198,13 @@ impl MqttV311Client {
                             }
                         }
 
-                        // PUBREL (QoS 2 part 2): send PUBCOMP
+                        // PUBREL (QoS 2 part 2): forward the event, send PUBCOMP if auto-ack is on
                         PacketV3::PublishRelease { packet_id, .. } => {
-                            let ack = PacketV3::PublishComplete { packet_id };
-                            let _ = writer.lock().await.send_packet(&ack).await;
+                            let _ = pubrel_tx.send(packet_id);
+                            if auto_pubcomp.load(Ordering::Relaxed) {
+                                let ack = PacketV3::PublishComplete { packet_id };
+                                let _ = writer.lock().await.send_packet(&ack).await;
+                            }
                         }
 
                         // SUBACK
@@ -243,6 +257,8 @@ impl MqttV311Client {
             packet_id_counter: PacketIdCounter::new(),
             message_rx,
             suback_waiters,
+            auto_pubcomp,
+            pubrel_rx,
             connack,
         })
     }
@@ -281,6 +297,53 @@ impl MqttV311Client {
         self.writer.lock().await.send_packet(&PacketV3::Publish(Box::new(publish))).await?;
 
         Ok(())
+    }
+
+    /// Publish a message with an explicit packet id and DUP flag.
+    ///
+    /// Useful for QoS 2 conformance tests that need to replay a PUBLISH with
+    /// the same Packet Identifier (e.g. MQTT-4.3.3-10 duplicate handling).
+    pub async fn publish_with_packet_id(
+        &self,
+        topic: &str,
+        payload: &[u8],
+        qos: QoSTest,
+        retain: bool,
+        dup: bool,
+        packet_id: NonZeroU16,
+    ) -> Result<()> {
+        let publish = rmqtt_codec::types::Publish {
+            dup,
+            retain,
+            qos,
+            topic: ByteString::from(topic),
+            packet_id: Some(packet_id),
+            properties: None,
+            payload: Bytes::copy_from_slice(payload),
+        };
+
+        self.writer.lock().await.send_packet(&PacketV3::Publish(Box::new(publish))).await?;
+
+        Ok(())
+    }
+
+    /// Send a PUBREL (QoS 2 part 2) with the given packet id
+    pub async fn send_pubrel(&self, packet_id: NonZeroU16) -> Result<()> {
+        self.writer.lock().await.send_packet(&PacketV3::PublishRelease { packet_id }).await?;
+        Ok(())
+    }
+
+    /// Enable/disable the automatic PUBCOMP sent in reply to an incoming PUBREL.
+    ///
+    /// Disabling allows tests to leave a QoS 2 exchange incomplete (the broker
+    /// keeps owing a PUBCOMP), e.g. to verify MQTT-4.4.0-1 PUBREL resend on resume.
+    pub fn set_auto_pubcomp(&self, enabled: bool) {
+        self.auto_pubcomp.store(enabled, Ordering::Relaxed);
+    }
+
+    /// Wait for an incoming PUBREL packet id (broker -> client, QoS 2 part 2)
+    pub async fn recv_pubrel_timeout(&mut self, timeout: Duration) -> Option<u16> {
+        time::timeout(timeout, self.pubrel_rx.recv()).await.ok().and_then(|r| r).map(|pid| pid.get())
     }
 
     /// Subscribe to a topic with a specific QoS
