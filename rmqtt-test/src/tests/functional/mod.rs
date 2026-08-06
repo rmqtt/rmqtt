@@ -20,6 +20,8 @@ pub mod publication_expiry_v5;
 pub mod pubsub_v3;
 pub mod pubsub_v311;
 pub mod pubsub_v5;
+pub mod qos2_conformance;
+pub mod qos2_conformance_v311;
 pub mod request_response_v5;
 pub mod retain_handling_v5;
 pub mod server_keepalive_v5;

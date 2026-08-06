@@ -230,6 +230,7 @@ fn build_functional_v311_suite() -> TestSuite {
     use tests::functional::multi_topic::*;
     use tests::functional::protocol_error::*;
     use tests::functional::pubsub_v311::*;
+    use tests::functional::qos2_conformance_v311::*;
     use tests::functional::session_v311::*;
     use tests::functional::shared_subscription::*;
     use tests::functional::wildcard::*;
@@ -281,6 +282,9 @@ fn build_functional_v311_suite() -> TestSuite {
     // Protocol error edge cases
     suite.add(InvalidProtocolVersionTest);
     suite.add(EmptyTopicFilterTest);
+    // QoS 2 exactly-once conformance (GitHub issue #456, MQTT 3.1.1)
+    suite.add(Qos2ReplayedPublishDedupV311Test);
+    suite.add(Qos2PubrelResendOnResumeV311Test);
     suite
 }
 
@@ -297,6 +301,7 @@ fn build_functional_v5_suite() -> TestSuite {
     use tests::functional::payload_format_v5::*;
     use tests::functional::publication_expiry_v5::*;
     use tests::functional::pubsub_v5::*;
+    use tests::functional::qos2_conformance::*;
     use tests::functional::request_response_v5::*;
     use tests::functional::retain_handling_v5::*;
     use tests::functional::server_keepalive_v5::*;
@@ -347,6 +352,9 @@ fn build_functional_v5_suite() -> TestSuite {
     suite.add(RequestResponseV5Test);
     suite.add(UserPropertiesV5Test);
     suite.add(ClientTopicAliasV5Test);
+    // QoS 2 exactly-once conformance (GitHub issue #456)
+    suite.add(Qos2ReplayedPublishDedupTest);
+    suite.add(Qos2PubrelResendOnResumeTest);
     suite
 }
 
