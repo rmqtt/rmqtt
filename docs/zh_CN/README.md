@@ -88,6 +88,7 @@
 | 文档 | 说明 |
 |----------|-------------|
 | [HTTP API](http-api.md) | RESTful 管理 API 参考 |
+| [Dashboard](dashboard.md) | 内置 Web 管理界面 |
 | [WebHook](web-hook.md) | HTTP 事件通知 |
 | [系统主题](sys-topic.md) | `$SYS/` 监控指标 |
 

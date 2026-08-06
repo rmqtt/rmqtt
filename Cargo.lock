@@ -4493,6 +4493,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "redb"
+version = "4.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e925444704b5f17d32bf42f5b6e2df050bceebc3dcd6e71cc73dafe8092e839"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "redis"
 version = "0.32.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5140,9 +5149,12 @@ dependencies = [
  "bytes",
  "futures",
  "log",
+ "lru",
  "postcard",
  "prometheus",
  "rmqtt",
+ "rmqtt-storage",
+ "rust-embed",
  "salvo",
  "serde",
  "serde_json",
@@ -5369,9 +5381,9 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-storage"
-version = "0.10.2"
+version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "510886f2ecb83d282eade327d3c73d5c2c0ac64c45e8ee2022101a4f9f4a7ed1"
+checksum = "a1f79d7692207992353b453bb7f7b548857322c775fc2db78c9439935f2867ff"
 dependencies = [
  "ahash",
  "anyhow",
@@ -5382,6 +5394,7 @@ dependencies = [
  "futures",
  "log",
  "postcard",
+ "redb",
  "redis",
  "serde",
  "serde_json",

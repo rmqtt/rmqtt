@@ -27,19 +27,83 @@ plugins/rmqtt-http-api.toml
 
 # See more keys and their definitions at https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/http-api.md
 
-##Number of worker threads
-workers = 1
 ## Max Row Limit
 max_row_limit = 10_000
-## HTTP Listener
+## HTTP Listener address
 http_laddr = "0.0.0.0:6060"
+## HTTP bearer token for API authentication.
+## When set, all HTTP API requests must include an `Authorization: Bearer <token>` header.
+## When not set (default), no authentication is required.
+#http_bearer_token = "public"
+
+## Enable TCP SO_REUSEADDR on the HTTP listener.
+## Default: true
+# http_reuseaddr = true
+
+## Enable TCP SO_REUSEPORT on the HTTP listener.
+## Default: false
+# http_reuseport = false
+
 ## Indicates whether to print HTTP request logs
 http_request_log = false
-## If set, will check request header Authorization value == Bearer $http_bearer_token, default value is undefined
-#http_bearer_token = bearer_token
+
+## Metrics sample interval for collecting and caching internal metrics.
+## Default: "5s"
+# metrics_sample_interval = "5s"
+
+## gRPC message type identifier for HTTP API messages.
+## Default: 99
+# message_type = 99
 
 ##Message expiration time, 0 means no expiration
 message_expiry_interval = "5m"
+
+## Prometheus metrics data caching interval.
+## Default: "5s"
+prometheus_metrics_cache_interval = "5s"
+
+## Dashboard static directory (optional).
+## By default (when unset), the Dashboard SPA is served from assets embedded
+## directly into the binary via rust-embed at compile time, so no external
+## files are needed.
+## If set, the plugin loads the Dashboard SPA from this external directory
+## at the `/dashboard/` path instead, allowing swapping the frontend build
+## without recompiling the binary.
+# dashboard_static_dir = "/path/to/dashboard/dist"
+
+##─── Stats/Metrics History Persistence (optional) ───────────────────────
+## When `storage` is configured, the plugin periodically snapshots Stats
+## and Metrics, converts them to JSON, and writes them to the backend with
+## TTL-based expiration. History query APIs
+## (`/api/v1/stats/history`, `/api/v1/metrics/history`, etc.) become available.
+## To disable, omit the entire `storage` section.
+
+##─── Redb backend ──────────────────────────────────────────────────────
+storage.type = "redb"
+storage.redb.path = "/var/log/rmqtt/.cache/http-api-history/{node}.redb"
+
+##─── Sled backend ──────────────────────────────────────────────────────
+#storage.type = "sled"
+#storage.sled.path = "/var/log/rmqtt/.cache/http-api-history/{node}.sled"
+#storage.sled.cache_capacity = "1G"
+
+##─── Redis backend ──────────────────────────────────────────────────────
+# storage.type = "redis"
+# storage.redis.url = "redis://127.0.0.1:6379/"
+# storage.redis.prefix = "http-api-history-{node}"
+
+##─── Redis Cluster backend ──────────────────────────────────────────────
+# storage.type = "redis-cluster"
+# storage.redis-cluster.urls = ["redis://127.0.0.1:6380/", "redis://127.0.0.1:6381/"]
+# storage.redis-cluster.prefix = "http-api-history-{node}"
+
+##─── Flush interval (how often to snapshot Stats/Metrics) ───────────────
+## Default: "5s"
+# flush_interval = "5s"
+
+##─── History retention (TTL for each data point) ────────────────────────
+## Default: "7d"
+# history_retention = "7d"
 ```
 
 ## 响应码
@@ -181,7 +245,150 @@ $ curl -i -X GET "http://localhost:6060/api/v1/nodes"
 ```bash
 $ curl -i -X GET "http://localhost:6060/api/v1/nodes/1"
 
-{"boottime":"2022-06-30 05:20:24 UTC","connections":1,"disk_free":77382381568,"disk_total":88692346880,"load1":0.0224609375,"load15":0.0,"load5":0.0263671875,"memory_free":1457954816,"memory_total":2084057088,"memory_used":626102272,"node_id":1,"node_name":"1@127.0.0.1","running":true,"uptime":"5 days 23 hours, 33 minutes, 0 seconds","version":"rmqtt/0.21.0"}
+{"boottime":"2022-06-30 05:20:24 UTC","connections":1,"disk_free":77382381568,"disk_total":88692346880,"load1":0.0224609375,"load15":0.0,"load5":0.0263671875,"memory_free":1457954816,"memory_total":2084057088,"memory_used":626102272,"node_id":1,"node_name":"1@127.0.0.1","running":true,"uptime":"5 days 23 hours, 33 minutes, 0 seconds","version":"rmqtt/0.21.0","rustc_version":"1.85.0"}
+```
+
+## 功能支持
+
+### GET /api/v1/features
+
+返回集群各节点的功能支持状态及一致性汇总。功能支持状态由各功能的 trait 实现（`enable()` / `is_supported()`）决定。
+
+**Parameters:** 无
+
+**Success Response Body (JSON):**
+
+| Name          | Type | Description |
+|---------------|------|-------------|
+| consistent    | Bool | 所有可达节点功能状态是否完全一致；`false` 说明存在节点配置漂移或插件加载失败 |
+| node_count    | Integer | 参与一致性比较的节点数量 |
+| conflicts     | Array | 取值不一致的字段（按值分组列出节点）；`consistent` 为 `true` 时为空数组 |
+| - conflicts[i].feature | String | 功能名称，如 `retain` |
+| - conflicts[i].values  | Array | 取值分组，每组包含 `value`（Bool）与 `node_ids`（Integer Array） |
+| nodes         | Array | 逐节点明细；不可达节点为错误字符串且不参与一致性比较 |
+| - nodes[i].node_id    | Integer | 节点ID |
+| - nodes[i].node_name  | String | 节点名称 |
+| - nodes[i].features   | Object | 六项功能支持状态：`retain`、`message_storage`、`session_storage`、`delayed`、`shared_subscription`、`auto_subscription` |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/features"
+```
+
+```json
+{
+  "consistent": false,
+  "node_count": 3,
+  "conflicts": [
+    {
+      "feature": "retain",
+      "values": [
+        { "value": true,  "node_ids": [1, 2] },
+        { "value": false, "node_ids": [3] }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "node_id": 1,
+      "node_name": "rmqtt@127.0.0.1",
+      "features": {
+        "retain": true,
+        "message_storage": false,
+        "session_storage": false,
+        "delayed": true,
+        "shared_subscription": true,
+        "auto_subscription": false
+      }
+    }
+  ]
+}
+```
+
+> 说明：检测到不一致时后端会输出 `features inconsistent across cluster` 警告日志。单节点查询使用 `GET /api/v1/features/{node}`，直接返回该节点的 `FeaturesInfo` 对象（不含一致性汇总）。
+
+### GET /api/v1/features/{node}
+
+返回指定节点的功能支持状态。
+
+**Path Parameters:**
+
+| Name | Type | Required | Description |
+| ---- | --------- | -------- |-------------|
+| node | Integer    | True      | 节点ID，如：1 |
+
+**Success Response Body (JSON):**
+
+| Name          | Type | Description |
+|---------------|------|-------------|
+| node_id       | Integer | 节点ID |
+| node_name     | String | 节点名称 |
+| features      | Object | 六项功能支持状态：`retain`、`message_storage`、`session_storage`、`delayed`、`shared_subscription`、`auto_subscription` |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/features/1"
+
+{"node_id":1,"node_name":"rmqtt@127.0.0.1","features":{"retain":true,"message_storage":false,"session_storage":false,"delayed":true,"shared_subscription":true,"auto_subscription":false}}
+```
+
+## 健康检查
+
+### GET /api/v1/health/check
+
+返回集群所有节点的健康状态。
+
+**Parameters:** 无
+
+**Success Response Body (JSON):**
+
+| Name                      | Type             | Description       |
+|---------------------------|------------------|-------------------|
+| {}                        | Object           | 健康检查信息           |
+| {}.status                 | String           | 集群整体状态: "Running" 或 "Degraded" |
+| {}.nodes                  | Object           | 各节点健康状态，key 为节点ID |
+| {}.nodes.{id}             | Json Object      | 节点健康状态详细信息        |
+| {}.nodes.{id}.name        | String           | 节点名称              |
+| {}.nodes.{id}.running     | Bool             | 节点是否正常运行          |
+| {}.nodes.{id}.uptime      | String           | 节点运行时长            |
+| {}.nodes.{id}.status      | String           | 节点状态              |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/health/check"
+
+{"status":"Running","nodes":{"1":{"name":"1@127.0.0.1","running":true,"uptime":"5d 23h 33m","status":"Running"}}}
+```
+
+### GET /api/v1/health/check/{node}
+
+查询指定节点的健康状态。
+
+**Path Parameters:**
+
+| Name | Type | Required | Description |
+| ---- | --------- | ------------|-------------|
+| node | Integer    | True       | 节点ID，如：1    |
+
+**Success Response Body (JSON):**
+
+| Name          | Type    | Description |
+|---------------|---------|-------------|
+| {}            | Object  | 节点健康状态     |
+| .name         | String  | 节点名称       |
+| .running      | Bool    | 节点是否正常运行   |
+| .uptime       | String  | 节点运行时长     |
+| .status       | String  | 节点状态       |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/health/check/1"
+
+{"name":"1@127.0.0.1","running":true,"uptime":"5d 23h 33m","status":"Running"}
 ```
 
 ## 客户端
@@ -200,21 +407,21 @@ $ curl -i -X GET "http://localhost:6060/api/v1/nodes/1"
 
 | Name            | Type   | Required | Description         |
 | --------------- | ------ | -------- |---------------------|
-| clientid        | String | False    | 客户端标识符              |
-| username        | String | False    | 客户端用户名              |
-| ip_address      | String | False    | 客户端 IP 地址           |
-| connected       | Bool   | False    | 客户端当前连接状态           |
-| clean_start     | Bool   | False    | 客户端是否使用了全新的会话       |
+| clientid        | String | False    | 客户端标识符，全等查询       |
+| username        | String | False    | 客户端用户名，全等查询       |
+| ip_address      | String | False    | 客户端 IP 地址，全等查询    |
+| connected       | Bool   | False    | 客户端当前连接状态          |
+| clean_start     | Bool   | False    | 客户端是否使用了全新的会话    |
 | session_present | Bool   | False    | 客户端是否连接到已经存在的会话    |
 | proto_ver       | Integer| False    | 客户端协议版本, 3,4,5      |
 | _like_clientid  | String | False    | 客户端标识符，子串方式模糊查找     |
 | _like_username  | String | False    | 客户端用户名，子串方式模糊查找     |
-| _gte_created_at | Integer| False    | 客户端会话创建时间，大于等于查找    |
-| _lte_created_at | Integer| False    | 客户端会话创建时间，小于等于查找    |
-| _gte_connected_at | Integer| False    | 客户端连接创建时间，大于等于查找    |
-| _lte_connected_at | Integer| False    | 客户端连接创建时间，小于等于查找    |
+| _gte_created_at | String | False    | 客户端会话创建时间，大于等于查找。<br/>格式为 `"YYYY-MM-DD HH:mm:ss"`（如 `"2026-07-29 21:25:37"`），<br/>也支持 Unix 秒级时间戳（如 `1690000000`）    |
+| _lte_created_at | String | False    | 客户端会话创建时间，小于等于查找。<br/>格式为 `"YYYY-MM-DD HH:mm:ss"`（如 `"2026-07-29 21:25:37"`），<br/>也支持 Unix 秒级时间戳（如 `1690000000`）    |
+| _gte_connected_at | String | False    | 客户端连接创建时间，大于等于查找。<br/>格式为 `"YYYY-MM-DD HH:mm:ss"`（如 `"2026-07-29 21:25:37"`），<br/>也支持 Unix 秒级时间戳（如 `1690000000`）    |
+| _lte_connected_at | String | False    | 客户端连接创建时间，小于等于查找。<br/>格式为 `"YYYY-MM-DD HH:mm:ss"`（如 `"2026-07-29 21:25:37"`），<br/>也支持 Unix 秒级时间戳（如 `1690000000`）    |
 | _gte_mqueue_len | Integer| False    | 客户端消息队列当前长度， 大于等于查找 |
-| _lte_mqueue_len | Integer| False    | 客户端消息队列当前长度， 大于等于查找 |
+| _lte_mqueue_len | Integer| False    | 客户端消息队列当前长度， 小于等于查找 |
 
 **Success Response Body (JSON):**
 
@@ -251,7 +458,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1/nodes/1"
 ```bash
 $ curl -i -X GET "http://localhost:6060/api/v1/clients?_limit=10"
 
-[{"clean_start":true,"clientid":"be82ee31-7220-4cad-a724-aaad9a065012","connected":true,"connected_at":"2022-07-30 18:14:08","created_at":"2022-07-30 18:14:08","disconnected_at":"","expiry_interval":7200,"inflight":0,"ip_address":"183.193.169.110","keepalive":60,"max_inflight":16,"max_mqueue":1000,"max_subscriptions":0,"mqueue_len":0,"node_id":1,"port":10839,"proto_ver":4,"subscriptions_cnt":0,"username":"undefined"}]
+[{"clean_start":true,"session_present":true,"clientid":"be82ee31-7220-4cad-a724-aaad9a065012","connected":true,"connected_at":"2022-07-30 18:14:08","created_at":"2022-07-30 18:14:08","disconnected_at":"","expiry_interval":7200,"inflight":0,"ip_address":"183.193.169.110","keepalive":60,"max_inflight":16,"max_mqueue":1000,"max_subscriptions":0,"mqueue_len":0,"node_id":1,"port":10839,"proto_ver":4,"subscriptions_cnt":0,"superuser":false,"username":"undefined"}]
 ```
 
 ### GET /api/v1/clients/{clientid}
@@ -268,7 +475,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1/clients?_limit=10"
 
 | Name | Type | Description |
 |------| --------- | ----------- |
-| {}   | Array of Objects | 客户端的信息，详细请参见<br/>[GET /api/v1/clients](#get-clients)|
+| {}   | Object | 客户端的信息，详细字段请参见<br/>[GET /api/v1/clients](#get-clients)|
 
 **Examples:**
 
@@ -277,7 +484,23 @@ $ curl -i -X GET "http://localhost:6060/api/v1/clients?_limit=10"
 ```bash
 $ curl -i -X GET "http://localhost:6060/api/v1/clients/example1"
 
-{"clean_start":true,"clientid":"example1","connected":true,"connected_at":"2022-07-30 23:30:43","created_at":"2022-07-30 23:30:43","disconnected_at":"","expiry_interval":7200,"inflight":0,"ip_address":"183.193.169.110","keepalive":60,"max_inflight":16,"max_mqueue":1000,"max_subscriptions":0,"mqueue_len":0,"node_id":1,"port":11232,"proto_ver":4,"subscriptions_cnt":0,"username":"undefined"}
+{"clean_start":true,"session_present":true,"clientid":"example1","connected":true,"connected_at":"2022-07-30 23:30:43","created_at":"2022-07-30 23:30:43","disconnected_at":"","expiry_interval":7200,"inflight":0,"ip_address":"183.193.169.110","keepalive":60,"max_inflight":16,"max_mqueue":1000,"max_subscriptions":0,"mqueue_len":0,"node_id":1,"port":11232,"proto_ver":4,"subscriptions_cnt":0,"superuser":false,"username":"undefined"}
+```
+
+### GET /api/v1/clients/offlines
+
+返回集群下所有离线客户端的信息。参数及响应与 [GET /api/v1/clients](#get-clients) 相同，但仅返回 `connected` 为 `false` 的客户端。
+
+**Query String Parameters:** 同 [GET /api/v1/clients](#get-clients)
+
+**Success Response Body (JSON):** 同 [GET /api/v1/clients](#get-clients)
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/clients/offlines"
+
+[{"clean_start":false,"session_present":false,"clientid":"example1","connected":false,"connected_at":"","created_at":"2022-07-30 18:14:08","disconnected_at":"2022-07-30 23:30:43","disconnected_reason":"normal","expiry_interval":7200,"inflight":0,"ip_address":"183.193.169.110","keepalive":60,"max_inflight":16,"max_mqueue":1000,"max_subscriptions":0,"mqueue_len":0,"node_id":1,"port":10839,"proto_ver":4,"subscriptions_cnt":0,"superuser":false,"username":"undefined"}]
 ```
 
 ### DELETE /api/v1/clients/{clientid}
@@ -292,9 +515,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1/clients/example1"
 
 **Success Response Body (String):**
 
-| Name       | Type             | Description |
-|------------|------------------|-----------|
-| id         | String          | 连接唯一ID    |
+直接返回连接唯一标识的字符串，格式为 `{node_id}@{ip}:{port}/{clientid}/{username}`。
 
 **Examples:**
 
@@ -304,6 +525,26 @@ $ curl -i -X GET "http://localhost:6060/api/v1/clients/example1"
 $ curl -i -X DELETE "http://localhost:6060/api/v1/clients/example1"
 
 1@10.0.4.6:1883/183.193.169.110:10876/example1/dashboard
+```
+
+### DELETE /api/v1/clients/offlines
+
+批量踢除集群下所有满足查询条件的离线客户端。
+
+**Query String Parameters:** 同 [GET /api/v1/clients](#get-clients)（注意：`connected` 参数会被强制设为 `false`）
+
+**Success Response Body (JSON):**
+
+| Name    | Type    | Description    |
+|---------|---------|----------------|
+| count   | Integer | 成功踢除的客户端数量 |
+
+**Examples:**
+
+```bash
+$ curl -i -X DELETE "http://localhost:6060/api/v1/clients/offlines?clientid=example1"
+
+{"count":1}
 ```
 
 ### GET /api/v1/clients/{clientid}/online
@@ -318,9 +559,7 @@ $ curl -i -X DELETE "http://localhost:6060/api/v1/clients/example1"
 
 **Success Response Body (JSON):**
 
-| Name | Type | Description |
-|------|------|-------------|
-| body | Bool | 是否在线        |
+直接返回布尔值 `true` 或 `false`，表示客户端是否在线。
 
 **Examples:**
 
@@ -346,11 +585,11 @@ false
 
 | Name         | Type    | Description |
 | ------------ | ------- | ----------- |
-| clientid     | String  | 客户端标识符   |
+| clientid     | String  | 客户端标识符，全等查询   |
 | topic        | String  | 主题，全等查询 |
 | qos          | Enum    | 可取值为：`0`,`1`,`2` |
 | share        | String  | 共享订阅的组名称 |
-| _match_topic | String  | 主题，匹配查询 |
+| _match_topic | String  | 主题，通配符匹配查询 |
 
 **Success Response Body (JSON):**
 
@@ -374,7 +613,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1/subscriptions?_limit=10"
 
 ### GET /api/v1/subscriptions/{clientid}
 
-返回集群下指定客户端的订阅信息。
+返回指定客户端的订阅信息。
 
 **Path Parameters:**
 
@@ -456,6 +695,66 @@ $ curl -i -X GET "http://localhost:6060/api/v1/routes/foo%2f1"
 [{"node_id":1,"topic":"foo/#"},{"node_id":1,"topic":"foo/+"}]
 ```
 
+## 保留消息
+
+### GET /api/v1/retains
+
+查询保留消息。保留消息在集群中通过广播保持各节点同步，单节点查询即覆盖全集群。
+
+**Query String Parameters:**
+
+| Name          | Type    | Required | Default       | Description |
+|---------------|---------|----------|---------------|-------------|
+| topic_filter  | String  | False    | `#`           | 主题过滤器，支持 `#` / `+` 通配；为空或 `#` 时走全量分页 |
+| offset        | Integer | False    | 0             | 分页偏移量 |
+| limit         | Integer | False    | `max_row_limit` | 每页条数，超出 `max_row_limit` 时收敛 |
+
+**Success Response Body (JSON):**
+
+| Name                     | Type | Description |
+|--------------------------|------|-------------|
+| items                    | Array | 保留消息列表 |
+| - items[i].topic         | String | 主题 |
+| - items[i].msg_id        | Integer | 消息ID |
+| - items[i].from          | Object | 发布者信息（`id.node_id` / `id.client_id`） |
+| - items[i].publish       | Object | 消息内容，`payload` 为 base64 编码 |
+| - items[i].publish.qos   | Integer | QoS 等级 |
+| - items[i].publish.retain | Bool | retain 标记 |
+| - items[i].publish.create_time | Integer | 发布时间（毫秒时间戳） |
+| - items[i].remaining_ttl | Integer/Null | 剩余存活时间（秒）；全量分页路径返回，过滤路径为 `null` |
+| has_more                 | Bool | 是否还有更多数据 |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/retains?topic_filter=%2Fiot%2Fb%2Fx&offset=0&limit=10"
+```
+
+```json
+{
+  "items": [
+    {
+      "topic": "/iot/b/x",
+      "msg_id": 1024,
+      "from": { "typ": "client", "id": { "node_id": 1, "client_id": "c1" } },
+      "publish": {
+        "topic": "/iot/b/x",
+        "qos": 1,
+        "retain": true,
+        "dup": false,
+        "payload": "<base64 编码>",
+        "create_time": 1780000000000,
+        "properties": null
+      },
+      "remaining_ttl": 3599
+    }
+  ],
+  "has_more": false
+}
+```
+
+> 说明：`topic_filter=#`（全量）路径由存储层分页并附带 `remaining_ttl`（剩余秒数）；指定 `topic_filter` 的过滤路径在内存分页，`remaining_ttl` 为 `null`。查询需要启用 `rmqtt-retainer` 插件。
+
 ## 消息发布
 
 ### POST /api/v1/mqtt/publish
@@ -473,13 +772,11 @@ $ curl -i -X GET "http://localhost:6060/api/v1/routes/foo%2f1"
 | encoding | String    | Optional | plain  | 消息正文使用的编码方式，目前仅支持 `plain` 与 `base64` 两种 |
 | qos      | Integer   | Optional | 0      | QoS 等级                                  |
 | retain   | Boolean   | Optional | false  | 是否为保留消息                                 |
-| properties | Object   | Optional |        | 发布属性 (MQTT v5)，包括：`message_expiry_interval`, `topic_alias`, `response_topic`, `correlation_data`, `user_properties` |
+| properties | Object   | Optional |        | 发布属性 (MQTT v5)<br/>可选子字段：<br/>- `message_expiry_interval`: Integer, 消息过期间隔(秒)<br/>- `topic_alias`: Integer<br/>- `response_topic`: String<br/>- `correlation_data`: String (Base64)<br/>- `user_properties`: Object |
 
-**Success Response Body (JSON):**
+**Success Response Body (String):**
 
-| Name | Type   | Description |
-|------|--------|-------------|
-| body | String | ok          |
+成功返回字符串 `ok`。
 
 **Examples:**
 
@@ -489,6 +786,14 @@ $ curl -i -X POST "http://localhost:6060/api/v1/mqtt/publish" --header 'Content-
 ok
 
 $ curl -i -X POST "http://localhost:6060/api/v1/mqtt/publish" --header 'Content-Type: application/json' -d '{"topic":"foo/1","payload":"SGVsbG8gV29ybGQ=","qos":1,"encoding":"base64"}'
+
+ok
+
+$ curl -i -X POST "http://localhost:6060/api/v1/mqtt/publish" --header 'Content-Type: application/json' -d '{"topics":"foo/1,foo/2,foo/3","payload":"Hello","qos":0}'
+
+ok
+
+$ curl -i -X POST "http://localhost:6060/api/v1/mqtt/publish" --header 'Content-Type: application/json' -d '{"topic":"foo/1","payload":"Hello","qos":2,"retain":true,"properties":{"message_expiry_interval":3600,"response_topic":"res/foo","user_properties":{"key1":"val1"}}}'
 
 ok
 ```
@@ -513,7 +818,7 @@ ok
 | Name    | Type   | Description               |
 |---------|--------|---------------------------|
 | {}      | Object |                           |
-| {topic} | Bool   | key为主题，值为订阅结果: true/false |
+| {topic} | Bool / String | key 为主题，值为订阅结果: `true`(成功) / `false`(失败)<br/>当订阅失败时，值可能为错误描述字符串 |
 
 **Examples:**
 
@@ -536,11 +841,9 @@ $ curl -i -X POST "http://localhost:6060/api/v1/mqtt/subscribe" --header 'Conten
 | topic    | String    | Required |         | 主题         |
 | clientid | String    | Required |         | 客户端标识符 |
 
-**Success Response Body (JSON):**
+**Success Response Body:**
 
-| Name | Type | Description |
-|------|------|-------------|
-| body | Bool | true/false  |
+本地节点取消订阅成功时返回 JSON `true`；如果会话在其他节点上，则返回文本 `ok`。
 
 **Examples:**
 
@@ -611,7 +914,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1/plugins"
 | [0].repository | String           | 插件仓库                           |
 | [0].active     | Boolean          | 插件是否启动                         |
 | [0].inited     | Boolean          | 插件是否已经初始化                      |
-| [0].immutable  | Boolean          | 插件是否不可变，不可变插件将不能被停止，不有修改配置，不能重启等 |
+| [0].immutable  | Boolean          | 插件是否不可变，不可变插件将不能被停止，不能修改配置，不能重启等 |
 | [0].attrs      | Json             | 插件其它附加属性                       |
 
 **Examples:**
@@ -643,7 +946,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1/plugins/1"
 | {}.descr      | String          | 插件描述                           |
 | {}.active     | Boolean         | 插件是否启动                         |
 | {}.inited     | Boolean         | 插件是否已经初始化                      |
-| {}.immutable  | Boolean         | 插件是否不可变，不可变插件将不能被停止，不有修改配置，不能重启等 |
+| {}.immutable  | Boolean         | 插件是否不可变，不可变插件将不能被停止，不能修改配置，不能重启等 |
 | {}.attrs      | Json            | 插件其它附加属性                       |
 
 **Examples:**
@@ -690,18 +993,16 @@ $ curl -i -X GET "http://localhost:6060/api/v1/plugins/1/rmqtt-http-api/config"
 | node | Integer    | True       | 节点ID，如：1    |
 | plugin | String    | True       | 插件名称        |
 
-**Success Response Body (String):**
+**Success Response Body:**
 
-| Name | Type   | Description |
-|------|--------|-------------|
-| body | String | ok          |
+成功返回 JSON `true`。
 
 **Examples:**
 
 ```bash
 $ curl -i -X PUT "http://localhost:6060/api/v1/plugins/1/rmqtt-http-api/config/reload"
 
-ok
+true
 ```
 
 ### PUT /api/v1/plugins/{node}/{plugin}/load
@@ -715,18 +1016,16 @@ ok
 | node | Integer    | True       | 节点ID，如：1    |
 | plugin | String    | True       | 插件名称        |
 
-**Success Response Body (String):**
+**Success Response Body:**
 
-| Name | Type   | Description |
-|------|--------|-------------|
-| body | String | ok          |
+成功返回 JSON `true`。
 
 **Examples:**
 
 ```bash
 $ curl -i -X PUT "http://localhost:6060/api/v1/plugins/1/rmqtt-web-hook/load"
 
-ok
+true
 ```
 
 ### PUT /api/v1/plugins/{node}/{plugin}/unload
@@ -778,38 +1077,50 @@ true
 |---------------|---------|-------------|
 | id            | Integer | 节点ID       |
 | name          | String  | 节点名称      |
-| status        | String | 节点状态       |
+| running        | Bool | 节点是否运行中       |
 
 **stats:**
 
-| Name                       | Type | Description            |
-|----------------------------| --------- | ---------------------- |
-| connections.count          | Integer   | 当前连接数量           |
-| connections.max            | Integer   | 连接数量的历史最大值     |
-| handshakings.count         | Integer   | 当前握手的连接数量     |
-| handshakings.max           | Integer   | 当前握手的连接数量的历史最大值   |
-| handshakings_active.count  | Integer   | 当前正在执行握手操作的连接数量   |
-| handshakings_rate.count    | Integer   | 连接握手速率       |
-| handshakings_rate.max      | Integer   | 连接握手速率的历史最大值     |
-| sessions.count             | Integer   | 当前会话数量           |
-| sessions.max               | Integer   | 会话数量的历史最大值     |
-| topics.count               | Integer   | 当前主题数量           |
-| topics.max                 | Integer   | 主题数量的历史最大值     |
-| subscriptions.count        | Integer   | 当前订阅数量，包含共享订阅 |
-| subscriptions.max          | Integer   | 订阅数量的历史最大值     |
-| subscriptions_shared.count | Integer   | 当前共享订阅数量         |
-| subscriptions_shared.max   | Integer   | 共享订阅数量的历史最大值 |
-| routes.count               | Integer   | 当前路由数量           |
-| routes.max                 | Integer   | 路由数量的历史最大值     |
-| retained.count             | Integer   | 当前保留消息数量         |
-| retained.max               | Integer   | 保留消息的历史最大值     |
+| Name                       | Type    | Description               |
+|----------------------------|---------|---------------------------|
+| connections.count          | Integer | 当前连接数量                  |
+| connections.max            | Integer | 连接数量的历史最大值                |
+| handshakings.count         | Integer | 当前握手的连接数量                |
+| handshakings.max           | Integer | 当前握手的连接数量的历史最大值              |
+| handshakings_active.count  | Integer | 当前正在执行握手操作的连接数量              |
+| handshakings_rate.count    | Integer | 连接握手速率                  |
+| handshakings_rate.max      | Integer | 连接握手速率的历史最大值                |
+| sessions.count             | Integer | 当前会话数量                  |
+| sessions.max               | Integer | 会话数量的历史最大值                |
+| topics.count               | Integer | 当前主题数量                  |
+| topics.max                 | Integer | 主题数量的历史最大值                |
+| subscriptions.count        | Integer | 当前订阅数量，包含共享订阅            |
+| subscriptions.max          | Integer | 订阅数量的历史最大值                |
+| subscriptions_shared.count | Integer | 当前共享订阅数量                  |
+| subscriptions_shared.max   | Integer | 共享订阅数量的历史最大值              |
+| routes.count               | Integer | 当前路由数量                  |
+| routes.max                 | Integer | 路由数量的历史最大值                |
+| retained.count             | Integer | 当前保留消息数量                  |
+| retained.max               | Integer | 保留消息的历史最大值                |
+| delayed_publishs.count     | Integer | 当前延迟发布消息数量                |
+| delayed_publishs.max       | Integer | 延迟发布消息数量的历史最大值            |
+| forwards.count             | Integer | 当前转发消息数量                 |
+| forwards.max               | Integer | 转发消息数量的历史最大值              |
+| in_inflights.count         | Integer | 当前入方向飞行消息数量（待 ACK）          |
+| in_inflights.max           | Integer | 入方向飞行消息数量的历史最大值           |
+| out_inflights.count        | Integer | 当前出方向飞行消息数量（待 ACK）          |
+| out_inflights.max          | Integer | 出方向飞行消息数量的历史最大值           |
+| message_queues.count       | Integer | 当前消息队列数量                 |
+| message_queues.max         | Integer | 消息队列数量的历史最大值              |
+| message_storages.count     | Integer | 当前消息存储数量（-1 表示未启用存储模块）     |
+| message_storages.max       | Integer | 消息存储数量的历史最大值              |
 
 **Examples:**
 
 ```bash
 $ curl -i -X GET "http://localhost:6060/api/v1/stats"
 
-[{"node":{"id":1,"name":"1@127.0.0.1","status":"Running"},"stats":{"connections.count":1,"connections.max":2,"retained.count":2,"retained.max":2,"routes.count":3,"routes.max":4,"sessions.count":1,"sessions.max":2,"subscriptions.count":7,"subscriptions.max":8,"subscriptions_shared.count":1,"subscriptions_shared.max":2,"topics.count":3,"topics.max":4}}]
+[{"node":{"id":1,"name":"1@127.0.0.1","running":true},"stats":{"connections.count":1,"connections.max":2,"retained.count":2,"retained.max":2,"routes.count":3,"routes.max":4,"sessions.count":1,"sessions.max":2,"subscriptions.count":7,"subscriptions.max":8,"subscriptions_shared.count":1,"subscriptions_shared.max":2,"topics.count":3,"topics.max":4}}]
 ```
 
 ### GET /api/v1/stats/{node}
@@ -836,7 +1147,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1/stats"
 |---------------|---------|-------------|
 | id            | Integer | 节点ID       |
 | name          | String  | 节点名称      |
-| status        | String | 节点状态       |
+| running        | Bool | 节点是否运行中       |
 
 **stats:**
 
@@ -849,7 +1160,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1/stats"
 ```bash
 $ curl -i -X GET "http://localhost:6060/api/v1/stats/1"
 
-{"node":{"id":1,"name":"1@127.0.0.1","status":"Running"},"stats":{"connections.count":1,"connections.max":2,"retained.count":2,"retained.max":2,"routes.count":3,"routes.max":4,"sessions.count":1,"sessions.max":2,"subscriptions.count":7,"subscriptions.max":8,"subscriptions_shared.count":1,"subscriptions_shared.max":2,"topics.count":3,"topics.max":4}}
+{"node":{"id":1,"name":"1@127.0.0.1","running":true},"stats":{"connections.count":1,"connections.max":2,"retained.count":2,"retained.max":2,"routes.count":3,"routes.max":4,"sessions.count":1,"sessions.max":2,"subscriptions.count":7,"subscriptions.max":8,"subscriptions_shared.count":1,"subscriptions_shared.max":2,"topics.count":3,"topics.max":4}}
 ```
 
 ### GET /api/v1/stats/sum
@@ -870,9 +1181,9 @@ $ curl -i -X GET "http://localhost:6060/api/v1/stats/1"
 
 | Name        | Type     | Description    |
 |-------------|----------|----------------|
-| {id}        | Object   | 节点, key为节点ID  |
+| {id}        | Object   | 节点, key 为节点ID  |
 | {id}.name   | String   | 节点名称           |
-| {id}.status | String   | 节点状态           |
+| {id}.running | Bool    | 节点是否运行中        |
 
 **stats:**
 
@@ -885,7 +1196,139 @@ $ curl -i -X GET "http://localhost:6060/api/v1/stats/1"
 ```bash
 $ curl -i -X GET "http://localhost:6060/api/v1/stats/sum"
 
-{"nodes":{"1":{"name":"1@127.0.0.1","status":"Running"}},"stats":{"connections.count":1,"connections.max":2,"retained.count":2,"retained.max":2,"routes.count":3,"routes.max":4,"sessions.count":1,"sessions.max":2,"subscriptions.count":7,"subscriptions.max":8,"subscriptions_shared.count":1,"subscriptions_shared.max":2,"topics.count":3,"topics.max":4}}
+{"nodes":{"1":{"name":"1@127.0.0.1","running":true}},"stats":{"connections.count":1,"connections.max":2,"retained.count":2,"retained.max":2,"routes.count":3,"routes.max":4,"sessions.count":1,"sessions.max":2,"subscriptions.count":7,"subscriptions.max":8,"subscriptions_shared.count":1,"subscriptions_shared.max":2,"topics.count":3,"topics.max":4}}
+```
+
+### GET /api/v1/stats/sys
+
+返回集群下所有节点的系统状态数据。响应格式与 [GET /api/v1/stats](#get-stats) 相同，但 stats 字段使用系统级 JSON 序列化表示。
+
+**Path Parameters:** 无
+
+**Success Response Body (JSON):** 同 [GET /api/v1/stats](#get-stats)
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/stats/sys"
+```
+
+### GET /api/v1/stats/sys/{node}
+
+返回集群下指定节点的系统状态数据。
+
+**Path Parameters:**
+
+| Name | Type | Required | Description |
+| ---- | --------- | ------------|-------------|
+| node | Integer    | True       | 节点ID，如：1    |
+
+**Success Response Body (JSON):** 同 [GET /api/v1/stats](#get-stats)
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/stats/sys/1"
+```
+
+### GET /api/v1/stats/sys/sum
+
+汇总集群下所有节点的系统状态数据。
+
+**Path Parameters:** 无
+
+**Success Response Body (JSON):** 同 [GET /api/v1/stats/sum](#get-statssum)
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/stats/sys/sum"
+```
+
+### GET /api/v1/stats/history
+
+查询集群下所有节点的状态历史数据。需要启用历史存储配置。
+
+**Query String Parameters:**
+
+| Name         | Type    | Required | Default | Description           |
+|--------------|---------|----------|---------|-----------------------|
+| minutes      | Integer | Optional | 5       | 查询最近N分钟的数据          |
+| hours        | Integer | Optional |         | 查询最近N小时的数据（与 minutes/days 三选一） |
+| days         | Integer | Optional |         | 查询最近N天的数据（与 minutes/hours 三选一） |
+| limit        | Integer | Optional | 1000    | 最多返回的数据点数 |
+| merge_window | Integer | Optional |         | 合并窗口（秒），大于0时按窗口粒度合并数据 |
+
+**Success Response Body (JSON):**
+
+| Name      | Type              | Description          |
+|-----------|-------------------|----------------------|
+| from      | Integer           | 查询起始时间戳（毫秒）       |
+| to        | Integer           | 查询结束时间戳（毫秒）       |
+| nodes     | Object            | 各节点的历史数据，key 为节点ID |
+| nodes.{id}| Object            | 节点历史数据             |
+| .from     | Integer           | 该节点数据的起始时间戳        |
+| .to       | Integer           | 该节点数据的结束时间戳        |
+| .node     | Integer           | 节点ID                |
+| .count    | Integer           | 数据点数量              |
+| .data     | Array             | 历史数据点数组，每个元素包含 `ts` (时间戳) 和 stats 字段 |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/stats/history?minutes=10&limit=100"
+
+{"from":1700000000000,"to":1700000600000,"nodes":{"1":{"from":1700000000000,"to":1700000600000,"node":1,"count":120,"data":[{"ts":1700000000000,"connections.count":1,"sessions.count":1,...},...]}}}
+```
+
+### GET /api/v1/stats/history/{node}
+
+查询集群下指定节点的状态历史数据。
+
+**Path Parameters:**
+
+| Name | Type    | Required | Description    |
+|------|---------|----------|----------------|
+| node | Integer | True     | 节点ID，如：1    |
+
+**Query String Parameters:** 同 [GET /api/v1/stats/history](#get-statshistory)
+
+**Success Response Body (JSON):**
+
+| Name   | Type    | Description        |
+|--------|---------|--------------------|
+| from   | Integer | 查询起始时间戳（毫秒）      |
+| to     | Integer | 查询结束时间戳（毫秒）      |
+| node   | Integer | 节点ID              |
+| count  | Integer | 数据点数量             |
+| data   | Array   | 历史数据点数组，每个元素包含 `ts` (时间戳) 和 stats 字段 |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/stats/history/1?hours=1&limit=200"
+```
+
+### GET /api/v1/stats/history/sum
+
+汇总集群下所有节点的状态历史数据（按时间戳求和数值字段）。
+
+**Query String Parameters:** 同 [GET /api/v1/stats/history](#get-statshistory)
+
+**Success Response Body (JSON):**
+
+| Name       | Type    | Description         |
+|------------|---------|---------------------|
+| from       | Integer | 查询起始时间戳（毫秒）       |
+| to         | Integer | 查询结束时间戳（毫秒）       |
+| node_count | Integer | 参与汇总的节点数量         |
+| count      | Integer | 数据点数量              |
+| data       | Array   | 汇总后的数据点数组，每个元素包含 `ts` 和所有节点的汇总数值 |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/stats/history/sum?minutes=30&limit=500"
 ```
 
 ## 统计指标
@@ -915,55 +1358,59 @@ $ curl -i -X GET "http://localhost:6060/api/v1/stats/sum"
 
 **metrics:**
 
-| Name                            | Type | Description                      |
-|---------------------------------| --------- |----------------------------------|
-| client.auth.anonymous           | Integer   | 匿名登录的客户端数量                       |
-| client.auth.anonymous.error     | Integer   | 匿名登录失败的客户端数量                     |
-| client.authenticate             | Integer   | 客户端认证次数                          |
-| client.connack                  | Integer   | 发送 CONNACK 报文的次数                 |
-| client.connack.auth.error       | Integer   | 发送连接认证失败的 CONNACK 报文的次数          |
-| client.connack.error            | Integer   | 发送连接失败的 CONNACK 报文的次数            |
-| client.connect                  | Integer   | 客户端连接次数                          |
-| client.connected                | Integer   | 客户端成功连接次数                        |
-| client.disconnected             | Integer   | 客户端断开连接次数                        |
-| client.handshaking.timeout      | Integer   | 连接握手超时次数                         |
-| client.publish.auth.error       | Integer   | 发布，ACL 规则检查失败次数                  |
-| client.publish.check.acl        | Integer   | 发布，ACL 规则检查次数                    |
-| client.publish.error            | Integer   | 发布，失败次数                          |
-| client.subscribe.auth.error     | Integer   | 订阅，ACL 规则检查失败次数                  |
-| client.subscribe.error          | Integer   | 订阅，失败次数                          |
-| client.subscribe.check.acl      | Integer   | 订阅，ACL 规则检查次数                    |
-| client.subscribe                | Integer   | 客户端订阅次数                          |
-| client.unsubscribe              | Integer   | 客户端取消订阅次数                        |
-| messages.publish                | Integer   | 接收到PUBLISH消息数量                   |
-| messages.publish.admin          | Integer   | 接收到PUBLISH消息数量, 通过HTTP-API发布的消息  |
-| messages.publish.custom         | Integer   | 接收到PUBLISH消息数量, 通过MQTT客户端发布的消息   |
-| messages.publish.lastwill       | Integer   | 接收到PUBLISH消息数量, 遗嘱消息             |
-| messages.publish.retain         | Integer   | 接收到PUBLISH消息数量, 转发的保留消息          |
-| messages.publish.system         | Integer   | 接收到PUBLISH消息数量, 系统主题消息($SYS/#)   |
-| messages.delivered              | Integer   | 向订阅端转发的消息数              |
-| messages.delivered.admin        | Integer   | 向订阅端转发的消息数, 通过HTTP-API发布的消息 |
-| messages.delivered.custom       | Integer   | 向订阅端转发的消息数, 通过MQTT客户端发布的消息  |
-| messages.delivered.lastwill     | Integer   | 向订阅端转发的消息数, 遗嘱消息            |
-| messages.delivered.retain       | Integer   | 向订阅端转发的消息数, 转发的保留消息         |
-| messages.delivered.system       | Integer   | 向订阅端转发的消息数, 系统主题消息($SYS/#)  |
-| messages.acked                  | Integer   | 接收的 PUBACK 和 PUBREC 报文数量                 |
-| messages.acked.admin            | Integer   | 接收的 PUBACK 和 PUBREC 报文数量, 通过HTTP-API发布的消息 |
-| messages.acked.custom           | Integer   | 接收的 PUBACK 和 PUBREC 报文数量, 通过MQTT客户端发布的消息  |
-| messages.acked.lastwill         | Integer   | 接收的 PUBACK 和 PUBREC 报文数量, 遗嘱消息            |
-| messages.acked.retain           | Integer   | 接收的 PUBACK 和 PUBREC 报文数量, 转发的保留消息         |
-| messages.acked.system           | Integer   | 接收的 PUBACK 和 PUBREC 报文数量, 系统主题消息($SYS/#)  |
-| messages.nonsubscribed          | Integer   | 未找到订阅关系的PUBLISH消息数量          |
-| messages.nonsubscribed.admin    | Integer   | 未找到订阅关系的PUBLISH消息数量, 通过HTTP-API发布的消息 |
-| messages.nonsubscribed.custom   | Integer   | 未找到订阅关系的PUBLISH消息数量, 通过MQTT客户端发布的消息  |
-| messages.nonsubscribed.lastwill | Integer   | 未找到订阅关系的PUBLISH消息数量, 遗嘱消息            |
-| messages.nonsubscribed.system   | Integer   | 未找到订阅关系的PUBLISH消息数量, 系统主题消息($SYS/#)  |
-| messages.dropped                | Integer   | 丢弃的消息总数                                               |
-| session.created                 | Integer   | 创建的会话数量                                               |
-| session.resumed                 | Integer   | 由于 `Clean Session` 或 `Clean Start` 为 `false` 而恢复的会话数量 |
-| session.subscribed              | Integer   | 客户端成功订阅次数                                             |
-| session.unsubscribed            | Integer   | 客户端成功取消订阅次数                                           |
-| session.terminated              | Integer   | 终结的会话数量                                               |
+| Name                            | Type    | Description                      |
+|---------------------------------|---------|----------------------------------|
+| client.auth.anonymous           | Integer | 匿名登录的客户端数量                       |
+| client.auth.anonymous.error     | Integer | 匿名登录失败的客户端数量                     |
+| client.authenticate             | Integer | 客户端认证次数                          |
+| client.connack                  | Integer | 发送 CONNACK 报文的次数                 |
+| client.connack.auth.error       | Integer | 发送连接认证失败的 CONNACK 报文的次数          |
+| client.connack.error            | Integer | 发送连接失败的 CONNACK 报文的次数            |
+| client.connect                  | Integer | 客户端连接次数                          |
+| client.connected                | Integer | 客户端成功连接次数                        |
+| client.disconnected             | Integer | 客户端断开连接次数                        |
+| client.handshaking.timeout      | Integer | 连接握手超时次数                         |
+| client.publish.auth.error       | Integer | 发布，ACL 规则检查失败次数                  |
+| client.publish.check.acl        | Integer | 发布，ACL 规则检查次数                    |
+| client.publish.error            | Integer | 发布，失败次数                          |
+| client.subscribe.auth.error     | Integer | 订阅，ACL 规则检查失败次数                  |
+| client.subscribe.error          | Integer | 订阅，失败次数                          |
+| client.subscribe.check.acl      | Integer | 订阅，ACL 规则检查次数                    |
+| client.subscribe                | Integer | 客户端订阅次数                          |
+| client.unsubscribe              | Integer | 客户端取消订阅次数                        |
+| messages.publish                | Integer | 接收到PUBLISH消息数量                   |
+| messages.publish.admin          | Integer | 通过HTTP-API发布的消息                   |
+| messages.publish.bridge         | Integer | 通过 Bridge 桥接发布的消息                 |
+| messages.publish.custom         | Integer | 通过MQTT客户端发布的消息                   |
+| messages.publish.lastwill       | Integer | 遗嘱消息                              |
+| messages.publish.retain         | Integer | 转发的保留消息                          |
+| messages.publish.system         | Integer | 系统主题消息($SYS/#)                    |
+| messages.delivered              | Integer | 向订阅端转发的消息数                       |
+| messages.delivered.admin        | Integer | 通过HTTP-API发布的消息转发数                |
+| messages.delivered.bridge       | Integer | 通过 Bridge 桥接发布的消息转发数              |
+| messages.delivered.custom       | Integer | 通过MQTT客户端发布的消息转发数                |
+| messages.delivered.lastwill     | Integer | 遗嘱消息转发数                          |
+| messages.delivered.retain       | Integer | 转发的保留消息转发数                       |
+| messages.delivered.system       | Integer | 系统主题消息转发数                        |
+| messages.acked                  | Integer | 接收的 PUBACK 和 PUBREC 报文数量           |
+| messages.acked.admin            | Integer | 通过HTTP-API发布的消息的 ACK 数量           |
+| messages.acked.bridge           | Integer | 通过 Bridge 桥接发布的消息的 ACK 数量         |
+| messages.acked.custom           | Integer | 通过MQTT客户端发布的消息的 ACK 数量           |
+| messages.acked.lastwill         | Integer | 遗嘱消息的 ACK 数量                      |
+| messages.acked.retain           | Integer | 转发的保留消息的 ACK 数量                   |
+| messages.acked.system           | Integer | 系统主题消息的 ACK 数量                    |
+| messages.nonsubscribed          | Integer | 未找到订阅关系的PUBLISH消息数量              |
+| messages.nonsubscribed.admin    | Integer | 通过HTTP-API发布的无订阅消息数量              |
+| messages.nonsubscribed.bridge   | Integer | 通过 Bridge 桥接发布的无订阅消息数量            |
+| messages.nonsubscribed.custom   | Integer | 通过MQTT客户端发布的无订阅消息数量              |
+| messages.nonsubscribed.lastwill | Integer | 遗嘱消息中无订阅的消息数量                    |
+| messages.nonsubscribed.system   | Integer | 系统主题中无订阅的消息数量                    |
+| messages.dropped                | Integer | 丢弃的消息总数                           |
+| session.created                 | Integer | 创建的会话数量                           |
+| session.resumed                 | Integer | 由于 `Clean Session` 或 `Clean Start` 为 `false` 而恢复的会话数量 |
+| session.subscribed              | Integer | 客户端成功订阅次数                         |
+| session.unsubscribed            | Integer | 客户端成功取消订阅次数                       |
+| session.terminated              | Integer | 终结的会话数量                           |
 
 **Examples:**
 
@@ -1032,6 +1479,90 @@ $ curl -i -X GET "http://localhost:6060/api/v1/metrics/sum"
 {"client.auth.anonymous":38,"client.authenticate":47,"client.connack":47,"client.connect":47,"client.connected":47,"client.disconnected":46,"client.publish.check.acl":50,"client.subscribe":37,"client.subscribe.check.acl":15,"client.unsubscribe":8,"messages.acked":35,"messages.delivered":78,"messages.dropped":0,"messages.publish":78,"session.created":45,"session.resumed":2,"session.subscribed":15,"session.terminated":42,"session.unsubscribed":8}
 ```
 
+### GET /api/v1/metrics/history
+
+查询集群下所有节点的指标历史数据。需要启用历史存储配置。
+
+**Query String Parameters:**
+
+| Name         | Type    | Required | Default | Description           |
+|--------------|---------|----------|---------|-----------------------|
+| minutes      | Integer | Optional | 5       | 查询最近N分钟的数据          |
+| hours        | Integer | Optional |         | 查询最近N小时的数据          |
+| days         | Integer | Optional |         | 查询最近N天的数据          |
+| limit        | Integer | Optional | 1000    | 最多返回的数据点数          |
+| merge_window | Integer | Optional |         | 合并窗口（秒）             |
+
+**Success Response Body (JSON):**
+
+| Name       | Type              | Description          |
+|------------|-------------------|----------------------|
+| from       | Integer           | 查询起始时间戳（毫秒）       |
+| to         | Integer           | 查询结束时间戳（毫秒）       |
+| nodes      | Object            | 各节点的历史数据，key 为节点ID |
+| nodes.{id} | Object            | 节点历史数据             |
+| .from      | Integer           | 该节点数据的起始时间戳        |
+| .to        | Integer           | 该节点数据的结束时间戳        |
+| .node      | Integer           | 节点ID                |
+| .count     | Integer           | 数据点数量              |
+| .data      | Array             | 历史数据点数组            |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/metrics/history?minutes=10&limit=100"
+```
+
+### GET /api/v1/metrics/history/{node}
+
+查询集群下指定节点的指标历史数据。
+
+**Path Parameters:**
+
+| Name | Type    | Required | Description    |
+|------|---------|----------|----------------|
+| node | Integer | True     | 节点ID，如：1    |
+
+**Query String Parameters:** 同 [GET /api/v1/metrics/history](#get-metricshistory)
+
+**Success Response Body (JSON):**
+
+| Name   | Type    | Description        |
+|--------|---------|--------------------|
+| from   | Integer | 查询起始时间戳（毫秒）      |
+| to     | Integer | 查询结束时间戳（毫秒）      |
+| node   | Integer | 节点ID              |
+| count  | Integer | 数据点数量             |
+| data   | Array   | 历史数据点数组，每个元素包含 `ts` (时间戳) 和 metrics 字段 |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/metrics/history/1?minutes=30"
+```
+
+### GET /api/v1/metrics/history/sum
+
+汇总集群下所有节点的指标历史数据。
+
+**Query String Parameters:** 同 [GET /api/v1/metrics/history](#get-metricshistory)
+
+**Success Response Body (JSON):**
+
+| Name       | Type    | Description         |
+|------------|---------|---------------------|
+| from       | Integer | 查询起始时间戳（毫秒）       |
+| to         | Integer | 查询结束时间戳（毫秒）       |
+| node_count | Integer | 参与汇总的节点数量         |
+| count      | Integer | 数据点数量              |
+| data       | Array   | 汇总后的数据点数组         |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/metrics/history/sum?minutes=60"
+```
+
 ### GET /api/v1/metrics/prometheus
 
 <span id = "get-prometheus" />
@@ -1051,371 +1582,16 @@ $ curl -i -X GET "http://localhost:6060/api/v1/metrics/prometheus"
 # TYPE rmqtt_metrics gauge
 rmqtt_metrics{item="client.auth.anonymous",node="1"} 0
 rmqtt_metrics{item="client.auth.anonymous",node="2"} 2
-rmqtt_metrics{item="client.auth.anonymous",node="3"} 1
-rmqtt_metrics{item="client.auth.anonymous",node="all"} 3
-rmqtt_metrics{item="client.auth.anonymous.error",node="1"} 0
-rmqtt_metrics{item="client.auth.anonymous.error",node="2"} 0
-rmqtt_metrics{item="client.auth.anonymous.error",node="3"} 0
-rmqtt_metrics{item="client.auth.anonymous.error",node="all"} 0
-rmqtt_metrics{item="client.authenticate",node="1"} 1
-rmqtt_metrics{item="client.authenticate",node="2"} 2
-rmqtt_metrics{item="client.authenticate",node="3"} 1
-rmqtt_metrics{item="client.authenticate",node="all"} 4
-rmqtt_metrics{item="client.connack",node="1"} 1
-rmqtt_metrics{item="client.connack",node="2"} 2
-rmqtt_metrics{item="client.connack",node="3"} 1
-rmqtt_metrics{item="client.connack",node="all"} 4
-rmqtt_metrics{item="client.connack.auth.error",node="1"} 0
-rmqtt_metrics{item="client.connack.auth.error",node="2"} 0
-rmqtt_metrics{item="client.connack.auth.error",node="3"} 0
-rmqtt_metrics{item="client.connack.auth.error",node="all"} 0
-rmqtt_metrics{item="client.connack.error",node="1"} 0
-rmqtt_metrics{item="client.connack.error",node="2"} 0
-rmqtt_metrics{item="client.connack.error",node="3"} 0
-rmqtt_metrics{item="client.connack.error",node="all"} 0
-rmqtt_metrics{item="client.connect",node="1"} 1
-rmqtt_metrics{item="client.connect",node="2"} 2
-rmqtt_metrics{item="client.connect",node="3"} 1
-rmqtt_metrics{item="client.connect",node="all"} 4
-rmqtt_metrics{item="client.connected",node="1"} 1
-rmqtt_metrics{item="client.connected",node="2"} 2
-rmqtt_metrics{item="client.connected",node="3"} 1
-rmqtt_metrics{item="client.connected",node="all"} 4
-rmqtt_metrics{item="client.disconnected",node="1"} 0
-rmqtt_metrics{item="client.disconnected",node="2"} 0
-rmqtt_metrics{item="client.disconnected",node="3"} 0
-rmqtt_metrics{item="client.disconnected",node="all"} 0
-rmqtt_metrics{item="client.handshaking.timeout",node="1"} 0
-rmqtt_metrics{item="client.handshaking.timeout",node="2"} 0
-rmqtt_metrics{item="client.handshaking.timeout",node="3"} 0
-rmqtt_metrics{item="client.handshaking.timeout",node="all"} 0
-rmqtt_metrics{item="client.publish.auth.error",node="1"} 0
-rmqtt_metrics{item="client.publish.auth.error",node="2"} 0
-rmqtt_metrics{item="client.publish.auth.error",node="3"} 0
-rmqtt_metrics{item="client.publish.auth.error",node="all"} 0
-rmqtt_metrics{item="client.publish.check.acl",node="1"} 0
-rmqtt_metrics{item="client.publish.check.acl",node="2"} 0
-rmqtt_metrics{item="client.publish.check.acl",node="3"} 0
-rmqtt_metrics{item="client.publish.check.acl",node="all"} 0
-rmqtt_metrics{item="client.publish.error",node="1"} 0
-rmqtt_metrics{item="client.publish.error",node="2"} 0
-rmqtt_metrics{item="client.publish.error",node="3"} 0
-rmqtt_metrics{item="client.publish.error",node="all"} 0
-rmqtt_metrics{item="client.subscribe",node="1"} 0
-rmqtt_metrics{item="client.subscribe",node="2"} 0
-rmqtt_metrics{item="client.subscribe",node="3"} 0
-rmqtt_metrics{item="client.subscribe",node="all"} 0
-rmqtt_metrics{item="client.subscribe.auth.error",node="1"} 0
-rmqtt_metrics{item="client.subscribe.auth.error",node="2"} 0
-rmqtt_metrics{item="client.subscribe.auth.error",node="3"} 0
-rmqtt_metrics{item="client.subscribe.auth.error",node="all"} 0
-rmqtt_metrics{item="client.subscribe.check.acl",node="1"} 0
-rmqtt_metrics{item="client.subscribe.check.acl",node="2"} 0
-rmqtt_metrics{item="client.subscribe.check.acl",node="3"} 0
-rmqtt_metrics{item="client.subscribe.check.acl",node="all"} 0
-rmqtt_metrics{item="client.subscribe.error",node="1"} 0
-rmqtt_metrics{item="client.subscribe.error",node="2"} 0
-rmqtt_metrics{item="client.subscribe.error",node="3"} 0
-rmqtt_metrics{item="client.subscribe.error",node="all"} 0
-rmqtt_metrics{item="client.unsubscribe",node="1"} 0
-rmqtt_metrics{item="client.unsubscribe",node="2"} 0
-rmqtt_metrics{item="client.unsubscribe",node="3"} 0
-rmqtt_metrics{item="client.unsubscribe",node="all"} 0
-rmqtt_metrics{item="messages.acked",node="1"} 0
-rmqtt_metrics{item="messages.acked",node="2"} 0
-rmqtt_metrics{item="messages.acked",node="3"} 0
-rmqtt_metrics{item="messages.acked",node="all"} 0
-rmqtt_metrics{item="messages.acked.admin",node="1"} 0
-rmqtt_metrics{item="messages.acked.admin",node="2"} 0
-rmqtt_metrics{item="messages.acked.admin",node="3"} 0
-rmqtt_metrics{item="messages.acked.admin",node="all"} 0
-rmqtt_metrics{item="messages.acked.bridge",node="1"} 0
-rmqtt_metrics{item="messages.acked.bridge",node="2"} 0
-rmqtt_metrics{item="messages.acked.bridge",node="3"} 0
-rmqtt_metrics{item="messages.acked.bridge",node="all"} 0
-rmqtt_metrics{item="messages.acked.custom",node="1"} 0
-rmqtt_metrics{item="messages.acked.custom",node="2"} 0
-rmqtt_metrics{item="messages.acked.custom",node="3"} 0
-rmqtt_metrics{item="messages.acked.custom",node="all"} 0
-rmqtt_metrics{item="messages.acked.lastwill",node="1"} 0
-rmqtt_metrics{item="messages.acked.lastwill",node="2"} 0
-rmqtt_metrics{item="messages.acked.lastwill",node="3"} 0
-rmqtt_metrics{item="messages.acked.lastwill",node="all"} 0
-rmqtt_metrics{item="messages.acked.retain",node="1"} 0
-rmqtt_metrics{item="messages.acked.retain",node="2"} 0
-rmqtt_metrics{item="messages.acked.retain",node="3"} 0
-rmqtt_metrics{item="messages.acked.retain",node="all"} 0
-rmqtt_metrics{item="messages.acked.system",node="1"} 0
-rmqtt_metrics{item="messages.acked.system",node="2"} 0
-rmqtt_metrics{item="messages.acked.system",node="3"} 0
-rmqtt_metrics{item="messages.acked.system",node="all"} 0
-rmqtt_metrics{item="messages.delivered",node="1"} 0
-rmqtt_metrics{item="messages.delivered",node="2"} 0
-rmqtt_metrics{item="messages.delivered",node="3"} 0
-rmqtt_metrics{item="messages.delivered",node="all"} 0
-rmqtt_metrics{item="messages.delivered.admin",node="1"} 0
-rmqtt_metrics{item="messages.delivered.admin",node="2"} 0
-rmqtt_metrics{item="messages.delivered.admin",node="3"} 0
-rmqtt_metrics{item="messages.delivered.admin",node="all"} 0
-rmqtt_metrics{item="messages.delivered.bridge",node="1"} 0
-rmqtt_metrics{item="messages.delivered.bridge",node="2"} 0
-rmqtt_metrics{item="messages.delivered.bridge",node="3"} 0
-rmqtt_metrics{item="messages.delivered.bridge",node="all"} 0
-rmqtt_metrics{item="messages.delivered.custom",node="1"} 0
-rmqtt_metrics{item="messages.delivered.custom",node="2"} 0
-rmqtt_metrics{item="messages.delivered.custom",node="3"} 0
-rmqtt_metrics{item="messages.delivered.custom",node="all"} 0
-rmqtt_metrics{item="messages.delivered.lastwill",node="1"} 0
-rmqtt_metrics{item="messages.delivered.lastwill",node="2"} 0
-rmqtt_metrics{item="messages.delivered.lastwill",node="3"} 0
-rmqtt_metrics{item="messages.delivered.lastwill",node="all"} 0
-rmqtt_metrics{item="messages.delivered.retain",node="1"} 0
-rmqtt_metrics{item="messages.delivered.retain",node="2"} 0
-rmqtt_metrics{item="messages.delivered.retain",node="3"} 0
-rmqtt_metrics{item="messages.delivered.retain",node="all"} 0
-rmqtt_metrics{item="messages.delivered.system",node="1"} 0
-rmqtt_metrics{item="messages.delivered.system",node="2"} 0
-rmqtt_metrics{item="messages.delivered.system",node="3"} 0
-rmqtt_metrics{item="messages.delivered.system",node="all"} 0
-rmqtt_metrics{item="messages.dropped",node="1"} 0
-rmqtt_metrics{item="messages.dropped",node="2"} 0
-rmqtt_metrics{item="messages.dropped",node="3"} 0
-rmqtt_metrics{item="messages.dropped",node="all"} 0
-rmqtt_metrics{item="messages.nonsubscribed",node="1"} 0
-rmqtt_metrics{item="messages.nonsubscribed",node="2"} 0
-rmqtt_metrics{item="messages.nonsubscribed",node="3"} 0
-rmqtt_metrics{item="messages.nonsubscribed",node="all"} 0
-rmqtt_metrics{item="messages.nonsubscribed.admin",node="1"} 0
-rmqtt_metrics{item="messages.nonsubscribed.admin",node="2"} 0
-rmqtt_metrics{item="messages.nonsubscribed.admin",node="3"} 0
-rmqtt_metrics{item="messages.nonsubscribed.admin",node="all"} 0
-rmqtt_metrics{item="messages.nonsubscribed.bridge",node="1"} 0
-rmqtt_metrics{item="messages.nonsubscribed.bridge",node="2"} 0
-rmqtt_metrics{item="messages.nonsubscribed.bridge",node="3"} 0
-rmqtt_metrics{item="messages.nonsubscribed.bridge",node="all"} 0
-rmqtt_metrics{item="messages.nonsubscribed.custom",node="1"} 0
-rmqtt_metrics{item="messages.nonsubscribed.custom",node="2"} 0
-rmqtt_metrics{item="messages.nonsubscribed.custom",node="3"} 0
-rmqtt_metrics{item="messages.nonsubscribed.custom",node="all"} 0
-rmqtt_metrics{item="messages.nonsubscribed.lastwill",node="1"} 0
-rmqtt_metrics{item="messages.nonsubscribed.lastwill",node="2"} 0
-rmqtt_metrics{item="messages.nonsubscribed.lastwill",node="3"} 0
-rmqtt_metrics{item="messages.nonsubscribed.lastwill",node="all"} 0
-rmqtt_metrics{item="messages.nonsubscribed.system",node="1"} 0
-rmqtt_metrics{item="messages.nonsubscribed.system",node="2"} 0
-rmqtt_metrics{item="messages.nonsubscribed.system",node="3"} 0
-rmqtt_metrics{item="messages.nonsubscribed.system",node="all"} 0
-rmqtt_metrics{item="messages.publish",node="1"} 0
-rmqtt_metrics{item="messages.publish",node="2"} 0
-rmqtt_metrics{item="messages.publish",node="3"} 0
-rmqtt_metrics{item="messages.publish",node="all"} 0
-rmqtt_metrics{item="messages.publish.admin",node="1"} 0
-rmqtt_metrics{item="messages.publish.admin",node="2"} 0
-rmqtt_metrics{item="messages.publish.admin",node="3"} 0
-rmqtt_metrics{item="messages.publish.admin",node="all"} 0
-rmqtt_metrics{item="messages.publish.bridge",node="1"} 0
-rmqtt_metrics{item="messages.publish.bridge",node="2"} 0
-rmqtt_metrics{item="messages.publish.bridge",node="3"} 0
-rmqtt_metrics{item="messages.publish.bridge",node="all"} 0
-rmqtt_metrics{item="messages.publish.custom",node="1"} 0
-rmqtt_metrics{item="messages.publish.custom",node="2"} 0
-rmqtt_metrics{item="messages.publish.custom",node="3"} 0
-rmqtt_metrics{item="messages.publish.custom",node="all"} 0
-rmqtt_metrics{item="messages.publish.lastwill",node="1"} 0
-rmqtt_metrics{item="messages.publish.lastwill",node="2"} 0
-rmqtt_metrics{item="messages.publish.lastwill",node="3"} 0
-rmqtt_metrics{item="messages.publish.lastwill",node="all"} 0
-rmqtt_metrics{item="messages.publish.system",node="1"} 0
-rmqtt_metrics{item="messages.publish.system",node="2"} 0
-rmqtt_metrics{item="messages.publish.system",node="3"} 0
-rmqtt_metrics{item="messages.publish.system",node="all"} 0
-rmqtt_metrics{item="session.created",node="1"} 1
-rmqtt_metrics{item="session.created",node="2"} 2
-rmqtt_metrics{item="session.created",node="3"} 1
-rmqtt_metrics{item="session.created",node="all"} 4
-rmqtt_metrics{item="session.resumed",node="1"} 0
-rmqtt_metrics{item="session.resumed",node="2"} 0
-rmqtt_metrics{item="session.resumed",node="3"} 0
-rmqtt_metrics{item="session.resumed",node="all"} 0
-rmqtt_metrics{item="session.subscribed",node="1"} 0
-rmqtt_metrics{item="session.subscribed",node="2"} 0
-rmqtt_metrics{item="session.subscribed",node="3"} 0
-rmqtt_metrics{item="session.subscribed",node="all"} 0
-rmqtt_metrics{item="session.terminated",node="1"} 0
-rmqtt_metrics{item="session.terminated",node="2"} 0
-rmqtt_metrics{item="session.terminated",node="3"} 0
-rmqtt_metrics{item="session.terminated",node="all"} 0
-rmqtt_metrics{item="session.unsubscribed",node="1"} 0
-rmqtt_metrics{item="session.unsubscribed",node="2"} 0
-rmqtt_metrics{item="session.unsubscribed",node="3"} 0
-rmqtt_metrics{item="session.unsubscribed",node="all"} 0
+...
 # HELP rmqtt_nodes All nodes status
 # TYPE rmqtt_nodes gauge
 rmqtt_nodes{item="disk_free",node="1"} 46307106816
-rmqtt_nodes{item="disk_free",node="2"} 46307106816
-rmqtt_nodes{item="disk_free",node="3"} 46307106816
-rmqtt_nodes{item="disk_free",node="all"} 138921320448
-rmqtt_nodes{item="disk_total",node="1"} 1000896192512
-rmqtt_nodes{item="disk_total",node="2"} 1000896192512
-rmqtt_nodes{item="disk_total",node="3"} 1000896192512
-rmqtt_nodes{item="disk_total",node="all"} 3002688577536
-rmqtt_nodes{item="load1",node="1"} 0
-rmqtt_nodes{item="load1",node="2"} 0
-rmqtt_nodes{item="load1",node="3"} 0
-rmqtt_nodes{item="load1",node="all"} 0
-rmqtt_nodes{item="load15",node="1"} 0
-rmqtt_nodes{item="load15",node="2"} 0
-rmqtt_nodes{item="load15",node="3"} 0
-rmqtt_nodes{item="load15",node="all"} 0
-rmqtt_nodes{item="load5",node="1"} 0
-rmqtt_nodes{item="load5",node="2"} 0
-rmqtt_nodes{item="load5",node="3"} 0
-rmqtt_nodes{item="load5",node="all"} 0
-rmqtt_nodes{item="memory_free",node="1"} 19571781632
-rmqtt_nodes{item="memory_free",node="2"} 19571781632
-rmqtt_nodes{item="memory_free",node="3"} 19571781632
-rmqtt_nodes{item="memory_free",node="all"} 58715344896
-rmqtt_nodes{item="memory_total",node="1"} 34070585344
-rmqtt_nodes{item="memory_total",node="2"} 34070585344
-rmqtt_nodes{item="memory_total",node="3"} 34070585344
-rmqtt_nodes{item="memory_total",node="all"} 102211756032
-rmqtt_nodes{item="memory_used",node="1"} 14498803712
-rmqtt_nodes{item="memory_used",node="2"} 14498803712
-rmqtt_nodes{item="memory_used",node="3"} 14498803712
-rmqtt_nodes{item="memory_used",node="all"} 43496411136
-rmqtt_nodes{item="running",node="1"} 1
-rmqtt_nodes{item="running",node="2"} 1
-rmqtt_nodes{item="running",node="3"} 1
-rmqtt_nodes{item="running",node="all"} 3
+...
 # HELP rmqtt_stats All status data
 # TYPE rmqtt_stats gauge
 rmqtt_stats{item="connections.count",node="1"} 1
-rmqtt_stats{item="connections.count",node="2"} 2
-rmqtt_stats{item="connections.count",node="3"} 1
-rmqtt_stats{item="connections.count",node="all"} 4
-rmqtt_stats{item="connections.max",node="1"} 1
-rmqtt_stats{item="connections.max",node="2"} 2
-rmqtt_stats{item="connections.max",node="3"} 1
-rmqtt_stats{item="connections.max",node="all"} 4
-rmqtt_stats{item="delayed_publishs.count",node="1"} 0
-rmqtt_stats{item="delayed_publishs.count",node="2"} 0
-rmqtt_stats{item="delayed_publishs.count",node="3"} 0
-rmqtt_stats{item="delayed_publishs.count",node="all"} 0
-rmqtt_stats{item="delayed_publishs.max",node="1"} 0
-rmqtt_stats{item="delayed_publishs.max",node="2"} 0
-rmqtt_stats{item="delayed_publishs.max",node="3"} 0
-rmqtt_stats{item="delayed_publishs.max",node="all"} 0
-rmqtt_stats{item="forwards.count",node="1"} 0
-rmqtt_stats{item="forwards.count",node="2"} 0
-rmqtt_stats{item="forwards.count",node="3"} 0
-rmqtt_stats{item="forwards.count",node="all"} 0
-rmqtt_stats{item="forwards.max",node="1"} 0
-rmqtt_stats{item="forwards.max",node="2"} 0
-rmqtt_stats{item="forwards.max",node="3"} 0
-rmqtt_stats{item="forwards.max",node="all"} 0
-rmqtt_stats{item="handshakings.count",node="1"} 0
-rmqtt_stats{item="handshakings.count",node="2"} 0
-rmqtt_stats{item="handshakings.count",node="3"} 0
-rmqtt_stats{item="handshakings.count",node="all"} 0
-rmqtt_stats{item="handshakings.max",node="1"} 0
-rmqtt_stats{item="handshakings.max",node="2"} 0
-rmqtt_stats{item="handshakings.max",node="3"} 0
-rmqtt_stats{item="handshakings.max",node="all"} 0
-rmqtt_stats{item="handshakings_active.count",node="1"} 0
-rmqtt_stats{item="handshakings_active.count",node="2"} 0
-rmqtt_stats{item="handshakings_active.count",node="3"} 0
-rmqtt_stats{item="handshakings_active.count",node="all"} 0
-rmqtt_stats{item="handshakings_rate.count",node="1"} 0
-rmqtt_stats{item="handshakings_rate.count",node="2"} 0
-rmqtt_stats{item="handshakings_rate.count",node="3"} 0
-rmqtt_stats{item="handshakings_rate.count",node="all"} 0
-rmqtt_stats{item="handshakings_rate.max",node="1"} 0
-rmqtt_stats{item="handshakings_rate.max",node="2"} 0
-rmqtt_stats{item="handshakings_rate.max",node="3"} 0
-rmqtt_stats{item="handshakings_rate.max",node="all"} 0
-rmqtt_stats{item="in_inflights.count",node="1"} 0
-rmqtt_stats{item="in_inflights.count",node="2"} 0
-rmqtt_stats{item="in_inflights.count",node="3"} 0
-rmqtt_stats{item="in_inflights.count",node="all"} 0
-rmqtt_stats{item="in_inflights.max",node="1"} 0
-rmqtt_stats{item="in_inflights.max",node="2"} 0
-rmqtt_stats{item="in_inflights.max",node="3"} 0
-rmqtt_stats{item="in_inflights.max",node="all"} 0
-rmqtt_stats{item="message_queues.count",node="1"} 0
-rmqtt_stats{item="message_queues.count",node="2"} 0
-rmqtt_stats{item="message_queues.count",node="3"} 0
-rmqtt_stats{item="message_queues.count",node="all"} 0
-rmqtt_stats{item="message_queues.max",node="1"} 0
-rmqtt_stats{item="message_queues.max",node="2"} 0
-rmqtt_stats{item="message_queues.max",node="3"} 0
-rmqtt_stats{item="message_queues.max",node="all"} 0
-rmqtt_stats{item="message_storages.count",node="1"} -1
-rmqtt_stats{item="message_storages.count",node="2"} -1
-rmqtt_stats{item="message_storages.count",node="3"} -1
-rmqtt_stats{item="message_storages.count",node="all"} -3
-rmqtt_stats{item="message_storages.max",node="1"} 0
-rmqtt_stats{item="message_storages.max",node="2"} 0
-rmqtt_stats{item="message_storages.max",node="3"} 0
-rmqtt_stats{item="message_storages.max",node="all"} 0
-rmqtt_stats{item="out_inflights.count",node="1"} 0
-rmqtt_stats{item="out_inflights.count",node="2"} 0
-rmqtt_stats{item="out_inflights.count",node="3"} 0
-rmqtt_stats{item="out_inflights.count",node="all"} 0
-rmqtt_stats{item="out_inflights.max",node="1"} 0
-rmqtt_stats{item="out_inflights.max",node="2"} 0
-rmqtt_stats{item="out_inflights.max",node="3"} 0
-rmqtt_stats{item="out_inflights.max",node="all"} 0
-rmqtt_stats{item="retaineds.count",node="1"} 0
-rmqtt_stats{item="retaineds.count",node="2"} 0
-rmqtt_stats{item="retaineds.count",node="3"} 0
-rmqtt_stats{item="retaineds.count",node="all"} 0
-rmqtt_stats{item="retaineds.max",node="1"} 0
-rmqtt_stats{item="retaineds.max",node="2"} 0
-rmqtt_stats{item="retaineds.max",node="3"} 0
-rmqtt_stats{item="retaineds.max",node="all"} 0
-rmqtt_stats{item="routes.count",node="1"} 0
-rmqtt_stats{item="routes.count",node="2"} 0
-rmqtt_stats{item="routes.count",node="3"} 0
-rmqtt_stats{item="routes.count",node="all"} 0
-rmqtt_stats{item="routes.max",node="1"} 0
-rmqtt_stats{item="routes.max",node="2"} 0
-rmqtt_stats{item="routes.max",node="3"} 0
-rmqtt_stats{item="routes.max",node="all"} 0
-rmqtt_stats{item="sessions.count",node="1"} 1
-rmqtt_stats{item="sessions.count",node="2"} 2
-rmqtt_stats{item="sessions.count",node="3"} 1
-rmqtt_stats{item="sessions.count",node="all"} 4
-rmqtt_stats{item="sessions.max",node="1"} 1
-rmqtt_stats{item="sessions.max",node="2"} 2
-rmqtt_stats{item="sessions.max",node="3"} 1
-rmqtt_stats{item="sessions.max",node="all"} 4
-rmqtt_stats{item="subscriptions.count",node="1"} 0
-rmqtt_stats{item="subscriptions.count",node="2"} 0
-rmqtt_stats{item="subscriptions.count",node="3"} 0
-rmqtt_stats{item="subscriptions.count",node="all"} 0
-rmqtt_stats{item="subscriptions.max",node="1"} 0
-rmqtt_stats{item="subscriptions.max",node="2"} 0
-rmqtt_stats{item="subscriptions.max",node="3"} 0
-rmqtt_stats{item="subscriptions.max",node="all"} 0
-rmqtt_stats{item="subscriptions_shared.count",node="1"} 0
-rmqtt_stats{item="subscriptions_shared.count",node="2"} 0
-rmqtt_stats{item="subscriptions_shared.count",node="3"} 0
-rmqtt_stats{item="subscriptions_shared.count",node="all"} 0
-rmqtt_stats{item="subscriptions_shared.max",node="1"} 0
-rmqtt_stats{item="subscriptions_shared.max",node="2"} 0
-rmqtt_stats{item="subscriptions_shared.max",node="3"} 0
-rmqtt_stats{item="subscriptions_shared.max",node="all"} 0
-rmqtt_stats{item="topics.count",node="1"} 0
-rmqtt_stats{item="topics.count",node="2"} 0
-rmqtt_stats{item="topics.count",node="3"} 0
-rmqtt_stats{item="topics.count",node="all"} 0
-rmqtt_stats{item="topics.max",node="1"} 0
-rmqtt_stats{item="topics.max",node="2"} 0
-rmqtt_stats{item="topics.max",node="3"} 0
-rmqtt_stats{item="topics.max",node="all"} 0
+...
 ```
-
-![示例图](../imgs/prometheus_demo1.jpg)
 
 ### GET /api/v1/metrics/prometheus/{node}
 
@@ -1425,20 +1601,18 @@ rmqtt_stats{item="topics.max",node="all"} 0
 
 | Name | Type | Required | Description |
 | ---- | --------- | ------------|-------------|
-| node | Integer    | True       | Node ID, Such as: 1    |
+| node | Integer    | True       | 节点ID，如：1    |
 
 **Success Response Body (TEXT):**
 
-see [GET /api/v1/metrics/prometheus](#get-prometheus) 
-
+详见 [GET /api/v1/metrics/prometheus](#get-prometheus) 
 
 ### GET /api/v1/metrics/prometheus/sum
 
-以 *prometheus* 格式返回集群中所有节点的状态数据和统计指标数据总和。
+以 *prometheus* 格式返回集群中所有节点汇总的状态数据和统计指标数据。
 
 **Path Parameters:** 无
 
 **Success Response Body (TEXT):**
 
-see [GET /api/v1/metrics/prometheus](#get-prometheus) 
-
+详见 [GET /api/v1/metrics/prometheus](#get-prometheus) 

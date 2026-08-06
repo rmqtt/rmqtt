@@ -6,6 +6,7 @@
 
 #![deny(unsafe_code)]
 
+use anyhow::anyhow;
 use std::time::Duration;
 
 use clap::Parser;
@@ -33,6 +34,14 @@ mod plugin {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    if let Err(e) = run().await {
+        log::error!("{e}");
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+async fn run() -> Result<()> {
     let opts = Options::parse();
     if opts.version {
         println!("{} rustc/{}", Node::version(), Node::rustc_version());
@@ -121,8 +130,7 @@ async fn main() -> Result<()> {
         let listener = match config_builder(listen_cfg).bind() {
             Ok(l) => l.tcp()?,
             Err(e) => {
-                log::error!("Failed to bind TCP listener on {}: {}", listen_cfg.addr, e);
-                return Err(e);
+                return Err(anyhow!("Failed to bind TCP listener on {}: {}", listen_cfg.addr, e));
             }
         };
         builder = builder.listener(listener);
@@ -133,8 +141,7 @@ async fn main() -> Result<()> {
         let listener = match config_builder(listen_cfg).bind() {
             Ok(l) => l.tls()?,
             Err(e) => {
-                log::error!("Failed to bind TLS listener on {}: {}", listen_cfg.addr, e);
-                return Err(e);
+                return Err(anyhow!("Failed to bind TLS listener on {}: {}", listen_cfg.addr, e));
             }
         };
         builder = builder.listener(listener);
@@ -145,8 +152,7 @@ async fn main() -> Result<()> {
         let listener = match config_builder(listen_cfg).bind() {
             Ok(l) => l.ws()?,
             Err(e) => {
-                log::error!("Failed to bind WebSocket listener on {}: {}", listen_cfg.addr, e);
-                return Err(e);
+                return Err(anyhow!("Failed to bind WebSocket listener on {}: {}", listen_cfg.addr, e));
             }
         };
         builder = builder.listener(listener);
@@ -157,8 +163,7 @@ async fn main() -> Result<()> {
         let listener = match config_builder(listen_cfg).bind() {
             Ok(l) => l.wss()?,
             Err(e) => {
-                log::error!("Failed to bind WSS listener on {}: {}", listen_cfg.addr, e);
-                return Err(e);
+                return Err(anyhow!("Failed to bind WSS listener on {}: {}", listen_cfg.addr, e));
             }
         };
         builder = builder.listener(listener);
@@ -169,9 +174,7 @@ async fn main() -> Result<()> {
         let listener = match config_builder(listen_cfg).bind_quic() {
             Ok(l) => l,
             Err(e) => {
-                log::error!("Failed to bind QUIC listener on {}: {}", listen_cfg.addr, e);
-
-                return Err(e);
+                return Err(anyhow!("Failed to bind QUIC listener on {}: {}", listen_cfg.addr, e));
             }
         };
         builder = builder.listener(listener);

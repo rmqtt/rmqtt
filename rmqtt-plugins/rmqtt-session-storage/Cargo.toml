@@ -12,9 +12,9 @@ license.workspace = true
 all-features = true
 
 [features]
-default = ["rmqtt-storage", "circuit-breaker"]
-sled = ["rmqtt-storage/sled"]
-redis = ["rmqtt-storage/redis"]
+default = ["rmqtt-storage"]
+sled = ["rmqtt-storage/sled", "circuit-breaker"]
+redis = ["rmqtt-storage/redis", "circuit-breaker"]
 redis-cluster = ["redis", "rmqtt-storage/redis-cluster"]
 circuit-breaker = ["rmqtt-storage/circuit-breaker"]
 

@@ -15,6 +15,7 @@
 //!
 #![deny(unsafe_code)]
 
+use anyhow::anyhow;
 use std::convert::From as _;
 use std::sync::Arc;
 use std::time::Duration;
@@ -99,6 +100,8 @@ impl StoragePlugin {
                 cfg.storage.redis_cluster.prefix =
                     cfg.storage.redis_cluster.prefix.replace("{node}", &format!("{}", scx.node.id()));
             }
+            #[allow(unreachable_patterns)]
+            _ => return Err(anyhow!("Unsupported storage engine config")),
         }
 
         log::info!("{name} StoragePlugin cfg: {cfg:?}");

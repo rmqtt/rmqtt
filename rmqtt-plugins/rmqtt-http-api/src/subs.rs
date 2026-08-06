@@ -24,7 +24,7 @@ pub(crate) async fn subscribe(
     let id = Id::from(scx.node.id(), clientid);
     let entry = scx.extends.shared().await.entry(id);
     let s = entry.session().ok_or_else(|| anyhow!("session does not exist!"))?;
-    let shared_subs = scx.extends.shared_subscription().await.is_supported(s.listen_cfg());
+    let shared_subs = scx.extends.shared_subscription().await.is_supported();
     let limit_subs = s.listen_cfg().limit_subscription;
     let tx = entry.tx().ok_or_else(|| anyhow!("session message TX is not exist!"))?;
     let qos = qos.less_value(s.listen_cfg().max_qos_allowed);
@@ -64,7 +64,7 @@ pub(crate) async fn unsubscribe(scx: &ServerContext, params: UnsubscribeParams) 
     let id = Id::from(scx.node.id(), clientid);
     let entry = scx.extends.shared().await.entry(id);
     let s = entry.session().ok_or_else(|| anyhow!("session does not exist!"))?;
-    let shared_subs = scx.extends.shared_subscription().await.is_supported(s.listen_cfg());
+    let shared_subs = scx.extends.shared_subscription().await.is_supported();
     let limit_subs = s.listen_cfg().limit_subscription;
     let tx = entry.tx().ok_or_else(|| anyhow!("session message TX is not exist!"))?;
     let unsub = Unsubscribe::from(&topic_filter, shared_subs, limit_subs)?;

@@ -72,9 +72,15 @@ session-storage-redis = ["rmqtt-session-storage/redis"]
 session-storage-redis-cluster = ["rmqtt-session-storage/redis-cluster"]
 session-storage = ["session-storage-sled", "session-storage-redis", "session-storage-redis-cluster"]
 
+# ---- http-api sub-features ----
+http-api-sled = ["rmqtt-http-api/sled"]
+http-api-redis = ["rmqtt-http-api/redis"]
+http-api-redis-cluster = ["http-api-redis", "rmqtt-http-api/redis-cluster"]
+http-api-redb = ["rmqtt-http-api/redb"]
+http-api = ["http-api-sled", "http-api-redis", "http-api-redis-cluster", "http-api-redb"]
+
 # ---- core plugins ----
 acl = ["rmqtt-acl"]
-http-api = ["rmqtt-http-api"]
 counter = ["rmqtt-counter"]
 auth-http = ["rmqtt-auth-http"]
 auth-jwt = ["rmqtt-auth-jwt"]

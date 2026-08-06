@@ -2,11 +2,9 @@ English | [简体中文](../zh_CN/http-api.md)
 
 # HTTP API
 
-RMQTT Broker provides HTTP APIs for integration with external systems,such as querying client information, publishing
-messages.
+RMQTT Broker provides HTTP APIs for integration with external systems, such as querying client information, publishing messages.
 
-RMQTT Broker's HTTP API service listens on port 6060 by default. You can modify the listening port through the
-configuration file of etc/plugins/rmqtt-http-api.toml. All API calls start with api/v1.
+RMQTT Broker's HTTP API service listens on port 6060 by default. You can modify the listening port through the configuration file of `plugins/rmqtt-http-api.toml`. All API calls start with `api/v1`.
 
 #### Plugins:
 
@@ -29,27 +27,90 @@ plugins/rmqtt-http-api.toml
 
 # See more keys and their definitions at https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/http-api.md
 
-##Number of worker threads
-workers = 1
 ## Max Row Limit
 max_row_limit = 10_000
-## HTTP Listener
+## HTTP Listener address
 http_laddr = "0.0.0.0:6060"
+## HTTP bearer token for API authentication.
+## When set, all HTTP API requests must include an `Authorization: Bearer <token>` header.
+## When not set (default), no authentication is required.
+#http_bearer_token = "public"
+
+## Enable TCP SO_REUSEADDR on the HTTP listener.
+## Default: true
+# http_reuseaddr = true
+
+## Enable TCP SO_REUSEPORT on the HTTP listener.
+## Default: false
+# http_reuseport = false
+
 ## Indicates whether to print HTTP request logs
 http_request_log = false
-## If set, will check request header Authorization value == Bearer $http_bearer_token, default value is undefined
-#http_bearer_token = bearer_token
+
+## Metrics sample interval for collecting and caching internal metrics.
+## Default: "5s"
+# metrics_sample_interval = "5s"
+
+## gRPC message type identifier for HTTP API messages.
+## Default: 99
+# message_type = 99
 
 ##Message expiration time, 0 means no expiration
 message_expiry_interval = "5m"
+
+## Prometheus metrics data caching interval.
+## Default: "5s"
+prometheus_metrics_cache_interval = "5s"
+
+## Dashboard static directory (optional).
+## By default (when unset), the Dashboard SPA is served from assets embedded
+## directly into the binary via rust-embed at compile time, so no external
+## files are needed.
+## If set, the plugin loads the Dashboard SPA from this external directory
+## at the `/dashboard/` path instead, allowing swapping the frontend build
+## without recompiling the binary.
+# dashboard_static_dir = "/path/to/dashboard/dist"
+
+##─── Stats/Metrics History Persistence (optional) ───────────────────────
+## When `storage` is configured, the plugin periodically snapshots Stats
+## and Metrics, converts them to JSON, and writes them to the backend with
+## TTL-based expiration. History query APIs
+## (`/api/v1/stats/history`, `/api/v1/metrics/history`, etc.) become available.
+## To disable, omit the entire `storage` section.
+
+##─── Redb backend ──────────────────────────────────────────────────────
+storage.type = "redb"
+storage.redb.path = "/var/log/rmqtt/.cache/http-api-history/{node}.redb"
+
+##─── Sled backend ──────────────────────────────────────────────────────
+#storage.type = "sled"
+#storage.sled.path = "/var/log/rmqtt/.cache/http-api-history/{node}.sled"
+#storage.sled.cache_capacity = "1G"
+
+##─── Redis backend ──────────────────────────────────────────────────────
+# storage.type = "redis"
+# storage.redis.url = "redis://127.0.0.1:6379/"
+# storage.redis.prefix = "http-api-history-{node}"
+
+##─── Redis Cluster backend ──────────────────────────────────────────────
+# storage.type = "redis-cluster"
+# storage.redis-cluster.urls = ["redis://127.0.0.1:6380/", "redis://127.0.0.1:6381/"]
+# storage.redis-cluster.prefix = "http-api-history-{node}"
+
+##─── Flush interval (how often to snapshot Stats/Metrics) ───────────────
+## Default: "5s"
+# flush_interval = "5s"
+
+##─── History retention (TTL for each data point) ────────────────────────
+## Default: "7d"
+# history_retention = "7d"
 ```
 
 ## Response code
 
 ### HTTP status codes
 
-The RMQTT Broker interface always returns 200 OK when the call is successful, and the response content is returned in
-JSON format.
+The RMQTT Broker interface always returns 200 OK when the call is successful, and the response content is returned in JSON format.
 
 The possible status codes are as follows:
 
@@ -57,7 +118,7 @@ The possible status codes are as follows:
 | ---- | ----------------------- |
 | 200  | Succeed, and the returned JSON data will provide more information |
 | 400  | Invalid client request, such as wrong request body or parameters |
-| 401  | Client authentication failed , maybe because of invalid authentication credentials |
+| 401  | Client authentication failed, maybe because of invalid authentication credentials |
 | 404  | The requested path cannot be found or the requested object does not exist |
 | 500  | An internal error occurred while the server was processing the request |
 
@@ -100,7 +161,7 @@ Return basic information of all nodes in the cluster.
 
 | Name | Type | Required | Description                                                                  |
 | ---- | --------- | ------------|------------------------------------------------------------------------------|
-| node | Integer    | False       | Node ID，such as 1. <br/>If not specified, returns all node basic information |
+| node | Integer    | False       | Node ID, such as 1. <br/>If not specified, returns all node basic information |
 
 **Success Response Body (JSON):**
 
@@ -186,6 +247,149 @@ $ curl -i -X GET "http://localhost:6060/api/v1/nodes/1"
 {"boottime":"2022-06-30 05:20:24 UTC","connections":1,"disk_free":77382381568,"disk_total":88692346880,"load1":0.0224609375,"load15":0.0,"load5":0.0263671875,"memory_free":1457954816,"memory_total":2084057088,"memory_used":626102272,"node_id":1,"node_name":"1@127.0.0.1","running":true,"uptime":"5 days 23 hours, 33 minutes, 0 seconds","version":"rmqtt/0.21.0","rustc_version":"1.85.0"}
 ```
 
+## Feature Support
+
+### GET /api/v1/features
+
+Returns the feature support state of every cluster node plus a cluster-wide consistency summary. The support state is determined by each feature's trait implementation (`enable()` / `is_supported()`).
+
+**Parameters:** none
+
+**Success Response Body (JSON):**
+
+| Name          | Type | Description |
+|---------------|------|-------------|
+| consistent    | Bool | Whether all reachable nodes have identical feature states; `false` indicates node configuration drift or plugin load failure |
+| node_count    | Integer | Number of nodes participating in the consistency comparison |
+| conflicts     | Array | Fields with inconsistent values (grouped by value with node ids); empty when `consistent` is `true` |
+| - conflicts[i].feature | String | Feature name, e.g. `retain` |
+| - conflicts[i].values  | Array | Value groups, each containing `value` (Bool) and `node_ids` (Integer Array) |
+| nodes         | Array | Per-node details; unreachable nodes appear as error strings and are excluded from the consistency comparison |
+| - nodes[i].node_id    | Integer | Node ID |
+| - nodes[i].node_name  | String | Node name |
+| - nodes[i].features   | Object | Six feature flags: `retain`, `message_storage`, `session_storage`, `delayed`, `shared_subscription`, `auto_subscription` |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/features"
+```
+
+```json
+{
+  "consistent": false,
+  "node_count": 3,
+  "conflicts": [
+    {
+      "feature": "retain",
+      "values": [
+        { "value": true,  "node_ids": [1, 2] },
+        { "value": false, "node_ids": [3] }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "node_id": 1,
+      "node_name": "rmqtt@127.0.0.1",
+      "features": {
+        "retain": true,
+        "message_storage": false,
+        "session_storage": false,
+        "delayed": true,
+        "shared_subscription": true,
+        "auto_subscription": false
+      }
+    }
+  ]
+}
+```
+
+> Note: when an inconsistency is detected, the backend emits a `features inconsistent across cluster` warning log. For a single node, use `GET /api/v1/features/{node}`, which returns the node's `FeaturesInfo` object directly (without the consistency summary).
+
+### GET /api/v1/features/{node}
+
+Returns the feature support state of a specific node.
+
+**Path Parameters:**
+
+| Name | Type | Required | Description |
+| ---- | --------- | --------|-------------|
+| node | Integer    | True     | Node ID, e.g. 1 |
+
+**Success Response Body (JSON):**
+
+| Name          | Type | Description |
+|---------------|------|-------------|
+| node_id       | Integer | Node ID |
+| node_name     | String | Node name |
+| features      | Object | Six feature flags: `retain`, `message_storage`, `session_storage`, `delayed`, `shared_subscription`, `auto_subscription` |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/features/1"
+
+{"node_id":1,"node_name":"rmqtt@127.0.0.1","features":{"retain":true,"message_storage":false,"session_storage":false,"delayed":true,"shared_subscription":true,"auto_subscription":false}}
+```
+
+## Health Check
+
+### GET /api/v1/health/check
+
+Returns the health status of all nodes in the cluster.
+
+**Parameters:** None
+
+**Success Response Body (JSON):**
+
+| Name                      | Type             | Description          |
+|---------------------------|------------------|----------------------|
+| {}                        | Object           | Health check information |
+| {}.status                 | String           | Overall cluster status: "Running" or "Degraded" |
+| {}.nodes                  | Object           | Per-node health status, key is Node ID |
+| {}.nodes.{id}             | Json Object      | Detailed health status for the node |
+| {}.nodes.{id}.name        | String           | Node name               |
+| {}.nodes.{id}.running     | Bool             | Whether the node is running |
+| {}.nodes.{id}.uptime      | String           | Node uptime             |
+| {}.nodes.{id}.status      | String           | Node status             |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/health/check"
+
+{"status":"Running","nodes":{"1":{"name":"1@127.0.0.1","running":true,"uptime":"5d 23h 33m","status":"Running"}}}
+```
+
+### GET /api/v1/health/check/{node}
+
+Queries the health status of a specific node.
+
+**Path Parameters:**
+
+| Name | Type    | Required | Description        |
+|------|---------|----------|--------------------|
+| node | Integer | True     | Node ID, e.g., 1 |
+
+**Success Response Body (JSON):**
+
+| Name    | Type    | Description        |
+|---------|---------|--------------------|
+| {}      | Object  | Node health status |
+| .name   | String  | Node name          |
+| .running| Bool    | Whether the node is running |
+| .uptime | String  | Node uptime        |
+| .status | String  | Node status        |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/health/check/1"
+
+{"name":"1@127.0.0.1","running":true,"uptime":"5d 23h 33m","status":"Running"}
+```
+
 ## Client
 
 ### GET /api/v1/clients
@@ -198,23 +402,23 @@ Returns the information of all clients under the cluster.
 
 | Name   | Type | Required | Default | Description                                                                                                                                                             |
 | ------ | --------- | -------- | ------- |-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| _limit | Integer   | False | 10000   | The maximum number of data items returned at one time. If not specified, it is determined by the configuration item `max_row_limit` of the` rmqtt-http-api.toml` plugin |
+| _limit | Integer   | False | 10000   | The maximum number of data items returned at one time. If not specified, it is determined by the configuration item `max_row_limit` of the `rmqtt-http-api.toml` plugin |
 
 | Name            | Type   | Required | Description                     |
 | --------------- | ------ | -------- |---------------------------------|
-| clientid        | String | False    | Client identifier                    |
-| username        | String | False    | Client username                         |
-| ip_address      | String | False    | Client IP address                      |
+| clientid        | String | False    | Client identifier, exact match                    |
+| username        | String | False    | Client username, exact match                         |
+| ip_address      | String | False    | Client IP address, exact match                      |
 | connected       | Bool   | False    | The current connection status of the client     |
 | clean_start     | Bool   | False    | Whether the client uses a new session            |
 | session_present | Bool   | False    | Whether the client is connected to an existing session    |
-| proto_ver       | Integer| False    | Client protocol version             |
+| proto_ver       | Integer| False    | Client protocol version, 3/4/5             |
 | _like_clientid  | String | False    | Fuzzy search of client identifier by substring method                  |
 | _like_username  | String | False    | Client user name, fuzzy search by substring                 |
-| _gte_created_at | Integer| False    | Search client session creation time by greater than or equal method      |
-| _lte_created_at | Integer| False    | Search client session creation time by less than or equal method          |
-| _gte_connected_at | Integer| False    | Search client connection creation time by greater than or equal method    |
-| _lte_connected_at | Integer| False    | Search client connection creation time by less than or equal method  |
+| _gte_created_at | String | False    | Search client session creation time by greater than or equal method.<br/>Format: `"YYYY-MM-DD HH:mm:ss"` (e.g. `"2026-07-29 21:25:37"`),<br/>also accepts a Unix timestamp in seconds (e.g. `1690000000`) |
+| _lte_created_at | String | False    | Search client session creation time by less than or equal method.<br/>Format: `"YYYY-MM-DD HH:mm:ss"` (e.g. `"2026-07-29 21:25:37"`),<br/>also accepts a Unix timestamp in seconds (e.g. `1690000000`) |
+| _gte_connected_at | String | False    | Search client connection creation time by greater than or equal method.<br/>Format: `"YYYY-MM-DD HH:mm:ss"` (e.g. `"2026-07-29 21:25:37"`),<br/>also accepts a Unix timestamp in seconds (e.g. `1690000000`) |
+| _lte_connected_at | String | False    | Search client connection creation time by less than or equal method.<br/>Format: `"YYYY-MM-DD HH:mm:ss"` (e.g. `"2026-07-29 21:25:37"`),<br/>also accepts a Unix timestamp in seconds (e.g. `1690000000`) |
 | _gte_mqueue_len | Integer| False    | Current length of message queue by greater than or equal method  |
 | _lte_mqueue_len | Integer| False    | Current length of message queue by less than or equal method |
 
@@ -231,7 +435,7 @@ Returns the information of all clients under the cluster.
 | [0].ip_address          | String           | Client's IP address                                                                                                               |
 | [0].port                | Integer          | Client port                                                                                                                       | 
 | [0].connected_at        | String           | Client connection time, in the format of "YYYY-MM-DD HH:mm:ss"                                                                    |
-| [0].disconnected_at     | String           | Client offline time, in the formatof "YYYY-MM-DD HH:mm:ss"，<br/>This field is only valid and returned when `connected` is` false` |
+| [0].disconnected_at     | String           | Client offline time, in the format of "YYYY-MM-DD HH:mm:ss"，<br/>This field is only valid and returned when `connected` is `false` |
 | [0].disconnected_reason | String           | Client offline reason                                                                                                             |
 | [0].connected           | Boolean          | Whether the client is connected                                                                                                   |
 | [0].keepalive           | Integer          | keepalive time, with the unit of second                                                                                           |
@@ -269,7 +473,7 @@ Returns information for the specified client
 
 | Name | Type | Description |
 |------| --------- | ----------- |
-| {}   | Array of Objects | Client information, for details, see<br/>[GET /api/v1/clients](#get-clients)|
+| {}   | Object | Client information, for details, see<br/>[GET /api/v1/clients](#get-clients)|
 
 **Examples:**
 
@@ -279,6 +483,22 @@ Query the specified client
 $ curl -i -X GET "http://localhost:6060/api/v1/clients/example1"
 
 {"clean_start":true,"session_present":true,"clientid":"example1","connected":true,"connected_at":"2022-07-30 23:30:43","created_at":"2022-07-30 23:30:43","disconnected_at":"","expiry_interval":7200,"inflight":0,"ip_address":"183.193.169.110","keepalive":60,"max_inflight":16,"max_mqueue":1000,"max_subscriptions":0,"mqueue_len":0,"node_id":1,"port":11232,"proto_ver":4,"subscriptions_cnt":0,"superuser":false,"username":"undefined"}
+```
+
+### GET /api/v1/clients/offlines
+
+Returns information of all offline clients under the cluster. Parameters and response are identical to [GET /api/v1/clients](#get-clients), but only returns clients where `connected` is `false`.
+
+**Query String Parameters:** Same as [GET /api/v1/clients](#get-clients)
+
+**Success Response Body (JSON):** Same as [GET /api/v1/clients](#get-clients)
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/clients/offlines"
+
+[{"clean_start":false,"session_present":false,"clientid":"example1","connected":false,"connected_at":"","created_at":"2022-07-30 18:14:08","disconnected_at":"2022-07-30 23:30:43","disconnected_reason":"normal","expiry_interval":7200,"inflight":0,"ip_address":"183.193.169.110","keepalive":60,"max_inflight":16,"max_mqueue":1000,"max_subscriptions":0,"mqueue_len":0,"node_id":1,"port":10839,"proto_ver":4,"subscriptions_cnt":0,"superuser":false,"username":"undefined"}]
 ```
 
 ### DELETE /api/v1/clients/{clientid}
@@ -293,9 +513,7 @@ Kick out the specified client. Note that this operation will terminate the conne
 
 **Success Response Body (String):**
 
-| Name       | Type             | Description |
-|------------|------------------|-----------|
-| id         | String          | Connection Unique ID  |
+Returns a raw string representing the connection unique ID, formatted as `{node_id}@{ip}:{port}/{clientid}/{username}`.
 
 **Examples:**
 
@@ -305,6 +523,26 @@ Kick out the specified client
 $ curl -i -X DELETE "http://localhost:6060/api/v1/clients/example1"
 
 1@10.0.4.6:1883/183.193.169.110:10876/example1/dashboard
+```
+
+### DELETE /api/v1/clients/offlines
+
+Batch kick all offline clients matching the search criteria.
+
+**Query String Parameters:** Same as [GET /api/v1/clients](#get-clients) (note: `connected` parameter will be forced to `false`)
+
+**Success Response Body (JSON):**
+
+| Name    | Type    | Description          |
+|---------|---------|----------------------|
+| count   | Integer | Number of clients kicked out |
+
+**Examples:**
+
+```bash
+$ curl -i -X DELETE "http://localhost:6060/api/v1/clients/offlines?clientid=example1"
+
+{"count":1}
 ```
 
 ### GET /api/v1/clients/{clientid}/online
@@ -319,9 +557,7 @@ Check if the client is online
 
 **Success Response Body (JSON):**
 
-| Name | Type | Description |
-|------|------|-------------|
-| body | Bool | is online   |
+Returns a raw boolean value `true` or `false` indicating whether the client is online.
 
 **Examples:**
 
@@ -347,11 +583,11 @@ Returns all subscription information under the cluster.
 
 | Name         | Type    | Description |
 | ------------ | ------- | ----------- |
-| clientid     | String  | Client identifier    |
-| topic        | String  | congruent query  |
+| clientid     | String  | Client identifier, exact match    |
+| topic        | String  | Topic, exact match  |
 | qos          | Enum    | Possible values are `0`,`1`,`2` |
 | share        | String  | Shared subscription group name |
-| _match_topic | String  | Match query |
+| _match_topic | String  | Topic, wildcard match query |
 
 **Success Response Body (JSON):**
 
@@ -457,11 +693,71 @@ $ curl -i -X GET "http://localhost:6060/api/v1/routes/foo%2f1"
 [{"node_id":1,"topic":"foo/#"},{"node_id":1,"topic":"foo/+"}]
 ```
 
+## Retained Messages
+
+### GET /api/v1/retains
+
+Queries retained messages. Retained messages are kept synchronized across the cluster via broadcast, so querying a single node covers the whole cluster.
+
+**Query String Parameters:**
+
+| Name          | Type    | Required | Default       | Description |
+|---------------|---------|----------|---------------|-------------|
+| topic_filter  | String  | False    | `#`           | Topic filter, supports `#` / `+` wildcards; when empty or `#`, uses full pagination |
+| offset        | Integer | False    | 0             | Pagination offset |
+| limit         | Integer | False    | `max_row_limit` | Page size; clamped to `max_row_limit` when exceeded |
+
+**Success Response Body (JSON):**
+
+| Name                     | Type | Description |
+|--------------------------|------|-------------|
+| items                    | Array | Retained message list |
+| - items[i].topic         | String | Topic |
+| - items[i].msg_id        | Integer | Message ID |
+| - items[i].from          | Object | Publisher info (`id.node_id` / `id.client_id`) |
+| - items[i].publish       | Object | Message content, `payload` is base64-encoded |
+| - items[i].publish.qos   | Integer | QoS level |
+| - items[i].publish.retain | Bool | Retain flag |
+| - items[i].publish.create_time | Integer | Publish time (millisecond timestamp) |
+| - items[i].remaining_ttl | Integer/Null | Remaining TTL in seconds; returned by the full pagination path, `null` on the filter path |
+| has_more                 | Bool | Whether more data is available |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/retains?topic_filter=%2Fiot%2Fb%2Fx&offset=0&limit=10"
+```
+
+```json
+{
+  "items": [
+    {
+      "topic": "/iot/b/x",
+      "msg_id": 1024,
+      "from": { "typ": "client", "id": { "node_id": 1, "client_id": "c1" } },
+      "publish": {
+        "topic": "/iot/b/x",
+        "qos": 1,
+        "retain": true,
+        "dup": false,
+        "payload": "<base64 encoded>",
+        "create_time": 1780000000000,
+        "properties": null
+      },
+      "remaining_ttl": 3599
+    }
+  ],
+  "has_more": false
+}
+```
+
+> Note: the `topic_filter=#` (full) path is paginated at the storage layer and includes `remaining_ttl` (remaining seconds); the filter path is paginated in memory and `remaining_ttl` is `null`. Requires the `rmqtt-retainer` plugin to be enabled.
+
 ## Publish message
 
 ### POST /api/v1/mqtt/publish
 
-Publish MQTT message。
+Publish MQTT message.
 
 **Parameters (json):**
 
@@ -474,13 +770,11 @@ Publish MQTT message。
 | encoding | String    | Optional | plain  | The encoding used in the message body. Currently only plain and base64 are supported |
 | qos      | Integer   | Optional | 0      | QoS level                                  |
 | retain   | Boolean   | Optional | false  | Whether it is a retained message                                 |
-| properties | Object   | Optional |        | Publish properties (MQTT v5), including: `message_expiry_interval`, `topic_alias`, `response_topic`, `correlation_data`, `user_properties` |
+| properties | Object   | Optional |        | Publish properties (MQTT v5)<br/>Optional sub-fields:<br/>- `message_expiry_interval`: Integer, message expiry interval (seconds)<br/>- `topic_alias`: Integer<br/>- `response_topic`: String<br/>- `correlation_data`: String (Base64)<br/>- `user_properties`: Object |
 
-**Success Response Body (JSON):**
+**Success Response Body (String):**
 
-| Name | Type   | Description |
-|------|--------|-------------|
-| body | String | ok          |
+Returns the string `ok` on success.
 
 **Examples:**
 
@@ -490,6 +784,14 @@ $ curl -i -X POST "http://localhost:6060/api/v1/mqtt/publish" --header 'Content-
 ok
 
 $ curl -i -X POST "http://localhost:6060/api/v1/mqtt/publish" --header 'Content-Type: application/json' -d '{"topic":"foo/1","payload":"SGVsbG8gV29ybGQ=","qos":1,"encoding":"base64"}'
+
+ok
+
+$ curl -i -X POST "http://localhost:6060/api/v1/mqtt/publish" --header 'Content-Type: application/json' -d '{"topics":"foo/1,foo/2,foo/3","payload":"Hello","qos":0}'
+
+ok
+
+$ curl -i -X POST "http://localhost:6060/api/v1/mqtt/publish" --header 'Content-Type: application/json' -d '{"topic":"foo/1","payload":"Hello","qos":2,"retain":true,"properties":{"message_expiry_interval":3600,"response_topic":"res/foo","user_properties":{"key1":"val1"}}}'
 
 ok
 ```
@@ -511,10 +813,10 @@ Subscribe to MQTT topic
 
 **Success Response Body (JSON):**
 
-| Name    | Type   | Description                                                        |
-|---------|--------|--------------------------------------------------------------------|
-| {}      | Object |                                                                    |
-| {topic} | Bool   | Key is topic name，The value is the subscription result: true/false |
+| Name    | Type       | Description                                                        |
+|---------|------------|--------------------------------------------------------------------|
+| {}      | Object     |                                                                    |
+| {topic} | Bool / String | Key is topic name, value is the subscription result: `true`(success) / `false`(failure)<br/>When subscription fails, the value may be an error description string |
 
 **Examples:**
 
@@ -537,11 +839,9 @@ Unsubscribe.
 | topic    | String    | Required |         | Topic       |
 | clientid | String    | Required |         | Client identifier      |
 
-**Success Response Body (JSON):**
+**Success Response Body:**
 
-| Name | Type | Description |
-|------|------|-------------|
-| body | Bool | true/false  |
+Returns JSON `true` when the session is on the local node; returns text `ok` when the session is on a remote node.
 
 **Examples:**
 
@@ -559,7 +859,7 @@ true
 
 Returns information of all plugins in the cluster.
 
-**Path Parameters:** 无
+**Path Parameters:** None
 
 **Success Response Body (JSON):**
 
@@ -638,7 +938,7 @@ Returns the plugin information of the specified plugin name under the specified 
 
 | Name           | Type            | Description                    |
 |----------------|-----------------|--------------------------------|
-| {}             | Object | 插件信息      |
+| {}             | Object | Plugin information      |
 | {}.name       | String          | Plugin name     |
 | {}.version    | String          | Plugin version                          |
 | {}.descr      | String          | Plugin description               |
@@ -691,18 +991,16 @@ Reloads the plugin configuration information of the specified plugin name under 
 | node | Integer    | True       | Node ID, Such as: 1    |
 | plugin | String    | True       | Plugin name        |
 
-**Success Response Body (String):**
+**Success Response Body:**
 
-| Name | Type   | Description |
-|------|--------|-------------|
-| body | String | ok          |
+Returns JSON `true` on success.
 
 **Examples:**
 
 ```bash
 $ curl -i -X PUT "http://localhost:6060/api/v1/plugins/1/rmqtt-http-api/config/reload"
 
-ok
+true
 ```
 
 ### PUT /api/v1/plugins/{node}/{plugin}/load
@@ -716,18 +1014,16 @@ Load the specified plugin under the specified node.
 | node | Integer    | True       | Node ID, Such as: 1    |
 | plugin | String    | True       | Plugin name        |
 
-**Success Response Body (String):**
+**Success Response Body:**
 
-| Name | Type   | Description |
-|------|--------|-------------|
-| body | String | ok          |
+Returns JSON `true` on success.
 
 **Examples:**
 
 ```bash
 $ curl -i -X PUT "http://localhost:6060/api/v1/plugins/1/rmqtt-web-hook/load"
 
-ok
+true
 ```
 
 ### PUT /api/v1/plugins/{node}/{plugin}/unload
@@ -779,38 +1075,50 @@ Return all status data in the cluster.
 |---------------|---------|-------------|
 | id            | Integer | Node ID     |
 | name          | String  | Node name        |
-| status        | String | Node status        |
+| running        | Bool | Whether the node is running        |
 
 **stats:**
 
-| Name                       | Type | Description            |
-|----------------------------| --------- | ---------------------- |
-| connections.count          | Integer   | Number of current connections |
-| connections.max            | Integer   | Historical maximum number of connections |
-| handshakings.count         | Integer   | Current number of active handshakes |
-| handshakings.max           | Integer   | Historical maximum of current active handshake connections |
-| handshakings_active.count  | Integer   | Current number of connections undergoing handshake operations |
-| handshakings_rate.count    | Integer   | Connection handshake rate  |
-| handshakings_rate.max      | Integer   | Historical maximum of connection handshake rate |
-| sessions.count             | Integer   | Number of current sessions |
-| sessions.max               | Integer   | Historical maximum number of sessions |
-| topics.count               | Integer   | Number of current topics |
-| topics.max                 | Integer   | Historical maximum number of topics |
-| subscriptions.count        | Integer   | Number of current subscriptions, including shared subscriptions |
-| subscriptions.max          | Integer   | Historical maximum number of subscriptions |
-| subscriptions_shared.count | Integer   | Number of current shared subscriptions |
-| subscriptions_shared.max   | Integer   | Historical maximum number of shared subscriptions |
-| routes.count               | Integer   | Number of current routes |
-| routes.max                 | Integer   | Historical maximum number of routes |
-| retained.count             | Integer   | Number of currently retained messages |
-| retained.max               | Integer   | Historical maximum number of retained messages |
+| Name                       | Type    | Description                      |
+|----------------------------|---------|----------------------------------|
+| connections.count          | Integer | Number of current connections     |
+| connections.max            | Integer | Historical maximum number of connections |
+| handshakings.count         | Integer | Current number of active handshakes |
+| handshakings.max           | Integer | Historical maximum of current active handshake connections |
+| handshakings_active.count  | Integer | Current number of connections undergoing handshake operations |
+| handshakings_rate.count    | Integer | Connection handshake rate  |
+| handshakings_rate.max      | Integer | Historical maximum of connection handshake rate |
+| sessions.count             | Integer | Number of current sessions |
+| sessions.max               | Integer | Historical maximum number of sessions |
+| topics.count               | Integer | Number of current topics |
+| topics.max                 | Integer | Historical maximum number of topics |
+| subscriptions.count        | Integer | Number of current subscriptions, including shared subscriptions |
+| subscriptions.max          | Integer | Historical maximum number of subscriptions |
+| subscriptions_shared.count | Integer | Number of current shared subscriptions |
+| subscriptions_shared.max   | Integer | Historical maximum number of shared subscriptions |
+| routes.count               | Integer | Number of current routes |
+| routes.max                 | Integer | Historical maximum number of routes |
+| retained.count             | Integer | Number of currently retained messages |
+| retained.max               | Integer | Historical maximum number of retained messages |
+| delayed_publishs.count     | Integer | Number of current delayed publish messages |
+| delayed_publishs.max       | Integer | Historical maximum number of delayed publish messages |
+| forwards.count             | Integer | Number of current forwarded messages |
+| forwards.max               | Integer | Historical maximum number of forwarded messages |
+| in_inflights.count         | Integer | Current number of incoming inflight messages (awaiting ACK) |
+| in_inflights.max           | Integer | Historical maximum number of incoming inflight messages |
+| out_inflights.count        | Integer | Current number of outgoing inflight messages (awaiting ACK) |
+| out_inflights.max          | Integer | Historical maximum number of outgoing inflight messages |
+| message_queues.count       | Integer | Current number of message queues |
+| message_queues.max         | Integer | Historical maximum number of message queues |
+| message_storages.count     | Integer | Current number of message storages (-1 means storage module not enabled) |
+| message_storages.max       | Integer | Historical maximum number of message storages |
 
 **Examples:**
 
 ```bash
 $ curl -i -X GET "http://localhost:6060/api/v1/stats"
 
-[{"node":{"id":1,"name":"1@127.0.0.1","status":"Running"},"stats":{"connections.count":1,"connections.max":2,"retained.count":2,"retained.max":2,"routes.count":3,"routes.max":4,"sessions.count":1,"sessions.max":2,"subscriptions.count":7,"subscriptions.max":8,"subscriptions_shared.count":1,"subscriptions_shared.max":2,"topics.count":3,"topics.max":4}}]
+[{"node":{"id":1,"name":"1@127.0.0.1","running":true},"stats":{"connections.count":1,"connections.max":2,"retained.count":2,"retained.max":2,"routes.count":3,"routes.max":4,"sessions.count":1,"sessions.max":2,"subscriptions.count":7,"subscriptions.max":8,"subscriptions_shared.count":1,"subscriptions_shared.max":2,"topics.count":3,"topics.max":4}}]
 ```
 
 ### GET /api/v1/stats/{node}
@@ -837,7 +1145,7 @@ Returns status data on the specified node.
 |---------------|---------|-------------|
 | id            | Integer | Node ID       |
 | name          | String  | Node name      |
-| status        | String | Node status       |
+| running        | Bool | Whether the node is running       |
 
 **stats:**
 
@@ -850,7 +1158,7 @@ Returns status data on the specified node.
 ```bash
 $ curl -i -X GET "http://localhost:6060/api/v1/stats/1"
 
-{"node":{"id":1,"name":"1@127.0.0.1","status":"Running"},"stats":{"connections.count":1,"connections.max":2,"retained.count":2,"retained.max":2,"routes.count":3,"routes.max":4,"sessions.count":1,"sessions.max":2,"subscriptions.count":7,"subscriptions.max":8,"subscriptions_shared.count":1,"subscriptions_shared.max":2,"topics.count":3,"topics.max":4}}
+{"node":{"id":1,"name":"1@127.0.0.1","running":true},"stats":{"connections.count":1,"connections.max":2,"retained.count":2,"retained.max":2,"routes.count":3,"routes.max":4,"sessions.count":1,"sessions.max":2,"subscriptions.count":7,"subscriptions.max":8,"subscriptions_shared.count":1,"subscriptions_shared.max":2,"topics.count":3,"topics.max":4}}
 ```
 
 ### GET /api/v1/stats/sum
@@ -869,11 +1177,11 @@ Summarize the status data of all nodes in the cluster.
 
 **nodes:**
 
-| Name        | Type     | Description    |
-|-------------|----------|----------------|
-| {id}        | Object   | Node, key is the node ID |
-| {id}.name   | String   | Node name      |
-| {id}.status | String   | Node status    |
+| Name         | Type     | Description       |
+|--------------|----------|-------------------|
+| {id}         | Object   | Node, key is the Node ID |
+| {id}.name    | String   | Node name         |
+| {id}.running | Bool     | Whether the node is running |
 
 **stats:**
 
@@ -886,7 +1194,139 @@ Summarize the status data of all nodes in the cluster.
 ```bash
 $ curl -i -X GET "http://localhost:6060/api/v1/stats/sum"
 
-{"nodes":{"1":{"name":"1@127.0.0.1","status":"Running"}},"stats":{"connections.count":1,"connections.max":2,"retained.count":2,"retained.max":2,"routes.count":3,"routes.max":4,"sessions.count":1,"sessions.max":2,"subscriptions.count":7,"subscriptions.max":8,"subscriptions_shared.count":1,"subscriptions_shared.max":2,"topics.count":3,"topics.max":4}}
+{"nodes":{"1":{"name":"1@127.0.0.1","running":true}},"stats":{"connections.count":1,"connections.max":2,"retained.count":2,"retained.max":2,"routes.count":3,"routes.max":4,"sessions.count":1,"sessions.max":2,"subscriptions.count":7,"subscriptions.max":8,"subscriptions_shared.count":1,"subscriptions_shared.max":2,"topics.count":3,"topics.max":4}}
+```
+
+### GET /api/v1/stats/sys
+
+Returns system status data for all nodes in the cluster. Response format is the same as [GET /api/v1/stats](#get-stats), but stats fields use system-level JSON representation.
+
+**Path Parameters:** None
+
+**Success Response Body (JSON):** Same as [GET /api/v1/stats](#get-stats)
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/stats/sys"
+```
+
+### GET /api/v1/stats/sys/{node}
+
+Returns system status data for the specified node.
+
+**Path Parameters:**
+
+| Name | Type    | Required | Description        |
+|------|---------|----------|--------------------|
+| node | Integer | True     | Node ID, e.g., 1 |
+
+**Success Response Body (JSON):** Same as [GET /api/v1/stats](#get-stats)
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/stats/sys/1"
+```
+
+### GET /api/v1/stats/sys/sum
+
+Summarize system status data across all nodes.
+
+**Path Parameters:** None
+
+**Success Response Body (JSON):** Same as [GET /api/v1/stats/sum](#get-statssum)
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/stats/sys/sum"
+```
+
+### GET /api/v1/stats/history
+
+Queries historical stats data for all nodes in the cluster. Requires history storage configuration to be enabled.
+
+**Query String Parameters:**
+
+| Name         | Type    | Required | Default | Description                         |
+|--------------|---------|----------|---------|-------------------------------------|
+| minutes      | Integer | Optional | 5       | Query data for the last N minutes   |
+| hours        | Integer | Optional |         | Query data for the last N hours (mutually exclusive with minutes/days) |
+| days         | Integer | Optional |         | Query data for the last N days (mutually exclusive with minutes/hours) |
+| limit        | Integer | Optional | 1000    | Maximum number of data points       |
+| merge_window | Integer | Optional |         | Merge window (seconds), merges data at this granularity |
+
+**Success Response Body (JSON):**
+
+| Name       | Type              | Description                          |
+|------------|-------------------|--------------------------------------|
+| from       | Integer           | Query start timestamp (milliseconds) |
+| to         | Integer           | Query end timestamp (milliseconds)   |
+| nodes      | Object            | Per-node history data, key is Node ID |
+| nodes.{id} | Object            | Node history data                    |
+| .from      | Integer           | Start timestamp for this node        |
+| .to        | Integer           | End timestamp for this node          |
+| .node      | Integer           | Node ID                              |
+| .count     | Integer           | Number of data points                |
+| .data      | Array             | Array of snapshot objects with `ts` (timestamp) and stats fields |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/stats/history?minutes=10&limit=100"
+
+{"from":1700000000000,"to":1700000600000,"nodes":{"1":{"from":1700000000000,"to":1700000600000,"node":1,"count":120,"data":[{"ts":1700000000000,"connections.count":1,"sessions.count":1,...},...]}}}
+```
+
+### GET /api/v1/stats/history/{node}
+
+Queries historical stats data for the specified node.
+
+**Path Parameters:**
+
+| Name | Type    | Required | Description        |
+|------|---------|----------|--------------------|
+| node | Integer | True     | Node ID, e.g., 1 |
+
+**Query String Parameters:** Same as [GET /api/v1/stats/history](#get-statshistory)
+
+**Success Response Body (JSON):**
+
+| Name   | Type    | Description                                    |
+|--------|---------|------------------------------------------------|
+| from   | Integer | Query start timestamp (milliseconds)           |
+| to     | Integer | Query end timestamp (milliseconds)             |
+| node   | Integer | Node ID                                        |
+| count  | Integer | Number of data points                          |
+| data   | Array   | Array of snapshot objects with `ts` (timestamp) and stats fields |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/stats/history/1?hours=1&limit=200"
+```
+
+### GET /api/v1/stats/history/sum
+
+Aggregates historical stats data across all nodes (sums numeric fields at each timestamp).
+
+**Query String Parameters:** Same as [GET /api/v1/stats/history](#get-statshistory)
+
+**Success Response Body (JSON):**
+
+| Name       | Type    | Description                              |
+|------------|---------|------------------------------------------|
+| from       | Integer | Query start timestamp (milliseconds)     |
+| to         | Integer | Query end timestamp (milliseconds)       |
+| node_count | Integer | Number of nodes participating in aggregation |
+| count      | Integer | Number of data points                    |
+| data       | Array   | Aggregated data points with summed numeric fields |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/stats/history/sum?minutes=30&limit=500"
 ```
 
 ## Metrics
@@ -916,8 +1356,8 @@ Returns all statistical metrics under the cluster
 
 **metrics:**
 
-| Name | Type | Description                                                                                |
-| ----------------| --------- |--------------------------------------------------------------------------------------------|
+| Name | Type | Description |
+| ----------------| --------- |-------------------------------------------------------------------------------------------|
 | client.auth.anonymous           | Integer   | Number of clients who log in anonymously                                                   |
 | client.auth.anonymous.error     | Integer   | Number of client login failures for anonymous connections.                                 |
 | client.authenticate             | Integer   | Number of client authentications                                                           |
@@ -933,32 +1373,36 @@ Returns all statistical metrics under the cluster
 | client.publish.error            | Integer   | Publish, Number of Failures                                                                |
 | client.subscribe.auth.error     | Integer   | Subscribe, Number of ACL Rule Check Failures                                               |
 | client.subscribe.error          | Integer   | Subscribe, Number of Failures                                                              |
-| client.subscribe.check.acl      | Integer   | Number of ACL rule checks                                                                  |
+| client.subscribe.check.acl      | Integer   | Subscribe, Number of ACL rule checks                                                       |
 | client.subscribe                | Integer   | Number of client subscriptions                                                             |
 | client.unsubscribe              | Integer   | Number of client unsubscriptions                                                           |
 | messages.publish                | Integer   | Number of received PUBLISH packet                                                          |
-| messages.publish.admin          | Integer   | Number of received PUBLISH messages, Messages published via the HTTP API                   |
-| messages.publish.custom         | Integer   | Number of received PUBLISH messages, Messages published via MQTT clients                   |
-| messages.publish.lastwill       | Integer   | Number of received PUBLISH messages, Last Will Message                                     |
-| messages.publish.retain         | Integer   | Number of received PUBLISH messages, Forwarded Retained Message                            |
-| messages.publish.system         | Integer   | Number of received PUBLISH messages, System Topic Messages ($SYS/#)                        |
+| messages.publish.admin          | Integer   | Messages published via the HTTP API                                                        |
+| messages.publish.bridge         | Integer   | Messages published via Bridge                                                              |
+| messages.publish.custom         | Integer   | Messages published via MQTT clients                                                        |
+| messages.publish.lastwill       | Integer   | Last Will Message                                                                          |
+| messages.publish.retain         | Integer   | Forwarded Retained Message                                                                 |
+| messages.publish.system         | Integer   | System Topic Messages ($SYS/#)                                                             |
 | messages.delivered              | Integer   | Number of messages sent to the client                                                      |
-| messages.delivered.admin        | Integer   | Number of messages sent to the client, Messages published via the HTTP API                 |
-| messages.delivered.custom       | Integer   | Number of messages sent to the client, Messages published via MQTT clients                 |
-| messages.delivered.lastwill     | Integer   | Number of messages sent to the client, Last Will Message                                   |
-| messages.delivered.retain       | Integer   | Number of messages sent to the client, Forwarded Retained Message                          |
-| messages.delivered.system       | Integer   | Number of messages sent to the client, System Topic Messages ($SYS/#)                      |
+| messages.delivered.admin        | Integer   | Messages published via the HTTP API, delivered                                             |
+| messages.delivered.bridge       | Integer   | Messages published via Bridge, delivered                                                   |
+| messages.delivered.custom       | Integer   | Messages published via MQTT clients, delivered                                             |
+| messages.delivered.lastwill     | Integer   | Last Will Message, delivered                                                               |
+| messages.delivered.retain       | Integer   | Forwarded Retained Message, delivered                                                      |
+| messages.delivered.system       | Integer   | System Topic Messages ($SYS/#), delivered                                                  |
 | messages.acked                  | Integer   | Number of received PUBACK and PUBREC packet                                                |
-| messages.acked.admin            | Integer   | Number of received PUBACK and PUBREC packet, Messages published via the HTTP API           |
-| messages.acked.custom           | Integer   | Number of received PUBACK and PUBREC packet, Messages published via MQTT clients           |
-| messages.acked.lastwill         | Integer   | Number of received PUBACK and PUBREC packet, Last Will Message                             |
-| messages.acked.retain           | Integer   | Number of received PUBACK and PUBREC packet, Forwarded Retained Message                    |
-| messages.acked.system           | Integer   | Number of received PUBACK and PUBREC packet, System Topic Messages ($SYS/#)                |
+| messages.acked.admin            | Integer   | PUBACK / PUBREC received, for messages published via HTTP API                              |
+| messages.acked.bridge           | Integer   | PUBACK / PUBREC received, for messages published via Bridge                                |
+| messages.acked.custom           | Integer   | PUBACK / PUBREC received, for messages published via MQTT clients                          |
+| messages.acked.lastwill         | Integer   | PUBACK / PUBREC received, for Last Will Message                                            |
+| messages.acked.retain           | Integer   | PUBACK / PUBREC received, for Forwarded Retained Message                                   |
+| messages.acked.system           | Integer   | PUBACK / PUBREC received, for System Topic Messages ($SYS/#)                               |
 | messages.nonsubscribed          | Integer   | Number of PUBLISH Messages Without Subscription Found                                      |
-| messages.nonsubscribed.admin    | Integer   | Number of PUBLISH Messages Without Subscription Found, Messages published via the HTTP API |
-| messages.nonsubscribed.custom   | Integer   | Number of PUBLISH Messages Without Subscription Found, Messages published via MQTT clients |
-| messages.nonsubscribed.lastwill | Integer   | Number of PUBLISH Messages Without Subscription Found, Last Will Message                   |
-| messages.nonsubscribed.system   | Integer   | Number of PUBLISH Messages Without Subscription Found, System Topic Messages ($SYS/#)      |
+| messages.nonsubscribed.admin    | Integer   | Without Subscription Found, Messages published via HTTP API                                |
+| messages.nonsubscribed.bridge   | Integer   | Without Subscription Found, Messages published via Bridge                                  |
+| messages.nonsubscribed.custom   | Integer   | Without Subscription Found, Messages published via MQTT clients                            |
+| messages.nonsubscribed.lastwill | Integer   | Without Subscription Found, Last Will Message                                              |
+| messages.nonsubscribed.system   | Integer   | Without Subscription Found, System Topic Messages ($SYS/#)                                 |
 | messages.dropped                | Integer   | Total number of messages dropped                                                           |
 | session.created                 | Integer   | Number of sessions created                                                                 |
 | session.resumed                 | Integer   | Number of sessions resumed because `Clean Session` or `Clean Start` is false               |
@@ -1033,6 +1477,90 @@ $ curl -i -X GET "http://localhost:6060/api/v1/metrics/sum"
 {"client.auth.anonymous":38,"client.authenticate":47,"client.connack":47,"client.connect":47,"client.connected":47,"client.disconnected":46,"client.publish.check.acl":50,"client.subscribe":37,"client.subscribe.check.acl":15,"client.unsubscribe":8,"messages.acked":35,"messages.delivered":78,"messages.dropped":0,"messages.publish":78,"session.created":45,"session.resumed":2,"session.subscribed":15,"session.terminated":42,"session.unsubscribed":8}
 ```
 
+### GET /api/v1/metrics/history
+
+Queries historical metrics data for all nodes in the cluster. Requires history storage configuration to be enabled.
+
+**Query String Parameters:**
+
+| Name         | Type    | Required | Default | Description                         |
+|--------------|---------|----------|---------|-------------------------------------|
+| minutes      | Integer | Optional | 5       | Query data for the last N minutes   |
+| hours        | Integer | Optional |         | Query data for the last N hours     |
+| days         | Integer | Optional |         | Query data for the last N days      |
+| limit        | Integer | Optional | 1000    | Maximum number of data points       |
+| merge_window | Integer | Optional |         | Merge window (seconds)              |
+
+**Success Response Body (JSON):**
+
+| Name       | Type              | Description                          |
+|------------|-------------------|--------------------------------------|
+| from       | Integer           | Query start timestamp (milliseconds) |
+| to         | Integer           | Query end timestamp (milliseconds)   |
+| nodes      | Object            | Per-node history data, key is Node ID |
+| nodes.{id} | Object            | Node history data                    |
+| .from      | Integer           | Start timestamp for this node        |
+| .to        | Integer           | End timestamp for this node          |
+| .node      | Integer           | Node ID                              |
+| .count     | Integer           | Number of data points                |
+| .data      | Array             | Array of snapshot objects with `ts` (timestamp) and metrics fields |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/metrics/history?minutes=10&limit=100"
+```
+
+### GET /api/v1/metrics/history/{node}
+
+Queries historical metrics data for the specified node.
+
+**Path Parameters:**
+
+| Name | Type    | Required | Description        |
+|------|---------|----------|--------------------|
+| node | Integer | True     | Node ID, e.g., 1 |
+
+**Query String Parameters:** Same as [GET /api/v1/metrics/history](#get-metricshistory)
+
+**Success Response Body (JSON):**
+
+| Name   | Type    | Description                                    |
+|--------|---------|------------------------------------------------|
+| from   | Integer | Query start timestamp (milliseconds)           |
+| to     | Integer | Query end timestamp (milliseconds)             |
+| node   | Integer | Node ID                                        |
+| count  | Integer | Number of data points                          |
+| data   | Array   | Array of snapshot objects with `ts` (timestamp) and metrics fields |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/metrics/history/1?minutes=30"
+```
+
+### GET /api/v1/metrics/history/sum
+
+Aggregates historical metrics data across all nodes.
+
+**Query String Parameters:** Same as [GET /api/v1/metrics/history](#get-metricshistory)
+
+**Success Response Body (JSON):**
+
+| Name       | Type    | Description                              |
+|------------|---------|------------------------------------------|
+| from       | Integer | Query start timestamp (milliseconds)     |
+| to         | Integer | Query end timestamp (milliseconds)       |
+| node_count | Integer | Number of nodes participating in aggregation |
+| count      | Integer | Number of data points                    |
+| data       | Array   | Aggregated data points with summed numeric fields |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/metrics/history/sum?minutes=60"
+```
+
 ### GET /api/v1/metrics/prometheus
 
 <span id = "get-prometheus" />
@@ -1052,371 +1580,16 @@ $ curl -i -X GET "http://localhost:6060/api/v1/metrics/prometheus"
 # TYPE rmqtt_metrics gauge
 rmqtt_metrics{item="client.auth.anonymous",node="1"} 0
 rmqtt_metrics{item="client.auth.anonymous",node="2"} 2
-rmqtt_metrics{item="client.auth.anonymous",node="3"} 1
-rmqtt_metrics{item="client.auth.anonymous",node="all"} 3
-rmqtt_metrics{item="client.auth.anonymous.error",node="1"} 0
-rmqtt_metrics{item="client.auth.anonymous.error",node="2"} 0
-rmqtt_metrics{item="client.auth.anonymous.error",node="3"} 0
-rmqtt_metrics{item="client.auth.anonymous.error",node="all"} 0
-rmqtt_metrics{item="client.authenticate",node="1"} 1
-rmqtt_metrics{item="client.authenticate",node="2"} 2
-rmqtt_metrics{item="client.authenticate",node="3"} 1
-rmqtt_metrics{item="client.authenticate",node="all"} 4
-rmqtt_metrics{item="client.connack",node="1"} 1
-rmqtt_metrics{item="client.connack",node="2"} 2
-rmqtt_metrics{item="client.connack",node="3"} 1
-rmqtt_metrics{item="client.connack",node="all"} 4
-rmqtt_metrics{item="client.connack.auth.error",node="1"} 0
-rmqtt_metrics{item="client.connack.auth.error",node="2"} 0
-rmqtt_metrics{item="client.connack.auth.error",node="3"} 0
-rmqtt_metrics{item="client.connack.auth.error",node="all"} 0
-rmqtt_metrics{item="client.connack.error",node="1"} 0
-rmqtt_metrics{item="client.connack.error",node="2"} 0
-rmqtt_metrics{item="client.connack.error",node="3"} 0
-rmqtt_metrics{item="client.connack.error",node="all"} 0
-rmqtt_metrics{item="client.connect",node="1"} 1
-rmqtt_metrics{item="client.connect",node="2"} 2
-rmqtt_metrics{item="client.connect",node="3"} 1
-rmqtt_metrics{item="client.connect",node="all"} 4
-rmqtt_metrics{item="client.connected",node="1"} 1
-rmqtt_metrics{item="client.connected",node="2"} 2
-rmqtt_metrics{item="client.connected",node="3"} 1
-rmqtt_metrics{item="client.connected",node="all"} 4
-rmqtt_metrics{item="client.disconnected",node="1"} 0
-rmqtt_metrics{item="client.disconnected",node="2"} 0
-rmqtt_metrics{item="client.disconnected",node="3"} 0
-rmqtt_metrics{item="client.disconnected",node="all"} 0
-rmqtt_metrics{item="client.handshaking.timeout",node="1"} 0
-rmqtt_metrics{item="client.handshaking.timeout",node="2"} 0
-rmqtt_metrics{item="client.handshaking.timeout",node="3"} 0
-rmqtt_metrics{item="client.handshaking.timeout",node="all"} 0
-rmqtt_metrics{item="client.publish.auth.error",node="1"} 0
-rmqtt_metrics{item="client.publish.auth.error",node="2"} 0
-rmqtt_metrics{item="client.publish.auth.error",node="3"} 0
-rmqtt_metrics{item="client.publish.auth.error",node="all"} 0
-rmqtt_metrics{item="client.publish.check.acl",node="1"} 0
-rmqtt_metrics{item="client.publish.check.acl",node="2"} 0
-rmqtt_metrics{item="client.publish.check.acl",node="3"} 0
-rmqtt_metrics{item="client.publish.check.acl",node="all"} 0
-rmqtt_metrics{item="client.publish.error",node="1"} 0
-rmqtt_metrics{item="client.publish.error",node="2"} 0
-rmqtt_metrics{item="client.publish.error",node="3"} 0
-rmqtt_metrics{item="client.publish.error",node="all"} 0
-rmqtt_metrics{item="client.subscribe",node="1"} 0
-rmqtt_metrics{item="client.subscribe",node="2"} 0
-rmqtt_metrics{item="client.subscribe",node="3"} 0
-rmqtt_metrics{item="client.subscribe",node="all"} 0
-rmqtt_metrics{item="client.subscribe.auth.error",node="1"} 0
-rmqtt_metrics{item="client.subscribe.auth.error",node="2"} 0
-rmqtt_metrics{item="client.subscribe.auth.error",node="3"} 0
-rmqtt_metrics{item="client.subscribe.auth.error",node="all"} 0
-rmqtt_metrics{item="client.subscribe.check.acl",node="1"} 0
-rmqtt_metrics{item="client.subscribe.check.acl",node="2"} 0
-rmqtt_metrics{item="client.subscribe.check.acl",node="3"} 0
-rmqtt_metrics{item="client.subscribe.check.acl",node="all"} 0
-rmqtt_metrics{item="client.subscribe.error",node="1"} 0
-rmqtt_metrics{item="client.subscribe.error",node="2"} 0
-rmqtt_metrics{item="client.subscribe.error",node="3"} 0
-rmqtt_metrics{item="client.subscribe.error",node="all"} 0
-rmqtt_metrics{item="client.unsubscribe",node="1"} 0
-rmqtt_metrics{item="client.unsubscribe",node="2"} 0
-rmqtt_metrics{item="client.unsubscribe",node="3"} 0
-rmqtt_metrics{item="client.unsubscribe",node="all"} 0
-rmqtt_metrics{item="messages.acked",node="1"} 0
-rmqtt_metrics{item="messages.acked",node="2"} 0
-rmqtt_metrics{item="messages.acked",node="3"} 0
-rmqtt_metrics{item="messages.acked",node="all"} 0
-rmqtt_metrics{item="messages.acked.admin",node="1"} 0
-rmqtt_metrics{item="messages.acked.admin",node="2"} 0
-rmqtt_metrics{item="messages.acked.admin",node="3"} 0
-rmqtt_metrics{item="messages.acked.admin",node="all"} 0
-rmqtt_metrics{item="messages.acked.bridge",node="1"} 0
-rmqtt_metrics{item="messages.acked.bridge",node="2"} 0
-rmqtt_metrics{item="messages.acked.bridge",node="3"} 0
-rmqtt_metrics{item="messages.acked.bridge",node="all"} 0
-rmqtt_metrics{item="messages.acked.custom",node="1"} 0
-rmqtt_metrics{item="messages.acked.custom",node="2"} 0
-rmqtt_metrics{item="messages.acked.custom",node="3"} 0
-rmqtt_metrics{item="messages.acked.custom",node="all"} 0
-rmqtt_metrics{item="messages.acked.lastwill",node="1"} 0
-rmqtt_metrics{item="messages.acked.lastwill",node="2"} 0
-rmqtt_metrics{item="messages.acked.lastwill",node="3"} 0
-rmqtt_metrics{item="messages.acked.lastwill",node="all"} 0
-rmqtt_metrics{item="messages.acked.retain",node="1"} 0
-rmqtt_metrics{item="messages.acked.retain",node="2"} 0
-rmqtt_metrics{item="messages.acked.retain",node="3"} 0
-rmqtt_metrics{item="messages.acked.retain",node="all"} 0
-rmqtt_metrics{item="messages.acked.system",node="1"} 0
-rmqtt_metrics{item="messages.acked.system",node="2"} 0
-rmqtt_metrics{item="messages.acked.system",node="3"} 0
-rmqtt_metrics{item="messages.acked.system",node="all"} 0
-rmqtt_metrics{item="messages.delivered",node="1"} 0
-rmqtt_metrics{item="messages.delivered",node="2"} 0
-rmqtt_metrics{item="messages.delivered",node="3"} 0
-rmqtt_metrics{item="messages.delivered",node="all"} 0
-rmqtt_metrics{item="messages.delivered.admin",node="1"} 0
-rmqtt_metrics{item="messages.delivered.admin",node="2"} 0
-rmqtt_metrics{item="messages.delivered.admin",node="3"} 0
-rmqtt_metrics{item="messages.delivered.admin",node="all"} 0
-rmqtt_metrics{item="messages.delivered.bridge",node="1"} 0
-rmqtt_metrics{item="messages.delivered.bridge",node="2"} 0
-rmqtt_metrics{item="messages.delivered.bridge",node="3"} 0
-rmqtt_metrics{item="messages.delivered.bridge",node="all"} 0
-rmqtt_metrics{item="messages.delivered.custom",node="1"} 0
-rmqtt_metrics{item="messages.delivered.custom",node="2"} 0
-rmqtt_metrics{item="messages.delivered.custom",node="3"} 0
-rmqtt_metrics{item="messages.delivered.custom",node="all"} 0
-rmqtt_metrics{item="messages.delivered.lastwill",node="1"} 0
-rmqtt_metrics{item="messages.delivered.lastwill",node="2"} 0
-rmqtt_metrics{item="messages.delivered.lastwill",node="3"} 0
-rmqtt_metrics{item="messages.delivered.lastwill",node="all"} 0
-rmqtt_metrics{item="messages.delivered.retain",node="1"} 0
-rmqtt_metrics{item="messages.delivered.retain",node="2"} 0
-rmqtt_metrics{item="messages.delivered.retain",node="3"} 0
-rmqtt_metrics{item="messages.delivered.retain",node="all"} 0
-rmqtt_metrics{item="messages.delivered.system",node="1"} 0
-rmqtt_metrics{item="messages.delivered.system",node="2"} 0
-rmqtt_metrics{item="messages.delivered.system",node="3"} 0
-rmqtt_metrics{item="messages.delivered.system",node="all"} 0
-rmqtt_metrics{item="messages.dropped",node="1"} 0
-rmqtt_metrics{item="messages.dropped",node="2"} 0
-rmqtt_metrics{item="messages.dropped",node="3"} 0
-rmqtt_metrics{item="messages.dropped",node="all"} 0
-rmqtt_metrics{item="messages.nonsubscribed",node="1"} 0
-rmqtt_metrics{item="messages.nonsubscribed",node="2"} 0
-rmqtt_metrics{item="messages.nonsubscribed",node="3"} 0
-rmqtt_metrics{item="messages.nonsubscribed",node="all"} 0
-rmqtt_metrics{item="messages.nonsubscribed.admin",node="1"} 0
-rmqtt_metrics{item="messages.nonsubscribed.admin",node="2"} 0
-rmqtt_metrics{item="messages.nonsubscribed.admin",node="3"} 0
-rmqtt_metrics{item="messages.nonsubscribed.admin",node="all"} 0
-rmqtt_metrics{item="messages.nonsubscribed.bridge",node="1"} 0
-rmqtt_metrics{item="messages.nonsubscribed.bridge",node="2"} 0
-rmqtt_metrics{item="messages.nonsubscribed.bridge",node="3"} 0
-rmqtt_metrics{item="messages.nonsubscribed.bridge",node="all"} 0
-rmqtt_metrics{item="messages.nonsubscribed.custom",node="1"} 0
-rmqtt_metrics{item="messages.nonsubscribed.custom",node="2"} 0
-rmqtt_metrics{item="messages.nonsubscribed.custom",node="3"} 0
-rmqtt_metrics{item="messages.nonsubscribed.custom",node="all"} 0
-rmqtt_metrics{item="messages.nonsubscribed.lastwill",node="1"} 0
-rmqtt_metrics{item="messages.nonsubscribed.lastwill",node="2"} 0
-rmqtt_metrics{item="messages.nonsubscribed.lastwill",node="3"} 0
-rmqtt_metrics{item="messages.nonsubscribed.lastwill",node="all"} 0
-rmqtt_metrics{item="messages.nonsubscribed.system",node="1"} 0
-rmqtt_metrics{item="messages.nonsubscribed.system",node="2"} 0
-rmqtt_metrics{item="messages.nonsubscribed.system",node="3"} 0
-rmqtt_metrics{item="messages.nonsubscribed.system",node="all"} 0
-rmqtt_metrics{item="messages.publish",node="1"} 0
-rmqtt_metrics{item="messages.publish",node="2"} 0
-rmqtt_metrics{item="messages.publish",node="3"} 0
-rmqtt_metrics{item="messages.publish",node="all"} 0
-rmqtt_metrics{item="messages.publish.admin",node="1"} 0
-rmqtt_metrics{item="messages.publish.admin",node="2"} 0
-rmqtt_metrics{item="messages.publish.admin",node="3"} 0
-rmqtt_metrics{item="messages.publish.admin",node="all"} 0
-rmqtt_metrics{item="messages.publish.bridge",node="1"} 0
-rmqtt_metrics{item="messages.publish.bridge",node="2"} 0
-rmqtt_metrics{item="messages.publish.bridge",node="3"} 0
-rmqtt_metrics{item="messages.publish.bridge",node="all"} 0
-rmqtt_metrics{item="messages.publish.custom",node="1"} 0
-rmqtt_metrics{item="messages.publish.custom",node="2"} 0
-rmqtt_metrics{item="messages.publish.custom",node="3"} 0
-rmqtt_metrics{item="messages.publish.custom",node="all"} 0
-rmqtt_metrics{item="messages.publish.lastwill",node="1"} 0
-rmqtt_metrics{item="messages.publish.lastwill",node="2"} 0
-rmqtt_metrics{item="messages.publish.lastwill",node="3"} 0
-rmqtt_metrics{item="messages.publish.lastwill",node="all"} 0
-rmqtt_metrics{item="messages.publish.system",node="1"} 0
-rmqtt_metrics{item="messages.publish.system",node="2"} 0
-rmqtt_metrics{item="messages.publish.system",node="3"} 0
-rmqtt_metrics{item="messages.publish.system",node="all"} 0
-rmqtt_metrics{item="session.created",node="1"} 1
-rmqtt_metrics{item="session.created",node="2"} 2
-rmqtt_metrics{item="session.created",node="3"} 1
-rmqtt_metrics{item="session.created",node="all"} 4
-rmqtt_metrics{item="session.resumed",node="1"} 0
-rmqtt_metrics{item="session.resumed",node="2"} 0
-rmqtt_metrics{item="session.resumed",node="3"} 0
-rmqtt_metrics{item="session.resumed",node="all"} 0
-rmqtt_metrics{item="session.subscribed",node="1"} 0
-rmqtt_metrics{item="session.subscribed",node="2"} 0
-rmqtt_metrics{item="session.subscribed",node="3"} 0
-rmqtt_metrics{item="session.subscribed",node="all"} 0
-rmqtt_metrics{item="session.terminated",node="1"} 0
-rmqtt_metrics{item="session.terminated",node="2"} 0
-rmqtt_metrics{item="session.terminated",node="3"} 0
-rmqtt_metrics{item="session.terminated",node="all"} 0
-rmqtt_metrics{item="session.unsubscribed",node="1"} 0
-rmqtt_metrics{item="session.unsubscribed",node="2"} 0
-rmqtt_metrics{item="session.unsubscribed",node="3"} 0
-rmqtt_metrics{item="session.unsubscribed",node="all"} 0
+...
 # HELP rmqtt_nodes All nodes status
 # TYPE rmqtt_nodes gauge
 rmqtt_nodes{item="disk_free",node="1"} 46307106816
-rmqtt_nodes{item="disk_free",node="2"} 46307106816
-rmqtt_nodes{item="disk_free",node="3"} 46307106816
-rmqtt_nodes{item="disk_free",node="all"} 138921320448
-rmqtt_nodes{item="disk_total",node="1"} 1000896192512
-rmqtt_nodes{item="disk_total",node="2"} 1000896192512
-rmqtt_nodes{item="disk_total",node="3"} 1000896192512
-rmqtt_nodes{item="disk_total",node="all"} 3002688577536
-rmqtt_nodes{item="load1",node="1"} 0
-rmqtt_nodes{item="load1",node="2"} 0
-rmqtt_nodes{item="load1",node="3"} 0
-rmqtt_nodes{item="load1",node="all"} 0
-rmqtt_nodes{item="load15",node="1"} 0
-rmqtt_nodes{item="load15",node="2"} 0
-rmqtt_nodes{item="load15",node="3"} 0
-rmqtt_nodes{item="load15",node="all"} 0
-rmqtt_nodes{item="load5",node="1"} 0
-rmqtt_nodes{item="load5",node="2"} 0
-rmqtt_nodes{item="load5",node="3"} 0
-rmqtt_nodes{item="load5",node="all"} 0
-rmqtt_nodes{item="memory_free",node="1"} 19571781632
-rmqtt_nodes{item="memory_free",node="2"} 19571781632
-rmqtt_nodes{item="memory_free",node="3"} 19571781632
-rmqtt_nodes{item="memory_free",node="all"} 58715344896
-rmqtt_nodes{item="memory_total",node="1"} 34070585344
-rmqtt_nodes{item="memory_total",node="2"} 34070585344
-rmqtt_nodes{item="memory_total",node="3"} 34070585344
-rmqtt_nodes{item="memory_total",node="all"} 102211756032
-rmqtt_nodes{item="memory_used",node="1"} 14498803712
-rmqtt_nodes{item="memory_used",node="2"} 14498803712
-rmqtt_nodes{item="memory_used",node="3"} 14498803712
-rmqtt_nodes{item="memory_used",node="all"} 43496411136
-rmqtt_nodes{item="running",node="1"} 1
-rmqtt_nodes{item="running",node="2"} 1
-rmqtt_nodes{item="running",node="3"} 1
-rmqtt_nodes{item="running",node="all"} 3
+...
 # HELP rmqtt_stats All status data
 # TYPE rmqtt_stats gauge
 rmqtt_stats{item="connections.count",node="1"} 1
-rmqtt_stats{item="connections.count",node="2"} 2
-rmqtt_stats{item="connections.count",node="3"} 1
-rmqtt_stats{item="connections.count",node="all"} 4
-rmqtt_stats{item="connections.max",node="1"} 1
-rmqtt_stats{item="connections.max",node="2"} 2
-rmqtt_stats{item="connections.max",node="3"} 1
-rmqtt_stats{item="connections.max",node="all"} 4
-rmqtt_stats{item="delayed_publishs.count",node="1"} 0
-rmqtt_stats{item="delayed_publishs.count",node="2"} 0
-rmqtt_stats{item="delayed_publishs.count",node="3"} 0
-rmqtt_stats{item="delayed_publishs.count",node="all"} 0
-rmqtt_stats{item="delayed_publishs.max",node="1"} 0
-rmqtt_stats{item="delayed_publishs.max",node="2"} 0
-rmqtt_stats{item="delayed_publishs.max",node="3"} 0
-rmqtt_stats{item="delayed_publishs.max",node="all"} 0
-rmqtt_stats{item="forwards.count",node="1"} 0
-rmqtt_stats{item="forwards.count",node="2"} 0
-rmqtt_stats{item="forwards.count",node="3"} 0
-rmqtt_stats{item="forwards.count",node="all"} 0
-rmqtt_stats{item="forwards.max",node="1"} 0
-rmqtt_stats{item="forwards.max",node="2"} 0
-rmqtt_stats{item="forwards.max",node="3"} 0
-rmqtt_stats{item="forwards.max",node="all"} 0
-rmqtt_stats{item="handshakings.count",node="1"} 0
-rmqtt_stats{item="handshakings.count",node="2"} 0
-rmqtt_stats{item="handshakings.count",node="3"} 0
-rmqtt_stats{item="handshakings.count",node="all"} 0
-rmqtt_stats{item="handshakings.max",node="1"} 0
-rmqtt_stats{item="handshakings.max",node="2"} 0
-rmqtt_stats{item="handshakings.max",node="3"} 0
-rmqtt_stats{item="handshakings.max",node="all"} 0
-rmqtt_stats{item="handshakings_active.count",node="1"} 0
-rmqtt_stats{item="handshakings_active.count",node="2"} 0
-rmqtt_stats{item="handshakings_active.count",node="3"} 0
-rmqtt_stats{item="handshakings_active.count",node="all"} 0
-rmqtt_stats{item="handshakings_rate.count",node="1"} 0
-rmqtt_stats{item="handshakings_rate.count",node="2"} 0
-rmqtt_stats{item="handshakings_rate.count",node="3"} 0
-rmqtt_stats{item="handshakings_rate.count",node="all"} 0
-rmqtt_stats{item="handshakings_rate.max",node="1"} 0
-rmqtt_stats{item="handshakings_rate.max",node="2"} 0
-rmqtt_stats{item="handshakings_rate.max",node="3"} 0
-rmqtt_stats{item="handshakings_rate.max",node="all"} 0
-rmqtt_stats{item="in_inflights.count",node="1"} 0
-rmqtt_stats{item="in_inflights.count",node="2"} 0
-rmqtt_stats{item="in_inflights.count",node="3"} 0
-rmqtt_stats{item="in_inflights.count",node="all"} 0
-rmqtt_stats{item="in_inflights.max",node="1"} 0
-rmqtt_stats{item="in_inflights.max",node="2"} 0
-rmqtt_stats{item="in_inflights.max",node="3"} 0
-rmqtt_stats{item="in_inflights.max",node="all"} 0
-rmqtt_stats{item="message_queues.count",node="1"} 0
-rmqtt_stats{item="message_queues.count",node="2"} 0
-rmqtt_stats{item="message_queues.count",node="3"} 0
-rmqtt_stats{item="message_queues.count",node="all"} 0
-rmqtt_stats{item="message_queues.max",node="1"} 0
-rmqtt_stats{item="message_queues.max",node="2"} 0
-rmqtt_stats{item="message_queues.max",node="3"} 0
-rmqtt_stats{item="message_queues.max",node="all"} 0
-rmqtt_stats{item="message_storages.count",node="1"} -1
-rmqtt_stats{item="message_storages.count",node="2"} -1
-rmqtt_stats{item="message_storages.count",node="3"} -1
-rmqtt_stats{item="message_storages.count",node="all"} -3
-rmqtt_stats{item="message_storages.max",node="1"} 0
-rmqtt_stats{item="message_storages.max",node="2"} 0
-rmqtt_stats{item="message_storages.max",node="3"} 0
-rmqtt_stats{item="message_storages.max",node="all"} 0
-rmqtt_stats{item="out_inflights.count",node="1"} 0
-rmqtt_stats{item="out_inflights.count",node="2"} 0
-rmqtt_stats{item="out_inflights.count",node="3"} 0
-rmqtt_stats{item="out_inflights.count",node="all"} 0
-rmqtt_stats{item="out_inflights.max",node="1"} 0
-rmqtt_stats{item="out_inflights.max",node="2"} 0
-rmqtt_stats{item="out_inflights.max",node="3"} 0
-rmqtt_stats{item="out_inflights.max",node="all"} 0
-rmqtt_stats{item="retaineds.count",node="1"} 0
-rmqtt_stats{item="retaineds.count",node="2"} 0
-rmqtt_stats{item="retaineds.count",node="3"} 0
-rmqtt_stats{item="retaineds.count",node="all"} 0
-rmqtt_stats{item="retaineds.max",node="1"} 0
-rmqtt_stats{item="retaineds.max",node="2"} 0
-rmqtt_stats{item="retaineds.max",node="3"} 0
-rmqtt_stats{item="retaineds.max",node="all"} 0
-rmqtt_stats{item="routes.count",node="1"} 0
-rmqtt_stats{item="routes.count",node="2"} 0
-rmqtt_stats{item="routes.count",node="3"} 0
-rmqtt_stats{item="routes.count",node="all"} 0
-rmqtt_stats{item="routes.max",node="1"} 0
-rmqtt_stats{item="routes.max",node="2"} 0
-rmqtt_stats{item="routes.max",node="3"} 0
-rmqtt_stats{item="routes.max",node="all"} 0
-rmqtt_stats{item="sessions.count",node="1"} 1
-rmqtt_stats{item="sessions.count",node="2"} 2
-rmqtt_stats{item="sessions.count",node="3"} 1
-rmqtt_stats{item="sessions.count",node="all"} 4
-rmqtt_stats{item="sessions.max",node="1"} 1
-rmqtt_stats{item="sessions.max",node="2"} 2
-rmqtt_stats{item="sessions.max",node="3"} 1
-rmqtt_stats{item="sessions.max",node="all"} 4
-rmqtt_stats{item="subscriptions.count",node="1"} 0
-rmqtt_stats{item="subscriptions.count",node="2"} 0
-rmqtt_stats{item="subscriptions.count",node="3"} 0
-rmqtt_stats{item="subscriptions.count",node="all"} 0
-rmqtt_stats{item="subscriptions.max",node="1"} 0
-rmqtt_stats{item="subscriptions.max",node="2"} 0
-rmqtt_stats{item="subscriptions.max",node="3"} 0
-rmqtt_stats{item="subscriptions.max",node="all"} 0
-rmqtt_stats{item="subscriptions_shared.count",node="1"} 0
-rmqtt_stats{item="subscriptions_shared.count",node="2"} 0
-rmqtt_stats{item="subscriptions_shared.count",node="3"} 0
-rmqtt_stats{item="subscriptions_shared.count",node="all"} 0
-rmqtt_stats{item="subscriptions_shared.max",node="1"} 0
-rmqtt_stats{item="subscriptions_shared.max",node="2"} 0
-rmqtt_stats{item="subscriptions_shared.max",node="3"} 0
-rmqtt_stats{item="subscriptions_shared.max",node="all"} 0
-rmqtt_stats{item="topics.count",node="1"} 0
-rmqtt_stats{item="topics.count",node="2"} 0
-rmqtt_stats{item="topics.count",node="3"} 0
-rmqtt_stats{item="topics.count",node="all"} 0
-rmqtt_stats{item="topics.max",node="1"} 0
-rmqtt_stats{item="topics.max",node="2"} 0
-rmqtt_stats{item="topics.max",node="3"} 0
-rmqtt_stats{item="topics.max",node="all"} 0
+...
 ```
-![Example Image](../imgs/prometheus_demo1.jpg)
-
 
 ### GET /api/v1/metrics/prometheus/{node}
 
@@ -1432,14 +1605,12 @@ Returns the status data and statistical metrics of the specified node in the clu
 
 see [GET /api/v1/metrics/prometheus](#get-prometheus) 
 
-
 ### GET /api/v1/metrics/prometheus/sum
 
 Returns the total of the status data and statistical metrics of all nodes in the cluster in Prometheus format.
 
-**Path Parameters:** 无
+**Path Parameters:** None
 
 **Success Response Body (TEXT):**
 
 see [GET /api/v1/metrics/prometheus](#get-prometheus) 
-
