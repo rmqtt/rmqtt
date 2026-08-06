@@ -118,6 +118,15 @@ impl TestContext {
         self.metrics.lock().errors += 1;
     }
 
+    /// Whether this context manages a broker process.
+    ///
+    /// Returns `false` in `--no-broker` mode (external broker), in which case
+    /// tests that depend on broker lifecycle management (restart/kill) should
+    /// be skipped rather than failed.
+    pub fn has_broker(&self) -> bool {
+        self.broker.is_some()
+    }
+
     /// Restart the broker (for chaos testing) - synchronous
     pub fn restart_broker(&self) -> Result<(), anyhow::Error> {
         if let Some(ref broker) = self.broker {
