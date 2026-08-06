@@ -80,7 +80,8 @@ impl BrokerProcess {
         cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
 
         if let Some(ref config) = self.config_path {
-            cmd.arg("-c").arg(config);
+            // rmqttd accepts `-f`/`--config` (config filename); `-c` is rejected.
+            cmd.arg("-f").arg(config);
         }
 
         let child = cmd.spawn()?;

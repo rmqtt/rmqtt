@@ -59,6 +59,16 @@ impl TestResult {
         }
     }
 
+    pub fn skipped(name: &str, suite: &str, duration: Duration, reason: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            suite: suite.to_string(),
+            verdict: TestVerdict::Skipped(reason.to_string()),
+            duration,
+            retries: 0,
+        }
+    }
+
     pub fn error(name: &str, suite: &str, duration: Duration, msg: String) -> Self {
         Self {
             name: name.to_string(),

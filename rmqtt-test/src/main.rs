@@ -199,6 +199,14 @@ fn build_suites(opt: &Opt) -> Vec<TestSuite> {
         suites.push(build_functional_v5_suite());
     }
 
+    // functional_v5_cluster requires a manually started two-node cluster
+    // (see rmqtt-test/configs/pubrel-collision-cluster/). It is only run when
+    // explicitly requested — never as part of the default full run, so it
+    // cannot break the single-node suites.
+    if opt.suites.iter().any(|s| s == "functional_v5_cluster") {
+        suites.push(build_functional_v5_cluster_suite());
+    }
+
     if should_run("stress") {
         suites.push(build_stress_suite(opt.stress_clients));
     }
@@ -302,6 +310,7 @@ fn build_functional_v5_suite() -> TestSuite {
     use tests::functional::publication_expiry_v5::*;
     use tests::functional::pubsub_v5::*;
     use tests::functional::qos2_conformance::*;
+    use tests::functional::qos2_pubrel_resume_collision::*;
     use tests::functional::request_response_v5::*;
     use tests::functional::retain_handling_v5::*;
     use tests::functional::server_keepalive_v5::*;
@@ -355,6 +364,19 @@ fn build_functional_v5_suite() -> TestSuite {
     // QoS 2 exactly-once conformance (GitHub issue #456)
     suite.add(Qos2ReplayedPublishDedupTest);
     suite.add(Qos2PubrelResendOnResumeTest);
+    // PUBREL resume packet-id collision (designs/pubrel-resume-inflight-id-collision.md)
+    suite.add(Qos2PubrelResumeCollisionTest);
+    suite
+}
+
+/// Cluster-only reproduction suite (needs two manually started rmqttd nodes,
+/// see `rmqtt-test/configs/pubrel-collision-cluster/`):
+///   mqtt_harness --no-broker --addr 127.0.0.1:1884 --suites functional_v5_cluster
+fn build_functional_v5_cluster_suite() -> TestSuite {
+    use tests::functional::qos2_pubrel_resume_collision_cluster::*;
+
+    let mut suite = TestSuite::new("functional_v5_cluster");
+    suite.add(Qos2PubrelResumeCollisionClusterTest);
     suite
 }
 
