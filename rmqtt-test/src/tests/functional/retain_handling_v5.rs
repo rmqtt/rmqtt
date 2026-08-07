@@ -17,6 +17,10 @@ impl TestCase for RetainHandlingNoAtSubscribeV5Test {
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
+        // Skip (as passed) when retained messages are unavailable.
+        if let Some(result) = ctx.guard_retain_required(self.name(), "functional_v5", start) {
+            return result;
+        }
         let rt = tokio::runtime::Runtime::new().unwrap();
 
         let result: anyhow::Result<()> = rt.block_on(async {
@@ -76,6 +80,10 @@ impl TestCase for RetainHandlingNewV5Test {
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
+        // Skip (as passed) when retained messages are unavailable.
+        if let Some(result) = ctx.guard_retain_required(self.name(), "functional_v5", start) {
+            return result;
+        }
         let rt = tokio::runtime::Runtime::new().unwrap();
 
         let result: anyhow::Result<()> = rt.block_on(async {

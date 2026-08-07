@@ -46,7 +46,7 @@ impl JsonReporter {
                 name: r.name.clone(),
                 suite: r.suite.clone(),
                 status: verdict_to_status(&r.verdict),
-                reason: verdict_to_reason(&r.verdict),
+                reason: verdict_to_reason(&r.verdict).or_else(|| r.note.clone()),
                 duration_ms: r.duration.as_millis() as u64,
                 retries: r.retries,
             })

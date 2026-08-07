@@ -1,0 +1,69 @@
+##--------------------------------------------------------------------
+## rmqttd config for the GitHub issue #457 reproduction test
+## (Will Retain vs Retain Available, MQTT-3.2.2-13)
+##
+## This config deliberately does NOT load the rmqtt-retainer plugin, so the
+## broker advertises `Retain Available = 0` in its CONNACK. According to the
+## spec, a CONNECT whose Will Message has `Will Retain = 1` must then be
+## rejected with CONNACK reason 0x9A ("Retain not supported").
+##
+## Usage (run from the rmqtt repository root so that `plugins.dir`
+## resolves correctly):
+##   target/release/mqtt_harness \
+##     --binary target/release/rmqttd \
+##     --config rmqtt-test/configs/retain-disabled/rmqtt.toml \
+##     --workspace . \
+##     --suites functional_v5 \
+##     --workers 1
+##
+## Expected result today (before the fix): the
+## `v5_will_retain_rejected_when_retain_unavailable` test FAILS because the
+## broker accepts the `Will Retain = 1` connection with reason 0x00.
+##--------------------------------------------------------------------
+
+##--------------------------------------------------------------------
+## Task
+##--------------------------------------------------------------------
+task.exec_workers = 2000
+task.exec_queue_max = 300_000
+
+##--------------------------------------------------------------------
+## Node
+##--------------------------------------------------------------------
+node.id = 1
+node.busy.check_enable = false
+node.busy.update_interval = "2s"
+node.busy.loadavg = 80.0
+node.busy.cpuloadavg = 90.0
+node.busy.handshaking = 0
+
+##--------------------------------------------------------------------
+## Log
+##--------------------------------------------------------------------
+log.to = "console"
+log.level = "info"
+log.dir = "."
+log.file = "rmqtt.log"
+
+##--------------------------------------------------------------------
+## Plugins
+##--------------------------------------------------------------------
+plugins.dir = "rmqtt-plugins/"
+# NOTE: rmqtt-retainer is intentionally NOT loaded, so the broker advertises
+# `Retain Available = 0` (the CONNECT-side `retain_available` config item was
+# removed in 0.11.0; availability is driven solely by the retainer plugin).
+plugins.default_startups = [
+    "rmqtt-message-storage",
+]
+plugins.disabled_default_startups = []
+
+##--------------------------------------------------------------------
+## Listener
+##--------------------------------------------------------------------
+listener.tcp.external.addr = "127.0.0.1:1883"
+listener.tcp.external.workers = 8
+listener.tcp.external.max_connections = 1024000
+listener.tcp.external.max_handshaking_limit = 500
+listener.tcp.external.handshake_timeout = "30s"
+listener.tcp.external.max_packet_size = "1MB"
+listener.tcp.external.backlog = 1024

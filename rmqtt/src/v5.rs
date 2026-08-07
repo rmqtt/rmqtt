@@ -224,6 +224,29 @@ async fn _handshake(
         ));
     }
 
+    //[MQTT-3.2.2-13] A Server that advertises `Retain Available = 0` in its
+    //CONNACK (retained messages not supported) MUST NOT accept a CONNECT whose
+    //Will Message has `Will Retain = 1`; the connection is rejected with
+    //CONNACK reason 0x9A (Retain not supported).
+    if connect_info.last_will().is_some_and(|lw| lw.retain()) {
+        let retain_available = {
+            #[cfg(feature = "retain")]
+            {
+                scx.extends.retain().await.enable()
+            }
+            #[cfg(not(feature = "retain"))]
+            {
+                false
+            }
+        };
+        if !retain_available {
+            return Err((
+                ConnectAckReason::V5(ConnectAckReasonV5::RetainNotSupported),
+                anyhow!("will retain is not supported by the server"),
+            ));
+        }
+    }
+
     let entry = scx.extends.shared().await.entry(id.clone());
     let max_sessions = scx.mqtt_max_sessions;
     if max_sessions > 0 && scx.sessions.count() >= max_sessions && !entry.exist() {
