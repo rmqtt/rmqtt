@@ -61,7 +61,7 @@ impl HtmlReporter {
             let reason = match &r.verdict {
                 TestVerdict::Failed(r) | TestVerdict::Error(r) | TestVerdict::Skipped(r) => r.clone(),
                 TestVerdict::Timeout => "timed out".to_string(),
-                TestVerdict::Passed => String::new(),
+                TestVerdict::Passed => r.note.clone().unwrap_or_default(),
             };
             let duration = if r.duration.as_millis() < 1000 {
                 format!("{}ms", r.duration.as_millis())

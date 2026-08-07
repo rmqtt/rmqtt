@@ -26,6 +26,7 @@ pub mod qos2_pubrel_resume_collision;
 pub mod qos2_pubrel_resume_collision_cluster;
 pub mod request_response_v5;
 pub mod retain_handling_v5;
+pub mod retain_unavailable_v5;
 pub mod server_keepalive_v5;
 pub mod session_v311;
 pub mod session_v5;

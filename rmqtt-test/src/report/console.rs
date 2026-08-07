@@ -24,7 +24,7 @@ impl ConsoleReporter {
                     format!(" ({})", r)
                 }
                 TestVerdict::Timeout => " (timeout)".to_string(),
-                TestVerdict::Passed => String::new(),
+                TestVerdict::Passed => result.note.as_ref().map(|n| format!(" ({})", n)).unwrap_or_default(),
             };
 
             let duration = if result.duration.as_millis() < 1000 {

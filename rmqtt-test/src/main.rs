@@ -313,6 +313,7 @@ fn build_functional_v5_suite() -> TestSuite {
     use tests::functional::qos2_pubrel_resume_collision::*;
     use tests::functional::request_response_v5::*;
     use tests::functional::retain_handling_v5::*;
+    use tests::functional::retain_unavailable_v5::*;
     use tests::functional::server_keepalive_v5::*;
     use tests::functional::session_v5::*;
     use tests::functional::shared_subscription::*;
@@ -342,6 +343,8 @@ fn build_functional_v5_suite() -> TestSuite {
     suite.add(RetainHandlingNoAtSubscribeV5Test);
     suite.add(RetainHandlingNewV5Test);
     suite.add(RetainAsPublishedV5Test);
+    // Will Retain vs Retain Available conformance (GitHub issue #457)
+    suite.add(WillRetainRejectedWhenRetainUnavailableV5Test);
     // Disconnect reason codes
     suite.add(DisconnectReasonV5Test);
     // Flow control
