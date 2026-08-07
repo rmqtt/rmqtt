@@ -233,6 +233,7 @@ fn build_functional_v311_suite() -> TestSuite {
     use tests::functional::boundary::*;
     use tests::functional::connect_v311::*;
     use tests::functional::dollar_topics::*;
+    use tests::functional::empty_clientid_cleansession0_v311::*;
     use tests::functional::keepalive::*;
     use tests::functional::last_will::*;
     use tests::functional::multi_topic::*;
@@ -267,6 +268,8 @@ fn build_functional_v311_suite() -> TestSuite {
     // Authentication edge cases
     suite.add(AuthEmptyClientIdFailTest);
     suite.add(AuthConnectDisconnectSequenceTest);
+    // Empty ClientId + CleanSession = 0 must be rejected with 0x02 (MQTT-3.1.3-6)
+    suite.add(EmptyClientIdCleanSession0RejectedV311Test);
     // Boundary tests
     suite.add(MaxClientIdTest);
     suite.add(LongTopicTest);
@@ -301,6 +304,7 @@ fn build_functional_v5_suite() -> TestSuite {
     use tests::functional::connect_v5::*;
     use tests::functional::disconnect_reason_v5::*;
     use tests::functional::dollar_topics::*;
+    use tests::functional::empty_clientid_cleanstart0_v5::*;
     use tests::functional::flow_control_v5::*;
     use tests::functional::keepalive::*;
     use tests::functional::last_will::*;
@@ -353,6 +357,8 @@ fn build_functional_v5_suite() -> TestSuite {
     suite.add(SharedSubV5Test);
     // V5 CONNACK property checks
     suite.add(AssignedClientIdV5Test);
+    // Empty ClientId + CleanStart = 0 must be rejected with 0x85 (MQTT-3.1.3-8)
+    suite.add(EmptyClientIdCleanStart0RejectedV5Test);
     suite.add(ServerKeepAliveV5Test);
     suite.add(ServerTopicAliasV5Test);
     suite.add(MaxPacketSizeV5Test);

@@ -8,6 +8,8 @@ pub mod connect_v311;
 pub mod connect_v5;
 pub mod disconnect_reason_v5;
 pub mod dollar_topics;
+pub mod empty_clientid_cleansession0_v311;
+pub mod empty_clientid_cleanstart0_v5;
 pub mod flow_control_v5;
 pub mod keepalive;
 pub mod last_will;
