@@ -48,7 +48,8 @@ log.file = "rmqtt.log"
 ##--------------------------------------------------------------------
 ## Plugins
 ##--------------------------------------------------------------------
-plugins.dir = "rmqtt-plugins/"
+# Self-contained: plugin configs live in this directory's plugins/ sub-dir.
+plugins.dir = "rmqtt-test/configs/retain-disabled/plugins/"
 # NOTE: rmqtt-retainer is intentionally NOT loaded, so the broker advertises
 # `Retain Available = 0` (the CONNECT-side `retain_available` config item was
 # removed in 0.11.0; availability is driven solely by the retainer plugin).

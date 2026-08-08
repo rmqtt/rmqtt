@@ -39,6 +39,20 @@ Artifact located at `target/release/mqtt_harness` (`mqtt_harness.exe` on Windows
 ```
 
 The program will auto-locate `target/release/rmqttd` and start the broker.
+By default it uses the **self-contained config**
+`rmqtt-test/configs/default/rmqtt.toml` (independent from the repository-root
+`rmqtt.toml` / `rmqtt-plugins/*.toml`; all TCP/TLS/WS/WSS/QUIC listeners are
+kept enabled for the upcoming TLS/WS/QUIC test suites).
+
+### Use a Different Broker Config
+
+```bash
+# Explicit config for the whole run
+./target/release/mqtt_harness --workspace . --config rmqtt-test/configs/retain-disabled/rmqtt.toml
+
+# Run only one config-split sub-suite
+./target/release/mqtt_harness --workspace . --suites functional_v5@retain-disabled
+```
 
 ### Connect to a Running Broker
 
@@ -69,6 +83,39 @@ The program will auto-locate `target/release/rmqttd` and start the broker.
 # Multiple suites
 ./target/release/mqtt_harness --workspace . --suites functional_v3 --suites functional_v311
 ```
+
+> `--suites` supports prefix matching: `functional_v5` also selects every
+> config-split sub-suite (e.g. `functional_v5@retain-disabled`). The
+> `functional_v5_cluster` two-node suite only runs when explicitly requested
+> and is never part of the default full run.
+
+## ⚙️ Broker Configs (self-contained `configs/`)
+
+All test broker configs live under `rmqtt-test/configs/<name>/` and are
+**self-contained** (main config + own `plugins/` sub-dir), independent from
+the repository-root `rmqtt.toml` / `rmqtt-plugins/*.toml`:
+
+```
+configs/
+  default/                  # default config (used when --config is omitted)
+    rmqtt.toml              #   based on the repo-root config, all listeners kept
+    plugins/                #   retainer / shared-subscription / http-api
+  retain-disabled/          # retainer plugin NOT loaded (Retain Available = 0)
+  pubrel-collision/         # message-storage loaded (PUBREL collision repro)
+  pubrel-collision-cluster/ # two-node cluster (manual start, 1884/1885 MQTT)
+```
+
+**Per-test config switching**: a test case can declare its required config via
+`TestCase::broker_config()` (e.g. `WillRetainRejectedWhenRetainUnavailableV5Test`
+→ `retain-disabled`, `Qos2PubrelResumeCollisionTest` → `pubrel-collision`).
+At suite build time, cases declaring the same non-default config are split
+into a dedicated `{suite}@{config}` sub-suite (e.g.
+`functional_v5@retain-disabled`); the scheduler switches the broker config
+(restart) only at **suite boundaries**, and the default-config group keeps
+its original name with zero extra restarts.
+
+Port constraint: configs participating in auto-switching must listen on the
+harness `--addr` (default `127.0.0.1:1883`), otherwise the health check fails.
 
 ## 📋 Test Suites
 
@@ -123,7 +170,14 @@ and boundary scenarios:
 | Wildcard | `wildcard_v5_case_sensitive` / `leading_slash` |
 | Protocol errors | `protocol_error_v5_*` (subscribe qos3, fixed-header QoS, publish qos3/pid0/empty-topic, bad remaining length, reserved type) |
 | Disconnect | `disconnect_reason_v5` |
-| Will Retain vs Retain Available | `will_retain_rejected_when_retain_unavailable_v5` (skipped when retainer is enabled) |
+| Will Retain vs Retain Available | `will_retain_rejected_when_retain_unavailable_v5` (executed in the `functional_v5@retain-disabled` sub-suite) |
+
+> `functional_v5` totals 63 cases: the default-config group runs 61 of them;
+> `will_retain_rejected_when_retain_unavailable_v5` and
+> `qos2_pubrel_resume_collision` require different broker configs and are
+> automatically split into the `functional_v5@retain-disabled` and
+> `functional_v5@pubrel-collision` sub-suites at build time (see the
+> "Broker Configs" section above).
 
 ### `functional_v5_cluster` (1 case) — two-node cluster end-to-end reproduction
 
@@ -182,7 +236,9 @@ rmqtt-test/
       functional/                #   functional_v3/v311/v5 cases
       functional/qos2_pubrel_resume_collision_cluster.rs  # cluster reproduction case
     report/                      # Report system (console, JSON, HTML, detail log)
-  configs/                       # Test broker configs
+  configs/                       # Test broker configs (all self-contained)
+    default/                     #   default config: rmqtt.toml + plugins/ (retainer/shared-subscription/http-api)
+    retain-disabled/             #   retainer plugin NOT loaded (Retain Available = 0)
     pubrel-collision/            #   single node: message-storage enabled broker config
     pubrel-collision-cluster/    #   cluster: node1/node2 configs (1884/1885 MQTT, 5364/5365 gRPC)
 ```

@@ -199,6 +199,7 @@ cargo test
 
 # Run integration tests using the test harness
 cargo build -p rmqtt-test --release
+# Starts the broker with the self-contained config rmqtt-test/configs/default/rmqtt.toml
 ./target/release/mqtt_harness --workspace .
 ```
 

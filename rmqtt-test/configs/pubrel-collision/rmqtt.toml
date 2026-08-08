@@ -39,7 +39,8 @@ log.file = "rmqtt.log"
 ##--------------------------------------------------------------------
 ## Plugins
 ##--------------------------------------------------------------------
-plugins.dir = "rmqtt-plugins/"
+# Self-contained: plugin configs live in this directory's plugins/ sub-dir.
+plugins.dir = "rmqtt-test/configs/pubrel-collision/plugins/"
 # Only the message-storage plugin is required for the reproduction.
 plugins.default_startups = [
     "rmqtt-message-storage",

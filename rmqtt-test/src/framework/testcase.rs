@@ -109,6 +109,18 @@ pub trait TestCase: Send + Sync {
     /// Execute the test case
     fn execute(&self, ctx: &mut TestContext) -> TestResult;
 
+    /// Broker config file required by this test case (absolute or
+    /// workspace-relative path), or `None` to use the harness default config
+    /// (`--config`, or `rmqtt-test/configs/default/rmqtt.toml`).
+    ///
+    /// This is a *grouping* hint only: at suite build time, test cases that
+    /// declare the same non-default config are split out into their own
+    /// `{suite}@{config}` sub-suite, so the scheduler only ever switches the
+    /// broker config at suite boundaries.
+    fn broker_config(&self) -> Option<PathBuf> {
+        None
+    }
+
     /// Test timeout (default: 60 seconds)
     fn timeout(&self) -> Duration {
         Duration::from_secs(60)
@@ -126,3 +138,4 @@ pub trait TestCase: Send + Sync {
 }
 
 use crate::framework::context::TestContext;
+use std::path::PathBuf;

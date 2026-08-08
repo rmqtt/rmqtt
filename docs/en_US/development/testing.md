@@ -96,7 +96,7 @@ cargo build -p rmqtt-test --release
 # Run all test suites (auto-starts broker)
 ./target/release/mqtt_harness --workspace .
 
-# Run specific suites
+# Run specific suites (--suites supports prefix matching, see below)
 ./target/release/mqtt_harness --workspace . --suites functional_v5
 ./target/release/mqtt_harness --workspace . --suites stress --suites chaos
 
@@ -106,6 +106,20 @@ cargo build -p rmqtt-test --release
 # Generate reports
 ./target/release/mqtt_harness --workspace . --json report.json --html report.html
 ```
+
+> **Broker config**: the harness uses the self-contained
+> `rmqtt-test/configs/default/rmqtt.toml` by default (independent from the
+> repository-root `rmqtt.toml` / `rmqtt-plugins/*.toml`; all TCP/TLS/WS/WSS/QUIC
+> listeners kept enabled). Test cases that need a different broker config
+> declare it via `TestCase::broker_config()`; at build time they are split into
+> `{suite}@{config}` sub-suites (e.g. `functional_v5@retain-disabled`), and the
+> scheduler restarts the broker to switch configs **only at suite boundaries**.
+> An explicit config can be given:
+>
+> ```bash
+> ./target/release/mqtt_harness --workspace . --config rmqtt-test/configs/retain-disabled/rmqtt.toml
+> ./target/release/mqtt_harness --workspace . --suites functional_v5@retain-disabled
+> ```
 
 ### Test Suite Reference
 
@@ -117,6 +131,13 @@ cargo build -p rmqtt-test --release
 | `stress` | 3 | Connection load (100 clients), publish QPS (1000 msgs), fan-out (1→N) |
 | `chaos` | 6 | Broker restart, connection churn, reconnect storm, QoS 1 reliability, slow consumer |
 
+> Of the 63 `functional_v5` cases, `will_retain_rejected_when_retain_unavailable_v5`
+> (requires the retainer plugin to be disabled) and `qos2_pubrel_resume_collision`
+> (requires message-storage) are automatically split into the
+> `functional_v5@retain-disabled` and `functional_v5@pubrel-collision`
+> sub-suites; the remaining 61 run in the default-config group
+> `functional_v5`. Config switches happen only at suite boundaries.
+
 ### Test Case Architecture
 
 Each test case implements the `TestCase` trait:
@@ -124,8 +145,9 @@ Each test case implements the `TestCase` trait:
 ```rust
 pub trait TestCase: Send + Sync {
     fn name(&self) -> &str;
-    fn suite(&self) -> &str;  // functional_v3, stress, etc.
     fn execute(&self, ctx: &mut TestContext) -> TestResult;
+    fn broker_config(&self) -> Option<PathBuf> { None } // required broker config (grouping hint)
+    // defaults: timeout() = 60s, max_retries() = 0, depends_on() = []
 }
 ```
 

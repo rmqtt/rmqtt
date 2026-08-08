@@ -36,7 +36,20 @@ cargo build -p rmqtt-test --release
 ./target/release/mqtt_harness --workspace .
 ```
 
-程序会自动查找 `target/release/rmqttd` 并启动 Broker。
+程序会自动查找 `target/release/rmqttd` 并启动 Broker，**默认使用自包含配置
+`rmqtt-test/configs/default/rmqtt.toml`**（不依赖仓库根的 `rmqtt.toml` /
+`rmqtt-plugins/*.toml`；保留 TCP/TLS/WS/WSS/QUIC 全部监听，便于后续添加
+TLS/WS/QUIC 专项测试）。
+
+### 使用其他 Broker 配置
+
+```bash
+# 显式指定配置文件（整批测试共用）
+./target/release/mqtt_harness --workspace . --config rmqtt-test/configs/retain-disabled/rmqtt.toml
+
+# 仅运行某个按配置拆分的子套件
+./target/release/mqtt_harness --workspace . --suites functional_v5@retain-disabled
+```
 
 ### 连接已运行的 Broker
 
@@ -67,6 +80,35 @@ cargo build -p rmqtt-test --release
 # 多个套件（可多次使用 --suites 参数）
 ./target/release/mqtt_harness --workspace . --suites functional_v3 --suites functional_v311
 ```
+
+> `--suites` 支持前缀匹配：`functional_v5` 会同时命中其按配置拆出的所有子套件
+> （如 `functional_v5@retain-disabled`）；`functional_v5_cluster` 双节点集群套件
+> 仅当显式指定时才运行，不参与默认全量。
+
+## ⚙️ Broker 配置（configs/ 自包含约定）
+
+所有测试用 broker 配置均位于 `rmqtt-test/configs/<name>/`，**自包含**（主配置 +
+自身 `plugins/` 子目录），不依赖仓库根的 `rmqtt.toml` / `rmqtt-plugins/*.toml`：
+
+```
+configs/
+  default/                  # 默认配置（未指定 --config 时使用）
+    rmqtt.toml              #   以仓库根 rmqtt.toml 为蓝本，保留全部 listener
+    plugins/                #   retainer / shared-subscription / http-api
+  retain-disabled/          # 不加载 retainer 插件（Retain Available = 0）
+  pubrel-collision/         # 加载 message-storage（PUBREL 冲突复现）
+  pubrel-collision-cluster/ # 双节点集群（手动启动，1884/1885 MQTT）
+```
+
+**按用例自动切换配置**：用例可通过 `TestCase::broker_config()` 声明所需配置
+（如 `WillRetainRejectedWhenRetainUnavailableV5Test` 声明 `retain-disabled`、
+`Qos2PubrelResumeCollisionTest` 声明 `pubrel-collision`）。构建套件时，
+声明了同一配置的用例会被自动拆分为独立的 `{suite}@{config}` 子套件
+（如 `functional_v5@retain-disabled`），调度器仅在 **suite 边界**切换配置
+（重启 broker），默认配置组保持原名不变、零额外重启开销。
+
+端口约束：参与自动切换的配置，`listener.tcp.external.addr` 必须与 harness 的
+`--addr`（默认 `127.0.0.1:1883`）一致，否则健康检查无法通过。
 
 ## 📋 测试套件
 
@@ -119,7 +161,12 @@ cargo build -p rmqtt-test --release
 | 通配符 | `wildcard_v5_case_sensitive` / `leading_slash` |
 | 协议错误 | `protocol_error_v5_*`（订阅 QoS3、固定头 QoS、发布 QoS3/pid0/空主题、剩余长度、保留类型） |
 | 断开原因码 | `disconnect_reason_v5` |
-| Will Retain vs Retain Available | `will_retain_rejected_when_retain_unavailable_v5`（retainer 启用时跳过） |
+| Will Retain vs Retain Available | `will_retain_rejected_when_retain_unavailable_v5`（在 `functional_v5@retain-disabled` 子套件中真正执行） |
+
+> functional_v5 共 63 个用例：默认配置组运行其中 61 个；
+> `will_retain_rejected_when_retain_unavailable_v5` 与 `qos2_pubrel_resume_collision`
+> 因需要不同的 broker 配置，构建时自动拆分为 `functional_v5@retain-disabled` 与
+> `functional_v5@pubrel-collision` 两个子套件执行（见上方「Broker 配置」章节）。
 
 ### functional_v5_cluster（1 个用例）— 双节点集群端到端复现
 
@@ -177,7 +224,9 @@ rmqtt-test/
       functional/                #   functional_v3/v311/v5 用例
       functional/qos2_pubrel_resume_collision_cluster.rs  # 集群复现用例
     report/                      # 报告系统（控制台、JSON、HTML、详细日志）
-  configs/                       # 测试用 broker 配置
+  configs/                       # 测试用 broker 配置（全部自包含）
+    default/                     #   默认配置：rmqtt.toml + plugins/（retainer/shared-subscription/http-api）
+    retain-disabled/             #   不加载 retainer 插件（Retain Available = 0）
     pubrel-collision/            #   单机：启用 message-storage 的 broker 配置
     pubrel-collision-cluster/    #   集群：node1/node2 双节点配置（1884/1885 MQTT、5364/5365 gRPC）
 ```

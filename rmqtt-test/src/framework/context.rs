@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use bytestring::ByteString;
 use parking_lot::Mutex;
+use tracing::info;
 use uuid::Uuid;
 
 use crate::broker::BrokerProcess;
@@ -137,6 +138,30 @@ impl TestContext {
             b.restart()
         } else {
             Err(anyhow::anyhow!("no broker managed by this context"))
+        }
+    }
+
+    /// Ensure the broker runs with the given config file (synchronous,
+    /// idempotent).
+    ///
+    /// If the broker is already running with `target` (compared against
+    /// `BrokerProcess::config_path`), nothing happens. Otherwise the broker
+    /// is restarted with the new config. Returns `Ok(())` in `--no-broker`
+    /// mode (nothing to switch); the caller decides how to warn.
+    pub fn ensure_broker_config(&self, target: &std::path::Path) -> Result<(), anyhow::Error> {
+        if let Some(ref broker) = self.broker {
+            let mut b = broker.lock();
+            if b.config_path().map(|p| p.as_path()) == Some(target) {
+                return Ok(());
+            }
+            info!(
+                "switching broker config: {:?} -> {:?}",
+                b.config_path().map(|p| p.display().to_string()),
+                target.display()
+            );
+            b.restart_with_config(Some(target.to_path_buf()))
+        } else {
+            Ok(())
         }
     }
 

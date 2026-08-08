@@ -118,6 +118,13 @@ impl TestCase for WillRetainRejectedWhenRetainUnavailableV5Test {
         "v5_will_retain_rejected_when_retain_unavailable"
     }
 
+    /// This scenario requires a broker that does NOT load the retainer
+    /// plugin; the harness splits this test into the
+    /// `functional_v5@retain-disabled` sub-suite automatically.
+    fn broker_config(&self) -> Option<std::path::PathBuf> {
+        Some(crate::tests::config_path("retain-disabled"))
+    }
+
     fn timeout(&self) -> Duration {
         Duration::from_secs(20)
     }
