@@ -155,3 +155,97 @@ impl TestCase for PingV5Test {
         Duration::from_secs(15)
     }
 }
+
+/// Boundary: keep_alive = 0 disables the keep-alive timeout; the broker must
+/// not disconnect a silent client. [MQTT-3.1.2-24 keep-alive = 0 clause]
+pub struct KeepAliveV311ZeroTest;
+
+impl TestCase for KeepAliveV311ZeroTest {
+    fn name(&self) -> &str {
+        "keepalive_v311_zero"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        let result = rt.block_on(async {
+            let client = crate::mqtt::v311::MqttV311Client::connect_with_options(
+                &ctx.config.broker_addr,
+                "v311-keepalive-zero",
+                ctx.config.connect_timeout,
+                true,
+                0, // keep_alive = 0 → no timeout
+                None,
+                None,
+                None,
+            )
+            .await?;
+            assert!(client.is_connected());
+
+            // Stay silent well beyond a typical keep-alive window.
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            assert!(
+                client.is_connected(),
+                "keep_alive = 0 must disable the timeout, but the broker disconnected us"
+            );
+
+            // The connection must still be usable.
+            client.ping().await?;
+            client.disconnect().await?;
+            Ok::<(), anyhow::Error>(())
+        });
+
+        match result {
+            Ok(()) => TestResult::passed(self.name(), "functional_v311", start.elapsed()),
+            Err(e) => TestResult::failed(self.name(), "functional_v311", start.elapsed(), e.to_string()),
+        }
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(20)
+    }
+}
+
+/// Boundary: keep_alive = 65535 (the max u16) is accepted and the connection
+/// stays open (the keep-alive window is huge).
+pub struct KeepAliveV311MaxValueTest;
+
+impl TestCase for KeepAliveV311MaxValueTest {
+    fn name(&self) -> &str {
+        "keepalive_v311_max_value"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        let result = rt.block_on(async {
+            let client = crate::mqtt::v311::MqttV311Client::connect_with_options(
+                &ctx.config.broker_addr,
+                "v311-keepalive-max",
+                ctx.config.connect_timeout,
+                true,
+                u16::MAX, // 65535 seconds
+                None,
+                None,
+                None,
+            )
+            .await?;
+            assert!(client.is_connected());
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            assert!(client.is_connected(), "max keep alive should not disconnect");
+            client.disconnect().await?;
+            Ok::<(), anyhow::Error>(())
+        });
+
+        match result {
+            Ok(()) => TestResult::passed(self.name(), "functional_v311", start.elapsed()),
+            Err(e) => TestResult::failed(self.name(), "functional_v311", start.elapsed(), e.to_string()),
+        }
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(15)
+    }
+}

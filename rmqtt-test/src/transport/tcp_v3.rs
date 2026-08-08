@@ -128,6 +128,18 @@ impl TcpTransportV3Writer {
         Ok(())
     }
 
+    /// Send raw bytes over the TCP stream, bypassing the codec.
+    ///
+    /// Used by negative/edge-case tests that must craft malformed packets
+    /// (e.g. a CONNECT with a wrong protocol name/level, or a SUBSCRIBE with
+    /// an illegal QoS), since the codec would reject them before they reach
+    /// the wire.
+    pub async fn send_raw(&mut self, data: &[u8]) -> Result<(), anyhow::Error> {
+        tracing::debug!(bytes = %format_hex(data), "SEND RAW");
+        self.send(&Bytes::copy_from_slice(data)).await?;
+        Ok(())
+    }
+
     /// Shut down the write half
     pub async fn shutdown(&mut self) -> Result<(), anyhow::Error> {
         if let Some(stream) = self.stream.take() {

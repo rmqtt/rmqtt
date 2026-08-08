@@ -231,7 +231,7 @@ impl TestCase for RetainV311Test {
             let msg = subscriber.recv_message_timeout(Duration::from_secs(5)).await;
             subscriber.disconnect().await?;
 
-            match msg {
+            let verdict = match msg {
                 Some(m) => {
                     if m.retain && m.payload.as_ref() == b"retained payload" {
                         Ok(())
@@ -244,7 +244,22 @@ impl TestCase for RetainV311Test {
                     }
                 }
                 None => Err(anyhow::anyhow!("no retained message received")),
+            };
+
+            // Cleanup: delete the retained message so it doesn't leak into
+            // other tests (e.g. `#` subscriptions in wildcard tests).
+            if let Ok(client) = crate::mqtt::v311::MqttV311Client::connect(
+                &ctx.config.broker_addr,
+                "v311-retain-msg-cleanup",
+                ctx.config.connect_timeout,
+            )
+            .await
+            {
+                let _ = client.publish(topic, b"", QoS::AtLeastOnce, true).await;
+                let _ = client.disconnect().await;
             }
+
+            verdict
         });
 
         match result {
