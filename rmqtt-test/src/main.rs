@@ -219,12 +219,75 @@ fn build_suites(opt: &Opt) -> Vec<TestSuite> {
 }
 
 fn build_functional_v3_suite() -> TestSuite {
+    use tests::functional::boundary_v3::*;
     use tests::functional::connect_v3::*;
+    use tests::functional::keepalive_v3::*;
+    use tests::functional::last_will_v3::*;
+    use tests::functional::protocol_error_v3::*;
     use tests::functional::pubsub_v3::*;
+    use tests::functional::qos2_conformance_v3::*;
+    use tests::functional::retain_v3::*;
+    use tests::functional::session_v3::*;
+    use tests::functional::wildcard_v3::*;
 
     let mut suite = TestSuite::new("functional_v3");
+    // Connect / handshake
     suite.add(ConnectV3Test);
+    suite.add(ConnectV3WithOptionsTest);
+    suite.add(ConnectV3WrongProtocolNameTest);
+    suite.add(ConnectV3UnsupportedLevelTest);
+    suite.add(ConnectV3ReservedFlagTest);
+    suite.add(ConnectV3EmptyClientIdCleanSession0Test);
+    suite.add(ConnectV3EmptyClientIdCleanSession1Test);
+    suite.add(ConnectV3LongClientIdTest);
+    suite.add(ConnectV3ClientIdMaxLengthTest);
+    // PubSub QoS 0/1/2
     suite.add(PubSubV3Qos0Test);
+    suite.add(PubSubV3Qos1Test);
+    suite.add(PubSubV3Qos2Test);
+    suite.add(PublishV3WildcardRejectTest);
+    // QoS 2 exactly-once conformance (GitHub issue #456)
+    suite.add(Qos2ReplayedPublishDedupV3Test);
+    suite.add(Qos2PubrelResendOnResumeV3Test);
+    // Retained messages
+    suite.add(RetainV3Test);
+    suite.add(RetainV3LiveNotRetainedTest);
+    suite.add(RetainV3EmptyDeleteTest);
+    suite.add(RetainV3OverwriteTest);
+    suite.add(RetainV3WillTest);
+    // Last Will and Testament
+    suite.add(LastWillV3Test);
+    suite.add(LastWillV3CleanTest);
+    suite.add(LastWillV3Qos2Test);
+    // Keep alive / PING
+    suite.add(KeepAliveV3PingTest);
+    suite.add(KeepAliveV3ZeroTest);
+    suite.add(KeepAliveV3TimeoutTest);
+    // Session persistence
+    suite.add(SessionV3PersistentTest);
+    suite.add(SessionV3CleanTest);
+    suite.add(SessionV3OfflineQueueTest);
+    // Wildcard matching
+    suite.add(WildcardV3PlusTest);
+    suite.add(WildcardV3HashTest);
+    suite.add(WildcardV3OverlapTest);
+    suite.add(WildcardV3DollarTopicsTest);
+    suite.add(WildcardV3CaseSensitiveTest);
+    suite.add(WildcardV3LeadingSlashTest);
+    // Boundary conditions
+    suite.add(BoundaryV3EmptyPayloadTest);
+    suite.add(BoundaryV3LargePayloadTest);
+    suite.add(BoundaryV3LongTopicTest);
+    suite.add(BoundaryV3SpecialCharsTopicTest);
+    suite.add(BoundaryV3MaxKeepAliveTest);
+    suite.add(BoundaryV3RapidSubscribeTest);
+    // Protocol errors
+    suite.add(ProtocolErrorV3SubscribeQos3Test);
+    suite.add(ProtocolErrorV3PublishPacketIdZeroTest);
+    suite.add(ProtocolErrorV3BadRemainingLengthTest);
+    suite.add(ProtocolErrorV3EmptyTopicFilterTest);
+    suite.add(ProtocolErrorV3ReservedPacketTypeTest);
+    suite.add(ProtocolErrorV3SubscribeQos0FixedHeaderTest);
     suite
 }
 
@@ -238,8 +301,10 @@ fn build_functional_v311_suite() -> TestSuite {
     use tests::functional::last_will::*;
     use tests::functional::multi_topic::*;
     use tests::functional::protocol_error::*;
+    use tests::functional::protocol_error_v311::*;
     use tests::functional::pubsub_v311::*;
     use tests::functional::qos2_conformance_v311::*;
+    use tests::functional::retain_v311::*;
     use tests::functional::session_v311::*;
     use tests::functional::shared_subscription::*;
     use tests::functional::wildcard::*;
@@ -296,11 +361,46 @@ fn build_functional_v311_suite() -> TestSuite {
     // QoS 2 exactly-once conformance (GitHub issue #456, MQTT 3.1.1)
     suite.add(Qos2ReplayedPublishDedupV311Test);
     suite.add(Qos2PubrelResendOnResumeV311Test);
+    // --- MQTT v3.1.1 spec coverage additions ---
+    // CONNECT negative / boundary
+    suite.add(ConnectV311SessionPresentFreshTest);
+    suite.add(ConnectV311WrongProtocolNameTest);
+    suite.add(ConnectV311UnsupportedLevelTest);
+    suite.add(ConnectV311ReservedFlagTest);
+    suite.add(ConnectV311SecondConnectTest);
+    suite.add(ConnectV311LongClientIdTest);
+    // Protocol errors
+    suite.add(ProtocolErrorV311SubscribeQos3Test);
+    suite.add(ProtocolErrorV311SubscribeQos0FixedHeaderTest);
+    suite.add(ProtocolErrorV311UnsubscribeQos0FixedHeaderTest);
+    suite.add(ProtocolErrorV311PublishQos3Test);
+    suite.add(ProtocolErrorV311PublishPacketIdZeroTest);
+    suite.add(ProtocolErrorV311BadRemainingLengthTest);
+    suite.add(ProtocolErrorV311ReservedPacketTypeTest);
+    // Retained message edge cases
+    suite.add(RetainV311StoreAndDeliverTest);
+    suite.add(RetainV311EmptyDeleteTest);
+    suite.add(RetainV311OverwriteTest);
+    suite.add(RetainV311LiveNotRetainedTest);
+    suite.add(RetainV311WillTest);
+    // Will / KeepAlive additions
+    suite.add(LastWillV311Qos2Test);
+    suite.add(LastWillV311KeepAliveTimeoutTest);
+    suite.add(KeepAliveV311ZeroTest);
+    suite.add(KeepAliveV311MaxValueTest);
+    // Session present / clean discard
+    suite.add(SessionV311PresentOnResumeTest);
+    suite.add(SessionV311CleanDiscardTest);
+    // Wildcard matching edge cases
+    suite.add(WildcardV311CaseSensitiveTest);
+    suite.add(WildcardV311LeadingSlashTest);
+    suite.add(WildcardV311HashNotLastTest);
     suite
 }
 
 fn build_functional_v5_suite() -> TestSuite {
     use tests::functional::assigned_clientid_v5::*;
+    use tests::functional::connack_capabilities_v5::*;
     use tests::functional::connect_v5::*;
     use tests::functional::disconnect_reason_v5::*;
     use tests::functional::dollar_topics::*;
@@ -311,6 +411,7 @@ fn build_functional_v5_suite() -> TestSuite {
     use tests::functional::max_packet_size_v5::*;
     use tests::functional::no_local_v5::*;
     use tests::functional::payload_format_v5::*;
+    use tests::functional::protocol_error_v5::*;
     use tests::functional::publication_expiry_v5::*;
     use tests::functional::pubsub_v5::*;
     use tests::functional::qos2_conformance::*;
@@ -318,12 +419,14 @@ fn build_functional_v5_suite() -> TestSuite {
     use tests::functional::request_response_v5::*;
     use tests::functional::retain_handling_v5::*;
     use tests::functional::retain_unavailable_v5::*;
+    use tests::functional::retain_v5::*;
     use tests::functional::server_keepalive_v5::*;
     use tests::functional::session_v5::*;
     use tests::functional::shared_subscription::*;
     use tests::functional::subscribe_identifiers_v5::*;
     use tests::functional::topic_alias_v5::*;
     use tests::functional::user_properties_v5::*;
+    use tests::functional::wildcard::*;
     use tests::functional::will_delay_v5::*;
 
     let mut suite = TestSuite::new("functional_v5");
@@ -375,6 +478,42 @@ fn build_functional_v5_suite() -> TestSuite {
     suite.add(Qos2PubrelResendOnResumeTest);
     // PUBREL resume packet-id collision (designs/pubrel-resume-inflight-id-collision.md)
     suite.add(Qos2PubrelResumeCollisionTest);
+    // --- MQTT v5.0 spec coverage additions ---
+    // CONNECT negative / boundary / auth
+    suite.add(ConnectV5SessionPresentFreshTest);
+    suite.add(ConnectV5WrongProtocolNameTest);
+    suite.add(ConnectV5UnsupportedLevelTest);
+    suite.add(ConnectV5ReservedFlagTest);
+    suite.add(ConnectV5SecondConnectTest);
+    suite.add(ConnectV5ClientIdTooLongTest);
+    suite.add(ConnectV5AuthMethodRejectedTest);
+    // CONNACK capability advertisement
+    suite.add(ConnAckCapabilitiesV5Test);
+    suite.add(ConnAckReceiveMaxEchoV5Test);
+    suite.add(ConnAckAssignedClientIdV5Test);
+    // Protocol errors
+    suite.add(ProtocolErrorV5SubscribeQos3Test);
+    suite.add(ProtocolErrorV5SubscribeQos0FixedHeaderTest);
+    suite.add(ProtocolErrorV5UnsubscribeQos0FixedHeaderTest);
+    suite.add(ProtocolErrorV5PublishQos3Test);
+    suite.add(ProtocolErrorV5PublishPacketIdZeroTest);
+    suite.add(ProtocolErrorV5PublishEmptyTopicTest);
+    suite.add(ProtocolErrorV5BadRemainingLengthTest);
+    suite.add(ProtocolErrorV5ReservedPacketTypeTest);
+    // Retained message edge cases
+    suite.add(RetainV5StoreAndDeliverTest);
+    suite.add(RetainV5EmptyDeleteTest);
+    suite.add(RetainV5OverwriteTest);
+    suite.add(RetainV5LiveNotRetainedTest);
+    suite.add(RetainV5WillTest);
+    // Session expiry semantics
+    suite.add(SessionV5DisconnectExpiryZeroTest);
+    suite.add(SessionV5ExpiryCleanupTest);
+    // Topic alias edge cases
+    suite.add(TopicAliasV5UnknownAliasTest);
+    // Wildcard matching edge cases
+    suite.add(WildcardV5CaseSensitiveTest);
+    suite.add(WildcardV5LeadingSlashTest);
     suite
 }
 

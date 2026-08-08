@@ -189,3 +189,153 @@ impl TestCase for OfflineQueueV311Test {
         Duration::from_secs(30)
     }
 }
+
+/// Positive: Session Present = 1 when reconnecting with clean_session = 0 and
+/// an existing stored session. [MQTT-3.2.2.1]
+pub struct SessionV311PresentOnResumeTest;
+
+impl TestCase for SessionV311PresentOnResumeTest {
+    fn name(&self) -> &str {
+        "session_v311_present_on_resume"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        let result: anyhow::Result<()> = rt.block_on(async {
+            let uid = uuid::Uuid::new_v4().simple().to_string();
+            let cid = format!("session-present-{uid}");
+
+            // Phase 1: clean_session = 0, subscribe (creates a stored session)
+            let mut client = crate::mqtt::v311::MqttV311Client::connect_with_options(
+                &ctx.config.broker_addr,
+                &cid,
+                ctx.config.connect_timeout,
+                false,
+                60,
+                None,
+                None,
+                None,
+            )
+            .await?;
+            client.subscribe(&format!("test/v311/present/{uid}"), QoS::AtLeastOnce).await?;
+            client.disconnect().await?;
+            tokio::time::sleep(Duration::from_millis(500)).await;
+
+            // Phase 2: reconnect with clean_session = 0 — session present = 1
+            let resumed = crate::mqtt::v311::MqttV311Client::connect_with_options(
+                &ctx.config.broker_addr,
+                &cid,
+                ctx.config.connect_timeout,
+                false,
+                60,
+                None,
+                None,
+                None,
+            )
+            .await?;
+            let session_present = resumed.connack().session_present;
+            resumed.disconnect().await?;
+
+            if session_present {
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!(
+                    "session present must be 1 when resuming a stored session [MQTT-3.2.2.1]"
+                ))
+            }
+        });
+
+        match result {
+            Ok(()) => TestResult::passed(self.name(), "functional_v311", start.elapsed()),
+            Err(e) => TestResult::failed(self.name(), "functional_v311", start.elapsed(), e.to_string()),
+        }
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(20)
+    }
+}
+
+/// Negative: clean_session = 1 discards all stored session state; reconnecting
+/// with the same client id and clean_session = 1 must NOT receive messages
+/// queued while offline, and session present = 0. [MQTT-3.1.2-6]
+pub struct SessionV311CleanDiscardTest;
+
+impl TestCase for SessionV311CleanDiscardTest {
+    fn name(&self) -> &str {
+        "session_v311_clean_discard"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        let result: anyhow::Result<()> = rt.block_on(async {
+            let uid = uuid::Uuid::new_v4().simple().to_string();
+            let cid = format!("session-clean-discard-{uid}");
+            let topic = format!("test/v311/session/clean/{uid}");
+
+            // Phase 1: clean_session = false, subscribe
+            let mut client = crate::mqtt::v311::MqttV311Client::connect_with_options(
+                &ctx.config.broker_addr,
+                &cid,
+                ctx.config.connect_timeout,
+                false,
+                60,
+                None,
+                None,
+                None,
+            )
+            .await?;
+            client.subscribe(&topic, QoS::AtLeastOnce).await?;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            client.disconnect().await?;
+            tokio::time::sleep(Duration::from_millis(500)).await;
+
+            // Phase 2: publish while offline
+            let publisher = crate::mqtt::v311::MqttV311Client::connect(
+                &ctx.config.broker_addr,
+                &format!("session-clean-pub-{uid}"),
+                ctx.config.connect_timeout,
+            )
+            .await?;
+            publisher.publish(&topic, b"should_not_be_queued", QoS::AtLeastOnce, false).await?;
+            publisher.disconnect().await?;
+            tokio::time::sleep(Duration::from_millis(500)).await;
+
+            // Phase 3: reconnect with clean_session = true — state must be gone
+            let mut reconnected = crate::mqtt::v311::MqttV311Client::connect(
+                &ctx.config.broker_addr,
+                &cid,
+                ctx.config.connect_timeout,
+            )
+            .await?;
+            let session_present = reconnected.connack().session_present;
+            let msg = reconnected.recv_message_timeout(Duration::from_secs(2)).await;
+            reconnected.disconnect().await?;
+
+            if session_present {
+                return Err(anyhow::anyhow!(
+                    "session present must be 0 after clean_session = 1 disconnect [MQTT-3.1.2-6]"
+                ));
+            }
+            if msg.is_some() {
+                return Err(anyhow::anyhow!(
+                    "clean_session = 1 client received a message queued while offline"
+                ));
+            }
+            Ok(())
+        });
+
+        match result {
+            Ok(()) => TestResult::passed(self.name(), "functional_v311", start.elapsed()),
+            Err(e) => TestResult::failed(self.name(), "functional_v311", start.elapsed(), e.to_string()),
+        }
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(20)
+    }
+}

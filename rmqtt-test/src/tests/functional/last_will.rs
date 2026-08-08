@@ -290,3 +290,151 @@ impl TestCase for LastWillUncleanTest {
         Duration::from_secs(30)
     }
 }
+
+/// Positive: a QoS 2 will is delivered exactly once (v3.1.1)
+pub struct LastWillV311Qos2Test;
+
+impl TestCase for LastWillV311Qos2Test {
+    fn name(&self) -> &str {
+        "last_will_v311_qos2"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        let result = rt.block_on(async {
+            let uid = uuid::Uuid::new_v4().simple().to_string();
+            let will_topic = format!("test/v311/lwt/qos2/{uid}");
+
+            let mut sub = crate::mqtt::v311::MqttV311Client::connect(
+                &ctx.config.broker_addr,
+                &format!("lwt-qos2-sub-{uid}"),
+                ctx.config.connect_timeout,
+            )
+            .await?;
+            sub.subscribe(&will_topic, QoS::ExactlyOnce).await?;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+
+            let will = LastWill {
+                qos: QoS::ExactlyOnce,
+                retain: false,
+                topic: ByteString::from(will_topic.as_str()),
+                message: bytes::Bytes::from_static(b"will-qos2"),
+            };
+            let client = crate::mqtt::v311::MqttV311Client::connect_with_options(
+                &ctx.config.broker_addr,
+                &format!("lwt-qos2-client-{uid}"),
+                ctx.config.connect_timeout,
+                true,
+                60,
+                Some(will),
+                None,
+                None,
+            )
+            .await?;
+
+            client.abort_connection().await?;
+            tokio::time::sleep(Duration::from_millis(500)).await;
+
+            let msg = sub.recv_message_timeout(Duration::from_secs(5)).await;
+            let dup = sub.recv_message_timeout(Duration::from_secs(2)).await;
+            sub.disconnect().await?;
+
+            match msg {
+                Some(m) if m.payload.as_ref() == b"will-qos2" && m.qos == QoS::ExactlyOnce => {
+                    if dup.is_some() {
+                        Err(anyhow::anyhow!("QoS 2 will delivered more than once"))
+                    } else {
+                        Ok(())
+                    }
+                }
+                Some(m) => Err(anyhow::anyhow!("unexpected will: payload={:?}, qos={:?}", m.payload, m.qos)),
+                None => Err(anyhow::anyhow!("QoS 2 will not received")),
+            }
+        });
+
+        match result {
+            Ok(()) => TestResult::passed(self.name(), "functional_v311", start.elapsed()),
+            Err(e) => TestResult::failed(self.name(), "functional_v311", start.elapsed(), e.to_string()),
+        }
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(20)
+    }
+}
+
+/// Positive: the will is published when the client is disconnected by the
+/// broker for a keep-alive timeout (an abnormal disconnect). [MQTT-3.1.2-8]
+pub struct LastWillV311KeepAliveTimeoutTest;
+
+impl TestCase for LastWillV311KeepAliveTimeoutTest {
+    fn name(&self) -> &str {
+        "last_will_v311_keepalive_timeout"
+    }
+
+    fn execute(&self, ctx: &mut TestContext) -> TestResult {
+        let start = Instant::now();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        let result = rt.block_on(async {
+            let uid = uuid::Uuid::new_v4().simple().to_string();
+            let will_topic = format!("test/v311/lwt/katimeout/{uid}");
+
+            let mut sub = crate::mqtt::v311::MqttV311Client::connect(
+                &ctx.config.broker_addr,
+                &format!("lwt-ka-sub-{uid}"),
+                ctx.config.connect_timeout,
+            )
+            .await?;
+            sub.subscribe(&will_topic, QoS::AtLeastOnce).await?;
+            tokio::time::sleep(Duration::from_millis(100)).await;
+
+            let will = LastWill {
+                qos: QoS::AtLeastOnce,
+                retain: false,
+                topic: ByteString::from(will_topic.as_str()),
+                message: bytes::Bytes::from_static(b"will-ka-timeout"),
+            };
+            // keep_alive = 2s → effective window = 2 + 3 = 5s (value < 6
+            // bumped by +3 in DefaultFitter::keep_alive). Stay silent > 8s.
+            let client = crate::mqtt::v311::MqttV311Client::connect_with_options(
+                &ctx.config.broker_addr,
+                &format!("lwt-ka-client-{uid}"),
+                ctx.config.connect_timeout,
+                true,
+                2,
+                Some(will),
+                None,
+                None,
+            )
+            .await?;
+            assert!(client.is_connected());
+
+            // Stay silent — the broker must drop us, firing the will
+            tokio::time::sleep(Duration::from_secs(8)).await;
+            let _ = client.disconnect().await;
+
+            let msg = sub.recv_message_timeout(Duration::from_secs(5)).await;
+            sub.disconnect().await?;
+
+            match msg {
+                Some(m) if m.payload.as_ref() == b"will-ka-timeout" => Ok(()),
+                Some(m) => Err(anyhow::anyhow!("unexpected will: {:?}", m.payload)),
+                None => {
+                    Err(anyhow::anyhow!("will not fired after keep-alive timeout disconnect [MQTT-3.1.2-8]"))
+                }
+            }
+        });
+
+        match result {
+            Ok(()) => TestResult::passed(self.name(), "functional_v311", start.elapsed()),
+            Err(e) => TestResult::failed(self.name(), "functional_v311", start.elapsed(), e.to_string()),
+        }
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(20)
+    }
+}
