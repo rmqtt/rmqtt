@@ -111,9 +111,9 @@ cargo build -p rmqtt-test --release
 
 | Suite | Cases | What It Tests |
 |-------|-------|---------------|
-| `functional_v3` | 2 | MQTT 3.1 connect/disconnect, QoS 0 pub/sub |
-| `functional_v311` | 10 | MQTT 3.1.1 protocol compliance (connect, QoS 0/1/2, retain, wildcards, unsubscribe, empty client ID) |
-| `functional_v5` | 5 | MQTT 5.0 protocol compliance (connect, reason codes, QoS 0/1/2) |
+| `functional_v3` | 47 | MQTT 3.1 spec conformance: connect (wrong name/level/reserved flag/empty client id/long id), QoS 0/1/2 pub/sub, QoS 2 dedup & PUBREL resend, retained messages, last will, keep alive, session persistence, wildcards (incl. `$SYS`), boundary payloads, protocol errors |
+| `functional_v311` | 64 | MQTT 3.1.1 spec conformance: connect (incl. second-CONNECT rejection [MQTT-3.1.0-2]), QoS 0/1/2, retained edge cases, will QoS2, keep-alive 1.5× timeout, session present/resume, wildcard matching, shared subscriptions, protocol errors |
+| `functional_v5` | 63 | MQTT 5.0 spec conformance: CONNACK capability advertisement, session expiry (incl. DISCONNECT SEI=0 [MQTT-3.14.2-2]), topic alias (incl. unknown alias → 0x94), flow control, max packet size, subscription identifiers, retain handling, will delay, enhanced-auth rejection (0x8C), protocol errors |
 | `stress` | 3 | Connection load (100 clients), publish QPS (1000 msgs), fan-out (1→N) |
 | `chaos` | 6 | Broker restart, connection churn, reconnect storm, QoS 1 reliability, slow consumer |
 
