@@ -76,9 +76,9 @@ cd paho.mqtt.testing/interoperability
 
 | 套件 | 用例数 | 说明 |
 |-------|--------|------|
-| `functional_v3` | 2 | MQTT 3.1 基本操作 |
-| `functional_v311` | 10 | MQTT 3.1.1 协议合规 |
-| `functional_v5` | 5 | MQTT 5.0 协议合规 |
+| `functional_v3` | 47 | MQTT 3.1 规范符合性（连接边界、QoS 0/1/2、QoS 2 去重/PUBREL 重发、保留消息、遗嘱、Keep Alive、会话、通配符含 `$SYS`、边界、协议错误） |
+| `functional_v311` | 64 | MQTT 3.1.1 规范符合性（含二次 CONNECT 拒绝、保留消息边界、Session Present、协议错误） |
+| `functional_v5` | 63 | MQTT 5.0 规范符合性（CONNACK 能力通告、会话过期含 DISCONNECT SEI=0、主题别名、流控、Retain Handling、协议错误） |
 | `stress` | 3 | 连接负载、发布 QPS、扇出测试 |
 | `chaos` | 6 | Broker 重启、连接风暴、重连、QoS 1 可靠性、慢消费者 |
 

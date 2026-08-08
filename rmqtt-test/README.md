@@ -72,39 +72,58 @@ The program will auto-locate `target/release/rmqttd` and start the broker.
 
 ## 📋 Test Suites
 
-### `functional_v3` (2 cases) — MQTT 3.1
+### `functional_v3` (47 cases) — MQTT 3.1
 
-| Case | Description |
-|------|-------------|
-| `connect_v3` | MQTT 3.1 connect/disconnect |
-| `pubsub_v3_qos0` | QoS 0 publish/subscribe |
+Spec-conformance suite for MQTT v3.1 (IBM MQIsdp), covering positive, negative
+and boundary scenarios:
 
-### `functional_v311` (10 cases) — MQTT 3.1.1
+| Category | Cases |
+|----------|-------|
+| Connect | `connect_v3` / `with_options` / `wrong_protocol_name` / `unsupported_level` / `reserved_flag` / `empty_clientid_cleansession0/1` / `long_client_id` / `client_id_max_length` |
+| Pub/Sub | `pubsub_v3_qos0/1/2` / `publish_v3_wildcard_reject` |
+| QoS 2 conformance | `qos2_replayed_publish_dedup_v3` [MQTT-4.3.3-10] / `qos2_pubrel_resend_on_resume_v3` [MQTT-4.4.0-1] |
+| Retained | `retain_v3_store_and_deliver` / `empty_payload_deletes` / `overwrite` / `live_message_not_retained` / `will` |
+| Last Will | `last_will_v3` / `clean` / `qos2` |
+| Keep alive | `keepalive_v3_ping` / `zero` / `timeout` |
+| Session | `session_v3_persistent` / `clean` / `offline_queue` |
+| Wildcard | `wildcard_v3_plus` / `hash` / `overlap` / `dollar_topics` / `case_sensitive` / `leading_slash` |
+| Boundary | `boundary_v3_empty_payload` / `large_payload` / `long_topic` / `special_chars_topic` / `max_keepalive` / `rapid_subscribe` |
+| Protocol errors | `protocol_error_v3_subscribe_qos3` / `publish_packet_id_zero` / `bad_remaining_length` / `empty_topic_filter` / `reserved_packet_type` / `subscribe_qos0_fixed_header` |
 
-| Case | Description |
-|------|-------------|
-| `connect_v311` | MQTT 3.1.1 connect/disconnect |
-| `connect_empty_client_id` | Empty Client ID connection (Clean Session) |
-| `multiple_connections` | 10 concurrent connections |
-| `pubsub_v311_qos0` | QoS 0 publish/subscribe |
-| `pubsub_v311_qos1` | QoS 1 publish/subscribe |
-| `pubsub_v311_qos2` | QoS 2 publish/subscribe (full 4-step handshake) |
-| `retain_v311_message` | Retained message storage and retrieval |
-| `unsubscribe_v311` | No message received after unsubscription |
-| `wildcard_plus` | Single-level wildcard `+` matching |
-| `wildcard_hash` | Multi-level wildcard `#` matching |
+> The v3.1 client hand-builds the MQIsdp CONNECT bytes (`build_connect_bytes`)
+> because the codec hard-codes protocol level 4 (correct for 3.1.1/5.0).
 
-### `functional_v5` (34 cases) — MQTT 5.0
+### `functional_v311` (64 cases) — MQTT 3.1.1
 
-| Case | Description |
-|------|-------------|
-| `connect_v5` / `connect_v5_reason_codes` | MQTT 5.0 connect / Reason Code verification |
-| `pubsub_v5_qos0/1/2` | MQTT 5.0 QoS 0/1/2 publish/subscribe |
-| `session_expiry_v5` / `session_takeover_v5` / `session_clean_start_v5` | Session expiry / takeover / Clean Start |
-| `qos2_replayed_publish_dedup` | [MQTT-4.3.3-10] replayed QoS 2 PUBLISH dedup (issue #456) |
-| `qos2_pubrel_resend_on_resume` | [MQTT-4.4.0-1] owed PUBREL resent on session resume (issue #456) |
-| `qos2_pubrel_resume_collision` | **PUBREL-resume packet-id collision (single-node regression test)** |
-| `flow_control_v5` / `no_local_v5` / `will_delay_v5` / `shared_sub_v5` / `topic_alias_v5` etc. | V5 feature coverage (see `src/tests/functional/`) |
+| Category | Cases |
+|----------|-------|
+| Connect | `connect_v311` / `empty_client_id` / `multiple_connections` / `session_present_fresh` / `wrong_protocol_name` / `unsupported_level` / `reserved_flag` / `second_connect` [MQTT-3.1.0-2] / `long_client_id` |
+| Pub/Sub | `pubsub_v311_qos0/1/2` / `retain_v311_message` / `unsubscribe_v311` |
+| QoS 2 conformance | `qos2_replayed_publish_dedup_v311` [MQTT-4.3.3-10] / `qos2_pubrel_resend_on_resume_v311` [MQTT-4.4.0-1] / `qos2_duplicate_detection` |
+| Retained | `retain_v311_store_and_deliver` / `empty_payload_deletes` [MQTT-3.3.1-9] / `overwrite` / `live_message_not_retained` / `will` |
+| Last Will | `last_will_v311` / `clean` / `unclean` / `qos2` / `keepalive_timeout` |
+| Keep alive | `keepalive_v311_ping_keeps_alive` / `timeout` / `zero` / `max_value` |
+| Session | `clean_session_false` / `offline_queue_v311` / `present_on_resume` [MQTT-3.2.2.1] / `clean_discard` [MQTT-3.1.2-6] |
+| Wildcard | `wildcard_plus` / `hash` / `case_sensitive` / `leading_slash` / `hash_not_last` |
+| Auth / dollar / shared | `auth_empty_client_id_fail` / `auth_connect_disconnect_sequence` / `dollar_topics` / `shared_sub_v311` |
+| Boundary | `max_client_id` / `long_topic` / `empty_payload` / `large_payload` / `special_chars_topic` / `rapid_subscribe` |
+| Multi-topic | `multi_topic_subscribe_v311` / `overlapping_subscriptions` / `message_ordering` |
+| Protocol errors | `invalid_protocol_version` / `empty_topic_filter` / `protocol_error_v311_*` (subscribe qos3, fixed-header QoS, publish qos3/pid0, bad remaining length, reserved type) |
+
+### `functional_v5` (63 cases) — MQTT 5.0
+
+| Category | Cases |
+|----------|-------|
+| Connect / CONNACK | `connect_v5` / `reason_codes` / `session_present_fresh` / `wrong_protocol_name` / `unsupported_level` / `reserved_flag` / `second_connect` / `client_id_too_long` / `auth_method_rejected` (0x8C) / `connack_capabilities_v5` / `connack_receive_max_echo_v5` / `connack_assigned_client_id_v5` / `empty_clientid_cleanstart0_rejected` |
+| Pub/Sub | `pubsub_v5_qos0/1/2` |
+| Session | `session_expiry_v5` / `takeover_v5` / `clean_start_v5` / `disconnect_expiry_zero` [MQTT-3.14.2-2] / `expiry_cleanup` |
+| V5 features | `flow_control_v5` / `no_local_v5` / `will_delay_v5` / `shared_sub_v5` / `topic_alias_v5` (server/client/unknown-alias → 0x94) / `retain_handling_*_v5` / `retain_as_published_v5` / `server_keepalive_v5` / `max_packet_size_v5` (+ enforcement) / `subscribe_identifiers_v5` / `payload_format_v5` / `publication_expiry_v5` / `request_response_v5` / `user_properties_v5` / `wildcard_available_v5` |
+| Retained | `retain_v5_store_and_deliver` / `empty_payload_deletes` / `overwrite` / `live_message_not_retained` / `will` |
+| QoS 2 | `qos2_replayed_publish_dedup` [MQTT-4.3.3-10] / `qos2_pubrel_resend_on_resume` [MQTT-4.4.0-1] / `qos2_pubrel_resume_collision` |
+| Wildcard | `wildcard_v5_case_sensitive` / `leading_slash` |
+| Protocol errors | `protocol_error_v5_*` (subscribe qos3, fixed-header QoS, publish qos3/pid0/empty-topic, bad remaining length, reserved type) |
+| Disconnect | `disconnect_reason_v5` |
+| Will Retain vs Retain Available | `will_retain_rejected_when_retain_unavailable_v5` (skipped when retainer is enabled) |
 
 ### `functional_v5_cluster` (1 case) — two-node cluster end-to-end reproduction
 
@@ -154,10 +173,10 @@ rmqtt-test/
     main.rs                      # mqtt_harness entry point, suite registration
     broker/                      # Broker lifecycle management
     mqtt/                        # Custom MQTT client (zero external MQTT deps)
-      v3/                        # MQTT 3.1 client (QoS 0)
+      v3/                        # MQTT 3.1 client (QoS 0/1/2, hand-built MQIsdp CONNECT)
       v311/                      # MQTT 3.1.1 client (QoS 0/1/2)
       v5/                        # MQTT 5.0 client (QoS 0/1/2)
-    transport/                   # Network transport layer
+    transport/                   # Network transport layer (incl. raw-byte send for negative tests)
     framework/                   # Test framework (TestCase, DAG scheduler, context)
     tests/                       # Test cases (functional, stress, chaos)
       functional/                #   functional_v3/v311/v5 cases
@@ -167,6 +186,11 @@ rmqtt-test/
     pubrel-collision/            #   single node: message-storage enabled broker config
     pubrel-collision-cluster/    #   cluster: node1/node2 configs (1884/1885 MQTT, 5364/5365 gRPC)
 ```
+
+> **Test isolation note**: all tests that publish retained messages delete them
+> afterwards (empty payload + RETAIN=1); `#` wildcard tests drain stale retained
+> messages and poll-filter their own payloads, so suites can run concurrently
+> (with `--workers N`) without cross-test interference.
 
 ## 📄 License
 
