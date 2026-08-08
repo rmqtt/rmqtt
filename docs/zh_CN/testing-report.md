@@ -82,6 +82,12 @@ cd paho.mqtt.testing/interoperability
 | `stress` | 3 | 连接负载、发布 QPS、扇出测试 |
 | `chaos` | 6 | Broker 重启、连接风暴、重连、QoS 1 可靠性、慢消费者 |
 
+> functional_v5 的 63 个用例中，`will_retain_rejected_when_retain_unavailable_v5`
+> 与 `qos2_pubrel_resume_collision` 因需要不同的 broker 配置，自动拆分为
+> `functional_v5@retain-disabled` / `functional_v5@pubrel-collision` 子套件；
+> 默认 broker 配置为自包含的 `rmqtt-test/configs/default/rmqtt.toml`，
+> 配置切换仅发生在 suite 边界。
+
 ```bash
 # 运行所有测试套件
 cargo build --release

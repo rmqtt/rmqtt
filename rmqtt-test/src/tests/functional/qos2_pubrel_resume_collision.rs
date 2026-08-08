@@ -56,6 +56,14 @@ impl TestCase for Qos2PubrelResumeCollisionTest {
         "qos2_pubrel_resume_collision"
     }
 
+    /// The reproduction needs the `rmqtt-message-storage` plugin (stored
+    /// message re-delivery on resume), which the default config does not
+    /// load; the harness splits this test into the
+    /// `functional_v5@pubrel-collision` sub-suite automatically.
+    fn broker_config(&self) -> Option<std::path::PathBuf> {
+        Some(crate::tests::config_path("pubrel-collision"))
+    }
+
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
         let rt = tokio::runtime::Runtime::new().unwrap();

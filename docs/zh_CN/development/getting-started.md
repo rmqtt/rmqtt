@@ -93,6 +93,7 @@ cargo test
 
 # 运行集成测试
 cargo build -p rmqtt-test --release
+# 默认使用自包含配置 rmqtt-test/configs/default/rmqtt.toml 启动 Broker
 ./target/release/mqtt_harness --workspace .
 ```
 

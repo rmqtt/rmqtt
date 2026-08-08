@@ -24,7 +24,7 @@ mod transport;
 use broker::BrokerProcess;
 use framework::context::{TestConfig, TestContext};
 use framework::scheduler::TestScheduler;
-use framework::suite::TestSuite;
+use framework::suite::{split_suites_by_config, TestSuite};
 use report::{write_detail_log, ConsoleReporter, HtmlReporter, JsonReporter};
 
 #[derive(Debug, Parser)]
@@ -94,6 +94,25 @@ fn main() {
     info!("Broker address: {}", opt.addr);
     info!("Detail log: {} | Packet trace: test-trace.log", opt.log_file);
 
+    // Resolve the repository root: explicit --workspace, else the current
+    // directory when it looks like the repo root, else CARGO_MANIFEST_DIR.
+    let workspace_root = resolve_workspace(opt.workspace.as_deref());
+    info!("Workspace root: {}", workspace_root.display());
+
+    // Resolve the harness default broker config: --config, or the
+    // self-contained `rmqtt-test/configs/default/rmqtt.toml` (never the
+    // repository-root rmqtt.toml).
+    let default_config = match opt.config {
+        Some(ref c) => PathBuf::from(c),
+        None => workspace_root.join("rmqtt-test/configs/default/rmqtt.toml"),
+    };
+    if !default_config.exists() {
+        error!("Broker config not found: {}", default_config.display());
+        error!("Hint: pass --config <path> or build from the repository root");
+        std::process::exit(1);
+    }
+    info!("Default broker config: {}", default_config.display());
+
     // Configure test context
     let test_config = TestConfig {
         broker_addr: opt.addr.clone(),
@@ -105,16 +124,12 @@ fn main() {
 
     // Start broker if needed (synchronous - BrokerProcess uses std::process)
     let broker = if !opt.no_broker {
-        let mut broker = if let Some(ref binary) = opt.binary {
-            BrokerProcess::with_config(
-                PathBuf::from(binary),
-                opt.addr.clone(),
-                opt.config.as_ref().map(PathBuf::from),
-            )
-        } else {
-            let workspace = opt.workspace.as_ref().map(PathBuf::from);
-            BrokerProcess::new(workspace)
-        };
+        let binary = opt
+            .binary
+            .as_ref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| BrokerProcess::find_binary(Some(&workspace_root)));
+        let mut broker = BrokerProcess::with_config(binary, opt.addr.clone(), Some(default_config.clone()));
 
         match broker.start() {
             Ok(()) => {
@@ -139,8 +154,11 @@ fn main() {
         TestContext::new(test_config)
     };
 
-    // Build test suites
+    // Build suites, split them by per-test config declarations, then apply
+    // the --suites filter (empty selection keeps everything).
     let suites = build_suites(&opt);
+    let suites = split_suites_by_config(suites, &default_config);
+    let suites = filter_suites(suites, &opt.suites);
 
     // Run tests (synchronous - each test creates its own runtime internally)
     let mut scheduler = TestScheduler::new();
@@ -174,28 +192,28 @@ fn main() {
         Err(e) => error!("Failed to write detail log: {}", e),
     }
 
-    // Exit code
+    // Exit code. Drop the context first so the managed broker child process
+    // is killed: `std::process::exit` skips destructors and would leak the
+    // broker (ports stay bound until it is killed manually).
     if summary.failed > 0 || summary.errors > 0 {
+        drop(ctx);
         std::process::exit(1);
     }
 }
 
 /// Build test suites based on CLI options
 fn build_suites(opt: &Opt) -> Vec<TestSuite> {
-    let run_all = opt.suites.is_empty();
-    let should_run = |name: &str| run_all || opt.suites.iter().any(|s| s == name);
-
     let mut suites = Vec::new();
 
-    if should_run("functional_v3") {
+    if should_run("functional_v3", opt) {
         suites.push(build_functional_v3_suite());
     }
 
-    if should_run("functional_v311") {
+    if should_run("functional_v311", opt) {
         suites.push(build_functional_v311_suite());
     }
 
-    if should_run("functional_v5") {
+    if should_run("functional_v5", opt) {
         suites.push(build_functional_v5_suite());
     }
 
@@ -203,19 +221,70 @@ fn build_suites(opt: &Opt) -> Vec<TestSuite> {
     // (see rmqtt-test/configs/pubrel-collision-cluster/). It is only run when
     // explicitly requested — never as part of the default full run, so it
     // cannot break the single-node suites.
-    if opt.suites.iter().any(|s| s == "functional_v5_cluster") {
+    if should_run("functional_v5_cluster", opt) {
         suites.push(build_functional_v5_cluster_suite());
     }
 
-    if should_run("stress") {
+    if should_run("stress", opt) {
         suites.push(build_stress_suite(opt.stress_clients));
     }
 
-    if should_run("chaos") {
+    if should_run("chaos", opt) {
         suites.push(build_chaos_suite(opt.chaos_iterations));
     }
 
     suites
+}
+
+/// Decide whether the (original, pre-split) suite `name` is selected.
+///
+/// - Empty `--suites` = default full run, which excludes the two-node
+///   `functional_v5_cluster` suite.
+/// - Otherwise a suite is selected when a selector equals its name, is a
+///   prefix (`functional_v5` also selects `functional_v5@retain-disabled`),
+///   or is a sub-suite name of it (`functional_v5@retain-disabled` also
+///   selects `functional_v5`).
+fn should_run(name: &str, opt: &Opt) -> bool {
+    if opt.suites.is_empty() {
+        return name != "functional_v5_cluster";
+    }
+    opt.suites
+        .iter()
+        .any(|s| s == name || name.starts_with(&format!("{}@", s)) || s.starts_with(&format!("{}@", name)))
+}
+
+/// Filter the (split) suites by the `--suites` selection.
+///
+/// Runs after `split_suites_by_config`, so sub-suite names like
+/// `functional_v5@retain-disabled` can be selected directly, while
+/// `functional_v5` also matches every `functional_v5@*` sub-suite.
+/// An empty selection keeps everything (the cluster suite was already
+/// excluded by `build_suites` for the default full run).
+fn filter_suites(suites: Vec<TestSuite>, selected: &[String]) -> Vec<TestSuite> {
+    if selected.is_empty() {
+        return suites;
+    }
+    suites
+        .into_iter()
+        .filter(|s| selected.iter().any(|sel| s.name == *sel || s.name.starts_with(&format!("{}@", sel))))
+        .collect()
+}
+
+/// Resolve the repository (workspace) root used to locate the rmqttd binary
+/// and the test configs: explicit `--workspace`, else the current directory
+/// when it looks like the repo root, else derived from CARGO_MANIFEST_DIR.
+fn resolve_workspace(explicit: Option<&str>) -> PathBuf {
+    if let Some(w) = explicit {
+        return PathBuf::from(w);
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        if cwd.join("rmqtt.toml").exists() && cwd.join("rmqtt-test/configs").exists() {
+            return cwd;
+        }
+    }
+    // CARGO_MANIFEST_DIR = <root>/rmqtt-test -> parent = <root>
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    manifest.parent().map(|p| p.to_path_buf()).unwrap_or(manifest)
 }
 
 fn build_functional_v3_suite() -> TestSuite {

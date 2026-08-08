@@ -82,6 +82,13 @@ The `rmqtt-test` crate provides a custom test harness with additional test suite
 | `stress` | 3 | Connection load (100 clients), publish QPS (1000 msgs), fan-out (1→N) |
 | `chaos` | 6 | Broker restart, connection storms, reconnect, QoS 1 reliability, slow consumer |
 
+> Of the 63 `functional_v5` cases, `will_retain_rejected_when_retain_unavailable_v5`
+> and `qos2_pubrel_resume_collision` need different broker configs and are
+> automatically split into the `functional_v5@retain-disabled` /
+> `functional_v5@pubrel-collision` sub-suites. The default broker config is the
+> self-contained `rmqtt-test/configs/default/rmqtt.toml`; config switches
+> happen only at suite boundaries.
+
 ```bash
 # Run all test suites
 cargo build --release
