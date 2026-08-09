@@ -2,7 +2,7 @@
 
 All notable changes to RMQTT are documented in this file.
 
-## [Unreleased]
+## [0.23.0] - 2026-08-09
 
 ### New Features
 
@@ -20,6 +20,18 @@ All notable changes to RMQTT are documented in this file.
 - **HTTP API Retained Messages Query**: Added `GET /api/v1/retains` to `rmqtt-http-api` to query retained messages with `topic_filter` / `offset` / `limit` parameters. The full pagination path (`topic_filter=#`) is served from the storage layer with `remaining_ttl`; filtered queries paginate in memory. Payload is base64-encoded.
 - **Dashboard Enhancements**: Added a retained messages page (`#/retains`) with pagination and payload preview/detail dialog, a dedicated "Feature Support" tab with a per-node feature matrix and cluster consistency alert, dual-tab (abnormal / non-subscriber) switching on the message-drop trend panel, a client detail page, and an i18n-aware custom datetime picker. The Dashboard SPA can be served from an external directory via `dashboard_static_dir` for hot-swapping without recompiling.
 - **TCP Keepalive on Accepted Connections** (issue #465): Accepted MQTT/TCP connections now enable `SO_KEEPALIVE` by default, so the kernel's `net.ipv4.tcp_keepalive_*` settings take effect and dead peers behind cellular/CGNAT NAT black holes are probed and reclaimed (previously the option was never set and connections piled up as ESTABLISHED/FIN-WAIT-1). Per-listener probe parameters can be overridden via `listener.<proto>.<name>.tcp_keepalive` — `false` (disabled), `true` (default, kernel defaults), or `{ idle = "60s", interval = "10s", probes = 3 }` (`probes` is Linux/Android only). New `rmqtt-net::TcpKeepalive` type and `Builder::tcp_keepalive()`. Regression tests added in `rmqtt-test` (`functional_v5`, incl. `functional_v5@tcp-keepalive` sub-suite).
+- **Stats/Metrics History Persistence**: Added a complete history subsystem to `rmqtt-http-api` — Stats and Metrics are snapshotted periodically (default `flush_interval = "5s"`), cached in an in-memory LRU, and asynchronously persisted to a configurable backend (`storage.type`: `redb` / `sled` / `redis` / `redis-cluster`) with TTL-based expiration (`history_retention`, default `"7d"`). Expired entries are discarded during warmup and removed from storage. New endpoints `GET /api/v1/stats/history` and `GET /api/v1/metrics/history` support cross-node cluster-wide queries via gRPC, with results merged by timestamp. A 30s recovery loop retries failed entries and a global `UNPERSISTED_COUNT` tracks pending writes.
+- **Dashboard Embedded via rust-embed**: The `rmqtt-dashboard` SPA is now compiled into the `rmqtt-http-api` binary at build time (`rust-embed`), so the dashboard is served at `http://127.0.0.1:6060/` with zero configuration and no filesystem dependency. The optional `dashboard_static_dir` setting still allows a filesystem override for development hot-reloading.
+- **Dashboard Retained Message Deletion**: Added the ability to delete individual retained messages from the retained messages page (`#/retains`), backed by the new HTTP API endpoint `DELETE /api/v1/retains?topic={topic}` (rejects wildcard topics, returns 404 when no retained message exists, uses MQTT empty-payload retained publish semantics, and propagates the deletion to all cluster peers via `retain_set_broadcast`). The dashboard shows a confirmation dialog with optimistic UI updates.
+
+### Bug Fixes
+
+- **QoS 2 Exactly-Once on Replayed PUBLISH** (issue #456): A replayed QoS 2 PUBLISH (same Packet Identifier, `DUP=1`, before the PUBREL exchange completes) is now answered with PUBREC and **no longer delivered to the subscriber a second time** (`[MQTT-4.3.3-10]`). Implemented via an `InInflight::exist` check on the inbound inflight set, plus a new `client_publish_duplicate` metrics counter.
+- **Inflight Packet-ID Space Isolation on Session Resume**: Fixed a QoS 2 session-resume bug where transferred inflight messages kept their old packet-ids (1..N) while the new session's `OutInflight` allocator restarted at 1, so a concurrently delivered stored message could be assigned the same id and silently overwritten by `push_back` (`HashMap::insert`), permanently destroying its QoS 2 state (no resend, no ack hook, possible loss). The allocator is now advanced past the transferred id range via a new `OutInflight::advance_next_id()` before any concurrent delivery path can allocate, and `send_rerelease` gained a defensive existence check.
+- **Session Resume Reforwards All Inflight Messages** (issue #456): On session transfer/resume, every inflight message is now reforwarded regardless of status — `UnComplete` messages were previously skipped, so an owed PUBREL was lost. A re-sent PUBREL now always acknowledges Success instead of the previous `PacketIdNotFound` choice (`[MQTT-4.4.0-1]`).
+- **CONNACK Reason Code for Empty ClientId**: A CONNECT with a zero-length ClientId while CleanStart (v5) / CleanSession (v3.1.1) is 0 is now rejected with the spec-mandated reason codes — v5 `0x85` Client Identifier not valid (`[MQTT-3.1.3-8]`) and v3.1.1 `0x02` Identifier Rejected (`[MQTT-3.1.3-6]`) — instead of the previous generic 0x88 / 0x03.
+- **Will Retain Rejected When Retain Unavailable** (issue #457): A CONNECT whose Will Message has Will Retain = 1 is now rejected with CONNACK reason `0x9A` (Retain not supported) when the server advertises Retain Available = 0 (`[MQTT-3.2.2-13]`); previously such connections were accepted with reason 0x00.
+- **Cluster Sync Handles MessageReply::Success**: `MessageReply::Success` responses received during cluster retain synchronization and message loading were treated as errors and logged at `warn!` level. Both `rmqtt-cluster-broadcast` and `rmqtt-cluster-raft` now handle them explicitly (`debug!` level, empty result, end-of-sync), reducing production log noise.
 
 ### Refactoring
 
@@ -28,6 +40,21 @@ All notable changes to RMQTT are documented in this file.
 - **Session Storage Improvements**: Added detailed timing metrics for rebuild operations; improved init timing and timeout handling.
 - **Error Logging Normalization**: Normalized error logging across the workspace to use `Display` instead of `Debug` formatting.
 - **Cluster Retain Exec Queue**: Added a dedicated `retainer_exec` `TaskExecQueue` in `rmqtt-cluster-raft` for retain operations, separating from the main `exec` queue.
+- **Unified Server Error Handling**: `rmqtt-bin` startup logic was split into `main()` + `run()`; listener bind failures now propagate through the `anyhow` error chain with the listener address included, and are logged once in `main()` before exiting (previously logged redundantly without address context). Also filled in the empty error messages on `Listener::accept()` / `accept_quic()` in `rmqtt-net`.
+
+### Test Improvements
+
+- **MQTT Spec-Conformance Coverage**: Expanded `rmqtt-test` to systematically cover the MQTT 3.1, 3.1.1 and 5.0 specifications with positive, negative and boundary cases — the three functional suites grew from ~100 to **174 cases**, all passing (v3: 47, v3.1.1: 64, v5: 62 + 1 intentional skip). New modules cover protocol errors (SUBSCRIBE QoS 3, reserved flag bits, second CONNECT), keepalive, last will, QoS 2 conformance (`qos2_conformance_v3/v311/v5`), retain edge cases, wildcards, and CONNACK capability advertisement.
+- **Per-Case Broker Config Switching**: Test cases can now declare their required broker config via `TestCase::broker_config()` and are split at suite-build time into `{suite}@{config}` sub-suites (e.g. `functional_v5@retain-disabled`, `functional_v5@tcp-keepalive`, `functional_v5@pubrel-collision`); the scheduler restarts the broker to switch configs only at suite boundaries. All test broker configs are self-contained under `rmqtt-test/configs/`, and `rmqttd` is always started with an explicit `-f` config.
+- **QoS 2 Regression Suites**: Added single-node `qos2_pubrel_resume_collision` (functional_v5) and a new cluster end-to-end `functional_v5_cluster` suite (`qos2_pubrel_resume_collision_cluster`, two manually started nodes) — the cluster suite reproduced the bug 3/3 rounds before the fix and passes 3/3 after. Chaos broker-restart tests now SKIP in `--no-broker` mode instead of failing.
+- **Test Harness Fixes**: Fixed a broker child-process leak on failure exit (the managed broker is now killed before `std::process::exit`), fixed `clippy::type_complexity` in suite splitting, and added `TestResult::note` / `TestContext::guard_retain_required` so retain-dependent tests skip with a note when the `rmqtt-retainer` plugin is not loaded.
+
+### Dependency Upgrades
+
+- `rmqtt-net` 0.3.5 → **0.4.0** (new `TcpKeepalive` type and `Builder::tcp_keepalive()`)
+- `rmqtt-conf` 0.3.5 → **0.4.0** (new `tcp_keepalive` listener option)
+- `rmqtt-storage` 0.10.2 → **0.11.1** (history storage backend for `rmqtt-http-api`)
+- Docker base images: Alpine 3.22.4 → **3.24.1** (amd64) / arm64v8/alpine 3.22.4 → **3.24.1** (aarch64)
 
 ### Configuration Changes
 
@@ -35,6 +62,9 @@ All notable changes to RMQTT are documented in this file.
 - `rmqtt-message-storage.toml`: `storage.ram.encode` default changed from `true` to `false`. Added `circuit_breaker.*` section. Unified `timeout` and `backend_timeout` into a single `backend_timeout` field (default: `"15s"`).
 - `rmqtt-session-storage.toml`: Added `circuit_breaker.*` section.
 - `rmqtt-cluster-broadcast.toml` / `rmqtt-cluster-raft.toml`: Added gRPC circuit breaker settings (`node_grpc_circuit_breaker_enabled`, etc.). `rmqtt-cluster-raft.toml`: `node_grpc_client_timeout` default changed from `"60s"` to `"10s"`. `raft.snapshot_interval` default changed from `"600s"` to `"300s"`.
+- `rmqtt-http-api.toml`: Added optional `[storage]` section for Stats/Metrics history persistence (`storage.type` = `redb` / `sled` / `redis` / `redis-cluster`), plus `flush_interval` (default `"5s"`) and `history_retention` (default `"7d"`). The `dashboard_static_dir` setting is now commented out by default — the dashboard is embedded in the binary via rust-embed; uncomment to serve from a filesystem directory for development.
+- `rmqtt-retainer.toml`: Default storage type switched from `ram` to `sled`.
+- `rmqtt.toml`: `rmqtt-retainer` is included in `plugins.default_startups` by default.
 
 ---
 

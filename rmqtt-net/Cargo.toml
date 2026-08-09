@@ -50,3 +50,7 @@ rustls = { workspace = true, features = ["ring", "logging", "std", "tls12"], opt
 simple_logger = { workspace = true }
 tokio = { workspace = true,  features = ["full"] }
 once_cell.workspace = true
+
+[[example]]
+name = "server"
+required-features = ["tls", "ws", "quic"]

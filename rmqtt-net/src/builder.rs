@@ -776,7 +776,12 @@ impl Listener {
         }
         log::debug!("remote_addr: {remote_addr}, proxy_protocol: {}", self.cfg.proxy_protocol);
         if self.cfg.proxy_protocol {
-            let mut buffer = [0u8; u16::MAX as usize];
+            // Heap-allocated: a 64KB stack array here would be embedded in the
+            // future state machine (it lives across await points), inflating
+            // every accept loop future and overflowing the 1MB main-thread
+            // stack on Windows in debug builds. Vec keeps only a 24B pointer
+            // on the stack; semantics are identical for peek/read_exact.
+            let mut buffer = vec![0u8; usize::from(u16::MAX)];
             let read_bytes =
                 tokio::time::timeout(self.cfg.proxy_protocol_timeout, socket.peek(&mut buffer)).await??;
             let len = {
