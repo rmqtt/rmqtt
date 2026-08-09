@@ -27,6 +27,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use systemstat::Platform;
 
+#[cfg(feature = "grpc")]
 use crate::context::CircuitBreakerConfig;
 use crate::context::ServerContext;
 #[cfg(feature = "grpc")]

@@ -82,6 +82,7 @@ use tokio::sync::RwLock;
 use tokio::time::{Duration, Instant};
 
 use crate::acl::AuthInfo;
+#[cfg(feature = "retain")]
 use crate::codec::v5::RetainHandling;
 use crate::codec::{
     v3,
