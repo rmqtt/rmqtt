@@ -74,22 +74,6 @@ use tokio_tungstenite::{
     tungstenite::handshake::server::{ErrorResponse, Request, Response},
 };
 
-/// TCP keepalive probe parameters (SO_KEEPALIVE).
-///
-/// Zero values keep the kernel defaults: when `idle`/`interval` are zero and
-/// `probes` is zero, only `SO_KEEPALIVE` is enabled and the kernel's
-/// `net.ipv4.tcp_keepalive_*` settings apply. `probes` (TCP_KEEPCNT) is only
-/// supported on Linux/Android; other platforms ignore it.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct TcpKeepalive {
-    /// TCP_KEEPIDLE: how long the connection must be idle before probing starts
-    pub idle: Duration,
-    /// TCP_KEEPINTVL: interval between probes
-    pub interval: Duration,
-    /// TCP_KEEPCNT: how many failed probes before the connection is dropped
-    pub probes: u32,
-}
-
 /// Configuration builder for MQTT server instances
 #[derive(Clone, Debug)]
 pub struct Builder {
@@ -105,9 +89,11 @@ pub struct Builder {
     pub reuseaddr: Option<bool>,
     /// Set SO_REUSEPORT socket option
     pub reuseport: Option<bool>,
-    /// Enable TCP keepalive on accepted connections (`None` = disabled).
-    /// Defaults to enabled with kernel defaults (issue #465).
-    pub tcp_keepalive: Option<TcpKeepalive>,
+    /// Enable TCP keepalive on accepted connections (`SO_KEEPALIVE`). Probe
+    /// parameters (idle / interval / retries) follow the OS defaults — Linux
+    /// `net.ipv4.tcp_keepalive_*` sysctls or the Windows `KeepAliveTime` /
+    /// `KeepAliveInterval` registry values. Defaults to enabled (issue #465).
+    pub tcp_keepalive: bool,
     /// Maximum concurrent active connections
     pub max_connections: usize,
     /// Maximum simultaneous handshakes during connection setup
@@ -219,10 +205,9 @@ impl Builder {
             nodelay: false,
             reuseaddr: None,
             reuseport: None,
-            // Enabled by default with kernel defaults: with idle/interval/probes
-            // all zero, socket2 only sets SO_KEEPALIVE and the kernel's
-            // net.ipv4.tcp_keepalive_* settings apply (issue #465).
-            tcp_keepalive: Some(TcpKeepalive::default()),
+            // Enabled by default: SO_KEEPALIVE with OS-level probe parameters
+            // (Linux sysctl / Windows registry) (issue #465).
+            tcp_keepalive: true,
 
             allow_anonymous: true,
             min_keepalive: 0,
@@ -301,10 +286,9 @@ impl Builder {
 
     /// Configures TCP keepalive on accepted connections.
     ///
-    /// `None` disables SO_KEEPALIVE entirely. `Some(TcpKeepalive::default())`
-    /// enables it with the kernel's `net.ipv4.tcp_keepalive_*` defaults;
-    /// non-zero fields override the corresponding kernel settings.
-    pub fn tcp_keepalive(mut self, tcp_keepalive: Option<TcpKeepalive>) -> Self {
+    /// `true` (default) enables `SO_KEEPALIVE`, letting the OS decide the
+    /// probe parameters (Linux sysctl / Windows registry). `false` disables it.
+    pub fn tcp_keepalive(mut self, tcp_keepalive: bool) -> Self {
         self.tcp_keepalive = tcp_keepalive;
         self
     }
@@ -750,29 +734,20 @@ impl Listener {
         }
         // Enable TCP keepalive so the kernel probes dead peers under NAT black
         // holes (issue #465). Failure is non-fatal: keepalive is best-effort.
-        if let Some(ka) = self.cfg.tcp_keepalive {
-            let std_sock = match socket.into_std() {
-                Ok(s) => s,
-                // `into_std` takes ownership of the socket; on failure there is
-                // nothing left to continue with.
-                Err(e) => return Err(Error::from(e)),
-            };
-            let sock2 = socket2::Socket::from(std_sock);
-            let mut kb = socket2::TcpKeepalive::new();
-            if !ka.idle.is_zero() {
-                kb = kb.with_time(ka.idle);
-            }
-            if !ka.interval.is_zero() {
-                kb = kb.with_interval(ka.interval);
-            }
-            #[cfg(any(target_os = "linux", target_os = "android"))]
-            if ka.probes > 0 {
-                kb = kb.with_retries(ka.probes);
-            }
-            if let Err(e) = sock2.set_tcp_keepalive(&kb) {
+        //
+        // NOTE: we deliberately use `SockRef::set_keepalive` (a plain
+        // `setsockopt(SO_KEEPALIVE, 1)`) instead of
+        // `Socket::set_tcp_keepalive`, because the latter routes through
+        // `WSAIoctl(SIO_KEEPALIVE_VALS)` on Windows — a blocking I/O control
+        // call that, combined with the `into_std()`/`from_std()` IOCP
+        // deregister/register round-trip, stalls every tokio worker thread
+        // under high connection concurrency and freezes the system. Probe
+        // parameters are intentionally left to the OS (sysctl / registry).
+        if self.cfg.tcp_keepalive {
+            let sock_ref = socket2::SockRef::from(&socket);
+            if let Err(e) = sock_ref.set_keepalive(true) {
                 log::warn!("set SO_KEEPALIVE failed for {remote_addr}: {e}");
             }
-            socket = tokio::net::TcpStream::from_std(sock2.into())?;
         }
         log::debug!("remote_addr: {remote_addr}, proxy_protocol: {}", self.cfg.proxy_protocol);
         if self.cfg.proxy_protocol {

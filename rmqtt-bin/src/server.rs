@@ -15,7 +15,7 @@ use rmqtt::args::CommandArgs;
 use rmqtt::context::{
     CircuitBreakerConfig, CountBasedWindowConfig, ServerContext, TimeBasedWindowConfig, WindowConfig,
 };
-use rmqtt::net::{tls_provider, Builder, TcpKeepalive};
+use rmqtt::net::{tls_provider, Builder};
 use rmqtt::node::Node;
 use rmqtt::server::MqttServer;
 use rmqtt::Result;
@@ -218,11 +218,7 @@ fn config_builder(cfg: &Listener) -> Builder {
         .nodelay(cfg.nodelay)
         .reuseaddr(cfg.reuseaddr)
         .reuseport(cfg.reuseport)
-        .tcp_keepalive(cfg.tcp_keepalive.as_ref().map(|k| TcpKeepalive {
-            idle: k.idle.unwrap_or_default(),
-            interval: k.interval.unwrap_or_default(),
-            probes: k.probes.unwrap_or(0),
-        }))
+        .tcp_keepalive(cfg.tcp_keepalive)
         .allow_anonymous(cfg.allow_anonymous)
         .min_keepalive(cfg.min_keepalive)
         .max_keepalive(cfg.max_keepalive)

@@ -46,8 +46,8 @@ rmqtt-test/configs/
   pubrel-collision/         # 加载 message-storage（PUBREL 冲突复现）
     rmqtt.toml
     plugins/
-  tcp-keepalive/            # TCP keepalive 短探测参数（issue #465 参数生效验证）
-    rmqtt.toml              #   tcp_keepalive = { idle = "1s", interval = "1s", probes = 2 }
+  tcp-keepalive/            # TCP keepalive 开启（issue #465 回归验证）
+    rmqtt.toml              #   tcp_keepalive = true
     plugins/
   pubrel-collision-cluster/ # 双节点集群（手动启动，1884/1885 MQTT）—— 不受本机制影响
 ```

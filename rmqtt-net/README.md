@@ -10,7 +10,7 @@ MQTT server network layer — TCP, TLS via rustls, WebSocket via tokio-tungsteni
 ## Exported items
 
 ```rust
-pub use builder::{Builder, Listener, ListenerType, TcpKeepalive};
+pub use builder::{Builder, Listener, ListenerType};
 pub use cert_extractor::TlsCertExtractor;    // trait
 pub use error::MqttError;
 pub use stream::{v3, v5, MqttStream};        // v3::MqttStream, v5::MqttStream
@@ -35,14 +35,14 @@ All fields have `pub` visibility and fluent setter methods:
 
 | Method | Params | Builder default |
 |--------|--------|----------------|
-| `new()` | — | `max_connections=1_000_000, max_handshaking_limit=1_000, max_packet_size=1MB, backlog=512, nodelay=false, reuseaddr=None, reuseport=None, tcp_keepalive=Some(default) [enabled, kernel defaults], allow_anonymous=true, min_keepalive=0, max_keepalive=65535, allow_zero_keepalive=true, keepalive_backoff=0.75, max_inflight=16, handshake_timeout=30s, send_timeout=10s, max_mqueue_len=1000, max_clientid_len=65535, max_qos_allowed=2, max_topic_levels=0, session_expiry_interval=7200s, max_session_expiry_interval=0, message_retry_interval=20s, message_expiry_interval=300s, max_subscriptions=0, max_topic_aliases=0, ...` |
+| `new()` | — | `max_connections=1_000_000, max_handshaking_limit=1_000, max_packet_size=1MB, backlog=512, nodelay=false, reuseaddr=None, reuseport=None, tcp_keepalive=true [enabled, OS probe defaults], allow_anonymous=true, min_keepalive=0, max_keepalive=65535, allow_zero_keepalive=true, keepalive_backoff=0.75, max_inflight=16, handshake_timeout=30s, send_timeout=10s, max_mqueue_len=1000, max_clientid_len=65535, max_qos_allowed=2, max_topic_levels=0, session_expiry_interval=7200s, max_session_expiry_interval=0, message_retry_interval=20s, message_expiry_interval=300s, max_subscriptions=0, max_topic_aliases=0, ...` |
 | `.name(s)` | `impl Into<String>` | `""` |
 | `.laddr(a)` | `SocketAddr` | `0.0.0.0:1883` |
 | `.backlog(n)` | `i32` | `512` |
 | `.nodelay(v)` | `bool` | `false` |
 | `.reuseaddr(v)` | `Option<bool>` | `None` |
 | `.reuseport(v)` | `Option<bool>` | `None` |
-| `.tcp_keepalive(v)` | `Option<TcpKeepalive>` | `Some(TcpKeepalive::default())` (enabled, kernel defaults) |
+| `.tcp_keepalive(v)` | `bool` | `true` (enabled, OS probe defaults) |
 | `.max_connections(n)` | `usize` | `1_000_000` |
 | `.max_handshaking_limit(n)` | `usize` | `1_000` |
 | `.max_packet_size(n)` | `u32` | `1_048_576` (1MB) |

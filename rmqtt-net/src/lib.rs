@@ -40,7 +40,7 @@ mod ws;
 pub use quic::QuinnBiStream;
 
 /// Server configuration and listener management
-pub use builder::{Builder, Listener, ListenerType, TcpKeepalive};
+pub use builder::{Builder, Listener, ListenerType};
 
 /// Trait for extracting TLS certificate information from client connections
 pub use cert_extractor::TlsCertExtractor;

@@ -168,10 +168,10 @@ listener.tcp.external.backlog = 1024
 #Sets the value of the TCP_NODELAY option on this socket.
 #default: false
 listener.tcp.external.nodelay = false
-#TCP keepalive on accepted connections (SO_KEEPALIVE), with explicit short
-#probe parameters so the keepalive timer is observable (~1s) and dead peers
-#are reclaimed quickly. Used by `tcp_keepalive_custom_params` (issue #465).
-listener.tcp.external.tcp_keepalive = { idle = "1s", interval = "1s", probes = 2 }
+#TCP keepalive on accepted connections (SO_KEEPALIVE), enabled so the
+#keepalive timer is observable and dead peers are reclaimed by the OS.
+#Probe parameters follow the OS defaults (issue #465).
+listener.tcp.external.tcp_keepalive = true
 #Whether anonymous login is allowed. Default: true
 listener.tcp.external.allow_anonymous = true
 #A value of zero indicates disabling the keep-alive feature, where the server

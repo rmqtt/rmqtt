@@ -170,9 +170,9 @@ listener.tcp.external.backlog = 1024
 listener.tcp.external.nodelay = false
 #TCP keepalive on accepted connections (SO_KEEPALIVE).
 #  false -> disabled
-#  true (default) -> enabled, probe parameters from system net.ipv4.tcp_keepalive_*
-#  { idle, interval, probes } -> enabled with explicit probe parameters,
-#    e.g. { idle = "60s", interval = "10s", probes = 3 }
+#  true (default) -> enabled; probe parameters (idle time / interval / retries)
+#    follow the OS defaults: Linux net.ipv4.tcp_keepalive_* sysctls, or the
+#    Windows KeepAliveTime / KeepAliveInterval registry values.
 listener.tcp.external.tcp_keepalive = true
 #Whether anonymous login is allowed. Default: true
 listener.tcp.external.allow_anonymous = true
