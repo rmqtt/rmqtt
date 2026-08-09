@@ -536,12 +536,9 @@ fn build_functional_v5_suite() -> TestSuite {
     suite.add(EmptyClientIdCleanStart0RejectedV5Test);
     suite.add(ServerKeepAliveV5Test);
     suite.add(ServerTopicAliasV5Test);
-    // TCP keepalive on accepted sockets (GitHub issue #465). The custom-params
-    // test declares its own broker config and is split into
-    // `functional_v5@tcp-keepalive` automatically.
+    // TCP keepalive on accepted sockets (GitHub issue #465).
     suite.add(TcpKeepAliveSocketOptionTest);
     suite.add(MqttKeepaliveTimeoutReclaimsTcpTest);
-    suite.add(TcpKeepaliveCustomParamsTest);
     suite.add(MaxPacketSizeV5Test);
     suite.add(MaxPacketSizeEnforcementV5Test);
     suite.add(SubscribeIdentifiersV5Test);

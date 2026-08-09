@@ -10,8 +10,10 @@
 //! never set.
 //!
 //! Fix (see `designs/issue-465-tcp-keepalive-fix.md`): accepted connections
-//! now enable SO_KEEPALIVE by default, with optional per-listener probe
-//! parameters `{ idle, interval, probes }`.
+//! now enable SO_KEEPALIVE by default (`tcp_keepalive = true`); probe
+//! parameters are intentionally left to the OS defaults (Linux sysctl /
+//! Windows registry), so no per-listener `{ idle, interval, probes }`
+//! configuration exists anymore.
 //!
 //! These tests cover the testable halves of the issue:
 //!
@@ -25,12 +27,7 @@
 //!    idle sockets with no pending timer, and `state established` filtering
 //!    drops the State column), so the failure message also dumps the full `ss`
 //!    output for diagnosis.
-//! 2. `tcp_keepalive_custom_params` — Linux-gated: with the explicit probe
-//!    parameters of `configs/tcp-keepalive/` (`idle = 1s`), the keepalive
-//!    timer on the accepted socket must be in the seconds range (the kernel
-//!    default would be minutes/hours), proving the per-listener parameters
-//!    are applied. Runs in the `functional_v5@tcp-keepalive` sub-suite.
-//! 3. `mqtt_keepalive_timeout_reclaims_tcp` — portable behavioural baseline:
+//! 2. `mqtt_keepalive_timeout_reclaims_tcp` — portable behavioural baseline:
 //!    with a short MQTT keepalive the broker must close the *TCP* connection
 //!    (raw read returns EOF) after the keep-alive window (1.5x) elapses. This
 //!    documents that the MQTT-layer defence works; it is exactly the case
@@ -39,7 +36,6 @@
 
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -186,42 +182,6 @@ fn find_keepalive_timer_line(output: &str, client_port: u16, port: u16) -> Optio
     output.lines().skip(idx).take(3).find(|l| l.contains("timer:(keepalive,")).map(String::from)
 }
 
-/// Parse the keepalive timer remaining time (seconds) from an `ss -o` line
-/// like `... timer:(keepalive,1.000s,0)`, `timer:(keepalive,004ms,0)` or
-/// `timer:(keepalive,120.000min,0)`. The unit may be `us`/`ms`/`s`/`min`/`h`.
-///
-/// An empty value (`timer:(keepalive,,0)`) means the keepalive timer just
-/// fired and is being reset — ss reports zero remaining time — which is
-/// treated as 0s. A bare number with no unit (`timer:(keepalive,0,0)`, as some
-/// ss versions emit when the value is zero) is treated as seconds.
-fn keepalive_timer_seconds(line: &str) -> Option<f64> {
-    let needle = "timer:(keepalive,";
-    let start = line.find(needle)? + needle.len();
-    let rest = &line[start..];
-    let end = rest.find(',')?;
-    let num_unit = &rest[..end];
-    if num_unit.is_empty() {
-        // Timer just fired / is being reset: 0s remaining.
-        return Some(0.0);
-    }
-    // Split the leading number from the trailing unit. All digits and the
-    // decimal point are ASCII, so byte indices are safe.
-    let num_len = num_unit.bytes().take_while(|b| b.is_ascii_digit() || *b == b'.').count();
-    if num_len == 0 {
-        return None;
-    }
-    let num: f64 = num_unit[..num_len].parse().ok()?;
-    let unit = &num_unit[num_len..];
-    Some(match unit {
-        "us" => num / 1_000_000.0,
-        "ms" => num / 1_000.0,
-        "s" | "" => num,
-        "min" => num * 60.0,
-        "h" => num * 3_600.0,
-        _ => return None,
-    })
-}
-
 /// Root-cause assertion for GitHub issue #465 (Linux-gated).
 ///
 /// After a successful MQTT connect the broker-side accepted socket must have
@@ -278,94 +238,6 @@ impl TestCase for TcpKeepAliveSocketOptionTest {
                  connections pile up under cellular/CGNAT NAT black holes).\n`ss` output:\n{output}"
             )),
         };
-
-        match verdict {
-            Ok(()) => TestResult::passed(self.name(), SUITE, start.elapsed()),
-            Err(e) => TestResult::failed(self.name(), SUITE, start.elapsed(), e.to_string()),
-        }
-    }
-
-    fn timeout(&self) -> Duration {
-        Duration::from_secs(30)
-    }
-}
-
-/// Phase-2 verification: explicit per-listener probe parameters take effect
-/// (Linux-gated).
-///
-/// Runs against `rmqtt-test/configs/tcp-keepalive/` where
-/// `tcp_keepalive = { idle = "1s", interval = "1s", probes = 2 }`. After a
-/// normal connect, the `ss -o` keepalive timer on the accepted socket must be
-/// in the seconds range — the kernel default (`tcp_keepalive_time`, typically
-/// 7200s) would show minutes/hours — proving the configured parameters are
-/// applied. A silent loopback peer answers keepalive probes (its kernel is
-/// alive), so this verifies parameter application, not dead-peer reclamation
-/// (which cannot be simulated without root-level packet drops).
-pub struct TcpKeepaliveCustomParamsTest;
-
-impl TestCase for TcpKeepaliveCustomParamsTest {
-    fn name(&self) -> &str {
-        "tcp_keepalive_custom_params"
-    }
-
-    fn broker_config(&self) -> Option<PathBuf> {
-        Some(crate::tests::config_path("tcp-keepalive"))
-    }
-
-    fn execute(&self, ctx: &mut TestContext) -> TestResult {
-        let start = Instant::now();
-
-        if cfg!(not(target_os = "linux")) {
-            return TestResult::skipped(
-                self.name(),
-                SUITE,
-                start.elapsed(),
-                "SO_KEEPALIVE inspection needs Linux `ss -o`; skipped on this platform",
-            );
-        }
-        if !ss_available() {
-            return TestResult::skipped(
-                self.name(),
-                SUITE,
-                start.elapsed(),
-                "`ss` (iproute2) not available; cannot inspect socket timers",
-            );
-        }
-
-        let (output, client_port, port) = match probe_ss(ctx, 60, 2) {
-            Err(e) => return TestResult::failed(self.name(), SUITE, start.elapsed(), e.to_string()),
-            Ok(v) => v,
-        };
-
-        if output.trim().is_empty() {
-            return TestResult::skipped(
-                self.name(),
-                SUITE,
-                start.elapsed(),
-                "`ss` returned no output for the broker port; cannot inspect socket timers",
-            );
-        }
-
-        let verdict = (|| -> anyhow::Result<()> {
-            let line = find_keepalive_timer_line(&output, client_port, port).ok_or_else(|| {
-                anyhow::anyhow!(
-                    "no `timer:(keepalive,...)` for the accepted connection — SO_KEEPALIVE or \
-                     per-listener parameters not applied.\n`ss` output:\n{output}"
-                )
-            })?;
-            let secs = keepalive_timer_seconds(&line).ok_or_else(|| {
-                anyhow::anyhow!("cannot parse keepalive timer from `ss` line: {line}\n`ss` output:\n{output}")
-            })?;
-            if secs < 60.0 {
-                Ok(())
-            } else {
-                Err(anyhow::anyhow!(
-                    "keepalive timer {secs:.1}s indicates kernel defaults were used — the \
-                     configured `{{ idle = \"1s\", interval = \"1s\", probes = 2 }}` parameters \
-                     were not applied.\n`ss` line: {line}\n`ss` output:\n{output}"
-                ))
-            }
-        })();
 
         match verdict {
             Ok(()) => TestResult::passed(self.name(), SUITE, start.elapsed()),
@@ -444,60 +316,5 @@ impl TestCase for MqttKeepaliveTimeoutReclaimsTcpTest {
 
     fn timeout(&self) -> Duration {
         Duration::from_secs(40)
-    }
-}
-
-#[cfg(test)]
-mod keepalive_timer_seconds_tests {
-    use super::keepalive_timer_seconds;
-
-    #[test]
-    fn parses_milliseconds() {
-        // ss emits `ms` for sub-second timers, e.g. right after a probe fires.
-        let line = "0      0  127.0.0.1:1883  127.0.0.1:58480 timer:(keepalive,004ms,0)";
-        let secs = keepalive_timer_seconds(line).expect("004ms must parse");
-        assert!((secs - 0.004).abs() < 1e-9, "got {secs}s");
-    }
-
-    #[test]
-    fn empty_value_is_zero() {
-        // ss shows an empty value in the instant the keepalive timer fires and
-        // resets (observed intermittently with idle = 1s).
-        let line = "0      0  127.0.0.1:1883  127.0.0.1:44512 timer:(keepalive,,0)";
-        let secs = keepalive_timer_seconds(line).expect("empty value must parse as 0s");
-        assert_eq!(secs, 0.0, "got {secs}s");
-    }
-
-    #[test]
-    fn bare_zero_without_unit_is_zero() {
-        // Some ss versions emit a bare `0` with no unit when the value is zero.
-        let line = "0      0  127.0.0.1:1883  127.0.0.1:44512 timer:(keepalive,0,0)";
-        let secs = keepalive_timer_seconds(line).expect("bare 0 must parse as 0s");
-        assert_eq!(secs, 0.0, "got {secs}s");
-    }
-
-    #[test]
-    fn parses_seconds() {
-        let line = "ESTAB 0 0 127.0.0.1:1883 127.0.0.1:58480 timer:(keepalive,1.000s,0)";
-        let secs = keepalive_timer_seconds(line).expect("1.000s must parse");
-        assert!((secs - 1.0).abs() < 1e-9, "got {secs}s");
-    }
-
-    #[test]
-    fn parses_minutes() {
-        // Kernel default tcp_keepalive_time = 7200s shows as minutes.
-        let line = "ESTAB 0 0 127.0.0.1:1883 127.0.0.1:58480 timer:(keepalive,120.000min,0)";
-        let secs = keepalive_timer_seconds(line).expect("120.000min must parse");
-        assert!((secs - 7200.0).abs() < 1e-9, "got {secs}s");
-    }
-
-    #[test]
-    fn rejects_non_keepalive_timer() {
-        assert!(keepalive_timer_seconds("timer:(on,000ms,0)").is_none());
-    }
-
-    #[test]
-    fn rejects_garbage() {
-        assert!(keepalive_timer_seconds("timer:(keepalive,abc,0)").is_none());
     }
 }

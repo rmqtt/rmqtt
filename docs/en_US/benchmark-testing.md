@@ -51,9 +51,9 @@ listener.tcp.external.allow_zero_keepalive = true
 listener.tcp.external.min_keepalive = 0
 listener.tcp.external.max_keepalive = 65535
 listener.tcp.external.keepalive_backoff = 0.75
-#TCP keepalive on accepted connections (SO_KEEPALIVE); true (default) uses the
-#system net.ipv4.tcp_keepalive_* parameters; false disables; a table
-#{ idle = "60s", interval = "10s", probes = 3 } overrides the kernel defaults.
+#TCP keepalive on accepted connections (SO_KEEPALIVE); true (default) enables it;
+#probe parameters (idle time / interval / retries) follow the OS defaults — Linux
+#net.ipv4.tcp_keepalive_* sysctls or the Windows registry values; false disables.
 listener.tcp.external.tcp_keepalive = true
 listener.tcp.external.max_inflight = 16
 listener.tcp.external.max_mqueue_len = 1000
@@ -361,9 +361,9 @@ listener.tcp.external.allow_zero_keepalive = true
 listener.tcp.external.min_keepalive = 0
 listener.tcp.external.max_keepalive = 65535
 listener.tcp.external.keepalive_backoff = 0.75
-#TCP keepalive on accepted connections (SO_KEEPALIVE); true (default) uses the
-#system net.ipv4.tcp_keepalive_* parameters; false disables; a table
-#{ idle = "60s", interval = "10s", probes = 3 } overrides the kernel defaults.
+#TCP keepalive on accepted connections (SO_KEEPALIVE); true (default) enables it;
+#probe parameters (idle time / interval / retries) follow the OS defaults — Linux
+#net.ipv4.tcp_keepalive_* sysctls or the Windows registry values; false disables.
 listener.tcp.external.tcp_keepalive = true
 listener.tcp.external.max_inflight = 16
 listener.tcp.external.max_mqueue_len = 1000
