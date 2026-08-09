@@ -184,6 +184,33 @@ impl Deref for Listener {
     }
 }
 
+/// Deserialize an optional humantime duration: a present value maps to
+/// `Some(duration)`, a missing field maps to `None` via `#[serde(default)]`.
+fn deserialize_optional_duration<'de, D>(d: D) -> Result<Option<Duration>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserialize_duration(d).map(Some)
+}
+
+/// TCP keepalive probe parameters (`listener.*.tcp_keepalive`).
+///
+/// Serialized form: `false` (disabled), `true` (enabled with kernel defaults),
+/// or a table `{ idle, interval, probes }` overriding the kernel defaults.
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(default)]
+pub struct TcpKeepaliveConfig {
+    /// TCP_KEEPIDLE: idle time before probing starts (default: kernel default)
+    #[serde(default, deserialize_with = "deserialize_optional_duration")]
+    pub idle: Option<Duration>,
+    /// TCP_KEEPINTVL: interval between probes (default: kernel default)
+    #[serde(default, deserialize_with = "deserialize_optional_duration")]
+    pub interval: Option<Duration>,
+    /// TCP_KEEPCNT: failed probes before drop; Linux/Android only (default: kernel default)
+    #[serde(default)]
+    pub probes: Option<u32>,
+}
+
 /// Detailed configuration for a single network listener.
 ///
 /// Contains all tunable parameters including connection limits, keepalive
@@ -213,6 +240,14 @@ pub struct ListenerInner {
     pub reuseaddr: Option<bool>,
     #[serde(default = "ListenerInner::reuseport_default")]
     pub reuseport: Option<bool>,
+    /// TCP keepalive on accepted connections: `false` disables SO_KEEPALIVE,
+    /// `true` enables it with kernel defaults, a table overrides the probe
+    /// parameters. Default: enabled with kernel defaults (issue #465).
+    #[serde(
+        default = "ListenerInner::tcp_keepalive_default",
+        deserialize_with = "ListenerInner::deserialize_tcp_keepalive"
+    )]
+    pub tcp_keepalive: Option<TcpKeepaliveConfig>,
     #[serde(default = "ListenerInner::allow_anonymous_default")]
     pub allow_anonymous: bool,
     #[serde(default = "ListenerInner::min_keepalive_default")]
@@ -316,6 +351,7 @@ impl Default for ListenerInner {
             max_packet_size: ListenerInner::max_packet_size_default(),
             reuseaddr: ListenerInner::reuseaddr_default(),
             reuseport: ListenerInner::reuseport_default(),
+            tcp_keepalive: ListenerInner::tcp_keepalive_default(),
             backlog: ListenerInner::backlog_default(),
             nodelay: ListenerInner::nodelay_default(),
 
@@ -385,6 +421,29 @@ impl ListenerInner {
     #[inline]
     fn reuseport_default() -> Option<bool> {
         None
+    }
+    #[inline]
+    fn tcp_keepalive_default() -> Option<TcpKeepaliveConfig> {
+        // Enabled by default with kernel defaults (issue #465).
+        Some(TcpKeepaliveConfig::default())
+    }
+
+    /// Deserialize `tcp_keepalive` from `false | true | { idle, interval, probes }`.
+    fn deserialize_tcp_keepalive<'de, D>(d: D) -> Result<Option<TcpKeepaliveConfig>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Keepalive {
+            Bool(bool),
+            Params(TcpKeepaliveConfig),
+        }
+        Ok(match Keepalive::deserialize(d)? {
+            Keepalive::Bool(false) => None,
+            Keepalive::Bool(true) => Some(TcpKeepaliveConfig::default()),
+            Keepalive::Params(p) => Some(p),
+        })
     }
     #[inline]
     fn backlog_default() -> i32 {
@@ -536,5 +595,59 @@ impl ListenerInner {
     #[inline]
     fn idle_timeout_default() -> Duration {
         Duration::from_secs(90)
+    }
+}
+
+#[cfg(test)]
+mod tcp_keepalive_tests {
+    use super::*;
+    use serde::Deserialize;
+
+    /// Minimal wrapper exercising the same serde attributes as the
+    /// `tcp_keepalive` field on `ListenerInner`.
+    #[derive(Deserialize)]
+    struct Wrap {
+        #[serde(
+            default = "ListenerInner::tcp_keepalive_default",
+            deserialize_with = "ListenerInner::deserialize_tcp_keepalive"
+        )]
+        tcp_keepalive: Option<TcpKeepaliveConfig>,
+    }
+
+    fn parse(src: &str) -> Option<TcpKeepaliveConfig> {
+        toml::from_str::<Wrap>(src).expect("wrap should parse").tcp_keepalive
+    }
+
+    #[test]
+    fn absent_defaults_to_enabled() {
+        // 字段缺失 → 默认启用（kernel 默认参数）—— issue #465 的默认取向。
+        assert!(parse("").is_some(), "missing tcp_keepalive must default to enabled");
+    }
+
+    #[test]
+    fn true_enables_with_kernel_defaults() {
+        let ka = parse("tcp_keepalive = true").expect("true must enable keepalive");
+        assert!(ka.idle.is_none() && ka.interval.is_none() && ka.probes.is_none());
+    }
+
+    #[test]
+    fn false_disables() {
+        assert!(parse("tcp_keepalive = false").is_none(), "false must disable keepalive");
+    }
+
+    #[test]
+    fn table_overrides_params() {
+        let ka = parse(r#"tcp_keepalive = { idle = "1s", interval = "1s", probes = 2 }"#)
+            .expect("table must parse");
+        assert_eq!(ka.idle, Some(Duration::from_secs(1)));
+        assert_eq!(ka.interval, Some(Duration::from_secs(1)));
+        assert_eq!(ka.probes, Some(2));
+    }
+
+    #[test]
+    fn partial_table_keeps_others_unset() {
+        let ka = parse(r#"tcp_keepalive = { idle = "5s" }"#).expect("partial table must parse");
+        assert_eq!(ka.idle, Some(Duration::from_secs(5)));
+        assert!(ka.interval.is_none() && ka.probes.is_none());
     }
 }

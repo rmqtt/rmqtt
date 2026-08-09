@@ -46,7 +46,8 @@ struct Opt {
     #[arg(long)]
     workspace: Option<String>,
 
-    /// Run only specific test suites (functional_v3, functional_v311, functional_v5, stress, chaos)
+    /// Run only specific test suites (functional_v3, functional_v311, functional_v5,
+    /// functional_v5_cluster, stress, chaos)
     #[arg(short, long)]
     suites: Vec<String>,
 
@@ -246,6 +247,7 @@ fn build_suites(opt: &Opt) -> Vec<TestSuite> {
 ///   selects `functional_v5`).
 fn should_run(name: &str, opt: &Opt) -> bool {
     if opt.suites.is_empty() {
+        // Default full run excludes the manually-started cluster suite.
         return name != "functional_v5_cluster";
     }
     opt.suites
@@ -493,6 +495,7 @@ fn build_functional_v5_suite() -> TestSuite {
     use tests::functional::session_v5::*;
     use tests::functional::shared_subscription::*;
     use tests::functional::subscribe_identifiers_v5::*;
+    use tests::functional::tcp_keepalive::*;
     use tests::functional::topic_alias_v5::*;
     use tests::functional::user_properties_v5::*;
     use tests::functional::wildcard::*;
@@ -533,6 +536,12 @@ fn build_functional_v5_suite() -> TestSuite {
     suite.add(EmptyClientIdCleanStart0RejectedV5Test);
     suite.add(ServerKeepAliveV5Test);
     suite.add(ServerTopicAliasV5Test);
+    // TCP keepalive on accepted sockets (GitHub issue #465). The custom-params
+    // test declares its own broker config and is split into
+    // `functional_v5@tcp-keepalive` automatically.
+    suite.add(TcpKeepAliveSocketOptionTest);
+    suite.add(MqttKeepaliveTimeoutReclaimsTcpTest);
+    suite.add(TcpKeepaliveCustomParamsTest);
     suite.add(MaxPacketSizeV5Test);
     suite.add(MaxPacketSizeEnforcementV5Test);
     suite.add(SubscribeIdentifiersV5Test);

@@ -184,6 +184,12 @@ listener.tcp.external.backlog = 1024
 #Sets the value of the TCP_NODELAY option on this socket.
 #default: false
 listener.tcp.external.nodelay = false
+#TCP keepalive on accepted connections (SO_KEEPALIVE).
+#  false -> disabled
+#  true (default) -> enabled, probe parameters from system net.ipv4.tcp_keepalive_*
+#  { idle, interval, probes } -> enabled with explicit probe parameters,
+#    e.g. { idle = "60s", interval = "10s", probes = 3 }
+listener.tcp.external.tcp_keepalive = true
 #Whether anonymous login is allowed. Default: true
 listener.tcp.external.allow_anonymous = true
 #A value of zero indicates disabling the keep-alive feature, where the server

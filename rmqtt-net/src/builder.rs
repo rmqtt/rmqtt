@@ -74,6 +74,22 @@ use tokio_tungstenite::{
     tungstenite::handshake::server::{ErrorResponse, Request, Response},
 };
 
+/// TCP keepalive probe parameters (SO_KEEPALIVE).
+///
+/// Zero values keep the kernel defaults: when `idle`/`interval` are zero and
+/// `probes` is zero, only `SO_KEEPALIVE` is enabled and the kernel's
+/// `net.ipv4.tcp_keepalive_*` settings apply. `probes` (TCP_KEEPCNT) is only
+/// supported on Linux/Android; other platforms ignore it.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TcpKeepalive {
+    /// TCP_KEEPIDLE: how long the connection must be idle before probing starts
+    pub idle: Duration,
+    /// TCP_KEEPINTVL: interval between probes
+    pub interval: Duration,
+    /// TCP_KEEPCNT: how many failed probes before the connection is dropped
+    pub probes: u32,
+}
+
 /// Configuration builder for MQTT server instances
 #[derive(Clone, Debug)]
 pub struct Builder {
@@ -89,6 +105,9 @@ pub struct Builder {
     pub reuseaddr: Option<bool>,
     /// Set SO_REUSEPORT socket option
     pub reuseport: Option<bool>,
+    /// Enable TCP keepalive on accepted connections (`None` = disabled).
+    /// Defaults to enabled with kernel defaults (issue #465).
+    pub tcp_keepalive: Option<TcpKeepalive>,
     /// Maximum concurrent active connections
     pub max_connections: usize,
     /// Maximum simultaneous handshakes during connection setup
@@ -200,6 +219,10 @@ impl Builder {
             nodelay: false,
             reuseaddr: None,
             reuseport: None,
+            // Enabled by default with kernel defaults: with idle/interval/probes
+            // all zero, socket2 only sets SO_KEEPALIVE and the kernel's
+            // net.ipv4.tcp_keepalive_* settings apply (issue #465).
+            tcp_keepalive: Some(TcpKeepalive::default()),
 
             allow_anonymous: true,
             min_keepalive: 0,
@@ -273,6 +296,16 @@ impl Builder {
     /// Configures SO_REUSEPORT socket option
     pub fn reuseport(mut self, reuseport: Option<bool>) -> Self {
         self.reuseport = reuseport;
+        self
+    }
+
+    /// Configures TCP keepalive on accepted connections.
+    ///
+    /// `None` disables SO_KEEPALIVE entirely. `Some(TcpKeepalive::default())`
+    /// enables it with the kernel's `net.ipv4.tcp_keepalive_*` defaults;
+    /// non-zero fields override the corresponding kernel settings.
+    pub fn tcp_keepalive(mut self, tcp_keepalive: Option<TcpKeepalive>) -> Self {
+        self.tcp_keepalive = tcp_keepalive;
         self
     }
 
@@ -703,7 +736,10 @@ impl Listener {
         if let Some(tcp_listener) = &self.tcp_listener {
             self.accept_tcp(tcp_listener).await
         } else {
-            Err(anyhow!(""))
+            Err(anyhow!(
+                "no TCP listener available for accept(): listener has no TCP socket \
+                 (QUIC-only listener or already consumed)"
+            ))
         }
     }
 
@@ -711,6 +747,32 @@ impl Listener {
         let (mut socket, mut remote_addr) = tcp_listener.accept().await?;
         if let Err(e) = socket.set_nodelay(self.cfg.nodelay) {
             return Err(Error::from(e));
+        }
+        // Enable TCP keepalive so the kernel probes dead peers under NAT black
+        // holes (issue #465). Failure is non-fatal: keepalive is best-effort.
+        if let Some(ka) = self.cfg.tcp_keepalive {
+            let std_sock = match socket.into_std() {
+                Ok(s) => s,
+                // `into_std` takes ownership of the socket; on failure there is
+                // nothing left to continue with.
+                Err(e) => return Err(Error::from(e)),
+            };
+            let sock2 = socket2::Socket::from(std_sock);
+            let mut kb = socket2::TcpKeepalive::new();
+            if !ka.idle.is_zero() {
+                kb = kb.with_time(ka.idle);
+            }
+            if !ka.interval.is_zero() {
+                kb = kb.with_interval(ka.interval);
+            }
+            #[cfg(any(target_os = "linux", target_os = "android"))]
+            if ka.probes > 0 {
+                kb = kb.with_retries(ka.probes);
+            }
+            if let Err(e) = sock2.set_tcp_keepalive(&kb) {
+                log::warn!("set SO_KEEPALIVE failed for {remote_addr}: {e}");
+            }
+            socket = tokio::net::TcpStream::from_std(sock2.into())?;
         }
         log::debug!("remote_addr: {remote_addr}, proxy_protocol: {}", self.cfg.proxy_protocol);
         if self.cfg.proxy_protocol {
@@ -758,7 +820,10 @@ impl Listener {
                 typ: self.typ,
             })
         } else {
-            Err(anyhow!(""))
+            Err(anyhow!(
+                "no QUIC endpoint available for accept_quic(): listener has no QUIC endpoint \
+                 (TCP-only listener or already consumed)"
+            ))
         }
     }
 
