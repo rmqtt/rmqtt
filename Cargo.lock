@@ -5113,7 +5113,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-conf"
-version = "0.3.5"
+version = "0.4.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -5128,6 +5128,7 @@ dependencies = [
  "rmqtt-utils",
  "serde",
  "serde_json",
+ "toml 0.9.12+spec-1.1.0",
 ]
 
 [[package]]
@@ -5192,7 +5193,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-net"
-version = "0.3.5"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "bytestring",

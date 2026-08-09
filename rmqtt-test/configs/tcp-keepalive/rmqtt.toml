@@ -79,7 +79,7 @@ log.file = "rmqtt.log"
 ##--------------------------------------------------------------------
 #Plug in configuration file directory (self-contained, relative to the
 #repository root from which mqtt_harness / rmqttd are launched)
-plugins.dir = "rmqtt-test/configs/default/plugins/"
+plugins.dir = "rmqtt-test/configs/tcp-keepalive/plugins/"
 #Plug in started by default, when the mqtt server is started
 plugins.default_startups = [
     "rmqtt-retainer",
@@ -168,12 +168,10 @@ listener.tcp.external.backlog = 1024
 #Sets the value of the TCP_NODELAY option on this socket.
 #default: false
 listener.tcp.external.nodelay = false
-#TCP keepalive on accepted connections (SO_KEEPALIVE).
-#  false -> disabled
-#  true (default) -> enabled, probe parameters from system net.ipv4.tcp_keepalive_*
-#  { idle, interval, probes } -> enabled with explicit probe parameters,
-#    e.g. { idle = "60s", interval = "10s", probes = 3 }
-listener.tcp.external.tcp_keepalive = true
+#TCP keepalive on accepted connections (SO_KEEPALIVE), with explicit short
+#probe parameters so the keepalive timer is observable (~1s) and dead peers
+#are reclaimed quickly. Used by `tcp_keepalive_custom_params` (issue #465).
+listener.tcp.external.tcp_keepalive = { idle = "1s", interval = "1s", probes = 2 }
 #Whether anonymous login is allowed. Default: true
 listener.tcp.external.allow_anonymous = true
 #A value of zero indicates disabling the keep-alive feature, where the server

@@ -46,6 +46,7 @@ pub mod session_v311;
 pub mod session_v5;
 pub mod shared_subscription;
 pub mod subscribe_identifiers_v5;
+pub mod tcp_keepalive;
 pub mod topic_alias_v5;
 pub mod user_properties_v5;
 pub mod wildcard;

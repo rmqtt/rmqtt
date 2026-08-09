@@ -1,0 +1,28 @@
+##--------------------------------------------------------------------
+## rmqtt-bridge-origin
+##--------------------------------------------------------------------
+##
+## This plugin identifies whether an MQTT client originates from a
+## bridge-ingress-mqtt or bridge-egress-mqtt connection by checking
+## the client_id against configurable markers.
+##
+## The identified bridge origin is stored in session.extra_attrs
+## under the configurable attr_key, making it available to other
+## plugins (e.g., for anti-loop or routing decisions).
+##
+## See: https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/bridge-origin.md
+##--------------------------------------------------------------------
+
+# Marker string to identify ingress bridge clients.
+# If a client_id contains this substring, it is treated as an ingress bridge client.
+# Default: ":ingress:"
+#ingress_marker = ":ingress:"
+
+# Marker string to identify egress bridge clients.
+# If a client_id contains this substring, it is treated as an egress bridge client.
+# Default: ":egress:"
+#egress_marker = ":egress:"
+
+# Key used to store BridgeOrigin in session.extra_attrs.
+# Default: "bridge_origin"
+#attr_key = "bridge_origin"
