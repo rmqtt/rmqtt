@@ -118,6 +118,7 @@ Fields via `Deref<Target = ListenerInner>`:
 | `nodelay` | `bool` | `false` | TCP_NODELAY |
 | `reuseaddr` | `Option<bool>` | `Some(true)` | SO_REUSEADDR |
 | `reuseport` | `Option<bool>` | `None` | SO_REUSEPORT |
+| `tcp_keepalive` | `Option<TcpKeepaliveConfig>` | `Some(default)` (enabled) | TCP keepalive on accepted sockets. TOML: `false` (disabled) / `true` (enabled, kernel defaults) / `{ idle = "60s", interval = "10s", probes = 3 }` (override kernel defaults; `probes` Linux/Android only) |
 | `allow_anonymous` | `bool` | `false` | Allow anonymous login |
 | `min_keepalive` | `u16` | `0` | Min keepalive (seconds) |
 | `max_keepalive` | `u16` | `65535` | Max keepalive (seconds) |
