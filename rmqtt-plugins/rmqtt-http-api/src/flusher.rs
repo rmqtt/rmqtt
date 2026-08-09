@@ -69,6 +69,7 @@ pub fn start_flusher(
     retention: Duration,
 ) -> tokio::task::JoinHandle<()> {
     let node_id = scx.node.id();
+    let exec = scx.get_exec(("HISTORY_FLUSHER_EXEC", 10, 10_000));
     tokio::spawn(async move {
         let mut timer = tokio::time::interval(interval);
         timer.tick().await; // baseline on start
@@ -87,7 +88,7 @@ pub fn start_flusher(
                 // Async flush to storage
                 let db = storage_db.clone();
                 let cache = stats_cache.clone();
-                tokio::spawn(async move {
+                exec.spawn(async move {
                     flush_one(&db, &cache, &storage_key, ts, retention).await;
                 });
             }
@@ -101,7 +102,7 @@ pub fn start_flusher(
                 metrics_cache.write().await.put(ts, entry);
                 let db = storage_db.clone();
                 let cache = metrics_cache.clone();
-                tokio::spawn(async move {
+                exec.spawn(async move {
                     flush_one(&db, &cache, &storage_key, ts, retention).await;
                 });
             }
