@@ -4854,7 +4854,7 @@ dependencies = [
  "prometheus",
  "prost",
  "rand 0.9.5",
- "rmqtt-codec",
+ "rmqtt-codec 0.2.2",
  "rmqtt-macros",
  "rmqtt-net",
  "rmqtt-utils",
@@ -5176,6 +5176,24 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-codec"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8745926da934746acfe80d0fc57fdeb5ba303de32636f3e824ed7a87345d0b20"
+dependencies = [
+ "bitflags 2.13.1",
+ "bytes",
+ "bytestring",
+ "chrono",
+ "log",
+ "nonzero_ext",
+ "rmqtt-utils",
+ "serde",
+ "thiserror 1.0.69",
+ "tokio-util",
+]
+
+[[package]]
+name = "rmqtt-codec"
 version = "0.3.0"
 dependencies = [
  "bitflags 2.13.1",
@@ -5203,7 +5221,7 @@ dependencies = [
  "config",
  "log",
  "once_cell",
- "rmqtt-codec",
+ "rmqtt-codec 0.2.2",
  "rmqtt-net",
  "rmqtt-utils",
  "serde",
@@ -5283,7 +5301,7 @@ dependencies = [
  "once_cell",
  "proxy-protocol",
  "quinn",
- "rmqtt-codec",
+ "rmqtt-codec 0.2.2",
  "rustls",
  "serde",
  "simple_logger",
@@ -5512,7 +5530,7 @@ dependencies = [
  "futures",
  "parking_lot 0.12.5",
  "rand 0.9.5",
- "rmqtt-codec",
+ "rmqtt-codec 0.2.2",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -6399,7 +6417,7 @@ dependencies = [
  "futures",
  "log",
  "quinn",
- "rmqtt-codec",
+ "rmqtt-codec 0.2.2",
  "rmqtt-net",
  "rustls",
  "simple_logger",

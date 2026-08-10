@@ -1,7 +1,7 @@
 # RMQTT Broker
 
 [![GitHub Release](https://img.shields.io/github/release/rmqtt/rmqtt?color=brightgreen)](https://github.com/rmqtt/rmqtt/releases)
-[![Rust Version](https://img.shields.io/badge/rust-1.89.0%2B-blue)](https://blog.rust-lang.org/2025/08/07/Rust-1.89.0/)
+[![Rust Version](https://img.shields.io/badge/rust-1.94.0%2B-blue)](https://blog.rust-lang.org/2026/03/05/Rust-1.94.0/)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/rmqtt/rmqtt)
 [![crates.io](https://img.shields.io/crates/v/rmqtt.svg)](https://crates.io/crates/rmqtt)
 [![docs.rs](https://docs.rs/rmqtt/badge.svg)](https://docs.rs/rmqtt/latest/rmqtt/)

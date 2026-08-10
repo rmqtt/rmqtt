@@ -10,7 +10,7 @@ This guide walks you through setting up a development environment, building RMQT
 
 ### Required
 
-- **Rust** 1.89.0+ (install via [rustup](https://rustup.rs/))
+- **Rust** 1.94.0+ (install via [rustup](https://rustup.rs/))
 - **protoc** (protobuf compiler) — required for building tonic/prost dependencies
 - **Git** (for cloning and version management)
 
@@ -40,8 +40,8 @@ brew install protobuf cmake pkg-config openssl
 ### Verify Installation
 
 ```bash
-rustc --version          # should be 1.89.0+
-cargo --version          # should be 1.89.0+
+rustc --version          # should be 1.94.0+
+cargo --version          # should be 1.94.0+
 protoc --version         # should be 3.x+
 ```
 

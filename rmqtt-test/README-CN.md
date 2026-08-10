@@ -3,7 +3,7 @@
 # rmqtt-test
 
 [![crates.io page](https://img.shields.io/crates/v/rmqtt.svg)](https://crates.io/crates/rmqtt)
-![Rust](https://img.shields.io/badge/rust-1.89%2B-blue)
+![Rust](https://img.shields.io/badge/rust-1.94%2B-blue)
 
 RMQTT 的工业级验证与压测核心引擎（Test Harness + Chaos + Benchmark）。编译产物 `mqtt_harness` 作为独立可执行程序，提供功能测试、压力测试、混沌测试，并输出结构化测试报告。
 

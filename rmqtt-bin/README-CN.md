@@ -3,7 +3,7 @@
 # rmqttd
 
 [![crates.io page](https://img.shields.io/crates/v/rmqtt.svg)](https://crates.io/crates/rmqtt)
-![Rust](https://img.shields.io/badge/rust-1.89%2B-blue)
+![Rust](https://img.shields.io/badge/rust-1.94%2B-blue)
 
 RMQTT MQTT Broker 的官方二进制入口。
 
