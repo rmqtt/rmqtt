@@ -2,7 +2,7 @@ English | [简体中文](../zh_CN/dashboard.md)
 
 # Dashboard (Web Management UI)
 
-RMQTT ships with a built-in web management UI (`rmqtt-dashboard/`) for viewing cluster status, metrics, clients, retained messages, and more. It is a **build-free** vanilla SPA (`index.html` + vanilla JS + Vue3 / ECharts via CDN), served by the `rmqtt-http-api` plugin.
+RMQTT ships with a built-in web management UI (`rmqtt-plugins/rmqtt-http-api/dashboard/`) for viewing cluster status, metrics, clients, retained messages, and more. It is a **build-free** vanilla SPA (`index.html` + vanilla JS + Vue3 / ECharts via CDN), served by the `rmqtt-http-api` plugin.
 
 ## Access
 
@@ -21,7 +21,7 @@ Frontend changes require recompiling (`cargo build`) to take effect.
 Set `dashboard_static_dir` in `rmqtt-http-api.toml` to point at the Dashboard source directory:
 
 ```toml
-dashboard_static_dir = "/path/to/rmqtt-dashboard"
+dashboard_static_dir = "/path/to/rmqtt-plugins/rmqtt-http-api/dashboard"
 ```
 
 - The plugin serves the SPA from both `/` and `/dashboard/`
