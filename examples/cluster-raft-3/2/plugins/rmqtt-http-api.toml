@@ -62,9 +62,10 @@ prometheus_metrics_cache_interval = "5s"
 ##
 ## The path is resolved against the process working directory, which for
 ## these examples is the node directory (e.g. `examples/cluster-broadcast/1`).
-## `../../../rmqtt-dashboard` therefore points to the workspace-level
-## `rmqtt-dashboard/` directory: examples/<cluster>/<node>/ -> <repo root>/rmqtt-dashboard
-dashboard_static_dir = "../../../rmqtt-dashboard"
+## `../../../rmqtt-plugins/rmqtt-http-api/dashboard` therefore points to the
+## dashboard copy shipped inside the http-api crate:
+## examples/<cluster>/<node>/ -> <repo root>/rmqtt-plugins/rmqtt-http-api/dashboard
+dashboard_static_dir = "../../../rmqtt-plugins/rmqtt-http-api/dashboard"
 
 ##--------------------------------------------------------------------
 ## Stats/Metrics History Persistence (optional)

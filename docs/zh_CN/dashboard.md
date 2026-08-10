@@ -2,7 +2,7 @@
 
 # Dashboard（Web 管理界面）
 
-RMQTT 内置 Web 管理界面（`rmqtt-dashboard/`），用于查看集群状态、指标、客户端、保留消息等。它是一个**无构建步骤**的原生 SPA（`index.html` + 原生 JS + Vue3 / ECharts CDN），由 `rmqtt-http-api` 插件提供服务。
+RMQTT 内置 Web 管理界面（`rmqtt-plugins/rmqtt-http-api/dashboard/`），用于查看集群状态、指标、客户端、保留消息等。它是一个**无构建步骤**的原生 SPA（`index.html` + 原生 JS + Vue3 / ECharts CDN），由 `rmqtt-http-api` 插件提供服务。
 
 ## 访问方式
 
@@ -21,7 +21,7 @@ http://<host>:6060/dashboard/
 在 `rmqtt-http-api.toml` 中配置 `dashboard_static_dir` 指向 Dashboard 源码目录：
 
 ```toml
-dashboard_static_dir = "/path/to/rmqtt-dashboard"
+dashboard_static_dir = "/path/to/rmqtt-plugins/rmqtt-http-api/dashboard"
 ```
 
 - 插件将 SPA 同时挂载到 `/` 与 `/dashboard/` 两个路径
