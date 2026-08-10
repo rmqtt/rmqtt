@@ -67,7 +67,7 @@ rust-version = "1.89.0"
 
 [workspace.dependencies]
 rmqtt = "0.23.1"
-rmqtt-codec = "0.3.0"
+rmqtt-codec = "0.2.2"
 rmqtt-net = "0.4.0"
 rmqtt-conf = "0.4.0"
 rmqtt-macros = "0.1.2"
