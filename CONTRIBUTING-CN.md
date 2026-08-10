@@ -52,7 +52,7 @@
 
 ## 环境
 - OS: [如 Ubuntu 24.04]
-- Rust: [如 1.89.0]
+- Rust: [如 1.94.0]
 - RMQTT: [如 0.22.0]
 ```
 
@@ -73,7 +73,7 @@
 
 ### 前置要求
 
-- Rust 1.89.0+（通过 [rustup](https://rustup.rs/) 安装）
+- Rust 1.94.0+（通过 [rustup](https://rustup.rs/) 安装）
 - `protoc`（protobuf 编译器）— 构建 tonic/prost 必需
   - Linux: `apt install protobuf-compiler`
   - macOS: `brew install protobuf`
