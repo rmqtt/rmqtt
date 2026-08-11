@@ -56,7 +56,7 @@ impl HttpApiPlugin {
     #[inline]
     async fn new<S: Into<String>>(scx: ServerContext, name: S) -> Result<Self> {
         let name = name.into();
-        let mut cfg = scx.plugins.read_config::<PluginConfig>(&name)?;
+        let mut cfg = scx.plugins.read_config_default::<PluginConfig>(&name)?;
         log::info!("{name} HttpApiPlugin cfg: {cfg:?}");
 
         // Replace {node} placeholder in storage config paths (before init_db)
