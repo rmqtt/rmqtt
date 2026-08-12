@@ -4831,7 +4831,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4854,7 +4854,7 @@ dependencies = [
  "prometheus",
  "prost",
  "rand 0.9.5",
- "rmqtt-codec 0.2.2",
+ "rmqtt-codec",
  "rmqtt-macros",
  "rmqtt-net",
  "rmqtt-utils",
@@ -4875,7 +4875,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-acl"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4891,7 +4891,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-auth-http"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4908,7 +4908,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-auth-jwt"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4925,7 +4925,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-auto-subscription"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4938,7 +4938,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-egress-kafka"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4957,7 +4957,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-egress-mqtt"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4980,7 +4980,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-egress-nats"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "async-nats",
@@ -4997,7 +4997,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-egress-pulsar"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5014,7 +5014,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-egress-reductstore"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5031,7 +5031,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-ingress-kafka"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5049,7 +5049,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-ingress-mqtt"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5071,7 +5071,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-ingress-nats"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "async-nats",
@@ -5090,7 +5090,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-ingress-pulsar"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5110,7 +5110,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-origin"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5124,7 +5124,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-cluster-broadcast"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -5144,7 +5144,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-cluster-raft"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -5176,24 +5176,6 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-codec"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8745926da934746acfe80d0fc57fdeb5ba303de32636f3e824ed7a87345d0b20"
-dependencies = [
- "bitflags 2.13.1",
- "bytes",
- "bytestring",
- "chrono",
- "log",
- "nonzero_ext",
- "rmqtt-utils",
- "serde",
- "thiserror 1.0.69",
- "tokio-util",
-]
-
-[[package]]
-name = "rmqtt-codec"
 version = "0.3.0"
 dependencies = [
  "bitflags 2.13.1",
@@ -5221,7 +5203,7 @@ dependencies = [
  "config",
  "log",
  "once_cell",
- "rmqtt-codec 0.2.2",
+ "rmqtt-codec",
  "rmqtt-net",
  "rmqtt-utils",
  "serde",
@@ -5231,7 +5213,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-counter"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "async-trait",
  "log",
@@ -5240,7 +5222,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-http-api"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5272,7 +5254,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-message-storage"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5301,7 +5283,7 @@ dependencies = [
  "once_cell",
  "proxy-protocol",
  "quinn",
- "rmqtt-codec 0.2.2",
+ "rmqtt-codec",
  "rustls",
  "serde",
  "simple_logger",
@@ -5316,7 +5298,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-p2p-messaging"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5329,7 +5311,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-plugins"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "rmqtt-acl",
  "rmqtt-auth-http",
@@ -5433,7 +5415,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-retainer"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5450,7 +5432,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-session-storage"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5466,7 +5448,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-shared-subscription"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "async-trait",
  "log",
@@ -5505,7 +5487,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-sys-topic"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5530,7 +5512,7 @@ dependencies = [
  "futures",
  "parking_lot 0.12.5",
  "rand 0.9.5",
- "rmqtt-codec 0.2.2",
+ "rmqtt-codec",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -5543,7 +5525,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-topic-rewrite"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5571,7 +5553,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-web-hook"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -5593,7 +5575,7 @@ dependencies = [
 
 [[package]]
 name = "rmqttd"
-version = "0.23.1"
+version = "0.24.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -6417,7 +6399,7 @@ dependencies = [
  "futures",
  "log",
  "quinn",
- "rmqtt-codec 0.2.2",
+ "rmqtt-codec",
  "rmqtt-net",
  "rustls",
  "simple_logger",
