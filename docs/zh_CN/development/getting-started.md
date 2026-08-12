@@ -10,7 +10,7 @@
 
 ### 必需
 
-- **Rust** 1.89.0+（通过 [rustup](https://rustup.rs/) 安装）
+- **Rust** 1.94.0+（通过 [rustup](https://rustup.rs/) 安装）
 - **protoc**（protobuf 编译器）— 构建 tonic/prost 依赖必需
 - **Git**（用于克隆和管理版本）
 
@@ -34,7 +34,7 @@ brew install protobuf cmake pkg-config openssl
 ### 验证安装
 
 ```bash
-rustc --version          # 应为 1.89.0+
+rustc --version          # 应为 1.94.0+
 cargo --version
 protoc --version         # 应为 3.x+
 ```
@@ -93,6 +93,7 @@ cargo test
 
 # 运行集成测试
 cargo build -p rmqtt-test --release
+# 默认使用自包含配置 rmqtt-test/configs/default/rmqtt.toml 启动 Broker
 ./target/release/mqtt_harness --workspace .
 ```
 

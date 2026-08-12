@@ -82,6 +82,21 @@ GET /api/v1/health/check/{id}
 
 Returns `{"code": 0, "msg": "ok"}` if healthy.
 
+### Feature Support
+
+```
+GET /api/v1/features
+GET /api/v1/features/{id}
+```
+
+Returns the supported feature state of every cluster node (`retain`, `message_storage`, `session_storage`, `delayed`, `shared_subscription`, `auto_subscription`), plus a cluster-wide consistency summary:
+
+- `consistent`: whether all reachable nodes agree on every feature flag
+- `conflicts`: fields with inconsistent values, grouped by value with the affected node ids
+- `nodes`: per-node details; unreachable nodes appear as error strings and are excluded from the comparison
+
+A `features inconsistent across cluster` warning log is emitted when an inconsistency is detected.
+
 ---
 
 ## 3. Client Management
@@ -180,6 +195,22 @@ GET /api/v1/routes
 ```
 GET /api/v1/routes/{topic}
 ```
+
+### List Retained Messages
+
+```
+GET /api/v1/retains
+```
+
+Query parameters:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `topic_filter` | `string` | `#` | Topic filter, supports `#` / `+` wildcards; empty or `#` uses full pagination |
+| `offset` | `usize` | `0` | Pagination offset |
+| `limit` | `usize` | `max_row_limit` | Page size, clamped to `max_row_limit` |
+
+Returns `{ "items": [...], "has_more": bool }`. The payload is base64-encoded. On the full pagination path (`topic_filter=#`) items include `remaining_ttl` (seconds); on the filter path `remaining_ttl` is `null`. Requires the `rmqtt-retainer` plugin.
 
 ---
 

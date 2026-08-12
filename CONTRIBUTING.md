@@ -52,7 +52,7 @@ Before submitting an issue:
 
 ## Environment
 - OS: [e.g. Ubuntu 24.04]
-- Rust: [e.g. 1.89.0]
+- Rust: [e.g. 1.94.0]
 - RMQTT: [e.g. 0.22.0]
 ```
 
@@ -73,7 +73,7 @@ Before submitting an issue:
 
 ### Prerequisites
 
-- Rust 1.89.0+ (install via [rustup](https://rustup.rs/))
+- Rust 1.94.0+ (install via [rustup](https://rustup.rs/))
 - `protoc` (protobuf compiler) — required for tonic/prost builds
   - Linux: `apt install protobuf-compiler`
   - macOS: `brew install protobuf`

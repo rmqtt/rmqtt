@@ -122,3 +122,14 @@ plugins.default_startups = [
     "rmqtt-http-api"
 ]
 ```
+
+### 通过 HTTP API 查询保留消息
+
+启用 `rmqtt-http-api` 插件后，可使用 `GET /api/v1/retains` 查询保留消息：
+
+- 参数：`topic_filter`（主题过滤器，支持 `#` / `+` 通配，默认 `#`）、`offset`、`limit`（超出 `max_row_limit` 时收敛）
+- 响应：`items`（含 topic、msg_id、publisher、payload（base64）、create_time、remaining_ttl）+ `has_more`
+- `topic_filter=#`（全量）路径由存储层分页并附带 `remaining_ttl`；指定过滤器的路径在内存分页，`remaining_ttl` 为 `null`
+- 保留消息在集群中通过广播保持各节点同步，单节点查询即覆盖全集群
+
+详见 [HTTP API 文档](http-api.md#保留消息)。

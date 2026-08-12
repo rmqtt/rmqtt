@@ -27,19 +27,83 @@ plugins/rmqtt-http-api.toml
 
 # See more keys and their definitions at https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/http-api.md
 
-##Number of worker threads
-workers = 1
 ## Max Row Limit
 max_row_limit = 10_000
-## HTTP Listener
+## HTTP Listener address
 http_laddr = "0.0.0.0:6060"
+## HTTP bearer token for API authentication.
+## When set, all HTTP API requests must include an `Authorization: Bearer <token>` header.
+## When not set (default), no authentication is required.
+#http_bearer_token = "public"
+
+## Enable TCP SO_REUSEADDR on the HTTP listener.
+## Default: true
+# http_reuseaddr = true
+
+## Enable TCP SO_REUSEPORT on the HTTP listener.
+## Default: false
+# http_reuseport = false
+
 ## Indicates whether to print HTTP request logs
 http_request_log = false
-## If set, will check request header Authorization value == Bearer $http_bearer_token, default value is undefined
-#http_bearer_token = bearer_token
+
+## Metrics sample interval for collecting and caching internal metrics.
+## Default: "5s"
+# metrics_sample_interval = "5s"
+
+## gRPC message type identifier for HTTP API messages.
+## Default: 99
+# message_type = 99
 
 ##Message expiration time, 0 means no expiration
 message_expiry_interval = "5m"
+
+## Prometheus metrics data caching interval.
+## Default: "5s"
+prometheus_metrics_cache_interval = "5s"
+
+## Dashboard static directory (optional).
+## By default (when unset), the Dashboard SPA is served from assets embedded
+## directly into the binary via rust-embed at compile time, so no external
+## files are needed.
+## If set, the plugin loads the Dashboard SPA from this external directory
+## at the `/dashboard/` path instead, allowing swapping the frontend build
+## without recompiling the binary.
+# dashboard_static_dir = "/path/to/dashboard/dist"
+
+##─── Stats/Metrics History Persistence (optional) ───────────────────────
+## When `storage` is configured, the plugin periodically snapshots Stats
+## and Metrics, converts them to JSON, and writes them to the backend with
+## TTL-based expiration. History query APIs
+## (`/api/v1/stats/history`, `/api/v1/metrics/history`, etc.) become available.
+## To disable, omit the entire `storage` section.
+
+##─── Redb backend ──────────────────────────────────────────────────────
+storage.type = "redb"
+storage.redb.path = "/var/log/rmqtt/.cache/http-api-history/{node}.redb"
+
+##─── Sled backend ──────────────────────────────────────────────────────
+#storage.type = "sled"
+#storage.sled.path = "/var/log/rmqtt/.cache/http-api-history/{node}.sled"
+#storage.sled.cache_capacity = "1G"
+
+##─── Redis backend ──────────────────────────────────────────────────────
+# storage.type = "redis"
+# storage.redis.url = "redis://127.0.0.1:6379/"
+# storage.redis.prefix = "http-api-history-{node}"
+
+##─── Redis Cluster backend ──────────────────────────────────────────────
+# storage.type = "redis-cluster"
+# storage.redis-cluster.urls = ["redis://127.0.0.1:6380/", "redis://127.0.0.1:6381/"]
+# storage.redis-cluster.prefix = "http-api-history-{node}"
+
+##─── Flush interval (how often to snapshot Stats/Metrics) ───────────────
+## Default: "5s"
+# flush_interval = "5s"
+
+##─── History retention (TTL for each data point) ────────────────────────
+## Default: "7d"
+# history_retention = "7d"
 ```
 
 ## Response code
@@ -181,6 +245,92 @@ Get the status of the specified node:
 $ curl -i -X GET "http://localhost:6060/api/v1/nodes/1"
 
 {"boottime":"2022-06-30 05:20:24 UTC","connections":1,"disk_free":77382381568,"disk_total":88692346880,"load1":0.0224609375,"load15":0.0,"load5":0.0263671875,"memory_free":1457954816,"memory_total":2084057088,"memory_used":626102272,"node_id":1,"node_name":"1@127.0.0.1","running":true,"uptime":"5 days 23 hours, 33 minutes, 0 seconds","version":"rmqtt/0.21.0","rustc_version":"1.85.0"}
+```
+
+## Feature Support
+
+### GET /api/v1/features
+
+Returns the feature support state of every cluster node plus a cluster-wide consistency summary. The support state is determined by each feature's trait implementation (`enable()` / `is_supported()`).
+
+**Parameters:** none
+
+**Success Response Body (JSON):**
+
+| Name          | Type | Description |
+|---------------|------|-------------|
+| consistent    | Bool | Whether all reachable nodes have identical feature states; `false` indicates node configuration drift or plugin load failure |
+| node_count    | Integer | Number of nodes participating in the consistency comparison |
+| conflicts     | Array | Fields with inconsistent values (grouped by value with node ids); empty when `consistent` is `true` |
+| - conflicts[i].feature | String | Feature name, e.g. `retain` |
+| - conflicts[i].values  | Array | Value groups, each containing `value` (Bool) and `node_ids` (Integer Array) |
+| nodes         | Array | Per-node details; unreachable nodes appear as error strings and are excluded from the consistency comparison |
+| - nodes[i].node_id    | Integer | Node ID |
+| - nodes[i].node_name  | String | Node name |
+| - nodes[i].features   | Object | Six feature flags: `retain`, `message_storage`, `session_storage`, `delayed`, `shared_subscription`, `auto_subscription` |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/features"
+```
+
+```json
+{
+  "consistent": false,
+  "node_count": 3,
+  "conflicts": [
+    {
+      "feature": "retain",
+      "values": [
+        { "value": true,  "node_ids": [1, 2] },
+        { "value": false, "node_ids": [3] }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "node_id": 1,
+      "node_name": "rmqtt@127.0.0.1",
+      "features": {
+        "retain": true,
+        "message_storage": false,
+        "session_storage": false,
+        "delayed": true,
+        "shared_subscription": true,
+        "auto_subscription": false
+      }
+    }
+  ]
+}
+```
+
+> Note: when an inconsistency is detected, the backend emits a `features inconsistent across cluster` warning log. For a single node, use `GET /api/v1/features/{node}`, which returns the node's `FeaturesInfo` object directly (without the consistency summary).
+
+### GET /api/v1/features/{node}
+
+Returns the feature support state of a specific node.
+
+**Path Parameters:**
+
+| Name | Type | Required | Description |
+| ---- | --------- | --------|-------------|
+| node | Integer    | True     | Node ID, e.g. 1 |
+
+**Success Response Body (JSON):**
+
+| Name          | Type | Description |
+|---------------|------|-------------|
+| node_id       | Integer | Node ID |
+| node_name     | String | Node name |
+| features      | Object | Six feature flags: `retain`, `message_storage`, `session_storage`, `delayed`, `shared_subscription`, `auto_subscription` |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/features/1"
+
+{"node_id":1,"node_name":"rmqtt@127.0.0.1","features":{"retain":true,"message_storage":false,"session_storage":false,"delayed":true,"shared_subscription":true,"auto_subscription":false}}
 ```
 
 ## Health Check
@@ -542,6 +692,66 @@ $ curl -i -X GET "http://localhost:6060/api/v1/routes/foo%2f1"
 
 [{"node_id":1,"topic":"foo/#"},{"node_id":1,"topic":"foo/+"}]
 ```
+
+## Retained Messages
+
+### GET /api/v1/retains
+
+Queries retained messages. Retained messages are kept synchronized across the cluster via broadcast, so querying a single node covers the whole cluster.
+
+**Query String Parameters:**
+
+| Name          | Type    | Required | Default       | Description |
+|---------------|---------|----------|---------------|-------------|
+| topic_filter  | String  | False    | `#`           | Topic filter, supports `#` / `+` wildcards; when empty or `#`, uses full pagination |
+| offset        | Integer | False    | 0             | Pagination offset |
+| limit         | Integer | False    | `max_row_limit` | Page size; clamped to `max_row_limit` when exceeded |
+
+**Success Response Body (JSON):**
+
+| Name                     | Type | Description |
+|--------------------------|------|-------------|
+| items                    | Array | Retained message list |
+| - items[i].topic         | String | Topic |
+| - items[i].msg_id        | Integer | Message ID |
+| - items[i].from          | Object | Publisher info (`id.node_id` / `id.client_id`) |
+| - items[i].publish       | Object | Message content, `payload` is base64-encoded |
+| - items[i].publish.qos   | Integer | QoS level |
+| - items[i].publish.retain | Bool | Retain flag |
+| - items[i].publish.create_time | Integer | Publish time (millisecond timestamp) |
+| - items[i].remaining_ttl | Integer/Null | Remaining TTL in seconds; returned by the full pagination path, `null` on the filter path |
+| has_more                 | Bool | Whether more data is available |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/retains?topic_filter=%2Fiot%2Fb%2Fx&offset=0&limit=10"
+```
+
+```json
+{
+  "items": [
+    {
+      "topic": "/iot/b/x",
+      "msg_id": 1024,
+      "from": { "typ": "client", "id": { "node_id": 1, "client_id": "c1" } },
+      "publish": {
+        "topic": "/iot/b/x",
+        "qos": 1,
+        "retain": true,
+        "dup": false,
+        "payload": "<base64 encoded>",
+        "create_time": 1780000000000,
+        "properties": null
+      },
+      "remaining_ttl": 3599
+    }
+  ],
+  "has_more": false
+}
+```
+
+> Note: the `topic_filter=#` (full) path is paginated at the storage layer and includes `remaining_ttl` (remaining seconds); the filter path is paginated in memory and `remaining_ttl` is `null`. Requires the `rmqtt-retainer` plugin to be enabled.
 
 ## Publish message
 

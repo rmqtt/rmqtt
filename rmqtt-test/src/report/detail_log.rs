@@ -95,7 +95,13 @@ fn write_test_detail(file: &mut std::fs::File, result: &TestResult) -> Result<()
             writeln!(file, "  This often indicates a protocol-level issue (e.g., broker rejected")?;
             writeln!(file, "  a packet, or the client sent a malformed packet).")?;
         }
-        TestVerdict::Passed => {}
+        TestVerdict::Passed => {
+            if let Some(note) = &result.note {
+                writeln!(file)?;
+                writeln!(file, "  NOTE: {}", note)?;
+                writeln!(file)?;
+            }
+        }
     }
 
     Ok(())

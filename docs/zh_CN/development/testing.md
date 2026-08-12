@@ -68,7 +68,7 @@ cargo build -p rmqtt-test --release
 # 运行所有套件（自动启动 Broker）
 ./target/release/mqtt_harness --workspace .
 
-# 运行特定套件
+# 运行特定套件（--suites 支持前缀匹配，见下）
 ./target/release/mqtt_harness --workspace . --suites functional_v5
 
 # 连接到已运行的 Broker
@@ -78,15 +78,32 @@ cargo build -p rmqtt-test --release
 ./target/release/mqtt_harness --workspace . --json report.json --html report.html
 ```
 
+> **Broker 配置**：默认使用自包含配置 `rmqtt-test/configs/default/rmqtt.toml`
+> （不依赖仓库根的 `rmqtt.toml` / `rmqtt-plugins/*.toml`；保留 TCP/TLS/WS/WSS/QUIC
+> 全部监听）。需要特殊配置的用例通过 `TestCase::broker_config()` 声明，构建时自动
+> 拆分为 `{suite}@{config}` 子套件（如 `functional_v5@retain-disabled`），调度器仅在
+> **suite 边界**重启 broker 切换配置。可显式指定配置：
+>
+> ```bash
+> ./target/release/mqtt_harness --workspace . --config rmqtt-test/configs/retain-disabled/rmqtt.toml
+> ./target/release/mqtt_harness --workspace . --suites functional_v5@retain-disabled
+> ```
+
 ### 测试套件参考
 
 | 套件 | 用例数 | 测试内容 |
 |-------|--------|----------|
-| `functional_v3` | 2 | MQTT 3.1 连接/断开、QoS 0 发布/订阅 |
-| `functional_v311` | 10 | MQTT 3.1.1 协议合规（连接、QoS 0/1/2、保留、通配符、取消订阅） |
-| `functional_v5` | 5 | MQTT 5.0 协议合规（连接、Reason Code、QoS 0/1/2） |
+| `functional_v3` | 47 | MQTT 3.1 规范符合性：连接（错误协议名/级别/保留位/空 ClientId/超长 ID）、QoS 0/1/2 发布/订阅、QoS 2 去重与 PUBREL 重发、保留消息、遗嘱、Keep Alive、会话持久化、通配符（含 `$SYS`）、边界载荷、协议错误 |
+| `functional_v311` | 64 | MQTT 3.1.1 规范符合性：连接（含二次 CONNECT 拒绝 [MQTT-3.1.0-2]）、QoS 0/1/2、保留消息边界、Will QoS2、Keep Alive 1.5 倍超时、Session Present/恢复、通配符匹配、共享订阅、协议错误 |
+| `functional_v5` | 63 | MQTT 5.0 规范符合性：CONNACK 能力通告、会话过期（含 DISCONNECT SEI=0 [MQTT-3.14.2-2]）、主题别名（含未知别名→0x94）、流控、最大报文大小、订阅标识符、Retain Handling、Will 延迟、增强认证拒绝（0x8C）、协议错误 |
 | `stress` | 3 | 连接负载（100 客户端）、发布 QPS（1000 条）、扇出（1→N） |
 | `chaos` | 6 | Broker 重启、连接抖动、重连风暴、QoS 1 可靠性、慢消费者 |
+
+> functional_v5 的 63 个用例中，`will_retain_rejected_when_retain_unavailable_v5`
+> （需不加载 retainer 插件）与 `qos2_pubrel_resume_collision`（需加载
+> message-storage 插件）会自动拆分为 `functional_v5@retain-disabled` 与
+> `functional_v5@pubrel-collision` 两个子套件，其余 61 个在默认配置组
+> `functional_v5` 中运行；配置切换仅发生在 suite 边界。
 
 ---
 
@@ -133,6 +150,8 @@ mod tests {
 ### 添加集成测试用例
 
 实现 `TestCase` trait 并在测试入口注册。详情见 [rmqtt-test](../../../rmqtt-test/README-CN.md)。
+需要特殊 broker 配置的用例通过 `broker_config()` 声明，机制说明见
+[rmqtt-test 按用例自动切换 Broker 配置](./rmqtt-test-config-switching.md)。
 
 ---
 

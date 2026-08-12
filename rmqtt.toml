@@ -69,7 +69,7 @@ plugins.dir = "rmqtt-plugins/"
 #Plug in started by default, when the mqtt server is started
 plugins.default_startups = [
     #"rmqtt-plugin-template",
-    #"rmqtt-retainer",
+    "rmqtt-retainer",
     #"rmqtt-auth-http",
     #"rmqtt-cluster-broadcast",
     #"rmqtt-cluster-raft",
@@ -184,6 +184,12 @@ listener.tcp.external.backlog = 1024
 #Sets the value of the TCP_NODELAY option on this socket.
 #default: false
 listener.tcp.external.nodelay = false
+#TCP keepalive on accepted connections (SO_KEEPALIVE).
+#  false -> disabled
+#  true (default) -> enabled; probe parameters (idle time / interval / retries)
+#    follow the OS defaults: Linux net.ipv4.tcp_keepalive_* sysctls, or the
+#    Windows KeepAliveTime / KeepAliveInterval registry values.
+listener.tcp.external.tcp_keepalive = true
 #Whether anonymous login is allowed. Default: true
 listener.tcp.external.allow_anonymous = true
 #A value of zero indicates disabling the keep-alive feature, where the server

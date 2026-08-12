@@ -1,15 +1,18 @@
 //! Embedded Dashboard assets via `rust-embed`.
 //!
-//! Embeds the `rmqtt-dashboard/` directory directly into the binary at compile time,
-//! so the Dashboard SPA can be served without any filesystem dependency.
+//! Embeds the `dashboard/` directory directly into the binary at compile time,
+//! so the Dashboard can be served without any filesystem dependency.
+//! `dashboard/` is the SINGLE source of the Dashboard SPA — it lives inside
+//! this crate and is edited here directly.
 //!
-//! The `#[folder]` path is relative to the crate root
-//! (`rmqtt-plugins/rmqtt-http-api/`) and points to `rmqtt-dashboard/`
-//! at the workspace root.
+//! IMPORTANT: `dashboard/` must live INSIDE this crate. A path pointing
+//! outside the crate (e.g. `../../rmqtt-dashboard`) breaks `cargo publish`,
+//! because the packaged tarball only contains files inside the crate root and
+//! the verify step re-compiles under `target/package/rmqtt-http-api-<ver>/`.
 
 use rust_embed::RustEmbed;
 
-/// All files under `rmqtt-dashboard/` embedded at compile time.
+/// All files under `dashboard/` embedded at compile time.
 #[derive(RustEmbed)]
-#[folder = "../../rmqtt-dashboard"]
+#[folder = "dashboard"]
 pub(crate) struct DashboardAssets;

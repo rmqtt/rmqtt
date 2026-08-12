@@ -86,6 +86,7 @@ pub struct Metrics {
     client_subscribe_auth_error: AtomicUsize,
     client_publish_auth_error: AtomicUsize,
     client_publish_error: AtomicUsize,
+    client_publish_duplicate: AtomicUsize, // QoS2 重复 PUBLISH 被去重次数 [MQTT-4.3.3-10]
 
     session_subscribed: AtomicUsize,
     session_unsubscribed: AtomicUsize,

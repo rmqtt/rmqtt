@@ -93,6 +93,17 @@ impl Handler for HookHandler {
                                     ))),
                                 }
                             }
+                            Ok(Message::Features) => {
+                                let features_info = super::api::build_features(&self.scx).await;
+                                match MessageReply::Features(features_info).encode() {
+                                    Ok(ress) => {
+                                        HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
+                                    }
+                                    Err(e) => HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Error(
+                                        e.to_string(),
+                                    ))),
+                                }
+                            }
                             Ok(Message::StatsInfo) => {
                                 let node_status = self.scx.node.status(&self.scx).await;
                                 let stats = self.scx.stats.clone(&self.scx).await;
@@ -289,7 +300,9 @@ impl Handler for HookHandler {
                                         data: vec![],
                                     },
                                 };
-                                match MessageReply::StatsHistoryReply(data).encode() {
+                                // postcard 无法反序列化 serde_json::Value，跨节点用 JSON 字符串传输
+                                let data_json = serde_json::to_string(&data).unwrap_or_default();
+                                match MessageReply::StatsHistoryReply(data_json).encode() {
                                     Ok(ress) => {
                                         HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
                                     }
@@ -321,7 +334,9 @@ impl Handler for HookHandler {
                                         data: vec![],
                                     },
                                 };
-                                match MessageReply::MetricsHistoryReply(data).encode() {
+                                // postcard 无法反序列化 serde_json::Value，跨节点用 JSON 字符串传输
+                                let data_json = serde_json::to_string(&data).unwrap_or_default();
+                                match MessageReply::MetricsHistoryReply(data_json).encode() {
                                     Ok(ress) => {
                                         HookResult::GrpcMessageReply(Ok(GrpcMessageReply::Data(ress)))
                                     }

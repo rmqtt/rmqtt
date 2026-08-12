@@ -1168,6 +1168,15 @@ impl LastWill<'_> {
         }
     }
 
+    /// Whether the Will Message is to be Retained when it is published.
+    #[inline]
+    pub fn retain(&self) -> bool {
+        match self {
+            LastWill::V3(lw) => lw.retain,
+            LastWill::V5(lw) => lw.retain,
+        }
+    }
+
     #[inline]
     pub fn to_json(&self) -> serde_json::Value {
         match self {

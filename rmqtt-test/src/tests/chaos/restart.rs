@@ -16,6 +16,16 @@ impl TestCase for BrokerRestartTest {
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
+        // Broker-restart chaos tests require this harness to manage the broker
+        // process; in `--no-broker` mode there is nothing to restart → skip.
+        if !ctx.has_broker() {
+            return TestResult::skipped(
+                self.name(),
+                "chaos",
+                start.elapsed(),
+                "no broker managed by this context (--no-broker mode)",
+            );
+        }
         let rt = tokio::runtime::Runtime::new().unwrap();
 
         let result = rt.block_on(async {
@@ -78,6 +88,16 @@ impl TestCase for BrokerRestartPubSubTest {
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
+        // Broker-restart chaos tests require this harness to manage the broker
+        // process; in `--no-broker` mode there is nothing to restart → skip.
+        if !ctx.has_broker() {
+            return TestResult::skipped(
+                self.name(),
+                "chaos",
+                start.elapsed(),
+                "no broker managed by this context (--no-broker mode)",
+            );
+        }
         let rt = tokio::runtime::Runtime::new().unwrap();
 
         let result = rt.block_on(async {

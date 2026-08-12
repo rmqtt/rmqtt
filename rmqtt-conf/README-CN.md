@@ -118,6 +118,7 @@ impl Listeners {
 | `nodelay` | `bool` | `false` | TCP_NODELAY |
 | `reuseaddr` | `Option<bool>` | `Some(true)` | SO_REUSEADDR |
 | `reuseport` | `Option<bool>` | `None` | SO_REUSEPORT |
+| `tcp_keepalive` | `bool` | `true`（开启） | 接受的 socket 开启 TCP keepalive（`SO_KEEPALIVE`）。探测参数（空闲时间/间隔/重试次数）走操作系统默认值——Linux `net.ipv4.tcp_keepalive_*` sysctl，或 Windows `KeepAliveTime` / `KeepAliveInterval` 注册表值。TOML：`false`（关闭）/ `true`（开启） |
 | `allow_anonymous` | `bool` | `false` | 允许匿名登录 |
 | `min_keepalive` | `u16` | `0` | 最小保活间隔（秒） |
 | `max_keepalive` | `u16` | `65535` | 最大保活间隔（秒） |

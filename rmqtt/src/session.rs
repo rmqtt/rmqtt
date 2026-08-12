@@ -82,10 +82,14 @@ use tokio::sync::RwLock;
 use tokio::time::{Duration, Instant};
 
 use crate::acl::AuthInfo;
+#[allow(unused_imports)]
 use crate::codec::v5::RetainHandling;
 use crate::codec::{
     v3,
-    v5::{self, Auth, PublishAck2, PublishAck2Reason, SubscribeAckReason, ToReasonCode, UserProperties},
+    v5::{
+        self, Auth, PublishAck2, PublishAck2Reason, PublishAckReason, SubscribeAckReason, ToReasonCode,
+        UserProperties,
+    },
 };
 use crate::context::ServerContext;
 use crate::hook::Hook;
@@ -946,6 +950,21 @@ impl SessionState {
             }
             QoS::ExactlyOnce => {
                 let packet_id = Self::packet_id(packet_id)?;
+                // [MQTT-4.3.3-10] Duplicate QoS 2 PUBLISH (same Packet Identifier,
+                // exchange not yet complete): answer PUBREC, do NOT deliver again.
+                if self.in_inflight.exist(&packet_id) {
+                    log::debug!(
+                        "{} duplicate QoS 2 PUBLISH, packet_id: {}, skip delivery [MQTT-4.3.3-10]",
+                        self.id,
+                        packet_id
+                    );
+                    #[cfg(feature = "metrics")]
+                    self.scx.metrics.client_publish_duplicate_inc();
+                    let pub_res =
+                        PublishResult::reason_code(PublishAckReason::PacketIdentifierInUse, None, false);
+                    sink.send_publish_received(packet_id, pub_res).await?;
+                    return Ok(());
+                }
                 let pub_res = self.publish(publish).await?;
                 let inflight_res =
                     if pub_res.is_success() { self.in_inflight.add(packet_id, qos)? } else { false };
@@ -1068,12 +1087,10 @@ impl SessionState {
         &mut self,
         topic_filters: Vec<(ByteString, QoS)>,
     ) -> Result<Vec<v3::SubscribeReturnCode>> {
-        #[allow(unused_variables)]
-        let listen_cfg = self.listen_cfg();
         let shared_subscription = {
             #[cfg(feature = "shared-subscription")]
             {
-                self.scx.extends.shared_subscription().await.is_supported(listen_cfg)
+                self.scx.extends.shared_subscription().await.is_supported()
             }
             #[cfg(not(feature = "shared-subscription"))]
             {
@@ -1084,7 +1101,7 @@ impl SessionState {
         let limit_subscription = {
             #[cfg(feature = "limit-subscription")]
             {
-                listen_cfg.limit_subscription
+                self.listen_cfg().limit_subscription
             }
             #[cfg(not(feature = "limit-subscription"))]
             {
@@ -1114,12 +1131,10 @@ impl SessionState {
 
     #[inline]
     async fn subscribes_v5(&mut self, subs: v5::Subscribe) -> Result<v5::SubscribeAck> {
-        #[allow(unused_variables)]
-        let listen_cfg = self.listen_cfg();
         let shared_subscription = {
             #[cfg(feature = "shared-subscription")]
             {
-                self.scx.extends.shared_subscription().await.is_supported(listen_cfg)
+                self.scx.extends.shared_subscription().await.is_supported()
             }
             #[cfg(not(feature = "shared-subscription"))]
             {
@@ -1130,7 +1145,7 @@ impl SessionState {
         let limit_subscription = {
             #[cfg(feature = "limit-subscription")]
             {
-                listen_cfg.limit_subscription
+                self.listen_cfg().limit_subscription
             }
             #[cfg(not(feature = "limit-subscription"))]
             {
@@ -1164,18 +1179,17 @@ impl SessionState {
 
     #[inline]
     async fn unsubscribes_v3(&mut self, topic_filters: Vec<ByteString>) -> Result<()> {
-        let listen_cfg = self.listen_cfg();
         let shared_subscription = {
             #[cfg(feature = "shared-subscription")]
             {
-                self.scx.extends.shared_subscription().await.is_supported(listen_cfg)
+                self.scx.extends.shared_subscription().await.is_supported()
             }
             #[cfg(not(feature = "shared-subscription"))]
             {
                 false
             }
         };
-        let limit_subscription = listen_cfg.limit_subscription;
+        let limit_subscription = self.listen_cfg().limit_subscription;
         for topic_filter in &topic_filters {
             let unsub = Unsubscribe::from(topic_filter, shared_subscription, limit_subscription)?;
             self.unsubscribe(unsub).await?;
@@ -1184,18 +1198,17 @@ impl SessionState {
     }
 
     async fn unsubscribes_v5(&mut self, unsubs: v5::Unsubscribe) -> Result<v5::UnsubscribeAck> {
-        let listen_cfg = self.listen_cfg();
         let shared_subscription = {
             #[cfg(feature = "shared-subscription")]
             {
-                self.scx.extends.shared_subscription().await.is_supported(listen_cfg)
+                self.scx.extends.shared_subscription().await.is_supported()
             }
             #[cfg(not(feature = "shared-subscription"))]
             {
                 false
             }
         };
-        let limit_subscription = listen_cfg.limit_subscription;
+        let limit_subscription = self.listen_cfg().limit_subscription;
         for topic_filter in &unsubs.topic_filters {
             let unsub = Unsubscribe::from(topic_filter, shared_subscription, limit_subscription)?;
             self.unsubscribe(unsub).await?;
@@ -1385,6 +1398,24 @@ impl SessionState {
                 offline_info.offline_messages.len(),
                 clear_subscriptions
             );
+
+        // Transferred inflight messages keep their old packet-ids (1..N), while
+        // the new session's allocator restarts at 1. Without isolating the two
+        // id spaces, the async stored-message load (send_storaged_messages) or
+        // offline deliveries can be assigned the same ids, and send_rerelease's
+        // push_back would silently overwrite them, destroying their QoS 2 state.
+        // Advance the allocator past the transferred id range BEFORE any of the
+        // concurrent deliver paths can allocate (this must run before the
+        // send_storaged_messages spawns below).
+        let max_transfer_id = offline_info
+            .inflight_messages
+            .iter()
+            .filter_map(|m| m.publish.packet_id.map(|id| id.get()))
+            .max();
+        if let Some(max_id) = max_transfer_id {
+            self.out_inflight().write().await.advance_next_id(max_id);
+        }
+
         if !clear_subscriptions && !offline_info.subscriptions.is_empty() {
             for (tf, opts) in offline_info.subscriptions.iter() {
                 let id = self.id.clone();
@@ -1411,11 +1442,12 @@ impl SessionState {
         }
 
         //Send previous session unacked messages
+        //[MQTT-4.4.0-1] Reforward every inflight message regardless of status:
+        //`reforward` resends the PUBLISH for UnAck/UnReceived and the owed
+        //PUBREL (via SendRerelease) for UnComplete.
         while let Some(msg) = offline_info.inflight_messages.pop() {
-            if !matches!(msg.status, MomentStatus::UnComplete) {
-                if let Err(e) = self.reforward(msg).await {
-                    log::warn!("transfer_session_state, reforward error, {e}");
-                }
+            if let Err(e) = self.reforward(msg).await {
+                log::warn!("transfer_session_state, reforward error, {e}");
             }
         }
 
@@ -1559,25 +1591,37 @@ impl SessionState {
         Io: AsyncRead + AsyncWrite + Unpin,
     {
         let packet_id = Self::packet_id(iflt_msg.publish.packet_id)?;
-        let old_packet_id = self.out_inflight().write().await.push_back(OutInflightMessage::new(
+
+        // Defensive check: with the allocator isolated (advance_next_id) this
+        // branch is unreachable on the resume path; if it ever fires it means a
+        // concurrent deliver allocated the same id and push_back below would
+        // silently overwrite an existing QoS 2 entry — make it visible instead.
+        let mut inflight = self.out_inflight().write().await;
+        if inflight.get(packet_id.get()).is_some() {
+            log::warn!(
+                "{:?} send_rerelease: packet_id {packet_id} already registered, overwriting; \
+                 possible id collision with concurrent deliver",
+                self.id
+            );
+        }
+        inflight.push_back(OutInflightMessage::new(
             MomentStatus::UnComplete,
             iflt_msg.from,
             iflt_msg.publish,
         ));
+        drop(inflight); // release the write lock before awaiting network I/O
 
         match sink {
             Sink::V3(s) => {
                 s.send_publish_release(packet_id).await?;
             }
             Sink::V5(s) => {
-                let reason_code = if old_packet_id.is_some() {
-                    PublishAck2Reason::Success
-                } else {
-                    PublishAck2Reason::PacketIdNotFound
-                };
+                // A re-sent PUBREL (e.g. on session resume, [MQTT-4.4.0-1]) always
+                // carries Success; the previous PacketIdNotFound choice was wrong
+                // for the resume path where out_inflight is freshly empty.
                 let ack2 = PublishAck2 {
                     packet_id,
-                    reason_code,
+                    reason_code: PublishAck2Reason::Success,
                     properties: UserProperties::default(),
                     reason_string: None,
                 };
@@ -2224,6 +2268,13 @@ impl Session {
 /// as well as checking session existence and retrieving session status.
 /// Implementations handle persistent session storage across reconnects.
 pub trait SessionManager: Sync + Send {
+    /// Whether session persistence is enabled (e.g. provided by the
+    /// `rmqtt-session-storage` plugin). Defaults to `false`.
+    #[inline]
+    fn enable(&self) -> bool {
+        false
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn create(
         &self,

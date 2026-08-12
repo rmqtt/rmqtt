@@ -71,7 +71,7 @@ use crate::types::*;
 pub trait SharedSubscription: Sync + Send {
     ///Whether shared subscriptions are supported
     #[inline]
-    fn is_supported(&self, _listen_cfg: &ListenerConfig) -> bool {
+    fn is_supported(&self) -> bool {
         false
     }
 

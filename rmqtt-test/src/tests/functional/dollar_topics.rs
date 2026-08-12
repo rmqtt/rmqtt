@@ -46,8 +46,17 @@ impl TestCase for DollarTopicsTest {
 
             // Publish to normal topic - should always be received
             publisher.publish("test/dollar/normal", b"normal_msg", QoS::AtLeastOnce, false).await?;
-            let msg = subscriber.recv_message_timeout(Duration::from_secs(3)).await;
-            if msg.is_none() {
+            let mut msg = subscriber.recv_message_timeout(Duration::from_secs(3)).await;
+            // Other concurrent tests may also publish to topics matched by `#`;
+            // filter until we see our own "normal_msg" (or timeout).
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+            while msg.as_ref().is_none_or(|m| m.payload.as_ref() != b"normal_msg")
+                && tokio::time::Instant::now() < deadline
+            {
+                msg = subscriber.recv_message_timeout(Duration::from_millis(200)).await;
+            }
+            let got_normal = msg.as_ref().is_some_and(|m| m.payload.as_ref() == b"normal_msg");
+            if !got_normal {
                 return Err(anyhow::anyhow!("# wildcard did not match normal topic"));
             }
 
@@ -57,7 +66,7 @@ impl TestCase for DollarTopicsTest {
 
             // Some brokers exclude $-topics from # matches (spec-compliant),
             // others include them. Either is acceptable for this test.
-            if dollar_via_hash.is_some() {
+            if dollar_via_hash.as_ref().is_some_and(|m| m.payload.as_ref() == b"dollar_sys") {
                 eprintln!("Note: broker delivers $SYS via # wildcard (non-standard)");
             }
 
@@ -67,7 +76,14 @@ impl TestCase for DollarTopicsTest {
 
             // Publish to $SYS topic - should be received via explicit subscription
             publisher.publish("$SYS/broker/version", b"dollar_sys_explicit", QoS::AtLeastOnce, false).await?;
-            let msg = subscriber.recv_message_timeout(Duration::from_secs(5)).await;
+            let mut msg = subscriber.recv_message_timeout(Duration::from_secs(5)).await;
+            // Filter out unrelated messages from other concurrent tests.
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+            while msg.as_ref().is_none_or(|m| m.payload.as_ref() != b"dollar_sys_explicit")
+                && tokio::time::Instant::now() < deadline
+            {
+                msg = subscriber.recv_message_timeout(Duration::from_millis(200)).await;
+            }
 
             publisher.disconnect().await?;
             subscriber.disconnect().await?;

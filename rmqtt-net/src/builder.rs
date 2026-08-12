@@ -89,6 +89,11 @@ pub struct Builder {
     pub reuseaddr: Option<bool>,
     /// Set SO_REUSEPORT socket option
     pub reuseport: Option<bool>,
+    /// Enable TCP keepalive on accepted connections (`SO_KEEPALIVE`). Probe
+    /// parameters (idle / interval / retries) follow the OS defaults — Linux
+    /// `net.ipv4.tcp_keepalive_*` sysctls or the Windows `KeepAliveTime` /
+    /// `KeepAliveInterval` registry values. Defaults to enabled (issue #465).
+    pub tcp_keepalive: bool,
     /// Maximum concurrent active connections
     pub max_connections: usize,
     /// Maximum simultaneous handshakes during connection setup
@@ -200,6 +205,9 @@ impl Builder {
             nodelay: false,
             reuseaddr: None,
             reuseport: None,
+            // Enabled by default: SO_KEEPALIVE with OS-level probe parameters
+            // (Linux sysctl / Windows registry) (issue #465).
+            tcp_keepalive: true,
 
             allow_anonymous: true,
             min_keepalive: 0,
@@ -273,6 +281,15 @@ impl Builder {
     /// Configures SO_REUSEPORT socket option
     pub fn reuseport(mut self, reuseport: Option<bool>) -> Self {
         self.reuseport = reuseport;
+        self
+    }
+
+    /// Configures TCP keepalive on accepted connections.
+    ///
+    /// `true` (default) enables `SO_KEEPALIVE`, letting the OS decide the
+    /// probe parameters (Linux sysctl / Windows registry). `false` disables it.
+    pub fn tcp_keepalive(mut self, tcp_keepalive: bool) -> Self {
+        self.tcp_keepalive = tcp_keepalive;
         self
     }
 
@@ -703,7 +720,10 @@ impl Listener {
         if let Some(tcp_listener) = &self.tcp_listener {
             self.accept_tcp(tcp_listener).await
         } else {
-            Err(anyhow!(""))
+            Err(anyhow!(
+                "no TCP listener available for accept(): listener has no TCP socket \
+                 (QUIC-only listener or already consumed)"
+            ))
         }
     }
 
@@ -712,9 +732,31 @@ impl Listener {
         if let Err(e) = socket.set_nodelay(self.cfg.nodelay) {
             return Err(Error::from(e));
         }
+        // Enable TCP keepalive so the kernel probes dead peers under NAT black
+        // holes (issue #465). Failure is non-fatal: keepalive is best-effort.
+        //
+        // NOTE: we deliberately use `SockRef::set_keepalive` (a plain
+        // `setsockopt(SO_KEEPALIVE, 1)`) instead of
+        // `Socket::set_tcp_keepalive`, because the latter routes through
+        // `WSAIoctl(SIO_KEEPALIVE_VALS)` on Windows — a blocking I/O control
+        // call that, combined with the `into_std()`/`from_std()` IOCP
+        // deregister/register round-trip, stalls every tokio worker thread
+        // under high connection concurrency and freezes the system. Probe
+        // parameters are intentionally left to the OS (sysctl / registry).
+        if self.cfg.tcp_keepalive {
+            let sock_ref = socket2::SockRef::from(&socket);
+            if let Err(e) = sock_ref.set_keepalive(true) {
+                log::warn!("set SO_KEEPALIVE failed for {remote_addr}: {e}");
+            }
+        }
         log::debug!("remote_addr: {remote_addr}, proxy_protocol: {}", self.cfg.proxy_protocol);
         if self.cfg.proxy_protocol {
-            let mut buffer = [0u8; u16::MAX as usize];
+            // Heap-allocated: a 64KB stack array here would be embedded in the
+            // future state machine (it lives across await points), inflating
+            // every accept loop future and overflowing the 1MB main-thread
+            // stack on Windows in debug builds. Vec keeps only a 24B pointer
+            // on the stack; semantics are identical for peek/read_exact.
+            let mut buffer = vec![0u8; usize::from(u16::MAX)];
             let read_bytes =
                 tokio::time::timeout(self.cfg.proxy_protocol_timeout, socket.peek(&mut buffer)).await??;
             let len = {
@@ -758,7 +800,10 @@ impl Listener {
                 typ: self.typ,
             })
         } else {
-            Err(anyhow!(""))
+            Err(anyhow!(
+                "no QUIC endpoint available for accept_quic(): listener has no QUIC endpoint \
+                 (TCP-only listener or already consumed)"
+            ))
         }
     }
 

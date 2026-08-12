@@ -218,6 +218,7 @@ fn config_builder(cfg: &Listener) -> Builder {
         .nodelay(cfg.nodelay)
         .reuseaddr(cfg.reuseaddr)
         .reuseport(cfg.reuseport)
+        .tcp_keepalive(cfg.tcp_keepalive)
         .allow_anonymous(cfg.allow_anonymous)
         .min_keepalive(cfg.min_keepalive)
         .max_keepalive(cfg.max_keepalive)

@@ -17,6 +17,10 @@ impl TestCase for RetainHandlingNoAtSubscribeV5Test {
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
+        // Skip (as passed) when retained messages are unavailable.
+        if let Some(result) = ctx.guard_retain_required(self.name(), "functional_v5", start) {
+            return result;
+        }
         let rt = tokio::runtime::Runtime::new().unwrap();
 
         let result: anyhow::Result<()> = rt.block_on(async {
@@ -46,13 +50,26 @@ impl TestCase for RetainHandlingNoAtSubscribeV5Test {
             let msg = sub.recv_message_timeout(Duration::from_secs(2)).await;
             sub.disconnect().await?;
 
-            if msg.is_some() {
-                return Err(anyhow::anyhow!(
-                    "received retained message despite RetainHandling::NoAtSubscribe"
-                ));
+            let verdict = if msg.is_some() {
+                Err(anyhow::anyhow!("received retained message despite RetainHandling::NoAtSubscribe"))
+            } else {
+                Ok(())
+            };
+
+            // Cleanup: delete the retained message so it doesn't leak into
+            // other tests (e.g. `#` subscriptions in wildcard tests).
+            if let Ok(client) = crate::mqtt::v5::MqttV5Client::connect(
+                &ctx.config.broker_addr,
+                "retain-noatsub-cleanup",
+                ctx.config.connect_timeout,
+            )
+            .await
+            {
+                let _ = client.publish(topic, b"", QoS::AtLeastOnce, true).await;
+                let _ = client.disconnect().await;
             }
 
-            Ok(())
+            verdict
         });
 
         match result {
@@ -76,6 +93,10 @@ impl TestCase for RetainHandlingNewV5Test {
 
     fn execute(&self, ctx: &mut TestContext) -> TestResult {
         let start = Instant::now();
+        // Skip (as passed) when retained messages are unavailable.
+        if let Some(result) = ctx.guard_retain_required(self.name(), "functional_v5", start) {
+            return result;
+        }
         let rt = tokio::runtime::Runtime::new().unwrap();
 
         let result: anyhow::Result<()> = rt.block_on(async {
@@ -105,11 +126,26 @@ impl TestCase for RetainHandlingNewV5Test {
             let msg = sub.recv_message_timeout(Duration::from_secs(3)).await;
             sub.disconnect().await?;
 
-            match msg {
+            let verdict = match msg {
                 Some(m) if m.payload.as_ref() == b"retained_new" => Ok(()),
                 Some(m) => Err(anyhow::anyhow!("unexpected retained msg: {:?}", m.payload)),
                 None => Err(anyhow::anyhow!("no retained message received despite AtSubscribeNew")),
+            };
+
+            // Cleanup: delete the retained message so it doesn't leak into
+            // other tests (e.g. `#` subscriptions in wildcard tests).
+            if let Ok(client) = crate::mqtt::v5::MqttV5Client::connect(
+                &ctx.config.broker_addr,
+                "retain-new-cleanup",
+                ctx.config.connect_timeout,
+            )
+            .await
+            {
+                let _ = client.publish(topic, b"", QoS::AtLeastOnce, true).await;
+                let _ = client.disconnect().await;
             }
+
+            verdict
         });
 
         match result {
@@ -165,7 +201,7 @@ impl TestCase for RetainAsPublishedV5Test {
             publisher.disconnect().await?;
             subscriber.disconnect().await?;
 
-            match msg {
+            let verdict = match msg {
                 Some(m) => {
                     if m.payload.as_ref() == b"retained_pub" {
                         Ok(())
@@ -174,7 +210,22 @@ impl TestCase for RetainAsPublishedV5Test {
                     }
                 }
                 None => Err(anyhow::anyhow!("no message received")),
+            };
+
+            // Cleanup: delete the retained message so it doesn't leak into
+            // other tests (e.g. `#` subscriptions in wildcard tests).
+            if let Ok(client) = crate::mqtt::v5::MqttV5Client::connect(
+                &ctx.config.broker_addr,
+                "rap-cleanup",
+                ctx.config.connect_timeout,
+            )
+            .await
+            {
+                let _ = client.publish("test/retainaspub", b"", QoS::AtLeastOnce, true).await;
+                let _ = client.disconnect().await;
             }
+
+            verdict
         });
         match result {
             Ok(()) => TestResult::passed(self.name(), "functional_v5", start.elapsed()),

@@ -213,6 +213,12 @@ pub struct ListenerInner {
     pub reuseaddr: Option<bool>,
     #[serde(default = "ListenerInner::reuseport_default")]
     pub reuseport: Option<bool>,
+    /// TCP keepalive on accepted connections (SO_KEEPALIVE). Probe parameters
+    /// (idle time / interval / retries) follow the OS defaults — Linux
+    /// `net.ipv4.tcp_keepalive_*` sysctls or the Windows `KeepAliveTime` /
+    /// `KeepAliveInterval` registry values. Default: enabled (issue #465).
+    #[serde(default = "ListenerInner::tcp_keepalive_default")]
+    pub tcp_keepalive: bool,
     #[serde(default = "ListenerInner::allow_anonymous_default")]
     pub allow_anonymous: bool,
     #[serde(default = "ListenerInner::min_keepalive_default")]
@@ -316,6 +322,7 @@ impl Default for ListenerInner {
             max_packet_size: ListenerInner::max_packet_size_default(),
             reuseaddr: ListenerInner::reuseaddr_default(),
             reuseport: ListenerInner::reuseport_default(),
+            tcp_keepalive: ListenerInner::tcp_keepalive_default(),
             backlog: ListenerInner::backlog_default(),
             nodelay: ListenerInner::nodelay_default(),
 
@@ -385,6 +392,11 @@ impl ListenerInner {
     #[inline]
     fn reuseport_default() -> Option<bool> {
         None
+    }
+    #[inline]
+    fn tcp_keepalive_default() -> bool {
+        // Enabled by default with OS-level probe parameters (issue #465).
+        true
     }
     #[inline]
     fn backlog_default() -> i32 {
@@ -536,5 +548,39 @@ impl ListenerInner {
     #[inline]
     fn idle_timeout_default() -> Duration {
         Duration::from_secs(90)
+    }
+}
+
+#[cfg(test)]
+mod tcp_keepalive_tests {
+    use super::*;
+    use serde::Deserialize;
+
+    /// Minimal wrapper exercising the same serde attributes as the
+    /// `tcp_keepalive` field on `ListenerInner`.
+    #[derive(Deserialize)]
+    struct Wrap {
+        #[serde(default = "ListenerInner::tcp_keepalive_default")]
+        tcp_keepalive: bool,
+    }
+
+    fn parse(src: &str) -> bool {
+        toml::from_str::<Wrap>(src).expect("wrap should parse").tcp_keepalive
+    }
+
+    #[test]
+    fn absent_defaults_to_enabled() {
+        // 字段缺失 → 默认启用（OS 级探测参数）—— issue #465 的默认取向。
+        assert!(parse(""), "missing tcp_keepalive must default to enabled");
+    }
+
+    #[test]
+    fn true_enables_keepalive() {
+        assert!(parse("tcp_keepalive = true"), "true must enable keepalive");
+    }
+
+    #[test]
+    fn false_disables_keepalive() {
+        assert!(!parse("tcp_keepalive = false"), "false must disable keepalive");
     }
 }

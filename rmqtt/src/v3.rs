@@ -38,6 +38,7 @@ use scopeguard::defer;
 use tokio::io::{AsyncRead, AsyncWrite};
 use uuid::Uuid;
 
+use crate::codec::error::DecodeError;
 use crate::codec::v3::{Connect as ConnectV3, ConnectAckReason as ConnectAckReasonV3};
 use crate::context::ServerContext;
 use crate::net::v3;
@@ -93,6 +94,17 @@ where
 }
 
 #[inline]
+/// Returns true when the error chain contains `DecodeError::InvalidClientId`,
+/// i.e. the client sent a zero-length ClientId while CleanSession was 0
+/// (MQTT-3.1.3-6). Such connections must be rejected with CONNACK return
+/// code 0x02 (Identifier Rejected) instead of a generic ServiceUnavailable.
+fn invalid_client_id(e: &Error) -> bool {
+    e.chain().any(|cause| {
+        cause.downcast_ref::<DecodeError>().is_some_and(|de| matches!(de, DecodeError::InvalidClientId))
+    })
+}
+
+#[inline]
 async fn handshake<Io>(
     scx: &ServerContext,
     sink: &mut v3::MqttStream<Io>,
@@ -108,10 +120,15 @@ where
         ));
     }
 
-    let mut c = sink
-        .recv_connect(sink.cfg.handshake_timeout)
-        .await
-        .map_err(|e| (ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable), e))?;
+    let mut c = sink.recv_connect(sink.cfg.handshake_timeout).await.map_err(|e| {
+        if invalid_client_id(&e) {
+            // [MQTT-3.1.3-6] An empty ClientId with CleanSession = 0 must be
+            // rejected with CONNACK return code 0x02 (Identifier Rejected).
+            (ConnectAckReason::V3(ConnectAckReasonV3::IdentifierRejected), e)
+        } else {
+            (ConnectAckReason::V3(ConnectAckReasonV3::ServiceUnavailable), e)
+        }
+    })?;
 
     log::debug!(
         "new Connection: local_addr: {:?}, remote_addr: {:?}, listen_cfg: {:?}",

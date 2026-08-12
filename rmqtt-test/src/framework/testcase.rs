@@ -26,6 +26,9 @@ pub struct TestResult {
     pub verdict: TestVerdict,
     pub duration: Duration,
     pub retries: u32,
+    /// Optional annotation surfaced in reports, e.g. the reason a test passed
+    /// without executing (retain-dependent tests when the plugin is disabled).
+    pub note: Option<String>,
 }
 
 impl TestResult {
@@ -36,6 +39,20 @@ impl TestResult {
             verdict: TestVerdict::Passed,
             duration,
             retries: 0,
+            note: None,
+        }
+    }
+
+    /// Passed with an explanatory note (e.g. "skipped: 'rmqtt-retainer'
+    /// plugin not enabled"), so the reason is visible in the reports.
+    pub fn passed_with_note(name: &str, suite: &str, duration: Duration, note: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            suite: suite.to_string(),
+            verdict: TestVerdict::Passed,
+            duration,
+            retries: 0,
+            note: Some(note.to_string()),
         }
     }
 
@@ -46,6 +63,7 @@ impl TestResult {
             verdict: TestVerdict::Failed(reason),
             duration,
             retries: 0,
+            note: None,
         }
     }
 
@@ -56,6 +74,18 @@ impl TestResult {
             verdict: TestVerdict::Timeout,
             duration,
             retries: 0,
+            note: None,
+        }
+    }
+
+    pub fn skipped(name: &str, suite: &str, duration: Duration, reason: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            suite: suite.to_string(),
+            verdict: TestVerdict::Skipped(reason.to_string()),
+            duration,
+            retries: 0,
+            note: None,
         }
     }
 
@@ -66,6 +96,7 @@ impl TestResult {
             verdict: TestVerdict::Error(msg),
             duration,
             retries: 0,
+            note: None,
         }
     }
 }
@@ -77,6 +108,18 @@ pub trait TestCase: Send + Sync {
 
     /// Execute the test case
     fn execute(&self, ctx: &mut TestContext) -> TestResult;
+
+    /// Broker config file required by this test case (absolute or
+    /// workspace-relative path), or `None` to use the harness default config
+    /// (`--config`, or `rmqtt-test/configs/default/rmqtt.toml`).
+    ///
+    /// This is a *grouping* hint only: at suite build time, test cases that
+    /// declare the same non-default config are split out into their own
+    /// `{suite}@{config}` sub-suite, so the scheduler only ever switches the
+    /// broker config at suite boundaries.
+    fn broker_config(&self) -> Option<PathBuf> {
+        None
+    }
 
     /// Test timeout (default: 60 seconds)
     fn timeout(&self) -> Duration {
@@ -95,3 +138,4 @@ pub trait TestCase: Send + Sync {
 }
 
 use crate::framework::context::TestContext;
+use std::path::PathBuf;

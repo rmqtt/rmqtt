@@ -15,6 +15,9 @@ use super::healthcheck::health_check_sync;
 /// Default broker TCP address
 const DEFAULT_BROKER_ADDR: &str = "127.0.0.1:1883";
 
+/// Default (self-contained) broker config, relative to the workspace root
+const DEFAULT_CONFIG_REL: &str = "rmqtt-test/configs/default/rmqtt.toml";
+
 /// Broker process manager (synchronous)
 pub struct BrokerProcess {
     /// Path to the broker binary
@@ -30,10 +33,14 @@ pub struct BrokerProcess {
 impl BrokerProcess {
     /// Create a new broker process manager
     ///
-    /// Searches for the broker binary in target/release and target/debug
+    /// Searches for the broker binary in target/release and target/debug,
+    /// and uses the self-contained `rmqtt-test/configs/default/rmqtt.toml`
+    /// as the default config (never the repository-root rmqtt.toml).
     pub fn new(workspace_root: Option<PathBuf>) -> Self {
         let binary_path = Self::find_binary(workspace_root.as_deref());
-        Self { binary_path, addr: DEFAULT_BROKER_ADDR.to_string(), config_path: None, child: None }
+        let config_path =
+            workspace_root.as_ref().map(|root| root.join(DEFAULT_CONFIG_REL)).filter(|p| p.exists());
+        Self { binary_path, addr: DEFAULT_BROKER_ADDR.to_string(), config_path, child: None }
     }
 
     /// Create with a specific binary path and address
@@ -80,7 +87,8 @@ impl BrokerProcess {
         cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
 
         if let Some(ref config) = self.config_path {
-            cmd.arg("-c").arg(config);
+            // rmqttd accepts `-f`/`--config` (config filename); `-c` is rejected.
+            cmd.arg("-f").arg(config);
         }
 
         let child = cmd.spawn()?;
@@ -130,6 +138,25 @@ impl BrokerProcess {
     /// Restart the broker
     pub fn restart(&mut self) -> Result<(), anyhow::Error> {
         self.stop()?;
+        // Small delay to let ports free up
+        std::thread::sleep(Duration::from_millis(500));
+        self.start()
+    }
+
+    /// Update the config file path (without restarting)
+    pub fn set_config(&mut self, config: Option<PathBuf>) {
+        self.config_path = config;
+    }
+
+    /// Get the currently configured config file path
+    pub fn config_path(&self) -> Option<&PathBuf> {
+        self.config_path.as_ref()
+    }
+
+    /// Stop the broker, switch to the given config file and start again
+    pub fn restart_with_config(&mut self, config: Option<PathBuf>) -> Result<(), anyhow::Error> {
+        self.stop()?;
+        self.config_path = config;
         // Small delay to let ports free up
         std::thread::sleep(Duration::from_millis(500));
         self.start()

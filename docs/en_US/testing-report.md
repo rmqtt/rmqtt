@@ -76,11 +76,18 @@ The `rmqtt-test` crate provides a custom test harness with additional test suite
 
 | Suite | Cases | Description |
 |-------|-------|-------------|
-| `functional_v3` | 2 | MQTT 3.1 basic operations (connect/disconnect, QoS 0 pub/sub) |
-| `functional_v311` | 10 | MQTT 3.1.1 protocol compliance |
-| `functional_v5` | 5 | MQTT 5.0 protocol compliance |
+| `functional_v3` | 47 | MQTT 3.1 spec conformance (connect edge cases, QoS 0/1/2, QoS 2 dedup/PUBREL resend, retained, will, keep alive, session, wildcards incl. `$SYS`, boundary, protocol errors) |
+| `functional_v311` | 64 | MQTT 3.1.1 spec conformance (incl. second-CONNECT rejection, retained edge cases, session present, protocol errors) |
+| `functional_v5` | 63 | MQTT 5.0 spec conformance (CONNACK capabilities, session expiry incl. DISCONNECT SEI=0, topic alias, flow control, retain handling, protocol errors) |
 | `stress` | 3 | Connection load (100 clients), publish QPS (1000 msgs), fan-out (1→N) |
 | `chaos` | 6 | Broker restart, connection storms, reconnect, QoS 1 reliability, slow consumer |
+
+> Of the 63 `functional_v5` cases, `will_retain_rejected_when_retain_unavailable_v5`
+> and `qos2_pubrel_resume_collision` need different broker configs and are
+> automatically split into the `functional_v5@retain-disabled` /
+> `functional_v5@pubrel-collision` sub-suites. The default broker config is the
+> self-contained `rmqtt-test/configs/default/rmqtt.toml`; config switches
+> happen only at suite boundaries.
 
 ```bash
 # Run all test suites

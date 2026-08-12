@@ -227,12 +227,14 @@ async fn listen_tcp(scx: ServerContext, l: &Listener, lid: ListenerId) {
             Ok(accept) => {
                 let scx = scx.clone();
                 tokio::spawn(async move {
-                    log::debug!("TCP connection from {}", accept.remote_addr);
+                    // Extract before `accept.tcp()` consumes the acceptor.
+                    let remote_addr = accept.remote_addr;
+                    log::debug!("TCP connection from {remote_addr}");
 
                     let stream = match accept.tcp() {
                         Ok(s) => s,
                         Err(e) => {
-                            log::warn!("TCP accept error: {e}");
+                            log::warn!("TCP accept error: {e}, from: {remote_addr}");
                             return;
                         }
                     };
@@ -240,16 +242,16 @@ async fn listen_tcp(scx: ServerContext, l: &Listener, lid: ListenerId) {
                     match stream.mqtt().await {
                         Ok(MqttStream::V3(s)) => {
                             if let Err(e) = v3::process(scx.clone(), s, lid).await {
-                                log::info!("MQTTv3 processing error: {e}");
+                                log::info!("MQTTv3 processing error: {e}, from: {remote_addr}");
                             }
                         }
                         Ok(MqttStream::V5(s)) => {
                             if let Err(e) = v5::process(scx.clone(), s, lid).await {
-                                log::info!("MQTTv5 processing error: {e}");
+                                log::info!("MQTTv5 processing error: {e}, from: {remote_addr}");
                             }
                         }
                         Err(e) => {
-                            log::info!("MQTT version detection failed: {e}");
+                            log::info!("MQTT version detection failed: {e}, from: {remote_addr}");
                         }
                     }
                 });
@@ -273,12 +275,14 @@ async fn listen_tls(scx: ServerContext, l: &Listener, lid: ListenerId) {
             Ok(accept) => {
                 let scx = scx.clone();
                 tokio::spawn(async move {
-                    log::debug!("TLS connection from {}", accept.remote_addr);
+                    // Extract before `accept.tls()` consumes the acceptor.
+                    let remote_addr = accept.remote_addr;
+                    log::debug!("TLS connection from {remote_addr}");
 
                     let stream = match accept.tls().await {
                         Ok(s) => s,
                         Err(e) => {
-                            log::warn!("TLS accept error: {e}");
+                            log::warn!("TLS accept error: {e}, from: {remote_addr}");
                             return;
                         }
                     };
@@ -286,16 +290,16 @@ async fn listen_tls(scx: ServerContext, l: &Listener, lid: ListenerId) {
                     match stream.mqtt().await {
                         Ok(MqttStream::V3(s)) => {
                             if let Err(e) = v3::process(scx.clone(), s, lid).await {
-                                log::info!("MQTTv3/TLS processing error: {e}");
+                                log::info!("MQTTv3/TLS processing error: {e}, from: {remote_addr}");
                             }
                         }
                         Ok(MqttStream::V5(s)) => {
                             if let Err(e) = v5::process(scx.clone(), s, lid).await {
-                                log::info!("MQTTv5/TLS processing error: {e}");
+                                log::info!("MQTTv5/TLS processing error: {e}, from: {remote_addr}");
                             }
                         }
                         Err(e) => {
-                            log::info!("MQTT/TLS version detection failed: {e}");
+                            log::info!("MQTT/TLS version detection failed: {e}, from: {remote_addr}");
                         }
                     }
                 });
@@ -319,12 +323,14 @@ async fn listen_ws(scx: ServerContext, l: &Listener, lid: ListenerId) {
             Ok(accept) => {
                 let scx = scx.clone();
                 tokio::spawn(async move {
-                    log::debug!("WebSocket connection from {}", accept.remote_addr);
+                    // Extract before `accept.ws()` consumes the acceptor.
+                    let remote_addr = accept.remote_addr;
+                    log::debug!("WebSocket connection from {remote_addr}");
 
                     let stream = match accept.ws().await {
                         Ok(s) => s,
                         Err(e) => {
-                            log::warn!("WebSocket accept error: {e}");
+                            log::warn!("WebSocket accept error: {e}, from: {remote_addr}");
                             return;
                         }
                     };
@@ -332,16 +338,16 @@ async fn listen_ws(scx: ServerContext, l: &Listener, lid: ListenerId) {
                     match stream.mqtt().await {
                         Ok(MqttStream::V3(s)) => {
                             if let Err(e) = v3::process(scx.clone(), s, lid).await {
-                                log::info!("MQTTv3/WS processing error: {e}");
+                                log::info!("MQTTv3/WS processing error: {e}, from: {remote_addr}");
                             }
                         }
                         Ok(MqttStream::V5(s)) => {
                             if let Err(e) = v5::process(scx.clone(), s, lid).await {
-                                log::info!("MQTTv5/WS processing error: {e}");
+                                log::info!("MQTTv5/WS processing error: {e}, from: {remote_addr}");
                             }
                         }
                         Err(e) => {
-                            log::info!("MQTT/WS version detection failed: {e}");
+                            log::info!("MQTT/WS version detection failed: {e}, from: {remote_addr}");
                         }
                     }
                 });
@@ -365,12 +371,14 @@ async fn listen_wss(scx: ServerContext, l: &Listener, lid: ListenerId) {
             Ok(accept) => {
                 let scx = scx.clone();
                 tokio::spawn(async move {
-                    log::debug!("WSS connection from {}", accept.remote_addr);
+                    // Extract before `accept.wss()` consumes the acceptor.
+                    let remote_addr = accept.remote_addr;
+                    log::debug!("WSS connection from {remote_addr}");
 
                     let stream = match accept.wss().await {
                         Ok(s) => s,
                         Err(e) => {
-                            log::warn!("WSS accept error: {e}");
+                            log::warn!("WSS accept error: {e}, from: {remote_addr}");
                             return;
                         }
                     };
@@ -378,16 +386,16 @@ async fn listen_wss(scx: ServerContext, l: &Listener, lid: ListenerId) {
                     match stream.mqtt().await {
                         Ok(MqttStream::V3(s)) => {
                             if let Err(e) = v3::process(scx.clone(), s, lid).await {
-                                log::info!("MQTTv3/WSS processing error: {e}");
+                                log::info!("MQTTv3/WSS processing error: {e}, from: {remote_addr}");
                             }
                         }
                         Ok(MqttStream::V5(s)) => {
                             if let Err(e) = v5::process(scx.clone(), s, lid).await {
-                                log::info!("MQTTv5/WSS processing error: {e}");
+                                log::info!("MQTTv5/WSS processing error: {e}, from: {remote_addr}");
                             }
                         }
                         Err(e) => {
-                            log::info!("MQTT/WSS version detection failed: {e}");
+                            log::info!("MQTT/WSS version detection failed: {e}, from: {remote_addr}");
                         }
                     }
                 });
@@ -411,12 +419,14 @@ async fn listen_quic(scx: ServerContext, l: &Listener, lid: ListenerId) {
             Ok(accept) => {
                 let scx = scx.clone();
                 tokio::spawn(async move {
-                    log::debug!("QUIC connection from {}", accept.remote_addr);
+                    // Extract before `accept.quic()` consumes the acceptor.
+                    let remote_addr = accept.remote_addr;
+                    log::debug!("QUIC connection from {remote_addr}");
 
                     let stream = match accept.quic().await {
                         Ok(s) => s,
                         Err(e) => {
-                            log::warn!("QUIC accept error: {e}");
+                            log::warn!("QUIC accept error: {e}, from: {remote_addr}");
                             return;
                         }
                     };
@@ -424,16 +434,16 @@ async fn listen_quic(scx: ServerContext, l: &Listener, lid: ListenerId) {
                     match stream.mqtt().await {
                         Ok(MqttStream::V3(s)) => {
                             if let Err(e) = v3::process(scx.clone(), s, lid).await {
-                                log::info!("MQTTv3/QUIC processing error: {e}");
+                                log::info!("MQTTv3/QUIC processing error: {e}, from: {remote_addr}");
                             }
                         }
                         Ok(MqttStream::V5(s)) => {
                             if let Err(e) = v5::process(scx.clone(), s, lid).await {
-                                log::info!("MQTTv5/QUIC processing error: {e}");
+                                log::info!("MQTTv5/QUIC processing error: {e}, from: {remote_addr}");
                             }
                         }
                         Err(e) => {
-                            log::info!("MQTT/QUIC version detection failed: {e}");
+                            log::info!("MQTT/QUIC version detection failed: {e}, from: {remote_addr}");
                         }
                     }
                 });

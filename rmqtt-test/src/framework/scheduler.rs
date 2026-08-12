@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use super::context::TestContext;
 use super::suite::TestSuite;
@@ -21,8 +21,39 @@ impl TestScheduler {
     }
 
     /// Run all test suites (synchronous - each test creates its own tokio runtime)
+    ///
+    /// Before each suite, the broker is switched to `suite.config` if it is
+    /// not already running with it (config changes happen only at suite
+    /// boundaries). In `--no-broker` mode the switch is skipped with a single
+    /// warning; a failed switch aborts that suite and records an Error.
     pub fn run(&mut self, suites: Vec<TestSuite>, ctx: &mut TestContext) {
+        let mut warned_no_broker = false;
         for suite in suites {
+            if let Some(ref target) = suite.config {
+                if !ctx.has_broker() {
+                    if !warned_no_broker {
+                        warn!(
+                            "--no-broker mode: ignoring per-suite broker config requirements \
+                             (external broker used as-is)"
+                        );
+                        warned_no_broker = true;
+                    }
+                } else if let Err(e) = ctx.ensure_broker_config(target) {
+                    error!(
+                        "failed to switch broker config for suite '{}' to {:?}: {}",
+                        suite.name,
+                        target.display(),
+                        e
+                    );
+                    self.results.push(TestResult::error(
+                        &suite.name,
+                        "harness",
+                        Duration::ZERO,
+                        format!("broker config switch to {:?} failed: {}", target.display(), e),
+                    ));
+                    continue;
+                }
+            }
             self.run_suite(suite, ctx);
         }
     }

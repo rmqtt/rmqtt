@@ -48,7 +48,7 @@ impl SharedSubscriptionImpl {
 #[async_trait]
 impl SharedSubscription for SharedSubscriptionImpl {
     #[inline]
-    fn is_supported(&self, _listen_cfg: &rmqtt::types::ListenerConfig) -> bool {
+    fn is_supported(&self) -> bool {
         true
     }
 
