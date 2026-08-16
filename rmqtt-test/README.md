@@ -103,6 +103,12 @@ configs/
   retain-disabled/          # retainer plugin NOT loaded (Retain Available = 0)
   pubrel-collision/         # message-storage loaded (PUBREL collision repro)
   pubrel-collision-cluster/ # two-node cluster (manual start, 1884/1885 MQTT)
+  session-sled/             # single node, sled session storage (issue #475 repro, harness-switched)
+  session-sled-stress/      # same, isolated sled path (stress test only)
+  cluster-broadcast-sled/   # two-node cluster (1886/1887 MQTT, self-managed by tests)
+  cluster-broadcast-sled-stress/  # same, isolated sled path (stress test only)
+  cluster-raft-sled/        # three-node raft cluster (1888/1889/1890 MQTT, 6008-6010 raft)
+  cluster-raft-sled-stress/ # same, isolated sled path (stress test only)
 ```
 
 **Per-test config switching**: a test case can declare its required config via
@@ -208,7 +214,7 @@ This suite **requires two manually started nodes** and is never included in the 
 | `publish_load` | Continuous publish 1000 QoS 1 messages, QPS statistics |
 | `fan_out` | 1 publisher → N subscribers fan-out test |
 
-### `chaos` (6 cases)
+### `chaos` (16 cases)
 
 | Case | Description |
 |------|-------------|
@@ -218,6 +224,45 @@ This suite **requires two manually started nodes** and is never included in the 
 | `chaos_reconnect_storm` | 50 concurrent connection storms |
 | `chaos_qos1_reliability` | QoS 1 reliability verification |
 | `chaos_slow_consumer` | Slow consumer scenario |
+| `chaos_broker_restart_session_routing` | Issue #475 single-node reproduction: a persistent session restored from sled must stay routable across a broker restart (sub-suite `chaos@session-sled`) |
+| `cluster_restart_session_routing_broadcast` / `_raft` | Same defect through a cluster (broadcast 2 nodes / raft 3 nodes), node 1 restarted only |
+| `cluster_whole_restart_session_routing_broadcast` / `_raft` | Same defect through a cluster, whole-cluster restart |
+| `stress_single_node_restart_session_routing` | Issue #475 stress: 1000 persistent sessions × 100 QoS 1 messages across a standalone-broker restart (sub-suite `chaos@session-sled-stress`) |
+| `stress_cluster_restart_session_routing_broadcast` / `_raft` | Same stress via cluster-broadcast / cluster-raft, node 1 restarted only |
+| `stress_cluster_whole_restart_session_routing_broadcast` / `_raft` | Same stress via cluster-broadcast / cluster-raft, whole-cluster restart |
+
+#### Issue #475 stress tests — how to run
+
+The 5 stress tests scale the issue #475 reproduction to **1000 persistent
+sessions × 100 QoS 1 messages** (100k publishes) and require the broker +
+harness to be built with rustc ≥ 1.94:
+
+```bash
+RUSTUP_TOOLCHAIN=1.97 cargo build -p rmqttd
+RUSTUP_TOOLCHAIN=1.97 cargo build -p rmqtt-test
+
+# Clean sled data from previous runs (a large sled makes broker startup
+# slow; the harness health-check timeout is now 60s as a fallback, but
+# heavy accumulation still slows startup — clean before each run):
+rm -rf rmqtt-test/configs/{session-sled,session-sled-stress,cluster-broadcast-sled,cluster-broadcast-sled-stress,cluster-raft-sled,cluster-raft-sled-stress}/.sled
+
+# Full chaos suite (functional restart tests + all 5 stress tests, ~6.5 min):
+./target/debug/mqtt_harness --binary target/debug/rmqttd \
+  --config rmqtt-test/configs/default/rmqtt.toml \
+  --workspace . --suites chaos --workers 1
+
+# Only the standalone-broker stress test (~25 s):
+./target/debug/mqtt_harness --binary target/debug/rmqttd \
+  --config rmqtt-test/configs/default/rmqtt.toml \
+  --workspace . --suites chaos@session-sled-stress --workers 1
+```
+
+Cluster stress tests are self-managed processes registered in the main
+`chaos` suite (no dedicated sub-suite); per-node logs are written to
+`target/cluster-stress-{broadcast,raft,...}-node{1,2,3}.log`. Scale is
+controlled by `STRESS_SESSIONS` / `STRESS_MSGS_PER_SESSION` in
+`src/tests/functional/session_restart_stress.rs`. Design & defect analysis:
+[`designs/issue-475-restored-session-routing-fix.md`](../designs/issue-475-restored-session-routing-fix.md).
 
 ## 🏗 Project Structure
 
@@ -235,12 +280,20 @@ rmqtt-test/
     tests/                       # Test cases (functional, stress, chaos)
       functional/                #   functional_v3/v311/v5 cases
       functional/qos2_pubrel_resume_collision_cluster.rs  # cluster reproduction case
+      functional/cluster_session_restart.rs  # issue #475 cluster reproduction (broadcast/raft)
+      functional/session_restart_stress.rs   # issue #475 stress (1000×100, 5 scenarios)
     report/                      # Report system (console, JSON, HTML, detail log)
   configs/                       # Test broker configs (all self-contained)
     default/                     #   default config: rmqtt.toml + plugins/ (retainer/shared-subscription/http-api)
     retain-disabled/             #   retainer plugin NOT loaded (Retain Available = 0)
     pubrel-collision/            #   single node: message-storage enabled broker config
     pubrel-collision-cluster/    #   cluster: node1/node2 configs (1884/1885 MQTT, 5364/5365 gRPC)
+    session-sled/                #   single node, sled session storage (issue #475 reproduction)
+    session-sled-stress/         #   same, isolated sled path for the stress test
+    cluster-broadcast-sled/      #   2-node cluster (1886/1887 MQTT, 5366/5367 gRPC)
+    cluster-broadcast-sled-stress/ #  same, isolated sled path for the stress test
+    cluster-raft-sled/           #   3-node raft cluster (1888/1889/1890 MQTT, 5368-5370 gRPC, 6008-6010 raft)
+    cluster-raft-sled-stress/    #   same, isolated sled path for the stress test
 ```
 
 > **Test isolation note**: all tests that publish retained messages delete them

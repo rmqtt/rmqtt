@@ -24,3 +24,6 @@ target/
 /designs
 /git-commit-message.md
 /*.log
+
+# Test runtime data (sled) — never commit
+.sled/

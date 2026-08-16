@@ -1,0 +1,79 @@
+##--------------------------------------------------------------------
+## rmqttd node 1 — issue #475 cluster reproduction (cluster-broadcast, node 1/2)
+##
+## Self-contained cluster config: `rmqtt-cluster-broadcast` +
+## `rmqtt-session-storage` (sled). The sled data lives under
+## `rmqtt-test/configs/cluster-broadcast-sled-stress/.sled/{node}` (relative to the
+## repo root where the test spawns rmqttd) so a node restart rebuilds its
+## offline sessions from storage.
+##
+## Ports: MQTT 1886 / gRPC 5366
+##--------------------------------------------------------------------
+node.id = 1
+
+##--------------------------------------------------------------------
+## RPC
+##--------------------------------------------------------------------
+rpc.server_addr = "0.0.0.0:5366"
+rpc.server_workers = 4
+rpc.batch_size = 128
+rpc.client_concurrency_limit = 128
+rpc.client_timeout = "5s"
+
+##--------------------------------------------------------------------
+## Log
+##--------------------------------------------------------------------
+log.to = "console"
+log.level = "info"
+log.dir = "."
+log.file = "rmqtt_cluster_broadcast_1.log"
+
+##--------------------------------------------------------------------
+## Plugins
+##--------------------------------------------------------------------
+plugins.dir = "./rmqtt-test/configs/cluster-broadcast-sled-stress/node1/plugins"
+plugins.default_startups = [
+    "rmqtt-cluster-broadcast",
+    "rmqtt-web-hook",
+    "rmqtt-session-storage",
+    "rmqtt-shared-subscription",
+]
+plugins.disabled_default_startups = ["rmqtt-acl", "rmqtt-counter", "rmqtt-http-api"]
+
+##--------------------------------------------------------------------
+## MQTT listener
+##--------------------------------------------------------------------
+listener.tcp.external.addr = "0.0.0.0:1886"
+listener.tcp.external.workers = 8
+listener.tcp.external.max_connections = 102400
+listener.tcp.external.max_handshaking_limit = 500
+listener.tcp.external.handshake_timeout = "30s"
+listener.tcp.external.max_packet_size = "1m"
+listener.tcp.external.backlog = 1024
+listener.tcp.external.allow_anonymous = true
+listener.tcp.external.min_keepalive = 0
+listener.tcp.external.keepalive_backoff = 0.75
+listener.tcp.external.max_inflight = 16
+listener.tcp.external.max_mqueue_len = 1000
+listener.tcp.external.mqueue_rate_limit = "1000,1s"
+listener.tcp.external.max_clientid_len = 65535
+listener.tcp.external.max_qos_allowed = 2
+listener.tcp.external.max_topic_levels = 0
+listener.tcp.external.session_expiry_interval = "5m"
+listener.tcp.external.message_retry_interval = "5s"
+listener.tcp.external.message_expiry_interval = "5m"
+listener.tcp.external.max_subscriptions = 0
+listener.tcp.external.shared_subscription = true
+
+##--------------------------------------------------------------------
+## Other listeners — all disabled
+##--------------------------------------------------------------------
+## Only the external TCP listener above is used by the cluster tests. The
+## TLS/WS/WSS/QUIC listeners (enabled by default) would clash with the
+## harness-managed broker ports (8883/8080/8443/9443), and the internal TCP
+## listener would clash between the two nodes (both default to 11883).
+listener.tcp.internal.enable = false
+listener.tls.external.enable = false
+listener.ws.external.enable = false
+listener.wss.external.enable = false
+listener.quic.external.enable = false

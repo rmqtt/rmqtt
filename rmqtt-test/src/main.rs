@@ -621,10 +621,31 @@ fn build_chaos_suite(iterations: usize) -> TestSuite {
     use tests::chaos::disconnect::*;
     use tests::chaos::packet_loss::*;
     use tests::chaos::restart::*;
+    use tests::functional::cluster_session_restart::*;
+    use tests::functional::session_restart_stress::*;
 
     let mut suite = TestSuite::new("chaos");
     suite.add(BrokerRestartTest);
     suite.add(BrokerRestartPubSubTest);
+    // Restored-session routing after restart (GitHub issue #475): requires
+    // the sled-backed session-storage config; split into its own sub-suite.
+    suite.add(BrokerRestartSessionRoutingTest);
+    // Same defect through a two-node cluster (self-managed processes):
+    // cluster-broadcast and cluster-raft variants.
+    suite.add(ClusterBroadcastRestartSessionRoutingTest);
+    suite.add(ClusterRaftRestartSessionRoutingTest);
+    // Whole-cluster restart variants (all nodes stopped, then brought back
+    // up in order): broadcast and raft.
+    suite.add(ClusterWholeRestartSessionRoutingBroadcastTest);
+    suite.add(ClusterWholeRestartSessionRoutingRaftTest);
+    // Stress variants: many persistent sessions × many messages × restart
+    // (single node, broadcast single/whole-cluster restart, raft
+    // single/whole-cluster restart).
+    suite.add(StressSingleNodeRestartTest);
+    suite.add(StressClusterRestartBroadcastTest);
+    suite.add(StressClusterWholeRestartBroadcastTest);
+    suite.add(StressClusterRestartRaftTest);
+    suite.add(StressClusterWholeRestartRaftTest);
     suite.add(ConnectionChurnTest { cycles: iterations * 5 });
     suite.add(ReconnectStormTest { client_count: 50 });
     suite.add(Qos1ReliabilityTest { message_count: iterations * 10 });

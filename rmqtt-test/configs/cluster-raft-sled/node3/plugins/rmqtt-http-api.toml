@@ -1,0 +1,102 @@
+##--------------------------------------------------------------------
+## rmqtt-http-api
+##--------------------------------------------------------------------
+
+# See more keys and their definitions at https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/http-api.md
+
+## Max Row Limit
+max_row_limit = 10_000
+## HTTP Listener address
+http_laddr = "0.0.0.0:6060"
+## HTTP bearer token for API authentication.
+## When set, all HTTP API requests must include an `Authorization: Bearer <token>` header.
+## When not set (default), no authentication is required.
+#http_bearer_token = "public"
+
+## Enable TCP SO_REUSEADDR on the HTTP listener.
+## Default: true
+# http_reuseaddr = true
+
+## Enable TCP SO_REUSEPORT on the HTTP listener.
+## Default: false
+# http_reuseport = false
+
+## Indicates whether to print HTTP request logs
+http_request_log = false
+
+## Metrics sample interval for collecting and caching internal metrics.
+## Default: "5s"
+# metrics_sample_interval = "5s"
+
+## gRPC message type identifier for HTTP API messages.
+## Default: 99
+# message_type = 99
+
+## Message expiry interval for messages published via the HTTP API.
+##
+## After this duration, the message expires and will NOT be delivered
+## to subscribers. This only applies to messages published through
+## the HTTP API endpoint (`/api/v1/message/publish`), not to regular
+## MQTT client publishes.
+##
+## Value: Duration (e.g. "5m", "1h", "30s")
+## Set to "0" (zero) for no expiry.
+## Default: "5m"
+message_expiry_interval = "5m"
+
+## Prometheus metrics data caching interval.
+##
+## Value: Duration
+## Default: "5s"
+prometheus_metrics_cache_interval = "5s"
+
+## Dashboard static directory (optional).
+##
+## By default (when unset), the Dashboard SPA is served from assets
+## embedded directly into the binary via rust-embed at compile time,
+## so no external files are needed.
+##
+## If set, the http-api plugin loads the Dashboard SPA from this
+## external directory at the `/dashboard/` path instead, which allows
+## swapping the frontend build without recompiling the binary.
+# dashboard_static_dir = "/path/to/dashboard/dist"
+
+##--------------------------------------------------------------------
+## Stats/Metrics History Persistence (optional)
+##
+## When `storage` is configured, the plugin periodically snapshots
+## Stats and Metrics, converts them to JSON, and writes them to the
+## backend with TTL-based expiration. History query APIs
+## (`/api/v1/stats/history`, `/api/v1/metrics/history`, etc.) then
+## become available.
+##
+## To disable, omit the entire `storage` section.
+##--------------------------------------------------------------------
+
+##─── Redb backend ──────────────────────────────────────────────────────
+storage.type = "redb"
+storage.redb.path = "/var/log/rmqtt/.cache/http-api-history/{node}.redb"
+
+##─── Sled backend (default) ─────────────────────────────────────────────
+#storage.type = "sled"
+#storage.sled.path = "/var/log/rmqtt/.cache/http-api-history/{node}.sled"
+#storage.sled.cache_capacity = "1G"
+
+##─── Redis backend ──────────────────────────────────────────────────────
+# storage.type = "redis"
+# storage.redis.url = "redis://127.0.0.1:6379/"
+# storage.redis.prefix = "http-api-history-{node}"
+
+##─── Redis Cluster backend ──────────────────────────────────────────────
+# storage.type = "redis-cluster"
+# storage.redis-cluster.urls = ["redis://127.0.0.1:6380/", "redis://127.0.0.1:6381/"]
+# storage.redis-cluster.prefix = "http-api-history-{node}"
+
+##─── Flush interval (how often to snapshot Stats/Metrics) ───────────────
+## Default: "5s"
+# flush_interval = "5s"
+
+##─── History retention (TTL for each data point) ────────────────────────
+## After this period, the storage backend automatically evicts old data.
+## Default: "7d"
+# history_retention = "7d"

@@ -447,6 +447,35 @@ impl SessionState {
                             Message::Kick(sender, by_id, clean_start, is_admin) => {
                                 log::debug!("{:?} offline Kicked, send kick result, to: {:?}, clean_start: {}, is_admin: {}", self.id, by_id, clean_start, is_admin);
                                 if !sender.is_closed() {
+                                    // Drain any offline messages still queued behind this Kick
+                                    // into the deliver_queue BEFORE acking the kick: the kicker
+                                    // collects the session's offline messages via
+                                    // `to_offline_info` (which only drains `deliver_queue`)
+                                    // right after the ack, so messages published while this
+                                    // offline event loop was busy would otherwise be silently
+                                    // dropped on session transfer (reconnect while the broker
+                                    // is still draining a large offline backlog).
+                                    let mut drained = 0usize;
+                                    while let Ok(Message::Forward(from, p)) = self.rx.try_recv() {
+                                        // hook, offline_message — same as the main offline event
+                                        // loop so hook consumers (web-hook `offline_message`
+                                        // rule, sys-topic offline counters, audit plugins) do not
+                                        // miss the messages drained on kick.
+                                        self.hook.offline_message(from.clone(), &p).await;
+                                        if let Err((from, p)) = deliver_queue_tx.send((from, p)).await {
+                                            log::debug!("{:?} offline deliver_dropped, from: {:?}, {:?}", self.id, from, p);
+                                            self.scx
+                                                .extends
+                                                .hook_mgr()
+                                                .message_dropped(Some(self.id.clone()), from, p, Reason::MessageQueueFull)
+                                                .await;
+                                        } else {
+                                            drained += 1;
+                                        }
+                                    }
+                                    if drained > 0 {
+                                        log::info!("{:?} drained {drained} queued offline messages before kick", self.id);
+                                    }
                                     if let Err(e) = sender.send(()) {
                                         log::warn!("{:?} offline Kick send response error, to: {:?}, clean_start: {}, is_admin: {}, {:?}", self.id, by_id, clean_start, is_admin, e);
                                     }
