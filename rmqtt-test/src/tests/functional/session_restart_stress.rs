@@ -44,7 +44,10 @@
 //!   - **Clean the sled data first** — the stress runs accumulate sessions in
 //!     `rmqtt-test/configs/*/.sled/` and a large sled makes the broker take
 //!     >20s to start (harness "broker failed to become healthy" errors):
-//!     `rm -rf rmqtt-test/configs/{session-sled,session-sled-stress,cluster-broadcast-sled,cluster-broadcast-sled-stress,cluster-raft-sled,cluster-raft-sled-stress}/.sled`
+//!
+//!     ```bash
+//!     rm -rf rmqtt-test/configs/{session-sled,session-sled-stress,cluster-broadcast-sled,cluster-broadcast-sled-stress,cluster-raft-sled,cluster-raft-sled-stress}/.sled
+//!     ```
 //!   - Do not run another broker on the ports used by the suite (1883/1886/
 //!     1887/1888/1889/1890 MQTT, 6060 http-api, 5363..5370 gRPC, 6008..6010
 //!     raft), or while another harness instance is running.
