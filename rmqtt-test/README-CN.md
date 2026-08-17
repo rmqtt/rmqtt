@@ -98,6 +98,12 @@ configs/
   retain-disabled/          # 不加载 retainer 插件（Retain Available = 0）
   pubrel-collision/         # 加载 message-storage（PUBREL 冲突复现）
   pubrel-collision-cluster/ # 双节点集群（手动启动，1884/1885 MQTT）
+  session-sled/             # 单机 sled 会话存储（issue #475 复现，harness 自动切换）
+  session-sled-stress/      # 同上，独立 sled 路径（压测专用）
+  cluster-broadcast-sled/   # 双节点集群（1886/1887 MQTT，测试自管理进程）
+  cluster-broadcast-sled-stress/  # 同上，独立 sled 路径（压测专用）
+  cluster-raft-sled/        # 三节点 raft 集群（1888/1889/1890 MQTT、6008-6010 raft）
+  cluster-raft-sled-stress/ # 同上，独立 sled 路径（压测专用）
 ```
 
 **按用例自动切换配置**：用例可通过 `TestCase::broker_config()` 声明所需配置
@@ -196,7 +202,7 @@ configs/
 | `publish_load` | 持续发布 1000 条 QoS 1 消息，统计 QPS |
 | `fan_out` | 1 发布者 → N 订阅者扇出测试 |
 
-### chaos（6 个用例）
+### chaos（16 个用例）
 
 | 用例 | 说明 |
 |------|------|
@@ -206,6 +212,42 @@ configs/
 | `chaos_reconnect_storm` | 50 客户端同时连接风暴 |
 | `chaos_qos1_reliability` | QoS 1 可靠性验证 |
 | `chaos_slow_consumer` | 慢消费者场景 |
+| `chaos_broker_restart_session_routing` | issue #475 单机复现：持久会话从 sled 恢复后跨重启仍可路由（子套件 `chaos@session-sled`） |
+| `cluster_restart_session_routing_broadcast` / `_raft` | 同缺陷经集群复现（broadcast 双节点 / raft 三节点），仅重启 node1 |
+| `cluster_whole_restart_session_routing_broadcast` / `_raft` | 同缺陷经集群复现，全集群重启 |
+| `stress_single_node_restart_session_routing` | issue #475 压测：1000 持久会话 × 100 条 QoS 1，单机重启（子套件 `chaos@session-sled-stress`） |
+| `stress_cluster_restart_session_routing_broadcast` / `_raft` | 同压测经 cluster-broadcast / cluster-raft，仅重启 node1 |
+| `stress_cluster_whole_restart_session_routing_broadcast` / `_raft` | 同压测经 cluster-broadcast / cluster-raft，全集群重启 |
+
+#### issue #475 压测 — 执行方式
+
+5 个压测将 issue #475 复现放大到 **1000 持久会话 × 100 条 QoS 1 消息（10 万条发布）**，
+构建需 rustc ≥ 1.94：
+
+```bash
+RUSTUP_TOOLCHAIN=1.97 cargo build -p rmqttd
+RUSTUP_TOOLCHAIN=1.97 cargo build -p rmqtt-test
+
+# 清理上次运行的 sled 数据（sled 过大时 broker 启动很慢；harness 健康检查
+# 超时已放宽到 60s 作兜底，但大量累积仍会显著拖慢启动，建议每次运行前清理）：
+rm -rf rmqtt-test/configs/{session-sled,session-sled-stress,cluster-broadcast-sled,cluster-broadcast-sled-stress,cluster-raft-sled,cluster-raft-sled-stress}/.sled
+
+# 全量 chaos（功能重启测试 + 全部 5 个压测，约 6.5 分钟）：
+./target/debug/mqtt_harness --binary target/debug/rmqttd \
+  --config rmqtt-test/configs/default/rmqtt.toml \
+  --workspace . --suites chaos --workers 1
+
+# 仅运行单机压测（约 25 秒）：
+./target/debug/mqtt_harness --binary target/debug/rmqttd \
+  --config rmqtt-test/configs/default/rmqtt.toml \
+  --workspace . --suites chaos@session-sled-stress --workers 1
+```
+
+集群压测为测试自管理进程，注册在 `chaos` 主套件（无独立子套件）；节点日志在
+`target/cluster-stress-{broadcast,raft,...}-node{1,2,3}.log`。规模常量
+`STRESS_SESSIONS` / `STRESS_MSGS_PER_SESSION` 位于
+`src/tests/functional/session_restart_stress.rs`。设计与缺陷分析详见
+[`designs/issue-475-restored-session-routing-fix.md`](../designs/issue-475-restored-session-routing-fix.md)。
 
 ## 🏗 项目结构
 
@@ -223,12 +265,20 @@ rmqtt-test/
     tests/                       # 测试用例（功能测试、压测、混沌测试）
       functional/                #   functional_v3/v311/v5 用例
       functional/qos2_pubrel_resume_collision_cluster.rs  # 集群复现用例
+      functional/cluster_session_restart.rs  # issue #475 集群复现（broadcast/raft）
+      functional/session_restart_stress.rs   # issue #475 压测（1000×100，5 场景）
     report/                      # 报告系统（控制台、JSON、HTML、详细日志）
   configs/                       # 测试用 broker 配置（全部自包含）
     default/                     #   默认配置：rmqtt.toml + plugins/（retainer/shared-subscription/http-api）
     retain-disabled/             #   不加载 retainer 插件（Retain Available = 0）
     pubrel-collision/            #   单机：启用 message-storage 的 broker 配置
     pubrel-collision-cluster/    #   集群：node1/node2 双节点配置（1884/1885 MQTT、5364/5365 gRPC）
+    session-sled/                #   单机 sled 会话存储（issue #475 复现）
+    session-sled-stress/         #   同上，独立 sled 路径（压测专用，避免污染复现测试）
+    cluster-broadcast-sled/      #   双节点集群（1886/1887 MQTT、5366/5367 gRPC）
+    cluster-broadcast-sled-stress/ # 同上，独立 sled 路径（压测专用）
+    cluster-raft-sled/           #   三节点 raft 集群（1888/1889/1890 MQTT、5368-5370 gRPC、6008-6010 raft）
+    cluster-raft-sled-stress/    #   同上，独立 sled 路径（压测专用）
 ```
 
 > **测试隔离说明**：所有发布保留消息的测试结束后会自行删除（空 payload + RETAIN=1）；

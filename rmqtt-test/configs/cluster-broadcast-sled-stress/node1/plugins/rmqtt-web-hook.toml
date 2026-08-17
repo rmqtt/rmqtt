@@ -1,0 +1,14 @@
+##--------------------------------------------------------------------
+## rmqtt-web-hook — DIAGNOSTIC config for the 1000x100 stress test
+##--------------------------------------------------------------------
+## Only the message_dropped rule is enabled (the other rules would emit
+## ~100k+ events per run and swamp the log). Events are appended to a file
+## under target/ so the drop reasons can be analysed after the run.
+queue_capacity = 300_000
+concurrency_limit = 128
+urls = ["file://target/webhook-dropped-broadcast-node1.log"]
+http_timeout = "8s"
+retry_max_elapsed_time = "60s"
+retry_multiplier = 2.5
+
+rule.message_dropped = [{action = "message_dropped"}]

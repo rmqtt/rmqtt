@@ -278,6 +278,12 @@ impl StoragePlugin {
                                 log::warn!("Rebuild offline sessions error, {e}");
                             }
                             Ok(msg_tx) => {
+                                // `session_entry.set` consumes the session, so take the
+                                // subscriptions (SessionSubs is Clone) and the id out first.
+                                let subs = session.subscriptions().await;
+                                let session_id = session.id.clone();
+                                let scx_for_task = scx.clone();
+
                                 let mut session_entry = scx.extends.shared().await.entry(session.id.clone());
 
                                 let id = session_entry.id().clone();
@@ -288,6 +294,36 @@ impl StoragePlugin {
                                             session_entry.id(),
                                             e
                                         );
+                                    } else {
+                                        // Session successfully restored into peers: register its
+                                        // subscriptions in the router so that publishes matching
+                                        // them are routable immediately (issue #475). Previously
+                                        // `rebuild_offline_sessions` never called `router().add(..)`,
+                                        // so between the broker restart and the client's reconnect
+                                        // any matching publish was PUBACKed and silently dropped,
+                                        // while the reconnect still saw `session_present = 1`
+                                        // (violating MQTT-3.2.2-2).
+                                        if let Ok(subs) = subs {
+                                            for (tf, opts) in subs.read().await.iter() {
+                                                if let Err(e) = scx_for_task
+                                                    .extends
+                                                    .router()
+                                                    .await
+                                                    .add(tf, session_id.clone(), opts.clone())
+                                                    .await
+                                                {
+                                                    log::warn!(
+                                                        "{:?} rebuild offline sessions, router.add, {e}",
+                                                        session_id
+                                                    );
+                                                }
+                                            }
+                                        } else {
+                                            log::warn!(
+                                                "{:?} rebuild offline sessions, session.subscriptions() error",
+                                                session_id
+                                            );
+                                        }
                                     }
                                 };
                                 if let Err(e) = exec.spawn(task_fut).await {

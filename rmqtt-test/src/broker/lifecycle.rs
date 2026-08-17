@@ -94,8 +94,10 @@ impl BrokerProcess {
         let child = cmd.spawn()?;
         self.child = Some(child);
 
-        // Wait for broker to become healthy
-        let healthy = self.wait_healthy(Duration::from_secs(10));
+        // Wait for broker to become healthy. The timeout is generous (60s):
+        // sled-backed configs (session-sled / *-stress) can take a while to
+        // load offline sessions on startup when the sled has grown large.
+        let healthy = self.wait_healthy(Duration::from_secs(60));
         if healthy {
             info!("Broker is healthy at {}", self.addr);
             Ok(())

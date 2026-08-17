@@ -1,0 +1,58 @@
+##--------------------------------------------------------------------
+## rmqtt-bridge-ingress-kafka
+##--------------------------------------------------------------------
+
+# See more keys and their definitions at https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/bridge-ingress-kafka.md
+
+[[bridges]]
+# Whether to enable
+enable = true
+# Bridge name
+name = "bridge_kafka_1"
+
+# The list of broker (server) addresses for the Kafka cluster.
+#servers = "127.0.0.1:9092,127.0.0.1:9093,127.0.0.1:9094"
+servers = "127.0.0.1:9092"
+# client.id
+client_id_prefix = "kafka_001"
+
+## Message expiration time, 0 means no expiration
+expiry_interval = "5m"
+
+# See more properties and their definitions at https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md
+[bridges.properties]
+"message.timeout.ms" = "5000"
+#"enable.auto.commit" = "false"
+
+[[bridges.entries]]
+remote.topic = "remote-topic1-ingress"
+remote.group_id = "group_id_001"
+#remote.start_partition = -1
+#remote.stop_partition = -1
+# "beginning", "end", "stored" or "<offset>", "<-offset>"
+#remote.offset = "beginning"
+
+# Choose 0, 1, 2, or not set (follow message QoS)
+#local.qos = 1
+local.topic = "local/topic1/ingress/${kafka.key}"
+# true/false, default: false
+#local.retain = true
+
+[[bridges.entries]]
+remote.topic = "remote-topic2-ingress"
+remote.group_id = "group_id_002"
+#remote.start_partition = -1
+#remote.stop_partition = -1
+# "beginning", "end", "stored" or "<offset>", "<-offset>"
+#remote.offset = "beginning"
+
+# Choose 0, 1, 2, or not set (follow message QoS)
+# local.qos = 0
+local.topic = "local/topic2/ingress"
+local.retain = false
+
+
+
+
+
+
