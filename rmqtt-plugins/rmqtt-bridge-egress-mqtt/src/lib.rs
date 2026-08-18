@@ -160,6 +160,44 @@ impl Handler for HookHandler {
     async fn hook(&self, param: &Parameter, acc: Option<HookResult>) -> ReturnType {
         match param {
             Parameter::MessagePublish(s, f, p) => {
+                // ── Anti-loop guard for bidirectional bridge mesh ──
+                //
+                // In a mesh of brokers where every pair has a bidirectional
+                // egress-mqtt bridge, a single PUBLISH amplifies infinitely
+                // without this filter. Empirically: ~75K deliveries per second
+                // across a 2-broker A↔B mesh from one client publish.
+                //
+                // Two cases:
+                //
+                // 1) `s.is_none()` — publish injected by an internal source
+                //    (rmqtt-bridge-ingress-mqtt and similar plugins call
+                //    `hook_mgr().message_publish(None, ...)` to inject what
+                //    they received from the remote). Forwarding it back over
+                //    egress echoes the message we just imported.
+                //
+                // 2) The publish has a session, but the session's client_id
+                //    is one of this plugin's egress clients (or the ingress
+                //    plugin's clients). Both build their client_id as
+                //    `<prefix>:<bridge_name>:{egress|ingress}:<node_id>:
+                //    <entry_idx>:<client_no>`. Re-forwarding such publishes
+                //    is what bounces messages A.egress→B→B.egress→A→...
+                //    indefinitely. Filtering on the ":egress:" / ":ingress:"
+                //    substring catches them regardless of operator-configured
+                //    `client_id_prefix`.
+                //
+                // Operators who want a fully-symmetric mesh should *also*
+                // disable the ingress plugin on every node — otherwise the
+                // egress + remote ingress combination doubles every delivery
+                // (no loop, but each message lands twice on every subscriber).
+                if s.is_none() {
+                    return (true, acc);
+                }
+                if let Some(sess) = s {
+                    let cid: &str = sess.id.client_id.as_ref();
+                    if cid.contains(":egress:") || cid.contains(":ingress:") {
+                        return (true, acc);
+                    }
+                }
                 let p = if let Some(HookResult::Publish(publish)) = &acc { publish } else { p };
                 log::debug!("{:?} message publish, {:?}", s.map(|s| &s.id), p);
                 if let Err(e) = self.bridge_mgr.send(f, p).await {
