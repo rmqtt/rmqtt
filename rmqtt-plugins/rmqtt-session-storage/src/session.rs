@@ -603,7 +603,16 @@ impl SessionLike for StorageSession {
     }
     #[inline]
     async fn disconnected_set(&self, d: Option<Disconnect>, reason: Option<Reason>) -> Result<()> {
-        let session_expiry_interval = self.fitter.session_expiry_interval(d.as_ref()).as_millis() as i64;
+        // The core session calls `disconnected_set` twice during shutdown:
+        // first with the DISCONNECT packet in the run loop (session.rs:843),
+        // then with `None` after the loop exits (session.rs:230). The second
+        // call must NOT reset the storage TTL to the CONNECT value, which
+        // would clobber a DISCONNECT-extended session expiry (the DISCONNECT
+        // property must override the CONNECT value per MQTT v5). Prefer the
+        // incoming DISCONNECT property, falling back to the stored one.
+        let stored_disconnect = self.inner.disconnect().await?;
+        let effective_d = d.as_ref().or(stored_disconnect.as_ref());
+        let session_expiry_interval = self.fitter.session_expiry_interval(effective_d).as_millis() as i64;
         log::debug!(
             "{:?} disconnected_set session_expiry_interval: {:?}",
             self.id(),

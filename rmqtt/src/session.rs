@@ -2634,7 +2634,7 @@ impl SessionLike for DefaultSession {
         Ok(())
     }
     async fn disconnected_reason_take(&self) -> Result<Reason> {
-        Ok(Reason::Reasons(self.disconnect_info.write().await.reasons.drain(..).collect()))
+        Ok(Reason::Reasons(std::mem::take(&mut self.disconnect_info.write().await.reasons)))
     }
     async fn disconnect(&self) -> Result<Option<Disconnect>> {
         Ok(self.disconnect_info.read().await.mqtt_disconnect.clone())
