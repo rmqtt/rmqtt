@@ -33,7 +33,7 @@ use rmqtt::{
     register,
     session::Session,
     types::DisconnectInfo,
-    types::{ClientId, From, Publish, SessionSubMap, SessionSubs, TimestampMillis},
+    types::{ClientId, ConnectInfo, Disconnect, From, Publish, SessionSubMap, SessionSubs, TimestampMillis},
     utils::timestamp_millis,
     Result,
 };
@@ -166,15 +166,56 @@ impl StoragePlugin {
                     log::debug!("map key: {id_key:?}");
                     let mut s_info = StoredSessionInfo::from(id_key.clone(), basic);
 
-                    match m.get::<_, TimestampMillis>(LAST_TIME).await {
+                    // Load last_time and disconnect_info first: the expiry pre-check below needs them.
+                    let last_time = match m.get::<_, TimestampMillis>(LAST_TIME).await {
                         Ok(Some(last_time)) => {
                             log::debug!("last_time: {last_time:?}");
                             s_info.set_last_time(last_time);
+                            last_time
                         }
-                        Ok(None) => {}
+                        Ok(None) => 0,
                         Err(e) => {
                             log::warn!("{id_key:?} load offline session last time error, {e}");
+                            0
                         }
+                    };
+
+                    let disconnect_info = match m.get::<_, DisconnectInfo>(DISCONNECT_INFO).await {
+                        Ok(Some(disc_info)) => {
+                            log::debug!("disc_info: {disc_info:?}");
+                            Some(disc_info)
+                        }
+                        Ok(None) => None,
+                        Err(e) => {
+                            log::warn!("{id_key:?} load offline session disconnect info error, {e}");
+                            None
+                        }
+                    };
+
+                    // Expired offline sessions (which would also be cleaned up by the rebuild
+                    // pass) are skipped entirely: drop them from storage without loading their
+                    // subscriptions/inflight messages. Under stress workloads a large number of
+                    // expired sessions makes the serial `load_offline_session_infos` scan (5 sled
+                    // gets per session) grow linearly with the session count and can exceed the
+                    // broker health-check window; this pre-check keys off
+                    // last_time + session_expiry_interval, reducing startup cost from O(all
+                    // sessions) to O(active sessions).
+                    if last_time > 0
+                        && offline_session_is_expired(&s_info.basic, disconnect_info.as_ref(), last_time)
+                    {
+                        log::debug!(
+                            "{id_key:?} offline session is expired (last_time: {last_time:?}), skip loading and remove"
+                        );
+                        if let Err(e) = storage_db.map_remove(m.name()).await {
+                            log::warn!("{id_key:?} remove expired offline session info error, {e}");
+                        }
+                        if let Err(e) = storage_db.list_remove(make_list_stored_key(id_key.as_ref())).await {
+                            log::warn!("{id_key:?} remove expired offline session messages error, {e}");
+                        }
+                        continue;
+                    }
+                    if let Some(disc_info) = disconnect_info {
+                        s_info.set_disconnect_info(disc_info);
                     }
 
                     match m.get::<_, SessionSubMap>(SESSION_SUB_MAP).await {
@@ -185,17 +226,6 @@ impl StoragePlugin {
                         Ok(None) => {}
                         Err(e) => {
                             log::warn!("{id_key:?} load offline session subscription info error, {e}");
-                        }
-                    }
-
-                    match m.get::<_, DisconnectInfo>(DISCONNECT_INFO).await {
-                        Ok(Some(disc_info)) => {
-                            log::debug!("disc_info: {disc_info:?}");
-                            s_info.set_disconnect_info(disc_info);
-                        }
-                        Ok(None) => {}
-                        Err(e) => {
-                            log::warn!("{id_key:?} load offline session disconnect info error, {e}");
                         }
                     }
 
@@ -764,6 +794,47 @@ async fn session_expiry_interval(
     fitter.session_expiry_interval(disconnect_info.and_then(|d| d.mqtt_disconnect.as_ref())).as_millis()
         as i64
         - (timestamp_millis() - disconnected_at)
+}
+
+/// Conservatively decides whether an offline session is *definitely expired*, i.e. it
+/// would also be cleaned up by `rebuild_offline_sessions`.
+///
+/// The semantics mirror `session_expiry_interval() <= 0`: the effective session expiry
+/// is the DISCONNECT property (when present) overriding the CONNECT-requested value (V5),
+/// then capped by the listener's `max_session_expiry_interval`. Since the listener config
+/// (`scx.listen_cfgs`) is not populated yet during load, the larger of the CONNECT/DISCONNECT
+/// values is used as a loose upper bound - a session is only treated as expired once the
+/// time since disconnect exceeds that bound, so a session still valid at rebuild time can
+/// never be removed prematurely.
+///
+/// Returns `false` (no pre-check, keep the original load behaviour and let the rebuild
+/// pass decide) for non-V5 connections, whose expiry is determined by the listener
+/// default, or when `last_time` is missing (corrupt data).
+#[inline]
+fn offline_session_is_expired(
+    basic: &Basic,
+    disconnect_info: Option<&DisconnectInfo>,
+    last_time: TimestampMillis,
+) -> bool {
+    // Session expiry requested in the V5 CONNECT (seconds); for V3 the expiry comes from
+    // the listener default, so no pre-check is possible.
+    let connect_secs = match basic.conn_info.as_ref() {
+        ConnectInfo::V5(_, connect) => connect.session_expiry_interval_secs as u64,
+        ConnectInfo::V3(_, _) => return false,
+    };
+    // A DISCONNECT property can override the CONNECT value; take the larger of the two as
+    // a loose upper bound (conservative, never removes a still-valid session).
+    let disconnect_secs = disconnect_info.and_then(|d| d.mqtt_disconnect.as_ref()).and_then(|d| match d {
+        Disconnect::V5(d) => d.session_expiry_interval_secs.map(|s| s as u64),
+        _ => None,
+    });
+    let expiry_upper_secs = disconnect_secs.unwrap_or(connect_secs).max(connect_secs);
+
+    // Disconnect instant: prefer the DISCONNECT record, fall back to last_time when missing
+    // (<=0), matching `session_expiry_interval()`.
+    let disconnected_at = disconnect_info.map(|d| d.disconnected_at).filter(|&t| t > 0).unwrap_or(last_time);
+    let elapsed_ms = timestamp_millis().saturating_sub(disconnected_at) as i64;
+    (expiry_upper_secs as i64 * 1000) - elapsed_ms <= 0
 }
 
 #[inline]
