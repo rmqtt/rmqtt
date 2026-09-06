@@ -18,6 +18,7 @@ use std::net::TcpStream;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use crate::broker::healthcheck::port_free_sync;
 use crate::framework::context::TestContext;
 use crate::framework::testcase::{TestCase, TestResult};
 use crate::tests::functional::cluster_session_restart::{rmqttd_binary, ClusterNode};
@@ -28,14 +29,15 @@ const AUTH_HTTP_ADDR: &str = "127.0.0.1:1892";
 const AUTH_JWT_ADDR: &str = "127.0.0.1:1893";
 const AUTH_NODE_START_TIMEOUT: Duration = Duration::from_secs(20);
 
-/// Spawn a self-managed broker for a named auth config (`auth-denied` /
-/// `auth-jwt-denied`). Returns the node handle; dropping it kills the
-/// broker. The default harness broker stays untouched on 1883.
-fn spawn_auth_broker(config_name: &str, addr: &str) -> Result<(ClusterNode, PathBuf), anyhow::Error> {
-    spawn_auth_broker_with_config(crate::tests::config_path(config_name), config_name, addr)
-}
-
-/// Spawn a self-managed broker from an explicit config directory.
+/// Spawn a self-managed broker from an explicit config FILE (the `rmqtt.toml`
+/// inside the prepared config directory).
+///
+/// NOTE: `-f` must point at the FILE, not the directory. rmqtt-conf loads the
+/// `-f` path with `File::with_name(..).required(false)`, so a directory (or
+/// any unreadable path) is SILENTLY skipped and the broker falls back to
+/// built-in defaults — http-api on 6060, gRPC on 5363, MQTT on 1883 — which
+/// then collides with the harness broker (WSAEADDRINUSE 10048) and the
+/// intended auth config never takes effect.
 fn spawn_auth_broker_with_config(
     config: PathBuf,
     label: &str,
@@ -48,12 +50,31 @@ fn spawn_auth_broker_with_config(
             binary
         ));
     }
+    if !config.is_file() {
+        return Err(anyhow::anyhow!(
+            "{label}: config path {:?} is not a file; `-f` must point at rmqtt.toml \
+             (a directory is silently ignored by the broker and defaults get used)",
+            config
+        ));
+    }
+    // Pre-flight check: fail fast when the MQTT port is already occupied by a
+    // residual broker / unrelated process, instead of burning the full start
+    // timeout on a broker that can never bind.
+    if !port_free_sync(addr) {
+        return Err(anyhow::anyhow!(
+            "{label}: MQTT address {addr} is already in use by another process; \
+             a residual broker may still be running"
+        ));
+    }
     let log_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("target");
     let log_file = log_dir.join(format!("{label}-node.log"));
     let mut node = ClusterNode::new(config, addr, log_file);
     node.spawn(&binary)?;
     if !node.wait_healthy(AUTH_NODE_START_TIMEOUT) {
-        return Err(anyhow::anyhow!("{label} broker did not become healthy"));
+        return Err(anyhow::anyhow!(
+            "{label} broker did not become healthy; log tail:\n{}",
+            node.log_tail(30).unwrap_or_else(|| "<log file unreadable>".into())
+        ));
     }
     Ok((node, binary))
 }
@@ -92,17 +113,39 @@ fn prepare_auth_config(mock_port: u16) -> anyhow::Result<PathBuf> {
     let content = std::fs::read_to_string(&plugin_cfg)?;
     let updated = content.replace("9099", &mock_port.to_string());
     std::fs::write(&plugin_cfg, updated)?;
-    // The main config's plugins.dir still points at the ORIGINAL config
-    // directory — rewrite it to the copy, otherwise the broker would load
-    // the untouched 9099 plugin config from the source tree.
+    // The main config's plugins.dir is a RELATIVE path (resolved against the
+    // broker process CWD). Rewrite it to the ABSOLUTE copy path so the broker
+    // always loads the rewritten plugin config regardless of where the
+    // harness was launched from.
     let main_cfg = dst.join("rmqtt.toml");
     let content = std::fs::read_to_string(&main_cfg)?;
-    let updated = content.replace(
-        "rmqtt-test/configs/auth-denied/plugins/",
-        &format!("target/auth-denied-{mock_port}/plugins/"),
-    );
+    let abs_plugins_dir = std::fs::canonicalize(dst.join("plugins"))?.to_string_lossy().replace('\\', "/"); // TOML-friendly separators on Windows too
+    let updated = content.replace("rmqtt-test/configs/auth-denied/plugins/", &format!("{abs_plugins_dir}/"));
     std::fs::write(&main_cfg, updated)?;
-    Ok(dst)
+    // Return the FILE, not the directory: `-f <dir>` is silently ignored by
+    // rmqtt-conf (required(false)) and the broker would run on defaults.
+    Ok(main_cfg)
+}
+
+/// Copy `configs/auth-jwt-denied/` into `target/auth-jwt-denied-<uid>/` with
+/// its `plugins.dir` rewritten to an absolute path (removes the broker-CWD
+/// dependence; no mock port to rewrite here).
+fn prepare_jwt_config() -> anyhow::Result<PathBuf> {
+    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("configs").join("auth-jwt-denied");
+    let uid = uuid::Uuid::new_v4().simple();
+    let dst = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("target")
+        .join(format!("auth-jwt-denied-{uid}"));
+    copy_dir_recursive(&src, &dst)?;
+    let main_cfg = dst.join("rmqtt.toml");
+    let content = std::fs::read_to_string(&main_cfg)?;
+    let abs_plugins_dir = std::fs::canonicalize(dst.join("plugins"))?.to_string_lossy().replace('\\', "/");
+    let updated =
+        content.replace("rmqtt-test/configs/auth-jwt-denied/plugins/", &format!("{abs_plugins_dir}/"));
+    std::fs::write(&main_cfg, updated)?;
+    // Return the FILE, not the directory (same reason as prepare_auth_config).
+    Ok(main_cfg)
 }
 
 /// Build a raw v3.1.1 CONNECT with optional username / password.
@@ -245,11 +288,18 @@ async fn spawn_mock_auth_server() -> anyhow::Result<(tokio::task::JoinHandle<()>
                             Err(_) => break,
                         }
                     }
-                    let full = String::from_utf8_lossy(&buf).into_owned();
                     let first_line = head.lines().next().unwrap_or("").to_string();
+                    // Parse form fields from the request BODY only. The
+                    // plugin serializes its params HashMap, so the field
+                    // order varies per broker process; when `username`
+                    // happens to be the first field it would otherwise be
+                    // glued to the HTTP head ("...\r\n\r\nusername") and
+                    // never match, turning the accepted user into a
+                    // spurious deny -> CONNACK 0x04.
+                    let body_only = String::from_utf8_lossy(&buf[head_end..]).into_owned();
                     // deny only auth requests whose username != "good"; ACL
                     // requests and accepted users are allowed
-                    let uname = form_param(&full, "username");
+                    let uname = form_param(&body_only, "username");
                     let response =
                         if !first_line.contains("/mqtt/acl") && uname != "good" { "deny" } else { "allow" };
                     // Diagnostic: surface what the mock actually saw, so a
@@ -366,7 +416,9 @@ impl TestCase for ConnackReturnCodesAuthHttpV311Test {
     }
 
     fn timeout(&self) -> Duration {
-        Duration::from_secs(20)
+        // Must exceed AUTH_NODE_START_TIMEOUT (20s) + mock probe + cleanup,
+        // otherwise the harness masks the real failure as "(timeout)".
+        Duration::from_secs(45)
     }
 }
 
@@ -388,7 +440,8 @@ impl TestCase for ConnackNotAuthorizedV311Test {
         let start = Instant::now();
 
         let verdict = (|| -> anyhow::Result<Option<u8>> {
-            let (_node, _binary) = spawn_auth_broker("auth-jwt-denied", AUTH_JWT_ADDR)?;
+            let config = prepare_jwt_config()?;
+            let (_node, _binary) = spawn_auth_broker_with_config(config, "auth-jwt-denied", AUTH_JWT_ADDR)?;
             // flags = clean (0x02) | user name (0x80) | password (0x40)
             let pkt = build_connect(0xC2, "rc-jwt", Some("anyone"), Some("not-a-valid-jwt"));
             connect_return_code(AUTH_JWT_ADDR, &pkt)
@@ -413,6 +466,8 @@ impl TestCase for ConnackNotAuthorizedV311Test {
     }
 
     fn timeout(&self) -> Duration {
-        Duration::from_secs(15)
+        // Must exceed AUTH_NODE_START_TIMEOUT (20s) + cleanup, otherwise the
+        // harness masks the real failure as "(timeout)".
+        Duration::from_secs(45)
     }
 }

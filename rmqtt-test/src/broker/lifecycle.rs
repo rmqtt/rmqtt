@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use tracing::{info, warn};
 
-use super::healthcheck::health_check_sync;
+use super::healthcheck::{health_check_sync, port_free_sync, wait_port_free_sync};
 
 /// Default broker TCP address
 const DEFAULT_BROKER_ADDR: &str = "127.0.0.1:1883";
@@ -83,6 +83,18 @@ impl BrokerProcess {
 
         info!("Starting broker: {:?}", self.binary_path);
 
+        // Pre-flight check: fail fast when the port is already occupied by a
+        // residual broker or any other process, instead of waiting the full
+        // health-check timeout for a broker that can never bind.
+        if !port_free_sync(&self.addr) {
+            return Err(anyhow::anyhow!(
+                "port {} is already in use by another process; a residual broker may \
+                 still be running (check: netstat -ano | findstr {})",
+                self.addr,
+                self.addr.rsplit(':').next().unwrap_or("?")
+            ));
+        }
+
         let mut cmd = std::process::Command::new(&self.binary_path);
         cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
 
@@ -132,6 +144,13 @@ impl BrokerProcess {
             info!("Stopping broker (PID: {:?})", child.id());
             let _ = child.kill();
             let _ = child.wait();
+            // The process is reaped, but on some platforms the listening
+            // socket can linger briefly; wait until the port is actually
+            // released before returning (a follow-up restart would otherwise
+            // race into WSAEADDRINUSE / EADDRINUSE).
+            if !wait_port_free_sync(&self.addr, Duration::from_secs(5)) {
+                warn!("port {} still in use 5s after broker stop", self.addr);
+            }
             info!("Broker stopped");
         }
         Ok(())
@@ -140,8 +159,6 @@ impl BrokerProcess {
     /// Restart the broker
     pub fn restart(&mut self) -> Result<(), anyhow::Error> {
         self.stop()?;
-        // Small delay to let ports free up
-        std::thread::sleep(Duration::from_millis(500));
         self.start()
     }
 
@@ -159,8 +176,6 @@ impl BrokerProcess {
     pub fn restart_with_config(&mut self, config: Option<PathBuf>) -> Result<(), anyhow::Error> {
         self.stop()?;
         self.config_path = config;
-        // Small delay to let ports free up
-        std::thread::sleep(Duration::from_millis(500));
         self.start()
     }
 
@@ -170,6 +185,11 @@ impl BrokerProcess {
             info!("Killing broker (PID: {:?})", child.id());
             let _ = child.kill();
             let _ = child.wait();
+            // Same rationale as `stop`: wait for the port to be released so a
+            // subsequent start (e.g. chaos restart) cannot race the teardown.
+            if !wait_port_free_sync(&self.addr, Duration::from_secs(5)) {
+                warn!("port {} still in use 5s after broker kill", self.addr);
+            }
         }
         Ok(())
     }

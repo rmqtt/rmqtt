@@ -276,6 +276,11 @@ fn connack_receive_max(connack: &[u8]) -> Option<u16> {
 /// Negative: a client that exceeds the broker's advertised Receive Maximum
 /// (more in-flight QoS 1 PUBLISHes than the broker allows without waiting for
 /// PUBACK) must be disconnected with reason 0x93. [MQTT-4.9.0-1 / MQTT-4.9.0-2]
+///
+/// Known broker defect (registered, see conformance-gap log): the broker
+/// accepts unbounded in-flight QoS 1 PUBLISHes without sending DISCONNECT
+/// 0x93 or closing the connection. Expected-fail until enforced; a pass
+/// surfaces as UNEXPECTED-PASS and should then be promoted.
 pub struct FlowControlV5ReceiveMaxViolationTest;
 
 impl TestCase for FlowControlV5ReceiveMaxViolationTest {
@@ -299,8 +304,12 @@ impl TestCase for FlowControlV5ReceiveMaxViolationTest {
                 let mut body: Vec<u8> = Vec::new();
                 body.extend_from_slice(&(topic.len() as u16).to_be_bytes());
                 body.extend_from_slice(topic);
-                body.push(0x00); // property length 0
+                // Wire order for QoS > 0: topic, THEN packet id, THEN
+                // properties. (A property byte before the packet id makes the
+                // packet malformed -> Malformed Packet close, which would let
+                // this test pass vacuously without exercising Receive Maximum.)
                 body.extend_from_slice(&pid.to_be_bytes()); // packet id
+                body.push(0x00); // property length 0
                 body.extend_from_slice(b"v"); // payload
 
                 let mut pkt = vec![0x32]; // PUBLISH QoS 1
@@ -370,6 +379,10 @@ impl TestCase for FlowControlV5ReceiveMaxViolationTest {
 
     fn timeout(&self) -> Duration {
         Duration::from_secs(20)
+    }
+
+    fn expectation(&self) -> crate::framework::testcase::Expectation {
+        crate::framework::testcase::Expectation::ExpectedFail
     }
 }
 

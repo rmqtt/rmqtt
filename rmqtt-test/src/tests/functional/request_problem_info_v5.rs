@@ -272,10 +272,15 @@ impl TestCase for RequestProblemInfoV5Test {
             }
 
             // 2) PUBLISH QoS 1 with no matching subscriber -> PUBACK (0x40)
+            // Wire order per MQTT 5.0 §3.3.2.1: Topic Name FIRST, then
+            // Packet Identifier (QoS > 0), then Properties, then Payload.
+            // (The previous version had these two swapped, which made the
+            // broker read the packet id as a topic length -> Malformed
+            // Packet -> the connection was closed without a PUBACK.)
             let mut pub_body: Vec<u8> = Vec::new();
-            pub_body.extend_from_slice(&[0x00, 0x02]); // packet id 2
             pub_body.extend_from_slice(&[0x00, 0x08]); // topic length
             pub_body.extend_from_slice(b"nosubs/t"); // 8 bytes, no subscriber
+            pub_body.extend_from_slice(&[0x00, 0x02]); // packet id 2
             pub_body.push(0x00); // property length 0
             pub_body.extend_from_slice(b"x"); // payload
             let mut pub_pkt = vec![0x32]; // PUBLISH QoS 1

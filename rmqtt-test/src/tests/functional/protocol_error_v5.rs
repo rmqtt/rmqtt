@@ -395,8 +395,10 @@ impl TestCase for ProtocolErrorV5PublishPacketIdZeroTest {
             let mut body: Vec<u8> = Vec::new();
             body.extend_from_slice(&(topic.len() as u16).to_be_bytes());
             body.extend_from_slice(topic);
-            body.push(0x00); // property length
+            // Wire order for QoS > 0: topic, THEN packet id, THEN properties,
+            // so the rejection really is the zero packet id [MQTT-2.2.1-2].
             body.extend_from_slice(&[0x00, 0x00]); // packet id 0 — illegal
+            body.push(0x00); // property length
             body.extend_from_slice(b"payload");
 
             let mut pkt = vec![0x32]; // PUBLISH QoS 1

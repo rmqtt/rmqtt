@@ -134,15 +134,48 @@ impl ClusterNode {
     }
 
     /// Block until the MQTT port accepts TCP connections.
-    pub(crate) fn wait_healthy(&self, timeout: Duration) -> bool {
+    ///
+    /// Fails FAST when the broker process exits before the port opens:
+    /// waiting the full timeout against a dead process only masks the real
+    /// cause (config/plugin errors), so the log tail is dumped immediately
+    /// instead. The same diagnostics are dumped when the timeout expires.
+    pub(crate) fn wait_healthy(&mut self, timeout: Duration) -> bool {
         let start = Instant::now();
         while start.elapsed() < timeout {
+            // Detect an early broker exit before probing the port.
+            if let Some(child) = self.child.as_mut() {
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        eprintln!(
+                            "[cluster-node] broker on {} exited early (status: {status}); log tail:\n{}",
+                            self.addr,
+                            self.log_tail(30).unwrap_or_else(|| "<log file unreadable>".into())
+                        );
+                        return false;
+                    }
+                    Ok(None) => {} // still running
+                    Err(e) => eprintln!("[cluster-node] try_wait failed: {e}"),
+                }
+            }
             if health_check_sync(&self.addr, Duration::from_secs(2)) {
                 return true;
             }
             std::thread::sleep(Duration::from_millis(200));
         }
+        eprintln!(
+            "[cluster-node] broker on {} not healthy after {timeout:?}; log tail:\n{}",
+            self.addr,
+            self.log_tail(30).unwrap_or_else(|| "<log file unreadable>".into())
+        );
         false
+    }
+
+    /// Read the last `lines` lines of the node's log file (for diagnostics).
+    pub(crate) fn log_tail(&self, lines: usize) -> Option<String> {
+        let content = std::fs::read_to_string(&self.log_file).ok()?;
+        let collected: Vec<&str> = content.lines().collect();
+        let start = collected.len().saturating_sub(lines);
+        Some(collected[start..].join("\n"))
     }
 
     pub(crate) fn kill(&mut self) {
