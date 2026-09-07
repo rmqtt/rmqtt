@@ -1,4 +1,4 @@
-FROM arm64v8/alpine:3.24.1
+FROM arm64v8/alpine:3.18.12
 LABEL maintainer="rmqtt <rmqttd@126.com>"
 
 RUN mkdir -p /app/rmqtt/rmqtt-bin
