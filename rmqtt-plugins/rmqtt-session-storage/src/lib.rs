@@ -17,6 +17,7 @@
 
 use anyhow::anyhow;
 use std::convert::From as _;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -414,13 +415,21 @@ impl Plugin for StoragePlugin {
         self.register
             .add(
                 Type::OfflineMessage,
-                Box::new(OfflineMessageHandler::new(self.cfg.clone(), self.storage_db.clone())),
+                Box::new(OfflineMessageHandler::new(
+                    self.scx.clone(),
+                    self.cfg.clone(),
+                    self.storage_db.clone(),
+                )),
             )
             .await;
         self.register
             .add(
                 Type::OfflineInflightMessages,
-                Box::new(OfflineMessageHandler::new(self.cfg.clone(), self.storage_db.clone())),
+                Box::new(OfflineMessageHandler::new(
+                    self.scx.clone(),
+                    self.cfg.clone(),
+                    self.storage_db.clone(),
+                )),
             )
             .await;
 
@@ -548,14 +557,55 @@ impl Plugin for StoragePlugin {
     }
 }
 
+/// Bounded executor used for offline-message persistence.
+///
+/// These writes were previously dispatched with a raw `tokio::spawn`: one
+/// detached task per routed message per offline session, each owning a cloned
+/// payload. Under sustained load they accumulate faster than the storage
+/// backend drains them and the process is OOM-killed, even though
+/// `push_limit` bounds what is actually stored. A bounded queue caps the
+/// backlog instead.
+const OFFLINE_STORAGE_EXEC: (&str, usize, usize) = ("SESSION_STORAGE_OFFLINE_EXEC", 8, 10_000);
+
+/// Number of offline-message persistence tasks discarded because the bounded
+/// queue was full.
+static OFFLINE_SAVE_DROPPED: AtomicU64 = AtomicU64::new(0);
+
 struct OfflineMessageHandler {
+    scx: ServerContext,
     cfg: Arc<PluginConfig>,
     storage_db: StorageDb,
 }
 
 impl OfflineMessageHandler {
-    fn new(cfg: Arc<PluginConfig>, storage_db: StorageDb) -> Self {
-        Self { cfg, storage_db }
+    fn new(scx: ServerContext, cfg: Arc<PluginConfig>, storage_db: StorageDb) -> Self {
+        Self { scx, cfg, storage_db }
+    }
+
+    /// Dispatches a persistence task onto the bounded queue.
+    ///
+    /// When the queue is full the task is discarded and counted rather than
+    /// spawned, which keeps the backlog bounded. Discarding is consistent with
+    /// the existing `push_limit` behaviour, which already drops once a
+    /// session's offline queue reaches `max_mqueue_len`; the alternative --
+    /// awaiting the write inline -- would stall the routing path for every
+    /// client, including connected ones.
+    async fn dispatch<F>(&self, fut: F)
+    where
+        F: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let exec = self.scx.get_exec(OFFLINE_STORAGE_EXEC);
+        if exec.try_spawn(fut).await.is_err() {
+            let dropped = OFFLINE_SAVE_DROPPED.fetch_add(1, Ordering::Relaxed) + 1;
+            if dropped % 1000 == 1 {
+                log::warn!(
+                    "offline message persistence queue is full, dropped {} save(s) in total, waiting_count: {}, active_count: {}",
+                    dropped,
+                    exec.waiting_count(),
+                    exec.active_count()
+                );
+            }
+        }
     }
 }
 
@@ -576,7 +626,7 @@ impl Handler for OfflineMessageHandler {
                 let max_mqueue_len = s.listen_cfg().max_mqueue_len;
                 let p = (*p).clone();
                 let f = f.clone();
-                tokio::spawn(async move {
+                self.dispatch(async move {
                     let offlines_list = storage_db.list(list_stored_key.as_ref(), None).await;
                     let res = offlines_list
                         .push_limit::<OfflineMessageOptionType>(
@@ -588,7 +638,8 @@ impl Handler for OfflineMessageHandler {
                     if let Err(e) = res {
                         log::warn!("{id:?} save offline messages error, {e}")
                     }
-                });
+                })
+                .await;
             }
 
             Parameter::OfflineInflightMessages(s, inflight_messages) => {
@@ -603,12 +654,13 @@ impl Handler for OfflineMessageHandler {
                 let storage_db = self.storage_db.clone();
                 let inflight_messages = inflight_messages.clone();
                 let id = s.id.clone();
-                tokio::spawn(async move {
+                self.dispatch(async move {
                     let m = storage_db.map(map_stored_key.as_ref(), None).await;
                     if let Err(e) = m.insert(INFLIGHT_MESSAGES, &inflight_messages).await {
                         log::warn!("{id:?} save offline inflight messages error, {e}")
                     }
-                });
+                })
+                .await;
             }
 
             _ => {
