@@ -44,7 +44,9 @@ disconnect_if_pub_rejected = true
 ## Default: false
 disconnect_if_expiry = false
 
-##Return 'Deny' if http request error otherwise 'Ignore'
+## 仅当 HTTP 请求本身失败（传输层错误：连接拒绝、超时、DNS/TLS 失败）时返回 'Deny'，
+## 否则返回 'Ignore'。非 2xx 状态码响应（404/500/502 等）不属于请求错误，
+## 始终判定为 'Ignore' 并继续执行认证链。
 ##
 ## Value: true | false
 ## Default: true
@@ -111,6 +113,13 @@ http_acl_req.params = { access = "%A", username = "%u", clientid = "%c", ipaddr 
   - API HTTP 请求失败，且deny_if_error配置等于:false, 判定结果为:ignore, 继续执行认证链。
 - 超级用户：
   - 认证成功 且 响应头返回“X-Superuser: true”, 超级用户将跳过ACL授权。
+
+> **警告**<br>
+> 判定为 'ignore' 时，最终结果由认证链中其余插件决定。内置 rmqtt-acl 插件默认规则以
+> ["allow", "all"] 结尾，其省略的动作列表示**包含 CONNECT 在内的所有操作**，因此被判定为
+> 'ignore' 的连接会被该规则显式放行（即使 `allow_anonymous = false`）。启用自定义认证插件
+> （rmqtt-auth-http、rmqtt-auth-jwt 等）时，请将 rmqtt-acl.toml 中的 ["allow", "all"]
+> 注释掉并启用 ["deny", "all"]，以获得 fail-closed（失败即拒绝）行为。详见 docs/zh_CN/acl.md。
   
 响应示例：
 ```

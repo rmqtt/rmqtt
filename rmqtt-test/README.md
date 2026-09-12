@@ -109,6 +109,8 @@ configs/
   cluster-broadcast-sled-stress/  # same, isolated sled path (stress test only)
   cluster-raft-sled/        # three-node raft cluster (1888/1889/1890 MQTT, 6008-6010 raft)
   cluster-raft-sled-stress/ # same, isolated sled path (stress test only)
+  auth-http-acl-fallthrough/ # issue #501: auth-http 404-ignore × rmqtt-acl final rule
+                             # (self-managed 1896 allow-all / 1900 deny-all, ephemeral mock)
 ```
 
 **Per-test config switching**: a test case can declare its required config via
@@ -146,7 +148,7 @@ and boundary scenarios:
 > The v3.1 client hand-builds the MQIsdp CONNECT bytes (`build_connect_bytes`)
 > because the codec hard-codes protocol level 4 (correct for 3.1.1/5.0).
 
-### `functional_v311` (108 cases) — MQTT 3.1.1
+### `functional_v311` (110 cases) — MQTT 3.1.1
 
 | Category | Cases |
 |----------|-------|
@@ -163,6 +165,7 @@ and boundary scenarios:
 | Multi-topic | `multi_topic_subscribe_v311` / `overlapping_subscriptions` / `message_ordering` |
 | Protocol errors | `invalid_protocol_version` / `protocol_error_v311_*` (subscribe/unsubscribe: qos3, qos0 fixed header, empty payload/filter, packet id 0; publish: qos3, pid0, empty topic, packet id on QoS0; bad remaining length, declared length mismatch, truncated packet, reserved packet type, packet type 15, pubrel/pubrec/pubcomp wrong flags, unsolicited pubrel, connect payload order, invalid UTF-8 topic) / `remaining_length_transition_v311` |
 | CONNACK return codes (self-managed brokers) | `connack_return_codes_auth_http_v311` (auth-http + in-test mock, port 1892) / `connack_not_authorized_v311` (auth-jwt, port 1893) — these cases spawn their own brokers and don't use the harness broker |
+| Issue #501 auth × ACL fallthrough (self-managed brokers) | `auth_http_ignore_allow_all_acl_v311` (auth service replies 404 → auth 'ignore'; acl `["allow", "all"]` promotes it → CONNACK 0x00 fail-open reproduction, port 1896) / `auth_http_ignore_deny_all_acl_v311` (acl `["deny", "all"]` backstop → CONNACK 0x05 fail-closed, port 1900) |
 
 ### `functional_v5` (99 cases) — MQTT 5.0
 
@@ -311,6 +314,9 @@ rmqtt-test/
     cluster-broadcast-sled-stress/ #  same, isolated sled path for the stress test
     cluster-raft-sled/           #   3-node raft cluster (1888/1889/1890 MQTT, 5368-5370 gRPC, 6008-6010 raft)
     cluster-raft-sled-stress/    #   same, isolated sled path for the stress test
+    auth-http-acl-fallthrough/   #   issue #501 repro: auth-http (ephemeral mock, always 404) +
+                                 #   rmqtt-acl; self-managed brokers on 1896/5376 (allow-all)
+                                 #   and 1900/5377 (deny-all)
 ```
 
 > **Test isolation note**: all tests that publish retained messages delete them

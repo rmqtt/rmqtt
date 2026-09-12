@@ -65,7 +65,17 @@ impl PluginConfig {
                 ["allow", { user = "dashboard" }, "subscribe", ["$SYS/#"]],
                 ["allow", { ipaddr = "127.0.0.1" }, "pubsub", ["$SYS/#", "#"]],
                 ["deny", "all", "subscribe", ["$SYS/#", { eq = "#" }]],
+                # The rule below OMITS the action column, which resolves to ALL
+                # operations, INCLUDING CONNECT. This plugin also hooks
+                # ClientAuthenticate: with this rule every connection is
+                # explicitly allowed, unless an earlier auth plugin already
+                # returned 'deny'. A connection that a custom auth plugin
+                # (rmqtt-auth-http, rmqtt-auth-jwt, ...) decided to 'ignore' is
+                # allowed here too, EVEN when allow_anonymous = false. If you
+                # enable a custom auth plugin, comment out ["allow", "all"] and
+                # enable ["deny", "all"] for fail-closed behavior.
                 ["allow", "all"]
+                #["deny", "all"]
         ]"###;
 
         let josn_rules = match toml::from_str::<serde_json::Value>(rules) {

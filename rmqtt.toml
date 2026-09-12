@@ -67,6 +67,14 @@ log.file = "rmqtt.log"
 #Plug in configuration file directory
 plugins.dir = "rmqtt-plugins/"
 #Plug in started by default, when the mqtt server is started
+#NOTE: rmqtt-acl (built-in, always enabled unless listed in
+#plugins.disabled_default_startups) ships a default ["allow", "all"] rule whose
+#omitted action column resolves to ALL operations including CONNECT. Connections
+#that custom auth plugins (rmqtt-auth-http, rmqtt-auth-jwt, ...) decided to
+#'ignore' are explicitly allowed by that rule, even with allow_anonymous = false.
+#When enabling a custom auth plugin, adjust the rmqtt-acl rules: comment out
+#["allow", "all"] and enable ["deny", "all"] for fail-closed behavior.
+#See rmqtt-plugins/rmqtt-acl.toml and docs/en_US/acl.md.
 plugins.default_startups = [
     #"rmqtt-plugin-template",
     "rmqtt-retainer",

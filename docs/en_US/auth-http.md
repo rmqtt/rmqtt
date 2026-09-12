@@ -43,7 +43,10 @@ disconnect_if_pub_rejected = true
 ## Default: false
 disconnect_if_expiry = false
 
-##Return 'Deny' if http request error otherwise 'Ignore'
+## Return 'Deny' if the HTTP request itself fails (transport-layer errors:
+## connection refused, timeout, DNS or TLS failure), otherwise 'Ignore'.
+## Non-2xx status responses (404/500/502, ...) are not request errors; they
+## always yield 'Ignore' and the auth chain continues.
 ##
 ## Value: true | false
 ## Default: true
@@ -299,7 +302,9 @@ http_headers.Connection = "keep-alive"
 # If publishing a message is rejected, the connection will be disconnected.
 disconnect_if_pub_rejected = true
 
-# If the HTTP request encounters an error, return "deny"; otherwise, return "ignore".
+# If the HTTP request itself fails (connection refused, timeout, DNS/TLS error),
+# return "deny"; otherwise, return "ignore". Non-2xx status responses
+# (404/500/502, ...) are not request errors; they always yield "ignore".
 deny_if_error = true
 
 ```

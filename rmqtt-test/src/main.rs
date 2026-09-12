@@ -376,6 +376,7 @@ fn build_functional_v3_suite() -> TestSuite {
 }
 
 fn build_functional_v311_suite() -> TestSuite {
+    use tests::functional::auth_http_acl_fallthrough_v311::*;
     use tests::functional::auth_v311::*;
     use tests::functional::boundary::*;
     use tests::functional::connack_return_codes_v311::*;
@@ -516,6 +517,12 @@ fn build_functional_v311_suite() -> TestSuite {
     // sub-suites by broker_config())
     suite.add(ConnackReturnCodesAuthHttpV311Test);
     suite.add(ConnackNotAuthorizedV311Test);
+    // Issue #501: the fate of connections a custom auth plugin leaves as
+    // 'ignore' (non-2xx auth response) is decided by the rmqtt-acl FINAL
+    // rule — self-managed brokers on 1896 (allow-all → CONNACK 0x00
+    // fail-open reproduction) / 1900 (deny-all → CONNACK 0x05 fail-closed).
+    suite.add(AuthHttpIgnoreAllowAllAclV311Test);
+    suite.add(AuthHttpIgnoreDenyAllAclV311Test);
     // G14 concurrent session takeover
     suite.add(SessionV311TakeoverTest);
     // G15 empty topic levels

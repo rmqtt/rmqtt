@@ -1,6 +1,7 @@
 //! Functional tests module
 
 pub mod assigned_clientid_v5;
+pub mod auth_http_acl_fallthrough_v311;
 pub mod auth_v311;
 pub mod boundary;
 pub mod boundary_v3;

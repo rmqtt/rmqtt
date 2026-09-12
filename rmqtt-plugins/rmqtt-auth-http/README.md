@@ -10,7 +10,7 @@ HTTP authentication plugin for RMQTT. Delegates client authentication and ACL ch
 
 Sends HTTP requests (POST/GET/PUT) to configurable endpoints with client credentials. The HTTP response determines whether the client is allowed to connect, publish, or subscribe. Supports variable substitution in request parameters.
 
-- **Authentication**: When a client connects, the plugin sends an HTTP request to `http_auth_req.url` with the client's credentials. A successful response (2xx) allows the connection; any other response denies it.
+- **Authentication**: When a client connects, the plugin sends an HTTP request to `http_auth_req.url` with the client's credentials. The **2xx response body** decides the result: `allow`, `deny`, or `ignore` (plain text), or a JSON document with a `result` field. A **non-2xx** status code (404/500/502, ...) is treated as `ignore` — the auth chain continues. If the request itself fails (connection refused, timeout, DNS/TLS error), `deny_if_error = true` turns it into a `deny`.
 - **ACL check**: When a client publishes or subscribes, the plugin sends an HTTP request to `http_acl_req.url` with the access details. The response determines whether the operation is allowed.
 
 ## Usage
@@ -40,7 +40,7 @@ File: `rmqtt-auth-http.toml`
 | `http_headers.Connection` | String | `"keep-alive"` | Connection header |
 | `disconnect_if_pub_rejected` | Boolean | `true` | Disconnect client if publish is rejected |
 | `disconnect_if_expiry` | Boolean | `false` | Disconnect client after expiry |
-| `deny_if_error` | Boolean | `true` | Return 'Deny' on HTTP error; if false, return 'Ignore' |
+| `deny_if_error` | Boolean | `true` | Return 'Deny' when the HTTP request itself fails (transport-layer errors: connection refused, timeout, DNS/TLS failure). Non-2xx status responses (404/500/502, ...) always yield 'Ignore'. If `false`, transport errors also yield 'Ignore' |
 | `http_auth_req.url` | String | `"http://127.0.0.1:9090/mqtt/auth"` | Authentication request URL |
 | `http_auth_req.method` | String | `"post"` | HTTP method: `post`, `get`, or `put` |
 | `http_auth_req.headers` | Table | `{ content-type = "application/x-www-form-urlencoded" }` | Request headers (supports `application/json`) |
@@ -76,16 +76,20 @@ For `http_acl_req.params`:
 
 1. Client connects with credentials
 2. Plugin sends HTTP request to `http_auth_req.url` with `http_auth_req.params` and `http_auth_req.headers`
-3. If HTTP response is 2xx → authentication success; otherwise → authentication failure
-4. On failure: client is denied connection
-5. On error with `deny_if_error = true`: client is denied connection; with `deny_if_error = false`: the auth result is ignored (client proceeds with default auth rules)
+3. **2xx response**: the body decides — `allow` (connection accepted), `deny` (connection rejected), or `ignore` (the auth chain continues). For JSON responses the `result` field decides
+4. **Non-2xx response** (404/500/502, ...): treated as `ignore`; the auth chain continues, **regardless of `deny_if_error`**
+5. **Request-level failure** (connection refused, timeout, DNS/TLS error): `deny_if_error = true` denies the connection; `deny_if_error = false` yields `ignore` (the auth chain continues)
+
+> **Warning**: an `ignore` result leaves the final decision to the remaining plugins in the auth chain. The built-in rmqtt-acl plugin ships a default `["allow", "all"]` rule whose omitted action column resolves to **all operations including CONNECT**, so such connections are explicitly allowed by that rule — even with `allow_anonymous = false`. When enabling a custom auth plugin, comment out `["allow", "all"]` and enable `["deny", "all"]` in `rmqtt-acl.toml` for fail-closed behavior (see the rmqtt-acl README).
 
 ### ACL Flow
 
 1. Client attempts to publish or subscribe
 2. Plugin sends HTTP request to `http_acl_req.url` with `http_acl_req.params`
-3. If HTTP response is 2xx → operation allowed; otherwise → operation denied
-4. If `disconnect_if_pub_rejected = true`, a denied publish causes client disconnection
+3. **2xx response**: the body decides — `allow`, `deny`, or `ignore` (the ACL chain continues). For JSON responses the `result` field decides
+4. **Non-2xx response**: treated as `ignore`; the ACL chain continues, regardless of `deny_if_error`
+5. **Request-level failure**: `deny_if_error = true` denies the operation; `deny_if_error = false` yields `ignore`
+6. If `disconnect_if_pub_rejected = true`, a denied publish causes client disconnection
 
 ## Example Configuration
 
