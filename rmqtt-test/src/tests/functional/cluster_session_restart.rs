@@ -170,6 +170,12 @@ impl ClusterNode {
         false
     }
 
+    /// Process id of the running broker (for /proc-based inspection, e.g.
+    /// memory sampling in `session_storage_offline_spawn_bounded`).
+    pub(crate) fn pid(&self) -> Option<u32> {
+        self.child.as_ref().map(|c| c.id())
+    }
+
     /// Read the last `lines` lines of the node's log file (for diagnostics).
     pub(crate) fn log_tail(&self, lines: usize) -> Option<String> {
         let content = std::fs::read_to_string(&self.log_file).ok()?;
