@@ -33,7 +33,14 @@ pub struct PluginConfig {
     #[serde(default = "PluginConfig::priority_default")]
     pub priority: Priority,
 
-    ///#Return 'Deny' if http request error otherwise 'Ignore'
+    /// Return 'Deny' if the HTTP request itself fails (transport-layer errors:
+    /// connection refused, timeout, DNS/TLS failure), otherwise 'Ignore'.
+    ///
+    /// Non-2xx HTTP status responses (404/500/502, ...) are NOT treated as
+    /// request errors: they always yield 'Ignore' and the auth chain continues,
+    /// regardless of this option. Note that an 'Ignore' result may still end up
+    /// allowed by later plugins — the default rmqtt-acl rules end with
+    /// ["allow", "all"], whose omitted action column covers CONNECT.
     #[serde(default = "PluginConfig::deny_if_error_default")]
     pub deny_if_error: bool,
 

@@ -38,7 +38,7 @@ const AUTH_NODE_START_TIMEOUT: Duration = Duration::from_secs(20);
 /// built-in defaults — http-api on 6060, gRPC on 5363, MQTT on 1883 — which
 /// then collides with the harness broker (WSAEADDRINUSE 10048) and the
 /// intended auth config never takes effect.
-fn spawn_auth_broker_with_config(
+pub(crate) fn spawn_auth_broker_with_config(
     config: PathBuf,
     label: &str,
     addr: &str,
@@ -80,7 +80,7 @@ fn spawn_auth_broker_with_config(
 }
 
 /// Recursively copy a directory tree.
-fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+pub(crate) fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dst)?;
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
@@ -151,7 +151,7 @@ fn prepare_jwt_config() -> anyhow::Result<PathBuf> {
 /// Build a raw v3.1.1 CONNECT with optional username / password.
 /// Connect flags: clean session (0x02) | user name flag (0x80) |
 /// password flag (0x40), as passed by the caller.
-fn build_connect(
+pub(crate) fn build_connect(
     connect_flags: u8,
     client_id: &str,
     username: Option<&str>,
@@ -196,7 +196,7 @@ fn build_connect(
 
 /// Send a raw CONNECT and return the CONNACK return code, or `None` when the
 /// broker closed the connection without a CONNACK.
-fn connect_return_code(broker_addr: &str, packet: &[u8]) -> anyhow::Result<Option<u8>> {
+pub(crate) fn connect_return_code(broker_addr: &str, packet: &[u8]) -> anyhow::Result<Option<u8>> {
     let mut stream = TcpStream::connect(broker_addr)?;
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     stream.write_all(packet)?;
