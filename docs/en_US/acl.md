@@ -23,10 +23,41 @@ plugins/rmqtt-acl.toml
 <font style="color:#435364;font-size:1.1em;">
 The built-in ACL has the lowest priority and can be overridden by the ACL plugin. If you want to disable it, you
 can comment on all the rules. After the rules file is changed, RMQTT Broker needs to be restarted to make them take
-effect.
+effect. The plugin itself cannot be stopped through the plugin API (it is built in); to disable it entirely, list it
+in `plugins.disabled_default_startups`.
 </font>
 </div>
 
+
+## The ACL plugin in the authentication chain
+
+`rmqtt-acl` is not limited to publish/subscribe authorization: it also hooks
+`ClientAuthenticate`, so its rules take part in the CONNECT phase. Together
+with the authentication plugins it forms a priority-ordered chain — the
+authentication plugins (e.g. `rmqtt-auth-http`, default priority 100) run
+first, and this plugin (default priority 10) is the terminal member:
+
+- a matching `allow` rule explicitly allows the connection (the chain stops);
+- a matching `deny` rule rejects it (`NotAuthorized`);
+- if no rule matches at all, the connection is also rejected
+  (`NotAuthorized`).
+
+An authentication plugin that cannot make a decision yields `ignore`, and the
+chain — i.e. the rules below — then decides. Beware that the default final
+rule `["allow", "all"]` omits the action column, which resolves to **all
+operations including CONNECT**: connections left as `ignore` are explicitly
+allowed by that rule, even when `allow_anonymous = false`.
+
+> **Fail-closed hardening:** when you enable a custom authentication plugin,
+> comment out `["allow", "all"]` and enable `["deny", "all"]` as the final
+> rule, so only clients explicitly allowed by your authentication can connect.
+> The same note is documented from the auth side in the `rmqtt-auth-http` /
+> `rmqtt-auth-jwt` docs.
+
+ACL rules carried in authentication plugin responses (the `acl` field of an
+`rmqtt-auth-http` JSON response or an `rmqtt-auth-jwt` token) are evaluated by
+those plugins first; the file rules of this plugin only apply when those rules
+do not produce a decision.
 
 
 ## Define ACL
@@ -45,7 +76,24 @@ rules = [
     # Deny "All Users" subscribe to "$SYS/#" "#" Topics
     ["deny", "all", "subscribe", ["$SYS/#", { eq = "#" }]],
     # Allow any other clients connect and publish/subscribe operations
+    #
+    # NOTE: ["allow", "all"] and ["deny", "all"] are mutually exclusive final
+    # rules — keep exactly ONE of them enabled, according to your deployment
+    # (see the table below):
+    #
+    # * ["allow", "all"] — the action column is omitted, which resolves to ALL
+    #   operations INCLUDING CONNECT. Use this for standalone deployments
+    #   WITHOUT a custom authentication plugin: every client may connect, and
+    #   publish/subscribe is allowed unless restricted by the rules above.
+    #
+    # * ["deny", "all"] — use this when a custom authentication plugin
+    #   (rmqtt-auth-http, rmqtt-auth-jwt, ...) is enabled (fail-closed): only
+    #   clients explicitly allowed by the authentication can connect, and
+    #   publish/subscribe must be authorized by the ACL data the auth plugin
+    #   returns (or the allow rules above). Connections the auth plugin leaves
+    #   undecided ('ignore', e.g. a 404/500 from the auth service) are rejected.
     ["allow", "all"]
+    #["deny", "all"]
 ]
 ```
 
@@ -53,11 +101,25 @@ rules = [
    special case for the third rule
 2. The second rule allows clients with IP address `127.0.0.1` to publish / subscribe to the
    topics ` $SYS/# ` or `#`, which makes a special case for the third rule
-4. The third rule prohibits all clients from subscribing to the topics `$SYS/#` and `#`
-5. The fourth rule allows clients to connect and publish/subscribe to all topics
+3. The third rule prohibits all clients from subscribing to the topics `$SYS/#` and `#`
+4. The fourth rule allows clients to connect and publish/subscribe to all topics
 
 It can be seen that the default ACL is mainly to restrict the client's permissions on the system topic `$SYS/#` and the
 all wildcard topic `#`.
+
+### `["allow", "all"]` vs `["deny", "all"]` — which one to use
+
+The two special final rules are mutually exclusive: keep exactly one of them enabled, according to your deployment.
+
+| Final rule | When to use | Effect |
+|------------|-------------|--------|
+| `["allow", "all"]` (default) | Standalone deployments **without** a custom authentication plugin | Every client may connect; publish/subscribe is allowed unless restricted by the earlier rules |
+| `["deny", "all"]` | A custom authentication plugin (`rmqtt-auth-http`, `rmqtt-auth-jwt`, ...) is **enabled** | Fail-closed: only clients explicitly allowed by the authentication can connect, and publish/subscribe must be authorized by the ACL data the auth plugin returns (or the allow rules above). Connections the auth plugin leaves undecided (`ignore`, e.g. a 404/500 from the auth service) are rejected |
+
+Note that `["allow", "all"]` also covers CONNECT (the omitted action column
+resolves to all operations), which is why it can promote an auth plugin's
+`ignore` into a successful connection — see
+["The ACL plugin in the authentication chain"](#the-acl-plugin-in-the-authentication-chain) above.
 
 ## rmqtt-acl.toml Writing rules
 
@@ -95,6 +157,15 @@ The rules in the `rmqtt-acl.toml` file are matched from top to bottom in writing
 - In addition, there are two special rules:
     - `{allow, all}`: Allow all operations
     - `{deny, all}`: Deny all operations
+
+Rule matching details:
+
+- Rules are evaluated top to bottom. A rule takes effect only when **both** the
+  user condition and the topic condition match; if the user condition matches
+  but no topic does, evaluation continues with the next rule. (Rules that apply
+  to CONNECT have no topic condition, so the user condition alone decides.)
+- `password` is only compared for `allow` rules. A `deny` rule matches by
+  username only and ignores any configured `password`.
 
 After the `rmqtt-acl.toml` modification is completed, it will not be automatically loaded into the RMQTT Broker system,
 but needs to be performed manually:

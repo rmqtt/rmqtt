@@ -6,6 +6,8 @@
 
 JWT authentication plugin for RMQTT. Validates JSON Web Tokens for client authentication.
 
+> **Note — authentication chain and ACL interaction:** This plugin participates in RMQTT's priority-ordered authentication chain and does not change or override ACL behavior. When it cannot make a decision, it yields `ignore` and the chain continues with the next plugin. The built-in `rmqtt-acl` plugin is the terminal chain member, and its default final rule `["allow", "all"]` resolves to ALL operations including CONNECT — it explicitly allows connections left as `ignore`, even with `allow_anonymous = false`. If you enable this (or any custom) authentication plugin, configure your ACL rules accordingly: comment out `["allow", "all"]` and enable `["deny", "all"]` in `rmqtt-acl.toml` so only clients explicitly allowed by your authentication can connect (fail-closed). See the `rmqtt-acl` README for details.
+
 ## Overview
 
 Validates JWT tokens extracted from the client's password or username field. Supports HMAC-based (HS256/HS384/HS512) and public-key (RS256/RS384/RS512, ES256/ES384/ES512) encryption. Provides claim validation including `exp`, `nbf`, `sub`, `iss`, `aud`, and extended custom claims.

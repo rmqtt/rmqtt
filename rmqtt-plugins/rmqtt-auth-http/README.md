@@ -6,6 +6,8 @@
 
 HTTP authentication plugin for RMQTT. Delegates client authentication and ACL checks to an external HTTP API.
 
+> **Note — authentication chain and ACL interaction:** This plugin participates in RMQTT's priority-ordered authentication chain and does not change or override ACL behavior. When it cannot make a decision (for example, the auth service returns a non-2xx status such as 404/500), it yields `ignore` and the chain continues with the next plugin. The built-in `rmqtt-acl` plugin is the terminal chain member, and its default final rule `["allow", "all"]` resolves to ALL operations including CONNECT — it explicitly allows connections left as `ignore`, even with `allow_anonymous = false`. If you enable this (or any custom) authentication plugin, configure your ACL rules accordingly: comment out `["allow", "all"]` and enable `["deny", "all"]` in `rmqtt-acl.toml` so only clients explicitly allowed by your authentication can connect (fail-closed). See the `rmqtt-acl` README for details.
+
 ## Overview
 
 Sends HTTP requests (POST/GET/PUT) to configurable endpoints with client credentials. The HTTP response determines whether the client is allowed to connect, publish, or subscribe. Supports variable substitution in request parameters.

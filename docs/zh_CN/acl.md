@@ -19,9 +19,24 @@ plugins/rmqtt-acl.toml
 <div style="width:100%;padding:15px;border-left:10px solid #1cc68b;background-color: #d1e3dd; color: #00b173;">
 <div style="font-size:1.3em;">提示<br></div>
 <font style="color:#435364;font-size:1.1em;">
-内置 ACL 优先级最低，可以被 其它ACL 插件覆盖，如需禁用全部注释即可。规则文件更改后需重启 RMQTT服务 以应用生效。
+内置 ACL 优先级最低，可以被 其它ACL 插件覆盖，如需禁用全部注释即可。规则文件更改后需重启 RMQTT服务 以应用生效。插件本身无法通过插件 API 停止（内置插件）；如需整体禁用，请将其加入 `plugins.disabled_default_startups`。
 </font>
 </div>
+
+
+## 认证链中的 ACL 插件
+
+`rmqtt-acl` 并不仅限于发布/订阅授权：它同时注册了 `ClientAuthenticate`，其规则会参与 CONNECT 阶段。它与认证插件共同构成一条按优先级排序的认证链——认证插件（如 `rmqtt-auth-http`，默认 priority=100）先执行，本插件（默认 priority=10）是链的末端成员：
+
+- 命中 `allow` 规则 → 显式放行连接（认证链终止）；
+- 命中 `deny` 规则 → 拒绝连接（`NotAuthorized`）；
+- 无任何规则命中 → 同样拒绝连接（`NotAuthorized`）。
+
+认证插件无法做出判定时将判定为 `ignore`，随后由认证链——也就是下面的规则——决定结果。注意默认末条规则 `["allow", "all"]` 省略了动作列，表示**包含 CONNECT 在内的所有操作**：被判定为 `ignore` 的连接会被该规则显式放行，即使 `allow_anonymous = false` 也是如此。
+
+> **Fail-closed 加固：** 启用自定义认证插件时，请将 `["allow", "all"]` 注释掉并以 `["deny", "all"]` 作为末条规则，使只有被认证显式允许的客户端才能连接。认证侧的同一说明见 `rmqtt-auth-http` / `rmqtt-auth-jwt` 文档。
+
+认证插件响应中携带的 ACL 规则（`rmqtt-auth-http` JSON 响应的 `acl` 字段、或 `rmqtt-auth-jwt` 令牌中的 `acl` 声明）会先由这些插件自身评估；仅当这些规则未产生判定时，才会应用本插件的文件规则。
 
 
 ## 定义 ACL
@@ -42,7 +57,21 @@ rules = [
     ["deny", "all", "subscribe", ["$SYS/#", { eq = "#" }]],
     
     # 允许其它任意客户端连接以及发布/订阅操作
+    #
+    # 注意：["allow", "all"] 与 ["deny", "all"] 是互斥的末条规则——
+    # 请根据部署方式保留其中一条（选择依据见下表）：
+    #
+    # * ["allow", "all"]——动作列省略，表示包含 CONNECT 在内的所有操作。
+    #   适用于未启用自定义认证插件的独立部署：所有客户端均可连接，
+    #   发布/订阅除被上方规则限制外默认允许。
+    #
+    # * ["deny", "all"]——启用自定义认证插件（rmqtt-auth-http、
+    #   rmqtt-auth-jwt 等）时使用（fail-closed）：只有被认证显式允许的
+    #   客户端才能连接；发布/订阅必须由认证插件返回的 ACL 数据（或上方
+    #   的 allow 规则）授权。认证插件未做出判定的连接（'ignore'，例如
+    #   认证服务返回 404/500）将被拒绝。
     ["allow", "all"]
+    #["deny", "all"]
 ]
 ```
 
@@ -52,6 +81,17 @@ rules = [
 4. 第四条规则允许全部客户端连接,发布/订阅所有主题
 
 可知，默认的 ACL 主要是为了限制客户端对系统主题 `$SYS/#` 和全通配主题 `#` 的权限。
+
+### `["allow", "all"]` 与 `["deny", "all"]` —— 如何选择
+
+两条特殊的末条规则互斥：请根据部署方式保留其中一条。
+
+| 末条规则 | 适用场景 | 效果 |
+|----------|----------|------|
+| `["allow", "all"]`（默认） | **未启用**自定义认证插件的独立部署 | 所有客户端均可连接；发布/订阅除被上方规则限制外默认允许 |
+| `["deny", "all"]` | **启用**了自定义认证插件（`rmqtt-auth-http`、`rmqtt-auth-jwt` 等） | fail-closed：只有被认证显式允许的客户端才能连接；发布/订阅必须由认证插件返回的 ACL 数据（或上方的 allow 规则）授权。认证插件未做出判定的连接（`ignore`，例如认证服务返回 404/500）将被拒绝 |
+
+注意 `["allow", "all"]` 同样覆盖 CONNECT（动作列省略表示所有操作），因此它可能把认证插件的 `ignore` 放大为连接成功——参见上文[“认证链中的 ACL 插件”](#认证链中的-acl-插件)。
 
 ## rmqtt-acl.toml 编写规则
 
@@ -87,6 +127,11 @@ rules = [
 - 除此之外还存在两条特殊的规则：
     - `{allow, all}`：允许所有操作
     - `{deny, all}`：拒绝所有操作
+
+规则匹配细节：
+
+- 规则按书写顺序自上而下评估。一条规则仅在**用户条件与主题条件同时命中**时才生效；若用户条件命中但主题条件未命中，则继续评估下一条规则。（作用于 CONNECT 的规则没有主题条件，仅由用户条件决定。）
+- `password` 仅在 `allow` 规则中参与比对。`deny` 规则只按用户名匹配，会忽略已配置的 `password`。
 
 在 `rmqtt-acl.toml` 修改完成后，并不会自动加载至 RMQTT 系统。需要手动执行：
 
