@@ -1,0 +1,33 @@
+##--------------------------------------------------------------------
+## rmqtt-auth-http (auth-http-acl-fallthrough tests, issue #501)
+##--------------------------------------------------------------------
+
+http_timeout = "5s"
+http_headers.accept = "*/*"
+http_headers.Cache-Control = "no-cache"
+http_headers.User-Agent = "RMQTT/0.15.0"
+http_headers.Connection = "keep-alive"
+
+## Return 'Deny' if the HTTP request itself fails (transport-layer errors such
+## as connection refused, timeout, DNS or TLS failure), otherwise 'Ignore'.
+##
+## NOTE: a non-2xx status code (404/500/502, ...) is NOT a request error: the
+## mock auth server in these tests replies 404 on purpose, and the plugin
+## yields 'ignore' (the auth chain continues) REGARDLESS of this option.
+deny_if_error = true
+
+## Authentication request.
+##
+## The URL port (9099) is rewritten by the test to an ephemeral mock port
+## before the broker starts. The mock ALWAYS replies HTTP 404 with an empty
+## body — exactly the failure mode reported in issue #501 (misconfigured
+## route / reverse-proxy error page).
+http_auth_req.url = "http://127.0.0.1:9099/mqtt/auth"
+http_auth_req.method = "post"
+http_auth_req.headers = { content-type = "application/x-www-form-urlencoded" }
+http_auth_req.params = { clientid = "%c", username = "%u", password = "%P", protocol = "%r" }
+
+## http_acl_req is INTENTIONALLY OMITTED: without it the plugin's ACL hook
+## returns 'ignore' immediately, so every subscribe/publish decision falls
+## through to the built-in rmqtt-acl rules — the exact interaction under
+## test here (connect-phase fallthrough + ACL-rule promotion).
