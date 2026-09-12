@@ -807,6 +807,7 @@ fn build_chaos_suite(iterations: usize) -> TestSuite {
     use tests::functional::session_restart_stress::*;
     use tests::functional::session_storage_expired_cleanup::*;
     use tests::functional::session_storage_expired_cleanup_edge::*;
+    use tests::functional::session_storage_offline_spawn_bounded::*;
 
     let mut suite = TestSuite::new("chaos");
     suite.add(BrokerRestartTest);
@@ -836,6 +837,11 @@ fn build_chaos_suite(iterations: usize) -> TestSuite {
     // Edge semantics of the same pre-filter: default expiry (0), DISCONNECT
     // property extending/shortening the session expiry.
     suite.add(SessionStorageExpiredCleanupEdgeTest);
+    // Issue #495 / PR #499 reproduction: offline-message persistence must be
+    // bounded — a flood to offline sessions must not blow up anonymous memory
+    // (self-managed broker, cross-platform memory sampling: Linux RssAnon /
+    // Windows PrivateMemorySize64, other platforms skipped).
+    suite.add(SessionStorageOfflineSpawnBoundedTest);
     suite.add(ConnectionChurnTest { cycles: iterations * 5 });
     suite.add(ReconnectStormTest { client_count: 50 });
     suite.add(Qos1ReliabilityTest { message_count: iterations * 10 });

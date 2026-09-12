@@ -50,6 +50,7 @@ pub mod server_keepalive_v5;
 pub mod session_restart_stress;
 pub mod session_storage_expired_cleanup;
 pub mod session_storage_expired_cleanup_edge;
+pub mod session_storage_offline_spawn_bounded;
 pub mod session_v3;
 pub mod session_v311;
 pub mod session_v5;
