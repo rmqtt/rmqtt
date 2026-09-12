@@ -3036,15 +3036,17 @@ async fn get_stats_history(
             });
             res.render(Json(result));
         } else {
-            let msg_encoded =
-                Message::StatsHistoryQuery(HistoryQuery { start_ts, end_ts, limit, merge_window })
-                    .encode()
-                    .unwrap_or_default();
-            let local_node_id = scx.node.id();
-            let params = HistoryQueryParams { start_ts, end_ts, limit, interval_ms, merge_window };
-            let results =
-                query_history_all_nodes(scx, message_type, &hc.stats, &params, msg_encoded, local_node_id)
-                    .await;
+            let params =
+                HistoryQueryParams { start_ts, end_ts, fetch_limit: limit, interval_ms, merge_window };
+            let results = query_history_all_nodes(
+                scx,
+                message_type,
+                HistoryKind::Stats,
+                &hc.stats,
+                &params,
+                scx.node.id(),
+            )
+            .await;
             res.render(Json(json!({
                 "from": start_ts,
                 "to": end_ts,
@@ -3073,20 +3075,18 @@ async fn get_stats_history_sum(
     let (start_ts, end_ts, limit, merge_window) = { parse_time_params(req) };
 
     if let Some(ref hc) = hc {
-        let params = HistoryQueryParams { start_ts, end_ts, limit, interval_ms, merge_window };
-        let nodes_data = query_history_all_nodes(
-            scx,
-            message_type,
-            &hc.stats,
-            &params,
-            Message::StatsHistoryQuery(HistoryQuery { start_ts, end_ts, limit, merge_window })
-                .encode()
-                .unwrap_or_default(),
-            scx.node.id(),
-        )
-        .await;
+        let params = HistoryQueryParams {
+            start_ts,
+            end_ts,
+            fetch_limit: limit + HISTORY_FETCH_MARGIN,
+            interval_ms,
+            merge_window,
+        };
+        let nodes_data =
+            query_history_all_nodes(scx, message_type, HistoryKind::Stats, &hc.stats, &params, scx.node.id())
+                .await;
 
-        let (aggregated, node_count) = aggregate_history_data(&nodes_data);
+        let (aggregated, node_count) = aggregate_history_data(&nodes_data, limit);
         res.render(Json(json!({
             "from": start_ts,
             "to": end_ts,
@@ -3141,15 +3141,14 @@ async fn get_metrics_history(
             });
             res.render(Json(result));
         } else {
-            let params = HistoryQueryParams { start_ts, end_ts, limit, interval_ms, merge_window };
+            let params =
+                HistoryQueryParams { start_ts, end_ts, fetch_limit: limit, interval_ms, merge_window };
             let results = query_history_all_nodes(
                 scx,
                 message_type,
+                HistoryKind::Metrics,
                 &hc.metrics,
                 &params,
-                Message::MetricsHistoryQuery(HistoryQuery { start_ts, end_ts, limit, merge_window })
-                    .encode()
-                    .unwrap_or_default(),
                 scx.node.id(),
             )
             .await;
@@ -3181,20 +3180,24 @@ async fn get_metrics_history_sum(
     let (start_ts, end_ts, limit, merge_window) = { parse_time_params(req) };
 
     if let Some(ref hc) = hc {
-        let params = HistoryQueryParams { start_ts, end_ts, limit, interval_ms, merge_window };
+        let params = HistoryQueryParams {
+            start_ts,
+            end_ts,
+            fetch_limit: limit + HISTORY_FETCH_MARGIN,
+            interval_ms,
+            merge_window,
+        };
         let nodes_data = query_history_all_nodes(
             scx,
             message_type,
+            HistoryKind::Metrics,
             &hc.metrics,
             &params,
-            Message::MetricsHistoryQuery(HistoryQuery { start_ts, end_ts, limit, merge_window })
-                .encode()
-                .unwrap_or_default(),
             scx.node.id(),
         )
         .await;
 
-        let (aggregated, node_count) = aggregate_history_data(&nodes_data);
+        let (aggregated, node_count) = aggregate_history_data(&nodes_data, limit);
         res.render(Json(json!({
             "from": start_ts,
             "to": end_ts,
@@ -3272,12 +3275,45 @@ async fn query_history_remote(
     HistoryData { node: node_id, from: 0, to: 0, count: 0, data: vec![] }
 }
 
+/// Extra buckets requested from every node on top of the caller's `limit`.
+///
+/// Each node truncates its own result to the requested `limit` *before* the
+/// requester unions timestamps across nodes (`query_history_all_nodes`), and
+/// nodes flush independently, so their newest usable bucket can differ by one
+/// slot. The union then contains edge buckets that only a subset of nodes
+/// contributed to; summing those yields a *partial* sum, which the dashboard
+/// turns into a huge spike when it differentiates the cumulative counters.
+/// Fetching a small surplus keeps `limit` buckets that every node backs.
+const HISTORY_FETCH_MARGIN: usize = 2;
+
+/// Which history series a request targets — mirrors the two gRPC message
+/// variants so the requester can encode a remote query for a given kind.
+#[derive(Copy, Clone)]
+enum HistoryKind {
+    Stats,
+    Metrics,
+}
+
+impl HistoryKind {
+    fn encode(self, q: HistoryQuery) -> Vec<u8> {
+        let msg = match self {
+            Self::Stats => Message::StatsHistoryQuery(q),
+            Self::Metrics => Message::MetricsHistoryQuery(q),
+        };
+        msg.encode().unwrap_or_default()
+    }
+}
+
 /// Query parameters shared by stats/metrics history lookups.
 #[derive(Copy, Clone)]
 struct HistoryQueryParams {
     start_ts: u64,
     end_ts: u64,
-    limit: usize,
+    /// Maximum number of buckets each individual node is asked for. The caller
+    /// sets this to its own `limit` plus `HISTORY_FETCH_MARGIN`; the surplus
+    /// exists so that dropping partially-contributed edge buckets still leaves
+    /// `limit` complete ones.
+    fetch_limit: usize,
     interval_ms: u64,
     merge_window: Option<u64>,
 }
@@ -3285,15 +3321,15 @@ struct HistoryQueryParams {
 /// Queries all known nodes (local + remote via gRPC broadcast) and returns
 /// a map of `node_id → HistoryData`.
 ///
-/// The caller must provide a `msg_encoded` (a pre-encoded `Message` for the
-/// remote side) and a `extract_fn` that picks the correct `HistoryData`
-/// variant from a decoded `MessageReply`.
+/// Every node is asked for `params.fetch_limit` buckets (the caller's `limit`
+/// plus `HISTORY_FETCH_MARGIN`) so that `aggregate_history_data` can discard the
+/// partially-contributed edge buckets and still return `limit` complete ones.
 async fn query_history_all_nodes(
     scx: &ServerContext,
     message_type: MessageType,
+    kind: HistoryKind,
     cache: &HistoryCache,
     params: &HistoryQueryParams,
-    msg_encoded: Vec<u8>,
     local_node_id: NodeId,
 ) -> HashMap<NodeId, HistoryData> {
     let mut nodes = HashMap::default();
@@ -3304,7 +3340,7 @@ async fn query_history_all_nodes(
         local_node_id,
         params.start_ts,
         params.end_ts,
-        params.limit,
+        params.fetch_limit,
         params.interval_ms,
         params.merge_window,
     )
@@ -3314,6 +3350,12 @@ async fn query_history_all_nodes(
     // 2. Broadcast to all remote nodes.
     let grpc_clients = scx.extends.shared().await.get_grpc_clients();
     if !grpc_clients.is_empty() {
+        let msg_encoded = kind.encode(HistoryQuery {
+            start_ts: params.start_ts,
+            end_ts: params.end_ts,
+            limit: params.fetch_limit,
+            merge_window: params.merge_window,
+        });
         for reply in MessageBroadcaster::new_quick(
             grpc_clients,
             message_type,
@@ -3359,12 +3401,32 @@ async fn query_history_all_nodes(
 /// Numeric fields are summed across nodes at each timestamp, except for
 /// cluster-wide fields that all nodes report identically (the shared topic /
 /// route tables): those take the maximum instead of a sum.
+///
+/// Timestamps that were not contributed by every node are **dropped**: a
+/// partial sum is not a valid sample. Because nodes flush independently, the
+/// newest bucket a node has available can differ from its peers by one slot,
+/// and the union of independently truncated per-node windows always exposes
+/// such buckets at its edges. Keeping them would silently under-report the
+/// counter (e.g. 1/3 of the real value), which is far more harmful to a
+/// dashboard than a missing point.
+///
+/// If any node returned no data at all for the window (a node restarted inside
+/// the queried range, for example) the completeness requirement is skipped so
+/// the remaining nodes still produce a usable series.
+///
+/// The result is sorted newest-first and truncated to `limit`.
 /// Returns `(data_points, node_count)`.
-fn aggregate_history_data(nodes_data: &HashMap<NodeId, HistoryData>) -> (Vec<serde_json::Value>, usize) {
+fn aggregate_history_data(
+    nodes_data: &HashMap<NodeId, HistoryData>,
+    limit: usize,
+) -> (Vec<serde_json::Value>, usize) {
     let node_count = nodes_data.len();
     if node_count == 0 {
         return (vec![], 0);
     }
+
+    // Number of nodes a timestamp must be present in to count as complete.
+    let complete_required = if nodes_data.values().any(|d| d.data.is_empty()) { 0 } else { node_count };
 
     // Cluster-shared quantities: every node reports the same value for the
     // shared topic/route tables, so summing would over-count (N nodes → N×).
@@ -3385,6 +3447,11 @@ fn aggregate_history_data(nodes_data: &HashMap<NodeId, HistoryData>) -> (Vec<ser
     // For each unique timestamp, merge all numeric fields.
     let mut result: Vec<(u64, serde_json::Value)> = Vec::with_capacity(grouped.len());
     for (ts, points) in grouped {
+        // A node reports at most one point per timestamp, so the point count is
+        // exactly the number of nodes that contributed to this bucket.
+        if complete_required > 0 && points.len() < complete_required {
+            continue;
+        }
         let mut merged = serde_json::Map::new();
         merged.insert("ts".into(), json!(ts));
 
@@ -3417,8 +3484,11 @@ fn aggregate_history_data(nodes_data: &HashMap<NodeId, HistoryData>) -> (Vec<ser
         result.push((ts, serde_json::Value::Object(merged)));
     }
 
-    // Sort descending by timestamp.
+    // Sort descending by timestamp, then apply the caller's limit globally: the
+    // per-node limit only bounds each node's own result, so the union can hold
+    // more buckets than the caller asked for.
     result.sort_by_key(|b| std::cmp::Reverse(b.0));
+    result.truncate(limit);
 
     let data: Vec<serde_json::Value> = result.into_iter().map(|(_, v)| v).collect();
     (data, node_count)
@@ -3518,5 +3588,84 @@ mod tests {
         // Scheme case differs; kept byte-exact to preserve previous behavior.
         let expected = expected_digest_for("s3cret-token");
         assert!(!verify_bearer(&expected, header("bearer s3cret-token").as_ref()));
+    }
+
+    // ── aggregate_history_data ─────────────────────────────────────────
+
+    fn node_data(node: NodeId, buckets: &[(u64, i64)]) -> HistoryData {
+        // Newest-first, mirroring what `query_history_local` returns.
+        let data = buckets
+            .iter()
+            .rev()
+            .map(|(ts, v)| json!({ "ts": ts, "messages.publish": v, "topics.count": 7 }))
+            .collect();
+        HistoryData { node, from: 0, to: 0, count: buckets.len(), data }
+    }
+
+    fn ts_of(points: &[serde_json::Value]) -> Vec<u64> {
+        points.iter().map(|p| p["ts"].as_u64().unwrap()).collect()
+    }
+
+    /// Reads a numeric field from the aggregated point.
+    ///
+    /// `aggregate_history_data` accumulates through `as_f64`, so every merged
+    /// numeric field is stored as a JSON float even when the inputs were
+    /// integers (`as_i64()` would return `None` on those).
+    fn val_of(points: &[serde_json::Value], ts: u64, key: &str) -> f64 {
+        let p = points.iter().find(|p| p["ts"].as_u64() == Some(ts)).expect("bucket present");
+        p[key].as_f64().expect("numeric field")
+    }
+
+    /// Nodes flush independently, so their newest usable bucket can differ by
+    /// one slot. The union then contains an edge bucket that only one node
+    /// backed; keeping it would report a partial sum (here 1000 instead of
+    /// 3000) and the dashboard turns that into a huge spike.
+    #[test]
+    fn aggregate_drops_partially_contributed_buckets() {
+        let mut nodes = HashMap::default();
+        nodes.insert(1, node_data(1, &[(1000, 3000), (2000, 3000), (3000, 3000), (4000, 3000)]));
+        // Node 2 has not flushed the newest slot yet, so bucket 4000 is backed
+        // by node 1 only.
+        nodes.insert(2, node_data(2, &[(1000, 1000), (2000, 1000), (3000, 1000)]));
+
+        let (data, node_count) = aggregate_history_data(&nodes, 10);
+        assert_eq!(node_count, 2);
+        assert_eq!(ts_of(&data), vec![3000, 2000, 1000]);
+        assert_eq!(val_of(&data, 3000, "messages.publish"), 4000.0);
+        assert_eq!(val_of(&data, 1000, "messages.publish"), 4000.0);
+        // Cluster-shared fields keep taking the maximum, not the sum.
+        assert_eq!(val_of(&data, 1000, "topics.count"), 7.0);
+    }
+
+    /// A node restarting inside the queried window must not blank the series.
+    #[test]
+    fn aggregate_keeps_series_when_a_node_has_no_data() {
+        let mut nodes = HashMap::default();
+        nodes.insert(1, node_data(1, &[(1000, 30), (2000, 30)]));
+        nodes.insert(2, HistoryData { node: 2, from: 0, to: 0, count: 0, data: vec![] });
+
+        let (data, _) = aggregate_history_data(&nodes, 10);
+        assert_eq!(ts_of(&data), vec![2000, 1000]);
+        assert_eq!(val_of(&data, 1000, "messages.publish"), 30.0);
+    }
+
+    /// `limit` is applied per node before the union, so the requester must
+    /// truncate globally instead of returning more buckets than asked for.
+    #[test]
+    fn aggregate_truncates_to_limit_newest_first() {
+        let mut nodes = HashMap::default();
+        nodes.insert(1, node_data(1, &[(1000, 1), (2000, 1), (3000, 1), (4000, 1)]));
+        nodes.insert(2, node_data(2, &[(1000, 1), (2000, 1), (3000, 1), (4000, 1)]));
+
+        let (data, _) = aggregate_history_data(&nodes, 2);
+        assert_eq!(ts_of(&data), vec![4000, 3000]);
+    }
+
+    #[test]
+    fn aggregate_returns_empty_for_no_nodes() {
+        let nodes: HashMap<NodeId, HistoryData> = HashMap::default();
+        let (data, node_count) = aggregate_history_data(&nodes, 5);
+        assert!(data.is_empty());
+        assert_eq!(node_count, 0);
     }
 }

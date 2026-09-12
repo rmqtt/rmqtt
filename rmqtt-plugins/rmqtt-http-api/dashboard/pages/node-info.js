@@ -1,6 +1,6 @@
 /* ============================================================
-   RMQTT Dashboard — 节点详情页
-   显示节点信息 + 节点统计（count/max）
+   RMQTT Dashboard — node detail page
+   Shows node information + node stats (count/max)
    ============================================================ */
 ;(function() {
   'use strict';
@@ -16,21 +16,21 @@ window.NodeInfoPage = Vue.defineComponent({
     name: 'NodeInfoPage',
     template: `
       <div class="node-info-page">
-        <!-- 顶部栏：返回 + 刷新 -->
+        <!-- Top bar: back + refresh -->
         <div class="node-info-topbar">
           <a class="back-link" @click="goBack">&larr; 返回节点列表</a>
           <button class="btn-icon refresh-btn" @click="refresh" title="刷新">&#x21bb;</button>
         </div>
 
-        <!-- 加载态 -->
+        <!-- Loading state -->
         <div v-if="loading" class="loading-text">加载中...</div>
 
-        <!-- 错误态 -->
+        <!-- Error state -->
         <div v-else-if="error" class="error-text">加载失败: {{ error }}</div>
 
         <template v-else>
           <div class="node-info-columns">
-            <!-- ── 节点信息 ── -->
+            <!-- Node information -->
             <div class="info-section">
               <h3 class="section-title">节点信息</h3>
               <div class="info-grid">
@@ -77,7 +77,7 @@ window.NodeInfoPage = Vue.defineComponent({
               </div>
             </div>
 
-            <!-- ── 节点统计 ── -->
+            <!-- Node statistics -->
             <div class="info-section">
               <h3 class="section-title">节点统计</h3>
               <div class="stats-grid">
@@ -88,7 +88,7 @@ window.NodeInfoPage = Vue.defineComponent({
               </div>
             </div>
 
-            <!-- ── 功能支持 ── -->
+            <!-- Feature support -->
             <div class="info-section">
               <h3 class="section-title">{{ $t('node_detail.features_title') }}</h3>
               <div v-if="featuresLoading" class="loading-text">{{ $t('common.loading') }}...</div>
@@ -256,7 +256,7 @@ window.NodeInfoPage = Vue.defineComponent({
         fetchData();
       }
 
-      // statsItems 加上实际数据
+      // statsItems enriched with the actual data
       const statsItemsWithValues = Vue.computed(function() {
         void localeState.version;
         var s = stats.value;

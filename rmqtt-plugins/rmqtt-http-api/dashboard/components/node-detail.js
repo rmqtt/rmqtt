@@ -1,5 +1,5 @@
 /* ============================================================
-   RMQTT Dashboard — 节点详情弹窗组件
+   RMQTT Dashboard — node detail overlay component
    ============================================================ */
 ;(function() {
   'use strict';

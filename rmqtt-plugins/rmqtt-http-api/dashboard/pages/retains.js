@@ -1,18 +1,18 @@
 /* ============================================================
-   RMQTT Dashboard — 保留消息页
-   查询：topic_filter + 分页（offset/limit，上一页/下一页）
-   展示：payload UTF-8 优先 / hex 兜底；详情弹窗
+   RMQTT Dashboard — retained messages page
+   Query: topic_filter + pagination (offset/limit, previous/next page)
+   Display: payload prefers UTF-8 with a hex fallback; detail dialog
    ============================================================ */
 window.RetainsPage = Vue.defineComponent({
   name: 'RetainsPage',
   template: `
     <div>
-      <!-- 功能未启用提示 -->
+      <!-- Feature not enabled notice -->
       <div v-if="featureDisabled" class="features-alert" style="margin-bottom:16px;">
         {{ $t('retains.not_enabled') }}
       </div>
 
-      <!-- 查询栏 -->
+      <!-- Query bar -->
       <div class="search-bar">
         <div class="search-row">
           <input class="form-input" v-model="topicFilter"
@@ -27,7 +27,7 @@ window.RetainsPage = Vue.defineComponent({
         </div>
       </div>
 
-      <!-- 分页条 -->
+      <!-- Pagination bar -->
       <div class="pager-bar" v-if="items.length > 0 || offset > 0">
         <button class="btn" :disabled="offset === 0" @click="prevPage">&#9664; {{ $t('retains.prev') }}</button>
         <span class="pager-info">
@@ -38,7 +38,7 @@ window.RetainsPage = Vue.defineComponent({
         <button class="btn" :disabled="!hasMore" @click="nextPage">{{ $t('retains.next') }} &#9654;</button>
       </div>
 
-      <!-- 列表 -->
+      <!-- List -->
       <div class="table-wrap" style="overflow-x:auto;">
         <table style="min-width:900px;">
           <thead>
@@ -76,7 +76,7 @@ window.RetainsPage = Vue.defineComponent({
         </table>
       </div>
 
-      <!-- 详情弹窗 -->
+      <!-- Detail dialog -->
       <div v-if="detail" class="modal-overlay" @click.self="detail = null">
         <div class="modal-panel">
           <div class="modal-header">
@@ -117,7 +117,7 @@ window.RetainsPage = Vue.defineComponent({
     const detail = Vue.ref(null);
     const featureDisabled = Vue.ref(false);
 
-    // base64 → 解码信息（UTF-8 优先，二进制 hex 兜底）
+    // base64 -> decode the payload (UTF-8 first, hex fallback for binary)
     function decodePayload(b64) {
       if (!b64) return { text: '', isText: true, raw: '' };
       try {
@@ -149,7 +149,7 @@ window.RetainsPage = Vue.defineComponent({
       var d = decodePayload(item.publish && item.publish.payload);
       if (!d.text) return '-';
       if (d.isText) return d.text;
-      // 二进制：显示完整 hex
+      // Binary: show the full hex
       var bytes = [];
       for (var i = 0; i < d.raw.length; i++) bytes.push(d.raw.charCodeAt(i).toString(16).padStart(2, '0'));
       var hex = '';
@@ -222,22 +222,22 @@ window.RetainsPage = Vue.defineComponent({
       detail.value = item;
     }
 
-    // 删除保留消息：确认浮层 → DELETE /retains?topic=xxx → 刷新列表
+    // Delete a retained message: confirm overlay -> DELETE /retains?topic=xxx -> refresh the list
     async function removeRetain(item) {
       if (!await window.$confirm($t('retains.delete_confirm', { topic: item.topic }))) return;
       try {
         await http.del('/retains?topic=' + encodeURIComponent(item.topic));
-        // 当前页仅剩 1 条且非首页 → 回退一页，避免空页
+        // Only one row left on the current page and it is not the first page -> step back one page to avoid an empty page
         if (items.value.length === 1 && offset.value > 0) offset.value -= pageSize.value;
         load();
       } catch (e) {
         alert($t('retains.delete_fail', { msg: e.message }));
-        // 404 说明消息已被删除（如其他端操作），刷新同步
+        // 404 means the message is already gone (deleted elsewhere), just refresh to sync
         if (e.message.indexOf('404') === 0) load();
       }
     }
 
-    // 检测 retain 功能是否启用（请求 /features）
+    // Check whether the retain feature is enabled (GET /features)
     async function checkFeature() {
       try {
         var data = await http.get('/features');
@@ -250,7 +250,7 @@ window.RetainsPage = Vue.defineComponent({
           }
         }
       } catch (e) {
-        // 请求失败不提示，避免误报
+        // Do not report a failed request, avoids false alarms
       }
     }
 

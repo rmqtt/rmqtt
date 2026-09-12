@@ -1,7 +1,7 @@
 /* ============================================================
-   RMQTT Dashboard — 客户端详情页
-   布局：连接信息 | 会话信息（左右两栏），下方当前订阅列表
-   数据：GET /clients/{clientid}（跨节点）+ GET /subscriptions?clientid=
+   RMQTT Dashboard — client detail page
+   Layout: connection info | session info (two columns), current subscription list below
+   Data: GET /clients/{clientid} (cross-node) + GET /subscriptions?clientid=
    ============================================================ */
 window.ClientDetailPage = Vue.defineComponent({
   name: 'ClientDetailPage',
@@ -156,7 +156,7 @@ window.ClientDetailPage = Vue.defineComponent({
   setup() {
     function $t(key, params) { return window.i18n.$t(key, params); }
 
-    // 从 hash 解析 clientid：'#/clients/detail?clientid=xxx'
+    // Parse clientid out of the hash: '#/clients/detail?clientid=xxx'
     const qs = (location.hash.split('?')[1] || '');
     const clientid = new URLSearchParams(qs).get('clientid') || '';
 
@@ -172,7 +172,7 @@ window.ClientDetailPage = Vue.defineComponent({
       return sec + 's';
     }
 
-    // 遗嘱消息：{ topic, message(base64), qos, retain }
+    // Will message: { topic, message(base64), qos, retain }
     const hasWill = Vue.computed(function() {
       return !!(info.value && info.value.last_will && info.value.last_will.topic);
     });
@@ -220,7 +220,7 @@ window.ClientDetailPage = Vue.defineComponent({
       }
     }
 
-    // 刷新不显示全屏 loading
+    // Do not show the full-screen loading state on refresh
     function refresh() {
       Promise.all([
         http.get('/clients/' + encodeURIComponent(clientid)).catch(function() { return null; }),

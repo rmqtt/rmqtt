@@ -1,6 +1,6 @@
 /* ============================================================
-   RMQTT Dashboard — 登录页（国际化）
-   用户输入 http-api 的 Bearer Token
+   RMQTT Dashboard — login page (i18n)
+   The user enters the http-api Bearer Token
    ============================================================ */
 window.LoginPage = Vue.defineComponent({
   name: 'LoginPage',
@@ -35,7 +35,7 @@ window.LoginPage = Vue.defineComponent({
     const loading = Vue.ref(false);
     const error = Vue.ref('');
 
-    // $t 在 setup 中不可用，用 window.i18n.$t
+    // $t is not available inside setup, use window.i18n.$t instead
     function $t(key, params) { return window.i18n.$t(key, params); }
 
     async function login() {
@@ -43,17 +43,17 @@ window.LoginPage = Vue.defineComponent({
       loading.value = true;
       error.value = '';
       try {
-        // 先保存 Token，再验证——确保验证请求携带 Authorization 头
+        // Save the token first, then verify: makes sure the verification request carries the Authorization header
         store.setToken(token.value.trim());
         const result = await http.get('/brokers');
         if (result) {
           location.hash = '#/';
         } else {
-          // result 为 null 说明 http.js 捕获了 401 并清除了 Token
+          // result is null when http.js caught a 401 and cleared the token
           throw new Error('Unauthorized');
         }
       } catch (e) {
-        // 验证失败，清除无效 Token
+        // Verification failed, clear the invalid token
         store.clearToken();
         error.value = $t('login.error_invalid');
       } finally {

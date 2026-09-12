@@ -1,11 +1,11 @@
 /* ============================================================
-   RMQTT Dashboard — 主应用
-   Vue 3 实例 + hash 路由 + 全局状态 + 国际化 + 多级导航
+   RMQTT Dashboard — main application
+   Vue 3 app + hash router + global store + i18n + multi-level nav
    ============================================================ */
 const { createApp } = Vue;
 
-// 页面组件注册表（title 通过 $t(titleKey) 获取）
-// 支持 {path, component, titleKey, isLogin} 格式，以及函数式匹配
+// Page component registry (title is resolved through $t(titleKey))
+// Accepts {path, component, titleKey, isLogin} entries as well as function matchers
 const pageRegistry = {
   '#/login':    { component: 'LoginPage',        titleKey: 'login.title',     isLogin: true },
   '#/':         { component: 'OverviewPage',     titleKey: 'nav.overview',    isLogin: false },
@@ -37,16 +37,16 @@ const App = Vue.defineComponent({
       currentHash: location.hash || '#/login',
       pageCache: {},
       localeVersion: 0,
-      localeState: { version: 0 },  // 可响应式注入的对象
+      localeState: { version: 0 },  // reactive object injected into components
       sidebarCollapsed: store.getSidebarCollapsed(),
       currentTheme: store.getTheme(),
-      // 快速搜索
+      // Quick search
       showSearch: false,
       searchQuery: '',
       searchResults: [],
       searchLoading: false,
       searchTimer: null,
-      // 语言下拉
+      // Language dropdown
       showLangDropdown: false,
       _langShowTimer: null,
       _langLeaveTimer: null,
@@ -57,7 +57,7 @@ const App = Vue.defineComponent({
   },
   computed: {
     currentPageSpec() {
-      // 路由按 ? 拆分：'#/clients/detail?clientid=xxx' → '#/clients/detail'
+      // Split the route at '?': '#/clients/detail?clientid=xxx' -> '#/clients/detail'
       const path = (this.currentHash || '').split('?')[0];
       return pageRegistry[path] || pageRegistry['#/'];
     },
@@ -121,7 +121,7 @@ const App = Vue.defineComponent({
       this.currentTheme = this.currentTheme === 'dark' ? 'light' : 'dark';
       store.setTheme(this.currentTheme);
     },
-    // 快速搜索
+    // Quick search
     toggleSearch() {
       this.showSearch = !this.showSearch;
       if (this.showSearch) {
@@ -160,12 +160,12 @@ const App = Vue.defineComponent({
       this.showSearch = false;
       this.searchQuery = '';
       this.searchResults = [];
-      // 跳转到客户端页，URL hash 中携带 clientid 参数
+      // Go to the clients page, carrying clientid in the URL hash
       location.hash = '#/clients?clientid=' + encodeURIComponent(clientId);
     },
     handleSearchBlur() {
       var self = this;
-      // 延迟关闭，让点击结果项有机会执行
+      // Close with a delay so a click on a result item can land first
       setTimeout(function() { self.showSearch = false; }, 200);
     },
     async switchLang(locale) {
@@ -217,7 +217,7 @@ const App = Vue.defineComponent({
     this.onHashChange();
     window.addEventListener('hashchange', () => this.onHashChange());
 
-    // 启动时自动验证已有 Token 是否仍有效
+    // On startup, verify whether an already stored token is still valid
     if (store.isLoggedIn()) {
       http.get('/brokers').catch(function() {
         store.clearToken();
@@ -230,7 +230,7 @@ const App = Vue.defineComponent({
       this.localeState.version++;
     });
 
-    // 节点数量徽标
+    // Node count badge
     const updateNodes = async () => {
       try {
         var [healthData, nodesData] = await Promise.all([
@@ -290,7 +290,7 @@ const App = Vue.defineComponent({
               <span class="page-title">{{ currentPageTitle }}</span>
             </div>
             <div class="topbar-right">
-              <!-- 快速搜索 -->
+              <!-- Quick search -->
               <div class="quick-search" :class="{ active: showSearch }">
                 <button class="btn-icon search-toggle disabled" title="Search (unavailable)" tabindex="-1">&#128269;</button>
                 <div v-if="showSearch" class="search-overlay" @click.self="showSearch = false"></div>
@@ -344,7 +344,7 @@ const App = Vue.defineComponent({
 });
 
 ;(async function() {
-  // 初始化主题
+  // Initialise theme
   store.setTheme(store.getTheme());
   await window.i18n.init();
   const app = createApp(App);

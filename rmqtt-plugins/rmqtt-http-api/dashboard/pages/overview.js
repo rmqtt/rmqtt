@@ -1,6 +1,6 @@
 /* ============================================================
-   RMQTT Dashboard — 概览页
-   三标签布局：集群概览 / 节点 / 指标
+   RMQTT Dashboard — overview page
+   Multi-tab layout: cluster overview / nodes / state / metrics / feature support
    ============================================================ */
 ;(function() {
   'use strict';
@@ -11,14 +11,14 @@
     name: 'OverviewPage',
     template: `
       <div>
-        <!-- 标签栏 -->
+        <!-- Tab bar -->
         <div class="tab-bar">
           <button v-for="tab in tabs" :key="tab.key"
                   class="tab-btn" :class="{ active: activeTab === tab.key }"
                   @click="activeTab = tab.key">{{ tab.label }}</button>
         </div>
 
-        <!-- ─── Tab 1: 集群概览 ─── -->
+        <!-- Tab 1: cluster overview -->
         <div v-show="activeTab === 'overview'">
           <div class="overview-top">
             <div class="gauge-card" id="gaugeConnContainer"></div>
@@ -33,7 +33,7 @@
             </div>
           </div>
 
-          <!-- 节点信息卡片 -->
+          <!-- Node info card -->
           <div class="node-info-card">
             <div class="node-info-header">
               <div class="node-info-title">
@@ -137,9 +137,9 @@
           </div>
         </div>
 
-        <!-- ─── Tab 2: 节点 ─── -->
+        <!-- Tab 2: nodes -->
         <div v-show="activeTab === 'nodes'">
-          <!-- ── 节点列表 ── -->
+          <!-- Node list -->
           <template v-if="!selectedNodeId">
             <h3 class="section-title">{{ $t('overview.nodes') }}</h3>
             <div class="table-wrap">
@@ -171,7 +171,7 @@
               </table>
             </div>
           </template>
-          <!-- ── 节点详情 ── -->
+          <!-- Node detail -->
           <template v-else>
             <div class="node-detail-back">
               <a class="back-link" @click="hideNodeDetail">&larr; 返回节点列表</a>
@@ -209,7 +209,7 @@
           </template>
         </div>
 
-        <!-- ─── Tab 3: 状态（实时当前值） ─── -->
+        <!-- Tab 3: state (live current values) -->
         <div v-show="activeTab === 'status'">
           <div v-for="group in statusGroups" :key="group.key" class="metric-section">
             <h3 class="section-title">{{ group.label }}</h3>
@@ -223,7 +223,7 @@
           </div>
         </div>
 
-        <!-- ─── Tab 4: 指标（累计值） ─── -->
+        <!-- Tab 4: metrics (cumulative values) -->
         <div v-show="activeTab === 'metrics'">
           <div v-for="group in metricGroups" :key="group.key" class="metric-section">
             <h3 class="section-title">{{ group.label }}</h3>
@@ -236,7 +236,7 @@
           </div>
         </div>
 
-        <!-- ─── Tab 5: 功能支持状态 ─── -->
+        <!-- Tab 5: feature support status -->
         <div v-show="activeTab === 'features'">
           <div class="features-card" v-if="featuresData">
             <div class="features-card-head">
@@ -263,7 +263,7 @@
                 <span class="feature-desc">{{ f.desc }}</span>
               </div>
             </div>
-            <!-- 功能 × 节点 矩阵 -->
+            <!-- Feature x node matrix -->
             <div class="table-wrap" style="margin-top:16px;">
               <table class="features-matrix">
                 <thead>
@@ -290,7 +290,7 @@
 
     `,
     setup() {
-      // 标签页
+      // Tabs
       const localeState = Vue.inject('localeState');
       function $t(key, params) {
         void localeState.version;
@@ -320,7 +320,7 @@
       const nodes = ref([]);
       const nodesOnline = ref(0);
       const nodesTotal = ref(0);
-      // 功能支持状态（GET /features 返回的 FeaturesSummary 对象）
+      // Feature support status (the FeaturesSummary object returned by GET /features)
       const featuresData = ref(null);
       const FEATURES = [
         { key: 'retain',                labelKey: 'overview.features_retain' },
@@ -343,7 +343,7 @@
         return (d && Array.isArray(d.conflicts)) ? d.conflicts : [];
       });
 
-      // 每个功能项的启用节点数汇总（on=全部启用 / off=全部禁用 / partial=部分启用 / unknown=无数据）
+      // Per-feature summary of how many nodes have it enabled (on=all enabled / off=all disabled / partial=some / unknown=no data)
       const featureSummaryItems = Vue.computed(function() {
         void localeState.version;
         var d = featuresData.value;
@@ -372,7 +372,7 @@
         return $t('overview.features_' + key);
       }
 
-      // 功能矩阵表的节点列（仅包含成功返回 features 的节点）
+      // Node columns of the feature matrix (only nodes that returned features successfully)
       const featureMatrixNodes = Vue.computed(function() {
         void localeState.version;
         var d = featuresData.value;
@@ -386,7 +386,7 @@
       const metricsData = ref({});
       const statusData = ref({});
 
-      // 时间范围
+      // Time range
       const timeRanges = [
         { key: '15m', label: '15m' },
         { key: '30m', label: '30m' },
@@ -399,7 +399,7 @@
         { key: '15d', label: '15d' },
       ];
       const timeRange = ref('1h');
-      // 折线图节点筛选：'' = 所有节点（sum），否则具体节点（单节点 history）
+      // Chart node filter: '' = all nodes (sum), otherwise one specific node (single-node history)
       const chartNode = ref('');
 
       function onChartNodeChange() {
@@ -408,7 +408,7 @@
         fetchHistory();
       }
 
-      // 依据选中节点生成 history 接口路径与查询串
+      // Build the history endpoint paths and query string for the selected node
       function historyPaths(qs) {
         if (chartNode.value) {
           var id = encodeURIComponent(chartNode.value);
@@ -423,7 +423,7 @@
         };
       }
 
-      // 指标分组：来自 /api/v1/metrics/sum 的累计值（只增不减）
+      // Metric groups: cumulative values from /api/v1/metrics/sum (monotonic, never decreases)
       const metricGroups = Vue.computed(function() {
         void localeState.version;
         return [
@@ -452,7 +452,7 @@
         ];
       });
 
-      // 状态分组：来自 /api/v1/stats/sum 的实时当前值
+      // State groups: live current values from /api/v1/stats/sum
       const statusGroups = Vue.computed(function() {
         void localeState.version;
         return [
@@ -483,21 +483,21 @@
         ];
       });
 
-      // 历史数据（用于图表渲染，来自 history API + live poll）
+      // History data (used for chart rendering, from the history API + live poll)
       const chartData = ref([]);
-      // 消息丢弃面板切换：'abnormal' 异常丢弃（转发失败/过期/异常）| 'nonsub' 无订阅者丢弃
+      // Message-drop panel switch: 'abnormal' (forward failure / expired / error) | 'nonsub' (no subscriber)
       const droppedTab = ref('abnormal');
-      let isLiveMode = false;     // 历史 API 不可用时回退纯实时模式
-      const CHART_POINTS = 360;   // 图表固定点数上限
-      let maxChartPoints = CHART_POINTS + 20;    // 动态上限
-      let notMergeNext = false;   // 切换时间范围时强制重建图表（避免合并动画产生竖线）
-      let currentMergeWindow = 5; // 当前选中时间范围的 merge_window（秒）
-      let currentLatestMinutes = 1; // 获取最新一个合并点时的回溯分钟数
-      let liveHistoryTimer = null; // history 轮询定时器
-      let lastLiveSnapshot = null; // 上次实时 metrics 快照，用于计算速率
+      let isLiveMode = false;     // fall back to live-only mode when the history API is unavailable
+      const CHART_POINTS = 360;   // upper bound on the fixed number of chart points
+      let maxChartPoints = CHART_POINTS + 20;    // dynamic upper bound
+      let notMergeNext = false;   // force a chart rebuild when the time range changes (avoids vertical lines from merge animation)
+      let currentMergeWindow = 5; // merge_window of the currently selected time range (seconds)
+      let currentLatestMinutes = 1; // how many minutes to look back when fetching the latest merged point
+      let liveHistoryTimer = null; // history polling timer
+      let lastLiveSnapshot = null; // previous live metrics snapshot, used to compute rates
       let liveRates = { inRate: 0, outRate: 0, inHistory: [], outHistory: [] };
 
-      // 兼容 metrics API 返回的 dot 格式（messages.publish）和 underscore 格式（messages_publish）
+      // Tolerate the dot format (messages.publish) and the underscore format (messages_publish)
       function ms(v, key) {
         if (v == null) return 0;
         var val = v[key];
@@ -519,7 +519,7 @@
       function getMetric(key) {
         var v = metricsData.value[key];
         if (v != null) return v;
-        // 兼容下划线/点号格式差异（后端 Metrics to_json() 将 _ 替换为 .）
+        // Tolerate underscore/dot differences (the backend Metrics to_json() replaces _ with .)
         var alt = key.indexOf('.') >= 0 ? key.replace(/\./g, '_') : key.replace(/_/g, '.');
         v = metricsData.value[alt];
         return v != null ? v : '-';
@@ -528,7 +528,7 @@
       function getStat(key) {
         var v = statusData.value[key];
         if (v == null) return '-';
-        // 握手速率是后端已 /100 的浮点数，保留 1 位小数
+        // handshake rate is a float already divided by 100 on the backend, keep 1 decimal
         if (typeof v === 'number' && v % 1 !== 0) return v.toFixed(1);
         return v;
       }
@@ -547,16 +547,16 @@
       function formatUptime(str) {
         if (!str) return '-';
         var isZh = window.i18n && window.i18n.locale && window.i18n.locale.indexOf('zh') === 0;
-        // 解析各时间单位
+        // Parse the individual time units
         var parts = [];
         str.replace(/(\d+)\s*(days?|hours?|minutes?|seconds?)/gi, function(m, num, unit) {
           var key = unit.toLowerCase().replace(/s$/, '');
           parts.push({ key: key, num: parseInt(num, 10) });
         });
         if (parts.length === 0) return str;
-        // 找到第一个非零位置
+        // Find the first non-zero position
         var startIdx = parts.findIndex(function(p) { return p.num > 0; });
-        if (startIdx === -1) startIdx = parts.length - 1; // 全部为0时至少显示最后一位
+        if (startIdx === -1) startIdx = parts.length - 1; // at least show the last unit when all of them are 0
         var units = isZh
           ? { day: '天', hour: '小时', minute: '分', second: '秒' }
           : { day: ' day ', hour: ' hour ', minute: ' minute ', second: ' second ' };
@@ -619,7 +619,7 @@
         ]);
 
         if (!statsRes || !metricsRes || statsRes.error || metricsRes.error) {
-          // History 未配置 — 回退纯实时模式
+          // History is not configured — fall back to live-only mode
           isLiveMode = true;
           chartData.value = [];
           updateCharts();
@@ -628,7 +628,7 @@
 
         isLiveMode = false;
 
-        // 按 ts 建立 stats 查找表
+        // Build a ts -> stats lookup table
         var statsMap = {};
         if (statsRes.data) {
           statsRes.data.forEach(function(d) {
@@ -640,10 +640,10 @@
           });
         }
 
-        // 按 ts 合并 metrics + stats
+        // Merge metrics + stats by ts
         var merged = [];
         if (metricsRes.data) {
-          // 丢弃最新桶：可能尚未聚合完所有节点数据，避免折线末尾出现低谷/跳变
+          // Drop the newest bucket: it may not be aggregated over all nodes yet, which would show up as a dip or jump at the end of the line
           var histData = metricsRes.data.slice(1);
           histData.forEach(function(d) {
             var s = statsMap[d.ts] || {};
@@ -663,26 +663,43 @@
         chartData.value = merged.reverse();
         maxChartPoints = CHART_POINTS + 20;
         updateCharts();
-        // 切换范围后重新启动 history 轮询
+        // Restart history polling after switching the range
         startLiveHistoryPolling();
       }
 
-      // 实时轮询每次拉取最近 N 个合并点：
-      //   与已有序列重叠的 ts 以最大值为准调整该点（节点数据晚到补齐时修正），
-      //   未重叠的新点按 ts 升序追加在末尾。
+      // Each live poll fetches the most recent N merged points:
+      //   a ts that overlaps the existing series is adjusted to its maximum (corrects late-arriving node data),
+      //   non-overlapping new points are appended in ascending ts order.
       const HISTORY_LATEST_POINTS = 5;
+
+      // Timestamp of the newest bucket fetched successfully last time (ms).
+      // Browsers throttle timers in background tabs (down to once a minute); if we still only fetch the most recent N buckets,
+      // those gaps can never be filled and buckets the server had not finished aggregating never get another chance to be corrected by Math.max,
+      // so the line ends up showing huge spikes / a comb pattern. Hence the query window grows with the real gap since the last poll.
+      var lastHistoryTs = 0;
 
       async function fetchLatestHistory() {
         if (isLiveMode) return;
-        var qs = 'minutes=' + currentLatestMinutes +
-                 '&limit=' + HISTORY_LATEST_POINTS + '&merge_window=' + currentMergeWindow;
+        var nowTs = Date.now();
+        var gapSec = lastHistoryTs > 0 ? Math.max(0, (nowTs - lastHistoryTs) / 1000) : 0;
+        var rangeMs = getRangeMs(timeRange.value);
+        var gapPoints = Math.ceil(gapSec / currentMergeWindow) + HISTORY_LATEST_POINTS;
+        var rangePoints = Math.ceil(rangeMs / (currentMergeWindow * 1000)) + HISTORY_LATEST_POINTS;
+        // Take the smaller of the gap and the time range: points outside the range cannot be drawn anyway
+        var limit = Math.min(2000, Math.max(HISTORY_LATEST_POINTS, Math.min(gapPoints, rangePoints)));
+        var latestMinutes = Math.min(
+          Math.ceil(rangeMs / 60000),
+          Math.max(currentLatestMinutes, Math.ceil(gapSec / 60) + 1)
+        );
+        var qs = 'minutes=' + latestMinutes +
+                 '&limit=' + limit + '&merge_window=' + currentMergeWindow;
         var [statsRes, metricsRes] = await Promise.all([
           http.get(historyPaths(qs).stats).catch(function() { return null; }),
           http.get(historyPaths(qs).metrics).catch(function() { return null; }),
         ]);
         if (!metricsRes || !metricsRes.data || metricsRes.data.length === 0) return;
 
-        // stats 按 ts 建索引，与 metrics 的合并桶对齐
+        // Index stats by ts so they line up with the merged metrics buckets
         var statsByTs = {};
         if (statsRes && statsRes.data) {
           statsRes.data.forEach(function(sp) {
@@ -694,16 +711,19 @@
           });
         }
 
-        // 已有序列的 ts → index 索引
+        // ts -> index lookup for the existing series
         var idxByTs = {};
         for (var i = 0; i < chartData.value.length; i++) {
           idxByTs[chartData.value[i].time] = i;
         }
 
-        // 后端返回降序（最新在前），转升序处理
+        // The backend returns descending order (newest first), convert to ascending
         var points = metricsRes.data.slice().sort(function(a, b) { return a.ts - b.ts; });
 
-        // 丢弃最新桶：可能尚未聚合完所有节点数据，不画半成品；下一轮它完整后再画
+        // Record the newest bucket actually fetched, used next round to compute the real polling gap (for gap backfill)
+        if (points.length > 0) lastHistoryTs = points[points.length - 1].ts;
+
+        // Drop the newest bucket: it may not be aggregated over all nodes yet, do not draw a half-finished point; it is drawn next round once complete
         points.pop();
         if (points.length === 0) return;
 
@@ -723,7 +743,7 @@
           };
           var idx = idxByTs[point.ts];
           if (idx != null) {
-            // 重叠：以最大值为准调整该点的位置（只大不小）
+            // Overlap: adjust the point to the maximum value (never shrink)
             var old = chartData.value[idx];
             chartData.value[idx] = {
               time: point.ts,
@@ -740,8 +760,8 @@
           }
         });
 
-        // 未重叠的新点按 ts 升序插入正确位置（保持序列单调），
-        // 避免轮询返回的桶比末尾旧（如大时间范围早期点被 maxChartPoints 截断过）时乱序
+        // Insert non-overlapping new points in ascending ts order to keep the series monotonic,
+        // avoiding misordering when a poll returns a bucket older than the tail (e.g. early points of a large range were trimmed by maxChartPoints)
         toAppend.sort(function(a, b) { return a.time - b.time; });
         toAppend.forEach(function(np) {
           var insertAt = -1;
@@ -861,9 +881,9 @@
               sharedSubscriptions: raw['subscriptions_shared.count'] ?? 0,
               retained: raw['retaineds.count'] ?? 0,
             };
-            // 赋值给状态 Tab 数据源
+            // Assign to the state tab data source
             statusData.value = raw;
-            // 设备连接速率使用 handshakings_rate.count，并在仪表盘上标记 handshakings_rate.max
+            // Device connection rate uses handshakings_rate.count, and the gauge marks handshakings_rate.max
             var hsRate = raw['handshakings_rate.count'];
             var hsRateMax = raw['handshakings_rate.max'];
             if (hsRate != null && gaugeConn) {
@@ -881,12 +901,12 @@
             featuresData.value = featuresRes;
           }
 
-          // 获取指标（使用 metrics/sum 汇总数据）
+          // Fetch metrics (using the aggregated metrics/sum data)
           var metricsSum = await http.get('/metrics/sum').catch(function() { return null; });
           if (metricsSum) {
             metricsData.value = metricsSum;
 
-            // 纯实时模式：用 metrics/sum 追加 chartData
+            // Live-only mode: append to chartData from metrics/sum
             if (isLiveMode) {
               chartData.value.push({
                 time: Date.now(),
@@ -901,7 +921,7 @@
               if (chartData.value.length > CHART_POINTS) chartData.value.shift();
             }
 
-            // 用实时 metrics 数据计算每 2s 的速率（独立于 chartData）
+            // Compute the 2s rate from live metrics data (independent of chartData)
             var pubTotal = ms(metricsSum, 'messages.publish');
             var delTotal = ms(metricsSum, 'messages.delivered');
             if (lastLiveSnapshot) {
@@ -915,7 +935,7 @@
                 liveRates.outRate = delRate;
                 liveRates.inHistory.push({ t: Date.now(), v: pubRate, c: Math.round(pubDelta) });
                 liveRates.outHistory.push({ t: Date.now(), v: delRate, c: Math.round(delDelta) });
-                // 保留最近 60 个点用于柱状图
+                // Keep the most recent 60 points for the bar chart
                 if (liveRates.inHistory.length > 60) liveRates.inHistory.shift();
                 if (liveRates.outHistory.length > 60) liveRates.outHistory.shift();
               }
@@ -948,7 +968,7 @@
         return 3600000;
       }
 
-      // 切换消息丢弃面板 tab：强制重建图表，避免合并动画产生竖线
+      // Switch the message-drop panel tab: force a chart rebuild to avoid vertical lines from merge animation
       function switchDroppedTab(tab) {
         if (droppedTab.value === tab) return;
         droppedTab.value = tab;
@@ -960,11 +980,11 @@
         var data = chartData.value;
         if (data.length < 2) return;
 
-        // 切换时间范围时强制重建图表，避免合并动画产生竖线
+        // Force a chart rebuild when the time range changes, to avoid vertical lines from merge animation
         var notMerge = notMergeNext;
         notMergeNext = false;
 
-        // history 模式下按选中时间范围固定 X 轴窗口，live-only 模式自动缩放
+        // In history mode the X axis window is fixed to the selected time range; live-only mode auto-scales
         var now = Date.now();
         var rangeMs = isLiveMode ? 0 : getRangeMs(timeRange.value);
         var xMin = rangeMs > 0 ? now - rangeMs : undefined;
@@ -1009,13 +1029,13 @@
                   if (v === 0) return '0';
                   var abs = Math.abs(v);
                   var sign = v < 0 ? '-' : '';
-                  // < 10000 直接显示整数，最多 4 位 "9999"
+                  // < 10000 show the integer directly, at most 4 digits "9999"
                   if (abs < 10000) return sign + Math.round(abs).toString();
-                  // < 100000 用 k，"10.0k"~"99.9k"（5 位含小数点）
+                  // < 100000 use k, "10.0k"~"99.9k" (5 chars including the decimal point)
                   if (abs < 100000) {
                     return sign + (Math.floor(abs / 100) / 10).toFixed(1) + 'k';
                   }
-                  // >= 100000 用 M/B/T，"X.X 单位"始终 ≤ 5 位
+                  // >= 100000 use M/B/T, "X.X unit" is always <= 5 chars
                   var units = ['M', 'B', 'T'];
                   var div = 1000000;
                   for (var i = 0; i < units.length; i++) {
@@ -1034,7 +1054,7 @@
           }, notMerge);
         }
 
-        // 窗口内消息总数（不再是每秒速率，因为历史和实时间隔已统一为 merge_window）
+        // Total messages within the window (no longer a per-second rate, since the history and live intervals are both merge_window)
         function toRate(prev, curr, field) {
           return [curr.time, Math.max(0, (curr[field] - prev[field]))];
         }
@@ -1044,7 +1064,7 @@
         var msgOut = data.length > 1 ? data.slice(1).map(function(d, i) {
           return toRate(data[i], d, 'msgOut');
         }) : [];
-        // 消息丢弃面板按 tab 选择数据字段与颜色（异常丢弃 / 无订阅者丢弃）
+        // The message-drop panel picks its field and colour by tab (abnormal / no subscriber)
         var droppedField = droppedTab.value === 'nonsub' ? 'msgNonSub' : 'msgDropped';
         var droppedColor = droppedTab.value === 'nonsub' ? '#f59e0b' : '#ef4444';
         var droppedName = $t(droppedTab.value === 'nonsub' ? 'overview.msg_dropped_nonsub' : 'overview.msg_dropped_abnormal');
@@ -1052,7 +1072,7 @@
           return toRate(data[i], d, droppedField);
         }) : [];
 
-        // 生成消息流 tooltip：MM/DD HH:mm:ss + N秒内消息总数
+        // Build the message flow tooltip: MM/DD HH:mm:ss + total messages within N seconds
         function makeMsgTooltip(field) {
           return {
             trigger: 'axis',
@@ -1073,7 +1093,7 @@
           };
         }
 
-        // 生成连接数/主题数/订阅数类 tooltip：MM/DD HH:mm:ss + 当前值
+        // Build the tooltip for connections/topics/subscriptions: MM/DD HH:mm:ss + current value
         function makeValueTooltip() {
           return {
             trigger: 'axis',
@@ -1098,9 +1118,24 @@
         updateLineChart(chartSubscriptions, $t('overview.subscriptions_trend'), data.map(function(d) { return [d.time, d.subscriptions]; }), '#06b6d4', null, makeValueTooltip());
       }
 
+      // Refresh immediately when the tab becomes visible again: timers were throttled in the background, leaving gaps and uncorrected buckets
+      function onVisibilityChange() {
+        if (document.visibilityState !== 'visible') return;
+        fetchData();
+        fetchLatestHistory();
+      }
+
+      // The charts were never re-laid out when the container changed size (resizing the window or collapsing the sidebar stretched the canvas)
+      function onWindowResize() {
+        [chartMsgIn, chartMsgOut, chartMsgDropped, chartConnections, chartTopics, chartSubscriptions]
+          .forEach(function(c) { if (c) c.resize(); });
+      }
+
       onMounted(function() {
         fetchHistory();
         fetchData();
+        document.addEventListener('visibilitychange', onVisibilityChange);
+        window.addEventListener('resize', onWindowResize);
         nextTick(function() {
           gaugeConn = new window.GaugeChart(document.getElementById('gaugeConnContainer'), 'gauge.connections', 'gauge.unit');
           msgRatePanel = new window.MsgRatePanel(document.getElementById('msgRateContainer'));
@@ -1119,6 +1154,8 @@
       onUnmounted(function() {
         if (timer) clearInterval(timer);
         if (liveHistoryTimer) clearInterval(liveHistoryTimer);
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+        window.removeEventListener('resize', onWindowResize);
         if (gaugeConn) gaugeConn.dispose();
         if (msgRatePanel) msgRatePanel.dispose();
         if (chartMsgIn) chartMsgIn.dispose();
