@@ -1,0 +1,21 @@
+##--------------------------------------------------------------------
+## rmqtt-acl (auth-http-acl-fallthrough tests, issue #501)
+##
+## The tests OVERWRITE this file before starting the broker, swapping the
+## FINAL rule between ["allow", "all"] and ["deny", "all"]:
+##   - ["allow", "all"]: the omitted action column resolves to ALL
+##     operations INCLUDING CONNECT, so connections that the auth plugin
+##     left as 'ignore' are explicitly allowed (fail-open, issue #501)
+##   - ["deny", "all"]: the connection is rejected (fail-closed hardening)
+##--------------------------------------------------------------------
+
+# Disconnect if publishing is rejected
+disconnect_if_pub_rejected = true
+
+rules = [
+    ["allow", { user = "dashboard" }, "subscribe", ["$SYS/#"]],
+    ["allow", { ipaddr = "127.0.0.1" }, "pubsub", ["$SYS/#", "#"]],
+    ["deny", "all", "subscribe", ["$SYS/#", { eq = "#" }]],
+    ["allow", "all"]
+    #["deny", "all"]
+]

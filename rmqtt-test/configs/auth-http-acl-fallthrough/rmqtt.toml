@@ -1,0 +1,103 @@
+##--------------------------------------------------------------------
+## rmqttd config for the auth-http × rmqtt-acl fallthrough tests (issue #501)
+##
+## The `rmqtt-auth-http` plugin points at an in-test mock auth server that
+## ALWAYS replies with HTTP 404: the request succeeds transport-wise, but no
+## auth decision is returned, so the plugin yields 'ignore' and the auth
+## chain continues — `deny_if_error = true` does NOT apply (it only covers
+## transport-layer failures such as connection refused / timeout).
+##
+## The built-in `rmqtt-acl` plugin is ENABLED and its LAST rule decides the
+## fate of the connection. The tests rewrite `plugins/rmqtt-acl.toml` before
+## starting the broker:
+##   - final rule ["allow", "all"]  -> connection explicitly ALLOWED
+##     (CONNACK 0x00) even though allow_anonymous = false — this reproduces
+##     the issue #501 fail-open: the acl rule promotes 'ignore' to 'allow'
+##   - final rule ["deny", "all"]   -> connection REJECTED (CONNACK 0x05,
+##     Not authorized) — the documented fail-closed hardening
+##
+## The broker is spawned by the test itself
+## (`auth_http_acl_fallthrough_v311.rs`); the base config listens on 1896 /
+## 5376 and the test rewrites the MQTT + gRPC ports per test case
+## (allow-all: 1896/5376, deny-all: 1900/5377), avoiding the harness 1883,
+## cluster 1886-1890, cleanup 1884, rl-boundary 1891, auth-denied 1892,
+## auth-jwt-denied 1893, cleanup-edge 1894 and retain-sled 1895.
+##
+## Usage (run from the rmqtt repository root so that `plugins.dir`
+## resolves correctly); the broker is started by the test, no manual start
+## needed:
+##   cargo build -p rmqttd && cargo build -p rmqtt-test
+##   ./target/release/mqtt_harness --workspace . --suites functional_v311
+##--------------------------------------------------------------------
+
+##--------------------------------------------------------------------
+## Task
+##--------------------------------------------------------------------
+task.exec_workers = 2000
+task.exec_queue_max = 300_000
+
+##--------------------------------------------------------------------
+## Node
+##--------------------------------------------------------------------
+node.id = 1
+node.busy.check_enable = false
+node.busy.update_interval = "2s"
+node.busy.loadavg = 80.0
+node.busy.cpuloadavg = 90.0
+node.busy.handshaking = 0
+
+##--------------------------------------------------------------------
+## RPC (base port; rewritten per test case — allow-all 5376 / deny-all 5377)
+##--------------------------------------------------------------------
+rpc.server_addr = "0.0.0.0:5376"
+rpc.server_workers = 4
+rpc.batch_size = 128
+rpc.client_concurrency_limit = 128
+rpc.client_timeout = "5s"
+
+##--------------------------------------------------------------------
+## Log
+##--------------------------------------------------------------------
+log.to = "console"
+log.level = "info"
+log.dir = "."
+log.file = "rmqtt.log"
+
+##--------------------------------------------------------------------
+## Plugins
+##--------------------------------------------------------------------
+# Self-contained: plugin configs live in this directory's plugins/ sub-dir.
+# The test rewrites this relative path to an absolute one after copying the
+# directory, so the broker loads the rewritten plugin configs regardless of
+# the process working directory.
+plugins.dir = "rmqtt-test/configs/auth-http-acl-fallthrough/plugins/"
+# rmqtt-acl stays ENABLED (built-in default): it participates in
+# ClientAuthenticate and its last rule decides the connection outcome.
+plugins.default_startups = [
+    "rmqtt-auth-http",
+]
+plugins.disabled_default_startups = ["rmqtt-counter", "rmqtt-http-api"]
+
+##--------------------------------------------------------------------
+## Listener (base port; rewritten per test case — allow-all 1896 / deny-all 1900)
+##--------------------------------------------------------------------
+listener.tcp.external.addr = "127.0.0.1:1896"
+listener.tcp.external.workers = 8
+listener.tcp.external.max_connections = 1024000
+listener.tcp.external.max_handshaking_limit = 500
+listener.tcp.external.handshake_timeout = "30s"
+listener.tcp.external.max_packet_size = "1MB"
+listener.tcp.external.backlog = 1024
+# Anonymous access disabled: every CONNECT must pass the auth chain. The
+# tests prove that with the rmqtt-acl ["allow", "all"] rule this setting
+# alone does NOT protect against an auth plugin returning 'ignore'.
+listener.tcp.external.allow_anonymous = false
+
+##--------------------------------------------------------------------
+## Other listeners — all disabled (would clash with other suites)
+##--------------------------------------------------------------------
+listener.tcp.internal.enable = false
+listener.tls.external.enable = false
+listener.ws.external.enable = false
+listener.wss.external.enable = false
+listener.quic.external.enable = false
