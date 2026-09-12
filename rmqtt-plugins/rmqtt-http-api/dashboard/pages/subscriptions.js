@@ -1,6 +1,6 @@
 /* ============================================================
-   RMQTT Dashboard — 订阅管理页
-   搜索：clientid / topic / qos / share
+   RMQTT Dashboard — subscription management page
+   Search: clientid / topic / qos / share
    ============================================================ */
 window.SubscriptionsPage = Vue.defineComponent({
   name: 'SubscriptionsPage',
@@ -107,7 +107,7 @@ window.SubscriptionsPage = Vue.defineComponent({
 
     async function unsub(s) {
       if (!await window.$confirm($t('subscriptions.unsub_confirm', { clientId: s.clientid, topic: s.topic }))) return;
-      // 先立即从本地列表移除该行，获得即时反馈（不等网络请求）
+      // Remove the row from the local list immediately for instant feedback (without waiting for the request)
       subs.value = subs.value.filter(function(x) {
         return !(x.clientid === s.clientid && x.topic === s.topic);
       });
@@ -118,7 +118,7 @@ window.SubscriptionsPage = Vue.defineComponent({
         });
       } catch (e) {
         alert($t('subscriptions.unsubscribe_fail', { msg: e.message }));
-        loadSubs(); // 失败时重载列表：若后端未删，该行会重新出现
+        loadSubs(); // reload the list on failure: if the backend did not delete it, the row reappears
       }
     }
 

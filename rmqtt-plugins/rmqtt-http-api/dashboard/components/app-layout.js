@@ -1,6 +1,6 @@
 /* ============================================================
-   RMQTT Dashboard — app-layout 组件
-   带侧边栏和顶栏的页面布局，支持侧栏收缩
+   RMQTT Dashboard — app-layout component
+   Page layout with sidebar and top bar, supports collapsing the sidebar
    ============================================================ */
 window.AppLayout = Vue.defineComponent({
   name: 'AppLayout',

@@ -1,6 +1,6 @@
 /* ============================================================
-   RMQTT Dashboard — 节点连接环形图组件 (Ring Chart)
-   用 ECharts pie (环形) 展示各节点连接数分布
+   RMQTT Dashboard — node connections ring chart component
+   Renders the per-node connection distribution with an ECharts pie (donut)
    ============================================================ */
 ;(function() {
   'use strict';

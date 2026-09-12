@@ -1,6 +1,6 @@
 /* ============================================================
-   RMQTT Dashboard — 通用分页组件
-   用法：app.component('pagination', window.Pagination)
+   RMQTT Dashboard — generic pagination component
+   Usage: app.component('pagination', window.Pagination)
    ============================================================ */
 ;(function() {
   'use strict';

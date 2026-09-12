@@ -1,5 +1,5 @@
 /* ============================================================
-   RMQTT Dashboard — 全局状态管理
+   RMQTT Dashboard — global store
    ============================================================ */
 window.store = {
   getToken() {
@@ -16,7 +16,7 @@ window.store = {
     return !!this.getToken();
   },
 
-  /** 语言偏好 */
+  /** Locale preference */
   getLocale() {
     return localStorage.getItem('dashboard_locale') || '';
   },
@@ -24,7 +24,7 @@ window.store = {
     localStorage.setItem('dashboard_locale', locale);
   },
 
-  /** 侧栏收缩状态 */
+  /** Sidebar collapsed state */
   getSidebarCollapsed() {
     return localStorage.getItem('dashboard_sidebar_collapsed') === 'true';
   },
@@ -32,7 +32,7 @@ window.store = {
     localStorage.setItem('dashboard_sidebar_collapsed', collapsed ? 'true' : 'false');
   },
 
-  /** 主题: dark / light */
+  /** Theme: dark / light */
   getTheme() {
     return localStorage.getItem('dashboard_theme') || 'dark';
   },

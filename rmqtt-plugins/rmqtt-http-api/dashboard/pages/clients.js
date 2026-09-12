@@ -1,6 +1,6 @@
 /* ============================================================
-   RMQTT Dashboard — 客户端页
-   搜索、列表、踢出客户端
+   RMQTT Dashboard — clients page
+   Search, list, kick clients
    ============================================================ */
 window.ClientsPage = Vue.defineComponent({
   name: 'ClientsPage',
@@ -152,7 +152,7 @@ window.ClientsPage = Vue.defineComponent({
     // $t in setup()
     function $t(key, params) { return window.i18n.$t(key, params); }
 
-    // ---- 基础筛选 ----
+    // ---- basic filters ----
     const clientid = Vue.ref('');
     const username = Vue.ref('');
     const ipAddress = Vue.ref('');
@@ -160,7 +160,7 @@ window.ClientsPage = Vue.defineComponent({
     const protoVer = Vue.ref('');
     const pageSize = Vue.ref(100);
 
-    // ---- 高级面板 ----
+    // ---- advanced panel ----
     const showAdvanced = Vue.ref(false);
     const useFuzzyClientid = Vue.ref(false);
     const fuzzyClientid = Vue.ref('');
@@ -175,7 +175,7 @@ window.ClientsPage = Vue.defineComponent({
 
     const clients = Vue.ref([]);
 
-    // 高级筛选激活的字段计数
+    // how many advanced filter fields are active
     var advancedActiveCount = Vue.computed(function() {
       var n = 0;
       if (useFuzzyClientid.value && fuzzyClientid.value.trim()) n++;
@@ -259,13 +259,13 @@ window.ClientsPage = Vue.defineComponent({
       }
     }
 
-    // 点击行进入客户端详情页
+    // Clicking a row opens the client detail page
     function goDetail(clientid) {
       location.hash = '#/clients/detail?clientid=' + encodeURIComponent(clientid);
     }
 
     Vue.onMounted(function() {
-      // 消费快速搜索跳转携带的 clientid（#/clients?clientid=xxx）
+      // Consume the clientid carried over by the quick-search jump (#/clients?clientid=xxx)
       var qs = location.hash.split('?')[1];
       if (qs) {
         var q = new URLSearchParams(qs).get('clientid');

@@ -1,6 +1,6 @@
 /* ============================================================
-   RMQTT Dashboard — HTTP API 层
-   所有请求直接调用 http-api 的 /api/v1/*
+   RMQTT Dashboard — HTTP API layer
+   All requests go straight to the http-api /api/v1/ endpoints
    ============================================================ */
 window.http = {
   async request(method, path, body, params) {

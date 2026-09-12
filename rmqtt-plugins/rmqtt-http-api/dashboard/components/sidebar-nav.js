@@ -1,19 +1,19 @@
 /* ============================================================
-   RMQTT Dashboard — 多级导航菜单组件
-   EMQX 风格侧栏：分组 + 可折叠子菜单 + 收缩模式 + hover 浮层
+   RMQTT Dashboard — multi-level navigation menu component
+   EMQX style sidebar: groups + collapsible sub-menus + collapsed mode + hover flyout
    ============================================================ */
 ;(function() {
   'use strict';
 
   /**
-   * 导航树数据模型
-   * 每个分组：
-   *   group  : i18n key for 分组名
+   * Navigation tree data model
+   * Every group:
+   *   group  : i18n key of the group name
    *   icon   : HTML entity icon
    *   children: [
-   *     { hash: '#/xxx', label: 'nav.xxx', icon: '...' }    ← 可跳转
-   *     { disabled: true, label: 'nav.xxx', icon: '...' }   ← 灰色禁用（待实现）
-   *     { group: 'nav.sub_group', children: [...] }         ← 子分组
+   * { hash: '#/xxx', label: 'nav.xxx', icon: '...' }    <- navigable
+   * { disabled: true, label: 'nav.xxx', icon: '...' }   <- greyed out (not implemented yet)
+   * { group: 'nav.sub_group', children: [...] }         <- sub-group
    *   ]
    */
   window.navTree = [
@@ -104,7 +104,7 @@
   ];
 
   /**
-   * SidebarNav 组件
+   * SidebarNav component
    * props: collapsed, currentHash
    * emits: navigate
    */
@@ -118,19 +118,19 @@
     emits: ['navigate', 'toggle-collapse'],
     data: function() {
       return {
-        expandedGroups: {},   // 分组折叠状态 { groupKey: true/false }
-        hoveredGroup: null,   // 收缩模式下 hover 的分组
-        hoveredItem: null,    // 收缩模式下 hover 的菜单项
+        expandedGroups: {},   // group collapse state { groupKey: true/false }
+        hoveredGroup: null,   // group hovered in collapsed mode
+        hoveredItem: null,    // menu item hovered in collapsed mode
       };
     },
-    // 收缩模式 hover 延迟关闭 timer（避免组件间共享）
+    // delayed close timer for collapsed-mode hover (kept out of the shared state)
     _hoverTimer: null,
     computed: {
-      // 安全访问 navTree（避免 Vue 模板中 window.* 不可用问题）
+      // access navTree safely (window.* is not reachable from the Vue template)
       treeData: function() {
         return window.navTree || [];
       },
-      // 默认展开第一个分组（监控）
+      // expand the first group by default (monitoring)
       defaultExpanded: function() {
         var result = {};
         var tree = this.treeData;
@@ -154,7 +154,7 @@
         return !!this.defaultExpanded[groupKey];
       },
       isActive: function(hash) {
-        // 忽略 query 参数：'#/clients/detail?clientid=x' 时 '客户端' 菜单保持高亮
+        // Ignore the query part: with '#/clients/detail?clientid=x' the 'Clients' entry stays highlighted
         const cur = (this.currentHash || '').split('?')[0];
         return cur === hash;
       },
@@ -167,7 +167,7 @@
           this.$emit('navigate', item.hash);
         }
       },
-      // 收缩模式 hover（使用延迟关闭，让浮层可被鼠标点击）
+      // collapsed-mode hover (delayed close so the flyout stays clickable)
       onGroupEnter: function(group) {
         if (!this.collapsed) return;
         this._clearHoverTimer();
@@ -182,7 +182,7 @@
           self.hoveredItem = null;
         }, 250);
       },
-      // 浮层自身的 hover（阻止浮层消失）
+      // hover on the flyout itself (keeps it from disappearing)
       onPopupEnter: function() {
         this._clearHoverTimer();
       },
@@ -201,14 +201,14 @@
       onItemLeave: function() {
         if (this.collapsed) this.hoveredItem = null;
       },
-      // 判断是否为子分组
+      // Check whether the entry is a sub-group
       isSubGroup: function(item) {
         return item.group && item.children;
       },
     },
     template: `
       <nav class="sidebar-nav" :class="{ collapsed: collapsed }">
-        <!-- 隐藏的语言版本号触发器，用于响应 locale 切换 -->
+        <!-- Hidden locale version trigger, so the menu reacts to a locale switch -->
         <span style="display:none">{{ localeVersion }}</span>
         <div class="sidebar-nav-header">
           <div v-if="!collapsed" class="sidebar-nav-brand">
@@ -223,21 +223,21 @@
           </button>
         </div>
 
-        <!-- 导航菜单 -->
+        <!-- Navigation menu -->
         <div class="sidebar-nav-body">
           <div v-for="group in treeData" :key="group.group" class="nav-group"
                @mouseenter="onGroupEnter(group)" @mouseleave="onGroupLeave()">
-            <!-- 分组标题 -->
+            <!-- Group title -->
             <div class="nav-group-title" @click="toggleGroup(group.group)">
               <span class="nav-icon" v-show="collapsed" v-html="group.icon"></span>
               <span v-show="!collapsed" class="nav-label">{{ $t(group.group) }}</span>
               <span v-show="!collapsed" class="nav-arrow" :class="{ open: isExpanded(group.group) }">&#9660;</span>
             </div>
 
-            <!-- 子菜单列表 -->
+            <!-- Child menu list -->
             <div v-show="!collapsed && isExpanded(group.group)" class="nav-children">
               <template v-for="item in group.children" :key="item.label || item.group">
-                <!-- 子分组（三级菜单） -->
+                <!-- Sub-group (third level menu) -->
                 <div v-if="isSubGroup(item)" class="nav-subgroup">
                   <div class="nav-subgroup-title" @click="toggleGroup(item.group)">
                     <span class="nav-label-sub">{{ $t(item.group) }}</span>
@@ -253,7 +253,7 @@
                     </div>
                   </div>
                 </div>
-                <!-- 普通菜单项 -->
+                <!-- Regular menu entry -->
                 <div v-else class="nav-item"
                      :class="{ active: isActive(item.hash), disabled: isDisabled(item) }"
                      @click="handleClick(item)">
@@ -266,7 +266,7 @@
           </div>
         </div>
 
-        <!-- 收缩模式 hover 浮层 -->
+        <!-- Flyout for collapsed-mode hover -->
         <div v-if="collapsed && hoveredGroup" class="sidebar-hover-popup"
              @mouseenter="onPopupEnter" @mouseleave="onPopupLeave">
           <div class="popup-title">{{ $t(hoveredGroup) }}</div>

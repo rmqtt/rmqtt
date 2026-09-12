@@ -1,8 +1,8 @@
 /* ============================================================
-   RMQTT Dashboard — 国际化 i18n 模块
-   自研 Vue 3 插件，异步加载 JSON 语言包，零外部依赖
-   用法：window.i18n.$t('nav.overview')     → "概览"
-         window.i18n.$t('clients.disconnect_confirm', {clientId: 'abc'}) → "确认踢出客户端 abc ？"
+   RMQTT Dashboard — i18n module
+   Hand-rolled Vue 3 plugin: asynchronously loads JSON locale bundles, zero external deps
+   Usage: window.i18n.$t('nav.overview')     -> "Overview"
+              window.i18n.$t('clients.disconnect_confirm', {clientId: 'abc'}) -> "Kick client abc?"
    ============================================================ */
 ;(function() {
   'use strict';
@@ -28,25 +28,25 @@
       this.locale = FALLBACK;
       this._messages = {};
       this._cache = {};
-      this._localeVer = 13;  // 语言文件版本号，修改后递增以绕过浏览器缓存
+      this._localeVer = 13;  // locale file version, bump it after editing to bypass the browser cache
     }
 
-    /** 初始化：检测语言 → 预加载全部语言包 */
+    /** Init: detect the language, then preload every locale bundle */
     async init() {
       var self = this;
       const saved = window.store?.getLocale();
-      // 优先使用用户之前保存的偏好；首次访问默认为英文
+      // Prefer the user's saved choice; default to English on first visit
       this.locale = saved
         ? (LOCALE_MAP[saved.toLowerCase()] || FALLBACK)
         : FALLBACK;
-      // 预加载所有语言包，切换时无需再次 HTTP 请求
+      // Preload all locale bundles so switching needs no further HTTP request
       var locales = ['zh-CN', 'zh-TW', 'en', 'ru', 'fr', 'es', 'de', 'pt', 'it', 'hi', 'ar', 'bn'];
       await Promise.all(locales.map(function(l) { return self._load(l); }));
-      // 确保 _messages 为检测到的语言
+      // Make sure _messages belongs to the detected locale
       self._messages = self._cache[self.locale] || self._cache[FALLBACK] || {};
     }
 
-    /** 异步加载 JSON 语言包（缓存到 _cache） */
+    /** Load a JSON locale bundle asynchronously (cached in _cache) */
     async _load(locale) {
       if (this._cache[locale]) {
         this._messages = this._cache[locale];
@@ -68,7 +68,7 @@
       }
     }
 
-    /** 翻译方法：支持点号路径 + 参数替换 */
+    /** Translate: supports dotted paths and parameter substitution */
     $t(key, params) {
       const val = key.split('.').reduce(function(o, k) { return o ? o[k] : undefined; }, this._messages);
       if (val == null) return key;
@@ -78,7 +78,7 @@
       }, val);
     }
 
-    /** 切换语言（直接从缓存读取，无需 HTTP 请求） */
+    /** Switch locale (read straight from the cache, no HTTP request) */
     async setLocale(locale) {
       const norm = LOCALE_MAP[locale.toLowerCase()];
       if (!norm || norm === this.locale) return;
@@ -92,7 +92,7 @@
       window.dispatchEvent(new CustomEvent('locale-changed'));
     }
 
-    /** Vue 3 插件安装：将 $t 注入全局属性 */
+    /** Vue 3 plugin install: expose $t on the global properties */
     install(app) {
       const self = this;
       app.config.globalProperties.$t = function(key, params) {
