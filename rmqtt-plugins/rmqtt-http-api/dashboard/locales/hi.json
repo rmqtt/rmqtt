@@ -302,7 +302,8 @@
     "dashboard": "डैशबोर्ड",
     "confirm": "पुष्टि करें",
     "cancel": "रद्द करें",
-    "confirm_title": "पुष्टि"
+    "confirm_title": "पुष्टि",
+    "copy": "कॉपी करें"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -352,5 +353,21 @@
     "delete": "हटाएं",
     "delete_confirm": "क्या आप {topic} विषय का रखा गया संदेश हटाना चाहते हैं?",
     "delete_fail": "संदेश हटाने में विफल: {msg}"
+  },
+  "delayed": {
+    "not_enabled": "विलंबित प्रकाशन सक्षम नहीं है (rmqtt-delayed प्लगइन लोड करें)",
+    "topic_filter_placeholder": "टॉपिक फ़िल्टर (जैसे sensor/#, खाली = सभी)",
+    "topic": "टॉपिक",
+    "delay_interval": "विलंब अंतराल",
+    "fire_time": "ट्रिगर समय",
+    "remaining": "शेष समय",
+    "client_id": "क्लाइंट ID",
+    "username": "उपयोगकर्ता नाम",
+    "payload_size": "पेलोड आकार",
+    "node": "नोड",
+    "payload": "पेलोड सामग्री",
+    "not_found": "संदेश पहले ही भेज दिया गया है या अब मौजूद नहीं है",
+    "no_results": "कोई विलंबित प्रकाशन नहीं",
+    "view_payload": "Payload देखें"
   }
 }

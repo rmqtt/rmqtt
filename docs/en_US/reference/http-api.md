@@ -212,6 +212,22 @@ Query parameters:
 
 Returns `{ "items": [...], "has_more": bool }`. The payload is base64-encoded. On the full pagination path (`topic_filter=#`) items include `remaining_ttl` (seconds); on the filter path `remaining_ttl` is `null`. Requires the `rmqtt-retainer` plugin.
 
+### List Pending Delayed Publishes
+
+```
+GET /api/v1/delayed_publishs
+```
+
+Lists all pending delayed messages (`$delayed/<interval>/<topic>`) across the cluster, merged from the per-node in-memory heaps and paginated globally by trigger time. Query parameters: `topic_filter` (wildcards, matched against the target topic), `offset`, `limit`. Returns `{ "items": [...], "has_more": bool }` with metadata only (no payload content). Requires the `rmqtt-delayed` plugin.
+
+### Get Delayed Publish Detail
+
+```
+GET /api/v1/delayed_publishs/detail
+```
+
+Fetches one pending delayed message with its full base64 payload by composite key: `node_id`, `topic`, `expired_time`, optional `client_id`. Returns 404 when the message has already fired.
+
 ---
 
 ## 6. MQTT Operations

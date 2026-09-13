@@ -38,6 +38,7 @@ rmqtt-session-storage = { path = "rmqtt-plugins/rmqtt-session-storage" }
 rmqtt-message-storage = { path = "rmqtt-plugins/rmqtt-message-storage" }
 rmqtt-topic-rewrite = { path = "rmqtt-plugins/rmqtt-topic-rewrite" }
 rmqtt-auto-subscription = { path = "rmqtt-plugins/rmqtt-auto-subscription"}
+rmqtt-delayed = { path = "rmqtt-plugins/rmqtt-delayed"}
 rmqtt-bridge-ingress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-ingress-mqtt" }
 rmqtt-bridge-egress-mqtt = { path = "rmqtt-plugins/rmqtt-bridge-egress-mqtt" }
 rmqtt-bridge-ingress-kafka = { path = "rmqtt-plugins/rmqtt-bridge-ingress-kafka" }
@@ -82,6 +83,7 @@ rmqtt-counter = "0.24.0"
 rmqtt-auth-http = "0.24.0"
 rmqtt-auth-jwt = "0.24.0"
 rmqtt-auto-subscription = "0.24.0"
+rmqtt-delayed = "0.24.0"
 rmqtt-bridge-egress-kafka = "0.24.0"
 rmqtt-bridge-ingress-kafka = "0.24.0"
 rmqtt-bridge-egress-mqtt = "0.24.0"

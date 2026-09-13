@@ -1,0 +1,69 @@
+##--------------------------------------------------------------------
+## rmqttd config for the `delayed` test suite (rmqtt-delayed plugin)
+##
+## Variant of `configs/delayed/rmqtt.toml` with a tiny pending-message
+## limit: publish_max = 1, publish_immediate = false. Used by the
+## `delayed@delayed-max1-drop` sub-suite (overflow = drop).
+##
+##   ./target/debug/mqtt_harness --binary target/debug/rmqttd \
+##     --workspace . --suites delayed --workers 4
+##
+## Ports: MQTT 1883, HTTP API 6060 (suites run sequentially).
+##--------------------------------------------------------------------
+
+##--------------------------------------------------------------------
+## Task
+##--------------------------------------------------------------------
+task.exec_workers = 2000
+task.exec_queue_max = 300_000
+
+##--------------------------------------------------------------------
+## Node
+##--------------------------------------------------------------------
+node.id = 1
+node.busy.check_enable = false
+node.busy.update_interval = "2s"
+node.busy.loadavg = 80.0
+node.busy.cpuloadavg = 90.0
+node.busy.handshaking = 0
+
+##--------------------------------------------------------------------
+## Log
+##--------------------------------------------------------------------
+log.to = "console"
+log.level = "info"
+log.dir = "."
+log.file = "rmqtt.log"
+
+##--------------------------------------------------------------------
+## Plugins
+##--------------------------------------------------------------------
+# Self-contained: plugin configs live in this directory's plugins/ sub-dir.
+plugins.dir = "rmqtt-test/configs/delayed-max1-drop/plugins/"
+plugins.default_startups = [
+    "rmqtt-retainer",
+    "rmqtt-delayed",
+    "rmqtt-http-api",
+]
+plugins.disabled_default_startups = []
+
+##--------------------------------------------------------------------
+## Listener
+##--------------------------------------------------------------------
+listener.tcp.external.addr = "127.0.0.1:1883"
+listener.tcp.external.workers = 8
+listener.tcp.external.max_connections = 1024000
+listener.tcp.external.max_handshaking_limit = 500
+listener.tcp.external.handshake_timeout = "30s"
+listener.tcp.external.max_packet_size = "1MB"
+listener.tcp.external.backlog = 1024
+listener.tcp.external.allow_anonymous = true
+
+##--------------------------------------------------------------------
+## Other listeners — all disabled
+##--------------------------------------------------------------------
+listener.tcp.internal.enable = false
+listener.tls.external.enable = false
+listener.ws.external.enable = false
+listener.wss.external.enable = false
+listener.quic.external.enable = false

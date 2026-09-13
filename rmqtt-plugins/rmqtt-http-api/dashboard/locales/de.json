@@ -302,7 +302,8 @@
     "dashboard": "Dashboard",
     "confirm": "Bestätigen",
     "cancel": "Abbrechen",
-    "confirm_title": "Bestätigung"
+    "confirm_title": "Bestätigung",
+    "copy": "Kopieren"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -352,5 +353,21 @@
     "delete": "Löschen",
     "delete_confirm": "Retained-Message für Thema {topic} löschen?",
     "delete_fail": "Löschen fehlgeschlagen: {msg}"
+  },
+  "delayed": {
+    "not_enabled": "Verzögerte Veröffentlichung ist nicht aktiviert (laden Sie das Plugin rmqtt-delayed)",
+    "topic_filter_placeholder": "Topic-Filter (z. B. sensor/#, leer = alle)",
+    "topic": "Topic",
+    "delay_interval": "Verzögerungsintervall",
+    "fire_time": "Auslösezeitpunkt",
+    "remaining": "Verbleibend",
+    "client_id": "Client-ID",
+    "username": "Benutzername",
+    "payload_size": "Payload-Größe",
+    "node": "Knoten",
+    "payload": "Payload-Inhalt",
+    "not_found": "Nachricht wurde bereits ausgelöst oder existiert nicht mehr",
+    "no_results": "Keine verzögerten Veröffentlichungen",
+    "view_payload": "Payload ansehen"
   }
 }

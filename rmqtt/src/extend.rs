@@ -106,7 +106,7 @@ impl Manager {
             #[cfg(feature = "msgstore")]
             message_mgr: RwLock::new(Box::new(DefaultMessageManager::new())),
             #[cfg(feature = "delayed")]
-            delayed_sender: RwLock::new(Box::new(DefaultDelayedSender::new(None))),
+            delayed_sender: RwLock::new(Box::new(DefaultDelayedSender::new())),
             #[cfg(feature = "auto-subscription")]
             auto_subscription: RwLock::new(Box::new(DefaultAutoSubscription)),
         }

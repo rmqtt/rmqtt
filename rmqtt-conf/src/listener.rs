@@ -289,8 +289,6 @@ pub struct ListenerInner {
     #[serde(default)]
     pub limit_subscription: bool,
     #[serde(default)]
-    pub delayed_publish: bool,
-    #[serde(default)]
     pub proxy_protocol: bool,
     #[serde(
         default = "ListenerInner::proxy_protocol_timeout_default",
@@ -349,7 +347,6 @@ impl Default for ListenerInner {
             key: None,
             client_ca_certs: None,
             limit_subscription: false,
-            delayed_publish: false,
             proxy_protocol: false,
             proxy_protocol_timeout: ListenerInner::proxy_protocol_timeout_default(),
 

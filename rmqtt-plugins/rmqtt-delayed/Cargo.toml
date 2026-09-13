@@ -1,0 +1,27 @@
+[package]
+name = "rmqtt-delayed"
+version.workspace = true
+description = "This plugin provides delayed message publishing ($delayed/<interval>/<topic>) with an in-memory priority queue."
+repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-delayed"
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rmqtt = { workspace = true, features = ["plugin", "stats", "delayed"] }
+tokio = { workspace = true, features = ["sync", "time", "rt"] }
+async-trait.workspace = true
+log.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+bytes.workspace = true
+bytestring.workspace = true
+rmqtt-codec.workspace = true
+toml.workspace = true
+tokio = { workspace = true, features = ["macros", "rt"] }

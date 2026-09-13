@@ -755,6 +755,99 @@ $ curl -i -X GET "http://localhost:6060/api/v1/retains?topic_filter=%2Fiot%2Fb%2
 
 > 说明：`topic_filter=#`（全量）路径由存储层分页并附带 `remaining_ttl`（剩余秒数）；指定 `topic_filter` 的过滤路径在内存分页，`remaining_ttl` 为 `null`。查询需要启用 `rmqtt-retainer` 插件。
 
+## 延迟发布
+
+### GET /api/v1/delayed_publishs
+
+查询集群中所有待触发的延迟消息（`$delayed/<间隔>/<主题>`）。延迟消息保存在**接收节点的本地内存堆**中（不持久化、不跨节点同步），因此该端点向各节点扇出查询后合并，按触发时间升序全局分页。仅返回元数据，**不包含 payload 内容**（大小见 `payload_len`）。
+
+**Query String Parameters:**
+
+| Name         | Type    | Required | Default         | Description |
+|--------------|---------|----------|-----------------|-------------|
+| topic_filter | String  | False    | 空（全部）       | 主题过滤器，支持 `#` / `+` 通配；匹配剥掉 `$delayed/<interval>/` 前缀后的目标主题；非法过滤器返回 400 |
+| offset       | Integer | False    | 0               | 分页偏移量 |
+| limit        | Integer | False    | `max_row_limit` | 每页条数，超出 `max_row_limit` 时收敛 |
+
+**Success Response Body (JSON):**
+
+| Name                      | Type | Description |
+|---------------------------|------|-------------|
+| items                     | Array | 待触发延迟消息列表 |
+| - items[i].node_id        | Integer | 持有该消息的节点 |
+| - items[i].topic          | String | 目标主题（已剥 `$delayed/<interval>/` 前缀） |
+| - items[i].delay_interval | Integer | 延迟间隔（秒） |
+| - items[i].expired_time   | Integer | 触发时间（毫秒时间戳） |
+| - items[i].client_id      | String/Null | 发布者 ClientID |
+| - items[i].username       | String/Null | 发布者用户名 |
+| - items[i].qos            | Integer | QoS 等级 |
+| - items[i].retain         | Bool | retain 标记 |
+| - items[i].payload_len    | Integer | Payload 大小（字节），不含内容 |
+| has_more                  | Bool | 是否还有更多数据；任一节点返回条数达到 `max_row_limit` 时保守置为 `true` |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/delayed_publishs?topic_filter=sensor/%23&offset=0&limit=50"
+```
+
+```json
+{
+  "items": [
+    {
+      "node_id": 1,
+      "topic": "foo/1",
+      "delay_interval": 300,
+      "expired_time": 1780000000000,
+      "client_id": "publisher-01",
+      "username": "admin",
+      "qos": 1,
+      "retain": false,
+      "payload_len": 128
+    }
+  ],
+  "has_more": false
+}
+```
+
+> 说明：需要加载 `rmqtt-delayed` 插件（需在 `plugins.default_startups` 中启用，默认未启用），未加载插件的节点返回空数据。消息到期后由后台任务转发并从列表消失。插件停止/卸载时，待发消息按 `publish_immediate` 终结处理：立即转发（`true`）或经 `message_dropped` hook 丢弃（`false`，reason 为 `DelayedPublishRefused`）。相关配置见 `rmqtt-delayed.toml`（`publish_max` / `publish_immediate`）。Dashboard「监控 → 延迟发布」页基于该端点。
+
+### GET /api/v1/delayed_publishs/detail
+
+按复合键（`node_id` + `topic` + `expired_time` + 可选 `client_id`）获取单条待触发延迟消息的完整信息，**包含 base64 编码的 payload 内容**。`node_id` 为本机时直接查询内存堆，远端节点通过定向 gRPC 查询。
+
+**Query String Parameters:**
+
+| Name         | Type    | Required | Description |
+|--------------|---------|----------|-------------|
+| node_id      | Integer | True     | 持有该消息的节点 ID |
+| topic        | String  | True     | 目标主题（已剥 `$delayed/<interval>/` 前缀） |
+| expired_time | Integer | True     | 触发时间（毫秒时间戳，与列表返回一致） |
+| client_id    | String  | False    | 发布者 ClientID（可选过滤） |
+
+**Success Response Body (JSON):**
+
+| Name           | Type | Description |
+|----------------|------|-------------|
+| node_id        | Integer | 持有节点 |
+| topic          | String | 目标主题 |
+| delay_interval | Integer | 延迟间隔（秒） |
+| expired_time   | Integer | 触发时间（毫秒时间戳） |
+| client_id      | String/Null | 发布者 ClientID |
+| username       | String/Null | 发布者用户名 |
+| qos            | Integer | QoS 等级 |
+| retain         | Bool | retain 标记 |
+| payload_len    | Integer | Payload 大小（字节） |
+| payload        | String | **base64 编码的完整 payload 内容** |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/delayed_publishs/detail?node_id=1&topic=foo/1&expired_time=1780000000000&client_id=publisher-01"
+```
+
+> 说明：消息在列表展示与详情请求之间到期被转发时返回 **404**（`delayed publish not found (may have fired)`）；消息不持久化，节点重启后全部丢失。
+
 ## 消息发布
 
 ### POST /api/v1/mqtt/publish

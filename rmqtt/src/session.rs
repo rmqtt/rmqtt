@@ -1053,7 +1053,7 @@ impl SessionState {
         let from = From::from_custom(self.id.clone());
 
         #[cfg(feature = "delayed")]
-        if self.listen_cfg().delayed_publish {
+        if self.scx.extends.delayed_sender().await.enable() {
             publish = self.scx.extends.delayed_sender().await.parse(publish)?;
         }
 
@@ -1777,6 +1777,9 @@ impl SessionState {
         //delayed publish
         #[cfg(feature = "delayed")]
         if publish.delay_interval.is_some() {
+            // `Ok(None)` means the sender handled the message (scheduled, or
+            // refused and dropped -- the sender fires the `message_dropped`
+            // hook itself in that case); `Ok(Some(..))` means forward now.
             if let Some((f, p)) = scx
                 .extends
                 .delayed_sender()
@@ -1784,14 +1787,7 @@ impl SessionState {
                 .delay_publish(from, publish, message_storage_available, message_expiry_interval)
                 .await?
             {
-                if scx.mqtt_delayed_publish_immediate {
-                    Self::inner_forwards(scx, f, p, message_storage_available, message_expiry_interval)
-                        .await?;
-                } else {
-                    //hook, Message dropped
-                    scx.extends.hook_mgr().message_dropped(None, f, p, Reason::DelayedPublishRefused).await;
-                    return Ok(());
-                }
+                Self::inner_forwards(scx, f, p, message_storage_available, message_expiry_interval).await?;
             }
             return Ok(());
         }

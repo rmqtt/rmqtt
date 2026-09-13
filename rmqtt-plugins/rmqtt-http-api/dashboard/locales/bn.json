@@ -302,7 +302,8 @@
     "dashboard": "ড্যাশবোর্ড",
     "confirm": "নিশ্চিত করুন",
     "cancel": "বাতিল",
-    "confirm_title": "নিশ্চিতকরণ"
+    "confirm_title": "নিশ্চিতকরণ",
+    "copy": "কপি"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -352,5 +353,21 @@
     "delete": "মুছুন",
     "delete_confirm": "{topic} বিষয়ের জন্য সংরক্ষিত বার্তাটি মুছবেন?",
     "delete_fail": "বার্তা মুছতে ব্যর্থ হয়েছে: {msg}"
+  },
+  "delayed": {
+    "not_enabled": "বিলম্বিত প্রকাশ সক্রিয় নয় (rmqtt-delayed প্লাগইন লোড করুন)",
+    "topic_filter_placeholder": "টপিক ফিল্টার (যেমন sensor/#, খালি = সব)",
+    "topic": "টপিক",
+    "delay_interval": "বিলম্ব ব্যবধান",
+    "fire_time": "ট্রিগারের সময়",
+    "remaining": "অবশিষ্ট সময়",
+    "client_id": "ক্লায়েন্ট আইডি",
+    "username": "ব্যবহারকারীর নাম",
+    "payload_size": "পেলোড আকার",
+    "node": "নোড",
+    "payload": "পেলোড সামগ্রী",
+    "not_found": "বার্তা ইতিমধ্যে পাঠানো হয়েছে বা আর নেই",
+    "no_results": "কোনো বিলম্বিত প্রকাশ নেই",
+    "view_payload": "Payload দেখুন"
   }
 }

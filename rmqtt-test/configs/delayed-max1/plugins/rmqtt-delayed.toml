@@ -1,0 +1,7 @@
+##--------------------------------------------------------------------
+## rmqtt-delayed
+##--------------------------------------------------------------------
+## Tiny pending limit for the overflow test: the SECOND delayed publish
+## hits the limit and is forwarded immediately (publish_immediate = true).
+publish_max = 1
+publish_immediate = true

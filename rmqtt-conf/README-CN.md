@@ -142,7 +142,6 @@ impl Listeners {
 | `key` | `Option<String>` | `None` | TLS 密钥文件路径 |
 | `client_ca_certs` | `Option<String>` | `None` | 客户端 CA 证书文件 |
 | `limit_subscription` | `bool` | `false` | 启用订阅限制 |
-| `delayed_publish` | `bool` | `false` | 启用延迟发布 |
 | `proxy_protocol` | `bool` | `false` | 启用 PROXY protocol |
 | `proxy_protocol_timeout` | `Duration` | `5s` | PROXY 头读取超时 |
 | `cert_cn_as_username` | `bool` | `false` | 使用 TLS CN 作为用户名 |
@@ -167,9 +166,9 @@ impl Plugins {
 
 | 字段 | 类型 | 默认值 |
 |-------|------|---------|
-| `delayed_publish_max` | `usize` | `100_000` |
-| `delayed_publish_immediate` | `bool` | `true` |
 | `max_sessions` | `isize` | `0`（不限，负数表示禁止新建会话） |
+
+> 延迟发布配置（`delayed_publish_max` / `delayed_publish_immediate`）已迁入 `rmqtt-delayed` 插件配置（`rmqtt-delayed.toml`，键名 `publish_max` / `publish_immediate`）。
 
 ### 配置加载优先级
 

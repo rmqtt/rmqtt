@@ -142,8 +142,6 @@ pub struct Builder {
     pub max_topic_aliases: u16,
     /// Enable subscription count limiting
     pub limit_subscription: bool,
-    /// Enable future-dated message publishing
-    pub delayed_publish: bool,
 
     /// Enable mutual TLS authentication
     pub tls_cross_certificate: bool,
@@ -231,7 +229,6 @@ impl Builder {
             max_topic_aliases: 0,
 
             limit_subscription: false,
-            delayed_publish: false,
 
             tls_cross_certificate: false,
             tls_cert: None,
@@ -428,12 +425,6 @@ impl Builder {
     /// Enables subscription count limiting
     pub fn limit_subscription(mut self, limit_subscription: bool) -> Self {
         self.limit_subscription = limit_subscription;
-        self
-    }
-
-    /// Enables delayed message publishing
-    pub fn delayed_publish(mut self, delayed_publish: bool) -> Self {
-        self.delayed_publish = delayed_publish;
         self
     }
 

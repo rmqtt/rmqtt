@@ -302,7 +302,8 @@
     "dashboard": "لوحة التحكم",
     "confirm": "تأكيد",
     "cancel": "إلغاء",
-    "confirm_title": "تأكيد"
+    "confirm_title": "تأكيد",
+    "copy": "نسخ"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -352,5 +353,21 @@
     "delete": "حذف",
     "delete_confirm": "هل تريد حذف الرسالة المحفوظة للموضوع {topic}؟",
     "delete_fail": "فشل حذف الرسالة: {msg}"
+  },
+  "delayed": {
+    "not_enabled": "النشر المؤجل غير مُفعّل (حمّل الإضافة rmqtt-delayed)",
+    "topic_filter_placeholder": "مرشح الموضوع (مثل sensor/#، فارغ = الكل)",
+    "topic": "الموضوع",
+    "delay_interval": "فترة التأخير",
+    "fire_time": "وقت الإطلاق",
+    "remaining": "الوقت المتبقي",
+    "client_id": "معرّف العميل",
+    "username": "اسم المستخدم",
+    "payload_size": "حجم الحمولة",
+    "node": "العقدة",
+    "payload": "محتوى الحمولة",
+    "not_found": "تم إرسال الرسالة أو لم تعد موجودة",
+    "no_results": "لا توجد رسائل مؤجلة",
+    "view_payload": "عرض الحمولة"
   }
 }

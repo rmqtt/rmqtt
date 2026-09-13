@@ -19,8 +19,8 @@ use rmqtt::{
     plugin::PluginInfo,
     stats::Stats,
     types::{
-        ClientId, From, HashMap, MsgID, NodeId, Publish, QoS, Retain, Timestamp, TopicFilter, TopicName,
-        UserName,
+        ClientId, DelayedPublishDetail, DelayedPublishInfo, From, HashMap, MsgID, NodeId, Publish, QoS,
+        Retain, Timestamp, TimestampMillis, TopicFilter, TopicName, UserName,
     },
     utils::{deserialize_datetime_option, format_timestamp, serialize_datetime_option},
     Result,
@@ -67,6 +67,22 @@ pub enum Message<'a> {
     // ── Feature support query ──────────────────────────────────────────
     /// Query another node's supported features
     Features,
+    // ── Delayed publish query ─────────────────────────────────────────
+    /// List another node's pending delayed publishes (metadata only, no payload).
+    DelayedPublishsQuery {
+        /// Optional MQTT topic filter (`#`/`+` wildcards) matched against
+        /// target topics (`$delayed/<interval>/` prefix already stripped).
+        topic_filter: Option<String>,
+        /// Per-node fetch cap (caller passes `max_row_limit`).
+        max: usize,
+    },
+    /// Fetch one pending delayed publish from another node with its full
+    /// payload, located by the composite key (topic, expired_time, client_id).
+    DelayedPublishsGet {
+        topic: String,
+        expired_time: TimestampMillis,
+        client_id: Option<String>,
+    },
 }
 
 impl Message<'_> {
@@ -113,6 +129,12 @@ pub enum MessageReply {
     // ── Feature support reply ──────────────────────────────────────────
     /// Feature support state of a node.
     Features(FeaturesInfo),
+    // ── Delayed publish reply ─────────────────────────────────────────
+    /// Pending delayed publish metadata from a node (sorted by trigger time).
+    DelayedPublishsReply(Vec<DelayedPublishInfo>),
+    /// One pending delayed publish with full payload, `None` if not found
+    /// (already fired) on the queried node.
+    DelayedPublishsGetReply(Option<DelayedPublishDetail>),
 }
 
 impl MessageReply {
@@ -481,6 +503,45 @@ impl RetainQueryParams {
     fn topic_filter_default() -> TopicFilter {
         "#".into()
     }
+}
+
+/// Query params for `GET /delayed_publishs` (pending delayed publishes).
+#[derive(Deserialize, Debug)]
+pub struct DelayedPublishQueryParams {
+    /// MQTT topic filter (`#`/`+` wildcards) matched against target topics
+    /// (the `$delayed/<interval>/` prefix is stripped before matching).
+    /// Empty means all. Invalid filters are rejected with 400.
+    #[serde(default)]
+    pub topic_filter: String,
+    /// Pagination offset. Default: 0.
+    #[serde(default)]
+    pub offset: usize,
+    /// Page size. `0` or values above `max_row_limit` are capped by the caller.
+    #[serde(default)]
+    pub limit: usize,
+}
+
+/// One pending delayed publish entry returned by the HTTP API.
+///
+/// Metadata only — the payload content is never returned, just its size.
+#[derive(Serialize, Debug)]
+pub struct DelayedPublishEntry {
+    /// Node holding the message (delayed publishes are node-local).
+    pub node_id: NodeId,
+    /// Target topic (the `$delayed/<interval>/` prefix already stripped).
+    pub topic: TopicName,
+    /// Delay interval in seconds, from the `$delayed` prefix.
+    pub delay_interval: u32,
+    /// Absolute trigger timestamp (millis).
+    pub expired_time: TimestampMillis,
+    /// Publisher identity.
+    pub client_id: Option<String>,
+    pub username: Option<String>,
+    /// Publish metadata.
+    pub qos: u8,
+    pub retain: bool,
+    /// Payload size in bytes (content is never returned).
+    pub payload_len: usize,
 }
 
 /// A single retained message entry returned by the HTTP API.

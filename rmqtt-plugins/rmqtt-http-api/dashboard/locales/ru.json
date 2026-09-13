@@ -302,7 +302,8 @@
     "dashboard": "Dashboard",
     "confirm": "Подтвердить",
     "cancel": "Отмена",
-    "confirm_title": "Подтверждение"
+    "confirm_title": "Подтверждение",
+    "copy": "Копировать"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -352,5 +353,21 @@
     "delete": "Удалить",
     "delete_confirm": "Удалить сохранённое сообщение для темы {topic}?",
     "delete_fail": "Не удалось удалить: {msg}"
+  },
+  "delayed": {
+    "not_enabled": "Отложенная публикация отключена (загрузите плагин rmqtt-delayed)",
+    "topic_filter_placeholder": "Фильтр тем (напр. sensor/#, пусто = все)",
+    "topic": "Тема",
+    "delay_interval": "Интервал задержки",
+    "fire_time": "Время срабатывания",
+    "remaining": "Осталось",
+    "client_id": "ID клиента",
+    "username": "Имя пользователя",
+    "payload_size": "Размер payload",
+    "node": "Узел",
+    "payload": "Содержимое payload",
+    "not_found": "Сообщение уже отправлено или больше не существует",
+    "no_results": "Нет отложенных публикаций",
+    "view_payload": "Просмотр Payload"
   }
 }
