@@ -1,0 +1,8 @@
+##--------------------------------------------------------------------
+## rmqtt-delayed
+##--------------------------------------------------------------------
+## Tiny pending limit for the overflow test: the SECOND delayed publish
+## hits the limit and is DROPPED (publish_immediate = false); the
+## `message_dropped` hook fires with Reason::DelayedPublishRefused.
+publish_max = 1
+publish_immediate = false

@@ -302,7 +302,8 @@
     "dashboard": "Dashboard",
     "confirm": "確定",
     "cancel": "取消",
-    "confirm_title": "確認操作"
+    "confirm_title": "確認操作",
+    "copy": "複製"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -352,5 +353,21 @@
     "delete": "刪除",
     "delete_confirm": "確定刪除主題 {topic} 的保留訊息嗎？",
     "delete_fail": "刪除失敗：{msg}"
+  },
+  "delayed": {
+    "not_enabled": "延遲發布功能未啟用（需載入 rmqtt-delayed 外掛）",
+    "topic_filter_placeholder": "主題過濾器（如 sensor/#，留空 = 全部）",
+    "topic": "主題",
+    "delay_interval": "延遲間隔",
+    "fire_time": "觸發時間",
+    "remaining": "剩餘時間",
+    "client_id": "用戶端 ID",
+    "username": "使用者名稱",
+    "payload_size": "Payload 大小",
+    "node": "節點",
+    "payload": "Payload 內容",
+    "not_found": "訊息已觸發或已不存在",
+    "no_results": "暫無延遲訊息",
+    "view_payload": "查看 Payload"
   }
 }

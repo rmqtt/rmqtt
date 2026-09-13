@@ -2837,6 +2837,54 @@ impl DelayedPublish {
     }
 }
 
+/// Metadata snapshot of one pending delayed publish.
+///
+/// Returned by `DelayedSender::list` for the HTTP API / dashboard. The payload
+/// content is deliberately NOT included — only its size (`payload_len`).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DelayedPublishInfo {
+    /// Target topic (the `$delayed/<interval>/` prefix already stripped).
+    pub topic: TopicName,
+    /// Delay interval in seconds, from the `$delayed` prefix.
+    pub delay_interval: u32,
+    /// Absolute trigger timestamp (millis).
+    pub expired_time: TimestampMillis,
+    /// Publisher identity, extracted from `from.id`.
+    pub client_id: Option<ClientId>,
+    pub username: Option<UserName>,
+    /// Publish metadata.
+    pub qos: u8,
+    pub retain: bool,
+    /// Payload size in bytes (content is never returned).
+    pub payload_len: usize,
+}
+
+impl std::convert::From<&DelayedPublish> for DelayedPublishInfo {
+    #[inline]
+    fn from(dp: &DelayedPublish) -> Self {
+        Self {
+            topic: dp.publish.topic.clone(),
+            delay_interval: dp.publish.delay_interval.unwrap_or(0),
+            expired_time: dp.expired_time,
+            client_id: Some(dp.from.id.client_id.clone()),
+            username: dp.from.id.username.clone(),
+            qos: dp.publish.qos.value(),
+            retain: dp.publish.retain,
+            payload_len: dp.publish.payload.len(),
+        }
+    }
+}
+
+/// Full detail of one pending delayed publish, including the payload content.
+///
+/// Returned by `DelayedSender::find` for the on-demand HTTP detail endpoint;
+/// unlike [`DelayedPublishInfo`] this carries the actual payload bytes.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DelayedPublishDetail {
+    pub info: DelayedPublishInfo,
+    pub payload: Bytes,
+}
+
 impl std::cmp::Eq for DelayedPublish {}
 
 impl PartialEq for DelayedPublish {

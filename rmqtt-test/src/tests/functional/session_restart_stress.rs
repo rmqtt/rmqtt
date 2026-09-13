@@ -49,8 +49,8 @@
 //!     rm -rf rmqtt-test/configs/{session-sled,session-sled-stress,cluster-broadcast-sled,cluster-broadcast-sled-stress,cluster-raft-sled,cluster-raft-sled-stress}/.sled
 //!     ```
 //!   - Do not run another broker on the ports used by the suite (1883/1886/
-//!     1887/1888/1889/1890 MQTT, 6060 http-api, 5363..5370 gRPC, 6008..6010
-//!     raft), or while another harness instance is running.
+//!     1887/1888/1889/1890 MQTT, 6060/6061 http-api, 5363..5370 gRPC,
+//!     6008..6010 raft), or while another harness instance is running.
 //!
 //! Run the whole chaos suite (functional restart tests + all 5 stress tests,
 //! ~6.5 minutes at 1000×100):
@@ -81,8 +81,19 @@
 //!
 //! Scale is controlled by `STRESS_SESSIONS` / `STRESS_MSGS_PER_SESSION`
 //! (default 1000 sessions × 100 messages = 100k QoS 1 publishes). The
-//! cluster variants wait 30s after publishing before reconnecting (see the
-//! design doc §12 for the cross-node Forwards backlog race this avoids).
+//! stress client's publishes are fire-and-forget (PUBACKs are not awaited),
+//! so after `publish_all` returns the cross-node Forwards backlog can keep
+//! trickling into node 1 for tens of seconds. Reconnecting while the
+//! backlog is still in flight loses messages whose target session is being
+//! taken over at that exact moment (inherent cross-node race without a
+//! message store; see design doc §12) — the 2026-09-13 broadcast run lost
+//! 2394/100000 this way after a fixed 30s wait was defeated by a slow
+//! (debug-build) backlog. The cluster variants therefore use a
+//! **deterministic drain wait**: node 1's http-api is enabled (port 6061)
+//! and the harness polls the Prometheus `message_queues.count` gauge
+//! (session deliver-queue push/pop counter) until it reaches
+//! baseline + expected, i.e. every offline message is fully enqueued, and
+//! only then reconnects the sessions.
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -117,6 +128,17 @@ const SESSION_PERSIST_WAIT: Duration = Duration::from_secs(5);
 /// (exec queue / gRPC timeout). Sharding the publishes keeps the test below
 /// that cluster-forwarding bottleneck while still exercising ~100k messages.
 const PUBLISH_CONCURRENCY: usize = 250;
+
+/// Prometheus metrics path on node 1's http-api (port 6061, enabled in the
+/// stress node-1 configs solely for the deterministic drain wait).
+const NODE1_METRICS_PATH: &str = "/api/v1/metrics/prometheus/1";
+/// Poll interval for the drain wait.
+const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(500);
+/// Upper bound for the drain wait: the whole 100k-message cross-node
+/// backlog was observed to drain in ~35s on a Windows debug build.
+const DRAIN_TIMEOUT: Duration = Duration::from_secs(300);
+/// Settle time after the drain signal before reconnecting.
+const DRAIN_SETTLE: Duration = Duration::from_secs(1);
 
 /// Create `count` persistent sessions on `addr`, each subscribing to a unique
 /// topic, then disconnect them (concurrently). Returns the client ids and
@@ -189,6 +211,68 @@ async fn publish_all(
             r?;
         }
     }
+    Ok(())
+}
+
+/// Minimal HTTP/1.1 GET (no external HTTP client dependency). Returns the
+/// response body (head stripped).
+async fn http_get_body(addr: &str, path: &str) -> Result<String, anyhow::Error> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut stream = tokio::net::TcpStream::connect(addr).await?;
+    let req = format!("GET {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n");
+    stream.write_all(req.as_bytes()).await?;
+    let mut buf = Vec::new();
+    stream.read_to_end(&mut buf).await?;
+    let raw = String::from_utf8_lossy(&buf).into_owned();
+    Ok(raw.split("\r\n\r\n").nth(1).map(|b| b.to_string()).unwrap_or(raw))
+}
+
+/// Extract `message_queues.count` from the Prometheus text exposition:
+/// `rmqtt_stats{node="1",item="message_queues.count"} 12345`.
+fn parse_message_queues_count(body: &str) -> Option<i64> {
+    for line in body.lines() {
+        if line.contains("item=\"message_queues.count\"") {
+            return line.rsplit(' ').next()?.trim().parse().ok();
+        }
+    }
+    None
+}
+
+/// Deterministic Forwards-drain wait.
+///
+/// Blocks until node 1's `message_queues.count` gauge (session
+/// deliver-queue push/pop counter) reaches `baseline + expected`, i.e.
+/// every cross-node Forwards has been fully enqueued into its target
+/// session's deliver queue. Reconnects must not start before this point:
+/// in-flight Forwards hitting a session being taken over lose those
+/// messages (see the module docs). A pre-publish baseline is folded in so
+/// stale sessions from previous runs holding leftover queue entries cannot
+/// skew the target.
+async fn wait_forwards_enqueued(http_addr: &str, expected: i64) -> Result<(), anyhow::Error> {
+    let baseline = match http_get_body(http_addr, NODE1_METRICS_PATH).await {
+        Ok(body) => parse_message_queues_count(&body).unwrap_or(0),
+        Err(_) => 0,
+    };
+    let target = baseline + expected;
+
+    let start = Instant::now();
+    loop {
+        if start.elapsed() > DRAIN_TIMEOUT {
+            return Err(anyhow::anyhow!(
+                "Forwards drain wait timed out after {DRAIN_TIMEOUT:?}: node 1 \
+                 message_queues.count never reached {target}"
+            ));
+        }
+        if let Ok(body) = http_get_body(http_addr, NODE1_METRICS_PATH).await {
+            if let Some(count) = parse_message_queues_count(&body) {
+                if count >= target {
+                    break;
+                }
+            }
+        }
+        tokio::time::sleep(DRAIN_POLL_INTERVAL).await;
+    }
+    tokio::time::sleep(DRAIN_SETTLE).await;
     Ok(())
 }
 
@@ -275,9 +359,13 @@ async fn reconnect_and_verify(addr: &str, cids: &[String], msgs: usize) -> Resul
 }
 
 /// Core cluster stress reproduction (see module docs).
+///
+/// `node1_http_addr` is node 1's http-api `host:port` (port 6061 in the
+/// stress configs), used by the deterministic drain wait.
 async fn run_cluster_stress(
     cluster: &str,
     nodes: &[ClusterSpec],
+    node1_http_addr: &str,
     mode: RestartMode,
 ) -> Result<(), anyhow::Error> {
     assert!(nodes.len() >= 2, "cluster stress needs at least 2 nodes");
@@ -359,14 +447,18 @@ async fn run_cluster_stress(
     // ---- Phase 3: publish while sessions are offline (from node 2)
     let pub_id = format!("stress-pub-{uid}");
     publish_all(node2_addr, &pub_id, &topics, STRESS_MSGS_PER_SESSION, b"stress-payload").await?;
-    // Wait for node 1 to drain its Forwards backlog: with the cluster
-    // broadcast path, publishes complete (PUBACK on node 2) before node 1
-    // has delivered everything. Reconnecting earlier lets the still-queued
-    // Forwards hit sessions that were already removed by the reconnect, so
-    // those in-flight messages are lost (inherent cross-node race without a
-    // message store; `offline_run_loop`'s kick drain covers only messages
-    // already in the session's own rx).
-    tokio::time::sleep(Duration::from_secs(30)).await;
+
+    // ---- Phase 3.5: deterministic Forwards-drain wait. The publishes are
+    // fire-and-forget, so `publish_all` returning only means the packets
+    // were written to node 2; the cross-node backlog can keep trickling
+    // into node 1 for tens of seconds. Reconnecting earlier lets the
+    // still-queued Forwards hit sessions that were already removed by the
+    // reconnect, so those in-flight messages are lost (inherent cross-node
+    // race without a message store; `offline_run_loop`'s kick drain covers
+    // only messages already in the session's own rx). Wait until every
+    // message is fully enqueued instead of guessing with a fixed sleep.
+    let expected = (STRESS_SESSIONS * STRESS_MSGS_PER_SESSION) as i64;
+    wait_forwards_enqueued(node1_http_addr, expected).await?;
 
     // ---- Phase 4: reconnect all sessions on node 1 and verify delivery
     reconnect_and_verify(node1_addr, &cids, STRESS_MSGS_PER_SESSION).await
@@ -454,6 +546,7 @@ impl TestCase for StressClusterRestartBroadcastTest {
                         crate::tests::config_path("cluster-broadcast-sled-stress/node2"),
                     ),
                 ],
+                "127.0.0.1:6061",
                 RestartMode::SingleNode,
             )
             .await
@@ -490,6 +583,7 @@ impl TestCase for StressClusterWholeRestartBroadcastTest {
                         crate::tests::config_path("cluster-broadcast-sled-stress/node2"),
                     ),
                 ],
+                "127.0.0.1:6061",
                 RestartMode::WholeCluster,
             )
             .await
@@ -530,6 +624,7 @@ impl TestCase for StressClusterRestartRaftTest {
                         crate::tests::config_path("cluster-raft-sled-stress/node3"),
                     ),
                 ],
+                "127.0.0.1:6061",
                 RestartMode::SingleNode,
             )
             .await
@@ -570,6 +665,7 @@ impl TestCase for StressClusterWholeRestartRaftTest {
                         crate::tests::config_path("cluster-raft-sled-stress/node3"),
                     ),
                 ],
+                "127.0.0.1:6061",
                 RestartMode::WholeCluster,
             )
             .await

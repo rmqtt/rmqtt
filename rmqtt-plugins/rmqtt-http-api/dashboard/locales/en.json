@@ -302,7 +302,8 @@
     "dashboard": "Dashboard",
     "confirm": "Confirm",
     "cancel": "Cancel",
-    "confirm_title": "Confirmation"
+    "confirm_title": "Confirmation",
+    "copy": "Copy"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -352,5 +353,21 @@
     "delete": "Delete",
     "delete_confirm": "Delete retained message for topic {topic}?",
     "delete_fail": "Delete failed: {msg}"
+  },
+  "delayed": {
+    "not_enabled": "Delayed publish is not enabled (load the rmqtt-delayed plugin)",
+    "topic_filter_placeholder": "Topic filter (e.g. sensor/#, empty = all)",
+    "topic": "Topic",
+    "delay_interval": "Delay interval",
+    "fire_time": "Fire time",
+    "remaining": "Remaining",
+    "client_id": "Client ID",
+    "username": "Username",
+    "payload_size": "Payload size",
+    "node": "Node",
+    "payload": "Payload content",
+    "not_found": "Message has fired or no longer exists",
+    "no_results": "No delayed publishes",
+    "view_payload": "View Payload"
   }
 }

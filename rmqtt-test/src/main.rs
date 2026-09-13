@@ -47,7 +47,7 @@ struct Opt {
     workspace: Option<String>,
 
     /// Run only specific test suites (functional_v3, functional_v311, functional_v5,
-    /// functional_v5_cluster, stress, chaos)
+    /// functional_v5_cluster, functional_transport, delayed, stress, chaos)
     #[arg(short, long)]
     suites: Vec<String>,
 
@@ -85,6 +85,16 @@ struct Opt {
 }
 
 fn main() {
+    // Install the rustls process-level CryptoProvider before any TLS usage
+    // (mirrors rmqtt-bin/src/server.rs). Required because when this binary is
+    // built workspace-wide, cargo feature unification enables BOTH `aws-lc-rs`
+    // and `ring` on rustls (e.g. rmqtt-net pulls `ring` on Windows), so rustls
+    // cannot auto-select a provider and `ClientConfig::builder()` panics at
+    // runtime. The `aws-lc-rs` feature is always enabled in every build mode of
+    // this crate (it comes from its own default features), so referencing
+    // `rustls::crypto::aws_lc_rs` here compiles regardless of build invocation.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
     let opt = Opt::parse();
 
     // Initialize logging: console (info+) + trace file (debug+ with packet traces)
@@ -229,6 +239,16 @@ fn build_suites(opt: &Opt) -> Vec<TestSuite> {
     // G27 TLS/WebSocket transport suite (self-managed broker; standalone).
     if should_run("functional_transport", opt) {
         suites.push(build_transport_suite());
+    }
+
+    // Delayed publish plugin suite (`$delayed/<interval>/<topic>`). Every
+    // harness-broker test declares a broker_config, so this suite splits
+    // into `delayed@delayed`, `delayed@delayed-max1`,
+    // `delayed@delayed-max1-drop` and `delayed@delayed-flush` sub-suites
+    // (plus the plain `delayed` cluster test that spawns its own nodes);
+    // the `delayed` selector matches all of them.
+    if should_run("delayed", opt) {
+        suites.push(build_delayed_suite());
     }
 
     if should_run("stress", opt) {
@@ -584,6 +604,46 @@ fn build_transport_suite() -> TestSuite {
     suite.add(TransportWssV311Test);
     suite.add(TransportWsV311Test);
     suite.add(TransportTlsMtlsV311Test);
+    suite
+}
+
+/// Delayed publish plugin suite (`rmqtt-delayed`, `$delayed/<interval>/<topic>`).
+///
+/// Grouped in a standalone suite so the plugin can be tested in isolation
+/// with `--suites delayed`. The tests are grouped by the broker config they
+/// declare (see `split_suites_by_config`):
+///
+/// - `delayed@delayed`: plugin defaults (basic/routing/QoS/ordering/timing/properties/error-path/retain tests).
+/// - `delayed@delayed-max1`: publish_max=1, overflow forwarded immediately.
+/// - `delayed@delayed-max1-drop`: publish_max=1, overflow dropped.
+/// - `delayed@delayed-flush`: dedicated broker for the plugin-unload flush test.
+/// - `delayed` (plain): the self-managed 2-node cluster test.
+fn build_delayed_suite() -> TestSuite {
+    use tests::functional::delayed::*;
+
+    let mut suite = TestSuite::new("delayed");
+    // P1 — basic delivery, routing, QoS, ordering
+    suite.add(DelayedBasicDeliveryV5Test);
+    suite.add(DelayedBasicDeliveryV311Test);
+    suite.add(DelayedRoutingNoDollarLeakTest);
+    suite.add(DelayedQosPreserveTest);
+    suite.add(DelayedOrderingByExpiryTest);
+    // P2 — subscription timing, properties, error paths, semantics pinning
+    suite.add(DelayedUnsubscribeBeforeExpiryTest);
+    suite.add(DelayedSubscribeAfterPublishTest);
+    suite.add(DelayedExpiryIntervalPassthroughV5Test);
+    suite.add(DelayedPropertiesPassthroughV5Test);
+    suite.add(DelayedInvalidIntervalTest);
+    suite.add(DelayedMalformedTopicShapesTest);
+    suite.add(DelayedNestedDollarPrefixTest);
+    suite.add(DelayedRetainSemanticsTest);
+    suite.add(DelayedIntervalZeroTest);
+    // P2 — publish_max overflow (dedicated broker configs)
+    suite.add(DelayedMaxOverflowImmediateTest);
+    suite.add(DelayedMaxOverflowDropTest);
+    // P3 — plugin lifecycle and cluster
+    suite.add(DelayedPluginUnloadFlushTest);
+    suite.add(DelayedClusterCrossNodeTest);
     suite
 }
 

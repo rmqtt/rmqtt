@@ -66,7 +66,6 @@ pub type Result<T> = anyhow::Result<T, Error>;
 | `.max_subscriptions(n)` | `usize` | `0`（不限） |
 | `.max_topic_aliases(v)` | `u16` | `0` |
 | `.limit_subscription(v)` | `bool` | `false` |
-| `.delayed_publish(v)` | `bool` | `false` |
 | `.tls_cross_certificate(v)` | `bool` | `false` |
 | `.tls_cert(s)` | `Option<impl Into<String>>` | `None` |
 | `.tls_key(s)` | `Option<impl Into<String>>` | `None` |

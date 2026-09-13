@@ -32,6 +32,7 @@ full = [
     "auth-http",
     "auth-jwt",
     "auto-subscription",
+    "delayed",
 
     "bridge-egress-kafka",
     "bridge-ingress-kafka",
@@ -85,6 +86,7 @@ counter = ["rmqtt-counter"]
 auth-http = ["rmqtt-auth-http"]
 auth-jwt = ["rmqtt-auth-jwt"]
 auto-subscription = ["rmqtt-auto-subscription"]
+delayed = ["rmqtt-delayed"]
 
 # ---- bridge plugins ----
 bridge-egress-kafka = ["rmqtt-bridge-egress-kafka"]
@@ -117,6 +119,7 @@ rmqtt-counter = { workspace = true, optional = true }
 rmqtt-auth-http = { workspace = true, optional = true }
 rmqtt-auth-jwt = { workspace = true, optional = true }
 rmqtt-auto-subscription = { workspace = true, optional = true }
+rmqtt-delayed = { workspace = true, optional = true }
 rmqtt-bridge-egress-kafka = { workspace = true, optional = true }
 rmqtt-bridge-ingress-kafka = { workspace = true, optional = true }
 rmqtt-bridge-egress-mqtt = { workspace = true, optional = true }

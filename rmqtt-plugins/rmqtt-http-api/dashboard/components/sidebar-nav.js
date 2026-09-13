@@ -25,7 +25,7 @@
         { hash: '#/clients',  label: 'nav.clients',       icon: '&#9679;' },
         { hash: '#/subscriptions', label: 'nav.subscriptions', icon: '&#9776;' },
         { hash: '#/retains', label: 'nav.retained', icon: '&#9827;' },
-        { disabled: true,     label: 'nav.delayed_publish', icon: '&#9200;' },
+        { hash: '#/delayed_publishs', label: 'nav.delayed_publish', icon: '&#9200;' },
         { disabled: true,     label: 'nav.alarms',         icon: '&#9888;' },
       ],
     },

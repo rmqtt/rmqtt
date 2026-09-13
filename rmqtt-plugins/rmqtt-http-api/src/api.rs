@@ -33,10 +33,10 @@ use rmqtt::{
     node::{NodeInfo, NodeStatus},
     session::SessionState,
     stats::Stats,
-    types::NodeId,
+    topic::Topic,
     types::{
-        ClientId, CodecPublish, From, HashMap, Id, NodeHealthStatus, Publish, QoS, Retain, SubsSearchParams,
-        TopicFilter, TopicName, UserName,
+        ClientId, CodecPublish, DelayedPublishInfo, From, HashMap, Id, NodeHealthStatus, NodeId, Publish,
+        QoS, Retain, SubsSearchParams, TopicFilter, TopicName, UserName,
     },
     utils::timestamp_millis,
     Result,
@@ -48,9 +48,10 @@ use super::embed::DashboardAssets;
 use super::flusher::{HistoryCache, HistoryCaches};
 use super::prome::{Monitor, PROME_MONITOR};
 use super::types::{
-    ClientSearchParams, ClientSearchResult, FeatureConflict, FeatureValueGroup, Features, FeaturesInfo,
-    FeaturesInfoOrError, FeaturesSummary, HistoryData, HistoryQuery, Message, MessageReply,
-    PrometheusDataType, PublishParams, RetainInfo, RetainQueryParams, SubscribeParams, UnsubscribeParams,
+    ClientSearchParams, ClientSearchResult, DelayedPublishEntry, DelayedPublishQueryParams, FeatureConflict,
+    FeatureValueGroup, Features, FeaturesInfo, FeaturesInfoOrError, FeaturesSummary, HistoryData,
+    HistoryQuery, Message, MessageReply, PrometheusDataType, PublishParams, RetainInfo, RetainQueryParams,
+    SubscribeParams, UnsubscribeParams,
 };
 use super::{clients, plugin, prome, subs, PluginConfigType};
 
@@ -155,6 +156,11 @@ fn route(
         )
         .push(Router::with_path("routes").get(get_routes).push(Router::with_path("{topic}").get(get_route)))
         .push(Router::with_path("retains").get(get_retains).delete(delete_retain))
+        .push(
+            Router::with_path("delayed_publishs")
+                .get(get_delayed_publishs)
+                .push(Router::with_path("detail").get(get_delayed_publish_detail)),
+        )
         .push(
             Router::with_path("mqtt")
                 .push(Router::with_path("publish").post(publish))
@@ -399,6 +405,18 @@ async fn list_apis(res: &mut Response) {
             "method": "DELETE",
             "path": "/api/v1/retains?topic={topic}",
             "descr": "Delete a retained message by exact topic (cluster-wide)"
+        },
+        {
+            "name": "get_delayed_publishs",
+            "method": "GET",
+            "path": "/api/v1/delayed_publishs",
+            "descr": "Query pending delayed publishes (metadata only) with optional topic_filter/offset/limit (cluster-wide)"
+        },
+        {
+            "name": "get_delayed_publish_detail",
+            "method": "GET",
+            "path": "/api/v1/delayed_publishs/detail",
+            "descr": "Fetch one pending delayed publish with full payload by composite key node_id/topic/expired_time/client_id (404 when fired)"
         },
 
         {
@@ -1585,6 +1603,283 @@ async fn get_retains(
     };
 
     res.render(Json(json!({"items": items, "has_more": has_more})));
+    Ok(())
+}
+
+/// Query pending delayed publishes across the cluster with an optional topic
+/// filter and pagination.
+///
+/// Query parameters:
+/// - `topic_filter`: MQTT topic filter with `#` / `+` wildcards, matched
+///   against the target topic (the `$delayed/<interval>/` prefix is stripped).
+///   Empty or `#` means all messages. Invalid filters return 400.
+/// - `offset`: pagination offset (default `0`).
+/// - `limit`: page size (default and cap: `max_row_limit`).
+///
+/// Response: `{ "items": [DelayedPublishEntry...], "has_more": bool }`.
+///
+/// Cluster semantics: delayed publishes are node-local (in-memory heap on the
+/// receiving node, not synced or persisted), so the query fans out to every
+/// remote node through `DelayedPublishsQuery` and merges the results. Metadata
+/// only — payload content is never returned. Nodes that fail to respond are
+/// skipped with a warning (consistent with other cluster-wide endpoints).
+#[handler]
+async fn get_delayed_publishs(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> std::result::Result<(), salvo::Error> {
+    let (scx, cfg) = get_scx_cfg(depot)?;
+    let message_type = cfg.read().await.message_type;
+    let max_row_limit = cfg.read().await.max_row_limit;
+    let mut q = match req.parse_queries::<DelayedPublishQueryParams>() {
+        Ok(q) => q,
+        Err(e) => {
+            res.render(StatusError::bad_request().detail(e.to_string()));
+            return Ok(());
+        }
+    };
+    if q.limit == 0 || q.limit > max_row_limit {
+        q.limit = max_row_limit;
+    }
+
+    // Validate the topic filter up front; empty and "#" mean all messages.
+    let topic_filter = q.topic_filter.trim().to_string();
+    if !topic_filter.is_empty() && topic_filter != "#" && topic_filter.parse::<Topic>().is_err() {
+        res.render(StatusError::bad_request().detail(format!("invalid topic_filter: {topic_filter}")));
+        return Ok(());
+    }
+    let filter_opt = if topic_filter.is_empty() { None } else { Some(topic_filter) };
+
+    // Local node data (delayed publishes live in this node's heap).
+    let node_id = scx.node.id();
+    let mut entries: Vec<(NodeId, DelayedPublishInfo)> = scx
+        .extends
+        .delayed_sender()
+        .await
+        .list(filter_opt.as_deref(), max_row_limit)
+        .await
+        .into_iter()
+        .map(|info| (node_id, info))
+        .collect();
+    let mut cap_saturated = entries.len() >= max_row_limit;
+
+    // Remote nodes.
+    let grpc_clients = scx.extends.shared().await.get_grpc_clients();
+    if !grpc_clients.is_empty() {
+        let msg =
+            match (Message::DelayedPublishsQuery { topic_filter: filter_opt.clone(), max: max_row_limit })
+                .encode()
+            {
+                Ok(m) => m,
+                Err(e) => {
+                    res.render(StatusError::service_unavailable().detail(e.to_string()));
+                    return Ok(());
+                }
+            };
+        for (id, (_addr, c)) in grpc_clients.iter() {
+            let reply = MessageSender::new_quick(
+                c.clone(),
+                message_type,
+                GrpcMessage::Data(msg.clone()),
+                Some(Duration::from_secs(10)),
+            )
+            .send()
+            .await;
+            match reply {
+                Ok(GrpcMessageReply::Data(data)) => {
+                    match MessageReply::decode(&data) {
+                        Ok(MessageReply::DelayedPublishsReply(items)) => {
+                            if items.len() >= max_row_limit {
+                                cap_saturated = true;
+                            }
+                            entries.extend(items.into_iter().map(|info| (*id, info)));
+                        }
+                        Ok(reply) => {
+                            log::warn!("Get DelayedPublishsQuery from other node({id}), unreachable reply: {reply:?}");
+                        }
+                        Err(e) => {
+                            log::warn!("Decode DelayedPublishsReply from other node({id}), error: {e}");
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Get GrpcMessage::DelayedPublishsQuery from other node({id}), error: {e}");
+                }
+                Ok(reply) => {
+                    log::warn!("Get DelayedPublishsQuery from other node({id}), reply: {reply:?}");
+                }
+            }
+        }
+    }
+
+    let (items, has_more) = merge_delayed_publishs(entries, q.offset, q.limit, cap_saturated);
+    res.render(Json(json!({ "items": items, "has_more": has_more })));
+    Ok(())
+}
+
+/// Sort pending delayed publishes by trigger time (oldest first, topic as
+/// tie-breaker), then apply the global pagination window.
+///
+/// `cap_saturated` marks a node fetch that returned exactly the per-node cap,
+/// meaning its data may be truncated; in that case `has_more` is conservatively
+/// set to `true` because the merged total is incomplete.
+fn merge_delayed_publishs(
+    entries: Vec<(NodeId, DelayedPublishInfo)>,
+    offset: usize,
+    limit: usize,
+    cap_saturated: bool,
+) -> (Vec<DelayedPublishEntry>, bool) {
+    let mut entries = entries;
+    entries.sort_by(|a, b| a.1.expired_time.cmp(&b.1.expired_time).then(a.1.topic.cmp(&b.1.topic)));
+    let total = entries.len();
+    let has_more = cap_saturated || offset + limit < total;
+    let items = entries
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .map(|(node_id, info)| DelayedPublishEntry {
+            node_id,
+            topic: info.topic,
+            delay_interval: info.delay_interval,
+            expired_time: info.expired_time,
+            client_id: info.client_id.map(|c| c.to_string()),
+            username: info.username.map(|u| u.to_string()),
+            qos: info.qos,
+            retain: info.retain,
+            payload_len: info.payload_len,
+        })
+        .collect();
+    (items, has_more)
+}
+
+/// Fetch one pending delayed publish with its full payload content (on demand).
+///
+/// Query parameters (composite key, mirroring the list entries):
+/// - `node_id`: node holding the message (required).
+/// - `topic`: exact target topic, `$delayed/` prefix already stripped (required).
+/// - `expired_time`: trigger timestamp in millis (required).
+/// - `client_id`: publisher client id (optional filter).
+///
+/// The local node queries its in-memory heap directly; remote nodes are
+/// queried with a targeted (non-broadcast) gRPC message. The payload is
+/// returned base64-encoded. 404 when the message has fired / does not exist
+/// on the queried node.
+#[handler]
+async fn get_delayed_publish_detail(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> std::result::Result<(), salvo::Error> {
+    let (scx, cfg) = get_scx_cfg(depot)?;
+    let message_type = cfg.read().await.message_type;
+
+    let node_id = match req.query::<NodeId>("node_id") {
+        Some(id) => id,
+        None => {
+            res.render(StatusError::bad_request().detail("node_id is required"));
+            return Ok(());
+        }
+    };
+    let topic = match req.query::<String>("topic") {
+        Some(t) if !t.trim().is_empty() => t.trim().to_string(),
+        _ => {
+            res.render(StatusError::bad_request().detail("topic is required"));
+            return Ok(());
+        }
+    };
+    let expired_time = match req.query::<i64>("expired_time") {
+        Some(t) => t,
+        None => {
+            res.render(StatusError::bad_request().detail("expired_time is required"));
+            return Ok(());
+        }
+    };
+    let client_id = req.query::<String>("client_id").filter(|c| !c.trim().is_empty());
+
+    let detail = if node_id == scx.node.id() {
+        scx.extends.delayed_sender().await.find(&topic, expired_time, client_id.as_deref()).await
+    } else {
+        let grpc_clients = scx.extends.shared().await.get_grpc_clients();
+        match grpc_clients.get(&node_id) {
+            Some((_addr, c)) => {
+                let msg = match (Message::DelayedPublishsGet {
+                    topic: topic.clone(),
+                    expired_time,
+                    client_id: client_id.clone(),
+                })
+                .encode()
+                {
+                    Ok(m) => m,
+                    Err(e) => {
+                        res.render(StatusError::service_unavailable().detail(e.to_string()));
+                        return Ok(());
+                    }
+                };
+                let reply = MessageSender::new_quick(
+                    c.clone(),
+                    message_type,
+                    GrpcMessage::Data(msg),
+                    Some(Duration::from_secs(10)),
+                )
+                .send()
+                .await;
+                match reply {
+                    Ok(GrpcMessageReply::Data(data)) => match MessageReply::decode(&data) {
+                        Ok(MessageReply::DelayedPublishsGetReply(detail)) => detail,
+                        Ok(reply) => {
+                            log::warn!(
+                                "Get DelayedPublishsGet from other node({node_id}), unreachable reply: {reply:?}"
+                            );
+                            None
+                        }
+                        Err(e) => {
+                            log::warn!(
+                                "Decode DelayedPublishsGetReply from other node({node_id}), error: {e}"
+                            );
+                            None
+                        }
+                    },
+                    Err(e) => {
+                        res.render(
+                            StatusError::service_unavailable()
+                                .detail(format!("node({node_id}) unreachable: {e}")),
+                        );
+                        return Ok(());
+                    }
+                    Ok(reply) => {
+                        log::warn!("Get DelayedPublishsGet from other node({node_id}), reply: {reply:?}");
+                        None
+                    }
+                }
+            }
+            None => {
+                res.render(StatusError::not_found().detail(format!("node({node_id}) not found in cluster")));
+                return Ok(());
+            }
+        }
+    };
+
+    match detail {
+        Some(d) => {
+            let info = d.info;
+            res.render(Json(json!({
+                "node_id": node_id,
+                "topic": info.topic,
+                "delay_interval": info.delay_interval,
+                "expired_time": info.expired_time,
+                "client_id": info.client_id,
+                "username": info.username,
+                "qos": info.qos,
+                "retain": info.retain,
+                "payload_len": info.payload_len,
+                "payload": BASE64_STANDARD.encode(d.payload),
+            })));
+        }
+        None => {
+            res.render(StatusError::not_found().detail("delayed publish not found (may have fired)"));
+        }
+    }
     Ok(())
 }
 
@@ -3667,5 +3962,70 @@ mod tests {
         let (data, node_count) = aggregate_history_data(&nodes, 5);
         assert!(data.is_empty());
         assert_eq!(node_count, 0);
+    }
+
+    // ── merge_delayed_publishs ─────────────────────────────────────────
+
+    fn dp_info(expired_at: i64, topic: &str) -> DelayedPublishInfo {
+        DelayedPublishInfo {
+            topic: TopicName::from(topic),
+            delay_interval: 10,
+            expired_time: expired_at,
+            client_id: Some(ClientId::from("client-1")),
+            username: None,
+            qos: 0,
+            retain: false,
+            payload_len: 11,
+        }
+    }
+
+    #[test]
+    fn merge_sorts_globally_and_paginates() {
+        let entries = vec![
+            (2, dp_info(2000, "b/t")),
+            (1, dp_info(1000, "a/t")),
+            (2, dp_info(5000, "e/t")),
+            (1, dp_info(4000, "d/t")),
+            (2, dp_info(3000, "c/t")),
+        ];
+        let (items, has_more) = merge_delayed_publishs(entries, 1, 2, false);
+        let seq: Vec<(u64, &str)> = items.iter().map(|e| (e.node_id, e.topic.as_ref())).collect();
+        assert_eq!(seq, vec![(2, "b/t"), (2, "c/t")]);
+        // offset 1 + limit 2 < total 5
+        assert!(has_more);
+    }
+
+    #[test]
+    fn merge_last_page_has_more_false() {
+        let entries = vec![(1, dp_info(1000, "a/t")), (2, dp_info(2000, "b/t"))];
+        let (items, has_more) = merge_delayed_publishs(entries, 1, 2, false);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].topic.to_string(), "b/t");
+        assert!(!has_more);
+    }
+
+    #[test]
+    fn merge_cap_saturated_forces_has_more() {
+        // A node fetch hit the per-node cap: the merged total is incomplete,
+        // so has_more must be conservatively true even on a fully-covered page.
+        let entries = vec![(1, dp_info(1000, "a/t"))];
+        let (items, has_more) = merge_delayed_publishs(entries, 0, 10, true);
+        assert_eq!(items.len(), 1);
+        assert!(has_more);
+    }
+
+    #[test]
+    fn merge_tie_breaks_by_topic_on_equal_expired_time() {
+        let entries = vec![(1, dp_info(1000, "z/t")), (2, dp_info(1000, "a/t"))];
+        let (items, _) = merge_delayed_publishs(entries, 0, 10, false);
+        let topics: Vec<&str> = items.iter().map(|e| e.topic.as_ref()).collect();
+        assert_eq!(topics, vec!["a/t", "z/t"]);
+    }
+
+    #[test]
+    fn merge_empty_entries_returns_empty_and_no_more() {
+        let (items, has_more) = merge_delayed_publishs(vec![], 0, 50, false);
+        assert!(items.is_empty());
+        assert!(!has_more);
     }
 }

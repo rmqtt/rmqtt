@@ -5221,6 +5221,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "rmqtt-delayed"
+version = "0.24.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bytes",
+ "bytestring",
+ "log",
+ "rmqtt",
+ "rmqtt-codec",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
 name = "rmqtt-http-api"
 version = "0.24.0"
 dependencies = [
@@ -5332,6 +5349,7 @@ dependencies = [
  "rmqtt-cluster-broadcast",
  "rmqtt-cluster-raft",
  "rmqtt-counter",
+ "rmqtt-delayed",
  "rmqtt-http-api",
  "rmqtt-message-storage",
  "rmqtt-p2p-messaging",
@@ -5606,6 +5624,7 @@ dependencies = [
  "rmqtt-cluster-raft",
  "rmqtt-conf",
  "rmqtt-counter",
+ "rmqtt-delayed",
  "rmqtt-http-api",
  "rmqtt-message-storage",
  "rmqtt-net",

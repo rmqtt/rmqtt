@@ -142,7 +142,6 @@ Fields via `Deref<Target = ListenerInner>`:
 | `key` | `Option<String>` | `None` | TLS key file path |
 | `client_ca_certs` | `Option<String>` | `None` | Client CA cert file |
 | `limit_subscription` | `bool` | `false` | Enable subscription limit |
-| `delayed_publish` | `bool` | `false` | Enable delayed publish |
 | `proxy_protocol` | `bool` | `false` | Enable PROXY protocol v1/v2 |
 | `proxy_protocol_timeout` | `Duration` | `5s` | PROXY header read timeout |
 | `cert_cn_as_username` | `bool` | `false` | Use TLS CN as username |
@@ -174,9 +173,9 @@ Config files are loaded from `{plugins.dir}/{name}.toml`. Env prefix: `rmqtt_plu
 
 | Field | Type | Default |
 |-------|------|---------|
-| `delayed_publish_max` | `usize` | `100_000` |
-| `delayed_publish_immediate` | `bool` | `true` |
 | `max_sessions` | `isize` | `0` (unlimited) |
+
+> Delayed publish options (`delayed_publish_max` / `delayed_publish_immediate`) moved to the `rmqtt-delayed` plugin config (`rmqtt-delayed.toml`, keys `publish_max` / `publish_immediate`).
 
 ### Config loading priority
 

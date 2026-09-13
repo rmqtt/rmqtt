@@ -302,7 +302,8 @@
     "dashboard": "Dashboard",
     "confirm": "Confirmer",
     "cancel": "Annuler",
-    "confirm_title": "Confirmation"
+    "confirm_title": "Confirmation",
+    "copy": "Copier"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -352,5 +353,21 @@
     "delete": "Supprimer",
     "delete_confirm": "Supprimer le message retenu pour le sujet {topic} ?",
     "delete_fail": "Échec de la suppression : {msg}"
+  },
+  "delayed": {
+    "not_enabled": "La publication différée n'est pas activée (chargez le plugin rmqtt-delayed)",
+    "topic_filter_placeholder": "Filtre de sujet (ex. sensor/#, vide = tout)",
+    "topic": "Sujet",
+    "delay_interval": "Intervalle de délai",
+    "fire_time": "Heure de déclenchement",
+    "remaining": "Restant",
+    "client_id": "ID client",
+    "username": "Nom d'utilisateur",
+    "payload_size": "Taille du payload",
+    "node": "Nœud",
+    "payload": "Contenu du payload",
+    "not_found": "Message déjà déclenché ou inexistant",
+    "no_results": "Aucune publication différée",
+    "view_payload": "Voir le Payload"
   }
 }

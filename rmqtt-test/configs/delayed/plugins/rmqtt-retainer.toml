@@ -1,0 +1,30 @@
+##--------------------------------------------------------------------
+## rmqtt-retainer
+##--------------------------------------------------------------------
+#
+# Single node mode         - ram, sled, redis
+# Multi-node cluster mode  - ram, sled, redis
+#
+
+##ram, sled, redis
+storage.type = "ram"
+
+##sled
+storage.sled.path = "/var/log/rmqtt/.cache/retain/{node}"
+storage.sled.cache_capacity = "3G"
+
+##redis
+storage.redis.url = "redis://127.0.0.1:6379/"
+storage.redis.prefix = "retain"
+
+# The maximum number of retained messages, where 0 indicates no limit.
+max_retained_messages = 0
+
+# The maximum Payload value for retaining messages.
+max_payload_size = "1MB"
+
+# TTL for retained messages. Set to 0 for no expiration.
+retained_message_ttl = "0m"
+
+# Maximum number of messages per batch (default: 500).
+batch_messages_limit = 500

@@ -753,6 +753,99 @@ $ curl -i -X GET "http://localhost:6060/api/v1/retains?topic_filter=%2Fiot%2Fb%2
 
 > Note: the `topic_filter=#` (full) path is paginated at the storage layer and includes `remaining_ttl` (remaining seconds); the filter path is paginated in memory and `remaining_ttl` is `null`. Requires the `rmqtt-retainer` plugin to be enabled.
 
+## Delayed Publish
+
+### GET /api/v1/delayed_publishs
+
+Queries all pending delayed messages (`$delayed/<interval>/<topic>`) across the cluster. Delayed messages live in the **local in-memory heap of the receiving node** (not persisted, not synchronized across nodes), so this endpoint fans out to every node, merges the results, and paginates globally by trigger time. Metadata only — **payload content is not included** (its size is exposed as `payload_len`).
+
+**Query String Parameters:**
+
+| Name         | Type    | Required | Default         | Description |
+|--------------|---------|----------|-----------------|-------------|
+| topic_filter | String  | False    | empty (all)     | Topic filter, supports `#` / `+` wildcards; matched against the target topic with the `$delayed/<interval>/` prefix stripped; invalid filters return 400 |
+| offset       | Integer | False    | 0               | Pagination offset |
+| limit        | Integer | False    | `max_row_limit` | Page size; clamped to `max_row_limit` when exceeded |
+
+**Success Response Body (JSON):**
+
+| Name                      | Type | Description |
+|---------------------------|------|-------------|
+| items                     | Array | Pending delayed message list |
+| - items[i].node_id        | Integer | Node holding the message |
+| - items[i].topic          | String | Target topic (`$delayed/<interval>/` prefix stripped) |
+| - items[i].delay_interval | Integer | Delay interval in seconds |
+| - items[i].expired_time   | Integer | Trigger time (millisecond timestamp) |
+| - items[i].client_id      | String/Null | Publisher client ID |
+| - items[i].username       | String/Null | Publisher username |
+| - items[i].qos            | Integer | QoS level |
+| - items[i].retain         | Bool | Retain flag |
+| - items[i].payload_len    | Integer | Payload size in bytes, content not included |
+| has_more                  | Bool | Whether more data is available; conservatively `true` when any node returned exactly `max_row_limit` entries |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/delayed_publishs?topic_filter=sensor/%23&offset=0&limit=50"
+```
+
+```json
+{
+  "items": [
+    {
+      "node_id": 1,
+      "topic": "foo/1",
+      "delay_interval": 300,
+      "expired_time": 1780000000000,
+      "client_id": "publisher-01",
+      "username": "admin",
+      "qos": 1,
+      "retain": false,
+      "payload_len": 128
+    }
+  ],
+  "has_more": false
+}
+```
+
+> Note: requires the `rmqtt-delayed` plugin (enable it via `plugins.default_startups`, not enabled by default); nodes without the plugin return empty data. Expired messages are forwarded by the background task and disappear from the list. On plugin stop/unload, pending messages are flushed according to `publish_immediate`: forwarded immediately (`true`) or dropped through the `message_dropped` hook (`false`, reason `DelayedPublishRefused`). See `rmqtt-delayed.toml` (`publish_max` / `publish_immediate`) for the related options. The Dashboard "Monitoring → Delayed Publish" page is built on this endpoint.
+
+### GET /api/v1/delayed_publishs/detail
+
+Fetches one pending delayed message by its composite key (`node_id` + `topic` + `expired_time` + optional `client_id`), **including the base64-encoded payload content**. Local node queries the in-memory heap directly; remote nodes are queried through targeted (non-broadcast) gRPC.
+
+**Query String Parameters:**
+
+| Name         | Type    | Required | Description |
+|--------------|---------|----------|-------------|
+| node_id      | Integer | True     | Node holding the message |
+| topic        | String  | True     | Target topic (`$delayed/<interval>/` prefix stripped) |
+| expired_time | Integer | True     | Trigger time (millisecond timestamp, as returned by the list endpoint) |
+| client_id    | String  | False    | Publisher client ID (optional filter) |
+
+**Success Response Body (JSON):**
+
+| Name           | Type | Description |
+|----------------|------|-------------|
+| node_id        | Integer | Node holding the message |
+| topic          | String | Target topic |
+| delay_interval | Integer | Delay interval in seconds |
+| expired_time   | Integer | Trigger time (millisecond timestamp) |
+| client_id      | String/Null | Publisher client ID |
+| username       | String/Null | Publisher username |
+| qos            | Integer | QoS level |
+| retain         | Bool | Retain flag |
+| payload_len    | Integer | Payload size in bytes |
+| payload        | String | **Full payload content, base64-encoded** |
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/delayed_publishs/detail?node_id=1&topic=foo/1&expired_time=1780000000000&client_id=publisher-01"
+```
+
+> Note: returns **404** (`delayed publish not found (may have fired)`) when the message fired between listing and the detail request; messages are not persisted and are lost on node restart.
+
 ## Publish message
 
 ### POST /api/v1/mqtt/publish

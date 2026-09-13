@@ -66,7 +66,6 @@ All fields have `pub` visibility and fluent setter methods:
 | `.max_subscriptions(n)` | `usize` | `0` (unlimited) |
 | `.max_topic_aliases(v)` | `u16` | `0` |
 | `.limit_subscription(v)` | `bool` | `false` |
-| `.delayed_publish(v)` | `bool` | `false` |
 | `.tls_cross_certificate(v)` | `bool` | `false` |
 | `.tls_cert(s)` | `Option<impl Into<String>>` | `None` |
 | `.tls_key(s)` | `Option<impl Into<String>>` | `None` |

@@ -7,7 +7,7 @@
 ## root where the test spawns rmqttd) so a node restart rebuilds its offline
 ## sessions from storage.
 ##
-## Ports: MQTT 1888 / gRPC 5368 / raft 6008
+## Ports: MQTT 1888 / gRPC 5368 / raft 6008 / HTTP API 6061
 ##--------------------------------------------------------------------
 node.id = 1
 
@@ -36,8 +36,13 @@ plugins.default_startups = [
     "rmqtt-cluster-raft",
     "rmqtt-session-storage",
     "rmqtt-shared-subscription",
+    # Enabled solely for the stress tests' deterministic Forwards-drain wait:
+    # the harness polls node 1's Prometheus `message_queues.count` gauge
+    # (GET /api/v1/metrics/prometheus/1) until every published offline
+    # message is enqueued, before reconnecting the sessions.
+    "rmqtt-http-api",
 ]
-plugins.disabled_default_startups = ["rmqtt-acl", "rmqtt-counter", "rmqtt-http-api"]
+plugins.disabled_default_startups = ["rmqtt-acl", "rmqtt-counter"]
 
 ##--------------------------------------------------------------------
 ## MQTT listener

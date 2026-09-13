@@ -11,6 +11,7 @@ pub mod connack_return_codes_v311;
 pub mod connect_v3;
 pub mod connect_v311;
 pub mod connect_v5;
+pub mod delayed;
 pub mod disconnect_reason_v5;
 pub mod dollar_topics;
 pub mod empty_clientid_cleansession0_v311;

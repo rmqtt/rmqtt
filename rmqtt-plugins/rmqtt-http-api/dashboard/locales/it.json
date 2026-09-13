@@ -302,7 +302,8 @@
     "dashboard": "Dashboard",
     "confirm": "Conferma",
     "cancel": "Annulla",
-    "confirm_title": "Conferma"
+    "confirm_title": "Conferma",
+    "copy": "Copia"
   },
   "node_detail": {
     "cpu": "CPU",
@@ -352,5 +353,21 @@
     "delete": "Elimina",
     "delete_confirm": "Eliminare il messaggio conservato per l'argomento {topic}?",
     "delete_fail": "Eliminazione non riuscita: {msg}"
+  },
+  "delayed": {
+    "not_enabled": "La pubblicazione ritardata non è abilitata (caricare il plugin rmqtt-delayed)",
+    "topic_filter_placeholder": "Filtro argomento (es. sensor/#, vuoto = tutti)",
+    "topic": "Argomento",
+    "delay_interval": "Intervallo di ritardo",
+    "fire_time": "Ora di attivazione",
+    "remaining": "Rimanente",
+    "client_id": "ID client",
+    "username": "Nome utente",
+    "payload_size": "Dimensione payload",
+    "node": "Nodo",
+    "payload": "Contenuto del payload",
+    "not_found": "Messaggio già attivato o inesistente",
+    "no_results": "Nessuna pubblicazione ritardata",
+    "view_payload": "Vedi Payload"
   }
 }
