@@ -139,6 +139,19 @@ const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(300);
 /// Settle time after the drain signal before reconnecting.
 const DRAIN_SETTLE: Duration = Duration::from_secs(1);
+/// Hard bound for each metrics HTTP GET (a misbehaving server must never
+/// block the drain wait indefinitely).
+const HTTP_TIMEOUT: Duration = Duration::from_secs(5);
+/// Progress log interval for the drain wait (the raft backlog can drain
+/// for minutes on a debug build — without progress output that is
+/// indistinguishable from a hang).
+const PROGRESS_INTERVAL: Duration = Duration::from_secs(5);
+/// Plateau detection arms only after this much total wait time.
+const PLATEAU_AFTER: Duration = Duration::from_secs(60);
+/// Fail fast when the count has not changed for this long (after
+/// [`PLATEAU_AFTER`]): an idle pipeline with the target unreachable means
+/// messages were dropped before enqueueing — waiting longer cannot help.
+const PLATEAU_WINDOW: Duration = Duration::from_secs(30);
 
 /// Create `count` persistent sessions on `addr`, each subscribing to a unique
 /// topic, then disconnect them (concurrently). Returns the client ids and
@@ -215,16 +228,21 @@ async fn publish_all(
 }
 
 /// Minimal HTTP/1.1 GET (no external HTTP client dependency). Returns the
-/// response body (head stripped).
+/// response body (head stripped). Hard-bounded by [`HTTP_TIMEOUT`] so a
+/// misbehaving server can never block the drain wait indefinitely.
 async fn http_get_body(addr: &str, path: &str) -> Result<String, anyhow::Error> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let mut stream = tokio::net::TcpStream::connect(addr).await?;
-    let req = format!("GET {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n");
-    stream.write_all(req.as_bytes()).await?;
-    let mut buf = Vec::new();
-    stream.read_to_end(&mut buf).await?;
-    let raw = String::from_utf8_lossy(&buf).into_owned();
-    Ok(raw.split("\r\n\r\n").nth(1).map(|b| b.to_string()).unwrap_or(raw))
+    tokio::time::timeout(HTTP_TIMEOUT, async {
+        let mut stream = tokio::net::TcpStream::connect(addr).await?;
+        let req = format!("GET {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n");
+        stream.write_all(req.as_bytes()).await?;
+        let mut buf = Vec::new();
+        stream.read_to_end(&mut buf).await?;
+        let raw = String::from_utf8_lossy(&buf).into_owned();
+        Ok::<String, anyhow::Error>(raw.split("\r\n\r\n").nth(1).map(|b| b.to_string()).unwrap_or(raw))
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("HTTP GET {path} timed out after {HTTP_TIMEOUT:?}"))?
 }
 
 /// Extract `message_queues.count` from the Prometheus text exposition:
@@ -256,19 +274,48 @@ async fn wait_forwards_enqueued(http_addr: &str, expected: i64) -> Result<(), an
     let target = baseline + expected;
 
     let start = Instant::now();
+    let mut last_count: Option<i64> = None;
+    let mut last_change = start;
+    let mut last_progress_log = start;
     loop {
         if start.elapsed() > DRAIN_TIMEOUT {
             return Err(anyhow::anyhow!(
                 "Forwards drain wait timed out after {DRAIN_TIMEOUT:?}: node 1 \
-                 message_queues.count never reached {target}"
+                 message_queues.count never reached {target} (last: {last_count:?})"
             ));
+        }
+        // Fast-fail on a plateau: with the pipeline idle but the target
+        // unreachable, messages were dropped before enqueueing — waiting
+        // the full timeout cannot change the outcome.
+        if start.elapsed() > PLATEAU_AFTER && last_change.elapsed() > PLATEAU_WINDOW {
+            if let Some(count) = last_count {
+                return Err(anyhow::anyhow!(
+                    "Forwards drain stalled: node 1 message_queues.count stuck at {count} \
+                     (target {target}) for {PLATEAU_WINDOW:?} — messages were likely dropped \
+                     before enqueueing (see node 1 log)"
+                ));
+            }
         }
         if let Ok(body) = http_get_body(http_addr, NODE1_METRICS_PATH).await {
             if let Some(count) = parse_message_queues_count(&body) {
                 if count >= target {
                     break;
                 }
+                if last_count != Some(count) {
+                    last_count = Some(count);
+                    last_change = Instant::now();
+                }
             }
+        }
+        // Progress output: a multi-minute raft backlog must be
+        // distinguishable from a hang.
+        if last_progress_log.elapsed() > PROGRESS_INTERVAL {
+            eprintln!(
+                "[drain] {:?}: message_queues.count = {} / {target}",
+                start.elapsed(),
+                last_count.unwrap_or(baseline)
+            );
+            last_progress_log = Instant::now();
         }
         tokio::time::sleep(DRAIN_POLL_INTERVAL).await;
     }
