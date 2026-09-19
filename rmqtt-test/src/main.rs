@@ -47,7 +47,7 @@ struct Opt {
     workspace: Option<String>,
 
     /// Run only specific test suites (functional_v3, functional_v311, functional_v5,
-    /// functional_v5_cluster, functional_transport, delayed, stress, chaos)
+    /// functional_v5_cluster, functional_transport, delayed, pulsar, stress, chaos)
     #[arg(short, long)]
     suites: Vec<String>,
 
@@ -259,21 +259,31 @@ fn build_suites(opt: &Opt) -> Vec<TestSuite> {
         suites.push(build_chaos_suite(opt.chaos_iterations));
     }
 
+    // Pulsar bridge suite: egress/ingress data paths verified against an
+    // EXTERNAL Apache Pulsar service (`pulsar://127.0.0.1:6650`), which is why
+    // it is never part of the default full run and must be requested with
+    // `--suites pulsar`.
+    if should_run("pulsar", opt) {
+        suites.push(build_pulsar_suite());
+    }
+
     suites
 }
 
 /// Decide whether the (original, pre-split) suite `name` is selected.
 ///
 /// - Empty `--suites` = default full run, which excludes the two-node
-///   `functional_v5_cluster` suite.
+///   `functional_v5_cluster` suite and the `pulsar` suite (both need
+///   infrastructure that is started manually / provided externally).
 /// - Otherwise a suite is selected when a selector equals its name, is a
 ///   prefix (`functional_v5` also selects `functional_v5@retain-disabled`),
 ///   or is a sub-suite name of it (`functional_v5@retain-disabled` also
 ///   selects `functional_v5`).
 fn should_run(name: &str, opt: &Opt) -> bool {
     if opt.suites.is_empty() {
-        // Default full run excludes the manually-started cluster suite.
-        return name != "functional_v5_cluster";
+        // Default full run excludes the manually-started cluster suite and the
+        // pulsar bridge suite (external Pulsar service required).
+        return name != "functional_v5_cluster" && name != "pulsar";
     }
     opt.suites
         .iter()
@@ -588,6 +598,56 @@ fn build_functional_v311_suite() -> TestSuite {
     suite.add(LastWillV311InvalidUtf8PayloadTest);
     // G32 persistent session survives TCP FIN / RST disconnects
     suite.add(SessionV311TcpFinRstTest);
+    suite
+}
+
+/// Pulsar bridge suite — run in isolation with `--suites pulsar`.
+///
+/// Verifies the two Pulsar bridge plugins end to end against an **external**
+/// Apache Pulsar service at `pulsar://127.0.0.1:6650`:
+///
+/// - egress  (`rmqtt-bridge-egress-pulsar`):  MQTT publish   -> Pulsar topic
+/// - ingress (`rmqtt-bridge-ingress-pulsar`): Pulsar message -> MQTT publish
+///
+/// The tests embed their own Pulsar producer/consumer as independent
+/// observers. The whole suite is pinned to
+/// `rmqtt-test/configs/pulsar/rmqtt.toml` (bridge plugins + `rmqtt-retainer`),
+/// so the scheduler switches the broker config once at the suite boundary.
+/// When the Pulsar service is unreachable every test reports `Skipped`.
+///
+///     ./target/debug/mqtt_harness --workspace . --suites pulsar --workers 1
+fn build_pulsar_suite() -> TestSuite {
+    use tests::functional::pulsar::egress::*;
+    use tests::functional::pulsar::ingress::*;
+
+    let mut suite = TestSuite::with_config("pulsar", tests::config_path("pulsar"));
+
+    // Egress: MQTT publish -> Pulsar topic, observed by a test consumer.
+    suite.add(PulsarEgressSmokeTest);
+    suite.add(PulsarEgressBasicQos0Test);
+    suite.add(PulsarEgressQos1Test);
+    suite.add(PulsarEgressBinaryPayloadTest);
+    suite.add(PulsarEgressLargePayloadTest);
+    suite.add(PulsarEgressTopicFilterScopeTest);
+    suite.add(PulsarEgressForwardAllPublishTest);
+    suite.add(PulsarEgressForwardAllFromTest);
+    suite.add(PulsarEgressSkipLevelsTest);
+
+    // Environment / service readiness.
+    suite.add(PulsarServiceProbeTest);
+
+    // Ingress: Pulsar message -> MQTT publish, injected by a test producer.
+    suite.add(PulsarIngressBasicTest);
+    suite.add(PulsarIngressUserPropertiesTest);
+    suite.add(PulsarIngressQosPropertyTest);
+    suite.add(PulsarIngressOrderingTest);
+    suite.add(PulsarIngressBinaryPayloadTest);
+    suite.add(PulsarIngressEmptyPayloadTest);
+    suite.add(PulsarIngressRemoteTopicPlaceholderTest);
+    // Retained delivery is checked last: it writes retained state on the local
+    // topic and cleans it up at the end of the case.
+    suite.add(PulsarIngressRetainPropertyTest);
+
     suite
 }
 

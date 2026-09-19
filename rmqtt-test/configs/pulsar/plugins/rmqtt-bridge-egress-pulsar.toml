@@ -1,0 +1,53 @@
+##--------------------------------------------------------------------
+## rmqtt-bridge-egress-pulsar - mqtt_harness `pulsar` suite config
+##
+## Forward direction: MQTT publish (matched by `local.topic_filter`)
+##   -> fixed Pulsar topic `remote.topic`.
+##
+## The suite's own Pulsar consumer subscribes to the remote topics below
+## with a SEPARATE subscription name and `initial_position = "latest"`,
+## so each run only observes messages produced after it subscribed
+## (see designs/pulsar-bridge-test-plan.md).
+##--------------------------------------------------------------------
+
+##--------------------------------------------------------------------
+## Bridge 1: main data path (EG-01 .. EG-07)
+##--------------------------------------------------------------------
+[[bridges]]
+# Whether to enable
+enable = true
+# Bridge name
+name = "pulsar-egress"
+# Pulsar service address (provided externally)
+servers = "pulsar://127.0.0.1:6650"
+# producer name prefix
+producer_name_prefix = "rmqtt-test"
+
+[[bridges.entries]]
+# Local topic filter: all messages matching this filter are forwarded.
+local.topic_filter = "pulsar/egress/#"
+# Target Pulsar topic (fixed; egress has no ${local.topic} placeholder).
+# `persistent://` + latest consumer position keeps the observation window lossless.
+remote.topic = "persistent://public/default/rmqtt-test-egress"
+# forward all from data: from_type, from_node, from_ipaddress, from_clientid, from_username
+remote.forward_all_from = true
+# forward all publish data: dup, retain, qos, packet_id, topic (always), payload (always)
+remote.forward_all_publish = true
+
+##--------------------------------------------------------------------
+## Bridge 2: skip_levels behaviour (EG-08)
+##--------------------------------------------------------------------
+[[bridges]]
+enable = true
+name = "pulsar-egress-skip"
+servers = "pulsar://127.0.0.1:6650"
+producer_name_prefix = "rmqtt-test-skip"
+
+[[bridges.entries]]
+#Local topic filter
+local.topic_filter = "pulsar/skip/+/data"
+remote.topic = "persistent://public/default/rmqtt-test-egress-skip"
+# Number of leading topic levels to skip when writing the `topic` property
+# (the delivered Pulsar topic stays `remote.topic`).
+# For local topic `pulsar/skip/a/data` with skip_levels = 2 -> "a/data".
+remote.skip_levels = 2

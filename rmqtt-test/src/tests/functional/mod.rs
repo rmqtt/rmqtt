@@ -34,6 +34,7 @@ pub mod publish_properties_passthrough_v5;
 pub mod pubsub_v3;
 pub mod pubsub_v311;
 pub mod pubsub_v5;
+pub mod pulsar;
 pub mod qos2_conformance;
 pub mod qos2_conformance_v3;
 pub mod qos2_conformance_v311;

@@ -1,0 +1,60 @@
+##--------------------------------------------------------------------
+## rmqtt-bridge-ingress-pulsar - mqtt_harness `pulsar` suite config
+##
+## Receive direction: Pulsar message (consumed from `remote.topic`)
+##   -> MQTT publish on `local.topic`.
+##
+## The suite's own Pulsar producer publishes to the remote topics below;
+## the MQTT side is asserted with a v3.1.1/v5 test client.
+##
+## IMPORTANT: the subscription names here are owned by the plugin. The test
+## clients MUST use different subscription names, otherwise the `exclusive`
+## subscription of this plugin and the test consumer would compete.
+##--------------------------------------------------------------------
+
+##--------------------------------------------------------------------
+## Bridge 1: main data path (IG-01 .. IG-07)
+##--------------------------------------------------------------------
+[[bridges]]
+enable = true
+name = "pulsar-ingress"
+# Pulsar service address (provided externally)
+servers = "pulsar://127.0.0.1:6650"
+# consumer name prefix
+consumer_name_prefix = "rmqtt-test"
+# Message expiration time
+expiry_interval = "60s"
+
+[[bridges.entries]]
+# Pulsar topic the plugin consumes from
+remote.topic = "persistent://public/default/rmqtt-test-ingress"
+# Subscription owned by the plugin
+remote.subscription = "rmqtt-test-ingress-sub"
+# Subscription type
+remote.subscription_type = "exclusive"
+# Durable cursor + start from the newest message (no backfill on start)
+remote.options.durable = true
+remote.options.initial_position = "latest"
+# MQTT topic the message is re-published to (fixed mapping, easy to assert)
+local.topic = "pulsar/ingress/pulsar"
+#local.qos = 1          # unset -> follow properties["qos"]
+#local.retain = false   # unset -> follow properties["retain"]
+
+##--------------------------------------------------------------------
+## Bridge 2: ${remote.topic} placeholder mapping (IG-08)
+##--------------------------------------------------------------------
+[[bridges]]
+enable = true
+name = "pulsar-ingress-ph"
+servers = "pulsar://127.0.0.1:6650"
+consumer_name_prefix = "rmqtt-test-ph"
+expiry_interval = "60s"
+
+[[bridges.entries]]
+remote.topic = "persistent://public/default/rmqtt-test-ingress-ph"
+remote.subscription = "rmqtt-test-ingress-ph-sub"
+remote.subscription_type = "exclusive"
+remote.options.durable = true
+remote.options.initial_position = "latest"
+# MQTT topic == the full Pulsar topic string of the incoming message
+local.topic = "${remote.topic}"

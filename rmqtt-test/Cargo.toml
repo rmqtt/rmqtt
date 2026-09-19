@@ -38,3 +38,7 @@ tokio-rustls = { workspace = true }
 tokio-tungstenite = { workspace = true, features = ["rustls-tls-webpki-roots"] }
 # socket options for raw-socket tests (G32 RST)
 socket2 = { workspace = true }
+# Pulsar bridge suite (`--suites pulsar`): the tests embed their own
+# producer/consumer as independent observers. Same pinned version as the
+# rmqtt-bridge-{egress,ingress}-pulsar plugins.
+pulsar = "=6.9.0"
