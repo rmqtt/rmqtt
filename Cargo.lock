@@ -4832,7 +4832,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4876,7 +4876,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-acl"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4892,7 +4892,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-auth-http"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4909,7 +4909,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-auth-jwt"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4926,7 +4926,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-auto-subscription"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4939,7 +4939,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-egress-kafka"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4958,7 +4958,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-egress-mqtt"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4981,7 +4981,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-egress-nats"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-nats",
@@ -4998,7 +4998,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-egress-pulsar"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5015,7 +5015,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-egress-reductstore"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5032,7 +5032,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-ingress-kafka"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5050,7 +5050,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-ingress-mqtt"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5072,7 +5072,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-ingress-nats"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-nats",
@@ -5091,7 +5091,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-ingress-pulsar"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5111,7 +5111,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-bridge-origin"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5125,7 +5125,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-cluster-broadcast"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -5145,7 +5145,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-cluster-raft"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -5214,7 +5214,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-counter"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "async-trait",
  "log",
@@ -5223,7 +5223,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-delayed"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5240,7 +5240,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-http-api"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5274,7 +5274,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-message-storage"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5318,7 +5318,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-p2p-messaging"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5331,7 +5331,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-plugins"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "rmqtt-acl",
  "rmqtt-auth-http",
@@ -5436,7 +5436,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-retainer"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5453,7 +5453,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-session-storage"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5469,7 +5469,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-shared-subscription"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "async-trait",
  "log",
@@ -5508,7 +5508,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-sys-topic"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5551,7 +5551,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-topic-rewrite"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5579,7 +5579,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-web-hook"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -5601,7 +5601,7 @@ dependencies = [
 
 [[package]]
 name = "rmqttd"
-version = "0.24.0"
+version = "0.25.0"
 dependencies = [
  "anyhow",
  "chrono",
