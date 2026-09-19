@@ -5532,6 +5532,7 @@ dependencies = [
  "clap",
  "futures",
  "parking_lot 0.12.5",
+ "pulsar",
  "rand 0.9.5",
  "rmqtt-codec",
  "rustls",
