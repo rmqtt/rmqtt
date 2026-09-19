@@ -172,8 +172,6 @@ mqtt.max_sessions = 0
 ##--------------------------------------------------------------------
 ## MQTT/TCP - External TCP Listener for MQTT Protocol
 listener.tcp.external.addr = "0.0.0.0:1883"
-#Number of worker threads (currently unused)
-listener.tcp.external.workers = 8
 #The maximum number of concurrent connections allowed by the listener.
 listener.tcp.external.max_connections = 1024000
 #Maximum concurrent handshake limit, Default: 500
