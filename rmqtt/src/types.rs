@@ -376,6 +376,22 @@ impl Disconnect {
         }
     }
 
+    /// Whether receiving this DISCONNECT deletes the stored Will Message.
+    ///
+    /// [MQTT-3.1.2-8/9] the Server deletes the Will only on a DISCONNECT with
+    /// Reason Code 0x00 (Normal disconnection). Reason Code 0x04 (Disconnect
+    /// with Will Message) is the Client explicitly asking for the Will to be
+    /// sent, and every other code leaves it due for publication as well. MQTT
+    /// 3.1.1 has no Reason Code, so every v3 DISCONNECT is a normal one.
+    #[inline]
+    pub fn deletes_will(&self) -> bool {
+        match self {
+            Disconnect::V3 => true,
+            Disconnect::V5(d) => d.reason_code == DisconnectReasonCode::NormalDisconnection,
+            Disconnect::Other(_) => false,
+        }
+    }
+
     #[inline]
     pub fn reason(&self) -> Option<&ByteString> {
         match self {
@@ -2362,6 +2378,11 @@ bitflags! {
     pub struct StateFlags: u8 {
         const Kicked = 0b00000001;
         const ByAdminKick = 0b00000010;
+        /// A DISCONNECT packet was received on this connection. Informational:
+        /// whether the stored Will is deleted is decided from the recorded
+        /// Reason Code ([`Disconnect::deletes_will`]), never from this flag —
+        /// keying the Will decision off it suppresses the Will for Reason Code
+        /// 0x04 and every other "must publish" code as well.
         const DisconnectReceived = 0b00000100;
         const CleanStart = 0b00001000;
         const Ping = 0b00010000;

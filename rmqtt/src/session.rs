@@ -239,7 +239,7 @@ impl SessionState {
         );
 
         //Last will message
-        let will_delay_interval = if self.last_will_enable(flags, clean_session) {
+        let will_delay_interval = if self.last_will_enable(flags, clean_session, disconnect.as_ref()) {
             let will_delay_interval = self.will_delay_interval().await;
             if clean_session || will_delay_interval.is_none() {
                 if let Err(e) = self.process_last_will().await {
@@ -564,7 +564,7 @@ impl SessionState {
             let clean_session = state.clean_session(disconnect.as_ref()).await;
 
             //Last will message
-            let will_delay_interval = if state.last_will_enable(flags, clean_session) {
+            let will_delay_interval = if state.last_will_enable(flags, clean_session, disconnect.as_ref()) {
                 let will_delay_interval = state.will_delay_interval().await;
                 if clean_session || will_delay_interval.is_none() {
                     if let Err(e) = state.process_last_will().await {
@@ -868,11 +868,32 @@ impl SessionState {
         Ok(())
     }
 
+    /// Whether the stored Will Message is still due for publication when this
+    /// session ends in the given state. [MQTT-3.1.2-8/9]
+    ///
+    /// The Will is deleted in exactly two cases: the Server received a
+    /// DISCONNECT with Reason Code 0x00, or a new Network Connection for the
+    /// same Client Identifier took the session over.
+    ///
+    /// `disconnect` is the DISCONNECT recorded for this session. It must be
+    /// consulted on the `offline_restart` path too, where it is read back from
+    /// session storage: a session rebuilt after a broker restart must not
+    /// publish a Will that its last connection had already deleted.
     #[inline]
-    fn last_will_enable(&self, flags: StateFlags, clean_session: bool) -> bool {
+    fn last_will_enable(
+        &self,
+        flags: StateFlags,
+        clean_session: bool,
+        disconnect: Option<&Disconnect>,
+    ) -> bool {
         let session_present =
             flags.contains(StateFlags::Kicked) && !flags.contains(StateFlags::CleanStart) && !clean_session;
-        !(flags.contains(StateFlags::DisconnectReceived) || session_present)
+        // Only Reason Code 0x00 deletes the Will; 0x04 (Disconnect with Will
+        // Message) explicitly asks for it to be sent, and every other code
+        // leaves it due as well. MQTT 3.1.1 has no Reason Code, so every v3
+        // DISCONNECT is a normal disconnection.
+        let deleted_by_disconnect = disconnect.is_some_and(Disconnect::deletes_will);
+        !(deleted_by_disconnect || session_present)
     }
 
     #[inline]
