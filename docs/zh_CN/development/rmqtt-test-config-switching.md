@@ -137,7 +137,7 @@ pub fn ensure_broker_config(&self, target: &Path) -> Result<(), anyhow::Error>
 ### 4.6 main.rs 流程与 CLI 匹配
 
 流程：`resolve_workspace()` → 解析默认配置 → 启动 broker → `build_suites()`
-→ `split_suites_by_config()` → `filter_suites()` → 运行。
+→ `split_suites_by_config()` → `filter_suites()` → `filter_tests()` → 运行。
 
 - **workspace 解析**：`--workspace` 显式值 → cwd 探测（有 `rmqtt.toml` 且
   `rmqtt-test/configs/`）→ `CARGO_MANIFEST_DIR` 父目录（编译期仓库根）；
@@ -146,7 +146,10 @@ pub fn ensure_broker_config(&self, target: &Path) -> Result<(), anyhow::Error>
 - **`--suites` 前缀匹配**（`should_run` 双向匹配 + `filter_suites` 单向前缀）：
   - `functional_v5` → 同时命中 `functional_v5` 与 `functional_v5@retain-disabled` 等子套件；
   - `functional_v5@retain-disabled` → 只跑该子套件（也会注册原套件）；
-  - `functional_v5_cluster` → 仅显式指定时运行，默认全量排除（行为保持）。
+  - `functional_v5_cluster` → 仅显式指定时运行，默认全量排除（行为保持）；
+- **`-t/--test` 用例名过滤**：在 `filter_suites` **之后**按用例名子串匹配裁剪
+  `TestSuite::tests`，空套件整体丢弃。因为已过拆分阶段，命中用例仍保留自己声明的
+  配置，过滤不会引入额外的配置切换。
 
 ## 5. 使用方式
 
@@ -162,6 +165,12 @@ pub fn ensure_broker_config(&self, target: &Path) -> Result<(), anyhow::Error>
 
 # 只跑默认配置组（不跑 @ 子套件）
 ./target/release/mqtt_harness --workspace . --suites functional_v5
+
+# 只跑单个用例（-t/--test 按用例名子串匹配，仍使用该用例声明的配置）
+./target/release/mqtt_harness --workspace . --suites functional_v5 -t will_delay_v5
+
+# 不指定 --suites：跨套件按名字搜，命中的用例各自保留声明的配置
+./target/release/mqtt_harness --workspace . -t will_retain_rejected_when_retain_unavailable_v5
 ```
 
 运行日志中可见拆分与切换过程：

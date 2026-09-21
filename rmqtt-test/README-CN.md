@@ -85,6 +85,24 @@ TLS/WS/QUIC 专项测试）。
 > （如 `functional_v5@retain-disabled`）；`functional_v5_cluster` 双节点集群套件
 > 仅当显式指定时才运行，不参与默认全量。
 
+### 运行指定用例
+
+```bash
+# 单个用例（-t/--test 按用例名子串匹配，可重复）
+./target/release/mqtt_harness --workspace . --suites functional_v5 -t will_delay_v5
+
+# 多个用例
+./target/release/mqtt_harness --workspace . --suites functional_v5 \
+  -t will_published_on_disconnect_rc_0x04_v5 \
+  -t will_not_published_on_disconnect_rc_0x00_v5
+
+# 不指定 --suites：在所有套件里按名字搜，只跑命中的用例
+./target/release/mqtt_harness --workspace . -t mqtt_keepalive
+```
+
+> `-t/--test` 在套件/配置拆分之后生效，命中的用例仍在它声明的 broker 配置下运行，
+> 过滤本身不会引入额外的配置切换；没有任何命中的套件会被整体丢弃。
+
 ## ⚙️ Broker 配置（configs/ 自包含约定）
 
 所有测试用 broker 配置均位于 `rmqtt-test/configs/<name>/`，**自包含**（主配置 +

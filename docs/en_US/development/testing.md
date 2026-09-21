@@ -100,6 +100,9 @@ cargo build -p rmqtt-test --release
 ./target/release/mqtt_harness --workspace . --suites functional_v5
 ./target/release/mqtt_harness --workspace . --suites stress --suites chaos
 
+# Run specific test cases (-t/--test matches a substring of the case name, repeatable)
+./target/release/mqtt_harness --workspace . --suites functional_v5 -t will_delay_v5
+
 # Connect to an already-running broker
 ./target/release/mqtt_harness --no-broker
 

@@ -71,6 +71,9 @@ cargo build -p rmqtt-test --release
 # 运行特定套件（--suites 支持前缀匹配，见下）
 ./target/release/mqtt_harness --workspace . --suites functional_v5
 
+# 运行特定用例（-t/--test 按用例名子串匹配，可重复）
+./target/release/mqtt_harness --workspace . --suites functional_v5 -t will_delay_v5
+
 # 连接到已运行的 Broker
 ./target/release/mqtt_harness --no-broker
 

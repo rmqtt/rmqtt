@@ -51,6 +51,12 @@ struct Opt {
     #[arg(short, long)]
     suites: Vec<String>,
 
+    /// Run only test cases whose name contains this string (repeatable).
+    /// Substring match, so `-t will_` selects every case with `will_` in its
+    /// name; combine with `--suites` to narrow the search to one suite.
+    #[arg(short = 't', long = "test", value_name = "NAME")]
+    tests: Vec<String>,
+
     /// Number of parallel workers
     #[arg(short, long, default_value = "4")]
     workers: usize,
@@ -166,10 +172,11 @@ fn main() {
     };
 
     // Build suites, split them by per-test config declarations, then apply
-    // the --suites filter (empty selection keeps everything).
+    // the --suites and --test filters (empty selection keeps everything).
     let suites = build_suites(&opt);
     let suites = split_suites_by_config(suites, &default_config);
     let suites = filter_suites(suites, &opt.suites);
+    let suites = filter_tests(suites, &opt.tests);
 
     // Run tests (synchronous - each test creates its own runtime internally)
     let mut scheduler = TestScheduler::new();
@@ -304,6 +311,32 @@ fn filter_suites(suites: Vec<TestSuite>, selected: &[String]) -> Vec<TestSuite> 
     suites
         .into_iter()
         .filter(|s| selected.iter().any(|sel| s.name == *sel || s.name.starts_with(&format!("{}@", sel))))
+        .collect()
+}
+
+/// Filter the (split) suites down to the test cases selected on the command
+/// line by `-t/--test`.
+///
+/// Applied after `split_suites_by_config`, so the surviving cases keep their
+/// declared broker config and the scheduler still only switches configs at
+/// suite boundaries. A case is kept when its name contains any selector
+/// (substring match, not glob); suites left without any matching case are
+/// dropped entirely, so `-t <name>` runs exactly the requested cases and
+/// nothing else — no broker restart for a suite that lost all its cases.
+fn filter_tests(suites: Vec<TestSuite>, selected: &[String]) -> Vec<TestSuite> {
+    if selected.is_empty() {
+        return suites;
+    }
+    suites
+        .into_iter()
+        .filter_map(|mut suite| {
+            suite.tests.retain(|t| selected.iter().any(|sel| t.name().contains(sel.as_str())));
+            if suite.tests.is_empty() {
+                None
+            } else {
+                Some(suite)
+            }
+        })
         .collect()
 }
 
@@ -743,6 +776,7 @@ fn build_functional_v5_suite() -> TestSuite {
     use tests::functional::user_properties_v5::*;
     use tests::functional::wildcard::*;
     use tests::functional::will_delay_v5::*;
+    use tests::functional::will_disconnect_reason_v5::*;
     use tests::functional::will_properties_v5::*;
 
     let mut suite = TestSuite::new("functional_v5");
@@ -760,6 +794,14 @@ fn build_functional_v5_suite() -> TestSuite {
     suite.add(SessionCleanStartV5Test);
     // Will delay
     suite.add(WillDelayV5Test);
+    // Will Message vs DISCONNECT Reason Code (GitHub issue #514):
+    // 0x00 is the only code that may delete the Will, 0x04 and every other
+    // non-0x00 code must publish it, and an abrupt close keeps publishing it
+    // (control arm).
+    suite.add(WillPublishedOnDisconnectRc0x04V5Test);
+    suite.add(WillNotPublishedOnDisconnectRc0x00V5Test);
+    suite.add(WillPublishedOnDisconnectRcNot0x00V5Test);
+    suite.add(WillPublishedOnAbruptCloseV5Test);
     // No local
     suite.add(NoLocalV5Test);
     // Retain handling
