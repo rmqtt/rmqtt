@@ -89,6 +89,25 @@ kept enabled for the upcoming TLS/WS/QUIC test suites).
 > `functional_v5_cluster` two-node suite only runs when explicitly requested
 > and is never part of the default full run.
 
+### Running Specific Test Cases
+
+```bash
+# Single case (-t/--test matches a substring of the case name, repeatable)
+./target/release/mqtt_harness --workspace . --suites functional_v5 -t will_delay_v5
+
+# Several cases
+./target/release/mqtt_harness --workspace . --suites functional_v5 \
+  -t will_published_on_disconnect_rc_0x04_v5 \
+  -t will_not_published_on_disconnect_rc_0x00_v5
+
+# No --suites: search every suite by name and run only the matches
+./target/release/mqtt_harness --workspace . -t mqtt_keepalive
+```
+
+> `-t/--test` is applied after the suite/config split, so a selected case still
+> runs under its declared broker config and no extra config switches are
+> introduced by the filtering; suites left without a match are dropped.
+
 ## ⚙️ Broker Configs (self-contained `configs/`)
 
 All test broker configs live under `rmqtt-test/configs/<name>/` and are
