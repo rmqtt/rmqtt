@@ -204,7 +204,7 @@ configs/
 | 拆除时的服务端 DISCONNECT | `takeover_sends_disconnect_0x8e_v5` [MQTT-3.1.4-3] —— **已修复并转为 PASS**（见下方说明）：v5 DISCONNECT 在 sink 写半端仍然打开时发出，被接管的客户端先收到 Reason Code 0x8E，之后才关闭连接 |
 | 流控 | `flow_control_v5` / `flow_control_v5_inflight_cap_strict` |
 | 流控反向（🐞 expected-fail） | `flow_control_v5_receive_max_violation` [MQTT-4.9.0-1/2] —— 已登记 broker 缺陷（无 DISCONNECT 0x93） |
-| 主题别名 | `client_topic_alias_v5` / `server_topic_alias_v5` / `topic_alias_v5_unknown_alias`（→0x94）/ `topic_alias_v5_zero` / `topic_alias_v5_over_max` —— 后两条负向用例改用 QoS 1 发布，以 PUBACK 作为「被接受」的证据；`over_max` 当前 **FAIL**（见下方说明） |
+| 主题别名 | `client_topic_alias_v5` / `server_topic_alias_v5` / `topic_alias_v5_unknown_alias`（→0x94）/ `topic_alias_v5_zero` / `topic_alias_v5_over_max`（→0x94）—— 后两条负向用例改用 QoS 1 发布，以 PUBACK 作为「被接受」的证据；五条现已全部 PASS（见下方说明） |
 | 共享订阅 | `shared_sub_v5` / `shared_sub_v5_malformed_filter` |
 | 保留处理 | `retain_handling_new_v5` / `retain_handling_no_at_subscribe_v5` / `retain_as_published_v5` |
 | 消息过期 | `publication_expiry_v5` / `message_expiry_v5_forwarded` / `message_expiry_v5_queued_drop` |
@@ -233,8 +233,9 @@ configs/
 > 因需要不同的 broker 配置，构建时自动拆分为 `functional_v5@retain-disabled` 与
 > `functional_v5@pubrel-collision` 两个子套件执行（见上方「Broker 配置」章节）。
 > 全量 `--suites functional_v5 --workers 1` 运行的汇总为
-> `Total: 108 | Passed: 101 | Failed: 1 | Skipped: 1 | ExpectedFail: 3 | Info: 2`
-> —— 那一处失败就是下方登记的 `topic_alias_v5_over_max`。
+> `Total: 108 | Passed: 102 | Failed: 0 | Skipped: 1 | ExpectedFail: 3 | Info: 2`
+> —— 已无裸失败；最后那处红灯 `topic_alias_v5_over_max`，在服务端开始执行自己广播出去的
+> Topic Alias Maximum 之后转为 PASS（见下方说明）。
 
 > **issue #513 相关的四个用例刻意不标 expected-fail（🐞）。** 它们各自断言规范要求
 > 的行为：保留消息的 `Message Expiry Interval` 必须扣除其在保留存储中的停留时间
@@ -266,18 +267,23 @@ configs/
 > 断言，部分修复也能精确定位：对「发送 0x8E 后再关闭」的桩 broker 它 PASS，对「只修顺序、发
 > 0x87」的桩 broker 它仅在原因码这一层失败——实际排查中正是这样抓出错误码值的。
 
-> **`topic_alias_v5_over_max` 同样是裸 Failed，而非 🐞。** 它断言：Topic Alias 超过服务端
-> 自己在 CONNACK 里广播的上限的 PUBLISH 不得被接受；而当前 broker **接受了它**——
+> **`topic_alias_v5_over_max` 原先同样是裸 Failed，而非 🐞—— 现已 PASS。** 它断言：Topic Alias
+> 超过服务端自己在 CONNACK 里广播的上限的 PUBLISH 不得被接受；而当时的 broker **接受了它**——
 > `ClientTopicAliases::set_and_get`（`rmqtt/src/types.rs`）只限制一条连接能登记**多少个**
 > 别名，从不校验单个别名是否在上限之内，于是「上限 + 1」被直接登记、消息照常投递，用例读到的
 > 正是证明这一点的 PUBACK。缺的是校验，不是原因码：[MQTT-3.3.2-9] 只写了「发送方 MUST NOT」，
 > 但广播出去的上限本身就是服务端「我会认哪些别名」的承诺，而 0x94 Topic Alias invalid
 > 正是为「主题别名非法」定义的原因码（MQTT 5.0 第 4.13.1 节覆盖了「先告知再关闭」）。
+> `set_and_get` 现在在入口就拒绝超过上限的别名，复用别名-only 分支早已携带的
+> `MqttError::TopicAliasInvalid`，客户端因此收到 DISCONNECT 0x94 并断连。0x94 只存在于
+> DISCONNECT 码表里——PUBACK 没有这个值——所以只能断连，不能回一个「0x94 的 PUBACK」。
+> 原有的 `len >= max_topic_aliases` 分支刻意保持不动：既然现在每个被登记的别名都不超过上限，
+> 从 `1..=max` 中取 `max` 个互异键只可能是整个区间，该分支已成不可达。
 > 这条用例与 `topic_alias_v5_zero` 原先都用 QoS 0 发布，而 QoS 0 本就不期待任何应答；再加上
 > 判定把「读超时」当成「连接已关闭」，于是无论 broker 怎么处理都会 PASS——实测 `over_max`
 > 耗时 5.0s，正好是整个读超时。现改为 QoS 1 发布，让 PUBACK 成为「被接受」的唯一证据，
 > 连接仍开着却读超时也算失败。`topic_alias_v5_zero` 仍 PASS（broker 确实会及时拒绝别名 0），
-> 留下的那一处红就是 `topic_alias_v5_over_max`。
+> `over_max` 在补上上限校验后也 PASS。
 
 ### functional_v5_cluster（1 个用例）— 双节点集群端到端复现
 
