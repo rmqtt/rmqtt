@@ -18,41 +18,38 @@
 //!   SHOULD send a DISCONNECT packet containing a Reason Code before closing
 //!   the Network Connection."
 //!
-//! ## What the broker does instead
+//! ## What the broker used to do instead
 //!
-//! `Session::run` tears the connection down before it explains why:
-//!
-//! ```text
-//! rmqtt/src/session.rs:214      sink.close().await              <- write half shut down
-//! rmqtt/src/session.rs:266-277  if let Sink::V5(s) = .. { let _ = s.send_disconnect(d).await; }
-//! rmqtt-net/src/stream.rs:488   close() -> Framed::close() -> poll_shutdown()
-//! tokio-util framed_impl.rs:306 poll_close() = poll_flush() + poll_shutdown()
-//! ```
-//!
-//! Once the write half is shut down, `send_disconnect` (which is the *only*
-//! place the Server ever emits a v5 DISCONNECT — `grep -n send_disconnect
-//! rmqtt/src` returns exactly one hit, `session.rs:276`) can only fail, and
-//! the failure is swallowed by `let _ =`. The Client therefore sees a bare
-//! FIN with no Reason Code, and the broker logs nothing either: silent for
-//! the Client, silent for the operator.
+//! `Session::run` tore the connection down before it explained why: it called
+//! `sink.close()` — which drives `Framed::close()`, i.e. `poll_flush()` +
+//! `poll_shutdown()`, sending the FIN — *before* building and sending the v5
+//! DISCONNECT. `send_disconnect` is the only place the Server ever emits one
+//! (`grep -n send_disconnect rmqtt/src` returns exactly one hit), so it could
+//! only fail, and the failure was discarded by a `let _ =`: a bare FIN on the
+//! wire, and no log line either. Because that call site is the only one, every
+//! Server-originated Reason Code was dead at once — 0x8D, 0x8E, 0x93, 0x95 and
+//! 0x81/0x82 alike. The ordering was lost in `a70360078` ("Move `sink.close()`
+//! earlier in session termination process").
 //!
 //! ## What this test asserts
 //!
 //! Two raw TCP connections share one Client ID. The first must receive a
-//! DISCONNECT carrying Reason Code 0x8E and only then be closed. On the
-//! current broker it receives EOF with no packet at all, so the test FAILS
-//! (reproducing the defect) and will PASS once the ordering is fixed.
+//! DISCONNECT carrying Reason Code 0x8E and only then be closed; a broker that
+//! closes first FAILs, and one that explains itself PASSes. Ordering and reason
+//! code are asserted separately, so a partial fix is still reported precisely:
+//! against a broker that sends 0x8E before closing the test PASSes, and
+//! against one that sends 0x87 it fails on the reason code alone.
 //!
 //! A control arm runs in the same test: the second connection is pinged
-//! (PINGREQ -> PINGRESP) to prove the broker itself is healthy, so the missing
+//! (PINGREQ -> PINGRESP) to prove the broker itself is healthy, so a missing
 //! DISCONNECT cannot be blamed on a broker that crashed.
 //!
-//! NOTE: this asserts the reason code as well as the ordering. Fixing only the
-//! ordering exposes a second, currently invisible defect: `rmqtt/src/v5.rs:293`
-//! kicks with `is_admin = false`, which maps through
-//! `Reason::ConnectKicked(false)` (`rmqtt/src/types.rs:2587-2593`) to 0x87
-//! NotAuthorized, while 0x8E is currently only produced by the unrelated
-//! `Reason::SessionExpiration` variant (`rmqtt/src/types.rs:2595`).
+//! NOTE: the reason code is asserted because the takeover path has a trap of
+//! its own. `rmqtt/src/v5.rs` kicks the existing session with `is_admin =
+//! false`, so the code comes from `Reason::ConnectKicked(false)`, where "not an
+//! administrative kick" means "displaced by a session takeover": [MQTT-3.1.4-3]
+//! requires 0x8E there, not 0x87 NotAuthorized, which would claim the Client
+//! was rejected when it was in fact displaced.
 
 use std::io::{ErrorKind, Read, Write};
 use std::net::TcpStream;
@@ -214,14 +211,13 @@ impl TakeoverSendsDisconnect0x8eV5Test {
             Ok(Some(pkt)) => pkt,
             Ok(None) => {
                 return Err(anyhow::anyhow!(
-                    "BUG REPRODUCED [MQTT-3.1.4-3]: taking over client id '{client_id}' closed the \
-                     first connection with a bare FIN — EOF with no DISCONNECT packet. The Server \
-                     MUST send a DISCONNECT packet with Reason Code 0x8E (Session taken over) to \
-                     the existing Client before closing its Network Connection. Root cause: \
-                     `Session::run` (rmqtt/src/session.rs:214) calls `sink.close()` BEFORE the \
-                     DISCONNECT is built and sent (rmqtt/src/session.rs:266-277); closing shuts \
-                     the write half down, so `send_disconnect` fails and the error is discarded \
-                     by `let _ =`. The Client cannot tell 'taken over' from 'network dropped'"
+                    "[MQTT-3.1.4-3]: taking over client id '{client_id}' closed the first \
+                     connection with a bare FIN — EOF with no DISCONNECT packet. The Server MUST \
+                     send a DISCONNECT packet with Reason Code 0x8E (Session taken over) to the \
+                     existing Client before closing its Network Connection, so that the Client \
+                     can tell 'taken over' from 'network dropped'. The DISCONNECT is written at \
+                     the single `send_disconnect` call site in `Session::run`, which has to run \
+                     while the sink's write half is still open"
                 ));
             }
             Err(e) => {
@@ -245,12 +241,11 @@ impl TakeoverSendsDisconnect0x8eV5Test {
         let reason = pkt.get(2).copied().unwrap_or(0x00);
         if reason != RC_SESSION_TAKEN_OVER {
             return Err(anyhow::anyhow!(
-                "[MQTT-3.1.4-3]: the DISCONNECT after the takeover carries Reason Code 0x{reason:02X}, \
-                 expected 0x8E (Session taken over). Ordering is right, but the code is wrong: \
-                 rmqtt/src/v5.rs:293 kicks with `is_admin = false`, mapping through \
-                 `Reason::ConnectKicked(false)` (rmqtt/src/types.rs:2587-2593) to 0x87 \
-                 NotAuthorized; 0x8E is currently only produced by `Reason::SessionExpiration` \
-                 (rmqtt/src/types.rs:2595)"
+                "[MQTT-3.1.4-3]: the DISCONNECT after the takeover carries Reason Code \
+                 0x{reason:02X}, expected 0x8E (Session taken over). The ordering is right, but \
+                 the code is wrong: the takeover path kicks the existing session with \
+                 `is_admin = false`, which must map to 0x8E. 0x87 NotAuthorized would tell the \
+                 Client it was rejected when it was in fact displaced"
             ));
         }
 
