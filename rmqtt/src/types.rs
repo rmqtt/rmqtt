@@ -1403,6 +1403,28 @@ impl<'a> std::convert::TryFrom<LastWill<'a>> for Publish {
     }
 }
 
+/// Outcome of [`Sink::publish`]: the delivery completed, and this records *how*.
+///
+/// Both variants describe a **completed** delivery. The operation's contract is "hand this
+/// Application Message to this client", not "put these bytes on the wire" — so the distinction
+/// here is bookkeeping and diagnostics, not success versus failure:
+///
+/// - [`Self::Sent`] — the packet went out.
+/// - [`Self::DiscardedTooLarge`] — the packet exceeds the Maximum Packet Size the client
+///   declared, so it was dropped instead. Section 3.1.2.11.4 requires the Server to "discard it
+///   without sending it and then behave as if it had completed sending that Application Message"
+///   ([MQTT-3.1.2-25]).
+///
+/// A transport failure is *not* modelled here: it stays in the `Err` channel, where it means the
+/// session itself is broken and must be torn down. Keeping the benign discard out of that channel
+/// is deliberate — it makes `?` safe, because the completed-but-not-sent outcome can never be
+/// propagated as an error by accident.
+#[must_use]
+pub(crate) enum PublishOutcome {
+    Sent,
+    DiscardedTooLarge,
+}
+
 pub enum Sink<Io> {
     V3(v3::MqttStream<Io>),
     V5(v5::MqttStream<Io>),
@@ -1464,7 +1486,7 @@ where
         mut p: Publish,
         message_expiry_interval: Option<NonZeroU32>,
         server_topic_aliases: Option<&Arc<ServerTopicAliases>>,
-    ) -> Result<()> {
+    ) -> Result<PublishOutcome> {
         match self {
             Sink::V3(s) => {
                 s.send_publish(p.take()).await?;
@@ -1484,10 +1506,18 @@ where
                     properties.message_expiry_interval = message_expiry_interval;
                     properties.topic_alias = alias;
                 }
-                s.send_publish(p.take()).await?;
+                match s.send_publish(p.take()).await {
+                    Ok(()) => {}
+                    Err(e) if crate::net::is_over_max_packet_size(&e) => {
+                        // [MQTT-3.1.2-25]: too large to send, so discard it without sending it.
+                        // The caller treats this as a completed delivery.
+                        return Ok(PublishOutcome::DiscardedTooLarge);
+                    }
+                    Err(e) => return Err(e),
+                }
             }
         }
-        Ok(())
+        Ok(PublishOutcome::Sent)
     }
 
     #[inline]
@@ -2436,6 +2466,9 @@ pub enum Reason {
     SubscribeRefused,
     DelayedPublishRefused,
     MessageExpiration,
+    /// The message could not be sent because it exceeds the Maximum Packet Size the client
+    /// declared; it was discarded without being sent ([MQTT-3.1.2-25]).
+    MessageTooLarge,
     MessageQueueFull,
     InflightWindowFull,
     ProtocolError(ByteString),
@@ -2500,6 +2533,18 @@ impl std::convert::From<Reason> for PublishResult {
                 properties: UserProperties::default(),
                 reason_string: Some("Message expired".into()),
                 disconnect: true,
+            },
+
+            // The message was discarded instead of being sent ([MQTT-3.1.2-25]), so the session
+            // itself is unaffected — never disconnect on account of it. This reason is raised on
+            // the outbound delivery path only, so `PublishResult` (a PUBACK to a publisher) is
+            // never built from it; `QuotaExceeded` is used merely to keep the mapping total,
+            // because 0x95 is not a legal PUBACK reason code.
+            MessageTooLarge => Self {
+                reason_code: QuotaExceeded,
+                properties: UserProperties::default(),
+                reason_string: Some("Message too large to send".into()),
+                disconnect: false,
             },
 
             ProtocolError(msg) => Self {
@@ -2599,6 +2644,7 @@ impl ToReasonCode for Reason {
             Reason::PublishResult(pubres) => pubres.reason_code.to_reason_code(),
             Reason::DelayedPublishRefused => DisconnectReasonCode::NotAuthorized,
             Reason::MessageExpiration => DisconnectReasonCode::MessageRateTooHigh,
+            Reason::MessageTooLarge => DisconnectReasonCode::PacketTooLarge,
             Reason::MessageQueueFull => DisconnectReasonCode::QuotaExceeded,
             Reason::InflightWindowFull => DisconnectReasonCode::ReceiveMaximumExceeded,
             Reason::ProtocolError(_) => DisconnectReasonCode::ProtocolError,
@@ -2682,6 +2728,9 @@ impl Display for Reason {
             }
             Reason::MessageExpiration => {
                 "MessageExpiration" //message expiration
+            }
+            Reason::MessageTooLarge => {
+                "MessageTooLarge" //discarded, exceeds the client's Maximum Packet Size
             }
             Reason::MessageQueueFull => {
                 "MessageQueueFull" //message deliver queue is full

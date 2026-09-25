@@ -69,8 +69,8 @@ rust-version = "1.94.0"
 [workspace.dependencies]
 rmqtt = "0.25.0"
 rmqtt-codec = "0.3.1"
-rmqtt-net = "0.5.0"
-rmqtt-conf = "0.5.0"
+rmqtt-net = "0.6.0"
+rmqtt-conf = "0.6.0"
 rmqtt-macros = "0.1.2"
 rmqtt-utils = "0.1.6"
 rmqtt-storage = { version = "0.11.1",  default-features = false }

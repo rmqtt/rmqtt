@@ -36,10 +36,15 @@ cargo build -p rmqtt-test --release
 ./target/release/mqtt_harness --workspace .
 ```
 
-程序会自动查找 `target/release/rmqttd` 并启动 Broker，**默认使用自包含配置
-`rmqtt-test/configs/default/rmqtt.toml`**（不依赖仓库根的 `rmqtt.toml` /
-`rmqtt-plugins/*.toml`；保留 TCP/TLS/WS/WSS/QUIC 全部监听，便于后续添加
-TLS/WS/QUIC 专项测试）。
+未指定 `--binary` 时，程序按 `target/release/rmqttd` → `target/debug/rmqttd`
+的顺序在 workspace 根下自动查找并启动 Broker；需要固定某个构建产物时用
+`--binary <path>` 显式指定。注意这是 **release 优先**的顺序——只要 release
+产物存在就会优先选用，即使你启动的是 debug 版 harness，因此一个陈旧的
+release 构建可能在你不知情的情况下成为实际被测对象。
+
+**默认使用自包含配置 `rmqtt-test/configs/default/rmqtt.toml`**（不依赖仓库根的
+`rmqtt.toml` / `rmqtt-plugins/*.toml`；保留 TCP/TLS/WS/WSS/QUIC 全部监听，
+便于后续添加 TLS/WS/QUIC 专项测试）。
 
 ### 使用其他 Broker 配置
 
@@ -98,10 +103,22 @@ TLS/WS/QUIC 专项测试）。
 
 # 不指定 --suites：在所有套件里按名字搜，只跑命中的用例
 ./target/release/mqtt_harness --workspace . -t mqtt_keepalive
+
+# 时序敏感用例：钉住 --workers 1，避免其他用例共用同一个 broker 造成扰动
+# （issue #513 消息生命周期复现用例）
+./target/release/mqtt_harness --workspace . --suites functional_v5 --workers 1 \
+  -t retained_message_expiry_not_decremented_v5 \
+  -t message_expiry_deletes_qos2_inflight_v5 \
+  -t oversized_queued_message_stalls_queue_v5
 ```
 
 > `-t/--test` 在套件/配置拆分之后生效，命中的用例仍在它声明的 broker 配置下运行，
 > 过滤本身不会引入额外的配置切换；没有任何命中的套件会被整体丢弃。
+>
+> `--workers N`（默认 4）决定同时有多少个用例并行跑在**同一个** harness 托管的
+> broker 上。依赖固定等待、连接断开检测、严格投递顺序的用例应显式钉
+> `--workers 1`，否则被并发调度的其他用例可能扰动它们的时序。
+> 上面三个用例即下方 `functional_v5` 表中登记的 issue #513 复现用例。
 
 ## ⚙️ Broker 配置（configs/ 自包含约定）
 
@@ -176,24 +193,34 @@ configs/
 | CONNACK 返回码（自管 broker） | `connack_return_codes_auth_http_v311`（auth-http + 用例内 mock，端口 1892）/ `connack_not_authorized_v311`（auth-jwt，端口 1893）——这两个用例自行拉起 broker，不使用 harness broker |
 | issue #501 认证 × ACL 穿透（自管 broker） | `auth_http_ignore_allow_all_acl_v311`（auth 服务返回 404 → 判定 'ignore'；acl `["allow", "all"]` 将其放行 → CONNACK 0x00 fail-open 复现，端口 1896）/ `auth_http_ignore_deny_all_acl_v311`（acl `["deny", "all"]` 兜底 → CONNACK 0x05 fail-closed，端口 1900） |
 
-### functional_v5（99 个用例）— MQTT 5.0
+### functional_v5（108 个用例）— MQTT 5.0
 
 | 类别 | 用例 |
 |------|------|
-| 连接 / CONNACK | `connect_v5` / `reason_codes` / `session_present_fresh` / `wrong_protocol_name` / `unsupported_level` / `reserved_flag` / `second_connect` / `client_id_too_long` / `auth_method_rejected` (0x8C) / `connack_capabilities_v5` / `connack_receive_max_echo_v5` / `connack_assigned_client_id_v5` / `assigned_clientid_v5` / `empty_clientid_cleanstart0_rejected` |
-| 连接反向（🐞 expected-fail） | `connect_v5_will_flag_zero_but_qos_set` / `connect_v5_will_flag_zero_but_retain_set` [MQTT-3.1.2-11/12] — 已登记 broker 缺陷 |
-| 发布/订阅 | `pubsub_v5_qos0/1/2` / `qos1_ordering` / `qos_downgrade_v5_matrix` / `publish_properties_passthrough_v5` |
-| 会话 | `session_expiry_v5` / `takeover_v5` / `clean_start_v5` / `disconnect_expiry_zero` [MQTT-3.14.2-2] / `expiry_cleanup` / `expiry_update_on_reconnect` |
-| V5 特性 | `flow_control_v5` / `flow_control_v5_inflight_cap_strict` / `no_local_v5` / `will_delay_v5` / `will_properties_v5_delivery` / `shared_sub_v5` / `shared_sub_v5_malformed_filter` / `topic_alias_v5`（服务端/客户端/未知别名→0x94、零→0x94、超上限→0x94）/ `retain_handling_*_v5` / `retain_as_published_v5` / `server_keepalive_v5` / `max_packet_size_v5`（+ 强制）/ `subscribe_identifiers_v5`（+ 更新）/ `subscribe_multi_filter_mixed_v5` / `payload_format_v5` / `publication_expiry_v5` / `message_expiry_v5_forwarded` / `message_expiry_v5_queued_drop` / `request_response_v5` / `request_problem_info_v5` / `user_properties_v5` / `wildcard_available_v5` |
-| 流控反向（🐞 expected-fail） | `flow_control_v5_receive_max_violation` [MQTT-4.9.0-1/2] — 已登记 broker 缺陷（无 DISCONNECT 0x93） |
-| 保留消息 | `retain_v5_store_and_deliver` / `empty_payload_deletes` / `overwrite` / `live_message_not_retained` / `will` |
+| 连接 / CONNACK | `connect_v5` / `connect_v5_reason_codes` / `connect_v5_session_present_fresh` / `connect_v5_wrong_protocol_name` / `connect_v5_unsupported_level` / `connect_v5_reserved_flag` / `connect_v5_second_connect` / `connect_v5_client_id_too_long` / `connect_v5_auth_method_rejected` (0x8C) / `connack_capabilities_v5` / `connack_receive_max_echo_v5` / `connack_assigned_client_id_v5` / `assigned_clientid_v5` / `v5_empty_clientid_cleanstart0_rejected` |
+| 连接反向（🐞 expected-fail） | `connect_v5_will_flag_zero_but_qos_set` / `connect_v5_will_flag_zero_but_retain_set` [MQTT-3.1.2-11/12] —— 已登记 broker 缺陷 |
+| 发布/订阅 | `pubsub_v5_qos0` / `pubsub_v5_qos1` / `pubsub_v5_qos2` / `pubsub_v5_qos1_ordering` / `qos_downgrade_v5_matrix` / `publish_properties_passthrough_v5` |
+| 会话 | `session_expiry_v5` / `session_takeover_v5` / `session_clean_start_v5` / `session_v5_disconnect_expiry_zero` [MQTT-3.14.2-2] / `session_v5_expiry_cleanup` / `session_v5_expiry_update_on_reconnect` |
+| 拆除时的服务端 DISCONNECT | `takeover_sends_disconnect_0x8e_v5` [MQTT-3.1.4-3] —— **当前失败**的复现用例：`Session::run` 先关闭 sink 才发送 v5 DISCONNECT，被接管的客户端只看到裸 FIN，收不到 Reason Code 0x8E |
+| 流控 | `flow_control_v5` / `flow_control_v5_inflight_cap_strict` |
+| 流控反向（🐞 expected-fail） | `flow_control_v5_receive_max_violation` [MQTT-4.9.0-1/2] —— 已登记 broker 缺陷（无 DISCONNECT 0x93） |
+| 主题别名 | `client_topic_alias_v5` / `server_topic_alias_v5` / `topic_alias_v5_unknown_alias`（→0x94）/ `topic_alias_v5_zero`（→0x94）/ `topic_alias_v5_over_max`（→0x94） |
+| 共享订阅 | `shared_sub_v5` / `shared_sub_v5_malformed_filter` |
+| 保留处理 | `retain_handling_new_v5` / `retain_handling_no_at_subscribe_v5` / `retain_as_published_v5` |
+| 消息过期 | `publication_expiry_v5` / `message_expiry_v5_forwarded` / `message_expiry_v5_queued_drop` |
+| 遗嘱 | `last_will_v5_fires` / `will_delay_v5` / `will_properties_v5_delivery` / `will_published_on_abrupt_close_v5` / `will_published_on_disconnect_rc_0x04_v5` / `will_published_on_disconnect_rc_not_0x00_v5` / `will_not_published_on_disconnect_rc_0x00_v5` |
+| 报文大小 / Server Keep Alive | `max_packet_size_v5` / `max_packet_size_enforcement_v5` / `server_keepalive_v5` |
+| 请求/响应与属性 | `request_response_v5` / `request_problem_info_v5` / `user_properties_v5` / `payload_format_v5` |
+| 订阅选项 | `subscribe_identifiers_v5` / `subscribe_identifiers_v5_update` / `subscribe_multi_filter_mixed_v5` / `no_local_v5` / `wildcard_available_v5` |
+| 保留消息 | `retain_v5_store_and_deliver` / `retain_v5_empty_payload_deletes` / `retain_v5_overwrite` / `retain_v5_live_message_not_retained` / `retain_v5_will` |
 | QoS 2 | `qos2_replayed_publish_dedup` [MQTT-4.3.3-10] / `qos2_pubrel_resend_on_resume` [MQTT-4.4.0-1] / `qos2_pubrel_resume_collision` |
-| 通配符 | `wildcard_v5_case_sensitive` / `leading_slash` |
+| 通配符 | `wildcard_v5_case_sensitive` / `wildcard_v5_leading_slash` |
 | 原因码（MAY 级） | `reason_code_v5_puback_no_matching_subscribers` / `reason_code_v5_unsuback_no_subscription` —— 断言合法原因码（0x00 或 0x10 / 0x11） |
 | 响应/问题信息（info） | `connack_response_info_v5` / `publish_v5_response_topic_wildcard` —— 记录型观察，不计成败 |
-| 协议错误 | `protocol_error_v5_*`（订阅/取消订阅：QoS3、QoS0 固定头、空 payload、packet id 0、sub-id 0、保留位、retain handling 3、取消订阅携带 sub-id；发布：QoS3、pid0、空主题、QoS0 携带 DUP；剩余长度非法、保留类型、DISCONNECT 错误 flags、非法 UTF-8 主题、未请求的 AUTH、User Property 非法 UTF-8） |
+| 协议错误 | `protocol_error_v5_bad_remaining_length` / `protocol_error_v5_disconnect_bad_flags` / `protocol_error_v5_invalid_utf8_topic` / `protocol_error_v5_publish_dup_on_qos0` / `protocol_error_v5_publish_empty_topic` / `protocol_error_v5_publish_packet_id_zero` / `protocol_error_v5_publish_qos3` / `protocol_error_v5_reserved_packet_type` / `protocol_error_v5_retain_handling_3` / `protocol_error_v5_sub_id_zero` / `protocol_error_v5_sub_options_reserved_bits` / `protocol_error_v5_subscribe_empty_payload` / `protocol_error_v5_subscribe_packet_id_zero` / `protocol_error_v5_subscribe_qos0_fixed_header` / `protocol_error_v5_subscribe_qos3` / `protocol_error_v5_unsolicited_auth` / `protocol_error_v5_unsubscribe_empty_payload` / `protocol_error_v5_unsubscribe_packet_id_zero` / `protocol_error_v5_unsubscribe_qos0_fixed_header` / `protocol_error_v5_unsubscribe_with_sub_id` / `protocol_error_v5_user_property_bad_utf8` |
 | 断开原因码 | `disconnect_reason_v5` |
 | Keep Alive / TCP | `ping_v5` / `mqtt_keepalive_timeout_reclaims_tcp` / `tcp_keepalive_socket_option`（仅 Linux，其他平台跳过） |
+| 消息生命周期（issue #513） | `retained_message_expiry_not_decremented_v5` [MQTT-3.3.2-6] / `message_expiry_deletes_qos2_inflight_v5` [MQTT-4.4.0-1] —— **仍失败**的复现用例；`oversized_queued_message_stalls_queue_v5` + `retained_oversized_message_keeps_session_v5` [MQTT-3.1.2-24/-25] —— 同一缺陷在「排队投递」与「保留消息」两条路径上的表现，**已修复并转为 PASS**；见下方说明 |
 | Will Retain vs Retain Available | `v5_will_retain_rejected_when_retain_unavailable`（在 `functional_v5@retain-disabled` 子套件中真正执行） |
 
 > **expected-fail 用例（🐞）**：完整执行，但断言 broker 尚未实现的行为（已登记的
@@ -201,10 +228,33 @@ configs/
 > `UNEXPECTED-PASS`，届时应转正为普通断言。详见
 > `designs/mqtt-5.0-standalone-test-gap-analysis.md`。
 
-> functional_v5 共 99 个用例：默认配置组运行其中 97 个；
+> functional_v5 共 108 个用例：默认配置组运行其中 106 个；
 > `v5_will_retain_rejected_when_retain_unavailable` 与 `qos2_pubrel_resume_collision`
 > 因需要不同的 broker 配置，构建时自动拆分为 `functional_v5@retain-disabled` 与
 > `functional_v5@pubrel-collision` 两个子套件执行（见上方「Broker 配置」章节）。
+> 全量 `--suites functional_v5 --workers 1` 运行的汇总为
+> `Total: 108 | Passed: 99 | Failed: 3 | Skipped: 1 | ExpectedFail: 3 | Info: 2`。
+
+> **issue #513 相关的四个用例刻意不标 expected-fail（🐞）。** 它们各自断言规范要求
+> 的行为：保留消息的 `Message Expiry Interval` 必须扣除其在保留存储中的停留时间
+> （[MQTT-3.3.2-6]）；收到 PUBREC 后欠下的 PUBREL 必须在会话恢复时用**原 Packet
+> Identifier** 重发（[MQTT-4.4.0-1]）；超过客户端 Maximum Packet Size 的报文必须被丢弃，
+> 并「视同已完成投递该应用消息」继续服务——排队路径与保留消息路径都如此
+> （[MQTT-3.1.2-24] / [MQTT-3.1.2-25]）。因此缺陷修复前它们会作为普通失败显示，
+> 修复后无需改动测试即转为 PASS——与上面那些不合规时保持静默的 🐞 用例不同。
+> 两条超限报文用例现已 PASS：`EncodeError::OverMaxPacketSize` 已在
+> `Session::deliver`（`rmqtt/src/session.rs`）中降级为「已完成投递」，不再逃出会话事件循环。
+> 请用 `--workers 1` 串行运行（见「运行指定用例」）。
+
+> **`takeover_sends_disconnect_0x8e_v5` 同样刻意不标 expected-fail（🐞）。** 它复现的是
+> 排查 #513 时发现的**第四个独立缺陷**——属**连接拆除**环节，不属于消息生命周期。
+> `Session::run` 先调用 `sink.close()`（关闭写半端），**之后**才构造并发送 v5
+> DISCONNECT，而失败被 `let _ =` 丢弃。于是服务端能发出的所有 Reason Code——0x8D
+> Keep Alive 超时、0x8E 会话被接管、0x93 超出接收上限、0x95 报文过大——都成了死码，
+> 客户端无法区分「被服务端断开（附原因）」与「网络断开」。[MQTT-3.1.4-3] 规定会话被
+> 接管时发送 0x8E DISCONNECT 是 MUST，因此该用例在修复前会作为 `functional_v5` 里的
+> 又一个红。用例把两层要求分开断言，部分修复也能精确定位：对「发送 0x8E 后再关闭」的
+> 桩 broker 它 PASS，对「只修顺序、发 0x87」的桩 broker 它仅在原因码这一层失败。
 
 ### functional_v5_cluster（1 个用例）— 双节点集群端到端复现
 

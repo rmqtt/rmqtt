@@ -748,6 +748,7 @@ fn build_functional_v5_suite() -> TestSuite {
     use tests::functional::dollar_topics::*;
     use tests::functional::empty_clientid_cleanstart0_v5::*;
     use tests::functional::flow_control_v5::*;
+    use tests::functional::issue513_message_lifecycle::*;
     use tests::functional::keepalive::*;
     use tests::functional::last_will::*;
     use tests::functional::max_packet_size_v5::*;
@@ -766,6 +767,7 @@ fn build_functional_v5_suite() -> TestSuite {
     use tests::functional::retain_handling_v5::*;
     use tests::functional::retain_unavailable_v5::*;
     use tests::functional::retain_v5::*;
+    use tests::functional::server_disconnect_v5::*;
     use tests::functional::server_keepalive_v5::*;
     use tests::functional::session_v5::*;
     use tests::functional::shared_subscription::*;
@@ -791,6 +793,11 @@ fn build_functional_v5_suite() -> TestSuite {
     // Session management
     suite.add(SessionExpiryV5Test);
     suite.add(SessionTakeoverV5Test);
+    // Server-side DISCONNECT delivery [MQTT-3.1.4-3]: `Session::run` closes the
+    // sink before it builds and sends the v5 DISCONNECT, so the reason code
+    // never reaches the wire (bare FIN instead). Takeover is the reproduction;
+    // see server_disconnect_v5.rs for the full evidence chain.
+    suite.add(TakeoverSendsDisconnect0x8eV5Test);
     suite.add(SessionCleanStartV5Test);
     // Will delay
     suite.add(WillDelayV5Test);
@@ -923,6 +930,21 @@ fn build_functional_v5_suite() -> TestSuite {
     suite.add(SubscribeMultiFilterMixedV5Test);
     // G27: broker -> client flow control with Receive Maximum = 1
     suite.add(FlowControlV5InflightCapStrictTest);
+    // Issue #513 (message lifetime): three registered defects, each asserted to
+    // the MQTT 5.0 requirement with its own control arm, so they FAIL on the
+    // current broker (reproducing the issue) and PASS once fixed. See
+    // issue513_message_lifecycle.rs for the root-cause notes.
+    //   H-13 [MQTT-3.3.2-6]    retained Message Expiry Interval not decremented
+    //   X-02 [MQTT-4.4.0-1]    Message Expiry deletes an in-flight QoS 2 exchange
+    //   H-14 [MQTT-3.1.2.11.4] oversized queued message stalls the queue
+    suite.add(RetainedMessageExpiryNotDecrementedV5Test);
+    suite.add(MessageExpiryDeletesQos2InflightV5Test);
+    suite.add(OversizedQueuedMessageStallsQueueV5Test);
+    // H-14 on the retained path: the same defect reached via
+    // `_send_retain_messages`, where it disconnects a small-limit client on
+    // every SUBSCRIBE. PASSes once the oversized message is discarded as
+    // [MQTT-3.1.2-25] requires.
+    suite.add(RetainedOversizedMessageKeepsSessionV5Test);
     // Retained message edge cases
     suite.add(RetainV5StoreAndDeliverTest);
     suite.add(RetainV5EmptyDeleteTest);
