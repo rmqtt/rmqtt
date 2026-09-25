@@ -2819,6 +2819,19 @@ impl ClientTopicAliases {
 
     #[inline]
     pub async fn set_and_get(&self, alias: Option<NonZeroU16>, topic: TopicName) -> Result<TopicName> {
+        // [MQTT-3.3.2-9] a Client MUST NOT send a PUBLISH carrying a Topic Alias greater
+        // than the Topic Alias Maximum the Server returned in its CONNACK. That maximum
+        // is `max_topic_aliases`: `v5.rs` writes it into the CONNACK and hands the same
+        // number to `SessionState::new`, so an alias above it is a Protocol Error and
+        // takes the Reason Code MQTT 5.0 defines for an invalid Topic Alias, 0x94.
+        // Storing such an alias instead would accept, silently, a packet this Server had
+        // just declared out of range. The code is DISCONNECT-only: 0x94 is not a legal
+        // PUBACK reason code, so the connection ends rather than the PUBLISH being nacked.
+        if let Some(alias) = alias {
+            if alias.get() as usize > self.max_topic_aliases {
+                return Err(MqttError::TopicAliasInvalid(alias).into());
+            }
+        }
         match (alias, topic.len()) {
             (Some(alias), 0) => {
                 // An alias-only PUBLISH whose alias was never established on this

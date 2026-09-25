@@ -537,12 +537,13 @@ impl TestCase for TopicAliasV5ZeroTest {
 /// defined for an invalid Topic Alias). The assertion is the one that cannot be
 /// faked: the packet must not be acknowledged, and the connection must end.
 ///
-/// REPRODUCTION — this case FAILS against the current broker, which accepts the
-/// alias. `ClientTopicAliases::set_and_get` (`rmqtt/src/types.rs`) only caps how
-/// *many* aliases a connection may register, never that an individual alias lies
-/// within the advertised maximum, so `Topic Alias Maximum + 1` is stored and the
-/// PUBLISH is delivered like any other. Registered as a plain failure rather
-/// than an expected-fail, so it stays visible until the check is added.
+/// FIXED: `ClientTopicAliases::set_and_get` (`rmqtt/src/types.rs`) used to cap
+/// only how *many* aliases a connection may register, never that an individual
+/// alias lies within the advertised maximum, so `Topic Alias Maximum + 1` was
+/// stored and the PUBLISH was delivered like any other. Its entry check now
+/// rejects any alias above the maximum with `MqttError::TopicAliasInvalid`,
+/// which reaches the Client as DISCONNECT 0x94. Until that check existed the
+/// case stayed a plain failure rather than an expected-fail, so nothing hid it.
 pub struct TopicAliasV5OverMaxTest;
 
 impl TestCase for TopicAliasV5OverMaxTest {

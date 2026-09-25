@@ -217,7 +217,7 @@ and boundary scenarios:
 | Server DISCONNECT on teardown | `takeover_sends_disconnect_0x8e_v5` [MQTT-3.1.4-3] — FIXED, now PASSing (see the note below): the v5 DISCONNECT is sent while the sink's write half is still open, so the taken-over Client gets Reason Code 0x8E and only then the close |
 | Flow control | `flow_control_v5` / `flow_control_v5_inflight_cap_strict` |
 | Flow-control negative (🐞 expected-fail) | `flow_control_v5_receive_max_violation` [MQTT-4.9.0-1/2] — registered broker defect (no DISCONNECT 0x93) |
-| Topic alias | `client_topic_alias_v5` / `server_topic_alias_v5` / `topic_alias_v5_unknown_alias` (→ 0x94) / `topic_alias_v5_zero` / `topic_alias_v5_over_max` — the two negative cases publish at QoS 1, so the PUBACK is what proves acceptance; `over_max` currently FAILS (see the note below) |
+| Topic alias | `client_topic_alias_v5` / `server_topic_alias_v5` / `topic_alias_v5_unknown_alias` (→ 0x94) / `topic_alias_v5_zero` / `topic_alias_v5_over_max` (→ 0x94) — the two negative cases publish at QoS 1, so the PUBACK is what proves acceptance; all five now PASS (see the note below) |
 | Shared subscription | `shared_sub_v5` / `shared_sub_v5_malformed_filter` |
 | Retain handling | `retain_handling_new_v5` / `retain_handling_no_at_subscribe_v5` / `retain_as_published_v5` |
 | Message expiry | `publication_expiry_v5` / `message_expiry_v5_forwarded` / `message_expiry_v5_queued_drop` |
@@ -249,9 +249,10 @@ and boundary scenarios:
 > automatically split into the `functional_v5@retain-disabled` and
 > `functional_v5@pubrel-collision` sub-suites at build time (see the
 > "Broker Configs" section above). A full `--suites functional_v5 --workers 1`
-> run reports `Total: 108 | Passed: 101 | Failed: 1 | Skipped: 1 |
-> ExpectedFail: 3 | Info: 2` — the one failure is `topic_alias_v5_over_max`,
-> the registered gap described below.
+> run reports `Total: 108 | Passed: 102 | Failed: 0 | Skipped: 1 |
+> ExpectedFail: 3 | Info: 2` — no bare failures left: `topic_alias_v5_over_max`,
+> the last one, flipped to PASS once the Topic Alias Maximum the Server
+> advertises started being enforced (see below).
 
 > **Four issue #513-related cases are deliberately NOT marked expected-fail
 > (🐞).** Each asserts spec-required behaviour: a retained message's `Message
@@ -295,24 +296,33 @@ and boundary scenarios:
 > one that sends 0x87 it fails on the reason code alone — which is exactly how
 > the wrong code was caught while only the ordering had been fixed.
 
-> **`topic_alias_v5_over_max` is a bare failure too, not (🐞).** It asserts that a
-> PUBLISH whose Topic Alias exceeds the maximum the Server itself advertised in
-> the CONNACK is not accepted — and against the current broker it *is* accepted:
-> `ClientTopicAliases::set_and_get` (`rmqtt/src/types.rs`) caps how *many* aliases
-> a connection may register but never checks an individual alias against that
-> maximum, so `Topic Alias Maximum + 1` is stored, the PUBLISH is delivered like
-> any other, and the case reads back the PUBACK that proves it. What is missing is
-> the check, not the code: [MQTT-3.3.2-9] forbids a Client to send such an alias,
-> which makes the advertised maximum the Server's own statement of which aliases
-> it honours, and 0x94 Topic Alias invalid is the Reason Code defined for an
-> invalid Topic Alias (MQTT 5.0 section 4.13.1 covers saying so before closing).
-> This case and `topic_alias_v5_zero` used to publish at QoS 0, where the protocol
-> expects no answer at all — and as they treated a read timeout as "the connection
-> was closed", they passed whatever the broker did: `over_max` measured 5.0 s,
-> which is the whole read timeout. Both now publish at QoS 1, so a PUBACK is the
-> single answer that proves acceptance, and a timeout with the connection still
-> open fails. `topic_alias_v5_zero` still PASSes (the broker does refuse alias 0,
-> promptly), and `topic_alias_v5_over_max` is the one red it leaves.
+> **`topic_alias_v5_over_max` was a bare failure too, not (🐞) — and it now
+> PASSes.** It asserts that a PUBLISH whose Topic Alias exceeds the maximum the
+> Server itself advertised in the CONNACK is not accepted, and against the broker
+> of the time it *was* accepted: `ClientTopicAliases::set_and_get`
+> (`rmqtt/src/types.rs`) capped how *many* aliases a connection may register but
+> never checked an individual alias against that maximum, so `Topic Alias
+> Maximum + 1` was stored, the PUBLISH was delivered like any other, and the case
+> read back the PUBACK that proved it. It was the check that was missing, not the
+> code: [MQTT-3.3.2-9] forbids a Client to send such an alias, which makes the
+> advertised maximum the Server's own statement of which aliases it honours, and
+> 0x94 Topic Alias invalid is the Reason Code defined for an invalid Topic Alias
+> (MQTT 5.0 section 4.13.1 covers saying so before closing). `set_and_get` now
+> rejects any alias above the maximum on entry, reusing the
+> `MqttError::TopicAliasInvalid` that the alias-only branch already carried, so
+> the Client receives a DISCONNECT 0x94 and the connection ends. 0x94 is a
+> DISCONNECT code only — PUBACK has no such value — which is why the connection
+> ends rather than the PUBLISH being nacked. The older
+> `len >= max_topic_aliases` branch is deliberately left untouched: with every
+> stored alias now bounded by the maximum, `max` distinct keys taken from
+> `1..=max` can only be the whole range, so it has become unreachable. This case
+> and `topic_alias_v5_zero` used to publish at QoS 0, where the protocol expects
+> no answer at all — and as they treated a read timeout as "the connection was
+> closed", they passed whatever the broker did: `over_max` measured 5.0 s, which
+> is the whole read timeout. Both now publish at QoS 1, so a PUBACK is the single
+> answer that proves acceptance, and a timeout with the connection still open
+> fails. `topic_alias_v5_zero` still PASSes (the broker does refuse alias 0,
+> promptly), and `over_max` PASSes now that the maximum is enforced.
 
 ### `functional_v5_cluster` (1 case) — two-node cluster end-to-end reproduction
 
