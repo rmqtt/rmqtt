@@ -2642,6 +2642,15 @@ impl ToReasonCode for Reason {
                 }
             }
             Reason::HandshakeRateExceeded => DisconnectReasonCode::ConnectionRateExceeded,
+            // The reason code is a misnomer for this variant, and it is left that way on purpose.
+            // A session expires only once there is no connection left to write to: `SessionExpiration`
+            // is handed to `Session::clean()` alone, which runs *after* the connection is gone
+            // (following `offline_run_loop`) and terminates a session rather than a connection, and
+            // it never becomes one of the Reasons accumulated into `disconnected_reason()` -- so the
+            // single production caller of `to_reason_code()`, the DISCONNECT builder in `Session::run`,
+            // cannot reach this arm. MQTT 5.0 defines no "Session expired" DISCONNECT code either
+            // (0x8E is Session taken over, 0x8F is Topic Filter invalid), so there is no correct code
+            // to map to: this is the least wrong existing label, not a one-line defect to fix.
             Reason::SessionExpiration => DisconnectReasonCode::SessionTakenOver,
             Reason::SubscribeFailed(_) => DisconnectReasonCode::UnspecifiedError,
             Reason::UnsubscribeFailed(_) => DisconnectReasonCode::UnspecifiedError,
