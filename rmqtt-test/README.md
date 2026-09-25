@@ -214,10 +214,10 @@ and boundary scenarios:
 | Connect negative (🐞 expected-fail) | `connect_v5_will_flag_zero_but_qos_set` / `connect_v5_will_flag_zero_but_retain_set` [MQTT-3.1.2-11/12] — registered broker defects |
 | Pub/Sub | `pubsub_v5_qos0` / `pubsub_v5_qos1` / `pubsub_v5_qos2` / `pubsub_v5_qos1_ordering` / `qos_downgrade_v5_matrix` / `publish_properties_passthrough_v5` |
 | Session | `session_expiry_v5` / `session_takeover_v5` / `session_clean_start_v5` / `session_v5_disconnect_expiry_zero` [MQTT-3.14.2-2] / `session_v5_expiry_cleanup` / `session_v5_expiry_update_on_reconnect` |
-| Server DISCONNECT on teardown | `takeover_sends_disconnect_0x8e_v5` [MQTT-3.1.4-3] — reproduction that currently FAILS: `Session::run` closes the sink before the v5 DISCONNECT is sent, so the taken-over Client sees a bare FIN instead of Reason Code 0x8E |
+| Server DISCONNECT on teardown | `takeover_sends_disconnect_0x8e_v5` [MQTT-3.1.4-3] — FIXED, now PASSing (see the note below): the v5 DISCONNECT is sent while the sink's write half is still open, so the taken-over Client gets Reason Code 0x8E and only then the close |
 | Flow control | `flow_control_v5` / `flow_control_v5_inflight_cap_strict` |
 | Flow-control negative (🐞 expected-fail) | `flow_control_v5_receive_max_violation` [MQTT-4.9.0-1/2] — registered broker defect (no DISCONNECT 0x93) |
-| Topic alias | `client_topic_alias_v5` / `server_topic_alias_v5` / `topic_alias_v5_unknown_alias` (→ 0x94) / `topic_alias_v5_zero` (→ 0x94) / `topic_alias_v5_over_max` (→ 0x94) |
+| Topic alias | `client_topic_alias_v5` / `server_topic_alias_v5` / `topic_alias_v5_unknown_alias` (→ 0x94) / `topic_alias_v5_zero` / `topic_alias_v5_over_max` — the two negative cases publish at QoS 1, so the PUBACK is what proves acceptance; `over_max` currently FAILS (see the note below) |
 | Shared subscription | `shared_sub_v5` / `shared_sub_v5_malformed_filter` |
 | Retain handling | `retain_handling_new_v5` / `retain_handling_no_at_subscribe_v5` / `retain_as_published_v5` |
 | Message expiry | `publication_expiry_v5` / `message_expiry_v5_forwarded` / `message_expiry_v5_queued_drop` |
@@ -250,7 +250,8 @@ and boundary scenarios:
 > `functional_v5@pubrel-collision` sub-suites at build time (see the
 > "Broker Configs" section above). A full `--suites functional_v5 --workers 1`
 > run reports `Total: 108 | Passed: 101 | Failed: 1 | Skipped: 1 |
-> ExpectedFail: 3 | Info: 2`.
+> ExpectedFail: 3 | Info: 2` — the one failure is `topic_alias_v5_over_max`,
+> the registered gap described below.
 
 > **Four issue #513-related cases are deliberately NOT marked expected-fail
 > (🐞).** Each asserts spec-required behaviour: a retained message's `Message
@@ -275,19 +276,43 @@ and boundary scenarios:
 > Test Cases").
 
 > **`takeover_sends_disconnect_0x8e_v5` is likewise NOT marked expected-fail
-> (🐞).** It reproduces a fourth, independent defect found while investigating
-> #513 — connection *teardown*, not message lifetime. `Session::run` calls
-> `sink.close()` (which shuts the write half down) **before** building and
-> sending the v5 DISCONNECT, and the resulting error is discarded by `let _ =`.
-> Every server-initiated Reason Code — 0x8D Keep Alive timeout, 0x8E Session
-> taken over, 0x93 Receive Maximum exceeded, 0x95 Packet too large — is
-> therefore dead code, and a Client cannot tell "the Server dropped me, and
-> here is why" from "the network died". [MQTT-3.1.4-3] makes the 0x8E
-> DISCONNECT a MUST for a session takeover, so the case is the only red left in
-> `functional_v5` until the ordering is fixed. It asserts two layers
-> separately, so a partial fix is still reported precisely: against a stub
-> broker that sends 0x8E before closing it PASSes, and against one that sends
-> 0x87 it fails on the reason code alone.
+> (🐞) — and it now PASSes.** It reproduced a fourth, independent defect found
+> while investigating #513 — connection *teardown*, not message lifetime.
+> `Session::run` used to call `sink.close()` (which shuts the write half down)
+> **before** building and sending the v5 DISCONNECT, and the resulting error was
+> discarded by `let _ =`. Every server-initiated Reason Code — 0x8D Keep Alive
+> timeout, 0x8E Session taken over, 0x93 Receive Maximum exceeded, 0x95 Packet
+> too large — was therefore dead code, and a Client could not tell "the Server
+> dropped me, and here is why" from "the network died". [MQTT-3.1.4-3] makes the
+> 0x8E DISCONNECT a MUST for a session takeover. The fix moves `sink.close()`
+> back after the DISCONNECT, keeps it off the paths where the Client already
+> ended the exchange (a Client-sent DISCONNECT or a transport close is not
+> echoed back), logs a failed send instead of dropping it, and maps a
+> connection-time takeover (`Reason::ConnectKicked(false)`) to 0x8E Session
+> taken over instead of the 0x87 Not Authorized it used to return. The case
+> asserts two layers separately, so a partial fix is still reported precisely:
+> against a stub broker that sends 0x8E before closing it PASSes, and against
+> one that sends 0x87 it fails on the reason code alone — which is exactly how
+> the wrong code was caught while only the ordering had been fixed.
+
+> **`topic_alias_v5_over_max` is a bare failure too, not (🐞).** It asserts that a
+> PUBLISH whose Topic Alias exceeds the maximum the Server itself advertised in
+> the CONNACK is not accepted — and against the current broker it *is* accepted:
+> `ClientTopicAliases::set_and_get` (`rmqtt/src/types.rs`) caps how *many* aliases
+> a connection may register but never checks an individual alias against that
+> maximum, so `Topic Alias Maximum + 1` is stored, the PUBLISH is delivered like
+> any other, and the case reads back the PUBACK that proves it. What is missing is
+> the check, not the code: [MQTT-3.3.2-9] forbids a Client to send such an alias,
+> which makes the advertised maximum the Server's own statement of which aliases
+> it honours, and 0x94 Topic Alias invalid is the Reason Code defined for an
+> invalid Topic Alias (MQTT 5.0 section 4.13.1 covers saying so before closing).
+> This case and `topic_alias_v5_zero` used to publish at QoS 0, where the protocol
+> expects no answer at all — and as they treated a read timeout as "the connection
+> was closed", they passed whatever the broker did: `over_max` measured 5.0 s,
+> which is the whole read timeout. Both now publish at QoS 1, so a PUBACK is the
+> single answer that proves acceptance, and a timeout with the connection still
+> open fails. `topic_alias_v5_zero` still PASSes (the broker does refuse alias 0,
+> promptly), and `topic_alias_v5_over_max` is the one red it leaves.
 
 ### `functional_v5_cluster` (1 case) — two-node cluster end-to-end reproduction
 

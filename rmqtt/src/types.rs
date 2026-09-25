@@ -2629,11 +2629,16 @@ impl ToReasonCode for Reason {
             Reason::ConnectReadWriteError => DisconnectReasonCode::UnspecifiedError,
             Reason::ConnectRemoteClose => DisconnectReasonCode::ServerShuttingDown,
             Reason::ConnectKeepaliveTimeout => DisconnectReasonCode::KeepAliveTimeout,
+            // `is_admin == false` means the kick came from the connect path of a session
+            // takeover, which is the only code that passes it: `v5.rs` and `v3.rs` kick
+            // the existing session when a second Client connects with the same Client ID,
+            // while administrative kicks (http-api) pass `true`. [MQTT-3.1.4-3] requires
+            // 0x8E there, not 0x87: the Client was not rejected, it was displaced.
             Reason::ConnectKicked(is_admin) => {
                 if *is_admin {
                     DisconnectReasonCode::AdministrativeAction
                 } else {
-                    DisconnectReasonCode::NotAuthorized
+                    DisconnectReasonCode::SessionTakenOver
                 }
             }
             Reason::HandshakeRateExceeded => DisconnectReasonCode::ConnectionRateExceeded,
@@ -2807,28 +2812,31 @@ impl ClientTopicAliases {
     pub async fn set_and_get(&self, alias: Option<NonZeroU16>, topic: TopicName) -> Result<TopicName> {
         match (alias, topic.len()) {
             (Some(alias), 0) => {
-                self.aliases.read().await.get(&alias).ok_or_else(|| {
-                    MqttError::PublishAckReason(
-                        PublishAckReason::ImplementationSpecificError,
-                        ByteString::from(
-                            "implementation specific error, the ‘topic‘ associated with the ‘alias‘ was not found",
-                        ),
-                    ).into()
-                }).cloned()
+                // An alias-only PUBLISH whose alias was never established on this
+                // connection is a protocol error, and MQTT 5.0 gives that condition its
+                // own Reason Code: 0x94 Topic Alias invalid, not the generic 0x83
+                // Implementation specific error. `MqttError::TopicAliasInvalid` carries
+                // it, so the DISCONNECT the Client sees names the actual problem.
+                self.aliases
+                    .read()
+                    .await
+                    .get(&alias)
+                    .ok_or_else(|| MqttError::TopicAliasInvalid(alias).into())
+                    .cloned()
             }
             (Some(alias), _) => {
                 let mut aliases = self.aliases.write().await;
                 let len = aliases.len();
                 if let Some(topic_mut) = aliases.get_mut(&alias) {
                     *topic_mut = topic.clone()
-                }else{
+                } else {
                     if len >= self.max_topic_aliases {
                         return Err(MqttError::PublishAckReason(
                             PublishAckReason::ImplementationSpecificError,
                             ByteString::from(
                                 format!("implementation specific error, the number of topic aliases exceeds the limit ({})", self.max_topic_aliases),
                             ),
-                        ).into())
+                        ).into());
                     }
                     aliases.insert(alias, topic.clone());
                 }
@@ -2837,7 +2845,8 @@ impl ClientTopicAliases {
             (None, 0) => Err(MqttError::PublishAckReason(
                 PublishAckReason::ImplementationSpecificError,
                 ByteString::from("implementation specific error, ‘alias’ and ‘topic’ are both empty"),
-            ).into()),
+            )
+            .into()),
             (None, _) => Ok(topic),
         }
     }
@@ -3093,4 +3102,11 @@ fn test_reason() {
 
     let reasons = Reason::Reasons(vec![Reason::ConnectKicked(false), Reason::MessageExpiration]);
     assert_eq!(reasons.to_string(), "Kicked,MessageExpiration");
+
+    // A non-administrative kick is a session takeover, and [MQTT-3.1.4-3] requires the
+    // DISCONNECT sent to the displaced Client to carry 0x8E, not 0x87.
+    assert_eq!(Reason::ConnectKicked(false).to_reason_code(), DisconnectReasonCode::SessionTakenOver);
+    assert_eq!(Reason::ConnectKicked(true).to_reason_code(), DisconnectReasonCode::AdministrativeAction);
+    // A takeover must not be reported as an authorization failure of either kind.
+    assert_ne!(Reason::ConnectKicked(false).to_reason_code(), DisconnectReasonCode::NotAuthorized);
 }

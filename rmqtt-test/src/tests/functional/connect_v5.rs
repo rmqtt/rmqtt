@@ -8,6 +8,42 @@ use crate::framework::context::TestContext;
 use crate::framework::testcase::{TestCase, TestResult};
 use rmqtt_codec::v5::ConnectAckReason;
 
+/// Fixed header byte of an MQTT CONNACK packet.
+const PKT_CONNACK: u8 = 0x20;
+/// Fixed header byte of an MQTT DISCONNECT packet.
+const PKT_DISCONNECT: u8 = 0xE0;
+
+/// Read the remainder of an MQTT packet whose fixed-header byte has already
+/// been consumed, so a caller can branch on that byte first (a second CONNACK
+/// must be rejected, a DISCONNECT must be accepted) without re-implementing
+/// the framing.
+fn read_packet_body(stream: &mut TcpStream, first: u8) -> anyhow::Result<Vec<u8>> {
+    let mut buf = vec![first];
+    let mut b = [0u8; 1];
+
+    let mut remaining: u32 = 0;
+    let mut shift = 0u32;
+    loop {
+        if stream.read(&mut b)? == 0 {
+            return Err(anyhow::anyhow!("connection closed mid-header"));
+        }
+        buf.push(b[0]);
+        remaining |= ((b[0] & 0x7F) as u32) << shift;
+        if b[0] & 0x80 == 0 {
+            break;
+        }
+        shift += 7;
+        if shift > 21 {
+            return Err(anyhow::anyhow!("malformed remaining length"));
+        }
+    }
+
+    let mut rest = vec![0u8; remaining as usize];
+    stream.read_exact(&mut rest)?;
+    buf.extend_from_slice(&rest);
+    Ok(buf)
+}
+
 /// Build a raw MQTT v5 CONNECT packet with arbitrary protocol name / level /
 /// flags and an optional auth method. Used by negative tests.
 #[allow(clippy::too_many_arguments)]
@@ -331,7 +367,9 @@ impl TestCase for ConnectV5ReservedFlagTest {
 }
 
 /// Negative: a second CONNECT on an established connection is a protocol
-/// violation and must cause the broker to close the connection. [MQTT-3.1.0-2]
+/// violation. [MQTT-3.1.0-2] requires the broker to close the Network
+/// Connection and forbids answering the second CONNECT with a CONNACK; it may
+/// announce the close with a DISCONNECT first (MQTT 5.0 section 4.13.1).
 pub struct ConnectV5SecondConnectTest;
 
 impl TestCase for ConnectV5SecondConnectTest {
@@ -355,7 +393,7 @@ impl TestCase for ConnectV5SecondConnectTest {
             // Read the full CONNACK (variable length in v5)
             let mut buf = [0u8; 1];
             let n = stream.read(&mut buf)?;
-            if n == 0 || buf[0] != 0x20 {
+            if n == 0 || buf[0] != PKT_CONNACK {
                 return Err(anyhow::anyhow!("first CONNECT: no CONNACK"));
             }
             let mut remaining: u32 = 0;
@@ -388,13 +426,39 @@ impl TestCase for ConnectV5SecondConnectTest {
             stream.write_all(&second)?;
             stream.flush()?;
 
-            // Broker must close the connection (EOF) — NOT reply CONNACK again
-            let closed = matches!(stream.read(&mut buf), Ok(0) | Err(_));
-
-            if closed {
-                Ok(())
-            } else {
-                Err(anyhow::anyhow!("broker did not close on second CONNECT [MQTT-3.1.0-2]"))
+            // The broker must close the connection, and it must not answer the
+            // second CONNECT with another CONNACK. [MQTT-3.1.0-2] requires the
+            // close; MQTT 5.0 section 4.13.1 lets the Server say why first, so a
+            // DISCONNECT followed by EOF is the conformant sequence and a bare EOF
+            // is accepted too. A read that merely times out, on the other hand,
+            // means the connection was left open — that fails.
+            let n = stream.read(&mut buf)?;
+            if n == 0 {
+                return Ok(()); // closed without a word — acceptable
+            }
+            match buf[0] {
+                PKT_CONNACK => Err(anyhow::anyhow!(
+                    "broker answered the second CONNECT with another CONNACK [MQTT-3.1.0-2]"
+                )),
+                PKT_DISCONNECT => {
+                    let pkt = read_packet_body(&mut stream, buf[0])?;
+                    let code = pkt.get(2).copied().unwrap_or(0x00);
+                    match stream.read(&mut buf) {
+                        Ok(0) => Ok(()), // DISCONNECT then EOF — conformant
+                        Ok(n) => Err(anyhow::anyhow!(
+                            "after the second CONNECT the broker sent DISCONNECT 0x{code:02X} but \
+                             left the connection open ({n} more bytes: {:02x?}) [MQTT-3.1.0-2]",
+                            &buf[..n]
+                        )),
+                        Err(e) => Err(anyhow::anyhow!(
+                            "after the second CONNECT the broker sent DISCONNECT 0x{code:02X} but \
+                             did not close the connection ({e:?}) [MQTT-3.1.0-2]"
+                        )),
+                    }
+                }
+                other => Err(anyhow::anyhow!(
+                    "unexpected first byte 0x{other:02X} after the second CONNECT [MQTT-3.1.0-2]"
+                )),
             }
         });
 

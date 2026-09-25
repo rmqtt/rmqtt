@@ -7,22 +7,53 @@ use crate::framework::context::TestContext;
 use crate::framework::testcase::{TestCase, TestResult};
 use crate::mqtt::common::QoS;
 
+/// Fixed header byte of a QoS 1 PUBLISH.
+const PKT_PUBLISH_QOS1: u8 = 0x32;
+/// Fixed header byte of a PUBACK.
+const PKT_PUBACK: u8 = 0x40;
+/// Fixed header byte of a DISCONNECT.
+const PKT_DISCONNECT: u8 = 0xE0;
+
+/// Encode an MQTT variable-length integer (a Remaining Length field).
+fn encode_remaining_length(mut len: usize) -> Vec<u8> {
+    let mut out = Vec::new();
+    loop {
+        let mut b = (len % 128) as u8;
+        len /= 128;
+        if len > 0 {
+            b |= 0x80;
+        }
+        out.push(b);
+        if len == 0 {
+            break;
+        }
+    }
+    out
+}
+
 /// Read one full MQTT packet (fixed header + remaining length) from a raw
 /// stream. v5 CONNACK has a variable length (properties), so a naive read
 /// leaves trailing bytes that corrupt subsequent reads.
 fn read_full_packet(stream: &mut TcpStream) -> anyhow::Result<Vec<u8>> {
-    let mut buf = Vec::new();
     let mut b = [0u8; 1];
-    let n = stream.read(&mut b)?;
-    if n == 0 {
+    if stream.read(&mut b)? == 0 {
         return Err(anyhow::anyhow!("connection closed"));
     }
-    buf.push(b[0]);
+    read_packet_body(stream, b[0])
+}
+
+/// Read the remainder of an MQTT packet whose fixed-header byte has already
+/// been consumed. Split out of `read_full_packet` so a caller that must look at
+/// the first byte before deciding what it is reading — a PUBACK that means
+/// "accepted" versus a DISCONNECT that means "refused" — does not have to
+/// re-implement the framing.
+fn read_packet_body(stream: &mut TcpStream, first: u8) -> anyhow::Result<Vec<u8>> {
+    let mut buf = vec![first];
+    let mut b = [0u8; 1];
     let mut remaining: u32 = 0;
     let mut shift = 0u32;
     loop {
-        let n = stream.read(&mut b)?;
-        if n == 0 {
+        if stream.read(&mut b)? == 0 {
             return Err(anyhow::anyhow!("connection closed mid-header"));
         }
         buf.push(b[0]);
@@ -387,8 +418,82 @@ fn connack_topic_alias_max(connack: &[u8]) -> Option<u16> {
     None
 }
 
-/// Negative: a PUBLISH carrying Topic Alias 0 is a Protocol Error.
-/// [MQTT-3.3.2-8]
+/// Build a QoS 1 PUBLISH that carries a Topic Alias.
+///
+/// QoS 1 on purpose: the negative cases below have to tell "the broker refused
+/// this packet" apart from "the broker took it", and a QoS 0 PUBLISH draws no
+/// answer at all — silence is what a refusal looks like too, so such a case
+/// passes whatever the broker does. A PUBACK is the one answer that proves
+/// acceptance.
+fn publish_qos1_with_alias(topic: &[u8], alias: u16, packet_id: u16) -> Vec<u8> {
+    let mut body: Vec<u8> = Vec::new();
+    body.extend_from_slice(&(topic.len() as u16).to_be_bytes());
+    body.extend_from_slice(topic);
+    body.extend_from_slice(&packet_id.to_be_bytes()); // v5 order: Topic Name, Packet Id, Properties
+    body.push(0x03); // property length: Topic Alias (0x23) + two bytes
+    body.push(0x23); // Topic Alias
+    body.extend_from_slice(&alias.to_be_bytes());
+    body.extend_from_slice(b"hi");
+
+    let mut pkt = vec![PKT_PUBLISH_QOS1];
+    pkt.extend_from_slice(&encode_remaining_length(body.len()));
+    pkt.extend_from_slice(&body);
+    pkt
+}
+
+/// Assert that the broker refused the illegal PUBLISH that was just sent.
+///
+/// `what` names the violation for the failure message. The only answer that
+/// proves acceptance is a PUBACK; every other outcome has to be the connection
+/// ending — a bare EOF, or a DISCONNECT (the Server announcing why, MQTT 5.0
+/// section 4.13.1) followed by the close. A read that times out with the
+/// connection still open therefore fails too: the broker left the violation
+/// unpunished and the connection usable.
+fn expect_alias_refused(stream: &mut TcpStream, what: &str) -> anyhow::Result<()> {
+    // One byte at a time: a DISCONNECT fits in a single TCP segment, so a
+    // larger buffer could swallow the whole packet and leave `read_packet_body`
+    // parsing whatever follows it.
+    let mut b = [0u8; 1];
+    match stream.read(&mut b) {
+        Ok(0) => Ok(()), // closed without a word — acceptable
+        Ok(_) => match b[0] {
+            PKT_PUBACK => {
+                let pkt = read_packet_body(stream, b[0])?;
+                Err(anyhow::anyhow!("the broker accepted {what}: PUBACK {:02x?}", pkt))
+            }
+            PKT_DISCONNECT => {
+                let pkt = read_packet_body(stream, b[0])?;
+                let code = pkt.get(2).copied().unwrap_or(0x00);
+                match stream.read(&mut b) {
+                    Ok(0) => Ok(()), // DISCONNECT then EOF — acceptable
+                    Ok(n) => Err(anyhow::anyhow!(
+                        "{what} was refused with DISCONNECT 0x{code:02X}, but the broker left the \
+                         connection open ({n} bytes to follow)"
+                    )),
+                    Err(e) => Err(anyhow::anyhow!(
+                        "{what} was refused with DISCONNECT 0x{code:02X}, but the broker did not \
+                         close the connection ({e:?})"
+                    )),
+                }
+            }
+            other => Err(anyhow::anyhow!(
+                "unexpected answer to {what}: first byte 0x{other:02X}, expected a PUBACK or a \
+                 DISCONNECT"
+            )),
+        },
+        Err(e) => Err(anyhow::anyhow!(
+            "the broker neither refused {what} nor closed the connection ({e:?}) — the \
+             connection is still open"
+        )),
+    }
+}
+
+/// Negative: a PUBLISH carrying Topic Alias 0 is a Protocol Error — a sender
+/// MUST NOT use the value 0 at all [MQTT-3.3.2-8].
+///
+/// The assertion is that the packet is not accepted: a QoS 1 PUBLISH must not
+/// come back as a PUBACK, and the connection must end (MQTT 5.0 section 4.13.1
+/// lets the Server announce the reason before closing).
 pub struct TopicAliasV5ZeroTest;
 
 impl TestCase for TopicAliasV5ZeroTest {
@@ -402,42 +507,12 @@ impl TestCase for TopicAliasV5ZeroTest {
         let result = std::panic::catch_unwind(|| -> anyhow::Result<()> {
             let mut stream = raw_connect_stream(&ctx.config.broker_addr, "v5-alias-zero")?;
 
-            // PUBLISH with topic + Topic Alias property = 0 (illegal)
-            let topic = b"test/v5/alias/zero";
-            let mut pb: Vec<u8> = Vec::new();
-            pb.extend_from_slice(&(topic.len() as u16).to_be_bytes());
-            pb.extend_from_slice(topic);
-            pb.push(0x03); // prop len: 0x23 + 2 bytes
-            pb.push(0x23); // Topic Alias
-            pb.extend_from_slice(&[0x00, 0x00]); // alias 0 — illegal
-            pb.extend_from_slice(b"hi");
-
-            let mut ppkt = vec![0x30];
-            let mut plen = pb.len();
-            loop {
-                let mut b = (plen % 128) as u8;
-                plen /= 128;
-                if plen > 0 {
-                    b |= 0x80;
-                }
-                ppkt.push(b);
-                if plen == 0 {
-                    break;
-                }
-            }
-            ppkt.extend_from_slice(&pb);
+            // PUBLISH with topic + Topic Alias property = 0 (illegal).
+            let ppkt = publish_qos1_with_alias(b"test/v5/alias/zero", 0, 1);
             stream.write_all(&ppkt)?;
             stream.flush()?;
 
-            let mut rbuf = [0u8; 16];
-            match stream.read(&mut rbuf) {
-                Ok(0) | Err(_) => Ok(()),                     // closed — acceptable
-                Ok(n) if n >= 2 && rbuf[0] == 0xE0 => Ok(()), // DISCONNECT — acceptable
-                Ok(n) => Err(anyhow::anyhow!(
-                    "broker did not reject Topic Alias 0 (responded {:02x?})",
-                    &rbuf[..n]
-                )),
-            }
+            expect_alias_refused(&mut stream, "Topic Alias 0")
         });
 
         match result {
@@ -452,9 +527,22 @@ impl TestCase for TopicAliasV5ZeroTest {
     }
 }
 
-/// Negative: a PUBLISH carrying a Topic Alias greater than the server's
-/// advertised Topic Alias Maximum must trigger a DISCONNECT with reason 0x94.
-/// [MQTT-3.3.2-9]
+/// Negative: a PUBLISH carrying a Topic Alias greater than the Server's
+/// advertised Topic Alias Maximum must not be accepted.
+///
+/// [MQTT-3.3.2-9] forbids a Client to send such a PUBLISH, which makes the
+/// maximum the Server advertises in the CONNACK its own statement about which
+/// aliases it will honour; MQTT 5.0 section 4.13.1 then covers the Server
+/// saying why before it closes (0x94 Topic Alias invalid is the Reason Code
+/// defined for an invalid Topic Alias). The assertion is the one that cannot be
+/// faked: the packet must not be acknowledged, and the connection must end.
+///
+/// REPRODUCTION — this case FAILS against the current broker, which accepts the
+/// alias. `ClientTopicAliases::set_and_get` (`rmqtt/src/types.rs`) only caps how
+/// *many* aliases a connection may register, never that an individual alias lies
+/// within the advertised maximum, so `Topic Alias Maximum + 1` is stored and the
+/// PUBLISH is delivered like any other. Registered as a plain failure rather
+/// than an expected-fail, so it stays visible until the check is added.
 pub struct TopicAliasV5OverMaxTest;
 
 impl TestCase for TopicAliasV5OverMaxTest {
@@ -508,53 +596,16 @@ impl TestCase for TopicAliasV5OverMaxTest {
 
             let mut stream = raw_connect_stream(&ctx.config.broker_addr, "v5-alias-overmax")?;
 
-            // PUBLISH with topic + Topic Alias = max + 1 (exceeds advertised max)
-            let topic = b"test/v5/alias/overmax";
-            let mut pb: Vec<u8> = Vec::new();
-            pb.extend_from_slice(&(topic.len() as u16).to_be_bytes());
-            pb.extend_from_slice(topic);
-            pb.push(0x03); // prop len
-            pb.push(0x23); // Topic Alias
-            pb.extend_from_slice(&over_max.to_be_bytes());
-            pb.extend_from_slice(b"hi");
-
-            let mut ppkt = vec![0x30];
-            let mut plen = pb.len();
-            loop {
-                let mut b = (plen % 128) as u8;
-                plen /= 128;
-                if plen > 0 {
-                    b |= 0x80;
-                }
-                ppkt.push(b);
-                if plen == 0 {
-                    break;
-                }
-            }
-            ppkt.extend_from_slice(&pb);
+            // QoS 1 with topic + Topic Alias = max + 1: the PUBACK is what tells
+            // the two outcomes apart, since a refused packet never gets one.
+            let ppkt = publish_qos1_with_alias(b"test/v5/alias/overmax", over_max, 1);
             stream.write_all(&ppkt)?;
             stream.flush()?;
 
-            // Broker must close (EOF) or send DISCONNECT with reason 0x94
-            let mut rbuf = [0u8; 16];
-            match stream.read(&mut rbuf) {
-                Ok(0) | Err(_) => Ok(()), // closed — acceptable
-                Ok(n) if n >= 2 && rbuf[0] == 0xE0 => {
-                    if n >= 3 && rbuf[2] != 0x94 {
-                        return Err(anyhow::anyhow!(
-                            "DISCONNECT with unexpected reason 0x{:02X}, expected 0x94",
-                            rbuf[2]
-                        ));
-                    }
-                    Ok(())
-                }
-                Ok(n) => Err(anyhow::anyhow!(
-                    "broker accepted Topic Alias {} > max {} (responded {:02x?})",
-                    over_max,
-                    alias_max,
-                    &rbuf[..n]
-                )),
-            }
+            expect_alias_refused(
+                &mut stream,
+                &format!("Topic Alias {over_max} (advertised Topic Alias Maximum is {alias_max})"),
+            )
         });
 
         match result {

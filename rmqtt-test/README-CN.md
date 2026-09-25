@@ -201,10 +201,10 @@ configs/
 | 连接反向（🐞 expected-fail） | `connect_v5_will_flag_zero_but_qos_set` / `connect_v5_will_flag_zero_but_retain_set` [MQTT-3.1.2-11/12] —— 已登记 broker 缺陷 |
 | 发布/订阅 | `pubsub_v5_qos0` / `pubsub_v5_qos1` / `pubsub_v5_qos2` / `pubsub_v5_qos1_ordering` / `qos_downgrade_v5_matrix` / `publish_properties_passthrough_v5` |
 | 会话 | `session_expiry_v5` / `session_takeover_v5` / `session_clean_start_v5` / `session_v5_disconnect_expiry_zero` [MQTT-3.14.2-2] / `session_v5_expiry_cleanup` / `session_v5_expiry_update_on_reconnect` |
-| 拆除时的服务端 DISCONNECT | `takeover_sends_disconnect_0x8e_v5` [MQTT-3.1.4-3] —— **当前失败**的复现用例：`Session::run` 先关闭 sink 才发送 v5 DISCONNECT，被接管的客户端只看到裸 FIN，收不到 Reason Code 0x8E |
+| 拆除时的服务端 DISCONNECT | `takeover_sends_disconnect_0x8e_v5` [MQTT-3.1.4-3] —— **已修复并转为 PASS**（见下方说明）：v5 DISCONNECT 在 sink 写半端仍然打开时发出，被接管的客户端先收到 Reason Code 0x8E，之后才关闭连接 |
 | 流控 | `flow_control_v5` / `flow_control_v5_inflight_cap_strict` |
 | 流控反向（🐞 expected-fail） | `flow_control_v5_receive_max_violation` [MQTT-4.9.0-1/2] —— 已登记 broker 缺陷（无 DISCONNECT 0x93） |
-| 主题别名 | `client_topic_alias_v5` / `server_topic_alias_v5` / `topic_alias_v5_unknown_alias`（→0x94）/ `topic_alias_v5_zero`（→0x94）/ `topic_alias_v5_over_max`（→0x94） |
+| 主题别名 | `client_topic_alias_v5` / `server_topic_alias_v5` / `topic_alias_v5_unknown_alias`（→0x94）/ `topic_alias_v5_zero` / `topic_alias_v5_over_max` —— 后两条负向用例改用 QoS 1 发布，以 PUBACK 作为「被接受」的证据；`over_max` 当前 **FAIL**（见下方说明） |
 | 共享订阅 | `shared_sub_v5` / `shared_sub_v5_malformed_filter` |
 | 保留处理 | `retain_handling_new_v5` / `retain_handling_no_at_subscribe_v5` / `retain_as_published_v5` |
 | 消息过期 | `publication_expiry_v5` / `message_expiry_v5_forwarded` / `message_expiry_v5_queued_drop` |
@@ -233,7 +233,8 @@ configs/
 > 因需要不同的 broker 配置，构建时自动拆分为 `functional_v5@retain-disabled` 与
 > `functional_v5@pubrel-collision` 两个子套件执行（见上方「Broker 配置」章节）。
 > 全量 `--suites functional_v5 --workers 1` 运行的汇总为
-> `Total: 108 | Passed: 101 | Failed: 1 | Skipped: 1 | ExpectedFail: 3 | Info: 2`。
+> `Total: 108 | Passed: 101 | Failed: 1 | Skipped: 1 | ExpectedFail: 3 | Info: 2`
+> —— 那一处失败就是下方登记的 `topic_alias_v5_over_max`。
 
 > **issue #513 相关的四个用例刻意不标 expected-fail（🐞）。** 它们各自断言规范要求
 > 的行为：保留消息的 `Message Expiry Interval` 必须扣除其在保留存储中的停留时间
@@ -252,15 +253,31 @@ configs/
 > 时间戳来扣除消息的等待时长。
 > 请用 `--workers 1` 串行运行（见「运行指定用例」）。
 
-> **`takeover_sends_disconnect_0x8e_v5` 同样刻意不标 expected-fail（🐞）。** 它复现的是
-> 排查 #513 时发现的**第四个独立缺陷**——属**连接拆除**环节，不属于消息生命周期。
-> `Session::run` 先调用 `sink.close()`（关闭写半端），**之后**才构造并发送 v5
+> **`takeover_sends_disconnect_0x8e_v5` 同样刻意不标 expected-fail（🐞）—— 且现已 PASS。**
+> 它复现的是排查 #513 时发现的**第四个独立缺陷**——属**连接拆除**环节，不属于消息生命周期。
+> `Session::run` 原先先调用 `sink.close()`（关闭写半端），**之后**才构造并发送 v5
 > DISCONNECT，而失败被 `let _ =` 丢弃。于是服务端能发出的所有 Reason Code——0x8D
 > Keep Alive 超时、0x8E 会话被接管、0x93 超出接收上限、0x95 报文过大——都成了死码，
 > 客户端无法区分「被服务端断开（附原因）」与「网络断开」。[MQTT-3.1.4-3] 规定会话被
-> 接管时发送 0x8E DISCONNECT 是 MUST，因此在修复前它是 `functional_v5` 里唯一剩下的
-> 红。用例把两层要求分开断言，部分修复也能精确定位：对「发送 0x8E 后再关闭」的
-> 桩 broker 它 PASS，对「只修顺序、发 0x87」的桩 broker 它仅在原因码这一层失败。
+> 接管时发送 0x8E DISCONNECT 是 MUST。修复内容：把 `sink.close()` 移回 DISCONNECT
+> 之后；对「客户端自己已结束交互」的路径（客户端发来的 DISCONNECT、传输层关闭）不再回响
+> DISCONNECT；发送失败改为记录日志而非静默丢弃；并把连接期接管（`Reason::ConnectKicked(false)`）
+> 由原先错误返回的 0x87 Not Authorized 改为 0x8E Session taken over。用例把两层要求分开
+> 断言，部分修复也能精确定位：对「发送 0x8E 后再关闭」的桩 broker 它 PASS，对「只修顺序、发
+> 0x87」的桩 broker 它仅在原因码这一层失败——实际排查中正是这样抓出错误码值的。
+
+> **`topic_alias_v5_over_max` 同样是裸 Failed，而非 🐞。** 它断言：Topic Alias 超过服务端
+> 自己在 CONNACK 里广播的上限的 PUBLISH 不得被接受；而当前 broker **接受了它**——
+> `ClientTopicAliases::set_and_get`（`rmqtt/src/types.rs`）只限制一条连接能登记**多少个**
+> 别名，从不校验单个别名是否在上限之内，于是「上限 + 1」被直接登记、消息照常投递，用例读到的
+> 正是证明这一点的 PUBACK。缺的是校验，不是原因码：[MQTT-3.3.2-9] 只写了「发送方 MUST NOT」，
+> 但广播出去的上限本身就是服务端「我会认哪些别名」的承诺，而 0x94 Topic Alias invalid
+> 正是为「主题别名非法」定义的原因码（MQTT 5.0 第 4.13.1 节覆盖了「先告知再关闭」）。
+> 这条用例与 `topic_alias_v5_zero` 原先都用 QoS 0 发布，而 QoS 0 本就不期待任何应答；再加上
+> 判定把「读超时」当成「连接已关闭」，于是无论 broker 怎么处理都会 PASS——实测 `over_max`
+> 耗时 5.0s，正好是整个读超时。现改为 QoS 1 发布，让 PUBACK 成为「被接受」的唯一证据，
+> 连接仍开着却读超时也算失败。`topic_alias_v5_zero` 仍 PASS（broker 确实会及时拒绝别名 0），
+> 留下的那一处红就是 `topic_alias_v5_over_max`。
 
 ### functional_v5_cluster（1 个用例）— 双节点集群端到端复现
 

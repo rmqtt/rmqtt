@@ -29,10 +29,13 @@
 //!    output for diagnosis.
 //! 2. `mqtt_keepalive_timeout_reclaims_tcp` — portable behavioural baseline:
 //!    with a short MQTT keepalive the broker must close the *TCP* connection
-//!    (raw read returns EOF) after the keep-alive window (1.5x) elapses. This
-//!    documents that the MQTT-layer defence works; it is exactly the case
-//!    TCP keepalive must cover when MQTT keepalive cannot (keep_alive = 0 or
-//!    a black hole that swallows the teardown FIN).
+//!    after the keep-alive window (1.5x) elapses. In v5 it may first announce
+//!    why with a DISCONNECT carrying 0x8D (Keep Alive timeout) — the reason
+//!    code defined for exactly this case — but the close must follow either
+//!    way; a read that times out with the connection still open fails the
+//!    test. This documents that the MQTT-layer defence works; it is exactly
+//!    the case TCP keepalive must cover when MQTT keepalive cannot
+//!    (keep_alive = 0 or a black hole that swallows the teardown FIN).
 
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -44,6 +47,11 @@ use crate::framework::testcase::{TestCase, TestResult};
 
 /// Suite these tests report under (part of the regular functional_v5 suite).
 const SUITE: &str = "functional_v5";
+
+/// Fixed header byte of an MQTT DISCONNECT packet.
+const PKT_DISCONNECT: u8 = 0xE0;
+/// Reason Code 0x8D, "Keep Alive timeout" (MQTT 5.0 table 3-10).
+const RC_KEEP_ALIVE_TIMEOUT: u8 = 0x8D;
 
 /// Build a raw MQTT v5 CONNECT ("MQTT" / level 5, clean start, no props)
 /// with the given keep-alive value.
@@ -78,19 +86,25 @@ fn raw_connect_v5(client_id: &str, keep_alive: u16) -> Vec<u8> {
 
 /// Read one full MQTT packet (fixed header + remaining length) from the stream.
 fn read_full_packet(stream: &mut TcpStream) -> anyhow::Result<Vec<u8>> {
-    let mut buf = Vec::new();
     let mut b = [0u8; 1];
-    let n = stream.read(&mut b)?;
-    if n == 0 {
+    if stream.read(&mut b)? == 0 {
         return Err(anyhow::anyhow!("connection closed"));
     }
-    buf.push(b[0]);
+    read_packet_body(stream, b[0])
+}
+
+/// Read the remainder of an MQTT packet whose fixed-header byte has already
+/// been consumed. Split out of `read_full_packet` so a caller that has to
+/// look at the first byte before deciding what it is reading (a DISCONNECT it
+/// may or may not get) does not have to re-implement the framing.
+fn read_packet_body(stream: &mut TcpStream, first: u8) -> anyhow::Result<Vec<u8>> {
+    let mut buf = vec![first];
+    let mut b = [0u8; 1];
 
     let mut remaining: u32 = 0;
     let mut shift = 0u32;
     loop {
-        let n = stream.read(&mut b)?;
-        if n == 0 {
+        if stream.read(&mut b)? == 0 {
             return Err(anyhow::anyhow!("connection closed mid-header"));
         }
         buf.push(b[0]);
@@ -253,10 +267,11 @@ impl TestCase for TcpKeepAliveSocketOptionTest {
 /// Behavioural baseline: with a short MQTT keep-alive, the broker must close
 /// the *TCP* connection once the keep-alive window (1.5x) elapses.
 ///
-/// Uses a raw socket so the assertion is on the wire (read returns EOF), not
-/// on client-side bookkeeping. This is the MQTT-layer defence that works; the
-/// TCP keepalive option (issue #465) is what must additionally cover the
-/// cases this cannot: keep_alive = 0, or a black hole that swallows the FIN.
+/// Uses a raw socket so the assertion is on the wire (EOF, optionally preceded
+/// by the spec's own DISCONNECT 0x8D), not on client-side bookkeeping. This is
+/// the MQTT-layer defence that works; the TCP keepalive option (issue #465) is
+/// what must additionally cover the cases this cannot: keep_alive = 0, or a
+/// black hole that swallows the FIN.
 pub struct MqttKeepaliveTimeoutReclaimsTcpTest;
 
 impl TestCase for MqttKeepaliveTimeoutReclaimsTcpTest {
@@ -294,14 +309,44 @@ impl TestCase for MqttKeepaliveTimeoutReclaimsTcpTest {
             // 2. Stay silent past the keep-alive window: timeout = 1.5 * 5 = 7.5s.
             std::thread::sleep(Duration::from_secs(10));
 
-            // 3. The broker must now have closed the connection: read -> EOF (0).
+            // 3. The broker must now have closed the connection.
+            //
+            // MQTT 5.0 gives this exact case its own Reason Code, 0x8D Keep Alive
+            // timeout, so the broker may announce the teardown with a DISCONNECT
+            // before closing — and announcing it does not excuse it from closing.
+            // A bare EOF is the 3.1.1 behaviour and stays acceptable. What is not
+            // acceptable is a read that times out with the connection still open,
+            // or a DISCONNECT that is never followed by the close.
             stream.set_read_timeout(Some(Duration::from_secs(3)))?;
             let mut buf = [0u8; 1];
             match stream.read(&mut buf) {
                 Ok(0) => Ok(()), // EOF: TCP connection reclaimed
-                Ok(n) => {
-                    Err(anyhow::anyhow!("expected TCP EOF after MQTT keep-alive timeout, got {n} bytes"))
+                Ok(_) if buf[0] == PKT_DISCONNECT => {
+                    let pkt = read_packet_body(&mut stream, buf[0])?;
+                    let code = pkt.get(2).copied().unwrap_or(0x00);
+                    if code != RC_KEEP_ALIVE_TIMEOUT {
+                        return Err(anyhow::anyhow!(
+                            "the DISCONNECT after the keep-alive timeout carries Reason Code \
+                             0x{code:02X}, expected 0x8D (Keep Alive timeout)"
+                        ));
+                    }
+                    match stream.read(&mut buf) {
+                        Ok(0) => Ok(()), // DISCONNECT then EOF: reclaimed
+                        Ok(n) => Err(anyhow::anyhow!(
+                            "the broker sent a DISCONNECT but left the TCP connection open \
+                             ({n} more bytes: {:02x?})",
+                            &buf[..n]
+                        )),
+                        Err(e) => Err(anyhow::anyhow!(
+                            "the broker sent a DISCONNECT but did not close the TCP \
+                             connection ({e:?})"
+                        )),
+                    }
                 }
+                Ok(n) => Err(anyhow::anyhow!(
+                    "expected TCP EOF after MQTT keep-alive timeout, got {n} bytes: {:02x?}",
+                    &buf[..n]
+                )),
                 Err(e) => Err(anyhow::anyhow!(
                     "TCP connection still open {e:?} after MQTT keep-alive timeout — not reclaimed"
                 )),

@@ -51,6 +51,13 @@ pub enum MqttError {
     TooManySubscriptions,
     #[error("too many topic levels")]
     TooManyTopicLevels,
+    /// A PUBLISH used a Topic Alias that was never established on this connection.
+    ///
+    /// MQTT 5.0 defines a Reason Code for exactly this condition — 0x94 Topic Alias
+    /// invalid — so it is reported as `TopicAliasInvalid` rather than as the generic
+    /// 0x83 Implementation specific error. See `ToReasonCode` below.
+    #[error("topic alias {0} has not been established on this connection")]
+    TopicAliasInvalid(NonZeroU16),
     #[error("subscription limit reached, {0}")]
     SubscribeLimited(String),
     #[error("identifier rejected")]
@@ -102,6 +109,7 @@ impl ToReasonCode for MqttError {
             MqttError::InvalidProtocol => DisconnectReasonCode::ProtocolError,
             MqttError::TooManySubscriptions => DisconnectReasonCode::QuotaExceeded,
             MqttError::TooManyTopicLevels => DisconnectReasonCode::TopicNameInvalid,
+            MqttError::TopicAliasInvalid(_) => DisconnectReasonCode::TopicAliasInvalid,
             MqttError::SubscribeLimited(_) => DisconnectReasonCode::QuotaExceeded,
             MqttError::IdentifierRejected => DisconnectReasonCode::NotAuthorized,
             MqttError::PacketIdInUse(_) => DisconnectReasonCode::UnspecifiedError,

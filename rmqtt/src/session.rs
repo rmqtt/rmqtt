@@ -211,10 +211,6 @@ impl SessionState {
         }
         self.scx.connections.dec();
 
-        if let Err(e) = sink.close().await {
-            log::info!("{} close io error, {e}", self.id);
-        }
-
         let disconnect = self.disconnect().await.unwrap_or(None);
         let clean_session = self.clean_session(disconnect.as_ref()).await;
 
@@ -263,17 +259,47 @@ impl SessionState {
             Reason::ConnectRemoteClose
         };
 
-        if let Sink::V5(s) = &mut sink {
-            let d = if let Reason::ConnectDisconnect(Some(Disconnect::V5(d))) = &reason {
-                d.clone()
-            } else {
-                v5::Disconnect {
-                    reason_code: reason.to_reason_code(),
-                    reason_string: Some(reason.to_string().into()),
-                    ..Default::default()
-                }
+        // A Server-to-Client DISCONNECT announces that the *Server* is ending the
+        // connection -- [MQTT-3.1.4-3] for a session takeover, MQTT 5.0 section 4.13.1
+        // for the other errors. When the Client ended it instead, by sending its own
+        // DISCONNECT (`StateFlags::DisconnectReceived`) or by closing its transport
+        // (`Reason::ConnectRemoteClose`), there is nothing left for the Server to
+        // announce. `Reason::ConnectDisconnect` cannot be used to tell those two cases
+        // apart: the auth plugins reuse it to force a close from the server side
+        // (auth-http / auth-jwt token expiry), and only the flag separates that from the
+        // Client's own packet.
+        let client_ended = flags.contains(StateFlags::DisconnectReceived)
+            || match &reason {
+                Reason::ConnectRemoteClose => true,
+                Reason::Reasons(reasons) => matches!(reasons.first(), Some(Reason::ConnectRemoteClose)),
+                _ => false,
             };
-            let _ = s.send_disconnect(d).await;
+
+        if !client_ended {
+            if let Sink::V5(s) = &mut sink {
+                let d = if let Reason::ConnectDisconnect(Some(Disconnect::V5(d))) = &reason {
+                    d.clone()
+                } else {
+                    v5::Disconnect {
+                        reason_code: reason.to_reason_code(),
+                        reason_string: Some(reason.to_string().into()),
+                        ..Default::default()
+                    }
+                };
+                // The write half must still be open here. It used to be shut down before
+                // this point, which made `send_disconnect` fail on `poll_shutdown` every
+                // single time -- and the error was swallowed by a `let _ =`, so every
+                // Server-originated Reason Code (0x81/0x82/0x8D/0x8E/0x93/0x95) was dead
+                // and the Client could never tell "the Server hung up, and why" from "the
+                // network died".
+                if let Err(e) = s.send_disconnect(d).await {
+                    log::debug!("{} send disconnect error, {e}", self.id);
+                }
+            }
+        }
+
+        if let Err(e) = sink.close().await {
+            log::info!("{} close io error, {e}", self.id);
         }
 
         self.hook.client_disconnected(reason).await;
