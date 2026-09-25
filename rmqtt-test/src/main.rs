@@ -235,8 +235,9 @@ fn build_suites(opt: &Opt) -> Vec<TestSuite> {
         suites.push(build_functional_v5_suite());
     }
 
-    // functional_v5_cluster requires a manually started two-node cluster
-    // (see rmqtt-test/configs/pubrel-collision-cluster/). It is only run when
+    // functional_v5_cluster owns its two-node cluster: the case spawns the
+    // nodes from rmqtt-test/configs/pubrel-collision-cluster/ (reusing any it
+    // finds already listening) and kills its own on exit. It is only run when
     // explicitly requested — never as part of the default full run, so it
     // cannot break the single-node suites.
     if should_run("functional_v5_cluster", opt) {
@@ -280,16 +281,17 @@ fn build_suites(opt: &Opt) -> Vec<TestSuite> {
 /// Decide whether the (original, pre-split) suite `name` is selected.
 ///
 /// - Empty `--suites` = default full run, which excludes the two-node
-///   `functional_v5_cluster` suite and the `pulsar` suite (both need
-///   infrastructure that is started manually / provided externally).
+///   `functional_v5_cluster` suite (it manages its own nodes and needs
+///   `--no-broker`) and the `pulsar` suite (external Pulsar service).
 /// - Otherwise a suite is selected when a selector equals its name, is a
 ///   prefix (`functional_v5` also selects `functional_v5@retain-disabled`),
 ///   or is a sub-suite name of it (`functional_v5@retain-disabled` also
 ///   selects `functional_v5`).
 fn should_run(name: &str, opt: &Opt) -> bool {
     if opt.suites.is_empty() {
-        // Default full run excludes the manually-started cluster suite and the
-        // pulsar bridge suite (external Pulsar service required).
+        // Default full run excludes the self-managed cluster suite (it needs
+        // --no-broker, which the default run does not pass) and the pulsar
+        // bridge suite (external Pulsar service required).
         return name != "functional_v5_cluster" && name != "pulsar";
     }
     opt.suites
@@ -962,8 +964,8 @@ fn build_functional_v5_suite() -> TestSuite {
     suite
 }
 
-/// Cluster-only reproduction suite (needs two manually started rmqttd nodes,
-/// see `rmqtt-test/configs/pubrel-collision-cluster/`):
+/// Cluster-only reproduction suite — the case starts both nodes itself (or
+/// reuses ones already listening), so only `--no-broker` is required:
 ///   mqtt_harness --no-broker --addr 127.0.0.1:1884 --suites functional_v5_cluster
 fn build_functional_v5_cluster_suite() -> TestSuite {
     use tests::functional::qos2_pubrel_resume_collision_cluster::*;

@@ -132,7 +132,7 @@ configs/
     plugins/                #   retainer / shared-subscription / http-api
   retain-disabled/          # 不加载 retainer 插件（Retain Available = 0）
   pubrel-collision/         # 加载 message-storage（PUBREL 冲突复现）
-  pubrel-collision-cluster/ # 双节点集群（手动启动，1884/1885 MQTT）
+  pubrel-collision-cluster/ # 双节点集群（用例自管进程，1884/1885 MQTT）
   session-sled/             # 单机 sled 会话存储（issue #475 复现，harness 自动切换）
   session-sled-stress/      # 同上，独立 sled 路径（压测专用）
   cluster-broadcast-sled/   # 双节点集群（1886/1887 MQTT，测试自管理进程）
@@ -291,16 +291,19 @@ configs/
 |------|------|
 | `qos2_pubrel_resume_collision_cluster` | 集群路径端到端复现 packet-id 冲突：远端投递不标记存储 → 会话跨节点恢复时存储消息与 PUBREL 重发抢 id |
 
-该套件**需要手动启动双节点**（默认全量运行不会包含它，避免污染单机测试）：
+用例自己接管这两个节点：已经能接受 TCP 连接的地址会被**复用**（即原手动双终端流程），缺失的节点由用例按
+`configs/pubrel-collision-cluster/node{N}/` **自行拉起**并在退出时杀掉。默认全量运行不会包含它（避免污染单机
+测试），且**必须带 `--no-broker`**：
 
 ```bash
-# 终端 1 / 终端 2：启动两个节点
-./target/release/rmqttd -f rmqtt-test/configs/pubrel-collision-cluster/node1/rmqtt.toml
-./target/release/rmqttd -f rmqtt-test/configs/pubrel-collision-cluster/node2/rmqtt.toml
-
-# 终端 3：运行集群复现套件
-./target/release/mqtt_harness --no-broker --addr 127.0.0.1:1884 --suites functional_v5_cluster --workers 1
+./target/release/mqtt_harness --no-broker --addr 127.0.0.1:1884 --workspace . \
+    --suites functional_v5_cluster --workers 1
 ```
+
+`--no-broker` 不可省：harness 自管 broker 会绑定与 node 1 相同的默认 listener（1883/11883/8883/8080/8443/9443），
+并通过 `--addr` 静默顶替 node 1，而 node 2 依旧缺席。不加时用例报 SKIPPED 并打印上面这条命令，而不是抛一句裸的
+`os error 10061`（来自 node 2 地址的 WSAECONNREFUSED）。节点：127.0.0.1:1884（node 1，gRPC 5364）/
+127.0.0.1:1885（node 2，gRPC 5365）；各节点日志在 `target/pubrel-collision-cluster-node{1,2}.log`。
 
 > 该测试修复前 3/3 轮复现 BUG（重复 PUBREL）；修复后 3/3 轮 PASS。修复方案详见
 > [`designs/pubrel-resume-inflight-id-collision.md`](../designs/pubrel-resume-inflight-id-collision.md)。

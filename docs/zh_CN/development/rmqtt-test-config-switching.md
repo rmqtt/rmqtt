@@ -49,7 +49,7 @@ rmqtt-test/configs/
   tcp-keepalive/            # TCP keepalive 开启（issue #465 回归验证）
     rmqtt.toml              #   tcp_keepalive = true
     plugins/
-  pubrel-collision-cluster/ # 双节点集群（手动启动，1884/1885 MQTT）—— 不受本机制影响
+  pubrel-collision-cluster/ # 双节点集群（用例自管节点，可复用已启动的，1884/1885 MQTT）—— 不受本机制影响
 ```
 
 ### 3.1 `configs/default/rmqtt.toml` 与仓库根配置的差异

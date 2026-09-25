@@ -330,16 +330,24 @@ and boundary scenarios:
 |------|-------------|
 | `qos2_pubrel_resume_collision_cluster` | Cluster-path end-to-end reproduction of the packet-id collision: remote delivery is not `mark_forwarded` on the receiving node, so a stored message loaded during cross-node session resume races with owed PUBREL re-sends |
 
-This suite **requires two manually started nodes** and is never included in the default full run (so it cannot break the single-node suites):
+The test owns the two nodes: an address that already accepts TCP connections is
+**reused** (the original manual two-terminal flow), a missing one is **spawned**
+from `configs/pubrel-collision-cluster/node{N}/` and killed on exit. The suite is
+never part of the default full run (so it cannot break the single-node suites),
+and it must run with `--no-broker`:
 
 ```bash
-# terminal 1 / terminal 2: start both nodes
-./target/release/rmqttd -f rmqtt-test/configs/pubrel-collision-cluster/node1/rmqtt.toml
-./target/release/rmqttd -f rmqtt-test/configs/pubrel-collision-cluster/node2/rmqtt.toml
-
-# terminal 3: run the cluster reproduction suite
-./target/release/mqtt_harness --no-broker --addr 127.0.0.1:1884 --suites functional_v5_cluster --workers 1
+./target/release/mqtt_harness --no-broker --addr 127.0.0.1:1884 --workspace . \
+    --suites functional_v5_cluster --workers 1
 ```
+
+`--no-broker` is mandatory: a harness-managed broker binds the same default
+listeners as node 1 (1883/11883/8883/8080/8443/9443) and would silently stand in
+for it through `--addr` while node 2 stays down. Without it the case reports
+SKIPPED with the command above instead of failing on a bare `os error 10061`
+(WSAECONNREFUSED from the node 2 address). Nodes: 127.0.0.1:1884 (node 1, gRPC
+5364) / 127.0.0.1:1885 (node 2, gRPC 5365); per-node logs in
+`target/pubrel-collision-cluster-node{1,2}.log`.
 
 > Before the fix this test reproduced the BUG in 3/3 rounds (duplicate PUBREL);
 > after the fix it PASSES in 3/3 rounds. Fix design: see
@@ -430,7 +438,7 @@ rmqtt-test/
     default/                     #   default config: rmqtt.toml + plugins/ (retainer/shared-subscription/http-api)
     retain-disabled/             #   retainer plugin NOT loaded (Retain Available = 0)
     pubrel-collision/            #   single node: message-storage enabled broker config
-    pubrel-collision-cluster/    #   cluster: node1/node2 configs (1884/1885 MQTT, 5364/5365 gRPC)
+    pubrel-collision-cluster/    #   cluster: node1/node2 configs, self-managed by the case (1884/1885 MQTT, 5364/5365 gRPC)
     session-sled/                #   single node, sled session storage (issue #475 reproduction)
     session-sled-stress/         #   same, isolated sled path for the stress test
     cluster-broadcast-sled/      #   2-node cluster (1886/1887 MQTT, 5366/5367 gRPC)
