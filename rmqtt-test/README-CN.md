@@ -220,7 +220,7 @@ configs/
 | 协议错误 | `protocol_error_v5_bad_remaining_length` / `protocol_error_v5_disconnect_bad_flags` / `protocol_error_v5_invalid_utf8_topic` / `protocol_error_v5_publish_dup_on_qos0` / `protocol_error_v5_publish_empty_topic` / `protocol_error_v5_publish_packet_id_zero` / `protocol_error_v5_publish_qos3` / `protocol_error_v5_reserved_packet_type` / `protocol_error_v5_retain_handling_3` / `protocol_error_v5_sub_id_zero` / `protocol_error_v5_sub_options_reserved_bits` / `protocol_error_v5_subscribe_empty_payload` / `protocol_error_v5_subscribe_packet_id_zero` / `protocol_error_v5_subscribe_qos0_fixed_header` / `protocol_error_v5_subscribe_qos3` / `protocol_error_v5_unsolicited_auth` / `protocol_error_v5_unsubscribe_empty_payload` / `protocol_error_v5_unsubscribe_packet_id_zero` / `protocol_error_v5_unsubscribe_qos0_fixed_header` / `protocol_error_v5_unsubscribe_with_sub_id` / `protocol_error_v5_user_property_bad_utf8` |
 | 断开原因码 | `disconnect_reason_v5` |
 | Keep Alive / TCP | `ping_v5` / `mqtt_keepalive_timeout_reclaims_tcp` / `tcp_keepalive_socket_option`（仅 Linux，其他平台跳过） |
-| 消息生命周期（issue #513） | `retained_message_expiry_not_decremented_v5` [MQTT-3.3.2-6] —— **仍失败**的复现用例；`message_expiry_deletes_qos2_inflight_v5` [MQTT-4.3.3-7] / [MQTT-4.4.0-1] —— **已修复并转为 PASS**（未完成的 QoS 2 交换不再被消息过期删除）；`oversized_queued_message_stalls_queue_v5` + `retained_oversized_message_keeps_session_v5` [MQTT-3.1.2-24/-25] —— 同一缺陷在「排队投递」与「保留消息」两条路径上的表现，**已修复并转为 PASS**；见下方说明 |
+| 消息生命周期（issue #513） | `retained_message_expiry_not_decremented_v5` [MQTT-3.3.2-6] —— **已修复并转为 PASS**（发出的 `Message Expiry Interval` 会扣除其在保留存储中的停留时间）；`message_expiry_deletes_qos2_inflight_v5` [MQTT-4.3.3-7] / [MQTT-4.4.0-1] —— **已修复并转为 PASS**（未完成的 QoS 2 交换不再被消息过期删除）；`oversized_queued_message_stalls_queue_v5` + `retained_oversized_message_keeps_session_v5` [MQTT-3.1.2-24/-25] —— 同一缺陷在「排队投递」与「保留消息」两条路径上的表现，**已修复并转为 PASS**；见下方说明 |
 | Will Retain vs Retain Available | `v5_will_retain_rejected_when_retain_unavailable`（在 `functional_v5@retain-disabled` 子套件中真正执行） |
 
 > **expected-fail 用例（🐞）**：完整执行，但断言 broker 尚未实现的行为（已登记的
@@ -233,7 +233,7 @@ configs/
 > 因需要不同的 broker 配置，构建时自动拆分为 `functional_v5@retain-disabled` 与
 > `functional_v5@pubrel-collision` 两个子套件执行（见上方「Broker 配置」章节）。
 > 全量 `--suites functional_v5 --workers 1` 运行的汇总为
-> `Total: 108 | Passed: 100 | Failed: 2 | Skipped: 1 | ExpectedFail: 3 | Info: 2`。
+> `Total: 108 | Passed: 101 | Failed: 1 | Skipped: 1 | ExpectedFail: 3 | Info: 2`。
 
 > **issue #513 相关的四个用例刻意不标 expected-fail（🐞）。** 它们各自断言规范要求
 > 的行为：保留消息的 `Message Expiry Interval` 必须扣除其在保留存储中的停留时间
@@ -242,12 +242,14 @@ configs/
 > 并「视同已完成投递该应用消息」继续服务——排队路径与保留消息路径都如此
 > （[MQTT-3.1.2-24] / [MQTT-3.1.2-25]）。因此缺陷修复前它们会作为普通失败显示，
 > 修复后无需改动测试即转为 PASS——与上面那些不合规时保持静默的 🐞 用例不同。
-> 四个里已有三个 PASS：`message_expiry_deletes_qos2_inflight_v5`，因为
+> 四个现已全部 PASS：`message_expiry_deletes_qos2_inflight_v5`，因为
 > `Session::reforward` 不再对 `UnComplete` 交换套用消息过期——PUBREC 已证明 PUBLISH
 > 发出过，而 [MQTT-4.3.3-7] 从此禁止套用过期；两条超限报文用例，因为
 > `EncodeError::OverMaxPacketSize` 已在 `Session::deliver`（`rmqtt/src/session.rs`）
-> 中降级为「已完成投递」，不再逃出会话事件循环。**仅剩
-> `retained_message_expiry_not_decremented_v5` 仍失败。**
+> 中降级为「已完成投递」，不再逃出会话事件循环；以及
+> `retained_message_expiry_not_decremented_v5`，因为 `_send_retain_messages` 不再把
+> `publish.create_time` 改写成投递时刻，`message_expiry_check` 得以拿到原始接收
+> 时间戳来扣除消息的等待时长。
 > 请用 `--workers 1` 串行运行（见「运行指定用例」）。
 
 > **`takeover_sends_disconnect_0x8e_v5` 同样刻意不标 expected-fail（🐞）。** 它复现的是
@@ -256,8 +258,8 @@ configs/
 > DISCONNECT，而失败被 `let _ =` 丢弃。于是服务端能发出的所有 Reason Code——0x8D
 > Keep Alive 超时、0x8E 会话被接管、0x93 超出接收上限、0x95 报文过大——都成了死码，
 > 客户端无法区分「被服务端断开（附原因）」与「网络断开」。[MQTT-3.1.4-3] 规定会话被
-> 接管时发送 0x8E DISCONNECT 是 MUST，因此该用例在修复前会作为 `functional_v5` 里的
-> 又一个红。用例把两层要求分开断言，部分修复也能精确定位：对「发送 0x8E 后再关闭」的
+> 接管时发送 0x8E DISCONNECT 是 MUST，因此在修复前它是 `functional_v5` 里唯一剩下的
+> 红。用例把两层要求分开断言，部分修复也能精确定位：对「发送 0x8E 后再关闭」的
 > 桩 broker 它 PASS，对「只修顺序、发 0x87」的桩 broker 它仅在原因码这一层失败。
 
 ### functional_v5_cluster（1 个用例）— 双节点集群端到端复现

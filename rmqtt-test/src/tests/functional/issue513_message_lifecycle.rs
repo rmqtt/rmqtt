@@ -3,7 +3,7 @@
 //!
 //! Three independent defects in how the broker handles the lifetime of a
 //! stored or queued Application Message. Each test is written against the
-//! MQTT 5.0 requirement it covers, so it FAILS on the current broker
+//! MQTT 5.0 requirement it covers, so it FAILED on the broker as reported
 //! (reproducing the issue) and PASSES once the defect is fixed. Every test
 //! carries its own control arm, mirroring the reproducers attached to the
 //! issue, so a failure is attributed to the defect under test instead of to
@@ -16,12 +16,16 @@
 //! Expiry Interval set to the received value minus the time that the
 //! Application Message has been waiting in the Server."
 //!
-//! `_send_retain_messages` (`rmqtt/src/session.rs`) rewrites
+//! `_send_retain_messages` (`rmqtt/src/session.rs`) used to rewrite
 //! `publish.create_time` to "now" on every retained delivery. The expiry
 //! arithmetic in `message_expiry_check` (`rmqtt/src/hook.rs`) is
-//! `remaining = now - create_time`, so after the rewrite it always computes a
+//! `remaining = now - create_time`, so after the rewrite it always computed a
 //! remaining interval equal to the original value: the time the message spent
-//! in the retain store is never subtracted.
+//! in the retain store was never subtracted. The rewrite is gone, because the
+//! timestamp stamped when the server first received the PUBLISH is the only
+//! clock available on this path — the storage backend keeps the message
+//! verbatim and, under the default `retained_message_ttl = "0m"`, holds no
+//! deadline of its own to consult instead. PASSES.
 //!
 //! CONTROL — the same property on a live delivery carries approximately the
 //! published value, proving the broker relays the property at all. An
@@ -316,8 +320,10 @@ impl TestCase for RetainedMessageExpiryNotDecrementedV5Test {
                     "BUG REPRODUCED [MQTT-3.3.2-6]: retained message published with Message Expiry \
                      Interval {RETAINED_EXPIRY_SECS} and held {RETAINED_HOLD_SECS} s. \
                      live control delivery: {live_val}. retained read-back: {v}. \
-                     A decrementing store returns at most {}. `_send_retain_messages` rewrites \
-                     `publish.create_time` to now, so `message_expiry_check` subtracts nothing",
+                     A decrementing store returns at most {} — the received value minus the time \
+                     the message waited. `_send_retain_messages` must not stamp \
+                     `publish.create_time` with the delivery time, or `message_expiry_check` \
+                     subtracts nothing",
                     RETAINED_EXPIRY_SECS as u64 - RETAINED_HOLD_SECS
                 )),
                 None => Err(anyhow::anyhow!(

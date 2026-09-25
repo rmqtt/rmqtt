@@ -2066,7 +2066,16 @@ async fn _send_retain_messages(
         retain.publish.qos = retain.publish.qos.less_value(qos);
         retain.publish.topic = topic;
         retain.publish.packet_id = None;
-        retain.publish.create_time = Some(timestamp_millis());
+        // `create_time` is deliberately left at the value stamped when the server first
+        // received the PUBLISH, i.e. the start of the message's lifetime. It is the only
+        // clock available here: the storage backend keeps the message verbatim and, with
+        // the default `retained_message_ttl = "0m"`, holds no expiry deadline of its own.
+        // Resetting it to now would make `message_expiry_check` compute
+        // `remaining = now - create_time == 0` and hand the subscriber the original
+        // Message Expiry Interval, whereas [MQTT-3.3.2-6] requires the value *minus* the
+        // time the message has already waited in the server. Leaving it untouched also
+        // lets a message whose interval elapsed before this subscription be dropped with
+        // MessageExpiration, as [MQTT-3.3.2-5] expects, instead of being resurrected.
 
         log::debug!("{:?} retain.publish: {:?}", id, retain.publish);
 
