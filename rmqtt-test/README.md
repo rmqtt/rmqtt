@@ -38,7 +38,13 @@ Artifact located at `target/release/mqtt_harness` (`mqtt_harness.exe` on Windows
 ./target/release/mqtt_harness --workspace .
 ```
 
-The program will auto-locate `target/release/rmqttd` and start the broker.
+Without `--binary` the harness auto-locates the broker binary under the
+workspace root in the order `target/release/rmqttd` → `target/debug/rmqttd`
+and starts it; pass `--binary <path>` to pin a specific build. Note the
+release-first order — whenever a release `rmqttd` exists it wins, even when you
+launched the debug harness — so a stale release build can silently be the
+binary under test.
+
 By default it uses the **self-contained config**
 `rmqtt-test/configs/default/rmqtt.toml` (independent from the repository-root
 `rmqtt.toml` / `rmqtt-plugins/*.toml`; all TCP/TLS/WS/WSS/QUIC listeners are
@@ -102,11 +108,25 @@ kept enabled for the upcoming TLS/WS/QUIC test suites).
 
 # No --suites: search every suite by name and run only the matches
 ./target/release/mqtt_harness --workspace . -t mqtt_keepalive
+
+# Timing-sensitive cases: pin --workers 1 so nothing else shares the broker
+# (issue #513 message-lifecycle reproductions)
+./target/release/mqtt_harness --workspace . --suites functional_v5 --workers 1 \
+  -t retained_message_expiry_not_decremented_v5 \
+  -t message_expiry_deletes_qos2_inflight_v5 \
+  -t oversized_queued_message_stalls_queue_v5
 ```
 
 > `-t/--test` is applied after the suite/config split, so a selected case still
 > runs under its declared broker config and no extra config switches are
 > introduced by the filtering; suites left without a match are dropped.
+>
+> `--workers N` (default 4) sets how many cases run in parallel against the
+> single harness-managed broker. Cases that depend on fixed waits,
+> connection-close detection, or strict delivery order should be pinned to
+> `--workers 1` so a concurrently scheduled case cannot perturb their timing.
+> The three cases above are the issue #513 reproductions listed in the
+> `functional_v5` table below.
 
 ## ⚙️ Broker Configs (self-contained `configs/`)
 
@@ -186,24 +206,34 @@ and boundary scenarios:
 | CONNACK return codes (self-managed brokers) | `connack_return_codes_auth_http_v311` (auth-http + in-test mock, port 1892) / `connack_not_authorized_v311` (auth-jwt, port 1893) — these cases spawn their own brokers and don't use the harness broker |
 | Issue #501 auth × ACL fallthrough (self-managed brokers) | `auth_http_ignore_allow_all_acl_v311` (auth service replies 404 → auth 'ignore'; acl `["allow", "all"]` promotes it → CONNACK 0x00 fail-open reproduction, port 1896) / `auth_http_ignore_deny_all_acl_v311` (acl `["deny", "all"]` backstop → CONNACK 0x05 fail-closed, port 1900) |
 
-### `functional_v5` (99 cases) — MQTT 5.0
+### `functional_v5` (108 cases) — MQTT 5.0
 
 | Category | Cases |
 |----------|-------|
-| Connect / CONNACK | `connect_v5` / `reason_codes` / `session_present_fresh` / `wrong_protocol_name` / `unsupported_level` / `reserved_flag` / `second_connect` / `client_id_too_long` / `auth_method_rejected` (0x8C) / `connack_capabilities_v5` / `connack_receive_max_echo_v5` / `connack_assigned_client_id_v5` / `assigned_clientid_v5` / `empty_clientid_cleanstart0_rejected` |
+| Connect / CONNACK | `connect_v5` / `connect_v5_reason_codes` / `connect_v5_session_present_fresh` / `connect_v5_wrong_protocol_name` / `connect_v5_unsupported_level` / `connect_v5_reserved_flag` / `connect_v5_second_connect` / `connect_v5_client_id_too_long` / `connect_v5_auth_method_rejected` (0x8C) / `connack_capabilities_v5` / `connack_receive_max_echo_v5` / `connack_assigned_client_id_v5` / `assigned_clientid_v5` / `v5_empty_clientid_cleanstart0_rejected` |
 | Connect negative (🐞 expected-fail) | `connect_v5_will_flag_zero_but_qos_set` / `connect_v5_will_flag_zero_but_retain_set` [MQTT-3.1.2-11/12] — registered broker defects |
-| Pub/Sub | `pubsub_v5_qos0/1/2` / `qos1_ordering` / `qos_downgrade_v5_matrix` / `publish_properties_passthrough_v5` |
-| Session | `session_expiry_v5` / `takeover_v5` / `clean_start_v5` / `disconnect_expiry_zero` [MQTT-3.14.2-2] / `expiry_cleanup` / `expiry_update_on_reconnect` |
-| V5 features | `flow_control_v5` / `flow_control_v5_inflight_cap_strict` / `no_local_v5` / `will_delay_v5` / `will_properties_v5_delivery` / `shared_sub_v5` / `shared_sub_v5_malformed_filter` / `topic_alias_v5` (server/client/unknown-alias → 0x94, zero → 0x94, over-max → 0x94) / `retain_handling_*_v5` / `retain_as_published_v5` / `server_keepalive_v5` / `max_packet_size_v5` (+ enforcement) / `subscribe_identifiers_v5` (+ update) / `subscribe_multi_filter_mixed_v5` / `payload_format_v5` / `publication_expiry_v5` / `message_expiry_v5_forwarded` / `message_expiry_v5_queued_drop` / `request_response_v5` / `request_problem_info_v5` / `user_properties_v5` / `wildcard_available_v5` |
+| Pub/Sub | `pubsub_v5_qos0` / `pubsub_v5_qos1` / `pubsub_v5_qos2` / `pubsub_v5_qos1_ordering` / `qos_downgrade_v5_matrix` / `publish_properties_passthrough_v5` |
+| Session | `session_expiry_v5` / `session_takeover_v5` / `session_clean_start_v5` / `session_v5_disconnect_expiry_zero` [MQTT-3.14.2-2] / `session_v5_expiry_cleanup` / `session_v5_expiry_update_on_reconnect` |
+| Server DISCONNECT on teardown | `takeover_sends_disconnect_0x8e_v5` [MQTT-3.1.4-3] — reproduction that currently FAILS: `Session::run` closes the sink before the v5 DISCONNECT is sent, so the taken-over Client sees a bare FIN instead of Reason Code 0x8E |
+| Flow control | `flow_control_v5` / `flow_control_v5_inflight_cap_strict` |
 | Flow-control negative (🐞 expected-fail) | `flow_control_v5_receive_max_violation` [MQTT-4.9.0-1/2] — registered broker defect (no DISCONNECT 0x93) |
-| Retained | `retain_v5_store_and_deliver` / `empty_payload_deletes` / `overwrite` / `live_message_not_retained` / `will` |
+| Topic alias | `client_topic_alias_v5` / `server_topic_alias_v5` / `topic_alias_v5_unknown_alias` (→ 0x94) / `topic_alias_v5_zero` (→ 0x94) / `topic_alias_v5_over_max` (→ 0x94) |
+| Shared subscription | `shared_sub_v5` / `shared_sub_v5_malformed_filter` |
+| Retain handling | `retain_handling_new_v5` / `retain_handling_no_at_subscribe_v5` / `retain_as_published_v5` |
+| Message expiry | `publication_expiry_v5` / `message_expiry_v5_forwarded` / `message_expiry_v5_queued_drop` |
+| Will | `last_will_v5_fires` / `will_delay_v5` / `will_properties_v5_delivery` / `will_published_on_abrupt_close_v5` / `will_published_on_disconnect_rc_0x04_v5` / `will_published_on_disconnect_rc_not_0x00_v5` / `will_not_published_on_disconnect_rc_0x00_v5` |
+| Packet size / Server Keep Alive | `max_packet_size_v5` / `max_packet_size_enforcement_v5` / `server_keepalive_v5` |
+| Request/Response & properties | `request_response_v5` / `request_problem_info_v5` / `user_properties_v5` / `payload_format_v5` |
+| Subscription options | `subscribe_identifiers_v5` / `subscribe_identifiers_v5_update` / `subscribe_multi_filter_mixed_v5` / `no_local_v5` / `wildcard_available_v5` |
+| Retained | `retain_v5_store_and_deliver` / `retain_v5_empty_payload_deletes` / `retain_v5_overwrite` / `retain_v5_live_message_not_retained` / `retain_v5_will` |
 | QoS 2 | `qos2_replayed_publish_dedup` [MQTT-4.3.3-10] / `qos2_pubrel_resend_on_resume` [MQTT-4.4.0-1] / `qos2_pubrel_resume_collision` |
-| Wildcard | `wildcard_v5_case_sensitive` / `leading_slash` |
+| Wildcard | `wildcard_v5_case_sensitive` / `wildcard_v5_leading_slash` |
 | Reason codes (MAY-level) | `reason_code_v5_puback_no_matching_subscribers` / `reason_code_v5_unsuback_no_subscription` — assert a legal reason code (0x00 or 0x10 / 0x11) |
 | Response/Problem Information (info) | `connack_response_info_v5` / `publish_v5_response_topic_wildcard` — record-type observations, never failures |
-| Protocol errors | `protocol_error_v5_*` (subscribe/unsubscribe: qos3, qos0 fixed header, empty payload, packet id 0, sub-id 0, reserved bits, retain handling 3, with sub-id on unsubscribe; publish: qos3, pid0, empty topic, dup on QoS 0; bad remaining length, reserved type, disconnect bad flags, invalid UTF-8 topic, unsolicited AUTH, user property bad UTF-8) |
+| Protocol errors | `protocol_error_v5_bad_remaining_length` / `protocol_error_v5_disconnect_bad_flags` / `protocol_error_v5_invalid_utf8_topic` / `protocol_error_v5_publish_dup_on_qos0` / `protocol_error_v5_publish_empty_topic` / `protocol_error_v5_publish_packet_id_zero` / `protocol_error_v5_publish_qos3` / `protocol_error_v5_reserved_packet_type` / `protocol_error_v5_retain_handling_3` / `protocol_error_v5_sub_id_zero` / `protocol_error_v5_sub_options_reserved_bits` / `protocol_error_v5_subscribe_empty_payload` / `protocol_error_v5_subscribe_packet_id_zero` / `protocol_error_v5_subscribe_qos0_fixed_header` / `protocol_error_v5_subscribe_qos3` / `protocol_error_v5_unsolicited_auth` / `protocol_error_v5_unsubscribe_empty_payload` / `protocol_error_v5_unsubscribe_packet_id_zero` / `protocol_error_v5_unsubscribe_qos0_fixed_header` / `protocol_error_v5_unsubscribe_with_sub_id` / `protocol_error_v5_user_property_bad_utf8` |
 | Disconnect | `disconnect_reason_v5` |
 | Keep alive / TCP | `ping_v5` / `mqtt_keepalive_timeout_reclaims_tcp` / `tcp_keepalive_socket_option` (Linux-gated, skipped elsewhere) |
+| Message lifecycle (issue #513) | `retained_message_expiry_not_decremented_v5` [MQTT-3.3.2-6] / `message_expiry_deletes_qos2_inflight_v5` [MQTT-4.4.0-1] — reproductions that still FAIL; `oversized_queued_message_stalls_queue_v5` + `retained_oversized_message_keeps_session_v5` [MQTT-3.1.2-24/-25] — the same defect on the queued and retained paths, FIXED and now PASSing; see the note below |
 | Will Retain vs Retain Available | `v5_will_retain_rejected_when_retain_unavailable` (executed in the `functional_v5@retain-disabled` sub-suite) |
 
 > **Expected-fail cases (🐞)**: they execute fully but assert behaviors the
@@ -213,12 +243,44 @@ and boundary scenarios:
 > be promoted to a normal assertion. See
 > `designs/mqtt-5.0-standalone-test-gap-analysis.md`.
 
-> `functional_v5` totals 99 cases: the default-config group runs 97 of them;
+> `functional_v5` totals 108 cases: the default-config group runs 106 of them;
 > `v5_will_retain_rejected_when_retain_unavailable` and
 > `qos2_pubrel_resume_collision` require different broker configs and are
 > automatically split into the `functional_v5@retain-disabled` and
 > `functional_v5@pubrel-collision` sub-suites at build time (see the
-> "Broker Configs" section above).
+> "Broker Configs" section above). A full `--suites functional_v5 --workers 1`
+> run reports `Total: 108 | Passed: 99 | Failed: 3 | Skipped: 1 |
+> ExpectedFail: 3 | Info: 2`.
+
+> **Four issue #513-related cases are deliberately NOT marked expected-fail
+> (🐞).** Each asserts spec-required behaviour: a retained message's `Message
+> Expiry Interval` must be decremented by the time spent in the retain store
+> ([MQTT-3.3.2-6]); a PUBREL owed after PUBREC must be re-sent with its original
+> Packet Identifier on the resumed session ([MQTT-4.4.0-1]); a packet above the
+> client's Maximum Packet Size must be discarded and the server must then behave
+> as if it had completed sending that Application Message, on the queued path
+> and on the retained path alike ([MQTT-3.1.2-24] / [MQTT-3.1.2-25]). They
+> therefore surface as ordinary failures until the defect is fixed, then flip to
+> PASS with no test change — unlike the 🐞 cases above, which stay silent while
+> non-conformant. The two oversized-message cases already PASS:
+> `EncodeError::OverMaxPacketSize` is now downgraded to a completed delivery in
+> `Session::deliver` (`rmqtt/src/session.rs`) instead of escaping the session
+> event loop. Run them serially (see "Running Specific Test Cases").
+
+> **`takeover_sends_disconnect_0x8e_v5` is likewise NOT marked expected-fail
+> (🐞).** It reproduces a fourth, independent defect found while investigating
+> #513 — connection *teardown*, not message lifetime. `Session::run` calls
+> `sink.close()` (which shuts the write half down) **before** building and
+> sending the v5 DISCONNECT, and the resulting error is discarded by `let _ =`.
+> Every server-initiated Reason Code — 0x8D Keep Alive timeout, 0x8E Session
+> taken over, 0x93 Receive Maximum exceeded, 0x95 Packet too large — is
+> therefore dead code, and a Client cannot tell "the Server dropped me, and
+> here is why" from "the network died". [MQTT-3.1.4-3] makes the 0x8E
+> DISCONNECT a MUST for a session takeover, so the case shows as one more red
+> in `functional_v5` until the ordering is fixed. It asserts two layers
+> separately, so a partial fix is still reported precisely: against a stub
+> broker that sends 0x8E before closing it PASSes, and against one that sends
+> 0x87 it fails on the reason code alone.
 
 ### `functional_v5_cluster` (1 case) — two-node cluster end-to-end reproduction
 

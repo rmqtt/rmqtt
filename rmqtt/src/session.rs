@@ -1598,12 +1598,30 @@ impl SessionState {
         let publish = self.hook.message_delivered(from.clone(), &publish).await.unwrap_or(publish);
 
         //send message
-        sink.publish(
-            publish.clone(),
-            expiry_check_res.message_expiry_interval(),
-            self.server_topic_aliases.as_ref(),
-        )
-        .await?; //@TODO ... at exception, send hook and or store message
+        let sent = sink
+            .publish(
+                publish.clone(),
+                expiry_check_res.message_expiry_interval(),
+                self.server_topic_aliases.as_ref(),
+            )
+            .await; //@TODO ... at exception, send hook and or store message
+        match sent? {
+            PublishOutcome::Sent => {}
+            PublishOutcome::DiscardedTooLarge => {
+                //[MQTT-3.1.2-25] the packet is too large to send, so the Server discards it
+                //without sending it and then behaves as if it had completed sending that
+                //Application Message: the session stays up and every message queued behind it is
+                //still delivered. Note that we return before `push_back` below, so the discarded
+                //message is deliberately *not* registered in the outbound inflight window —
+                //that is exactly what "as if it had completed sending" means.
+                self.scx
+                    .extends
+                    .hook_mgr()
+                    .message_dropped(Some(self.id.clone()), from, publish, Reason::MessageTooLarge)
+                    .await;
+                return Ok(());
+            }
+        }
 
         //cache messages to inflight window
         let moment_status = match publish.qos {
