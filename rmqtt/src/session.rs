@@ -1653,20 +1653,13 @@ impl SessionState {
                 self.forward(iflt_msg.from, iflt_msg.publish).await;
             }
             MomentStatus::UnComplete => {
-                let expiry_check_res =
-                    self.hook.message_expiry_check(iflt_msg.from.clone(), &iflt_msg.publish).await;
-
-                if expiry_check_res.is_expiry() {
-                    log::warn!(
-                        "{:?} MQTT::PublishComplete is not received, from: {:?}, message: {:?}",
-                        self.id,
-                        iflt_msg.from,
-                        iflt_msg.publish
-                    );
-                    return Ok(());
-                }
-
-                //rerelease
+                // The exchange has already passed PUBREC, so the PUBLISH was definitely sent
+                // and onward delivery has started. [MQTT-4.3.3-7] then forbids the sender to
+                // apply Message Expiry at all, and [MQTT-3.3.2-5] only allows the copy to be
+                // deleted while delivery has *not* started. The owed PUBREL must therefore be
+                // re-sent with its original Packet Identifier ([MQTT-4.4.0-1]) however long the
+                // Session stayed down; an expiry check here would silently drop an in-progress
+                // QoS 2 exchange and strand the receiver's Packet Identifier forever.
                 self.tx.unbounded_send(Message::SendRerelease(iflt_msg))?;
             }
         }

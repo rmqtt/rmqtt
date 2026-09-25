@@ -233,7 +233,7 @@ and boundary scenarios:
 | Protocol errors | `protocol_error_v5_bad_remaining_length` / `protocol_error_v5_disconnect_bad_flags` / `protocol_error_v5_invalid_utf8_topic` / `protocol_error_v5_publish_dup_on_qos0` / `protocol_error_v5_publish_empty_topic` / `protocol_error_v5_publish_packet_id_zero` / `protocol_error_v5_publish_qos3` / `protocol_error_v5_reserved_packet_type` / `protocol_error_v5_retain_handling_3` / `protocol_error_v5_sub_id_zero` / `protocol_error_v5_sub_options_reserved_bits` / `protocol_error_v5_subscribe_empty_payload` / `protocol_error_v5_subscribe_packet_id_zero` / `protocol_error_v5_subscribe_qos0_fixed_header` / `protocol_error_v5_subscribe_qos3` / `protocol_error_v5_unsolicited_auth` / `protocol_error_v5_unsubscribe_empty_payload` / `protocol_error_v5_unsubscribe_packet_id_zero` / `protocol_error_v5_unsubscribe_qos0_fixed_header` / `protocol_error_v5_unsubscribe_with_sub_id` / `protocol_error_v5_user_property_bad_utf8` |
 | Disconnect | `disconnect_reason_v5` |
 | Keep alive / TCP | `ping_v5` / `mqtt_keepalive_timeout_reclaims_tcp` / `tcp_keepalive_socket_option` (Linux-gated, skipped elsewhere) |
-| Message lifecycle (issue #513) | `retained_message_expiry_not_decremented_v5` [MQTT-3.3.2-6] / `message_expiry_deletes_qos2_inflight_v5` [MQTT-4.4.0-1] — reproductions that still FAIL; `oversized_queued_message_stalls_queue_v5` + `retained_oversized_message_keeps_session_v5` [MQTT-3.1.2-24/-25] — the same defect on the queued and retained paths, FIXED and now PASSing; see the note below |
+| Message lifecycle (issue #513) | `retained_message_expiry_not_decremented_v5` [MQTT-3.3.2-6] — the reproduction that still FAILS; `message_expiry_deletes_qos2_inflight_v5` [MQTT-4.3.3-7] / [MQTT-4.4.0-1] — FIXED, now PASSing (an `UnComplete` exchange is no longer deleted by Message Expiry); `oversized_queued_message_stalls_queue_v5` + `retained_oversized_message_keeps_session_v5` [MQTT-3.1.2-24/-25] — FIXED, now PASSing; see the note below |
 | Will Retain vs Retain Available | `v5_will_retain_rejected_when_retain_unavailable` (executed in the `functional_v5@retain-disabled` sub-suite) |
 
 > **Expected-fail cases (🐞)**: they execute fully but assert behaviors the
@@ -249,7 +249,7 @@ and boundary scenarios:
 > automatically split into the `functional_v5@retain-disabled` and
 > `functional_v5@pubrel-collision` sub-suites at build time (see the
 > "Broker Configs" section above). A full `--suites functional_v5 --workers 1`
-> run reports `Total: 108 | Passed: 99 | Failed: 3 | Skipped: 1 |
+> run reports `Total: 108 | Passed: 100 | Failed: 2 | Skipped: 1 |
 > ExpectedFail: 3 | Info: 2`.
 
 > **Four issue #513-related cases are deliberately NOT marked expected-fail
@@ -262,10 +262,15 @@ and boundary scenarios:
 > and on the retained path alike ([MQTT-3.1.2-24] / [MQTT-3.1.2-25]). They
 > therefore surface as ordinary failures until the defect is fixed, then flip to
 > PASS with no test change — unlike the 🐞 cases above, which stay silent while
-> non-conformant. The two oversized-message cases already PASS:
+> non-conformant. Three of the four already PASS:
+> `message_expiry_deletes_qos2_inflight_v5`, because `Session::reforward` no
+> longer applies Message Expiry to an `UnComplete` exchange — PUBREC proves the
+> PUBLISH was sent, and [MQTT-4.3.3-7] forbids applying expiry from that point on
+> — and the two oversized-message cases, because
 > `EncodeError::OverMaxPacketSize` is now downgraded to a completed delivery in
 > `Session::deliver` (`rmqtt/src/session.rs`) instead of escaping the session
-> event loop. Run them serially (see "Running Specific Test Cases").
+> event loop. Only `retained_message_expiry_not_decremented_v5` still FAILS.
+> Run them serially (see "Running Specific Test Cases").
 
 > **`takeover_sends_disconnect_0x8e_v5` is likewise NOT marked expected-fail
 > (🐞).** It reproduces a fourth, independent defect found while investigating

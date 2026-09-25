@@ -27,22 +27,29 @@
 //! published value, proving the broker relays the property at all. An
 //! unchanged value in the arm is therefore a storage-path defect.
 //!
-//! ## 2. `message_expiry_deletes_qos2_inflight_v5` — [MQTT-4.4.0-1]
+//! ## 2. `message_expiry_deletes_qos2_inflight_v5` — [MQTT-4.3.3-7] / [MQTT-4.4.0-1]
 //!
 //! The Message Expiry Interval governs an Application Message the Server is
-//! *holding*. Once the receiver has answered PUBREC the delivery is under way
-//! and the Server owes a PUBREL, which section 4.4 requires it to resend on
-//! the resumed Session using the original Packet Identifier.
+//! *holding*. Once the receiver has answered PUBREC the delivery is under way:
+//! [MQTT-4.3.3-7] states that the sender "MUST NOT apply Application Message
+//! expiry if a PUBLISH packet has been sent", [MQTT-3.3.2-5] only permits
+//! deleting a copy whose onward delivery has *not* started, and section 4.4
+//! requires the owed PUBREL to be re-sent on the resumed Session using the
+//! original Packet Identifier.
 //!
-//! `Session::reforward` (`rmqtt/src/session.rs`) handles the
-//! `MomentStatus::UnComplete` branch by running the expiry check first and
-//! returning early when it reports expiry — the owed PUBREL is never sent, and
-//! unlike the `Session::deliver` path no `message_dropped` hook is raised
-//! either, so the loss is silent.
+//! `Session::reforward` (`rmqtt/src/session.rs`) used to run the expiry check
+//! first in its `MomentStatus::UnComplete` branch and return early when it
+//! reported expiry: the owed PUBREL was never sent, the message was not
+//! re-registered in the outbound inflight window, and — unlike the
+//! `Session::deliver` path — no `message_dropped` hook was raised either, so
+//! the loss was silent. The gate is gone; the branch now always re-sends the
+//! PUBREL, which also covers the same drop on the online retry path
+//! (`deliver_timeout_delay` → `pop_front_timeout` → `reforward`). PASSES.
 //!
 //! CONTROL — the identical cut on a message published with NO Message Expiry
-//! Interval still gets its PUBREL resent, so the arm's loss is attributable to
-//! the expiry mechanism rather than to session recovery in general.
+//! Interval still gets its PUBREL resent, so the loss of the arm was
+//! attributable to the expiry mechanism rather than to session recovery in
+//! general.
 //!
 //! ## 3. `oversized_queued_message_stalls_queue_v5` — [MQTT-3.1.2.11.4]
 //!
@@ -491,9 +498,10 @@ impl TestCase for MessageExpiryDeletesQos2InflightV5Test {
                      owed PUBREL {control_pubrel:?} resent, but the arm (Message Expiry Interval \
                      {INFLIGHT_EXPIRY_SECS}s, cut {INFLIGHT_WAIT_SECS}s ago) got nothing although \
                      its session resumed. The exchange had already passed PUBREC (original packet \
-                     id {}), so it was no longer a message the server was holding. \
-                     `Session::reforward`'s UnComplete branch runs the expiry check first and \
-                     returns early, dropping the owed PUBREL without even raising message_dropped",
+                     id {}), so the PUBLISH had been sent and onward delivery had started: \
+                     [MQTT-4.3.3-7] forbids the sender to apply Message Expiry from that point on, \
+                     and [MQTT-4.4.0-1] requires the owed PUBREL to be re-sent with its original \
+                     Packet Identifier",
                     arm.pubrel_packet_id
                 )),
                 (false, _) => Err(anyhow::anyhow!(
