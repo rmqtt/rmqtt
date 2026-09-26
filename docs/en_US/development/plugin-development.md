@@ -293,7 +293,7 @@ All available hook types:
 | Hook Type | Trigger Condition | Handler Returns |
 |-----------|-----------------|-----------------|
 | `BeforeStartup` | Broker initialization | — |
-| `ClientConnect` | CONNECT received | `(bool, Option<ConnAckReason>)` |
+| `ClientConnect` | CONNECT received | `(bool, Option<ConnectRefuse>)` |
 | `ClientAuthenticate` | Before CONNACK | `(bool, Option<ConnAckReason>)` |
 | `ClientConnack` | CONNACK sent, accepted or refused | — |
 | `ClientConnected` | Session established | — |

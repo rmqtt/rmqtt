@@ -238,7 +238,7 @@ pub trait Handler: Send + Sync {
 | 钩子类型 | 触发时机 | 处理器返回 |
 |----------|----------|-----------|
 | `BeforeStartup` | Broker 初始化 | Continue |
-| `ClientConnect` | 收到 CONNECT | `(bool, Option<ConnAckReason>)` |
+| `ClientConnect` | 收到 CONNECT | `(bool, Option<ConnectRefuse>)` |
 | `ClientAuthenticate` | 发送 CONNACK 前 | `(bool, Option<ConnAckReason>)` |
 | `ClientConnack` | CONNACK 已发送（接受或拒绝） | Continue |
 | `ClientConnected` | 会话已建立 | Continue |
