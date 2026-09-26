@@ -184,6 +184,22 @@ impl ClusterNode {
         Some(collected[start..].join("\n"))
     }
 
+    /// Path of the file [`ClusterNode::spawn`] writes this node's
+    /// stdout/stderr to (for diagnostics and observations).
+    pub(crate) fn log_path(&self) -> &Path {
+        &self.log_file
+    }
+
+    /// Last line of this node's log containing `needle`.
+    ///
+    /// Used to surface observations that must not change the verdict (e.g. the
+    /// bounded offline-persistence drop warning), so a green run still reports
+    /// them instead of swallowing them.
+    pub(crate) fn log_last_match(&self, needle: &str) -> Option<String> {
+        let content = std::fs::read_to_string(&self.log_file).ok()?;
+        content.lines().rev().find(|line| line.contains(needle)).map(|line| line.to_string())
+    }
+
     pub(crate) fn kill(&mut self) {
         if let Some(mut child) = self.child.take() {
             let _ = child.kill();

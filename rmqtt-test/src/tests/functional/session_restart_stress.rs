@@ -43,10 +43,17 @@
 //!     prefix with `RUSTUP_TOOLCHAIN=1.97` (the version used during dev).
 //!   - **Clean the sled data first** — the stress runs accumulate sessions in
 //!     `rmqtt-test/configs/*/.sled/` and a large sled makes the broker take
-//!     >20s to start (harness "broker failed to become healthy" errors):
+//!     >20s to start (harness "broker failed to become healthy" errors).
+//!
+//!     The four cluster variants now clear their own store automatically
+//!     (`reset_sled_data`, called before the nodes are spawned); the standalone
+//!     variant cannot — its broker is started by the harness with
+//!     `session-sled-stress` *before* the test body runs and keeps the sled
+//!     open, so a dirty store there must still be removed by hand (the
+//!     functional cluster tests in `cluster_session_restart.rs` too):
 //!
 //!     ```bash
-//!     rm -rf rmqtt-test/configs/{session-sled,session-sled-stress,cluster-broadcast-sled,cluster-broadcast-sled-stress,cluster-raft-sled,cluster-raft-sled-stress}/.sled
+//!     rm -rf rmqtt-test/configs/{session-sled,session-sled-stress,cluster-broadcast-sled,cluster-raft-sled}/.sled
 //!     ```
 //!   - Do not run another broker on the ports used by the suite (1883/1886/
 //!     1887/1888/1889/1890 MQTT, 6060/6061 http-api, 5363..5370 gRPC,
@@ -93,9 +100,15 @@
 //! and the harness polls the Prometheus `message_queues.count` gauge
 //! (session deliver-queue push/pop counter) until it reaches
 //! baseline + expected, i.e. every offline message is fully enqueued, and
-//! only then reconnects the sessions.
+//! only then reconnects the sessions. The baseline is sampled **before** the
+//! publishes are issued and the gauge is monotonic while the sessions are
+//! offline, so `baseline + expected` is reachable exactly when all 100k
+//! messages of this run are in. Finally, the run reports (as a test *note*,
+//! never as a failure) whether node 1's log shows the bounded
+//! `rmqtt-session-storage` executor dropping offline-message persistence —
+//! a green run must not hide that.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::framework::context::TestContext;
@@ -132,6 +145,11 @@ const PUBLISH_CONCURRENCY: usize = 250;
 /// Prometheus metrics path on node 1's http-api (port 6061, enabled in the
 /// stress node-1 configs solely for the deterministic drain wait).
 const NODE1_METRICS_PATH: &str = "/api/v1/metrics/prometheus/1";
+/// Signature of `rmqtt-session-storage`'s bounded-queue drop warning
+/// (`OFFLINE_SAVE_DROPPED`): offline messages that could not even be handed to
+/// the persistence executor. Surfaced as a test note, never as a failure — see
+/// [`run_cluster_stress`].
+const OFFLINE_SAVE_DROP_MARKER: &str = "offline message persistence queue is full";
 /// Poll interval for the drain wait.
 const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(500);
 /// Upper bound for the drain wait: the whole 100k-message cross-node
@@ -256,6 +274,28 @@ fn parse_message_queues_count(body: &str) -> Option<i64> {
     None
 }
 
+/// Extract `N` from `... dropped 3001 save(s) in total, ...`.
+///
+/// The counter is only logged on every 1000th drop, so the real number of
+/// dropped saves can be up to 999 higher than the parsed value.
+fn parse_dropped_saves(line: &str) -> Option<u64> {
+    line.split("dropped ").nth(1)?.split(' ').next()?.trim().parse().ok()
+}
+
+/// Read node 1's `message_queues.count` gauge (0 when the endpoint is
+/// unreachable or the value cannot be parsed).
+///
+/// The value is the **live** number of messages waiting in all sessions'
+/// deliver queues on node 1 (`stats.message_queues`: `inc` on push, `dec` on
+/// pop), so it has to be sampled *before* publishing to serve as the drain
+/// baseline — see [`wait_forwards_enqueued`].
+async fn read_message_queues_count(http_addr: &str) -> i64 {
+    match http_get_body(http_addr, NODE1_METRICS_PATH).await {
+        Ok(body) => parse_message_queues_count(&body).unwrap_or(0),
+        Err(_) => 0,
+    }
+}
+
 /// Deterministic Forwards-drain wait.
 ///
 /// Blocks until node 1's `message_queues.count` gauge (session
@@ -263,14 +303,16 @@ fn parse_message_queues_count(body: &str) -> Option<i64> {
 /// every cross-node Forwards has been fully enqueued into its target
 /// session's deliver queue. Reconnects must not start before this point:
 /// in-flight Forwards hitting a session being taken over lose those
-/// messages (see the module docs). A pre-publish baseline is folded in so
-/// stale sessions from previous runs holding leftover queue entries cannot
-/// skew the target.
-async fn wait_forwards_enqueued(http_addr: &str, expected: i64) -> Result<(), anyhow::Error> {
-    let baseline = match http_get_body(http_addr, NODE1_METRICS_PATH).await {
-        Ok(body) => parse_message_queues_count(&body).unwrap_or(0),
-        Err(_) => 0,
-    };
+/// messages (see the module docs).
+///
+/// `baseline` must be sampled **before the publishes are issued**
+/// ([`read_message_queues_count`]). It folds in whatever the queues already
+/// hold — normally nothing, since the store is cleared per run; stale entries
+/// restored from a dirty store otherwise — so that only *this* run's messages
+/// count towards `target`. Sampling it after `publish_all` would fold most of
+/// the 100k still-in-flight messages into the baseline too and push `target`
+/// above anything the gauge can ever reach.
+async fn wait_forwards_enqueued(http_addr: &str, baseline: i64, expected: i64) -> Result<(), anyhow::Error> {
     let target = baseline + expected;
 
     let start = Instant::now();
@@ -405,16 +447,64 @@ async fn reconnect_and_verify(addr: &str, cids: &[String], msgs: usize) -> Resul
     }
 }
 
+/// Remove the sled session store belonging to `config_file` (if one exists).
+///
+/// Every stress run leaves its persistent sessions in the config's `.sled`
+/// directory, and a run that fails before [`reconnect_and_verify`] also leaves
+/// its whole offline backlog there. The next run then restores all of it, which
+/// (a) makes the broker take longer to become healthy and (b) pre-populates
+/// `message_queues.count` — the gauge the drain wait below is based on counts
+/// the messages restored into the deliver queue at session rebuild
+/// (`rmqtt-session-storage` `rebuild_sessions`). Starting each run from an
+/// empty store keeps the startup time and the metric comparable between runs.
+///
+/// Only safe while no broker is running with that config: sled keeps its files
+/// open (the delete fails on Windows) and a live node would keep writing into
+/// the removed directory. The cluster variants own their nodes and kill them on
+/// `ClusterNode::drop`, so calling this at the top of [`run_cluster_stress`] is
+/// safe; the standalone variant cannot (its broker is harness-managed and
+/// already running — see the module docs).
+///
+/// The store lives either at `<config_dir>/.sled` (standalone configs) or one
+/// level up at `<config_dir>/../.sled` (per-node cluster configs), so both
+/// layouts are probed.
+fn reset_sled_data(config_file: &Path) -> Result<(), anyhow::Error> {
+    let mut dir = match config_file.parent() {
+        Some(dir) => dir,
+        None => return Ok(()),
+    };
+    for _ in 0..2 {
+        let sled = dir.join(".sled");
+        if sled.is_dir() {
+            std::fs::remove_dir_all(&sled)
+                .map_err(|e| anyhow::anyhow!("failed to remove {}: {e}", sled.display()))?;
+            eprintln!("[stress] cleared stale sled data: {}", sled.display());
+            return Ok(());
+        }
+        match dir.parent() {
+            Some(parent) => dir = parent,
+            None => break,
+        }
+    }
+    Ok(())
+}
+
 /// Core cluster stress reproduction (see module docs).
 ///
 /// `node1_http_addr` is node 1's http-api `host:port` (port 6061 in the
 /// stress configs), used by the deterministic drain wait.
+///
+/// Returns `Ok(note)` on success, where `note` carries an observation that must
+/// not change the verdict (currently: offline-message persistence dropped by
+/// the bounded `rmqtt-session-storage` executor, matching
+/// [`OFFLINE_SAVE_DROP_MARKER`]) — so a green run reports it instead of
+/// silently swallowing it.
 async fn run_cluster_stress(
     cluster: &str,
     nodes: &[ClusterSpec],
     node1_http_addr: &str,
     mode: RestartMode,
-) -> Result<(), anyhow::Error> {
+) -> Result<Option<String>, anyhow::Error> {
     assert!(nodes.len() >= 2, "cluster stress needs at least 2 nodes");
     let node1_addr = &nodes[0].addr;
     let node2_addr = &nodes[1].addr;
@@ -439,6 +529,14 @@ async fn run_cluster_stress(
             )
         })
         .collect();
+
+    // ---- start from an empty session store (see `reset_sled_data`): sessions
+    // left behind by an earlier run are restored on startup and their queue
+    // entries stay in `message_queues.count` forever, which skews the drain
+    // wait in phase 3.5. Must happen before the first node is spawned.
+    for spec in nodes {
+        reset_sled_data(&spec.config)?;
+    }
 
     // ---- bring up all nodes and wait for the cluster to converge
     for (i, node) in cluster_nodes.iter_mut().enumerate() {
@@ -493,6 +591,11 @@ async fn run_cluster_stress(
 
     // ---- Phase 3: publish while sessions are offline (from node 2)
     let pub_id = format!("stress-pub-{uid}");
+    // Baseline BEFORE publishing (see `wait_forwards_enqueued`): the gauge only
+    // holds what was already queued — at this point nothing, unless a dirty
+    // store was restored — so the drain target below is exactly "all 100k of
+    // this run's messages are in".
+    let baseline = read_message_queues_count(node1_http_addr).await;
     publish_all(node2_addr, &pub_id, &topics, STRESS_MSGS_PER_SESSION, b"stress-payload").await?;
 
     // ---- Phase 3.5: deterministic Forwards-drain wait. The publishes are
@@ -505,15 +608,42 @@ async fn run_cluster_stress(
     // only messages already in the session's own rx). Wait until every
     // message is fully enqueued instead of guessing with a fixed sleep.
     let expected = (STRESS_SESSIONS * STRESS_MSGS_PER_SESSION) as i64;
-    wait_forwards_enqueued(node1_http_addr, expected).await?;
+    wait_forwards_enqueued(node1_http_addr, baseline, expected).await?;
+
+    // Observation, not an assertion: the bounded `rmqtt-session-storage`
+    // executor drops offline-message persistence tasks when its queue
+    // saturates. Delivery in this run is unaffected (the sessions are still
+    // online-reachable in memory), but a *further* restart would lose those
+    // messages — and until this note existed the drop was only visible
+    // indirectly, as a shorter drain baseline, which clearing the store fixes
+    // (and thereby hides). Collect it after the drain: by then every route has
+    // been processed, so the log holds the complete drop count.
+    let note = cluster_nodes[0].log_last_match(OFFLINE_SAVE_DROP_MARKER).map(|line| {
+        let dropped = parse_dropped_saves(&line).unwrap_or(0);
+        format!(
+            "node 1 dropped offline-message persistence for >={dropped} message(s) under this \
+             burst (bounded session-storage exec queue full; in-memory delivery unaffected, a \
+             further restart would lose them) — see {}",
+            cluster_nodes[0].log_path().display()
+        )
+    });
 
     // ---- Phase 4: reconnect all sessions on node 1 and verify delivery
-    reconnect_and_verify(node1_addr, &cids, STRESS_MSGS_PER_SESSION).await
+    reconnect_and_verify(node1_addr, &cids, STRESS_MSGS_PER_SESSION).await?;
+    Ok(note)
 }
 
-fn stress_result(test: &dyn TestCase, start: Instant, result: Result<(), anyhow::Error>) -> TestResult {
+/// Map a stress run's outcome onto a verdict, attaching the run's observation
+/// (if any) as the test `note` — reported in the console/JSON/HTML/detail
+/// output without affecting pass/fail.
+fn stress_result(
+    test: &dyn TestCase,
+    start: Instant,
+    result: Result<Option<String>, anyhow::Error>,
+) -> TestResult {
     match result {
-        Ok(()) => TestResult::passed(test.name(), "chaos", start.elapsed()),
+        Ok(None) => TestResult::passed(test.name(), "chaos", start.elapsed()),
+        Ok(Some(note)) => TestResult::passed_with_note(test.name(), "chaos", start.elapsed(), &note),
         Err(e) => TestResult::failed(test.name(), "chaos", start.elapsed(), e.to_string()),
     }
 }
@@ -559,7 +689,10 @@ impl TestCase for StressSingleNodeRestartTest {
             publish_all(addr, &pub_id, &topics, STRESS_MSGS_PER_SESSION, b"stress-payload").await?;
             tokio::time::sleep(Duration::from_millis(200)).await;
 
-            reconnect_and_verify(addr, &cids, STRESS_MSGS_PER_SESSION).await
+            reconnect_and_verify(addr, &cids, STRESS_MSGS_PER_SESSION).await?;
+            // Single broker: no cross-node Forwards, hence no drain wait and no
+            // observation to report.
+            Ok(None)
         });
         stress_result(self, start, result)
     }
