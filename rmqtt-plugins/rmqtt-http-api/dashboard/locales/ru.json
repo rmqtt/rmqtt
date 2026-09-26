@@ -120,6 +120,7 @@
     "messages_publish": "Опубликовано",
     "messages_delivered": "Доставлено",
     "messages_discarded": "Отброшено",
+    "offline_saves_dropped": "Отброшенные офлайн-сохранения",
     "subscriptions_count": "Подписки",
     "shared_subscriptions_count": "Общие подписки",
     "clients_connected": "Connections",

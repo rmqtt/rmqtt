@@ -128,6 +128,7 @@
     "messages_publish": "Published Messages",
     "messages_delivered": "Delivered Messages",
     "messages_discarded": "Discarded Messages",
+    "offline_saves_dropped": "Offline Persistence Drops",
     "subscriptions_count": "Subscriptions",
     "shared_subscriptions_count": "Shared Subscriptions",
     "status_title": "Status",

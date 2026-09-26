@@ -128,6 +128,7 @@
     "messages_publish": "الرسائل المنشورة",
     "messages_delivered": "الرسائل المسلمة",
     "messages_discarded": "الرسائل المهملة",
+    "offline_saves_dropped": "Offline Persistence Drops",
     "subscriptions_count": "الاشتراكات",
     "shared_subscriptions_count": "الاشتراكات المشتركة",
     "status_title": "Status",

@@ -128,6 +128,7 @@
     "messages_publish": "প্রকাশিত বার্তা",
     "messages_delivered": "বিতরণকৃত বার্তা",
     "messages_discarded": "বাদ দেওয়া বার্তা",
+    "offline_saves_dropped": "Offline Persistence Drops",
     "subscriptions_count": "সাবস্ক্রিপশন",
     "shared_subscriptions_count": "ভাগ করা সাবস্ক্রিপশন",
     "status_title": "Status",

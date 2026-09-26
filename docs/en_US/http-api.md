@@ -1497,6 +1497,7 @@ Returns all statistical metrics under the cluster
 | messages.nonsubscribed.lastwill | Integer   | Without Subscription Found, Last Will Message                                              |
 | messages.nonsubscribed.system   | Integer   | Without Subscription Found, System Topic Messages ($SYS/#)                                 |
 | messages.dropped                | Integer   | Total number of messages dropped                                                           |
+| messages.offline.saves.dropped  | Integer   | Cumulative number of offline-message persistence tasks dropped because the session-storage executor queue was full (the messages stay deliverable from memory; a further broker restart would lose them) |
 | session.created                 | Integer   | Number of sessions created                                                                 |
 | session.resumed                 | Integer   | Number of sessions resumed because `Clean Session` or `Clean Start` is false               |
 | session.subscribed              | Integer   | Number of successful client subscriptions                                                  |

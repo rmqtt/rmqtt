@@ -23,7 +23,8 @@
 //! # Coverage
 //!
 //! - `stress_single_node_restart_session_routing` — standalone broker
-//!   (harness-managed, `session-sled` config)
+//!   (harness-managed, `session-sled-stress` config; its http-api on 6070 is
+//!   enabled so the drop counter can be read)
 //! - `stress_cluster_restart_session_routing_broadcast` — broadcast, node 1
 //!   restart only
 //! - `stress_cluster_whole_restart_session_routing_broadcast` — broadcast,
@@ -56,7 +57,7 @@
 //!     rm -rf rmqtt-test/configs/{session-sled,session-sled-stress,cluster-broadcast-sled,cluster-raft-sled}/.sled
 //!     ```
 //!   - Do not run another broker on the ports used by the suite (1883/1886/
-//!     1887/1888/1889/1890 MQTT, 6060/6061 http-api, 5363..5370 gRPC,
+//!     1887/1888/1889/1890 MQTT, 6060/6061/6070 http-api, 5363..5370 gRPC,
 //!     6008..6010 raft), or while another harness instance is running.
 //!
 //! Run the whole chaos suite (functional restart tests + all 5 stress tests,
@@ -103,10 +104,10 @@
 //! only then reconnects the sessions. The baseline is sampled **before** the
 //! publishes are issued and the gauge is monotonic while the sessions are
 //! offline, so `baseline + expected` is reachable exactly when all 100k
-//! messages of this run are in. Finally, the run reports (as a test *note*,
-//! never as a failure) whether node 1's log shows the bounded
-//! `rmqtt-session-storage` executor dropping offline-message persistence —
-//! a green run must not hide that.
+//! messages of this run are in. Finally, every variant reports (as a test
+//! *note*, never as a failure) the cumulative `messages.offline.saves.dropped`
+//! metric: the number of offline-message persistence tasks the bounded
+//! `rmqtt-session-storage` executor discarded — a green run must not hide that.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -142,14 +143,20 @@ const SESSION_PERSIST_WAIT: Duration = Duration::from_secs(5);
 /// that cluster-forwarding bottleneck while still exercising ~100k messages.
 const PUBLISH_CONCURRENCY: usize = 250;
 
-/// Prometheus metrics path on node 1's http-api (port 6061, enabled in the
-/// stress node-1 configs solely for the deterministic drain wait).
+/// Prometheus metrics path on node 1's http-api (port 6061 for the cluster
+/// stress nodes, 6070 for the standalone one). The path shape is identical for
+/// the `rmqtt_stats` and `rmqtt_metrics` families; only the `item` label
+/// differs.
 const NODE1_METRICS_PATH: &str = "/api/v1/metrics/prometheus/1";
-/// Signature of `rmqtt-session-storage`'s bounded-queue drop warning
-/// (`OFFLINE_SAVE_DROPPED`): offline messages that could not even be handed to
-/// the persistence executor. Surfaced as a test note, never as a failure — see
-/// [`run_cluster_stress`].
-const OFFLINE_SAVE_DROP_MARKER: &str = "offline message persistence queue is full";
+/// `rmqtt_stats` item polled by the Forwards-drain wait.
+const STATS_ITEM_MESSAGE_QUEUES: &str = "message_queues.count";
+/// `rmqtt_metrics` item reported as the run's note: offline-message persistence
+/// tasks dropped because `rmqtt-session-storage`'s bounded executor queue was
+/// full (`OFFLINE_STORAGE_EXEC`). Cumulative, never decreases.
+const METRICS_ITEM_OFFLINE_SAVES_DROPPED: &str = "messages.offline.saves.dropped";
+/// http-api address of the harness-managed broker used by the standalone
+/// stress case (port from `configs/session-sled-stress/plugins/rmqtt-http-api.toml`).
+const STANDALONE_HTTP_ADDR: &str = "127.0.0.1:6070";
 /// Poll interval for the drain wait.
 const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(500);
 /// Upper bound for the drain wait: the whole 100k-message cross-node
@@ -263,23 +270,25 @@ async fn http_get_body(addr: &str, path: &str) -> Result<String, anyhow::Error> 
     .map_err(|_| anyhow::anyhow!("HTTP GET {path} timed out after {HTTP_TIMEOUT:?}"))?
 }
 
-/// Extract `message_queues.count` from the Prometheus text exposition:
-/// `rmqtt_stats{node="1",item="message_queues.count"} 12345`.
-fn parse_message_queues_count(body: &str) -> Option<i64> {
+/// Extract one Prometheus item value from the text exposition. Works for both
+/// families, only the label value differs:
+/// `rmqtt_stats{node="1",item="message_queues.count"} 12345` and
+/// `rmqtt_metrics{node="1",item="messages.offline.saves.dropped"} 0`.
+fn parse_stat_item(body: &str, item: &str) -> Option<i64> {
+    let needle = format!("item=\"{item}\"");
     for line in body.lines() {
-        if line.contains("item=\"message_queues.count\"") {
+        if line.contains(&needle) {
             return line.rsplit(' ').next()?.trim().parse().ok();
         }
     }
     None
 }
 
-/// Extract `N` from `... dropped 3001 save(s) in total, ...`.
-///
-/// The counter is only logged on every 1000th drop, so the real number of
-/// dropped saves can be up to 999 higher than the parsed value.
-fn parse_dropped_saves(line: &str) -> Option<u64> {
-    line.split("dropped ").nth(1)?.split(' ').next()?.trim().parse().ok()
+/// Read one Prometheus item from `http_addr`'s node-1 exposition
+/// (`None` when the endpoint is unreachable or the item is absent).
+async fn read_prometheus_item(http_addr: &str, item: &str) -> Option<i64> {
+    let body = http_get_body(http_addr, NODE1_METRICS_PATH).await.ok()?;
+    parse_stat_item(&body, item)
 }
 
 /// Read node 1's `message_queues.count` gauge (0 when the endpoint is
@@ -290,9 +299,34 @@ fn parse_dropped_saves(line: &str) -> Option<u64> {
 /// pop), so it has to be sampled *before* publishing to serve as the drain
 /// baseline — see [`wait_forwards_enqueued`].
 async fn read_message_queues_count(http_addr: &str) -> i64 {
-    match http_get_body(http_addr, NODE1_METRICS_PATH).await {
-        Ok(body) => parse_message_queues_count(&body).unwrap_or(0),
-        Err(_) => 0,
+    read_prometheus_item(http_addr, STATS_ITEM_MESSAGE_QUEUES).await.unwrap_or(0)
+}
+
+/// Observation note for the offline-persistence drop counter.
+///
+/// `subject` names the reporting broker (`"node 1"`, `"the standalone broker"`).
+/// Returns `None` when the counter reads 0 — nothing worth reporting.
+/// Otherwise a description, including the case where the counter could not be
+/// read at all: a missing endpoint must not be able to masquerade as "no drops".
+fn offline_drops_note(
+    subject: &str,
+    http_addr: &str,
+    dropped: Option<i64>,
+    broker_log: Option<&Path>,
+) -> Option<String> {
+    let metric = format!("{http_addr}{NODE1_METRICS_PATH} item={METRICS_ITEM_OFFLINE_SAVES_DROPPED}");
+    match dropped {
+        Some(0) => None,
+        Some(n) => Some(format!(
+            "{subject} dropped offline-message persistence for {n} message(s) under this burst \
+             (bounded session-storage exec queue full; in-memory delivery unaffected, a further \
+             restart would lose them) — metric {metric}{}",
+            broker_log.map(|p| format!(", broker log {}", p.display())).unwrap_or_default()
+        )),
+        None => Some(format!(
+            "{subject}: offline-persistence drop counter unavailable — item {metric} not readable \
+             (http-api not started, or the broker was built without the `metrics` feature)"
+        )),
     }
 }
 
@@ -339,7 +373,7 @@ async fn wait_forwards_enqueued(http_addr: &str, baseline: i64, expected: i64) -
             }
         }
         if let Ok(body) = http_get_body(http_addr, NODE1_METRICS_PATH).await {
-            if let Some(count) = parse_message_queues_count(&body) {
+            if let Some(count) = parse_stat_item(&body, STATS_ITEM_MESSAGE_QUEUES) {
                 if count >= target {
                     break;
                 }
@@ -496,8 +530,8 @@ fn reset_sled_data(config_file: &Path) -> Result<(), anyhow::Error> {
 ///
 /// Returns `Ok(note)` on success, where `note` carries an observation that must
 /// not change the verdict (currently: offline-message persistence dropped by
-/// the bounded `rmqtt-session-storage` executor, matching
-/// [`OFFLINE_SAVE_DROP_MARKER`]) — so a green run reports it instead of
+/// the bounded `rmqtt-session-storage` executor, read from the cumulative
+/// `messages.offline.saves.dropped` metric) — so a green run reports it instead of
 /// silently swallowing it.
 async fn run_cluster_stress(
     cluster: &str,
@@ -613,20 +647,13 @@ async fn run_cluster_stress(
     // Observation, not an assertion: the bounded `rmqtt-session-storage`
     // executor drops offline-message persistence tasks when its queue
     // saturates. Delivery in this run is unaffected (the sessions are still
-    // online-reachable in memory), but a *further* restart would lose those
-    // messages — and until this note existed the drop was only visible
-    // indirectly, as a shorter drain baseline, which clearing the store fixes
-    // (and thereby hides). Collect it after the drain: by then every route has
-    // been processed, so the log holds the complete drop count.
-    let note = cluster_nodes[0].log_last_match(OFFLINE_SAVE_DROP_MARKER).map(|line| {
-        let dropped = parse_dropped_saves(&line).unwrap_or(0);
-        format!(
-            "node 1 dropped offline-message persistence for >={dropped} message(s) under this \
-             burst (bounded session-storage exec queue full; in-memory delivery unaffected, a \
-             further restart would lose them) — see {}",
-            cluster_nodes[0].log_path().display()
-        )
-    });
+    // reachable in memory), but a *further* restart would lose those messages —
+    // and until this note existed the drop was only visible indirectly, as a
+    // shorter drain baseline, which clearing the store per run fixes (and
+    // thereby hides). Read after the drain: by then every route has been
+    // processed and the counter is final for this run.
+    let drops = read_prometheus_item(node1_http_addr, METRICS_ITEM_OFFLINE_SAVES_DROPPED).await;
+    let note = offline_drops_note("node 1", node1_http_addr, drops, Some(cluster_nodes[0].log_path()));
 
     // ---- Phase 4: reconnect all sessions on node 1 and verify delivery
     reconnect_and_verify(node1_addr, &cids, STRESS_MSGS_PER_SESSION).await?;
@@ -690,9 +717,14 @@ impl TestCase for StressSingleNodeRestartTest {
             tokio::time::sleep(Duration::from_millis(200)).await;
 
             reconnect_and_verify(addr, &cids, STRESS_MSGS_PER_SESSION).await?;
-            // Single broker: no cross-node Forwards, hence no drain wait and no
-            // observation to report.
-            Ok(None)
+            // Single broker: no cross-node Forwards and no drain wait, but the
+            // 100k messages are still routed into offline sessions here, so the
+            // bounded persistence executor can saturate just as it does on node
+            // 1 of the cluster variants — report it the same way (see
+            // `offline_drops_note`). Read after the verification, when the
+            // counter is final for this run.
+            let drops = read_prometheus_item(STANDALONE_HTTP_ADDR, METRICS_ITEM_OFFLINE_SAVES_DROPPED).await;
+            Ok(offline_drops_note("the standalone broker", STANDALONE_HTTP_ADDR, drops, None))
         });
         stress_result(self, start, result)
     }

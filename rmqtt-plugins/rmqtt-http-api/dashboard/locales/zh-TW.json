@@ -120,6 +120,7 @@
     "messages_publish": "發布消息數",
     "messages_delivered": "投遞消息數",
     "messages_discarded": "丟棄消息數",
+    "offline_saves_dropped": "離線持久化丟棄",
     "subscriptions_count": "訂閱數",
     "shared_subscriptions_count": "共享訂閱數",
     "clients_connected": "Connections",

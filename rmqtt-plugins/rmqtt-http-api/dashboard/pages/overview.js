@@ -449,6 +449,11 @@
             { key: 'messages.dropped', label: $t('overview.messages_discarded') },
             { key: 'messages.nonsubscribed', label: '无订阅者丢弃' },
           ]},
+          // Persistence durability, not a delivery drop: keep it in its own
+          // group so it is not read as part of the `messages` drop counts below.
+          { key: 'storage', label: $t('overview.group_storage'), items: [
+            { key: 'messages.offline.saves.dropped', label: $t('overview.offline_saves_dropped') },
+          ]},
         ];
       });
 

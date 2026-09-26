@@ -1499,6 +1499,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1/stats/history/sum?minutes=30&limi
 | messages.nonsubscribed.lastwill | Integer | 遗嘱消息中无订阅的消息数量                    |
 | messages.nonsubscribed.system   | Integer | 系统主题中无订阅的消息数量                    |
 | messages.dropped                | Integer | 丢弃的消息总数                           |
+| messages.offline.saves.dropped  | Integer | 因会话存储执行队列已满而被丢弃的离线消息持久化任务累计数（消息仍可从内存投递，再次重启会丢失） |
 | session.created                 | Integer | 创建的会话数量                           |
 | session.resumed                 | Integer | 由于 `Clean Session` 或 `Clean Start` 为 `false` 而恢复的会话数量 |
 | session.subscribed              | Integer | 客户端成功订阅次数                         |
