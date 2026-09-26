@@ -53,6 +53,7 @@ use rmqtt::{
 };
 
 use config::{PluginConfig, Url};
+use rmqtt::hook::Priority;
 
 mod config;
 
@@ -228,8 +229,9 @@ impl Plugin for WebHookPlugin {
             .await;
 
         self.register
-            .add(
+            .add_priority(
                 Type::ClientConnect,
+                Priority::MAX,
                 Box::new(WebHookHandler { tx: tx.clone(), chan_queue_count: chan_queue_count.clone() }),
             )
             .await;
