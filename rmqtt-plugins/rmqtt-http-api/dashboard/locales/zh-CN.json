@@ -128,6 +128,7 @@
     "messages_publish": "发布消息数",
     "messages_delivered": "投递消息数",
     "messages_discarded": "丢弃消息数",
+    "offline_saves_dropped": "离线持久化丢弃",
     "subscriptions_count": "订阅数",
     "shared_subscriptions_count": "共享订阅数",
     "status_title": "状态",

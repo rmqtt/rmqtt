@@ -128,6 +128,7 @@
     "messages_publish": "Messages publiés",
     "messages_delivered": "Messages livrés",
     "messages_discarded": "Messages rejetés",
+    "offline_saves_dropped": "Enregistrements hors ligne abandonnés",
     "subscriptions_count": "Abonnements",
     "shared_subscriptions_count": "Abonnements partagés",
     "status_title": "Status",

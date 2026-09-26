@@ -17,7 +17,6 @@
 
 use anyhow::anyhow;
 use std::convert::From as _;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -567,10 +566,6 @@ impl Plugin for StoragePlugin {
 /// backlog instead.
 const OFFLINE_STORAGE_EXEC: (&str, usize, usize) = ("SESSION_STORAGE_OFFLINE_EXEC", 8, 10_000);
 
-/// Number of offline-message persistence tasks discarded because the bounded
-/// queue was full.
-static OFFLINE_SAVE_DROPPED: AtomicU64 = AtomicU64::new(0);
-
 struct OfflineMessageHandler {
     scx: ServerContext,
     cfg: Arc<PluginConfig>,
@@ -584,19 +579,21 @@ impl OfflineMessageHandler {
 
     /// Dispatches a persistence task onto the bounded queue.
     ///
-    /// When the queue is full the task is discarded and counted rather than
-    /// spawned, which keeps the backlog bounded. Discarding is consistent with
-    /// the existing `push_limit` behaviour, which already drops once a
-    /// session's offline queue reaches `max_mqueue_len`; the alternative --
-    /// awaiting the write inline -- would stall the routing path for every
-    /// client, including connected ones.
+    /// When the queue is full the task is discarded and counted — in the
+    /// `messages.offline.saves.dropped` metric, which is what makes the
+    /// degradation observable — rather than spawned, which keeps the backlog
+    /// bounded. Discarding is consistent with the existing `push_limit`
+    /// behaviour, which already drops once a session's offline queue reaches
+    /// `max_mqueue_len`; the alternative -- awaiting the write inline -- would
+    /// stall the routing path for every client, including connected ones.
     async fn dispatch<F>(&self, fut: F)
     where
         F: std::future::Future<Output = ()> + Send + 'static,
     {
         let exec = self.scx.get_exec(OFFLINE_STORAGE_EXEC);
         if exec.try_spawn(fut).await.is_err() {
-            let dropped = OFFLINE_SAVE_DROPPED.fetch_add(1, Ordering::Relaxed) + 1;
+            self.scx.metrics.messages_offline_saves_dropped_inc();
+            let dropped = self.scx.metrics.messages_offline_saves_dropped();
             if dropped % 1000 == 1 {
                 log::warn!(
                     "offline message persistence queue is full, dropped {} save(s) in total, waiting_count: {}, active_count: {}",

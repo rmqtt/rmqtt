@@ -128,6 +128,7 @@
     "messages_publish": "Mensajes publicados",
     "messages_delivered": "Mensajes entregados",
     "messages_discarded": "Mensajes descartados",
+    "offline_saves_dropped": "Guardados sin conexión descartados",
     "subscriptions_count": "Suscripciones",
     "shared_subscriptions_count": "Suscripciones compartidas",
     "status_title": "Status",

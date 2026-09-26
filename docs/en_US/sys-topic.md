@@ -233,6 +233,7 @@ In RMQTT, most of the data within the $SYS topics can be obtained through other 
     "messages.nonsubscribed.custom": 0,
     "messages.nonsubscribed.lastwill": 0,
     "messages.nonsubscribed.system": 0,
+    "messages.offline.saves.dropped": 0,
     "messages.publish": 0,
     "messages.publish.admin": 0,
     "messages.publish.custom": 0,
