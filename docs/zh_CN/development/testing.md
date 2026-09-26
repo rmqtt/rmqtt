@@ -96,16 +96,16 @@ cargo build -p rmqtt-test --release
 
 | 套件 | 用例数 | 测试内容 |
 |-------|--------|----------|
-| `functional_v3` | 47 | MQTT 3.1 规范符合性：连接（错误协议名/级别/保留位/空 ClientId/超长 ID）、QoS 0/1/2 发布/订阅、QoS 2 去重与 PUBREL 重发、保留消息、遗嘱、Keep Alive、会话持久化、通配符（含 `$SYS`）、边界载荷、协议错误 |
-| `functional_v311` | 64 | MQTT 3.1.1 规范符合性：连接（含二次 CONNECT 拒绝 [MQTT-3.1.0-2]）、QoS 0/1/2、保留消息边界、Will QoS2、Keep Alive 1.5 倍超时、Session Present/恢复、通配符匹配、共享订阅、协议错误 |
-| `functional_v5` | 63 | MQTT 5.0 规范符合性：CONNACK 能力通告、会话过期（含 DISCONNECT SEI=0 [MQTT-3.14.2-2]）、主题别名（含未知别名/超出广播上限的别名→0x94）、流控、最大报文大小、订阅标识符、Retain Handling、Will 延迟、增强认证拒绝（0x8C）、协议错误 |
-| `stress` | 3 | 连接负载（100 客户端）、发布 QPS（1000 条）、扇出（1→N） |
-| `chaos` | 6 | Broker 重启、连接抖动、重连风暴、QoS 1 可靠性、慢消费者 |
+| `functional_v3` | 51 | MQTT 3.1 规范符合性：连接（错误协议名/级别/保留位/空 ClientId/超长 ID）、QoS 0/1/2 发布/订阅、QoS 2 去重与 PUBREL 重发、保留消息、遗嘱、Keep Alive、会话持久化、通配符（含 `$SYS`）、边界载荷、协议错误 |
+| `functional_v311` | 111 | MQTT 3.1.1 规范符合性：连接（含二次 CONNECT 拒绝 [MQTT-3.1.0-2]）、QoS 0/1/2、保留消息边界、Will QoS2、Keep Alive 1.5 倍超时、Session Present/恢复、通配符匹配、共享订阅、协议错误 |
+| `functional_v5` | 108 | MQTT 5.0 规范符合性：CONNACK 能力通告、会话过期（含 DISCONNECT SEI=0 [MQTT-3.14.2-2]）、主题别名（含未知别名/超出广播上限的别名→0x94）、流控、最大报文大小、订阅标识符、Retain Handling、Will 延迟、增强认证拒绝（0x8C）、协议错误 |
+| `stress` | 6 | 连接负载（100 客户端）、发布负载（1000 条）、扇出（1→N）、混合 QoS 0/1/2、批量订阅、保留消息洪泛 |
+| `chaos` | 19 | Broker 重启（单节点、集群 broadcast/raft、整集群重启）、重启后会话路由恢复、连接抖动、重连风暴、QoS 1 可靠性、慢消费者、会话存储启动加载与离线洪泛上限 |
 
-> functional_v5 的 63 个用例中，`will_retain_rejected_when_retain_unavailable_v5`
+> functional_v5 的 108 个用例中，`will_retain_rejected_when_retain_unavailable_v5`
 > （需不加载 retainer 插件）与 `qos2_pubrel_resume_collision`（需加载
 > message-storage 插件）会自动拆分为 `functional_v5@retain-disabled` 与
-> `functional_v5@pubrel-collision` 两个子套件，其余 61 个在默认配置组
+> `functional_v5@pubrel-collision` 两个子套件，其余 106 个在默认配置组
 > `functional_v5` 中运行；配置切换仅发生在 suite 边界。
 
 ---
