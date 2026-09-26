@@ -128,17 +128,17 @@ cargo build -p rmqtt-test --release
 
 | Suite | Cases | What It Tests |
 |-------|-------|---------------|
-| `functional_v3` | 47 | MQTT 3.1 spec conformance: connect (wrong name/level/reserved flag/empty client id/long id), QoS 0/1/2 pub/sub, QoS 2 dedup & PUBREL resend, retained messages, last will, keep alive, session persistence, wildcards (incl. `$SYS`), boundary payloads, protocol errors |
-| `functional_v311` | 64 | MQTT 3.1.1 spec conformance: connect (incl. second-CONNECT rejection [MQTT-3.1.0-2]), QoS 0/1/2, retained edge cases, will QoS2, keep-alive 1.5× timeout, session present/resume, wildcard matching, shared subscriptions, protocol errors |
-| `functional_v5` | 63 | MQTT 5.0 spec conformance: CONNACK capability advertisement, session expiry (incl. DISCONNECT SEI=0 [MQTT-3.14.2-2]), topic alias (incl. unknown alias / alias above the advertised maximum → 0x94), flow control, max packet size, subscription identifiers, retain handling, will delay, enhanced-auth rejection (0x8C), protocol errors |
-| `stress` | 3 | Connection load (100 clients), publish QPS (1000 msgs), fan-out (1→N) |
-| `chaos` | 6 | Broker restart, connection churn, reconnect storm, QoS 1 reliability, slow consumer |
+| `functional_v3` | 51 | MQTT 3.1 spec conformance: connect (wrong name/level/reserved flag/empty client id/long id), QoS 0/1/2 pub/sub, QoS 2 dedup & PUBREL resend, retained messages, last will, keep alive, session persistence, wildcards (incl. `$SYS`), boundary payloads, protocol errors |
+| `functional_v311` | 111 | MQTT 3.1.1 spec conformance: connect (incl. second-CONNECT rejection [MQTT-3.1.0-2]), QoS 0/1/2, retained edge cases, will QoS2, keep-alive 1.5× timeout, session present/resume, wildcard matching, shared subscriptions, protocol errors |
+| `functional_v5` | 108 | MQTT 5.0 spec conformance: CONNACK capability advertisement, session expiry (incl. DISCONNECT SEI=0 [MQTT-3.14.2-2]), topic alias (incl. unknown alias / alias above the advertised maximum → 0x94), flow control, max packet size, subscription identifiers, retain handling, will delay, enhanced-auth rejection (0x8C), protocol errors |
+| `stress` | 6 | Connection load (100 clients), publish load (1000 msgs), fan-out (1→N), mixed QoS 0/1/2, mass subscription, retain flood |
+| `chaos` | 19 | Broker restart (single node, cluster broadcast/raft, whole-cluster), restored-session routing, connection churn, reconnect storm, QoS 1 reliability, slow consumer, session-storage startup load and offline-flood boundedness |
 
-> Of the 63 `functional_v5` cases, `will_retain_rejected_when_retain_unavailable_v5`
+> Of the 108 `functional_v5` cases, `will_retain_rejected_when_retain_unavailable_v5`
 > (requires the retainer plugin to be disabled) and `qos2_pubrel_resume_collision`
 > (requires message-storage) are automatically split into the
 > `functional_v5@retain-disabled` and `functional_v5@pubrel-collision`
-> sub-suites; the remaining 61 run in the default-config group
+> sub-suites; the remaining 106 run in the default-config group
 > `functional_v5`. Config switches happen only at suite boundaries.
 
 ### Test Case Architecture
