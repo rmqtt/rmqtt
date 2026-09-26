@@ -1,0 +1,110 @@
+##--------------------------------------------------------------------
+## rmqttd config for the `client_connack` web-hook refusal test
+##
+## Purpose: exercise the REFUSAL side of the `client_connack` hook. The
+## config guarantees that a raw CONNECT is refused, so the web-hook must
+## report a `client_connack` event that carries the refusal reason.
+##
+## Refusal is produced WITHOUT any auth plugin (the broker only has to
+## start `rmqtt-web-hook`; rmqttd links every plugin):
+##   - `allow_anonymous = false` and no auth handler installed =>
+##     `HookManager::client_authenticate` (rmqtt/src/hook.rs) turns the
+##     undecided result into NotAuthorized -> CONNACK 0x05;
+##   - `rmqtt-acl` MUST stay disabled: its shipped final rule
+##     `["allow", "all"]` also covers CONNECT and would promote the very
+##     same undecided authentication into an explicit ALLOW (issue #501
+##     fail-open, see configs/auth-http-acl-fallthrough/) -> CONNACK 0x00.
+##
+## There is intentionally no `plugins/Cargo.toml` in this directory: that
+## file is a feature-selection helper for building a trimmed rmqttd, while
+## the test binary already links every plugin. The broker only reads
+## `{plugins.dir}/{name}.toml` (rmqtt/src/plugin.rs), never the manifest.
+##
+## Ports: MQTT 1901 / gRPC 5378. Both are free: no other suite uses them
+## (MQTT 1883 harness, 1884 cleanup + cleanup-edge 1894, 1885-1890
+## cluster, 1891 rl-boundary, 1892 auth-denied, 1893 auth-jwt-denied,
+## 1895 retain-sled, 1896/1900 acl-fallthrough, 1897-1899 transport-tls;
+## gRPC 5363 harness, 5364 cleanup, 5365 rl-boundary, 5366-5370 cluster,
+## 5371 auth-denied, 5372 auth-jwt-denied, 5373-5375 delayed cluster /
+## cleanup-edge / transport-tls, 5376-5377 acl-fallthrough).
+##
+## Usage (run from the rmqtt repository root so that `plugins.dir`
+## resolves correctly):
+##   target/release/mqtt_harness \
+##     --binary target/release/rmqttd \
+##     --config rmqtt-test/configs/webhook-connack-refused/rmqtt.toml \
+##     --workspace . \
+##     --suites functional_v311 --workers 1 \
+##     --test webhook_connack_refused_v311
+##--------------------------------------------------------------------
+
+##--------------------------------------------------------------------
+## Task
+##--------------------------------------------------------------------
+task.exec_workers = 2000
+task.exec_queue_max = 300_000
+
+##--------------------------------------------------------------------
+## Node
+##--------------------------------------------------------------------
+node.id = 1
+node.busy.check_enable = false
+node.busy.update_interval = "2s"
+node.busy.loadavg = 80.0
+node.busy.cpuloadavg = 90.0
+node.busy.handshaking = 0
+
+##--------------------------------------------------------------------
+## Log
+##--------------------------------------------------------------------
+log.to = "console"
+log.level = "info"
+log.dir = "."
+log.file = "rmqtt.log"
+
+##--------------------------------------------------------------------
+## Plugins
+##--------------------------------------------------------------------
+# Self-contained: plugin configs live in this directory's plugins/ sub-dir.
+plugins.dir = "rmqtt-test/configs/webhook-connack-refused/plugins/"
+plugins.default_startups = [
+    "rmqtt-web-hook",
+]
+plugins.disabled_default_startups = ["rmqtt-acl", "rmqtt-counter", "rmqtt-http-api"]
+
+##--------------------------------------------------------------------
+## RPC (port avoids every gRPC port used elsewhere: 5363 harness,
+## 5364 cleanup, 5365 rl-boundary, 5366-5370 cluster, 5371 auth-denied,
+## 5372 auth-jwt-denied, 5373-5374 delayed cluster, 5374 cleanup-edge,
+## 5375 transport-tls, 5376-5377 acl-fallthrough)
+##--------------------------------------------------------------------
+rpc.server_addr = "0.0.0.0:5378"
+rpc.server_workers = 4
+rpc.batch_size = 128
+rpc.client_concurrency_limit = 128
+rpc.client_timeout = "5s"
+
+##--------------------------------------------------------------------
+## Listener (external TCP only; port avoids every MQTT port used
+## elsewhere: 1883 harness, 1884 cleanup, 1885-1890 cluster, 1891
+## rl-boundary, 1892 auth-denied, 1893 auth-jwt-denied, 1894 cleanup-edge,
+## 1895 retain-sled, 1896/1900 acl-fallthrough, 1897-1899 transport-tls)
+##--------------------------------------------------------------------
+listener.tcp.external.addr = "127.0.0.1:1901"
+listener.tcp.external.workers = 8
+listener.tcp.external.max_connections = 1024000
+listener.tcp.external.max_handshaking_limit = 500
+listener.tcp.external.handshake_timeout = "30s"
+listener.tcp.external.max_packet_size = "1MB"
+listener.tcp.external.backlog = 1024
+# Anonymous access disabled: a CONNECT without credentials must be refused.
+listener.tcp.external.allow_anonymous = false
+
+##--------------------------------------------------------------------
+## Other listeners — all disabled (would clash with other suites)
+##--------------------------------------------------------------------
+listener.tcp.internal.enable = false
+listener.tls.external.enable = false
+listener.ws.external.enable = false
+listener.wss.external.enable = false
+listener.quic.external.enable = false
