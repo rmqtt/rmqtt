@@ -217,7 +217,15 @@ async fn _handshake(
     let connect_info = Arc::new(ConnectInfo::V3(id.clone(), connect));
 
     //hook, client connect
-    let _ = scx.extends.hook_mgr().client_connect(&connect_info).await;
+    // A refusal here is answered before the Client is authenticated and before
+    // the existing session of the same ClientId is taken over.
+    if let Some(refuse) = scx.extends.hook_mgr().client_connect(&connect_info).await {
+        return Err((
+            ConnectAckReason::V3(refuse.to_v3()),
+            anyhow!("Connection Refused, refused by the client_connect hook"),
+            Some(connect_info.clone()),
+        ));
+    }
 
     if hdshk_start.elapsed() > listen_cfg.handshake_timeout {
         return Err((

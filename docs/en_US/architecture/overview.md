@@ -247,7 +247,7 @@ pub trait Handler: Send + Sync {
 | Hook Type | Trigger | Handler Returns |
 |-----------|---------|-----------------|
 | `BeforeStartup` | Broker initialization | Continue |
-| `ClientConnect` | CONNECT received | `(bool, Option<ConnAckReason>)` |
+| `ClientConnect` | CONNECT received | `(bool, Option<ConnectRefuse>)` |
 | `ClientAuthenticate` | Before CONNACK | `(bool, Option<ConnAckReason>)` |
 | `ClientConnack` | CONNACK sent, accepted or refused | Continue |
 | `ClientConnected` | Session established | Continue |

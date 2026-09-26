@@ -1093,6 +1093,62 @@ impl ConnectAckReason {
     }
 }
 
+/// A refusal a `ClientConnect` hook asks for.
+///
+/// The variants name the reason rather than the wire code: the broker maps a
+/// refusal to the code the Client's protocol version defines, so a handler
+/// never has to know which protocol level it is answering.
+///
+/// # Protocol Versions
+///
+/// MQTT 5.0 defines a distinct reason code for every variant. MQTT 3.1 and
+/// 3.1.1 define six CONNACK return codes only, so a variant without an exact
+/// equivalent falls back to the closest one, chosen by what the Client is
+/// meant to do next: a refusal it may retry becomes `ServiceUnavailable`, a
+/// policy refusal becomes `NotAuthorized`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ConnectRefuse {
+    /// The Client is not allowed to connect at all.
+    Banned,
+    /// The Client opened too many connections in the current window.
+    ConnectionRateExceeded,
+    /// The Client is not authorized to connect.
+    NotAuthorized,
+    /// The node is overloaded; the Client may retry later.
+    ServerBusy,
+    /// The Client exhausted a quota; the Client may retry later.
+    QuotaExceeded,
+    /// Any other reason; the Client may retry later.
+    UnspecifiedError,
+}
+
+impl ConnectRefuse {
+    /// The CONNACK return code to refuse a MQTT 3.1 / 3.1.1 Client with.
+    #[inline]
+    pub fn to_v3(self) -> ConnectAckReasonV3 {
+        match self {
+            ConnectRefuse::Banned | ConnectRefuse::NotAuthorized => ConnectAckReasonV3::NotAuthorized,
+            ConnectRefuse::ConnectionRateExceeded
+            | ConnectRefuse::ServerBusy
+            | ConnectRefuse::QuotaExceeded
+            | ConnectRefuse::UnspecifiedError => ConnectAckReasonV3::ServiceUnavailable,
+        }
+    }
+
+    /// The CONNACK reason code to refuse a MQTT 5.0 Client with.
+    #[inline]
+    pub fn to_v5(self) -> ConnectAckReasonV5 {
+        match self {
+            ConnectRefuse::Banned => ConnectAckReasonV5::Banned,
+            ConnectRefuse::ConnectionRateExceeded => ConnectAckReasonV5::ConnectionRateExceeded,
+            ConnectRefuse::NotAuthorized => ConnectAckReasonV5::NotAuthorized,
+            ConnectRefuse::ServerBusy => ConnectAckReasonV5::ServerBusy,
+            ConnectRefuse::QuotaExceeded => ConnectAckReasonV5::QuotaExceeded,
+            ConnectRefuse::UnspecifiedError => ConnectAckReasonV5::UnspecifiedError,
+        }
+    }
+}
+
 /// An unsubscribe request with topic filter and optional shared group.
 #[derive(Clone, Debug)]
 pub struct Unsubscribe {
@@ -3131,4 +3187,25 @@ fn test_reason() {
     assert_eq!(Reason::ConnectKicked(true).to_reason_code(), DisconnectReasonCode::AdministrativeAction);
     // A takeover must not be reported as an authorization failure of either kind.
     assert_ne!(Reason::ConnectKicked(false).to_reason_code(), DisconnectReasonCode::NotAuthorized);
+}
+
+#[test]
+fn test_connect_refuse_codes() {
+    // MQTT 5.0 defines a reason code for every variant.
+    assert_eq!(ConnectRefuse::Banned.to_v5(), ConnectAckReasonV5::Banned);
+    assert_eq!(ConnectRefuse::ConnectionRateExceeded.to_v5(), ConnectAckReasonV5::ConnectionRateExceeded);
+    assert_eq!(ConnectRefuse::NotAuthorized.to_v5(), ConnectAckReasonV5::NotAuthorized);
+    assert_eq!(ConnectRefuse::ServerBusy.to_v5(), ConnectAckReasonV5::ServerBusy);
+    assert_eq!(ConnectRefuse::QuotaExceeded.to_v5(), ConnectAckReasonV5::QuotaExceeded);
+    assert_eq!(ConnectRefuse::UnspecifiedError.to_v5(), ConnectAckReasonV5::UnspecifiedError);
+
+    // MQTT 3.1 and 3.1.1 define six CONNACK return codes only, so the mapping
+    // falls back by what the Client is meant to do next: a refusal it may retry
+    // becomes 0x03 Service unavailable, a policy refusal becomes 0x05.
+    assert_eq!(ConnectRefuse::Banned.to_v3(), ConnectAckReasonV3::NotAuthorized);
+    assert_eq!(ConnectRefuse::NotAuthorized.to_v3(), ConnectAckReasonV3::NotAuthorized);
+    assert_eq!(ConnectRefuse::ConnectionRateExceeded.to_v3(), ConnectAckReasonV3::ServiceUnavailable);
+    assert_eq!(ConnectRefuse::ServerBusy.to_v3(), ConnectAckReasonV3::ServiceUnavailable);
+    assert_eq!(ConnectRefuse::QuotaExceeded.to_v3(), ConnectAckReasonV3::ServiceUnavailable);
+    assert_eq!(ConnectRefuse::UnspecifiedError.to_v3(), ConnectAckReasonV3::ServiceUnavailable);
 }
