@@ -458,6 +458,7 @@ fn build_functional_v311_suite() -> TestSuite {
     use tests::functional::retain_v311::*;
     use tests::functional::session_v311::*;
     use tests::functional::shared_subscription::*;
+    use tests::functional::webhook_connack_refused_v311::*;
     use tests::functional::wildcard::*;
     use tests::functional::wildcard_reject::*;
 
@@ -588,6 +589,12 @@ fn build_functional_v311_suite() -> TestSuite {
     // fail-open reproduction) / 1900 (deny-all → CONNACK 0x05 fail-closed).
     suite.add(AuthHttpIgnoreAllowAllAclV311Test);
     suite.add(AuthHttpIgnoreDenyAllAclV311Test);
+    // Handshake REFUSAL must reach the client_connack hook: the self-managed
+    // broker on 1901 starts only rmqtt-web-hook (anonymous access disabled,
+    // rmqtt-acl off), gets an anonymous CONNECT refused with 0x05 and must
+    // POST the client_connack event carrying that reason to an in-test mock
+    // receiver — see tests/functional/webhook_connack_refused_v311.rs.
+    suite.add(WebhookConnackRefusedV311Test);
     // G14 concurrent session takeover
     suite.add(SessionV311TakeoverTest);
     // G15 empty topic levels

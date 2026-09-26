@@ -249,7 +249,7 @@ pub trait Handler: Send + Sync {
 | `BeforeStartup` | Broker initialization | Continue |
 | `ClientConnect` | CONNECT received | `(bool, Option<ConnAckReason>)` |
 | `ClientAuthenticate` | Before CONNACK | `(bool, Option<ConnAckReason>)` |
-| `ClientConnack` | CONNACK sent | Continue |
+| `ClientConnack` | CONNACK sent, accepted or refused | Continue |
 | `ClientConnected` | Session established | Continue |
 | `ClientDisconnected` | Session ended | Continue |
 | `ClientSubscribe` | SUBSCRIBE received | Continue |

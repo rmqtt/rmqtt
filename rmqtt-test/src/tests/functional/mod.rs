@@ -66,6 +66,7 @@ pub mod tcp_keepalive;
 pub mod topic_alias_v5;
 pub mod transport_tls;
 pub mod user_properties_v5;
+pub mod webhook_connack_refused_v311;
 pub mod wildcard;
 pub mod wildcard_reject;
 pub mod wildcard_v3;

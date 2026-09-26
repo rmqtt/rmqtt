@@ -295,7 +295,7 @@ All available hook types:
 | `BeforeStartup` | Broker initialization | — |
 | `ClientConnect` | CONNECT received | `(bool, Option<ConnAckReason>)` |
 | `ClientAuthenticate` | Before CONNACK | `(bool, Option<ConnAckReason>)` |
-| `ClientConnack` | CONNACK sent | — |
+| `ClientConnack` | CONNACK sent, accepted or refused | — |
 | `ClientConnected` | Session established | — |
 | `ClientDisconnected` | Session ended | — |
 | `ClientSubscribe` | SUBSCRIBE received | — |

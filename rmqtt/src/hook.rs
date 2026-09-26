@@ -151,10 +151,17 @@ pub trait HookManager: Sync + Send {
         allow_anonymous: bool,
     ) -> (ConnectAckReason, Superuser, Option<AuthInfo>);
 
-    /// Triggered when a CONNACK is about to be sent to the client.
+    /// Triggered before a CONNACK is sent to the client, no matter whether the
+    /// connection is accepted or refused.
     ///
     /// Allows inspection or modification of the connection
     /// acknowledgment reason code before it is transmitted.
+    ///
+    /// Refusals that happen before the CONNECT packet is decoded — an
+    /// undecodable packet, an overloaded node, or a handshake timeout — do not
+    /// raise this hook. A refusal stays a refusal: a handler that answers a
+    /// refusal with a successful reason code cannot turn it into an accepted
+    /// connection.
     async fn client_connack(
         &self,
         connect_info: &ConnectInfo,
@@ -774,7 +781,7 @@ impl HookManager for DefaultHookManager {
         (ok(), false, None)
     }
 
-    ///When sending mqtt:: connectack message
+    ///When sending a CONNACK message (accepted or refused connection)
     async fn client_connack(
         &self,
         connect_info: &ConnectInfo,
