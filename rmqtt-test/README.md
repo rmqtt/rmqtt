@@ -150,6 +150,8 @@ configs/
   cluster-raft-sled-stress/ # same, isolated sled path (stress test only)
   auth-http-acl-fallthrough/ # issue #501: auth-http 404-ignore × rmqtt-acl final rule
                              # (self-managed 1896 allow-all / 1900 deny-all, ephemeral mock)
+  webhook-connack-refused/   # client_connack web-hook on a REFUSED CONNECT
+                             # (self-managed 1901, ephemeral mock receiver)
 ```
 
 **Per-test config switching**: a test case can declare its required config via
@@ -187,7 +189,7 @@ and boundary scenarios:
 > The v3.1 client hand-builds the MQIsdp CONNECT bytes (`build_connect_bytes`)
 > because the codec hard-codes protocol level 4 (correct for 3.1.1/5.0).
 
-### `functional_v311` (110 cases) — MQTT 3.1.1
+### `functional_v311` (111 cases) — MQTT 3.1.1
 
 | Category | Cases |
 |----------|-------|
@@ -205,6 +207,7 @@ and boundary scenarios:
 | Protocol errors | `invalid_protocol_version` / `protocol_error_v311_*` (subscribe/unsubscribe: qos3, qos0 fixed header, empty payload/filter, packet id 0; publish: qos3, pid0, empty topic, packet id on QoS0; bad remaining length, declared length mismatch, truncated packet, reserved packet type, packet type 15, pubrel/pubrec/pubcomp wrong flags, unsolicited pubrel, connect payload order, invalid UTF-8 topic) / `remaining_length_transition_v311` |
 | CONNACK return codes (self-managed brokers) | `connack_return_codes_auth_http_v311` (auth-http + in-test mock, port 1892) / `connack_not_authorized_v311` (auth-jwt, port 1893) — these cases spawn their own brokers and don't use the harness broker |
 | Issue #501 auth × ACL fallthrough (self-managed brokers) | `auth_http_ignore_allow_all_acl_v311` (auth service replies 404 → auth 'ignore'; acl `["allow", "all"]` promotes it → CONNACK 0x00 fail-open reproduction, port 1896) / `auth_http_ignore_deny_all_acl_v311` (acl `["deny", "all"]` backstop → CONNACK 0x05 fail-closed, port 1900) |
+| Web-hook on a refused CONNECT (self-managed broker) | `webhook_connack_refused_v311` — an anonymous CONNECT is refused with 0x05 **and** the `client_connack` event carrying that reason must reach an in-test mock web-hook receiver (port 1901, ephemeral receiver); the two halves are asserted separately, so the case was red before the hook was raised on refusals |
 
 ### `functional_v5` (108 cases) — MQTT 5.0
 
@@ -448,6 +451,9 @@ rmqtt-test/
     auth-http-acl-fallthrough/   #   issue #501 repro: auth-http (ephemeral mock, always 404) +
                                  #   rmqtt-acl; self-managed brokers on 1896/5376 (allow-all)
                                  #   and 1900/5377 (deny-all)
+    webhook-connack-refused/     #   client_connack web-hook on a refused CONNECT; self-managed
+                                 #   broker on 1901/5378 with only rmqtt-web-hook started and an
+                                 #   ephemeral in-test receiver as the web-hook URL
 ```
 
 > **Test isolation note**: all tests that publish retained messages delete them

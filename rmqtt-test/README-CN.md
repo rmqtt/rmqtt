@@ -141,6 +141,8 @@ configs/
   cluster-raft-sled-stress/ # 同上，独立 sled 路径（压测专用）
   auth-http-acl-fallthrough/ # issue #501：auth-http 404-ignore × rmqtt-acl 末条规则
                              #（自管 broker 1896 allow-all / 1900 deny-all，mock 用临时端口）
+  webhook-connack-refused/   # 被拒绝连接的 client_connack webhook
+                             #（自管 broker 1901，mock 接收端用临时端口）
 ```
 
 **按用例自动切换配置**：用例可通过 `TestCase::broker_config()` 声明所需配置
@@ -174,7 +176,7 @@ configs/
 
 > v3.1 客户端通过 `build_connect_bytes` 手工构造 MQIsdp CONNECT 报文（codec 将协议级别硬编码为 4，对 3.1.1/5.0 正确）。
 
-### functional_v311（110 个用例）— MQTT 3.1.1
+### functional_v311（111 个用例）— MQTT 3.1.1
 
 | 类别 | 用例 |
 |------|------|
@@ -192,6 +194,7 @@ configs/
 | 协议错误 | `invalid_protocol_version` / `protocol_error_v311_*`（订阅/取消订阅：QoS3、QoS0 固定头、空 payload/filter、packet id 0；发布：QoS3、pid0、空主题、QoS0 携带 packet id；剩余长度非法、声明长度不匹配、报文截断、保留 packet type、packet type 15、PUBREL/PUBREC/PUBCOMP 错误 flags、未请求的 PUBREL、CONNECT payload 顺序、非法 UTF-8 主题）/ `remaining_length_transition_v311` |
 | CONNACK 返回码（自管 broker） | `connack_return_codes_auth_http_v311`（auth-http + 用例内 mock，端口 1892）/ `connack_not_authorized_v311`（auth-jwt，端口 1893）——这两个用例自行拉起 broker，不使用 harness broker |
 | issue #501 认证 × ACL 穿透（自管 broker） | `auth_http_ignore_allow_all_acl_v311`（auth 服务返回 404 → 判定 'ignore'；acl `["allow", "all"]` 将其放行 → CONNACK 0x00 fail-open 复现，端口 1896）/ `auth_http_ignore_deny_all_acl_v311`（acl `["deny", "all"]` 兜底 → CONNACK 0x05 fail-closed，端口 1900） |
+| 被拒连接的 webhook（自管 broker） | `webhook_connack_refused_v311` —— 匿名 CONNECT 被拒（0x05）**且** 携带该拒绝原因的 `client_connack` 事件必须到达用例内的 mock webhook 接收端（端口 1901，接收端用临时端口）；两件事分别断言，因此在"拒绝不触发 hook"的版本上必红 |
 
 ### functional_v5（108 个用例）— MQTT 5.0
 
@@ -400,6 +403,9 @@ rmqtt-test/
     auth-http-acl-fallthrough/   #   issue #501 复现：auth-http（临时端口 mock，恒回 404）+
                                  #   rmqtt-acl；自管 broker 1896/5376（allow-all）与
                                  #   1900/5377（deny-all）
+    webhook-connack-refused/     #   被拒连接的 client_connack webhook；自管 broker
+                                 #   1901/5378，仅启动 rmqtt-web-hook，webhook URL 指向
+                                 #   用例内的临时端口接收端
 ```
 
 > **测试隔离说明**：所有发布保留消息的测试结束后会自行删除（空 payload + RETAIN=1）；

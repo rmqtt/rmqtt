@@ -1,0 +1,38 @@
+##--------------------------------------------------------------------
+## rmqtt-web-hook — `client_connack` only
+##--------------------------------------------------------------------
+## http
+##    Method: POST
+##    Body: <JSON>
+## file
+##    Append one JSON object per line
+##
+## See more keys and their definitions at https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/web-hook.md
+
+##--------------------------------------------------------------------
+## Hook General Config
+##--------------------------------------------------------------------
+queue_capacity = 300_000
+concurrency_limit = 128
+
+
+## Default urls. Port 9098 is a PLACEHOLDER: the test rewrites it to the
+## ephemeral port of its in-test mock receiver (same pattern as the mock
+## auth servers in configs/auth-denied/), so no fixed port can be occupied
+## by a residual process.
+urls = ["http://127.0.0.1:9098/mqtt/webhook"]
+
+## Http config. The retry window is deliberately short: the mock answers
+## immediately, so a long backoff would only stall a failing run instead of
+## surfacing the missing event.
+http_timeout = "5s"
+retry_max_elapsed_time = "10s"
+retry_multiplier = 2.5
+
+## Hook rules config
+##
+## ONLY `client_connack` is enabled: this config exists to prove that a
+## REFUSED connection still reaches the CONNACK hook (and therefore still
+## produces a web-hook event). Every other event is left unconfigured, so
+## nothing else is written to the receiver.
+rule.client_connack = [{action = "client_connack" } ]
