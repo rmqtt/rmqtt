@@ -143,6 +143,12 @@ configs/
                              #（自管 broker 1896 allow-all / 1900 deny-all，mock 用临时端口）
   webhook-connack-refused/   # 被拒绝连接的 client_connack webhook
                              #（自管 broker 1901，mock 接收端用临时端口）
+  flapping/                  # 连接抖动防护（MQTT 1902 / gRPC 5379 / http-api 6066）
+                             #（harness 托管，但通过 broker_addr() 自持端口；
+                             #  allow_anonymous = true，仅启用 by_clientid）
+  flapping-order/            # ClientConnect 观察者顺序：门禁 + counter，使被拒的 CONNECT
+                             # 也被计数（MQTT 1903 / gRPC 5380 / http-api 6067；
+                             #  独占一个 broker 进程，按增量读取 metrics）
 ```
 
 **按用例自动切换配置**：用例可通过 `TestCase::broker_config()` 声明所需配置
@@ -152,8 +158,11 @@ configs/
 （如 `functional_v5@retain-disabled`），调度器仅在 **suite 边界**切换配置
 （重启 broker），默认配置组保持原名不变、零额外重启开销。
 
-端口约束：参与自动切换的配置，`listener.tcp.external.addr` 必须与 harness 的
-`--addr`（默认 `127.0.0.1:1883`）一致，否则健康检查无法通过。
+端口约束：参与自动切换的配置，`listener.tcp.external.addr` 通常必须与 harness 的
+`--addr`（默认 `127.0.0.1:1883`）一致，因为健康检查探测的就是该地址；**但**用例若
+同时声明 `TestCase::broker_addr()`，子套件运行期间探针会被重定向到该地址，配置即可
+自持端口。目前这么做的是 `configs/flapping`（`127.0.0.1:1902`）与
+`configs/flapping-order`（`127.0.0.1:1903`）。
 
 ## 📋 测试套件
 
@@ -176,7 +185,7 @@ configs/
 
 > v3.1 客户端通过 `build_connect_bytes` 手工构造 MQIsdp CONNECT 报文（codec 将协议级别硬编码为 4，对 3.1.1/5.0 正确）。
 
-### functional_v311（111 个用例）— MQTT 3.1.1
+### functional_v311（112 个用例）— MQTT 3.1.1
 
 | 类别 | 用例 |
 |------|------|
@@ -195,8 +204,9 @@ configs/
 | CONNACK 返回码（自管 broker） | `connack_return_codes_auth_http_v311`（auth-http + 用例内 mock，端口 1892）/ `connack_not_authorized_v311`（auth-jwt，端口 1893）——这两个用例自行拉起 broker，不使用 harness broker |
 | issue #501 认证 × ACL 穿透（自管 broker） | `auth_http_ignore_allow_all_acl_v311`（auth 服务返回 404 → 判定 'ignore'；acl `["allow", "all"]` 将其放行 → CONNACK 0x00 fail-open 复现，端口 1896）/ `auth_http_ignore_deny_all_acl_v311`（acl `["deny", "all"]` 兜底 → CONNACK 0x05 fail-closed，端口 1900） |
 | 被拒连接的 webhook（自管 broker） | `webhook_connack_refused_v311` —— 匿名 CONNECT 被拒（0x05）**且** 携带该拒绝原因的 `client_connack` 事件必须到达用例内的 mock webhook 接收端（端口 1901，接收端用临时端口）；两件事分别断言，因此在"拒绝不触发 hook"的版本上必红 |
+| 连接抖动防护（harness broker） | `flapping_ban_v311` —— 连续 CONNECT 至第 4 次被拒，且 3.1.1 无封禁码，断言回退为 **0x05**（刻意不用 `0x03`：会诱导客户端立即重连）；随后等待 `ban_time` 到期，一次连接即通过 |
 
-### functional_v5（108 个用例）— MQTT 5.0
+### functional_v5（111 个用例）— MQTT 5.0
 
 | 类别 | 用例 |
 |------|------|
@@ -225,18 +235,23 @@ configs/
 | Keep Alive / TCP | `ping_v5` / `mqtt_keepalive_timeout_reclaims_tcp` / `tcp_keepalive_socket_option`（仅 Linux，其他平台跳过） |
 | 消息生命周期（issue #513） | `retained_message_expiry_not_decremented_v5` [MQTT-3.3.2-6] —— **已修复并转为 PASS**（发出的 `Message Expiry Interval` 会扣除其在保留存储中的停留时间）；`message_expiry_deletes_qos2_inflight_v5` [MQTT-4.3.3-7] / [MQTT-4.4.0-1] —— **已修复并转为 PASS**（未完成的 QoS 2 交换不再被消息过期删除）；`oversized_queued_message_stalls_queue_v5` + `retained_oversized_message_keeps_session_v5` [MQTT-3.1.2-24/-25] —— 同一缺陷在「排队投递」与「保留消息」两条路径上的表现，**已修复并转为 PASS**；见下方说明 |
 | Will Retain vs Retain Available | `v5_will_retain_rejected_when_retain_unavailable`（在 `functional_v5@retain-disabled` 子套件中真正执行） |
+| 连接抖动防护（`flapping` 配置） | `flapping_ban_v5` —— 前 3 次 CONNECT 全部 0x00；第 4 次起被拒并返回 **0x8A**（Banned），同时 `$SYS/brokers/{node}/flapping/banned` 收到 `"dimension":"clientid"` / `"count":4` 的通告；等待 `ban_time` 到期后一次连接即通过（验证触发封禁时已丢弃窗口，不会「解封即复封」） |
+| 连接抖动防护（`flapping` 配置） | `flapping_api_unban_v5` —— `GET /api/v1/flapping/banned` 能列出该封禁并报告 `"available":true`（`GET /api/v1/features` 以 `"flapping":true` 报告同一状态） → `DELETE .../flapping/banned?dimension=clientid&key=…` 返回 `"unbanned":true` → 立即连上 → `$SYS` `unbanned` 通告带 `"reason":"manual"` → 再次 DELETE 返回 404 |
+| 门禁观察者（`flapping-order` 配置） | `flapping_observer_order_v5` —— 发出 4 次（`max_count`）CONNECT，第 4 次被拒（0x8A）；`GET /api/v1/metrics/1` 的 `client_connect` 增量必须恰为 4（**含被拒那一次**）。拒绝返回 `proceed = false` 会截断 `ClientConnect` 链，所以门禁必须位于 `Priority::MAX` 的观察者（`rmqtt-counter` / `rmqtt-web-hook`）之下——门禁若先跑，counter 就看不到被拒的 CONNECT，用例即失败 |
 
 > **expected-fail 用例（🐞）**：完整执行，但断言 broker 尚未实现的行为（已登记的
 > 合规缺口）。失败记为 `EXPECTED-FAIL`，不计入套件失败；broker 合规后会浮出为
 > `UNEXPECTED-PASS`，届时应转正为普通断言。详见
 > `designs/mqtt-5.0-standalone-test-gap-analysis.md`。
 
-> functional_v5 共 108 个用例：默认配置组运行其中 106 个；
-> `v5_will_retain_rejected_when_retain_unavailable` 与 `qos2_pubrel_resume_collision`
-> 因需要不同的 broker 配置，构建时自动拆分为 `functional_v5@retain-disabled` 与
-> `functional_v5@pubrel-collision` 两个子套件执行（见上方「Broker 配置」章节）。
+> functional_v5 共 111 个用例：默认配置组运行其中 106 个；
+> `v5_will_retain_rejected_when_retain_unavailable`、`qos2_pubrel_resume_collision` 与
+> 三条 `flapping_*` 用例因需要不同的 broker 配置，构建时自动拆分为
+> `functional_v5@retain-disabled`、`functional_v5@pubrel-collision`、
+> `functional_v5@flapping` 与 `functional_v5@flapping-order` 四个子套件执行
+> （见上方「Broker 配置」章节）。
 > 全量 `--suites functional_v5 --workers 1` 运行的汇总为
-> `Total: 108 | Passed: 102 | Failed: 0 | Skipped: 1 | ExpectedFail: 3 | Info: 2`
+> `Total: 111 | Passed: 105 | Failed: 0 | Skipped: 1 | ExpectedFail: 3 | Info: 2`
 > —— 已无裸失败；最后那处红灯 `topic_alias_v5_over_max`，在服务端开始执行自己广播出去的
 > Topic Alias Maximum 之后转为 PASS（见下方说明）。
 
@@ -406,6 +421,14 @@ rmqtt-test/
     webhook-connack-refused/     #   被拒连接的 client_connack webhook；自管 broker
                                  #   1901/5378，仅启动 rmqtt-web-hook，webhook URL 指向
                                  #   用例内的临时端口接收端
+    flapping/                    #   连接抖动防护；harness 托管、但声明 broker_addr()
+                                 #   自持 1902/5379，http-api 6066，allow_anonymous = true
+                                 #   （刻意走匿名路径，证明覆盖 client_authenticate 看不见
+                                 #   的连接），仅启用 by_clientid
+    flapping-order/              #   ClientConnect 观察者顺序：同一门禁 + rmqtt-counter，
+                                 #   被拒的 CONNECT 同样计数；自持 1903/5380、
+                                 #   http-api 6067，并独占一个 broker 进程，使用例能按
+                                 #   精确增量读取节点级 client_connect
 ```
 
 > **测试隔离说明**：所有发布保留消息的测试结束后会自行删除（空 payload + RETAIN=1）；

@@ -155,6 +155,7 @@
     "features_delayed": "Messaggi ritardati",
     "features_shared_subscription": "Sottoscrizioni condivise",
     "features_auto_subscription": "Sottoscrizione automatica",
+    "features_flapping": "Protezione dal flapping",
     "features_tab_title": "Supporto funzioni"
   },
   "gauge": {

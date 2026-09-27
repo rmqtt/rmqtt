@@ -155,6 +155,7 @@
     "features_delayed": "Mensajes diferidos",
     "features_shared_subscription": "Suscripciones compartidas",
     "features_auto_subscription": "Suscripción automática",
+    "features_flapping": "Protección contra flapping",
     "features_tab_title": "Soporte de funciones"
   },
   "gauge": {

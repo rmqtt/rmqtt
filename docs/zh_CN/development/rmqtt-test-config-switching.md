@@ -77,40 +77,59 @@ rmqtt-test/configs/
 
 ### 4.1 用例级配置声明（仅分组依据）
 
-`TestCase` trait 新增 `broker_config()`：
+`TestCase` trait 新增 `broker_config()`（所需配置）与 `broker_addr()`（配置自持的监听地址）：
 
 ```rust
 fn broker_config(&self) -> Option<PathBuf> { None }
+fn broker_addr(&self) -> Option<&'static str> { None }
 ```
 
-- 返回 `None` → 使用 harness 默认配置（`--config` 或 `configs/default/rmqtt.toml`）；
-- 返回路径 → 该用例声明需要特定配置，仅作为**构建期分组依据**，调度器不做用例级切换。
+- `broker_config` 返回 `None` → 使用 harness 默认配置（`--config` 或
+  `configs/default/rmqtt.toml`）；返回路径 → 该用例声明需要特定配置，仅作为
+  **构建期分组依据**，调度器不做用例级切换；
+- `broker_addr` 返回 `None` → 健康探针使用 harness 的 `--addr`（默认
+  `127.0.0.1:1883`）；返回地址 → 子套件运行期间探针重定向到该地址，fixture 因此可以
+  **自持端口**。仅与 `broker_config()` 搭配才有意义；目前的使用者是
+  `configs/flapping`（`127.0.0.1:1902`）与 `configs/flapping-order`
+  （`127.0.0.1:1903`）。
 
 辅助函数 `tests::config_path(name)` 生成 `configs/<name>/rmqtt.toml` 的绝对路径
 （基于 `CARGO_MANIFEST_DIR`，与进程工作目录无关）。
 
 ### 4.2 构建期自动拆分
 
-`TestSuite` 新增 `config: Option<PathBuf>` 字段；`split_suites_by_config()`
-（`src/framework/suite.rs`）在 `build_suites()` 之后统一执行：
+`TestSuite` 新增 `config: Option<PathBuf>` 与 `addr: Option<String>` 字段；
+`split_suites_by_config()`（`src/framework/suite.rs`）在 `build_suites()` 之后统一执行：
 
 - suite 已有显式 `config`（如集群套件）→ 不拆分；
-- 否则按用例 `broker_config()` 分组（保持组内原始相对顺序）：
-  - 默认组保留原名（如 `functional_v5`），`config = 默认配置路径`；
+- 否则按用例的 `(broker_config(), broker_addr())` 组合分组（保持组内原始相对顺序）：
+  - 默认组保留原名（如 `functional_v5`），`config = 默认配置路径`、`addr = None`；
   - 特殊组生成 `{suite}@{config名}`（如 `functional_v5@retain-disabled`），
-    `config = 该配置路径`。
+    `config = 该配置路径`、`addr = 该组声明的地址`。
 
-拆分后**每个 suite 的 `config` 恒有值**，调度器只需在 suite 边界判断。
+拆分后**每个 suite 的 `config` 恒有值**，`addr` 可为 `None`（表示沿用 `--addr`），
+调度器只需在 suite 边界判断这一对值。地址只参与分组键、不进入子套件名——只有当同一配置
+被声明了两个不同地址时才会重名，仓内没有这种用例。
 
-### 4.3 Broker 进程配置切换
+### 4.3 Broker 进程配置与地址切换
 
 `src/broker/lifecycle.rs`：
 
 ```rust
 pub fn set_config(&mut self, config: Option<PathBuf>);            // 仅更新，不重启
 pub fn config_path(&self) -> Option<&PathBuf>;                    // 当前生效配置
+pub fn addr(&self) -> &str;                                       // 健康探针目标地址
 pub fn restart_with_config(&mut self, config: Option<PathBuf>);   // stop → 换配置 → start
+pub fn restart_with_config_and_addr(                              // stop → 换配置+地址 → start
+    &mut self,
+    config: Option<PathBuf>,
+    addr: &str,
+);
 ```
+
+`restart_with_config_and_addr` 先 `stop()`（等待**旧**端口释放）再改 `addr`、然后启动；
+地址只是探针目标、不会传给 broker，因此必须与配置里的 `listener.tcp.external.addr`
+一致，否则探针会去探一个没人监听的端口。
 
 `BrokerProcess::new(workspace)` 默认 `config_path` 指向
 `<workspace>/rmqtt-test/configs/default/rmqtt.toml`（**始终显式 `-f` 启动**，
@@ -119,17 +138,22 @@ pub fn restart_with_config(&mut self, config: Option<PathBuf>);   // stop → �
 ### 4.4 TestContext 幂等切换
 
 ```rust
-pub fn ensure_broker_config(&self, target: &Path) -> Result<(), anyhow::Error>
+pub fn ensure_broker_config(
+    &self,
+    target: &Path,
+    addr: Option<&str>,
+) -> Result<(), anyhow::Error>
 ```
 
-比较 `BrokerProcess::config_path()` 与 `target`，相同则跳过重启（幂等）；
-不同则 `restart_with_config` 并等待健康检查。`--no-broker` 模式下直接返回 `Ok`
-（由调度器负责告警）。
+`addr` 为 `None` 时取 `TestConfig::broker_addr`（即 harness 的 `--addr`）。同时比较
+`BrokerProcess::config_path()` 与 `target`、`BrokerProcess::addr()` 与目标地址，两者都
+相同才跳过重启（幂等）；否则 `restart_with_config_and_addr` 并等待健康检查。
+`--no-broker` 模式下直接返回 `Ok`（由调度器负责告警）。
 
 ### 4.5 调度器：suite 边界切换
 
 `src/framework/scheduler.rs` 的 `run()`：每个 suite 执行前，若
-`suite.config` 与当前生效配置不一致则切换：
+`suite.config` / `suite.addr` 与当前生效的这一对值不一致则切换：
 
 - 切换失败 → 该 suite 记为 `Error`（critical），跳过执行；
 - `--no-broker` → 忽略所有配置要求并 warn 一次。
@@ -173,31 +197,47 @@ pub fn ensure_broker_config(&self, target: &Path) -> Result<(), anyhow::Error>
 ./target/release/mqtt_harness --workspace . -t will_retain_rejected_when_retain_unavailable_v5
 ```
 
-运行日志中可见拆分与切换过程：
+运行日志中可见拆分与切换过程（含自持端口的 flapping / flapping-order 子套件）：
 
 ```
-split suite 'functional_v5' -> 'functional_v5' (61 tests, config: .../configs/default/rmqtt.toml)
-split suite 'functional_v5' -> 'functional_v5@retain-disabled' (1 tests, ...)
-split suite 'functional_v5' -> 'functional_v5@pubrel-collision' (1 tests, ...)
-Running suite: functional_v5 (61 tests)
+split suite 'functional_v5' -> 'functional_v5' (106 tests, config: .../configs/default/rmqtt.toml, addr: <harness --addr>)
+split suite 'functional_v5' -> 'functional_v5@retain-disabled' (1 tests, config: ..., addr: <harness --addr>)
+split suite 'functional_v5' -> 'functional_v5@pubrel-collision' (1 tests, config: ..., addr: <harness --addr>)
+split suite 'functional_v5' -> 'functional_v5@flapping' (2 tests, config: .../configs/flapping/rmqtt.toml, addr: 127.0.0.1:1902)
+split suite 'functional_v5' -> 'functional_v5@flapping-order' (1 tests, config: .../configs/flapping-order/rmqtt.toml, addr: 127.0.0.1:1903)
+Running suite: functional_v5 (106 tests)
 ...
-switching broker config: ...default/rmqtt.toml -> ...retain-disabled/rmqtt.toml
+switching broker config: ...default/rmqtt.toml -> ...retain-disabled/rmqtt.toml (probe 127.0.0.1:1883 -> 127.0.0.1:1883)
 Broker is healthy at 127.0.0.1:1883
 Running suite: functional_v5@retain-disabled (1 tests)
+...
+switching broker config: ...default/rmqtt.toml -> ...flapping/rmqtt.toml (probe 127.0.0.1:1883 -> 127.0.0.1:1902)
+Broker is healthy at 127.0.0.1:1902
+Running suite: functional_v5@flapping (2 tests)
+...
+switching broker config: ...default/rmqtt.toml -> ...flapping-order/rmqtt.toml (probe 127.0.0.1:1883 -> 127.0.0.1:1903)
+Broker is healthy at 127.0.0.1:1903
+Running suite: functional_v5@flapping-order (1 tests)
 ```
 
 ## 6. 新增一个特殊配置目录的步骤
 
 1. 创建 `rmqtt-test/configs/<name>/rmqtt.toml`（以 `default/rmqtt.toml` 为蓝本，
-   修改 `plugins.default_startups` 与所需参数；监听端口保持 `127.0.0.1:1883`）；
+   修改 `plugins.default_startups` 与所需参数；监听端口默认保持 `127.0.0.1:1883`，
+   确实要自持端口时见第 3 步）；
 2. 创建 `rmqtt-test/configs/<name>/plugins/`，拷贝 `rmqtt-plugins/*.toml`（26 个）；
 3. 用例实现 `broker_config()` 返回 `Some(crate::tests::config_path("<name>"))`；
-4. 无需改动调度器——拆分与切换自动生效。
+   若该配置不监听 `--addr`，再实现 `broker_addr()` 返回它实际监听的地址
+   （用例自身也要连这个地址，而不是 `ctx.config.broker_addr`）；
+4. 无需改动调度器——拆分、地址重定向与切换自动生效。
 
 ## 7. 约束与注意事项
 
 - **端口一致性**：参与自动切换的配置，`listener.tcp.external.addr` 必须与
   harness 的 `--addr`（默认 `127.0.0.1:1883`）一致，否则健康检查无法通过；
+  **例外**：用例同时声明了 `broker_addr()` 时，子套件内探针会改探那个地址，
+  fixture 于是可以自持端口（`configs/flapping`，`127.0.0.1:1902`；
+  `configs/flapping-order`，`127.0.0.1:1903`）；
 - **重启成本**：一次配置切换 = 一次 broker 重启（约 1~2s + 健康检查轮询）。
   默认全量运行只产生特殊配置组各 1 次切换，且每组只切一次、无需切回；
 - **状态隔离**：切换必然重启 → broker 内存状态清空，天然隔离；跨配置的用例
@@ -213,15 +253,16 @@ Running suite: functional_v5@retain-disabled (1 tests)
 |---|---|
 | `rmqtt-test/configs/default/rmqtt.toml` + `plugins/*` | 新增：自包含默认配置 |
 | `rmqtt-test/configs/retain-disabled/`、`pubrel-collision/` | `plugins.dir` 指向自身 plugins/ + 补齐插件配置 |
-| `src/broker/lifecycle.rs` | +`set_config` / `restart_with_config` / `config_path`；`new()` 默认配置 |
-| `src/framework/testcase.rs` | trait +`broker_config()` |
-| `src/framework/suite.rs` | +`config` 字段；+`split_suites_by_config()` |
-| `src/framework/context.rs` | +`ensure_broker_config()`（幂等） |
-| `src/framework/scheduler.rs` | suite 边界配置切换；失败记 Error；`--no-broker` 忽略 |
+| `src/broker/lifecycle.rs` | +`set_config` / `restart_with_config` / `config_path`；`new()` 默认配置；后补 +`addr()` / `restart_with_config_and_addr()`（自持端口） |
+| `src/framework/testcase.rs` | trait +`broker_config()`；后补 +`broker_addr()` |
+| `src/framework/suite.rs` | +`config` 字段；+`split_suites_by_config()`；后补 +`addr` 字段、按 `(config, addr)` 分组 |
+| `src/framework/context.rs` | +`ensure_broker_config()`（幂等）；后补签名加 `addr`、支持地址重定向 |
+| `src/framework/scheduler.rs` | suite 边界配置切换；失败记 Error；`--no-broker` 忽略；后补切换地址 |
 | `src/main.rs` | workspace 解析、默认配置来源、build→split→filter、前缀匹配、失败路径 `drop(ctx)` 防泄漏 |
 | `src/tests/mod.rs` | +`config_path()` 辅助 |
 | `src/tests/functional/retain_unavailable_v5.rs` | 声明 `retain-disabled` |
 | `src/tests/functional/qos2_pubrel_resume_collision.rs` | 声明 `pubrel-collision` |
+| `rmqtt-test/configs/flapping-order/` + `src/tests/functional/flapping_order_v5.rs` | 使用方（与 `configs/flapping` 一样自持端口）：门禁与 `rmqtt-counter` 同启，断言被拒的 CONNECT 同样进入 `client_connect` 计数 |
 
 ## 9. 验证结果
 

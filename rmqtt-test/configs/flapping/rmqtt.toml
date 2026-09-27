@@ -1,0 +1,121 @@
+##--------------------------------------------------------------------
+## rmqttd config for the connection-flapping gate (rmqtt-flapping)
+##
+## Purpose: exercise the connection gate end to end through a real
+## transport. The config lets the test cross the threshold, watch the
+## `$SYS` ban notice, wait the ban out, and lift a ban through the
+## management API — none of which the harness broker can do, because its
+## config keeps the plugin off.
+##
+## Anonymous access is ENABLED on purpose. That is what makes the gate the
+## only possible source of a refusal: with `allow_anonymous = true` and no
+## username in the CONNECT, `HookManager::client_authenticate` returns ok
+## without running its chain at all (rmqtt/src/hook.rs), so every non-zero
+## CONNACK in this suite is produced by the flapping plugin's
+## `ClientConnect` handler and nothing else.
+##
+## `rmqtt-acl` stays disabled as well: its shipped final rule
+## `["allow", "all"]` also covers CONNECT (issue #501 fail-open).
+##
+## There is intentionally no `plugins/Cargo.toml` in this directory: that
+## file is a feature-selection helper for building a trimmed rmqttd, while
+## the test binary already links every plugin. The broker only reads
+## `{plugins.dir}/{name}.toml` (rmqtt/src/plugin.rs), never the manifest.
+##
+## Ports: MQTT 1902 / gRPC 5379 / HTTP 6066 — this fixture owns them instead
+## of sharing the harness-wide 1883 / 5363 / 6060. The harness health-probes
+## its `--addr`, which a config file cannot change; what makes an own port work
+## is `TestCase::broker_addr()` in tests/functional/flapping_v5.rs, which has
+## the scheduler retarget the probe at 1902 while the `{suite}@flapping`
+## sub-suites run. Moving this listener to another port therefore means
+## changing that constant as well.
+##
+## All three are free: the webhook-connack-refused fixture holds the highest
+## MQTT port (1901) and the highest gRPC port (5378), the flapping-order
+## fixture the next ones (1903 / 5380, HTTP 6067), and the HTTP API
+## elsewhere is on 6060 (harness), 6061 (cluster stress node 1) and 6070
+## (session-sled-stress).
+##
+## Usage (run from the rmqtt repository root so that `plugins.dir`
+## resolves correctly). Neither `--config` nor `--addr` is needed: the cases
+## declare both, and the scheduler switches them at the sub-suite boundary.
+##   target/release/mqtt_harness \
+##     --binary target/release/rmqttd \
+##     --workspace . \
+##     --suites functional_v311 --suites functional_v5 --workers 1 \
+##     --test flapping
+##--------------------------------------------------------------------
+
+##--------------------------------------------------------------------
+## Task
+##--------------------------------------------------------------------
+task.exec_workers = 2000
+task.exec_queue_max = 300_000
+
+##--------------------------------------------------------------------
+## Node
+##--------------------------------------------------------------------
+node.id = 1
+node.busy.check_enable = false
+node.busy.update_interval = "2s"
+node.busy.loadavg = 80.0
+node.busy.cpuloadavg = 90.0
+node.busy.handshaking = 0
+
+##--------------------------------------------------------------------
+## Log
+##--------------------------------------------------------------------
+log.to = "console"
+log.level = "info"
+log.dir = "."
+log.file = "rmqtt.log"
+
+##--------------------------------------------------------------------
+## Plugins
+##--------------------------------------------------------------------
+# Self-contained: plugin configs live in this directory's plugins/ sub-dir.
+plugins.dir = "rmqtt-test/configs/flapping/plugins/"
+plugins.default_startups = [
+    "rmqtt-flapping",
+    "rmqtt-http-api",
+]
+plugins.disabled_default_startups = ["rmqtt-acl", "rmqtt-counter"]
+
+##--------------------------------------------------------------------
+## RPC (port avoids every gRPC port used elsewhere: 5363 harness,
+## 5364 cleanup, 5365 rl-boundary, 5366-5370 cluster, 5371 auth-denied,
+## 5372 auth-jwt-denied, 5373-5374 delayed cluster / cleanup-edge,
+## 5375 transport-tls, 5376-5377 acl-fallthrough, 5378 webhook-connack)
+##--------------------------------------------------------------------
+rpc.server_addr = "0.0.0.0:5379"
+rpc.server_workers = 4
+rpc.batch_size = 128
+rpc.client_concurrency_limit = 128
+rpc.client_timeout = "5s"
+
+##--------------------------------------------------------------------
+## Listener (external TCP only; port avoids every MQTT port used
+## elsewhere: 1883 harness, 1884 cleanup, 1885-1890 cluster, 1891
+## rl-boundary, 1892 auth-denied, 1893 auth-jwt-denied, 1894 cleanup-edge,
+## 1895 retain-sled, 1896/1900 acl-fallthrough, 1897-1899 transport-tls,
+## 1901 webhook-connack)
+##--------------------------------------------------------------------
+listener.tcp.external.addr = "127.0.0.1:1902"
+listener.tcp.external.workers = 8
+listener.tcp.external.max_connections = 1024000
+listener.tcp.external.max_handshaking_limit = 500
+listener.tcp.external.handshake_timeout = "30s"
+listener.tcp.external.max_packet_size = "1MB"
+listener.tcp.external.backlog = 1024
+# Anonymous access allowed: the flapping gate must be the only thing that
+# can refuse a CONNECT here (see the header).
+listener.tcp.external.allow_anonymous = true
+
+##--------------------------------------------------------------------
+## Other listeners — all disabled (would clash with other suites)
+##--------------------------------------------------------------------
+listener.tcp.internal.enable = false
+listener.tls.external.enable = false
+listener.ws.external.enable = false
+listener.wss.external.enable = false
+listener.quic.external.enable = false

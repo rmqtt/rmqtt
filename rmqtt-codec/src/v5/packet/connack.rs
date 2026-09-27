@@ -123,6 +123,11 @@ impl From<ConnectAckReason> for u8 {
 
 impl ConnectAckReason {
     /// Returns a human-readable description of the reason code
+    ///
+    /// This is the text the `client_connack` web-hook event publishes as
+    /// `conn_ack`, so a reason that a plugin can produce deserves its own
+    /// wording rather than the catch-all: an operator reading the event has to
+    /// tell a policy refusal from a bad password.
     pub fn reason(self) -> &'static str {
         match self {
             ConnectAckReason::Success => "Connection Accepted",
@@ -131,6 +136,8 @@ impl ConnectAckReason {
             ConnectAckReason::ServerUnavailable => "Server unavailable",
             ConnectAckReason::BadUserNameOrPassword => "bad user name or password",
             ConnectAckReason::NotAuthorized => "not authorized",
+            ConnectAckReason::Banned => "banned",
+            ConnectAckReason::ConnectionRateExceeded => "connection rate exceeded",
             _ => "Connection Refused",
         }
     }
@@ -277,5 +284,33 @@ impl EncodeLtd for ConnectAck {
             buf,
             size - (buf.len() - start_len) as u32,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ack_reason() {
+        assert_eq!(ConnectAckReason::Success.reason(), "Connection Accepted");
+        assert_eq!(
+            ConnectAckReason::UnsupportedProtocolVersion.reason(),
+            "protocol version is not supported"
+        );
+        assert_eq!(ConnectAckReason::ClientIdentifierNotValid.reason(), "client identifier is invalid");
+        assert_eq!(ConnectAckReason::ServerUnavailable.reason(), "Server unavailable");
+        assert_eq!(ConnectAckReason::BadUserNameOrPassword.reason(), "bad user name or password");
+        assert_eq!(ConnectAckReason::NotAuthorized.reason(), "not authorized");
+    }
+
+    /// A plugin can produce these two (`ConnectRefuse`), and the web-hook event
+    /// publishes the wording as `conn_ack`, so they must not fall through to the
+    /// catch-all: an operator has to be able to tell a ban from a bad password.
+    #[test]
+    fn test_plugin_refusal_reasons_are_named() {
+        assert_eq!(ConnectAckReason::Banned.reason(), "banned");
+        assert_eq!(ConnectAckReason::ConnectionRateExceeded.reason(), "connection rate exceeded");
+        assert_ne!(ConnectAckReason::Banned.reason(), ConnectAckReason::NotAuthorized.reason());
     }
 }

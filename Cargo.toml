@@ -51,6 +51,7 @@ rmqtt-bridge-egress-reductstore = { path = "rmqtt-plugins/rmqtt-bridge-egress-re
 rmqtt-bridge-origin = { path = "rmqtt-plugins/rmqtt-bridge-origin"}
 rmqtt-p2p-messaging = { path = "rmqtt-plugins/rmqtt-p2p-messaging"}
 rmqtt-shared-subscription = { path = "rmqtt-plugins/rmqtt-shared-subscription" }
+rmqtt-flapping = { path = "rmqtt-plugins/rmqtt-flapping" }
 
 
 [workspace.package]
@@ -103,6 +104,7 @@ rmqtt-cluster-raft = "0.25.0"
 rmqtt-cluster-broadcast = "0.25.0"
 rmqtt-shared-subscription = "0.25.0"
 rmqtt-p2p-messaging = "0.25.0"
+rmqtt-flapping = "0.25.0"
 
 tokio = { version = "1",  default-features = false }
 reqwest = "0.12"

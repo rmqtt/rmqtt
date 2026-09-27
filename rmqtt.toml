@@ -101,6 +101,7 @@ plugins.default_startups = [
     #"rmqtt-p2p-messaging",
     "rmqtt-shared-subscription",
     #"rmqtt-delayed",
+    #"rmqtt-flapping",
     "rmqtt-http-api"
 ]
 

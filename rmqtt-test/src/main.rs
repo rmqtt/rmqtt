@@ -448,6 +448,7 @@ fn build_functional_v311_suite() -> TestSuite {
     use tests::functional::connect_v311::*;
     use tests::functional::dollar_topics::*;
     use tests::functional::empty_clientid_cleansession0_v311::*;
+    use tests::functional::flapping_v311::*;
     use tests::functional::keepalive::*;
     use tests::functional::last_will::*;
     use tests::functional::multi_topic::*;
@@ -595,6 +596,12 @@ fn build_functional_v311_suite() -> TestSuite {
     // POST the client_connack event carrying that reason to an in-test mock
     // receiver — see tests/functional/webhook_connack_refused_v311.rs.
     suite.add(WebhookConnackRefusedV311Test);
+    // Connection flapping gate (rmqtt-flapping): the attempt that reaches
+    // max_count is refused with CONNACK 0x05, the ban is announced on $SYS
+    // and lapses by itself. The fixture (configs/flapping/) allows anonymous
+    // access, so the gate is the only possible source of a refusal — see
+    // tests/functional/flapping_v311.rs.
+    suite.add(FlappingBanV311Test);
     // G14 concurrent session takeover
     suite.add(SessionV311TakeoverTest);
     // G15 empty topic levels
@@ -756,6 +763,8 @@ fn build_functional_v5_suite() -> TestSuite {
     use tests::functional::disconnect_reason_v5::*;
     use tests::functional::dollar_topics::*;
     use tests::functional::empty_clientid_cleanstart0_v5::*;
+    use tests::functional::flapping_order_v5::*;
+    use tests::functional::flapping_v5::*;
     use tests::functional::flow_control_v5::*;
     use tests::functional::issue513_message_lifecycle::*;
     use tests::functional::keepalive::*;
@@ -968,6 +977,20 @@ fn build_functional_v5_suite() -> TestSuite {
     // Wildcard matching edge cases
     suite.add(WildcardV5CaseSensitiveTest);
     suite.add(WildcardV5LeadingSlashTest);
+    // Connection flapping gate (rmqtt-flapping): the threshold refusal with
+    // CONNACK 0x8A, the $SYS ban notice, the ban lapsing by itself, and the
+    // management API listing and lifting a ban — the plugin installs its
+    // read view into the core's extension slot. Fixture: configs/flapping/;
+    // see tests/functional/flapping_v5.rs.
+    suite.add(FlappingBanV5Test);
+    suite.add(FlappingApiUnbanV5Test);
+    // Which handlers see a refusal (rmqtt-flapping + rmqtt-counter): a CONNECT
+    // the gate refuses must still reach the observers registering at
+    // Priority::MAX, so the delta of `scx.metrics.client_connect` has to cover
+    // it. Needs a broker no other case talks to — a node-wide counter cannot
+    // be read by delta on a shared one. Fixture: configs/flapping-order/ (own
+    // ports); see tests/functional/flapping_order_v5.rs.
+    suite.add(FlappingObserverOrderV5Test);
     suite
 }
 

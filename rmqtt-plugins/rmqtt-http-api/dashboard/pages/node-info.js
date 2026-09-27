@@ -128,6 +128,7 @@ window.NodeInfoPage = Vue.defineComponent({
         { key: 'delayed',               labelKey: 'overview.features_delayed' },
         { key: 'shared_subscription',   labelKey: 'overview.features_shared_subscription' },
         { key: 'auto_subscription',     labelKey: 'overview.features_auto_subscription' },
+        { key: 'flapping',              labelKey: 'overview.features_flapping' },
       ];
 
       const featureItems = Vue.computed(function() {

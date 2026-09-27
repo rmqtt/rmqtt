@@ -1,0 +1,70 @@
+##--------------------------------------------------------------------
+## rmqtt-flapping (ClientConnect observer-order fixture)
+##--------------------------------------------------------------------
+## Same thresholds as `configs/flapping/`, and deliberately so: the case
+## shares `MAX_COUNT` with the two cases over there, and keeping the
+## policies identical means the only difference between the fixtures is
+## the observer set (counter on here, off there) the ordering assertion
+## is about.
+##
+## Only `by_clientid` is enabled: an enabled `by_peerhost` policy would
+## count every attempt from 127.0.0.1 into one key and ban the whole
+## test, and a per-host ban cannot be attributed to the case's own
+## ClientId.
+##
+## See more keys: https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/flapping.md
+
+enable = true
+
+## Room for the handful of keys this fixture ever creates. A table that
+## saturates fails open (untracked), which would silently disarm the
+## assertion, so keep it far above the keys in play.
+max_track = 1000
+
+## One sweep per second: the ban table is observed from the case within
+## seconds of the refusal.
+gc_interval = "1s"
+
+##--------------------------------------------------------------------
+## Per-dimension policies
+##--------------------------------------------------------------------
+
+## Four attempts inside the window trip the gate; the attempt that
+## reaches the count is itself refused — the very refusal the counter
+## has to see. The threshold is the only dimension in use here, which
+## keeps the refusal attributable to a ClientId and nothing else.
+[by_clientid]
+window_time = "60s"
+max_count = 4
+## Short enough to observe the lapse within a case, long enough that the
+## assertion right after the refusal cannot race it.
+ban_time = "5s"
+
+##--------------------------------------------------------------------
+## Notification
+##--------------------------------------------------------------------
+## On, as in the flapping fixture, but unused here: this case reads the
+## metrics instead of subscribing to `$SYS`, and does not watch for the
+## notice. One refusal means one extra publish either way.
+notify_sys_topic = true
+sys_topic = "$SYS/brokers/{node}/flapping/banned"
+sys_topic_qos = 0
+message_expiry_interval = "1m"
+
+## Off: the ban notice is the interesting event, and one message per
+## reconnect would drown a watcher.
+notify_on_every_refusal = false
+
+## On: the announcement is part of the gate's contract, even when this
+## fixture does not read it.
+notify_on_unban = true
+sys_topic_unban = "$SYS/brokers/{node}/flapping/unbanned"
+
+##--------------------------------------------------------------------
+## Exemptions
+##--------------------------------------------------------------------
+## Empty: nothing in this fixture may skip the gate, or the assertion
+## would count a CONNECT that never reached it.
+allow_clientids = []
+allow_usernames = []
+allow_peerhosts = []

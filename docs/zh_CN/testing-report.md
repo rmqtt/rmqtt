@@ -77,16 +77,16 @@ cd paho.mqtt.testing/interoperability
 | 套件 | 用例数 | 说明 |
 |-------|--------|------|
 | `functional_v3` | 51 | MQTT 3.1 规范符合性（连接边界、QoS 0/1/2、QoS 2 去重/PUBREL 重发、保留消息、遗嘱、Keep Alive、会话、通配符含 `$SYS`、边界、协议错误） |
-| `functional_v311` | 111 | MQTT 3.1.1 规范符合性（含二次 CONNECT 拒绝、保留消息边界、Session Present、协议错误） |
-| `functional_v5` | 108 | MQTT 5.0 规范符合性（CONNACK 能力通告、会话过期含 DISCONNECT SEI=0、主题别名、流控、Retain Handling、协议错误） |
+| `functional_v311` | 112 | MQTT 3.1.1 规范符合性（含二次 CONNECT 拒绝、保留消息边界、Session Present、协议错误、连接抖动防护） |
+| `functional_v5` | 111 | MQTT 5.0 规范符合性（CONNACK 能力通告、会话过期含 DISCONNECT SEI=0、主题别名、流控、Retain Handling、协议错误、连接抖动防护与 HTTP 解封、被拒连接仍进观察者计数） |
 | `stress` | 6 | 连接负载、发布负载、扇出、混合 QoS、批量订阅、保留消息洪泛 |
 | `chaos` | 19 | Broker 重启（单节点/集群 broadcast、raft/整集群）、重启后会话路由、连接风暴、重连、QoS 1 可靠性、慢消费者、会话存储启动加载 |
 
-> functional_v5 的 108 个用例中，`will_retain_rejected_when_retain_unavailable_v5`
-> 与 `qos2_pubrel_resume_collision` 因需要不同的 broker 配置，自动拆分为
-> `functional_v5@retain-disabled` / `functional_v5@pubrel-collision` 子套件；
-> 默认 broker 配置为自包含的 `rmqtt-test/configs/default/rmqtt.toml`，
-> 配置切换仅发生在 suite 边界。
+> functional_v5 的 111 个用例中，`will_retain_rejected_when_retain_unavailable_v5`、
+> `qos2_pubrel_resume_collision` 与三条 `flapping_*` 用例因需要不同的 broker 配置，
+> 自动拆分为 `functional_v5@retain-disabled` / `functional_v5@pubrel-collision` /
+> `functional_v5@flapping` / `functional_v5@flapping-order` 子套件；默认 broker 配置为
+> 自包含的 `rmqtt-test/configs/default/rmqtt.toml`，配置切换仅发生在 suite 边界。
 
 ```bash
 # 运行所有测试套件

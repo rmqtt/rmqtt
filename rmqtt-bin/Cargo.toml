@@ -62,6 +62,7 @@ rmqtt-web-hook.workspace = true
 rmqtt-cluster-raft.workspace = true
 rmqtt-cluster-broadcast.workspace = true
 rmqtt-p2p-messaging.workspace = true
+rmqtt-flapping.workspace = true
 #rmqtt-plugin-template = "0.1"
 
 [package.metadata.plugins]
@@ -91,6 +92,7 @@ rmqtt-web-hook = { }
 rmqtt-cluster-raft = { immutable = true }
 rmqtt-cluster-broadcast = { immutable = true }
 rmqtt-p2p-messaging = { }
+rmqtt-flapping = { }
 rmqtt-http-api = { default_startup = true }
 #rmqtt-plugin-template = { }
 

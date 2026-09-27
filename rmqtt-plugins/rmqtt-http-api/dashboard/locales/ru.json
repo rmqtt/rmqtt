@@ -155,6 +155,7 @@
     "features_delayed": "Отложенные сообщения",
     "features_shared_subscription": "Общие подписки",
     "features_auto_subscription": "Автоподписка",
+    "features_flapping": "Защита от flapping",
     "features_tab_title": "Поддержка функций"
   },
   "gauge": {

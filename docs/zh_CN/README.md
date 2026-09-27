@@ -51,6 +51,7 @@
 | [ACL（访问控制列表）](acl.md) | 基于文件的 ACL 规则引擎 |
 | [HTTP 认证](auth-http.md) | 外部 HTTP API 认证 |
 | [JWT 认证](auth-jwt.md) | JSON Web Token 验证 |
+| [连接抖动防护](flapping.md) | 按 ClientId / 用户名 / 来源 IP 的滑动窗口封禁高频重连 |
 
 ### 消息存储与投递
 
@@ -126,6 +127,7 @@
 | **认证** | [rmqtt-acl](../rmqtt-plugins/rmqtt-acl/README-CN.md) | 基于文件的 ACL |
 | | [rmqtt-auth-http](../rmqtt-plugins/rmqtt-auth-http/README-CN.md) | HTTP 认证 |
 | | [rmqtt-auth-jwt](../rmqtt-plugins/rmqtt-auth-jwt/README-CN.md) | JWT 认证 |
+| | [rmqtt-flapping](../rmqtt-plugins/rmqtt-flapping/README-CN.md) | 连接抖动防护（封禁高频重连） |
 | **存储** | [rmqtt-retainer](../rmqtt-plugins/rmqtt-retainer/README-CN.md) | 保留消息存储 |
 | | [rmqtt-message-storage](../rmqtt-plugins/rmqtt-message-storage/README-CN.md) | 消息持久化 |
 | | [rmqtt-session-storage](../rmqtt-plugins/rmqtt-session-storage/README-CN.md) | 会话持久化 |
@@ -166,7 +168,7 @@
 
 | 资源 | 说明 |
 |------|------|
-| [HTTP API 参考](reference/http-api.md) | 完整 REST API 端点参考（36 个端点） |
+| [HTTP API 参考](reference/http-api.md) | 完整 REST API 端点参考（38 个端点） |
 
 ## 许可证
 

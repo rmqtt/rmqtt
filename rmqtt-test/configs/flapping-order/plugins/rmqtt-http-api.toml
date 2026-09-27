@@ -1,0 +1,28 @@
+##--------------------------------------------------------------------
+## rmqtt-http-api (ClientConnect observer-order fixture)
+##--------------------------------------------------------------------
+## Serves the read view the ordering assertion needs: the node's own
+## `Metrics`, counted by rmqtt-counter in `scx.metrics.client_connect`
+## and read back here so the case can compare it with the CONNECTs it
+## actually sent:
+##
+##   GET /api/v1/metrics/1
+##
+## Port 6067: belongs to this fixture alone (harness 6060, cluster stress
+## node 1 6061, flapping 6066, session-sled-stress 6070).
+##
+## No `http_bearer_token`: this fixture is bound to loopback and the
+## subject under test is the dispatch order of the `ClientConnect` chain,
+## not authentication (that path is covered by the http-api suite).
+##
+## No `storage` section: history persistence is disabled (the default redb
+## path under /var/log is not writable on all platforms). The metrics read
+## here is the live in-memory counter, which is what a fresh broker
+## process starts at zero.
+##
+## See more keys: https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/http-api.md
+
+max_row_limit = 10_000
+http_laddr = "0.0.0.0:6067"
+http_request_log = false
+prometheus_metrics_cache_interval = "1s"

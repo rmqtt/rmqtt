@@ -1,0 +1,61 @@
+##--------------------------------------------------------------------
+## rmqtt-flapping (connection-gate fixture)
+##--------------------------------------------------------------------
+## Thresholds small enough that a test can cross a ban and wait it out in
+## a few seconds. Only `by_clientid` is enabled: an enabled `by_peerhost`
+## policy would count every attempt from 127.0.0.1 into one key and ban
+## the whole test, including the watcher client that is supposed to read
+## the `$SYS` notice.
+##
+## See more keys: https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/flapping.md
+
+enable = true
+
+## Room for the handful of keys this fixture ever creates. A table that
+## saturates fails open (untracked), which would silently disarm the
+## assertions below, so keep it far above the keys in play.
+max_track = 1000
+
+## One sweep per second: the ban table and the window table are both
+## observed from the assertions within seconds.
+gc_interval = "1s"
+
+##--------------------------------------------------------------------
+## Per-dimension policies
+##--------------------------------------------------------------------
+
+## Four attempts inside the window trip the gate; the attempt that reaches
+## the count is itself refused. The threshold is the only dimension in use
+## here, which keeps every refusal in this fixture attributable to a
+## ClientId and nothing else.
+[by_clientid]
+window_time = "60s"
+max_count = 4
+## Short enough to observe the lapse within a test case, long enough that
+## the assertions before the wait cannot race it.
+ban_time = "5s"
+
+##--------------------------------------------------------------------
+## Notification
+##--------------------------------------------------------------------
+notify_sys_topic = true
+sys_topic = "$SYS/brokers/{node}/flapping/banned"
+sys_topic_qos = 0
+message_expiry_interval = "1m"
+
+## Off: the ban notice is the interesting event, and one message per
+## reconnect would make the assertions below pick the wrong one.
+notify_on_every_refusal = false
+
+## On: the management-API case lifts a ban and asserts the announcement.
+notify_on_unban = true
+sys_topic_unban = "$SYS/brokers/{node}/flapping/unbanned"
+
+##--------------------------------------------------------------------
+## Exemptions
+##--------------------------------------------------------------------
+## The watcher is not exempt on purpose: it connects once, and one attempt
+## is nowhere near the threshold.
+allow_clientids = []
+allow_usernames = []
+allow_peerhosts = []

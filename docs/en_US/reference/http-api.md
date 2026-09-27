@@ -89,7 +89,7 @@ GET /api/v1/features
 GET /api/v1/features/{id}
 ```
 
-Returns the supported feature state of every cluster node (`retain`, `message_storage`, `session_storage`, `delayed`, `shared_subscription`, `auto_subscription`), plus a cluster-wide consistency summary:
+Returns the supported feature state of every cluster node (`retain`, `message_storage`, `session_storage`, `delayed`, `shared_subscription`, `auto_subscription`, `flapping`), plus a cluster-wide consistency summary:
 
 - `consistent`: whether all reachable nodes agree on every feature flag
 - `conflicts`: fields with inconsistent values, grouped by value with the affected node ids
@@ -378,6 +378,37 @@ GET /api/v1/metrics/prometheus/sum
 ```
 
 Returns metrics in Prometheus text format (`text/plain`).
+
+---
+
+## 10. Connection Gate (Flapping)
+
+Requires the `rmqtt-flapping` plugin. The ban table is node-local, so both endpoints answer for the node that receives the request instead of aggregating the cluster.
+
+### List Bans
+
+```
+GET /api/v1/flapping/banned
+```
+
+Query parameters:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `dimension` | `string` | (all) | `clientid`, `username` or `peerhost`; empty means every dimension |
+| `key` | `string` | (all) | Exact match against the ban's key |
+| `offset` | `usize` | `0` | Pagination offset |
+| `limit` | `usize` | `max_row_limit` | Page size, clamped to `max_row_limit` |
+
+Returns `{ "available": bool, "items": [...], "has_more": bool, "banned_count": n }`, where each item carries `dimension`, `key`, `count`, `banned_at`, `banned_until`, `remaining_ms`, `last_clientid` and `last_ipaddress`. `available` is `false` when no gate is installed or it is not screening — the list is then truthfully empty, and the flag is what tells that apart from a gate that is screening and has nothing banned; the same state is reported as `flapping` by `GET /api/v1/features`. An unknown `dimension` is a `400`.
+
+### Lift a Ban
+
+```
+DELETE /api/v1/flapping/banned?dimension=clientid&key=device-01
+```
+
+Both `dimension` and `key` travel as **query parameters**, never as path segments: a key is matched exactly as typed and may contain `/`. Returns `{ "dimension": ..., "key": ..., "unbanned": true }`, `400` for a missing/unknown parameter, or `404` when there was no ban to lift.
 
 ---
 

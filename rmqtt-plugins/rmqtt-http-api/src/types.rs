@@ -434,6 +434,12 @@ pub struct Features {
     pub shared_subscription: bool,
     /// Automatic subscriptions (`rmqtt-auto-subscription` plugin).
     pub auto_subscription: bool,
+    /// Connection flapping protection (`rmqtt-flapping` plugin).
+    ///
+    /// Set from the gate itself, not from whether the plugin was loaded: a gate
+    /// that is installed but switched off refuses nothing, so it reports
+    /// `false` and the node is honestly described as not screening.
+    pub flapping: bool,
 }
 
 /// Aggregated feature support state across all cluster nodes.
@@ -513,6 +519,28 @@ pub struct DelayedPublishQueryParams {
     /// Empty means all. Invalid filters are rejected with 400.
     #[serde(default)]
     pub topic_filter: String,
+    /// Pagination offset. Default: 0.
+    #[serde(default)]
+    pub offset: usize,
+    /// Page size. `0` or values above `max_row_limit` are capped by the caller.
+    #[serde(default)]
+    pub limit: usize,
+}
+
+/// Query params for `GET /flapping/banned`.
+///
+/// `dimension` and `key` are optional filters rather than path segments: a
+/// ClientId and a username are arbitrary UTF-8 and may contain `/`, which a
+/// path segment cannot carry. `delayed_publishs/detail` takes its topic this
+/// way for the same reason.
+#[derive(Deserialize, Debug)]
+pub struct FlappingBannedQueryParams {
+    /// `clientid`, `username` or `peerhost`. Empty/absent means every dimension.
+    #[serde(default)]
+    pub dimension: String,
+    /// Exact key to filter by. Empty/absent means every key.
+    #[serde(default)]
+    pub key: String,
     /// Pagination offset. Default: 0.
     #[serde(default)]
     pub offset: usize,

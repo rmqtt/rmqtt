@@ -152,6 +152,23 @@ pub trait TestCase: Send + Sync {
         None
     }
 
+    /// Broker listen address this test case's config expects, when it differs
+    /// from the harness-wide `--addr`.
+    ///
+    /// Only meaningful together with [`TestCase::broker_config`]: while the
+    /// `{suite}@{config}` sub-suite runs, the harness health-probes *this*
+    /// address instead of `--addr`, so a fixture that pins its own ports (e.g.
+    /// `configs/flapping` on MQTT 1902) is not forced onto the shared 1883
+    /// that most configs use. `None` (the default) keeps the harness-wide
+    /// address.
+    ///
+    /// Like `broker_config`, this is part of the *grouping* key: cases
+    /// declaring the same config and the same address share a sub-suite, and
+    /// the scheduler only switches address at suite boundaries.
+    fn broker_addr(&self) -> Option<&'static str> {
+        None
+    }
+
     /// Test timeout (default: 60 seconds)
     fn timeout(&self) -> Duration {
         Duration::from_secs(60)

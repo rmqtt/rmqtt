@@ -35,6 +35,7 @@
           { key: 'delayed',               labelKey: 'overview.features_delayed' },
           { key: 'shared_subscription',   labelKey: 'overview.features_shared_subscription' },
           { key: 'auto_subscription',     labelKey: 'overview.features_auto_subscription' },
+          { key: 'flapping',              labelKey: 'overview.features_flapping' },
         ];
         return keys.map(function(item) {
           return { key: item.key, label: self.$t(item.labelKey), enabled: !!f[item.key] };

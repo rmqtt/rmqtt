@@ -24,6 +24,7 @@ use tokio::sync::oneshot;
 use rmqtt::{
     codec::v5::PublishProperties,
     context::ServerContext,
+    flapping::{BanInfo, BanQuery, Dimension},
     grpc::{
         GrpcClient, Message as GrpcMessage, MessageBroadcaster, MessageReply as GrpcMessageReply,
         MessageSender, MessageType,
@@ -49,9 +50,9 @@ use super::flusher::{HistoryCache, HistoryCaches};
 use super::prome::{Monitor, PROME_MONITOR};
 use super::types::{
     ClientSearchParams, ClientSearchResult, DelayedPublishEntry, DelayedPublishQueryParams, FeatureConflict,
-    FeatureValueGroup, Features, FeaturesInfo, FeaturesInfoOrError, FeaturesSummary, HistoryData,
-    HistoryQuery, Message, MessageReply, PrometheusDataType, PublishParams, RetainInfo, RetainQueryParams,
-    SubscribeParams, UnsubscribeParams,
+    FeatureValueGroup, Features, FeaturesInfo, FeaturesInfoOrError, FeaturesSummary,
+    FlappingBannedQueryParams, HistoryData, HistoryQuery, Message, MessageReply, PrometheusDataType,
+    PublishParams, RetainInfo, RetainQueryParams, SubscribeParams, UnsubscribeParams,
 };
 use super::{clients, plugin, prome, subs, PluginConfigType};
 
@@ -155,6 +156,10 @@ fn route(
                 .push(Router::with_path("{clientid}").get(get_client_subscriptions)),
         )
         .push(Router::with_path("routes").get(get_routes).push(Router::with_path("{topic}").get(get_route)))
+        .push(
+            Router::with_path("flapping")
+                .push(Router::with_path("banned").get(get_flapping_banned).delete(delete_flapping_ban)),
+        )
         .push(Router::with_path("retains").get(get_retains).delete(delete_retain))
         .push(
             Router::with_path("delayed_publishs")
@@ -325,7 +330,7 @@ async fn list_apis(res: &mut Response) {
             "name": "get_features",
             "method": "GET",
             "path": "/api/v1/features[/{node}]",
-            "descr": "Returns the supported feature state (retain/message_storage/session_storage/delayed/shared_subscription/auto_subscription) of cluster nodes"
+            "descr": "Returns the supported feature state (retain/message_storage/session_storage/delayed/shared_subscription/auto_subscription/flapping) of cluster nodes"
         },
         {
             "name": "check_health",
@@ -393,6 +398,18 @@ async fn list_apis(res: &mut Response) {
             "method": "GET",
             "path": "/api/v1/routes/{topic}",
             "descr": "Get routing information from the cluster"
+        },
+        {
+            "name": "get_flapping_banned",
+            "method": "GET",
+            "path": "/api/v1/flapping/banned",
+            "descr": "List the connection bans the flapping plugin enforces on this node, filtered by dimension/key"
+        },
+        {
+            "name": "delete_flapping_ban",
+            "method": "DELETE",
+            "path": "/api/v1/flapping/banned",
+            "descr": "Lift one connection ban by hand (dimension and key as query parameters)"
         },
         {
             "name": "get_retains",
@@ -899,6 +916,7 @@ pub(crate) async fn build_features(scx: &ServerContext) -> FeaturesInfo {
             delayed: extends.delayed_sender().await.enable(),
             shared_subscription: extends.shared_subscription().await.is_supported(),
             auto_subscription: extends.auto_subscription().await.enable(),
+            flapping: extends.flapping().await.available(),
         },
     }
 }
@@ -998,13 +1016,14 @@ type FeatureGetter = (&'static str, fn(&Features) -> bool);
 /// when some nodes report `true` while others report `false`.
 #[inline]
 fn summarize_features(successes: &[FeaturesInfo]) -> (bool, Vec<FeatureConflict>) {
-    let feature_getters: [FeatureGetter; 6] = [
+    let feature_getters: [FeatureGetter; 7] = [
         ("retain", |f| f.retain),
         ("message_storage", |f| f.message_storage),
         ("session_storage", |f| f.session_storage),
         ("delayed", |f| f.delayed),
         ("shared_subscription", |f| f.shared_subscription),
         ("auto_subscription", |f| f.auto_subscription),
+        ("flapping", |f| f.flapping),
     ];
 
     let mut conflicts = Vec::new();
@@ -3789,9 +3808,190 @@ fn aggregate_history_data(
     (data, node_count)
 }
 
+/// List the bans the flapping plugin enforces on *this* node.
+///
+/// The ban table lives in the node that refuses the connection — nothing ties a
+/// ClientId to a node — so this endpoint answers for one node instead of
+/// aggregating the cluster: an aggregate would advertise bans this node does
+/// not enforce.
+///
+/// Query params: `dimension` (`clientid`/`username`/`peerhost`), `key` (exact
+/// match), `offset`, `limit`.
+///
+/// A gate that is not installed, or is installed but switched off, is answered
+/// with an empty page and `available: false` instead of an error: the list is
+/// genuinely empty, and the flag is what keeps that apart from "the gate is
+/// screening and nothing is banned". `GET /api/v1/features` reports the same
+/// state under `flapping`, for a caller that would rather ask once.
+#[handler]
+async fn get_flapping_banned(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> std::result::Result<(), salvo::Error> {
+    let (scx, cfg) = get_scx_cfg(depot)?;
+    let max_row_limit = cfg.read().await.max_row_limit;
+
+    let mut q = match req.parse_queries::<FlappingBannedQueryParams>() {
+        Ok(q) => q,
+        Err(e) => {
+            res.render(StatusError::bad_request().detail(e.to_string()));
+            return Ok(());
+        }
+    };
+    if q.limit == 0 || q.limit > max_row_limit {
+        q.limit = max_row_limit;
+    }
+
+    let dimension = match flapping_dimension(&q.dimension) {
+        Ok(dimension) => dimension,
+        Err(msg) => {
+            res.render(StatusError::bad_request().detail(msg));
+            return Ok(());
+        }
+    };
+
+    let flapping = scx.extends.flapping().await;
+    let available = flapping.available();
+
+    let key = if q.key.is_empty() { None } else { Some(q.key.clone()) };
+    // One row beyond the page is what tells `has_more` apart from a page that
+    // merely happens to be exactly full.
+    let query = BanQuery { dimension, key, offset: q.offset, limit: q.limit.saturating_add(1) };
+    let (items, has_more) = paginate_bans(flapping.banned(query).await, q.limit);
+    let banned_count = flapping.banned_count().await;
+    // `available` leads: while it is `false` every other field is truthful but
+    // uninformative, and a reader that stops at the first field is told so.
+    res.render(Json(json!({
+        "available": available,
+        "items": items,
+        "has_more": has_more,
+        "banned_count": banned_count,
+    })));
+    Ok(())
+}
+
+/// Lift one ban by hand.
+///
+/// `dimension` and `key` are both required and both travel as query parameters,
+/// never as path segments: the key is exact-matched as typed (a ClientId may
+/// legally begin or end with a space), and it can contain `/`.
+///
+/// Lifting a ban that is not there is a `404`, and that includes every ban of a
+/// gate which is not screening: with no gate installed there is nothing to
+/// lift.
+#[handler]
+async fn delete_flapping_ban(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) -> std::result::Result<(), salvo::Error> {
+    let (scx, _cfg) = get_scx_cfg(depot)?;
+
+    let dimension = match req.query::<String>("dimension") {
+        Some(text) => match Dimension::parse(text.trim()) {
+            Some(dimension) => dimension,
+            None => {
+                res.render(StatusError::bad_request().detail(format!(
+                    "invalid dimension: {text}, expected one of clientid, username, peerhost"
+                )));
+                return Ok(());
+            }
+        },
+        None => {
+            res.render(
+                StatusError::bad_request().detail("dimension is required (clientid|username|peerhost)"),
+            );
+            return Ok(());
+        }
+    };
+
+    let key = match req.query::<String>("key") {
+        Some(key) if !key.is_empty() => key,
+        _ => {
+            res.render(StatusError::bad_request().detail("key is required and must not be empty"));
+            return Ok(());
+        }
+    };
+
+    let flapping = scx.extends.flapping().await;
+    // No `available()` guard here. A gate that is not screening holds no bans,
+    // so there is nothing to lift — which is what the `404` below already says,
+    // and saying it once keeps this endpoint free of a `5xx` for a state the
+    // operator chose.
+    if !flapping.unban(dimension, &key).await {
+        res.render(StatusError::not_found().detail(format!("no ban on {} '{key}'", dimension.as_str())));
+        return Ok(());
+    }
+
+    log::info!("HTTP API lifted the flapping ban on {} '{key}'", dimension.as_str());
+    res.render(Json(json!({ "dimension": dimension, "key": key, "unbanned": true })));
+    Ok(())
+}
+
+/// Splits the one extra row back off the page it was fetched to detect.
+fn paginate_bans(mut page: Vec<BanInfo>, limit: usize) -> (Vec<BanInfo>, bool) {
+    let has_more = page.len() > limit;
+    page.truncate(limit);
+    (page, has_more)
+}
+
+/// Parses the `dimension` query parameter. An empty string means "every
+/// dimension"; an unknown name is an error rather than a silently ignored
+/// filter, because this is the one selector an operator types by hand.
+fn flapping_dimension(text: &str) -> std::result::Result<Option<Dimension>, String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    Dimension::parse(text)
+        .map(Some)
+        .ok_or_else(|| format!("invalid dimension: {text}, expected one of clientid, username, peerhost"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A page that comes back exactly full must not claim there is more: the
+    /// caller fetches one row beyond the page precisely to tell the two apart.
+    #[test]
+    fn flapping_page_reports_has_more_from_the_extra_row() {
+        let entry = || BanInfo {
+            dimension: Dimension::ClientId,
+            key: "dev-1".to_string(),
+            count: 3,
+            banned_at: "2026-01-01 00:00:00.000".to_string(),
+            banned_until: "2026-01-01 00:05:00.000".to_string(),
+            remaining_ms: 1_000,
+            last_clientid: None,
+            last_ipaddress: None,
+        };
+
+        let (items, has_more) = paginate_bans(vec![entry(); 3], 2);
+        assert_eq!(items.len(), 2);
+        assert!(has_more);
+
+        let (items, has_more) = paginate_bans(vec![entry(); 2], 2);
+        assert_eq!(items.len(), 2);
+        assert!(!has_more);
+
+        let (items, has_more) = paginate_bans(vec![], 2);
+        assert!(items.is_empty());
+        assert!(!has_more);
+    }
+
+    /// The dimension is the one selector an operator types by hand, so an
+    /// unknown name is rejected instead of being treated as "every dimension".
+    #[test]
+    fn flapping_dimension_names_are_parsed_strictly() {
+        assert_eq!(flapping_dimension("").unwrap(), None);
+        assert_eq!(flapping_dimension("   ").unwrap(), None);
+        assert_eq!(flapping_dimension("clientid").unwrap(), Some(Dimension::ClientId));
+        assert_eq!(flapping_dimension(" peerhost ").unwrap(), Some(Dimension::PeerHost));
+        assert!(flapping_dimension("ClientId").is_err());
+        assert!(flapping_dimension("ip").is_err());
+    }
 
     /// Build the expected digest the same way `BearerValidator::new` does.
     fn expected_digest_for(token: &str) -> [u8; SHA256_DIGEST_LEN] {
