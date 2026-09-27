@@ -450,6 +450,7 @@ fn build_functional_v311_suite() -> TestSuite {
     use tests::functional::empty_clientid_cleansession0_v311::*;
     use tests::functional::flapping_v311::*;
     use tests::functional::keepalive::*;
+    use tests::functional::kick_takeover_race::*;
     use tests::functional::last_will::*;
     use tests::functional::multi_topic::*;
     use tests::functional::protocol_error::*;
@@ -604,6 +605,11 @@ fn build_functional_v311_suite() -> TestSuite {
     suite.add(FlappingBanV311Test);
     // G14 concurrent session takeover
     suite.add(SessionV311TakeoverTest);
+    // A takeover racing the outgoing session's own teardown must not be
+    // refused with 0x03 ServerUnavailable: the `kick` ack is diagnostic only,
+    // and the session being replaced is already gone. See
+    // tests/functional/kick_takeover_race.rs.
+    suite.add(KickRaceSessionTakeoverV311Test);
     // G15 empty topic levels
     suite.add(WildcardEmptyLevelsV311Test);
     // G16 overlapping wildcard subscriptions
@@ -768,6 +774,7 @@ fn build_functional_v5_suite() -> TestSuite {
     use tests::functional::flow_control_v5::*;
     use tests::functional::issue513_message_lifecycle::*;
     use tests::functional::keepalive::*;
+    use tests::functional::kick_takeover_race::*;
     use tests::functional::last_will::*;
     use tests::functional::max_packet_size_v5::*;
     use tests::functional::no_local_v5::*;
@@ -816,6 +823,11 @@ fn build_functional_v5_suite() -> TestSuite {
     // never reaches the wire (bare FIN instead). Takeover is the reproduction;
     // see server_disconnect_v5.rs for the full evidence chain.
     suite.add(TakeoverSendsDisconnect0x8eV5Test);
+    // A takeover racing the outgoing session's own teardown must not be
+    // refused with 0x88 ServerUnavailable: the `kick` ack only feeds a log
+    // line, so it cannot decide the takeover, and the session being replaced
+    // is already gone. See tests/functional/kick_takeover_race.rs.
+    suite.add(KickRaceSessionTakeoverV5Test);
     suite.add(SessionCleanStartV5Test);
     // Will delay
     suite.add(WillDelayV5Test);
