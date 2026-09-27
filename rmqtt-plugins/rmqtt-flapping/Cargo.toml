@@ -1,0 +1,26 @@
+[package]
+name = "rmqtt-flapping"
+version.workspace = true
+description = "RMQTT connection flapping protection: counts connection attempts per ClientId, username or source address in a sliding window and refuses the offenders for a configurable time."
+repository = "https://github.com/rmqtt/rmqtt/tree/master/rmqtt-plugins/rmqtt-flapping"
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rmqtt = { workspace = true, features = ["plugin", "msgstore", "metrics", "flapping"] }
+tokio = { workspace = true, features = ["sync", "time", "rt"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+async-trait.workspace = true
+log.workspace = true
+bytes.workspace = true
+bytestring.workspace = true
+chrono = { workspace = true, features = ["clock"] }
+parking_lot.workspace = true
+
+[dev-dependencies]
+toml.workspace = true

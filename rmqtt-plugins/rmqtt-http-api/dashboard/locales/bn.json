@@ -155,6 +155,7 @@
     "features_delayed": "বিলম্বিত বার্তা",
     "features_shared_subscription": "শেয়ার্ড সাবস্ক্রিপশন",
     "features_auto_subscription": "স্বয়ংক্রিয় সাবস্ক্রিপশন",
+    "features_flapping": "ফ্ল্যাপিং সুরক্ষা",
     "features_tab_title": "বৈশিষ্ট্য সমর্থন"
   },
   "gauge": {

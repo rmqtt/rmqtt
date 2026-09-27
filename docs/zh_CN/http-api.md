@@ -268,7 +268,7 @@ $ curl -i -X GET "http://localhost:6060/api/v1/nodes/1"
 | nodes         | Array | 逐节点明细；不可达节点为错误字符串且不参与一致性比较 |
 | - nodes[i].node_id    | Integer | 节点ID |
 | - nodes[i].node_name  | String | 节点名称 |
-| - nodes[i].features   | Object | 六项功能支持状态：`retain`、`message_storage`、`session_storage`、`delayed`、`shared_subscription`、`auto_subscription` |
+| - nodes[i].features   | Object | 七项功能支持状态：`retain`、`message_storage`、`session_storage`、`delayed`、`shared_subscription`、`auto_subscription`、`flapping` |
 
 **Examples:**
 
@@ -299,7 +299,8 @@ $ curl -i -X GET "http://localhost:6060/api/v1/features"
         "session_storage": false,
         "delayed": true,
         "shared_subscription": true,
-        "auto_subscription": false
+        "auto_subscription": false,
+        "flapping": false
       }
     }
   ]
@@ -324,14 +325,14 @@ $ curl -i -X GET "http://localhost:6060/api/v1/features"
 |---------------|------|-------------|
 | node_id       | Integer | 节点ID |
 | node_name     | String | 节点名称 |
-| features      | Object | 六项功能支持状态：`retain`、`message_storage`、`session_storage`、`delayed`、`shared_subscription`、`auto_subscription` |
+| features      | Object | 七项功能支持状态：`retain`、`message_storage`、`session_storage`、`delayed`、`shared_subscription`、`auto_subscription`、`flapping` |
 
 **Examples:**
 
 ```bash
 $ curl -i -X GET "http://localhost:6060/api/v1/features/1"
 
-{"node_id":1,"node_name":"rmqtt@127.0.0.1","features":{"retain":true,"message_storage":false,"session_storage":false,"delayed":true,"shared_subscription":true,"auto_subscription":false}}
+{"node_id":1,"node_name":"rmqtt@127.0.0.1","features":{"retain":true,"message_storage":false,"session_storage":false,"delayed":true,"shared_subscription":true,"auto_subscription":false,"flapping":false}}
 ```
 
 ## 健康检查
@@ -569,6 +570,82 @@ $ curl -i -X DELETE "http://localhost:6060/api/v1/clients/offlines?clientid=exam
 $ curl -i -X GET "http://localhost:6060/api/v1/clients/example1/online"
 
 false
+```
+
+## 连接封禁
+
+需要加载 `rmqtt-flapping` 插件。封禁表是节点本地的，因此这两个端点只回答收到请求的那个节点，不跨集群聚合。
+
+### GET /api/v1/flapping/banned
+
+返回本节点当前生效中的连接封禁。
+
+**Query String Parameters:**
+
+| Name       | Type    | Required | Description                     |
+| ---------- | ------- | -------- | ------------------------------- |
+| dimension  | String  | False    | `clientid`、`username` 或 `peerhost`；留空为全部维度 |
+| key        | String  | False    | 与封禁的键做精确匹配；留空为全部键                |
+| offset     | Integer | False    | 跳过的条目数，默认 0                     |
+| limit      | Integer | False    | 每页条数，默认 `max_row_limit`，会被裁剪到 `max_row_limit` |
+
+**Success Response Body (JSON):**
+
+| Name         | Type             | Description                        |
+|--------------|------------------|------------------------------------|
+| available    | Bool             | 本节点是否装有门禁且正在筛检；为 `false` 表示该功能未投入使用，此时其余字段如实地为空 |
+| items        | Array of Objects | 封禁条目列表                             |
+| has_more     | Bool             | 是否还有下一页                            |
+| banned_count | Integer          | 本节点生效中的封禁总数（不受 `dimension`/`key` 过滤影响） |
+
+**items 元素:**
+
+| Name           | Type    | Description              |
+|----------------|---------|--------------------------|
+| dimension      | String  | 封禁所属维度                   |
+| key            | String  | 封禁所依据的 ClientId / 用户名 / 来源 IP |
+| count          | Integer | 触发封禁时窗口内的尝试次数            |
+| banned_at      | String  | 封禁创建时间                   |
+| banned_until   | String  | 封禁到期时间                   |
+| remaining_ms   | Integer | 距到期剩余毫秒数（构造应答时测量）        |
+| last_clientid  | String  | 触发封禁的那次尝试的 ClientId       |
+| last_ipaddress | String  | 触发封禁的那次尝试的来源地址           |
+
+未装门禁、或门禁已加载但未在筛检时（未启用任何维度，或 `enable = false`）返回 `200`，`available` 为 `false` 且列表为空——空列表本身就是合法结果，没有错误要报；这个标志把该状态与「门禁在筛检、只是没人被封」区分开。`dimension` 为未知名称时返回 `400`。
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/flapping/banned?dimension=clientid"
+
+{"available":true,"items":[{"dimension":"clientid","key":"device-01","count":4,"banned_at":"2026-09-27 11:02:14.118","banned_until":"2026-09-27 11:07:14.118","remaining_ms":282000,"last_clientid":"device-01","last_ipaddress":"192.168.1.10:54321"}],"has_more":false,"banned_count":1}
+```
+
+### DELETE /api/v1/flapping/banned
+
+手工解除一条封禁。`dimension` 与 `key` **都作为查询参数**传递，不放进路径段：键按原样精确匹配（ClientId 合法地允许包含空格或 `/`），塞进路径无法保证安全。
+
+**Query String Parameters:**
+
+| Name       | Type   | Required | Description                |
+| ---------- | ------ | -------- | -------------------------- |
+| dimension  | String | True     | `clientid`、`username` 或 `peerhost` |
+| key        | String | True     | 要解封的键，不能为空                 |
+
+**Success Response Body (JSON):**
+
+```json
+{ "dimension": "clientid", "key": "device-01", "unbanned": true }
+```
+
+`400`：`dimension` 缺失或非法，或 `key` 缺失/为空。`404`：该键上本来就没有封禁可解——未在筛检的门禁根本不存在任何封禁，因此对任意键都回 `404`。
+
+**Examples:**
+
+```bash
+$ curl -i -X DELETE "http://localhost:6060/api/v1/flapping/banned?dimension=clientid&key=device-01"
+
+{"dimension":"clientid","key":"device-01","unbanned":true}
 ```
 
 ## 订阅信息
@@ -1197,6 +1274,8 @@ true
 | retained.max               | Integer | 保留消息的历史最大值                |
 | delayed_publishs.count     | Integer | 当前延迟发布消息数量                |
 | delayed_publishs.max       | Integer | 延迟发布消息数量的历史最大值            |
+| flapping_banned.count      | Integer | 当前生效中的连接封禁数量              |
+| flapping_banned.max        | Integer | 连接封禁数量的历史最大值              |
 | forwards.count             | Integer | 当前转发消息数量                 |
 | forwards.max               | Integer | 转发消息数量的历史最大值              |
 | in_inflights.count         | Integer | 当前入方向飞行消息数量（待 ACK）          |
@@ -1471,6 +1550,8 @@ $ curl -i -X GET "http://localhost:6060/api/v1/stats/history/sum?minutes=30&limi
 | client.subscribe.check.acl      | Integer | 订阅，ACL 规则检查次数                    |
 | client.subscribe                | Integer | 客户端订阅次数                          |
 | client.unsubscribe              | Integer | 客户端取消订阅次数                        |
+| conn.flapping.banned            | Integer | 因抖动防护而创建的连接封禁累计数（每次判定计一次，非每次被拒计一次） |
+| conn.flapping.refused           | Integer | 因封禁生效而被拒绝的连接累计数                  |
 | messages.publish                | Integer | 接收到PUBLISH消息数量                   |
 | messages.publish.admin          | Integer | 通过HTTP-API发布的消息                   |
 | messages.publish.bridge         | Integer | 通过 Bridge 桥接发布的消息                 |

@@ -5239,6 +5239,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "rmqtt-flapping"
+version = "0.25.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "bytestring",
+ "chrono",
+ "log",
+ "parking_lot 0.12.5",
+ "rmqtt",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
 name = "rmqtt-http-api"
 version = "0.25.0"
 dependencies = [
@@ -5351,6 +5368,7 @@ dependencies = [
  "rmqtt-cluster-raft",
  "rmqtt-counter",
  "rmqtt-delayed",
+ "rmqtt-flapping",
  "rmqtt-http-api",
  "rmqtt-message-storage",
  "rmqtt-p2p-messaging",
@@ -5627,6 +5645,7 @@ dependencies = [
  "rmqtt-conf",
  "rmqtt-counter",
  "rmqtt-delayed",
+ "rmqtt-flapping",
  "rmqtt-http-api",
  "rmqtt-message-storage",
  "rmqtt-net",

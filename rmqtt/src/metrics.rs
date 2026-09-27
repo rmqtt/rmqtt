@@ -142,4 +142,12 @@ pub struct Metrics {
     // delivered from memory, so this is a durability downgrade rather than a
     // delivery drop: a further broker restart would lose them.
     messages_offline_saves_dropped: AtomicUsize,
+
+    // Connection-gate counters. `conn_flapping_banned` counts bans *created* by
+    // the flapping plugin (one per detection, not one per refused attempt);
+    // `conn_flapping_refused` counts every connection refused because a ban was
+    // in force. Both only increase, so they belong here rather than in
+    // `Stats`, whose `flapping_banned` *falls* when a ban lapses.
+    conn_flapping_banned: AtomicUsize,
+    conn_flapping_refused: AtomicUsize,
 }

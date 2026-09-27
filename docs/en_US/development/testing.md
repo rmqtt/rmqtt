@@ -117,6 +117,14 @@ cargo build -p rmqtt-test --release
 > declare it via `TestCase::broker_config()`; at build time they are split into
 > `{suite}@{config}` sub-suites (e.g. `functional_v5@retain-disabled`), and the
 > scheduler restarts the broker to switch configs **only at suite boundaries**.
+>
+> Such a config normally also has to listen on the harness `--addr` (default
+> `127.0.0.1:1883`), because that is the port the health check probes. A fixture
+> that wants its own port declares it too, via `TestCase::broker_addr()`: the
+> scheduler then retargets the probe at that address for as long as the
+> sub-suite runs. `configs/flapping` (`127.0.0.1:1902`) and
+> `configs/flapping-order` (`127.0.0.1:1903`) are the ones doing that today.
+>
 > An explicit config can be given:
 >
 > ```bash
@@ -129,17 +137,22 @@ cargo build -p rmqtt-test --release
 | Suite | Cases | What It Tests |
 |-------|-------|---------------|
 | `functional_v3` | 51 | MQTT 3.1 spec conformance: connect (wrong name/level/reserved flag/empty client id/long id), QoS 0/1/2 pub/sub, QoS 2 dedup & PUBREL resend, retained messages, last will, keep alive, session persistence, wildcards (incl. `$SYS`), boundary payloads, protocol errors |
-| `functional_v311` | 111 | MQTT 3.1.1 spec conformance: connect (incl. second-CONNECT rejection [MQTT-3.1.0-2]), QoS 0/1/2, retained edge cases, will QoS2, keep-alive 1.5× timeout, session present/resume, wildcard matching, shared subscriptions, protocol errors |
-| `functional_v5` | 108 | MQTT 5.0 spec conformance: CONNACK capability advertisement, session expiry (incl. DISCONNECT SEI=0 [MQTT-3.14.2-2]), topic alias (incl. unknown alias / alias above the advertised maximum → 0x94), flow control, max packet size, subscription identifiers, retain handling, will delay, enhanced-auth rejection (0x8C), protocol errors |
+| `functional_v311` | 112 | MQTT 3.1.1 spec conformance: connect (incl. second-CONNECT rejection [MQTT-3.1.0-2]), QoS 0/1/2, retained edge cases, will QoS2, keep-alive 1.5× timeout, session present/resume, wildcard matching, shared subscriptions, protocol errors, flapping protection (the 0x05 fallback) |
+| `functional_v5` | 111 | MQTT 5.0 spec conformance: CONNACK capability advertisement, session expiry (incl. DISCONNECT SEI=0 [MQTT-3.14.2-2]), topic alias (incl. unknown alias / alias above the advertised maximum → 0x94), flow control, max packet size, subscription identifiers, retain handling, will delay, enhanced-auth rejection (0x8C), protocol errors, flapping protection (0x8A bans, HTTP unban, and refused CONNECTs still reaching the observers) |
 | `stress` | 6 | Connection load (100 clients), publish load (1000 msgs), fan-out (1→N), mixed QoS 0/1/2, mass subscription, retain flood |
 | `chaos` | 19 | Broker restart (single node, cluster broadcast/raft, whole-cluster), restored-session routing, connection churn, reconnect storm, QoS 1 reliability, slow consumer, session-storage startup load and offline-flood boundedness |
 
-> Of the 108 `functional_v5` cases, `will_retain_rejected_when_retain_unavailable_v5`
-> (requires the retainer plugin to be disabled) and `qos2_pubrel_resume_collision`
-> (requires message-storage) are automatically split into the
-> `functional_v5@retain-disabled` and `functional_v5@pubrel-collision`
-> sub-suites; the remaining 106 run in the default-config group
-> `functional_v5`. Config switches happen only at suite boundaries.
+> Of the 111 `functional_v5` cases, `will_retain_rejected_when_retain_unavailable_v5`
+> (requires the retainer plugin to be disabled), `qos2_pubrel_resume_collision`
+> (requires message-storage) and the three `flapping_*` cases (require the flapping
+> plugin and a broker listening on its own MQTT/HTTP ports) are automatically
+> split into the `functional_v5@retain-disabled`, `functional_v5@pubrel-collision`,
+> `functional_v5@flapping` and `functional_v5@flapping-order` sub-suites; the
+> remaining 106 run in the default-config group `functional_v5`. Config switches
+> happen only at suite boundaries. The third `flapping_*` case,
+> `flapping_observer_order_v5`, also needs `rmqtt-counter` running and a broker
+> process of its own: `client_connect` is a node-wide counter, so an exact
+> "CONNECTs sent == delta" assertion cannot be made on a shared broker.
 
 ### Test Case Architecture
 
@@ -150,6 +163,7 @@ pub trait TestCase: Send + Sync {
     fn name(&self) -> &str;
     fn execute(&self, ctx: &mut TestContext) -> TestResult;
     fn broker_config(&self) -> Option<PathBuf> { None } // required broker config (grouping hint)
+    fn broker_addr(&self) -> Option<&'static str> { None } // own port for that config, if any
     // defaults: timeout() = 60s, max_retries() = 0, depends_on() = []
 }
 ```

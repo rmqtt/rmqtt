@@ -267,7 +267,7 @@ Returns the feature support state of every cluster node plus a cluster-wide cons
 | nodes         | Array | Per-node details; unreachable nodes appear as error strings and are excluded from the consistency comparison |
 | - nodes[i].node_id    | Integer | Node ID |
 | - nodes[i].node_name  | String | Node name |
-| - nodes[i].features   | Object | Six feature flags: `retain`, `message_storage`, `session_storage`, `delayed`, `shared_subscription`, `auto_subscription` |
+| - nodes[i].features   | Object | Seven feature flags: `retain`, `message_storage`, `session_storage`, `delayed`, `shared_subscription`, `auto_subscription`, `flapping` |
 
 **Examples:**
 
@@ -298,7 +298,8 @@ $ curl -i -X GET "http://localhost:6060/api/v1/features"
         "session_storage": false,
         "delayed": true,
         "shared_subscription": true,
-        "auto_subscription": false
+        "auto_subscription": false,
+        "flapping": false
       }
     }
   ]
@@ -323,14 +324,14 @@ Returns the feature support state of a specific node.
 |---------------|------|-------------|
 | node_id       | Integer | Node ID |
 | node_name     | String | Node name |
-| features      | Object | Six feature flags: `retain`, `message_storage`, `session_storage`, `delayed`, `shared_subscription`, `auto_subscription` |
+| features      | Object | Seven feature flags: `retain`, `message_storage`, `session_storage`, `delayed`, `shared_subscription`, `auto_subscription`, `flapping` |
 
 **Examples:**
 
 ```bash
 $ curl -i -X GET "http://localhost:6060/api/v1/features/1"
 
-{"node_id":1,"node_name":"rmqtt@127.0.0.1","features":{"retain":true,"message_storage":false,"session_storage":false,"delayed":true,"shared_subscription":true,"auto_subscription":false}}
+{"node_id":1,"node_name":"rmqtt@127.0.0.1","features":{"retain":true,"message_storage":false,"session_storage":false,"delayed":true,"shared_subscription":true,"auto_subscription":false,"flapping":false}}
 ```
 
 ## Health Check
@@ -567,6 +568,82 @@ Check if the client is online
 $ curl -i -X GET "http://localhost:6060/api/v1/clients/example1/online"
 
 false
+```
+
+## Connection Gate
+
+Requires the `rmqtt-flapping` plugin. The ban table is node-local, so these two endpoints answer for the node that receives the request instead of aggregating the cluster.
+
+### GET /api/v1/flapping/banned
+
+Returns the connection bans currently in force on this node.
+
+**Query String Parameters:**
+
+| Name       | Type    | Required | Description                     |
+| ---------- | ------- | -------- | ------------------------------- |
+| dimension  | String  | False    | `clientid`, `username` or `peerhost`; empty means every dimension |
+| key        | String  | False    | Exact match against the ban's key; empty means every key |
+| offset     | Integer | False    | Entries to skip, default 0      |
+| limit      | Integer | False    | Page size, defaults to `max_row_limit` and is clamped to it |
+
+**Success Response Body (JSON):**
+
+| Name         | Type             | Description                        |
+|--------------|------------------|------------------------------------|
+| available    | Bool             | Whether a gate is installed and screening on this node; `false` means the feature is not in use, and every other field is then truthfully empty |
+| items        | Array of Objects | The bans in the page               |
+| has_more     | Bool             | Whether another page follows       |
+| banned_count | Integer          | Bans in force on this node, unaffected by the `dimension`/`key` filter |
+
+**items elements:**
+
+| Name           | Type    | Description                                     |
+|----------------|---------|-------------------------------------------------|
+| dimension      | String  | The dimension the ban belongs to                |
+| key            | String  | The ClientId / username / source IP the ban is keyed by |
+| count          | Integer | Attempts in the window that triggered the ban   |
+| banned_at      | String  | When the ban was created                        |
+| banned_until   | String  | When the ban lapses                             |
+| remaining_ms   | Integer | Milliseconds left, measured when the answer was built |
+| last_clientid  | String  | ClientId of the attempt that triggered the ban  |
+| last_ipaddress | String  | Source address of the attempt that triggered the ban |
+
+Returns `200` with `available: false` and an empty list when no gate is installed, or the gate is loaded but not screening (no dimension enabled, or `enable = false`) — an empty list is a valid answer, so there is no error to report, and the flag is what keeps that state apart from a gate that is screening and has nothing banned. Returns `400` for an unknown `dimension`.
+
+**Examples:**
+
+```bash
+$ curl -i -X GET "http://localhost:6060/api/v1/flapping/banned?dimension=clientid"
+
+{"available":true,"items":[{"dimension":"clientid","key":"device-01","count":4,"banned_at":"2026-09-27 11:02:14.118","banned_until":"2026-09-27 11:07:14.118","remaining_ms":282000,"last_clientid":"device-01","last_ipaddress":"192.168.1.10:54321"}],"has_more":false,"banned_count":1}
+```
+
+### DELETE /api/v1/flapping/banned
+
+Lift one ban by hand. `dimension` and `key` are both **query parameters**, never path segments: a key is matched exactly as typed (a ClientId may legally contain a space or a `/`), so it cannot be safely squeezed into a path.
+
+**Query String Parameters:**
+
+| Name       | Type   | Required | Description                |
+| ---------- | ------ | -------- | -------------------------- |
+| dimension  | String | True     | `clientid`, `username` or `peerhost` |
+| key        | String | True     | The key to lift the ban on; must not be empty |
+
+**Success Response Body (JSON):**
+
+```json
+{ "dimension": "clientid", "key": "device-01", "unbanned": true }
+```
+
+`400`: `dimension` missing or unknown, or `key` missing/empty. `404`: there was no ban on that key to lift — which includes every key of a gate that is not screening, since such a gate holds no bans at all.
+
+**Examples:**
+
+```bash
+$ curl -i -X DELETE "http://localhost:6060/api/v1/flapping/banned?dimension=clientid&key=device-01"
+
+{"dimension":"clientid","key":"device-01","unbanned":true}
 ```
 
 ## Subscription Information
@@ -1195,6 +1272,8 @@ Return all status data in the cluster.
 | retained.max               | Integer | Historical maximum number of retained messages |
 | delayed_publishs.count     | Integer | Number of current delayed publish messages |
 | delayed_publishs.max       | Integer | Historical maximum number of delayed publish messages |
+| flapping_banned.count      | Integer | Connection bans currently in force     |
+| flapping_banned.max        | Integer | Historical maximum number of connection bans |
 | forwards.count             | Integer | Number of current forwarded messages |
 | forwards.max               | Integer | Historical maximum number of forwarded messages |
 | in_inflights.count         | Integer | Current number of incoming inflight messages (awaiting ACK) |
@@ -1469,6 +1548,8 @@ Returns all statistical metrics under the cluster
 | client.subscribe.check.acl      | Integer   | Subscribe, Number of ACL rule checks                                                       |
 | client.subscribe                | Integer   | Number of client subscriptions                                                             |
 | client.unsubscribe              | Integer   | Number of client unsubscriptions                                                           |
+| conn.flapping.banned            | Integer   | Cumulative connection bans created by flapping protection (one per detection, not per refused attempt) |
+| conn.flapping.refused           | Integer   | Cumulative connections refused because a ban was in force                                   |
 | messages.publish                | Integer   | Number of received PUBLISH packet                                                          |
 | messages.publish.admin          | Integer   | Messages published via the HTTP API                                                        |
 | messages.publish.bridge         | Integer   | Messages published via Bridge                                                              |

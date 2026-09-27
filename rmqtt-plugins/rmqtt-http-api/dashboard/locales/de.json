@@ -155,6 +155,7 @@
     "features_delayed": "Verzögerte Nachrichten",
     "features_shared_subscription": "Gemeinsame Abonnements",
     "features_auto_subscription": "Automatisches Abonnement",
+    "features_flapping": "Flapping-Schutz",
     "features_tab_title": "Funktionsunterstützung"
   },
   "gauge": {

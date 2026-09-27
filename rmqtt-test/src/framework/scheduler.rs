@@ -22,10 +22,11 @@ impl TestScheduler {
 
     /// Run all test suites (synchronous - each test creates its own tokio runtime)
     ///
-    /// Before each suite, the broker is switched to `suite.config` if it is
-    /// not already running with it (config changes happen only at suite
-    /// boundaries). In `--no-broker` mode the switch is skipped with a single
-    /// warning; a failed switch aborts that suite and records an Error.
+    /// Before each suite, the broker is switched to `suite.config` (and, when
+    /// the config pins its own port, `suite.addr`) if it is not already
+    /// running with that pair — config and address changes happen only at
+    /// suite boundaries. In `--no-broker` mode the switch is skipped with a
+    /// single warning; a failed switch aborts that suite and records an Error.
     pub fn run(&mut self, suites: Vec<TestSuite>, ctx: &mut TestContext) {
         let mut warned_no_broker = false;
         for suite in suites {
@@ -38,7 +39,7 @@ impl TestScheduler {
                         );
                         warned_no_broker = true;
                     }
-                } else if let Err(e) = ctx.ensure_broker_config(target) {
+                } else if let Err(e) = ctx.ensure_broker_config(target, suite.addr.as_deref()) {
                     error!(
                         "failed to switch broker config for suite '{}' to {:?}: {}",
                         suite.name,

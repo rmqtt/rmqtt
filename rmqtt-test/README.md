@@ -152,6 +152,12 @@ configs/
                              # (self-managed 1896 allow-all / 1900 deny-all, ephemeral mock)
   webhook-connack-refused/   # client_connack web-hook on a REFUSED CONNECT
                              # (self-managed 1901, ephemeral mock receiver)
+  flapping/                  # connection flapping protection (1902 MQTT / 5379 gRPC /
+                             # 6066 http-api; harness-managed but owns its ports via
+                             # broker_addr(), allow_anonymous = true, by_clientid only)
+  flapping-order/            # ClientConnect observer order: flapping + counter, so a
+                             # refused CONNECT can be counted (1903 MQTT / 5380 gRPC /
+                             # 6067 http-api; own broker process, read by delta)
 ```
 
 **Per-test config switching**: a test case can declare its required config via
@@ -163,8 +169,12 @@ into a dedicated `{suite}@{config}` sub-suite (e.g.
 (restart) only at **suite boundaries**, and the default-config group keeps
 its original name with zero extra restarts.
 
-Port constraint: configs participating in auto-switching must listen on the
-harness `--addr` (default `127.0.0.1:1883`), otherwise the health check fails.
+Port constraint: a config participating in auto-switching must listen on the
+harness `--addr` (default `127.0.0.1:1883`), because that is the address the
+health check probes — **unless** its cases also declare
+`TestCase::broker_addr()`, which retargets the probe at that address for as
+long as the sub-suite runs. `configs/flapping` (`127.0.0.1:1902`) and
+`configs/flapping-order` (`127.0.0.1:1903`) are the two fixtures that do.
 
 ## 📋 Test Suites
 
@@ -189,7 +199,7 @@ and boundary scenarios:
 > The v3.1 client hand-builds the MQIsdp CONNECT bytes (`build_connect_bytes`)
 > because the codec hard-codes protocol level 4 (correct for 3.1.1/5.0).
 
-### `functional_v311` (111 cases) — MQTT 3.1.1
+### `functional_v311` (112 cases) — MQTT 3.1.1
 
 | Category | Cases |
 |----------|-------|
@@ -208,8 +218,9 @@ and boundary scenarios:
 | CONNACK return codes (self-managed brokers) | `connack_return_codes_auth_http_v311` (auth-http + in-test mock, port 1892) / `connack_not_authorized_v311` (auth-jwt, port 1893) — these cases spawn their own brokers and don't use the harness broker |
 | Issue #501 auth × ACL fallthrough (self-managed brokers) | `auth_http_ignore_allow_all_acl_v311` (auth service replies 404 → auth 'ignore'; acl `["allow", "all"]` promotes it → CONNACK 0x00 fail-open reproduction, port 1896) / `auth_http_ignore_deny_all_acl_v311` (acl `["deny", "all"]` backstop → CONNACK 0x05 fail-closed, port 1900) |
 | Web-hook on a refused CONNECT (self-managed broker) | `webhook_connack_refused_v311` — an anonymous CONNECT is refused with 0x05 **and** the `client_connack` event carrying that reason must reach an in-test mock web-hook receiver (port 1901, ephemeral receiver); the two halves are asserted separately, so the case was red before the hook was raised on refusals |
+| Flapping protection (harness broker) | `flapping_ban_v311` — CONNECTs up to the 4th are accepted, the 4th is refused, and MQTT 3.1.1 has no ban code so the fallback is pinned to **0x05** (deliberately not `0x03`, which invites an immediate reconnect); after `ban_time` lapses a single CONNECT goes through |
 
-### `functional_v5` (108 cases) — MQTT 5.0
+### `functional_v5` (111 cases) — MQTT 5.0
 
 | Category | Cases |
 |----------|-------|
@@ -238,6 +249,9 @@ and boundary scenarios:
 | Keep alive / TCP | `ping_v5` / `mqtt_keepalive_timeout_reclaims_tcp` / `tcp_keepalive_socket_option` (Linux-gated, skipped elsewhere) |
 | Message lifecycle (issue #513) | `retained_message_expiry_not_decremented_v5` [MQTT-3.3.2-6] — FIXED, now PASSing (the outgoing Message Expiry Interval is decremented by the time spent in the retain store); `message_expiry_deletes_qos2_inflight_v5` [MQTT-4.3.3-7] / [MQTT-4.4.0-1] — FIXED, now PASSing (an `UnComplete` exchange is no longer deleted by Message Expiry); `oversized_queued_message_stalls_queue_v5` + `retained_oversized_message_keeps_session_v5` [MQTT-3.1.2-24/-25] — FIXED, now PASSing; see the note below |
 | Will Retain vs Retain Available | `v5_will_retain_rejected_when_retain_unavailable` (executed in the `functional_v5@retain-disabled` sub-suite) |
+| Flapping protection (the `flapping` config) | `flapping_ban_v5` — the first 3 CONNECTs are all answered 0x00; from the 4th on the connection is refused with **0x8A** (Banned) and `$SYS/brokers/{node}/flapping/banned` carries a notice with `"dimension":"clientid"` and `"count":4`; once `ban_time` lapses a single CONNECT goes through (which proves the offending window was discarded, i.e. no "release then instant re-ban") |
+| Flapping protection (the `flapping` config) | `flapping_api_unban_v5` — `GET /api/v1/flapping/banned` lists the ban and reports `"available":true` (`GET /api/v1/features` carries the same state as `"flapping":true`) → `DELETE .../flapping/banned?dimension=clientid&key=…` answers `"unbanned":true` → the client connects at once → the `$SYS` `unbanned` notice carries `"reason":"manual"` → a second DELETE answers 404 |
+| Flapping observers (the `flapping-order` config) | `flapping_observer_order_v5` — 4 CONNECTs (`max_count`) are sent and the 4th is refused with 0x8A; `GET /api/v1/metrics/1` must show `client_connect` moving by exactly 4, refused one included. A refusal returns `proceed = false` and truncates the `ClientConnect` chain, so the gate has to sit below the `Priority::MAX` observers (`rmqtt-counter`, `rmqtt-web-hook`) — the case fails if it runs first and the counter never sees the refused CONNECT |
 
 > **Expected-fail cases (🐞)**: they execute fully but assert behaviors the
 > broker does not implement yet (registered conformance gaps). A failure is
@@ -246,16 +260,17 @@ and boundary scenarios:
 > be promoted to a normal assertion. See
 > `designs/mqtt-5.0-standalone-test-gap-analysis.md`.
 
-> `functional_v5` totals 108 cases: the default-config group runs 106 of them;
-> `v5_will_retain_rejected_when_retain_unavailable` and
-> `qos2_pubrel_resume_collision` require different broker configs and are
-> automatically split into the `functional_v5@retain-disabled` and
-> `functional_v5@pubrel-collision` sub-suites at build time (see the
-> "Broker Configs" section above). A full `--suites functional_v5 --workers 1`
-> run reports `Total: 108 | Passed: 102 | Failed: 0 | Skipped: 1 |
-> ExpectedFail: 3 | Info: 2` — no bare failures left: `topic_alias_v5_over_max`,
-> the last one, flipped to PASS once the Topic Alias Maximum the Server
-> advertises started being enforced (see below).
+> `functional_v5` totals 111 cases: the default-config group runs 106 of them;
+> `v5_will_retain_rejected_when_retain_unavailable`, `qos2_pubrel_resume_collision`
+> and the three `flapping_*` cases require different broker configs and are
+> automatically split into the `functional_v5@retain-disabled`,
+> `functional_v5@pubrel-collision`, `functional_v5@flapping` and
+> `functional_v5@flapping-order` sub-suites at build time (see the "Broker
+> Configs" section above). A full `--suites functional_v5 --workers 1` run
+> reports `Total: 111 | Passed: 105 | Failed: 0 | Skipped: 1 | ExpectedFail: 3 |
+> Info: 2` — no bare failures left:
+> `topic_alias_v5_over_max`, the last one, flipped to PASS once the Topic Alias
+> Maximum the Server advertises started being enforced (see below).
 
 > **Four issue #513-related cases are deliberately NOT marked expected-fail
 > (🐞).** Each asserts spec-required behaviour: a retained message's `Message
@@ -454,6 +469,15 @@ rmqtt-test/
     webhook-connack-refused/     #   client_connack web-hook on a refused CONNECT; self-managed
                                  #   broker on 1901/5378 with only rmqtt-web-hook started and an
                                  #   ephemeral in-test receiver as the web-hook URL
+    flapping/                    #   connection flapping protection; harness-managed broker that
+                                 #   declares broker_addr() to own 1902/5379, http-api on 6066,
+                                 #   allow_anonymous = true (deliberately the anonymous path, to
+                                 #   prove the screen covers the connections client_authenticate
+                                 #   never sees) and by_clientid as the only enabled dimension
+    flapping-order/              #   ClientConnect observer order: same gate plus rmqtt-counter,
+                                 #   which counts refused CONNECTs too; owns 1903/5380 with
+                                 #   http-api on 6067 and gets a broker process of its own, so the
+                                 #   case can read node-wide client_connect by exact delta
 ```
 
 > **Test isolation note**: all tests that publish retained messages delete them

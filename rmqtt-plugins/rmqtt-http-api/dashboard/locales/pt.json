@@ -155,6 +155,7 @@
     "features_delayed": "Mensagens atrasadas",
     "features_shared_subscription": "Assinaturas compartilhadas",
     "features_auto_subscription": "Assinatura automática",
+    "features_flapping": "Proteção contra flapping",
     "features_tab_title": "Suporte de recursos"
   },
   "gauge": {

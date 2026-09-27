@@ -179,6 +179,29 @@ impl BrokerProcess {
         self.start()
     }
 
+    /// Stop the broker, switch to the given config file *and* listen address,
+    /// then start again.
+    ///
+    /// The address is what the health probe targets; it is not passed to the
+    /// broker, so it must match the `listener.tcp.external.addr` of `config`
+    /// or the probe polls a port nobody ever binds. A suite whose config pins
+    /// its own port (`TestCase::broker_addr`) retargets through here. The stop
+    /// runs *before* the swap on purpose: `stop` waits for the port the
+    /// running child actually bound to be released, which is the old one.
+    pub fn restart_with_config_and_addr(
+        &mut self,
+        config: Option<PathBuf>,
+        addr: &str,
+    ) -> Result<(), anyhow::Error> {
+        if self.addr == addr {
+            return self.restart_with_config(config);
+        }
+        self.stop()?;
+        self.addr = addr.to_string();
+        self.config_path = config;
+        self.start()
+    }
+
     /// Kill the broker immediately
     pub fn kill(&mut self) -> Result<(), anyhow::Error> {
         if let Some(mut child) = self.child.take() {

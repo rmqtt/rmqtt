@@ -32,6 +32,7 @@
 //!   - `delayed`: Scheduled message delivery
 //!   - `shared-subscription`: Group subscription support
 //!   - `auto-subscription`: Automatic topic subscriptions
+//!   - `flapping`: Connection-gate inspection (bans in force)
 //!
 //! Usage Pattern:
 //! 1. Get read/write guard for needed subsystem
@@ -46,6 +47,8 @@ use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 #[cfg(feature = "delayed")]
 use crate::delayed::{DefaultDelayedSender, DelayedSender};
 use crate::fitter::{DefaultFitterManager, FitterManager};
+#[cfg(feature = "flapping")]
+use crate::flapping::{DefaultFlapping, Flapping};
 use crate::hook::{DefaultHookManager, HookManager};
 #[cfg(feature = "msgstore")]
 use crate::message::{DefaultMessageManager, MessageManager};
@@ -87,6 +90,9 @@ pub struct Manager {
     #[cfg(feature = "auto-subscription")]
     /// Automatic subscription handler (feature-gated)
     pub auto_subscription: RwLock<Box<dyn AutoSubscription>>,
+    #[cfg(feature = "flapping")]
+    /// Connection-gate read view, installed by the screening plugin (feature-gated)
+    pub flapping: RwLock<Box<dyn Flapping>>,
 }
 
 impl Manager {
@@ -109,6 +115,8 @@ impl Manager {
             delayed_sender: RwLock::new(Box::new(DefaultDelayedSender::new())),
             #[cfg(feature = "auto-subscription")]
             auto_subscription: RwLock::new(Box::new(DefaultAutoSubscription)),
+            #[cfg(feature = "flapping")]
+            flapping: RwLock::new(Box::new(DefaultFlapping)),
         }
     }
 
@@ -234,5 +242,19 @@ impl Manager {
     #[cfg(feature = "auto-subscription")]
     pub async fn auto_subscription_mut(&self) -> RwLockWriteGuard<'_, Box<dyn AutoSubscription>> {
         self.auto_subscription.write().await
+    }
+
+    /// Gets read access to the connection-gate view (requires "flapping" feature)
+    #[inline]
+    #[cfg(feature = "flapping")]
+    pub async fn flapping(&self) -> RwLockReadGuard<'_, Box<dyn Flapping>> {
+        self.flapping.read().await
+    }
+
+    /// Gets write access to the connection-gate view (requires "flapping" feature)
+    #[inline]
+    #[cfg(feature = "flapping")]
+    pub async fn flapping_mut(&self) -> RwLockWriteGuard<'_, Box<dyn Flapping>> {
+        self.flapping.write().await
     }
 }

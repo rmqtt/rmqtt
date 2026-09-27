@@ -155,6 +155,7 @@
     "features_delayed": "延迟消息",
     "features_shared_subscription": "共享订阅",
     "features_auto_subscription": "自动订阅",
+    "features_flapping": "连接抖动防护",
     "features_tab_title": "功能支持状态"
   },
   "gauge": {

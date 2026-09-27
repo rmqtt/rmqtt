@@ -77,17 +77,18 @@ The `rmqtt-test` crate provides a custom test harness with additional test suite
 | Suite | Cases | Description |
 |-------|-------|-------------|
 | `functional_v3` | 51 | MQTT 3.1 spec conformance (connect edge cases, QoS 0/1/2, QoS 2 dedup/PUBREL resend, retained, will, keep alive, session, wildcards incl. `$SYS`, boundary, protocol errors) |
-| `functional_v311` | 111 | MQTT 3.1.1 spec conformance (incl. second-CONNECT rejection, retained edge cases, session present, protocol errors) |
-| `functional_v5` | 108 | MQTT 5.0 spec conformance (CONNACK capabilities, session expiry incl. DISCONNECT SEI=0, topic alias, flow control, retain handling, protocol errors) |
+| `functional_v311` | 112 | MQTT 3.1.1 spec conformance (incl. second-CONNECT rejection, retained edge cases, session present, protocol errors, flapping protection) |
+| `functional_v5` | 111 | MQTT 5.0 spec conformance (CONNACK capabilities, session expiry incl. DISCONNECT SEI=0, topic alias, flow control, retain handling, protocol errors, flapping protection and HTTP unban, refused CONNECTs still reaching the observers) |
 | `stress` | 6 | Connection load (100 clients), publish load (1000 msgs), fan-out (1→N), mixed QoS, mass subscription, retain flood |
 | `chaos` | 19 | Broker restart (single node / cluster broadcast & raft / whole cluster), restored-session routing, connection storms, reconnect, QoS 1 reliability, slow consumer, session-storage startup load |
 
-> Of the 108 `functional_v5` cases, `will_retain_rejected_when_retain_unavailable_v5`
-> and `qos2_pubrel_resume_collision` need different broker configs and are
-> automatically split into the `functional_v5@retain-disabled` /
-> `functional_v5@pubrel-collision` sub-suites. The default broker config is the
-> self-contained `rmqtt-test/configs/default/rmqtt.toml`; config switches
-> happen only at suite boundaries.
+> Of the 111 `functional_v5` cases, `will_retain_rejected_when_retain_unavailable_v5`,
+> `qos2_pubrel_resume_collision` and the three `flapping_*` cases need different
+> broker configs and are automatically split into the
+> `functional_v5@retain-disabled` / `functional_v5@pubrel-collision` /
+> `functional_v5@flapping` / `functional_v5@flapping-order` sub-suites. The default
+> broker config is the self-contained `rmqtt-test/configs/default/rmqtt.toml`;
+> config switches happen only at suite boundaries.
 
 ```bash
 # Run all test suites

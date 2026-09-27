@@ -155,6 +155,7 @@
     "features_delayed": "الرسائل المؤجلة",
     "features_shared_subscription": "الاشتراكات المشتركة",
     "features_auto_subscription": "الاشتراك التلقائي",
+    "features_flapping": "الحماية من التذبذب",
     "features_tab_title": "دعم الميزات"
   },
   "gauge": {

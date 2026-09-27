@@ -155,6 +155,7 @@
     "features_delayed": "विलंबित संदेश",
     "features_shared_subscription": "साझा सदस्यता",
     "features_auto_subscription": "स्वचालित सदस्यता",
+    "features_flapping": "फ़्लैपिंग सुरक्षा",
     "features_tab_title": "सुविधा समर्थन"
   },
   "gauge": {

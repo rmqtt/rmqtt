@@ -52,6 +52,7 @@ full = [
     "sys-topic",
     "topic-rewrite",
     "web-hook",
+    "flapping",
 
     "cluster-raft",
     "cluster-broadcast",
@@ -106,6 +107,7 @@ sys-topic = ["rmqtt-sys-topic"]
 topic-rewrite = ["rmqtt-topic-rewrite"]
 web-hook = ["rmqtt-web-hook"]
 p2p-messaging = ["rmqtt-p2p-messaging"]
+flapping = ["rmqtt-flapping"]
 
 # ---- cluster plugins ----
 cluster-raft = ["rmqtt-cluster-raft"]
@@ -139,3 +141,4 @@ rmqtt-web-hook = { workspace = true, optional = true }
 rmqtt-cluster-raft = { workspace = true, optional = true }
 rmqtt-cluster-broadcast = { workspace = true, optional = true }
 rmqtt-p2p-messaging = { workspace = true, optional = true }
+rmqtt-flapping = { workspace = true, optional = true }
