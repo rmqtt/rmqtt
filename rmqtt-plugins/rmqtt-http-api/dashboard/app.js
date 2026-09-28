@@ -14,6 +14,7 @@ const pageRegistry = {
   '#/subscriptions': { component: 'SubscriptionsPage', titleKey: 'nav.subscriptions', isLogin: false },
   '#/retains':   { component: 'RetainsPage',      titleKey: 'nav.retained',    isLogin: false },
   '#/delayed_publishs': { component: 'DelayedPublishPage', titleKey: 'nav.delayed_publish', isLogin: false },
+  '#/flapping': { component: 'FlappingPage',     titleKey: 'nav.flapping',    isLogin: false },
   '#/publish':  { component: 'PublishPage',      titleKey: 'nav.publish',     isLogin: false },
   '#/plugins':  { component: 'PluginsPage',      titleKey: 'nav.plugins',     isLogin: false },
 };
@@ -31,6 +32,7 @@ const App = Vue.defineComponent({
     SubscriptionsPage,
     RetainsPage: window.RetainsPage,
     DelayedPublishPage: window.DelayedPublishPage,
+    FlappingPage: window.FlappingPage,
     PublishPage,
     PluginsPage,
   },

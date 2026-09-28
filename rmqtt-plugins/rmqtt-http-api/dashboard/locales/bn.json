@@ -371,5 +371,27 @@
     "not_found": "বার্তা ইতিমধ্যে পাঠানো হয়েছে বা আর নেই",
     "no_results": "কোনো বিলম্বিত প্রকাশ নেই",
     "view_payload": "Payload দেখুন"
+  },
+  "flapping": {
+    "not_enabled": "ফ্ল্যাপিং সুরক্ষা সক্রিয় নয় (rmqtt-flapping প্লাগইন লোড করুন বা enable = true সেট করুন)",
+    "node_local": "নিষেধাজ্ঞা নোড-স্থানীয়; এই তালিকা শুধু উত্তর দেওয়া নোড দেখায়",
+    "banned_count": "সক্রিয় নিষেধাজ্ঞা",
+    "dimension": "মাত্রা",
+    "dimension_all": "সব মাত্রা",
+    "dimension_clientid": "ClientID",
+    "dimension_username": "ব্যবহারকারীর নাম",
+    "dimension_peerhost": "উৎস ঠিকানা",
+    "key": "কী",
+    "key_placeholder": "কী (হুবহু মিল, যেমন ClientID / ব্যবহারকারীর নাম / IP)",
+    "count": "প্রচেষ্টা",
+    "banned_at": "নিষিদ্ধ সময়",
+    "banned_until": "নিষেধাজ্ঞা শেষ",
+    "remaining": "অবশিষ্ট",
+    "last_clientid": "সর্বশেষ ClientID",
+    "last_ipaddress": "সর্বশেষ উৎস ঠিকানা",
+    "unban": "নিষেধাজ্ঞা প্রত্যাহার",
+    "unban_confirm": "{dimension} \"{key}\" থেকে নিষেধাজ্ঞা প্রত্যাহার করবেন?",
+    "unban_fail": "প্রত্যাহার ব্যর্থ: {msg}",
+    "no_results": "কোনো সক্রিয় নিষেধাজ্ঞা নেই"
   }
 }

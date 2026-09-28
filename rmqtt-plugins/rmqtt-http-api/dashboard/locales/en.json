@@ -371,5 +371,27 @@
     "not_found": "Message has fired or no longer exists",
     "no_results": "No delayed publishes",
     "view_payload": "View Payload"
+  },
+  "flapping": {
+    "not_enabled": "Flapping protection is not enabled (load the rmqtt-flapping plugin, or set enable = true)",
+    "node_local": "Bans are per-node; this list reflects the node that answered",
+    "banned_count": "Bans in force",
+    "dimension": "Dimension",
+    "dimension_all": "All dimensions",
+    "dimension_clientid": "ClientID",
+    "dimension_username": "Username",
+    "dimension_peerhost": "Peer address",
+    "key": "Key",
+    "key_placeholder": "Key (exact match, e.g. ClientID / username / IP)",
+    "count": "Attempts",
+    "banned_at": "Banned at",
+    "banned_until": "Banned until",
+    "remaining": "Remaining",
+    "last_clientid": "Last ClientID",
+    "last_ipaddress": "Last peer address",
+    "unban": "Unban",
+    "unban_confirm": "Lift the ban on {dimension} \"{key}\"?",
+    "unban_fail": "Unban failed: {msg}",
+    "no_results": "No bans in force"
   }
 }

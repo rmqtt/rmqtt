@@ -36,7 +36,7 @@
         { disabled: true, label: 'nav.auth',      icon: '&#128274;' },
         { disabled: true, label: 'nav.acl',       icon: '&#9989;' },
         { disabled: true, label: 'nav.blacklist', icon: '&#10007;' },
-        { disabled: true, label: 'nav.flapping',  icon: '&#9889;' },
+        { hash: '#/flapping', label: 'nav.flapping', icon: '&#9889;' },
       ],
     },
     {

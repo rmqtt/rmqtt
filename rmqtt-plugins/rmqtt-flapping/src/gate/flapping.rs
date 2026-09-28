@@ -572,7 +572,11 @@ impl FlappingGate {
                     self.notifier.publish(topic, qos, expiry, payload);
                 }
                 self.scx.metrics.conn_flapping_refused_inc();
-                log::info!("flapping: refusing {} '{}', a ban is in force", table.dim, text);
+                // Only `debug`: a banned client retrying is exactly the repeat
+                // this line would otherwise add one of per attempt, while the
+                // *new* ban (the `Verdict::Banned` arm below) stays at `info` —
+                // that one is a state change, not a repeat.
+                log::debug!("flapping: refusing {} '{}', a ban is in force", table.dim, text);
                 Some(ConnectRefuse::Banned)
             }
             Verdict::Banned { count, until } => {

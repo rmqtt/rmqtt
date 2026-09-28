@@ -28,7 +28,7 @@
       this.locale = FALLBACK;
       this._messages = {};
       this._cache = {};
-      this._localeVer = 16;  // locale file version, bump it after editing to bypass the browser cache
+      this._localeVer = 17;  // locale file version, bump it after editing to bypass the browser cache
     }
 
     /** Init: detect the language, then preload every locale bundle */

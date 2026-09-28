@@ -371,5 +371,27 @@
     "not_found": "Nachricht wurde bereits ausgelöst oder existiert nicht mehr",
     "no_results": "Keine verzögerten Veröffentlichungen",
     "view_payload": "Payload ansehen"
+  },
+  "flapping": {
+    "not_enabled": "Flapping-Schutz ist nicht aktiviert (rmqtt-flapping-Plugin laden oder enable = true setzen)",
+    "node_local": "Sperren gelten nur lokal auf dem Knoten; diese Liste zeigt nur den antwortenden Knoten",
+    "banned_count": "Aktive Sperren",
+    "dimension": "Dimension",
+    "dimension_all": "Alle Dimensionen",
+    "dimension_clientid": "ClientID",
+    "dimension_username": "Benutzername",
+    "dimension_peerhost": "Quelladresse",
+    "key": "Schlüssel",
+    "key_placeholder": "Schlüssel (exakter Treffer, z. B. ClientID / Benutzername / IP)",
+    "count": "Versuche",
+    "banned_at": "Gesperrt am",
+    "banned_until": "Gesperrt bis",
+    "remaining": "Verbleibend",
+    "last_clientid": "Letzte ClientID",
+    "last_ipaddress": "Letzte Quelladresse",
+    "unban": "Entsperren",
+    "unban_confirm": "Sperre für {dimension} „{key}“ aufheben?",
+    "unban_fail": "Entsperren fehlgeschlagen: {msg}",
+    "no_results": "Keine aktiven Sperren"
   }
 }

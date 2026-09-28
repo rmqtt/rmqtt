@@ -371,5 +371,27 @@
     "not_found": "Messaggio già attivato o inesistente",
     "no_results": "Nessuna pubblicazione ritardata",
     "view_payload": "Vedi Payload"
+  },
+  "flapping": {
+    "not_enabled": "La protezione dal flapping non è attiva (carica il plugin rmqtt-flapping o imposta enable = true)",
+    "node_local": "I blocchi sono locali al nodo; questo elenco riflette solo il nodo che risponde",
+    "banned_count": "Blocchi attivi",
+    "dimension": "Dimensione",
+    "dimension_all": "Tutte le dimensioni",
+    "dimension_clientid": "ClientID",
+    "dimension_username": "Nome utente",
+    "dimension_peerhost": "Indirizzo di origine",
+    "key": "Chiave",
+    "key_placeholder": "Chiave (corrispondenza esatta, es. ClientID / nome utente / IP)",
+    "count": "Tentativi",
+    "banned_at": "Bloccato il",
+    "banned_until": "Bloccato fino a",
+    "remaining": "Rimanente",
+    "last_clientid": "Ultimo ClientID",
+    "last_ipaddress": "Ultimo indirizzo di origine",
+    "unban": "Sblocca",
+    "unban_confirm": "Rimuovere il blocco su {dimension} \"{key}\"?",
+    "unban_fail": "Sblocco non riuscito: {msg}",
+    "no_results": "Nessun blocco attivo"
   }
 }

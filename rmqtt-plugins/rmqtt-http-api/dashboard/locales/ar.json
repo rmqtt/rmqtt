@@ -371,5 +371,27 @@
     "not_found": "تم إرسال الرسالة أو لم تعد موجودة",
     "no_results": "لا توجد رسائل مؤجلة",
     "view_payload": "عرض الحمولة"
+  },
+  "flapping": {
+    "not_enabled": "حماية التذبذب غير مفعّلة (حمّل إضافة rmqtt-flapping أو اضبط enable = true)",
+    "node_local": "الحظر محلي على العقدة؛ تعرض هذه القائمة العقدة المستجيبة فقط",
+    "banned_count": "الحظر الساري",
+    "dimension": "البُعد",
+    "dimension_all": "كل الأبعاد",
+    "dimension_clientid": "ClientID",
+    "dimension_username": "اسم المستخدم",
+    "dimension_peerhost": "عنوان المصدر",
+    "key": "المفتاح",
+    "key_placeholder": "المفتاح (مطابقة تامة، مثل ClientID / اسم المستخدم / IP)",
+    "count": "المحاولات",
+    "banned_at": "وقت الحظر",
+    "banned_until": "ينتهي الحظر في",
+    "remaining": "المتبقي",
+    "last_clientid": "آخر ClientID",
+    "last_ipaddress": "آخر عنوان مصدر",
+    "unban": "رفع الحظر",
+    "unban_confirm": "رفع الحظر عن {dimension} \"{key}\"؟",
+    "unban_fail": "فشل رفع الحظر: {msg}",
+    "no_results": "لا يوجد حظر ساري"
   }
 }
