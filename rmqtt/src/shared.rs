@@ -486,13 +486,23 @@ impl Entry for LockEntry {
                         log::debug!("{:?} kicked, from {:?}", self.id, self.session().map(|s| s.id.clone()));
                     }
                     Ok(Err(e)) => {
+                        // The oneshot sender is dropped without a reply only when the
+                        // target session task ended with this Kick still queued in its
+                        // channel: the session was already tearing down (expiry timer,
+                        // clean-session teardown) when the takeover arrived, so nobody
+                        // will ever read the request. Treat it as "the peer did not
+                        // answer", exactly like the timeout branch below and the
+                        // cluster implementations (which degrade a remote kick failure
+                        // to `OfflineSession::NotExist`), and fall through to `_remove`
+                        // so the takeover completes and any stale entry is cleared.
+                        // Returning an error here would refuse a reconnect the broker
+                        // is perfectly able to serve.
                         log::warn!(
                             "{:?} kick, recv result is {:?}, from {:?}",
                             self.id,
                             e,
                             self.session().map(|s| s.id.clone())
                         );
-                        return Err(anyhow!(format!("recv kick result is {:?}", e)));
                     }
                     Err(_) => {
                         log::warn!(

@@ -23,6 +23,7 @@ pub mod flow_control_v5;
 pub mod issue513_message_lifecycle;
 pub mod keepalive;
 pub mod keepalive_v3;
+pub mod kick_takeover_race;
 pub mod last_will;
 pub mod last_will_v3;
 pub mod max_packet_size_v5;
