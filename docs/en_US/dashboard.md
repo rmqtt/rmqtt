@@ -38,6 +38,10 @@ dashboard_static_dir = "/path/to/rmqtt-plugins/rmqtt-http-api/dashboard"
 | `#/clients` | Clients | Client search with advanced filters (incl. datetime picker), list, online/offline kick |
 | `#/clients/detail` | Client Detail | Connection info + session info, current subscriptions (can unsubscribe) |
 | `#/retains` | Retained Messages | `topic_filter` query, pagination (prev/next), payload preview and detail dialog |
+| `#/delayed_publishs` | Delayed Publish | `topic_filter` query, pagination, on-demand payload (plaintext / Base64 / JSON / Hex), 5s auto refresh |
+| `#/flapping` | Flapping Detect | Dimension / key filters with pagination, locally ticking time-to-unban, manual unban (confirmed); the list is the answering node's own state, never a cluster aggregate |
+| `#/publish` | Publish | Publish a message to a topic (QoS / Retain optional) |
+| `#/plugins` | Plugins | Plugin list with running state, view a plugin's config |
 
 ## Internationalization
 

@@ -371,5 +371,27 @@
     "not_found": "訊息已觸發或已不存在",
     "no_results": "暫無延遲訊息",
     "view_payload": "查看 Payload"
+  },
+  "flapping": {
+    "not_enabled": "連線抖動防護未啟用（請載入 rmqtt-flapping 外掛，或設定 enable = true）",
+    "node_local": "封禁表為節點本機狀態，本列表只反映回應節點",
+    "banned_count": "目前生效封禁",
+    "dimension": "維度",
+    "dimension_all": "全部維度",
+    "dimension_clientid": "ClientID",
+    "dimension_username": "使用者名稱",
+    "dimension_peerhost": "來源位址",
+    "key": "鍵",
+    "key_placeholder": "鍵（精確比對，如 ClientID / 使用者名稱 / IP）",
+    "count": "觸發次數",
+    "banned_at": "封禁時間",
+    "banned_until": "解封時間",
+    "remaining": "剩餘",
+    "last_clientid": "最近 ClientID",
+    "last_ipaddress": "最近來源位址",
+    "unban": "解封",
+    "unban_confirm": "解除對 {dimension}「{key}」的封禁？",
+    "unban_fail": "解封失敗：{msg}",
+    "no_results": "目前沒有生效中的封禁"
   }
 }

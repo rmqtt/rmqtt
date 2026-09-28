@@ -1,7 +1,7 @@
 //! `client_connack` web-hook on a REFUSED connection (rmqtt-web-hook)
 //!
 //! Background: the `ClientConnack` hook used to be raised ONLY on the
-//! success path — `v3.rs` / `v5.rs` call `refused_ack_v3` / `refused_ack` with
+//! success path — `v3.rs` / `v5.rs` call `refused_ack_v3` / `refused_ack_v5` with
 //! `connect_info = None`, so the `if let Some(connect_info)` branch inside
 //! those helpers never ran. A plugin could therefore neither observe nor
 //! rewrite the reason code of a refused CONNECT, and consumers that key off

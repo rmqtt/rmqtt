@@ -371,5 +371,27 @@
     "not_found": "Message déjà déclenché ou inexistant",
     "no_results": "Aucune publication différée",
     "view_payload": "Voir le Payload"
+  },
+  "flapping": {
+    "not_enabled": "La protection contre le flapping n'est pas activée (chargez le plugin rmqtt-flapping ou définissez enable = true)",
+    "node_local": "Les bannissements sont locaux au nœud ; cette liste ne reflète que le nœud qui répond",
+    "banned_count": "Bannissements en cours",
+    "dimension": "Dimension",
+    "dimension_all": "Toutes les dimensions",
+    "dimension_clientid": "ClientID",
+    "dimension_username": "Nom d'utilisateur",
+    "dimension_peerhost": "Adresse source",
+    "key": "Clé",
+    "key_placeholder": "Clé (correspondance exacte, ex. ClientID / nom d'utilisateur / IP)",
+    "count": "Tentatives",
+    "banned_at": "Banni le",
+    "banned_until": "Banni jusqu'au",
+    "remaining": "Restant",
+    "last_clientid": "Dernier ClientID",
+    "last_ipaddress": "Dernière adresse source",
+    "unban": "Débannir",
+    "unban_confirm": "Lever le bannissement de {dimension} « {key} » ?",
+    "unban_fail": "Échec du débannissement : {msg}",
+    "no_results": "Aucun bannissement en cours"
   }
 }

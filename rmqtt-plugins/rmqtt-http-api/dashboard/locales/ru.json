@@ -371,5 +371,27 @@
     "not_found": "Сообщение уже отправлено или больше не существует",
     "no_results": "Нет отложенных публикаций",
     "view_payload": "Просмотр Payload"
+  },
+  "flapping": {
+    "not_enabled": "Защита от флаппинга не включена (загрузите плагин rmqtt-flapping или задайте enable = true)",
+    "node_local": "Блокировки локальны для узла; список отражает только ответивший узел",
+    "banned_count": "Действующих блокировок",
+    "dimension": "Измерение",
+    "dimension_all": "Все измерения",
+    "dimension_clientid": "ClientID",
+    "dimension_username": "Имя пользователя",
+    "dimension_peerhost": "Адрес источника",
+    "key": "Ключ",
+    "key_placeholder": "Ключ (точное совпадение, напр. ClientID / имя пользователя / IP)",
+    "count": "Попыток",
+    "banned_at": "Заблокирован в",
+    "banned_until": "Блокировка до",
+    "remaining": "Осталось",
+    "last_clientid": "Последний ClientID",
+    "last_ipaddress": "Последний адрес источника",
+    "unban": "Разблокировать",
+    "unban_confirm": "Снять блокировку с {dimension} «{key}»?",
+    "unban_fail": "Не удалось разблокировать: {msg}",
+    "no_results": "Нет действующих блокировок"
   }
 }

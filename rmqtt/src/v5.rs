@@ -73,6 +73,11 @@ use crate::{Error, Result};
 /// the main message processing loop. Handles connection refusal with
 /// appropriate CONNACK codes on failure.
 ///
+/// A handshake a hook refuses is an expected outcome rather than a fault:
+/// `refused_ack_v5` answers it with the final CONNACK reason code and returns it
+/// as an `Err`, which only reaches the caller's `debug` sink (`listen_tcp` and
+/// its siblings) — nothing on the refusal path is logged above `debug`.
+///
 /// # Arguments
 /// * `scx` - Server context for accessing shared state
 /// * `sink` - MQTT v5.0 stream for I/O operations
@@ -97,11 +102,11 @@ where
                 // Raise the `ClientConnack` hook whenever the CONNECT packet was
                 // already decoded, so plugins observe a refusal exactly like a
                 // successful CONNACK (and may rewrite its reason code).
-                refused_ack(&scx, &mut sink, connect_info.as_deref(), ack_code, e.to_string()).await?;
+                let err = refused_ack_v5(&scx, &mut sink, connect_info.as_deref(), ack_code, e).await;
                 if let Err(e) = sink.close().await {
-                    log::info!("{lid} close io error, {e}");
+                    log::info!("{:?} {lid} close io error, {e}", connect_info.as_deref().map(|c| c.id()));
                 }
-                return Err(e);
+                return err;
             }
         };
         (state, keep_alive)
@@ -195,16 +200,19 @@ where
             Ok((state, keep_alive))
         }
         Ok(Err((ack_code, e, connect_info))) => {
-            log::info!("{id:?} Connection Refused, handshake error, reason: {ack_code:?}, {e}");
+            // `debug`: a refused handshake is an expected outcome rather than a
+            // fault, and the funnel below returns it to a caller that logs it at
+            // `debug` as well.
+            log::debug!("{id:?} Connection Refused, handshake error, reason: {ack_code:?}, {e}");
             // Forward the decoded client information, so that the refusal below
-            // can still raise the `ClientConnack` hook (see `refused_ack`).
+            // can still raise the `ClientConnack` hook (see `refused_ack_v5`).
             Err((ack_code, e, connect_info))
         }
         Err(e) => {
             #[cfg(feature = "metrics")]
             scx.metrics.client_handshaking_timeout_inc();
             let err = anyhow!("Connection Refused, execute handshake timeout");
-            log::info!("{:?} {:?}, reason: {:?}", id, err, e.to_string(),);
+            log::debug!("{:?} {:?}, reason: {:?}", id, err, e.to_string(),);
             Err((ConnectAckReason::V5(ConnectAckReasonV5::ServerUnavailable), err, None))
         }
     }
@@ -511,12 +519,15 @@ async fn _handshake(
 /// copied) with the error path, and `None` for failures that happen before the
 /// CONNECT packet is decoded — an undecodable CONNECT, an overloaded node, or a
 /// handshake task that timed out; only those refusals skip the hook.
-async fn refused_ack<Io>(
+///
+/// The refusal is logged nowhere above `debug`: it is returned as an `Err`, so
+/// the caller reports it at `debug` along with the rest of the refusal path.
+async fn refused_ack_v5<Io>(
     scx: &ServerContext,
     sink: &mut v5::MqttStream<Io>,
     connect_info: Option<&ConnectInfo>,
     ack_code: ConnectAckReason,
-    reason: String,
+    reason: Error,
 ) -> Result<()>
 where
     Io: AsyncRead + AsyncWrite + Unpin,
@@ -534,17 +545,26 @@ where
     } else {
         ack_code
     };
-    log::info!(
+    let err = anyhow!(format!(
         "{:?} Connection Refused, handshake, ack_code: {:?}, new_ack_code: {:?}, reason: {}",
         connect_info.map(|c| c.id()),
         ack_code,
         new_ack_code,
         reason
-    );
+    ));
     let reason_code = if let ConnectAckReason::V5(ack_code) = new_ack_code {
         ack_code
     } else {
         ConnectAckReasonV5::ServerUnavailable
     };
-    sink.send_connect_ack(ConnectAck { reason_code, ..Default::default() }).await
+    // Answer with the final CONNACK reason code, then hand the refusal back as
+    // an `Err`: it only reaches the caller's `debug` sink (`listen_tcp` and its
+    // siblings), a refused handshake being an expected outcome rather than a
+    // fault.
+    if let Err(e) = sink.send_connect_ack(ConnectAck { reason_code, ..Default::default() }).await {
+        // `debug`: the caller closes the connection right after, so a failed
+        // CONNACK is only a symptom of that.
+        log::debug!("{:?} send CONNACK error, {e}", connect_info.map(|c| c.id()));
+    }
+    Err(err)
 }
