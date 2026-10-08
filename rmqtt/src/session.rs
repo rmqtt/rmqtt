@@ -937,6 +937,24 @@ impl SessionState {
                 let p = self.hook.message_publish(from.clone(), &p).await.unwrap_or(p);
                 log::debug!("process_last_will, publish: {p:?}");
 
+                // A Will Message is a PUBLISH the broker sends on the client's behalf.
+                // It must pass the same ACL check as a PUBLISH the client sends itself,
+                // otherwise a client can use its Will to publish to a topic it was
+                // never allowed to write to. The client is already gone, so a denial
+                // only drops the message; there is nothing to disconnect.
+                //hook, message_publish_check_acl
+                let acl_result = self.hook.message_publish_check_acl(&p).await;
+                log::debug!("{:?} last will acl_result: {:?}", self.id, acl_result);
+                if !acl_result.is_allow() {
+                    #[cfg(feature = "metrics")]
+                    self.scx.metrics.client_publish_auth_error_inc();
+                    let reason = Reason::PublishResult(acl_result.pub_res());
+                    log::info!("{:?} last will dropped by acl, topic: {:?}", self.id, p.topic);
+                    //hook, Message dropped
+                    self.scx.extends.hook_mgr().message_dropped(None, from, p, reason).await;
+                    return Ok(());
+                }
+
                 let message_storage_available = {
                     #[cfg(feature = "msgstore")]
                     {

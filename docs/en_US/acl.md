@@ -174,6 +174,13 @@ but needs to be performed manually:
 curl -X PUT "http://127.0.0.1:6060/api/v1/plugins/1/rmqtt-acl/config/reload"
 ```
 
+## Will Messages
+
+A Will Message is a PUBLISH the broker sends on a client's behalf when the connection drops without a
+DISCONNECT. It is checked with the same publish rules as a normal PUBLISH, at the moment the broker
+publishes it. A Will on a topic the client is not allowed to publish to is dropped and a `message_dropped`
+event is raised. The client is not disconnected, because it is already gone.
+
 ## Placeholders
 
 The built-in `rmqtt-acl.toml` supports only the following placeholders in the subject's field (the 4th position of the
