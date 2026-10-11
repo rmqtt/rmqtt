@@ -64,12 +64,12 @@ license = "MIT OR Apache-2.0"
 categories = ["network-programming"]
 keywords = ["MQTT", "IoT", "messaging", "MQTT-Server", "MQTT-Broker"]
 exclude = [".gitignore", ".cargo/config"]
-rust-version = "1.94.0"
+rust-version = "1.95.0"
 
 
 [workspace.dependencies]
 rmqtt = "0.25.0"
-rmqtt-codec = "0.3.1"
+rmqtt-codec = "0.4.0"
 rmqtt-net = "0.6.0"
 rmqtt-conf = "0.6.0"
 rmqtt-macros = "0.1.2"

@@ -748,7 +748,7 @@ impl AtomicFlags for AtomicU8 {
         new: Self::T,
         mask: Self::T,
     ) -> std::result::Result<Self::T, Self::T> {
-        self.fetch_update(Ordering::SeqCst, Ordering::SeqCst, move |v| {
+        self.try_update(Ordering::SeqCst, Ordering::SeqCst, move |v| {
             let flags = current & mask;
             if (v & mask) == flags {
                 Some((v & !flags) | (new & mask))

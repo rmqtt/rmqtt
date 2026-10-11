@@ -189,6 +189,25 @@ impl Deref for Listener {
 /// Contains all tunable parameters including connection limits, keepalive
 /// intervals, QoS levels, TLS certificate paths, rate limiting, and
 /// MQTT session expiry settings.
+/// How a SPIFFE ID taken from the client certificate's URI SAN is turned
+/// into an MQTT username (`cert_spiffe_username_format`).
+///
+/// The URI SAN is expected to carry a SPIFFE ID such as
+/// `spiffe://example.com/user/barry`. Dropping the trust domain
+/// (`Path` / `Name`) can collide across trust domains, so `Uri` is the
+/// default.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SpiffeUsernameFormat {
+    /// The full URI, e.g. `spiffe://example.com/user/barry`.
+    #[default]
+    Uri,
+    /// The URI path only, e.g. `/user/barry`.
+    Path,
+    /// The last non-empty path segment, e.g. `barry`.
+    Name,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ListenerInner {
     #[serde(default)]
@@ -301,6 +320,10 @@ pub struct ListenerInner {
     #[serde(default)]
     pub cert_subject_dn_as_username: bool,
     #[serde(default)]
+    pub cert_spiffe_as_username: bool,
+    #[serde(default)]
+    pub cert_spiffe_username_format: SpiffeUsernameFormat,
+    #[serde(default)]
     pub collect_cert_info: bool,
 
     //QUIC max_idle_timeout
@@ -352,6 +375,8 @@ impl Default for ListenerInner {
 
             cert_cn_as_username: false,
             cert_subject_dn_as_username: false,
+            cert_spiffe_as_username: false,
+            cert_spiffe_username_format: SpiffeUsernameFormat::default(),
             collect_cert_info: false,
             idle_timeout: ListenerInner::idle_timeout_default(),
         }
@@ -579,5 +604,46 @@ mod tcp_keepalive_tests {
     #[test]
     fn false_disables_keepalive() {
         assert!(!parse("tcp_keepalive = false"), "false must disable keepalive");
+    }
+}
+
+#[cfg(test)]
+mod cert_spiffe_tests {
+    use super::*;
+
+    /// Minimal wrapper exercising the same serde attributes as the
+    /// `cert_spiffe_as_username` / `cert_spiffe_username_format` fields on
+    /// `ListenerInner`.
+    #[derive(Deserialize)]
+    struct Wrap {
+        #[serde(default)]
+        cert_spiffe_as_username: bool,
+        #[serde(default)]
+        cert_spiffe_username_format: SpiffeUsernameFormat,
+    }
+
+    fn parse(src: &str) -> (bool, SpiffeUsernameFormat) {
+        let w: Wrap = toml::from_str(src).expect("wrap should parse");
+        (w.cert_spiffe_as_username, w.cert_spiffe_username_format)
+    }
+
+    #[test]
+    fn absent_defaults_to_off_and_uri() {
+        // Both keys missing → the feature is off and the full URI wins,
+        // so existing rmqtt.toml files parse unchanged (issue #535).
+        assert_eq!(parse(""), (false, SpiffeUsernameFormat::Uri));
+    }
+
+    #[test]
+    fn format_values_map_to_the_enum() {
+        assert_eq!(parse("cert_spiffe_username_format = \"path\"").1, SpiffeUsernameFormat::Path);
+        assert_eq!(parse("cert_spiffe_username_format = \"name\"").1, SpiffeUsernameFormat::Name);
+        assert_eq!(parse("cert_spiffe_username_format = \"uri\"").1, SpiffeUsernameFormat::Uri);
+    }
+
+    #[test]
+    fn unknown_format_value_is_rejected() {
+        // Fail fast at startup rather than silently falling back to `uri`.
+        assert!(toml::from_str::<Wrap>("cert_spiffe_username_format = \"full\"").is_err());
     }
 }

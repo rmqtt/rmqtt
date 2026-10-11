@@ -291,6 +291,23 @@ listener.tls.external.cert_cn_as_username = false
 # Default: false
 listener.tls.external.cert_subject_dn_as_username = false
 
+# Whether to use the SPIFFE ID (URI SAN, e.g. spiffe://example.com/user/barry) from the
+# client certificate as the username. Takes precedence over cert_subject_dn_as_username /
+# cert_cn_as_username; a certificate carrying more than one URI SAN is never bound.
+# Only the TLS/WSS listeners support the certificate-derived options (CN/DN/SPIFFE);
+# the QUIC listener does not extract certificates yet.
+# Default: false
+listener.tls.external.cert_spiffe_as_username = false
+
+# How a SPIFFE ID is turned into a username (only effective when
+# cert_spiffe_as_username = true):
+#   "uri"  - the full URI, e.g. spiffe://example.com/user/barry (default)
+#   "path" - the URI path only, e.g. /user/barry (drops the trust domain, may collide
+#            across trust domains)
+#   "name" - the last non-empty path segment, e.g. barry (same caveat as "path")
+# Default: "uri"
+listener.tls.external.cert_spiffe_username_format = "uri"
+
 # Whether to collect client certificate information (cert_info) and
 # include it in the MQTT connection metadata
 # true  - enable this feature; cert_info will be added to the MQTT CONNECT
