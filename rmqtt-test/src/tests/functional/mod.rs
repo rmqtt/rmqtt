@@ -69,6 +69,7 @@ pub mod subscribe_multi_filter_v5;
 pub mod tcp_keepalive;
 pub mod topic_alias_v5;
 pub mod transport_tls;
+pub mod transport_tls_spiffe;
 pub mod user_properties_v5;
 pub mod webhook_connack_refused_v311;
 pub mod wildcard;

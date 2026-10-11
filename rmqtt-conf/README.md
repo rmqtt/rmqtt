@@ -146,6 +146,8 @@ Fields via `Deref<Target = ListenerInner>`:
 | `proxy_protocol_timeout` | `Duration` | `5s` | PROXY header read timeout |
 | `cert_cn_as_username` | `bool` | `false` | Use TLS CN as username |
 | `cert_subject_dn_as_username` | `bool` | `false` | Use TLS subject DN as username |
+| `cert_spiffe_as_username` | `bool` | `false` | Use the SPIFFE ID (URI SAN) as username; takes precedence over CN/DN |
+| `cert_spiffe_username_format` | `SpiffeUsernameFormat` | `Uri` | `Uri` / `Path` / `Name` — how the SPIFFE ID is projected onto the username |
 | `collect_cert_info` | `bool` | `false` | Collect TLS cert info |
 | `idle_timeout` | `Duration` | `90s` | QUIC idle timeout |
 

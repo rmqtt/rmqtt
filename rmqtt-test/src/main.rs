@@ -708,17 +708,21 @@ fn build_pulsar_suite() -> TestSuite {
 
 /// Standalone transport suite: the G27 TLS / WebSocket cases live here (not
 /// in functional_v311) so they can be run alone without the ~100 other v311
-/// cases:
+/// cases, and the SPIFFE-username mTLS cases join them (issue #535):
 ///
 ///     ./target/release/mqtt_harness --workspace . --suites functional_transport
 fn build_transport_suite() -> TestSuite {
     use tests::functional::transport_tls::*;
+    use tests::functional::transport_tls_spiffe::*;
 
     let mut suite = TestSuite::new("functional_transport");
     suite.add(TransportTlsV311Test);
     suite.add(TransportWssV311Test);
     suite.add(TransportWsV311Test);
     suite.add(TransportTlsMtlsV311Test);
+    suite.add(TransportTlsSpiffeV311Test);
+    suite.add(TransportTlsSpiffeV5Test);
+    suite.add(TransportTlsSpiffeFallbackV311Test);
     suite
 }
 

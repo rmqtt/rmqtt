@@ -18,6 +18,7 @@ use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
 use bytes::{Bytes, BytesMut};
+use bytestring::ByteString;
 use futures::{ready, Sink, Stream};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::TcpStream;
@@ -65,14 +66,23 @@ fn load_certs(path: &str) -> anyhow::Result<Vec<CertificateDer<'static>>> {
 /// `with_client_cert` is true the client also presents
 /// `rmqtt-bin/client.pem` (mTLS).
 fn rustls_config(with_client_cert: bool) -> anyhow::Result<ClientConfig> {
+    rustls_config_for(CERT_ROOT, with_client_cert.then_some((CERT_CLIENT, KEY_CLIENT)))
+}
+
+/// Build a rustls ClientConfig trusting `root_pem`, optionally presenting the
+/// client certificate chain `client_pem` with its key `client_key`.
+pub(crate) fn rustls_config_for(
+    root_pem: &str,
+    client: Option<(&str, &str)>,
+) -> anyhow::Result<ClientConfig> {
     let mut roots = RootCertStore::empty();
-    for cert in load_certs(CERT_ROOT)? {
+    for cert in load_certs(root_pem)? {
         roots.add(cert)?;
     }
     let builder = ClientConfig::builder().with_root_certificates(roots);
-    if with_client_cert {
-        let chain = load_certs(CERT_CLIENT)?;
-        let key = PrivateKeyDer::from_pem_file(KEY_CLIENT).map_err(|e| anyhow::anyhow!("{e}"))?;
+    if let Some((client_pem, client_key)) = client {
+        let chain = load_certs(client_pem)?;
+        let key = PrivateKeyDer::from_pem_file(client_key).map_err(|e| anyhow::anyhow!("{e}"))?;
         Ok(builder.with_client_auth_cert(chain, key)?)
     } else {
         Ok(builder.with_no_client_auth())
@@ -210,14 +220,23 @@ where
 // MQTT client over an arbitrary byte stream
 // ---------------------------------------------------------------------------
 
-struct MqttOverTransport<S> {
+pub(crate) struct MqttOverTransport<S> {
     stream: S,
     codec: V3Codec,
     read_buf: BytesMut,
 }
 
 impl<S: AsyncRead + AsyncWrite + Unpin> MqttOverTransport<S> {
-    async fn connect(mut stream: S, client_id: &str) -> anyhow::Result<Self> {
+    pub(crate) async fn connect(stream: S, client_id: &str) -> anyhow::Result<Self> {
+        Self::connect_with_username(stream, client_id, None).await
+    }
+
+    /// CONNECT with an explicit username (None = no username flag).
+    pub(crate) async fn connect_with_username(
+        mut stream: S,
+        client_id: &str,
+        username: Option<&str>,
+    ) -> anyhow::Result<Self> {
         let mut codec = V3Codec::new(0);
         let conn = Connect {
             protocol: Protocol(MQTT_LEVEL_311),
@@ -225,7 +244,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> MqttOverTransport<S> {
             keep_alive: 30,
             last_will: None,
             client_id: client_id.into(),
-            username: None,
+            username: username.map(ByteString::from),
             password: None,
             cert: None,
         };
@@ -300,7 +319,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> MqttOverTransport<S> {
         }
     }
 
-    async fn disconnect(&mut self) -> anyhow::Result<()> {
+    pub(crate) async fn disconnect(&mut self) -> anyhow::Result<()> {
         self.send_packet(&PacketV3::Disconnect).await
     }
 }

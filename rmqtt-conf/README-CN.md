@@ -146,6 +146,8 @@ impl Listeners {
 | `proxy_protocol_timeout` | `Duration` | `5s` | PROXY 头读取超时 |
 | `cert_cn_as_username` | `bool` | `false` | 使用 TLS CN 作为用户名 |
 | `cert_subject_dn_as_username` | `bool` | `false` | 使用 TLS 主题 DN 作为用户名 |
+| `cert_spiffe_as_username` | `bool` | `false` | 使用 SPIFFE ID（URI SAN）作为用户名；优先于 CN/DN |
+| `cert_spiffe_username_format` | `SpiffeUsernameFormat` | `Uri` | `Uri` / `Path` / `Name` —— SPIFFE ID 映射为用户名的取值方式 |
 | `collect_cert_info` | `bool` | `false` | 收集 TLS 证书信息 |
 | `idle_timeout` | `Duration` | `90s` | QUIC 空闲超时 |
 

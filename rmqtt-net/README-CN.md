@@ -72,6 +72,8 @@ pub type Result<T> = anyhow::Result<T, Error>;
 | `.tls_client_ca_certs(s)` | `Option<impl Into<String>>` | `None` |
 | `.cert_cn_as_username(v)` | `bool` | `false` |
 | `.cert_subject_dn_as_username(v)` | `bool` | `false` |
+| `.cert_spiffe_as_username(v)` | `bool` | `false` |
+| `.cert_spiffe_username_format(v)` | `SpiffeUsernameFormat` | `Uri` |
 | `.collect_cert_info(v)` | `bool` | `false` |
 | `.proxy_protocol(v)` | `bool` | `false` |
 | `.proxy_protocol_timeout(d)` | `Duration` | `5s` |
@@ -122,6 +124,26 @@ pub enum ListenerType {
 dispatcher.mqtt().await? -> MqttStream<S>
 // 返回 MqttStream::V3(v3::MqttStream<S>) 或 MqttStream::V5(v5::MqttStream<S>)
 ```
+
+## 由客户端证书推导用户名（mTLS，`tls` feature）
+
+TLS/WSS listener 校验客户端证书后，可以从证书推导用户名，而不是使用 CONNECT 报文中的值。
+各来源按特异性从高到低生效——先启用且命中者优先；全部未命中时保留客户端自报的 username：
+
+1. `.cert_spiffe_as_username(true)` —— SPIFFE ID（URI SAN）。仅当证书携带**恰好一个** URI SAN、
+   scheme 为 `spiffe` 且 trust domain 非空时才绑定；多于一个 URI SAN 的证书一律不绑定
+   （打 `warn`）。`.cert_spiffe_username_format(..)` 选择取值方式：`Uri` —— 完整 URI，
+   如 `spiffe://example.com/user/barry`（默认）；`Path` —— 如 `/user/barry`；`Name` ——
+   如 `barry`。`Path` / `Name` 丢弃 trust domain，跨信任域可能碰撞；path 为空或仅有 `/`
+   时回落到下一来源。此处只做身份映射，**不**实现 SPIFFE 叶子证书校验（`cA=false`、
+   key usage、非 root path）。
+2. `.cert_subject_dn_as_username(true)` —— 完整 Subject DN（如 `CN=alice,O=Acme,C=ES`）。
+3. `.cert_cn_as_username(true)` —— Common Name。
+
+`.collect_cert_info(true)` 会把解析出的证书信息（含 `spiffe_id`）附加到 CONNECT 上，供
+插件 / WebHook 使用。
+
+> 以上证书类选项仅适用于 TLS / WSS listener；QUIC listener 暂不支持证书提取。
 
 ## `MqttError`
 

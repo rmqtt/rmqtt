@@ -244,6 +244,12 @@ fn config_builder(cfg: &Listener) -> Builder {
         .proxy_protocol_timeout(cfg.proxy_protocol_timeout)
         .cert_cn_as_username(cfg.cert_cn_as_username)
         .cert_subject_dn_as_username(cfg.cert_subject_dn_as_username)
+        .cert_spiffe_as_username(cfg.cert_spiffe_as_username)
+        .cert_spiffe_username_format(match cfg.cert_spiffe_username_format {
+            rmqtt_conf::listener::SpiffeUsernameFormat::Uri => rmqtt::net::SpiffeUsernameFormat::Uri,
+            rmqtt_conf::listener::SpiffeUsernameFormat::Path => rmqtt::net::SpiffeUsernameFormat::Path,
+            rmqtt_conf::listener::SpiffeUsernameFormat::Name => rmqtt::net::SpiffeUsernameFormat::Name,
+        })
         .collect_cert_info(cfg.collect_cert_info)
         .idle_timeout(cfg.idle_timeout)
 }
