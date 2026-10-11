@@ -375,7 +375,7 @@ impl LockEntry {
     #[inline]
     pub async fn _remove_with(&mut self, clear_subscriptions: bool, with_id: &Id) -> Option<(Session, Tx)> {
         if let Some((_, peer)) =
-            { self.shared.peers.remove_if(&self.id.client_id, |_, entry| &entry.s.id == with_id) }
+            self.shared.peers.remove_if(&self.id.client_id, |_, entry| &entry.s.id == with_id)
         {
             if clear_subscriptions {
                 let topic_filters = peer.s.subscriptions().await.ok()?.to_topic_filters().await;
@@ -399,7 +399,7 @@ impl LockEntry {
 
     #[inline]
     pub async fn _remove(&mut self, clear_subscriptions: bool) -> Option<(Session, Tx)> {
-        if let Some((_, peer)) = { self.shared.peers.remove(&self.id.client_id) } {
+        if let Some((_, peer)) = self.shared.peers.remove(&self.id.client_id) {
             if clear_subscriptions {
                 let topic_filters = peer.s.subscriptions().await.ok()?.to_topic_filters().await;
                 for topic_filter in topic_filters {

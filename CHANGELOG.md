@@ -51,6 +51,7 @@ All notable changes to RMQTT are documented in this file.
 - `rmqtt-codec` 0.3.1 → **0.4.0** (new public `CertInfo::spiffe_id` field — a minor bump because `CertInfo` is not `#[non_exhaustive]`, so the added field breaks downstream struct-literal construction)
 - `rmqtt-net` 0.5.0 → **0.6.0** (new `is_over_max_packet_size()` helper, re-exported at the crate root; new `MqttError::TopicAliasInvalid` variant; new `cert_spiffe_as_username` / `cert_spiffe_username_format` builder options and the `SpiffeUsernameFormat` enum; SPIFFE ID extraction in the TLS certificate parser)
 - `rmqtt-conf` 0.5.0 → **0.6.0** (follows `rmqtt-net`; new `cert_spiffe_as_username` / `cert_spiffe_username_format` listener options)
+- Minimum supported Rust version (MSRV) raised from **1.94.0** to **1.95.0**, where `Atomic::try_update` stabilised: `Atomic::fetch_update` was deprecated in 1.99.0 in favour of that name, and the two call sites (`rmqtt-session-storage`, `rmqtt-http-api`) would otherwise have had to keep calling a deprecated method.
 
 ## [0.24.0] - 2026-09-19
 

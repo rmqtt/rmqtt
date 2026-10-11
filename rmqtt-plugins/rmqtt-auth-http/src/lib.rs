@@ -438,7 +438,8 @@ impl AuthHandler {
 
     #[inline]
     async fn auth(&self, connect_info: &ConnectInfo) -> (Permission, Option<AuthInfo>) {
-        if let Some(req) = { self.cfg.read().await.http_auth_req.clone() } {
+        let http_auth_req = self.cfg.read().await.http_auth_req.clone();
+        if let Some(req) = http_auth_req {
             match self
                 .request(
                     connect_info.id(),
@@ -503,7 +504,8 @@ impl AuthHandler {
         protocol: Option<u8>,
         sub_or_pub: Option<(ACLType, &TopicName)>,
     ) -> (Permission, Cacheable) {
-        if let Some(req) = { self.cfg.read().await.http_acl_req.clone() } {
+        let http_acl_req = self.cfg.read().await.http_acl_req.clone();
+        if let Some(req) = http_acl_req {
             match self.request(id, req, None, protocol, sub_or_pub).await {
                 Ok(acl_res) => {
                     log::debug!("acl result: {acl_res:?}");
