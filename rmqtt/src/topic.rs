@@ -225,8 +225,8 @@ impl Topic {
 
     /// Validate the entire topic according to MQTT specification rules.
     ///
-    /// Checks that wildcards are positioned correctly (multi-level `#` must be last),
-    /// metadata levels only appear as the first segment, and each level is valid.
+    /// Checks that wildcards are positioned correctly (multi-level `#` must be last)
+    /// and each level is valid.
     #[inline]
     pub fn is_valid(&self) -> bool {
         self.0
@@ -235,7 +235,6 @@ impl Topic {
             .or_else(|| {
                 self.0.iter().enumerate().position(|(pos, level)| match *level {
                     Level::MultiWildcard => pos != self.0.len() - 1,
-                    Level::Metadata(_) => pos != 0,
                     _ => false,
                 })
             })
@@ -513,7 +512,7 @@ mod tests {
             Level::normal("player1").unwrap()
         ])
         .is_valid());
-        assert!(!Topic(vec![
+        assert!(Topic(vec![
             Level::normal("sport").unwrap(),
             Level::metadata("$SYS").unwrap(),
             Level::normal("player1").unwrap()
@@ -535,7 +534,8 @@ mod tests {
             .matches(&Topic::from(vec![Level::Blank, Level::normal("finance").unwrap()])));
 
         assert!(topic!("$SYS").unwrap().matches(&Topic::from(vec![Level::metadata("$SYS").unwrap()])));
-        assert!("sport/$SYS".parse::<Topic>().is_err());
+        assert!("sport/$SYS".parse::<Topic>().is_ok());
+        assert!("valetudo/jimmy/$state".parse::<Topic>().is_ok());
     }
 
     #[test]
