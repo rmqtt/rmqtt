@@ -1,0 +1,14 @@
+##--------------------------------------------------------------------
+## rmqtt-acl — fixture for the Will Message ACL regression tests
+## (rmqtt-test/src/tests/functional/will_acl_v311.rs)
+##--------------------------------------------------------------------
+## One topic is closed to every publisher. The tests set that topic as a
+## client's Will and check the broker does not publish it on the client's
+## behalf, while a Will on any other topic still goes out as usual.
+
+disconnect_if_pub_rejected = true
+
+rules = [
+    ["deny", "all", "publish", ["test/will-acl/denied"]],
+    ["allow", "all"]
+]

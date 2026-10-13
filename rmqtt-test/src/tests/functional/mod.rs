@@ -75,6 +75,7 @@ pub mod webhook_connack_refused_v311;
 pub mod wildcard;
 pub mod wildcard_reject;
 pub mod wildcard_v3;
+pub mod will_acl_v311;
 pub mod will_delay_v5;
 pub mod will_disconnect_reason_v5;
 pub mod will_properties_v5;
