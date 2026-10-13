@@ -185,7 +185,7 @@ configs/
 
 > v3.1 客户端通过 `build_connect_bytes` 手工构造 MQIsdp CONNECT 报文（codec 将协议级别硬编码为 4，对 3.1.1/5.0 正确）。
 
-### functional_v311（112 个用例）— MQTT 3.1.1
+### functional_v311（113 个用例）— MQTT 3.1.1
 
 | 类别 | 用例 |
 |------|------|
@@ -197,7 +197,7 @@ configs/
 | Keep Alive | `keepalive_v311_ping_keeps_alive` / `timeout` / `zero` / `max_value` / `pingresp_explicit` / `window_boundary` |
 | 会话 | `clean_session_false` / `offline_queue_v311` / `present_on_resume` [MQTT-3.2.2.1] / `clean_discard` [MQTT-3.1.2-6] / `takeover` / `tcp_fin_rst` |
 | 通配符 | `wildcard_plus` / `hash` / `case_sensitive` / `leading_slash` / `hash_not_last` / `overlap` / `empty_levels` |
-| 认证 / $SYS / 共享订阅 | `auth_empty_client_id_fail` / `auth_connect_disconnect_sequence` / `dollar_topics` / `shared_sub_v311` |
+| 认证 / $SYS / 共享订阅 | `auth_empty_client_id_fail` / `auth_connect_disconnect_sequence` / `dollar_topics` / `dollar_topics_non_leading_v311` [MQTT-4.7.2-1] / `shared_sub_v311` |
 | 边界 | `max_client_id` / `long_topic` / `empty_payload` / `large_payload` / `special_chars_topic` / `rapid_subscribe` / `remaining_length_max` |
 | 多主题 | `multi_topic_subscribe_v311` / `overlapping_subscriptions` / `message_ordering` |
 | 协议错误 | `invalid_protocol_version` / `protocol_error_v311_*`（订阅/取消订阅：QoS3、QoS0 固定头、空 payload/filter、packet id 0；发布：QoS3、pid0、空主题、QoS0 携带 packet id；剩余长度非法、声明长度不匹配、报文截断、保留 packet type、packet type 15、PUBREL/PUBREC/PUBCOMP 错误 flags、未请求的 PUBREL、CONNECT payload 顺序、非法 UTF-8 主题）/ `remaining_length_transition_v311` |

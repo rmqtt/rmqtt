@@ -77,7 +77,7 @@ The `rmqtt-test` crate provides a custom test harness with additional test suite
 | Suite | Cases | Description |
 |-------|-------|-------------|
 | `functional_v3` | 51 | MQTT 3.1 spec conformance (connect edge cases, QoS 0/1/2, QoS 2 dedup/PUBREL resend, retained, will, keep alive, session, wildcards incl. `$SYS`, boundary, protocol errors) |
-| `functional_v311` | 112 | MQTT 3.1.1 spec conformance (incl. second-CONNECT rejection, retained edge cases, session present, protocol errors, flapping protection) |
+| `functional_v311` | 113 | MQTT 3.1.1 spec conformance (incl. second-CONNECT rejection, retained edge cases, session present, non-leading `$` topic levels, protocol errors, flapping protection) |
 | `functional_v5` | 111 | MQTT 5.0 spec conformance (CONNACK capabilities, session expiry incl. DISCONNECT SEI=0, topic alias, flow control, retain handling, protocol errors, flapping protection and HTTP unban, refused CONNECTs still reaching the observers) |
 | `stress` | 6 | Connection load (100 clients), publish load (1000 msgs), fan-out (1→N), mixed QoS, mass subscription, retain flood |
 | `chaos` | 19 | Broker restart (single node / cluster broadcast & raft / whole cluster), restored-session routing, connection storms, reconnect, QoS 1 reliability, slow consumer, session-storage startup load |

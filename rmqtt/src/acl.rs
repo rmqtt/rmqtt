@@ -426,3 +426,171 @@ impl TryFrom<(&str, &ConnectInfo)> for Topic {
         Ok(Topic { eq_topic_filter, topic_filter })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bytestring::ByteString;
+
+    use crate::codec::v3::Connect as ConnectV3;
+    use crate::types::{ClientId, Id, SubscriptionOptions};
+
+    /// A `ConnectInfo` carrying the two fields a topic config can interpolate.
+    /// `ConnectInfo::username()` reads the inner CONNECT packet for the v3 variant,
+    /// not the `Id`, so the username has to be set there.
+    fn connect_info(client_id: &str, username: Option<&str>) -> ConnectInfo {
+        let conn = ConnectV3 { username: username.map(ByteString::from), ..Default::default() };
+        ConnectInfo::V3(
+            Id::new(0, 1883, None, None, ClientId::from(client_id.to_owned()), None),
+            Box::new(conn),
+        )
+    }
+
+    /// `eq` compares the rest of the string verbatim — it is not a filter, so a `+`
+    /// or `#` inside it is an ordinary character.
+    #[tokio::test]
+    async fn eq_topic_is_a_plain_string() {
+        let connect_info = connect_info("acl-eq-test", None);
+
+        let topic = Topic::try_from(("eq a/+", &connect_info)).unwrap();
+        assert!(topic.is_match("a/+").await);
+        assert!(!topic.is_match("a/b").await);
+
+        let topic = Topic::try_from(("eq $SYS/broker/version", &connect_info)).unwrap();
+        assert!(topic.is_match("$SYS/broker/version").await);
+        assert!(!topic.is_match("$SYS/broker/version/x").await);
+    }
+
+    /// Without `eq` the config is a topic filter, so the ordinary wildcard rules
+    /// apply — including `#` answering for its parent level.
+    #[tokio::test]
+    async fn filter_topic_follows_the_wildcard_rules() {
+        let connect_info = connect_info("acl-filter-test", None);
+
+        let topic = Topic::try_from(("a/#", &connect_info)).unwrap();
+        assert!(topic.is_match("a").await);
+        assert!(topic.is_match("a/b/c").await);
+        assert!(!topic.is_match("b").await);
+
+        let topic = Topic::try_from(("a/+", &connect_info)).unwrap();
+        assert!(topic.is_match("a/b").await);
+        assert!(!topic.is_match("a/b/c").await);
+        assert!(!topic.is_match("a").await);
+    }
+
+    /// [MQTT-4.7.2-1] on the matcher ACL rules go through: `#` does not reach a topic
+    /// name that begins with `$`, while an explicit `$` filter does.
+    #[tokio::test]
+    async fn root_wildcard_does_not_reach_a_dollar_name() {
+        let connect_info = connect_info("acl-dollar-test", None);
+
+        let topic = Topic::try_from(("#", &connect_info)).unwrap();
+        assert!(topic.is_match("a/b").await);
+        assert!(!topic.is_match("$SYS/broker/version").await);
+
+        let topic = Topic::try_from(("$SYS/#", &connect_info)).unwrap();
+        assert!(topic.is_match("$SYS/broker/version").await);
+
+        // ⚠️ Recorded deviation, so that it is visible rather than assumed: a `+`
+        // that is the filter's last level is swallowed by the `break` in
+        // `Topic::matches_str`, so an ACL rule written `+` also authorises a
+        // `$`-topic — a fail-open. See `topic.rs`, same test name.
+        let topic = Topic::try_from(("+", &connect_info)).unwrap();
+        assert!(topic.is_match("$SYS").await);
+    }
+
+    /// A `$` level *below* the root is an ordinary level here as well, so an ACL rule
+    /// can cover the Homie shape with a wildcard above it (GitHub issue #537).
+    #[tokio::test]
+    async fn dollar_level_below_the_root_is_reachable() {
+        let connect_info = connect_info("acl-dollar-nested-test", None);
+
+        let topic = Topic::try_from(("#", &connect_info)).unwrap();
+        assert!(topic.is_match("homie/dev/$state").await);
+
+        let topic = Topic::try_from(("homie/+/$state", &connect_info)).unwrap();
+        assert!(topic.is_match("homie/dev/$state").await);
+        assert!(!topic.is_match("homie/dev/plain").await);
+    }
+
+    /// The placeholder terms are interpolated before the filter is parsed, and a
+    /// username term with no username to interpolate is a configuration error.
+    #[tokio::test]
+    async fn placeholders_are_interpolated_before_parsing() {
+        let named = connect_info("acl-device-1", Some("barry"));
+
+        let topic = Topic::try_from(("${clientid}/#", &named)).unwrap();
+        assert!(topic.is_match("acl-device-1/a").await);
+        assert!(!topic.is_match("acl-device-2/a").await);
+
+        let topic = Topic::try_from(("${username}/#", &named)).unwrap();
+        assert!(topic.is_match("barry/a").await);
+
+        // Nothing to interpolate the term with, so the rule cannot be resolved.
+        let anonymous = connect_info("acl-device-2", None);
+        assert!(Topic::try_from(("${username}/#", &anonymous)).is_err());
+    }
+
+    /// An empty topic config is a configuration error, and so are the permission and
+    /// action keywords outside their vocabulary.
+    #[test]
+    fn malformed_config_is_rejected() {
+        let connect_info = connect_info("acl-config-test", None);
+        assert!(Topic::try_from(("", &connect_info)).is_err());
+
+        assert!(matches!(Permission::try_from("allow").unwrap(), Permission::Allow));
+        assert!(matches!(Permission::try_from("deny").unwrap(), Permission::Deny));
+        assert!(Permission::try_from("maybe").is_err());
+
+        assert!(matches!(Action::try_from("all").unwrap(), Action::All));
+        assert!(matches!(Action::try_from("subscribe").unwrap(), Action::Subscribe));
+        assert!(Action::try_from("read").is_err());
+    }
+
+    /// The same line through the ACL config: a level that merely *holds* a `$` is
+    /// wildcarded like any other, a `$`-prefixed level is not, and a root `#` still
+    /// covers everything below the root.
+    #[tokio::test]
+    async fn dollar_inside_a_level_is_ordinary() {
+        let connect_info = connect_info("acl-dollar-inside-test", None);
+
+        let topic = Topic::try_from(("homie/+/+", &connect_info)).unwrap();
+        assert!(topic.is_match("homie/dev$/sta$te").await);
+        assert!(topic.is_match("homie/d$ev/state").await);
+        assert!(!topic.is_match("homie/$dev/$state").await);
+
+        let topic = Topic::try_from(("#", &connect_info)).unwrap();
+        assert!(topic.is_match("homie/$dev/$state").await);
+    }
+
+    /// A rule read from JSON carries its topic pattern into the same matcher, so a
+    /// wildcard rule does not cover a `$` topic, and the action gates the decision.
+    #[tokio::test]
+    async fn rule_from_json_matches_through_its_topic_pattern() {
+        let connect_info = connect_info("acl-rule-test", None);
+        let rule = Rule::try_from((
+            &serde_json::json!({"permission": "allow", "action": "subscribe", "topic": "a/#"}),
+            &connect_info,
+        ))
+        .unwrap();
+
+        assert!(matches!(rule.permission, Permission::Allow));
+        assert!(matches!(rule.action, Action::Subscribe));
+
+        let subscribe = Subscribe { topic_filter: "a/b".into(), opts: SubscriptionOptions::default() };
+        assert!(rule.subscribe_hit(&subscribe).await);
+
+        let subscribe = Subscribe { topic_filter: "$SYS/a".into(), opts: SubscriptionOptions::default() };
+        assert!(!rule.subscribe_hit(&subscribe).await);
+
+        // The action is part of the decision: the same topic under a publish-only
+        // rule never hits a subscription.
+        let rule = Rule::try_from((
+            &serde_json::json!({"permission": "allow", "action": "publish", "topic": "a/#"}),
+            &connect_info,
+        ))
+        .unwrap();
+        let subscribe = Subscribe { topic_filter: "a/b".into(), opts: SubscriptionOptions::default() };
+        assert!(!rule.subscribe_hit(&subscribe).await);
+    }
+}
