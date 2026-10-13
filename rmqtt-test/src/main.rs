@@ -507,6 +507,8 @@ fn build_functional_v311_suite() -> TestSuite {
     suite.add(PublishWildcardRejectTest);
     // Dollar topics ($SYS)
     suite.add(DollarTopicsTest);
+    // Non-leading `$` levels (GitHub issue #537)
+    suite.add(DollarTopicsNonLeadingV311Test);
     // QoS 2 duplicate detection
     suite.add(Qos2DuplicateDetectionTest);
     // Protocol error edge cases
