@@ -72,6 +72,8 @@ All fields have `pub` visibility and fluent setter methods:
 | `.tls_client_ca_certs(s)` | `Option<impl Into<String>>` | `None` |
 | `.cert_cn_as_username(v)` | `bool` | `false` |
 | `.cert_subject_dn_as_username(v)` | `bool` | `false` |
+| `.cert_spiffe_as_username(v)` | `bool` | `false` |
+| `.cert_spiffe_username_format(v)` | `SpiffeUsernameFormat` | `Uri` |
 | `.collect_cert_info(v)` | `bool` | `false` |
 | `.proxy_protocol(v)` | `bool` | `false` |
 | `.proxy_protocol_timeout(d)` | `Duration` | `5s` |
@@ -122,6 +124,32 @@ pub enum ListenerType {
 dispatcher.mqtt().await? -> MqttStream<S>
 // returns MqttStream::V3(v3::MqttStream<S>)  or  MqttStream::V5(v5::MqttStream<S>)
 ```
+
+## Certificate-derived usernames (mTLS, `tls` feature)
+
+When a TLS/WSS listener verifies a client certificate, the username can be derived
+from it instead of the CONNECT packet. The sources apply in order of specificity —
+whichever is enabled and present wins; when none hits, the username the client sent
+is kept:
+
+1. `.cert_spiffe_as_username(true)` — the SPIFFE ID (URI SAN). A SPIFFE ID is bound
+   only when the certificate carries **exactly one** URI SAN whose scheme is
+   `spiffe` with a non-empty trust domain; a certificate with more than one URI SAN
+   is never bound (logged as a warning). `.cert_spiffe_username_format(..)` selects
+   the projection: `Uri` — the full URI, e.g. `spiffe://example.com/user/barry`
+   (default); `Path` — e.g. `/user/barry`; `Name` — e.g. `barry`. `Path` / `Name`
+   drop the trust domain and can collide across trust domains; they also fall
+   through to the next source when the path is empty or root. This is an identity
+   mapping only — SPIFFE leaf-certificate validation rules (`cA=false`, key usage,
+   non-root path) are deliberately not enforced.
+2. `.cert_subject_dn_as_username(true)` — the full Subject DN (e.g. `CN=alice,O=Acme,C=ES`).
+3. `.cert_cn_as_username(true)` — the Common Name.
+
+`.collect_cert_info(true)` additionally attaches the parsed certificate (including
+`spiffe_id`) to the CONNECT for plugins/webhooks.
+
+> These options apply to the TLS and WSS listeners only; the QUIC listener does not
+> extract certificates yet.
 
 ## `MqttError`
 

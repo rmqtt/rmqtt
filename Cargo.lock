@@ -4543,6 +4543,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "rcgen"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75e669e5202259b5314d1ea5397316ad400819437857b90861765f24c4cf80a2"
+dependencies = [
+ "pem",
+ "ring",
+ "rustls-pki-types",
+ "time",
+ "yasna",
+]
+
+[[package]]
 name = "rdkafka"
 version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5177,7 +5190,7 @@ dependencies = [
 
 [[package]]
 name = "rmqtt-codec"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "bitflags 2.13.1",
  "bytes",
@@ -5552,6 +5565,7 @@ dependencies = [
  "parking_lot 0.12.5",
  "pulsar",
  "rand 0.9.5",
+ "rcgen",
  "rmqtt-codec",
  "rustls",
  "serde",
@@ -7938,6 +7952,15 @@ name = "xxhash-rust"
 version = "0.8.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aee1b19627c7c60102ab80d3a9cbe18de90bfe03bfa6c3715447681f0e8c8af6"
+
+[[package]]
+name = "yasna"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e17bb3549cc1321ae1296b9cdc2698e2b6cb1992adfa19a8c72e5b7a738f44cd"
+dependencies = [
+ "time",
+]
 
 [[package]]
 name = "yoke"

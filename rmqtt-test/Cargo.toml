@@ -36,6 +36,10 @@ parking_lot = { workspace = true }
 rustls = { workspace = true }
 tokio-rustls = { workspace = true }
 tokio-tungstenite = { workspace = true, features = ["rustls-tls-webpki-roots"] }
+# Per-case CA/client certificate generation for the SPIFFE-username mTLS
+# cases (issue #535): each case mints its own CA and certs at runtime, so
+# the cases share nothing with each other or with the repo's test certs.
+rcgen = "0.13"
 # socket options for raw-socket tests (G32 RST)
 socket2 = { workspace = true }
 # Pulsar bridge suite (`--suites pulsar`): the tests embed their own
