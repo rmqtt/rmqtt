@@ -47,7 +47,8 @@ struct Opt {
     workspace: Option<String>,
 
     /// Run only specific test suites (functional_v3, functional_v311, functional_v5,
-    /// functional_v5_cluster, functional_transport, delayed, pulsar, stress, chaos)
+    /// functional_v5_cluster, functional_transport, bridge_egress_mqtt, delayed,
+    /// pulsar, stress, chaos)
     #[arg(short, long)]
     suites: Vec<String>,
 
@@ -275,6 +276,15 @@ fn build_suites(opt: &Opt) -> Vec<TestSuite> {
         suites.push(build_pulsar_suite());
     }
 
+    // MQTT bridge suite (issue #451): the egress/ingress MQTT plugins are
+    // exercised against a *mock* peer broker that runs inside the test process.
+    // It owns a fixture config pinned to MQTT 1915 / gRPC 5395, so it binds
+    // ports of its own and is kept out of the default full run — request it
+    // with `--suites bridge_egress_mqtt`.
+    if should_run("bridge_egress_mqtt", opt) {
+        suites.push(build_bridge_egress_mqtt_suite());
+    }
+
     suites
 }
 
@@ -282,7 +292,9 @@ fn build_suites(opt: &Opt) -> Vec<TestSuite> {
 ///
 /// - Empty `--suites` = default full run, which excludes the two-node
 ///   `functional_v5_cluster` suite (it manages its own nodes and needs
-///   `--no-broker`) and the `pulsar` suite (external Pulsar service).
+///   `--no-broker`), the `pulsar` suite (external Pulsar service) and the
+///   standalone `bridge_egress_mqtt` suite (binds its own MQTT/gRPC ports and
+///   runs mock peers in-process).
 /// - Otherwise a suite is selected when a selector equals its name, is a
 ///   prefix (`functional_v5` also selects `functional_v5@retain-disabled`),
 ///   or is a sub-suite name of it (`functional_v5@retain-disabled` also
@@ -290,9 +302,10 @@ fn build_suites(opt: &Opt) -> Vec<TestSuite> {
 fn should_run(name: &str, opt: &Opt) -> bool {
     if opt.suites.is_empty() {
         // Default full run excludes the self-managed cluster suite (it needs
-        // --no-broker, which the default run does not pass) and the pulsar
-        // bridge suite (external Pulsar service required).
-        return name != "functional_v5_cluster" && name != "pulsar";
+        // --no-broker, which the default run does not pass), the pulsar
+        // bridge suite (external Pulsar service required) and the MQTT bridge
+        // suite (its own port block + in-process mock peers).
+        return name != "functional_v5_cluster" && name != "pulsar" && name != "bridge_egress_mqtt";
     }
     opt.suites
         .iter()
@@ -708,6 +721,59 @@ fn build_pulsar_suite() -> TestSuite {
     // Retained delivery is checked last: it writes retained state on the local
     // topic and cleans it up at the end of the case.
     suite.add(PulsarIngressRetainPropertyTest);
+
+    suite
+}
+
+/// Standalone MQTT-bridge suite (issue #451) — run with
+/// `--suites bridge_egress_mqtt`.
+///
+/// The `rmqtt-bridge-egress-mqtt` / `rmqtt-bridge-ingress-mqtt` plugins are
+/// exercised against a **mock peer broker that lives inside the test process**
+/// (no docker, no mosquitto): the case receives the bridge's CONNECT, answers
+/// CONNACK/SUBACK/PINGRESP and records every PUBLISH the bridge emits, so the
+/// exact bytes the bridge puts on the wire can be asserted — in particular
+/// whether the topic name it forwards is legal.
+///
+/// Every case is pinned to `rmqtt-test/configs/bridge-egress-mqtt/rmqtt.toml`
+/// (MQTT 1915 / gRPC 5395, both bridge plugins, `log.to = "file"`) through
+/// [`TestCase::broker_config`], plus `broker_addr() = 127.0.0.1:1915` so the
+/// harness health-probes the fixture's own listener instead of the default
+/// 1883. The suite is opt-in: it binds its own port block and runs mock peers
+/// on 2915 (egress target) / 3915 (ingress source).
+///
+///     ./target/debug/mqtt_harness --binary target/debug/rmqttd --workspace . \
+///         --suites bridge_egress_mqtt --workers 1
+fn build_bridge_egress_mqtt_suite() -> TestSuite {
+    use tests::functional::bridge_egress_mqtt::*;
+
+    let mut suite = TestSuite::new("bridge_egress_mqtt");
+
+    // Egress side, happy path: a legal mapping must forward the local publish to
+    // the peer verbatim. Asserted on its own so that a successful forward is not
+    // covered only by the control arm inside the skip_levels case.
+    suite.add(Issue451EgressForwardLocalPublishTest);
+    // Egress side: a mapping that is only illegal at RUNTIME — `${local.topic}`
+    // truncated by an out-of-range `skip_levels` — must not reach the peer, and
+    // its drop must be attributable from the broker log (needs
+    // `log.to = "file"`). A mapping that is illegal as a literal is rejected
+    // when the config is loaded, so it cannot even start a broker and is
+    // covered by the plugins' unit tests instead.
+    suite.add(Issue451EgressEmptyTopicAfterSkipLevelsTest);
+    // Egress side: v5 properties are per-connection / direction-specific and
+    // must not be replayed onto another connection.
+    suite.add(Issue451EgressV5CrossConnectionPropertiesTest);
+
+    // Ingress side: the shape of `local.topic` decides the local topic the
+    // ingress bridge publishes to. One case per legal shape (the illegal
+    // literal shape is rejected at config load).
+    suite.add(Issue451IngressLocalTopicPlaceholderTransparentTest);
+    suite.add(Issue451IngressLocalTopicLiteralPlainTest);
+    suite.add(Issue451IngressLocalTopicWithSuffixTest);
+    // Ingress side, happy path: the I1 mapping must reach a plain LOCAL
+    // subscriber of the broker — observed without routing the assertion through
+    // the egress bridge, which is the whole point of an ingress bridge.
+    suite.add(Issue451IngressDeliversToLocalSubscriberTest);
 
     suite
 }

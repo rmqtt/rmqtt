@@ -1,0 +1,129 @@
+##--------------------------------------------------------------------
+## rmqttd config for the MQTT bridge suite (GitHub issue #451)
+##
+## Purpose: run rmqtt-bridge-ingress-mqtt and rmqtt-bridge-egress-mqtt
+## together in ONE broker so that the whole forwarding chain is exercised:
+##
+##   mock upstream  --(inbound PUBLISH)-->  ingress bridge
+##        --(local publish, `local.topic` mapping)-->
+##        [ broker under test ]  --(MessagePublish hook)-->  egress bridge
+##        --(outbound PUBLISH, `remote.topic` mapping)-->  mock downstream
+##
+## The issue is that the egress bridge puts the result of `remote.topic`
+## into a PUBLISH *without ever validating it as a topic name*
+## (rmqtt-plugins/rmqtt-bridge-egress-mqtt/src/bridge.rs -> make_topic()),
+## so a mapping shape that yields an empty topic or a topic containing
+## `+` / `#` reaches the peer and is answered with
+## `disconnected: malformed packet.` (mosquitto) — with no diagnostic on
+## the RMQTT side. A normal client can never produce such a topic, which is
+## why the defect only shows up with a particular *configuration shape*.
+## See tests/functional/bridge_egress_mqtt.rs for the cases and
+## designs/issue-451-egress-malformed-packet-analysis.md for the evidence.
+##
+## Both bridges talk to mocks that live INSIDE the test process, so no
+## docker/mosquitto/network service is needed:
+##   mock "upstream"   (the bridge's remote) 127.0.0.1:2915
+##   mock "downstream" (the bridge's remote) 127.0.0.1:3915
+##
+## Ports: MQTT 1915 / gRPC 5395 / HTTP 6075 — this fixture owns them instead
+## of sharing the harness-wide 1883 / 5363 / 6060. What makes an own port
+## work is `TestCase::broker_addr()` in tests/functional/bridge_egress_mqtt.rs,
+## which has the scheduler retarget the harness health probe at 1915 while
+## the `bridge_egress_mqtt@bridge-egress-mqtt` sub-suite runs.
+## All three are free: the fixtures with the highest MQTT port are
+## flapping 1902 / flapping-order 1903, the highest gRPC port flapping-order
+## 5380, and the HTTP API sits on 6060 (harness), 6061 (cluster-stress
+## node 1), 6066 (flapping), 6067 (flapping-order), 6070 (session-sled-stress).
+##
+## `@@PLUGINS_DIR@@` / `@@LOG_DIR@@` are rewritten to ABSOLUTE paths when the
+## fixture is copied into `target/bridge-egress-mqtt/` (see
+## `prepare_config()`), which removes the broker-CWD dependence and gives the
+## cases a deterministic log file.
+##
+## Usage (from the rmqtt repository root):
+##   target/debug/mqtt_harness \
+##     --binary target/debug/rmqttd --workspace . \
+##     --suites bridge_egress_mqtt --workers 1
+##--------------------------------------------------------------------
+
+##--------------------------------------------------------------------
+## Task
+##--------------------------------------------------------------------
+task.exec_workers = 2000
+task.exec_queue_max = 300_000
+
+##--------------------------------------------------------------------
+## Node
+##--------------------------------------------------------------------
+node.id = 1
+node.busy.check_enable = false
+node.busy.update_interval = "2s"
+node.busy.loadavg = 80.0
+node.busy.cpuloadavg = 90.0
+node.busy.handshaking = 0
+
+##--------------------------------------------------------------------
+## Log
+##--------------------------------------------------------------------
+## `log.to = "file"` on purpose: the harness starts a self-managed broker
+## with `Stdio::piped()` and never reads the pipe (broker/lifecycle.rs), so
+## a file is the ONLY way a case can observe what RMQTT actually logged —
+## which is what the diagnosability case (C4) asserts.
+## `log.level = "info"` on purpose as well: the case requires a *warning*
+## naming the illegal forward, not a debug trace.
+log.to = "file"
+log.level = "info"
+log.dir = "@@LOG_DIR@@"
+log.file = "bridge-egress-mqtt.log"
+
+##--------------------------------------------------------------------
+## Plugins
+##--------------------------------------------------------------------
+# Self-contained: plugin configs live in this directory's plugins/ sub-dir.
+plugins.dir = "@@PLUGINS_DIR@@"
+plugins.default_startups = [
+    "rmqtt-bridge-ingress-mqtt",
+    "rmqtt-bridge-egress-mqtt",
+    "rmqtt-http-api",
+]
+## No auth plugin -> the bridge clients connect anonymously (the mocks do not
+## challenge them). rmqtt-acl stays off: its shipped final rule
+## `["allow", "all"]` would also cover CONNECT (issue #501 fail-open) and
+## there is nothing to authorize here anyway.
+plugins.disabled_default_startups = ["rmqtt-acl", "rmqtt-counter", "rmqtt-retainer"]
+
+##--------------------------------------------------------------------
+## RPC (5395; the highest gRPC port used elsewhere is flapping-order's 5380)
+##--------------------------------------------------------------------
+rpc.server_addr = "0.0.0.0:5395"
+rpc.server_workers = 4
+rpc.batch_size = 128
+rpc.client_concurrency_limit = 128
+rpc.client_timeout = "5s"
+
+##--------------------------------------------------------------------
+## Listener (external TCP only, 1915)
+##--------------------------------------------------------------------
+listener.tcp.external.addr = "127.0.0.1:1915"
+listener.tcp.external.workers = 8
+listener.tcp.external.max_connections = 1024000
+listener.tcp.external.max_handshaking_limit = 500
+listener.tcp.external.handshake_timeout = "30s"
+listener.tcp.external.max_packet_size = "1MB"
+listener.tcp.external.backlog = 1024
+# Anonymous access allowed: the bridges and the test client connect without
+# credentials.
+listener.tcp.external.allow_anonymous = true
+# v5 Topic Alias maximum. The ingress bridge uses the broker default knob when
+# it advertises its own alias maximum — keep it non-zero so the C3 carrier can
+# legally attach a Topic Alias to the PUBLISH it receives.
+listener.tcp.external.max_topic_aliases = 32
+
+##--------------------------------------------------------------------
+## Other listeners — all disabled (would clash with other suites)
+##--------------------------------------------------------------------
+listener.tcp.internal.enable = false
+listener.tls.external.enable = false
+listener.ws.external.enable = false
+listener.wss.external.enable = false
+listener.quic.external.enable = false
