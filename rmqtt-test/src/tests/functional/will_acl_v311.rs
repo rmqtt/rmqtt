@@ -27,7 +27,12 @@ use crate::mqtt::common::QoS;
 use crate::mqtt::v311::MqttV311Client;
 
 const SUITE: &str = "functional_v311";
-/// The fixture pins its own MQTT port (see configs/will-acl/rmqtt.toml).
+/// The fixture pins its own MQTT port (see configs/will-acl/rmqtt.toml), so the
+/// clients below must dial this address, not `ctx.config.broker_addr`: the
+/// latter always holds the harness `--addr` (the *probe* address), which
+/// `broker_addr()` only redirects for the health probe of the sub-suite. Dialing
+/// the probe address here instead reaches the default-config broker's port, which
+/// the harness has already stopped when the sub-suite starts (ECONNREFUSED).
 const BROKER_ADDR: &str = "127.0.0.1:1905";
 const DENIED_TOPIC: &str = "test/will-acl/denied";
 const ALLOWED_TOPIC: &str = "test/will-acl/allowed";
@@ -49,7 +54,7 @@ fn will(topic: &str, payload: &'static str) -> LastWill {
 /// without a DISCONNECT so the broker publishes the Will.
 async fn connect_and_abort_with_will(ctx: &TestContext, client_id: &str, lw: LastWill) -> anyhow::Result<()> {
     let client = MqttV311Client::connect_with_options(
-        &ctx.config.broker_addr,
+        BROKER_ADDR,
         client_id,
         ctx.config.connect_timeout,
         true,
@@ -84,12 +89,9 @@ impl TestCase for WillAclAllowedTopicPublishedV311Test {
         let rt = tokio::runtime::Runtime::new().unwrap();
 
         let result = rt.block_on(async {
-            let mut sub = MqttV311Client::connect(
-                &ctx.config.broker_addr,
-                "will-acl-allowed-sub",
-                ctx.config.connect_timeout,
-            )
-            .await?;
+            let mut sub =
+                MqttV311Client::connect(BROKER_ADDR, "will-acl-allowed-sub", ctx.config.connect_timeout)
+                    .await?;
             sub.subscribe(ALLOWED_TOPIC, QoS::AtLeastOnce).await?;
             tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -140,12 +142,9 @@ impl TestCase for WillAclDeniedTopicDroppedV311Test {
         let rt = tokio::runtime::Runtime::new().unwrap();
 
         let result = rt.block_on(async {
-            let mut sub = MqttV311Client::connect(
-                &ctx.config.broker_addr,
-                "will-acl-denied-sub",
-                ctx.config.connect_timeout,
-            )
-            .await?;
+            let mut sub =
+                MqttV311Client::connect(BROKER_ADDR, "will-acl-denied-sub", ctx.config.connect_timeout)
+                    .await?;
             sub.subscribe(DENIED_TOPIC, QoS::AtLeastOnce).await?;
             sub.subscribe(ALLOWED_TOPIC, QoS::AtLeastOnce).await?;
             tokio::time::sleep(Duration::from_millis(100)).await;

@@ -1,0 +1,115 @@
+##--------------------------------------------------------------------
+## rmqttd config for the issue #532 connect-ramp stall reproducer — TLS ramp
+##
+## Purpose: `configs/issue532-ramp/` with the one difference that matters — the
+## ramp arrives on a TLS listener instead of a plain TCP one. Everything else
+## (a two-worker handshake pool, file logging, the 1 s stats snapshot, the ramp
+## shape in the case) is identical, so a difference in behaviour between the
+## two fixtures is attributable to the transport alone.
+##
+## Why the transport is a variable at all: in `rmqtt/src/server.rs::listen_tls`
+## the TLS handshake runs inside a per-connection `tokio::spawn`, i.e. OUTSIDE
+## the per-port `TaskExecQueue` that `max_handshaking_limit` sizes. TLS
+## therefore adds CPU work (rustls + certificate verification) at unbounded
+## concurrency immediately beside the queue's dispatcher task, while the MQTT
+## handshake that follows still goes through the queue. The reporter's
+## deployment ran TLS; the plain-TCP fixture is the control.
+##
+## Ports: MQTT/TLS 1908 / gRPC 5385 / HTTP 6072 — free everywhere else in the
+## repository (MQTT 1883 + 1900-1907, gRPC 5363 + 5380-5384, HTTP 6060/6061/
+## 6066-6071 are taken). The case advertises 1908 through `broker_addr()` so
+## the harness probes the right port, and connects here itself.
+##
+## Certificates are the repository's own test pair (`rmqtt-bin/rmqtt.pem` +
+## `rmqtt.key`, CA `rmqtt-bin/root.pem`, SAN `localhost`), the same ones
+## `configs/default/rmqtt.toml` and `transport_tls.rs` use — server-auth only
+## (`cross_certificate = false`), so no client certificate is needed and this
+## fixture stays a plain file.
+##
+## Usage (from the repository root, so `plugins.dir` resolves):
+##   mqtt_harness --binary target/release/rmqttd --workspace . \
+##     --suites functional_v5 --workers 1 --test issue532_tls
+##--------------------------------------------------------------------
+
+##--------------------------------------------------------------------
+## Task
+##--------------------------------------------------------------------
+task.exec_workers = 2000
+task.exec_queue_max = 300_000
+
+##--------------------------------------------------------------------
+## Node
+##--------------------------------------------------------------------
+node.id = 1
+# Off: the handshake overload check (`scx.node.sys_is_busy()`) can refuse a
+# CONNECT with "the system is currently overloaded"; this case must fail
+# (or hang) for the reason under test, never for that one.
+node.busy.check_enable = false
+node.busy.update_interval = "2s"
+node.busy.loadavg = 80.0
+node.busy.cpuloadavg = 90.0
+# 0 = derive the busy threshold from the listener's handshaking limit.
+node.busy.handshaking = 0
+
+##--------------------------------------------------------------------
+## Log — file sink, see the header of configs/issue532-ramp/rmqtt.toml
+## (the harness never drains the pipes)
+##--------------------------------------------------------------------
+log.to = "file"
+log.level = "info"
+log.dir = "target/rmqtt-test-logs"
+log.file = "issue532-ramp-tls.log"
+
+##--------------------------------------------------------------------
+## Plugins
+##--------------------------------------------------------------------
+# Self-contained: plugin configs live in this directory's plugins/ sub-dir.
+plugins.dir = "rmqtt-test/configs/issue532-ramp-tls/plugins/"
+plugins.default_startups = [
+    "rmqtt-sys-topic",
+    "rmqtt-http-api",
+]
+plugins.disabled_default_startups = ["rmqtt-acl", "rmqtt-counter"]
+
+##--------------------------------------------------------------------
+## RPC (port avoids every gRPC port used elsewhere, see the header)
+##--------------------------------------------------------------------
+rpc.server_addr = "0.0.0.0:5385"
+rpc.server_workers = 4
+rpc.batch_size = 128
+rpc.client_concurrency_limit = 128
+rpc.client_timeout = "5s"
+
+##--------------------------------------------------------------------
+## Listener — external TLS only; MQTT/TLS 1908 (see the header)
+##--------------------------------------------------------------------
+# TLS handshake cost is the point of this fixture, and `handshake_timeout`
+# bounds it (`builder.rs::tls()`), exactly as it bounds `recv_connect` later.
+listener.tls.external.enable = true
+listener.tls.external.addr = "127.0.0.1:1908"
+listener.tls.external.workers = 8
+# The pool this case saturates (see configs/issue532-ramp/rmqtt.toml). Not a
+# typo, and identical to the plain fixture so the two stay comparable.
+listener.tls.external.max_handshaking_limit = 2
+# Far above the ramp's concurrency on purpose: only the worker pool may be the
+# saturated resource.
+listener.tls.external.max_connections = 4096
+listener.tls.external.handshake_timeout = "30s"
+listener.tls.external.max_packet_size = "1MB"
+listener.tls.external.backlog = 1024
+# Anonymous access: the ramp must not depend on credentials.
+listener.tls.external.allow_anonymous = true
+# Server-auth only: the client presents no certificate, so no client CA is
+# configured (default false, stated for the reader).
+listener.tls.external.cross_certificate = false
+listener.tls.external.cert = "./rmqtt-bin/rmqtt.pem"
+listener.tls.external.key = "./rmqtt-bin/rmqtt.key"
+
+##--------------------------------------------------------------------
+## Other listeners — all disabled (would clash with other suites)
+##--------------------------------------------------------------------
+listener.tcp.external.enable = false
+listener.tcp.internal.enable = false
+listener.ws.external.enable = false
+listener.wss.external.enable = false
+listener.quic.external.enable = false

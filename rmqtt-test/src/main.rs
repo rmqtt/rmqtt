@@ -783,6 +783,8 @@ fn build_functional_v5_suite() -> TestSuite {
     use tests::functional::flapping_v5::*;
     use tests::functional::flow_control_v5::*;
     use tests::functional::issue513_message_lifecycle::*;
+    use tests::functional::issue532_connect_ramp_stall::*;
+    use tests::functional::issue532_tls_connect_ramp_stall::*;
     use tests::functional::keepalive::*;
     use tests::functional::kick_takeover_race::*;
     use tests::functional::last_will::*;
@@ -985,6 +987,22 @@ fn build_functional_v5_suite() -> TestSuite {
     // every SUBSCRIBE. PASSes once the oversized message is discarded as
     // [MQTT-3.1.2-25] requires.
     suite.add(RetainedOversizedMessageKeepsSessionV5Test);
+    // Issue #532 (broadcast cluster hang, reproduced without the cluster): a
+    // sustained connect ramp against a broker whose per-port handshake pool is
+    // two workers reproduces the incident's node-level signature — handshakes
+    // stop completing while the process stays alive and the TCP-level health
+    // check stays green. Declared NORMAL, so a reproduced stall fails the
+    // suite on purpose (red until the broker is fixed). Runs ~1 minute; fixture
+    // configs/issue532-ramp/, details in issue532_connect_ramp_stall.rs.
+    // Isolate it with `--test issue532`.
+    suite.add(Issue532ConnectRampStallTest);
+    // The same case with the ramp on a TLS listener (the reporter's transport).
+    // TLS handshakes run in a per-connection spawn *outside* the
+    // `max_handshaking_limit`-sized queue, so this variant adds unbounded CPU
+    // work next to that queue's dispatcher — the control is the plain case
+    // above, and everything else is shared. Runs ~1 minute; fixture
+    // configs/issue532-ramp-tls/, details in issue532_tls_connect_ramp_stall.rs.
+    suite.add(Issue532TlsConnectRampStallTest);
     // Retained message edge cases
     suite.add(RetainV5StoreAndDeliverTest);
     suite.add(RetainV5EmptyDeleteTest);
@@ -1016,14 +1034,36 @@ fn build_functional_v5_suite() -> TestSuite {
     suite
 }
 
-/// Cluster-only reproduction suite — the case starts both nodes itself (or
-/// reuses ones already listening), so only `--no-broker` is required:
-///   mqtt_harness --no-broker --addr 127.0.0.1:1884 --suites functional_v5_cluster
+/// Cluster-only reproduction suite — every case starts its own nodes (or reuses
+/// ones already listening on the fixture's ports), so `--no-broker` is required
+/// and `--addr` is irrelevant:
+///   mqtt_harness --no-broker --workspace . --suites functional_v5_cluster
 fn build_functional_v5_cluster_suite() -> TestSuite {
+    use tests::functional::issue532_cluster_connect_ramp_stall::*;
+    use tests::functional::issue532_live_cluster::*;
+    use tests::functional::issue532_tls_cluster_connect_ramp_stall::*;
     use tests::functional::qos2_pubrel_resume_collision_cluster::*;
 
     let mut suite = TestSuite::new("functional_v5_cluster");
     suite.add(Qos2PubrelResumeCollisionClusterTest);
+    // Issue #532 in cluster form: three broadcast nodes, a connect ramp against
+    // all of them and the cross-node fan-out active. Fails when any node stops
+    // completing handshakes while its process stays alive. Runs ~2 minutes and
+    // owns its nodes (configs/issue532-ramp-cluster/), so it needs --no-broker;
+    // details in issue532_cluster_connect_ramp_stall.rs.
+    suite.add(Issue532ClusterConnectRampStallTest);
+    // The same three-node case with the ramp on each node's TLS listener (the
+    // reporter's transport); the fan-out stays on plain TCP so the ramp is the
+    // only TLS workload. Adds a per-node handshake-rate profile to the
+    // evidence. Owns its nodes (configs/issue532-ramp-tls-cluster/), so it needs
+    // --no-broker; details in issue532_tls_cluster_connect_ramp_stall.rs.
+    suite.add(Issue532TlsClusterConnectRampStallTest);
+    // Issue #532 at the incident's scale: 100K *live* sessions (not the ~400
+    // in-flight handshakes the two cases above reach). Linux/docker only — it
+    // skips on Windows, needs --no-broker, and takes its cluster from
+    // RMQTT_LIVE_NODES. Entry point: rmqtt-test/docker/issue532-live/run.sh;
+    // details in issue532_live_cluster.rs.
+    suite.add(Issue532LiveClusterTest);
     suite
 }
 

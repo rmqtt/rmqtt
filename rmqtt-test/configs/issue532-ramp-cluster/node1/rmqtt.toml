@@ -1,0 +1,116 @@
+##--------------------------------------------------------------------
+## rmqttd node 1 — issue #532 cluster reproduction (cluster-broadcast, 3 nodes)
+##
+## Purpose: run the reported incident in cluster form — three nodes with the
+## broadcast plugin, a sustained connect ramp against all of them, and the
+## cross-node fan-out active on every publish. The case under test is
+## `issue532_cluster_connect_ramp_stall.rs`; it spawns these nodes itself
+## (`functional_v5_cluster` suite, `--no-broker`), owns their processes and
+## kills them on exit.
+##
+## Deviations from the reporter's deployment, all deliberate and all
+## documented in that file's header: no session-storage (the report has it
+## off), no http-api (per-node evidence comes from the probes, the counters
+## and the log tails instead of a per-node API port), and a two-worker
+## handshake pool (the reporter's `max_handshaking_limit` is unknown; see the
+## file header for why a small pool is what makes the stall reachable inside
+## a test run).
+##
+## Plain TCP for the ramp, on purpose: the reporter's deployment ran TLS, and
+## `configs/issue532-ramp-tls-cluster/` is this fixture with the ramp on a TLS
+## listener (TLS handshakes run in a per-connection spawn *outside* the
+## `max_handshaking_limit`-sized queue, so the transport is a real variable and
+## not a detail). This fixture is the control for that one.
+##
+## Ports: node 1 — MQTT 1905 / gRPC 5382; nodes 2 and 3 use 1906/5383 and
+## 1907/5384. Nothing else in the repository uses those (MQTT 1883-1904,
+## gRPC 5363-5381).
+##--------------------------------------------------------------------
+node.id = 1
+
+##--------------------------------------------------------------------
+## Task
+##--------------------------------------------------------------------
+task.exec_workers = 2000
+task.exec_queue_max = 300_000
+
+##--------------------------------------------------------------------
+## Node
+##--------------------------------------------------------------------
+# Off: a CONNECT must never be refused with "the system is currently
+# overloaded" — the case can only fail for the reason under test.
+node.busy.check_enable = false
+node.busy.update_interval = "2s"
+node.busy.loadavg = 80.0
+node.busy.cpuloadavg = 90.0
+node.busy.handshaking = 0
+
+##--------------------------------------------------------------------
+## RPC
+##--------------------------------------------------------------------
+rpc.server_addr = "0.0.0.0:5382"
+rpc.server_workers = 4
+rpc.batch_size = 128
+rpc.client_concurrency_limit = 128
+rpc.client_timeout = "5s"
+
+##--------------------------------------------------------------------
+## Log (the harness redirects stdout/stderr of each node into
+## target/cluster-issue532-nodeN.log, so console is what we want here)
+##--------------------------------------------------------------------
+log.to = "console"
+log.level = "info"
+log.dir = "."
+log.file = "rmqtt_issue532_cluster_1.log"
+
+##--------------------------------------------------------------------
+## Plugins
+##--------------------------------------------------------------------
+# Shared by all three nodes: `node_grpc_addrs` carries the whole cluster and
+# every plugin reads the same values (a node skips its own entry).
+plugins.dir = "./rmqtt-test/configs/issue532-ramp-cluster/plugins"
+plugins.default_startups = [
+    "rmqtt-cluster-broadcast",
+    "rmqtt-sys-topic",
+]
+plugins.disabled_default_startups = ["rmqtt-acl", "rmqtt-counter", "rmqtt-http-api"]
+
+##--------------------------------------------------------------------
+## MQTT listener
+##--------------------------------------------------------------------
+listener.tcp.external.addr = "0.0.0.0:1905"
+listener.tcp.external.workers = 8
+# Far above the ramp's concurrency: only the handshake pool may saturate.
+listener.tcp.external.max_connections = 4096
+# The pool this case saturates. Not a typo — see the header.
+listener.tcp.external.max_handshaking_limit = 2
+listener.tcp.external.handshake_timeout = "30s"
+listener.tcp.external.max_packet_size = "1m"
+listener.tcp.external.backlog = 1024
+listener.tcp.external.allow_anonymous = true
+listener.tcp.external.min_keepalive = 0
+listener.tcp.external.keepalive_backoff = 0.75
+listener.tcp.external.max_inflight = 16
+listener.tcp.external.max_mqueue_len = 1000
+listener.tcp.external.mqueue_rate_limit = "1000,1s"
+listener.tcp.external.max_clientid_len = 65535
+listener.tcp.external.max_qos_allowed = 2
+listener.tcp.external.max_topic_levels = 0
+listener.tcp.external.session_expiry_interval = "5m"
+listener.tcp.external.max_session_expiry_interval = "0h"
+listener.tcp.external.message_retry_interval = "5s"
+listener.tcp.external.message_expiry_interval = "5m"
+listener.tcp.external.max_subscriptions = 0
+
+##--------------------------------------------------------------------
+## Other listeners — all disabled
+##--------------------------------------------------------------------
+## Only the external TCP listener is used. The TLS/WS/WSS/QUIC listeners
+## would clash with the harness-managed broker ports (8883/8080/8443/9443)
+## and the internal TCP listener would clash between the three nodes (all
+## default to 11883).
+listener.tcp.internal.enable = false
+listener.tls.external.enable = false
+listener.ws.external.enable = false
+listener.wss.external.enable = false
+listener.quic.external.enable = false
