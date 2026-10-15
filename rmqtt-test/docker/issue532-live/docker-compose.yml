@@ -1,0 +1,129 @@
+# docker compose stack for the issue #532 "100K live sessions" reproduction.
+#
+#   ./run.sh                     # the supported entry point (Linux only)
+#
+# Works with both the `docker compose` plugin and the standalone
+# `docker-compose` binary; run.sh detects which one is present.
+#
+# Topology
+#   * node1..node3 — the three broadcast brokers. They share one image and run
+#     with `network_mode: host`, so the load generator reaches them on
+#     127.0.0.1 exactly as it would reach a local process, with no bridge NAT and
+#     no conntrack table in the path of 100 000 sockets.
+#   * build — one-shot: compiles rmqttd + mqtt_harness from the mounted source
+#     into the shared `cargo-target` volume.
+#   * loadgen — the harness running the case in `--no-broker` mode: it never
+#     spawns a broker, it generates the ramp and holds the sessions.
+#
+# CPU/memory caps live in `docker-compose.limits.yml` (applied automatically
+# when this compose binary understands them) because the standalone
+# docker-compose v1 rejects `cpus` / `mem_limit` outright. See that file for why
+# the caps matter: the incident's brokers were resource-limited pods.
+#
+# Tunables (environment of run.sh):
+#   RMQTT_LIVE_TOTAL       live sessions to reach        (default 100000)
+#   RMQTT_LIVE_RAMP_RATE   cluster-wide connects per s   (default 500)
+#   RMQTT_LIVE_HOLD_SECS   hold time after the ramp      (default 60)
+#   RMQTT_LIVE_NODES       per node: addr[|addr…]        (default below)
+#   NODE_CPUS / NODE_MEM   budget per broker             (default 2 / 2g)
+#   LOADGEN_CPUS / LOADGEN_MEM                            (default 8 / 16g)
+#
+# `network_mode: host` means the fixture ports (1920-1925, 5390-5392) must be
+# free on the host, and two stacks cannot run side by side.
+
+version: "2.4"
+
+services:
+  # One-shot: build the two binaries from the mounted source.
+  build:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /src
+    volumes:
+      - ../../..:/src:ro
+      - cargo-registry:/cargo
+      - cargo-target:/build
+    command: ["cargo", "build", "--locked", "--release", "-p", "rmqttd", "-p", "rmqtt-test", "--bin", "mqtt_harness"]
+
+  node1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    network_mode: host
+    working_dir: /src
+    volumes:
+      - ../../..:/src:ro
+      - cargo-target:/build
+    entrypoint: ["/build/release/rmqttd"]
+    command: ["-f", "/src/rmqtt-test/configs/issue532-live-cluster/node1/rmqtt.toml"]
+    restart: "no"
+
+  node2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    network_mode: host
+    working_dir: /src
+    volumes:
+      - ../../..:/src:ro
+      - cargo-target:/build
+    entrypoint: ["/build/release/rmqttd"]
+    command: ["-f", "/src/rmqtt-test/configs/issue532-live-cluster/node2/rmqtt.toml"]
+    restart: "no"
+
+  node3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    network_mode: host
+    working_dir: /src
+    volumes:
+      - ../../..:/src:ro
+      - cargo-target:/build
+    entrypoint: ["/build/release/rmqttd"]
+    command: ["-f", "/src/rmqtt-test/configs/issue532-live-cluster/node3/rmqtt.toml"]
+    restart: "no"
+
+  # The load generator. 100 000 held sockets live in this one process, hence the
+  # fd limit: the default (1024, or even 65536) is not enough.
+  loadgen:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    network_mode: host
+    working_dir: /src
+    volumes:
+      - ../../..:/src:ro
+      - cargo-target:/build
+    entrypoint: ["/build/release/mqtt_harness"]
+    command:
+      - "--no-broker"
+      - "--workspace"
+      - "/src"
+      - "--suites"
+      - "functional_v5_cluster"
+      - "--workers"
+      - "1"
+      - "-t"
+      - "issue532_live"
+    environment:
+      RMQTT_LIVE_NODES: "${RMQTT_LIVE_NODES:-127.0.0.1:1920|127.0.0.1:1921,127.0.0.1:1922|127.0.0.1:1923,127.0.0.1:1924|127.0.0.1:1925}"
+      RMQTT_LIVE_TOTAL: "${RMQTT_LIVE_TOTAL:-100000}"
+      RMQTT_LIVE_RAMP_RATE: "${RMQTT_LIVE_RAMP_RATE:-500}"
+      RMQTT_LIVE_HOLD_SECS: "${RMQTT_LIVE_HOLD_SECS:-60}"
+      RUST_LOG: "${RUST_LOG:-info}"
+    ulimits:
+      nofile:
+        soft: 400000
+        hard: 400000
+    depends_on:
+      - node1
+      - node2
+      - node3
+
+volumes:
+  # Crate registry cache and build output, kept between runs so only the first
+  # invocation pays for a full compile.
+  cargo-registry:
+  cargo-target:

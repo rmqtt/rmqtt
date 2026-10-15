@@ -1,0 +1,33 @@
+##--------------------------------------------------------------------
+## rmqtt-cluster-broadcast — issue #532 "100K live sessions" fixture
+##--------------------------------------------------------------------
+## The three-node broadcast cluster of the report, with this fixture's gRPC
+## ports: node 1 -> 5390, node 2 -> 5391, node 3 -> 5392. One file serves all
+## three nodes; every node carries the whole membership list and skips its own
+## entry (`ClusterPlugin::new`).
+##
+## `node_grpc_client_timeout` keeps the reporter's 15 s, so the fan-out timing
+## matches the incident's shape rather than a tuned value.
+##
+## See more keys: https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/cluster-broadcast.md
+
+#grpc message type
+message_type = 98
+
+#Node ID @ gRPC address for every member of the cluster.
+node_grpc_addrs = ["1@127.0.0.1:5390", "2@127.0.0.1:5391", "3@127.0.0.1:5392"]
+
+#Maximum number of messages sent in batch
+node_grpc_batch_size = 128
+
+##Client concurrent request limit
+node_grpc_client_concurrency_limit = 128
+
+##Connect and send to server timeout
+node_grpc_client_timeout = "15s"
+
+##Task execution queue workers
+task_exec_queue_workers = 8
+
+##Task execution queue max capacity
+task_exec_queue_max = 1024

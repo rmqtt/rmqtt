@@ -1,0 +1,34 @@
+# CPU/memory caps for the issue #532 "100K live sessions" stack.
+#
+# Applied automatically by run.sh when the local compose binary understands
+# these keys (`cpus`, `mem_limit`); the standalone docker-compose v1 rejects
+# them, and run.sh then continues without this file instead of failing.
+#
+# Why caps at all: issue #532's brokers were resource-limited pods, and the
+# whole R1 hypothesis is that the failure needs a starved CPU rather than a high
+# connection rate. Capping the brokers *here* also starves only them — unlike
+# `taskset` on the harness, which starves the load generator too and leaves the
+# result ambiguous.
+#
+#   NODE_CPUS=1 ./run.sh        # tighter brokers, closer to a small pod
+#   NODE_CPUS=0.5 ./run.sh      # deliberately starved
+#   LOADGEN_CPUS=4 ./run.sh     # throttle the generator as well
+
+version: "2.4"
+
+services:
+  node1:
+    cpus: "${NODE_CPUS:-2}"
+    mem_limit: "${NODE_MEM:-2g}"
+
+  node2:
+    cpus: "${NODE_CPUS:-2}"
+    mem_limit: "${NODE_MEM:-2g}"
+
+  node3:
+    cpus: "${NODE_CPUS:-2}"
+    mem_limit: "${NODE_MEM:-2g}"
+
+  loadgen:
+    cpus: "${LOADGEN_CPUS:-8}"
+    mem_limit: "${LOADGEN_MEM:-16g}"

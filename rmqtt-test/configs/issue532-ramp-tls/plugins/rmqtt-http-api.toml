@@ -1,0 +1,21 @@
+##--------------------------------------------------------------------
+## rmqtt-http-api (issue #532 TLS ramp fixture)
+##--------------------------------------------------------------------
+## Same role as in `configs/issue532-ramp/plugins/rmqtt-http-api.toml`: the
+## case probes `/api/v1/nodes` once a stall is detected, and whether the API
+## still answers separates "the whole runtime is stuck" from "the per-port
+## handshake queue is stuck while the rest of the broker is healthy".
+##
+## No `storage` section on purpose (the history flusher needs a writable redb
+## path) and no `http_bearer_token` (loopback-only fixture).
+##
+## Port 6072: belongs to this fixture alone; 6060 is the harness, 6061/6070 the
+## cluster stress nodes, 6066/6067 flapping, 6068 the plain #532 fixture and
+## 6069/6071 the SPIFFE TLS cases.
+##
+## See more keys: https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/http-api.md
+
+max_row_limit = 1000
+http_laddr = "127.0.0.1:6072"
+http_request_log = false
+prometheus_metrics_cache_interval = "1s"

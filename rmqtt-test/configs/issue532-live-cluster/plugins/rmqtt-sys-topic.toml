@@ -1,0 +1,15 @@
+##--------------------------------------------------------------------
+## rmqtt-sys-topic — issue #532 "100K live sessions" fixture (shared by nodes 1-3)
+##--------------------------------------------------------------------
+## One-second stats snapshot on every node: the periodic visitor of the per-port
+## handshake executor (`HandshakeExecutor::get_rate`) and of the whole cluster
+## state, at the shortest interval the plugin accepts (it clamps below 1 s).
+## Deliberately slow enough not to be a load source at this scale.
+##
+## QoS 0 keeps the extra traffic off the queueing paths under test.
+##
+## See more keys: https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/sys-topic.md
+
+publish_qos = 0
+publish_interval = "5s"
+message_expiry_interval = "1m"
