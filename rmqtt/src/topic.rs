@@ -225,8 +225,8 @@ impl Topic {
 
     /// Validate the entire topic according to MQTT specification rules.
     ///
-    /// Checks that wildcards are positioned correctly (multi-level `#` must be last),
-    /// metadata levels only appear as the first segment, and each level is valid.
+    /// Checks that wildcards are positioned correctly (multi-level `#` must be last)
+    /// and each level is valid.
     #[inline]
     pub fn is_valid(&self) -> bool {
         self.0
@@ -235,7 +235,6 @@ impl Topic {
             .or_else(|| {
                 self.0.iter().enumerate().position(|(pos, level)| match *level {
                     Level::MultiWildcard => pos != self.0.len() - 1,
-                    Level::Metadata(_) => pos != 0,
                     _ => false,
                 })
             })
@@ -513,7 +512,7 @@ mod tests {
             Level::normal("player1").unwrap()
         ])
         .is_valid());
-        assert!(!Topic(vec![
+        assert!(Topic(vec![
             Level::normal("sport").unwrap(),
             Level::metadata("$SYS").unwrap(),
             Level::normal("player1").unwrap()
@@ -535,7 +534,8 @@ mod tests {
             .matches(&Topic::from(vec![Level::Blank, Level::normal("finance").unwrap()])));
 
         assert!(topic!("$SYS").unwrap().matches(&Topic::from(vec![Level::metadata("$SYS").unwrap()])));
-        assert!("sport/$SYS".parse::<Topic>().is_err());
+        assert!("sport/$SYS".parse::<Topic>().is_ok());
+        assert!("valetudo/jimmy/$state".parse::<Topic>().is_ok());
     }
 
     #[test]
@@ -614,5 +614,160 @@ mod tests {
         assert!(!Topic::from_str("+/monitor/Clients").expect("").matches_str("$SYS/monitor/Clients"));
         assert!(Topic::from_str("$SYS/#").expect("").matches_str("$SYS/"));
         assert!(Topic::from_str("$SYS/monitor/+").expect("").matches_str("$SYS/monitor/Clients"));
+    }
+
+    /// [MQTT-4.7.1-1]: a level may be empty, so a blank level in the middle or at
+    /// either end is a legal topic name and must survive a round trip. Only the
+    /// zero-length *name* is refused, and the codec does that on the wire
+    /// (`rmqtt_codec::v3::decode`), not this parser.
+    #[test]
+    fn test_blank_levels() {
+        for name in ["a//b", "a/", "/a", "/"] {
+            let topic = Topic::from_str(name).expect("blank levels are legal");
+            assert!(topic.is_valid(), "`{name}` must stay valid");
+            assert_eq!(topic.to_string(), name, "`{name}` must round-trip");
+        }
+
+        let topic = Topic::from_str("a//b").unwrap();
+        assert_eq!(topic.levels().len(), 3);
+        assert_eq!(topic.levels()[1], Level::Blank);
+    }
+
+    /// `#` is legal only as the last level, and never as part of a level.
+    #[test]
+    fn test_number_sign_position() {
+        for name in ["#", "a/#", "a/b/#"] {
+            assert!(Topic::from_str(name).is_ok(), "`{name}` must be accepted");
+        }
+        for name in ["#/a", "a/#/b", "a/#/", "a#", "#a"] {
+            assert!(Topic::from_str(name).is_err(), "`{name}` must be rejected");
+        }
+    }
+
+    /// A `$`-prefixed level is legal in *any* position (GitHub issue #537):
+    /// [MQTT-4.7.2-1] reserves only topic names that *begin* with `$`.
+    #[test]
+    fn test_dollar_level_is_valid_in_any_position() {
+        for name in ["$SYS", "$SYS/a", "a/$state", "a/b/$state", "homie/dev/$state", "a/$b/+", "$SYS/#"] {
+            let topic = Topic::from_str(name).unwrap_or_else(|e| panic!("`{name}` must be accepted: {e}"));
+            assert!(topic.is_valid(), "`{name}` must stay valid");
+            assert_eq!(topic.to_string(), name);
+        }
+    }
+
+    /// A metadata level matches only a metadata level: the same text without the
+    /// `$` is a different topic.
+    #[test]
+    fn test_metadata_level_matches_only_metadata() {
+        assert!(Topic::from_str("a/$b").unwrap().matches_str("a/$b"));
+        assert!(!Topic::from_str("a/$b").unwrap().matches_str("a/b"));
+        assert!(!Topic::from_str("a/b").unwrap().matches_str("a/$b"));
+        assert!(Topic::from_str("$SYS/a").unwrap().matches_str("$SYS/a"));
+    }
+
+    /// The `$` isolation of [MQTT-4.7.2-1] is about the *first* level, and `#`
+    /// honours it. An explicit `$` level is how a client reaches a system topic.
+    #[test]
+    fn test_root_wildcard_does_not_match_dollar_name() {
+        assert!(!Topic::from_str("#").unwrap().matches_str("$SYS"));
+        assert!(!Topic::from_str("#").unwrap().matches_str("$SYS/a"));
+        assert!(!Topic::from_str("+/a").unwrap().matches_str("$SYS/a"));
+        assert!(!Topic::from_str("+/+").unwrap().matches_str("$SYS/a"));
+        assert!(Topic::from_str("$SYS/#").unwrap().matches_str("$SYS/a"));
+        assert!(Topic::from_str("$SYS/+").unwrap().matches_str("$SYS/a"));
+        assert!(Topic::from_str("$SYS").unwrap().matches_str("$SYS"));
+    }
+
+    /// A `$` level *below* the root is an ordinary level for the wildcards above
+    /// it, which is what the Homie convention relies on.
+    #[test]
+    fn test_hash_reaches_a_dollar_level_below_the_root() {
+        assert!(Topic::from_str("#").unwrap().matches_str("a/$b"));
+        assert!(Topic::from_str("#").unwrap().matches_str("homie/dev/$state"));
+        assert!(Topic::from_str("a/+/$b").unwrap().matches_str("a/x/$b"));
+    }
+
+    /// ⚠️ Recorded deviation from [MQTT-4.7.2-1]. The `matches!` macro `break`s out
+    /// of its loop when a `+` meets a `$` level, and the tail of the macro then
+    /// inspects what is left of the *filter* only — so a `+` that happens to be the
+    /// filter's last level reports a match anyway. `TopicTree` (`trie.rs`) and the
+    /// retain tree (`retain.rs`) refuse these, so routing is unaffected;
+    /// `Topic::matches_str` backs the ACL matcher, where this is a fail-open. The
+    /// values are today's behaviour, asserted so that the inconsistency stays
+    /// visible; narrowing it to the first level is a follow-up, not a silent change.
+    #[test]
+    fn test_trailing_plus_is_swallowed_against_dollar_name() {
+        assert!(Topic::from_str("+").unwrap().matches_str("$SYS"));
+        assert!(Topic::from_str("+").unwrap().matches_str("$SYS/a"));
+        assert!(Topic::from_str("a/+").unwrap().matches_str("a/$b"));
+        // …but not once the `+` has a level after it, and never for `#`.
+        assert!(!Topic::from_str("+/a").unwrap().matches_str("$SYS/a"));
+        assert!(!Topic::from_str("a/+/b").unwrap().matches_str("a/$x/b"));
+        assert!(!Topic::from_str("a/#").unwrap().matches_str("a/$b"));
+    }
+
+    /// A `$` *inside* a level is an ordinary character: only a level that *begins*
+    /// with `$` is a metadata level. That single rule is what separates
+    /// `homie/$dev/$state` (two metadata levels) from `homie/dev$/sta$te` (none), and
+    /// it is decided by `Level::from_str`, so the parsed levels are asserted here
+    /// rather than the strings.
+    #[test]
+    fn test_dollar_inside_a_level_is_ordinary() {
+        use Level::{Metadata, Normal};
+
+        let cases: [(&str, Vec<Level>); 5] = [
+            (
+                "homie/$dev/$state",
+                vec![Normal("homie".into()), Metadata("$dev".into()), Metadata("$state".into())],
+            ),
+            (
+                "homie/dev$/$state",
+                vec![Normal("homie".into()), Normal("dev$".into()), Metadata("$state".into())],
+            ),
+            ("homie/dev/sta$te", vec![Normal("homie".into()), Normal("dev".into()), Normal("sta$te".into())]),
+            ("homie/d$ev/state", vec![Normal("homie".into()), Normal("d$ev".into()), Normal("state".into())]),
+            ("homie/$/state", vec![Normal("homie".into()), Metadata("$".into()), Normal("state".into())]),
+        ];
+
+        for (name, levels) in cases {
+            let topic = Topic::from_str(name).unwrap_or_else(|e| panic!("`{name}` must be accepted: {e}"));
+            assert!(topic.is_valid(), "`{name}` must stay valid");
+            assert_eq!(topic.levels().as_slice(), levels.as_slice(), "`{name}` parsed the wrong levels");
+        }
+
+        // The constructors draw the same line: a non-leading `$` is not metadata, and
+        // a metadata level may not carry a wildcard — including right after the `$`.
+        assert!(Level::normal("dev$").is_ok());
+        assert!(Level::metadata("dev$").is_err());
+        assert!(Level::metadata("$+").is_err());
+        assert!(!Level::Metadata(String::from("dev$")).is_valid());
+    }
+
+    /// The wildcards around those levels. A `$`-prefixed level is not matched by a
+    /// `+` standing in for it — unless the `+` is the filter's last level, which is
+    /// the deviation recorded above — while `#` placed *above* the level reaches the
+    /// whole name, and a `$` inside a level is matched like any other text.
+    #[test]
+    fn test_wildcards_around_a_dollar_level() {
+        // Ordinary levels, `$` inside or not.
+        assert!(Topic::from_str("homie/+/+").unwrap().matches_str("homie/dev$/sta$te"));
+        assert!(Topic::from_str("homie/+/+").unwrap().matches_str("homie/d$ev/state"));
+        assert!(Topic::from_str("homie/+").unwrap().matches_str("homie/dev$"));
+
+        // A `$`-prefixed level is only reachable by an explicit term, as long as the
+        // filter has a level left after the `+` …
+        assert!(!Topic::from_str("homie/+/+").unwrap().matches_str("homie/$dev/$state"));
+        assert!(!Topic::from_str("homie/+/$state").unwrap().matches_str("homie/$dev/$state"));
+        assert!(!Topic::from_str("homie/#").unwrap().matches_str("homie/$dev/$state"));
+        // … and the recorded deviation is what happens when it has none.
+        assert!(Topic::from_str("homie/+").unwrap().matches_str("homie/$dev"));
+
+        // `#` above the level covers the name, and the explicit form matches it.
+        assert!(Topic::from_str("#").unwrap().matches_str("homie/$dev/$state"));
+        assert!(Topic::from_str("homie/$dev/$state").unwrap().matches_str("homie/$dev/$state"));
+
+        // The same text with and without the `$` is two different levels.
+        assert!(Topic::from_str("homie/dev$").unwrap().matches_str("homie/dev$"));
+        assert!(!Topic::from_str("homie/dev$").unwrap().matches_str("homie/dev"));
     }
 }

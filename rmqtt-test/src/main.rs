@@ -463,6 +463,7 @@ fn build_functional_v311_suite() -> TestSuite {
     use tests::functional::webhook_connack_refused_v311::*;
     use tests::functional::wildcard::*;
     use tests::functional::wildcard_reject::*;
+    use tests::functional::will_acl_v311::*;
 
     let mut suite = TestSuite::new("functional_v311");
     suite.add(ConnectV311Test);
@@ -479,6 +480,9 @@ fn build_functional_v311_suite() -> TestSuite {
     suite.add(LastWillV311Test);
     suite.add(LastWillV311CleanTest);
     suite.add(LastWillUncleanTest);
+    // Will Message must pass the publish ACL (runs on the will-acl fixture)
+    suite.add(WillAclAllowedTopicPublishedV311Test);
+    suite.add(WillAclDeniedTopicDroppedV311Test);
     // KeepAlive / PING
     suite.add(KeepAliveV311Test);
     suite.add(KeepAliveTimeoutTest);
@@ -507,6 +511,8 @@ fn build_functional_v311_suite() -> TestSuite {
     suite.add(PublishWildcardRejectTest);
     // Dollar topics ($SYS)
     suite.add(DollarTopicsTest);
+    // Non-leading `$` levels (GitHub issue #537)
+    suite.add(DollarTopicsNonLeadingV311Test);
     // QoS 2 duplicate detection
     suite.add(Qos2DuplicateDetectionTest);
     // Protocol error edge cases

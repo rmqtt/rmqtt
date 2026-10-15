@@ -3209,3 +3209,99 @@ fn test_connect_refuse_codes() {
     assert_eq!(ConnectRefuse::QuotaExceeded.to_v3(), ConnectAckReasonV3::ServiceUnavailable);
     assert_eq!(ConnectRefuse::UnspecifiedError.to_v3(), ConnectAckReasonV3::ServiceUnavailable);
 }
+
+/// `$`-prefixed subscription filters: the prefixes are recognised through the first
+/// level only, and each one is refused unless its feature is compiled in.
+#[cfg(test)]
+mod parse_topic_filter_tests {
+    use super::*;
+
+    use bytestring::ByteString;
+
+    fn filter(s: &str) -> ByteString {
+        ByteString::from(s)
+    }
+
+    /// A plain filter is passed through untouched, with no group and no ceiling.
+    #[test]
+    fn plain_filter_passes_through() {
+        let (tf, group, limit) = parse_topic_filter(&filter("a/b"), true, true).unwrap();
+        assert_eq!(tf, "a/b");
+        assert!(group.is_none());
+        assert!(limit.is_none());
+    }
+
+    /// An empty filter carries no topic at all and is refused whatever is enabled.
+    #[test]
+    fn empty_filter_is_refused() {
+        assert!(parse_topic_filter(&filter(""), true, true).is_err());
+        assert!(parse_topic_filter(&filter(""), false, false).is_err());
+    }
+
+    /// `$share/<group>/<filter>` splits into the group and the filter it carries.
+    #[cfg(feature = "shared-subscription")]
+    #[test]
+    fn share_prefix_splits_group_and_filter() {
+        let (tf, group, limit) = parse_topic_filter(&filter("$share/g1/a/b"), true, false).unwrap();
+        assert_eq!(tf, "a/b");
+        assert_eq!(group.as_deref(), Some("g1"));
+        assert!(limit.is_none());
+    }
+
+    /// The `$share` prefix needs both halves. An empty group is taken as it stands:
+    /// nothing validates it, which is a gap of its own but not this prefix's.
+    #[cfg(feature = "shared-subscription")]
+    #[test]
+    fn share_prefix_requires_group_and_filter() {
+        assert!(parse_topic_filter(&filter("$share"), true, false).is_err());
+        assert!(parse_topic_filter(&filter("$share/g1"), true, false).is_err());
+
+        let (tf, group, _) = parse_topic_filter(&filter("$share//a/b"), true, false).unwrap();
+        assert_eq!(tf, "a/b");
+        assert_eq!(group.as_deref(), Some(""));
+    }
+
+    /// Without the feature the prefix is refused rather than quietly read as a
+    /// literal filter.
+    #[cfg(not(feature = "shared-subscription"))]
+    #[test]
+    fn share_prefix_is_refused_without_the_feature() {
+        let err = parse_topic_filter(&filter("$share/g1/a/b"), true, false).unwrap_err();
+        assert!(err.to_string().contains("Shared subscription is not enabled"), "{err}");
+    }
+
+    /// `$limit/<n>/<filter>` carries a subscription ceiling instead of a group, and a
+    /// ceiling that does not parse is a configuration error.
+    #[cfg(feature = "limit-subscription")]
+    #[test]
+    fn limit_prefix_carries_the_ceiling() {
+        let (tf, group, limit) = parse_topic_filter(&filter("$limit/10/a/b"), false, true).unwrap();
+        assert_eq!(tf, "a/b");
+        assert!(group.is_none());
+        assert_eq!(limit, Some(10));
+
+        assert!(parse_topic_filter(&filter("$limit/ten/a/b"), false, true).is_err());
+        assert!(parse_topic_filter(&filter("$limit/10"), false, true).is_err());
+    }
+
+    /// `$exclusive/<filter>` is that same ceiling of one.
+    #[cfg(feature = "limit-subscription")]
+    #[test]
+    fn exclusive_prefix_means_a_ceiling_of_one() {
+        let (tf, group, limit) = parse_topic_filter(&filter("$exclusive/a/b"), false, true).unwrap();
+        assert_eq!(tf, "a/b");
+        assert!(group.is_none());
+        assert_eq!(limit, Some(1));
+    }
+
+    /// A `$` level that is *not* the first is an ordinary level, so `a/$share/b` is a
+    /// literal filter and never a shared subscription (GitHub issue #537).
+    #[cfg(feature = "shared-subscription")]
+    #[test]
+    fn dollar_prefix_is_special_only_in_the_first_position() {
+        let (tf, group, limit) = parse_topic_filter(&filter("a/$share/b"), true, true).unwrap();
+        assert_eq!(tf, "a/$share/b");
+        assert!(group.is_none());
+        assert!(limit.is_none());
+    }
+}
