@@ -1,0 +1,19 @@
+##--------------------------------------------------------------------
+## rmqtt-http-api (MQTT bridge fixture)
+##--------------------------------------------------------------------
+## Started only to reserve the fixture's own HTTP port (6075) in the port map
+## — the bridge cases assert on the wire and on the broker log, so no endpoint
+## of this plugin is read. It stays enabled because a stock deployment runs it
+## and because the next case that needs `/api/v1/features` (bridge state) finds
+## a working API here.
+##
+## No `http_bearer_token`: the fixture is bound to loopback.
+## No `storage` section: history persistence is disabled (the default redb
+## path under /var/log is not writable on all platforms).
+##
+## See more keys: https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/http-api.md
+
+max_row_limit = 10_000
+http_laddr = "0.0.0.0:6075"
+http_request_log = false
+prometheus_metrics_cache_interval = "1s"

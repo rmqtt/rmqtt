@@ -397,9 +397,24 @@ impl Remote {
     #[inline]
     pub fn make_topic(&self, topic: &str) -> ntex::util::ByteString {
         if self.topic_has_pattern() {
-            ntex::util::ByteString::from(self.topic().replace("${local.topic}", topic))
+            ntex::util::ByteString::from(self.topic().replace(LOCAL_TOPIC_PLACEHOLDER, topic))
         } else {
             ntex::util::ByteString::from(self.topic())
+        }
+    }
+
+    /// The part of `remote.topic` that is fixed at configuration time, with
+    /// [`LOCAL_TOPIC_PLACEHOLDER`] reduced to a single legal level.
+    ///
+    /// This is what [`PluginConfig::validate`] checks: a wildcard outside the
+    /// placeholder can never become a legal topic name, whatever the local
+    /// topic is, whereas the substituted value itself is only known at runtime.
+    #[inline]
+    pub fn topic_skeleton(&self) -> String {
+        if self.topic_has_pattern() {
+            self.topic().replace(LOCAL_TOPIC_PLACEHOLDER, PLACEHOLDER_STAND_IN)
+        } else {
+            self.topic().to_owned()
         }
     }
 
@@ -440,7 +455,7 @@ impl Remote {
         D: Deserializer<'de>,
     {
         let topic = String::deserialize(deserializer)?;
-        let has_pattern = topic.contains("${local.topic}");
+        let has_pattern = topic.contains(LOCAL_TOPIC_PLACEHOLDER);
         Ok((topic, has_pattern))
     }
 }
@@ -455,6 +470,52 @@ pub struct Local {
 }
 
 impl Local {}
+
+/// The `${local.topic}` placeholder as it appears in `remote.topic`.
+const LOCAL_TOPIC_PLACEHOLDER: &str = "${local.topic}";
+
+/// The level substituted for [`LOCAL_TOPIC_PLACEHOLDER`] when a mapping's
+/// fixed part is checked: one legal level, which is what the placeholder
+/// resolves to at runtime (the topic of the message being forwarded).
+const PLACEHOLDER_STAND_IN: &str = "x";
+
+impl PluginConfig {
+    /// Reject bridge mappings that can never produce a legal topic name.
+    ///
+    /// In an egress entry `remote.topic` is the topic the bridge publishes on
+    /// the peer — a topic NAME. The filter side of the same entry is
+    /// `local.topic_filter`, which is what the bridge subscribes to locally. A
+    /// wildcard that ends up in a name cannot be encoded on the wire, and a
+    /// peer that checks names answers by dropping the connection, which is the
+    /// reconnect-and-resend loop reported as issue #451.
+    ///
+    /// Only the part of the mapping that is fixed at configuration time is
+    /// checked, with the placeholder reduced to a single stand-in level, so
+    /// `a/#/${local.topic}` is still rejected. Whether the substituted value
+    /// itself is a legal name is a runtime concern, not a configuration one.
+    ///
+    /// Disabled bridges are skipped: they never connect, and failing them here
+    /// would break configurations that are currently harmless.
+    pub fn validate(&self) -> Result<()> {
+        for (i, bridge) in self.bridges.iter().enumerate() {
+            if !bridge.enable {
+                continue;
+            }
+            for (j, entry) in bridge.entries.iter().enumerate() {
+                if !rmqtt::topic::is_valid_topic_name(entry.remote.topic_skeleton()) {
+                    return Err(anyhow!(
+                        "bridges[{i}].entries[{j}].remote.topic = {:?} cannot produce a legal topic \
+                         name: a topic name must not be empty, must not contain the wildcards `+` \
+                         or `#` (MQTT 5.0 [MQTT-3.3.2-2]), and must be at most 65535 bytes long. \
+                         `+` and `#` belong in `local.topic_filter`, which is a topic filter.",
+                        entry.remote.topic()
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+}
 
 fn last_will_basic(obj: &Map<String, Value>) -> Result<(QoS, bool, ByteString, Bytes)> {
     let qos = obj
@@ -474,4 +535,52 @@ fn last_will_basic(obj: &Map<String, Value>) -> Result<(QoS, bool, ByteString, B
         Bytes::from(String::from(message))
     };
     Ok((qos, retain, ByteString::from(topic), message))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config(enable: bool, remote_topic: &str) -> PluginConfig {
+        PluginConfig {
+            bridges: vec![Bridge {
+                enable,
+                entries: vec![Entry {
+                    remote: Remote {
+                        topic: (remote_topic.to_owned(), remote_topic.contains(LOCAL_TOPIC_PLACEHOLDER)),
+                        ..Remote::default()
+                    },
+                    ..Entry::default()
+                }],
+                ..Bridge::default()
+            }],
+        }
+    }
+
+    #[test]
+    fn validate_accepts_legal_remote_topics() {
+        for topic in
+            ["${local.topic}", "mirror/ing/${local.topic}", "mirror/plain", "mirror/${local.topic}/x"]
+        {
+            assert!(config(true, topic).validate().is_ok(), "`{topic}` must be accepted");
+        }
+    }
+
+    #[test]
+    fn validate_rejects_filter_shaped_remote_topic() {
+        let err = config(true, "mirror/hash/#").validate().unwrap_err().to_string();
+        assert!(err.contains("bridges[0].entries[0].remote.topic"), "{err}");
+        assert!(err.contains("mirror/hash/#"), "{err}");
+    }
+
+    #[test]
+    fn validate_rejects_a_wildcard_in_the_fixed_part() {
+        assert!(config(true, "mirror/#/${local.topic}").validate().is_err());
+        assert!(config(true, "mirror/+/${local.topic}").validate().is_err());
+    }
+
+    #[test]
+    fn validate_skips_disabled_bridges() {
+        assert!(config(false, "mirror/hash/#").validate().is_ok());
+    }
 }

@@ -1,0 +1,143 @@
+##--------------------------------------------------------------------
+## rmqtt-bridge-egress-mqtt (MQTT bridge fixture, GitHub issue #451)
+##--------------------------------------------------------------------
+## The egress bridge publishes every local message whose topic matches
+## `local.topic_filter` to the MOCK downstream (127.0.0.1:3915), mapping the
+## local topic to a remote one with `remote.topic`.
+##
+## Every entry below is a different SHAPE of that `remote.topic` mapping
+## (mirroring the enumeration in the ingress fixture):
+##
+##   E1  (retired placeholder)
+##   E2  remote.topic = "${local.topic}" +
+##       remote.skip_levels = 8                  -> runtime illegal topic  (C2)
+##   E3  remote.topic = "mirror/props/${local.topic}"  -> C3 carrier (v5 properties)
+##   E4  remote.topic = "mirror/control/${local.topic}" -> positive control
+##   E5  local filter "ing/#"                    -> carrier for the I2 shape
+##   E6  (retired placeholder)
+##   E7  local filter "up/suffix/#"              -> carrier for the I4 shape
+##   E8  local filter "up/transparent/#"         -> carrier for the I1 shape
+##
+## E1 and E6 used to carry illegal literal mappings (`"mirror/hash/#"` and
+## `"mirror/diag/#"`: a topic FILTER used where a topic NAME is required). The
+## bridge now rejects such a mapping while loading its config
+## (`Remote::validate` -> `rmqtt::topic::is_valid_topic_name`), so a fixture
+## carrying one can no longer be started at all. The entries are kept as legal
+## placeholders so the entry indices below stay stable — they are hard-coded in
+## the cases and appear in the bridge client id
+## "prefix:eg:egress:1:<entry>:0". The load-time rejection itself is covered by
+## the plugin's unit tests (see `Remote::validate`).
+##
+## E2 reaches the same defect through `skip_levels`, and that is the path the
+## *runtime* guard has to catch: `to_string_skip()` returns "" once
+## `skip_levels >= level count` (rmqtt/src/topic.rs), and with a
+## placeholder-only `remote.topic` that empty string becomes the topic name.
+## This configuration is perfectly legal — the same entry still maps a deeper
+## topic correctly — so it can only be judged at send time, where
+## `bridge.rs -> send()` drops the message and warns once per entry.
+##
+## All QoS are 0 (the reporter's own log shows the QoS-0 send path), so the
+## forwarded PUBLISH needs no PUBACK: `send_at_most_once()` never blocks the
+## bridge's command loop. `concurrent_client_limit = 1` gives exactly one
+## downstream connection per entry, addressable by the entry index embedded in
+## the bridge client's id ("prefix:eg:egress:1:<entry>:0").
+##
+## See more keys: https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/bridge-egress-mqtt.md
+
+[[bridges]]
+enable = true
+# Bridge name (appears in the bridge client's id: "prefix:eg:egress:1:<entry>:0")
+name = "eg"
+client_id_prefix = "prefix"
+# Address and port of the mock downstream MQTT broker.
+server = "tcp://127.0.0.1:3915"
+username = "rmqtt_u"
+password = "public"
+
+concurrent_client_limit = 1
+connect_timeout = "3s"
+keepalive = "60s"
+reconnect_interval = "1s"
+# Messages that can sit in the bridge channel at once.
+message_channel_capacity = 10_000
+
+# MQTT protocol version: v4 = 3.1.1, v5 = 5.0.
+mqtt_ver = "v5"
+
+v5.clean_start = true
+v5.session_expiry_interval = "0s"
+v5.receive_maximum = 16
+v5.maximum_packet_size = "1M"
+# The mock downstream does not use aliases; the alias that matters in C3 is
+# the one the bridge *copies out of the local publish* and must not.
+v5.topic_alias_maximum = 0
+
+# ---------------------------------------------------------------- E1 (retired)
+[[bridges.entries]]
+local.topic_filter = "eg/hash/#"
+remote.qos = 0
+remote.retain = false
+# RETIRED: was `remote.topic = "mirror/hash/#"` (a literal of FILTER shape, the
+# carrier of case C1). The bridge now rejects that mapping while loading its
+# config, so the fixture could no longer start. Kept as a legal placeholder to
+# keep the entry indices below stable.
+remote.topic = "mirror/hash/plain"
+
+# ---------------------------------------------------------------- E2 (C2)
+[[bridges.entries]]
+local.topic_filter = "eg/skip/#"
+remote.qos = 0
+remote.retain = false
+# Placeholder-only: with skip_levels >= the local level count this resolves to
+# the empty string, i.e. a PUBLISH with an empty topic name.
+remote.topic = "${local.topic}"
+remote.skip_levels = 8
+
+# ---------------------------------------------------------------- E3 (C3)
+[[bridges.entries]]
+local.topic_filter = "eg/props/#"
+remote.qos = 0
+remote.retain = false
+remote.topic = "mirror/props/${local.topic}"
+
+# ---------------------------------------------------------------- E4 (control)
+[[bridges.entries]]
+local.topic_filter = "eg/control/#"
+remote.qos = 0
+remote.retain = false
+# Legal mapping: proves the forwarding path itself works and that the mocks
+# really do observe the bridge's output (assertion discipline: every negative
+# assertion in the suite is paired with this arm).
+remote.topic = "mirror/control/${local.topic}"
+
+# ---------------------------------------------------------------- E5 (I2/I3 carrier)
+[[bridges.entries]]
+local.topic_filter = "ing/#"
+remote.qos = 0
+remote.retain = false
+remote.topic = "mirror/ing/${local.topic}"
+
+# ---------------------------------------------------------------- E6 (retired)
+[[bridges.entries]]
+local.topic_filter = "eg/diag/#"
+remote.qos = 0
+remote.retain = false
+# RETIRED: was `remote.topic = "mirror/diag/#"`, the dedicated topic of the
+# diagnosability case (C4). That assertion now lives in case C2, which reaches
+# the same runtime guard through `skip_levels` instead of a config-time error.
+# Kept as a legal placeholder to keep the entry indices below stable.
+remote.topic = "mirror/diag/plain"
+
+# ---------------------------------------------------------------- E7 (I4 carrier)
+[[bridges.entries]]
+local.topic_filter = "up/suffix/#"
+remote.qos = 0
+remote.retain = false
+remote.topic = "mirror/suffix/${local.topic}"
+
+# ---------------------------------------------------------------- E8 (I1 carrier)
+[[bridges.entries]]
+local.topic_filter = "up/transparent/#"
+remote.qos = 0
+remote.retain = false
+remote.topic = "mirror/transparent/${local.topic}"

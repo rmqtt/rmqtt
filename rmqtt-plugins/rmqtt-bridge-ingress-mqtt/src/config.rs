@@ -404,9 +404,24 @@ impl Local {
     #[inline]
     pub fn make_topic(&self, remote_topic: &str) -> TopicName {
         if self.topic_has_pattern() {
-            TopicName::from(self.topic().replace("${remote.topic}", remote_topic))
+            TopicName::from(self.topic().replace(REMOTE_TOPIC_PLACEHOLDER, remote_topic))
         } else {
             TopicName::from(self.topic())
+        }
+    }
+
+    /// The part of `local.topic` that is fixed at configuration time, with
+    /// [`REMOTE_TOPIC_PLACEHOLDER`] reduced to a single legal level.
+    ///
+    /// This is what [`PluginConfig::validate`] checks: a wildcard outside the
+    /// placeholder can never become a legal topic name, whatever the peer
+    /// publishes, whereas the substituted value itself is only known at runtime.
+    #[inline]
+    pub fn topic_skeleton(&self) -> String {
+        if self.topic_has_pattern() {
+            self.topic().replace(REMOTE_TOPIC_PLACEHOLDER, PLACEHOLDER_STAND_IN)
+        } else {
+            self.topic().to_owned()
         }
     }
 
@@ -444,8 +459,54 @@ impl Local {
         D: Deserializer<'de>,
     {
         let topic = String::deserialize(deserializer)?;
-        let has_pattern = topic.contains("${remote.topic}");
+        let has_pattern = topic.contains(REMOTE_TOPIC_PLACEHOLDER);
         Ok((topic, has_pattern))
+    }
+}
+
+/// The `${remote.topic}` placeholder as it appears in `local.topic`.
+const REMOTE_TOPIC_PLACEHOLDER: &str = "${remote.topic}";
+
+/// The level substituted for [`REMOTE_TOPIC_PLACEHOLDER`] when a mapping's
+/// fixed part is checked: one legal level, which is what the placeholder
+/// resolves to at runtime (a topic name taken off the wire).
+const PLACEHOLDER_STAND_IN: &str = "x";
+
+impl PluginConfig {
+    /// Reject bridge mappings that can never produce a legal topic name.
+    ///
+    /// In an ingress entry `local.topic` is the topic the bridge publishes
+    /// *into* the local broker — a topic NAME. The filter side of the same
+    /// entry is `remote.topic`, which is what the bridge subscribes to on the
+    /// peer. A wildcard that ends up in a name cannot be encoded on the wire,
+    /// and a peer that checks names answers by dropping the connection, which
+    /// is the reconnect-and-resend loop reported as issue #451.
+    ///
+    /// Only the part of the mapping that is fixed at configuration time is
+    /// checked, with the placeholder reduced to a single stand-in level, so
+    /// `a/#/${remote.topic}` is still rejected. Whether the substituted value
+    /// itself is a legal name is a runtime concern, not a configuration one.
+    ///
+    /// Disabled bridges are skipped: they never connect, and failing them here
+    /// would break configurations that are currently harmless.
+    pub fn validate(&self) -> Result<()> {
+        for (i, bridge) in self.bridges.iter().enumerate() {
+            if !bridge.enable {
+                continue;
+            }
+            for (j, entry) in bridge.entries.iter().enumerate() {
+                if !rmqtt::topic::is_valid_topic_name(entry.local.topic_skeleton()) {
+                    return Err(anyhow!(
+                        "bridges[{i}].entries[{j}].local.topic = {:?} cannot produce a legal topic \
+                         name: a topic name must not be empty, must not contain the wildcards `+` \
+                         or `#` (MQTT 5.0 [MQTT-3.3.2-2]), and must be at most 65535 bytes long. \
+                         `+` and `#` belong in `remote.topic`, which is a topic filter.",
+                        entry.local.topic()
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -467,4 +528,50 @@ fn last_will_basic(obj: &Map<String, Value>) -> Result<(QoS, bool, ByteString, B
         Bytes::from(String::from(message))
     };
     Ok((qos, retain, ByteString::from(topic), message))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config(enable: bool, local_topic: &str) -> PluginConfig {
+        PluginConfig {
+            bridges: vec![Bridge {
+                enable,
+                entries: vec![Entry {
+                    local: Local {
+                        topic: (local_topic.to_owned(), local_topic.contains(REMOTE_TOPIC_PLACEHOLDER)),
+                        ..Local::default()
+                    },
+                    ..Entry::default()
+                }],
+                ..Bridge::default()
+            }],
+        }
+    }
+
+    #[test]
+    fn validate_accepts_legal_local_topics() {
+        for topic in ["${remote.topic}", "${remote.topic}/suffix", "ing/plain", "ing/${remote.topic}"] {
+            assert!(config(true, topic).validate().is_ok(), "`{topic}` must be accepted");
+        }
+    }
+
+    #[test]
+    fn validate_rejects_filter_shaped_local_topic() {
+        let err = config(true, "ing/mirror/#").validate().unwrap_err().to_string();
+        assert!(err.contains("bridges[0].entries[0].local.topic"), "{err}");
+        assert!(err.contains("ing/mirror/#"), "{err}");
+    }
+
+    #[test]
+    fn validate_rejects_a_wildcard_in_the_fixed_part() {
+        assert!(config(true, "ing/#/${remote.topic}").validate().is_err());
+        assert!(config(true, "ing/+/${remote.topic}").validate().is_err());
+    }
+
+    #[test]
+    fn validate_skips_disabled_bridges() {
+        assert!(config(false, "ing/mirror/#").validate().is_ok());
+    }
 }

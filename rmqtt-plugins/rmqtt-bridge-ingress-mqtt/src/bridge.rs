@@ -301,14 +301,23 @@ fn to_properties(props: ntex_mqtt::v5::codec::PublishProperties) -> PublishPrope
         .map(|(k, v)| (ByteString::from(k.as_str()), ByteString::from(v.as_str())))
         .collect();
     PublishProperties {
-        topic_alias: props.topic_alias,
+        // Topic Alias is per-connection state (MQTT 5.0 §3.3.2.3.4): the peer's
+        // alias table does not apply to the local broker. The client codec has
+        // already resolved the alias into the real topic name (see
+        // ntex-mqtt v5/client/connection.rs), so the alias itself must not be
+        // carried into the local publish.
+        topic_alias: None,
         correlation_data: props.correlation_data.map(|data| Bytes::from(data.to_vec())),
         message_expiry_interval: props.message_expiry_interval,
         content_type: props.content_type.map(|data| ByteString::from(data.as_str())),
         user_properties,
         is_utf8_payload: props.is_utf8_payload,
         response_topic: props.response_topic.map(|data| ByteString::from(data.as_str())),
-        subscription_ids: props.subscription_ids.clone(),
+        // Subscription Identifier is a Server-to-Client property (MQTT 5.0
+        // §3.3.2.3.8): the ids belong to the bridge's subscription on the
+        // *remote* broker and would leak into local deliveries, where the
+        // broker assigns its own ids (rmqtt/src/shared.rs).
+        subscription_ids: Vec::new(),
     }
 }
 
@@ -336,4 +345,39 @@ pub(crate) fn build_tls_connector(cfg: &super::config::Bridge) -> Result<TlsConn
         config.with_no_client_auth()
     };
     Ok(TlsConnector::new(config))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::{NonZeroU16, NonZeroU32};
+
+    use super::to_properties;
+
+    /// A property block must lose the two connection-scoped / wrong-direction
+    /// properties while every other property survives the hop.
+    #[test]
+    fn to_properties_strips_alias_and_subscription_ids() {
+        let src = ntex_mqtt::v5::codec::PublishProperties {
+            topic_alias: NonZeroU16::new(5),
+            subscription_ids: vec![NonZeroU32::new(11).expect("11 != 0")],
+            content_type: Some(ntex::util::ByteString::from("text/plain")),
+            is_utf8_payload: true,
+            ..Default::default()
+        };
+
+        let out = to_properties(src);
+
+        assert_eq!(
+            out.topic_alias, None,
+            "Topic Alias is per-connection (MQTT 5.0 §3.3.2.3.4) and must not enter the local publish"
+        );
+        assert!(
+            out.subscription_ids.is_empty(),
+            "Subscription Identifier is Server-to-Client (MQTT 5.0 §3.3.2.3.8) and must not leak \
+             from the remote subscription into local deliveries"
+        );
+        // Control arm: the rest of the property block must still be forwarded.
+        assert_eq!(out.content_type.as_deref(), Some("text/plain"));
+        assert!(out.is_utf8_payload);
+    }
 }

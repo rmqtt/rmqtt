@@ -1,0 +1,115 @@
+##--------------------------------------------------------------------
+## rmqtt-bridge-ingress-mqtt (MQTT bridge fixture, GitHub issue #451)
+##--------------------------------------------------------------------
+## The ingress bridge subscribes on the MOCK upstream (127.0.0.1:2915) and
+## republishes every message it receives into the local broker, mapping the
+## remote topic to a local one with `local.topic`.
+##
+## Every entry below is a different SHAPE of that `local.topic` mapping. The
+## real reporter's configuration could not be obtained, so the shapes are
+## enumerated instead of guessed:
+##
+##   I1  local.topic = "${remote.topic}"           -> transparent (legal)
+##   I2  local.topic = "ing/plain"                 -> literal, no wildcard (legal)
+##   I3  (retired placeholder)
+##   I4  local.topic = "${remote.topic}/suffix"    -> transparent + suffix (legal)
+##   I5  local.topic = "${remote.topic}"           -> transparent carrier for C3
+##
+## I3 used to carry `local.topic = "ing/mirror/#"` — the shape a user gets by
+## copying the *ingress* template's topic vocabulary into `local.topic`: a
+## topic FILTER (with `#`) used where a topic NAME is required. The bridge now
+## rejects that mapping while loading its config
+## (`Local::validate` -> `rmqtt::topic::is_valid_topic_name`), so a fixture
+## carrying it can no longer be started at all. The entry is kept as a legal
+## placeholder so the entry indices stay stable; the rejection itself is
+## covered by the plugin's unit tests (see `Local::validate`).
+##
+## `concurrent_client_limit = 1` keeps one upstream connection per entry, so a
+## case can address an entry by the topic filter it sees in SUBSCRIBE.
+## All QoS are 0: the forwarded message never needs a PUBACK, which keeps the
+## cases free of any acknowledgement state.
+##
+## `reconnect_interval` is short because the mocks are started by the case,
+## long after the broker — the bridge must re-attach to them quickly.
+##
+## See more keys: https://github.com/rmqtt/rmqtt/blob/master/docs/en_US/bridge-ingress-mqtt.md
+
+[[bridges]]
+enable = true
+# Bridge name (appears in the bridge client's id: "prefix:ing:ingress:1:<entry>:0")
+name = "ing"
+client_id_prefix = "prefix"
+# Address and port of the mock upstream MQTT broker.
+server = "tcp://127.0.0.1:2915"
+username = "rmqtt_u"
+password = "public"
+
+concurrent_client_limit = 1
+connect_timeout = "3s"
+keepalive = "60s"
+reconnect_interval = "1s"
+# Message expiration time, 0 means no expiration.
+expiry_interval = "5m"
+
+# MQTT protocol version: v4 = 3.1.1, v5 = 5.0.
+mqtt_ver = "v5"
+
+v5.clean_start = true
+v5.session_expiry_interval = "0s"
+v5.receive_maximum = 16
+v5.maximum_packet_size = "1M"
+# What the bridge advertises to its peer: the maximum Topic Alias the peer may
+# use when publishing TO this bridge. Non-zero so the C3 carrier may legally
+# attach an alias to the inbound PUBLISH (MQTT 5.0 §3.3.2.3.4).
+v5.topic_alias_maximum = 10
+
+# ---------------------------------------------------------------- I1
+[[bridges.entries]]
+# Remote subscription filter (what the mock upstream must publish on).
+remote.qos = 0
+remote.topic = "up/transparent/#"
+# Local topic mapping: `${remote.topic}` is the topic of the received message.
+local.qos = 0
+local.topic = "${remote.topic}"
+local.retain = false
+
+# ---------------------------------------------------------------- I2
+[[bridges.entries]]
+remote.qos = 0
+remote.topic = "up/plain/#"
+# Literal local topic without a wildcard: legal, though it collapses every
+# remote topic onto one local name.
+local.qos = 0
+local.topic = "ing/plain"
+local.retain = false
+
+# ---------------------------------------------------------------- I3 (retired)
+[[bridges.entries]]
+remote.qos = 0
+remote.topic = "up/wildcard/#"
+# RETIRED: was `local.topic = "ing/mirror/#"`, a literal of FILTER shape used
+# as a topic NAME. The bridge now rejects that mapping while loading its
+# config, so the fixture could no longer start. Kept as a legal placeholder to
+# keep the entry indices stable.
+local.qos = 0
+local.topic = "ing/mirror/plain"
+local.retain = false
+
+# ---------------------------------------------------------------- I4
+[[bridges.entries]]
+remote.qos = 0
+remote.topic = "up/suffix/#"
+# Placeholder plus a literal suffix: still a legal topic name.
+local.qos = 0
+local.topic = "${remote.topic}/suffix"
+local.retain = false
+
+# ---------------------------------------------------------------- I5
+[[bridges.entries]]
+remote.qos = 0
+remote.topic = "eg/props/#"
+# C3 carrier: transparent mapping, so the local topic is the topic the mock
+# upstream published on and the egress entry E3 picks it up.
+local.qos = 0
+local.topic = "${remote.topic}"
+local.retain = false

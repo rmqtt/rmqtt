@@ -272,6 +272,33 @@ impl Topic {
     }
 }
 
+/// Check whether `topic` can be used as a PUBLISH **topic name**.
+///
+/// A topic name is not a topic filter: `+` and `#` are wildcards reserved for
+/// subscriptions (§4.7.1), and a PUBLISH whose Topic Name carries one is a
+/// violation a conforming peer answers by dropping the connection —
+/// [MQTT-3.3.2-2]. The name is also a UTF-8 Encoded String, so it must be at
+/// least one character long ([MQTT-4.7.3-1]), must not contain U+0000, and must
+/// fit in the 65535 bytes its two-byte length prefix can express (§1.5.4).
+///
+/// Blank levels are *not* rejected: `a//b` and `/` are legal names — only a
+/// wholly empty name is illegal.
+///
+/// ```
+/// use rmqtt::topic::is_valid_topic_name;
+///
+/// assert!(is_valid_topic_name("a/b/c"));
+/// assert!(is_valid_topic_name("/"));
+/// assert!(!is_valid_topic_name(""));
+/// assert!(!is_valid_topic_name("a/#"));
+/// assert!(!is_valid_topic_name("a/+/b"));
+/// ```
+#[inline]
+pub fn is_valid_topic_name<T: AsRef<str>>(topic: T) -> bool {
+    let topic = topic.as_ref();
+    !topic.is_empty() && topic.len() <= u16::MAX as usize && !topic.contains(['+', '#', '\0'])
+}
+
 impl From<&[Level]> for Topic {
     fn from(s: &[Level]) -> Self {
         let mut v = vec![];
@@ -475,6 +502,20 @@ mod tests {
 
         assert!(!Level::Normal(String::from("sport#")).is_valid());
         assert!(!Level::Metadata(String::from("SYS+")).is_valid());
+    }
+
+    #[test]
+    fn test_is_valid_topic_name() {
+        for name in ["a", "a/b/c", "/", "a//b", "$SYS/broker/load", "x/", "sport.tennis"] {
+            assert!(is_valid_topic_name(name), "`{name}` must be a valid topic name");
+        }
+
+        for name in ["", "#", "+", "a/#", "a/+/b", "a/b/+", "sport+", "a#b", "a\0b"] {
+            assert!(!is_valid_topic_name(name), "`{name}` must not be a valid topic name");
+        }
+
+        assert!(is_valid_topic_name("a".repeat(u16::MAX as usize)));
+        assert!(!is_valid_topic_name("a".repeat(u16::MAX as usize + 1)));
     }
 
     #[test]

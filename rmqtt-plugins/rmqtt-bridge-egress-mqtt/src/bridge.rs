@@ -26,6 +26,7 @@ use futures::SinkExt;
 use tokio::sync::RwLock;
 
 use rmqtt::{
+    topic::is_valid_topic_name,
     trie::{TopicTree, VecToTopic},
     types::{ClientId, DashMap, From, NodeId, Publish, Topic},
     Result,
@@ -101,6 +102,14 @@ pub(crate) struct BridgeManager {
     cfg: Arc<RwLock<PluginConfig>>,
     sinks: Arc<DashMap<SourceKey, Vec<CommandMailbox>>>,
     topics: Arc<RwLock<TopicTree<(BridgeName, EntryIndex, MqttVer)>>>,
+    /// Entries that have already been reported for mapping a message to an
+    /// illegal MQTT topic name.
+    ///
+    /// A misconfigured entry can be hit by every matching message — in issue
+    /// #451 that turned into an endless reconnect-and-resend loop — so only the
+    /// first occurrence per `(bridge, entry)` is logged at `warn`; afterwards
+    /// the same condition is demoted to `debug` to keep the log readable.
+    warned: Arc<DashMap<SourceKey, ()>>,
 }
 
 impl BridgeManager {
@@ -111,6 +120,7 @@ impl BridgeManager {
             cfg,
             sinks: Arc::new(DashMap::default()),
             topics: Arc::new(RwLock::new(TopicTree::default())),
+            warned: Arc::new(DashMap::default()),
         }
     }
 
@@ -198,6 +208,9 @@ impl BridgeManager {
     #[inline]
     pub(crate) async fn send(&self, _f: &From, p: &Publish) -> Result<()> {
         let topic: Topic = Topic::from_str(&p.topic)?;
+        // `p.topic` is a `ByteString` whose `AsRef` is ambiguous without a
+        // target type; bind the text once for the diagnostics below.
+        let local_topic: &str = p.topic.as_ref();
         let rnd = rand::random::<u64>() as usize;
         for (topic_filter, bridge_infos) in { self.topics.read().await.matches(&topic) }.iter() {
             let topic_filter = topic_filter.to_topic_filter();
@@ -222,13 +235,43 @@ impl BridgeManager {
                             "new_local_topic: {new_local_topic}, skip_levels: {}",
                             entry.remote.skip_levels
                         );
+                        // `remote.topic` is a template that is filled from runtime data,
+                        // so a configuration that is legal on its own can still collapse
+                        // to an illegal topic NAME — an empty one, for instance, once
+                        // `skip_levels` reaches the local level count. Such a name is not
+                        // something a peer accepts: mosquitto answers it with
+                        // `disconnected: malformed packet.`, the bridge reconnects and
+                        // sends it again — the loop of issue #451. Drop the message
+                        // locally instead of putting it on the wire, and report it once.
+                        let remote_topic = entry.remote.make_topic(new_local_topic.as_ref());
+                        if !is_valid_topic_name(&*remote_topic) {
+                            if self.warned.insert((name.clone(), *entry_idx), ()).is_none() {
+                                log::warn!(
+                                    "bridge {name}, entry {entry_idx}: dropped a publish mapped to \
+                                     the illegal MQTT topic name {remote_topic:?} (local topic \
+                                     {local_topic:?}, skip_levels = {skip}) — a topic name must not \
+                                     be empty and must not contain the wildcards `+` or `#` \
+                                     (MQTT 5.0 §4.7.3 [MQTT-4.7.3-1], [MQTT-3.3.2-2]); fix \
+                                     `remote.topic` and/or `skip_levels` for this entry — repeats \
+                                     from this entry are logged at debug level",
+                                    skip = entry.remote.skip_levels,
+                                );
+                            } else {
+                                log::debug!(
+                                    "bridge {name}, entry {entry_idx}: dropped a publish mapped to \
+                                     the illegal MQTT topic name {remote_topic:?} (local topic \
+                                     {local_topic:?})",
+                                );
+                            }
+                            continue;
+                        }
                         match *mqtt_ver {
                             MQTT_LEVEL_311 => {
                                 if let Err(e) = mailbox
                                     .send(Command::Publish(BridgePublish::V3(self.to_v3_publish(
                                         entry,
                                         p,
-                                        new_local_topic.as_ref(),
+                                        remote_topic,
                                     ))))
                                     .await
                                 {
@@ -240,7 +283,7 @@ impl BridgeManager {
                                     .send(Command::Publish(BridgePublish::V5(self.to_v5_publish(
                                         entry,
                                         p,
-                                        new_local_topic.as_ref(),
+                                        remote_topic,
                                     ))))
                                     .await
                                 {
@@ -261,25 +304,43 @@ impl BridgeManager {
         Ok(())
     }
 
+    /// Translates a local publish into the v3.1.1 wire form.
+    ///
+    /// `remote_topic` is the already-mapped, already-validated remote topic
+    /// name; `send()` builds it once so the same string is both checked and
+    /// sent.
     #[inline]
-    fn to_v3_publish(&self, cfg_entry: &Entry, p: &Publish, new_local_topic: &str) -> PublishV3 {
+    fn to_v3_publish(
+        &self,
+        cfg_entry: &Entry,
+        p: &Publish,
+        remote_topic: ntex::util::ByteString,
+    ) -> PublishV3 {
         PublishV3 {
             dup: false,
             retain: cfg_entry.remote.make_retain(p.retain),
             qos: cfg_entry.remote.make_qos(p.qos),
-            topic: cfg_entry.remote.make_topic(new_local_topic),
+            topic: remote_topic,
             packet_id: None,
             payload: ntex::util::Bytes::from(p.payload.to_vec()), //@TODO ...
         }
     }
 
+    /// Translates a local publish into the v5 wire form.
+    ///
+    /// See `to_v3_publish` for the `remote_topic` contract.
     #[inline]
-    fn to_v5_publish(&self, cfg_entry: &Entry, p: &Publish, new_local_topic: &str) -> PublishV5 {
+    fn to_v5_publish(
+        &self,
+        cfg_entry: &Entry,
+        p: &Publish,
+        remote_topic: ntex::util::ByteString,
+    ) -> PublishV5 {
         PublishV5 {
             dup: false,
             retain: cfg_entry.remote.make_retain(p.retain),
             qos: cfg_entry.remote.make_qos(p.qos),
-            topic: cfg_entry.remote.make_topic(new_local_topic),
+            topic: remote_topic,
             packet_id: None,
             payload: ntex::util::Bytes::from(p.payload.to_vec()), //@TODO ...
             properties: p.properties.as_ref().map(to_properties).unwrap_or_default(),
@@ -297,7 +358,11 @@ fn to_properties(props: &PublishProperties) -> ntex_mqtt::v5::codec::PublishProp
         })
         .collect();
     ntex_mqtt::v5::codec::PublishProperties {
-        topic_alias: props.topic_alias,
+        // Topic Alias is per-connection state (MQTT 5.0 §3.3.2.3.4): the alias
+        // the local connection agreed on means nothing on the remote one, so
+        // forwarding it would make the peer resolve the wrong topic (or reject
+        // the packet). Drop it and let the peer see the full topic name.
+        topic_alias: None,
         correlation_data: props.correlation_data.as_ref().map(|data| ntex::util::Bytes::from(data.to_vec())),
         message_expiry_interval: props.message_expiry_interval,
         content_type: props.content_type.as_ref().map(|data| ntex::util::ByteString::from(data.to_string())),
@@ -307,7 +372,12 @@ fn to_properties(props: &PublishProperties) -> ntex_mqtt::v5::codec::PublishProp
             .response_topic
             .as_ref()
             .map(|data| ntex::util::ByteString::from(data.to_string())),
-        subscription_ids: props.subscription_ids.clone(),
+        // Subscription Identifier is a Server-to-Client property (MQTT 5.0
+        // §3.3.2.3.8): the ids carried here belong to the bridge's subscription
+        // on the *local* broker (filled in when it is delivered, see
+        // rmqtt/src/shared.rs) and are illegal on the client-to-server PUBLISH
+        // sent to the remote broker.
+        subscription_ids: Vec::new(),
     }
 }
 
@@ -339,4 +409,46 @@ pub(crate) fn build_tls_connector(cfg: &super::config::Bridge) -> Result<TlsConn
         config.with_no_client_auth()
     };
     Ok(TlsConnector::new(config))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::{NonZeroU16, NonZeroU32};
+
+    use super::to_properties;
+    use bytestring::ByteString;
+    use rmqtt::codec::v5::PublishProperties;
+
+    /// A property block must lose the two connection-scoped / wrong-direction
+    /// properties while every other property survives the hop.
+    #[test]
+    fn to_properties_strips_alias_and_subscription_ids() {
+        let src = PublishProperties {
+            topic_alias: NonZeroU16::new(3),
+            subscription_ids: vec![NonZeroU32::new(9).expect("9 != 0")],
+            user_properties: vec![(ByteString::from("x-marker"), ByteString::from("keep"))],
+            content_type: Some(ByteString::from("text/plain")),
+            is_utf8_payload: true,
+            ..Default::default()
+        };
+
+        let out = to_properties(&src);
+
+        assert_eq!(
+            out.topic_alias, None,
+            "Topic Alias is per-connection (MQTT 5.0 §3.3.2.3.4) and must not cross to the peer"
+        );
+        assert!(
+            out.subscription_ids.is_empty(),
+            "Subscription Identifier is Server-to-Client (MQTT 5.0 §3.3.2.3.8) and is illegal on \
+             the client-to-server PUBLISH the bridge sends"
+        );
+        // Control arm: the rest of the property block must still be forwarded,
+        // otherwise "both are absent" would also hold if it were dropped whole.
+        assert_eq!(out.user_properties.len(), 1);
+        assert_eq!(&*out.user_properties[0].0, "x-marker");
+        assert_eq!(&*out.user_properties[0].1, "keep");
+        assert_eq!(out.content_type.as_deref(), Some("text/plain"));
+        assert!(out.is_utf8_payload);
+    }
 }
