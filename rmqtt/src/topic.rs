@@ -299,6 +299,125 @@ pub fn is_valid_topic_name<T: AsRef<str>>(topic: T) -> bool {
     !topic.is_empty() && topic.len() <= u16::MAX as usize && !topic.contains(['+', '#', '\0'])
 }
 
+/// The `$share/<ShareName>/<TopicFilter>` prefix of a shared subscription
+/// ([MQTT-4.8.2-1]).
+const SHARED_SUBSCRIPTION_PREFIX: &str = "$share/";
+
+/// The `$limit/<n>/<TopicFilter>` prefix of a limited subscription (rmqtt
+/// extension, see `types::parse_topic_filter`).
+const LIMIT_SUBSCRIPTION_PREFIX: &str = "$limit/";
+
+/// The `$exclusive/<TopicFilter>` prefix of an exclusive subscription (rmqtt
+/// extension, see `types::parse_topic_filter`).
+const EXCLUSIVE_SUBSCRIPTION_PREFIX: &str = "$exclusive/";
+
+/// Check whether `topic` can be used as an MQTT topic **filter** (a
+/// subscription pattern).
+///
+/// This is the counterpart of [`is_valid_topic_name`]: `+` and `#` *are* legal
+/// here — and only here — with `#` restricted to the last level (§4.7.1.2,
+/// [MQTT-4.7.1-1]). Like a name, a filter is a UTF-8 Encoded String, so it must
+/// be at least one character long ([MQTT-4.7.3-1]), must not contain U+0000,
+/// and must fit in the 65535 bytes its two-byte length prefix can express
+/// (§1.5.4).
+///
+/// The `$share/<group>/<filter>` form is deliberately *not* special-cased: it
+/// parses as an ordinary filter whose first level is the metadata level
+/// `$share`. Such a filter only matches a topic *named* `$share/<group>/...`,
+/// i.e. not the shared subscription the author meant, so the shared form is
+/// recognised by [`is_shared_subscription`] and validated by
+/// [`is_valid_subscription_filter`] instead of being folded in here.
+///
+/// ```
+/// use rmqtt::topic::is_valid_topic_filter;
+///
+/// assert!(is_valid_topic_filter("a/b/#"));
+/// assert!(is_valid_topic_filter("+"));
+/// assert!(!is_valid_topic_filter(""));
+/// assert!(!is_valid_topic_filter("a/#/b"));
+/// ```
+#[inline]
+pub fn is_valid_topic_filter<T: AsRef<str>>(topic: T) -> bool {
+    let topic = topic.as_ref();
+    !topic.is_empty()
+        && topic.len() <= u16::MAX as usize
+        && !topic.contains('\0')
+        && Topic::from_str(topic).is_ok()
+}
+
+/// `true` when `topic` is written in the `$share/<ShareName>/<TopicFilter>`
+/// form of a shared subscription ([MQTT-4.8.2-1]).
+///
+/// Only the prefix is examined — whether the group and the filter are usable is
+/// what [`is_valid_subscription_filter`] decides.
+#[inline]
+pub fn is_shared_subscription<T: AsRef<str>>(topic: T) -> bool {
+    topic.as_ref().starts_with(SHARED_SUBSCRIPTION_PREFIX)
+}
+
+/// `true` when `topic` is written in the `$limit/<n>/<TopicFilter>` form of a
+/// limited subscription (rmqtt extension).
+///
+/// Only the prefix is examined — whether `<n>` is a number and the filter behind
+/// it is usable is what `types::parse_topic_filter` decides.
+#[inline]
+pub fn is_limit_subscription<T: AsRef<str>>(topic: T) -> bool {
+    topic.as_ref().starts_with(LIMIT_SUBSCRIPTION_PREFIX)
+}
+
+/// `true` when `topic` is written in the `$exclusive/<TopicFilter>` form of an
+/// exclusive subscription (rmqtt extension).
+#[inline]
+pub fn is_exclusive_subscription<T: AsRef<str>>(topic: T) -> bool {
+    topic.as_ref().starts_with(EXCLUSIVE_SUBSCRIPTION_PREFIX)
+}
+
+/// Check whether `topic` is a legal filter to put in a SUBSCRIBE.
+///
+/// Accepts an ordinary filter, or the shared form
+/// `$share/<ShareName>/<TopicFilter>` where the filter behind the ShareName is
+/// itself legal ([MQTT-4.8.2-1], [MQTT-4.8.2-2]).
+///
+/// An empty ShareName (`$share//a`) is accepted, because
+/// `types::parse_topic_filter` accepts it: [MQTT-4.8.2-1] requires at least one
+/// character, but the broker has always taken an empty group as it stands, and a
+/// predicate used to decide whether a *peer* can be subscribed must not be
+/// stricter than the parser it is describing. Tightening both sides is a
+/// protocol-facing change of its own; until then this predicate reports what the
+/// broker does.
+///
+/// The WHOLE string is what goes on the wire as one UTF-8 Encoded String, so the
+/// 65535-byte cap (§1.5.4) applies to it — not only to the filter behind the
+/// ShareName, which [`is_valid_topic_filter`] checks separately.
+///
+/// ```
+/// use rmqtt::topic::is_valid_subscription_filter;
+///
+/// assert!(is_valid_subscription_filter("a/b/#"));
+/// assert!(is_valid_subscription_filter("$share/g/a/b/#"));
+/// assert!(is_valid_subscription_filter("$share//a/b"));
+/// assert!(!is_valid_subscription_filter("$share/g"));
+/// assert!(!is_valid_subscription_filter("$share/+/a"));
+/// assert!(!is_valid_subscription_filter(&format!("$share/{}x", "g".repeat(70_000))));
+/// ```
+#[inline]
+pub fn is_valid_subscription_filter<T: AsRef<str>>(topic: T) -> bool {
+    let topic = topic.as_ref();
+    if topic.len() > u16::MAX as usize {
+        return false;
+    }
+    match topic.strip_prefix(SHARED_SUBSCRIPTION_PREFIX) {
+        None => is_valid_topic_filter(topic),
+        Some(rest) => match rest.split_once('/') {
+            Some((share_name, filter)) => {
+                !share_name.contains(['+', '#', '\0']) && is_valid_topic_filter(filter)
+            }
+            // `$share/` or `$share/<group>` with no filter part at all.
+            None => false,
+        },
+    }
+}
+
 impl From<&[Level]> for Topic {
     fn from(s: &[Level]) -> Self {
         let mut v = vec![];
@@ -516,6 +635,112 @@ mod tests {
 
         assert!(is_valid_topic_name("a".repeat(u16::MAX as usize)));
         assert!(!is_valid_topic_name("a".repeat(u16::MAX as usize + 1)));
+    }
+
+    #[test]
+    fn test_is_valid_topic_filter() {
+        for filter in ["a", "#", "+", "a/b/c", "a/#", "a/+/b", "+/+", "/", "a//b", "$SYS/#", "/+", "x/"] {
+            assert!(is_valid_topic_filter(filter), "`{filter}` must be a valid topic filter");
+        }
+
+        for filter in ["", "a/#/b", "#/a", "a/#/", "a#", "#a", "sport+", "a/+/b#", "a\0b"] {
+            assert!(!is_valid_topic_filter(filter), "`{filter}` must not be a valid topic filter");
+        }
+
+        assert!(is_valid_topic_filter("a".repeat(u16::MAX as usize)));
+        assert!(!is_valid_topic_filter("a".repeat(u16::MAX as usize + 1)));
+
+        // The shared form is a plain filter as far as this predicate is
+        // concerned: it parses, and it matches a topic literally named
+        // `$share/...`. That is why callers that need to spot the shared form
+        // use `is_shared_subscription` rather than relying on this predicate.
+        assert!(is_valid_topic_filter("$share/g/a/b/#"));
+        assert!(is_valid_topic_filter("$share//a"));
+    }
+
+    #[test]
+    fn test_is_shared_subscription() {
+        assert!(is_shared_subscription("$share/g/a"));
+        assert!(is_shared_subscription("$share/"));
+        assert!(is_shared_subscription("$share//a"));
+
+        for filter in ["", "$share", "share/g/a", "a/$share/g"] {
+            assert!(!is_shared_subscription(filter), "`{filter}` must not look shared");
+        }
+    }
+
+    #[test]
+    fn test_is_limit_and_exclusive_subscription() {
+        for filter in ["$limit/10/a/#", "$limit//a"] {
+            assert!(is_limit_subscription(filter), "`{filter}` must look limited");
+            assert!(!is_exclusive_subscription(filter), "`{filter}` must not look exclusive");
+        }
+
+        for filter in ["$exclusive/a/#", "$exclusive/"] {
+            assert!(is_exclusive_subscription(filter), "`{filter}` must look exclusive");
+            assert!(!is_limit_subscription(filter), "`{filter}` must not look limited");
+        }
+
+        for filter in ["", "$limit", "$exclusive", "limit/10/a", "a/$limit/10/b"] {
+            assert!(
+                !is_limit_subscription(filter) && !is_exclusive_subscription(filter),
+                "`{filter}` must look neither limited nor exclusive"
+            );
+        }
+    }
+
+    #[test]
+    fn test_is_valid_subscription_filter() {
+        for filter in [
+            "a",
+            "#",
+            "+",
+            "a/b/#",
+            "$share/g/a",
+            "$share/g/a/b/#",
+            "$share/g/#",
+            "$share/g/+",
+            // An empty ShareName violates [MQTT-4.8.2-1], but `parse_topic_filter`
+            // accepts it and this predicate must agree with the parser.
+            "$share//a",
+            "$share//a/b/#",
+        ] {
+            assert!(
+                is_valid_subscription_filter(filter),
+                "`{filter}` must be a valid filter to subscribe with"
+            );
+        }
+
+        for filter in [
+            "",
+            "a/#/b",
+            "a#",
+            // A shared subscription must carry a group and a filter.
+            "$share/",
+            "$share/g",
+            "$share/g/",
+            "$share/+/a",
+            "$share/#/a",
+            // …and the filter behind the group must itself be legal.
+            "$share/g/a/#/b",
+            "$share/g/a#",
+        ] {
+            assert!(
+                !is_valid_subscription_filter(filter),
+                "`{filter}` must not be a valid filter to subscribe with"
+            );
+        }
+
+        // The 65535-byte cap applies to the WHOLE string, not just the filter
+        // behind the ShareName: this one carries a legal inner filter but a
+        // ShareName big enough to push the total past what the two-byte length
+        // prefix of a UTF-8 Encoded String can express (§1.5.4).
+        let over_long = format!("$share/{}x/a", "g".repeat(u16::MAX as usize));
+        assert!(!is_valid_subscription_filter(&over_long));
+        // Same total length WITHOUT the `$share/` prefix is refused by the
+        // plain-filter arm for the same reason; both arms must agree.
+        let plain_over_long = format!("{}/a", "g".repeat(u16::MAX as usize));
+        assert!(!is_valid_subscription_filter(&plain_over_long));
     }
 
     #[test]
