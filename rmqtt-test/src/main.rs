@@ -285,6 +285,16 @@ fn build_suites(opt: &Opt) -> Vec<TestSuite> {
         suites.push(build_bridge_egress_mqtt_suite());
     }
 
+    // Bridge configuration rejection (issue #540): every case starts its OWN
+    // `rmqttd` with a generated configuration, because "the broker must refuse
+    // to serve with this config" is not a verdict the harness's managed broker
+    // can express. It owns ports of its own (MQTT 1925-1932 / gRPC 5405-5412 /
+    // HTTP 6085-6092 + 2925 for an MQTT 3.1.1 mock) and is therefore never part
+    // of the default full run — request it with `--suites bridge_config_reject`.
+    if should_run("bridge_config_reject", opt) {
+        suites.push(build_bridge_config_reject_suite());
+    }
+
     suites
 }
 
@@ -293,8 +303,9 @@ fn build_suites(opt: &Opt) -> Vec<TestSuite> {
 /// - Empty `--suites` = default full run, which excludes the two-node
 ///   `functional_v5_cluster` suite (it manages its own nodes and needs
 ///   `--no-broker`), the `pulsar` suite (external Pulsar service) and the
-///   standalone `bridge_egress_mqtt` suite (binds its own MQTT/gRPC ports and
-///   runs mock peers in-process).
+///   standalone `bridge_egress_mqtt` / `bridge_config_reject` suites (they bind
+///   their own MQTT/gRPC ports, run mock peers in-process, and spawn their own
+///   brokers).
 /// - Otherwise a suite is selected when a selector equals its name, is a
 ///   prefix (`functional_v5` also selects `functional_v5@retain-disabled`),
 ///   or is a sub-suite name of it (`functional_v5@retain-disabled` also
@@ -305,7 +316,10 @@ fn should_run(name: &str, opt: &Opt) -> bool {
         // --no-broker, which the default run does not pass), the pulsar
         // bridge suite (external Pulsar service required) and the MQTT bridge
         // suite (its own port block + in-process mock peers).
-        return name != "functional_v5_cluster" && name != "pulsar" && name != "bridge_egress_mqtt";
+        return name != "functional_v5_cluster"
+            && name != "pulsar"
+            && name != "bridge_egress_mqtt"
+            && name != "bridge_config_reject";
     }
     opt.suites
         .iter()
@@ -774,6 +788,56 @@ fn build_bridge_egress_mqtt_suite() -> TestSuite {
     // subscriber of the broker — observed without routing the assertion through
     // the egress bridge, which is the whole point of an ingress bridge.
     suite.add(Issue451IngressDeliversToLocalSubscriberTest);
+
+    // The topic FILTER field of an entry (issue #540). The `$share/...` case is
+    // the guard against over-rejection — that form is what the PEER needs — and
+    // the refused-subscription case is the runtime half: a peer is entitled to
+    // refuse, and the entry must not be retried for the lifetime of the process
+    // as if the failure were transient.
+    suite.add(Issue540IngressShareFilterSubscribedVerbatimTest);
+    suite.add(Issue540IngressRefusedSubscriptionIsBoundedTest);
+
+    suite
+}
+
+/// Standalone bridge-configuration suite (issue #540) — run with
+/// `--suites bridge_config_reject`.
+///
+/// The sibling `bridge_egress_mqtt` suite asserts what the bridges put on the
+/// wire; this one asserts what the broker does with a configuration the bridges
+/// cannot honour. Every case owns its own `rmqttd` process (the harness's
+/// managed broker treats "did not become healthy" as a harness error, not as a
+/// verdict), and generates its configuration by copying
+/// `configs/bridge-egress-mqtt/` and injecting exactly ONE field — the topic
+/// FILTER of the bridge entry under test.
+///
+///     ./target/debug/mqtt_harness --binary target/debug/rmqttd --workspace . \
+///         --suites bridge_config_reject --workers 1
+fn build_bridge_config_reject_suite() -> TestSuite {
+    use tests::functional::bridge_config_reject::*;
+
+    let mut suite = TestSuite::new("bridge_config_reject");
+
+    // Ingress `remote.topic` — the filter the bridge SUBSCRIBEs with on the
+    // peer. Never validated today, so an entry can be born dead.
+    suite.add(Issue540IngressRemoteTopicFilterInvalidTest);
+    suite.add(Issue540IngressRemoteTopicEmptyTest);
+    suite.add(Issue540IngressRemoteTopicShareNameEmptyTest);
+
+    // Egress `local.topic_filter` — the filter the bridge matches local
+    // publishes against. Checked only when the bridge starts, where a failure
+    // restarts the whole bridge every 3 s instead of naming the entry.
+    suite.add(Issue540EgressTopicFilterInvalidTest);
+    suite.add(Issue540EgressTopicFilterEmptyTest);
+    suite.add(Issue540EgressTopicFilterSharePrefixTest);
+
+    // Positive control: legal filters (including an ingress `$share/...`, which
+    // is exactly what the peer expects) must still start.
+    suite.add(Issue540ValidFiltersStartTest);
+
+    // Runtime half on the MQTT 3.1.1 path: a subscription the peer refuses must
+    // be attributable and must not be retried forever.
+    suite.add(Issue540IngressV311SubscribeRefusedTest);
 
     suite
 }

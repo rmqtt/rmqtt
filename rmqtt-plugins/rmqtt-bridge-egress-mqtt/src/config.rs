@@ -494,6 +494,12 @@ impl PluginConfig {
     /// `a/#/${local.topic}` is still rejected. Whether the substituted value
     /// itself is a legal name is a runtime concern, not a configuration one.
     ///
+    /// The filter side is checked as well (issue #540): `local.topic_filter`
+    /// selects the local topics this entry forwards, so a malformed filter makes
+    /// `_start()` fail and the bridge restart every three seconds, and a
+    /// `$share/<group>/<filter>` one parses into a `$`-prefixed level that can
+    /// never match a published topic — a silently dead entry either way.
+    ///
     /// Disabled bridges are skipped: they never connect, and failing them here
     /// would break configurations that are currently harmless.
     pub fn validate(&self) -> Result<()> {
@@ -509,6 +515,37 @@ impl PluginConfig {
                          or `#` (MQTT 5.0 [MQTT-3.3.2-2]), and must be at most 65535 bytes long. \
                          `+` and `#` belong in `local.topic_filter`, which is a topic filter.",
                         entry.remote.topic()
+                    ));
+                }
+
+                // `local.topic_filter` is what this entry subscribes to on the
+                // local broker; `_start()` feeds it to `Topic::from_str` and the
+                // resulting trie. A malformed filter fails there and the bridge
+                // restarts every three seconds, and an omitted one becomes ""
+                // (`#[serde(default)]`), which installs a node that can never
+                // match a published topic — both silently (issue #540).
+                if !rmqtt::topic::is_valid_topic_filter(&entry.local.topic_filter) {
+                    return Err(anyhow!(
+                        "bridges[{i}].entries[{j}].local.topic_filter = {:?} is not a valid MQTT \
+                         topic filter: a topic filter must be at least one character long, must be \
+                         at most 65535 bytes, must not contain U+0000, and `#` is legal only as \
+                         the last level (MQTT 5.0 [MQTT-4.7.1-1]).",
+                        entry.local.topic_filter
+                    ));
+                }
+
+                // `$share/...` is a peer-facing construct. Locally this filter
+                // is matched against published topics, and `$share` parses as a
+                // metadata level that no ordinary publish ever has, so accepting
+                // it would be accepting an entry that can never fire.
+                if rmqtt::topic::is_shared_subscription(&entry.local.topic_filter) {
+                    return Err(anyhow!(
+                        "bridges[{i}].entries[{j}].local.topic_filter = {:?} uses the \
+                         `$share/<group>/<filter>` shared-subscription form, which is a \
+                         peer-facing construct: this plugin matches the filter against LOCAL \
+                         published topics, where a `$`-prefixed level can never occur. \
+                         `$share/...` belongs in `remote.topic` of an ingress bridge entry.",
+                        entry.local.topic_filter
                     ));
                 }
             }
@@ -541,20 +578,30 @@ fn last_will_basic(obj: &Map<String, Value>) -> Result<(QoS, bool, ByteString, B
 mod tests {
     use super::*;
 
-    fn config(enable: bool, remote_topic: &str) -> PluginConfig {
+    /// A one-entry config carrying both sides of the mapping explicitly.
+    ///
+    /// Keeping both settable matters: an entry with a legal `remote.topic` but
+    /// an empty `local.topic_filter` would otherwise be reported for the filter
+    /// side, and vice versa.
+    fn config_with(enable: bool, remote_topic: &str, topic_filter: &str) -> PluginConfig {
         PluginConfig {
             bridges: vec![Bridge {
                 enable,
                 entries: vec![Entry {
+                    local: Local { topic_filter: topic_filter.to_owned() },
                     remote: Remote {
                         topic: (remote_topic.to_owned(), remote_topic.contains(LOCAL_TOPIC_PLACEHOLDER)),
                         ..Remote::default()
                     },
-                    ..Entry::default()
                 }],
                 ..Bridge::default()
             }],
         }
+    }
+
+    /// The name-side tests: the filter side is held legal on purpose.
+    fn config(enable: bool, remote_topic: &str) -> PluginConfig {
+        config_with(enable, remote_topic, "local/forward/#")
     }
 
     #[test]
@@ -582,5 +629,45 @@ mod tests {
     #[test]
     fn validate_skips_disabled_bridges() {
         assert!(config(false, "mirror/hash/#").validate().is_ok());
+    }
+
+    /// `local.topic_filter` is a filter against local topics: `#` is legal (and
+    /// only as the last level).
+    #[test]
+    fn validate_accepts_legal_local_topic_filters() {
+        for filter in ["a", "#", "+", "a/b/#", "local/forward/#", "local/+/#", "eg/plain/#"] {
+            assert!(
+                config_with(true, "mirror/plain", filter).validate().is_ok(),
+                "`{filter}` must be accepted"
+            );
+        }
+    }
+
+    /// Issue #540: a malformed or omitted filter is refused while the config is
+    /// loaded, and the message names the offending field.
+    #[test]
+    fn validate_rejects_a_malformed_local_topic_filter() {
+        for filter in ["", "eg/#/x", "a#", "#/a", "a/#/"] {
+            let err = config_with(true, "mirror/plain", filter).validate().unwrap_err().to_string();
+            assert!(err.contains("bridges[0].entries[0].local.topic_filter"), "`{filter}`: {err}");
+            assert!(err.contains("topic filter"), "`{filter}`: {err}");
+        }
+    }
+
+    /// A `$share/...` filter is syntactically a filter, but locally it can never
+    /// match a published topic: it is refused with its own message.
+    #[test]
+    fn validate_rejects_a_shared_subscription_filter() {
+        for filter in ["$share/g/eg/#", "$share//eg/#", "$share/g/plain"] {
+            let err = config_with(true, "mirror/plain", filter).validate().unwrap_err().to_string();
+            assert!(err.contains("bridges[0].entries[0].local.topic_filter"), "`{filter}`: {err}");
+            assert!(err.contains("$share"), "`{filter}`: {err}");
+        }
+    }
+
+    #[test]
+    fn validate_skips_disabled_bridges_on_the_filter_side_too() {
+        assert!(config_with(false, "mirror/plain", "eg/#/x").validate().is_ok());
+        assert!(config_with(false, "mirror/plain", "$share/g/eg/#").validate().is_ok());
     }
 }

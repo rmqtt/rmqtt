@@ -299,6 +299,85 @@ pub fn is_valid_topic_name<T: AsRef<str>>(topic: T) -> bool {
     !topic.is_empty() && topic.len() <= u16::MAX as usize && !topic.contains(['+', '#', '\0'])
 }
 
+/// The `$share/<ShareName>/<TopicFilter>` prefix of a shared subscription
+/// ([MQTT-4.8.2-1]).
+const SHARED_SUBSCRIPTION_PREFIX: &str = "$share/";
+
+/// Check whether `topic` can be used as an MQTT topic **filter** (a
+/// subscription pattern).
+///
+/// This is the counterpart of [`is_valid_topic_name`]: `+` and `#` *are* legal
+/// here — and only here — with `#` restricted to the last level (§4.7.1.2,
+/// [MQTT-4.7.1-1]). Like a name, a filter is a UTF-8 Encoded String, so it must
+/// be at least one character long ([MQTT-4.7.3-1]), must not contain U+0000,
+/// and must fit in the 65535 bytes its two-byte length prefix can express
+/// (§1.5.4).
+///
+/// The `$share/<group>/<filter>` form is deliberately *not* special-cased: it
+/// parses as an ordinary filter whose first level is `$share`. That is exactly
+/// what makes it useless against a local topic trie, so the shared form is
+/// recognised by [`is_shared_subscription`] and validated by
+/// [`is_valid_subscription_filter`] instead of being folded in here.
+///
+/// ```
+/// use rmqtt::topic::is_valid_topic_filter;
+///
+/// assert!(is_valid_topic_filter("a/b/#"));
+/// assert!(is_valid_topic_filter("+"));
+/// assert!(!is_valid_topic_filter(""));
+/// assert!(!is_valid_topic_filter("a/#/b"));
+/// ```
+#[inline]
+pub fn is_valid_topic_filter<T: AsRef<str>>(topic: T) -> bool {
+    let topic = topic.as_ref();
+    !topic.is_empty()
+        && topic.len() <= u16::MAX as usize
+        && !topic.contains('\0')
+        && Topic::from_str(topic).is_ok()
+}
+
+/// `true` when `topic` is written in the `$share/<ShareName>/<TopicFilter>`
+/// form of a shared subscription ([MQTT-4.8.2-1]).
+///
+/// Only the prefix is examined — whether the group and the filter are usable is
+/// what [`is_valid_subscription_filter`] decides.
+#[inline]
+pub fn is_shared_subscription<T: AsRef<str>>(topic: T) -> bool {
+    topic.as_ref().starts_with(SHARED_SUBSCRIPTION_PREFIX)
+}
+
+/// Check whether `topic` is a legal filter to put in a SUBSCRIBE.
+///
+/// Accepts an ordinary filter, or the shared form
+/// `$share/<ShareName>/<TopicFilter>` where the ShareName is non-empty and
+/// contains no `/`, `+` or `#`, and the filter behind it is itself legal
+/// ([MQTT-4.8.2-1], [MQTT-4.8.2-2]).
+///
+/// ```
+/// use rmqtt::topic::is_valid_subscription_filter;
+///
+/// assert!(is_valid_subscription_filter("a/b/#"));
+/// assert!(is_valid_subscription_filter("$share/g/a/b/#"));
+/// assert!(!is_valid_subscription_filter("$share//a/b"));
+/// assert!(!is_valid_subscription_filter("$share/g"));
+/// ```
+#[inline]
+pub fn is_valid_subscription_filter<T: AsRef<str>>(topic: T) -> bool {
+    let topic = topic.as_ref();
+    match topic.strip_prefix(SHARED_SUBSCRIPTION_PREFIX) {
+        None => is_valid_topic_filter(topic),
+        Some(rest) => match rest.split_once('/') {
+            Some((share_name, filter)) => {
+                !share_name.is_empty()
+                    && !share_name.contains(['+', '#', '\0'])
+                    && is_valid_topic_filter(filter)
+            }
+            // `$share/` or `$share/<group>` with no filter part at all.
+            None => false,
+        },
+    }
+}
+
 impl From<&[Level]> for Topic {
     fn from(s: &[Level]) -> Self {
         let mut v = vec![];
@@ -516,6 +595,68 @@ mod tests {
 
         assert!(is_valid_topic_name("a".repeat(u16::MAX as usize)));
         assert!(!is_valid_topic_name("a".repeat(u16::MAX as usize + 1)));
+    }
+
+    #[test]
+    fn test_is_valid_topic_filter() {
+        for filter in ["a", "#", "+", "a/b/c", "a/#", "a/+/b", "+/+", "/", "a//b", "$SYS/#", "/+", "x/"] {
+            assert!(is_valid_topic_filter(filter), "`{filter}` must be a valid topic filter");
+        }
+
+        for filter in ["", "a/#/b", "#/a", "a/#/", "a#", "#a", "sport+", "a/+/b#", "a\0b"] {
+            assert!(!is_valid_topic_filter(filter), "`{filter}` must not be a valid topic filter");
+        }
+
+        assert!(is_valid_topic_filter("a".repeat(u16::MAX as usize)));
+        assert!(!is_valid_topic_filter("a".repeat(u16::MAX as usize + 1)));
+
+        // The shared form is a plain filter as far as this predicate is
+        // concerned — that is what makes it usable against a local topic trie
+        // and therefore a dead entry (see `is_shared_subscription`).
+        assert!(is_valid_topic_filter("$share/g/a/b/#"));
+        assert!(is_valid_topic_filter("$share//a"));
+    }
+
+    #[test]
+    fn test_is_shared_subscription() {
+        assert!(is_shared_subscription("$share/g/a"));
+        assert!(is_shared_subscription("$share/"));
+        assert!(is_shared_subscription("$share//a"));
+
+        for filter in ["", "$share", "share/g/a", "a/$share/g"] {
+            assert!(!is_shared_subscription(filter), "`{filter}` must not look shared");
+        }
+    }
+
+    #[test]
+    fn test_is_valid_subscription_filter() {
+        for filter in ["a", "#", "+", "a/b/#", "$share/g/a", "$share/g/a/b/#", "$share/g/#", "$share/g/+"] {
+            assert!(
+                is_valid_subscription_filter(filter),
+                "`{filter}` must be a valid filter to subscribe with"
+            );
+        }
+
+        for filter in [
+            "",
+            "a/#/b",
+            "a#",
+            // A shared subscription must carry a non-empty group and a filter.
+            "$share/",
+            "$share//a",
+            "$share/g",
+            "$share/g/",
+            "$share/+/a",
+            "$share/#/a",
+            // …and the filter behind the group must itself be legal.
+            "$share/g/a/#/b",
+            "$share/g/a#",
+        ] {
+            assert!(
+                !is_valid_subscription_filter(filter),
+                "`{filter}` must not be a valid filter to subscribe with"
+            );
+        }
     }
 
     #[test]

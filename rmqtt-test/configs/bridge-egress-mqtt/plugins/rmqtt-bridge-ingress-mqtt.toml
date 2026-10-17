@@ -14,6 +14,7 @@
 ##   I3  (retired placeholder)
 ##   I4  local.topic = "${remote.topic}/suffix"    -> transparent + suffix (legal)
 ##   I5  local.topic = "${remote.topic}"           -> transparent carrier for C3
+##   I6  remote.topic = "$share/g/up/share/#"      -> shared-subscription filter (#540)
 ##
 ## I3 used to carry `local.topic = "ing/mirror/#"` — the shape a user gets by
 ## copying the *ingress* template's topic vocabulary into `local.topic`: a
@@ -112,4 +113,18 @@ remote.topic = "eg/props/#"
 # upstream published on and the egress entry E3 picks it up.
 local.qos = 0
 local.topic = "${remote.topic}"
+local.retain = false
+
+# ---------------------------------------------------------------- I6
+[[bridges.entries]]
+remote.qos = 0
+# GitHub issue #540: a `$share/<group>/<filter>` prefix is what the PEER needs
+# for a shared subscription, so it must survive a topic-filter validator
+# verbatim — the mock upstream asserts the exact string it receives. The
+# `$share/` branch of bridge.rs (it raises the client count) is the only other
+# place that reads this field.
+remote.topic = "$share/g/up/share/#"
+# A legal topic NAME (no wildcard), so the #451 name-side check stays happy.
+local.qos = 0
+local.topic = "ing/share/plain"
 local.retain = false

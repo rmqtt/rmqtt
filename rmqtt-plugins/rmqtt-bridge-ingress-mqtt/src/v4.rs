@@ -8,7 +8,6 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::anyhow;
 use futures::channel::mpsc;
@@ -16,7 +15,6 @@ use futures::StreamExt;
 use ntex::connect::rustls::TlsConnector;
 use ntex::connect::Connector;
 use ntex::service::fn_service;
-use ntex::time;
 use ntex::time::Seconds;
 use ntex::util::ByteString;
 use ntex::util::Bytes;
@@ -209,6 +207,14 @@ impl Client {
         log::info!("{} Exit 'rmqtt-bridge-ingress-mqtt' client", client.client_id);
     }
 
+    /// Subscribes to `topic_filter` and reports the outcome.
+    ///
+    /// A SUBACK failure is a *permanent* answer for this filter, so retrying it
+    /// on a fixed five-second cadence only hides the problem while the entry
+    /// delivers nothing (issue #540). It is reported at `warn` — visible under
+    /// the default `log.level = "info"` — and then given up on: the next
+    /// reconnect re-attempts the subscription, which is also when a changed peer
+    /// ACL would take effect.
     async fn subscribe(
         self,
         sink: v3::MqttSink,
@@ -216,28 +222,30 @@ impl Client {
         qos: v3::QoS,
         client_id: ByteString,
     ) {
-        'subscribe: loop {
-            match sink.subscribe().topic_filter(topic_filter.clone(), qos).send().await {
-                Ok(rets) => {
-                    for ret in rets {
-                        if let SubscribeReturnCode::Failure = ret {
-                            log::info!("{client_id} Subscribe failure, topic_filter: {topic_filter:?}");
-                            time::sleep(Duration::from_secs(5)).await;
-                            continue 'subscribe;
-                        } else {
-                            log::info!("{client_id} Successfully subscribed to {topic_filter:?}",);
-                        }
+        match sink.subscribe().topic_filter(topic_filter.clone(), qos).send().await {
+            Ok(rets) => {
+                for ret in rets {
+                    if let SubscribeReturnCode::Failure = ret {
+                        log::warn!(
+                            "{client_id} Subscribe refused by the peer, topic_filter: \
+                             {topic_filter:?}: the peer answered SUBACK with a failure code \
+                             (MQTT 3.1.1 carries no reason to report); giving up on this connection"
+                        );
+                        log::error!(
+                            "{client_id} entry {topic_filter:?} stays inactive until the bridge \
+                             reconnects: nothing it should forward is delivered on this connection \
+                             (issue #540)"
+                        );
+                    } else {
+                        log::info!("{client_id} Successfully subscribed to {topic_filter:?}",);
                     }
-                    break;
                 }
-                Err(SendPacketError::Disconnected) => {
-                    log::info!("{client_id} Subscribe error, Disconnected");
-                    break;
-                }
-                Err(e) => {
-                    log::info!("{client_id} Subscribe error, {e}");
-                    break;
-                }
+            }
+            Err(SendPacketError::Disconnected) => {
+                log::info!("{client_id} Subscribe error, Disconnected");
+            }
+            Err(e) => {
+                log::info!("{client_id} Subscribe error, {e}");
             }
         }
     }

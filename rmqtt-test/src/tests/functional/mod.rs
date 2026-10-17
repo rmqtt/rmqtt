@@ -5,6 +5,7 @@ pub mod auth_http_acl_fallthrough_v311;
 pub mod auth_v311;
 pub mod boundary;
 pub mod boundary_v3;
+pub mod bridge_config_reject;
 pub mod bridge_egress_mqtt;
 pub mod cluster_session_restart;
 pub mod connack_capabilities_v5;

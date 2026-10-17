@@ -52,11 +52,13 @@
 //!
 //! # Cases
 //!
-//! All seven cases are green: two are the happy path of either direction (a
-//! local publish must reach the peer, an upstream publish must reach a local
-//! subscriber), the others are the regression net for the two guards that close
-//! issue #451 (load-time validation of the configured topic skeleton, and the
-//! `send()`-time topic-name check).
+//! All nine cases are green, except the two that guard the still-open issue
+//! #540 (the topic FILTER side of an entry and what a refused subscription does
+//! to the entry). Two are the happy path of either direction (a local publish
+//! must reach the peer, an upstream publish must reach a local subscriber); the
+//! rest are the regression net for the two guards that close issue #451
+//! (load-time validation of the configured topic skeleton, and the `send()`-time
+//! topic-name check).
 //!
 //! | case | shape under test | expected |
 //! |---|---|---|
@@ -67,6 +69,14 @@
 //! | `..._ingress_local_topic_literal_plain`         | ingress `local.topic = "ing/plain"` | PASS (control) |
 //! | `..._ingress_local_topic_with_suffix`           | ingress `local.topic = "${remote.topic}/suffix"` | PASS (control) |
 //! | `..._ingress_delivers_to_local_subscriber`      | the I1 mapping, asserted at a plain LOCAL subscriber rather than at the egress carrier | PASS |
+//! | `issue540_ingress_share_filter_subscribed_verbatim` | ingress `remote.topic = "$share/g/up/share/#"` must reach the peer byte for byte | PASS: subscription seen verbatim (guards against over-rejection) |
+//! | `issue540_ingress_refused_subscription_is_bounded`  | the peer answers SUBACK `TopicFilterInvalid` (0x8F) for one entry | FAIL today: retried every 5 s, forever — a bounded retry (or none) is expected |
+//!
+//! The two `issue540_*` cases cover the topic FILTER field of an entry (the
+//! sibling of the topic NAME field #451 fixed): `remote.topic` is the filter the
+//! bridge sends to the peer, and a peer is entitled to refuse it. What the
+//! broker does NOT do with such a filter while loading the config is asserted by
+//! the `bridge_config_reject` suite, which owns its own brokers for it.
 //!
 //! Three earlier cases — C1 (`remote.topic = "mirror/hash/#"`), C4 (log
 //! diagnosability of such a forward) and I3 (`local.topic = "ing/mirror/#"`)
@@ -145,6 +155,13 @@ const CONNECT_SETTLE: Duration = Duration::from_millis(400);
 /// idempotent for the assertions here (they look at the topic, not at counts),
 /// so retrying cannot mask anything — it only absorbs the settle race above.
 const DRIVE_ATTEMPTS: usize = 3;
+/// Window in which a subscription the peer REFUSED must not be retried on an
+/// unbounded fixed cadence (issue #540). The ingress plugin's retry loop sleeps
+/// 5 s, so 12 s holds exactly two retries on the current code.
+const RETRY_WINDOW: Duration = Duration::from_secs(12);
+/// Retries allowed inside [`RETRY_WINDOW`] after the first refusal: give up, or
+/// back off — a fixed cadence is what the case forbids.
+const MAX_REFUSAL_RETRIES: usize = 1;
 
 // ---------------------------------------------------------------------------
 // Fixture entry shapes (indices are the declaration order in the fixture's
@@ -184,6 +201,10 @@ const INGRESS_FILTER_PLAIN: &str = "up/plain/#";
 const INGRESS_FILTER_SUFFIX: &str = "up/suffix/#";
 /// I5 — transparent carrier feeding the egress entry E3 (C3).
 const INGRESS_FILTER_PROPS: &str = "eg/props/#";
+/// I6 — `remote.topic = "$share/g/up/share/#"`: a shared-subscription filter,
+/// which is a topic FILTER that must be accepted and forwarded to the peer
+/// verbatim (issue #540).
+const INGRESS_FILTER_SHARE: &str = "$share/g/up/share/#";
 
 /// Local topic of the positive control arm (`eg/control/#` -> E4).
 const LOCAL_TOPIC_CONTROL: &str = "eg/control/local";
@@ -273,6 +294,15 @@ struct Conn {
 struct MockState {
     conns: Vec<Conn>,
     received: Vec<Captured>,
+    /// Filters this mock refuses with SUBACK `TopicFilterInvalid` (issue #540):
+    /// a peer is free to refuse a subscription, and what the broker then does
+    /// with the entry is the behaviour under test.
+    refused: Vec<String>,
+    /// How many times each filter was subscribed, across all connections.
+    attempts: std::collections::HashMap<String, usize>,
+    /// Whether a filter was ever refused, so a case can prove the mock was
+    /// selective instead of refusing everything.
+    refused_seen: std::collections::HashMap<String, bool>,
 }
 
 /// A minimal MQTT v5 broker that lives in the test process.
@@ -294,7 +324,16 @@ struct MockBroker {
 }
 
 impl MockBroker {
+    /// A permissive mock: every subscription is granted.
     async fn spawn(role: &'static str, port: u16) -> anyhow::Result<Self> {
+        Self::spawn_refusing(role, port, &[]).await
+    }
+
+    /// A mock that answers SUBACK `TopicFilterInvalid` (0x8F) for the listed
+    /// filters — a peer is entitled to refuse a subscription it will not grant
+    /// (an ACL, a filter it does not implement), and issue #540 is about what the
+    /// broker then does with the entry.
+    async fn spawn_refusing(role: &'static str, port: u16, refused: &[&str]) -> anyhow::Result<Self> {
         // The previous case's mock closed its listener moments ago and the
         // bridge under test is still holding sockets to it, so the port can be
         // momentarily unavailable. Retry instead of failing the case.
@@ -313,7 +352,10 @@ impl MockBroker {
                 }
             }
         };
-        let state = Arc::new(Mutex::new(MockState::default()));
+        let state = Arc::new(Mutex::new(MockState {
+            refused: refused.iter().map(|f| f.to_string()).collect(),
+            ..MockState::default()
+        }));
         let st = state.clone();
         let accept = tokio::spawn(async move {
             loop {
@@ -344,6 +386,21 @@ impl MockBroker {
     /// Every PUBLISH received so far.
     fn captured_snapshot(&self) -> Vec<Captured> {
         self.state.lock().unwrap().received.clone()
+    }
+
+    /// How many SUBSCRIBE attempts the bridge made for `filter` (issue #540:
+    /// a refused subscription must not be retried on an unbounded fixed
+    /// cadence).
+    fn subscribe_attempts(&self, filter: &str) -> usize {
+        self.state.lock().unwrap().attempts.get(filter).copied().unwrap_or(0)
+    }
+
+    /// `Some(refused)` when `filter` was ever subscribed, with `refused` saying
+    /// whether this mock answered `TopicFilterInvalid`. This is the control arm
+    /// of the refusal case: it proves the mock was selective and that both
+    /// filters really were subscribed.
+    fn refusal_of(&self, filter: &str) -> Option<bool> {
+        self.state.lock().unwrap().refused_seen.get(filter).copied()
     }
 
     /// Poll `probe` until it returns an index or `timeout` elapses.
@@ -501,15 +558,30 @@ async fn serve_conn(stream: tokio::net::TcpStream, state: Arc<Mutex<MockState>>)
                     Packet::Subscribe(s) => {
                         let filters: Vec<String> =
                             s.topic_filters.iter().map(|(f, _)| f.to_string()).collect();
+                        // The refusal policy lives in the mock's state, so a case
+                        // can pick which filter the peer "will not have".
+                        let refused = state.lock().unwrap().refused.clone();
+                        let status: Vec<SubscribeAckReason> = filters
+                            .iter()
+                            .map(|f| {
+                                if refused.iter().any(|r| r == f) {
+                                    SubscribeAckReason::TopicFilterInvalid
+                                } else {
+                                    SubscribeAckReason::GrantedQos0
+                                }
+                            })
+                            .collect();
                         {
                             let mut st = state.lock().unwrap();
+                            for (f, reason) in filters.iter().zip(status.iter()) {
+                                *st.attempts.entry(f.clone()).or_insert(0) += 1;
+                                st.refused_seen.insert(
+                                    f.clone(),
+                                    matches!(reason, SubscribeAckReason::TopicFilterInvalid),
+                                );
+                            }
                             st.conns[idx].subscriptions.extend(filters);
                         }
-                        let status: Vec<SubscribeAckReason> = s
-                            .topic_filters
-                            .iter()
-                            .map(|_| SubscribeAckReason::GrantedQos0)
-                            .collect();
                         sink.send(Packet::SubscribeAck(SubscribeAck {
                             packet_id: s.packet_id,
                             properties: Vec::new(),
@@ -815,23 +887,56 @@ fn log_tail(lines: usize) -> String {
     all[start..].join("\n")
 }
 
-/// Split a log window into WARN records.
+/// The levels the broker's log format uses, as whole whitespace-separated
+/// tokens: `2026-10-16 21:26:58.320  INFO rmqtt_net::builder: 598: ...`.
 ///
-/// A record starts at a physical line containing `WARN` and absorbs the lines
-/// that follow until the next such line: the console layer wraps a long message
-/// over several physical lines, so matching line by line would be brittle.
-/// Lines before the first `WARN` are dropped.
-fn warn_records(window: &str) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
+/// Matching a *token* rather than a substring is what keeps a record from being
+/// credited with another record's level: a continuation line must not be taken
+/// for a record start, and a message that merely mentions a word such as
+/// `error` must not promote its own record.
+const LOG_LEVELS: [&str; 5] = ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"];
+
+/// `Some(level)` when `line` STARTS a log record, `None` when it continues one.
+pub(crate) fn line_level(line: &str) -> Option<&str> {
+    line.split_whitespace().find(|tok| LOG_LEVELS.contains(tok))
+}
+
+/// Split a log window into `(level, text)` records.
+///
+/// A record starts at a physical line carrying a level token and absorbs the
+/// lines that follow it: the console/file layer wraps a long message over
+/// several physical lines, so matching line by line would be brittle. Whatever
+/// precedes the first record start is dropped (it is not a whole record).
+pub(crate) fn records(window: &str) -> Vec<(&str, String)> {
+    let mut out: Vec<(&str, String)> = Vec::new();
     for line in window.lines() {
-        if line.contains("WARN") {
-            out.push(line.to_string());
-        } else if let Some(last) = out.last_mut() {
-            last.push('\n');
-            last.push_str(line);
+        match line_level(line) {
+            Some(level) => out.push((level, line.to_string())),
+            None => {
+                if let Some(last) = out.last_mut() {
+                    last.1.push('\n');
+                    last.1.push_str(line);
+                }
+            }
         }
     }
     out
+}
+
+/// Split a log window into WARN records.
+///
+/// The suite's original entry point: C2 counts the WARN records naming one
+/// entry. See [`records`] for the record boundary rule.
+fn warn_records(window: &str) -> Vec<String> {
+    records(window).into_iter().filter(|(level, _)| *level == "WARN").map(|(_, text)| text).collect()
+}
+
+/// Is there a WARN or ERROR record in `window` that mentions `needle`?
+///
+/// "Mentions" is deliberately textual: the case that uses this asserts on the
+/// LEVEL and on the subject of the record, not on the fix's wording.
+pub(crate) fn warn_or_error_record_mentioning(window: &str, needle: &str) -> bool {
+    records(window).iter().any(|(level, text)| matches!(*level, "WARN" | "ERROR") && text.contains(needle))
 }
 
 // ---------------------------------------------------------------------------
@@ -1192,6 +1297,116 @@ async fn ingress_delivers_to_local_subscriber() -> anyhow::Result<()> {
 }
 
 // ---------------------------------------------------------------------------
+// Cases: the topic FILTER field of an entry (issue #540)
+// ---------------------------------------------------------------------------
+
+/// Ingress `$share/<group>/<filter>` must reach the peer VERBATIM (issue #540).
+///
+/// `$share` is meaningful in the filter a bridge sends to the PEER: the peer is
+/// the one that load-balances across the bridge's clients, and `bridge.rs` reads
+/// the prefix to decide how many clients to open. A topic-filter validator must
+/// therefore accept the three-part form — `$share`, a non-empty ShareName, then
+/// the Topic Filter ([MQTT-4.8.2-1/2]) — instead of rejecting everything that is
+/// not a plain filter.
+///
+/// This is the guard against over-rejection, and the reason `$share//up/a`
+/// (empty ShareName) is a separate negative case: the prefix has to be handled
+/// explicitly rather than waved through by the generic parser.
+///
+/// The assertion is exact-string equality on what the mock received, so a fix
+/// that rewrites the filter on its way out (dropping the prefix, say) fails
+/// here. If a fix started rejecting `$share` in `remote.topic` altogether, the
+/// fixture broker itself could no longer start — a loud failure for the whole
+/// suite, which is the correct signal for that mistake.
+async fn ingress_share_filter_subscribed_verbatim() -> anyhow::Result<()> {
+    let upstream = MockBroker::spawn("upstream", UPSTREAM_PORT).await?;
+    // The egress entries need a peer to publish to: without one every egress
+    // bridge reconnects in a loop and floods the log.
+    let _downstream = MockBroker::spawn("downstream", DOWNSTREAM_PORT).await?;
+
+    upstream.wait_subscription(INGRESS_FILTER_SHARE, BRIDGE_WAIT).await?;
+    Ok(())
+}
+
+/// A subscription the PEER refuses must be attributable and must not be retried
+/// as if the failure were transient (issue #540).
+///
+/// Issue #451 fixed what leaves the broker; this is the other direction. A peer
+/// is entitled to answer a SUBSCRIBE with `TopicFilterInvalid` (0x8F) — an ACL
+/// it does not disclose, a filter it does not implement — and the ingress plugin
+/// then does exactly what it does for a transient error: logs and sleeps 5 s,
+/// forever. The entry delivers nothing for the lifetime of the process, and the
+/// only trace is one line per 5 s at a level an operator may have filtered out.
+///
+/// Two answers are acceptable: give up, or back off. What is not acceptable is a
+/// fixed 5 s cadence, so the case allows at most [`MAX_REFUSAL_RETRIES`] further
+/// attempt inside [`RETRY_WINDOW`] (12 s holds exactly two retries on the
+/// current code, and one or zero under any bounded policy).
+///
+/// Control arms, in order:
+///
+/// 1. the mock's policy is SELECTIVE — I2 refused, I1 granted — so "few
+///    attempts" cannot hold because the bridge never subscribed at all;
+/// 2. the refusal is already reported with its reason before the window opens
+///    (the half of the issue's ask that holds today), which proves the SUBACK
+///    was received and processed rather than dropped.
+async fn ingress_refused_subscription_is_bounded() -> anyhow::Result<()> {
+    // Baseline taken before any connection can carry the refusal we count.
+    let baseline = log_len();
+
+    let upstream = MockBroker::spawn_refusing("upstream", UPSTREAM_PORT, &[INGRESS_FILTER_PLAIN]).await?;
+    let _downstream = MockBroker::spawn("downstream", DOWNSTREAM_PORT).await?;
+
+    // Control arm 1: both filters, with opposite outcomes, on the same peer.
+    let deadline = Instant::now() + BRIDGE_WAIT;
+    loop {
+        if upstream.refusal_of(INGRESS_FILTER_PLAIN) == Some(true)
+            && upstream.refusal_of(INGRESS_FILTER_TRANSPARENT) == Some(false)
+        {
+            break;
+        }
+        if Instant::now() >= deadline {
+            return Err(anyhow::anyhow!(
+                "control arm 1: within {BRIDGE_WAIT:?} the mock did not see {INGRESS_FILTER_PLAIN:?} \
+                 refused AND {INGRESS_FILTER_TRANSPARENT:?} granted (refused={:?}, granted={:?}); \
+                 connections the mock saw: {:?}",
+                upstream.refusal_of(INGRESS_FILTER_PLAIN),
+                upstream.refusal_of(INGRESS_FILTER_TRANSPARENT),
+                upstream.conn_snapshot()
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    // Control arm 2: the refusal is on the record, at a level that survives
+    // `log.level = "info"`, and it names the filter.
+    if !warn_records(&log_since(baseline)).iter().any(|r| r.contains(INGRESS_FILTER_PLAIN)) {
+        return Err(anyhow::anyhow!(
+            "control arm 2: the mock answered SUBACK TopicFilterInvalid for {INGRESS_FILTER_PLAIN:?}, \
+             but no WARN record naming that filter appeared in the broker log — the refusal is \
+             invisible to an operator. Log tail:\n{}",
+            log_tail(20)
+        ));
+    }
+
+    let after_first = upstream.subscribe_attempts(INGRESS_FILTER_PLAIN);
+    tokio::time::sleep(RETRY_WINDOW).await;
+    let retries = upstream.subscribe_attempts(INGRESS_FILTER_PLAIN).saturating_sub(after_first);
+
+    if retries > MAX_REFUSAL_RETRIES {
+        return Err(anyhow::anyhow!(
+            "the peer refused the subscription to {INGRESS_FILTER_PLAIN:?} and the bridge retried it \
+             {retries} more time(s) within {RETRY_WINDOW:?} (allowed: {MAX_REFUSAL_RETRIES}): a \
+             permanent failure is being retried on a fixed 5 s cadence that hides it from the \
+             operator, while the entry delivers nothing — see the `'subscribe: loop` of \
+             rmqtt-bridge-ingress-mqtt/src/v5.rs (and src/v4.rs for MQTT 3.1.1, covered separately \
+             by the bridge_config_reject suite)"
+        ));
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Case: v5 properties (C3)
 // ---------------------------------------------------------------------------
 
@@ -1354,4 +1569,14 @@ bridge_case!(
     Issue451EgressV5CrossConnectionPropertiesTest,
     "issue451_egress_v5_cross_connection_properties",
     c3_cross_connection_properties
+);
+bridge_case!(
+    Issue540IngressShareFilterSubscribedVerbatimTest,
+    "issue540_ingress_share_filter_subscribed_verbatim",
+    ingress_share_filter_subscribed_verbatim
+);
+bridge_case!(
+    Issue540IngressRefusedSubscriptionIsBoundedTest,
+    "issue540_ingress_refused_subscription_is_bounded",
+    ingress_refused_subscription_is_bounded
 );
