@@ -32,7 +32,7 @@ use rmqtt::{
 use crate::bridge::{
     build_tls_connector, BridgeClient, BridgePublish, Command, CommandMailbox, OnMessageEvent,
 };
-use crate::config::Bridge;
+use crate::config::{Bridge, MAX_SUBSCRIBE_ATTEMPTS, MAX_SUBSCRIBE_BACKOFF};
 
 enum MqttConnector {
     Tcp(v3::client::MqttConnector<String, Connector<String>>),
@@ -207,14 +207,16 @@ impl Client {
         log::info!("{} Exit 'rmqtt-bridge-ingress-mqtt' client", client.client_id);
     }
 
-    /// Subscribes to `topic_filter` and reports the outcome.
+    /// Subscribes to `topic_filter`, retrying a refusal on a bounded backoff.
     ///
-    /// A SUBACK failure is a *permanent* answer for this filter, so retrying it
-    /// on a fixed five-second cadence only hides the problem while the entry
-    /// delivers nothing (issue #540). It is reported at `warn` — visible under
-    /// the default `log.level = "info"` — and then given up on: the next
-    /// reconnect re-attempts the subscription, which is also when a changed peer
-    /// ACL would take effect.
+    /// MQTT 3.1.1 answers a refusal with a bare `0x80` and no reason, so a
+    /// permanent denial (the peer's ACL, a filter it will not grant) cannot be
+    /// told apart from a transient one (the peer is still loading its rules).
+    /// Giving up immediately strands the entry until an unrelated reconnect
+    /// (issue #540), while the old fixed five-second cadence retried it forever
+    /// and hid the problem; a refusal is therefore retried on an exponentially
+    /// growing backoff, at most [`MAX_SUBSCRIBE_ATTEMPTS`] times per connection,
+    /// and reported at `warn`/`error` either way. A reconnect starts over.
     async fn subscribe(
         self,
         sink: v3::MqttSink,
@@ -222,31 +224,61 @@ impl Client {
         qos: v3::QoS,
         client_id: ByteString,
     ) {
-        match sink.subscribe().topic_filter(topic_filter.clone(), qos).send().await {
-            Ok(rets) => {
-                for ret in rets {
-                    if let SubscribeReturnCode::Failure = ret {
-                        log::warn!(
-                            "{client_id} Subscribe refused by the peer, topic_filter: \
-                             {topic_filter:?}: the peer answered SUBACK with a failure code \
-                             (MQTT 3.1.1 carries no reason to report); giving up on this connection"
-                        );
+        let max_attempts = MAX_SUBSCRIBE_ATTEMPTS;
+        let mut attempt = 1;
+        let mut backoff = self.cfg.reconnect_interval;
+        loop {
+            match sink.subscribe().topic_filter(topic_filter.clone(), qos).send().await {
+                Ok(rets) => {
+                    if rets.iter().all(|ret| !matches!(ret, SubscribeReturnCode::Failure)) {
+                        log::info!("{client_id} Successfully subscribed to {topic_filter:?}",);
+                        return;
+                    }
+                    if attempt >= max_attempts {
                         log::error!(
                             "{client_id} entry {topic_filter:?} stays inactive until the bridge \
-                             reconnects: nothing it should forward is delivered on this connection \
+                             reconnects: the peer answered SUBACK with a failure code on all \
+                             {attempt} attempts, so nothing this entry should forward is \
+                             delivered (issue #540)"
+                        );
+                        return;
+                    }
+                    log::warn!(
+                        "{client_id} Subscribe refused by the peer, topic_filter: \
+                         {topic_filter:?}: SUBACK carried a failure code (MQTT 3.1.1 has no \
+                         reason to report); retrying in {backoff:?} (attempt \
+                         {attempt}/{max_attempts})"
+                    );
+                }
+                Err(SendPacketError::Disconnected) => {
+                    log::info!("{client_id} Subscribe error, Disconnected");
+                    return;
+                }
+                Err(e) => {
+                    if attempt >= max_attempts {
+                        log::error!(
+                            "{client_id} entry {topic_filter:?} stays inactive until the bridge \
+                             reconnects: {attempt} subscribe attempts failed, last error: {e} \
                              (issue #540)"
                         );
-                    } else {
-                        log::info!("{client_id} Successfully subscribed to {topic_filter:?}",);
+                        return;
                     }
+                    log::warn!(
+                        "{client_id} Subscribe to {topic_filter:?} failed ({e}); retrying in \
+                         {backoff:?} (attempt {attempt}/{max_attempts})"
+                    );
                 }
             }
-            Err(SendPacketError::Disconnected) => {
-                log::info!("{client_id} Subscribe error, Disconnected");
+            ntex::time::sleep(backoff).await;
+            if self.is_closed() {
+                log::info!(
+                    "{client_id} Stopped retrying the subscription to {topic_filter:?}, the \
+                     bridge is closing"
+                );
+                return;
             }
-            Err(e) => {
-                log::info!("{client_id} Subscribe error, {e}");
-            }
+            attempt += 1;
+            backoff = (backoff * 2).min(MAX_SUBSCRIBE_BACKOFF);
         }
     }
 

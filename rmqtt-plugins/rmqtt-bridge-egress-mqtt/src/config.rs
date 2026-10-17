@@ -496,9 +496,10 @@ impl PluginConfig {
     ///
     /// The filter side is checked as well (issue #540): `local.topic_filter`
     /// selects the local topics this entry forwards, so a malformed filter makes
-    /// `_start()` fail and the bridge restart every three seconds, and a
-    /// `$share/<group>/<filter>` one parses into a `$`-prefixed level that can
-    /// never match a published topic — a silently dead entry either way.
+    /// `_start()` fail and the bridge restart every three seconds, and one of the
+    /// peer-facing subscription forms (`$share/...`, `$limit/...`,
+    /// `$exclusive/...`) makes the entry match only a topic *named* like that
+    /// prefix — silently dead for the topics the operator meant.
     ///
     /// Disabled bridges are skipped: they never connect, and failing them here
     /// would break configurations that are currently harmless.
@@ -534,17 +535,35 @@ impl PluginConfig {
                     ));
                 }
 
-                // `$share/...` is a peer-facing construct. Locally this filter
-                // is matched against published topics, and `$share` parses as a
-                // metadata level that no ordinary publish ever has, so accepting
-                // it would be accepting an entry that can never fire.
-                if rmqtt::topic::is_shared_subscription(&entry.local.topic_filter) {
+                // The three `$`-prefixed subscription forms are peer-facing: they
+                // are meaningful in a SUBSCRIBE sent to a peer, not in this
+                // plugin's local trie. Locally the filter is matched literally
+                // against published topic names, so such an entry only fires for
+                // a client publishing to a topic name that itself starts with the
+                // same prefix — almost certainly an ingress/egress mix-up.
+                //
+                // This is a policy, not an impossibility: `$`-prefixed levels do
+                // occur locally (`$SYS/...` is published by the sys-topic plugin),
+                // which is why the check names these three forms instead of
+                // rejecting `$` outright.
+                let filter = entry.local.topic_filter.as_str();
+                let peer_facing = if rmqtt::topic::is_shared_subscription(filter) {
+                    Some("`$share/<group>/<filter>` shared-subscription")
+                } else if rmqtt::topic::is_limit_subscription(filter) {
+                    Some("`$limit/<n>/<filter>` limited-subscription")
+                } else if rmqtt::topic::is_exclusive_subscription(filter) {
+                    Some("`$exclusive/<filter>` exclusive-subscription")
+                } else {
+                    None
+                };
+                if let Some(form) = peer_facing {
                     return Err(anyhow!(
-                        "bridges[{i}].entries[{j}].local.topic_filter = {:?} uses the \
-                         `$share/<group>/<filter>` shared-subscription form, which is a \
-                         peer-facing construct: this plugin matches the filter against LOCAL \
-                         published topics, where a `$`-prefixed level can never occur. \
-                         `$share/...` belongs in `remote.topic` of an ingress bridge entry.",
+                        "bridges[{i}].entries[{j}].local.topic_filter = {:?} uses the {form} \
+                         form, which is a peer-facing construct. Locally this filter is matched \
+                         literally against published topic names, so the entry would only fire \
+                         for a client publishing to a topic name that itself starts with that \
+                         prefix — almost certainly an ingress/egress mix-up. This form belongs in \
+                         `remote.topic` of an ingress bridge entry, not in `local.topic_filter`.",
                         entry.local.topic_filter
                     ));
                 }
@@ -654,15 +673,29 @@ mod tests {
         }
     }
 
-    /// A `$share/...` filter is syntactically a filter, but locally it can never
-    /// match a published topic: it is refused with its own message.
+    /// `$share/...`, `$limit/...` and `$exclusive/...` are syntactically valid
+    /// filters, but they are peer-facing subscription forms: locally they only
+    /// match a topic *named* like that prefix, so they are refused — while a
+    /// `$SYS/#` filter (a `$`-prefixed level that really is published locally)
+    /// stays legal.
     #[test]
-    fn validate_rejects_a_shared_subscription_filter() {
-        for filter in ["$share/g/eg/#", "$share//eg/#", "$share/g/plain"] {
+    fn validate_rejects_a_peer_facing_subscription_filter() {
+        for filter in [
+            "$share/g/eg/#",
+            "$share//eg/#",
+            "$share/g/plain",
+            "$limit/10/eg/#",
+            "$limit/abc/eg/#",
+            "$exclusive/eg/#",
+        ] {
             let err = config_with(true, "mirror/plain", filter).validate().unwrap_err().to_string();
             assert!(err.contains("bridges[0].entries[0].local.topic_filter"), "`{filter}`: {err}");
-            assert!(err.contains("$share"), "`{filter}`: {err}");
+            assert!(err.contains("peer-facing"), "`{filter}`: {err}");
+            assert!(err.contains("ingress/egress"), "`{filter}`: {err}");
         }
+
+        // `$`-prefixed levels are not the problem; these three forms are.
+        assert!(config_with(true, "mirror/plain", "$SYS/#").validate().is_ok());
     }
 
     #[test]

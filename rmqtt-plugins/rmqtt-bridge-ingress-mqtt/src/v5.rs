@@ -30,7 +30,7 @@ use rmqtt::{
 use crate::bridge::{
     build_tls_connector, BridgeClient, BridgePublish, Command, CommandMailbox, OnMessageEvent,
 };
-use crate::config::Bridge;
+use crate::config::{Bridge, MAX_SUBSCRIBE_ATTEMPTS, MAX_SUBSCRIBE_BACKOFF};
 
 enum MqttConnector {
     Tcp(v5::client::MqttConnector<String, Connector<String>>),
@@ -44,6 +44,24 @@ impl MqttConnector {
             MqttConnector::Tls(c) => c.connect().await.map_err(|e| anyhow!(e))?,
         })
     }
+}
+
+/// `true` when `reason` says the peer will not grant this filter on this
+/// connection, so retrying it only delays the log line.
+///
+/// The remaining refusals — `UnspecifiedError`, `ImplementationSpecificError`,
+/// `PacketIdentifierInUse` and `QuotaExceeded` — can clear on their own (a peer
+/// still loading its rules, a quota that is raised again), which is why those are
+/// retried on a bounded backoff.
+fn is_permanent_refusal(reason: SubscribeAckReason) -> bool {
+    matches!(
+        reason,
+        SubscribeAckReason::NotAuthorized
+            | SubscribeAckReason::TopicFilterInvalid
+            | SubscribeAckReason::SharedSubscriptionNotSupported
+            | SubscribeAckReason::SubscriptionIdentifiersNotSupported
+            | SubscribeAckReason::WildcardSubscriptionsNotSupported
+    )
 }
 
 /// An MQTT v5 ingress client that subscribes to remote topics.
@@ -204,14 +222,17 @@ impl Client {
         log::info!("{} Exit 'rmqtt-bridge-ingress-mqtt' client", client.client_id);
     }
 
-    /// Subscribes to `topic_filter` and reports the outcome.
+    /// Subscribes to `topic_filter`, retrying a transient refusal on a bounded
+    /// backoff.
     ///
-    /// A refusal is a *permanent* answer for this filter, so retrying it on a
-    /// fixed five-second cadence only hides the problem while the entry delivers
-    /// nothing (issue #540). It is reported at `warn` — visible under the
-    /// default `log.level = "info"` — and the subscription is then given up on:
-    /// the next reconnect re-attempts it, which is also when a changed peer ACL
-    /// would take effect.
+    /// MQTT 5 does say why a subscription was refused, and the reason decides the
+    /// answer: `NotAuthorized`, `TopicFilterInvalid` and the three
+    /// "…NotSupported" codes will not change on this connection, so retrying them
+    /// only hides the problem (issue #540), while `QuotaExceeded`,
+    /// `PacketIdentifierInUse`, `UnspecifiedError` and
+    /// `ImplementationSpecificError` can clear on their own. Only the latter are
+    /// retried — on an exponentially growing backoff, at most
+    /// [`MAX_SUBSCRIBE_ATTEMPTS`] times per connection. A reconnect starts over.
     async fn subscribe(
         self,
         sink: v5::MqttSink,
@@ -225,35 +246,83 @@ impl Client {
             retain_as_published: false,
             retain_handling: v5::codec::RetainHandling::AtSubscribe,
         };
-        match sink.subscribe(None).topic_filter(topic_filter.clone(), opts).send().await {
-            Ok(ack) => {
-                for reason in &ack.status {
-                    if matches!(
-                        reason,
-                        SubscribeAckReason::GrantedQos0
-                            | SubscribeAckReason::GrantedQos1
-                            | SubscribeAckReason::GrantedQos2
-                    ) {
-                        log::info!("{client_id} Successfully subscribed to {topic_filter:?}",);
-                    } else {
-                        log::warn!(
-                            "{client_id} Subscribe refused by the peer, topic_filter: \
-                             {topic_filter:?}, reason: {reason:?}; giving up on this connection"
-                        );
-                        log::error!(
-                            "{client_id} entry {topic_filter:?} stays inactive until the bridge \
-                             reconnects: nothing it should forward is delivered on this connection \
-                             (issue #540)"
-                        );
+        let max_attempts = MAX_SUBSCRIBE_ATTEMPTS;
+        let mut attempt = 1;
+        let mut backoff = self.cfg.reconnect_interval;
+        loop {
+            match sink.subscribe(None).topic_filter(topic_filter.clone(), opts).send().await {
+                Ok(ack) => {
+                    let refused = ack.status.iter().copied().find(|reason| {
+                        !matches!(
+                            reason,
+                            SubscribeAckReason::GrantedQos0
+                                | SubscribeAckReason::GrantedQos1
+                                | SubscribeAckReason::GrantedQos2
+                        )
+                    });
+                    match refused {
+                        None => {
+                            log::info!("{client_id} Successfully subscribed to {topic_filter:?}",);
+                            return;
+                        }
+                        Some(reason) if is_permanent_refusal(reason) => {
+                            log::warn!(
+                                "{client_id} Subscribe refused by the peer, topic_filter: \
+                                 {topic_filter:?}, reason: {reason:?}; giving up on this connection"
+                            );
+                            log::error!(
+                                "{client_id} entry {topic_filter:?} stays inactive until the bridge \
+                                 reconnects: nothing it should forward is delivered on this \
+                                 connection (issue #540)"
+                            );
+                            return;
+                        }
+                        Some(reason) if attempt >= max_attempts => {
+                            log::error!(
+                                "{client_id} entry {topic_filter:?} stays inactive until the bridge \
+                                 reconnects: the peer answered SUBACK with {reason:?} on all \
+                                 {attempt} attempts (issue #540)"
+                            );
+                            return;
+                        }
+                        Some(reason) => {
+                            log::warn!(
+                                "{client_id} Subscribe refused by the peer, topic_filter: \
+                                 {topic_filter:?}, reason: {reason:?} (retryable); retrying in \
+                                 {backoff:?} (attempt {attempt}/{max_attempts})"
+                            );
+                        }
                     }
                 }
+                Err(SendPacketError::Disconnected) => {
+                    log::info!("{client_id} Subscribe error, Disconnected");
+                    return;
+                }
+                Err(e) => {
+                    if attempt >= max_attempts {
+                        log::error!(
+                            "{client_id} entry {topic_filter:?} stays inactive until the bridge \
+                             reconnects: {attempt} subscribe attempts failed, last error: {e} \
+                             (issue #540)"
+                        );
+                        return;
+                    }
+                    log::warn!(
+                        "{client_id} Subscribe to {topic_filter:?} failed ({e}); retrying in \
+                         {backoff:?} (attempt {attempt}/{max_attempts})"
+                    );
+                }
             }
-            Err(SendPacketError::Disconnected) => {
-                log::info!("{client_id} Subscribe error, Disconnected");
+            ntex::time::sleep(backoff).await;
+            if self.is_closed() {
+                log::info!(
+                    "{client_id} Stopped retrying the subscription to {topic_filter:?}, the \
+                     bridge is closing"
+                );
+                return;
             }
-            Err(e) => {
-                log::info!("{client_id} Subscribe error, {e}");
-            }
+            attempt += 1;
+            backoff = (backoff * 2).min(MAX_SUBSCRIBE_BACKOFF);
         }
     }
 
@@ -307,5 +376,56 @@ impl std::convert::TryFrom<Error> for v5::PublishAck {
 
     fn try_from(err: Error) -> std::result::Result<Self, Self::Error> {
         Err(err)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_permanent_refusal;
+    use ntex_mqtt::v5::codec::SubscribeAckReason;
+
+    /// Every reason code a SUBACK can carry is pinned here.
+    ///
+    /// The classification decides whether an entry gives up at once or retries on
+    /// a bounded backoff, so it must be a decision rather than a default: a reason
+    /// added to the protocol later and forgotten in [`is_permanent_refusal`] lands
+    /// on the retryable side, which wastes a few attempts but stays safe — the
+    /// dangerous direction (calling a transient code permanent) is what the
+    /// "may clear" arm below guards.
+    #[test]
+    fn test_refusal_classification() {
+        // Not refusals at all: these are grants. They reach
+        // `is_permanent_refusal` only by a caller's mistake.
+        for reason in [
+            SubscribeAckReason::GrantedQos0,
+            SubscribeAckReason::GrantedQos1,
+            SubscribeAckReason::GrantedQos2,
+        ] {
+            assert!(!is_permanent_refusal(reason), "{reason:?} is a grant, not a refusal");
+        }
+
+        // Permanent: no amount of waiting makes the peer grant THIS filter on
+        // THIS connection — an ACL, a feature the peer does not implement.
+        for reason in [
+            SubscribeAckReason::NotAuthorized,
+            SubscribeAckReason::TopicFilterInvalid,
+            SubscribeAckReason::SharedSubscriptionNotSupported,
+            SubscribeAckReason::SubscriptionIdentifiersNotSupported,
+            SubscribeAckReason::WildcardSubscriptionsNotSupported,
+        ] {
+            assert!(is_permanent_refusal(reason), "{reason:?} will not clear on its own");
+        }
+
+        // Transient: rules still loading, a quota that gets raised, a packet id
+        // still in flight. Retrying on a real backoff is the whole point, so
+        // treating any of these as permanent would be the bug.
+        for reason in [
+            SubscribeAckReason::UnspecifiedError,
+            SubscribeAckReason::ImplementationSpecificError,
+            SubscribeAckReason::PacketIdentifierInUse,
+            SubscribeAckReason::QuotaExceeded,
+        ] {
+            assert!(!is_permanent_refusal(reason), "{reason:?} may clear, so it must be retried");
+        }
     }
 }

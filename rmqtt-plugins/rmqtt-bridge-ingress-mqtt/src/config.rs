@@ -34,6 +34,19 @@ pub struct PluginConfig {
     pub bridges: Vec<Bridge>,
 }
 
+/// How many SUBSCRIBE attempts a single entry makes on one connection before it
+/// is given up on until the next reconnect.
+///
+/// MQTT 3.1.1 cannot say *why* a subscription was refused, and MQTT 5 reports
+/// transient reasons (`0x80`, `0x83`, `0x91`, `0x97`) in the same shape as
+/// permanent ones, so a refusal is retried on a bounded, exponentially growing
+/// backoff rather than on the fixed five-second cadence that hid issue #540.
+pub(crate) const MAX_SUBSCRIBE_ATTEMPTS: u32 = 8;
+
+/// Upper bound of the exponential backoff between those attempts. With the
+/// default `reconnect_interval` (5 s) the eight attempts span about ten minutes.
+pub(crate) const MAX_SUBSCRIBE_BACKOFF: Duration = Duration::from_secs(300);
+
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Bridge {
     #[serde(default)]
@@ -517,7 +530,7 @@ impl PluginConfig {
                          filter: a topic filter must be at least one character long, must be at \
                          most 65535 bytes, must not contain U+0000, `#` is legal only as the last \
                          level (MQTT 5.0 [MQTT-4.7.1-1]), and `$share/<group>/<filter>` needs a \
-                         non-empty group ([MQTT-4.8.2-1]).",
+                         filter behind the group.",
                         entry.remote.topic
                     ));
                 }
@@ -603,10 +616,24 @@ mod tests {
     }
 
     /// `remote.topic` is the filter sent in SUBSCRIBE: `#` is legal there (and
-    /// only as the last level), and a shared subscription is a legal filter.
+    /// only as the last level), and a shared subscription is a legal filter —
+    /// including the empty ShareName that `parse_topic_filter` accepts.
     #[test]
     fn validate_accepts_legal_remote_topics() {
-        for topic in ["a", "#", "+", "a/b/#", "up/plain/#", "up/+/#", "$share/g/up/a/#", "$share/g/#"] {
+        for topic in [
+            "a",
+            "#",
+            "+",
+            "a/b/#",
+            "up/plain/#",
+            "up/+/#",
+            "$share/g/up/a/#",
+            "$share/g/#",
+            // [MQTT-4.8.2-1] requires a non-empty ShareName, but the broker has
+            // always taken an empty group as it stands; a check describing what a
+            // peer will accept must not be stricter than the parser.
+            "$share//up/a",
+        ] {
             assert!(config_with(true, "ing/plain", topic).validate().is_ok(), "`{topic}` must be accepted");
         }
     }
@@ -616,9 +643,7 @@ mod tests {
     /// matches on exactly that).
     #[test]
     fn validate_rejects_a_malformed_remote_topic() {
-        for topic in
-            ["", "up/#/x", "a#", "#/a", "a/#/", "$share//up/a", "$share/g", "$share/g/", "$share/+/a"]
-        {
+        for topic in ["", "up/#/x", "a#", "#/a", "a/#/", "$share/g", "$share/g/", "$share/+/a"] {
             let err = config_with(true, "ing/plain", topic).validate().unwrap_err().to_string();
             assert!(err.contains("bridges[0].entries[0].remote.topic"), "`{topic}`: {err}");
             assert!(err.contains("topic filter"), "`{topic}`: {err}");

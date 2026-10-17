@@ -822,7 +822,6 @@ fn build_bridge_config_reject_suite() -> TestSuite {
     // peer. Never validated today, so an entry can be born dead.
     suite.add(Issue540IngressRemoteTopicFilterInvalidTest);
     suite.add(Issue540IngressRemoteTopicEmptyTest);
-    suite.add(Issue540IngressRemoteTopicShareNameEmptyTest);
 
     // Egress `local.topic_filter` — the filter the bridge matches local
     // publishes against. Checked only when the bridge starts, where a failure
@@ -830,9 +829,13 @@ fn build_bridge_config_reject_suite() -> TestSuite {
     suite.add(Issue540EgressTopicFilterInvalidTest);
     suite.add(Issue540EgressTopicFilterEmptyTest);
     suite.add(Issue540EgressTopicFilterSharePrefixTest);
+    // The other two peer-facing forms: same load-time verdict, different prefix.
+    suite.add(Issue540EgressTopicFilterLimitPrefixTest);
+    suite.add(Issue540EgressTopicFilterExclusivePrefixTest);
 
     // Positive control: legal filters (including an ingress `$share/...`, which
-    // is exactly what the peer expects) must still start.
+    // is exactly what the peer expects, and an egress `$SYS/#`, which is
+    // `$`-prefixed but local) must still start.
     suite.add(Issue540ValidFiltersStartTest);
 
     // Runtime half on the MQTT 3.1.1 path: a subscription the peer refuses must

@@ -88,7 +88,7 @@ concurrent_client_limit = 5
 connect_timeout = "20s"
 #心跳间隔
 keepalive = "60s"
-#自动重连间隔
+#自动重连间隔（同时是订阅被对端拒绝后，指数退避重试的初始间隔）
 reconnect_interval = "5s"
 #消息过期时间, 0 表示不过期
 expiry_interval = "5m"
