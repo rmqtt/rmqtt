@@ -32,7 +32,7 @@ use rmqtt::{
 use crate::bridge::{
     build_tls_connector, BridgeClient, BridgePublish, Command, CommandMailbox, OnMessageEvent,
 };
-use crate::config::{Bridge, MAX_SUBSCRIBE_ATTEMPTS, MAX_SUBSCRIBE_BACKOFF};
+use crate::config::{Bridge, INACTIVE_REMINDER_INTERVAL, MAX_SUBSCRIBE_ATTEMPTS, MAX_SUBSCRIBE_BACKOFF};
 
 enum MqttConnector {
     Tcp(v3::client::MqttConnector<String, Connector<String>>),
@@ -216,7 +216,9 @@ impl Client {
     /// (issue #540), while the old fixed five-second cadence retried it forever
     /// and hid the problem; a refusal is therefore retried on an exponentially
     /// growing backoff, at most [`MAX_SUBSCRIBE_ATTEMPTS`] times per connection,
-    /// and reported at `warn`/`error` either way. A reconnect starts over.
+    /// and reported at `warn`/`error` either way. Once given up on, the entry is
+    /// [`remind_inactive`]d about until the connection goes away. A reconnect
+    /// starts over.
     async fn subscribe(
         self,
         sink: v3::MqttSink,
@@ -235,12 +237,15 @@ impl Client {
                         return;
                     }
                     if attempt >= max_attempts {
+                        let why = format!(
+                            "the peer answered SUBACK with a failure code on all {attempt} \
+                             attempts, so nothing this entry should forward is delivered"
+                        );
                         log::error!(
                             "{client_id} entry {topic_filter:?} stays inactive until the bridge \
-                             reconnects: the peer answered SUBACK with a failure code on all \
-                             {attempt} attempts, so nothing this entry should forward is \
-                             delivered (issue #540)"
+                             reconnects: {why} (issue #540)"
                         );
+                        self.remind_inactive(sink, topic_filter, why).await;
                         return;
                     }
                     log::warn!(
@@ -256,11 +261,12 @@ impl Client {
                 }
                 Err(e) => {
                     if attempt >= max_attempts {
+                        let why = format!("{attempt} subscribe attempts failed, last error: {e}");
                         log::error!(
                             "{client_id} entry {topic_filter:?} stays inactive until the bridge \
-                             reconnects: {attempt} subscribe attempts failed, last error: {e} \
-                             (issue #540)"
+                             reconnects: {why} (issue #540)"
                         );
+                        self.remind_inactive(sink, topic_filter, why).await;
                         return;
                     }
                     log::warn!(
@@ -279,6 +285,28 @@ impl Client {
             }
             attempt += 1;
             backoff = (backoff * 2).min(MAX_SUBSCRIBE_BACKOFF);
+        }
+    }
+
+    /// After a subscription is given up on, repeats on every
+    /// [`INACTIVE_REMINDER_INTERVAL`] that the entry is still inactive, for as
+    /// long as THIS connection stays up: the one-time `error` at give-up is easy
+    /// to miss in a log that has been rolling for hours, and nothing else
+    /// reports the gap while the connection is healthy (issue #540). The
+    /// reminders end when the connection drops (`sink.is_open()`) or the bridge
+    /// closes; the reconnect then starts a fresh `subscribe`, which is also how
+    /// a since-fixed peer ACL or quota takes effect.
+    async fn remind_inactive(self, sink: v3::MqttSink, topic_filter: ByteString, why: String) {
+        loop {
+            ntex::time::sleep(INACTIVE_REMINDER_INTERVAL).await;
+            if self.is_closed() || !sink.is_open() {
+                return;
+            }
+            log::warn!(
+                "{} entry {topic_filter:?} is STILL inactive: {why} (issue #540); it is retried \
+                 when the bridge reconnects",
+                self.client_id
+            );
         }
     }
 

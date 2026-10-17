@@ -386,6 +386,10 @@ pub fn is_exclusive_subscription<T: AsRef<str>>(topic: T) -> bool {
 /// protocol-facing change of its own; until then this predicate reports what the
 /// broker does.
 ///
+/// The WHOLE string is what goes on the wire as one UTF-8 Encoded String, so the
+/// 65535-byte cap (§1.5.4) applies to it — not only to the filter behind the
+/// ShareName, which [`is_valid_topic_filter`] checks separately.
+///
 /// ```
 /// use rmqtt::topic::is_valid_subscription_filter;
 ///
@@ -394,10 +398,14 @@ pub fn is_exclusive_subscription<T: AsRef<str>>(topic: T) -> bool {
 /// assert!(is_valid_subscription_filter("$share//a/b"));
 /// assert!(!is_valid_subscription_filter("$share/g"));
 /// assert!(!is_valid_subscription_filter("$share/+/a"));
+/// assert!(!is_valid_subscription_filter(&format!("$share/{}x", "g".repeat(70_000))));
 /// ```
 #[inline]
 pub fn is_valid_subscription_filter<T: AsRef<str>>(topic: T) -> bool {
     let topic = topic.as_ref();
+    if topic.len() > u16::MAX as usize {
+        return false;
+    }
     match topic.strip_prefix(SHARED_SUBSCRIPTION_PREFIX) {
         None => is_valid_topic_filter(topic),
         Some(rest) => match rest.split_once('/') {
@@ -722,6 +730,17 @@ mod tests {
                 "`{filter}` must not be a valid filter to subscribe with"
             );
         }
+
+        // The 65535-byte cap applies to the WHOLE string, not just the filter
+        // behind the ShareName: this one carries a legal inner filter but a
+        // ShareName big enough to push the total past what the two-byte length
+        // prefix of a UTF-8 Encoded String can express (§1.5.4).
+        let over_long = format!("$share/{}x/a", "g".repeat(u16::MAX as usize));
+        assert!(!is_valid_subscription_filter(&over_long));
+        // Same total length WITHOUT the `$share/` prefix is refused by the
+        // plain-filter arm for the same reason; both arms must agree.
+        let plain_over_long = format!("{}/a", "g".repeat(u16::MAX as usize));
+        assert!(!is_valid_subscription_filter(&plain_over_long));
     }
 
     #[test]

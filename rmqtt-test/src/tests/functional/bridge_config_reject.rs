@@ -41,6 +41,7 @@
 //! | `issue540_egress_topic_filter_share_prefix`         | egress `local.topic_filter` | `$share/g/eg/#` | refuse to start (`$share` is peer-facing-only) |
 //! | `issue540_egress_topic_filter_limit_prefix`         | egress `local.topic_filter` | `$limit/10/eg/#` | refuse to start (`$limit/<n>/` is peer-facing-only) |
 //! | `issue540_egress_topic_filter_exclusive_prefix`     | egress `local.topic_filter` | `$exclusive/eg/#` | refuse to start (`$exclusive/` is peer-facing-only) |
+//! | `issue540_ingress_remote_topic_filter_overlong`     | ingress `remote.topic` | `$share/<65535 'g's>x/a` (65545 bytes) | refuse to start (the 65535-byte cap applies to the WHOLE string, §1.5.4) |
 //! | `issue540_valid_filters_start`                      | — (positive control)  | all filters legal, incl. ingress `$share/g/up/a/#` and egress `$SYS/#` | start and become healthy |
 //! | `issue540_ingress_v311_subscribe_refused`           | runtime (MQTT 3.1.1)  | peer answers SUBACK `0x80` | refusal reported at WARN/ERROR with the reason, retries bounded |
 //!
@@ -67,7 +68,7 @@
 //!     --suites bridge_config_reject --workers 1
 //! ```
 //!
-//! Ports owned by this suite: MQTT 1925-1932 / gRPC 5405-5412 / HTTP 6085-6092,
+//! Ports owned by this suite: MQTT 1925-1934 / gRPC 5405-5414 / HTTP 6085-6094,
 //! plus 2925 for the MQTT 3.1.1 mock. The harness's own broker is untouched.
 
 use std::path::PathBuf;
@@ -295,6 +296,9 @@ struct RejectSpec {
 fn reject_specs() -> Vec<RejectSpec> {
     let legal_ingress = ingress_config("v5", INGRESS_PEER_PORT, &remote_topic("up/plain/#"));
     let legal_egress = egress_config(&local_topic_filter("eg/plain/#"));
+    // Inner filter (`x/a`) and group name are both legal; it is the TOTAL length
+    // that crosses the cap: 7 (`$share/`) + 65535 + 3 (`x/a`) = 65545 bytes.
+    let overlong = format!("$share/{}x/a", "g".repeat(u16::MAX as usize));
     vec![
         RejectSpec {
             case: "issue540_ingress_remote_topic_filter_invalid",
@@ -391,6 +395,27 @@ fn reject_specs() -> Vec<RejectSpec> {
                 "bridges[0].entries[0].local.topic_filter".to_string(),
                 "exclusive-subscription".to_string(),
                 "$exclusive/eg/#".to_string(),
+            ],
+        },
+        RejectSpec {
+            case: "issue540_ingress_remote_topic_filter_overlong",
+            index: 7,
+            // The 65535-byte cap of a UTF-8 Encoded String (§1.5.4) applies to
+            // the WHOLE filter string, not only to the filter behind the
+            // ShareName: an early check that measured just the inner filter
+            // would let this through, and the two-byte length prefix the SUBSCRIBE
+            // packet relies on cannot express the result.
+            ingress: ingress_config("v5", INGRESS_PEER_PORT, &remote_topic(&overlong)),
+            egress: legal_egress.clone(),
+            injected: "remote.topic = \"$share/<65535 'g's>x/a\"  (65545 bytes: over the \
+                       65535-byte UTF-8 Encoded String cap, MQTT 5.0 §1.5.4)"
+                .to_string(),
+            // The value itself is ~64 KB and the message embeds it; assert on the
+            // stable parts of the wording instead.
+            expect: vec![
+                "bridges[0].entries[0].remote.topic".to_string(),
+                "topic filter".to_string(),
+                "65535".to_string(),
             ],
         },
     ]
@@ -934,6 +959,7 @@ reject_case!(Issue540EgressTopicFilterEmptyTest, "issue540_egress_topic_filter_e
 reject_case!(Issue540EgressTopicFilterSharePrefixTest, "issue540_egress_topic_filter_share_prefix");
 reject_case!(Issue540EgressTopicFilterLimitPrefixTest, "issue540_egress_topic_filter_limit_prefix");
 reject_case!(Issue540EgressTopicFilterExclusivePrefixTest, "issue540_egress_topic_filter_exclusive_prefix");
+reject_case!(Issue540IngressRemoteTopicFilterOverlongTest, "issue540_ingress_remote_topic_filter_overlong");
 
 /// Positive control: legal filters (including an ingress `$share/...`) must
 /// start.

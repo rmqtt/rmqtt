@@ -47,6 +47,14 @@ pub(crate) const MAX_SUBSCRIBE_ATTEMPTS: u32 = 8;
 /// default `reconnect_interval` (5 s) the eight attempts span about ten minutes.
 pub(crate) const MAX_SUBSCRIBE_BACKOFF: Duration = Duration::from_secs(300);
 
+/// How often to repeat, at `warn`, that an entry is still inactive after its
+/// subscription was given up on, for as long as the connection stays up. The
+/// one-time `error` at give-up is easy to miss in a log that has been rolling
+/// for hours, and the peer's ACL or quota may long since have been fixed: the
+/// entry comes back only when the bridge reconnects, so the reminder names
+/// that, too.
+pub(crate) const INACTIVE_REMINDER_INTERVAL: Duration = Duration::from_secs(300);
+
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Bridge {
     #[serde(default)]

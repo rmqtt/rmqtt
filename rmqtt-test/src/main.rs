@@ -288,8 +288,8 @@ fn build_suites(opt: &Opt) -> Vec<TestSuite> {
     // Bridge configuration rejection (issue #540): every case starts its OWN
     // `rmqttd` with a generated configuration, because "the broker must refuse
     // to serve with this config" is not a verdict the harness's managed broker
-    // can express. It owns ports of its own (MQTT 1925-1932 / gRPC 5405-5412 /
-    // HTTP 6085-6092 + 2925 for an MQTT 3.1.1 mock) and is therefore never part
+    // can express. It owns ports of its own (MQTT 1925-1934 / gRPC 5405-5414 /
+    // HTTP 6085-6094 + 2925 for an MQTT 3.1.1 mock) and is therefore never part
     // of the default full run — request it with `--suites bridge_config_reject`.
     if should_run("bridge_config_reject", opt) {
         suites.push(build_bridge_config_reject_suite());
@@ -822,6 +822,9 @@ fn build_bridge_config_reject_suite() -> TestSuite {
     // peer. Never validated today, so an entry can be born dead.
     suite.add(Issue540IngressRemoteTopicFilterInvalidTest);
     suite.add(Issue540IngressRemoteTopicEmptyTest);
+    // The 65535-byte cap applies to the WHOLE filter string (§1.5.4), not just
+    // to the filter behind the ShareName.
+    suite.add(Issue540IngressRemoteTopicFilterOverlongTest);
 
     // Egress `local.topic_filter` — the filter the bridge matches local
     // publishes against. Checked only when the bridge starts, where a failure
