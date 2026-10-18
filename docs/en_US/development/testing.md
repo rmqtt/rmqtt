@@ -137,19 +137,25 @@ cargo build -p rmqtt-test --release
 | Suite | Cases | What It Tests |
 |-------|-------|---------------|
 | `functional_v3` | 51 | MQTT 3.1 spec conformance: connect (wrong name/level/reserved flag/empty client id/long id), QoS 0/1/2 pub/sub, QoS 2 dedup & PUBREL resend, retained messages, last will, keep alive, session persistence, wildcards (incl. `$SYS`), boundary payloads, protocol errors |
-| `functional_v311` | 113 | MQTT 3.1.1 spec conformance: connect (incl. second-CONNECT rejection [MQTT-3.1.0-2]), QoS 0/1/2, retained edge cases, will QoS2, keep-alive 1.5× timeout, session present/resume, wildcard matching, shared subscriptions, non-leading `$` topic levels, protocol errors, flapping protection (the 0x05 fallback) |
-| `functional_v5` | 111 | MQTT 5.0 spec conformance: CONNACK capability advertisement, session expiry (incl. DISCONNECT SEI=0 [MQTT-3.14.2-2]), topic alias (incl. unknown alias / alias above the advertised maximum → 0x94), flow control, max packet size, subscription identifiers, retain handling, will delay, enhanced-auth rejection (0x8C), protocol errors, flapping protection (0x8A bans, HTTP unban, and refused CONNECTs still reaching the observers) |
+| `functional_v311` | 132 | MQTT 3.1.1 spec conformance: connect (incl. second-CONNECT rejection [MQTT-3.1.0-2]), QoS 0/1/2, retained edge cases, will QoS2, keep-alive 1.5× timeout, session present/resume, wildcard matching, shared subscriptions (incl. the sticky / hash_clientid / hash_topic dispatch strategies), non-leading `$` topic levels, protocol errors, flapping protection (the 0x05 fallback), `$SYS` statistics and client events, offline-queue overflow policy (drop-oldest / drop-newest per QoS), auto-subscription, topic rewrite, P2P messaging, bridge-origin detection |
+| `functional_v5` | 120 | MQTT 5.0 spec conformance: CONNACK capability advertisement, session expiry (incl. DISCONNECT SEI=0 [MQTT-3.14.2-2]), topic alias (incl. unknown alias / alias above the advertised maximum → 0x94), flow control, max packet size, subscription identifiers, retain handling, will delay, enhanced-auth rejection (0x8C), protocol errors, flapping protection (0x8A bans, HTTP unban, and refused CONNECTs still reaching the observers), message-storage replay and expiry, listener quotas and the `$limit`/`$exclusive` subscription forms |
 | `stress` | 6 | Connection load (100 clients), publish load (1000 msgs), fan-out (1→N), mixed QoS 0/1/2, mass subscription, retain flood |
 | `chaos` | 19 | Broker restart (single node, cluster broadcast/raft, whole-cluster), restored-session routing, connection churn, reconnect storm, QoS 1 reliability, slow consumer, session-storage startup load and offline-flood boundedness |
 
-> Of the 111 `functional_v5` cases, `will_retain_rejected_when_retain_unavailable_v5`
-> (requires the retainer plugin to be disabled), `qos2_pubrel_resume_collision`
-> (requires message-storage) and the three `flapping_*` cases (require the flapping
-> plugin and a broker listening on its own MQTT/HTTP ports) are automatically
-> split into the `functional_v5@retain-disabled`, `functional_v5@pubrel-collision`,
-> `functional_v5@flapping` and `functional_v5@flapping-order` sub-suites; the
-> remaining 106 run in the default-config group `functional_v5`. Config switches
-> happen only at suite boundaries. The third `flapping_*` case,
+> Of the 120 `functional_v5` cases, 107 run in the default-config group
+> `functional_v5`; the other 13 need a different broker config and are split into
+> eight sub-suites at build time: `functional_v5@retain-disabled` (1, retainer
+> plugin not loaded → Retain Available = 0), `functional_v5@pubrel-collision`
+> (1, message-storage loaded to reproduce a PUBREL collision),
+> `functional_v5@issue532-ramp` (1) and `functional_v5@issue532-ramp-tls` (1)
+> (issue #532 concurrency reproductions, each on its own ports),
+> `functional_v5@flapping` (2) and `functional_v5@flapping-order` (1) (flapping
+> plugin plus its own MQTT/HTTP ports; the latter also runs alongside the counter
+> and takes a broker process of its own because `client_connect` is a
+> node-level cumulative counter that has to be asserted by exact delta),
+> `functional_v5@plugin-msg-store` (2) and `functional_v5@plugin-limits` (4)
+> (storage, quota and `$limit` thresholds dialled down to an observable size).
+> Config switches happen only at suite boundaries. The third `flapping_*` case,
 > `flapping_observer_order_v5`, also needs `rmqtt-counter` running and a broker
 > process of its own: `client_connect` is a node-wide counter, so an exact
 > "CONNECTs sent == delta" assertion cannot be made on a shared broker.

@@ -1,0 +1,14 @@
+## Publishes on `rw/pub/<rest>` are rewritten to `rw/out/<rest>`, and
+## subscriptions to `rw/sub/old/<rest>` are rewritten to `rw/sub/new/<rest>`.
+## Both rules capture the tail with a regex: without `$1` the destination is a
+## literal, so every subscription would collapse onto the same filter and the
+## case could not tell two subscriptions apart.
+##
+## The subscribe rule doubles as the `$share/<group>/` check: the hook receives
+## the filter *after* the group prefix was stripped (`Session::_subscribe` ->
+## `hook.client_subscribe(&sub)`), so only `rw/sub/old/<rest>` is rewritten and
+## the group survives.
+rules = [
+    { action = "publish", source_topic_filter = "rw/pub/#", dest_topic = "rw/out/$1", regex = "^rw/pub/(.+)$" },
+    { action = "subscribe", source_topic_filter = "rw/sub/old/#", dest_topic = "rw/sub/new/$1", regex = "^rw/sub/old/(.+)$" },
+]

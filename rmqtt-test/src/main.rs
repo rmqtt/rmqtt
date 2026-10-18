@@ -491,6 +491,17 @@ fn build_functional_v311_suite() -> TestSuite {
     use tests::functional::wildcard::*;
     use tests::functional::wildcard_reject::*;
     use tests::functional::will_acl_v311::*;
+    // Plugin-feature coverage (batch A/B): each module owns a self-contained
+    // fixture under `configs/plugin-*` and declares it through
+    // `TestCase::broker_config()` / `broker_addr()`, so the scheduler switches
+    // the broker at the sub-suite boundary.
+    use tests::functional::auto_subscription::*;
+    use tests::functional::bridge_origin::*;
+    use tests::functional::p2p_messaging::*;
+    use tests::functional::queue_limits::*;
+    use tests::functional::shared_strategies::*;
+    use tests::functional::sys_topic::*;
+    use tests::functional::topic_rewrite::*;
 
     let mut suite = TestSuite::new("functional_v311");
     suite.add(ConnectV311Test);
@@ -686,6 +697,38 @@ fn build_functional_v311_suite() -> TestSuite {
     suite.add(LastWillV311InvalidUtf8PayloadTest);
     // G32 persistent session survives TCP FIN / RST disconnects
     suite.add(SessionV311TcpFinRstTest);
+    // --- Plugin features that had no coverage at all (batch A/B) ---
+    // $SYS system topics (rmqtt-sys-topic): periodic stats/metrics plus the
+    // per-session / per-client event topics. Fixture: configs/plugin-sys-topic/.
+    suite.add(PluginSysTopicStatsMetricsTest);
+    suite.add(PluginSysTopicClientEventsTest);
+    // Offline queue cap (max_mqueue_len) and its per-QoS overflow policy:
+    // QoS 1 drops the oldest queued message, QoS 0 drops the incoming one.
+    // Fixture: configs/plugin-queue-limits/.
+    suite.add(PluginQueueQos1OverflowDropsOldestTest);
+    suite.add(PluginQueueQos0OverflowDropsNewestTest);
+    // Shared-subscription strategies: round_robin exactly-once on the default
+    // config plus sticky / hash_clientid / hash_topic on their own fixtures.
+    suite.add(PluginSharedRoundRobinExactlyOnceTest);
+    suite.add(PluginSharedStickyAffinityTest);
+    suite.add(PluginSharedHashClientIdTest);
+    suite.add(PluginSharedHashTopicTest);
+    // Auto subscription (${clientid} / ${username}). Fixture:
+    // configs/plugin-auto-sub/.
+    suite.add(PluginAutoSubscriptionClientIdTest);
+    suite.add(PluginAutoSubscriptionUsernameTest);
+    // Topic rewriting (publish / subscribe actions, $share prefix rule).
+    // Fixture: configs/plugin-topic-rewrite/.
+    suite.add(PluginTopicRewritePublishTest);
+    suite.add(PluginTopicRewriteSubscribeTest);
+    // Point-to-point messaging (prefix / suffix forms). Fixture:
+    // configs/plugin-p2p/.
+    suite.add(PluginP2pPrefixTest);
+    suite.add(PluginP2pSuffixTest);
+    // Bridge-origin marker detection (log-based: extra_attrs is not exposed).
+    // Fixture: configs/plugin-bridge-origin/.
+    suite.add(PluginBridgeOriginDetectsMarkersTest);
+    suite.add(PluginBridgeOriginIgnoresPlainClientIdTest);
     suite
 }
 
@@ -954,6 +997,11 @@ fn build_functional_v5_suite() -> TestSuite {
     use tests::functional::will_disconnect_reason_v5::*;
     use tests::functional::will_properties_v5::*;
 
+    // Plugin-feature coverage (batch A/B), see the matching `configs/plugin-*`
+    // fixtures; both modules declare their own broker_config/broker_addr.
+    use tests::functional::listener_limits::*;
+    use tests::functional::message_storage::*;
+
     let mut suite = TestSuite::new("functional_v5");
     suite.add(ConnectV5Test);
     suite.add(ConnectV5ReasonCodeTest);
@@ -1167,6 +1215,19 @@ fn build_functional_v5_suite() -> TestSuite {
     // be read by delta on a shared one. Fixture: configs/flapping-order/ (own
     // ports); see tests/functional/flapping_order_v5.rs.
     suite.add(FlappingObserverOrderV5Test);
+    // --- Plugin / listener features that had no coverage at all (batch A/B) ---
+    // Message storage (rmqtt-message-storage): an unexpired message is replayed
+    // to a subscriber that subscribes later, an expired one is not. Fixture:
+    // configs/plugin-msg-store/.
+    suite.add(PluginMsgStoreReplaysToLaterSubscriberTest);
+    suite.add(PluginMsgStoreDropsExpiredMessageTest);
+    // Listener quotas + limited subscriptions (max_subscriptions /
+    // max_topic_levels / max_qos_allowed / `$limit/<n>/`, `$exclusive/`).
+    // Fixture: configs/plugin-limits/.
+    suite.add(PluginLimitMaxSubscriptionsTest);
+    suite.add(PluginLimitMaxTopicLevelsTest);
+    suite.add(PluginLimitMaxQosAllowedTest);
+    suite.add(PluginLimitSubscriptionFormsTest);
     suite
 }
 

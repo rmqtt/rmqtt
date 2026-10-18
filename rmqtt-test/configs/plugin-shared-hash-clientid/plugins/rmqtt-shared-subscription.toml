@@ -1,0 +1,2 @@
+## `hash_clientid`: subscriber chosen by hashing the *publisher* client id.
+strategy = "hash_clientid"

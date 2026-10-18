@@ -1,0 +1,3 @@
+## Default strategy; the rewrite case only needs the plugin to report
+## `is_supported() == true` and to pick a single member of the group.
+strategy = "round_robin"
