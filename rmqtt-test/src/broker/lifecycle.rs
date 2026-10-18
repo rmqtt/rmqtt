@@ -4,6 +4,7 @@
 //! and provides health checking. All operations are synchronous
 //! to avoid nested runtime issues when called from within tests.
 
+use std::io::{BufRead, BufReader, Read};
 use std::path::PathBuf;
 use std::process::Child;
 use std::time::Duration;
@@ -11,6 +12,34 @@ use std::time::Duration;
 use tracing::{info, warn};
 
 use super::healthcheck::{health_check_sync, port_free_sync, wait_port_free_sync};
+
+/// Forward a piped child stream to `tracing::debug!` until EOF.
+///
+/// The broker's stdout/stderr are piped for capture, and a pipe only buffers
+/// `64 KiB` (Windows: named-pipe quota; POSIX: `PIPE_BUF` is smaller but the
+/// kernel buffer is the same order of magnitude). A broker logging to the
+/// console exceeds that within a single sub-suite — measured **79 KB of
+/// `info`-level output for the four `plugin-limit` cases** — and once the
+/// buffer is full the broker's *logging call blocks*, which stalls the very
+/// session task that owes the client a SUBACK. The observable symptom is a
+/// 15 s `subscribe timeout` that only shows up when enough cases run before
+/// the affected one (which is why `plugin_limit_max_subscriptions` passed
+/// alone and timed out as the last case of its sub-suite).
+///
+/// Draining on a dedicated thread keeps the pipe empty and still surfaces the
+/// output through `--verbose` / `test-trace.log`. Fixtures that need to assert
+/// on broker output keep using `log.to = "file"`.
+fn spawn_output_drain<R: Read + Send + 'static>(stream: R, stream_name: &'static str) {
+    std::thread::spawn(move || {
+        for line in BufReader::new(stream).lines() {
+            match line {
+                Ok(line) => tracing::debug!(target: "broker_output", "{stream_name}: {line}"),
+                // Losing the broker is normal here: the pipe closes on exit.
+                Err(_) => break,
+            }
+        }
+    });
+}
 
 /// Default broker TCP address
 const DEFAULT_BROKER_ADDR: &str = "127.0.0.1:1883";
@@ -97,6 +126,15 @@ impl BrokerProcess {
 
         let mut cmd = std::process::Command::new(&self.binary_path);
         cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+        // The broker resolves its log level as
+        // `EnvFilter::try_from_default_env().unwrap_or_else(|| EnvFilter::new(cfg.level))`
+        // (`rmqtt-bin/src/logger.rs`), i.e. an ambient `RUST_LOG` silently wins
+        // over the fixture's `log.level`. That makes any log-based assertion
+        // depend on the developer's shell: a fixture asking for `debug` still
+        // logs at `info` when `RUST_LOG=rmqtt=info` is exported. Drop the
+        // variable for the child only, so the config under test is
+        // authoritative (and cannot make the piped stderr grow unbounded).
+        cmd.env_remove("RUST_LOG");
 
         if let Some(ref config) = self.config_path {
             // rmqttd accepts `-f`/`--config` (config filename); `-c` is rejected.
@@ -105,6 +143,20 @@ impl BrokerProcess {
 
         let child = cmd.spawn()?;
         self.child = Some(child);
+
+        // Keep both pipes drained from here on — see `spawn_output_drain` for
+        // why an unread pipe turns into a stalled broker rather than a full
+        // disk. `take()` detaches them from the child handle so the drain
+        // threads own the read ends and exit on EOF when the broker is
+        // stopped or killed.
+        if let Some(child) = self.child.as_mut() {
+            if let Some(stdout) = child.stdout.take() {
+                spawn_output_drain(stdout, "stdout");
+            }
+            if let Some(stderr) = child.stderr.take() {
+                spawn_output_drain(stderr, "stderr");
+            }
+        }
 
         // Wait for broker to become healthy. The timeout is generous (60s):
         // sled-backed configs (session-sled / *-stress) can take a while to

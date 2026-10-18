@@ -77,17 +77,18 @@ The `rmqtt-test` crate provides a custom test harness with additional test suite
 | Suite | Cases | Description |
 |-------|-------|-------------|
 | `functional_v3` | 51 | MQTT 3.1 spec conformance (connect edge cases, QoS 0/1/2, QoS 2 dedup/PUBREL resend, retained, will, keep alive, session, wildcards incl. `$SYS`, boundary, protocol errors) |
-| `functional_v311` | 113 | MQTT 3.1.1 spec conformance (incl. second-CONNECT rejection, retained edge cases, session present, non-leading `$` topic levels, protocol errors, flapping protection) |
-| `functional_v5` | 111 | MQTT 5.0 spec conformance (CONNACK capabilities, session expiry incl. DISCONNECT SEI=0, topic alias, flow control, retain handling, protocol errors, flapping protection and HTTP unban, refused CONNECTs still reaching the observers) |
+| `functional_v311` | 132 | MQTT 3.1.1 spec conformance (incl. second-CONNECT rejection, retained edge cases, session present, non-leading `$` topic levels, protocol errors, flapping protection, `$SYS` statistics and client events, offline-queue overflow policy, the three shared-subscription dispatch strategies, auto-subscription, topic rewrite, P2P, bridge-origin detection) |
+| `functional_v5` | 120 | MQTT 5.0 spec conformance (CONNACK capabilities, session expiry incl. DISCONNECT SEI=0, topic alias, flow control, retain handling, protocol errors, flapping protection and HTTP unban, refused CONNECTs still reaching the observers, message-storage replay and expiry, listener quotas and `$limit`/`$exclusive`) |
 | `stress` | 6 | Connection load (100 clients), publish load (1000 msgs), fan-out (1→N), mixed QoS, mass subscription, retain flood |
 | `chaos` | 19 | Broker restart (single node / cluster broadcast & raft / whole cluster), restored-session routing, connection storms, reconnect, QoS 1 reliability, slow consumer, session-storage startup load |
 
-> Of the 111 `functional_v5` cases, `will_retain_rejected_when_retain_unavailable_v5`,
-> `qos2_pubrel_resume_collision` and the three `flapping_*` cases need different
-> broker configs and are automatically split into the
+> Of the 120 `functional_v5` cases, 107 run in the default-config group; the other
+> 13 need different broker configs and are automatically split into the
 > `functional_v5@retain-disabled` / `functional_v5@pubrel-collision` /
-> `functional_v5@flapping` / `functional_v5@flapping-order` sub-suites. The default
-> broker config is the self-contained `rmqtt-test/configs/default/rmqtt.toml`;
+> `functional_v5@issue532-ramp` / `functional_v5@issue532-ramp-tls` /
+> `functional_v5@flapping` / `functional_v5@flapping-order` /
+> `functional_v5@plugin-msg-store` / `functional_v5@plugin-limits` sub-suites. The
+> default broker config is the self-contained `rmqtt-test/configs/default/rmqtt.toml`;
 > config switches happen only at suite boundaries.
 
 ```bash

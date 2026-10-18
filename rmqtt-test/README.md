@@ -158,7 +158,33 @@ configs/
   flapping-order/            # ClientConnect observer order: flapping + counter, so a
                              # refused CONNECT can be counted (1903 MQTT / 5380 gRPC /
                              # 6067 http-api; own broker process, read by delta)
+  plugin-sys-topic/          # $SYS stats/metrics + per-client event topics (1930 / 5400)
+  plugin-msg-store/          # message-storage replay / expiry, no retainer (1931 / 5401)
+  plugin-limits/             # listener quotas + $limit/$exclusive forms (1932 / 5402)
+  plugin-queue-limits/       # max_mqueue_len overflow policy per QoS (1933 / 5403)
+  plugin-shared-sticky/      # shared-subscription strategy = sticky (1934 / 5404)
+  plugin-shared-hash-clientid/  # strategy = hash_clientid (1935 / 5405)
+  plugin-shared-hash-topic/  # strategy = hash_topic (1936 / 5406)
+  plugin-auto-sub/           # auto-subscription ${clientid} / ${username} (1937 / 5407)
+  plugin-topic-rewrite/      # topic-rewrite publish + subscribe rules (1938 / 5408)
+  plugin-p2p/                # p2p-messaging prefix and suffix modes (1939 / 5409)
+  plugin-bridge-origin/      # bridge-origin marker detection, file log (1940 / 5410)
 ```
+
+The `plugin-*` fixtures are all harness-managed: their cases declare
+`broker_config()` **and** `broker_addr()`, and `tests::fixture_config()` copies
+each fixture into `target/test-fixtures/<name>/` with `@@PLUGINS_DIR@@` /
+`@@LOG_DIR@@` substituted, so the copy is independent of the process working
+directory (and of the repository files themselves).
+
+The harness drains the broker's `stdout`/`stderr` pipes into `tracing::debug!`
+(`broker/lifecycle.rs`), so `--verbose` / `test-trace.log` carry the broker's
+console output. A pipe only buffers 64 KiB and a console-logging broker exceeds
+that within one sub-suite, which blocks the broker's logging call — and with it
+the session task that owes the client a SUBACK; that was a real 15 s
+`subscribe timeout` before the drain was added. A case that has to *assert* on
+broker output should still make its fixture log to a file (`log.to = "file"` +
+`log.file`), because the pipe is not retained.
 
 **Per-test config switching**: a test case can declare its required config via
 `TestCase::broker_config()` (e.g. `WillRetainRejectedWhenRetainUnavailableV5Test`
@@ -173,8 +199,9 @@ Port constraint: a config participating in auto-switching must listen on the
 harness `--addr` (default `127.0.0.1:1883`), because that is the address the
 health check probes — **unless** its cases also declare
 `TestCase::broker_addr()`, which retargets the probe at that address for as
-long as the sub-suite runs. `configs/flapping` (`127.0.0.1:1902`) and
-`configs/flapping-order` (`127.0.0.1:1903`) are the two fixtures that do.
+long as the sub-suite runs. `configs/flapping` (`127.0.0.1:1902`),
+`configs/flapping-order` (`127.0.0.1:1903`) and the eleven `configs/plugin-*`
+fixtures (MQTT `1930`–`1940`, gRPC `5400`–`5410`) do exactly that.
 
 ## 📋 Test Suites
 
@@ -199,7 +226,7 @@ and boundary scenarios:
 > The v3.1 client hand-builds the MQIsdp CONNECT bytes (`build_connect_bytes`)
 > because the codec hard-codes protocol level 4 (correct for 3.1.1/5.0).
 
-### `functional_v311` (113 cases) — MQTT 3.1.1
+### `functional_v311` (132 cases) — MQTT 3.1.1
 
 | Category | Cases |
 |----------|-------|
@@ -219,8 +246,15 @@ and boundary scenarios:
 | Issue #501 auth × ACL fallthrough (self-managed brokers) | `auth_http_ignore_allow_all_acl_v311` (auth service replies 404 → auth 'ignore'; acl `["allow", "all"]` promotes it → CONNACK 0x00 fail-open reproduction, port 1896) / `auth_http_ignore_deny_all_acl_v311` (acl `["deny", "all"]` backstop → CONNACK 0x05 fail-closed, port 1900) |
 | Web-hook on a refused CONNECT (self-managed broker) | `webhook_connack_refused_v311` — an anonymous CONNECT is refused with 0x05 **and** the `client_connack` event carrying that reason must reach an in-test mock web-hook receiver (port 1901, ephemeral receiver); the two halves are asserted separately, so the case was red before the hook was raised on refusals |
 | Flapping protection (harness broker) | `flapping_ban_v311` — CONNECTs up to the 4th are accepted, the 4th is refused, and MQTT 3.1.1 has no ban code so the fallback is pinned to **0x05** (deliberately not `0x03`, which invites an immediate reconnect); after `ban_time` lapses a single CONNECT goes through |
+| `$SYS` topic (`plugin-sys-topic`) | `plugin_sys_topic_stats_and_metrics` — `$SYS/brokers/1/stats` carries `sessions.count` / `connections.count` and `$SYS/brokers/1/metrics` a `client.connect` counter, proving the periodic publisher ran at the `publish_interval` floor (1s) with `publish_qos = 1`; `plugin_sys_topic_client_events` — after subscribing to `$SYS/brokers/1/session/+/created` and `$SYS/brokers/1/clients/+/connected` a *later* CONNECT produces both notices with the new `clientid` inside the JSON body (neither topic is retained, so subscribing first is itself part of the contract) |
+| Offline-queue cap (`plugin-queue-limits`) | `plugin_queue_qos1_overflow_drops_oldest` — `max_mqueue_len = 3`, 6 offline QoS 1 publishes, the resumed session owes exactly `m3,m4,m5` (`Policy::Early`); `plugin_queue_qos0_overflow_drops_newest` — the same run at QoS 0 owes `m0,m1,m2`, i.e. the incoming message is dropped (`Policy::Current`); both policies come from `Session::deliver_queue_channel` |
+| Shared-subscription strategies | `plugin_shared_round_robin_exactly_once` (default config) — 3 members × 12 publishes: every payload delivered exactly once, no duplicate and no loss; `plugin_shared_sticky_keeps_publisher_affinity` (`plugin-shared-sticky`) — a batch goes wholly to one member and stays there after a third member joins; `plugin_shared_hash_clientid_pins_publisher` (`plugin-shared-hash-clientid`) — two publishers each pinned to one member; `plugin_shared_hash_topic_pins_topic` (`plugin-shared-hash-topic`) — `sh/ht/one` and `sh/ht/two` each pinned to a single member |
+| Auto-subscription (`plugin-auto-sub`) | `plugin_auto_sub_clientid_placeholder` — the session is subscribed to `as/${clientid}/#` at CONNECT without any SUBSCRIBE, and a message for a *different* clientid must not arrive; `plugin_auto_sub_username_placeholder` — the same for `asu/${username}/#`, keyed by the CONNECT username |
+| Topic rewrite (`plugin-topic-rewrite`) | `plugin_topic_rewrite_publish_action` — a PUBLISH to `rw/pub/a/b` reaches subscribers as `rw/out/a/b` and no longer routes on the original topic; `plugin_topic_rewrite_subscribe_action` — `rw/sub/old/y` and its `$share/g/rw/sub/old/y` form are both rewritten to `rw/sub/new/y` (the hook sees the filter with `$share/<group>/` already stripped) |
+| P2P messaging (`plugin-p2p`) | `plugin_p2p_prefix_routes_to_client` — `p2p/{clientid}/sensor/temp` is delivered to that client as `sensor/temp` while a bystander subscribed to `sensor/temp` is unaffected; `plugin_p2p_suffix_routes_to_client` — the `sensor/temp/p2p/{clientid}` suffix form |
+| Bridge origin (`plugin-bridge-origin`) | `plugin_bridge_origin_detects_markers` — the ingress/egress client-id markers are classified (the `BridgeOrigin` lands in `session.extra_attrs`, observable only through the debug log, hence `log.to = "file"` + `log.level = "debug"`); `plugin_bridge_origin_ignores_plain_clientid` — a marker-less client id must **not** be classified, asserted on the plugin's own line so the packet log mentioning the id cannot satisfy it |
 
-### `functional_v5` (111 cases) — MQTT 5.0
+### `functional_v5` (120 cases) — MQTT 5.0
 
 | Category | Cases |
 |----------|-------|
@@ -252,6 +286,8 @@ and boundary scenarios:
 | Flapping protection (the `flapping` config) | `flapping_ban_v5` — the first 3 CONNECTs are all answered 0x00; from the 4th on the connection is refused with **0x8A** (Banned) and `$SYS/brokers/{node}/flapping/banned` carries a notice with `"dimension":"clientid"` and `"count":4`; once `ban_time` lapses a single CONNECT goes through (which proves the offending window was discarded, i.e. no "release then instant re-ban") |
 | Flapping protection (the `flapping` config) | `flapping_api_unban_v5` — `GET /api/v1/flapping/banned` lists the ban and reports `"available":true` (`GET /api/v1/features` carries the same state as `"flapping":true`) → `DELETE .../flapping/banned?dimension=clientid&key=…` answers `"unbanned":true` → the client connects at once → the `$SYS` `unbanned` notice carries `"reason":"manual"` → a second DELETE answers 404 |
 | Flapping observers (the `flapping-order` config) | `flapping_observer_order_v5` — 4 CONNECTs (`max_count`) are sent and the 4th is refused with 0x8A; `GET /api/v1/metrics/1` must show `client_connect` moving by exactly 4, refused one included. A refusal returns `proceed = false` and truncates the `ClientConnect` chain, so the gate has to sit below the `Priority::MAX` observers (`rmqtt-counter`, `rmqtt-web-hook`) — the case fails if it runs first and the counter never sees the refused CONNECT |
+| Message storage (the `plugin-msg-store` config) | `plugin_msg_store_replays_to_later_subscriber` — a message published while **nobody** was subscribed is replayed when a client subscribes afterwards (`storage.type = "ram"`, no retainer in the fixture), and the replayed copy carries `message_expiry_interval <= 60`; `plugin_msg_store_drops_expired_message` — a message with `Message Expiry Interval = 1s` is gone after 2.5s, followed by a positive-control publish that proves the subscription was live all along |
+| Listener quotas and `$limit`/`$exclusive` (the `plugin-limits` config) | `plugin_limit_max_subscriptions` — the 3rd filter of one session is refused in the SUBACK and never matches, while a granted filter still delivers; `plugin_limit_max_topic_levels` — a 4-level filter is refused, a 3-level one granted; `plugin_limit_max_qos_allowed` — a QoS 2 request is granted as **QoS 1** (SUBACK 0x01) and delivered at QoS 1; `plugin_limit_subscription_forms` — `$limit/1/lk/x` and `$exclusive/lk/y` each admit exactly one subscriber (the second is refused) and both prefixes are stripped, so the plain topic is what gets published. Refusals are asserted as "not granted" plus "no routing effect", because `Session::subscribes_v5` currently collapses every per-filter error to `UnspecifiedError` (0x80) rather than `QuotaExceeded` (0x97) |
 
 > **Expected-fail cases (🐞)**: they execute fully but assert behaviors the
 > broker does not implement yet (registered conformance gaps). A failure is
@@ -260,15 +296,16 @@ and boundary scenarios:
 > be promoted to a normal assertion. See
 > `designs/mqtt-5.0-standalone-test-gap-analysis.md`.
 
-> `functional_v5` totals 111 cases: the default-config group runs 106 of them;
-> `v5_will_retain_rejected_when_retain_unavailable`, `qos2_pubrel_resume_collision`
-> and the three `flapping_*` cases require different broker configs and are
-> automatically split into the `functional_v5@retain-disabled`,
-> `functional_v5@pubrel-collision`, `functional_v5@flapping` and
-> `functional_v5@flapping-order` sub-suites at build time (see the "Broker
-> Configs" section above). A full `--suites functional_v5 --workers 1` run
-> reports `Total: 111 | Passed: 105 | Failed: 0 | Skipped: 1 | ExpectedFail: 3 |
-> Info: 2` — no bare failures left:
+> `functional_v5` totals 120 cases: the default-config group runs 107 of them and
+> the other 13 need a different broker config, so they are split into eight
+> sub-suites at build time (see the "Broker Configs" section above):
+> `functional_v5@retain-disabled` (1), `functional_v5@pubrel-collision` (1),
+> `functional_v5@issue532-ramp` (1), `functional_v5@issue532-ramp-tls` (1),
+> `functional_v5@flapping` (2), `functional_v5@flapping-order` (1),
+> `functional_v5@plugin-msg-store` (2) and `functional_v5@plugin-limits` (4).
+> A full `--suites functional_v5 --workers 1` run reports
+> `Total: 120 | Passed: 114 | Failed: 0 | Skipped: 1 | ExpectedFail: 3 | Info: 2`
+> — no bare failures left:
 > `topic_alias_v5_over_max`, the last one, flipped to PASS once the Topic Alias
 > Maximum the Server advertises started being enforced (see below).
 

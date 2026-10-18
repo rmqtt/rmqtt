@@ -1,0 +1,6 @@
+## rmqtt-sys-topic: publish $SYS/brokers/1/{stats,metrics} every
+## second. The plugin clamps the interval to a 1s minimum, so 1s is the
+## fastest the stats/metrics cadence can be observed.
+publish_qos = 1
+publish_interval = "1s"
+message_expiry_interval = "5m"

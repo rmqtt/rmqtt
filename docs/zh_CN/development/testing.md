@@ -104,19 +104,21 @@ cargo build -p rmqtt-test --release
 | 套件 | 用例数 | 测试内容 |
 |-------|--------|----------|
 | `functional_v3` | 51 | MQTT 3.1 规范符合性：连接（错误协议名/级别/保留位/空 ClientId/超长 ID）、QoS 0/1/2 发布/订阅、QoS 2 去重与 PUBREL 重发、保留消息、遗嘱、Keep Alive、会话持久化、通配符（含 `$SYS`）、边界载荷、协议错误 |
-| `functional_v311` | 113 | MQTT 3.1.1 规范符合性：连接（含二次 CONNECT 拒绝 [MQTT-3.1.0-2]）、QoS 0/1/2、保留消息边界、Will QoS2、Keep Alive 1.5 倍超时、Session Present/恢复、通配符匹配、共享订阅、非首层 `$` 级、协议错误、连接抖动防护（0x05 回退） |
-| `functional_v5` | 111 | MQTT 5.0 规范符合性：CONNACK 能力通告、会话过期（含 DISCONNECT SEI=0 [MQTT-3.14.2-2]）、主题别名（含未知别名/超出广播上限的别名→0x94）、流控、最大报文大小、订阅标识符、Retain Handling、Will 延迟、增强认证拒绝（0x8C）、协议错误、连接抖动防护（0x8A 封禁与 HTTP 解封、被拒连接仍进观察者计数） |
+| `functional_v311` | 132 | MQTT 3.1.1 规范符合性：连接（含二次 CONNECT 拒绝 [MQTT-3.1.0-2]）、QoS 0/1/2、保留消息边界、Will QoS2、Keep Alive 1.5 倍超时、Session Present/恢复、通配符匹配、共享订阅（含 sticky / hash_clientid / hash_topic 三种分派策略）、非首层 `$` 级、协议错误、连接抖动防护（0x05 回退）、`$SYS` 统计与客户端事件、离线队列溢出策略（按 QoS 丢最旧/丢最新）、自动订阅、主题重写、P2P 消息、桥接来源识别 |
+| `functional_v5` | 120 | MQTT 5.0 规范符合性：CONNACK 能力通告、会话过期（含 DISCONNECT SEI=0 [MQTT-3.14.2-2]）、主题别名（含未知别名/超出广播上限的别名→0x94）、流控、最大报文大小、订阅标识符、Retain Handling、Will 延迟、增强认证拒绝（0x8C）、协议错误、连接抖动防护（0x8A 封禁与 HTTP 解封、被拒连接仍进观察者计数）、消息存储重放与过期、监听器配额与 `$limit`/`$exclusive` 订阅形式 |
 | `stress` | 6 | 连接负载（100 客户端）、发布负载（1000 条）、扇出（1→N）、混合 QoS 0/1/2、批量订阅、保留消息洪泛 |
 | `chaos` | 19 | Broker 重启（单节点、集群 broadcast/raft、整集群重启）、重启后会话路由恢复、连接抖动、重连风暴、QoS 1 可靠性、慢消费者、会话存储启动加载与离线洪泛上限 |
 
-> functional_v5 的 111 个用例中，`will_retain_rejected_when_retain_unavailable_v5`
-> （需不加载 retainer 插件）、`qos2_pubrel_resume_collision`（需加载
-> message-storage 插件）与三条 `flapping_*` 用例（需启用 flapping 插件并让 broker 占用
-> 独立的 MQTT/HTTP 端口；其中 `flapping_observer_order_v5` 还要与 counter 同启，并且因为
-> `client_connect` 是节点级累计量、要做精确增量断言而独占一个 broker 进程）会自动拆分为
-> `functional_v5@retain-disabled`、`functional_v5@pubrel-collision`、
-> `functional_v5@flapping` 与 `functional_v5@flapping-order` 四个子套件，其余 106 个
-> 在默认配置组 `functional_v5` 中运行；配置切换仅发生在 suite 边界。
+> functional_v5 的 120 个用例中，107 个在默认配置组 `functional_v5` 中运行；其余 13 个
+> 需要不同的 broker 配置，构建时按配置拆分为 8 个子套件：
+> `functional_v5@retain-disabled`（1，不加载 retainer 插件 → Retain Available = 0）、
+> `functional_v5@pubrel-collision`（1，加载 message-storage 复现 PUBREL 冲突）、
+> `functional_v5@issue532-ramp`（1）与 `functional_v5@issue532-ramp-tls`（1）（issue #532
+> 的并发复现，各自独占端口）、`functional_v5@flapping`（2）与
+> `functional_v5@flapping-order`（1）（需启用 flapping 插件并自占 MQTT/HTTP 端口；后者还要
+> 与 counter 同启，且因 `client_connect` 是节点级累计量、要做精确增量断言而独占 broker
+> 进程）、`functional_v5@plugin-msg-store`（2）与 `functional_v5@plugin-limits`（4）
+> （消息存储、配额与 `$limit` 阈值需调到可观察的量级）。配置切换仅发生在 suite 边界。
 
 ---
 

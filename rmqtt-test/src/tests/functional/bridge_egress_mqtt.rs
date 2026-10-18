@@ -220,9 +220,11 @@ fn prepared_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("target").join("bridge-egress-mqtt")
 }
 
-/// Log file the fixture broker writes to (`log.to = "file"`), i.e. the only
-/// place a case can observe what RMQTT logged: the harness starts a
-/// self-managed broker with `Stdio::piped()` and never reads the pipe.
+/// Log file the fixture broker writes to (`log.to = "file"`), i.e. the most
+/// convenient place for a case to observe what RMQTT logged. The harness
+/// starts a self-managed broker with `Stdio::piped()` and drains both pipes
+/// into `tracing::debug!` (`broker/lifecycle.rs`), so console output is only
+/// visible with `--verbose`; a file is deterministic and greppable.
 fn log_path() -> PathBuf {
     prepared_dir().join("logs").join("bridge-egress-mqtt.log")
 }

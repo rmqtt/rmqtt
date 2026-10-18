@@ -149,7 +149,30 @@ configs/
   flapping-order/            # ClientConnect 观察者顺序：门禁 + counter，使被拒的 CONNECT
                              # 也被计数（MQTT 1903 / gRPC 5380 / http-api 6067；
                              #  独占一个 broker 进程，按增量读取 metrics）
+  plugin-sys-topic/          # $SYS 统计/指标 + 客户端事件主题（1930 / 5400）
+  plugin-msg-store/          # message-storage 重放/过期，不含 retainer（1931 / 5401）
+  plugin-limits/             # 监听器配额 + $limit/$exclusive 形式（1932 / 5402）
+  plugin-queue-limits/       # max_mqueue_len 按 QoS 的溢出策略（1933 / 5403）
+  plugin-shared-sticky/      # 共享订阅策略 = sticky（1934 / 5404）
+  plugin-shared-hash-clientid/  # 策略 = hash_clientid（1935 / 5405）
+  plugin-shared-hash-topic/  # 策略 = hash_topic（1936 / 5406）
+  plugin-auto-sub/           # 自动订阅 ${clientid} / ${username}（1937 / 5407）
+  plugin-topic-rewrite/      # 主题重写：publish + subscribe 规则（1938 / 5408）
+  plugin-p2p/                # p2p-messaging 前缀与后缀两种形态（1939 / 5409）
+  plugin-bridge-origin/      # bridge-origin 标记识别，文件日志（1940 / 5410）
 ```
+
+`plugin-*` 这批 fixture 全部由 harness 托管：对应用例同时声明
+`broker_config()` 与 `broker_addr()`，且 `tests::fixture_config()` 会把 fixture
+复制到 `target/test-fixtures/<name>/` 并替换 `@@PLUGINS_DIR@@` / `@@LOG_DIR@@`，
+因此既不依赖进程工作目录，也不会改写仓库内的原文件。
+
+harness 会把 broker 的 `stdout`/`stderr` 管道持续排空到 `tracing::debug!`
+（`broker/lifecycle.rs`），所以 `--verbose` / `test-trace.log` 里能看到 broker 的
+控制台输出。管道只有 64 KiB 缓冲，而一个往控制台打日志的 broker 在单个子套件内就会
+超过它，导致 broker 的日志调用阻塞——连带卡住那个本该回 SUBACK 的会话任务；加排空
+之前这是一次真实的 15s `subscribe timeout`。需要**断言** broker 输出的用例仍应让
+fixture 落文件（`log.to = "file"` + `log.file`），因为管道内容不会被保留。
 
 **按用例自动切换配置**：用例可通过 `TestCase::broker_config()` 声明所需配置
 （如 `WillRetainRejectedWhenRetainUnavailableV5Test` 声明 `retain-disabled`、
@@ -161,8 +184,9 @@ configs/
 端口约束：参与自动切换的配置，`listener.tcp.external.addr` 通常必须与 harness 的
 `--addr`（默认 `127.0.0.1:1883`）一致，因为健康检查探测的就是该地址；**但**用例若
 同时声明 `TestCase::broker_addr()`，子套件运行期间探针会被重定向到该地址，配置即可
-自持端口。目前这么做的是 `configs/flapping`（`127.0.0.1:1902`）与
-`configs/flapping-order`（`127.0.0.1:1903`）。
+自持端口。目前这么做的是 `configs/flapping`（`127.0.0.1:1902`）、
+`configs/flapping-order`（`127.0.0.1:1903`）以及 11 个 `configs/plugin-*`
+fixture（MQTT `1930`–`1940`，gRPC `5400`–`5410`）。
 
 ## 📋 测试套件
 
@@ -185,7 +209,7 @@ configs/
 
 > v3.1 客户端通过 `build_connect_bytes` 手工构造 MQIsdp CONNECT 报文（codec 将协议级别硬编码为 4，对 3.1.1/5.0 正确）。
 
-### functional_v311（113 个用例）— MQTT 3.1.1
+### functional_v311（132 个用例）— MQTT 3.1.1
 
 | 类别 | 用例 |
 |------|------|
@@ -205,8 +229,15 @@ configs/
 | issue #501 认证 × ACL 穿透（自管 broker） | `auth_http_ignore_allow_all_acl_v311`（auth 服务返回 404 → 判定 'ignore'；acl `["allow", "all"]` 将其放行 → CONNACK 0x00 fail-open 复现，端口 1896）/ `auth_http_ignore_deny_all_acl_v311`（acl `["deny", "all"]` 兜底 → CONNACK 0x05 fail-closed，端口 1900） |
 | 被拒连接的 webhook（自管 broker） | `webhook_connack_refused_v311` —— 匿名 CONNECT 被拒（0x05）**且** 携带该拒绝原因的 `client_connack` 事件必须到达用例内的 mock webhook 接收端（端口 1901，接收端用临时端口）；两件事分别断言，因此在"拒绝不触发 hook"的版本上必红 |
 | 连接抖动防护（harness broker） | `flapping_ban_v311` —— 连续 CONNECT 至第 4 次被拒，且 3.1.1 无封禁码，断言回退为 **0x05**（刻意不用 `0x03`：会诱导客户端立即重连）；随后等待 `ban_time` 到期，一次连接即通过 |
+| `$SYS` 主题（`plugin-sys-topic`） | `plugin_sys_topic_stats_and_metrics` —— `$SYS/brokers/1/stats` 带 `sessions.count` / `connections.count`，`$SYS/brokers/1/metrics` 带 `client.connect` 计数，证明周期发布器按 `publish_interval` 下限（1s）以 `publish_qos = 1` 真的在跑；`plugin_sys_topic_client_events` —— 先订阅 `$SYS/brokers/1/session/+/created` 与 `$SYS/brokers/1/clients/+/connected`，之后连接的客户端必须产生两条通知且 JSON 体内带新 `clientid`（两类主题都不保留，因此"先订阅"本身就是契约的一部分） |
+| 离线队列上限（`plugin-queue-limits`） | `plugin_queue_qos1_overflow_drops_oldest` —— `max_mqueue_len = 3`、离线期间 6 条 QoS 1，恢复后恰好欠 `m3,m4,m5`（`Policy::Early`）；`plugin_queue_qos0_overflow_drops_newest` —— 同样流程换成 QoS 0，恢复后欠 `m0,m1,m2`，即丢弃新到消息（`Policy::Current`）；两条策略同出 `Session::deliver_queue_channel` |
+| 共享订阅策略 | `plugin_shared_round_robin_exactly_once`（默认配置）—— 3 个成员 × 12 条：每条载荷恰好投递一次，不重不漏；`plugin_shared_sticky_keeps_publisher_affinity`（`plugin-shared-sticky`）—— 整批消息全给同一成员，且第三个成员加入后仍保持；`plugin_shared_hash_clientid_pins_publisher`（`plugin-shared-hash-clientid`）—— 两个发布者各自固定在某个成员；`plugin_shared_hash_topic_pins_topic`（`plugin-shared-hash-topic`）—— `sh/ht/one` 与 `sh/ht/two` 各自固定到单一成员 |
+| 自动订阅（`plugin-auto-sub`） | `plugin_auto_sub_clientid_placeholder` —— CONNECT 后未发任何 SUBSCRIBE 即已订阅 `as/${clientid}/#`，且发往**其他** clientid 的消息不得到达；`plugin_auto_sub_username_placeholder` —— 同上，键为 `asu/${username}/#` 的 CONNECT username |
+| 主题重写（`plugin-topic-rewrite`） | `plugin_topic_rewrite_publish_action` —— 发布到 `rw/pub/a/b` 后订阅方收到的是 `rw/out/a/b`，原主题不再路由；`plugin_topic_rewrite_subscribe_action` —— `rw/sub/old/y` 与其 `$share/g/rw/sub/old/y` 形态都被重写为 `rw/sub/new/y`（hook 拿到的 filter 已剥掉 `$share/<group>/`） |
+| P2P 消息（`plugin-p2p`） | `plugin_p2p_prefix_routes_to_client` —— `p2p/{clientid}/sensor/temp` 以 `sensor/temp` 投递给该客户端，而订阅了 `sensor/temp` 的旁观者不受影响；`plugin_p2p_suffix_routes_to_client` —— `sensor/temp/p2p/{clientid}` 后缀形态 |
+| 桥接来源（`plugin-bridge-origin`） | `plugin_bridge_origin_detects_markers` —— ingress/egress 的 clientid 标记被识别（`BridgeOrigin` 落在 `session.extra_attrs`，只能通过 debug 日志观察，故 fixture 用 `log.to = "file"` + `log.level = "debug"`）；`plugin_bridge_origin_ignores_plain_clientid` —— 无标记的 clientid 必须**不**被识别，断言只匹配插件自身那行，避免被包日志里出现的 clientid 误满足 |
 
-### functional_v5（111 个用例）— MQTT 5.0
+### functional_v5（120 个用例）— MQTT 5.0
 
 | 类别 | 用例 |
 |------|------|
@@ -238,20 +269,22 @@ configs/
 | 连接抖动防护（`flapping` 配置） | `flapping_ban_v5` —— 前 3 次 CONNECT 全部 0x00；第 4 次起被拒并返回 **0x8A**（Banned），同时 `$SYS/brokers/{node}/flapping/banned` 收到 `"dimension":"clientid"` / `"count":4` 的通告；等待 `ban_time` 到期后一次连接即通过（验证触发封禁时已丢弃窗口，不会「解封即复封」） |
 | 连接抖动防护（`flapping` 配置） | `flapping_api_unban_v5` —— `GET /api/v1/flapping/banned` 能列出该封禁并报告 `"available":true`（`GET /api/v1/features` 以 `"flapping":true` 报告同一状态） → `DELETE .../flapping/banned?dimension=clientid&key=…` 返回 `"unbanned":true` → 立即连上 → `$SYS` `unbanned` 通告带 `"reason":"manual"` → 再次 DELETE 返回 404 |
 | 门禁观察者（`flapping-order` 配置） | `flapping_observer_order_v5` —— 发出 4 次（`max_count`）CONNECT，第 4 次被拒（0x8A）；`GET /api/v1/metrics/1` 的 `client_connect` 增量必须恰为 4（**含被拒那一次**）。拒绝返回 `proceed = false` 会截断 `ClientConnect` 链，所以门禁必须位于 `Priority::MAX` 的观察者（`rmqtt-counter` / `rmqtt-web-hook`）之下——门禁若先跑，counter 就看不到被拒的 CONNECT，用例即失败 |
+| 消息存储（`plugin-msg-store` 配置） | `plugin_msg_store_replays_to_later_subscriber` —— **无人订阅时**发布的消息，在之后某客户端订阅时被重放（`storage.type = "ram"`，fixture 不加载 retainer），且重放副本带 `message_expiry_interval <= 60`；`plugin_msg_store_drops_expired_message` —— `Message Expiry Interval = 1s` 的消息 2.5s 后不再出现，随后用一条正向对照发布证明订阅一直是通的 |
+| 监听器配额与 `$limit`/`$exclusive`（`plugin-limits` 配置） | `plugin_limit_max_subscriptions` —— 单会话第 3 个 filter 在 SUBACK 被拒且永不匹配，同时已授予的 filter 仍照常投递；`plugin_limit_max_topic_levels` —— 4 层 filter 被拒、3 层通过；`plugin_limit_max_qos_allowed` —— QoS 2 请求被**降级授予 QoS 1**（SUBACK 0x01）并按 QoS 1 投递；`plugin_limit_subscription_forms` —— `$limit/1/lk/x` 与 `$exclusive/lk/y` 各只允许一个订阅者（第二个被拒），且前缀被剥离，因此发布的是裸主题。被拒一律断言为"未授予 + 无路由效果"，因为 `Session::subscribes_v5` 目前把逐 filter 错误统一折叠成 `UnspecifiedError`（0x80）而非 `QuotaExceeded`（0x97） |
 
 > **expected-fail 用例（🐞）**：完整执行，但断言 broker 尚未实现的行为（已登记的
 > 合规缺口）。失败记为 `EXPECTED-FAIL`，不计入套件失败；broker 合规后会浮出为
 > `UNEXPECTED-PASS`，届时应转正为普通断言。详见
 > `designs/mqtt-5.0-standalone-test-gap-analysis.md`。
 
-> functional_v5 共 111 个用例：默认配置组运行其中 106 个；
-> `v5_will_retain_rejected_when_retain_unavailable`、`qos2_pubrel_resume_collision` 与
-> 三条 `flapping_*` 用例因需要不同的 broker 配置，构建时自动拆分为
-> `functional_v5@retain-disabled`、`functional_v5@pubrel-collision`、
-> `functional_v5@flapping` 与 `functional_v5@flapping-order` 四个子套件执行
-> （见上方「Broker 配置」章节）。
+> functional_v5 共 120 个用例：默认配置组运行其中 107 个，其余 13 个因需要不同的
+> broker 配置，构建时按配置拆分为 8 个子套件（见上方「Broker 配置」章节）：
+> `functional_v5@retain-disabled`（1）、`functional_v5@pubrel-collision`（1）、
+> `functional_v5@issue532-ramp`（1）、`functional_v5@issue532-ramp-tls`（1）、
+> `functional_v5@flapping`（2）、`functional_v5@flapping-order`（1）、
+> `functional_v5@plugin-msg-store`（2）与 `functional_v5@plugin-limits`（4）。
 > 全量 `--suites functional_v5 --workers 1` 运行的汇总为
-> `Total: 111 | Passed: 105 | Failed: 0 | Skipped: 1 | ExpectedFail: 3 | Info: 2`
+> `Total: 120 | Passed: 114 | Failed: 0 | Skipped: 1 | ExpectedFail: 3 | Info: 2`
 > —— 已无裸失败；最后那处红灯 `topic_alias_v5_over_max`，在服务端开始执行自己广播出去的
 > Topic Alias Maximum 之后转为 PASS（见下方说明）。
 

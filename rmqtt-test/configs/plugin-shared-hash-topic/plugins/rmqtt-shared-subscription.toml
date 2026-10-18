@@ -1,0 +1,2 @@
+## `hash_topic`: subscriber chosen by hashing the topic name.
+strategy = "hash_topic"

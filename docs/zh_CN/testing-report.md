@@ -77,16 +77,17 @@ cd paho.mqtt.testing/interoperability
 | 套件 | 用例数 | 说明 |
 |-------|--------|------|
 | `functional_v3` | 51 | MQTT 3.1 规范符合性（连接边界、QoS 0/1/2、QoS 2 去重/PUBREL 重发、保留消息、遗嘱、Keep Alive、会话、通配符含 `$SYS`、边界、协议错误） |
-| `functional_v311` | 113 | MQTT 3.1.1 规范符合性（含二次 CONNECT 拒绝、保留消息边界、Session Present、非首层 `$` 级、协议错误、连接抖动防护） |
-| `functional_v5` | 111 | MQTT 5.0 规范符合性（CONNACK 能力通告、会话过期含 DISCONNECT SEI=0、主题别名、流控、Retain Handling、协议错误、连接抖动防护与 HTTP 解封、被拒连接仍进观察者计数） |
+| `functional_v311` | 132 | MQTT 3.1.1 规范符合性（含二次 CONNECT 拒绝、保留消息边界、Session Present、非首层 `$` 级、协议错误、连接抖动防护、`$SYS` 统计与客户端事件、离线队列溢出策略、共享订阅三种分派策略、自动订阅、主题重写、P2P、桥接来源识别） |
+| `functional_v5` | 120 | MQTT 5.0 规范符合性（CONNACK 能力通告、会话过期含 DISCONNECT SEI=0、主题别名、流控、Retain Handling、协议错误、连接抖动防护与 HTTP 解封、被拒连接仍进观察者计数、消息存储重放与过期、监听器配额与 `$limit`/`$exclusive`） |
 | `stress` | 6 | 连接负载、发布负载、扇出、混合 QoS、批量订阅、保留消息洪泛 |
 | `chaos` | 19 | Broker 重启（单节点/集群 broadcast、raft/整集群）、重启后会话路由、连接风暴、重连、QoS 1 可靠性、慢消费者、会话存储启动加载 |
 
-> functional_v5 的 111 个用例中，`will_retain_rejected_when_retain_unavailable_v5`、
-> `qos2_pubrel_resume_collision` 与三条 `flapping_*` 用例因需要不同的 broker 配置，
-> 自动拆分为 `functional_v5@retain-disabled` / `functional_v5@pubrel-collision` /
-> `functional_v5@flapping` / `functional_v5@flapping-order` 子套件；默认 broker 配置为
-> 自包含的 `rmqtt-test/configs/default/rmqtt.toml`，配置切换仅发生在 suite 边界。
+> functional_v5 的 120 个用例中，107 个在默认配置组运行；其余 13 个因需要不同的 broker
+> 配置，自动拆分为 `functional_v5@retain-disabled` / `functional_v5@pubrel-collision` /
+> `functional_v5@issue532-ramp` / `functional_v5@issue532-ramp-tls` /
+> `functional_v5@flapping` / `functional_v5@flapping-order` /
+> `functional_v5@plugin-msg-store` / `functional_v5@plugin-limits` 八个子套件；默认 broker
+> 配置为自包含的 `rmqtt-test/configs/default/rmqtt.toml`，配置切换仅发生在 suite 边界。
 
 ```bash
 # 运行所有测试套件
