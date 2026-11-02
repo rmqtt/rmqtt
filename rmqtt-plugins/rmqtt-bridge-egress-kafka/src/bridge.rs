@@ -154,7 +154,16 @@ fn to_headers(remote: &Remote, f: &From, p: &Publish, new_local_topic: &str) -> 
     }
     headers =
         headers.insert(Header { key: "time", value: Some(itoa::Buffer::new().format(timestamp_millis())) });
-    headers.insert(Header { key: "topic", value: Some(new_local_topic) })
+    headers = headers.insert(Header { key: "topic", value: Some(new_local_topic) });
+
+    if remote.forward_user_properties {
+        if let Some(props) = &p.properties {
+            for (key, val) in &props.user_properties {
+                headers = headers.insert(Header { key: key.as_ref(), value: Some(val.as_str()) });
+            }
+        }
+    }
+    headers
 }
 
 /// A named bridge instance identifier (alias for the bridge name).
@@ -323,6 +332,7 @@ impl AsStr for ByteString {
 mod tests {
     use bytestring::ByteString;
     use rdkafka::message::Headers;
+    use rmqtt::codec::v5::PublishProperties;
     use rmqtt::types::{CodecPublish, From, Id, Publish, QoS};
 
     use super::to_headers;
@@ -355,5 +365,49 @@ mod tests {
         for key in ["from_type", "from_node", "from_clientid", "from_username", "dup", "retain", "qos"] {
             assert!(keys.contains(&key), "{key} missing with both switches on: {keys:?}");
         }
+    }
+
+    /// User properties follow the bridge headers unaltered and in order, duplicates
+    /// and names shared with bridge headers included (MQTT-3.3.2-17, MQTT-3.3.2-18).
+    #[test]
+    fn to_headers_forwards_user_properties_unaltered_and_in_order() {
+        let f = From::from_bridge(Id::new(1, 0, None, None, ByteString::from("c1"), None));
+        let user_properties = [("b", "2"), ("a", "1"), ("b", "3"), ("qos", "x")]
+            .map(|(k, v)| (ByteString::from(k), ByteString::from(v)))
+            .to_vec();
+        let p: Publish = CodecPublish {
+            dup: false,
+            retain: false,
+            qos: QoS::AtLeastOnce,
+            topic: ByteString::from("a/b"),
+            packet_id: None,
+            payload: Default::default(),
+            properties: Some(PublishProperties { user_properties, ..Default::default() }),
+        }
+        .into();
+
+        let on = Remote { forward_user_properties: true, ..Default::default() };
+        let headers = to_headers(&on, &f, &p, "a/b");
+        let pairs: Vec<(&str, &[u8])> =
+            headers.iter().map(|h| (h.key, h.value.unwrap_or_default())).collect();
+        assert_eq!(
+            pairs[1..],
+            [
+                ("topic", &b"a/b"[..]),
+                ("b", &b"2"[..]),
+                ("a", &b"1"[..]),
+                ("b", &b"3"[..]),
+                ("qos", &b"x"[..])
+            ],
+            "user properties must follow the bridge headers unchanged"
+        );
+
+        // Control arm: the switch is what forwards them.
+        let off = Remote::default();
+        assert_eq!(
+            to_headers(&off, &f, &p, "a/b").count(),
+            2,
+            "user properties are dropped when the switch is off"
+        );
     }
 }

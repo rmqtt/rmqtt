@@ -97,6 +97,9 @@ pub struct Remote {
     /// Forward the publish metadata: `dup`, `retain`, `qos`, `packet_id`.
     #[serde(default = "Remote::forward_default")]
     pub forward_all_publish: bool,
+    /// Forward MQTT v5 user properties as Kafka headers, unaltered and in order.
+    #[serde(default)]
+    pub forward_user_properties: bool,
 }
 
 impl Remote {
