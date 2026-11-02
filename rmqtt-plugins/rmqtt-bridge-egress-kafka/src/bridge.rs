@@ -24,7 +24,7 @@ use rmqtt::{
     Result,
 };
 
-use crate::config::{Bridge, Entry, PluginConfig};
+use crate::config::{Bridge, Entry, PluginConfig, Remote};
 
 /// Commands for controlling the bridge lifecycle.
 #[derive(Debug)]
@@ -86,32 +86,7 @@ impl Producer {
         p: &Publish,
         new_local_topic: &str,
     ) -> Result<()> {
-        let mut headers = OwnedHeaders::new();
-        headers = headers.insert(Header { key: "from_type", value: Some(f.typ().as_str()) });
-        headers =
-            headers.insert(Header { key: "from_node", value: Some(itoa::Buffer::new().format(f.node())) });
-        headers = headers
-            .insert(Header { key: "from_ipaddress", value: f.remote_addr.map(|a| a.to_string()).as_ref() });
-        headers = headers.insert(Header { key: "from_clientid", value: Some(f.client_id.as_str()) });
-        headers = headers.insert(Header { key: "from_username", value: Some(f.username_ref()) });
-
-        headers = headers.insert(Header { key: "dup", value: Some(p.dup.as_str()) });
-        headers = headers.insert(Header { key: "retain", value: Some(p.retain.as_str()) });
-        headers =
-            headers.insert(Header { key: "qos", value: Some(itoa::Buffer::new().format(p.qos.value())) });
-        if let Some(packet_id) = p.packet_id {
-            headers = headers.insert(Header {
-                key: "packet_id",
-                value: Some(itoa::Buffer::new().format(packet_id.get())),
-            });
-        }
-        if let Some(create_time) = p.create_time {
-            headers =
-                headers.insert(Header { key: "ts", value: Some(itoa::Buffer::new().format(create_time)) });
-        }
-        headers = headers
-            .insert(Header { key: "time", value: Some(itoa::Buffer::new().format(timestamp_millis())) });
-        headers = headers.insert(Header { key: "topic", value: Some(new_local_topic) });
+        let headers = to_headers(&self.cfg_entry.remote, f, p, new_local_topic);
 
         let topic = self.cfg_entry.remote.make_topic(new_local_topic);
         let payload = p.payload.clone();
@@ -145,6 +120,41 @@ impl Producer {
         }
         Ok(())
     }
+}
+
+/// Builds the Kafka headers for a publish according to the entry's forwarding options.
+#[inline]
+fn to_headers(remote: &Remote, f: &From, p: &Publish, new_local_topic: &str) -> OwnedHeaders {
+    let mut headers = OwnedHeaders::new();
+    if remote.forward_all_from {
+        headers = headers.insert(Header { key: "from_type", value: Some(f.typ().as_str()) });
+        headers =
+            headers.insert(Header { key: "from_node", value: Some(itoa::Buffer::new().format(f.node())) });
+        headers = headers
+            .insert(Header { key: "from_ipaddress", value: f.remote_addr.map(|a| a.to_string()).as_ref() });
+        headers = headers.insert(Header { key: "from_clientid", value: Some(f.client_id.as_str()) });
+        headers = headers.insert(Header { key: "from_username", value: Some(f.username_ref()) });
+    }
+
+    if remote.forward_all_publish {
+        headers = headers.insert(Header { key: "dup", value: Some(p.dup.as_str()) });
+        headers = headers.insert(Header { key: "retain", value: Some(p.retain.as_str()) });
+        headers =
+            headers.insert(Header { key: "qos", value: Some(itoa::Buffer::new().format(p.qos.value())) });
+        if let Some(packet_id) = p.packet_id {
+            headers = headers.insert(Header {
+                key: "packet_id",
+                value: Some(itoa::Buffer::new().format(packet_id.get())),
+            });
+        }
+    }
+
+    if let Some(create_time) = p.create_time {
+        headers = headers.insert(Header { key: "ts", value: Some(itoa::Buffer::new().format(create_time)) });
+    }
+    headers =
+        headers.insert(Header { key: "time", value: Some(itoa::Buffer::new().format(timestamp_millis())) });
+    headers.insert(Header { key: "topic", value: Some(new_local_topic) })
 }
 
 /// A named bridge instance identifier (alias for the bridge name).
@@ -306,5 +316,44 @@ impl AsStr for bool {
 impl AsStr for ByteString {
     fn as_str(&self) -> &str {
         self.as_ref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bytestring::ByteString;
+    use rdkafka::message::Headers;
+    use rmqtt::types::{CodecPublish, From, Id, Publish, QoS};
+
+    use super::to_headers;
+    use crate::config::Remote;
+
+    /// The forward_all switches gate the sender and publish metadata, while the
+    /// bridge's own headers are always sent.
+    #[test]
+    fn to_headers_honours_forward_all_switches() {
+        let f = From::from_bridge(Id::new(1, 0, None, None, ByteString::from("c1"), None));
+        let p: Publish = CodecPublish {
+            dup: false,
+            retain: false,
+            qos: QoS::AtLeastOnce,
+            topic: ByteString::from("a/b"),
+            packet_id: None,
+            payload: Default::default(),
+            properties: None,
+        }
+        .into();
+
+        let off = Remote { forward_all_from: false, forward_all_publish: false, ..Default::default() };
+        let headers = to_headers(&off, &f, &p, "a/b");
+        let keys: Vec<&str> = headers.iter().map(|h| h.key).collect();
+        assert_eq!(keys, ["time", "topic"], "only the bridge headers are sent when both switches are off");
+
+        let on = Remote { forward_all_from: true, forward_all_publish: true, ..Default::default() };
+        let headers = to_headers(&on, &f, &p, "a/b");
+        let keys: Vec<&str> = headers.iter().map(|h| h.key).collect();
+        for key in ["from_type", "from_node", "from_clientid", "from_username", "dup", "retain", "qos"] {
+            assert!(keys.contains(&key), "{key} missing with both switches on: {keys:?}");
+        }
     }
 }
