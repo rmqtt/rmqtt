@@ -82,6 +82,12 @@ remote.topic = "remote-topic1-egress-${local.topic}"
 remote.queue_timeout = "0m"
 #Sets the destination partition of the record.
 #remote.partition = 0
+# 转发所有 from 数据，包括：from_type, from_node, from_ipaddress, from_clientid, from_username
+#remote.forward_all_from = true
+# 转发所有 publish 数据，包括：dup, retain, qos, packet_id
+#remote.forward_all_publish = true
+# 转发 MQTT v5 用户属性（User Properties）到 Kafka 消息头
+#remote.forward_user_properties = false
 
 [[bridges.entries]]
 #Local topic filter: All messages matching this topic filter will be forwarded.
