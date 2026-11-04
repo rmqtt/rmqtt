@@ -80,7 +80,7 @@ type HasPattern = bool; //${local.topic}
 /// Remote Kafka topic configuration for a bridge entry.
 ///
 /// Controls the target topic (with optional `${local.topic}` pattern),
-/// queue timeout, partition selection, and topic level skipping.
+/// queue timeout, partition selection, topic level skipping, and header forwarding.
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct Remote {
     #[serde(default, deserialize_with = "Remote::deserialize_topic")]
@@ -91,6 +91,15 @@ pub struct Remote {
     pub partition: Option<i32>,
     #[serde(default)]
     pub skip_levels: usize,
+    /// Forward the sender metadata: `from_type`, `from_node`, `from_ipaddress`, `from_clientid`, `from_username`.
+    #[serde(default = "Remote::forward_default")]
+    pub forward_all_from: bool,
+    /// Forward the publish metadata: `dup`, `retain`, `qos`, `packet_id`.
+    #[serde(default = "Remote::forward_default")]
+    pub forward_all_publish: bool,
+    /// Forward MQTT v5 user properties as Kafka headers, unaltered and in order.
+    #[serde(default)]
+    pub forward_user_properties: bool,
 }
 
 impl Remote {
@@ -118,6 +127,10 @@ impl Remote {
 
     fn queue_timeout_default() -> Duration {
         Duration::ZERO
+    }
+
+    fn forward_default() -> bool {
+        true
     }
 
     /// Deserializes a topic string and detects whether it contains the `${local.topic}` pattern.

@@ -80,6 +80,9 @@ Each bridge entry defines a topic forwarding rule.
 | `remote.queue_timeout` | Duration | `0m` | How long to retry if the librdkafka producer queue is full. `0` means never block |
 | `remote.partition` | Integer | - | Destination partition of the record (optional) |
 | `remote.skip_levels` | Integer | `0` | Number of leading topic levels to skip when substituting `${local.topic}` |
+| `remote.forward_all_from` | Boolean | `true` | Forward all from data: `from_type`, `from_node`, `from_ipaddress`, `from_clientid`, `from_username` |
+| `remote.forward_all_publish` | Boolean | `true` | Forward all publish data: `dup`, `retain`, `qos`, `packet_id` |
+| `remote.forward_user_properties` | Boolean | `false` | Forward MQTT v5 user properties as Kafka headers, unaltered and in order |
 
 ## Example Configuration
 

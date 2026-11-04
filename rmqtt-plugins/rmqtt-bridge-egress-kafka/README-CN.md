@@ -80,6 +80,9 @@ config_file = "/path/to/rmqtt-bridge-egress-kafka.toml"
 | `remote.queue_timeout` | Duration | `0m` | librdkafka 生产者队列满时的重试时间。`0` 表示永不阻塞 |
 | `remote.partition` | Integer | - | 记录的目标分区（可选） |
 | `remote.skip_levels` | Integer | `0` | 替换 `${local.topic}` 时要跳过的主题层级数 |
+| `remote.forward_all_from` | Boolean | `true` | 转发所有来源数据：`from_type`, `from_node`, `from_ipaddress`, `from_clientid`, `from_username` |
+| `remote.forward_all_publish` | Boolean | `true` | 转发所有发布数据：`dup`, `retain`, `qos`, `packet_id` |
+| `remote.forward_user_properties` | Boolean | `false` | 转发 MQTT v5 用户属性（User Properties）到 Kafka 消息头 |
 
 ## 配置示例
 
