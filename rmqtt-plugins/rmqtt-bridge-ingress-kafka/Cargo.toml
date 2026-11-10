@@ -21,3 +21,7 @@ bytes.workspace = true
 event-notify = "0.1.1"
 rdkafka = { version = "0.38", features = ["cmake-build"] }
 rdkafka-sys = "=4.9.0"
+
+# TLS/SASL through the system OpenSSL the Linux build already requires.
+[target.'cfg(target_os = "linux")'.dependencies]
+rdkafka = { version = "0.38", features = ["cmake-build", "ssl"] }
