@@ -88,7 +88,12 @@ release 构建可能在你不知情的情况下成为实际被测对象。
 
 > `--suites` 支持前缀匹配：`functional_v5` 会同时命中其按配置拆出的所有子套件
 > （如 `functional_v5@retain-disabled`）；`functional_v5_cluster` 双节点集群套件
-> 仅当显式指定时才运行，不参与默认全量。
+> 仅当显式指定时才运行，不参与默认全量。进程内计时套件 `issue547` 同理，且它
+> 完全不需要 Broker：
+>
+> ```bash
+> ./target/release/mqtt_harness --workspace . --no-broker --suites issue547 --workers 1
+> ```
 
 ### 运行指定用例
 
@@ -417,6 +422,43 @@ rm -rf rmqtt-test/configs/{session-sled,session-sled-stress,cluster-broadcast-sl
 `STRESS_SESSIONS` / `STRESS_MSGS_PER_SESSION` 位于
 `src/tests/functional/session_restart_stress.rs`。设计与缺陷分析详见
 [`designs/issue-475-restored-session-routing-fix.md`](../designs/issue-475-restored-session-routing-fix.md)。
+
+### issue547（4 个用例）— 集群转发热路径上的熔断窗口成本
+
+Issue #547 报告：三节点 raft 集群在默认熔断配置下跑不完 750 万条消息（12 500 msg/s、
+QoS 2、150 KiB），速率逐渐衰减、消息积压、单机 32 GiB OOM；仅把
+`circuit_breaker.sliding_window_type` 改为 `"CountBased"` 后同样的负载即可通过。根因在
+`tower-resilience-circuitbreaker 0.10.1`（0.14 仍然如此）：`TimeBased` 窗口为最近 45 秒内的
+**每一次调用**保留一条 `CallRecord`（`sliding_window_size` 并不是上限），且每次调用都要在
+熔断 mutex 内重新遍历整个窗口。
+
+两类窗口跑**完全相同的负载形状**、各出两个用例，报告读起来就是一组 A/B：`TimeBased` 的两个
+是复现（修好前一直红），`CountBased` 的两个是正向对照（必须绿）。
+
+| 用例 | 窗口 | 负载 | 断言 |
+|------|------|------|------|
+| `issue547_timebased_window_scan_cost` | TimeBased 45s | 顺序（含预热）10k → 135k 记录 | 同一占用下的跨臂成本比须 <20×（次要判据：增长 <5×）—— **当前失败** |
+| `issue547_countbased_window_scan_cost` | CountBased 20 | 同一顺序负载 | 单调用成本增长不得 >2× —— 对照，通过 |
+| `issue547_timebased_concurrent_ceiling` | TimeBased 45s | 16 并发，20s | 吞吐不得低于首段 0.5× —— **当前失败** |
+| `issue547_countbased_concurrent_ceiling` | CountBased 20 | 16 并发，5s | 吞吐不得低于首段 0.6× —— 对照，通过 |
+
+四个用例都按**生产代码同样的字段**构造 Tower layer（等价于
+`build_circuit_breaker_layer`，`rmqtt/src/grpc.rs`），被包装的服务复刻
+`GrpcNotifyService`；不需要 Broker、不占用端口；断言全部是**同一次运行内的比值**，机器快慢
+不会翻转结论。每个 `TimeBased` 用例还额外测一个极小的 `CountBased` 参考块，并报告**同一窗口
+占用下的跨臂比值**（上限 20×，实测 157–464×）——这是机器中途变慢也扭曲不了的判据；参考块绝对
+成本增长需超过 5 µs/次才算退化，否则机器抖动只报 `Error`，不会被当成复现。
+
+```bash
+# 两类窗口一起跑；debug 约 85 秒，release 约 35 秒。不启动 Broker、不占端口。
+./target/debug/mqtt_harness --workspace . --no-broker --suites issue547 --workers 1
+
+# 只跑复现组 / 只跑对照组
+./target/debug/mqtt_harness --workspace . --no-broker --suites issue547 -t issue547_timebased --workers 1
+./target/debug/mqtt_harness --workspace . --no-broker --suites issue547 -t issue547_countbased --workers 1
+```
+
+该套件不参与默认全量：计时类测量不能和功能套件的并发 worker 抢同一台机器。
 
 ## 🏗 项目结构
 

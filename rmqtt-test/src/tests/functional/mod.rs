@@ -30,6 +30,7 @@ pub mod issue532_connect_ramp_stall;
 pub mod issue532_live_cluster;
 pub mod issue532_tls_cluster_connect_ramp_stall;
 pub mod issue532_tls_connect_ramp_stall;
+pub mod issue547_circuit_breaker_window;
 pub mod keepalive;
 pub mod keepalive_v3;
 pub mod kick_takeover_race;
