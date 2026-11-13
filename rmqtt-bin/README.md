@@ -44,7 +44,7 @@ Defined by `rmqtt_conf::Options` (via `clap::Parser`):
 | `--plugins-default-startups` | `Option<Vec<String>>` | Override default plugin startups (repeatable) |
 | `--node-grpc-addrs` | `Option<Vec<NodeAddr>>` | Node gRPC addresses, format `"1@127.0.0.1:5363"` (repeatable) |
 | `--raft-peer-addrs` | `Option<Vec<NodeAddr>>` | Raft peer addresses, format `"1@127.0.0.1:6003"` (repeatable) |
-| `--raft-leader-id` | `Option<u64>` | Raft leader ID; default 0 (first node becomes leader) |
+| `--raft-leader-id` | `Option<u64>` | Bootstrap leader ID; default 0 = no designated bootstrapper (pin a fixed ID on every node for parallel cold starts) |
 
 ## Configuration
 

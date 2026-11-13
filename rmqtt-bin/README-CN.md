@@ -45,7 +45,7 @@ cargo build -p rmqttd --release
 | `--plugins-default-startups` | `Option<Vec<String>>` | 覆盖默认启动插件列表（可多次使用） |
 | `--node-grpc-addrs` | `Option<Vec<NodeAddr>>` | 节点 gRPC 地址列表，格式 `"1@127.0.0.1:5363"`（可多次使用） |
 | `--raft-peer-addrs` | `Option<Vec<NodeAddr>>` | Raft 对端地址列表，格式 `"1@127.0.0.1:6003"`（可多次使用） |
-| `--raft-leader-id` | `Option<u64>` | Raft Leader ID；默认为 0（第一个节点被选为 Leader） |
+| `--raft-leader-id` | `Option<u64>` | 引导节点 ID；默认 0 = 不指定引导节点（并行冷启动时请在每个节点固定同一个 ID） |
 
 ## 配置
 
