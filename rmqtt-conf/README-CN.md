@@ -44,7 +44,7 @@ pub struct Inner {
 | `--plugins-default-startups` | `plugins_default_startups` | `Option<Vec<String>>` | `None` |
 | `--node-grpc-addrs` | `node_grpc_addrs` | `Option<Vec<NodeAddr>>` | `None` |
 | `--raft-peer-addrs` | `raft_peer_addrs` | `Option<Vec<NodeAddr>>` | `None` |
-| `--raft-leader-id` | `raft_leader_id` | `Option<NodeId>` (u64) | `None` | 指定领导者节点 ID。主要用于单机伪集群开发/测试（0 = 自动选择配置中的第一个节点）。会覆盖插件配置中的 `leader_id` |
+| `--raft-leader-id` | `raft_leader_id` | `Option<NodeId>` (u64) | `None` | 引导提示：指定由哪个节点引导全新 Raft 集群。`0` = 不指定引导节点；并行冷启动请在每个节点固定为同一个、且存在于 `raft_peer_addrs` 中的 ID。会覆盖插件配置中的 `leader_id` |
 
 ### `Task` — 执行器配置
 

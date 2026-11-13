@@ -39,8 +39,11 @@ pub struct Options {
     #[arg(long = "raft-peer-addrs")]
     pub raft_peer_addrs: Option<Vec<NodeAddr>>,
 
-    ///Specify a leader id, when the value is 0 or not specified, the first node
-    ///will be designated as the Leader. Default value: 0
+    ///Specify the node that bootstraps a new Raft cluster (bootstrap hint).
+    ///0 (default) = no designated bootstrapper; on a parallel cold start any
+    ///node that cannot reach a leader may bootstrap its own cluster. Pin the
+    ///same fixed ID (present in `raft_peer_addrs`) on every node for parallel
+    ///starts. Default value: 0
     #[arg(long = "raft-leader-id")]
     pub raft_leader_id: Option<NodeId>,
 }

@@ -159,10 +159,13 @@ impl ClusterPlugin {
     /// 3. Create the Raft instance on a dedicated thread with its own
     ///    Tokio runtime.
     /// 4. Based on configuration:
-    ///    - If a leader is specified, verify the actual leader matches
-    ///      and join as a follower.
-    ///    - Otherwise, search for an existing leader. If none found,
-    ///      become the leader.
+    ///    - If a leader is configured, the node with that ID probes briefly
+    ///      and bootstraps the cluster when none exists; every other node
+    ///      polls for a live leader and joins whichever node Raft has
+    ///      elected (not necessarily the configured one).
+    ///    - Otherwise, probe once for an existing leader. If none is found,
+    ///      bootstrap a new single-node cluster. With parallel cold starts
+    ///      this can create independent clusters that never merge.
     async fn start_raft(
         scx: &ServerContext,
         cfg: Arc<PluginConfig>,

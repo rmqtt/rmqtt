@@ -111,13 +111,17 @@ raft_peer_addrs = ["1@127.0.0.1:6003", "2@127.0.0.1:6004", "3@127.0.0.1:6005"]
 #If this listening address is not specified, the address of the node corresponding to `raft_peer_addrs` will be used.
 #laddr = "0.0.0.0:6003"
 
-# 指定领导者节点 ID。
+# 指定由哪个节点引导一个全新的 Raft 集群（仅作为引导提示）。
 #
-# 此选项主要用于单机伪集群部署场景，即在同一台机器上运行多个集群节点进行测试或开发。
+# 0（默认值）= 不指定引导节点。每个节点启动时只探测一次其他节点；若探测不到
+# 现有 leader，就自行引导一个单节点集群。若所有节点并行启动（Kubernetes
+# StatefulSet 且 podManagementPolicy: Parallel、docker compose up、整集群重启），
+# 就可能形成多个互不合并的独立集群。
 #
-# 在真实的分布式集群中，领导者选举会自动进行，通常不需要设置此选项。
-#
-# 当值为 0 或未指定时，集群配置中的第一个节点将被指定为领导者。
+# 并行/冷启动场景，请在每个节点上都固定为同一个、且存在于 `raft_peer_addrs`
+# 中的节点 ID（如 leader_id = 1），或给每个进程传入相同的 `--raft-leader-id 1`。
+# 被指定的节点负责引导，其余节点轮询等待 leader（60 轮 × 500ms，约 30 秒）后加入。
+# 集群形成后 leader 可正常转移，本项只影响首次引导（见 #417 / #418）。
 #
 # 也可以通过 CLI 参数 `--raft-leader-id` 覆盖。
 #
@@ -173,7 +177,7 @@ raft.priority = 0
 
 - 'laddr' 用于指定Raft监听地址，如果不指定，将默认使用'raft_peer_addrs'中配置的地址。
 
-- 'leader_id' 指定领导者节点 ID。此选项主要用于单机伪集群部署场景（在同一台机器上运行多个集群节点进行测试或开发）。在真实的分布式集群中，领导者选举会自动进行，通常不需要设置此选项。当值为 0 或未指定时，集群配置中的第一个节点将被指定为领导者。也可以通过 CLI 参数 `--raft-leader-id` 覆盖。
+- 'leader_id' 是**引导提示**：指定由哪个节点引导一个全新的集群。默认值 0 表示不指定引导节点——每个节点启动时只探测一次其他节点，探测不到 leader 就自行引导单节点集群；并行冷启动时可能因此形成多个互不合并的独立集群。请在每个节点固定为同一个（且存在于 'raft_peer_addrs' 中）的 ID，或给每个进程传入相同的 `--raft-leader-id`，详见下文「并行冷启动」。集群形成后 leader 可正常转移。
 
 - 'compression' 指定一种用于压缩快照的算法，取值：zstd、lz4、zlib、snappy。不设置将不会进行压缩。
 
@@ -209,3 +213,65 @@ plugins.default_startups = [
     "rmqtt-http-api"
 ]
 ```
+
+### 并行冷启动（Kubernetes StatefulSet）
+
+默认的 `leader_id = 0` 不指定引导节点。若所有副本同时启动
+（`podManagementPolicy: Parallel`、`docker compose up`、整集群重启），
+各节点在探测不到 leader 时可能各自引导一个单节点 Raft 集群；这些集群不会合并，
+跨节点的消息也就无法转发 —— 见
+[issue #550](https://github.com/rmqtt/rmqtt/issues/550)。
+
+并行启动请在**每个**副本上固定同一个 ID，并确认该 ID 存在于 `raft_peer_addrs`。
+下面的最小 StatefulSet 示例从 pod 序号派生节点 ID（`+1` 是因为 `0` 被用作
+「不指定引导节点」的哨兵值），并在所有 pod 上固定引导节点 `1`：
+
+```yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rmqtt
+spec:
+  serviceName: rmqtt-raft        # headless Service: stable per-pod DNS
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels: { app: rmqtt }
+  template:
+    metadata:
+      labels: { app: rmqtt }
+    spec:
+      containers:
+        - name: rmqtt
+          image: rmqtt/rmqtt:<version>  # replace with your rmqtt version
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              ordinal=${HOSTNAME##*-}
+              id=$((ordinal + 1))
+              exec /app/rmqtt/rmqtt-bin/rmqttd \
+                --id "$id" \
+                --plugins-default-startups "rmqtt-cluster-raft" \
+                --node-grpc-addrs "1@rmqtt-0.rmqtt-raft:5363" "2@rmqtt-1.rmqtt-raft:5363" "3@rmqtt-2.rmqtt-raft:5363" \
+                --raft-peer-addrs "1@rmqtt-0.rmqtt-raft:6003" "2@rmqtt-1.rmqtt-raft:6003" "3@rmqtt-2.rmqtt-raft:6003" \
+                --raft-leader-id 1
+```
+
+注意事项：
+
+- 需先创建名为 `rmqtt-raft` 的 headless Service（`clusterIP: None`，示例中省略），
+  它为每个 pod 提供稳定 DNS 名，因此所有副本可以复用相同端口。两份地址列表
+  在每个副本上必须完全一致，只有 `--id` 按 pod 派生；`replicas` 的数量必须与
+  两份地址列表的条目数一致。
+  若固定的 ID 不在 `raft_peer_addrs` 中，插件启动会报 `Leader does not exist`。
+- 非引导节点会轮询等待 leader，共 60 轮 × 500ms（约 30 秒）。若 `rmqtt-0`
+  启动更慢（拉取镜像、挂载 PVC），其余 pod 的插件初始化会失败，需要编排系统重启。
+  使用默认的 `podManagementPolicy: OrderedReady` 会让 pod-0 先启动，其余 pod 在
+  pod-0 运行后才开始，这 30 秒窗口只需覆盖引导本身。
+- 非零的 `leader_id` 只是引导提示。集群形成后 Raft 可以选举任意节点，
+  重启的节点会加入当时的实际 leader（见
+  [#417](https://github.com/rmqtt/rmqtt/issues/417) /
+  [#418](https://github.com/rmqtt/rmqtt/pull/418)）。显式传入
+  `--raft-leader-id 0` 可恢复不指定引导节点的行为。
+- 上例的 `--plugins-default-startups` 仅为简洁而只启用 Raft 插件；生产环境请在
+  `rmqtt.toml` 的 `plugins.default_startups` 中列出全部所需插件。
