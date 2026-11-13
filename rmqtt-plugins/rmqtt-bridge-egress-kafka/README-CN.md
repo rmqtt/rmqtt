@@ -69,6 +69,25 @@ config_file = "/path/to/rmqtt-bridge-egress-kafka.toml"
 | `message.timeout.ms` | String | `5000` | 消息超时时间（毫秒） |
 | 其他任何 librdkafka 属性 | String | - | 参见 librdkafka 配置文档 |
 
+### TLS、mTLS 与 SASL
+
+> 本节为机器翻译自动生成，以英文 README 为准。
+
+Linux 构建的 librdkafka 已链接 OpenSSL，可通过 `[bridges.properties]` 连接仅支持 TLS 的 Kafka（Aiven、Confluent Cloud、MSK、Redpanda Cloud 等）：
+
+```toml
+[bridges.properties]
+"security.protocol" = "ssl"                                     # 或 "sasl_ssl"
+"ssl.ca.location" = "/etc/rmqtt/kafka/ca.pem"
+"ssl.certificate.location" = "/etc/rmqtt/kafka/service.cert"   # mTLS
+"ssl.key.location" = "/etc/rmqtt/kafka/service.key"            # mTLS
+#"sasl.mechanism" = "SCRAM-SHA-256"   # 支持 PLAIN、SCRAM-SHA-256/512、OAUTHBEARER
+#"sasl.username" = "user"
+#"sasl.password" = "secret"
+```
+
+Broker 证书由公共 CA 签发时，可设置 `ssl.ca.location = "probe"`。
+
 ### 桥接条目 (`[[bridges.entries]]`)
 
 每个桥接条目定义一个主题转发规则。

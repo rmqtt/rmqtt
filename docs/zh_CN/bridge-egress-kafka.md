@@ -72,6 +72,11 @@ concurrent_client_limit = 3
 # See more properties and their definitions at https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md
 [bridges.properties]
 "message.timeout.ms" = "5000"
+# TLS / SASL (Linux builds), see README
+#"security.protocol" = "ssl"
+#"ssl.ca.location" = "/etc/rmqtt/kafka/ca.pem"
+#"ssl.certificate.location" = "/etc/rmqtt/kafka/service.cert"
+#"ssl.key.location" = "/etc/rmqtt/kafka/service.key"
 
 [[bridges.entries]]
 #Local topic filter: All messages matching this topic filter will be forwarded.
