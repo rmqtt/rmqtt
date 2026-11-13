@@ -103,7 +103,8 @@ async fn connect_tls(cfg: ClientConfig) -> anyhow::Result<TlsStream<TcpStream>> 
 }
 
 /// Connect to a plain WebSocket (8080) with the MQTT sub-protocol header.
-async fn connect_ws() -> anyhow::Result<WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>> {
+pub(crate) async fn connect_ws(
+) -> anyhow::Result<WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>> {
     connect_ws_inner(WS_ADDR, false).await
 }
 
@@ -130,17 +131,27 @@ async fn connect_ws_inner(
 
 /// Wraps a `WebSocketStream` and exposes it as a byte stream: incoming Binary
 /// messages feed `AsyncRead`, outgoing writes become Binary messages.
-struct WsStream<S> {
+///
+/// NOTE: this is a *copy* of `rmqtt_net::ws::WsStream`, including its read-loop
+/// rules: control frames and empty data frames are consumed here, because
+/// reporting a zero-byte read means EOF to `Framed`. Issue #551 is what the
+/// missing rules looked like from the outside; keep this copy in sync with the
+/// production adapter (the `issue551_ws_frames` suite drives raw frames instead
+/// of this adapter, so it does not depend on the copy being right).
+pub(crate) struct WsStream<S> {
     inner: WebSocketStream<S>,
     cached_data: Option<Bytes>,
     idx: usize,
 }
 
 impl<S> WsStream<S> {
-    fn new(inner: WebSocketStream<S>) -> Self {
+    pub(crate) fn new(inner: WebSocketStream<S>) -> Self {
         Self { inner, cached_data: None, idx: 0 }
     }
 }
+
+/// Mirror of `rmqtt_net::ws::MAX_SKIPPED_FRAMES`.
+const MAX_SKIPPED_FRAMES: usize = 64;
 
 impl<S> AsyncRead for WsStream<S>
 where
@@ -151,38 +162,56 @@ where
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        if let Some(cached_data) = &self.cached_data {
-            let cached_buf = &cached_data[self.idx..];
-            let remaining = buf.remaining();
-            if cached_buf.len() <= remaining {
-                buf.put_slice(cached_buf);
-                self.idx = 0;
-                self.cached_data = None;
-            } else {
-                let cached_buf = &cached_buf[0..remaining];
-                buf.put_slice(cached_buf);
-                self.idx += cached_buf.len();
-            }
+        if buf.remaining() == 0 {
             return Poll::Ready(Ok(()));
         }
 
-        match ready!(Pin::new(&mut self.inner).poll_next(cx)) {
-            Some(Ok(msg)) => {
-                let data = msg.into_data();
+        for _ in 0..MAX_SKIPPED_FRAMES {
+            if let Some(cached_data) = &self.cached_data {
+                let cached_buf = &cached_data[self.idx..];
                 let remaining = buf.remaining();
-                if data.len() <= remaining {
-                    buf.put_slice(data.as_ref());
-                } else {
-                    let cached_buf = &data[0..remaining];
+                if cached_buf.len() <= remaining {
                     buf.put_slice(cached_buf);
-                    self.idx = cached_buf.len();
-                    self.cached_data = Some(data);
+                    self.idx = 0;
+                    self.cached_data = None;
+                } else {
+                    let cached_buf = &cached_buf[0..remaining];
+                    buf.put_slice(cached_buf);
+                    self.idx += cached_buf.len();
                 }
-                Poll::Ready(Ok(()))
+                return Poll::Ready(Ok(()));
             }
-            Some(Err(e)) => Poll::Ready(Err(io::Error::other(e.to_string()))),
-            None => Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof))),
+
+            match ready!(Pin::new(&mut self.inner).poll_next(cx)) {
+                Some(Ok(msg)) => {
+                    if msg.is_close() {
+                        return Poll::Ready(Ok(()));
+                    }
+                    if msg.is_ping() || msg.is_pong() {
+                        continue;
+                    }
+                    let data = msg.into_data();
+                    if data.is_empty() {
+                        continue;
+                    }
+                    let remaining = buf.remaining();
+                    if data.len() <= remaining {
+                        buf.put_slice(data.as_ref());
+                    } else {
+                        let cached_buf = &data[0..remaining];
+                        buf.put_slice(cached_buf);
+                        self.idx = cached_buf.len();
+                        self.cached_data = Some(data);
+                    }
+                    return Poll::Ready(Ok(()));
+                }
+                Some(Err(e)) => return Poll::Ready(Err(io::Error::other(e.to_string()))),
+                None => return Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof))),
+            }
         }
+
+        cx.waker().wake_by_ref();
+        Poll::Pending
     }
 }
 
@@ -195,6 +224,9 @@ where
         _cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, io::Error>> {
+        if buf.is_empty() {
+            return Poll::Ready(Ok(0));
+        }
         if let Err(e) = Pin::new(&mut self.inner).start_send(Message::Binary(buf.to_vec().into())) {
             return Poll::Ready(Err(io::Error::other(e.to_string())));
         }
@@ -328,7 +360,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> MqttOverTransport<S> {
 // Self-managed broker
 // ---------------------------------------------------------------------------
 
-fn spawn_transport_broker() -> Result<(ClusterNode, PathBuf), anyhow::Error> {
+pub(crate) fn spawn_transport_broker() -> Result<(ClusterNode, PathBuf), anyhow::Error> {
     let binary = rmqttd_binary();
     if !binary.exists() {
         return Err(anyhow::anyhow!(

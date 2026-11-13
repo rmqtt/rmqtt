@@ -946,10 +946,20 @@ fn build_issue547_suite() -> TestSuite {
 
 /// Standalone transport suite: the G27 TLS / WebSocket cases live here (not
 /// in functional_v311) so they can be run alone without the ~100 other v311
-/// cases, and the SPIFFE-username mTLS cases join them (issue #535):
+/// cases, the SPIFFE-username mTLS cases join them (issue #535), and the
+/// WebSocket frame-boundary cases (issue #551) share the same self-managed
+/// `configs/transport-tls` broker:
 ///
 ///     ./target/release/mqtt_harness --workspace . --suites functional_transport
+///
+/// The #551 cases write raw WebSocket frames — an empty Binary, an empty Ping,
+/// a Ping whose payload is a `C0 00` PINGREQ, and a CONNECT split over two
+/// frames with an empty frame in between — which is why they talk to the broker
+/// through a raw `WebSocketStream` instead of the `WsStream` byte adapter:
+/// before the fix each of them ended the session (or spliced a control-frame
+/// payload into the MQTT stream), so they are now the guard for that read loop.
 fn build_transport_suite() -> TestSuite {
+    use tests::functional::issue551_ws_frames::*;
     use tests::functional::transport_tls::*;
     use tests::functional::transport_tls_spiffe::*;
 
@@ -961,6 +971,14 @@ fn build_transport_suite() -> TestSuite {
     suite.add(TransportTlsSpiffeV311Test);
     suite.add(TransportTlsSpiffeV5Test);
     suite.add(TransportTlsSpiffeFallbackV311Test);
+    // Frame boundaries (issue #551): the reported reproduction (paho.golang),
+    // the same path via an empty WS keepalive Ping, a control frame whose
+    // payload must not reach the decoder, and an empty frame between the
+    // fragments of one packet.
+    suite.add(Issue551WsEmptyFrameTest);
+    suite.add(Issue551WsEmptyPingTest);
+    suite.add(Issue551WsPingPayloadTest);
+    suite.add(Issue551WsSplitWithEmptyFrameTest);
     suite
 }
 
