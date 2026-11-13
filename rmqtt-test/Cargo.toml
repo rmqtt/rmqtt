@@ -46,3 +46,10 @@ socket2 = { workspace = true }
 # producer/consumer as independent observers. Same pinned version as the
 # rmqtt-bridge-{egress,ingress}-pulsar plugins.
 pulsar = "=6.9.0"
+# Issue #547 (`--suites issue547`): drives the *production* circuit-breaker
+# stack in-process, so the cases must build the very same Tower layer rmqtt's
+# `GrpcClient` builds (`rmqtt/src/grpc.rs`, `build_circuit_breaker_layer`) and
+# read the shipped defaults from `rmqtt-conf` to prove the shapes still match.
+tower = { workspace = true }
+tower-resilience-circuitbreaker = { workspace = true }
+rmqtt-conf = { workspace = true }

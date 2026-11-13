@@ -48,7 +48,7 @@ struct Opt {
 
     /// Run only specific test suites (functional_v3, functional_v311, functional_v5,
     /// functional_v5_cluster, functional_transport, bridge_egress_mqtt, delayed,
-    /// pulsar, stress, chaos)
+    /// pulsar, stress, chaos, issue547)
     #[arg(short, long)]
     suites: Vec<String>,
 
@@ -295,6 +295,15 @@ fn build_suites(opt: &Opt) -> Vec<TestSuite> {
         suites.push(build_bridge_config_reject_suite());
     }
 
+    // Circuit-breaker window cost (issue #547). These cases need neither a
+    // broker nor a port: they drive the production Tower layer in-process and
+    // time it, so they are kept out of the default full run — a timing case
+    // must not share the machine with the functional suites' workers. Request
+    // it with `--suites issue547` and, ideally, `--no-broker --workers 1`.
+    if should_run("issue547", opt) {
+        suites.push(build_issue547_suite());
+    }
+
     suites
 }
 
@@ -302,10 +311,11 @@ fn build_suites(opt: &Opt) -> Vec<TestSuite> {
 ///
 /// - Empty `--suites` = default full run, which excludes the two-node
 ///   `functional_v5_cluster` suite (it manages its own nodes and needs
-///   `--no-broker`), the `pulsar` suite (external Pulsar service) and the
+///   `--no-broker`), the `pulsar` suite (external Pulsar service), the
 ///   standalone `bridge_egress_mqtt` / `bridge_config_reject` suites (they bind
 ///   their own MQTT/gRPC ports, run mock peers in-process, and spawn their own
-///   brokers).
+///   brokers) and `issue547` (in-process timing measurements, which must not
+///   share the machine with the functional suites' workers).
 /// - Otherwise a suite is selected when a selector equals its name, is a
 ///   prefix (`functional_v5` also selects `functional_v5@retain-disabled`),
 ///   or is a sub-suite name of it (`functional_v5@retain-disabled` also
@@ -319,7 +329,8 @@ fn should_run(name: &str, opt: &Opt) -> bool {
         return name != "functional_v5_cluster"
             && name != "pulsar"
             && name != "bridge_egress_mqtt"
-            && name != "bridge_config_reject";
+            && name != "bridge_config_reject"
+            && name != "issue547";
     }
     opt.suites
         .iter()
@@ -887,6 +898,48 @@ fn build_bridge_config_reject_suite() -> TestSuite {
     // Runtime half on the MQTT 3.1.1 path: a subscription the peer refuses must
     // be attributable and must not be retried forever.
     suite.add(Issue540IngressV311SubscribeRefusedTest);
+
+    suite
+}
+
+/// Circuit-breaker window-cost suite (issue #547) — run in isolation with
+/// `--suites issue547`.
+///
+/// The cases build the same Tower layer `GrpcClient::new` builds (see
+/// `build_circuit_breaker_layer`, rmqtt/src/grpc.rs) around a service with the
+/// same shape as `GrpcNotifyService`, and time it. They need **no broker and no
+/// port**, so the fast path is
+///
+///     ./target/debug/mqtt_harness --workspace . --no-broker --suites issue547 --workers 1
+///
+/// Four cases, one arm each, so the report reads as an A/B: both window types
+/// get the SAME load shape, and only the window type differs —
+///
+/// * `TimeBased` (the shipped default) reproduces the defect; declared
+///   `Normal`, so it FAILS today — that is the reporter's 12 500 msg/s cluster
+///   backlog and OOM — and turns green once the breaker stops rescanning its
+///   window on every call.
+/// * `CountBased` is the positive control (`-t issue547_countbased`) and must
+///   stay green; a red control means the harness, the dependency or the machine
+///   changed, which is itself the signal.
+///
+/// The suite is excluded from the default full run on purpose: these are
+/// *ratios measured inside one run*, and a machine also running the functional
+/// suites' parallel workers would blur them.
+fn build_issue547_suite() -> TestSuite {
+    use tests::functional::issue547_circuit_breaker_window::*;
+
+    let mut suite = TestSuite::new("issue547");
+
+    // Sequential: per-call cost must not grow with the records in the window.
+    suite.add(Issue547TimeBasedWindowScanCostTest);
+    // ...and the control that proves the growth belongs to the window type.
+    suite.add(Issue547CountBasedWindowScanCostTest);
+    // Concurrent: throughput must not decay as the window fills (the incident's
+    // signature — the scheme caps itself at ~1/sqrt(a * window)).
+    suite.add(Issue547TimeBasedConcurrentCeilingTest);
+    // ...and the control that proves the load generator can sustain the rate.
+    suite.add(Issue547CountBasedConcurrentCeilingTest);
 
     suite
 }

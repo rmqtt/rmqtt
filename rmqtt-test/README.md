@@ -93,7 +93,12 @@ kept enabled for the upcoming TLS/WS/QUIC test suites).
 > `--suites` supports prefix matching: `functional_v5` also selects every
 > config-split sub-suite (e.g. `functional_v5@retain-disabled`). The
 > `functional_v5_cluster` two-node suite only runs when explicitly requested
-> and is never part of the default full run.
+> and is never part of the default full run. The same holds for the in-process
+> timing suite `issue547`, which needs no broker at all:
+>
+> ```bash
+> ./target/release/mqtt_harness --workspace . --no-broker --suites issue547 --workers 1
+> ```
 
 ### Running Specific Test Cases
 
@@ -469,6 +474,50 @@ Cluster stress tests are self-managed processes registered in the main
 controlled by `STRESS_SESSIONS` / `STRESS_MSGS_PER_SESSION` in
 `src/tests/functional/session_restart_stress.rs`. Design & defect analysis:
 [`designs/issue-475-restored-session-routing-fix.md`](../designs/issue-475-restored-session-routing-fix.md).
+
+### `issue547` (4 cases) — circuit-breaker window cost on the cluster forward path
+
+Issue #547 reports a three-node raft cluster that cannot finish 7.5 M messages
+at 12 500 msg/s (QoS 2, 150 KiB) under the default circuit breaker: the rate
+decays, the backlog grows, a broker OOMs at 32 GiB. Switching only
+`circuit_breaker.sliding_window_type` to `"CountBased"` makes the same load
+pass. The cause is in `tower-resilience-circuitbreaker 0.10.1` (still present
+in 0.14): the `TimeBased` window keeps one `CallRecord` per call in the last
+45 s — `sliding_window_size` is **not** a cap — and every call rescans all of
+them under the circuit mutex.
+
+Both window types get the **same** load shape and one case each, so the report
+reads as an A/B. The `TimeBased` pair reproduces the defect (red until fixed);
+the `CountBased` pair is the positive control and must stay green.
+
+| Case | Arm | Load | Assertion |
+|------|-----|------|-----------|
+| `issue547_timebased_window_scan_cost` | TimeBased 45 s | sequential, warm-up + 10 k → 135 k records | cross-arm cost at that occupancy must stay < 20× (secondary: growth < 5×) — **FAILS today** |
+| `issue547_countbased_window_scan_cost` | CountBased 20 | same sequential shape | per-call cost must not grow > 2× — control, passes |
+| `issue547_timebased_concurrent_ceiling` | TimeBased 45 s | 16 callers, 20 s | throughput must stay ≥ 0.5× of the early rate — **FAILS today** |
+| `issue547_countbased_concurrent_ceiling` | CountBased 20 | 16 callers, 5 s | throughput must stay ≥ 0.6× of the early rate — control, passes |
+
+All four build the **production** Tower layer (same fields as
+`build_circuit_breaker_layer`, `rmqtt/src/grpc.rs`) around a `GrpcNotifyService`
+look-alike, need no broker and no port, and assert **ratios inside one run** so
+a slow machine cannot flip the verdict. Each `TimeBased` case additionally
+measures a tiny `CountBased` reference block and reports the **cross-arm ratio**
+at the same occupancy (ceiling 20×; measured 157 – 464×) — the one number a
+machine that slowed down mid-run cannot distort, and the reason a machine
+hiccup is reported as an `Error` (via a 5 µs/call noise floor on the reference)
+instead of as a reproduction.
+
+```bash
+# Both windows; debug ~85 s, release ~35 s. No broker, no ports.
+./target/debug/mqtt_harness --workspace . --no-broker --suites issue547 --workers 1
+
+# Just the reproducing pair / just the controls
+./target/debug/mqtt_harness --workspace . --no-broker --suites issue547 -t issue547_timebased --workers 1
+./target/debug/mqtt_harness --workspace . --no-broker --suites issue547 -t issue547_countbased --workers 1
+```
+
+Never part of the default full run: a timing measurement must not share the
+machine with the functional suites' workers.
 
 ## 🏗 Project Structure
 
