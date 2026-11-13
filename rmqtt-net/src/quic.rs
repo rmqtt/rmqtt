@@ -4,7 +4,7 @@
 //! that implements [`AsyncRead`] and [`AsyncWrite`], allowing it to be used as a uniform
 //! I/O transport for MQTT connections.
 
-use quinn::{RecvStream, SendStream};
+use quinn::{Connection, RecvStream, SendStream};
 use std::{
     pin::Pin,
     task::{Context, Poll},
@@ -19,13 +19,26 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 pub struct QuinnBiStream {
     send: SendStream,
     recv: RecvStream,
+    conn: Option<Connection>,
 }
 
 impl QuinnBiStream {
     /// Creates a new `QuinnBiStream` from Quinn send and receive stream halves
     #[allow(dead_code)]
     pub fn new(send: SendStream, recv: RecvStream) -> Self {
-        Self { send, recv }
+        Self { send, recv, conn: None }
+    }
+
+    /// Attaches the QUIC connection the stream belongs to, making the peer's
+    /// TLS identity (client certificate) available to the stream.
+    pub fn with_connection(mut self, conn: Connection) -> Self {
+        self.conn = Some(conn);
+        self
+    }
+
+    /// Returns the QUIC connection this stream belongs to, if attached
+    pub fn connection(&self) -> Option<&Connection> {
+        self.conn.as_ref()
     }
 }
 

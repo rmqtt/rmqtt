@@ -863,7 +863,7 @@ impl Listener {
             let remote_addr = conn.remote_address();
 
             let (send, recv) = conn.accept_bi().await?;
-            let socket = QuinnBiStream::new(send, recv);
+            let socket = QuinnBiStream::new(send, recv).with_connection(conn);
 
             Ok(Acceptor {
                 socket,
@@ -1007,11 +1007,23 @@ where
 
     #[cfg(feature = "quic")]
     #[inline]
-    pub async fn quic(self) -> Result<Dispatcher<S>> {
+    pub async fn quic(self) -> Result<Dispatcher<S>>
+    where
+        S: TlsCertExtractor,
+    {
         if !matches!(self.typ, ListenerType::QUIC) {
             return Err(anyhow!("Protocol mismatch: Expected QUIC listener"));
         }
-        Ok(Dispatcher::new(self.socket, self.remote_addr, None, self.cfg))
+
+        let cert_info = Self::get_extract_cert_info(
+            &self.socket,
+            self.cfg.cert_cn_as_username,
+            self.cfg.cert_subject_dn_as_username,
+            self.cfg.cert_spiffe_as_username,
+            self.cfg.collect_cert_info,
+        );
+
+        Ok(Dispatcher::new(self.socket, self.remote_addr, cert_info, self.cfg))
     }
 
     #[inline]
