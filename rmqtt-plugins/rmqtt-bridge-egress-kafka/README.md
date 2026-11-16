@@ -69,6 +69,23 @@ Additional librdkafka producer properties. See [librdkafka Configuration](https:
 | `message.timeout.ms` | String | `5000` | Message timeout in milliseconds |
 | Any other librdkafka property | String | - | See librdkafka configuration documentation |
 
+### TLS, mTLS and SASL
+
+Linux builds link librdkafka against OpenSSL, so TLS-only brokers (Aiven, Confluent Cloud, MSK, Redpanda Cloud) work through `[bridges.properties]`:
+
+```toml
+[bridges.properties]
+"security.protocol" = "ssl"                                     # or "sasl_ssl"
+"ssl.ca.location" = "/etc/rmqtt/kafka/ca.pem"
+"ssl.certificate.location" = "/etc/rmqtt/kafka/service.cert"   # mTLS
+"ssl.key.location" = "/etc/rmqtt/kafka/service.key"            # mTLS
+#"sasl.mechanism" = "SCRAM-SHA-256"   # PLAIN, SCRAM-SHA-256/512, OAUTHBEARER
+#"sasl.username" = "user"
+#"sasl.password" = "secret"
+```
+
+Use `ssl.ca.location = "probe"` for brokers with a public CA.
+
 ### Bridge Entry (`[[bridges.entries]]`)
 
 Each bridge entry defines a topic forwarding rule.
