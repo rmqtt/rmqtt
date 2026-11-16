@@ -22,32 +22,45 @@ where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
     fn extract_cert_info(&self) -> Option<CertInfo> {
-        use x509_parser::parse_x509_certificate;
-
         let (_, session) = self.get_ref();
         let certs = session.peer_certificates()?;
-        let cert = certs.first()?;
-
-        let (_, parsed) = parse_x509_certificate(cert.as_ref()).ok()?;
-
-        let common_name =
-            parsed.subject().iter_common_name().next().and_then(|cn| cn.as_str().ok()).map(|s| s.to_string());
-
-        let organization = parsed
-            .subject()
-            .iter_organization()
-            .next()
-            .and_then(|org| org.as_str().ok())
-            .map(|s| s.to_string());
-
-        let subject = parsed.subject().to_string();
-
-        let serial = parsed.serial.to_str_radix(16);
-
-        let spiffe_id = extract_spiffe_id(&parsed);
-
-        Some(CertInfo { common_name, subject, serial: Some(serial), organization, spiffe_id })
+        cert_info_from_der(certs.first()?.as_ref())
     }
+}
+
+// Implementation for QUIC streams: the peer certificate chain is exposed by
+// the underlying QUIC connection's TLS session.
+#[cfg(feature = "quic")]
+impl TlsCertExtractor for crate::quic::QuinnBiStream {
+    fn extract_cert_info(&self) -> Option<CertInfo> {
+        use crate::rustls::pki_types::CertificateDer;
+
+        let identity = self.connection()?.peer_identity()?;
+        let certs = identity.downcast::<Vec<CertificateDer<'static>>>().ok()?;
+        cert_info_from_der(certs.first()?.as_ref())
+    }
+}
+
+/// Parses a DER-encoded end-entity certificate into [`CertInfo`].
+#[cfg(feature = "tls")]
+fn cert_info_from_der(der: &[u8]) -> Option<CertInfo> {
+    use x509_parser::parse_x509_certificate;
+
+    let (_, parsed) = parse_x509_certificate(der).ok()?;
+
+    let common_name =
+        parsed.subject().iter_common_name().next().and_then(|cn| cn.as_str().ok()).map(|s| s.to_string());
+
+    let organization =
+        parsed.subject().iter_organization().next().and_then(|org| org.as_str().ok()).map(|s| s.to_string());
+
+    let subject = parsed.subject().to_string();
+
+    let serial = parsed.serial.to_str_radix(16);
+
+    let spiffe_id = extract_spiffe_id(&parsed);
+
+    Some(CertInfo { common_name, subject, serial: Some(serial), organization, spiffe_id })
 }
 
 /// Extracts the SPIFFE ID from the certificate's SAN extension.
