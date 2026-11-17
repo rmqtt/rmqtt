@@ -60,7 +60,7 @@ use rustls::crypto::aws_lc_rs as provider;
 #[cfg(target_os = "windows")]
 use rustls::crypto::ring as provider;
 #[cfg(feature = "tls")]
-use rustls::pki_types::CertificateDer;
+use rustls::pki_types::{CertificateDer, CertificateRevocationListDer};
 #[cfg(feature = "tls")]
 use rustls::{pki_types::pem::PemObject, server::WebPkiClientVerifier, RootCertStore, ServerConfig};
 use socket2::{Domain, SockAddr, Socket, Type};
@@ -151,6 +151,19 @@ pub struct Builder {
     pub tls_key: Option<String>,
     /// Path to TLS client ca certs
     pub tls_client_ca_certs: Option<String>,
+    /// Path to a file of Certificate Revocation Lists (one or more PEM
+    /// `X509 CRL` blocks, or a single DER CRL) checked against client
+    /// certificates. Only takes effect with `tls_cross_certificate`.
+    pub tls_crl: Option<String>,
+    /// Check revocation of the client (end-entity) certificate only, not of
+    /// the intermediate CAs in its chain.
+    pub tls_crl_end_entity_only: bool,
+    /// Accept a certificate whose revocation status cannot be determined
+    /// because no configured CRL was issued by its issuer.
+    pub tls_crl_allow_unknown_status: bool,
+    /// Reject client certificates when the applicable CRL is past its
+    /// `nextUpdate` time.
+    pub tls_crl_enforce_expiration: bool,
     /// Enable Proxy Protocol
     pub proxy_protocol: bool,
     /// Proxy Protocol timeout
@@ -299,6 +312,10 @@ impl Builder {
             tls_cert: None,
             tls_key: None,
             tls_client_ca_certs: None,
+            tls_crl: None,
+            tls_crl_end_entity_only: false,
+            tls_crl_allow_unknown_status: false,
+            tls_crl_enforce_expiration: false,
             proxy_protocol: false,
             proxy_protocol_timeout: Duration::from_secs(5),
 
@@ -519,6 +536,31 @@ impl Builder {
         self
     }
 
+    /// Sets path to the Certificate Revocation List file used to check
+    /// client certificates (requires `tls_cross_certificate`)
+    pub fn tls_crl<N: Into<String>>(mut self, tls_crl: Option<N>) -> Self {
+        self.tls_crl = tls_crl.map(|c| c.into());
+        self
+    }
+
+    /// Only checks revocation of the client (end-entity) certificate
+    pub fn tls_crl_end_entity_only(mut self, v: bool) -> Self {
+        self.tls_crl_end_entity_only = v;
+        self
+    }
+
+    /// Accepts certificates whose revocation status cannot be determined
+    pub fn tls_crl_allow_unknown_status(mut self, v: bool) -> Self {
+        self.tls_crl_allow_unknown_status = v;
+        self
+    }
+
+    /// Rejects client certificates when the applicable CRL has expired
+    pub fn tls_crl_enforce_expiration(mut self, v: bool) -> Self {
+        self.tls_crl_enforce_expiration = v;
+        self
+    }
+
     /// Configures using the TLS certificate CN field as the MQTT username
     pub fn cert_cn_as_username(mut self, cert_cn_as_username: bool) -> Self {
         self.cert_cn_as_username = cert_cn_as_username;
@@ -655,10 +697,37 @@ impl Builder {
             for root in client_ca_certs {
                 client_auth_roots.add(root).map_err(|e| anyhow!(e))?;
             }
-            WebPkiClientVerifier::builder_with_provider(client_auth_roots.into(), provider.clone())
-                .build()
-                .map_err(|e| anyhow!(e))?
+            let mut verifier =
+                WebPkiClientVerifier::builder_with_provider(client_auth_roots.into(), provider.clone());
+            if let Some(crl_file) = self.tls_crl.as_ref() {
+                let crls = read_crls(crl_file)
+                    .with_context(|| format!("Failed to read TLS certificate revocation list {crl_file}"))?;
+                log::info!(
+                    "{} loaded {} certificate revocation list(s) from {}",
+                    self.name,
+                    crls.len(),
+                    crl_file
+                );
+                verifier = verifier.with_crls(crls);
+                if self.tls_crl_end_entity_only {
+                    verifier = verifier.only_check_end_entity_revocation();
+                }
+                if self.tls_crl_allow_unknown_status {
+                    verifier = verifier.allow_unknown_revocation_status();
+                }
+                if self.tls_crl_enforce_expiration {
+                    verifier = verifier.enforce_revocation_expiration();
+                }
+            }
+            verifier.build().map_err(|e| anyhow!(e))?
         } else {
+            if let Some(crl_file) = self.tls_crl.as_ref() {
+                log::warn!(
+                    "{} has a certificate revocation list configured ({crl_file}) but cross_certificate \
+                     is disabled; client certificates are not requested, so the CRL is ignored",
+                    self.name
+                );
+            }
             WebPkiClientVerifier::no_client_auth()
         };
 
@@ -1173,4 +1242,27 @@ fn read_ca_certs(cert_file: &str) -> Result<Vec<CertificateDer<'static>>> {
         .map_err(|e| anyhow!(e))?
         .collect::<std::result::Result<Vec<_>, _>>()
         .map_err(|e| anyhow!(e))
+}
+
+/// Reads Certificate Revocation Lists from `crl_file`: every PEM `X509 CRL`
+/// block it contains, or, when it holds no PEM block, the whole file as one
+/// DER-encoded CRL. The contents are parsed by
+/// `WebPkiClientVerifierBuilder::build`, so a malformed CRL fails the
+/// listener at startup rather than at handshake time.
+#[cfg(feature = "tls")]
+fn read_crls(crl_file: &str) -> Result<Vec<CertificateRevocationListDer<'static>>> {
+    let data = std::fs::read(crl_file).map_err(|e| anyhow!(e))?;
+    let pem = CertificateRevocationListDer::pem_slice_iter(&data)
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| anyhow!(e))?;
+    if !pem.is_empty() {
+        return Ok(pem);
+    }
+    if data.first() != Some(&0x30) {
+        // Neither PEM nor a DER SEQUENCE: most likely a PEM file with the
+        // wrong label (e.g. a certificate), which deserves a clearer error
+        // than the DER parser's.
+        return Err(anyhow!("no PEM \"X509 CRL\" block found and the file is not DER-encoded"));
+    }
+    Ok(vec![CertificateRevocationListDer::from(data)])
 }

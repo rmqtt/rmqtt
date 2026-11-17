@@ -87,6 +87,7 @@ pub mod tcp_keepalive;
 pub mod topic_alias_v5;
 pub mod topic_rewrite;
 pub mod transport_tls;
+pub mod transport_tls_crl;
 pub mod transport_tls_spiffe;
 pub mod user_properties_v5;
 pub mod webhook_connack_refused_v311;

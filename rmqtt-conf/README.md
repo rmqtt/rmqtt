@@ -141,6 +141,10 @@ Fields via `Deref<Target = ListenerInner>`:
 | `cert` | `Option<String>` | `None` | TLS cert file path |
 | `key` | `Option<String>` | `None` | TLS key file path |
 | `client_ca_certs` | `Option<String>` | `None` | Client CA cert file |
+| `crl` | `Option<String>` | `None` | Certificate Revocation List file (PEM, one or more `X509 CRL` blocks, or one DER CRL) checked against client certificates; requires `cross_certificate` |
+| `crl_end_entity_only` | `bool` | `false` | Only check the client (end-entity) certificate, not intermediate CAs |
+| `crl_allow_unknown_status` | `bool` | `false` | Accept certificates whose issuer has no configured CRL |
+| `crl_enforce_expiration` | `bool` | `false` | Reject client certificates when the applicable CRL is past `nextUpdate` |
 | `limit_subscription` | `bool` | `false` | Enable subscription limit |
 | `proxy_protocol` | `bool` | `false` | Enable PROXY protocol v1/v2 |
 | `proxy_protocol_timeout` | `Duration` | `5s` | PROXY header read timeout |
