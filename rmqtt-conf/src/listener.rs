@@ -304,6 +304,22 @@ pub struct ListenerInner {
     pub cert: Option<String>,
     pub key: Option<String>,
     pub client_ca_certs: Option<String>,
+    /// Certificate Revocation List file (PEM, one or more `X509 CRL` blocks,
+    /// or a single DER CRL) checked against client certificates when
+    /// `cross_certificate` is enabled.
+    pub crl: Option<String>,
+    /// Only check the revocation status of the client (end-entity)
+    /// certificate, not of the intermediate CAs in its chain.
+    #[serde(default)]
+    pub crl_end_entity_only: bool,
+    /// Accept certificates whose revocation status is unknown (no configured
+    /// CRL was issued by their issuer) instead of rejecting them.
+    #[serde(default)]
+    pub crl_allow_unknown_status: bool,
+    /// Reject client certificates when the applicable CRL is past its
+    /// `nextUpdate` time.
+    #[serde(default)]
+    pub crl_enforce_expiration: bool,
 
     #[serde(default)]
     pub limit_subscription: bool,
@@ -369,6 +385,10 @@ impl Default for ListenerInner {
             cert: None,
             key: None,
             client_ca_certs: None,
+            crl: None,
+            crl_end_entity_only: false,
+            crl_allow_unknown_status: false,
+            crl_enforce_expiration: false,
             limit_subscription: false,
             proxy_protocol: false,
             proxy_protocol_timeout: ListenerInner::proxy_protocol_timeout_default(),

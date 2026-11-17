@@ -329,6 +329,21 @@ listener.tls.external.key = "./rmqtt-bin/rmqtt.key"
 #listener.tls.external.key = "./rmqtt-bin/rmqtt.key"
 #listener.tls.external.client_ca_certs = "./rmqtt-bin/rmqtt.fullchain.pem"
 
+#Certificate revocation (requires cross_certificate = true). Client certificates
+#listed in the CRL(s) are rejected during the TLS handshake. The file holds one or
+#more PEM "X509 CRL" blocks (concatenate the CRLs of several CAs), or a single DER CRL.
+#It is read when the listener starts; restart the broker to pick up a new CRL.
+#listener.tls.external.crl = "./rmqtt-bin/rmqtt.crl.pem"
+#By default every certificate in the client chain is checked, and a certificate whose
+#issuer has no CRL in the file is rejected (unknown revocation status). So when CRLs
+#are enabled, include a CRL from every CA in client_ca_certs and every intermediate CA.
+#Only check the client (end-entity) certificate, not intermediate CAs, default value: false
+#listener.tls.external.crl_end_entity_only = false
+#Accept certificates whose revocation status is unknown, default value: false
+#listener.tls.external.crl_allow_unknown_status = false
+#Reject client certificates when the applicable CRL is past its nextUpdate time, default value: false
+#listener.tls.external.crl_enforce_expiration = false
+
 ##--------------------------------------------------------------------
 ## MQTT/WebSocket - External WebSocket Listener for MQTT Protocol
 listener.ws.external.addr = "0.0.0.0:8080"
@@ -342,6 +357,7 @@ listener.wss.external.key = "./rmqtt-bin/rmqtt.key"
 #listener.wss.external.cross_certificate = true
 #listener.wss.external.cert = "./rmqtt-bin/rmqtt.fullchain.pem"
 #listener.wss.external.key = "./rmqtt-bin/rmqtt.key"
+#listener.wss.external.crl = "./rmqtt-bin/rmqtt.crl.pem"
 
 ##--------------------------------------------------------------------
 ## MQTT/QUIC - External QUIC Listener for MQTT Protocol, (TLSv1.3)
@@ -361,3 +377,4 @@ listener.quic.external.key = "./rmqtt-bin/rmqtt.key"
 #listener.quic.external.cross_certificate = true
 #listener.quic.external.cert = "./rmqtt-bin/rmqtt.fullchain.pem"
 #listener.quic.external.key = "./rmqtt-bin/rmqtt.key"
+#listener.quic.external.crl = "./rmqtt-bin/rmqtt.crl.pem"

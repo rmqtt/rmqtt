@@ -70,6 +70,10 @@ All fields have `pub` visibility and fluent setter methods:
 | `.tls_cert(s)` | `Option<impl Into<String>>` | `None` |
 | `.tls_key(s)` | `Option<impl Into<String>>` | `None` |
 | `.tls_client_ca_certs(s)` | `Option<impl Into<String>>` | `None` |
+| `.tls_crl(s)` | `Option<impl Into<String>>` | `None` |
+| `.tls_crl_end_entity_only(v)` | `bool` | `false` |
+| `.tls_crl_allow_unknown_status(v)` | `bool` | `false` |
+| `.tls_crl_enforce_expiration(v)` | `bool` | `false` |
 | `.cert_cn_as_username(v)` | `bool` | `false` |
 | `.cert_subject_dn_as_username(v)` | `bool` | `false` |
 | `.cert_spiffe_as_username(v)` | `bool` | `false` |
