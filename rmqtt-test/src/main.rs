@@ -946,7 +946,8 @@ fn build_issue547_suite() -> TestSuite {
 
 /// Standalone transport suite: the G27 TLS / WebSocket cases live here (not
 /// in functional_v311) so they can be run alone without the ~100 other v311
-/// cases, the SPIFFE-username mTLS cases join them (issue #535), and the
+/// cases, the SPIFFE-username mTLS cases join them (issue #535), the
+/// client-certificate-over-QUIC case joins them (PR #555), and the
 /// WebSocket frame-boundary cases (issue #551) share the same self-managed
 /// `configs/transport-tls` broker:
 ///
@@ -960,6 +961,7 @@ fn build_issue547_suite() -> TestSuite {
 /// payload into the MQTT stream), so they are now the guard for that read loop.
 fn build_transport_suite() -> TestSuite {
     use tests::functional::issue551_ws_frames::*;
+    use tests::functional::transport_quic_cert::*;
     use tests::functional::transport_tls::*;
     use tests::functional::transport_tls_spiffe::*;
 
@@ -971,6 +973,10 @@ fn build_transport_suite() -> TestSuite {
     suite.add(TransportTlsSpiffeV311Test);
     suite.add(TransportTlsSpiffeV5Test);
     suite.add(TransportTlsSpiffeFallbackV311Test);
+    // QUIC client-certificate binding (PR #555): the certificate must override
+    // the username the CONNECT claims, exactly as on TLS. Red on a broker whose
+    // QUIC dispatcher is built without the certificate, green after the fix.
+    suite.add(TransportQuicCertSpiffeV311Test);
     // Frame boundaries (issue #551): the reported reproduction (paho.golang),
     // the same path via an empty WS keepalive Ping, a control frame whose
     // payload must not reach the decoder, and an empty frame between the
