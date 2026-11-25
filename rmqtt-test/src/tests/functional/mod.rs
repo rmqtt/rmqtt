@@ -86,6 +86,7 @@ pub mod sys_topic;
 pub mod tcp_keepalive;
 pub mod topic_alias_v5;
 pub mod topic_rewrite;
+pub mod transport_quic_cert;
 pub mod transport_tls;
 pub mod transport_tls_spiffe;
 pub mod user_properties_v5;

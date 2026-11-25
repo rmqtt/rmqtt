@@ -40,6 +40,9 @@ tokio-tungstenite = { workspace = true, features = ["rustls-tls-webpki-roots"] }
 # cases (issue #535): each case mints its own CA and certs at runtime, so
 # the cases share nothing with each other or with the repo's test certs.
 rcgen = "0.13"
+# QUIC transport (PR #555): the case drives a real quinn client so the
+# listener's client-certificate extraction is exercised end to end.
+quinn = { workspace = true }
 # socket options for raw-socket tests (G32 RST)
 socket2 = { workspace = true }
 # Pulsar bridge suite (`--suites pulsar`): the tests embed their own
