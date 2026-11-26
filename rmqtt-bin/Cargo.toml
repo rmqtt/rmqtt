@@ -66,7 +66,13 @@ rmqtt-flapping.workspace = true
 #rmqtt-plugin-template = "0.1"
 
 [package.metadata.plugins]
-rmqtt-acl = { default_startup = true }
+# rmqtt-acl is registered as immutable on purpose. Authorization is only evaluated at
+# CONNECT / SUBSCRIBE / PUBLISH; the delivery path never checks ACL again, so a successful
+# `config/reload` would leave already-established (and session-storage-restored) subscriptions
+# in place and a revoked client would keep receiving messages. Runtime reload is therefore
+# rejected with `503 the plug-in is immutable`; changing ACL rules requires a restart plus
+# clearing the session store. See docs/en_US/acl.md -> "Changing ACL rules".
+rmqtt-acl = { default_startup = true, immutable = true }
 rmqtt-retainer = { }
 rmqtt-counter = { default_startup = true }
 rmqtt-auth-http = { }

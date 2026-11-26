@@ -21,10 +21,12 @@ plugins/rmqtt-acl.toml
 <div style="width:100%;padding:15px;border-left:10px solid #1cc68b;background-color: #d1e3dd; color: #00b173;">
 <div style="font-size:1.3em;">TIP<br></div>
 <font style="color:#435364;font-size:1.1em;">
-The built-in ACL has the lowest priority and can be overridden by the ACL plugin. If you want to disable it, you
-can comment on all the rules. After the rules file is changed, RMQTT Broker needs to be restarted to make them take
-effect. The plugin itself cannot be stopped through the plugin API (it is built in); to disable it entirely, list it
-in `plugins.disabled_default_startups`.
+The built-in ACL has the lowest priority and can be overridden by other ACL plugins. If you want to disable it, you
+can comment out all the rules. **Rule changes only take effect on the next node start: the plugin is registered as
+`immutable`, so a runtime `config/reload` is rejected with `503 the plug-in is immutable`.** See "Changing ACL rules"
+below for the complete procedure. The plugin itself cannot be stopped through the plugin API (it is built in); to
+disable it entirely, list it in `plugins.disabled_default_startups` (as an immutable plugin it can no longer be started
+through the API afterwards — change the configuration and restart instead).
 </font>
 </div>
 
@@ -167,12 +169,36 @@ Rule matching details:
 - `password` is only compared for `allow` rules. A `deny` rule matches by
   username only and ignores any configured `password`.
 
-After the `rmqtt-acl.toml` modification is completed, it will not be automatically loaded into the RMQTT Broker system,
-but needs to be performed manually:
+## Changing ACL rules
 
-```bash
-curl -X PUT "http://127.0.0.1:6060/api/v1/plugins/1/rmqtt-acl/config/reload"
-```
+`rmqtt-acl` is registered as an **immutable** plugin: `PUT /api/v1/plugins/{node}/rmqtt-acl/config/reload` returns
+`503 the plug-in is immutable`. This is deliberate. Authorization is evaluated only at **CONNECT / SUBSCRIBE /
+PUBLISH**; the **delivery path never checks the ACL again**, so a successful reload does not mean the revocation took
+effect:
+
+- Subscriptions that are already established are not revoked — the client keeps receiving messages.
+- With `rmqtt-session-storage` enabled, persisted subscriptions are re-registered into the routing table when the node
+  starts, and messages queued for the offline session are replayed when the client reconnects.
+
+Changing ACL rules (especially **tightening or revoking** a grant) must therefore follow this procedure, otherwise you
+end up with "looks revoked, still receiving":
+
+1. **Stop every node.** In a multi-node deployment do this node by node, and make sure all of them are stopped before
+   the next step — a running node writes the session state back.
+2. **Clear the session store** (`rmqtt-session-storage`). Commands and impact are documented in
+   [Store session information](store-session.md#clearing-the-session-store); skip if the plugin is not enabled.
+3. Edit `rmqtt-acl.toml`.
+4. **Start the nodes.** On reconnect each client re-issues SUBSCRIBE, which is evaluated against the new rules, and
+   unauthorized subscriptions are refused (SUBACK failure, `0x80` on v3.1.1).
+
+> **Cost**: clearing the session store drops offline messages, inflight messages and the `session_present` flag for
+> **all** clients, and clients must subscribe again. To revoke a single client instead, use
+> `DELETE /api/v1/clients/{clientid}` (**once per node** — it acts on the local node only): it disconnects the client
+> and clears its subscriptions. A `404` means the session is not on that node, in which case use the session-store
+> wipe.
+
+> **Note**: placeholder rules (`%u` / `%c`) are expanded from the client identity at CONNECT time, so they are also
+> rebuilt against the new rules only after a node restart.
 
 ## Will Messages
 

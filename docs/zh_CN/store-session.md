@@ -80,6 +80,36 @@ plugins.default_startups = [
 ]
 ```
 
+## 清空会话存储
+
+以下场景需要把**已持久化的会话信息全部清除**，确保节点启动后不会恢复旧的订阅关系：
+
+- 收紧或撤销 ACL 规则（见 [内置 ACL](acl.md#规则变更流程)）——持久会话的订阅会在节点启动时被重新注册进路由表，
+  不清除则撤销不会生效，离线期间的消息还会在重连时补发；
+- 需要让所有客户端回到“无会话”状态（`session_present = 0`）。
+
+**必须先停止节点，再清理**：节点运行期间会话状态会被持续写回，运行中清理无效。
+
+`sled`（默认引擎，每个节点一个目录，`{node}` 即 `node.id`，默认为 `1`）：
+
+```bash
+rm -rf /var/log/rmqtt/.cache/session/1
+```
+
+`redis` / `redis-cluster`（键名带 `storage.redis.prefix` / `storage.redis-cluster.prefix` 前缀）：
+
+```bash
+# 先抽样确认前缀与键名（前缀默认为 session-{node}，节点 1 即 session-1）
+redis-cli --scan --pattern 'session-1*' | head
+# 分批删除，避免长时间阻塞；不要使用 KEYS / FLUSHDB
+redis-cli --scan --pattern 'session-1*' | xargs -r -n 100 redis-cli UNLINK
+```
+
+> `storage.sled.path` 与 redis 前缀均可自定义，请以实际配置为准；多节点部署需对每个节点分别执行。
+
+清空后的影响：离线消息、飞行中消息、订阅关系与 `session_present` 全部丢失，客户端重连后处于全新会话状态，
+需要重新订阅。
+
 
 
 

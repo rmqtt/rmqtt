@@ -19,7 +19,7 @@ plugins/rmqtt-acl.toml
 <div style="width:100%;padding:15px;border-left:10px solid #1cc68b;background-color: #d1e3dd; color: #00b173;">
 <div style="font-size:1.3em;">提示<br></div>
 <font style="color:#435364;font-size:1.1em;">
-内置 ACL 优先级最低，可以被 其它ACL 插件覆盖，如需禁用全部注释即可。规则文件更改后需重启 RMQTT服务 以应用生效。插件本身无法通过插件 API 停止（内置插件）；如需整体禁用，请将其加入 `plugins.disabled_default_startups`。
+内置 ACL 优先级最低，可以被 其它ACL 插件覆盖，如需禁用全部注释即可。**规则变更只在下一次节点启动时生效：本插件被注册为不可变（`immutable`），运行期的 `config/reload` 会被拒绝并返回 `503 the plug-in is immutable`。** 完整的变更步骤见下文「规则变更流程」。插件本身无法通过插件 API 停止（内置插件）；如需整体禁用，请将其加入 `plugins.disabled_default_startups`（该插件为不可变插件，禁用后无法再通过 API 热启动，只能修改配置并重启）。
 </font>
 </div>
 
@@ -133,11 +133,27 @@ rules = [
 - 规则按书写顺序自上而下评估。一条规则仅在**用户条件与主题条件同时命中**时才生效；若用户条件命中但主题条件未命中，则继续评估下一条规则。（作用于 CONNECT 的规则没有主题条件，仅由用户条件决定。）
 - `password` 仅在 `allow` 规则中参与比对。`deny` 规则只按用户名匹配，会忽略已配置的 `password`。
 
-在 `rmqtt-acl.toml` 修改完成后，并不会自动加载至 RMQTT 系统。需要手动执行：
+## 规则变更流程
 
-```bash
-curl -X PUT "http://127.0.0.1:6060/api/v1/plugins/1/rmqtt-acl/config/reload"
-```
+`rmqtt-acl` 被注册为**不可变（immutable）**插件：对它的 `PUT /api/v1/plugins/{node}/rmqtt-acl/config/reload` 会返回
+`503 the plug-in is immutable`。这是有意设计的，因为 ACL 只在 **CONNECT / SUBSCRIBE / PUBLISH** 三个时刻判定，
+**投递路径不再鉴权**，所以“重载成功”并不等于“撤销生效”：
+
+- 已经建立的订阅不会被撤销，客户端会继续收到消息；
+- 若启用了 `rmqtt-session-storage`，节点启动时会把持久会话的订阅重新注册进路由表，客户端重连时离线期间消息还会被补发。
+
+因此变更 ACL（尤其是**收紧或撤销**授权）必须按下面的流程执行，否则会出现“以为已经撤销、实际仍在接收”的情况：
+
+1. **停止全部节点**。多节点部署需逐节点执行，且必须全部停完再进入下一步——节点运行中清理会被重新写回。
+2. **清空会话存储**（`rmqtt-session-storage`），命令与影响见 [存储会话信息](store-session.md#清空会话存储)；未启用该插件时跳过。
+3. 修改 `rmqtt-acl.toml`。
+4. **启动节点**。客户端重连后重新发起 SUBSCRIBE，按新规则判定，未获授权的订阅被拒（SUBACK 返回失败，v3.1.1 为 `0x80`）。
+
+> **代价**：清空会话存储会丢弃**所有**客户端的离线消息、飞行中消息与 `session_present` 状态，客户端需要重新订阅。
+> 若只是要撤销单个客户端，可用 `DELETE /api/v1/clients/{clientid}`（**每个节点各调用一次**，它作用于本节点）：
+> 该调用会断开连接并清除该客户端的订阅；返回 `404` 说明该会话不在本节点，此时只能走清空会话存储的流程。
+
+> **提示**：占位符规则（`%u` / `%c`）依赖 CONNECT 时客户端身份的展开，同样只在节点重启后按新规则重建。
 
 ## 占位符
 
